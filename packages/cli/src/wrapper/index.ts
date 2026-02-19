@@ -5,7 +5,7 @@
  * Post-session: save memory, generate report, sync to git.
  */
 
-import type { DomainConfig } from "@kiln/core";
+import type { DomainConfig } from "@kilnai/core";
 
 /** Session mode determines how Claude Code is launched */
 export type SessionMode =

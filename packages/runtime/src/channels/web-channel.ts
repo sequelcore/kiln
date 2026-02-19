@@ -1,7 +1,7 @@
 // WebChannel: wraps Hono WebSocket connections as a Channel adapter
 // Formalizes the existing ws.ts + session-state.ts pattern as a Channel implementation
 
-import type { Channel, IncomingMessage, OutgoingMessage, EngineEvent, MessageFormat } from "@kiln/core";
+import type { Channel, IncomingMessage, OutgoingMessage, EngineEvent, MessageFormat } from "@kilnai/core";
 import { formatForChannel } from "./message-formatter.js";
 
 /** Minimal WebSocket interface (compatible with Hono WSContext) */

@@ -1,7 +1,7 @@
 // WhatsAppChannel: WhatsApp Business API adapter
 // Uses WhatsApp Cloud API (graph.facebook.com) via native fetch -- no SDK dependency
 
-import type { Channel, IncomingMessage, OutgoingMessage, EngineEvent, MessageFormat } from "@kiln/core";
+import type { Channel, IncomingMessage, OutgoingMessage, EngineEvent, MessageFormat } from "@kilnai/core";
 import { formatForChannel } from "./message-formatter.js";
 
 export interface WhatsAppConfig {

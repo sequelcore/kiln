@@ -21,7 +21,7 @@ A domain-agnostic AI orchestration engine for building multi-agent, multi-tenant
 ## Quick Start
 
 ```bash
-bun add @kiln/core @kiln/runtime
+bun add @kilnai/core @kilnai/runtime
 ```
 
 Define your app in YAML:
@@ -106,7 +106,7 @@ qualityGates:
 The `DomainRegistry` detects configs from file patterns and merges them for multi-stack projects:
 
 ```typescript
-import { DomainRegistry, loadDomainYaml } from "@kiln/core";
+import { DomainRegistry, loadDomainYaml } from "@kilnai/core";
 
 const registry = new DomainRegistry({
   builtinConfigs: [loadDomainYaml("./domains/react-ts.yaml")],
@@ -126,7 +126,7 @@ Domain configs can be distributed as packages with built-in security:
 - **File validation** -- only allows standard extensions (`.yaml`, `.yml`, `.md`, `.ts`, `.json`, `.txt`)
 
 ```typescript
-import { parseDomainPackageYaml, validatePackageSecurity, validatePackageFiles } from "@kiln/core";
+import { parseDomainPackageYaml, validatePackageSecurity, validatePackageFiles } from "@kilnai/core";
 
 const manifest = parseDomainPackageYaml(yamlContent, "/install/path");
 const security = validatePackageSecurity(packageJson, fileList);
@@ -137,8 +137,8 @@ const files = validatePackageFiles(fileList);
 
 | Package | Description |
 |---------|-------------|
-| [`@kiln/core`](packages/core) | Engine primitives, composites, YAML loader, provider adapters, memory, task tree, orchestrator, domain config, marketplace, events, cost tracking |
-| [`@kiln/runtime`](packages/runtime) | Multi-app gateway server, Mode B sessions, multi-tenant management, channel adapters |
+| [`@kilnai/core`](packages/core) | Engine primitives, composites, YAML loader, provider adapters, memory, task tree, orchestrator, domain config, marketplace, events, cost tracking |
+| [`@kilnai/runtime`](packages/runtime) | Multi-app gateway server, Mode B sessions, multi-tenant management, channel adapters |
 
 ## Architecture
 

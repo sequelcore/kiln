@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ChannelRegistry } from "../../src/channels/channel-registry.js";
-import type { Channel, OutgoingMessage, EngineEvent } from "@kiln/core";
+import type { Channel, OutgoingMessage, EngineEvent } from "@kilnai/core";
 
 function makeChannel(name: string): Channel {
   return {

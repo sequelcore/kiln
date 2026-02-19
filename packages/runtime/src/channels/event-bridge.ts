@@ -1,8 +1,8 @@
 // EventBridge: converts EventBus synchronous push -> AsyncIterable pull
 // Bridges KilnEvent (orchestrator internal) to EngineEvent (channel primitive)
 
-import type { KilnEvent, EventBus } from "@kiln/core";
-import type { EngineEvent } from "@kiln/core";
+import type { KilnEvent, EventBus } from "@kilnai/core";
+import type { EngineEvent } from "@kilnai/core";
 
 /** Convert a KilnEvent to an EngineEvent for channel consumption */
 export function toEngineEvent(event: KilnEvent): EngineEvent {

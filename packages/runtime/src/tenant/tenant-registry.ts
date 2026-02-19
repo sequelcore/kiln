@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
-import type { TenantConfig } from "@kiln/core";
-import { validateTenantConfig } from "@kiln/core";
+import type { TenantConfig } from "@kilnai/core";
+import { validateTenantConfig } from "@kilnai/core";
 
 export class TenantNotFoundError extends Error {
   constructor(tenantId: string) {

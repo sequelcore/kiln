@@ -3,9 +3,9 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { parseAppYaml, parseModeBConfig } from "@kiln/core";
-import type { App, ModeBConfig } from "@kiln/core";
-import type { GatewayConfig, GatewayAppBinding } from "@kiln/core";
+import { parseAppYaml, parseModeBConfig } from "@kilnai/core";
+import type { App, ModeBConfig } from "@kilnai/core";
+import type { GatewayConfig, GatewayAppBinding } from "@kilnai/core";
 
 export interface ResolvedApp {
   readonly name: string;

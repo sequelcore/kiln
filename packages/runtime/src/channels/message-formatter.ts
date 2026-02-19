@@ -1,7 +1,7 @@
 // MessageFormatter: unified SDK message formatting for all channel adapters
 // Single source of truth -- replaces duplicate switch statements in run.ts and session-state.ts
 
-import type { MessageFormat } from "@kiln/core";
+import type { MessageFormat } from "@kilnai/core";
 
 /** A formatted output line ready for channel delivery */
 export interface OutputLine {

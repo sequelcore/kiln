@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { Orchestrator } from "@kiln/core";
-import type { MemoryManager, MemoryLayer, MemoryEntry, MemorySearchResult } from "@kiln/core";
+import { Orchestrator } from "@kilnai/core";
+import type { MemoryManager, MemoryLayer, MemoryEntry, MemorySearchResult } from "@kilnai/core";
 import { KilnMcpServer, KILN_TOOLS, type KilnTool } from "../../src/mcp/index.js";
 
 describe("KilnMcpServer", () => {

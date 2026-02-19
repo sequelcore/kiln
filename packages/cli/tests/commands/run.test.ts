@@ -16,8 +16,8 @@ vi.mock("node:fs", async () => {
 import { printReport } from "../../src/commands/run.js";
 import { SessionManager } from "../../src/wrapper/session-manager.js";
 import type { WrapperConfig, SessionReport } from "../../src/wrapper/index.js";
-import { DomainRegistry } from "@kiln/core";
-import type { DomainConfig } from "@kiln/core";
+import { DomainRegistry } from "@kilnai/core";
+import type { DomainConfig } from "@kilnai/core";
 
 const PYTHON_CONFIG: DomainConfig = {
   name: "python",

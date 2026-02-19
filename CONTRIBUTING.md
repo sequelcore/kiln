@@ -23,8 +23,8 @@ bun run test
 
 ```
 packages/
-  core/       @kiln/core     Engine primitives, composites, memory, orchestrator
-  runtime/    @kiln/runtime   Gateway server, sessions, tenants, channels
+  core/       @kilnai/core     Engine primitives, composites, memory, orchestrator
+  runtime/    @kilnai/runtime   Gateway server, sessions, tenants, channels
 ```
 
 ### Commands

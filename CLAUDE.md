@@ -50,7 +50,7 @@ App (YAML-configured)
 4. No cross-context imports -- communicate via shared kernel types (barrel exports)
 5. Provider SDKs ONLY in `agents/infrastructure/`
 6. Channel adapters ONLY in channel implementations
-7. **@kiln/runtime depends on @kiln/core** only, never the reverse
+7. **@kilnai/runtime depends on @kilnai/core** only, never the reverse
 
 ## Commands
 

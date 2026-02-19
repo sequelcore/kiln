@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import type { ProviderAdapter } from "@kiln/core";
+import type { ProviderAdapter } from "@kilnai/core";
 import { createModeBRoutes } from "../../src/gateway/mode-b-routes.js";
 import type { ModeBAppRuntime } from "../../src/gateway/mode-b-routes.js";
 import { ModeBOrchestrator } from "../../src/session/mode-b-orchestrator.js";

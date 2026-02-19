@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { Orchestrator } from "@kiln/core";
+import { Orchestrator } from "@kilnai/core";
 import type { KilnAppConfig } from "../../src/config.js";
 
 const mockStart = vi.fn().mockResolvedValue(undefined);

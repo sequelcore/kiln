@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { initCommand } from "../../src/commands/init.js";
 import type { ProjectConfig } from "../../src/commands/init.js";
 import type { KilnAppConfig } from "../../src/config.js";
-import { DomainRegistry } from "@kiln/core";
+import { DomainRegistry } from "@kilnai/core";
 
 const MOCK_APP_CONFIG: KilnAppConfig = {
   appName: "kiln",

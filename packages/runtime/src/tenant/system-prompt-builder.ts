@@ -1,4 +1,4 @@
-import type { TenantConfig } from "@kiln/core";
+import type { TenantConfig } from "@kilnai/core";
 
 export function buildTenantSystemPrompt(tenant: TenantConfig): string {
   const parts: string[] = [];

@@ -1,7 +1,7 @@
-import type { Phase, OrchestratorStatus } from "@kiln/core";
-import type { TaskNode, TaskStatus } from "@kiln/core";
-import type { CostSummary, RoleUsage } from "@kiln/core";
-import type { KilnEvent } from "@kiln/core";
+import type { Phase, OrchestratorStatus } from "@kilnai/core";
+import type { TaskNode, TaskStatus } from "@kilnai/core";
+import type { CostSummary, RoleUsage } from "@kilnai/core";
+import type { KilnEvent } from "@kilnai/core";
 import type {
   PhaseChangedEvent,
   TaskStartedEvent,
@@ -9,7 +9,7 @@ import type {
   ToolCalledEvent,
   CostUpdateEvent,
   ErrorEvent,
-} from "@kiln/core";
+} from "@kilnai/core";
 
 /** Ordered list of orchestrator phases */
 export const PHASES: Phase[] = [

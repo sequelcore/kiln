@@ -2,8 +2,8 @@
 // Separated from gateway-server.ts so it can be tested without Bun runtime.
 
 import { Hono } from "hono";
-import type { App } from "@kiln/core";
-import type { GatewayAppBinding } from "@kiln/core";
+import type { App } from "@kilnai/core";
+import type { GatewayAppBinding } from "@kilnai/core";
 import type { ChannelRegistry } from "../channels/channel-registry.js";
 import type { ModeBAppRuntime } from "./mode-b-routes.js";
 import { createModeBRoutes } from "./mode-b-routes.js";

@@ -1,15 +1,45 @@
 {
-  "name": "@kiln/runtime",
+  "name": "@kilnai/runtime",
   "version": "0.1.0",
+  "description": "Multi-app gateway server, multi-tenant management, and channel adapters for @kilnai/core",
   "type": "module",
-  "main": "src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
-    "build": "bun build src/index.ts --outdir dist --target node",
+    "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "bunx vitest run"
   },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sequelcore/kiln.git",
+    "directory": "packages/runtime"
+  },
+  "homepage": "https://github.com/sequelcore/kiln/tree/main/packages/runtime",
+  "keywords": [
+    "ai",
+    "gateway",
+    "multi-tenant",
+    "whatsapp",
+    "slack",
+    "channels",
+    "hono"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "dependencies": {
-    "@kiln/core": "workspace:*",
+    "@kilnai/core": "workspace:*",
     "hono": "^4.7.0"
   }
 }

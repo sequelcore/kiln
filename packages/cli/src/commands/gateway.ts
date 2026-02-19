@@ -41,7 +41,7 @@ export async function gatewayCommand(args: string[]): Promise<void> {
   }
 
   // Dynamically import to avoid loading gateway deps on every CLI invocation
-  const { startGateway } = await import("@kiln/runtime");
+  const { startGateway } = await import("@kilnai/runtime");
   await startGateway(resolvedPath, portOverride);
 }
 

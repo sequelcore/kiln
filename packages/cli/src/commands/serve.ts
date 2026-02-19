@@ -1,4 +1,4 @@
-import { Orchestrator } from "@kiln/core";
+import { Orchestrator } from "@kilnai/core";
 import { KilnMcpServer } from "../mcp/server.js";
 import type { TransportType, TransportConfig } from "../mcp/transports.js";
 import type { KilnAppConfig } from "../config.js";

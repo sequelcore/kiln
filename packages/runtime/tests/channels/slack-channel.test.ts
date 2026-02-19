@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createHmac } from "node:crypto";
 import { SlackChannel } from "../../src/channels/slack-channel.js";
-import type { IncomingMessage, OutgoingMessage, EngineEvent } from "@kiln/core";
+import type { IncomingMessage, OutgoingMessage, EngineEvent } from "@kilnai/core";
 
 const CONFIG = {
   botToken: "xoxb-test-bot-token",

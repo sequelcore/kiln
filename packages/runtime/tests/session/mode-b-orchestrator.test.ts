@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { ProviderAdapter } from "@kiln/core";
+import type { ProviderAdapter } from "@kilnai/core";
 import { ModeBOrchestrator } from "../../src/session/mode-b-orchestrator.js";
 import { ModeBSession } from "../../src/session/mode-b-session.js";
 

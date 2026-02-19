@@ -1,4 +1,4 @@
-import type { AgentMessage } from "@kiln/core";
+import type { AgentMessage } from "@kilnai/core";
 
 export interface ModeBSessionConfig {
   readonly appName: string;

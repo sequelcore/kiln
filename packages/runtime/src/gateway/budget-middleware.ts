@@ -16,7 +16,7 @@ export interface TierCheckResult {
   readonly allowedTiers: readonly string[];
 }
 
-/** Billing configuration (matches ModeBConfig.billing from @kiln/core) */
+/** Billing configuration (matches ModeBConfig.billing from @kilnai/core) */
 interface BillingConfig {
   readonly budgetEndpoint: string;
   readonly usageEndpoint: string;

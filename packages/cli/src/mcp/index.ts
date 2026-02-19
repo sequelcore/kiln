@@ -192,7 +192,7 @@ export type { McpClient, McpClientConfig } from "./config-generator.js";
  * This is the entry point that Claude Code spawns as a subprocess.
  */
 if (import.meta.main) {
-  const { Orchestrator } = await import("@kiln/core");
+  const { Orchestrator } = await import("@kilnai/core");
   const { KilnMcpServer } = await import("./server.js");
 
   const orchestrator = new Orchestrator();

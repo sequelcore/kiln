@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { CliChannel } from "../../src/channels/cli-channel.js";
-import type { IncomingMessage, OutgoingMessage, EngineEvent } from "@kiln/core";
+import type { IncomingMessage, OutgoingMessage, EngineEvent } from "@kilnai/core";
 
 describe("CliChannel", () => {
   let channel: CliChannel;

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { EventBridge, toEngineEvent } from "../../src/channels/event-bridge.js";
-import { EventBus } from "@kiln/core";
-import type { KilnEvent } from "@kiln/core";
+import { EventBus } from "@kilnai/core";
+import type { KilnEvent } from "@kilnai/core";
 
 function makeEvent(overrides: Partial<KilnEvent> = {}): KilnEvent {
   return {

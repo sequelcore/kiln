@@ -1,7 +1,7 @@
 // ApiChannel: wraps REST API + Server-Sent Events as a Channel adapter
 // Supports polling via response queue and real-time streaming via SSE connections
 
-import type { Channel, IncomingMessage, OutgoingMessage, EngineEvent, MessageFormat } from "@kiln/core";
+import type { Channel, IncomingMessage, OutgoingMessage, EngineEvent, MessageFormat } from "@kilnai/core";
 import { formatForChannel } from "./message-formatter.js";
 
 const MAX_QUEUE_SIZE = 100;

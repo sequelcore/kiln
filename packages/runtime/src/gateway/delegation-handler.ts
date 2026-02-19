@@ -1,12 +1,12 @@
 // Cross-app cognitive delegation handler (Phase 24)
 
-import type { ProviderAdapter } from "@kiln/core";
+import type { ProviderAdapter } from "@kilnai/core";
 import type {
   AppDelegation,
   AppDelegationResult,
   DelegationError,
-} from "@kiln/core";
-import { validateDelegation } from "@kiln/core";
+} from "@kilnai/core";
+import { validateDelegation } from "@kilnai/core";
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 const DEFAULT_MAX_TOKENS = 4096;

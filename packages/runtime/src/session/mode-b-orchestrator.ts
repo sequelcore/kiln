@@ -1,4 +1,4 @@
-import type { ProviderAdapter } from "@kiln/core";
+import type { ProviderAdapter } from "@kilnai/core";
 import type { ModeBSession } from "./mode-b-session.js";
 
 export interface OrchestratorDeps {

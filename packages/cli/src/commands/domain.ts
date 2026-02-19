@@ -5,7 +5,7 @@ import {
   parseDomainYaml,
   parseDomainPackageYaml,
   validatePackageSecurity,
-} from "@kiln/core";
+} from "@kilnai/core";
 import type { KilnAppConfig } from "../config.js";
 
 interface SpawnResult {

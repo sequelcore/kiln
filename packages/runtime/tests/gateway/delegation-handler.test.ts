@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
-import type { ProviderAdapter } from "@kiln/core";
-import type { AppDelegation } from "@kiln/core";
+import type { ProviderAdapter } from "@kilnai/core";
+import type { AppDelegation } from "@kilnai/core";
 import {
   executeDelegation,
   validateResponseSchema,
@@ -56,7 +56,7 @@ describe("executeDelegation", () => {
     const result = await executeDelegation(delegation, registry);
 
     expect("delegationId" in result).toBe(true);
-    const success = result as import("@kiln/core").AppDelegationResult;
+    const success = result as import("@kilnai/core").AppDelegationResult;
     expect(typeof success.delegationId).toBe("string");
     expect(success.delegationId.length).toBeGreaterThan(0);
     expect(success.fromApp).toBe("app-a");
@@ -73,7 +73,7 @@ describe("executeDelegation", () => {
     const result = await executeDelegation(makeValidDelegation(), registry);
 
     expect("tokenUsage" in result).toBe(true);
-    const success = result as import("@kiln/core").AppDelegationResult;
+    const success = result as import("@kilnai/core").AppDelegationResult;
     expect(success.tokenUsage.inputTokens).toBe(200);
     expect(success.tokenUsage.outputTokens).toBe(100);
     expect(success.tokenUsage.cacheReadTokens).toBe(50);
@@ -89,7 +89,7 @@ describe("executeDelegation", () => {
     const result = await executeDelegation(makeValidDelegation(), registry);
 
     expect("durationMs" in result).toBe(true);
-    const success = result as import("@kiln/core").AppDelegationResult;
+    const success = result as import("@kilnai/core").AppDelegationResult;
     expect(success.durationMs).toBeGreaterThan(0);
   });
 
@@ -100,7 +100,7 @@ describe("executeDelegation", () => {
     const result = await executeDelegation(delegation, registry);
 
     expect("code" in result).toBe(true);
-    const error = result as import("@kiln/core").DelegationError;
+    const error = result as import("@kilnai/core").DelegationError;
     expect(error.code).toBe("TARGET_APP_NOT_FOUND");
     expect(error.message).toContain("app-b");
     expect(error.fromApp).toBe("app-a");
@@ -116,7 +116,7 @@ describe("executeDelegation", () => {
     const result = await executeDelegation(makeValidDelegation(), registry);
 
     expect("code" in result).toBe(true);
-    const error = result as import("@kiln/core").DelegationError;
+    const error = result as import("@kilnai/core").DelegationError;
     expect(error.code).toBe("SCHEMA_VALIDATION_FAILED");
     expect(error.message).toContain("not valid JSON");
   });
@@ -130,7 +130,7 @@ describe("executeDelegation", () => {
     const result = await executeDelegation(makeValidDelegation(), registry);
 
     expect("code" in result).toBe(true);
-    const error = result as import("@kiln/core").DelegationError;
+    const error = result as import("@kilnai/core").DelegationError;
     expect(error.code).toBe("SCHEMA_VALIDATION_FAILED");
     expect(error.message).toContain("recommendation");
   });
@@ -166,7 +166,7 @@ describe("executeDelegation", () => {
     const result = await executeDelegation(delegation, registry);
 
     expect("code" in result).toBe(true);
-    const error = result as import("@kiln/core").DelegationError;
+    const error = result as import("@kilnai/core").DelegationError;
     expect(error.code).toBe("TIMEOUT");
   });
 
@@ -184,7 +184,7 @@ describe("executeDelegation", () => {
     const result = await executeDelegation(makeValidDelegation(), registry);
 
     expect("code" in result).toBe(true);
-    const error = result as import("@kiln/core").DelegationError;
+    const error = result as import("@kilnai/core").DelegationError;
     expect(error.code).toBe("PROVIDER_ERROR");
     expect(error.message).toBe("API unavailable");
   });

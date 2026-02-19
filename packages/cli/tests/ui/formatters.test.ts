@@ -13,8 +13,8 @@ import {
   formatActivityLog,
   stripAnsi,
 } from "../../src/formatters.js";
-import type { TaskNode, TaskStatus } from "@kiln/core";
-import type { KilnEvent, PhaseChangedEvent, TaskStartedEvent, ErrorEvent } from "@kiln/core";
+import type { TaskNode, TaskStatus } from "@kilnai/core";
+import type { KilnEvent, PhaseChangedEvent, TaskStartedEvent, ErrorEvent } from "@kilnai/core";
 
 function makeNode(overrides: Partial<TaskNode> = {}): TaskNode {
   return {

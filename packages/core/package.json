@@ -1,12 +1,43 @@
 {
-  "name": "@kiln/core",
+  "name": "@kilnai/core",
   "version": "0.1.0",
+  "description": "Domain-agnostic AI orchestration engine -- 6 primitives, 3 composites, YAML-configured",
   "type": "module",
-  "main": "src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
-    "build": "bun build src/index.ts --outdir dist --target node",
+    "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "bunx vitest run"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sequelcore/kiln.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/sequelcore/kiln/tree/main/packages/core",
+  "keywords": [
+    "ai",
+    "orchestration",
+    "multi-agent",
+    "yaml",
+    "llm",
+    "anthropic",
+    "openai",
+    "mcp"
+  ],
+  "publishConfig": {
+    "access": "public"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.74.0",

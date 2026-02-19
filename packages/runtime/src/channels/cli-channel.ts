@@ -1,7 +1,7 @@
 // CliChannel: wraps stdin/stdout as a Channel adapter
 // Formalizes the existing run.ts console output as a Channel implementation
 
-import type { Channel, IncomingMessage, OutgoingMessage, EngineEvent, MessageFormat } from "@kiln/core";
+import type { Channel, IncomingMessage, OutgoingMessage, EngineEvent, MessageFormat } from "@kilnai/core";
 import { formatForChannel } from "./message-formatter.js";
 
 /**

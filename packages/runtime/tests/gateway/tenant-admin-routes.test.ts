@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { TenantRegistry } from "../../src/tenant/tenant-registry.js";
 import { createTenantAdminRoutes, generateTenantId } from "../../src/gateway/tenant-admin-routes.js";
 import type { TenantAdminRoutesConfig } from "../../src/gateway/tenant-admin-routes.js";
-import type { TenantConfig } from "@kiln/core";
+import type { TenantConfig } from "@kilnai/core";
 
 function makeTenantBody(overrides: Partial<TenantConfig> = {}): Record<string, unknown> {
   return {

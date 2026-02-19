@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Server } from "node:http";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import type { Orchestrator, MemoryManager, MemoryLayer } from "@kiln/core";
+import type { Orchestrator, MemoryManager, MemoryLayer } from "@kilnai/core";
 import { KILN_TOOLS, type KilnTool } from "./index.js";
 import {
   createStdioTransport,

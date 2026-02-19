@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import type { ProviderAdapter, TenantConfig } from "@kiln/core";
+import type { ProviderAdapter, TenantConfig } from "@kilnai/core";
 import { createWhatsAppWebhookRoutes } from "../../src/gateway/whatsapp-webhook-routes.js";
 import type { WhatsAppWebhookConfig } from "../../src/gateway/whatsapp-webhook-routes.js";
 import { ModeBOrchestrator } from "../../src/session/mode-b-orchestrator.js";

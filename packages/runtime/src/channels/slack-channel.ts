@@ -3,7 +3,7 @@
 // Request signature verification uses node:crypto HMAC-SHA256
 
 import { createHmac, timingSafeEqual } from "node:crypto";
-import type { Channel, IncomingMessage, OutgoingMessage, EngineEvent, MessageFormat } from "@kiln/core";
+import type { Channel, IncomingMessage, OutgoingMessage, EngineEvent, MessageFormat } from "@kilnai/core";
 import { formatForChannel } from "./message-formatter.js";
 
 export interface SlackConfig {

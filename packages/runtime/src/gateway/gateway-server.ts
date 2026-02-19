@@ -9,8 +9,8 @@ import {
   OpenAIAdapter,
   DeepSeekAdapter,
   OllamaAdapter,
-} from "@kiln/core";
-import type { ProviderAdapter, ProviderConfig, App } from "@kiln/core";
+} from "@kilnai/core";
+import type { ProviderAdapter, ProviderConfig, App } from "@kilnai/core";
 import { ChannelRegistry } from "../channels/channel-registry.js";
 import { resolveApps } from "./app-resolver.js";
 import type { ResolvedApp } from "./app-resolver.js";

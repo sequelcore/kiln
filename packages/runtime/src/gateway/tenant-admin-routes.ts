@@ -2,7 +2,7 @@
 // Handles tenant listing, creation, update, and deletion with optional auth
 
 import { Hono } from "hono";
-import type { TenantConfig } from "@kiln/core";
+import type { TenantConfig } from "@kilnai/core";
 import type { TenantRegistry } from "../tenant/tenant-registry.js";
 import { TenantNotFoundError, TenantValidationFailedError } from "../tenant/tenant-registry.js";
 

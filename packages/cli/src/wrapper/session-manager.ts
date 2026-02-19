@@ -1,7 +1,7 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Orchestrator } from "@kiln/core";
-import type { DomainConfig } from "@kiln/core";
+import { Orchestrator } from "@kilnai/core";
+import type { DomainConfig } from "@kilnai/core";
 import type { WrapperConfig, SessionContext, SessionReport } from "./index.js";
 import type { KilnAppConfig } from "../config.js";
 import { buildSystemPrompt } from "./context-builder.js";

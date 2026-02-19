@@ -3,7 +3,7 @@
 import { Hono } from "hono";
 import type { DelegationRegistry } from "./delegation-handler.js";
 import { executeDelegation } from "./delegation-handler.js";
-import type { DelegationErrorCode } from "@kiln/core";
+import type { DelegationErrorCode } from "@kilnai/core";
 
 export interface DelegationRoutesConfig {
   readonly registry: DelegationRegistry;

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import type { ProviderAdapter, TenantConfig } from "@kiln/core";
+import type { ProviderAdapter, TenantConfig } from "@kilnai/core";
 import { createTenantRoutes } from "../../src/gateway/tenant-routes.js";
 import type { TenantAppRuntime } from "../../src/gateway/tenant-routes.js";
 import { ModeBOrchestrator } from "../../src/session/mode-b-orchestrator.js";

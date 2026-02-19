@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import type { ProviderAdapter } from "@kiln/core";
+import type { ProviderAdapter } from "@kilnai/core";
 import { createDelegationRoutes } from "../../src/gateway/delegation-routes.js";
 import type { DelegationRegistry, DelegationTarget } from "../../src/gateway/delegation-handler.js";
 

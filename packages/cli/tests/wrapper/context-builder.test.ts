@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { buildSystemPrompt, buildMcpConfig } from "../../src/wrapper/context-builder.js";
 import type { KilnAppConfig } from "../../src/config.js";
-import type { DomainConfig } from "@kiln/core";
+import type { DomainConfig } from "@kilnai/core";
 
 const MOCK_DOMAIN: DomainConfig = {
   name: "python",

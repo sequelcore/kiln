@@ -1,7 +1,7 @@
 // ChannelRouter: routes incoming channel messages to teams via Router composite
 // Bridges Channel.receive() -> IdentityResolver -> Router pattern matching -> Team dispatch
 
-import type { IncomingMessage, OutgoingMessage } from "@kiln/core";
+import type { IncomingMessage, OutgoingMessage } from "@kilnai/core";
 import type { IdentityResolver } from "./types.js";
 import type { ChannelRegistry } from "./channel-registry.js";
 

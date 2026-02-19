@@ -1,6 +1,6 @@
 // Channel adapter types: configuration, status, and identity mapping
 
-import type { MessageFormat } from "@kiln/core";
+import type { MessageFormat } from "@kilnai/core";
 
 /** Configuration for a channel adapter */
 export interface ChannelConfig {

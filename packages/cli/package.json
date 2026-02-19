@@ -1,16 +1,47 @@
 {
-  "name": "@kiln/cli",
+  "name": "@kilnai/cli",
   "version": "0.1.0",
+  "description": "CLI and MCP server for Kiln AI orchestration engine",
   "type": "module",
-  "main": "src/index.ts",
+  "bin": {
+    "kiln": "./dist/index.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
-    "build": "bun build src/index.ts --outdir dist --target node",
+    "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "bunx vitest run"
   },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sequelcore/kiln.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://github.com/sequelcore/kiln/tree/main/packages/cli",
+  "keywords": [
+    "ai",
+    "cli",
+    "mcp",
+    "claude-code",
+    "orchestration"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "dependencies": {
-    "@kiln/core": "workspace:*",
-    "@kiln/runtime": "workspace:*",
+    "@kilnai/core": "workspace:*",
+    "@kilnai/runtime": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "hono": "^4.7.0"
   }

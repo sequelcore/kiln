@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { TenantConfig } from "@kiln/core";
+import type { TenantConfig } from "@kilnai/core";
 import { buildTenantSystemPrompt } from "../../src/tenant/system-prompt-builder.js";
 
 function makeMinimalTenant(overrides: Partial<TenantConfig> = {}): TenantConfig {

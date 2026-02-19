@@ -1,0 +1,55 @@
+name: Publish
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Test
+        run: bun run test
+
+      - name: Build core
+        run: bun run --filter @kilnai/core build
+
+      - name: Build runtime
+        run: bun run --filter @kilnai/runtime build
+
+      - name: Build cli
+        run: bun run --filter @kilnai/cli build
+
+      - name: Publish @kilnai/core
+        working-directory: packages/core
+        run: bun publish --access public --no-git-checks
+        env:
+          BUN_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish @kilnai/runtime
+        working-directory: packages/runtime
+        run: bun publish --access public --no-git-checks
+        env:
+          BUN_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish @kilnai/cli
+        working-directory: packages/cli
+        run: bun publish --access public --no-git-checks
+        env:
+          BUN_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

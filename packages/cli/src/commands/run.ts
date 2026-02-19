@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { Orchestrator } from "@kiln/core";
-import type { KilnEvent } from "@kiln/core";
+import { Orchestrator } from "@kilnai/core";
+import type { KilnEvent } from "@kilnai/core";
 import { SessionManager } from "../wrapper/session-manager.js";
 import { ClaudeSession } from "../wrapper/claude-code-process.js";
 import type { SessionMode, SessionReport, WrapperConfig } from "../wrapper/index.js";

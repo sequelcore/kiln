@@ -1,6 +1,6 @@
 // ChannelRegistry: manages multiple Channel instances for multi-channel apps
 
-import type { Channel, OutgoingMessage, EngineEvent } from "@kiln/core";
+import type { Channel, OutgoingMessage, EngineEvent } from "@kilnai/core";
 
 /**
  * Registry for managing multiple Channel instances.

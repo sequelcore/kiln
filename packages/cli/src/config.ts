@@ -1,4 +1,4 @@
-import type { DomainConfig, DomainRegistry } from "@kiln/core";
+import type { DomainConfig, DomainRegistry } from "@kilnai/core";
 
 /** Options passed to the system prompt builder */
 export interface SystemPromptOptions {
