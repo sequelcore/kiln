@@ -1,10 +1,16 @@
 import { Database } from "bun:sqlite";
 import type { MemoryEntry, MemoryLayer, MemorySearchResult, MemoryStore } from "./index.js";
+import type { DecayConfig } from "./decay-curves.js";
+import { applyDecayCurve, DEFAULT_DECAY_CONFIG } from "./decay-curves.js";
+import { MemoryCompactor } from "./compactor.js";
+import type { CompactionConfig, CompactionResult, CompactableStore, CompactableEntry } from "./compactor.js";
 
 export interface SqliteMemoryStoreOptions {
   readonly dbPath: string;
   readonly layer: MemoryLayer;
   readonly enableDecay?: boolean;
+  readonly decay?: DecayConfig;
+  readonly compaction?: CompactionConfig;
 }
 
 interface MemoryRow {
@@ -28,10 +34,14 @@ export class SqliteMemoryStore implements MemoryStore {
   private readonly db: Database;
   private readonly layer: MemoryLayer;
   private readonly enableDecay: boolean;
+  private readonly decayConfig: DecayConfig;
+  private readonly compactor: MemoryCompactor | null;
 
   constructor(options: SqliteMemoryStoreOptions) {
     this.layer = options.layer;
     this.enableDecay = options.enableDecay ?? false;
+    this.decayConfig = options.decay ?? DEFAULT_DECAY_CONFIG;
+    this.compactor = options.compaction ? new MemoryCompactor(options.compaction) : null;
     this.db = new Database(options.dbPath);
     this.db.exec("PRAGMA journal_mode = WAL;");
     this.initSchema();
@@ -54,6 +64,20 @@ export class SqliteMemoryStore implements MemoryStore {
     this.db.exec(`
       CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
         id UNINDEXED, content, tags, tokenize='porter'
+      );
+    `);
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS memories_archive (
+        id TEXT PRIMARY KEY,
+        content TEXT NOT NULL,
+        tags TEXT NOT NULL,
+        agent_role TEXT,
+        project_id TEXT,
+        created_at TEXT NOT NULL,
+        last_accessed_at TEXT NOT NULL,
+        access_count INTEGER DEFAULT 0,
+        decay_score REAL DEFAULT 1.0,
+        archived_at TEXT NOT NULL
       );
     `);
   }
@@ -127,14 +151,94 @@ export class SqliteMemoryStore implements MemoryStore {
   }
 
   applyDecay(factor?: number): void {
-    const decayFactor = factor ?? 0.95;
-    this.db.prepare("UPDATE memories SET decay_score = decay_score * ?").run(decayFactor);
+    const config = this.decayConfig;
+    const now = Date.now();
 
-    const pruned = this.db.prepare("SELECT id FROM memories WHERE decay_score < 0.01").all() as { id: string }[];
+    if (config.curve === "step") {
+      // Step decay: set score to 0 for entries older than factor days
+      const rows = this.db.prepare("SELECT id, created_at FROM memories").all() as { id: string; created_at: string }[];
+      for (const row of rows) {
+        const ageInDays = (now - new Date(row.created_at).getTime()) / (1000 * 60 * 60 * 24);
+        const newScore = applyDecayCurve(1, config, ageInDays);
+        this.db.prepare("UPDATE memories SET decay_score = ? WHERE id = ?").run(newScore, row.id);
+      }
+    } else if (config.curve === "linear") {
+      const linearFactor = factor ?? config.factor;
+      const rows = this.db.prepare("SELECT id, decay_score FROM memories").all() as { id: string; decay_score: number }[];
+      for (const row of rows) {
+        const newScore = applyDecayCurve(row.decay_score, { ...config, factor: linearFactor });
+        this.db.prepare("UPDATE memories SET decay_score = ? WHERE id = ?").run(newScore, row.id);
+      }
+    } else {
+      // Exponential (default) -- batch update for efficiency
+      const decayFactor = factor ?? config.factor;
+      this.db.prepare("UPDATE memories SET decay_score = decay_score * ?").run(decayFactor);
+    }
+
+    // Prune entries below threshold
+    const threshold = config.pruneThreshold;
+    const pruned = this.db.prepare("SELECT id FROM memories WHERE decay_score < ?").all(threshold) as { id: string }[];
     for (const row of pruned) {
       this.db.prepare("DELETE FROM memories_fts WHERE id = ?").run(row.id);
     }
-    this.db.prepare("DELETE FROM memories WHERE decay_score < 0.01").run();
+    this.db.prepare("DELETE FROM memories WHERE decay_score < ?").run(threshold);
+  }
+
+  /** Run compaction if configured and threshold exceeded. Returns null if compaction is not configured. */
+  runCompaction(): CompactionResult | null {
+    if (!this.compactor) return null;
+    if (!this.compactor.shouldCompact(this.asCompactable())) return null;
+    return this.compactor.compact(this.asCompactable());
+  }
+
+  private asCompactable(): CompactableStore {
+    const db = this.db;
+    return {
+      entryCount(): number {
+        const row = db.prepare("SELECT COUNT(*) AS cnt FROM memories").get() as { cnt: number };
+        return row.cnt;
+      },
+      queryOldEntries(minAgeDays: number, limit: number): readonly CompactableEntry[] {
+        const cutoff = new Date(Date.now() - minAgeDays * 24 * 60 * 60 * 1000).toISOString();
+        const rows = db.prepare(`
+          SELECT id, content, tags, decay_score
+          FROM memories
+          WHERE created_at < ?
+          ORDER BY decay_score ASC
+          LIMIT ?
+        `).all(cutoff, limit) as { id: string; content: string; tags: string; decay_score: number }[];
+        return rows.map((r) => ({
+          id: r.id,
+          content: r.content,
+          tags: JSON.parse(r.tags) as string[],
+          decayScore: r.decay_score,
+        }));
+      },
+      saveSummary(content: string, tags: readonly string[]): string {
+        const id = crypto.randomUUID();
+        const now = new Date().toISOString();
+        const tagsJson = JSON.stringify(tags);
+        db.prepare(`
+          INSERT INTO memories (id, content, tags, created_at, last_accessed_at, access_count, decay_score)
+          VALUES (?, ?, ?, ?, ?, 0, 1.0)
+        `).run(id, content, tagsJson, now, now);
+        db.prepare(`
+          INSERT INTO memories_fts (id, content, tags) VALUES (?, ?, ?)
+        `).run(id, content, tagsJson);
+        return id;
+      },
+      archiveEntries(ids: readonly string[]): void {
+        const now = new Date().toISOString();
+        for (const id of ids) {
+          db.prepare(`
+            INSERT OR IGNORE INTO memories_archive
+            SELECT *, ? AS archived_at FROM memories WHERE id = ?
+          `).run(now, id);
+          db.prepare("DELETE FROM memories_fts WHERE id = ?").run(id);
+          db.prepare("DELETE FROM memories WHERE id = ?").run(id);
+        }
+      },
+    };
   }
 
   close(): void {

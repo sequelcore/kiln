@@ -42,3 +42,11 @@ export { ChunkImporter } from "./chunk-importer.js";
 export type { ImportResult } from "./chunk-importer.js";
 export { GitSyncManager } from "./git-sync-manager.js";
 export type { SyncStatus, DeveloperInfo } from "./git-sync-manager.js";
+
+// Decay curves (Phase 2D)
+export { exponentialDecay, linearDecay, stepDecay, applyDecayCurve, shouldPrune, DEFAULT_DECAY_CONFIG } from "./decay-curves.js";
+export type { DecayCurve, DecayConfig } from "./decay-curves.js";
+
+// Memory compaction (Phase 2D)
+export { MemoryCompactor, DEFAULT_COMPACTION_CONFIG } from "./compactor.js";
+export type { CompactionConfig, CompactionResult, CompactableStore, CompactableEntry } from "./compactor.js";
