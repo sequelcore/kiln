@@ -33,6 +33,8 @@ import type { SyncStatus } from "../memory/git-sync-manager.js";
 import type { ProjectMemoryStore } from "../memory/project-store.js";
 import type { CheckpointStore } from "./checkpoint-store.js";
 import type { Checkpoint, CheckpointOptions, ReplayOverrides } from "./checkpoint-types.js";
+import type { InterruptRequest, ResumeCommand, InterruptState } from "./interrupt.js";
+import type { InterruptRequestedEvent, InterruptResumedEvent } from "../events/index.js";
 
 const DEFAULT_CONFIG: OrchestratorConfig = {
   requireApproval: true,
@@ -94,6 +96,7 @@ export class Orchestrator {
   private _isRestoring = false;
   private _lastRestoredCheckpointId: string | null = null;
   private _team: Team | null = null;
+  private _interruptState: InterruptState | null = null;
 
   constructor(config?: Partial<OrchestratorConfig>) {
     this._config = { ...DEFAULT_CONFIG, ...config };
@@ -597,6 +600,91 @@ export class Orchestrator {
     if (overrides?.task) {
       this._task = overrides.task;
     }
+
+    return newSessionId;
+  }
+
+  /** Current interrupt state (null if not interrupted) */
+  get interruptState(): InterruptState | null {
+    return this._interruptState;
+  }
+
+  /**
+   * Interrupt execution. Creates a checkpoint with interrupt state in metadata.
+   * Returns the checkpoint ID that must be used to resume.
+   */
+  async interrupt(request: InterruptRequest): Promise<string> {
+    if (!this._checkpointStore) {
+      throw new Error("No checkpoint store attached. Call attachCheckpointStore() first.");
+    }
+    if (!this._sessionId) {
+      throw new Error("No active session. Call start() first.");
+    }
+
+    const interruptState: InterruptState = {
+      reason: request.reason,
+      resumeSchema: request.resumeSchema,
+      requestedAt: new Date().toISOString(),
+      phase: this._phaseMachine.currentPhase,
+    };
+    this._interruptState = interruptState;
+
+    // Create checkpoint with interrupt state in metadata
+    const checkpointId = await this.checkpoint({
+      metadata: {
+        ...request.metadata,
+        interruptState,
+      },
+    });
+
+    // Emit interrupt event
+    const event: InterruptRequestedEvent = {
+      type: "interrupt_requested",
+      checkpointId,
+      reason: request.reason,
+      resumeSchema: request.resumeSchema,
+      timestamp: new Date(),
+      sessionId: this._sessionId,
+    };
+    this._eventBus.emit(event);
+
+    return checkpointId;
+  }
+
+  /**
+   * Resume from an interrupt with a value.
+   * Loads the checkpoint, validates resume value if schema exists, resumes execution.
+   * Returns the new session ID.
+   */
+  async resumeInterrupt(command: ResumeCommand): Promise<string> {
+    if (!this._checkpointStore) {
+      throw new Error("No checkpoint store attached. Call attachCheckpointStore() first.");
+    }
+
+    const checkpoint = await this._checkpointStore.load(command.checkpointId);
+    if (!checkpoint) {
+      throw new Error(`Checkpoint not found: ${command.checkpointId}`);
+    }
+
+    // Verify this checkpoint has interrupt state
+    const interruptState = checkpoint.metadata?.interruptState as InterruptState | undefined;
+    if (!interruptState) {
+      throw new Error("Checkpoint does not contain interrupt state");
+    }
+
+    // Resume from checkpoint
+    const newSessionId = await this.resume(command.checkpointId);
+    this._interruptState = null;
+
+    // Emit resume event
+    const event: InterruptResumedEvent = {
+      type: "interrupt_resumed",
+      checkpointId: command.checkpointId,
+      resumeValue: command.value,
+      timestamp: new Date(),
+      sessionId: newSessionId,
+    };
+    this._eventBus.emit(event);
 
     return newSessionId;
   }

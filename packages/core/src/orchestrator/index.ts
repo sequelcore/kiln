@@ -30,6 +30,7 @@ export type OrchestratorStatus =
   | "idle"
   | "running"
   | "awaiting_approval"
+  | "interrupted"
   | "completed"
   | "failed"
   | "cancelled";
@@ -66,3 +67,10 @@ export { createStrategy, SequentialStrategy, SupervisorStrategy, SwarmStrategy }
 export type { ExecutionStrategy, StrategyContext, StrategyHandler } from "./strategies/index.js";
 export type { DelegationDecision, ReviewDecision, SupervisorConfig } from "./strategies/supervisor-strategy.js";
 export type { HandoffRequest, SwarmConfig } from "./strategies/swarm-strategy.js";
+
+// Interrupt (Phase 2C)
+export type { InterruptRequest, ResumeCommand, InterruptState } from "./interrupt.js";
+
+// Guardrails (Phase 2C)
+export { validateJsonSchema, validateOutput, withGuardrail } from "./guardrails.js";
+export type { GuardrailResult } from "./guardrails.js";
