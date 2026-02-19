@@ -1,0 +1,164 @@
+/** All event types emitted by the orchestrator */
+export type EventType =
+  | "phase_changed"
+  | "task_started"
+  | "task_completed"
+  | "tool_called"
+  | "tool_result"
+  | "thinking"
+  | "verification_result"
+  | "cost_update"
+  | "memory_saved"
+  | "memory_recalled"
+  | "memory_sync"
+  | "approval_requested"
+  | "approval_received"
+  | "worker_assigned"
+  | "error";
+
+/** Base event interface */
+export interface KilnEvent {
+  readonly type: EventType;
+  readonly timestamp: Date;
+  readonly sessionId: string;
+}
+
+/** Phase transition event */
+export interface PhaseChangedEvent extends KilnEvent {
+  readonly type: "phase_changed";
+  readonly phase: string;
+  readonly phaseName: string;
+  readonly phaseDescription: string;
+}
+
+/** Cost update event */
+export interface CostUpdateEvent extends KilnEvent {
+  readonly type: "cost_update";
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly cacheReadTokens: number;
+  readonly totalCostUsd: number;
+  readonly byRole: Record<string, { model: string; calls: number; costUsd: number }>;
+}
+
+/** Tool called event */
+export interface ToolCalledEvent extends KilnEvent {
+  readonly type: "tool_called";
+  readonly toolName: string;
+  readonly taskId: string;
+  readonly workerIndex: number;
+}
+
+/** Task started event */
+export interface TaskStartedEvent extends KilnEvent {
+  readonly type: "task_started";
+  readonly taskId: string;
+  readonly statement: string;
+  readonly parentId: string | null;
+}
+
+/** Task completed event */
+export interface TaskCompletedEvent extends KilnEvent {
+  readonly type: "task_completed";
+  readonly taskId: string;
+  readonly status: string;
+  readonly action: string;
+}
+
+/** Tool result event */
+export interface ToolResultEvent extends KilnEvent {
+  readonly type: "tool_result";
+  readonly toolName: string;
+  readonly taskId: string;
+  readonly durationMs: number;
+  readonly success: boolean;
+}
+
+/** Thinking event (agent reasoning) */
+export interface ThinkingEvent extends KilnEvent {
+  readonly type: "thinking";
+  readonly role: string;
+  readonly content: string;
+}
+
+/** Verification result event */
+export interface VerificationResultEvent extends KilnEvent {
+  readonly type: "verification_result";
+  readonly passed: boolean;
+  readonly iteration: number;
+  readonly maxIterations: number;
+  readonly checks: readonly { name: string; passed: boolean; output: string }[];
+}
+
+/** Memory saved event */
+export interface MemorySavedEvent extends KilnEvent {
+  readonly type: "memory_saved";
+  readonly memoryId: string;
+  readonly layer: string;
+  readonly tags: readonly string[];
+}
+
+/** Memory recalled event */
+export interface MemoryRecalledEvent extends KilnEvent {
+  readonly type: "memory_recalled";
+  readonly query: string;
+  readonly resultsCount: number;
+}
+
+/** Memory sync event (chunks imported from git) */
+export interface MemorySyncEvent extends KilnEvent {
+  readonly type: "memory_sync";
+  readonly imported: number;
+  readonly entries: number;
+  readonly developers: number;
+}
+
+/** Approval requested event */
+export interface ApprovalRequestedEvent extends KilnEvent {
+  readonly type: "approval_requested";
+  readonly taskId: string;
+  readonly description: string;
+}
+
+/** Approval received event */
+export interface ApprovalReceivedEvent extends KilnEvent {
+  readonly type: "approval_received";
+  readonly taskId: string;
+  readonly approved: boolean;
+}
+
+/** Worker assigned event */
+export interface WorkerAssignedEvent extends KilnEvent {
+  readonly type: "worker_assigned";
+  readonly workerIndex: number;
+  readonly taskId: string;
+}
+
+/** Error event */
+export interface ErrorEvent extends KilnEvent {
+  readonly type: "error";
+  readonly message: string;
+  readonly code: string;
+  readonly taskId: string | null;
+}
+
+/** Maps each event type to its corresponding event interface */
+export interface EventMap {
+  phase_changed: PhaseChangedEvent;
+  task_started: TaskStartedEvent;
+  task_completed: TaskCompletedEvent;
+  tool_called: ToolCalledEvent;
+  tool_result: ToolResultEvent;
+  thinking: ThinkingEvent;
+  verification_result: VerificationResultEvent;
+  cost_update: CostUpdateEvent;
+  memory_saved: MemorySavedEvent;
+  memory_recalled: MemoryRecalledEvent;
+  memory_sync: MemorySyncEvent;
+  approval_requested: ApprovalRequestedEvent;
+  approval_received: ApprovalReceivedEvent;
+  worker_assigned: WorkerAssignedEvent;
+  error: ErrorEvent;
+}
+
+export { EventBus } from "./event-bus.js";

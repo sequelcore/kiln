@@ -1,0 +1,38 @@
+name: test-mode-b
+runtime: provider-adapter
+channels: [api]
+
+provider:
+  name: anthropic
+  model: claude-haiku-4-5-20251001
+  apiKeyEnv: ANTHROPIC_API_KEY
+
+billing:
+  budgetEndpoint: https://api.example.com/users/{userId}/ai-budget
+  usageEndpoint: https://api.example.com/users/{userId}/ai-usage
+  overBudgetMessage: "Budget exhausted."
+  tiers:
+    free:
+      agents: [fast]
+    pro:
+      agents: [fast, coding]
+
+memory:
+  scopes: [user]
+  backend: sqlite+fts5
+
+router:
+  rules: []
+  fallback: assistant
+
+teams:
+  assistant:
+    agents:
+      conversant:
+        tier: fast
+        tools: []
+    workflow:
+      phases: [understand, respond]
+      gates: {}
+    capabilities: []
+    qualityGates: []

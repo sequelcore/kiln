@@ -1,0 +1,29 @@
+name: test-app-b
+channels: [api]
+
+memory:
+  scopes: [user]
+  backend: sqlite
+
+router:
+  rules: []
+  fallback: default
+
+teams:
+  default:
+    agents:
+      worker:
+        tier: coding
+        tools: []
+    workflow:
+      phases: [execute]
+      gates: {}
+    capabilities:
+      - name: test_tool
+        description: A test tool
+        tags: [test]
+    qualityGates:
+      - name: test
+        command: "echo ok"
+        description: Test gate
+        required: true

@@ -1,0 +1,310 @@
+import type {
+  ProviderAdapter,
+  CreateMessageOptions,
+  AgentResponse,
+  AgentStreamEvent,
+  ToolCall,
+} from "../index.js";
+
+const MAX_RETRIES = 3;
+const BASE_DELAY_MS = 1000;
+const RETRYABLE_STATUSES = new Set([429, 500, 503]);
+
+interface OpenAICompatConfig {
+  readonly apiKey: string;
+  readonly baseUrl: string;
+  readonly defaultModel: string;
+  readonly providerName: string;
+}
+
+interface OpenAIChatMessage {
+  readonly role: string;
+  readonly content: string;
+}
+
+interface OpenAIToolFunction {
+  readonly type: "function";
+  readonly function: {
+    readonly name: string;
+    readonly description: string;
+    readonly parameters: Record<string, unknown>;
+  };
+}
+
+interface OpenAIRequestBody {
+  model: string;
+  messages: OpenAIChatMessage[];
+  max_tokens: number;
+  tools?: OpenAIToolFunction[];
+  stream?: boolean;
+}
+
+interface OpenAIToolCallResponse {
+  readonly id: string;
+  readonly type: "function";
+  readonly function: {
+    readonly name: string;
+    readonly arguments: string;
+  };
+}
+
+interface OpenAIChoice {
+  readonly message: {
+    readonly content: string | null;
+    readonly tool_calls?: readonly OpenAIToolCallResponse[];
+  };
+}
+
+interface OpenAIUsage {
+  readonly prompt_tokens: number;
+  readonly completion_tokens: number;
+}
+
+interface OpenAIChatResponse {
+  readonly choices: readonly OpenAIChoice[];
+  readonly usage: OpenAIUsage;
+}
+
+interface OpenAIStreamDelta {
+  readonly content?: string | null;
+  readonly tool_calls?: readonly {
+    readonly index: number;
+    readonly id?: string;
+    readonly function?: {
+      readonly name?: string;
+      readonly arguments?: string;
+    };
+  }[];
+}
+
+interface OpenAIStreamChoice {
+  readonly delta: OpenAIStreamDelta;
+}
+
+interface OpenAIStreamChunk {
+  readonly choices: readonly OpenAIStreamChoice[];
+}
+
+export abstract class OpenAICompatAdapter implements ProviderAdapter {
+  readonly name: string;
+
+  protected readonly apiKey: string;
+  protected readonly baseUrl: string;
+  protected readonly model: string;
+
+  constructor(config: OpenAICompatConfig) {
+    this.name = config.providerName;
+    this.apiKey = config.apiKey;
+    this.baseUrl = config.baseUrl;
+    this.model = config.defaultModel;
+  }
+
+  async createMessage(options: CreateMessageOptions): Promise<AgentResponse> {
+    const body = this.buildRequestBody(options);
+    const response = await this.withRetry(() => this.sendRequest(body));
+    return this.mapResponse(response);
+  }
+
+  async *streamMessage(
+    options: CreateMessageOptions,
+  ): AsyncGenerator<AgentStreamEvent> {
+    const body = this.buildRequestBody(options);
+    body.stream = true;
+
+    const response = await this.withRetry(() =>
+      fetch(`${this.baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      }),
+    );
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`${this.name} API error ${response.status}: ${text}`);
+    }
+
+    if (!response.body) {
+      yield { type: "done", content: "" };
+      return;
+    }
+
+    const toolBuffers = new Map<
+      number,
+      { id: string; name: string; arguments: string }
+    >();
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith("data: ")) continue;
+
+          const data = trimmed.slice(6);
+          if (data === "[DONE]") {
+            // Flush any remaining tool calls
+            for (const [, buf] of toolBuffers) {
+              yield {
+                type: "tool_use",
+                content: JSON.stringify({
+                  id: buf.id,
+                  name: buf.name,
+                  input: JSON.parse(buf.arguments || "{}"),
+                }),
+              };
+            }
+            toolBuffers.clear();
+            yield { type: "done", content: "" };
+            return;
+          }
+
+          const chunk = JSON.parse(data) as OpenAIStreamChunk;
+          const choice = chunk.choices[0];
+          if (!choice) continue;
+
+          const delta = choice.delta;
+
+          if (delta.content) {
+            yield { type: "text", content: delta.content };
+          }
+
+          if (delta.tool_calls) {
+            for (const tc of delta.tool_calls) {
+              let buf = toolBuffers.get(tc.index);
+              if (!buf) {
+                buf = { id: tc.id ?? "", name: tc.function?.name ?? "", arguments: "" };
+                toolBuffers.set(tc.index, buf);
+              }
+              if (tc.function?.arguments) {
+                buf.arguments += tc.function.arguments;
+              }
+            }
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+
+    // Flush remaining tool calls if stream ended without [DONE]
+    for (const [, buf] of toolBuffers) {
+      yield {
+        type: "tool_use",
+        content: JSON.stringify({
+          id: buf.id,
+          name: buf.name,
+          input: JSON.parse(buf.arguments || "{}"),
+        }),
+      };
+    }
+    yield { type: "done", content: "" };
+  }
+
+  private buildRequestBody(options: CreateMessageOptions): OpenAIRequestBody {
+    const messages: OpenAIChatMessage[] = [
+      { role: "system", content: options.system },
+      ...options.messages.map((msg) => ({
+        role: msg.role,
+        content: msg.content,
+      })),
+    ];
+
+    const body: OpenAIRequestBody = {
+      model: this.model,
+      messages,
+      max_tokens: options.maxTokens ?? 4096,
+    };
+
+    if (options.tools && options.tools.length > 0) {
+      body.tools = options.tools.map((tool) => ({
+        type: "function" as const,
+        function: {
+          name: tool.name,
+          description: tool.description,
+          parameters: tool.inputSchema,
+        },
+      }));
+    }
+
+    return body;
+  }
+
+  private async sendRequest(body: OpenAIRequestBody): Promise<OpenAIChatResponse> {
+    const response = await fetch(`${this.baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      const error = new Error(`${this.name} API error ${response.status}: ${text}`);
+      (error as unknown as Record<string, unknown>).status = response.status;
+      throw error;
+    }
+
+    return (await response.json()) as OpenAIChatResponse;
+  }
+
+  private mapResponse(response: OpenAIChatResponse): AgentResponse {
+    const choice = response.choices[0];
+    const content = choice?.message.content ?? "";
+    const toolCalls: ToolCall[] = (choice?.message.tool_calls ?? []).map(
+      (tc) => ({
+        id: tc.id,
+        name: tc.function.name,
+        input: JSON.parse(tc.function.arguments) as Record<string, unknown>,
+      }),
+    );
+
+    return {
+      content,
+      inputTokens: response.usage.prompt_tokens,
+      outputTokens: response.usage.completion_tokens,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      toolCalls,
+    };
+  }
+
+  private async withRetry<T>(fn: () => Promise<T>): Promise<T> {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      try {
+        return await fn();
+      } catch (error: unknown) {
+        lastError = error;
+        const status = (error as Record<string, unknown>).status;
+        if (typeof status === "number" && !RETRYABLE_STATUSES.has(status)) {
+          throw error;
+        }
+        if (attempt < MAX_RETRIES - 1) {
+          await this.sleep(BASE_DELAY_MS * 2 ** attempt);
+        }
+      }
+    }
+    throw lastError;
+  }
+
+  /** @internal exposed for test mocking */
+  protected sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+}

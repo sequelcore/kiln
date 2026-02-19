@@ -1,0 +1,49 @@
+// Gateway
+export { createGatewayApp } from "./gateway/gateway-routes.js";
+export type { LoadedApp, GatewayServerConfig } from "./gateway/gateway-routes.js";
+export { startGateway } from "./gateway/gateway-server.js";
+export { resolveApps } from "./gateway/app-resolver.js";
+export type { ResolvedApp } from "./gateway/app-resolver.js";
+export { createModeBRoutes } from "./gateway/mode-b-routes.js";
+export type { ModeBAppRuntime } from "./gateway/mode-b-routes.js";
+export { checkBudget, reportUsage, checkTier } from "./gateway/budget-middleware.js";
+export type { BudgetCheckResult, TierCheckResult } from "./gateway/budget-middleware.js";
+export { executeDelegation, validateResponseSchema } from "./gateway/delegation-handler.js";
+export type { DelegationTarget, DelegationRegistry } from "./gateway/delegation-handler.js";
+export { createDelegationRoutes } from "./gateway/delegation-routes.js";
+export { createTenantRoutes } from "./gateway/tenant-routes.js";
+export type { TenantAppRuntime } from "./gateway/tenant-routes.js";
+export { createWhatsAppWebhookRoutes } from "./gateway/whatsapp-webhook-routes.js";
+export type { WhatsAppWebhookConfig } from "./gateway/whatsapp-webhook-routes.js";
+export { createTenantAdminRoutes } from "./gateway/tenant-admin-routes.js";
+export type { TenantAdminRoutesConfig } from "./gateway/tenant-admin-routes.js";
+
+// Session
+export { ModeBSession } from "./session/mode-b-session.js";
+export type { ModeBSessionConfig } from "./session/mode-b-session.js";
+export { ModeBOrchestrator } from "./session/mode-b-orchestrator.js";
+export type { OrchestratorDeps, OrchestrateResult } from "./session/mode-b-orchestrator.js";
+export { SessionRegistry } from "./session/session-registry.js";
+
+// Tenant
+export { TenantRegistry, TenantNotFoundError, TenantValidationFailedError } from "./tenant/tenant-registry.js";
+export { buildTenantSystemPrompt } from "./tenant/system-prompt-builder.js";
+
+// Channels
+export { EventBridge, toEngineEvent } from "./channels/event-bridge.js";
+export { ChannelRegistry } from "./channels/channel-registry.js";
+export { formatSdkMessage, formatForChannel } from "./channels/message-formatter.js";
+export type { OutputLine } from "./channels/message-formatter.js";
+export type { ChannelConfig, ChannelStatus, IdentityMapping, IdentityResolver } from "./channels/types.js";
+export { InMemoryIdentityResolver } from "./channels/types.js";
+export { CliChannel } from "./channels/cli-channel.js";
+export { WebChannel } from "./channels/web-channel.js";
+export type { WebSocketLike } from "./channels/web-channel.js";
+export { ChannelRouter } from "./channels/channel-router.js";
+export type { RouteResult, ChannelRouterRule } from "./channels/channel-router.js";
+export { WhatsAppChannel } from "./channels/whatsapp-channel.js";
+export type { WhatsAppConfig } from "./channels/whatsapp-channel.js";
+export { SlackChannel } from "./channels/slack-channel.js";
+export type { SlackConfig } from "./channels/slack-channel.js";
+export { ApiChannel } from "./channels/api-channel.js";
+export type { SseWriter } from "./channels/api-channel.js";

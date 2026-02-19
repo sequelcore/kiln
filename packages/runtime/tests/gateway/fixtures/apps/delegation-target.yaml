@@ -1,0 +1,31 @@
+name: test-delegation-target
+
+runtime: provider-adapter
+
+provider:
+  name: anthropic
+  model: claude-haiku-4-5-20251001
+  apiKeyEnv: ANTHROPIC_API_KEY
+
+channels: [api]
+
+memory:
+  scopes: [user]
+  backend: sqlite+fts5
+
+router:
+  rules: []
+  fallback: assistant
+
+teams:
+  assistant:
+    agents:
+      reasoner:
+        tier: reasoning
+        tools: []
+        structured: true
+    workflow:
+      phases: [respond]
+      gates: {}
+    capabilities: []
+    qualityGates: []

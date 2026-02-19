@@ -1,0 +1,105 @@
+# Temper Preset -- coding orchestration on the engine
+# 3 agents, 6-phase workflow, 13 MCP tools, scoped memory
+
+name: temper
+channels: [cli, web]
+
+memory:
+  scopes: [user, "agent:architect", "agent:worker", "agent:optimizer", "project:default"]
+  backend: sqlite+fts5
+  sync: git
+
+router:
+  rules: []
+  fallback: development
+
+teams:
+  development:
+    agents:
+      architect:
+        tier: reasoning
+        tools: []
+        structured: true
+      worker:
+        tier: coding
+        tools:
+          - temper_memory_save
+          - temper_memory_recall
+          - temper_phase_gate
+          - temper_task_create
+          - temper_task_score
+          - temper_task_action
+          - temper_verify
+          - temper_cost_track
+        count: 2
+        sandbox: true
+      optimizer:
+        tier: fast
+        tools:
+          - temper_memory_save
+          - temper_memory_search
+          - temper_cost_summary
+
+    workflow:
+      phases: [analyze, research, architect, implement, verify, synthesize]
+      gates:
+        architect:
+          requires: [human_approval]
+        verify:
+          requires: [tests_pass, typecheck, lint]
+      maxIterations: 3
+
+    capabilities:
+      - name: temper_init
+        description: Initialize a Temper session with task and context
+        tags: [session]
+      - name: temper_phase_start
+        description: Start a new phase in the workflow
+        tags: [orchestrator]
+      - name: temper_memory_save
+        description: Save a new memory entry to scoped storage
+        tags: [memory]
+      - name: temper_memory_recall
+        description: Recall memories by query with token budget
+        tags: [memory]
+      - name: temper_memory_search
+        description: Full-text search across memory scopes
+        tags: [memory]
+      - name: temper_phase_gate
+        description: Check and enforce phase transition gates
+        tags: [orchestrator]
+      - name: temper_task_create
+        description: Create a new task in the exploration tree
+        tags: [tasks]
+      - name: temper_task_score
+        description: Score and rank tasks by priority and evidence
+        tags: [tasks]
+      - name: temper_task_action
+        description: Apply tree action (deepen, branch, prune) to a task
+        tags: [tasks]
+      - name: temper_verify
+        description: Execute quality gates (test, lint, typecheck)
+        tags: [verification]
+      - name: temper_cost_track
+        description: Track token usage and cost for an agent interaction
+        tags: [cost]
+      - name: temper_cost_summary
+        description: Get cost breakdown by role and total
+        tags: [cost]
+      - name: temper_domain_detect
+        description: Auto-detect project tech stack from file patterns
+        tags: [domain]
+
+    qualityGates:
+      - name: typecheck
+        command: "tsc --noEmit"
+        description: Type-check TypeScript source
+        required: true
+      - name: test
+        command: "vitest run"
+        description: Run test suite
+        required: true
+      - name: lint
+        command: "biome check"
+        description: Lint and format code
+        required: true
