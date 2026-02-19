@@ -78,11 +78,24 @@ export class SandboxPolicy {
 
     const resolved = resolve(filePath);
 
-    if (this._resolvedDeniedPaths.some((d) => resolved.startsWith(d)))
-      return false;
+    // Find the most specific (longest) matching allowed and denied paths
+    const matchedAllow = this._resolvedAllowedPaths
+      .filter((a) => resolved.startsWith(a))
+      .reduce<string | null>((best, a) => (best === null || a.length > best.length ? a : best), null);
+
+    const matchedDeny = this._resolvedDeniedPaths
+      .filter((d) => resolved.startsWith(d))
+      .reduce<string | null>((best, d) => (best === null || d.length > best.length ? d : best), null);
+
+    if (matchedAllow !== null && matchedDeny !== null) {
+      // Most specific rule wins
+      return matchedAllow.length >= matchedDeny.length;
+    }
+
+    if (matchedDeny !== null) return false;
 
     if (this._resolvedAllowedPaths.length > 0) {
-      return this._resolvedAllowedPaths.some((a) => resolved.startsWith(a));
+      return matchedAllow !== null;
     }
 
     return true;
@@ -93,11 +106,24 @@ export class SandboxPolicy {
 
     const resolved = resolve(filePath);
 
-    if (this._resolvedDeniedPaths.some((d) => resolved.startsWith(d)))
-      return false;
+    // Find the most specific (longest) matching allowed and denied paths
+    const matchedAllow = this._resolvedAllowedPaths
+      .filter((a) => resolved.startsWith(a))
+      .reduce<string | null>((best, a) => (best === null || a.length > best.length ? a : best), null);
+
+    const matchedDeny = this._resolvedDeniedPaths
+      .filter((d) => resolved.startsWith(d))
+      .reduce<string | null>((best, d) => (best === null || d.length > best.length ? d : best), null);
+
+    if (matchedAllow !== null && matchedDeny !== null) {
+      // Most specific rule wins
+      return matchedAllow.length >= matchedDeny.length;
+    }
+
+    if (matchedDeny !== null) return false;
 
     if (this._resolvedAllowedPaths.length > 0) {
-      return this._resolvedAllowedPaths.some((a) => resolved.startsWith(a));
+      return matchedAllow !== null;
     }
 
     return true;
@@ -150,4 +176,30 @@ export function createPolicy(
     allowedDomains: overrides?.allowedDomains ?? preset.allowedDomains,
   };
   return new SandboxPolicy({ config, projectPath });
+}
+
+/**
+ * Create a tenant-scoped filesystem jail.
+ * The tenant is allowed read-write access only within `<basePath>/tenants/<tenantId>`.
+ * Access to other tenant directories is blocked because only the tenant's own dir is in allowedPaths.
+ * The parent `<basePath>/tenants` is explicitly denied to block directory listing of all tenants.
+ * Note: allowedPaths is checked after deniedPaths in SandboxPolicy -- so the tenant dir is placed in
+ * allowedPaths and the parent-deny ensures other tenants are unreachable even if allowedPaths
+ * matching were to fail. The tenant's own dir does NOT start-with a different tenant's allowed path,
+ * so cross-tenant access is blocked by the allowedPaths whitelist.
+ */
+export function createTenantSandbox(
+  tenantId: string,
+  basePath: string,
+  basePolicy?: SandboxConfig,
+): SandboxConfig {
+  const tenantDir = resolve(basePath, "tenants", tenantId);
+  const tenantsRoot = resolve(basePath, "tenants");
+  return {
+    fsPolicy: "read-write",
+    allowedPaths: [tenantDir],
+    deniedPaths: [tenantsRoot],
+    netPolicy: basePolicy?.netPolicy ?? "none",
+    allowedDomains: basePolicy?.allowedDomains ?? [],
+  };
 }

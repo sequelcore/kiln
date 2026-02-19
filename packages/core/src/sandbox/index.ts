@@ -13,7 +13,7 @@ export interface SandboxConfig {
   readonly allowedDomains: readonly string[];
 }
 
-export { SandboxPolicy, createPolicy, ROLE_PRESETS } from "./policies.js";
+export { SandboxPolicy, createPolicy, createTenantSandbox, ROLE_PRESETS } from "./policies.js";
 export { PathValidator, isSubPath } from "./path-validator.js";
 export type { ValidationResult } from "./path-validator.js";
 export {
