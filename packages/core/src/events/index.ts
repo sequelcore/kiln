@@ -25,6 +25,12 @@ export const EVENT_LEVEL_MAP: Record<EventType, StreamLevel> = {
   handoff_completed: "phase",
   interrupt_requested: "phase",
   interrupt_resumed: "phase",
+  // Security (Phase 3)
+  injection_scanned: "phase",
+  guardian_reviewed: "phase",
+  audit_entry: "state",
+  tenant_isolation_violation: "phase",
+  security_alert: "state",
 };
 
 /** Level hierarchy: subscribing to "phase" includes "state" + "phase" */
@@ -56,7 +62,13 @@ export type EventType =
   | "handoff_requested"
   | "handoff_completed"
   | "interrupt_requested"
-  | "interrupt_resumed";
+  | "interrupt_resumed"
+  // Security (Phase 3)
+  | "injection_scanned"
+  | "guardian_reviewed"
+  | "audit_entry"
+  | "tenant_isolation_violation"
+  | "security_alert";
 
 /** Base event interface */
 export interface KilnEvent {
@@ -222,6 +234,50 @@ export interface InterruptResumedEvent extends KilnEvent {
   readonly resumeValue: unknown;
 }
 
+/** Injection scanned event (security) */
+export interface InjectionScannedEvent extends KilnEvent {
+  readonly type: "injection_scanned";
+  readonly safe: boolean;
+  readonly threats: number;
+  readonly tier: "heuristic" | "deep";
+  readonly inputPreview: string;
+}
+
+/** Guardian reviewed event (security) */
+export interface GuardianReviewedEvent extends KilnEvent {
+  readonly type: "guardian_reviewed";
+  readonly approved: boolean;
+  readonly capabilityName: string;
+  readonly agentName: string;
+  readonly riskLevel: string;
+  readonly reason: string;
+}
+
+/** Audit entry event (security) */
+export interface AuditEntryEvent extends KilnEvent {
+  readonly type: "audit_entry";
+  readonly action: string;
+  readonly actor: string;
+  readonly outcome: string;
+  readonly resource: string;
+}
+
+/** Tenant isolation violation event (security) */
+export interface TenantIsolationViolationEvent extends KilnEvent {
+  readonly type: "tenant_isolation_violation";
+  readonly tenantId: string;
+  readonly attemptedResource: string;
+  readonly blockedBy: string;
+}
+
+/** Security alert event */
+export interface SecurityAlertEvent extends KilnEvent {
+  readonly type: "security_alert";
+  readonly severity: "low" | "medium" | "high" | "critical";
+  readonly category: string;
+  readonly message: string;
+}
+
 /** Maps each event type to its corresponding event interface */
 export interface EventMap {
   phase_changed: PhaseChangedEvent;
@@ -244,6 +300,12 @@ export interface EventMap {
   handoff_completed: HandoffCompletedEvent;
   interrupt_requested: InterruptRequestedEvent;
   interrupt_resumed: InterruptResumedEvent;
+  // Security (Phase 3)
+  injection_scanned: InjectionScannedEvent;
+  guardian_reviewed: GuardianReviewedEvent;
+  audit_entry: AuditEntryEvent;
+  tenant_isolation_violation: TenantIsolationViolationEvent;
+  security_alert: SecurityAlertEvent;
 }
 
 export { EventBus } from "./event-bus.js";
