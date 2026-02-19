@@ -1,7 +1,7 @@
-# Temper Preset -- coding orchestration on the engine
+# Example Preset -- coding orchestration on the engine
 # 3 agents, 6-phase workflow, 13 MCP tools, scoped memory
 
-name: temper
+name: example
 channels: [cli, web]
 
 memory:
@@ -23,22 +23,22 @@ teams:
       worker:
         tier: coding
         tools:
-          - temper_memory_save
-          - temper_memory_recall
-          - temper_phase_gate
-          - temper_task_create
-          - temper_task_score
-          - temper_task_action
-          - temper_verify
-          - temper_cost_track
+          - kiln_memory_save
+          - kiln_memory_recall
+          - kiln_phase_gate
+          - kiln_task_create
+          - kiln_task_score
+          - kiln_task_action
+          - kiln_verify
+          - kiln_cost_track
         count: 2
         sandbox: true
       optimizer:
         tier: fast
         tools:
-          - temper_memory_save
-          - temper_memory_search
-          - temper_cost_summary
+          - kiln_memory_save
+          - kiln_memory_search
+          - kiln_cost_summary
 
     workflow:
       phases: [analyze, research, architect, implement, verify, synthesize]
@@ -50,43 +50,43 @@ teams:
       maxIterations: 3
 
     capabilities:
-      - name: temper_init
-        description: Initialize a Temper session with task and context
+      - name: kiln_init
+        description: Initialize a session with task and context
         tags: [session]
-      - name: temper_phase_start
+      - name: kiln_phase_start
         description: Start a new phase in the workflow
         tags: [orchestrator]
-      - name: temper_memory_save
+      - name: kiln_memory_save
         description: Save a new memory entry to scoped storage
         tags: [memory]
-      - name: temper_memory_recall
+      - name: kiln_memory_recall
         description: Recall memories by query with token budget
         tags: [memory]
-      - name: temper_memory_search
+      - name: kiln_memory_search
         description: Full-text search across memory scopes
         tags: [memory]
-      - name: temper_phase_gate
+      - name: kiln_phase_gate
         description: Check and enforce phase transition gates
         tags: [orchestrator]
-      - name: temper_task_create
+      - name: kiln_task_create
         description: Create a new task in the exploration tree
         tags: [tasks]
-      - name: temper_task_score
+      - name: kiln_task_score
         description: Score and rank tasks by priority and evidence
         tags: [tasks]
-      - name: temper_task_action
+      - name: kiln_task_action
         description: Apply tree action (deepen, branch, prune) to a task
         tags: [tasks]
-      - name: temper_verify
+      - name: kiln_verify
         description: Execute quality gates (test, lint, typecheck)
         tags: [verification]
-      - name: temper_cost_track
+      - name: kiln_cost_track
         description: Track token usage and cost for an agent interaction
         tags: [cost]
-      - name: temper_cost_summary
+      - name: kiln_cost_summary
         description: Get cost breakdown by role and total
         tags: [cost]
-      - name: temper_domain_detect
+      - name: kiln_domain_detect
         description: Auto-detect project tech stack from file patterns
         tags: [domain]
 

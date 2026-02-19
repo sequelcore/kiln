@@ -7,7 +7,7 @@ import { gunzipSync } from "node:zlib";
 import { ProjectMemoryStore, stripPrivateTags } from "../../src/memory/project-store.js";
 
 function makeTempDir(): string {
-  const dir = join(tmpdir(), `temper-test-${randomUUID()}`);
+  const dir = join(tmpdir(), `kiln-test-${randomUUID()}`);
   mkdirSync(dir, { recursive: true });
   return dir;
 }

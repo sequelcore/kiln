@@ -27,7 +27,7 @@ describe("TenantRegistry", () => {
   let registry: TenantRegistry;
 
   beforeEach(() => {
-    storageDir = join(tmpdir(), `temper-test-${randomUUID()}`);
+    storageDir = join(tmpdir(), `kiln-test-${randomUUID()}`);
     registry = new TenantRegistry(storageDir);
   });
 
@@ -154,7 +154,7 @@ describe("TenantRegistry", () => {
     });
 
     it("survives non-existent directory", () => {
-      const nonExistent = join(tmpdir(), `temper-noexist-${randomUUID()}`);
+      const nonExistent = join(tmpdir(), `kiln-noexist-${randomUUID()}`);
       const reg = new TenantRegistry(nonExistent);
       expect(() => reg.load()).not.toThrow();
     });

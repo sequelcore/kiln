@@ -6,7 +6,7 @@ import { parseAppYaml, AppLoaderError } from "../../../src/engine/loader/app-loa
 
 function makeDelegation(overrides: Partial<AppDelegation> = {}): AppDelegation {
   return {
-    fromApp: "temper",
+    fromApp: "app-a",
     toApp: "arete-ai",
     task: "Analyze user workout data and return recommendations",
     schema: { type: "object", properties: { recommendations: { type: "array" } } },
@@ -51,7 +51,7 @@ describe("validateDelegation", () => {
   });
 
   it("reports error for self-delegation (fromApp === toApp)", () => {
-    const errors = validateDelegation(makeDelegation({ fromApp: "temper", toApp: "temper" }));
+    const errors = validateDelegation(makeDelegation({ fromApp: "app-a", toApp: "app-a" }));
     expect(errors.some((e: DelegationValidationError) => e.field === "toApp" && e.message.includes("self-delegation"))).toBe(true);
   });
 
@@ -139,7 +139,7 @@ describe("isDelegationCapability", () => {
 
 describe("parseAppYaml -- delegation capabilities", () => {
   const DELEGATION_APP_YAML = `
-name: temper
+name: app-a
 channels: [cli]
 
 memory:

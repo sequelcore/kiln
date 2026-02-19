@@ -31,7 +31,7 @@ describe("resolveApps", () => {
     const config = loadGatewayConfig();
     const resolved = resolveApps(config, fixturesDir);
 
-    const expectedBase = join(homedir(), ".temper", "gateway");
+    const expectedBase = join(homedir(), ".kiln", "gateway");
     expect(resolved[0]!.memoryBasePath).toBe(join(expectedBase, "test-app-a"));
     expect(resolved[1]!.memoryBasePath).toBe(join(expectedBase, "test-app-b"));
   });

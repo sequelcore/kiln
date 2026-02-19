@@ -2,8 +2,8 @@ import type { EventBus } from "../events/event-bus.js";
 
 /**
  * Phase identifier -- any string.
- * Temper default: "analyze" | "research" | "architect" | "implement" | "verify" | "synthesize"
- * Other presets define their own phase names via OrchestratorConfig.phases.
+ * Example: "analyze" | "research" | "architect" | "implement" | "verify" | "synthesize"
+ * Presets define their own phase names via OrchestratorConfig.phases.
  */
 export type Phase = string;
 

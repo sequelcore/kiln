@@ -23,7 +23,7 @@ describe("createTenantAdminRoutes", () => {
   let config: TenantAdminRoutesConfig;
 
   beforeEach(() => {
-    const storageDir = join(tmpdir(), `temper-admin-test-${randomUUID()}`);
+    const storageDir = join(tmpdir(), `kiln-admin-test-${randomUUID()}`);
     tenantRegistry = new TenantRegistry(storageDir);
     config = { tenantRegistry, appName: "test-app" };
   });

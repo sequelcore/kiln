@@ -14,23 +14,23 @@ function makeEvent(overrides: Partial<KilnEvent> = {}): KilnEvent {
 
 describe("toEngineEvent", () => {
   it("converts KilnEvent to EngineEvent", () => {
-    const temper = makeEvent();
-    const engine = toEngineEvent(temper);
+    const event = makeEvent();
+    const engine = toEngineEvent(event);
 
     expect(engine.type).toBe("phase_changed");
-    expect(engine.timestamp).toEqual(temper.timestamp);
+    expect(engine.timestamp).toEqual(event.timestamp);
     expect(engine.payload).toEqual({ sessionId: "test-session" });
   });
 
   it("preserves extra fields in payload", () => {
-    const temper = {
+    const event = {
       ...makeEvent({ type: "task_started" }),
       taskId: "t1",
       statement: "Fix bug",
       parentId: null,
     } as KilnEvent & { taskId: string; statement: string; parentId: null };
 
-    const engine = toEngineEvent(temper);
+    const engine = toEngineEvent(event);
 
     expect(engine.payload).toEqual({
       sessionId: "test-session",

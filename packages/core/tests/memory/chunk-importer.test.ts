@@ -7,7 +7,7 @@ import { gzipSync } from "node:zlib";
 import { ChunkImporter } from "../../src/memory/chunk-importer.js";
 
 function makeTempDir(): string {
-  const dir = join(tmpdir(), `temper-chunk-test-${randomUUID()}`);
+  const dir = join(tmpdir(), `kiln-chunk-test-${randomUUID()}`);
   mkdirSync(dir, { recursive: true });
   return dir;
 }

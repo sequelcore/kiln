@@ -165,7 +165,7 @@ describe("createGatewayApp multi-tenant wiring", () => {
   });
 
   it("mounts tenant routes at API path for multi-tenant app", async () => {
-    const storageDir = join(tmpdir(), `temper-test-${randomUUID()}`);
+    const storageDir = join(tmpdir(), `kiln-test-${randomUUID()}`);
     const tenantRegistry = new TenantRegistry(storageDir);
     tenantRegistry.create(makeTenantConfig());
 
@@ -202,7 +202,7 @@ describe("createGatewayApp multi-tenant wiring", () => {
   });
 
   it("mounts WhatsApp webhook routes for multi-tenant app", async () => {
-    const storageDir = join(tmpdir(), `temper-test-${randomUUID()}`);
+    const storageDir = join(tmpdir(), `kiln-test-${randomUUID()}`);
     const tenantRegistry = new TenantRegistry(storageDir);
     tenantRegistry.create(makeTenantConfig({ whatsappPhoneNumberId: "12345" }));
 
@@ -240,7 +240,7 @@ describe("createGatewayApp multi-tenant wiring", () => {
   });
 
   it("mounts admin routes for multi-tenant app", async () => {
-    const storageDir = join(tmpdir(), `temper-test-${randomUUID()}`);
+    const storageDir = join(tmpdir(), `kiln-test-${randomUUID()}`);
     const tenantRegistry = new TenantRegistry(storageDir);
     tenantRegistry.create(makeTenantConfig());
 
@@ -298,7 +298,7 @@ describe("createGatewayApp multi-tenant wiring", () => {
   });
 
   it("tenant routes take priority over mode-b routes", async () => {
-    const storageDir = join(tmpdir(), `temper-test-${randomUUID()}`);
+    const storageDir = join(tmpdir(), `kiln-test-${randomUUID()}`);
     const tenantRegistry = new TenantRegistry(storageDir);
     tenantRegistry.create(makeTenantConfig());
 

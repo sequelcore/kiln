@@ -7,7 +7,7 @@ import { Orchestrator } from "../../src/orchestrator/orchestrator.js";
 import { ProjectMemoryStore } from "../../src/memory/project-store.js";
 
 function makeTempDir(): string {
-  return mkdtempSync(join(tmpdir(), "temper-memsync-"));
+  return mkdtempSync(join(tmpdir(), "kiln-memsync-"));
 }
 
 describe("Orchestrator memory sync integration", () => {

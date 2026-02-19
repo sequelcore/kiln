@@ -55,7 +55,7 @@ teams:
 
   it("returns null for YAML with runtime: claude-code", () => {
     const yaml = `
-name: temper-app
+name: test-app
 runtime: claude-code
 teams:
   assistant:

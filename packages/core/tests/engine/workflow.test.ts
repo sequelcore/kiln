@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import type { Workflow, Gate } from "../../src/engine/domain/workflow.js";
 
 describe("Workflow interface", () => {
-  it("accepts a valid Temper-style 6-phase workflow with gates", () => {
+  it("accepts a valid 6-phase workflow with gates", () => {
     const workflow: Workflow = {
       phases: ["Analyze", "Research", "Architect", "Implement", "Verify", "Synthesize"],
       gates: {

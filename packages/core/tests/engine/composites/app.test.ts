@@ -62,7 +62,7 @@ function makeMemory(overrides: Partial<MemoryConfig> = {}): MemoryConfig {
 
 function makeApp(overrides: Partial<App> = {}): App {
   return {
-    name: "temper",
+    name: "test-app",
     teams: { dev: makeTeam({ name: "dev" }) },
     router: makeRouter(),
     memory: makeMemory(),
@@ -75,7 +75,7 @@ describe("App composite", () => {
   describe("interface conformance", () => {
     it("accepts a valid App", () => {
       const app = makeApp();
-      expect(app.name).toBe("temper");
+      expect(app.name).toBe("test-app");
       expect(Object.keys(app.teams)).toHaveLength(1);
       expect(app.channels).toHaveLength(2);
       expect(app.router.fallback).toBe("dev");

@@ -7,7 +7,7 @@ import {
   createPolicy,
 } from "../../src/sandbox/policies.js";
 
-const PROJECT = resolve(join(tmpdir(), "temper-test-project"));
+const PROJECT = resolve(join(tmpdir(), "kiln-test-project"));
 
 describe("SandboxPolicy", () => {
   // 1. Architect: can read

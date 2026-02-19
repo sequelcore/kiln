@@ -144,10 +144,10 @@ describe("loadPresetConfig", () => {
     }
   });
 
-  it("works with temper preset end-to-end", () => {
+  it("works with example preset end-to-end", () => {
     const presetPath = join(
       dirname(fileURLToPath(import.meta.url)),
-      "../../../src/presets/temper.yaml",
+      "../../../src/presets/example.yaml",
     );
     const app = parseAppYaml(readFileSync(presetPath, "utf-8"));
     const config = loadPresetConfig(app);

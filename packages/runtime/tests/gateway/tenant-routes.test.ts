@@ -43,7 +43,7 @@ function makeTenantConfig(overrides: Partial<TenantConfig> = {}): TenantConfig {
 
 function makeRuntime(overrides: Partial<TenantAppRuntime> = {}): TenantAppRuntime {
   const provider = makeMockProvider();
-  const storageDir = join(tmpdir(), `temper-test-${randomUUID()}`);
+  const storageDir = join(tmpdir(), `kiln-test-${randomUUID()}`);
   const tenantRegistry = new TenantRegistry(storageDir);
   return {
     appName: "test-app",

@@ -35,7 +35,7 @@ export function resolveApps(config: GatewayConfig, gatewayYamlDir: string): Reso
       );
     }
 
-    const memoryBasePath = join(homedir(), ".temper", "gateway", binding.name);
+    const memoryBasePath = join(homedir(), ".kiln", "gateway", binding.name);
 
     let modeBConfig: ModeBConfig | undefined;
     try {

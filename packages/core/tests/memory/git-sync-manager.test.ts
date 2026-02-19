@@ -23,7 +23,7 @@ describe("GitSyncManager", () => {
   let tmpDir: string;
 
   beforeEach(() => {
-    tmpDir = mkdtempSync(join(tmpdir(), "temper-sync-"));
+    tmpDir = mkdtempSync(join(tmpdir(), "kiln-sync-"));
   });
 
   afterEach(() => {
