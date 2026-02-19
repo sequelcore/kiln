@@ -184,4 +184,15 @@ export class PhaseMachine {
     this._status = "idle";
     this._approvalResolve = null;
   }
+
+  /** Restore state from a checkpoint (for resume/fork/replay) */
+  restoreState(phaseIndex: number, status: OrchestratorStatus): void {
+    this._currentIndex = phaseIndex;
+    this._status = status;
+  }
+
+  /** Get the current phase index */
+  get currentPhaseIndex(): number {
+    return this._currentIndex;
+  }
 }

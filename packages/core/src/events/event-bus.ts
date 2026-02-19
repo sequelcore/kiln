@@ -1,4 +1,5 @@
-import type { EventType, EventMap, KilnEvent } from "./index.js";
+import type { EventType, EventMap, KilnEvent, StreamLevel } from "./index.js";
+import { EVENT_LEVEL_MAP, LEVEL_HIERARCHY } from "./index.js";
 
 // Internal handler type -- type safety is enforced at on()/off() boundaries
 type InternalHandler = (event: KilnEvent) => void;
@@ -68,6 +69,25 @@ export class EventBus {
   /** Unsubscribe from all events */
   offAny(handler: (event: KilnEvent) => void): void {
     this.anyHandlers.delete(handler);
+  }
+
+  /**
+   * Subscribe to events matching a streaming level.
+   * Subscribing to "phase" includes "state" + "phase" events.
+   */
+  onLevel(level: StreamLevel, handler: (event: KilnEvent) => void): void {
+    const levels = LEVEL_HIERARCHY[level];
+    const types = new Set<EventType>();
+
+    for (const [type, eventLevel] of Object.entries(EVENT_LEVEL_MAP)) {
+      if (levels.includes(eventLevel)) {
+        types.add(type as EventType);
+      }
+    }
+
+    for (const type of types) {
+      this.on(type, handler);
+    }
   }
 
   /** Return recent events from the ring buffer, oldest first */

@@ -274,6 +274,29 @@ export class TaskTree {
     };
   }
 
+  /** Load tree from a serialized JSON representation */
+  loadFromJSON(data: { readonly nodes: readonly TaskNode[]; readonly config: TreeConfig }): void {
+    this.nodes.clear();
+    for (const node of data.nodes) {
+      this.nodes.set(node.id, {
+        id: node.id,
+        parentId: node.parentId,
+        statement: node.statement,
+        status: node.status,
+        depth: node.depth,
+        priority: node.priority,
+        branchScore: node.branchScore,
+        children: [...node.children],
+        evidence: [...node.evidence],
+      });
+    }
+  }
+
+  /** Clear all nodes from the tree */
+  clear(): void {
+    this.nodes.clear();
+  }
+
   /** Return depth of a task in the tree */
   depth(taskId: string): number {
     return this.requireNode(taskId).depth;

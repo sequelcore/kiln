@@ -10,7 +10,9 @@ import type {
 import { PhaseMachine } from "./phase-machine.js";
 import { EventBus } from "../events/event-bus.js";
 import { CostTracker } from "../cost/cost-tracker.js";
-import type { PhaseChangedEvent } from "../events/index.js";
+import type { PhaseChangedEvent, TraceSpanEvent } from "../events/index.js";
+import { createTraceContext, startSpan } from "../events/trace.js";
+import type { TraceSpan, TraceContext } from "../events/trace.js";
 import type { CostSummary } from "../cost/index.js";
 import { TaskTree, BatchExecutor } from "../tree/index.js";
 import type { TaskNode, TreeAction, TreeConfig } from "../tree/index.js";
@@ -26,6 +28,8 @@ import type { ProviderAdapter, AgentRole } from "../agents/index.js";
 import { GitSyncManager } from "../memory/git-sync-manager.js";
 import type { SyncStatus } from "../memory/git-sync-manager.js";
 import type { ProjectMemoryStore } from "../memory/project-store.js";
+import type { CheckpointStore } from "./checkpoint-store.js";
+import type { Checkpoint, CheckpointOptions, ReplayOverrides } from "./checkpoint-types.js";
 
 const DEFAULT_CONFIG: OrchestratorConfig = {
   requireApproval: true,
@@ -80,6 +84,10 @@ export class Orchestrator {
   private _task: string | null = null;
   private _lastVerificationResult: VerificationResult | null = null;
   private _gitSync: GitSyncManager | null = null;
+  private _checkpointStore: CheckpointStore | null = null;
+  private _autoCheckpointUnsubscribe: (() => void) | null = null;
+  private _traceContext: TraceContext | null = null;
+  private _activeSpans: Map<string, TraceSpan> = new Map();
 
   constructor(config?: Partial<OrchestratorConfig>) {
     this._config = { ...DEFAULT_CONFIG, ...config };
@@ -177,13 +185,27 @@ export class Orchestrator {
     this._sessionId = sessionId;
     this._task = task;
 
-    // Reset and reinitialize PhaseMachine with new session ID
+    this._traceContext = createTraceContext(sessionId);
+    const { span: sessionSpan } = startSpan(
+      this._traceContext,
+      "session",
+      "phase",
+      { task },
+    );
+    this._activeSpans.set(sessionSpan.spanId, sessionSpan);
+    this.emitTraceSpan(sessionSpan);
+
     this._phaseMachine.reset();
-    // Create a new PhaseMachine with the session ID -- PhaseMachine constructor requires it
-    // Instead, we start the existing one and emit the initial event manually
     this._phaseMachine.start();
 
-    // Emit phase_changed for the initial phase
+    const { span: phaseSpan } = startSpan(
+      this._traceContext,
+      `phase:${this._phaseMachine.currentPhase}`,
+      "phase",
+      { phase: this._phaseMachine.currentPhase },
+    );
+    this._activeSpans.set(phaseSpan.spanId, phaseSpan);
+
     const meta = phaseMeta(this._phaseMachine.currentPhase);
     const phaseEvent: PhaseChangedEvent = {
       type: "phase_changed",
@@ -373,5 +395,169 @@ export class Orchestrator {
   ): string | null {
     const statement = evaluation.newTask?.statement ?? "";
     return this._tree.applyAction(taskId, evaluation.action, statement);
+  }
+
+  attachCheckpointStore(store: CheckpointStore): void {
+    this._checkpointStore = store;
+
+    if (this._autoCheckpointUnsubscribe) {
+      this._autoCheckpointUnsubscribe();
+    }
+
+    const handler = (_event: PhaseChangedEvent): void => {
+      if (this._sessionId && this._task) {
+        this.checkpoint().catch((err) => {
+          console.error("Auto-checkpoint failed:", err);
+        });
+      }
+    };
+
+    this._eventBus.on("phase_changed", handler);
+    this._autoCheckpointUnsubscribe = () => {
+      this._eventBus.off("phase_changed", handler);
+    };
+  }
+
+  async checkpoint(options?: CheckpointOptions): Promise<string> {
+    if (!this._checkpointStore) {
+      throw new Error("No checkpoint store attached. Call attachCheckpointStore() first.");
+    }
+    if (!this._sessionId || !this._task) {
+      throw new Error("No active session. Call start() first.");
+    }
+
+    const checkpointId = randomUUID();
+    const checkpoint: Checkpoint = {
+      id: checkpointId,
+      sessionId: this._sessionId,
+      parentId: null,
+      phase: this._phaseMachine.currentPhase,
+      phaseIndex: this._config.phases.indexOf(this._phaseMachine.currentPhase),
+      status: this._phaseMachine.status,
+      task: this._task,
+      tree: this._tree.toJSON(),
+      eventHistory: this._eventBus.history(),
+      costSummary: this._costTracker.summary,
+      timestamp: new Date(),
+      metadata: options?.metadata,
+    };
+
+    await this._checkpointStore.save(checkpoint, options);
+    return checkpointId;
+  }
+
+  async resume(checkpointId: string): Promise<string> {
+    if (!this._checkpointStore) {
+      throw new Error("No checkpoint store attached. Call attachCheckpointStore() first.");
+    }
+
+    const checkpoint = await this._checkpointStore.load(checkpointId);
+    if (!checkpoint) {
+      throw new Error(`Checkpoint not found: ${checkpointId}`);
+    }
+
+    const newSessionId = randomUUID();
+    this._sessionId = newSessionId;
+    this._task = checkpoint.task;
+
+    this._phaseMachine.reset();
+    this._phaseMachine.restoreState(checkpoint.phaseIndex, checkpoint.status);
+    this._tree.loadFromJSON(checkpoint.tree);
+
+    for (const role of Object.keys(checkpoint.costSummary.byRole)) {
+      const usage = checkpoint.costSummary.byRole[role];
+      if (usage) {
+        this._costTracker.record(usage.role, usage.model, {
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+          cacheReadTokens: usage.cacheReadTokens,
+          cacheWriteTokens: usage.cacheWriteTokens,
+        });
+      }
+    }
+
+    const meta = phaseMeta(this._phaseMachine.currentPhase);
+    const phaseEvent: PhaseChangedEvent = {
+      type: "phase_changed",
+      phase: this._phaseMachine.currentPhase,
+      phaseName: meta.name,
+      phaseDescription: meta.description,
+      timestamp: new Date(),
+      sessionId: newSessionId,
+    };
+    this._eventBus.emit(phaseEvent);
+
+    return newSessionId;
+  }
+
+  async fork(checkpointId: string, options?: CheckpointOptions): Promise<string> {
+    const newSessionId = await this.resume(checkpointId);
+
+    const checkpoint = await this._checkpointStore!.load(checkpointId);
+    if (!checkpoint) {
+      throw new Error(`Checkpoint not found: ${checkpointId}`);
+    }
+
+    const forkCheckpointId = randomUUID();
+    const forkCheckpoint: Checkpoint = {
+      id: forkCheckpointId,
+      sessionId: newSessionId,
+      parentId: checkpointId,
+      phase: this._phaseMachine.currentPhase,
+      phaseIndex: this._config.phases.indexOf(this._phaseMachine.currentPhase),
+      status: this._phaseMachine.status,
+      task: this._task ?? "",
+      tree: this._tree.toJSON(),
+      eventHistory: this._eventBus.history(),
+      costSummary: this._costTracker.summary,
+      timestamp: new Date(),
+      metadata: options?.metadata,
+    };
+
+    await this._checkpointStore!.save(forkCheckpoint, options);
+    return newSessionId;
+  }
+
+  async replay(checkpointId: string, overrides?: ReplayOverrides): Promise<string> {
+    if (!this._checkpointStore) {
+      throw new Error("No checkpoint store attached. Call attachCheckpointStore() first.");
+    }
+
+    const checkpoint = await this._checkpointStore.load(checkpointId);
+    if (!checkpoint) {
+      throw new Error(`Checkpoint not found: ${checkpointId}`);
+    }
+
+    if (overrides?.startPhase) {
+      const phaseIndex = this._config.phases.indexOf(overrides.startPhase);
+      if (phaseIndex === -1) {
+        throw new Error(`Phase not found: ${overrides.startPhase}`);
+      }
+      this._phaseMachine.restoreState(phaseIndex, checkpoint.status);
+    }
+
+    if (overrides?.task) {
+      this._task = overrides.task;
+    }
+
+    const newSessionId = await this.resume(checkpointId);
+
+    if (overrides?.task) {
+      this._task = overrides.task;
+    }
+
+    return newSessionId;
+  }
+
+  private emitTraceSpan(span: TraceSpan): void {
+    if (!this._sessionId) return;
+
+    const traceEvent: TraceSpanEvent = {
+      type: "trace_span",
+      span,
+      timestamp: new Date(),
+      sessionId: this._sessionId,
+    };
+    this._eventBus.emit(traceEvent);
   }
 }

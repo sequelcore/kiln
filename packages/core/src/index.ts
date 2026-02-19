@@ -7,6 +7,18 @@ export * from "./events/index.js";
 export * from "./cost/index.js";
 export * as engine from "./engine/index.js";
 
+// Re-export streaming types for runtime
+export type { StreamLevel } from "./events/index.js";
+export { EVENT_LEVEL_MAP, LEVEL_HIERARCHY } from "./events/index.js";
+
+// Error hierarchy re-exported for direct access by runtime
+export { KilnError } from "./engine/errors.js";
+export type { KilnErrorCode } from "./engine/errors.js";
+
+// Circuit breaker re-exported for direct access by runtime
+export { CircuitBreaker } from "./agents/circuit-breaker.js";
+export type { CircuitBreakerConfig, CircuitState } from "./agents/circuit-breaker.js";
+
 // Channel primitive types re-exported for direct access by runtime channel adapters
 export type {
   Channel,
@@ -29,6 +41,9 @@ export { GatewayLoaderError, parseGatewayYaml } from "./engine/gateway/gateway-l
 // App loader re-exported for direct access by runtime gateway
 export type { App, MemoryConfig, AppValidationError } from "./engine/composites/app.js";
 export { AppLoaderError, parseAppYaml, validateAppGraph } from "./engine/loader/app-loader.js";
+
+// Preset loader re-exported for direct access by tests and tooling
+export { PresetLoaderError, loadPresetConfig } from "./engine/loader/preset-loader.js";
 
 // Mode B config re-exported for direct access by runtime gateway
 export type {

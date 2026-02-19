@@ -53,6 +53,8 @@ export interface PhaseResult {
 export { PhaseMachine } from "./phase-machine.js";
 export { Orchestrator } from "./orchestrator.js";
 export type { ArchitectPlan, TaskEvaluation } from "./orchestrator.js";
+export type { Checkpoint, CheckpointOptions, ReplayOverrides } from "./checkpoint-types.js";
+export type { CheckpointStore } from "./checkpoint-store.js";
 export {
   ARCHITECT_PLAN_SCHEMA,
   ARCHITECT_EVALUATION_SCHEMA,

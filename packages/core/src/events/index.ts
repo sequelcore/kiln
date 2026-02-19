@@ -1,3 +1,36 @@
+import type { TraceSpan } from "./trace.js";
+
+/** Streaming granularity levels, from coarsest to finest */
+export type StreamLevel = "state" | "phase" | "tool" | "token";
+
+/** Map each event type to its streaming level */
+export const EVENT_LEVEL_MAP: Record<EventType, StreamLevel> = {
+  phase_changed: "phase",
+  approval_requested: "phase",
+  approval_received: "phase",
+  task_started: "phase",
+  task_completed: "phase",
+  tool_called: "tool",
+  tool_result: "tool",
+  thinking: "token",
+  verification_result: "tool",
+  cost_update: "state",
+  memory_saved: "state",
+  memory_recalled: "state",
+  memory_sync: "state",
+  worker_assigned: "phase",
+  error: "phase",
+  trace_span: "state",
+};
+
+/** Level hierarchy: subscribing to "phase" includes "state" + "phase" */
+export const LEVEL_HIERARCHY: Record<StreamLevel, readonly StreamLevel[]> = {
+  state: ["state"],
+  phase: ["state", "phase"],
+  tool: ["state", "phase", "tool"],
+  token: ["state", "phase", "tool", "token"],
+};
+
 /** All event types emitted by the orchestrator */
 export type EventType =
   | "phase_changed"
@@ -14,7 +47,8 @@ export type EventType =
   | "approval_requested"
   | "approval_received"
   | "worker_assigned"
-  | "error";
+  | "error"
+  | "trace_span";
 
 /** Base event interface */
 export interface KilnEvent {
@@ -142,6 +176,12 @@ export interface ErrorEvent extends KilnEvent {
   readonly taskId: string | null;
 }
 
+/** Trace span event */
+export interface TraceSpanEvent extends KilnEvent {
+  readonly type: "trace_span";
+  readonly span: TraceSpan;
+}
+
 /** Maps each event type to its corresponding event interface */
 export interface EventMap {
   phase_changed: PhaseChangedEvent;
@@ -159,6 +199,9 @@ export interface EventMap {
   approval_received: ApprovalReceivedEvent;
   worker_assigned: WorkerAssignedEvent;
   error: ErrorEvent;
+  trace_span: TraceSpanEvent;
 }
 
 export { EventBus } from "./event-bus.js";
+export { createTraceContext, startSpan, endSpan, addSpanEvent } from "./trace.js";
+export type { TraceSpan, SpanEvent, TraceContext } from "./trace.js";
