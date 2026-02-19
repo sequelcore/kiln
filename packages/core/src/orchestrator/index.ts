@@ -60,3 +60,9 @@ export {
   ARCHITECT_EVALUATION_SCHEMA,
   ARCHITECT_REVIEW_SCHEMA,
 } from "./schemas.js";
+
+// Execution strategies (Phase 2)
+export { createStrategy, SequentialStrategy, SupervisorStrategy, SwarmStrategy } from "./strategies/index.js";
+export type { ExecutionStrategy, StrategyContext, StrategyHandler } from "./strategies/index.js";
+export type { DelegationDecision, ReviewDecision, SupervisorConfig } from "./strategies/supervisor-strategy.js";
+export type { HandoffRequest, SwarmConfig } from "./strategies/swarm-strategy.js";

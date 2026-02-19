@@ -21,6 +21,9 @@ import { GateRunner, VerificationLoop } from "../verification/index.js";
 import type { VerificationResult, VerificationConfig } from "../verification/index.js";
 import type { FixHandler } from "../verification/index.js";
 import type { QualityGate } from "../engine/composites/team.js";
+import type { Team } from "../engine/composites/team.js";
+import { createStrategy } from "./strategies/index.js";
+import type { StrategyHandler } from "./strategies/index.js";
 import { createPolicy } from "../sandbox/index.js";
 import type { SandboxPolicy } from "../sandbox/index.js";
 import { ProviderRegistry } from "../agents/provider-registry.js";
@@ -73,7 +76,7 @@ export interface TaskEvaluation {
 export class Orchestrator {
   private readonly _eventBus: EventBus;
   private readonly _phaseMachine: PhaseMachine;
-  private readonly _costTracker: CostTracker;
+  private _costTracker: CostTracker;
   private readonly _config: OrchestratorConfig;
   private readonly _phaseHandlers = new Map<Phase, PhaseHandler>();
   private readonly _tree: TaskTree;
@@ -88,6 +91,9 @@ export class Orchestrator {
   private _autoCheckpointUnsubscribe: (() => void) | null = null;
   private _traceContext: TraceContext | null = null;
   private _activeSpans: Map<string, TraceSpan> = new Map();
+  private _isRestoring = false;
+  private _lastRestoredCheckpointId: string | null = null;
+  private _team: Team | null = null;
 
   constructor(config?: Partial<OrchestratorConfig>) {
     this._config = { ...DEFAULT_CONFIG, ...config };
@@ -249,6 +255,16 @@ export class Orchestrator {
     this._phaseHandlers.set(phase, handler);
   }
 
+  /** Set the team for strategy-based execution */
+  setTeam(team: Team): void {
+    this._team = team;
+  }
+
+  /** Current team (null if not configured) */
+  get team(): Team | null {
+    return this._team;
+  }
+
   /** Initialize sandbox policies for the given project directory */
   initSandbox(projectPath: string): void {
     for (const role of ["architect", "worker", "optimizer"]) {
@@ -358,18 +374,46 @@ export class Orchestrator {
 
   /**
    * Main implement phase loop.
-   * Selects batches from the tree, executes them via BatchExecutor,
-   * and records evidence + status updates.
-   * Returns all task nodes in their final state.
+   * When a team is configured, delegates to the appropriate strategy based on team mode.
+   * When no team is set, uses sequential behavior (backward compatible).
+   *
+   * Supports two handler signatures:
+   * - Legacy: (task, workerIndex) => BatchResult
+   * - Strategy: (task, workerIndex, agentName) => BatchResult
    */
   async runImplementLoop(
-    handler: (task: TaskNode, workerIndex: number) => Promise<BatchResult>,
+    handler: ((task: TaskNode, workerIndex: number) => Promise<BatchResult>) | StrategyHandler,
   ): Promise<TaskNode[]> {
+    if (this._team) {
+      const mode = this._team.mode ?? "sequential";
+      const strategy = createStrategy(mode);
+      const strategyHandler: StrategyHandler =
+        handler.length >= 3
+          ? (handler as StrategyHandler)
+          : (task, workerIndex, _agentName) =>
+              (handler as (task: TaskNode, workerIndex: number) => Promise<BatchResult>)(task, workerIndex);
+
+      return strategy.execute(
+        {
+          team: this._team,
+          eventBus: this._eventBus,
+          tree: this._tree,
+          batchExecutor: this._batchExecutor,
+          sessionId: this._sessionId ?? "",
+        },
+        strategyHandler,
+      );
+    }
+
+    // Legacy path: no team configured -- sequential behavior
     while (!this._tree.isComplete) {
       const batch = this._tree.selectBatch();
       if (batch.length === 0) break;
 
-      const results = await this._batchExecutor.execute(batch, handler);
+      const results = await this._batchExecutor.execute(
+        batch,
+        handler as (task: TaskNode, workerIndex: number) => Promise<BatchResult>,
+      );
 
       for (const result of results) {
         for (const evidence of result.evidence) {
@@ -405,6 +449,7 @@ export class Orchestrator {
     }
 
     const handler = (_event: PhaseChangedEvent): void => {
+      if (this._isRestoring) return;
       if (this._sessionId && this._task) {
         this.checkpoint().catch((err) => {
           console.error("Auto-checkpoint failed:", err);
@@ -430,7 +475,7 @@ export class Orchestrator {
     const checkpoint: Checkpoint = {
       id: checkpointId,
       sessionId: this._sessionId,
-      parentId: null,
+      parentId: this._lastRestoredCheckpointId,
       phase: this._phaseMachine.currentPhase,
       phaseIndex: this._config.phases.indexOf(this._phaseMachine.currentPhase),
       status: this._phaseMachine.status,
@@ -456,38 +501,46 @@ export class Orchestrator {
       throw new Error(`Checkpoint not found: ${checkpointId}`);
     }
 
-    const newSessionId = randomUUID();
-    this._sessionId = newSessionId;
-    this._task = checkpoint.task;
+    this._isRestoring = true;
+    try {
+      const newSessionId = randomUUID();
+      this._sessionId = newSessionId;
+      this._task = checkpoint.task;
+      this._lastRestoredCheckpointId = checkpointId;
 
-    this._phaseMachine.reset();
-    this._phaseMachine.restoreState(checkpoint.phaseIndex, checkpoint.status);
-    this._tree.loadFromJSON(checkpoint.tree);
+      this._phaseMachine.reset();
+      this._phaseMachine.restoreState(checkpoint.phaseIndex, checkpoint.status);
+      this._tree.loadFromJSON(checkpoint.tree);
 
-    for (const role of Object.keys(checkpoint.costSummary.byRole)) {
-      const usage = checkpoint.costSummary.byRole[role];
-      if (usage) {
-        this._costTracker.record(usage.role, usage.model, {
-          inputTokens: usage.inputTokens,
-          outputTokens: usage.outputTokens,
-          cacheReadTokens: usage.cacheReadTokens,
-          cacheWriteTokens: usage.cacheWriteTokens,
-        });
+      // M4: reset cost tracker before replaying checkpoint costs to avoid double-counting
+      this._costTracker = new CostTracker(this._eventBus);
+      for (const role of Object.keys(checkpoint.costSummary.byRole)) {
+        const usage = checkpoint.costSummary.byRole[role];
+        if (usage) {
+          this._costTracker.record(usage.role, usage.model, {
+            inputTokens: usage.inputTokens,
+            outputTokens: usage.outputTokens,
+            cacheReadTokens: usage.cacheReadTokens,
+            cacheWriteTokens: usage.cacheWriteTokens,
+          });
+        }
       }
+
+      const meta = phaseMeta(this._phaseMachine.currentPhase);
+      const phaseEvent: PhaseChangedEvent = {
+        type: "phase_changed",
+        phase: this._phaseMachine.currentPhase,
+        phaseName: meta.name,
+        phaseDescription: meta.description,
+        timestamp: new Date(),
+        sessionId: newSessionId,
+      };
+      this._eventBus.emit(phaseEvent);
+
+      return newSessionId;
+    } finally {
+      this._isRestoring = false;
     }
-
-    const meta = phaseMeta(this._phaseMachine.currentPhase);
-    const phaseEvent: PhaseChangedEvent = {
-      type: "phase_changed",
-      phase: this._phaseMachine.currentPhase,
-      phaseName: meta.name,
-      phaseDescription: meta.description,
-      timestamp: new Date(),
-      sessionId: newSessionId,
-    };
-    this._eventBus.emit(phaseEvent);
-
-    return newSessionId;
   }
 
   async fork(checkpointId: string, options?: CheckpointOptions): Promise<string> {
@@ -528,6 +581,10 @@ export class Orchestrator {
       throw new Error(`Checkpoint not found: ${checkpointId}`);
     }
 
+    // C1: call resume() first so phaseMachine.reset() + restoreState() run before overrides
+    const newSessionId = await this.resume(checkpointId);
+
+    // Apply startPhase override after resume() so it is not overwritten
     if (overrides?.startPhase) {
       const phaseIndex = this._config.phases.indexOf(overrides.startPhase);
       if (phaseIndex === -1) {
@@ -536,12 +593,7 @@ export class Orchestrator {
       this._phaseMachine.restoreState(phaseIndex, checkpoint.status);
     }
 
-    if (overrides?.task) {
-      this._task = overrides.task;
-    }
-
-    const newSessionId = await this.resume(checkpointId);
-
+    // M1: only apply task override after resume() (dead code before was overwritten)
     if (overrides?.task) {
       this._task = overrides.task;
     }
