@@ -1,9 +1,5 @@
 import type { ToolDefinition } from "./index.js";
-
-/** Minimal interface for tag-based tool filtering */
-export interface ToolTagFilter {
-  readonly toolTags: ReadonlySet<string>;
-}
+import type { DomainConfig } from "../domain/index.js";
 
 /** Centralized tool storage with tag-based filtering. */
 export class ToolRegistry {
@@ -46,8 +42,8 @@ export class ToolRegistry {
     });
   }
 
-  /** Shorthand for filterByTags using a ToolTagFilter. */
-  filterByDomain(config: ToolTagFilter): readonly ToolDefinition[] {
+  /** Shorthand for filterByTags using a DomainConfig. */
+  filterByDomain(config: Pick<DomainConfig, "toolTags">): readonly ToolDefinition[] {
     return this.filterByTags(config.toolTags);
   }
 
@@ -57,7 +53,7 @@ export class ToolRegistry {
   }
 
   /** Return universal + domain-specific tools, deduplicated. */
-  forDomain(config: ToolTagFilter): readonly ToolDefinition[] {
+  forDomain(config: Pick<DomainConfig, "toolTags">): readonly ToolDefinition[] {
     const seen = new Map<string, ToolDefinition>();
     for (const tool of this.universal()) {
       seen.set(tool.name, tool);

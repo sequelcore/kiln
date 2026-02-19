@@ -36,6 +36,7 @@ App (YAML-configured)
 | verification | `packages/core/src/verification/` | Gate runner: test, lint, type-check verification loop |
 | events | `packages/core/src/events/` | Event streaming (16 event types) |
 | cost | `packages/core/src/cost/` | Cost tracking: per-role, cache-aware pricing |
+| domain | `packages/core/src/domain/` | Domain config: tech stack detection, YAML schema/parser, DomainRegistry, marketplace infrastructure (package manifest, content hashing, security validation) |
 | gateway | `packages/runtime/src/gateway/` | Gateway runtime: multi-App loading, per-App isolation, Mode B routes, budget middleware, cross-app delegation, multi-tenant routes, WhatsApp webhooks, tenant admin CRUD |
 | session | `packages/runtime/src/session/` | Mode B session management: ModeBSession, ModeBOrchestrator, SessionRegistry |
 | tenant | `packages/runtime/src/tenant/` | Multi-tenant management: TenantRegistry (JSON persistence), system prompt builder, phone-to-tenant resolution |
@@ -73,7 +74,7 @@ type(scope): description
 
 Types: `feat`, `fix`, `refactor`, `chore`, `docs`, `test`
 
-Scopes: core, engine, orchestrator, agents, memory, tree, events, cost, sandbox, verification, runtime, gateway, session, tenant, channel, docs
+Scopes: core, engine, orchestrator, agents, domain, memory, tree, events, cost, sandbox, verification, runtime, gateway, session, tenant, channel, docs
 
 ## Key Files
 
@@ -109,6 +110,12 @@ Scopes: core, engine, orchestrator, agents, memory, tree, events, cost, sandbox,
 | `cost/cost-tracker.ts` | Per-role cache-aware cost tracking |
 | `sandbox/policies.ts` | Per-agent filesystem + network isolation policies |
 | `verification/verification-loop.ts` | Gate runner: test -> lint -> type-check loop |
+| `domain/index.ts` | Domain config: DomainConfig interface, QualityGate re-export, mergeDomainConfigs(), barrel exports |
+| `domain/domain-registry.ts` | DomainRegistry: register, detect by file patterns, detectAndMerge, loadInstalledDomains (configurable path) |
+| `domain/yaml-schema.ts` | DomainYaml interfaces + validateDomainYaml() |
+| `domain/yaml-parser.ts` | parseDomainYaml(), loadDomainYaml(), DomainYamlError |
+| `domain/marketplace.ts` | Package manifest, content hashing, security validation, default annotations, file path validation |
+| `domain/schema/domain.schema.json` | JSON Schema draft-07 for domain.yaml IDE autocomplete |
 
 ### Runtime (`packages/runtime/src/`)
 

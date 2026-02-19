@@ -1,5 +1,6 @@
 export * from "./orchestrator/index.js";
 export * from "./agents/index.js";
+export * from "./domain/index.js";
 export * from "./memory/index.js";
 export * from "./tree/index.js";
 export * from "./events/index.js";
