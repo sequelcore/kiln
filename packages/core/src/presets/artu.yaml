@@ -1,0 +1,222 @@
+# A.R.T.U. Preset -- autonomous trading orchestration on the engine
+# Algorithmic Reactive Trading Unit
+# 3 agents, 6-phase cyclical workflow, 26 MCP tools, scoped memory
+
+name: artu
+channels: [api, websocket, cli]
+
+memory:
+  scopes: [user, "agent:director", "agent:worker", "agent:optimizer", "project:default"]
+  backend: sqlite+fts5
+
+router:
+  rules: []
+  fallback: trading
+
+teams:
+  trading:
+    agents:
+      director:
+        tier: reasoning
+        tools: []
+        structured: true
+      worker:
+        tier: coding
+        tools:
+          # Market Intelligence (5)
+          - artu_scan_market
+          - artu_get_ticker
+          - artu_get_order_book
+          - artu_get_historical_candles
+          - artu_get_funding_rates
+          # ML & Features (4)
+          - artu_compute_features
+          - artu_get_current_signal
+          - artu_get_model_probabilities
+          - artu_get_feature_importance
+          # Regime Detection (3)
+          - artu_get_current_regime
+          - artu_get_transition_probabilities
+          - artu_predict_next_regime
+          # Risk & Portfolio (7)
+          - artu_get_portfolio_state
+          - artu_get_correlation_matrix
+          - artu_calculate_position_size
+          - artu_get_risk_parameters
+          - artu_get_trades
+          - artu_get_daily_pnl
+          - artu_get_performance_attribution
+          # Execution Directives (4)
+          - artu_set_watchlist
+          - artu_set_allocation
+          - artu_set_risk_params
+          - artu_override_signal
+          # Memory (3)
+          - artu_recall_similar_regime
+          - artu_record_decision
+          - artu_get_lessons
+        count: 2
+        sandbox: true
+      optimizer:
+        tier: fast
+        tools: []
+
+    workflow:
+      phases: [scan, analyze, thesis, allocate, rebalance, monitor]
+      gates:
+        thesis:
+          requires: [human_approval]
+        rebalance:
+          requires: [directive_validated]
+        monitor:
+          requires: [positions_verified]
+      maxIterations: 3
+
+    capabilities:
+      # Market Intelligence (5)
+      - name: artu_scan_market
+        description: Batch ticker scan returning top-N assets by volume and price change
+        tags: [market]
+        annotations:
+          readOnly: true
+      - name: artu_get_ticker
+        description: Current price, bid/ask spread, and 24h statistics for a symbol
+        tags: [market]
+        annotations:
+          readOnly: true
+      - name: artu_get_order_book
+        description: Order book depth with best bid/ask and liquidity estimate
+        tags: [market]
+        annotations:
+          readOnly: true
+      - name: artu_get_historical_candles
+        description: OHLCV candle history for a symbol at specified interval
+        tags: [market]
+        annotations:
+          readOnly: true
+      - name: artu_get_funding_rates
+        description: Perpetual futures funding rates for a symbol
+        tags: [market]
+        annotations:
+          readOnly: true
+
+      # ML & Features (4)
+      - name: artu_compute_features
+        description: Run full 45-feature pipeline and return feature vector summary
+        tags: [ml]
+        annotations:
+          readOnly: true
+      - name: artu_get_current_signal
+        description: Generate BUY/SELL/HOLD signal with confidence from ML model
+        tags: [ml]
+        annotations:
+          readOnly: true
+      - name: artu_get_model_probabilities
+        description: Raw predict_proba output with P(HOLD), P(BUY), P(SELL) per latest bar
+        tags: [ml]
+        annotations:
+          readOnly: true
+      - name: artu_get_feature_importance
+        description: LightGBM feature importance ranking from trained model
+        tags: [ml]
+        annotations:
+          readOnly: true
+
+      # Regime Detection (3)
+      - name: artu_get_current_regime
+        description: HMM regime detection with confidence score (5-state model)
+        tags: [regime]
+        annotations:
+          readOnly: true
+      - name: artu_get_transition_probabilities
+        description: HMM state transition probability matrix for next regime prediction
+        tags: [regime]
+        annotations:
+          readOnly: true
+      - name: artu_predict_next_regime
+        description: Most likely next market regime based on HMM transition model
+        tags: [regime]
+        annotations:
+          readOnly: true
+
+      # Risk & Portfolio (7)
+      - name: artu_get_portfolio_state
+        description: Current portfolio status including open positions, P&L, and capital
+        tags: [portfolio]
+        annotations:
+          readOnly: true
+      - name: artu_get_correlation_matrix
+        description: Compute return correlations across multiple symbols
+        tags: [portfolio]
+        annotations:
+          readOnly: true
+      - name: artu_calculate_position_size
+        description: ATR-based position sizing with Kelly Criterion and streak adjustments
+        tags: [portfolio]
+        annotations:
+          readOnly: true
+      - name: artu_get_risk_parameters
+        description: Current risk configuration including max trades, risk percentage, and stops
+        tags: [portfolio]
+        annotations:
+          readOnly: true
+      - name: artu_get_trades
+        description: Trade history with symbol and limit filters
+        tags: [portfolio]
+        annotations:
+          readOnly: true
+      - name: artu_get_daily_pnl
+        description: Daily P&L summary with win rate and profit factor
+        tags: [portfolio]
+        annotations:
+          readOnly: true
+      - name: artu_get_performance_attribution
+        description: Per-symbol and per-regime P&L breakdown from trade history
+        tags: [portfolio]
+        annotations:
+          readOnly: true
+
+      # Execution Directives (4)
+      - name: artu_set_watchlist
+        description: Update the active trading watchlist with target symbols
+        tags: [execution]
+      - name: artu_set_allocation
+        description: Set maximum capital allocation percentage for a symbol
+        tags: [execution]
+      - name: artu_set_risk_params
+        description: Override risk parameters (stop ATR multiplier, position cap) per symbol
+        tags: [execution]
+      - name: artu_override_signal
+        description: Override ML signal with manual directive (block_buy, force_sell, reduce_size)
+        tags: [execution]
+        annotations:
+          destructive: true
+
+      # Memory (3)
+      - name: artu_recall_similar_regime
+        description: Search decision memory for similar past market regime contexts
+        tags: [memory]
+        annotations:
+          readOnly: true
+      - name: artu_record_decision
+        description: Persist a strategic decision with reasoning to decision memory
+        tags: [memory]
+      - name: artu_get_lessons
+        description: Search extracted trading patterns and lessons from past outcomes
+        tags: [memory]
+        annotations:
+          readOnly: true
+
+    qualityGates:
+      - name: model_validation
+        command: "artu validate --model"
+        description: CPCV validation (PBO < 10%, OOS Sharpe > 0.3, Deflated Sharpe > 0.5)
+        required: true
+      - name: paper_trading_metrics
+        command: "artu validate --paper"
+        description: Paper trading thresholds (Sharpe > 1.0, drawdown < 12%, win rate > 55%)
+        required: true
+      - name: directive_schema
+        command: "artu validate --directive"
+        description: TradingDirective JSON schema validation and allocation sum constraint
+        required: true
