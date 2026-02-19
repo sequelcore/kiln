@@ -3,7 +3,8 @@
 
 import { Hono } from "hono";
 import type { App } from "@kilnai/core";
-import type { GatewayAppBinding } from "@kilnai/core";
+import type { GatewayAppBinding, SecurityConfig, AuditLog } from "@kilnai/core";
+import { PromptScanner } from "@kilnai/core";
 import type { ChannelRegistry } from "../channels/channel-registry.js";
 import type { ModeBAppRuntime } from "./mode-b-routes.js";
 import { createModeBRoutes } from "./mode-b-routes.js";
@@ -15,6 +16,8 @@ import type { WhatsAppWebhookConfig } from "./whatsapp-webhook-routes.js";
 import { createWhatsAppWebhookRoutes } from "./whatsapp-webhook-routes.js";
 import type { TenantAdminRoutesConfig } from "./tenant-admin-routes.js";
 import { createTenantAdminRoutes } from "./tenant-admin-routes.js";
+import { HealthRegistry } from "./health-registry.js";
+import { securityMiddleware } from "./security-middleware.js";
 
 export interface LoadedApp {
   readonly name: string;
@@ -31,20 +34,48 @@ export interface GatewayServerConfig {
   readonly port: number;
   readonly apps: readonly LoadedApp[];
   readonly delegationRegistry?: DelegationRegistry;
+  readonly healthRegistry?: HealthRegistry;
+  readonly startTime?: number;
+  readonly securityConfig?: SecurityConfig;
+  readonly auditLog?: AuditLog;
 }
 
 export function createGatewayApp(config: GatewayServerConfig): Hono {
   const app = new Hono();
 
+  // Security middleware: prompt injection scanning (opt-in via securityConfig)
+  if (config.securityConfig?.promptInjection?.enabled) {
+    const scanner = new PromptScanner(config.securityConfig.promptInjection);
+    app.use("*", securityMiddleware(scanner, config.auditLog, config.securityConfig.promptInjection));
+  }
+
   // Health endpoint
-  app.get("/health", (c) => {
+  app.get("/health", async (c) => {
+    const startTime = config.startTime ?? Date.now();
+    const uptime = Math.floor((Date.now() - startTime) / 1000);
+
     const appStatuses = config.apps.map((loadedApp) => ({
       name: loadedApp.name,
       status: "ok" as const,
       channels: loadedApp.binding.channels.map((ch) => ch.type),
       multiTenant: loadedApp.binding.channels.some((ch) => ch.multiTenant === true),
     }));
-    return c.json({ status: "ok", apps: appStatuses });
+
+    // Check subsystem health if registry is provided
+    let subsystems: Record<string, { status: "ok" | "degraded" | "error"; details?: Record<string, unknown> }> = {};
+    let overallStatus: "ok" | "degraded" | "error" = "ok";
+
+    if (config.healthRegistry) {
+      subsystems = await config.healthRegistry.checkAll();
+      overallStatus = HealthRegistry.aggregateStatus(subsystems);
+    }
+
+    return c.json({
+      status: overallStatus,
+      uptime,
+      apps: appStatuses,
+      subsystems,
+    });
   });
 
   // Per-app routes
