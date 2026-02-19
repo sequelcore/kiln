@@ -1,6 +1,6 @@
 # Kiln
 
-Domain-agnostic AI orchestration engine. AGPL-3.0.
+Domain-agnostic AI orchestration engine. MIT licensed.
 
 ## Packages
 
