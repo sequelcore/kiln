@@ -20,9 +20,15 @@ teams:
   development:
     agents:
       architect:
+        name: Aria
+        role: Senior Architect
+        goal: Design robust, maintainable solutions with minimal complexity
         tier: reasoning
         tools: []
       worker:
+        name: Marcus
+        role: Implementation Specialist
+        goal: Write clean, well-tested code that follows team conventions
         tier: coding
         tools: [code_edit]
         count: 2
@@ -44,6 +50,9 @@ teams:
   hotfix:
     agents:
       fixer:
+        name: FixBot
+        role: Hotfix Specialist
+        goal: Quickly fix production issues
         tier: coding
         tools: [code_edit]
     workflow:
@@ -71,15 +80,20 @@ describe("parseAppYaml", () => {
     expect(Object.keys(app.teams)).toContain("hotfix");
   });
 
-  it("correctly maps agents with tiers and tools", () => {
+  it("correctly maps agents with identity fields and tiers", () => {
     const app = parseAppYaml(SAMPLE_YAML);
     const devTeam = app.teams["development"]!;
     const architect = devTeam.agents["architect"]!;
-    expect(architect.name).toBe("architect");
+    expect(architect.name).toBe("Aria");
+    expect(architect.role).toBe("Senior Architect");
+    expect(architect.goal).toBe("Design robust, maintainable solutions with minimal complexity");
     expect(architect.tier).toBe("reasoning");
     expect(architect.tools).toEqual([]);
 
     const worker = devTeam.agents["worker"]!;
+    expect(worker.name).toBe("Marcus");
+    expect(worker.role).toBe("Implementation Specialist");
+    expect(worker.goal).toBe("Write clean, well-tested code that follows team conventions");
     expect(worker.tier).toBe("coding");
     expect(worker.tools).toEqual(["code_edit"]);
     expect(worker.count).toBe(2);
@@ -134,6 +148,9 @@ router:
   rules: []
   fallback: main
   classifier:
+    name: Classifier
+    role: Intent Classifier
+    goal: Route requests to appropriate teams
     tier: fast
     tools: []
 
@@ -141,6 +158,9 @@ teams:
   main:
     agents:
       worker:
+        name: Worker
+        role: Implementation Specialist
+        goal: Write clean code
         tier: coding
         tools: []
     workflow:
@@ -152,7 +172,9 @@ teams:
     const app = parseAppYaml(yaml);
     expect(app.router.classifier).toBeDefined();
     expect(app.router.classifier!.tier).toBe("fast");
-    expect(app.router.classifier!.name).toBe("classifier");
+    expect(app.router.classifier!.name).toBe("Classifier");
+    expect(app.router.classifier!.role).toBe("Intent Classifier");
+    expect(app.router.classifier!.goal).toBe("Route requests to appropriate teams");
   });
 
   it("handles memory config", () => {
@@ -180,6 +202,9 @@ teams:
   solo:
     agents:
       worker:
+        name: Solo
+        role: Generalist
+        goal: Handle all tasks
         tier: coding
         tools: []
     workflow:
@@ -209,6 +234,9 @@ teams:
   solo:
     agents:
       worker:
+        name: Solo
+        role: Generalist
+        goal: Handle all tasks
         tier: coding
         tools: []
     workflow:
@@ -240,6 +268,9 @@ teams:
   solo:
     agents:
       worker:
+        name: Solo
+        role: Generalist
+        goal: Handle all tasks
         tier: coding
         tools: []
     workflow:
@@ -254,6 +285,99 @@ teams:
 `;
     const app = parseAppYaml(yaml);
     expect(app.teams["solo"]!.qualityGates[0]!.name).toBe("lint");
+  });
+
+  it("loads backstory and instructions from agent YAML", () => {
+    const yaml = `
+name: identity-app
+channels: [cli]
+
+memory:
+  scopes: [user]
+  backend: sqlite+fts5
+
+router:
+  rules: []
+  fallback: solo
+
+teams:
+  solo:
+    agents:
+      writer:
+        name: Aria
+        role: Senior Architect
+        goal: Design robust solutions
+        tier: reasoning
+        tools: []
+        backstory: Pragmatic architect who values simplicity.
+        instructions: Always write tests before implementation.
+    workflow:
+      phases: [work]
+      gates: {}
+    capabilities: []
+    qualityGates: []
+`;
+    const app = parseAppYaml(yaml);
+    const agent = app.teams["solo"]!.agents["writer"]!;
+    expect(agent.backstory).toBe("Pragmatic architect who values simplicity.");
+    expect(agent.instructions).toBe("Always write tests before implementation.");
+  });
+
+  it("trims whitespace from backstory and instructions", () => {
+    const yaml = `
+name: trim-app
+channels: [cli]
+
+memory:
+  scopes: [user]
+  backend: sqlite+fts5
+
+router:
+  rules: []
+  fallback: solo
+
+teams:
+  solo:
+    agents:
+      writer:
+        name: Aria
+        role: Senior Architect
+        goal: Design robust solutions
+        tier: reasoning
+        tools: []
+        backstory: "  padded backstory  "
+        instructions: "  padded instructions  "
+    workflow:
+      phases: [work]
+      gates: {}
+    capabilities: []
+    qualityGates: []
+`;
+    const app = parseAppYaml(yaml);
+    const agent = app.teams["solo"]!.agents["writer"]!;
+    expect(agent.backstory).toBe("padded backstory");
+    expect(agent.instructions).toBe("padded instructions");
+  });
+
+  it("throws AppLoaderError when agent role is whitespace-only", () => {
+    const yaml = `
+name: bad-role
+channels: [cli]
+memory:
+  scopes: [user]
+  backend: sqlite+fts5
+router:
+  rules: []
+  fallback: t
+teams:
+  t:
+    agents:
+      w: { name: W, role: "   ", goal: Work, tier: coding, tools: [] }
+    workflow: { phases: [work], gates: {} }
+    capabilities: []
+    qualityGates: []
+`;
+    expect(() => parseAppYaml(yaml)).toThrow(AppLoaderError);
   });
 
   it("throws AppLoaderError for invalid YAML structure", () => {
@@ -272,7 +396,7 @@ router:
 teams:
   main:
     agents:
-      w: { tier: coding, tools: [] }
+      w: { name: W, role: Worker, goal: Work, tier: coding, tools: [] }
     workflow: { phases: [work], gates: {} }
     capabilities: []
     qualityGates: []
@@ -293,7 +417,70 @@ router:
 teams:
   t:
     agents:
-      w: { tier: superfast, tools: [] }
+      w: { name: W, role: Worker, goal: Work, tier: superfast, tools: [] }
+    workflow: { phases: [work], gates: {} }
+    capabilities: []
+    qualityGates: []
+`;
+    expect(() => parseAppYaml(yaml)).toThrow(AppLoaderError);
+  });
+
+  it("throws AppLoaderError when agent role is missing", () => {
+    const yaml = `
+name: bad-agent
+channels: [cli]
+memory:
+  scopes: [user]
+  backend: sqlite+fts5
+router:
+  rules: []
+  fallback: t
+teams:
+  t:
+    agents:
+      w: { name: W, goal: Work, tier: coding, tools: [] }
+    workflow: { phases: [work], gates: {} }
+    capabilities: []
+    qualityGates: []
+`;
+    expect(() => parseAppYaml(yaml)).toThrow(AppLoaderError);
+  });
+
+  it("throws AppLoaderError when agent goal is missing", () => {
+    const yaml = `
+name: bad-agent
+channels: [cli]
+memory:
+  scopes: [user]
+  backend: sqlite+fts5
+router:
+  rules: []
+  fallback: t
+teams:
+  t:
+    agents:
+      w: { name: W, role: Worker, tier: coding, tools: [] }
+    workflow: { phases: [work], gates: {} }
+    capabilities: []
+    qualityGates: []
+`;
+    expect(() => parseAppYaml(yaml)).toThrow(AppLoaderError);
+  });
+
+  it("throws AppLoaderError when agent name is missing", () => {
+    const yaml = `
+name: bad-agent
+channels: [cli]
+memory:
+  scopes: [user]
+  backend: sqlite+fts5
+router:
+  rules: []
+  fallback: t
+teams:
+  t:
+    agents:
+      w: { role: Worker, goal: Work, tier: coding, tools: [] }
     workflow: { phases: [work], gates: {} }
     capabilities: []
     qualityGates: []

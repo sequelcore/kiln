@@ -25,12 +25,17 @@ export class AppLoaderError extends Error {
 // ---------------------------------------------------------------------------
 
 interface RawAgent {
+  name?: unknown;        // Persona name (e.g., "Aria") -- REQUIRED
   tier?: unknown;
   tools?: unknown;
-  systemPrompt?: unknown;
+  role?: unknown;        // Expertise / function -- REQUIRED
+  goal?: unknown;        // What agent is trying to achieve -- REQUIRED
+  backstory?: unknown;   // Personality, perspective -- optional
+  instructions?: unknown; // Operating rules and constraints -- optional
   structured?: unknown;
   count?: unknown;
   sandbox?: unknown;
+  // systemPrompt REMOVED -- replaced by auto-assembled prompt
 }
 
 interface RawGate {
@@ -101,14 +106,36 @@ interface RawApp {
 
 const VALID_TIERS: AgentTier[] = ["reasoning", "coding", "fast"];
 
-function mapAgent(name: string, raw: RawAgent, path: string): { agent: Agent; errors: { field: string; message: string }[] } {
+function mapAgent(identifier: string, raw: RawAgent, path: string): { agent: Agent; errors: { field: string; message: string }[] } {
   const errors: { field: string; message: string }[] = [];
 
+  // name: persona name from YAML (required) -- falls back to identifier for safety
+  const name = typeof raw.name === "string" && raw.name.trim() !== ""
+    ? raw.name.trim()
+    : identifier;
+  if (!raw.name || typeof raw.name !== "string" || raw.name.trim() === "") {
+    errors.push({ field: `${path}.name`, message: "must be a non-empty string (persona name)" });
+  }
+
+  // role: expertise / function (required)
+  const role = typeof raw.role === "string" ? raw.role.trim() : "";
+  if (!raw.role || typeof raw.role !== "string" || raw.role.trim() === "") {
+    errors.push({ field: `${path}.role`, message: "must be a non-empty string (expertise/function)" });
+  }
+
+  // goal: what agent is trying to achieve (required)
+  const goal = typeof raw.goal === "string" ? raw.goal.trim() : "";
+  if (!raw.goal || typeof raw.goal !== "string" || raw.goal.trim() === "") {
+    errors.push({ field: `${path}.goal`, message: "must be a non-empty string (what agent achieves)" });
+  }
+
+  // tier: model class (required)
   const tier = raw.tier;
   if (!tier || !VALID_TIERS.includes(tier as AgentTier)) {
     errors.push({ field: `${path}.tier`, message: `must be one of: ${VALID_TIERS.join(", ")}` });
   }
 
+  // tools: capability references (can be [])
   const tools: string[] = [];
   if (raw.tools !== undefined) {
     if (!Array.isArray(raw.tools)) {
@@ -126,9 +153,12 @@ function mapAgent(name: string, raw: RawAgent, path: string): { agent: Agent; er
 
   const agent: Agent = {
     name,
+    role,
+    goal,
     tier: (tier as AgentTier) ?? "coding",
     tools,
-    ...(typeof raw.systemPrompt === "string" ? { systemPrompt: raw.systemPrompt } : {}),
+    ...(typeof raw.backstory === "string" ? { backstory: raw.backstory.trim() } : {}),
+    ...(typeof raw.instructions === "string" ? { instructions: raw.instructions.trim() } : {}),
     ...(typeof raw.structured === "boolean" ? { structured: raw.structured } : {}),
     ...(typeof raw.count === "number" ? { count: raw.count } : {}),
     ...(typeof raw.sandbox === "boolean" ? { sandbox: raw.sandbox } : {}),
