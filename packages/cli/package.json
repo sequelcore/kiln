@@ -1,0 +1,17 @@
+{
+  "name": "@kiln/cli",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "build": "bun build src/index.ts --outdir dist --target node",
+    "typecheck": "tsc --noEmit",
+    "test": "bunx vitest run"
+  },
+  "dependencies": {
+    "@kiln/core": "workspace:*",
+    "@kiln/runtime": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.26.0",
+    "hono": "^4.7.0"
+  }
+}
