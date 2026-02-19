@@ -32,9 +32,10 @@ App (YAML-configured)
 | agents | `packages/core/src/agents/` | Agent implementation: provider adapters (Anthropic, OpenAI, DeepSeek, Ollama) |
 | memory | `packages/core/src/memory/` | Memory implementation: scoped storage (user, agent, team, project, org) |
 | tree | `packages/core/src/tree/` | Task implementation: tree manager (scoring, deepen/branch/prune, batch selection) |
-| sandbox | `packages/core/src/sandbox/` | Per-agent isolation: filesystem policies, network proxy |
+| sandbox | `packages/core/src/sandbox/` | Per-agent isolation: filesystem policies, network proxy, tenant FS jails |
 | verification | `packages/core/src/verification/` | Gate runner: test, lint, type-check verification loop |
-| events | `packages/core/src/events/` | Event streaming (16 event types) |
+| events | `packages/core/src/events/` | Event streaming (26 event types including 5 security events) |
+| security | `packages/core/src/security/` | Security: audit log (JSONL + hash chaining), prompt injection detection (2-tier), encrypted secrets (AES-256-GCM), Guardian review, self-audit |
 | cost | `packages/core/src/cost/` | Cost tracking: per-role, cache-aware pricing |
 | domain | `packages/core/src/domain/` | Domain config: tech stack detection, YAML schema/parser, DomainRegistry, marketplace infrastructure (package manifest, content hashing, security validation) |
 | gateway | `packages/runtime/src/gateway/` | Gateway runtime: multi-App loading, per-App isolation, Mode B routes, budget middleware, cross-app delegation, multi-tenant routes, WhatsApp webhooks, tenant admin CRUD |
@@ -74,7 +75,7 @@ type(scope): description
 
 Types: `feat`, `fix`, `refactor`, `chore`, `docs`, `test`
 
-Scopes: core, engine, orchestrator, agents, domain, memory, tree, events, cost, sandbox, verification, runtime, gateway, session, tenant, channel, docs
+Scopes: core, engine, orchestrator, agents, domain, memory, tree, events, cost, sandbox, verification, security, runtime, gateway, session, tenant, channel, docs
 
 ## Key Files
 
@@ -108,14 +109,14 @@ Scopes: core, engine, orchestrator, agents, domain, memory, tree, events, cost, 
 | `agents/infrastructure/openai.ts` | OpenAI adapter |
 | `agents/infrastructure/deepseek.ts` | DeepSeek adapter |
 | `agents/infrastructure/ollama.ts` | Ollama adapter (local models) |
-| `memory/sqlite-store.ts` | SQLite + FTS5 memory store (configurable decay + auto-compaction) |
+| `memory/sqlite-store.ts` | SQLite + FTS5 memory store (configurable decay + auto-compaction + tenant namespace enforcement) |
 | `memory/decay-curves.ts` | Pure decay functions: exponential, linear, step curves |
 | `memory/compactor.ts` | MemoryCompactor: tag-based grouping, deterministic summarization, archival |
 | `memory/project-store.ts` | Git-synced gzipped JSONL project memory |
 | `tree/task-tree.ts` | Task tree: scoring, selection, deepen/branch/prune |
-| `events/event-bus.ts` | Event emission and subscription (21 event types) |
+| `events/event-bus.ts` | Event emission and subscription (26 event types) |
 | `cost/cost-tracker.ts` | Per-role cache-aware cost tracking |
-| `sandbox/policies.ts` | Per-agent filesystem + network isolation policies |
+| `sandbox/policies.ts` | Per-agent filesystem + network isolation policies + createTenantSandbox() |
 | `verification/verification-loop.ts` | Gate runner: test -> lint -> type-check loop |
 | `domain/index.ts` | Domain config: DomainConfig interface, QualityGate re-export, mergeDomainConfigs(), barrel exports |
 | `domain/domain-registry.ts` | DomainRegistry: register, detect by file patterns, detectAndMerge, loadInstalledDomains (configurable path) |
@@ -123,6 +124,12 @@ Scopes: core, engine, orchestrator, agents, domain, memory, tree, events, cost, 
 | `domain/yaml-parser.ts` | parseDomainYaml(), loadDomainYaml(), DomainYamlError |
 | `domain/marketplace.ts` | Package manifest, content hashing, security validation, default annotations, file path validation |
 | `domain/schema/domain.schema.json` | JSON Schema draft-07 for domain.yaml IDE autocomplete |
+| `security/types.ts` | Security interfaces: AuditLog, SecretStore, PromptScanResult, GuardianReviewResult, SecurityConfig |
+| `security/audit-log.ts` | JsonlAuditLog: append-only JSONL + SHA-256 hash chaining, query, verifyChain() |
+| `security/prompt-scanner.ts` | PromptScanner: Tier 1 heuristic (20+ regex patterns) + Tier 2 deep LLM scan |
+| `security/secret-store.ts` | AesSecretStore: AES-256-GCM encryption, PBKDF2 key derivation, atomic key rotation |
+| `security/guardian.ts` | Guardian: secondary LLM review for destructive capabilities |
+| `security/self-audit.ts` | SelfAudit: periodic security health checks (secrets, audit chain, tenant isolation, config) |
 
 ### Runtime (`packages/runtime/src/`)
 
@@ -143,7 +150,8 @@ Scopes: core, engine, orchestrator, agents, domain, memory, tree, events, cost, 
 | `session/mode-b-session.ts` | ModeBSession: conversation history, idle timeout, tenant scoping |
 | `session/mode-b-orchestrator.ts` | ModeBOrchestrator.processMessage(): provider adapter call + memory |
 | `session/session-registry.ts` | SessionRegistry: multi-user session management + cleanup |
-| `tenant/tenant-registry.ts` | TenantRegistry: in-memory Map + JSON persistence, CRUD |
+| `gateway/security-middleware.ts` | Hono middleware: prompt injection scanning on incoming messages |
+| `tenant/tenant-registry.ts` | TenantRegistry: in-memory Map + JSON persistence, CRUD, optional encrypted secrets |
 | `tenant/system-prompt-builder.ts` | buildTenantSystemPrompt(): TenantConfig -> system prompt |
 | `channels/event-bridge.ts` | EventBridge: sync EventBus -> AsyncIterable for Channel.stream() |
 | `channels/channel-registry.ts` | ChannelRegistry: multi-channel management (broadcast + targeted) |

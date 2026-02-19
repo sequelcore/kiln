@@ -291,12 +291,12 @@ agents:
 
 | Task | Description | Inspired By |
 |------|-------------|-------------|
-| **Guardian review** | Add optional secondary LLM review for destructive operations. Before executing any capability tagged `destructive: true`, send the action + context to a reviewer model. Block if reviewer flags risk. Configurable per-tenant. | PocketPaw Guardian AI |
-| **Prompt injection detection** | Two-tier detection: fast regex heuristics for known injection patterns, optional LLM-based deep scan for sophisticated attacks. Run on all user inputs before they reach the agent. | PocketPaw 2-tier scanner |
-| **Encrypted secrets** | Encrypt API keys and credentials at rest using AES-256. Decrypt on-demand in memory only. Never write plaintext secrets to disk or logs. Add `kiln secrets` CLI commands for management. | PocketPaw `secrets.enc` |
-| **Audit logging** | Append-only JSONL audit log for all agent actions, capability executions, memory operations, and administrative changes. Include tenant ID, timestamp, action type, and outcome. Tamper-evident via hash chaining. | PocketPaw audit logging |
-| **Tenant isolation enforcement** | Harden memory namespace isolation. Add runtime assertions that prevent cross-tenant memory access. File system jail per tenant. Network policy per tenant. | Multi-tenant security best practices |
-| **Self-audit daemon** | Scheduled health check that validates: secrets encryption status, audit log integrity, tenant isolation, sandbox policy compliance. Generate JSON reports. | PocketPaw self-audit |
+| **Guardian review** | COMPLETE -- Guardian class reviews destructive capabilities via secondary LLM. Configurable blockOnError, bypassForReadOnly. Emits guardian_reviewed events, logs to audit trail. | PocketPaw Guardian AI |
+| **Prompt injection detection** | COMPLETE -- PromptScanner with Tier 1 heuristic (20+ regex patterns, 10 categories) and Tier 2 deep LLM scan. Gateway security middleware blocks/warns on detection. | PocketPaw 2-tier scanner |
+| **Encrypted secrets** | COMPLETE -- AesSecretStore with AES-256-GCM, PBKDF2 key derivation, atomic key rotation. TenantRegistry encrypts sensitive fields automatically. | PocketPaw `secrets.enc` |
+| **Audit logging** | COMPLETE -- JsonlAuditLog with SHA-256 hash chaining, 16 audit actions, query filtering, verifyChain() tamper detection. | PocketPaw audit logging |
+| **Tenant isolation enforcement** | COMPLETE -- SqliteMemoryStore tenant namespace enforcement (auto-tagging, cross-tenant blocking). Per-tenant FS jail via createTenantSandbox(). | Multi-tenant security best practices |
+| **Self-audit daemon** | COMPLETE -- SelfAudit checks secrets encryption, audit chain integrity, tenant isolation, config validation. Produces SecurityAuditReport JSON. | PocketPaw self-audit |
 
 **Definition of Done:** No capability tagged `destructive` executes without Guardian review. All user inputs are scanned. Secrets are encrypted at rest. Audit trail is tamper-evident. Tenant isolation is enforced at runtime.
 
