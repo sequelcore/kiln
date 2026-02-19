@@ -15,7 +15,7 @@ A domain-agnostic AI orchestration engine for building multi-agent, multi-tenant
 - **Scoped memory** -- user, agent, team, project, and org scopes backed by SQLite + FTS5
 - **Task tree** -- scoring, selection, deepen/branch/prune operations for structured exploration
 - **Cross-app delegation** -- apps can delegate tasks to other apps with schema contracts
-- **Domain detection** -- tech stack detection via file patterns, YAML-configured domain configs, and domain marketplace with security validation
+- **Domain detection and marketplace** -- auto-detect tech stacks from file patterns, distribute domain configs as packages with content hashing and security validation
 - **Cost tracking** -- per-role, cache-aware token usage and pricing
 
 ## Quick Start
@@ -78,6 +78,61 @@ teams:
         required: true
 ```
 
+## Domain Configuration
+
+Kiln auto-detects your project's tech stack and applies the right tool tags, quality gates, and examples. Define domain configs in YAML:
+
+```yaml
+name: react-ts
+displayName: React + TypeScript
+detectPatterns: [tsconfig.json, package.json]
+toolTags: [typescript, react, css, testing]
+
+qualityGates:
+  - name: typecheck
+    command: "tsc --noEmit"
+    description: Type-check TypeScript source
+    required: true
+  - name: test
+    command: "vitest run"
+    description: Run test suite
+    required: true
+  - name: lint
+    command: "biome check"
+    description: Lint and format
+    required: true
+```
+
+The `DomainRegistry` detects configs from file patterns and merges them for multi-stack projects:
+
+```typescript
+import { DomainRegistry, loadDomainYaml } from "@kiln/core";
+
+const registry = new DomainRegistry({
+  builtinConfigs: [loadDomainYaml("./domains/react-ts.yaml")],
+});
+
+const config = registry.detectAndMerge("/path/to/project");
+// -> merged DomainConfig with union of tool tags and quality gates
+```
+
+### Marketplace
+
+Domain configs can be distributed as packages with built-in security:
+
+- **Content hashing** -- SHA-256 integrity verification via `computeContentHash()` / `verifyContentHash()`
+- **Security validation** -- blocks forbidden lifecycle scripts, detects path traversal and absolute paths
+- **Default annotations** -- unannotated capabilities default to `destructive: true` for safety
+- **File validation** -- only allows standard extensions (`.yaml`, `.yml`, `.md`, `.ts`, `.json`, `.txt`)
+
+```typescript
+import { parseDomainPackageYaml, validatePackageSecurity, validatePackageFiles } from "@kiln/core";
+
+const manifest = parseDomainPackageYaml(yamlContent, "/install/path");
+const security = validatePackageSecurity(packageJson, fileList);
+const files = validatePackageFiles(fileList);
+```
+
 ## Packages
 
 | Package | Description |
@@ -95,13 +150,14 @@ App (YAML-configured)
 ├── Teams[]
 │   └── Team = Agents + Workflow + Capabilities + QualityGates
 ├── Memory (scoped: user, agent, team, project, org)
-└── Channels[] (CLI, Web, WhatsApp, Slack, API)
+├── Channels[] (CLI, Web, WhatsApp, Slack, API)
+└── DomainRegistry (detect → merge → marketplace packages)
 ```
 
 **Primitives:** Agent, Capability, Workflow, Memory, Task, Channel.
 **Composites:** Team, Router, App.
 
-The runtime hosts multiple Apps in a single process. Each app gets its own routes, memory namespace, and budget enforcement.
+The runtime hosts multiple Apps in a single process. Each app gets its own routes, memory namespace, and budget enforcement. The DomainRegistry detects tech stacks, merges configs for hybrid projects, and loads marketplace packages from a configurable directory.
 
 ## Development
 

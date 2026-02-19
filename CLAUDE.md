@@ -1,8 +1,8 @@
 # Kiln - Domain-Agnostic AI Orchestration Engine
 
-AGPL-3.0
+MIT
 
-Domain-agnostic AI orchestration engine extracted from Temper. 6 primitives (Agent, Capability, Workflow, Memory, Task, Channel) + 3 composites (Team, Router, App) configured via YAML. Multi-tenant gateway runtime with provider adapters, budget enforcement, cross-app delegation, and 5 channel adapters.
+Domain-agnostic AI orchestration engine. 6 primitives (Agent, Capability, Workflow, Memory, Task, Channel) + 3 composites (Team, Router, App) configured via YAML. Multi-tenant gateway runtime with provider adapters, budget enforcement, cross-app delegation, and 5 channel adapters. Domain config system with tech stack auto-detection, YAML schema/parser, DomainRegistry, and marketplace infrastructure (package manifest, content hashing, security validation).
 
 ## Architecture
 
