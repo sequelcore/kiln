@@ -2,9 +2,10 @@
 // Validates dependency graph: team refs in router must exist in teams
 
 import { parse } from "yaml";
+import { KilnError } from "../errors.js";
 import type { App, MemoryConfig } from "../composites/app.js";
 import { validateApp } from "../composites/app.js";
-import type { Team, QualityGate } from "../composites/team.js";
+import type { Team, QualityGate, TeamMode } from "../composites/team.js";
 import type { Router, PatternRule } from "../composites/router.js";
 import type { Agent, AgentTier } from "../domain/agent.js";
 import type { Capability } from "../domain/capability.js";
@@ -12,11 +13,17 @@ import type { Workflow, Gate } from "../domain/workflow.js";
 import type { MemoryScope } from "../domain/memory.js";
 
 /** Error class for YAML loader failures, aggregating all validation errors */
-export class AppLoaderError extends Error {
-  constructor(readonly errors: readonly { field: string; message: string }[]) {
+export class AppLoaderError extends KilnError {
+  readonly errors: readonly { field: string; message: string }[];
+
+  constructor(errors: readonly { field: string; message: string }[]) {
     const msg = errors.map((e) => `  ${e.field}: ${e.message}`).join("\n");
-    super(`Invalid app YAML:\n${msg}`);
+    super("APP_YAML_INVALID", `Invalid app YAML:\n${msg}`, {
+      context: { errors },
+      retryable: false,
+    });
     this.name = "AppLoaderError";
+    this.errors = errors;
   }
 }
 
@@ -58,6 +65,9 @@ interface RawCapability {
   targetApp?: unknown;
   task?: unknown;
   timeout?: unknown;
+  guardrail?: unknown;
+  guardrailRetries?: unknown;
+  outputSchema?: unknown;
 }
 
 interface RawQualityGate {
@@ -73,6 +83,8 @@ interface RawTeam {
   capabilities?: unknown;
   qualityGates?: unknown;
   quality?: unknown;
+  mode?: unknown;
+  manager?: unknown;
 }
 
 interface RawRule {
@@ -230,6 +242,20 @@ function mapCapability(raw: RawCapability, path: string): { capability: Capabili
     }
   }
 
+  // Validate guardrailRetries
+  if (raw.guardrailRetries !== undefined) {
+    if (typeof raw.guardrailRetries !== "number" || !Number.isInteger(raw.guardrailRetries) || raw.guardrailRetries < 1) {
+      errors.push({ field: `${path}.guardrailRetries`, message: "must be a positive integer" });
+    }
+  }
+
+  // Validate outputSchema
+  if (raw.outputSchema !== undefined) {
+    if (typeof raw.outputSchema !== "object" || raw.outputSchema === null || Array.isArray(raw.outputSchema)) {
+      errors.push({ field: `${path}.outputSchema`, message: "must be a valid object" });
+    }
+  }
+
   const capability: Capability = {
     name: typeof raw.name === "string" ? raw.name : "",
     description: typeof raw.description === "string" ? raw.description : "",
@@ -242,6 +268,13 @@ function mapCapability(raw: RawCapability, path: string): { capability: Capabili
     ...(typeof raw.targetApp === "string" ? { targetApp: raw.targetApp } : {}),
     ...(typeof raw.task === "string" ? { task: raw.task } : {}),
     ...(typeof raw.timeout === "number" && raw.timeout > 0 ? { timeout: raw.timeout } : {}),
+    ...(typeof raw.guardrail === "string" ? { guardrail: raw.guardrail } : {}),
+    ...(typeof raw.guardrailRetries === "number" && Number.isInteger(raw.guardrailRetries) && raw.guardrailRetries >= 1
+      ? { guardrailRetries: raw.guardrailRetries }
+      : {}),
+    ...(typeof raw.outputSchema === "object" && raw.outputSchema !== null && !Array.isArray(raw.outputSchema)
+      ? { outputSchema: raw.outputSchema as Record<string, unknown> }
+      : {}),
   };
 
   if (raw.type === "delegation") {
@@ -339,7 +372,36 @@ function mapTeam(name: string, raw: RawTeam, path: string): { team: Team; errors
     }
   }
 
-  const team: Team = { name, agents, workflow, capabilities, qualityGates };
+  // Mode
+  const validModes: TeamMode[] = ["sequential", "supervisor", "swarm"];
+  let mode: TeamMode | undefined;
+  if (raw.mode !== undefined) {
+    if (typeof raw.mode !== "string" || !validModes.includes(raw.mode as TeamMode)) {
+      errors.push({ field: `${path}.mode`, message: `must be one of: ${validModes.join(", ")}` });
+    } else {
+      mode = raw.mode as TeamMode;
+    }
+  }
+
+  // Manager
+  let manager: string | undefined;
+  if (raw.manager !== undefined) {
+    if (typeof raw.manager !== "string" || raw.manager === "") {
+      errors.push({ field: `${path}.manager`, message: "must be a non-empty string" });
+    } else {
+      manager = raw.manager;
+    }
+  }
+
+  const team: Team = {
+    name,
+    agents,
+    workflow,
+    capabilities,
+    qualityGates,
+    ...(mode ? { mode } : {}),
+    ...(manager ? { manager } : {}),
+  };
   return { team, errors };
 }
 

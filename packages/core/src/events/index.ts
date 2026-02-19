@@ -21,6 +21,10 @@ export const EVENT_LEVEL_MAP: Record<EventType, StreamLevel> = {
   worker_assigned: "phase",
   error: "phase",
   trace_span: "state",
+  handoff_requested: "phase",
+  handoff_completed: "phase",
+  interrupt_requested: "phase",
+  interrupt_resumed: "phase",
 };
 
 /** Level hierarchy: subscribing to "phase" includes "state" + "phase" */
@@ -48,7 +52,11 @@ export type EventType =
   | "approval_received"
   | "worker_assigned"
   | "error"
-  | "trace_span";
+  | "trace_span"
+  | "handoff_requested"
+  | "handoff_completed"
+  | "interrupt_requested"
+  | "interrupt_resumed";
 
 /** Base event interface */
 export interface KilnEvent {
@@ -182,6 +190,38 @@ export interface TraceSpanEvent extends KilnEvent {
   readonly span: TraceSpan;
 }
 
+/** Handoff requested event (swarm/supervisor delegation) */
+export interface HandoffRequestedEvent extends KilnEvent {
+  readonly type: "handoff_requested";
+  readonly fromAgent: string;
+  readonly toAgent: string;
+  readonly reason: string;
+  readonly context?: Record<string, unknown>;
+}
+
+/** Handoff completed event */
+export interface HandoffCompletedEvent extends KilnEvent {
+  readonly type: "handoff_completed";
+  readonly fromAgent: string;
+  readonly toAgent: string;
+  readonly accepted: boolean;
+}
+
+/** Interrupt requested event (execution paused for external input) */
+export interface InterruptRequestedEvent extends KilnEvent {
+  readonly type: "interrupt_requested";
+  readonly checkpointId: string;
+  readonly reason: string;
+  readonly resumeSchema?: Record<string, unknown>;
+}
+
+/** Interrupt resumed event (external input provided) */
+export interface InterruptResumedEvent extends KilnEvent {
+  readonly type: "interrupt_resumed";
+  readonly checkpointId: string;
+  readonly resumeValue: unknown;
+}
+
 /** Maps each event type to its corresponding event interface */
 export interface EventMap {
   phase_changed: PhaseChangedEvent;
@@ -200,6 +240,10 @@ export interface EventMap {
   worker_assigned: WorkerAssignedEvent;
   error: ErrorEvent;
   trace_span: TraceSpanEvent;
+  handoff_requested: HandoffRequestedEvent;
+  handoff_completed: HandoffCompletedEvent;
+  interrupt_requested: InterruptRequestedEvent;
+  interrupt_resumed: InterruptResumedEvent;
 }
 
 export { EventBus } from "./event-bus.js";

@@ -491,6 +491,207 @@ teams:
   it("throws AppLoaderError when YAML root is not an object", () => {
     expect(() => parseAppYaml("- just a list")).toThrow(AppLoaderError);
   });
+
+  it("parses supervisor team mode with manager", () => {
+    const yaml = `
+name: supervisor-app
+channels: [cli]
+memory:
+  scopes: [user]
+  backend: sqlite+fts5
+router:
+  rules: []
+  fallback: dev
+teams:
+  dev:
+    mode: supervisor
+    manager: architect
+    agents:
+      architect:
+        name: Aria
+        role: Senior Architect
+        goal: Design solutions
+        tier: reasoning
+        tools: []
+      worker:
+        name: Marcus
+        role: Coder
+        goal: Write code
+        tier: coding
+        tools: []
+    workflow:
+      phases: [plan, implement]
+      gates: {}
+    capabilities: []
+    qualityGates: []
+`;
+    const app = parseAppYaml(yaml);
+    expect(app.teams["dev"]!.mode).toBe("supervisor");
+    expect(app.teams["dev"]!.manager).toBe("architect");
+  });
+
+  it("parses swarm team mode", () => {
+    const yaml = `
+name: swarm-app
+channels: [cli]
+memory:
+  scopes: [user]
+  backend: sqlite+fts5
+router:
+  rules: []
+  fallback: dev
+teams:
+  dev:
+    mode: swarm
+    agents:
+      alpha:
+        name: Alpha
+        role: Worker A
+        goal: Work on tasks
+        tier: coding
+        tools: [handoff_tool]
+      beta:
+        name: Beta
+        role: Worker B
+        goal: Work on tasks
+        tier: coding
+        tools: [handoff_tool]
+    workflow:
+      phases: [execute]
+      gates: {}
+    capabilities:
+      - name: handoff_tool
+        description: Hand off to another agent
+        type: handoff
+        tags: [swarm]
+    qualityGates: []
+`;
+    const app = parseAppYaml(yaml);
+    expect(app.teams["dev"]!.mode).toBe("swarm");
+    expect(app.teams["dev"]!.manager).toBeUndefined();
+  });
+
+  it("parses capability with guardrail fields", () => {
+    const yaml = `
+name: guardrail-app
+channels: [cli]
+memory:
+  scopes: [user]
+  backend: sqlite+fts5
+router:
+  rules: []
+  fallback: dev
+teams:
+  dev:
+    agents:
+      worker:
+        name: Worker
+        role: Coder
+        goal: Write code
+        tier: coding
+        tools: [guarded_tool]
+    workflow:
+      phases: [work]
+      gates: {}
+    capabilities:
+      - name: guarded_tool
+        description: Tool with guardrail
+        tags: [coding]
+        guardrail: validate_output
+        guardrailRetries: 5
+        outputSchema:
+          type: object
+          properties:
+            result:
+              type: string
+    qualityGates: []
+`;
+    const app = parseAppYaml(yaml);
+    const cap = app.teams["dev"]!.capabilities[0]!;
+    expect(cap.guardrail).toBe("validate_output");
+    expect(cap.guardrailRetries).toBe(5);
+    expect(cap.outputSchema).toEqual({
+      type: "object",
+      properties: { result: { type: "string" } },
+    });
+  });
+
+  it("throws AppLoaderError for invalid team mode", () => {
+    const yaml = `
+name: bad-mode
+channels: [cli]
+memory:
+  scopes: [user]
+  backend: sqlite+fts5
+router:
+  rules: []
+  fallback: dev
+teams:
+  dev:
+    mode: invalid_mode
+    agents:
+      w: { name: W, role: Worker, goal: Work, tier: coding, tools: [] }
+    workflow: { phases: [work], gates: {} }
+    capabilities: []
+    qualityGates: []
+`;
+    expect(() => parseAppYaml(yaml)).toThrow(AppLoaderError);
+  });
+
+  it("throws AppLoaderError for invalid guardrailRetries", () => {
+    const yaml = `
+name: bad-retries
+channels: [cli]
+memory:
+  scopes: [user]
+  backend: sqlite+fts5
+router:
+  rules: []
+  fallback: dev
+teams:
+  dev:
+    agents:
+      w: { name: W, role: Worker, goal: Work, tier: coding, tools: [] }
+    workflow: { phases: [work], gates: {} }
+    capabilities:
+      - name: tool
+        description: desc
+        tags: []
+        guardrailRetries: -1
+    qualityGates: []
+`;
+    expect(() => parseAppYaml(yaml)).toThrow(AppLoaderError);
+  });
+
+  it("throws AppLoaderError for invalid outputSchema (non-object)", () => {
+    const yaml = `
+name: bad-schema
+channels: [cli]
+memory:
+  scopes: [user]
+  backend: sqlite+fts5
+router:
+  rules: []
+  fallback: dev
+teams:
+  dev:
+    agents:
+      w: { name: W, role: Worker, goal: Work, tier: coding, tools: [] }
+    workflow: { phases: [work], gates: {} }
+    capabilities:
+      - name: tool
+        description: desc
+        tags: []
+        outputSchema: "not-an-object"
+    qualityGates: []
+`;
+    expect(() => parseAppYaml(yaml)).toThrow(AppLoaderError);
+  });
+
+  it("parses team without mode (defaults to undefined/sequential)", () => {
+    const app = parseAppYaml(SAMPLE_YAML);
+    expect(app.teams["development"]!.mode).toBeUndefined();
+  });
 });
 
 describe("validateAppGraph", () => {

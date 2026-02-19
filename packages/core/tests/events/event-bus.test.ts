@@ -1,10 +1,15 @@
 import { describe, it, expect, vi } from "vitest";
 import { EventBus } from "../../src/events/event-bus.js";
+import { EVENT_LEVEL_MAP } from "../../src/events/index.js";
 import type {
   KilnEvent,
   PhaseChangedEvent,
   ErrorEvent,
   ToolCalledEvent,
+  HandoffRequestedEvent,
+  HandoffCompletedEvent,
+  InterruptRequestedEvent,
+  InterruptResumedEvent,
 } from "../../src/events/index.js";
 
 function makeEvent<T extends KilnEvent>(overrides: T): T {
@@ -253,5 +258,108 @@ describe("EventBus", () => {
     // Oldest should be phase-50 (first 50 were overwritten)
     expect((events[0] as PhaseChangedEvent).phase).toBe("phase-50");
     expect((events[99] as PhaseChangedEvent).phase).toBe("phase-149");
+  });
+
+  describe("Phase 2 event types", () => {
+    it("handoff events have phase-level mapping", () => {
+      expect(EVENT_LEVEL_MAP["handoff_requested"]).toBe("phase");
+      expect(EVENT_LEVEL_MAP["handoff_completed"]).toBe("phase");
+    });
+
+    it("interrupt events have phase-level mapping", () => {
+      expect(EVENT_LEVEL_MAP["interrupt_requested"]).toBe("phase");
+      expect(EVENT_LEVEL_MAP["interrupt_resumed"]).toBe("phase");
+    });
+
+    it("emits and receives handoff_requested event", () => {
+      const bus = new EventBus();
+      const handler = vi.fn();
+      bus.on("handoff_requested", handler);
+
+      const event: HandoffRequestedEvent = {
+        type: "handoff_requested",
+        fromAgent: "alpha",
+        toAgent: "beta",
+        reason: "need coding help",
+        timestamp: new Date(),
+        sessionId: "test-session",
+      };
+      bus.emit(event);
+
+      expect(handler).toHaveBeenCalledOnce();
+      expect(handler).toHaveBeenCalledWith(event);
+    });
+
+    it("emits and receives handoff_completed event", () => {
+      const bus = new EventBus();
+      const handler = vi.fn();
+      bus.on("handoff_completed", handler);
+
+      const event: HandoffCompletedEvent = {
+        type: "handoff_completed",
+        fromAgent: "alpha",
+        toAgent: "beta",
+        accepted: true,
+        timestamp: new Date(),
+        sessionId: "test-session",
+      };
+      bus.emit(event);
+
+      expect(handler).toHaveBeenCalledOnce();
+    });
+
+    it("emits and receives interrupt_requested event", () => {
+      const bus = new EventBus();
+      const handler = vi.fn();
+      bus.on("interrupt_requested", handler);
+
+      const event: InterruptRequestedEvent = {
+        type: "interrupt_requested",
+        checkpointId: "ckpt-1",
+        reason: "needs user approval",
+        resumeSchema: { type: "object" },
+        timestamp: new Date(),
+        sessionId: "test-session",
+      };
+      bus.emit(event);
+
+      expect(handler).toHaveBeenCalledOnce();
+      expect(handler).toHaveBeenCalledWith(event);
+    });
+
+    it("emits and receives interrupt_resumed event", () => {
+      const bus = new EventBus();
+      const handler = vi.fn();
+      bus.on("interrupt_resumed", handler);
+
+      const event: InterruptResumedEvent = {
+        type: "interrupt_resumed",
+        checkpointId: "ckpt-1",
+        resumeValue: { approved: true },
+        timestamp: new Date(),
+        sessionId: "test-session",
+      };
+      bus.emit(event);
+
+      expect(handler).toHaveBeenCalledOnce();
+    });
+
+    it("onLevel('phase') captures handoff and interrupt events", () => {
+      const bus = new EventBus();
+      const handler = vi.fn();
+      bus.onLevel("phase", handler);
+
+      const event: HandoffRequestedEvent = {
+        type: "handoff_requested",
+        fromAgent: "a",
+        toAgent: "b",
+        reason: "test",
+        timestamp: new Date(),
+        sessionId: "s",
+      };
+      bus.emit(event);
+
+      expect(handler).toHaveBeenCalledOnce();
+    });
   });
 });

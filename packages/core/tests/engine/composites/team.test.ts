@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { Team, QualityGate, TeamKnowledge } from "../../../src/engine/composites/team.js";
+import type { Team, TeamMode, QualityGate, TeamKnowledge } from "../../../src/engine/composites/team.js";
 import { validateTeam } from "../../../src/engine/composites/team.js";
 import type { Agent } from "../../../src/engine/domain/agent.js";
 import type { Capability } from "../../../src/engine/domain/capability.js";
@@ -7,19 +7,22 @@ import type { Workflow } from "../../../src/engine/domain/workflow.js";
 
 function makeAgent(overrides: Partial<Agent> = {}): Agent {
   return {
-    name: "worker",
+    name: "Marcus",
+    role: "Implementation Specialist",
+    goal: "Write clean, well-tested code",
     tier: "coding",
     tools: ["code_edit"],
     ...overrides,
   };
 }
 
-function makeCapability(name = "code_edit"): Capability {
+function makeCapability(overrides: Partial<Capability> = {}): Capability {
   return {
-    name,
-    description: `${name} tool`,
+    name: "code_edit",
+    description: "code_edit tool",
     schema: {},
     tags: ["coding"],
+    ...overrides,
   };
 }
 
@@ -66,9 +69,9 @@ describe("Team composite", () => {
     it("supports multiple agents", () => {
       const team = makeTeam({
         agents: {
-          architect: makeAgent({ name: "architect", tier: "reasoning", tools: [] }),
-          worker: makeAgent({ name: "worker", tier: "coding", tools: ["code_edit"] }),
-          optimizer: makeAgent({ name: "optimizer", tier: "fast", tools: [] }),
+          architect: makeAgent({ name: "Aria", role: "Senior Architect", goal: "Design robust solutions", tier: "reasoning", tools: [] }),
+          worker: makeAgent({ name: "Marcus", role: "Implementation Specialist", goal: "Write clean code", tier: "coding", tools: ["code_edit"] }),
+          optimizer: makeAgent({ name: "Zoe", role: "Performance Optimizer", goal: "Optimize for speed", tier: "fast", tools: [] }),
         },
       });
       expect(Object.keys(team.agents)).toHaveLength(3);
@@ -145,6 +148,136 @@ describe("Team composite", () => {
       });
       const errors = validateTeam(team);
       expect(errors.length).toBeGreaterThanOrEqual(3);
+    });
+  });
+
+  describe("team mode validation", () => {
+    it("accepts sequential mode (default)", () => {
+      const team = makeTeam({ mode: "sequential" });
+      expect(validateTeam(team)).toEqual([]);
+    });
+
+    it("accepts undefined mode (defaults to sequential)", () => {
+      const team = makeTeam();
+      expect(team.mode).toBeUndefined();
+      expect(validateTeam(team)).toEqual([]);
+    });
+
+    it("accepts supervisor mode with valid manager", () => {
+      const team = makeTeam({
+        mode: "supervisor",
+        manager: "architect",
+        agents: {
+          architect: makeAgent({ name: "Aria", role: "Architect", goal: "Design systems", tier: "reasoning", tools: [] }),
+          worker: makeAgent({ tools: ["code_edit"] }),
+        },
+      });
+      expect(validateTeam(team)).toEqual([]);
+    });
+
+    it("reports supervisor mode without manager", () => {
+      const team = makeTeam({ mode: "supervisor" });
+      const errors = validateTeam(team);
+      expect(errors.some((e) => e.field === "manager" && e.message.includes("required"))).toBe(true);
+    });
+
+    it("reports supervisor mode with manager not in agents", () => {
+      const team = makeTeam({ mode: "supervisor", manager: "nonexistent" });
+      const errors = validateTeam(team);
+      expect(errors.some((e) => e.field === "manager" && e.message.includes("not found"))).toBe(true);
+    });
+
+    it("reports manager field without supervisor mode", () => {
+      const team = makeTeam({ mode: "sequential", manager: "worker" });
+      const errors = validateTeam(team);
+      expect(errors.some((e) => e.field === "manager" && e.message.includes("only valid"))).toBe(true);
+    });
+
+    it("reports manager field with swarm mode", () => {
+      const team = makeTeam({
+        mode: "swarm",
+        manager: "worker",
+        agents: {
+          worker: makeAgent({ tools: ["code_edit"] }),
+          helper: makeAgent({ name: "Helper", tools: ["code_edit"] }),
+        },
+        capabilities: [makeCapability(), makeCapability({ name: "handoff", type: "handoff" })],
+      });
+      const errors = validateTeam(team);
+      expect(errors.some((e) => e.field === "manager" && e.message.includes("only valid"))).toBe(true);
+    });
+
+    it("accepts swarm mode with handoff capability and 2+ agents", () => {
+      const team = makeTeam({
+        mode: "swarm",
+        agents: {
+          alpha: makeAgent({ name: "Alpha", tools: ["code_edit"] }),
+          beta: makeAgent({ name: "Beta", tools: ["code_edit"] }),
+        },
+        capabilities: [makeCapability(), makeCapability({ name: "handoff", type: "handoff" })],
+      });
+      expect(validateTeam(team)).toEqual([]);
+    });
+
+    it("reports swarm mode without handoff capability", () => {
+      const team = makeTeam({
+        mode: "swarm",
+        agents: {
+          alpha: makeAgent({ name: "Alpha", tools: ["code_edit"] }),
+          beta: makeAgent({ name: "Beta", tools: ["code_edit"] }),
+        },
+      });
+      const errors = validateTeam(team);
+      expect(errors.some((e) => e.field === "capabilities" && e.message.includes("handoff"))).toBe(true);
+    });
+
+    it("reports swarm mode with only 1 agent", () => {
+      const team = makeTeam({
+        mode: "swarm",
+        capabilities: [makeCapability(), makeCapability({ name: "handoff", type: "handoff" })],
+      });
+      const errors = validateTeam(team);
+      expect(errors.some((e) => e.field === "agents" && e.message.includes("2 agents"))).toBe(true);
+    });
+  });
+
+  describe("capability guardrail validation", () => {
+    it("accepts capability with guardrail fields", () => {
+      const team = makeTeam({
+        capabilities: [makeCapability({ guardrail: "validate_json", guardrailRetries: 3 })],
+      });
+      expect(validateTeam(team)).toEqual([]);
+    });
+
+    it("accepts capability with outputSchema", () => {
+      const team = makeTeam({
+        capabilities: [makeCapability({ outputSchema: { type: "object", properties: {} } })],
+      });
+      expect(validateTeam(team)).toEqual([]);
+    });
+
+    it("reports invalid guardrailRetries (zero)", () => {
+      const team = makeTeam({
+        capabilities: [makeCapability({ guardrailRetries: 0 })],
+      });
+      const errors = validateTeam(team);
+      expect(errors.some((e) => e.field.includes("guardrailRetries"))).toBe(true);
+    });
+
+    it("reports invalid guardrailRetries (negative)", () => {
+      const team = makeTeam({
+        capabilities: [makeCapability({ guardrailRetries: -1 })],
+      });
+      const errors = validateTeam(team);
+      expect(errors.some((e) => e.field.includes("guardrailRetries"))).toBe(true);
+    });
+
+    it("reports invalid guardrailRetries (non-integer)", () => {
+      const team = makeTeam({
+        capabilities: [makeCapability({ guardrailRetries: 2.5 })],
+      });
+      const errors = validateTeam(team);
+      expect(errors.some((e) => e.field.includes("guardrailRetries"))).toBe(true);
     });
   });
 });

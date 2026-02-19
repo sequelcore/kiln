@@ -19,9 +19,14 @@ export interface TeamKnowledge {
   readonly examples: readonly string[];
 }
 
+/** Team execution mode */
+export type TeamMode = "sequential" | "supervisor" | "swarm";
+
 /** A self-contained unit: agents + workflow + capabilities + gates */
 export interface Team {
   readonly name: string;
+  readonly mode?: TeamMode;
+  readonly manager?: string;
   readonly agents: Record<string, Agent>;
   readonly workflow: Workflow;
   readonly capabilities: readonly Capability[];
@@ -34,6 +39,9 @@ export interface TeamValidationError {
   readonly field: string;
   readonly message: string;
 }
+
+/** Valid team modes */
+const VALID_MODES: readonly TeamMode[] = ["sequential", "supervisor", "swarm"];
 
 /** Validate a Team composite configuration */
 export function validateTeam(team: Team): TeamValidationError[] {
@@ -49,6 +57,46 @@ export function validateTeam(team: Team): TeamValidationError[] {
     errors.push({ field: "agents", message: "must have at least one agent" });
   }
 
+  // Validate mode
+  const mode = team.mode ?? "sequential";
+  if (!VALID_MODES.includes(mode)) {
+    errors.push({ field: "mode", message: `must be one of: ${VALID_MODES.join(", ")}` });
+  }
+
+  // Supervisor mode: manager must exist in agents
+  if (mode === "supervisor") {
+    if (!team.manager || typeof team.manager !== "string") {
+      errors.push({ field: "manager", message: "required when mode is 'supervisor'" });
+    } else if (!team.agents[team.manager]) {
+      errors.push({
+        field: "manager",
+        message: `agent "${team.manager}" not found in agents`,
+      });
+    }
+  }
+
+  // Manager field only valid with supervisor mode
+  if (team.manager && mode !== "supervisor") {
+    errors.push({ field: "manager", message: "only valid when mode is 'supervisor'" });
+  }
+
+  // Swarm mode: requires handoff capability and 2+ agents
+  if (mode === "swarm") {
+    const hasHandoff = team.capabilities.some((c) => c.type === "handoff");
+    if (!hasHandoff) {
+      errors.push({
+        field: "capabilities",
+        message: "swarm mode requires at least one capability with type 'handoff'",
+      });
+    }
+    if (agentNames.length < 2) {
+      errors.push({
+        field: "agents",
+        message: "swarm mode requires at least 2 agents",
+      });
+    }
+  }
+
   // Workflow must have at least one phase
   if (team.workflow.phases.length === 0) {
     errors.push({ field: "workflow.phases", message: "must have at least one phase" });
@@ -62,6 +110,26 @@ export function validateTeam(team: Team): TeamValidationError[] {
         errors.push({
           field: `agents.${agentName}.tools`,
           message: `references unknown capability "${tool}"`,
+        });
+      }
+    }
+  }
+
+  // Capability guardrailRetries must be a positive integer
+  for (const cap of team.capabilities) {
+    if (cap.guardrailRetries !== undefined) {
+      if (!Number.isInteger(cap.guardrailRetries) || cap.guardrailRetries < 1) {
+        errors.push({
+          field: `capabilities.${cap.name}.guardrailRetries`,
+          message: "must be a positive integer",
+        });
+      }
+    }
+    if (cap.outputSchema !== undefined) {
+      if (typeof cap.outputSchema !== "object" || cap.outputSchema === null || Array.isArray(cap.outputSchema)) {
+        errors.push({
+          field: `capabilities.${cap.name}.outputSchema`,
+          message: "must be a valid object",
         });
       }
     }

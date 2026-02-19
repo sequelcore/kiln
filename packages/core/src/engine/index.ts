@@ -1,7 +1,13 @@
 // Engine primitives -- 6 domain-agnostic building blocks
 // Zero external dependencies, pure TypeScript interfaces
 
+// Errors -- unified error hierarchy (Phase 0.2)
+export { KilnError } from "./errors.js";
+export type { KilnErrorCode } from "./errors.js";
+
 export type { Agent, AgentTier } from "./domain/agent.js";
+export { assembleAgentPrompt } from "./domain/prompt-assembler.js";
+export type { PromptContext } from "./domain/prompt-assembler.js";
 export type { Capability, CapabilityAnnotations } from "./domain/capability.js";
 export type { Workflow, Gate } from "./domain/workflow.js";
 export type { Memory, MemoryScope, MemoryEntry } from "./domain/memory.js";
@@ -15,7 +21,7 @@ export type {
 } from "./domain/channel.js";
 
 // Engine composites -- 3 composition types (Phase 16)
-export type { Team, QualityGate, TeamKnowledge, TeamValidationError } from "./composites/team.js";
+export type { Team, TeamMode, QualityGate, TeamKnowledge, TeamValidationError } from "./composites/team.js";
 export { validateTeam } from "./composites/team.js";
 export type { Router, PatternRule, RouterValidationError } from "./composites/router.js";
 export { validateRouter } from "./composites/router.js";
