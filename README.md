@@ -15,6 +15,7 @@ A domain-agnostic AI orchestration engine for building multi-agent, multi-tenant
 - **Scoped memory** -- user, agent, team, project, and org scopes backed by SQLite + FTS5
 - **Task tree** -- scoring, selection, deepen/branch/prune operations for structured exploration
 - **Cross-app delegation** -- apps can delegate tasks to other apps with schema contracts
+- **Domain detection** -- tech stack detection via file patterns, YAML-configured domain configs, and domain marketplace with security validation
 - **Cost tracking** -- per-role, cache-aware token usage and pricing
 
 ## Quick Start
@@ -81,7 +82,7 @@ teams:
 
 | Package | Description |
 |---------|-------------|
-| [`@kiln/core`](packages/core) | Engine primitives, composites, YAML loader, provider adapters, memory, task tree, orchestrator, events, cost tracking |
+| [`@kiln/core`](packages/core) | Engine primitives, composites, YAML loader, provider adapters, memory, task tree, orchestrator, domain config, marketplace, events, cost tracking |
 | [`@kiln/runtime`](packages/runtime) | Multi-app gateway server, Mode B sessions, multi-tenant management, channel adapters |
 
 ## Architecture
