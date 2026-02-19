@@ -82,13 +82,15 @@ Scopes: core, engine, orchestrator, agents, domain, memory, tree, events, cost, 
 
 | File | Purpose |
 |------|---------|
-| `engine/domain/agent.ts` | Engine primitive: Agent interface (AgentTier, tools, sandbox) |
-| `engine/domain/capability.ts` | Engine primitive: Capability interface (schema, tags, annotations) |
+| `engine/domain/agent.ts` | Engine primitive: Agent interface (name, role, goal, backstory, instructions, tier, tools) |
+| `engine/domain/prompt-assembler.ts` | Pure function: assembleAgentPrompt() -- identity fields + context -> system prompt |
+| `engine/errors.ts` | KilnError base class (code, context, retryable) + KilnErrorCode union type |
+| `engine/domain/capability.ts` | Engine primitive: Capability interface (schema, tags, annotations, guardrail, outputSchema) |
 | `engine/domain/workflow.ts` | Engine primitive: Workflow interface (string phases, gates) |
 | `engine/domain/memory.ts` | Engine primitive: Memory interface (5 scopes, store/recall/forget) |
 | `engine/domain/task.ts` | Engine primitive: Task interface (tree structure, statuses, actions) |
 | `engine/domain/channel.ts` | Engine primitive: Channel interface (receive/send/stream) |
-| `engine/composites/team.ts` | Engine composite: Team (agents + workflow + capabilities + gates) + validateTeam() |
+| `engine/composites/team.ts` | Engine composite: Team (agents + workflow + capabilities + gates + mode + manager) + validateTeam() |
 | `engine/composites/router.ts` | Engine composite: Router (pattern rules + classifier + fallback) + validateRouter() |
 | `engine/composites/app.ts` | Engine composite: App (teams + router + memory + channels) + validateApp() |
 | `engine/loader/app-loader.ts` | YAML -> App loader (parseAppYaml, validateAppGraph, AppLoaderError) |
@@ -98,15 +100,20 @@ Scopes: core, engine, orchestrator, agents, domain, memory, tree, events, cost, 
 | `engine/gateway/delegation-config.ts` | Delegation types + isDelegationCapability() + validateDelegation() |
 | `engine/gateway/tenant-config.ts` | Tenant config types + validateTenantConfig() |
 | `orchestrator/phase-machine.ts` | Configurable phase machine: uses config.phases, configurable approval gate |
-| `orchestrator/orchestrator.ts` | Team composite: Director-Worker-Summarizer orchestration loop |
+| `orchestrator/orchestrator.ts` | Orchestrator: session lifecycle, checkpoint/resume, interrupt/resume, strategy-based execution |
+| `orchestrator/strategies/index.ts` | Strategy pattern: SequentialStrategy, SupervisorStrategy, SwarmStrategy |
+| `orchestrator/guardrails.ts` | Pure JSON Schema validation + retry loop for structured output |
+| `orchestrator/interrupt.ts` | Interrupt/resume types (InterruptRequest, ResumeCommand, InterruptState) |
 | `agents/infrastructure/anthropic.ts` | Anthropic SDK adapter (retry, streaming, structured outputs) |
 | `agents/infrastructure/openai.ts` | OpenAI adapter |
 | `agents/infrastructure/deepseek.ts` | DeepSeek adapter |
 | `agents/infrastructure/ollama.ts` | Ollama adapter (local models) |
-| `memory/sqlite-store.ts` | SQLite + FTS5 memory store |
+| `memory/sqlite-store.ts` | SQLite + FTS5 memory store (configurable decay + auto-compaction) |
+| `memory/decay-curves.ts` | Pure decay functions: exponential, linear, step curves |
+| `memory/compactor.ts` | MemoryCompactor: tag-based grouping, deterministic summarization, archival |
 | `memory/project-store.ts` | Git-synced gzipped JSONL project memory |
 | `tree/task-tree.ts` | Task tree: scoring, selection, deepen/branch/prune |
-| `events/event-bus.ts` | Event emission and subscription (16 event types) |
+| `events/event-bus.ts` | Event emission and subscription (21 event types) |
 | `cost/cost-tracker.ts` | Per-role cache-aware cost tracking |
 | `sandbox/policies.ts` | Per-agent filesystem + network isolation policies |
 | `verification/verification-loop.ts` | Gate runner: test -> lint -> type-check loop |
@@ -125,7 +132,9 @@ Scopes: core, engine, orchestrator, agents, domain, memory, tree, events, cost, 
 | `gateway/gateway-server.ts` | startGateway(): Bun.serve, Mode B + multi-tenant runtime init |
 | `gateway/app-resolver.ts` | resolveApps(): YAML path resolution, memory namespacing |
 | `gateway/mode-b-routes.ts` | Mode B Hono sub-app: POST /message, GET/DELETE /sessions |
-| `gateway/budget-middleware.ts` | checkBudget(), reportUsage(), checkTier() |
+| `gateway/budget-middleware.ts` | checkBudget(), reportUsage(), checkTier() -- fail-open by design, circuit breaker wrapped |
+| `gateway/config-validator.ts` | validateStartupConfig(), assertValidStartupConfig() -- fail-fast env var validation |
+| `gateway/health-registry.ts` | HealthRegistry: register subsystem checkers, checkAll(), aggregateStatus() |
 | `gateway/delegation-handler.ts` | DelegationRegistry, executeDelegation() |
 | `gateway/delegation-routes.ts` | Delegation Hono sub-app: POST /delegate, GET /delegation-targets |
 | `gateway/tenant-routes.ts` | Tenant Hono sub-app: POST /message, GET/DELETE /sessions |
