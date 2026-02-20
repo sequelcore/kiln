@@ -362,4 +362,50 @@ describe("EventBus", () => {
       expect(handler).toHaveBeenCalledOnce();
     });
   });
+
+  describe("EventStore sink", () => {
+    it("calls store.save() on every emit", async () => {
+      const saved: KilnEvent[] = [];
+      const store = {
+        save: vi.fn(async (event: KilnEvent) => { saved.push(event); }),
+        getBySession: vi.fn(async () => []),
+        getAfter: vi.fn(async () => []),
+      };
+      const bus = new EventBus(100, store);
+      const event = makePhaseEvent("analyze");
+      bus.emit(event);
+
+      // Let the fire-and-forget promise resolve
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(store.save).toHaveBeenCalledOnce();
+      expect(saved[0]).toBe(event);
+    });
+
+    it("does not block emit when store.save() rejects", async () => {
+      const store = {
+        save: vi.fn(async () => { throw new Error("db down"); }),
+        getBySession: vi.fn(async () => []),
+        getAfter: vi.fn(async () => []),
+      };
+      const bus = new EventBus(100, store);
+      const handler = vi.fn();
+      bus.on("phase_changed", handler);
+
+      // Should not throw
+      bus.emit(makePhaseEvent("analyze"));
+
+      expect(handler).toHaveBeenCalledOnce();
+      // Let the rejected promise settle
+      await new Promise((r) => setTimeout(r, 0));
+    });
+
+    it("works without a store (default behavior)", () => {
+      const bus = new EventBus();
+      const handler = vi.fn();
+      bus.on("phase_changed", handler);
+      bus.emit(makePhaseEvent("analyze"));
+      expect(handler).toHaveBeenCalledOnce();
+    });
+  });
 });

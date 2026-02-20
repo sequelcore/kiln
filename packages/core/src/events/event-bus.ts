@@ -1,5 +1,6 @@
 import type { EventType, EventMap, KilnEvent, StreamLevel } from "./index.js";
 import { EVENT_LEVEL_MAP, LEVEL_HIERARCHY } from "./index.js";
+import type { EventStore } from "./event-store.js";
 
 // Internal handler type -- type safety is enforced at on()/off() boundaries
 type InternalHandler = (event: KilnEvent) => void;
@@ -13,12 +14,14 @@ export class EventBus {
   private readonly anyHandlers = new Set<InternalHandler>();
   private readonly buffer: (KilnEvent | undefined)[];
   private readonly maxHistory: number;
+  private readonly store: EventStore | null;
   private writePointer = 0;
   private count = 0;
 
-  constructor(maxHistory = 100) {
+  constructor(maxHistory = 100, store?: EventStore) {
     this.maxHistory = maxHistory;
     this.buffer = new Array<KilnEvent | undefined>(maxHistory);
+    this.store = store ?? null;
   }
 
   /** Subscribe to a specific event type */
@@ -58,6 +61,11 @@ export class EventBus {
     // Notify wildcard handlers
     for (const handler of this.anyHandlers) {
       handler(event);
+    }
+
+    // Persist fire-and-forget -- never blocks synchronous emit
+    if (this.store) {
+      this.store.save(event).catch(() => {});
     }
   }
 

@@ -30,12 +30,12 @@ App (YAML-configured)
 |---------|----------|---------|
 | engine | `packages/core/src/engine/` | Engine primitives (7: Agent, Capability, Workflow, Memory, Task, Channel, Trigger) + composites (Team, Router, App) + YAML loader + gateway config + cron parser (zero external deps except yaml) |
 | orchestrator | `packages/core/src/orchestrator/` | Workflow implementation: phase machine (configurable phases + gates) |
-| agents | `packages/core/src/agents/` | Agent implementation: provider adapters (Anthropic, OpenAI, DeepSeek, Ollama) |
+| agents | `packages/core/src/agents/` | Agent implementation: provider adapters (Anthropic, OpenAI, DeepSeek, Ollama), tool cache, context compressor |
 | memory | `packages/core/src/memory/` | Memory implementation: scoped storage (user, agent, team, project, org) |
 | tree | `packages/core/src/tree/` | Task implementation: tree manager (scoring, deepen/branch/prune, batch selection) |
 | sandbox | `packages/core/src/sandbox/` | Per-agent isolation: filesystem policies, network proxy, tenant FS jails |
 | verification | `packages/core/src/verification/` | Gate runner: test, lint, type-check verification loop |
-| events | `packages/core/src/events/` | Event streaming (29 event types including 5 security + 4 trigger events), EventBus with ring buffer |
+| events | `packages/core/src/events/` | Event streaming (29 event types including 5 security + 4 trigger events), EventBus with ring buffer + optional EventStore sink |
 | security | `packages/core/src/security/` | Security: audit log (JSONL + hash chaining), prompt injection detection (2-tier), encrypted secrets (AES-256-GCM), Guardian review, self-audit |
 | cost | `packages/core/src/cost/` | Cost tracking: per-role, cache-aware pricing |
 | domain | `packages/core/src/domain/` | Domain config: tech stack detection, YAML schema/parser, DomainRegistry, backward-compatible marketplace adapter, 5 built-in domain kits |
@@ -91,7 +91,7 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `engine/domain/prompt-assembler.ts` | Pure function: assembleAgentPrompt() -- identity fields + context -> system prompt |
 | `engine/errors.ts` | KilnError base class (code, context, retryable, suggestion, docUrl) + KilnErrorCode union type (38 codes) |
 | `engine/error-catalog.ts` | getErrorSuggestion(code, context): context-aware error suggestions + doc URLs for all 38 error codes |
-| `engine/domain/capability.ts` | Engine primitive: Capability interface (schema, tags, annotations, guardrail, outputSchema) |
+| `engine/domain/capability.ts` | Engine primitive: Capability interface (schema, tags, annotations incl. cacheTtl, guardrail, outputSchema) |
 | `engine/domain/workflow.ts` | Engine primitive: Workflow interface (string phases, gates) |
 | `engine/domain/memory.ts` | Engine primitive: Memory interface (5 scopes, store/recall/forget) |
 | `engine/domain/task.ts` | Engine primitive: Task interface (tree structure, statuses, actions) |
@@ -112,7 +112,7 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `orchestrator/strategies/index.ts` | Strategy pattern: SequentialStrategy, SupervisorStrategy, SwarmStrategy |
 | `orchestrator/guardrails.ts` | Pure JSON Schema validation + retry loop for structured output |
 | `orchestrator/interrupt.ts` | Interrupt/resume types (InterruptRequest, ResumeCommand, InterruptState) |
-| `agents/infrastructure/anthropic.ts` | Anthropic SDK adapter (retry, streaming, structured outputs) |
+| `agents/infrastructure/anthropic.ts` | Anthropic SDK adapter (retry, streaming, native output_config for structured outputs) |
 | `agents/infrastructure/openai.ts` | OpenAI adapter |
 | `agents/infrastructure/deepseek.ts` | DeepSeek adapter |
 | `agents/infrastructure/ollama.ts` | Ollama adapter (local models) |
@@ -121,7 +121,10 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `memory/compactor.ts` | MemoryCompactor: tag-based grouping, deterministic summarization, archival |
 | `memory/project-store.ts` | Git-synced gzipped JSONL project memory |
 | `tree/task-tree.ts` | Task tree: scoring, selection, deepen/branch/prune |
-| `events/event-bus.ts` | Event emission and subscription (29 event types) |
+| `events/event-bus.ts` | Event emission and subscription (29 event types), optional EventStore persistence sink |
+| `events/event-store.ts` | EventStore interface: save, getBySession, getAfter (consumer-implemented persistence) |
+| `agents/tool-cache.ts` | ToolCache: in-memory tool result cache with SHA-256 keys and per-entry TTL |
+| `agents/context-compressor.ts` | compressContext(): LLM-based text compression utility with threshold skip |
 | `cost/cost-tracker.ts` | Per-role cache-aware cost tracking |
 | `sandbox/policies.ts` | Per-agent filesystem + network isolation policies + createTenantSandbox() |
 | `verification/verification-loop.ts` | Gate runner: test -> lint -> type-check loop |

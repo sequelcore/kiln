@@ -5,6 +5,8 @@ export interface CapabilityAnnotations {
   readonly readOnly?: boolean;
   readonly destructive?: boolean;
   readonly idempotent?: boolean;
+  /** Cache TTL in seconds. 0 = no cache, Infinity = permanent. */
+  readonly cacheTtl?: number;
 }
 
 /** An MCP tool with schema, tags, and safety annotations */

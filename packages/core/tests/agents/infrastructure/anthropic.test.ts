@@ -268,6 +268,80 @@ describe("AnthropicAdapter", () => {
       const params = mockCreate.mock.calls[0]![0];
       expect(params.tools).toBeUndefined();
     });
+
+    it("sets output_config when outputSchema is provided", async () => {
+      mockCreate.mockResolvedValueOnce(makeMessageResponse());
+
+      const schema = {
+        type: "object",
+        properties: { answer: { type: "string" } },
+        required: ["answer"],
+        additionalProperties: false,
+      };
+      await adapter.createMessage(makeOptions({ outputSchema: schema }));
+
+      const params = mockCreate.mock.calls[0]![0];
+      expect(params.output_config).toEqual({
+        format: { type: "json_schema", schema },
+      });
+    });
+
+    it("does not set output_config when no outputSchema", async () => {
+      mockCreate.mockResolvedValueOnce(makeMessageResponse());
+
+      await adapter.createMessage(makeOptions());
+
+      const params = mockCreate.mock.calls[0]![0];
+      expect(params.output_config).toBeUndefined();
+    });
+
+    it("throws when outputSchema object lacks additionalProperties: false", async () => {
+      const schema = {
+        type: "object",
+        properties: { answer: { type: "string" } },
+      };
+
+      await expect(
+        adapter.createMessage(makeOptions({ outputSchema: schema })),
+      ).rejects.toThrow("additionalProperties: false");
+    });
+
+    it("throws when nested object lacks additionalProperties: false", async () => {
+      const schema = {
+        type: "object",
+        properties: {
+          nested: {
+            type: "object",
+            properties: { value: { type: "number" } },
+          },
+        },
+        additionalProperties: false,
+      };
+
+      await expect(
+        adapter.createMessage(makeOptions({ outputSchema: schema })),
+      ).rejects.toThrow("$.nested");
+    });
+
+    it("validates additionalProperties in array items", async () => {
+      const schema = {
+        type: "object",
+        properties: {
+          items: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: { id: { type: "string" } },
+            },
+          },
+        },
+        additionalProperties: false,
+      };
+
+      await expect(
+        adapter.createMessage(makeOptions({ outputSchema: schema })),
+      ).rejects.toThrow("$.items[]");
+    });
   });
 
   describe("retry logic", () => {

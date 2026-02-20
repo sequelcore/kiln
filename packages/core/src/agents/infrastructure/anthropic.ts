@@ -6,6 +6,7 @@ import type {
   AgentStreamEvent,
   ToolCall,
 } from "../index.js";
+import { KilnError } from "../../engine/errors.js";
 
 export const CLAUDE_OPUS = "claude-opus-4-6";
 export const CLAUDE_SONNET = "claude-sonnet-4-6";
@@ -140,6 +141,16 @@ export class AnthropicAdapter implements ProviderAdapter {
       }));
     }
 
+    if (options.outputSchema) {
+      assertAdditionalPropertiesFalse(options.outputSchema);
+      params.output_config = {
+        format: {
+          type: "json_schema",
+          schema: options.outputSchema,
+        },
+      };
+    }
+
     return params;
   }
 
@@ -192,5 +203,36 @@ export class AnthropicAdapter implements ProviderAdapter {
 
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+}
+
+/**
+ * Recursively validates that all object-type schemas have additionalProperties: false.
+ * Required by Anthropic's constrained decoding.
+ */
+function assertAdditionalPropertiesFalse(
+  schema: Record<string, unknown>,
+  path = "$",
+): void {
+  if (schema.type === "object" && schema.additionalProperties !== false) {
+    throw new KilnError(
+      "STRUCTURED_OUTPUT_INVALID",
+      `output_config requires additionalProperties: false on all objects (at ${path})`,
+    );
+  }
+
+  if (typeof schema.properties === "object" && schema.properties !== null) {
+    for (const [key, sub] of Object.entries(
+      schema.properties as Record<string, Record<string, unknown>>,
+    )) {
+      assertAdditionalPropertiesFalse(sub, `${path}.${key}`);
+    }
+  }
+
+  if (typeof schema.items === "object" && schema.items !== null) {
+    assertAdditionalPropertiesFalse(
+      schema.items as Record<string, unknown>,
+      `${path}[]`,
+    );
   }
 }

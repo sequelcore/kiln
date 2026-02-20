@@ -1,5 +1,9 @@
-/** Agent role in the orchestration */
-export type AgentRole = "architect" | "worker" | "optimizer";
+/**
+ * Agent role in the orchestration.
+ * Built-in roles: "architect", "worker", "optimizer".
+ * Domain apps can define arbitrary roles (e.g. "summarizer", "reviewer").
+ */
+export type AgentRole = string;
 
 /** Message for agent communication */
 export interface AgentMessage {
@@ -68,3 +72,6 @@ export { OllamaAdapter, LLAMA3, CODELLAMA, DEEPSEEK_CODER } from "./infrastructu
 export { type CatalogPricing, MODEL_CATALOG, findCheapest } from "./model-pricing.js";
 export { CircuitBreaker } from "./circuit-breaker.js";
 export type { CircuitBreakerConfig, CircuitState } from "./circuit-breaker.js";
+export { ToolCache } from "./tool-cache.js";
+export { compressContext } from "./context-compressor.js";
+export type { CompressOptions } from "./context-compressor.js";

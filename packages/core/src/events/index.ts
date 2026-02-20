@@ -358,5 +358,6 @@ export interface EventMap {
 }
 
 export { EventBus } from "./event-bus.js";
+export type { EventStore } from "./event-store.js";
 export { createTraceContext, startSpan, endSpan, addSpanEvent } from "./trace.js";
 export type { TraceSpan, SpanEvent, TraceContext } from "./trace.js";
