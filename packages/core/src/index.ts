@@ -1,6 +1,8 @@
 export * from "./orchestrator/index.js";
 export * from "./agents/index.js";
 export * from "./domain/index.js";
+export * from "./package/index.js";
+export * from "./skill/index.js";
 export * from "./memory/index.js";
 export * from "./tree/index.js";
 export * from "./events/index.js";
@@ -15,6 +17,10 @@ export { EVENT_LEVEL_MAP, LEVEL_HIERARCHY } from "./events/index.js";
 // Error hierarchy re-exported for direct access by runtime
 export { KilnError } from "./engine/errors.js";
 export type { KilnErrorCode } from "./engine/errors.js";
+
+// Error catalog re-exported for direct access by CLI formatters
+export { getErrorSuggestion } from "./engine/error-catalog.js";
+export type { ErrorSuggestion } from "./engine/error-catalog.js";
 
 // Circuit breaker re-exported for direct access by runtime
 export { CircuitBreaker } from "./agents/circuit-breaker.js";
@@ -70,6 +76,19 @@ export type {
   DelegationValidationError,
 } from "./engine/gateway/delegation-config.js";
 export { isDelegationCapability, validateDelegation } from "./engine/gateway/delegation-config.js";
+
+// Trigger types re-exported for direct access by runtime trigger module
+export type {
+  Trigger,
+  TriggerType,
+  WebhookTrigger,
+  EventTrigger,
+  ScheduleTrigger,
+  TriggerValidationError,
+} from "./engine/domain/trigger.js";
+export { validateTrigger } from "./engine/domain/trigger.js";
+export type { CronExpression } from "./engine/domain/cron.js";
+export { parseCronExpression, validateCronExpression, nextFireTime } from "./engine/domain/cron.js";
 
 // Tenant types re-exported for direct access by runtime tenant module
 export type {

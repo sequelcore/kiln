@@ -1,37 +1,24 @@
-import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+// Thin adapter: delegates marketplace functionality to package/ bounded context
+// Keeps backward compatibility for existing consumers -- domain YAML without type/version/author fields
+
 import { parse } from "yaml";
+import { readFileSync } from "node:fs";
 import type { DomainConfig } from "./index.js";
-import type { DomainYaml, DomainToolsYaml, DomainKnowledgeYaml } from "./yaml-schema.js";
+import type { DomainYaml } from "./yaml-schema.js";
 import { validateDomainYaml } from "./yaml-schema.js";
 import { DomainYamlError } from "./yaml-parser.js";
-import type { CapabilityAnnotations } from "../engine/domain/capability.js";
+import { computeContentHash } from "../package/security.js";
+import type { PackageToolsConfig, PackageKnowledgeConfig } from "../package/types.js";
+import type { DomainPackageManifest } from "../package/types.js";
 
-/** Package metadata for an installed domain package */
-export interface DomainPackageManifest {
-  readonly config: DomainConfig;
-  readonly version: string;
-  readonly author: string;
-  readonly installPath: string;
-  readonly skills: readonly string[];
-  readonly tools: DomainToolsYaml | null;
-  readonly knowledge: DomainKnowledgeYaml | null;
-  readonly contentHash: string;
-}
+// Re-export DomainPackageManifest type (defined in package/types.ts)
+export type { DomainPackageManifest } from "../package/types.js";
 
-/** Result of security validation on a domain package */
-export interface SecurityValidationResult {
-  readonly valid: boolean;
-  readonly errors: readonly string[];
-  readonly warnings: readonly string[];
-}
-
-/** Compute SHA-256 hash of file contents */
-export function computeContentHash(content: string): string {
-  return createHash("sha256").update(content, "utf-8").digest("hex");
-}
-
-/** Parse domain.yaml content into a full DomainPackageManifest */
+/**
+ * Parse domain.yaml content into a DomainPackageManifest.
+ * Backward-compatible: domain YAML does not require type/version/author.
+ * Uses domain YAML validator (not package validator).
+ */
 export function parseDomainPackageYaml(
   content: string,
   installPath: string,
@@ -41,7 +28,13 @@ export function parseDomainPackageYaml(
   const errors = validateDomainYaml(data, filePath);
   if (errors.length > 0) throw new DomainYamlError(errors, filePath);
 
-  const yaml = data as DomainYaml;
+  const yaml = data as DomainYaml & {
+    version?: string;
+    author?: string;
+    skills?: readonly string[];
+    tools?: { server: string };
+    knowledge?: { examples?: string; gates?: string };
+  };
 
   const config: DomainConfig = {
     name: yaml.name,
@@ -58,15 +51,28 @@ export function parseDomainPackageYaml(
     phaseExamples: yaml.phaseExamples ?? "",
   };
 
+  const tools: PackageToolsConfig | null = yaml.tools
+    ? { server: yaml.tools.server }
+    : null;
+
+  const knowledge: PackageKnowledgeConfig | null = yaml.knowledge
+    ? {
+        ...(yaml.knowledge.examples !== undefined ? { examples: yaml.knowledge.examples } : {}),
+        ...(yaml.knowledge.gates !== undefined ? { gates: yaml.knowledge.gates } : {}),
+      }
+    : null;
+
   return {
-    config,
+    name: yaml.name,
+    type: "domain",
     version: yaml.version ?? "0.0.0",
     author: yaml.author ?? "",
     installPath,
-    skills: yaml.skills ?? [],
-    tools: yaml.tools ?? null,
-    knowledge: yaml.knowledge ?? null,
     contentHash: computeContentHash(content),
+    config,
+    skills: yaml.skills ?? [],
+    tools,
+    knowledge,
   };
 }
 
@@ -79,120 +85,8 @@ export function loadDomainPackageYaml(
   return parseDomainPackageYaml(content, installPath, filePath);
 }
 
-/** Verify a domain.yaml file has not been tampered with */
+/** Verify a file on disk has not been tampered with */
 export function verifyContentHash(filePath: string, expectedHash: string): boolean {
   const content = readFileSync(filePath, "utf-8");
   return computeContentHash(content) === expectedHash;
-}
-
-const FORBIDDEN_SCRIPTS = [
-  "preinstall",
-  "install",
-  "postinstall",
-  "preuninstall",
-  "uninstall",
-  "postuninstall",
-  "preprepare",
-  "prepare",
-  "postprepare",
-  "prepublish",
-  "prepublishOnly",
-  "postpublish",
-] as const;
-
-const ALLOWED_EXTENSIONS = new Set([
-  ".yaml",
-  ".yml",
-  ".md",
-  ".ts",
-  ".json",
-  ".txt",
-]);
-
-/** Validate a domain package for security compliance */
-export function validatePackageSecurity(
-  packageJsonContent: string | null,
-  fileList: readonly string[],
-): SecurityValidationResult {
-  const errors: string[] = [];
-  const warnings: string[] = [];
-
-  // Check package.json for forbidden lifecycle scripts
-  if (packageJsonContent !== null) {
-    try {
-      const pkg = JSON.parse(packageJsonContent) as Record<string, unknown>;
-      const scripts = pkg.scripts as Record<string, unknown> | undefined;
-      if (scripts && typeof scripts === "object") {
-        for (const script of FORBIDDEN_SCRIPTS) {
-          if (script in scripts) {
-            errors.push(`Forbidden lifecycle script "${script}" found in package.json`);
-          }
-        }
-      }
-    } catch {
-      errors.push("Invalid package.json: failed to parse JSON");
-    }
-  }
-
-  // Check file extensions
-  for (const file of fileList) {
-    const ext = file.slice(file.lastIndexOf("."));
-    if (!ALLOWED_EXTENSIONS.has(ext)) {
-      warnings.push(`Non-standard file extension "${ext}" in ${file}`);
-    }
-  }
-
-  return {
-    valid: errors.length === 0,
-    errors,
-    warnings,
-  };
-}
-
-/** Apply safe defaults to capability annotations -- unannotated tools default to destructive */
-export function applyDefaultAnnotations(annotations?: CapabilityAnnotations | null): CapabilityAnnotations {
-  if (!annotations) {
-    return { destructive: true, readOnly: false, idempotent: false };
-  }
-  return {
-    destructive: annotations.destructive ?? true,
-    readOnly: annotations.readOnly ?? false,
-    idempotent: annotations.idempotent ?? false,
-  };
-}
-
-const PATH_TRAVERSAL_PATTERN = /(^|[\\/])\.\.($|[\\/])/;
-const ABSOLUTE_UNIX_PATTERN = /^\//;
-const ABSOLUTE_WINDOWS_PATTERN = /^[A-Za-z]:\\/;
-
-/** Validate package file paths for security violations */
-export function validatePackageFiles(fileList: readonly string[]): SecurityValidationResult {
-  const errors: string[] = [];
-  const warnings: string[] = [];
-
-  for (const file of fileList) {
-    if (PATH_TRAVERSAL_PATTERN.test(file)) {
-      errors.push(`Path traversal detected in "${file}"`);
-    }
-    if (ABSOLUTE_UNIX_PATTERN.test(file)) {
-      errors.push(`Absolute path detected: "${file}"`);
-    }
-    if (ABSOLUTE_WINDOWS_PATTERN.test(file)) {
-      errors.push(`Absolute path detected: "${file}"`);
-    }
-  }
-
-  // Warn about non-standard extensions
-  for (const file of fileList) {
-    const ext = file.slice(file.lastIndexOf("."));
-    if (!ALLOWED_EXTENSIONS.has(ext)) {
-      warnings.push(`Non-standard file extension "${ext}" in ${file}`);
-    }
-  }
-
-  return {
-    valid: errors.length === 0,
-    errors,
-    warnings,
-  };
 }

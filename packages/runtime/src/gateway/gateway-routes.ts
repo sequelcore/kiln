@@ -18,6 +18,10 @@ import type { TenantAdminRoutesConfig } from "./tenant-admin-routes.js";
 import { createTenantAdminRoutes } from "./tenant-admin-routes.js";
 import { HealthRegistry } from "./health-registry.js";
 import { securityMiddleware } from "./security-middleware.js";
+import type { DevRoutesConfig } from "./dev-routes.js";
+import { createDevRoutes } from "./dev-routes.js";
+import { createDevInspectorHtml } from "./dev-inspector.js";
+import type { TriggerRegistry } from "../trigger/trigger-registry.js";
 
 export interface LoadedApp {
   readonly name: string;
@@ -38,6 +42,9 @@ export interface GatewayServerConfig {
   readonly startTime?: number;
   readonly securityConfig?: SecurityConfig;
   readonly auditLog?: AuditLog;
+  readonly devMode?: boolean;
+  readonly devRoutesConfig?: DevRoutesConfig;
+  readonly triggerRegistry?: TriggerRegistry;
 }
 
 export function createGatewayApp(config: GatewayServerConfig): Hono {
@@ -78,6 +85,13 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
     });
   });
 
+  // Dev mode routes (local development only -- no auth)
+  if (config.devMode) {
+    app.get("/dev/", (c) => c.html(createDevInspectorHtml()));
+    const devRoutes = createDevRoutes(config.devRoutesConfig ?? {});
+    app.route("/dev", devRoutes);
+  }
+
   // Per-app routes
   for (const loadedApp of config.apps) {
     for (const channel of loadedApp.binding.channels) {
@@ -110,6 +124,16 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
     if (loadedApp.tenantAdminConfig) {
       const adminApp = createTenantAdminRoutes(loadedApp.tenantAdminConfig);
       app.route(`/admin/${loadedApp.name}`, adminApp);
+    }
+  }
+
+  // Mount webhook trigger routes per app
+  if (config.triggerRegistry) {
+    for (const loadedApp of config.apps) {
+      const webhookApp = config.triggerRegistry.getWebhookApp(loadedApp.name);
+      if (webhookApp) {
+        app.route(`/webhooks/${loadedApp.name}`, webhookApp);
+      }
     }
   }
 

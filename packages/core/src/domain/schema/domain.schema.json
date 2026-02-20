@@ -62,46 +62,6 @@
       "type": "string",
       "default": "",
       "description": "Phase-specific guidance for agents (XML format)"
-    },
-    "version": {
-      "type": "string",
-      "description": "Package version (semver, e.g., '1.0.0')"
-    },
-    "author": {
-      "type": "string",
-      "description": "Package author name or email"
-    },
-    "skills": {
-      "type": "array",
-      "items": { "type": "string" },
-      "description": "Paths to skill markdown files (e.g., 'skills/create-routine.md')"
-    },
-    "tools": {
-      "type": "object",
-      "required": ["server"],
-      "additionalProperties": false,
-      "properties": {
-        "server": {
-          "type": "string",
-          "description": "Path to MCP server entry point (e.g., 'tools/server.ts')"
-        }
-      },
-      "description": "MCP server tools configuration"
-    },
-    "knowledge": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "examples": {
-          "type": "string",
-          "description": "Path to multishot examples file (e.g., 'knowledge/examples.yaml')"
-        },
-        "gates": {
-          "type": "string",
-          "description": "Path to quality gate definitions file (e.g., 'knowledge/gates.yaml')"
-        }
-      },
-      "description": "Knowledge file references for the domain package"
     }
   }
 }

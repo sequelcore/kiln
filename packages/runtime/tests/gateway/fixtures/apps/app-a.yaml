@@ -13,6 +13,9 @@ teams:
   default:
     agents:
       worker:
+        name: Worker Agent
+        role: software engineer
+        goal: Execute assigned tasks
         tier: coding
         tools: []
     workflow:

@@ -10,6 +10,8 @@ export type KilnErrorCode =
   | "MODE_B_CONFIG_INVALID"
   // Domain
   | "DOMAIN_YAML_INVALID"
+  // Domain Kits (Phase 4)
+  | "DOMAIN_KIT_INVALID"
   // Tenant
   | "TENANT_NOT_FOUND"
   | "TENANT_VALIDATION_FAILED"
@@ -42,14 +44,25 @@ export type KilnErrorCode =
   | "UNAUTHORIZED"
   | "FORBIDDEN"
   | "RATE_LIMIT_EXCEEDED"
+  // Skill (Phase 4)
+  | "SKILL_YAML_INVALID"
+  | "SKILL_NOT_FOUND"
+  // Package (Phase 5)
+  | "PACKAGE_YAML_INVALID"
+  // Trigger (Phase 5)
+  | "TRIGGER_FAILED"
+  | "WEBHOOK_VALIDATION_FAILED"
+  | "SCHEDULE_PARSE_FAILED"
   // Generic
   | "INTERNAL_ERROR";
 
-/** Base error for all Kiln errors. Provides code, context, and retryable flag. */
+/** Base error for all Kiln errors. Provides code, context, retryable flag, and developer hints. */
 export class KilnError extends Error {
   readonly code: KilnErrorCode;
   readonly context: Record<string, unknown>;
   readonly retryable: boolean;
+  readonly suggestion?: string;
+  readonly docUrl?: string;
 
   constructor(
     code: KilnErrorCode,
@@ -58,6 +71,8 @@ export class KilnError extends Error {
       context?: Record<string, unknown>;
       retryable?: boolean;
       cause?: unknown;
+      suggestion?: string;
+      docUrl?: string;
     },
   ) {
     super(message, options?.cause ? { cause: options.cause } : undefined);
@@ -65,5 +80,7 @@ export class KilnError extends Error {
     this.code = code;
     this.context = options?.context ?? {};
     this.retryable = options?.retryable ?? false;
+    this.suggestion = options?.suggestion;
+    this.docUrl = options?.docUrl;
   }
 }

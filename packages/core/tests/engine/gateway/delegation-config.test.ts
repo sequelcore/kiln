@@ -147,12 +147,16 @@ memory:
   backend: sqlite+fts5
 
 router:
+  rules: []
   fallback: main
 
 teams:
   main:
     agents:
       worker:
+        name: Worker
+        role: Delegation Specialist
+        goal: Delegate tasks to appropriate services
         tier: coding
         tools: [delegate_to_arete]
     workflow:
@@ -161,6 +165,7 @@ teams:
     capabilities:
       - name: delegate_to_arete
         description: Delegate workout analysis to arete-ai
+        schema: {}
         tags: [delegation]
         type: delegation
         targetApp: arete-ai

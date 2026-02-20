@@ -1,8 +1,11 @@
 import { existsSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { DomainConfig } from "./index.js";
 import { mergeDomainConfigs } from "./index.js";
 import { loadDomainYaml } from "./yaml-parser.js";
+import type { DomainPackageManifest } from "../package/types.js";
+import { loadDomainPackageYaml } from "./marketplace.js";
 
 const GENERIC_FALLBACK: DomainConfig = {
   name: "generic",
@@ -87,11 +90,58 @@ export class DomainRegistry {
     return loaded;
   }
 
+  /** Load installed domain packages and return full manifests */
+  loadInstalledPackages(projectPath: string): DomainPackageManifest[] {
+    const domainsDir = join(projectPath, this.domainsDir);
+    if (!existsSync(domainsDir)) return [];
+
+    const files = readdirSync(domainsDir).filter(
+      (f) => f.endsWith(".yaml") || f.endsWith(".yml"),
+    );
+
+    const manifests: DomainPackageManifest[] = [];
+    for (const file of files) {
+      try {
+        const manifest = loadDomainPackageYaml(join(domainsDir, file), domainsDir);
+        manifests.push(manifest);
+        if (!this.configs.has(manifest.config.name)) {
+          this.register(manifest.config);
+        }
+      } catch {
+        // Skip invalid files
+      }
+    }
+    return manifests;
+  }
+
   get(name: string): DomainConfig | undefined {
     return this.configs.get(name);
   }
 
   all(): DomainConfig[] {
     return [...this.configs.values()];
+  }
+
+  /** Load all built-in domain kits shipped with the package */
+  static loadBuiltinDomains(): DomainConfig[] {
+    const currentDir = dirname(fileURLToPath(import.meta.url));
+    const domainsDir = join(currentDir, "..", "domains");
+
+    if (!existsSync(domainsDir)) return [];
+
+    const files = readdirSync(domainsDir).filter(
+      (f) => f.endsWith(".yaml") || f.endsWith(".yml"),
+    );
+
+    const configs: DomainConfig[] = [];
+    for (const file of files) {
+      try {
+        const config = loadDomainYaml(join(domainsDir, file));
+        configs.push(config);
+      } catch {
+        // Skip invalid files silently
+      }
+    }
+    return configs;
   }
 }

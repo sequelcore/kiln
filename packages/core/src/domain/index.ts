@@ -41,7 +41,14 @@ export function mergeDomainConfigs(configs: readonly DomainConfig[]): DomainConf
 export { DomainRegistry } from "./domain-registry.js";
 export type { DomainRegistryOptions } from "./domain-registry.js";
 export { parseDomainYaml, loadDomainYaml, DomainYamlError } from "./yaml-parser.js";
-export type { DomainYaml, QualityGateYaml, DomainToolsYaml, DomainKnowledgeYaml, YamlValidationError } from "./yaml-schema.js";
+export type { DomainYaml, QualityGateYaml, YamlValidationError } from "./yaml-schema.js";
 export { validateDomainYaml } from "./yaml-schema.js";
-export { parseDomainPackageYaml, loadDomainPackageYaml, computeContentHash, verifyContentHash, validatePackageSecurity, applyDefaultAnnotations, validatePackageFiles } from "./marketplace.js";
-export type { DomainPackageManifest, SecurityValidationResult } from "./marketplace.js";
+
+// Backward-compatible re-exports from marketplace adapter (delegates to package/)
+// These accept domain YAML without requiring type/version/author fields.
+export {
+  parseDomainPackageYaml,
+  loadDomainPackageYaml,
+  verifyContentHash,
+} from "./marketplace.js";
+export type { DomainPackageManifest } from "./marketplace.js";

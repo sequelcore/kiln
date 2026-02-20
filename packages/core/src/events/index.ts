@@ -31,6 +31,11 @@ export const EVENT_LEVEL_MAP: Record<EventType, StreamLevel> = {
   audit_entry: "state",
   tenant_isolation_violation: "phase",
   security_alert: "state",
+  // Triggers (Phase 5)
+  webhook_received: "phase",
+  trigger_fired: "phase",
+  trigger_failed: "phase",
+  schedule_fired: "phase",
 };
 
 /** Level hierarchy: subscribing to "phase" includes "state" + "phase" */
@@ -68,7 +73,12 @@ export type EventType =
   | "guardian_reviewed"
   | "audit_entry"
   | "tenant_isolation_violation"
-  | "security_alert";
+  | "security_alert"
+  // Triggers (Phase 5)
+  | "webhook_received"
+  | "trigger_fired"
+  | "trigger_failed"
+  | "schedule_fired";
 
 /** Base event interface */
 export interface KilnEvent {
@@ -278,6 +288,40 @@ export interface SecurityAlertEvent extends KilnEvent {
   readonly message: string;
 }
 
+/** Webhook received event (trigger) */
+export interface WebhookReceivedEvent extends KilnEvent {
+  readonly type: "webhook_received";
+  readonly path: string;
+  readonly appName: string;
+  readonly triggerName: string;
+  readonly method: string;
+}
+
+/** Trigger fired event */
+export interface TriggerFiredEvent extends KilnEvent {
+  readonly type: "trigger_fired";
+  readonly triggerName: string;
+  readonly triggerType: string;
+  readonly team: string;
+  readonly task: string;
+}
+
+/** Trigger failed event */
+export interface TriggerFailedEvent extends KilnEvent {
+  readonly type: "trigger_failed";
+  readonly triggerName: string;
+  readonly triggerType: string;
+  readonly error: string;
+}
+
+/** Schedule fired event */
+export interface ScheduleFiredEvent extends KilnEvent {
+  readonly type: "schedule_fired";
+  readonly triggerName: string;
+  readonly cron: string;
+  readonly team: string;
+}
+
 /** Maps each event type to its corresponding event interface */
 export interface EventMap {
   phase_changed: PhaseChangedEvent;
@@ -306,6 +350,11 @@ export interface EventMap {
   audit_entry: AuditEntryEvent;
   tenant_isolation_violation: TenantIsolationViolationEvent;
   security_alert: SecurityAlertEvent;
+  // Triggers (Phase 5)
+  webhook_received: WebhookReceivedEvent;
+  trigger_fired: TriggerFiredEvent;
+  trigger_failed: TriggerFailedEvent;
+  schedule_fired: ScheduleFiredEvent;
 }
 
 export { EventBus } from "./event-bus.js";

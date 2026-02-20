@@ -11,9 +11,9 @@ function makeTeam(overrides?: Partial<Team>): Team {
   return {
     name: "dev",
     agents: {
-      architect: { name: "architect", tier: "reasoning", tools: [], structured: true },
-      worker: { name: "worker", tier: "coding", tools: ["tool_a"], count: 2, sandbox: true },
-      optimizer: { name: "optimizer", tier: "fast", tools: ["tool_b"] },
+      architect: { name: "Aria", role: "Senior Architect", goal: "Design robust solutions", tier: "reasoning", tools: [], structured: true },
+      worker: { name: "Marcus", role: "Implementation Specialist", goal: "Write clean code", tier: "coding", tools: ["tool_a"], count: 2, sandbox: true },
+      optimizer: { name: "Zoe", role: "Performance Optimizer", goal: "Optimize for speed", tier: "fast", tools: ["tool_b"] },
     },
     workflow: {
       phases: ["analyze", "research", "architect", "implement", "verify", "synthesize"],
@@ -24,8 +24,8 @@ function makeTeam(overrides?: Partial<Team>): Team {
       maxIterations: 3,
     },
     capabilities: [
-      { name: "tool_a", description: "Tool A", tags: [], annotations: {} },
-      { name: "tool_b", description: "Tool B", tags: [], annotations: {} },
+      { name: "tool_a", description: "Tool A", schema: {}, tags: [], annotations: {} },
+      { name: "tool_b", description: "Tool B", schema: {}, tags: [], annotations: {} },
     ],
     qualityGates: [],
     ...overrides,
@@ -77,7 +77,7 @@ describe("loadPresetConfig", () => {
   it("defaults parallelWorkers to 2 when no coding agent count", () => {
     const team = makeTeam({
       agents: {
-        bot: { name: "bot", tier: "coding", tools: [] },
+        bot: { name: "Bot", role: "Generalist", goal: "Handle tasks", tier: "coding", tools: [] },
       },
     });
     const config = loadPresetConfig(makeApp({ dev: team }, "dev"));

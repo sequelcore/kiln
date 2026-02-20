@@ -6,10 +6,13 @@ import type { Router } from "../../../src/engine/composites/router.js";
 import type { Agent } from "../../../src/engine/domain/agent.js";
 import type { Capability } from "../../../src/engine/domain/capability.js";
 import type { Workflow } from "../../../src/engine/domain/workflow.js";
+import type { Trigger, WebhookTrigger, EventTrigger, ScheduleTrigger } from "../../../src/engine/domain/trigger.js";
 
 function makeAgent(overrides: Partial<Agent> = {}): Agent {
   return {
-    name: "worker",
+    name: "Marcus",
+    role: "Implementation Specialist",
+    goal: "Write clean, well-tested code",
     tier: "coding",
     tools: ["code_edit"],
     ...overrides,
@@ -162,6 +165,59 @@ describe("App composite", () => {
       });
       const errors = validateApp(app);
       expect(errors.length).toBeGreaterThanOrEqual(4);
+    });
+
+    describe("trigger validation", () => {
+      it("accepts app with valid triggers", () => {
+        const triggers: Trigger[] = [
+          { name: "on-deploy", type: "webhook", team: "dev", path: "/hooks/deploy" } as WebhookTrigger,
+          { name: "on-error", type: "event", team: "dev", event: "error" } as EventTrigger,
+          { name: "nightly", type: "schedule", team: "dev", cron: "0 2 * * *" } as ScheduleTrigger,
+        ];
+        const errors = validateApp(makeApp({ triggers }));
+        expect(errors.filter((e) => e.field.startsWith("triggers"))).toHaveLength(0);
+      });
+
+      it("accepts app without triggers", () => {
+        const errors = validateApp(makeApp());
+        expect(errors.filter((e) => e.field.startsWith("triggers"))).toHaveLength(0);
+      });
+
+      it("reports trigger referencing unknown team", () => {
+        const triggers: Trigger[] = [
+          { name: "bad-ref", type: "webhook", team: "nonexistent", path: "/hooks/test" } as WebhookTrigger,
+        ];
+        const errors = validateApp(makeApp({ triggers }));
+        expect(errors.some((e) => e.field === "triggers[0].team")).toBe(true);
+        expect(errors.find((e) => e.field === "triggers[0].team")?.message).toContain("nonexistent");
+      });
+
+      it("reports duplicate trigger names", () => {
+        const triggers: Trigger[] = [
+          { name: "dup", type: "webhook", team: "dev", path: "/hooks/a" } as WebhookTrigger,
+          { name: "dup", type: "event", team: "dev", event: "error" } as EventTrigger,
+        ];
+        const errors = validateApp(makeApp({ triggers }));
+        expect(errors.some((e) => e.field === "triggers[1].name" && e.message.includes("duplicate"))).toBe(true);
+      });
+
+      it("reports duplicate webhook paths", () => {
+        const triggers: Trigger[] = [
+          { name: "hook-a", type: "webhook", team: "dev", path: "/hooks/deploy" } as WebhookTrigger,
+          { name: "hook-b", type: "webhook", team: "dev", path: "/hooks/deploy" } as WebhookTrigger,
+        ];
+        const errors = validateApp(makeApp({ triggers }));
+        expect(errors.some((e) => e.field === "triggers[1].path" && e.message.includes("duplicate"))).toBe(true);
+      });
+
+      it("propagates trigger field validation errors with prefixed paths", () => {
+        const triggers: Trigger[] = [
+          { name: "", type: "webhook", team: "dev", path: "" } as unknown as WebhookTrigger,
+        ];
+        const errors = validateApp(makeApp({ triggers }));
+        expect(errors.some((e) => e.field === "triggers[0].name")).toBe(true);
+        expect(errors.some((e) => e.field === "triggers[0].path")).toBe(true);
+      });
     });
   });
 });

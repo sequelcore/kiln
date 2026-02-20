@@ -70,6 +70,7 @@ describe("Orchestrator checkpoint integration", () => {
     it("should throw error when resuming without store", async () => {
       const newOrchestrator = new Orchestrator();
       newOrchestrator.start("Test task");
+      orchestrator.start("some task");
       const checkpointId = await orchestrator.checkpoint();
 
       await expect(newOrchestrator.resume(checkpointId)).rejects.toThrow(

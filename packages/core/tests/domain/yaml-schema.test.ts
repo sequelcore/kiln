@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { DomainYaml, QualityGateYaml, DomainToolsYaml, DomainKnowledgeYaml } from "../../src/domain/yaml-schema.js";
+import type { DomainYaml, QualityGateYaml } from "../../src/domain/yaml-schema.js";
 import { validateDomainYaml } from "../../src/domain/yaml-schema.js";
 
 describe("validateDomainYaml", () => {
@@ -166,95 +166,6 @@ describe("validateDomainYaml", () => {
       };
       const errors = validateDomainYaml({ ...validYaml, qualityGates: [gate] });
       expect(errors).toHaveLength(0);
-    });
-  });
-
-  describe("marketplace fields", () => {
-    it("accepts valid version", () => {
-      const errors = validateDomainYaml({ ...validYaml, version: "1.0.0" });
-      expect(errors).toHaveLength(0);
-    });
-
-    it("rejects non-string version", () => {
-      const errors = validateDomainYaml({ ...validYaml, version: 123 });
-      expect(errors.some((e) => e.field === "version")).toBe(true);
-    });
-
-    it("accepts valid author", () => {
-      const errors = validateDomainYaml({ ...validYaml, author: "Test Author" });
-      expect(errors).toHaveLength(0);
-    });
-
-    it("rejects non-string author", () => {
-      const errors = validateDomainYaml({ ...validYaml, author: 123 });
-      expect(errors.some((e) => e.field === "author")).toBe(true);
-    });
-
-    it("accepts valid skills array", () => {
-      const errors = validateDomainYaml({ ...validYaml, skills: ["skill1", "skill2"] });
-      expect(errors).toHaveLength(0);
-    });
-
-    it("rejects non-array skills", () => {
-      const errors = validateDomainYaml({ ...validYaml, skills: "not-array" });
-      expect(errors.some((e) => e.field === "skills")).toBe(true);
-    });
-
-    it("rejects non-string skill entries", () => {
-      const errors = validateDomainYaml({ ...validYaml, skills: [123, "valid"] });
-      expect(errors.some((e) => e.field === "skills[0]")).toBe(true);
-    });
-
-    it("accepts valid tools object", () => {
-      const tools: DomainToolsYaml = { server: "tools/server.ts" };
-      const errors = validateDomainYaml({ ...validYaml, tools });
-      expect(errors).toHaveLength(0);
-    });
-
-    it("rejects non-object tools", () => {
-      const errors = validateDomainYaml({ ...validYaml, tools: "not-object" });
-      expect(errors.some((e) => e.field === "tools")).toBe(true);
-    });
-
-    it("rejects tools without server", () => {
-      const errors = validateDomainYaml({ ...validYaml, tools: {} });
-      expect(errors.some((e) => e.field === "tools.server")).toBe(true);
-    });
-
-    it("rejects tools with non-string server", () => {
-      const errors = validateDomainYaml({ ...validYaml, tools: { server: 123 } });
-      expect(errors.some((e) => e.field === "tools.server")).toBe(true);
-    });
-
-    it("accepts valid knowledge object", () => {
-      const knowledge: DomainKnowledgeYaml = { examples: "examples.yaml", gates: "gates.yaml" };
-      const errors = validateDomainYaml({ ...validYaml, knowledge });
-      expect(errors).toHaveLength(0);
-    });
-
-    it("accepts knowledge with only examples", () => {
-      const errors = validateDomainYaml({ ...validYaml, knowledge: { examples: "ex.yaml" } });
-      expect(errors).toHaveLength(0);
-    });
-
-    it("accepts knowledge with only gates", () => {
-      const errors = validateDomainYaml({ ...validYaml, knowledge: { gates: "gates.yaml" } });
-      expect(errors).toHaveLength(0);
-    });
-
-    it("rejects non-object knowledge", () => {
-      const errors = validateDomainYaml({ ...validYaml, knowledge: "not-object" });
-      expect(errors.some((e) => e.field === "knowledge")).toBe(true);
-    });
-
-    it("rejects knowledge with non-string examples", () => {
-      const errors = validateDomainYaml({ ...validYaml, knowledge: { examples: 123 } });
-      expect(errors.some((e) => e.field === "knowledge.examples")).toBe(true);
-    });
-
-    it("rejects knowledge with non-string gates", () => {
-      const errors = validateDomainYaml({ ...validYaml, knowledge: { gates: 123 } });
-      expect(errors.some((e) => e.field === "knowledge.gates")).toBe(true);
     });
   });
 

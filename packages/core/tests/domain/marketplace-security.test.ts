@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { applyDefaultAnnotations } from "../../src/domain/marketplace.js";
+import { applyDefaultAnnotations } from "../../src/package/security.js";
 import type { CapabilityAnnotations } from "../../src/engine/domain/capability.js";
 
 describe("applyDefaultAnnotations", () => {

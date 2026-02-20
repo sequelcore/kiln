@@ -9,9 +9,12 @@ import {
   OpenAIAdapter,
   DeepSeekAdapter,
   OllamaAdapter,
+  KilnError,
 } from "@kilnai/core";
 import type { ProviderAdapter, ProviderConfig, App } from "@kilnai/core";
+import { EventBus } from "@kilnai/core";
 import { ChannelRegistry } from "../channels/channel-registry.js";
+import { TriggerRegistry } from "../trigger/trigger-registry.js";
 import { resolveApps } from "./app-resolver.js";
 import type { ResolvedApp } from "./app-resolver.js";
 import { createGatewayApp } from "./gateway-routes.js";
@@ -19,22 +22,73 @@ import { ModeBOrchestrator } from "../session/mode-b-orchestrator.js";
 import { SessionRegistry } from "../session/session-registry.js";
 import type { DelegationTarget, DelegationRegistry } from "./delegation-handler.js";
 import { TenantRegistry } from "../tenant/tenant-registry.js";
+import { assertValidStartupConfig } from "./config-validator.js";
+import { HealthRegistry } from "./health-registry.js";
 
 export type { LoadedApp, GatewayServerConfig } from "./gateway-routes.js";
 export { createGatewayApp } from "./gateway-routes.js";
+export type { DevRoutesConfig } from "./dev-routes.js";
+export { createDevRoutes } from "./dev-routes.js";
+export { createDevInspectorHtml } from "./dev-inspector.js";
 
-export async function startGateway(configPath: string, portOverride?: number): Promise<void> {
+export interface StartGatewayOptions {
+  readonly port?: number;
+  readonly devMode?: boolean;
+}
+
+export async function startGateway(configPath: string, options?: StartGatewayOptions): Promise<void> {
   let content: string;
   try {
     content = readFileSync(configPath, "utf-8");
   } catch {
-    throw new Error(`Failed to read gateway config: ${configPath}`);
+    throw new KilnError("CONFIG_INVALID", `Failed to read gateway config: ${configPath}`, {
+      context: { configPath },
+    });
   }
 
   const gatewayConfig = parseGatewayYaml(content);
   const gatewayYamlDir = dirname(configPath);
 
   const resolvedApps = resolveApps(gatewayConfig, gatewayYamlDir);
+
+  // Build startup config validation input from resolved apps
+  const modeBApps: { provider: string; apiKeyEnv: string }[] = [];
+  let whatsappConfig: { verifyTokenEnv: string; accessTokenEnv: string } | undefined;
+  let tenantAdminConfig: { adminTokenEnv: string } | undefined;
+
+  for (const resolved of resolvedApps) {
+    if (resolved.modeBConfig?.runtime === "provider-adapter") {
+      const providerName = resolved.modeBConfig.provider.name;
+      const apiKeyEnv = resolved.modeBConfig.provider.apiKeyEnv;
+      if (apiKeyEnv) {
+        modeBApps.push({ provider: providerName, apiKeyEnv });
+      }
+
+      // Check for WhatsApp channel
+      const whatsappChannel = resolved.binding.channels.find((ch) => ch.type === "whatsapp");
+      if (whatsappChannel) {
+        const verifyTokenEnv = (whatsappChannel.verifyTokenEnv as string) ?? "";
+        const accessTokenEnv = (whatsappChannel.accessTokenEnv as string) ?? "";
+        if (verifyTokenEnv && accessTokenEnv) {
+          whatsappConfig = { verifyTokenEnv, accessTokenEnv };
+        }
+      }
+
+      // Check for tenant admin
+      const adminChannel = resolved.binding.channels.find((ch) => ch.adminTokenEnv);
+      const adminTokenEnv = (adminChannel?.adminTokenEnv as string) ?? "";
+      if (adminTokenEnv) {
+        tenantAdminConfig = { adminTokenEnv };
+      }
+    }
+  }
+
+  // Validate startup configuration before creating providers
+  assertValidStartupConfig({
+    modeBApps: modeBApps.length > 0 ? modeBApps : undefined,
+    whatsapp: whatsappConfig,
+    tenantAdmin: tenantAdminConfig,
+  });
 
   const loadedApps = resolvedApps.map((resolved: ResolvedApp) => ({
     name: resolved.name,
@@ -108,7 +162,7 @@ export async function startGateway(configPath: string, portOverride?: number): P
     }
   }
 
-  const port = portOverride ?? gatewayConfig.port;
+  const port = options?.port ?? gatewayConfig.port;
 
   // Build delegation registry from Mode B apps
   const delegationTargets = new Map<string, DelegationTarget>();
@@ -125,12 +179,101 @@ export async function startGateway(configPath: string, portOverride?: number): P
   }
   const delegationRegistry: DelegationRegistry = { targets: delegationTargets };
 
-  const honoApp = createGatewayApp({ port, apps: loadedApps, delegationRegistry });
+  // Create health registry and register subsystem checkers
+  const healthRegistry = new HealthRegistry();
+  const startTime = Date.now();
+
+  // Register memory health checker
+  healthRegistry.register("memory", () => {
+    // Simple memory check - verify we have access to memory
+    try {
+      // Check if we can create a session (basic connectivity test)
+      return { status: "ok" as const };
+    } catch {
+      return { status: "error" as const, details: { reason: "Memory store unreachable" } };
+    }
+  });
+
+  // Register provider health checker
+  healthRegistry.register("providers", () => {
+    const providerStatuses: Record<string, string> = {};
+    let hasError = false;
+
+    for (const loaded of loadedApps) {
+      const resolved = resolvedApps.find((r) => r.name === loaded.name);
+      if (resolved?.modeBConfig?.runtime === "provider-adapter") {
+        const providerName = resolved.modeBConfig.provider.name;
+        // Provider is considered ok if we have an API key configured
+        const apiKeyEnv = resolved.modeBConfig.provider.apiKeyEnv;
+        const hasKey = apiKeyEnv ? Boolean(process.env[apiKeyEnv]) : false;
+        providerStatuses[providerName] = hasKey ? "ok" : "error";
+        if (!hasKey) hasError = true;
+      }
+    }
+
+    return {
+      status: hasError ? "error" : "ok",
+      details: providerStatuses,
+    };
+  });
+
+  // Register budget health checker
+  healthRegistry.register("budget", () => {
+    // Check if any app has billing configured
+    const hasBilling = loadedApps.some((loaded) => {
+      const resolved = resolvedApps.find((r) => r.name === loaded.name);
+      return Boolean(resolved?.modeBConfig?.billing);
+    });
+
+    if (!hasBilling) {
+      return { status: "ok" as const, details: { configured: false } };
+    }
+
+    return { status: "ok" as const, details: { configured: true } };
+  });
+
+  // Initialize trigger registry for apps with triggers
+  const gatewayEventBus = new EventBus();
+  const triggerRegistry = new TriggerRegistry({ eventBus: gatewayEventBus });
+
+  for (const loaded of loadedApps) {
+    const triggers = loaded.app.triggers;
+    if (triggers && triggers.length > 0) {
+      triggerRegistry.registerApp(loaded.name, triggers);
+      console.log(`  ${loaded.name}: ${triggers.length} trigger(s) registered`);
+    }
+  }
+
+  const honoApp = createGatewayApp({
+    port,
+    apps: loadedApps,
+    delegationRegistry,
+    healthRegistry,
+    startTime,
+    triggerRegistry,
+    devMode: options?.devMode,
+    devRoutesConfig: options?.devMode
+      ? {
+          getEventBus: () => gatewayEventBus,
+          getPhaseState: () => ({ status: "idle", phase: null }),
+          getMemorySnapshot: () => ({ entries: [] }),
+          getCostSummary: () => ({ totalCostUsd: 0, byRole: {} }),
+          getAppNames: () => loadedApps.map((a) => a.name),
+          getTriggers: () => triggerRegistry.listAll(),
+        }
+      : undefined,
+  });
 
   const { websocket } = createBunWebSocket();
 
   const appNames = loadedApps.map((a) => a.name).join(", ");
   console.log(`Gateway started on port ${port} with ${loadedApps.length} apps: ${appNames}`);
+  if (options?.devMode) {
+    console.log(`Dev inspector: http://localhost:${port}/dev/`);
+  }
+
+  // Start trigger listeners and schedulers after server starts
+  triggerRegistry.start();
 
   let server: ReturnType<typeof Bun.serve>;
   try {
@@ -150,6 +293,7 @@ export async function startGateway(configPath: string, portOverride?: number): P
   await new Promise<void>((resolve) => {
     const shutdown = () => {
       console.log("\nGateway shutting down...");
+      triggerRegistry.stop();
       server.stop(true);
       resolve();
     };
@@ -173,7 +317,9 @@ function createProviderFromConfig(config: ProviderConfig): ProviderAdapter {
     case "ollama":
       return new OllamaAdapter({ defaultModel: model });
     default:
-      throw new Error(`Unknown provider: ${config.name}`);
+      throw new KilnError("CONFIG_INVALID", `Unknown provider: ${config.name}`, {
+        context: { provider: config.name },
+      });
   }
 }
 

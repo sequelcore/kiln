@@ -1,9 +1,11 @@
 // Engine primitives -- 6 domain-agnostic building blocks
 // Zero external dependencies, pure TypeScript interfaces
 
-// Errors -- unified error hierarchy (Phase 0.2)
+// Errors -- unified error hierarchy (Phase 0.2) + error catalog (Phase 4)
 export { KilnError } from "./errors.js";
 export type { KilnErrorCode } from "./errors.js";
+export { getErrorSuggestion } from "./error-catalog.js";
+export type { ErrorSuggestion } from "./error-catalog.js";
 
 export type { Agent, AgentTier } from "./domain/agent.js";
 export { assembleAgentPrompt } from "./domain/prompt-assembler.js";
@@ -68,6 +70,12 @@ export type {
   DelegationValidationError,
 } from "./gateway/delegation-config.js";
 export { isDelegationCapability, validateDelegation } from "./gateway/delegation-config.js";
+
+// Trigger primitive (Phase 5)
+export type { Trigger, TriggerType, WebhookTrigger, EventTrigger, ScheduleTrigger, TriggerValidationError } from "./domain/trigger.js";
+export { validateTrigger } from "./domain/trigger.js";
+export type { CronExpression } from "./domain/cron.js";
+export { parseCronExpression, validateCronExpression, nextFireTime } from "./domain/cron.js";
 
 // Tenant -- multi-tenant business configuration (Phase 25)
 export type {

@@ -5,7 +5,9 @@ import type { Agent } from "../../../src/engine/domain/agent.js";
 
 function makeAgent(overrides: Partial<Agent> = {}): Agent {
   return {
-    name: "classifier",
+    name: "Classifier",
+    role: "Intent Classifier",
+    goal: "Route requests to appropriate teams",
     tier: "fast",
     tools: [],
     ...overrides,

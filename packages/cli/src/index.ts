@@ -1,7 +1,5 @@
 #!/usr/bin/env bun
 
-import { existsSync } from "node:fs";
-import { join } from "node:path";
 import type { KilnAppConfig } from "./config.js";
 
 // Re-export types and config
@@ -12,14 +10,13 @@ export type { SessionMode, SessionContext, SessionReport, WrapperConfig } from "
 export { SessionManager } from "./wrapper/session-manager.js";
 export { KilnMcpServer, KILN_TOOLS } from "./mcp/index.js";
 export type { KilnTool } from "./mcp/index.js";
-export { startServer, createApp, SessionState } from "./server/index.js";
 
 export async function createCli(config: KilnAppConfig): Promise<void> {
   const args = process.argv.slice(2);
   const command = args[0];
 
   const COMMANDS: Record<string, string> = {
-    init: `Initialize ${config.appName} in the current project`,
+    init: `Initialize ${config.appName} in the current project (--force, --non-interactive, --domain, --provider, --channels, --team-mode)`,
     run: "Start a CLI-only coding session with Claude Code",
     status: "Show current phase, tasks, and costs",
     memory: "Browse and search memory layers",
@@ -28,12 +25,13 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     "mcp-config": "Generate MCP client configuration JSON",
     domain: "Manage domain packages (install, list, search, info, remove)",
     gateway: "Start persistent Gateway (multi-app hosting)",
+    dev: "Start development mode with hot-reload and event streaming",
+    skill: "Manage skills (list, install, publish)",
   };
 
   function printHelp(): void {
     console.log(`\n${capitalize(config.appName)} -- ${config.description}\n`);
     console.log(`Usage: ${config.appName} [command] [options]\n`);
-    console.log(`  ${config.appName}              Launch web console\n`);
     console.log("Commands:");
     for (const [cmd, desc] of Object.entries(COMMANDS)) {
       console.log(`  ${cmd.padEnd(12)} ${desc}`);
@@ -41,24 +39,14 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     console.log("\nOptions:");
     console.log("  --api-key    Anthropic API key (required for Mode A)");
     console.log("  --provider   LLM provider (claude, openai, deepseek)");
-    console.log("  --port       Web console port (default: 4800)");
-    console.log("  --no-open    Don't auto-open browser");
+    console.log("  --port       Port override (dev/gateway)");
     console.log(`\nRun '${config.appName} <command> --help' for command-specific help.\n`);
   }
 
-  // No command -> launch web console
+  // No command -> show help
   if (!command) {
-    const cwd = process.cwd();
-    if (!existsSync(join(cwd, config.dirName))) {
-      const { initCommand } = await import("./commands/init.js");
-      initCommand(config, cwd);
-      console.log("");
-    }
-    const port = parsePort(args);
-    const open = !args.includes("--no-open");
-    const { startServer } = await import("./server/index.js");
-    await startServer({ port, open }, config);
-    return;
+    printHelp();
+    process.exit(0);
   }
 
   if (command === "--help" || command === "-h") {
@@ -79,7 +67,14 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
 
   if (command === "init") {
     const { initCommand } = await import("./commands/init.js");
-    await initCommand(config, process.cwd(), { force: args.includes("--force") });
+    await initCommand(config, process.cwd(), {
+      force: args.includes("--force"),
+      interactive: !args.includes("--non-interactive"),
+      domain: findFlag(args, "--domain"),
+      provider: findFlag(args, "--provider"),
+      channels: findFlag(args, "--channels"),
+      teamMode: findFlag(args, "--team-mode"),
+    });
     return;
   }
 
@@ -135,7 +130,27 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     return;
   }
 
+  if (command === "dev") {
+    const { devCommand } = await import("./commands/dev.js");
+    const port = parsePort(args);
+    const configPath = findFlag(args, "--config");
+    await devCommand(config, { port: port !== 4800 ? port : undefined, configPath });
+    return;
+  }
+
+  if (command === "skill") {
+    const { skillCommand } = await import("./commands/skill.js");
+    await skillCommand(config, args[1] ?? "", args.slice(2));
+    return;
+  }
+
   console.log(`${config.appName} ${command}: not yet implemented`);
+}
+
+function findFlag(args: readonly string[], flag: string): string | undefined {
+  const idx = args.indexOf(flag);
+  if (idx >= 0 && idx + 1 < args.length) return args[idx + 1];
+  return undefined;
 }
 
 function capitalize(s: string): string {

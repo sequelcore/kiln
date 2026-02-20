@@ -10,6 +10,9 @@ import type {
   CostUpdateEvent,
   ErrorEvent,
 } from "@kilnai/core";
+import { KilnError, getErrorSuggestion } from "@kilnai/core";
+import type { DomainConfig } from "@kilnai/core";
+import type { SkillConfig } from "@kilnai/core";
 
 /** Ordered list of orchestrator phases */
 export const PHASES: Phase[] = [
@@ -216,6 +219,36 @@ export function formatActivityLog(
 ): string[] {
   const recent = events.slice(-maxLines);
   return recent.map(formatEvent);
+}
+
+/** Format a KilnError with suggestion and doc link for CLI display */
+export function formatError(error: KilnError): string {
+  const lines: string[] = [];
+  lines.push(`Error [${error.code}]: ${error.message}`);
+
+  const suggestion = error.suggestion ?? getErrorSuggestion(error.code, error.context).suggestion;
+  if (suggestion) {
+    lines.push(`  Suggestion: ${suggestion}`);
+  }
+
+  const docUrl = error.docUrl ?? getErrorSuggestion(error.code, error.context).docUrl;
+  if (docUrl) {
+    lines.push(`  Docs: ${docUrl}`);
+  }
+
+  return lines.join("\n");
+}
+
+/** Format a list of domain configs for CLI display */
+export function formatDomainList(domains: readonly DomainConfig[]): string {
+  if (domains.length === 0) return "No domains available.";
+  return domains.map((d, i) => `  ${i + 1}. ${d.displayName} (${d.name})`).join("\n");
+}
+
+/** Format a list of skill configs for CLI display */
+export function formatSkillList(skills: readonly SkillConfig[]): string {
+  if (skills.length === 0) return "No skills available.";
+  return skills.map((s, i) => `  ${i + 1}. ${s.name} -- ${s.description}`).join("\n");
 }
 
 /**

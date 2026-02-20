@@ -2,6 +2,7 @@
 export { createGatewayApp } from "./gateway/gateway-routes.js";
 export type { LoadedApp, GatewayServerConfig } from "./gateway/gateway-routes.js";
 export { startGateway } from "./gateway/gateway-server.js";
+export type { StartGatewayOptions } from "./gateway/gateway-server.js";
 export { resolveApps } from "./gateway/app-resolver.js";
 export type { ResolvedApp } from "./gateway/app-resolver.js";
 export { createModeBRoutes } from "./gateway/mode-b-routes.js";
@@ -28,6 +29,17 @@ export { SessionRegistry } from "./session/session-registry.js";
 // Tenant
 export { TenantRegistry, TenantNotFoundError, TenantValidationFailedError } from "./tenant/tenant-registry.js";
 export { buildTenantSystemPrompt } from "./tenant/system-prompt-builder.js";
+
+// Triggers
+export { TriggerRegistry } from "./trigger/trigger-registry.js";
+export type { TriggerRegistryConfig } from "./trigger/trigger-registry.js";
+export { createWebhookHandler, validateWebhookSignature } from "./trigger/webhook-handler.js";
+export type { WebhookHandlerConfig } from "./trigger/webhook-handler.js";
+export { EventListener, matchesFilter } from "./trigger/event-listener.js";
+export type { EventListenerConfig } from "./trigger/event-listener.js";
+export { Scheduler } from "./trigger/scheduler.js";
+export { executeTrigger, interpolateTemplate } from "./trigger/trigger-executor.js";
+export type { TriggerExecutionContext } from "./trigger/trigger-executor.js";
 
 // Channels
 export { EventBridge, toEngineEvent } from "./channels/event-bridge.js";

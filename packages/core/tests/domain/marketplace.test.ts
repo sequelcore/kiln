@@ -5,11 +5,13 @@ import { tmpdir } from "node:os";
 import {
   parseDomainPackageYaml,
   loadDomainPackageYaml,
-  computeContentHash,
   verifyContentHash,
+} from "../../src/domain/marketplace.js";
+import {
+  computeContentHash,
   validatePackageSecurity,
   validatePackageFiles,
-} from "../../src/domain/marketplace.js";
+} from "../../src/package/security.js";
 import { DomainYamlError } from "../../src/domain/yaml-parser.js";
 
 const VALID_PACKAGE_YAML = `

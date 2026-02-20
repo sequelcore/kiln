@@ -2,6 +2,8 @@
 // Composes teams, router, memory, and channels into a deployable application
 
 import type { MemoryScope } from "../domain/memory.js";
+import type { Trigger } from "../domain/trigger.js";
+import { validateTrigger } from "../domain/trigger.js";
 import type { Team } from "./team.js";
 import type { Router } from "./router.js";
 import { validateTeam } from "./team.js";
@@ -21,6 +23,7 @@ export interface App {
   readonly router: Router;
   readonly memory: MemoryConfig;
   readonly channels: readonly string[];
+  readonly triggers?: readonly Trigger[];
 }
 
 /** Validation error for app configuration */
@@ -77,6 +80,38 @@ export function validateApp(app: App): AppValidationError[] {
   const routerErrors = validateRouter(app.router);
   for (const e of routerErrors) {
     errors.push({ field: `router.${e.field}`, message: e.message });
+  }
+
+  // Trigger validation
+  if (app.triggers) {
+    const triggerNames = new Set<string>();
+    const webhookPaths = new Set<string>();
+
+    for (let i = 0; i < app.triggers.length; i++) {
+      const trigger = app.triggers[i]!;
+
+      // Validate each trigger via validateTrigger
+      const triggerErrors = validateTrigger(trigger, teamNames);
+      for (const e of triggerErrors) {
+        errors.push({ field: `triggers[${i}].${e.field}`, message: e.message });
+      }
+
+      // Check trigger names are unique
+      if (trigger.name) {
+        if (triggerNames.has(trigger.name)) {
+          errors.push({ field: `triggers[${i}].name`, message: `duplicate trigger name "${trigger.name}"` });
+        }
+        triggerNames.add(trigger.name);
+      }
+
+      // Check webhook paths are unique
+      if (trigger.type === "webhook" && trigger.path) {
+        if (webhookPaths.has(trigger.path)) {
+          errors.push({ field: `triggers[${i}].path`, message: `duplicate webhook path "${trigger.path}"` });
+        }
+        webhookPaths.add(trigger.path);
+      }
+    }
   }
 
   return errors;

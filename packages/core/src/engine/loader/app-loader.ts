@@ -11,6 +11,7 @@ import type { Agent, AgentTier } from "../domain/agent.js";
 import type { Capability } from "../domain/capability.js";
 import type { Workflow, Gate } from "../domain/workflow.js";
 import type { MemoryScope } from "../domain/memory.js";
+import type { Trigger, TriggerType } from "../domain/trigger.js";
 
 /** Error class for YAML loader failures, aggregating all validation errors */
 export class AppLoaderError extends KilnError {
@@ -104,12 +105,28 @@ interface RawMemory {
   sync?: unknown;
 }
 
+interface RawTrigger {
+  name?: unknown;
+  type?: unknown;
+  team?: unknown;
+  task?: unknown;
+  enabled?: unknown;
+  path?: unknown;
+  method?: unknown;
+  secretEnv?: unknown;
+  event?: unknown;
+  filter?: unknown;
+  cron?: unknown;
+  timezone?: unknown;
+}
+
 interface RawApp {
   name?: unknown;
   channels?: unknown;
   memory?: unknown;
   router?: unknown;
   teams?: unknown;
+  triggers?: unknown;
 }
 
 // ---------------------------------------------------------------------------
@@ -479,6 +496,84 @@ function mapMemory(raw: RawMemory, path: string): { memory: MemoryConfig; errors
   return { memory, errors };
 }
 
+const VALID_TRIGGER_TYPES: TriggerType[] = ["webhook", "event", "schedule"];
+
+function mapTrigger(raw: RawTrigger, path: string): { trigger: Trigger; errors: { field: string; message: string }[] } {
+  const errors: { field: string; message: string }[] = [];
+
+  if (!raw.name || typeof raw.name !== "string") {
+    errors.push({ field: `${path}.name`, message: "must be a non-empty string" });
+  }
+
+  if (!raw.type || typeof raw.type !== "string" || !VALID_TRIGGER_TYPES.includes(raw.type as TriggerType)) {
+    errors.push({ field: `${path}.type`, message: `must be one of: ${VALID_TRIGGER_TYPES.join(", ")}` });
+  }
+
+  if (!raw.team || typeof raw.team !== "string") {
+    errors.push({ field: `${path}.team`, message: "must be a non-empty string" });
+  }
+
+  const base = {
+    name: typeof raw.name === "string" ? raw.name : "",
+    team: typeof raw.team === "string" ? raw.team : "",
+    ...(typeof raw.task === "string" ? { task: raw.task } : {}),
+    ...(typeof raw.enabled === "boolean" ? { enabled: raw.enabled } : {}),
+  };
+
+  const type = typeof raw.type === "string" ? raw.type : "";
+
+  switch (type) {
+    case "webhook": {
+      if (!raw.path || typeof raw.path !== "string") {
+        errors.push({ field: `${path}.path`, message: "must be a non-empty string" });
+      }
+      const trigger: Trigger = {
+        ...base,
+        type: "webhook",
+        path: typeof raw.path === "string" ? raw.path : "",
+        ...(typeof raw.method === "string" ? { method: raw.method as "POST" | "PUT" } : {}),
+        ...(typeof raw.secretEnv === "string" ? { secretEnv: raw.secretEnv } : {}),
+      };
+      return { trigger, errors };
+    }
+    case "event": {
+      if (!raw.event || typeof raw.event !== "string") {
+        errors.push({ field: `${path}.event`, message: "must be a non-empty string" });
+      }
+      const trigger: Trigger = {
+        ...base,
+        type: "event",
+        event: typeof raw.event === "string" ? raw.event : "",
+        ...(raw.filter && typeof raw.filter === "object" && !Array.isArray(raw.filter)
+          ? { filter: raw.filter as Record<string, unknown> }
+          : {}),
+      };
+      return { trigger, errors };
+    }
+    case "schedule": {
+      if (!raw.cron || typeof raw.cron !== "string") {
+        errors.push({ field: `${path}.cron`, message: "must be a non-empty string" });
+      }
+      const trigger: Trigger = {
+        ...base,
+        type: "schedule",
+        cron: typeof raw.cron === "string" ? raw.cron : "",
+        ...(typeof raw.timezone === "string" ? { timezone: raw.timezone } : {}),
+      };
+      return { trigger, errors };
+    }
+    default: {
+      // Return a webhook trigger as placeholder to satisfy the type system; the type error was already recorded
+      const trigger: Trigger = {
+        ...base,
+        type: "webhook",
+        path: "",
+      };
+      return { trigger, errors };
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -549,6 +644,23 @@ export function parseAppYaml(content: string): App {
     errors.push(...routerErrors);
   }
 
+  // triggers (optional)
+  const triggers: Trigger[] = [];
+  if (raw.triggers !== undefined) {
+    if (!Array.isArray(raw.triggers)) {
+      errors.push({ field: "triggers", message: "must be an array" });
+    } else {
+      for (let i = 0; i < raw.triggers.length; i++) {
+        const { trigger, errors: triggerErrors } = mapTrigger(
+          raw.triggers[i] as RawTrigger,
+          `triggers[${i}]`,
+        );
+        triggers.push(trigger);
+        errors.push(...triggerErrors);
+      }
+    }
+  }
+
   if (errors.length > 0) throw new AppLoaderError(errors);
 
   return {
@@ -557,6 +669,7 @@ export function parseAppYaml(content: string): App {
     router,
     memory,
     channels,
+    ...(triggers.length > 0 ? { triggers } : {}),
   };
 }
 

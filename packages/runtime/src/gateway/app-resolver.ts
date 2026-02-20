@@ -3,7 +3,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { parseAppYaml, parseModeBConfig } from "@kilnai/core";
+import { parseAppYaml, parseModeBConfig, KilnError } from "@kilnai/core";
 import type { App, ModeBConfig } from "@kilnai/core";
 import type { GatewayConfig, GatewayAppBinding } from "@kilnai/core";
 
@@ -23,15 +23,19 @@ export function resolveApps(config: GatewayConfig, gatewayYamlDir: string): Reso
     try {
       content = readFileSync(configPath, "utf-8");
     } catch {
-      throw new Error(`Failed to load App config at ${binding.config}: file not found`);
+      throw new KilnError("CONFIG_INVALID", `Failed to load App config at ${binding.config}: file not found`, {
+        context: { configPath: binding.config },
+      });
     }
 
     let app: App;
     try {
       app = parseAppYaml(content);
     } catch (err) {
-      throw new Error(
+      throw new KilnError(
+        "CONFIG_INVALID",
         `Failed to parse App config at ${binding.config}: ${err instanceof Error ? err.message : String(err)}`,
+        { context: { configPath: binding.config }, cause: err },
       );
     }
 

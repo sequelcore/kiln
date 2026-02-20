@@ -1,0 +1,27 @@
+name: docs
+displayName: Documentation
+detectPatterns:
+  - docs/
+  - mkdocs.yml
+  - docusaurus.config.js
+  - README.md
+toolTags:
+  - filesystem
+  - browser
+qualityGates:
+  - name: spellcheck
+    command: "cspell '**/*.md'"
+    description: Check spelling in markdown files
+    required: false
+  - name: links
+    command: "markdown-link-check docs/**/*.md"
+    description: Verify all links are valid
+    required: false
+multishotExamples: |
+  Write clear, concise documentation. Use active voice.
+  Include code examples for all API references.
+  Structure content with clear headings and logical flow.
+phaseExamples: |
+  research: Review existing documentation and identify gaps.
+  implement: Write or update documentation following style guide.
+  verify: Check spelling, links, and formatting.

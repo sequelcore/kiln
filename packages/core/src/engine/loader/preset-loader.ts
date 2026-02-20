@@ -1,14 +1,15 @@
 // Preset loader: bridges App (YAML) -> OrchestratorConfig
 // Extracts workflow, agent counts, and gate configuration from a team
 
+import { KilnError } from "../errors.js";
 import type { App } from "../composites/app.js";
 import type { Team } from "../composites/team.js";
 import type { OrchestratorConfig } from "../../orchestrator/index.js";
 
 /** Error thrown when preset loading fails */
-export class PresetLoaderError extends Error {
+export class PresetLoaderError extends KilnError {
   constructor(message: string) {
-    super(message);
+    super("PRESET_LOAD_FAILED", message, { retryable: false });
     this.name = "PresetLoaderError";
   }
 }

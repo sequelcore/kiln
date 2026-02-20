@@ -17,10 +17,16 @@ teams:
   development:
     agents:
       architect:
+        name: Aria
+        role: Senior Architect
+        goal: Design robust, maintainable solutions with minimal complexity
         tier: reasoning
         tools: []
         structured: true
       worker:
+        name: Marcus
+        role: Implementation Specialist
+        goal: Write clean, well-tested code that follows team conventions
         tier: coding
         tools:
           - kiln_memory_save
@@ -34,6 +40,9 @@ teams:
         count: 2
         sandbox: true
       optimizer:
+        name: Zoe
+        role: Performance Optimizer
+        goal: Optimize code and queries for maximum performance
         tier: fast
         tools:
           - kiln_memory_save

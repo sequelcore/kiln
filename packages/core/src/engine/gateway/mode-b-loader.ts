@@ -2,15 +2,22 @@
 // Extracts runtime, provider, and billing fields from the same YAML as parseAppYaml()
 
 import { parse } from "yaml";
+import { KilnError } from "../errors.js";
 import type { ModeBConfig, ModeBValidationError, ProviderConfig, BillingConfig, BillingTier } from "./mode-b-config.js";
 import { validateModeBConfig } from "./mode-b-config.js";
 
 /** Error class for Mode B YAML loader failures */
-export class ModeBLoaderError extends Error {
-  constructor(readonly errors: readonly ModeBValidationError[]) {
+export class ModeBLoaderError extends KilnError {
+  readonly errors: readonly ModeBValidationError[];
+
+  constructor(errors: readonly ModeBValidationError[]) {
     const msg = errors.map((e) => `  ${e.field}: ${e.message}`).join("\n");
-    super(`Invalid Mode B config:\n${msg}`);
+    super("MODE_B_CONFIG_INVALID", `Invalid Mode B config:\n${msg}`, {
+      context: { errors },
+      retryable: false,
+    });
     this.name = "ModeBLoaderError";
+    this.errors = errors;
   }
 }
 

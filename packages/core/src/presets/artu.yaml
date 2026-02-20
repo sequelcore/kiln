@@ -17,10 +17,16 @@ teams:
   trading:
     agents:
       director:
+        name: Director
+        role: Trading Strategist
+        goal: Develop and oversee trading strategies
         tier: reasoning
         tools: []
         structured: true
       worker:
+        name: Worker
+        role: Trade Executor
+        goal: Execute trades based on ML signals and risk parameters
         tier: coding
         tools:
           # Market Intelligence (5)
@@ -58,6 +64,9 @@ teams:
         count: 2
         sandbox: true
       optimizer:
+        name: Optimizer
+        role: Performance Optimizer
+        goal: Optimize portfolio and strategy performance
         tier: fast
         tools: []
 

@@ -1,5 +1,16 @@
 // Budget enforcement middleware for Mode B apps
 // Checks remaining budget before LLM calls and reports usage after
+//
+// DESIGN RATIONALE (Fail-Open):
+// This middleware intentionally fails OPEN (allows requests when budget API is unavailable).
+// This prevents billing infrastructure issues from blocking user access to the service.
+// If the budget API is down, users can continue using the service - revenue/budget
+// tracking may be temporarily affected but service availability is preserved.
+//
+// Use case: Multi-tenant SaaS where service availability is prioritized over
+// strict budget enforcement. For strict budget enforcement, use a different pattern.
+
+import { CircuitBreaker } from "@kilnai/core";
 
 /** Budget check result */
 export interface BudgetCheckResult {
@@ -37,34 +48,48 @@ interface UsageReport {
   readonly role: string;
 }
 
+/** Shared circuit breaker for budget API calls */
+const budgetCircuitBreaker = new CircuitBreaker({
+  failureThreshold: 5,
+  resetTimeoutMs: 30000,
+  halfOpenMaxAttempts: 1,
+});
+
 /**
  * Check if the user has remaining budget.
  * Interpolates {userId} in the budget endpoint URL.
- * Fail-open: returns allowed=true on any fetch error.
+ * Fail-open: returns allowed=true on any fetch error or when circuit is open.
  */
 export async function checkBudget(
   billing: BillingConfig,
   userId: string,
 ): Promise<BudgetCheckResult> {
-  const url = billing.budgetEndpoint.replace("{userId}", userId);
+  // If circuit is open, fail open immediately (consistent with current behavior)
+  if (budgetCircuitBreaker.currentState === "open") {
+    return { allowed: true, remaining: -1, unit: "unknown" };
+  }
+
   try {
-    const res = await fetch(url);
-    if (!res.ok) {
-      // Fail-open: billing failures should not block users
-      return { allowed: true, remaining: -1, unit: "unknown" };
-    }
-    const data = (await res.json()) as BudgetResponse;
-    if (data.remaining <= 0) {
-      return {
-        allowed: false,
-        remaining: data.remaining,
-        unit: data.unit,
-        overBudgetMessage: billing.overBudgetMessage,
-      };
-    }
-    return { allowed: true, remaining: data.remaining, unit: data.unit };
+    return await budgetCircuitBreaker.execute(async () => {
+      const url = billing.budgetEndpoint.replace("{userId}", userId);
+      const res = await fetch(url);
+      if (!res.ok) {
+        // Fail-open: billing failures should not block users
+        return { allowed: true, remaining: -1, unit: "unknown" };
+      }
+      const data = (await res.json()) as BudgetResponse;
+      if (data.remaining <= 0) {
+        return {
+          allowed: false,
+          remaining: data.remaining,
+          unit: data.unit,
+          overBudgetMessage: billing.overBudgetMessage,
+        };
+      }
+      return { allowed: true, remaining: data.remaining, unit: data.unit };
+    });
   } catch {
-    // Fail-open on network/fetch errors
+    // Fail-open on network/fetch errors or circuit open
     return { allowed: true, remaining: -1, unit: "unknown" };
   }
 }

@@ -1,17 +1,26 @@
 import { parse } from "yaml";
 import { readFileSync } from "node:fs";
+import { KilnError } from "../engine/errors.js";
 import type { DomainConfig } from "./index.js";
 import type { DomainYaml } from "./yaml-schema.js";
 import { validateDomainYaml } from "./yaml-schema.js";
 
-export class DomainYamlError extends Error {
+export class DomainYamlError extends KilnError {
+  readonly errors: readonly { field: string; message: string }[];
+  readonly filePath?: string;
+
   constructor(
-    readonly errors: readonly { field: string; message: string }[],
-    readonly filePath?: string,
+    errors: readonly { field: string; message: string }[],
+    filePath?: string,
   ) {
     const msg = errors.map((e) => `  ${e.field}: ${e.message}`).join("\n");
-    super(`Invalid domain YAML${filePath ? ` (${filePath})` : ""}:\n${msg}`);
+    super("DOMAIN_YAML_INVALID", `Invalid domain YAML${filePath ? ` (${filePath})` : ""}:\n${msg}`, {
+      context: { errors, filePath },
+      retryable: false,
+    });
     this.name = "DomainYamlError";
+    this.errors = errors;
+    this.filePath = filePath;
   }
 }
 

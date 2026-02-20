@@ -84,31 +84,4 @@ describe("domain.schema.json", () => {
       expect(schema.properties.phaseExamples.default).toBe("");
     });
   });
-
-  describe("marketplace properties", () => {
-    it("defines version as string", () => {
-      expect(schema.properties.version.type).toBe("string");
-    });
-
-    it("defines author as string", () => {
-      expect(schema.properties.author.type).toBe("string");
-    });
-
-    it("defines skills as array of strings", () => {
-      expect(schema.properties.skills.type).toBe("array");
-      expect(schema.properties.skills.items.type).toBe("string");
-    });
-
-    it("defines tools as object with server", () => {
-      expect(schema.properties.tools.type).toBe("object");
-      expect(schema.properties.tools.required).toContain("server");
-      expect(schema.properties.tools.properties.server.type).toBe("string");
-    });
-
-    it("defines knowledge as object", () => {
-      expect(schema.properties.knowledge.type).toBe("object");
-      expect(schema.properties.knowledge.properties.examples.type).toBe("string");
-      expect(schema.properties.knowledge.properties.gates.type).toBe("string");
-    });
-  });
 });

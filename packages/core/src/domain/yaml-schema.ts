@@ -9,17 +9,6 @@ export interface QualityGateYaml {
   readonly required?: boolean; // defaults to true
 }
 
-/** MCP server tools configuration as expressed in YAML */
-export interface DomainToolsYaml {
-  readonly server: string;
-}
-
-/** Knowledge file references as expressed in YAML */
-export interface DomainKnowledgeYaml {
-  readonly examples?: string;
-  readonly gates?: string;
-}
-
 /** Domain config as expressed in YAML */
 export interface DomainYaml {
   readonly name: string;
@@ -29,12 +18,6 @@ export interface DomainYaml {
   readonly qualityGates: readonly QualityGateYaml[];
   readonly multishotExamples?: string; // defaults to ""
   readonly phaseExamples?: string; // defaults to ""
-  // Marketplace package fields (optional)
-  readonly version?: string;
-  readonly author?: string;
-  readonly skills?: readonly string[];
-  readonly tools?: DomainToolsYaml;
-  readonly knowledge?: DomainKnowledgeYaml;
 }
 
 /** Validation error from YAML parsing */
@@ -93,48 +76,6 @@ export function validateDomainYaml(
   }
   if ("phaseExamples" in obj && typeof obj.phaseExamples !== "string") {
     errors.push({ field: "phaseExamples", message: `Expected string, got ${typeof obj.phaseExamples}`, filePath });
-  }
-
-  // Marketplace optional fields
-  if ("version" in obj && typeof obj.version !== "string") {
-    errors.push({ field: "version", message: `Expected string, got ${typeof obj.version}`, filePath });
-  }
-  if ("author" in obj && typeof obj.author !== "string") {
-    errors.push({ field: "author", message: `Expected string, got ${typeof obj.author}`, filePath });
-  }
-  if ("skills" in obj) {
-    if (!Array.isArray(obj.skills)) {
-      errors.push({ field: "skills", message: `Expected array, got ${typeof obj.skills}`, filePath });
-    } else {
-      for (let i = 0; i < obj.skills.length; i++) {
-        if (typeof obj.skills[i] !== "string") {
-          errors.push({ field: `skills[${i}]`, message: `Expected string, got ${typeof obj.skills[i]}`, filePath });
-        }
-      }
-    }
-  }
-  if ("tools" in obj) {
-    if (typeof obj.tools !== "object" || obj.tools === null || Array.isArray(obj.tools)) {
-      errors.push({ field: "tools", message: "Expected object with 'server' field", filePath });
-    } else {
-      const tools = obj.tools as Record<string, unknown>;
-      if (!("server" in tools) || typeof tools.server !== "string") {
-        errors.push({ field: "tools.server", message: "Required string field 'server' missing or invalid", filePath });
-      }
-    }
-  }
-  if ("knowledge" in obj) {
-    if (typeof obj.knowledge !== "object" || obj.knowledge === null || Array.isArray(obj.knowledge)) {
-      errors.push({ field: "knowledge", message: "Expected object", filePath });
-    } else {
-      const knowledge = obj.knowledge as Record<string, unknown>;
-      if ("examples" in knowledge && typeof knowledge.examples !== "string") {
-        errors.push({ field: "knowledge.examples", message: `Expected string, got ${typeof knowledge.examples}`, filePath });
-      }
-      if ("gates" in knowledge && typeof knowledge.gates !== "string") {
-        errors.push({ field: "knowledge.gates", message: `Expected string, got ${typeof knowledge.gates}`, filePath });
-      }
-    }
   }
 
   // Quality gates validation

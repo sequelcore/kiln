@@ -66,3 +66,5 @@ export { OpenAIAdapter, GPT4O, GPT4O_MINI, O3, O3_MINI, CODEX } from "./infrastr
 export { DeepSeekAdapter, DEEPSEEK_CHAT, DEEPSEEK_REASONER } from "./infrastructure/deepseek.js";
 export { OllamaAdapter, LLAMA3, CODELLAMA, DEEPSEEK_CODER } from "./infrastructure/ollama.js";
 export { type CatalogPricing, MODEL_CATALOG, findCheapest } from "./model-pricing.js";
+export { CircuitBreaker } from "./circuit-breaker.js";
+export type { CircuitBreakerConfig, CircuitState } from "./circuit-breaker.js";

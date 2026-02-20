@@ -740,3 +740,206 @@ describe("validateAppGraph", () => {
     expect(result).toBeInstanceOf(AppLoaderError);
   });
 });
+
+describe("trigger YAML parsing", () => {
+  const BASE_YAML = `
+name: trigger-app
+channels: [cli]
+
+memory:
+  scopes: [user]
+  backend: sqlite+fts5
+
+router:
+  rules: []
+  fallback: ops
+
+teams:
+  ops:
+    agents:
+      worker:
+        name: Worker
+        role: Ops Worker
+        goal: Handle ops tasks
+        tier: coding
+        tools: []
+    workflow:
+      phases: [work]
+      gates: {}
+    capabilities: []
+    qualityGates: []
+`;
+
+  it("parses app without triggers", () => {
+    const app = parseAppYaml(BASE_YAML);
+    expect(app.triggers).toBeUndefined();
+  });
+
+  it("parses webhook trigger", () => {
+    const yaml = BASE_YAML + `
+triggers:
+  - name: on-deploy
+    type: webhook
+    team: ops
+    path: /hooks/deploy
+    method: PUT
+    secretEnv: DEPLOY_SECRET
+    task: "Deploy {{payload.url}}"
+`;
+    const app = parseAppYaml(yaml);
+    expect(app.triggers).toHaveLength(1);
+    const t = app.triggers![0]!;
+    expect(t.type).toBe("webhook");
+    expect(t.name).toBe("on-deploy");
+    expect(t.team).toBe("ops");
+    if (t.type === "webhook") {
+      expect(t.path).toBe("/hooks/deploy");
+      expect(t.method).toBe("PUT");
+      expect(t.secretEnv).toBe("DEPLOY_SECRET");
+    }
+    expect(t.task).toBe("Deploy {{payload.url}}");
+  });
+
+  it("parses event trigger", () => {
+    const yaml = BASE_YAML + `
+triggers:
+  - name: on-error
+    type: event
+    team: ops
+    event: error
+    filter:
+      code: PROVIDER_UNAVAILABLE
+`;
+    const app = parseAppYaml(yaml);
+    expect(app.triggers).toHaveLength(1);
+    const t = app.triggers![0]!;
+    expect(t.type).toBe("event");
+    if (t.type === "event") {
+      expect(t.event).toBe("error");
+      expect(t.filter).toEqual({ code: "PROVIDER_UNAVAILABLE" });
+    }
+  });
+
+  it("parses schedule trigger", () => {
+    const yaml = BASE_YAML + `
+triggers:
+  - name: nightly-audit
+    type: schedule
+    team: ops
+    cron: "0 2 * * *"
+    timezone: America/Tijuana
+`;
+    const app = parseAppYaml(yaml);
+    expect(app.triggers).toHaveLength(1);
+    const t = app.triggers![0]!;
+    expect(t.type).toBe("schedule");
+    if (t.type === "schedule") {
+      expect(t.cron).toBe("0 2 * * *");
+      expect(t.timezone).toBe("America/Tijuana");
+    }
+  });
+
+  it("parses multiple triggers", () => {
+    const yaml = BASE_YAML + `
+triggers:
+  - name: hook-a
+    type: webhook
+    team: ops
+    path: /hooks/a
+  - name: on-error
+    type: event
+    team: ops
+    event: error
+  - name: nightly
+    type: schedule
+    team: ops
+    cron: "0 0 * * *"
+`;
+    const app = parseAppYaml(yaml);
+    expect(app.triggers).toHaveLength(3);
+    expect(app.triggers![0]!.type).toBe("webhook");
+    expect(app.triggers![1]!.type).toBe("event");
+    expect(app.triggers![2]!.type).toBe("schedule");
+  });
+
+  it("parses trigger with enabled flag", () => {
+    const yaml = BASE_YAML + `
+triggers:
+  - name: disabled-hook
+    type: webhook
+    team: ops
+    path: /hooks/disabled
+    enabled: false
+`;
+    const app = parseAppYaml(yaml);
+    expect(app.triggers![0]!.enabled).toBe(false);
+  });
+
+  it("throws AppLoaderError for trigger with invalid type", () => {
+    const yaml = BASE_YAML + `
+triggers:
+  - name: bad
+    type: invalid
+    team: ops
+`;
+    expect(() => parseAppYaml(yaml)).toThrow(AppLoaderError);
+  });
+
+  it("throws AppLoaderError for trigger missing name", () => {
+    const yaml = BASE_YAML + `
+triggers:
+  - type: webhook
+    team: ops
+    path: /hooks/test
+`;
+    expect(() => parseAppYaml(yaml)).toThrow(AppLoaderError);
+  });
+
+  it("throws AppLoaderError for trigger missing team", () => {
+    const yaml = BASE_YAML + `
+triggers:
+  - name: bad
+    type: webhook
+    path: /hooks/test
+`;
+    expect(() => parseAppYaml(yaml)).toThrow(AppLoaderError);
+  });
+
+  it("throws AppLoaderError for webhook trigger missing path", () => {
+    const yaml = BASE_YAML + `
+triggers:
+  - name: bad
+    type: webhook
+    team: ops
+`;
+    expect(() => parseAppYaml(yaml)).toThrow(AppLoaderError);
+  });
+
+  it("throws AppLoaderError for event trigger missing event", () => {
+    const yaml = BASE_YAML + `
+triggers:
+  - name: bad
+    type: event
+    team: ops
+`;
+    expect(() => parseAppYaml(yaml)).toThrow(AppLoaderError);
+  });
+
+  it("throws AppLoaderError for schedule trigger missing cron", () => {
+    const yaml = BASE_YAML + `
+triggers:
+  - name: bad
+    type: schedule
+    team: ops
+`;
+    expect(() => parseAppYaml(yaml)).toThrow(AppLoaderError);
+  });
+
+  it("throws AppLoaderError for non-array triggers", () => {
+    const yaml = BASE_YAML + `
+triggers:
+  not: an-array
+`;
+    expect(() => parseAppYaml(yaml)).toThrow(AppLoaderError);
+  });
+});

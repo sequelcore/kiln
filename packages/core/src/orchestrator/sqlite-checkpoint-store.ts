@@ -75,7 +75,7 @@ export class SqliteCheckpointStore implements CheckpointStore {
       JSON.stringify(checkpoint.eventHistory),
       JSON.stringify(checkpoint.costSummary),
       checkpoint.timestamp.toISOString(),
-      options?.metadata ? JSON.stringify(options.metadata) : null,
+      (options?.metadata ?? checkpoint.metadata) ? JSON.stringify(options?.metadata ?? checkpoint.metadata) : null,
     );
   }
 
@@ -107,13 +107,24 @@ export class SqliteCheckpointStore implements CheckpointStore {
   }
 
   async delete(id: string): Promise<void> {
-    const children = await this.listChildren(id);
-    for (const child of children) {
-      await this.delete(child.id);
+    this.db.exec("BEGIN");
+    try {
+      const queue = [id];
+      while (queue.length > 0) {
+        const current = queue.shift()!;
+        const children = this.db.prepare(
+          "SELECT id FROM checkpoints WHERE parent_id = ?"
+        ).all(current) as { id: string }[];
+        for (const child of children) {
+          queue.push(child.id);
+        }
+        this.db.prepare("DELETE FROM checkpoints WHERE id = ?").run(current);
+      }
+      this.db.exec("COMMIT");
+    } catch (err) {
+      this.db.exec("ROLLBACK");
+      throw err;
     }
-
-    const stmt = this.db.prepare("DELETE FROM checkpoints WHERE id = ?");
-    stmt.run(id);
   }
 
   close(): void {

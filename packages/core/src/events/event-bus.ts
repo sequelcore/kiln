@@ -75,7 +75,7 @@ export class EventBus {
    * Subscribe to events matching a streaming level.
    * Subscribing to "phase" includes "state" + "phase" events.
    */
-  onLevel(level: StreamLevel, handler: (event: KilnEvent) => void): void {
+  onLevel(level: StreamLevel, handler: (event: KilnEvent) => void): () => void {
     const levels = LEVEL_HIERARCHY[level];
     const types = new Set<EventType>();
 
@@ -88,6 +88,12 @@ export class EventBus {
     for (const type of types) {
       this.on(type, handler);
     }
+
+    return () => {
+      for (const type of types) {
+        this.off(type, handler);
+      }
+    };
   }
 
   /** Return recent events from the ring buffer, oldest first */

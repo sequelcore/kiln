@@ -2,15 +2,22 @@
 // Does NOT load individual App YAML files
 
 import { parse } from "yaml";
+import { KilnError } from "../errors.js";
 import type { GatewayConfig, GatewayAppBinding, GatewayChannelBinding, GatewayValidationError } from "./gateway-config.js";
 import { validateGatewayConfig } from "./gateway-config.js";
 
 /** Error class for gateway YAML loader failures, aggregating all validation errors */
-export class GatewayLoaderError extends Error {
-  constructor(readonly errors: readonly GatewayValidationError[]) {
+export class GatewayLoaderError extends KilnError {
+  readonly errors: readonly GatewayValidationError[];
+
+  constructor(errors: readonly GatewayValidationError[]) {
     const msg = errors.map((e) => `  ${e.field}: ${e.message}`).join("\n");
-    super(`Invalid gateway YAML:\n${msg}`);
+    super("GATEWAY_YAML_INVALID", `Invalid gateway YAML:\n${msg}`, {
+      context: { errors },
+      retryable: false,
+    });
     this.name = "GatewayLoaderError";
+    this.errors = errors;
   }
 }
 

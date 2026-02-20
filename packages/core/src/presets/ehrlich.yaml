@@ -17,10 +17,16 @@ teams:
   investigation:
     agents:
       director:
+        name: Director
+        role: Research Director
+        goal: Guide the scientific investigation and make strategic decisions
         tier: reasoning
         tools: []
         structured: true
       researcher:
+        name: Researcher
+        role: Scientific Investigator
+        goal: Conduct experiments and gather evidence systematically
         tier: coding
         tools:
           - ehrlich_propose_hypothesis
@@ -39,6 +45,9 @@ teams:
         count: 2
         sandbox: true
       summarizer:
+        name: Summarizer
+        role: Evidence Synthesizer
+        goal: Synthesize findings and grade evidence quality
         tier: fast
         tools:
           - ehrlich_classify_domain
