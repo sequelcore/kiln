@@ -42,5 +42,8 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.74.0",
     "yaml": "^2.8.2"
+  },
+  "devDependencies": {
+    "@opentelemetry/api": "^1.9.0"
   }
 }

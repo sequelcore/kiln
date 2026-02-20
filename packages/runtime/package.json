@@ -41,5 +41,13 @@
   "dependencies": {
     "@kilnai/core": "workspace:*",
     "hono": "^4.7.0"
+  },
+  "peerDependencies": {
+    "@opentelemetry/api": "^1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@opentelemetry/api": {
+      "optional": true
+    }
   }
 }
