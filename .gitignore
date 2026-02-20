@@ -7,3 +7,4 @@ dist/
 .env.local
 bun.lock
 .DS_Store
+.claude/

@@ -6,7 +6,7 @@ Kiln is a domain-agnostic AI orchestration engine licensed under MIT. It provide
 
 The engine addresses a specific problem: production AI deployments require more than a raw LLM call. They require phase-gated workflows, persistent memory across sessions, quality gate enforcement, multi-user session management, platform-specific message formatting, and budget control. Kiln provides these capabilities as a structured, domain-agnostic runtime.
 
-The core artifact is the **Gateway**: a persistent Bun/Hono process that hosts multiple independent Apps in a single deployment. One process, one port, multiple Apps — each isolated by memory namespace, workspace directory, channel binding, and session lifecycle.
+The core artifact is the **Gateway**: a persistent Bun/Hono process that hosts multiple independent Apps in a single deployment. One process, one port, multiple Apps -- each isolated by memory namespace, workspace directory, channel binding, and session lifecycle.
 
 ---
 
@@ -14,9 +14,9 @@ The core artifact is the **Gateway**: a persistent Bun/Hono process that hosts m
 
 **YAML-first configuration.** App behavior is defined in YAML, not code. Teams, agents, workflows, quality gates, routing rules, and memory scopes are all declared in configuration files. TypeScript interfaces serve as the runtime validation layer; they do not encode business logic.
 
-**Domain-agnostic engine.** The engine has no knowledge of any specific domain (coding, scientific research, trading). It knows about phase sequences, gate enforcement, agent tiers, and memory scopes. Domain-specific behavior is introduced through preset YAML files and capability implementations — not through engine conditionals.
+**Domain-agnostic engine.** The engine has no knowledge of any specific domain (coding, scientific research, trading). It knows about phase sequences, gate enforcement, agent tiers, and memory scopes. Domain-specific behavior is introduced through preset YAML files and capability implementations -- not through engine conditionals.
 
-**Primitives and composites pattern.** Six primitive interfaces define the fundamental building blocks. Three composite interfaces compose those primitives into deployable units. This separation prevents coupling between concerns and makes the engine extensible without modification.
+**Primitives and composites pattern.** Seven primitive interfaces define the fundamental building blocks. Three composite interfaces compose those primitives into deployable units. This separation prevents coupling between concerns and makes the engine extensible without modification.
 
 **Zero external dependencies in the engine layer.** `packages/core/src/engine/` contains only pure TypeScript interfaces with no npm dependencies. Infrastructure implementations (SQLite, Anthropic SDK, Hono) exist in separate bounded contexts and implement the engine interfaces.
 
@@ -26,25 +26,37 @@ The core artifact is the **Gateway**: a persistent Bun/Hono process that hosts m
 
 ## 3. Engine Primitives
 
-The six primitives are defined in `packages/core/src/engine/domain/`. Each is a pure TypeScript interface with zero dependencies.
+The seven primitives are defined in `packages/core/src/engine/domain/`. Each is a pure TypeScript interface with zero dependencies.
 
 ### 3.1 Agent
 
-An Agent is a configured LLM instance with a role, a model tier, and a tool access policy.
+An Agent is a persona with expertise. Identity fields (name, role, goal, backstory) are assembled into a system prompt by `assembleAgentPrompt()` in a deterministic order: identity, backstory, instructions, team context, capabilities, quality gates.
 
 ```typescript
 export type AgentTier = "reasoning" | "coding" | "fast";
 
 export interface Agent {
-  readonly name: string;
-  readonly tier: AgentTier;
-  readonly tools: readonly string[];
-  readonly systemPrompt?: string;
-  readonly structured?: boolean;
-  readonly count?: number;
-  readonly sandbox?: boolean;
+  readonly name: string;          // Persona name (e.g., "Aria", "Marcus")
+  readonly role: string;          // Expertise / function (e.g., "Senior Architect")
+  readonly goal: string;          // What this agent is trying to achieve
+  readonly backstory?: string;    // Personality, perspective, behavioral boundaries
+  readonly tier: AgentTier;       // Model class
+  readonly tools: readonly string[];  // Capability references (can be [])
+  readonly instructions?: string; // Operating rules and constraints
+  readonly structured?: boolean;  // Require JSON output
+  readonly count?: number;        // Parallel instance pool size
+  readonly sandbox?: boolean;     // Enable filesystem/network isolation
 }
 ```
+
+System prompt auto-assembly order:
+
+1. Identity: `"You are {name}, {role}. Your goal: {goal}"`
+2. Backstory: `"{backstory}"` (if provided)
+3. Instructions: `"## Operating Rules\n{instructions}"` (if provided)
+4. Team context: `"Team '{teamName}', {mode} mode. Teammates: {name + role for each}"`
+5. Capabilities: `"## Available Tools\n{capability descriptions}"`
+6. Quality gates: `"## Quality Standards\n{gate descriptions}"` (if applicable)
 
 Tiers are resolved to concrete provider and model combinations at runtime by the `ProviderRegistry`. The tier system decouples configuration from provider specifics.
 
@@ -73,6 +85,9 @@ export interface Capability {
   readonly schema: Record<string, unknown>;
   readonly tags: readonly string[];
   readonly annotations?: CapabilityAnnotations;
+  readonly guardrail?: Record<string, unknown>;
+  readonly guardrailRetries?: number;
+  readonly outputSchema?: Record<string, unknown>;
   readonly type?: string;
   readonly targetApp?: string;
   readonly task?: string;
@@ -83,6 +98,8 @@ export interface Capability {
 The `type: "delegation"` variant enables cross-app cognitive delegation. When `type` is `"delegation"`, `targetApp` and `task` are required. The Gateway's `DelegationRegistry` resolves the target at startup and the `DelegationHandler` executes the call with schema validation.
 
 Annotation semantics: `readOnly` tools run in parallel without locks; `destructive` tools require approval gates; `idempotent` tools are safe to retry. Unannotated capabilities default to `destructive: true` when loaded from marketplace packages.
+
+The `guardrail` field defines a JSON Schema applied to agent output before acceptance. On failure, the agent retries with feedback, up to `guardrailRetries` (default 3). The `outputSchema` field enforces structured JSON output validated against the schema.
 
 ### 3.3 Workflow
 
@@ -139,6 +156,8 @@ export interface Memory {
 
 Auto-capture: agents decide what to store after each action. Auto-recall: all scopes are queried with the current task context on each turn. Progressive disclosure: compact index first, timeline on request, full detail on demand. Token budgets prevent context overflow. `<private>` tags are stripped before writes to git-synced scopes.
 
+Memory stores support configurable exponential decay curves that reduce relevance scores over time. When a store exceeds a configurable threshold, auto-compaction summarizes older entries into compressed form and archives originals.
+
 ### 3.5 Task
 
 A Task is a unit of work in a tree structure, with a scoring formula and three exploration actions.
@@ -189,6 +208,59 @@ Agents produce content without knowledge of the destination platform. The channe
 
 The `EventBridge` converts the synchronous `EventBus.emit()` push model to an `AsyncIterable<EngineEvent>` pull model for consumption by `Channel.stream()`.
 
+### 3.7 Trigger
+
+A Trigger is an event-driven workflow activator. Three trigger types are supported, all defined as pure TypeScript interfaces with zero dependencies.
+
+```typescript
+export type TriggerType = "webhook" | "event" | "schedule";
+
+export interface WebhookTrigger {
+  readonly name: string;
+  readonly type: "webhook";
+  readonly team: string;
+  readonly task?: string;           // supports {{payload.field}} interpolation
+  readonly enabled?: boolean;
+  readonly path: string;            // e.g. "/hooks/deploy"
+  readonly method?: "POST" | "PUT";
+  readonly secretEnv?: string;      // env var for HMAC-SHA256 secret
+}
+
+export interface EventTrigger {
+  readonly name: string;
+  readonly type: "event";
+  readonly team: string;
+  readonly task?: string;
+  readonly enabled?: boolean;
+  readonly event: string;           // EventType value
+  readonly filter?: Record<string, unknown>;
+}
+
+export interface ScheduleTrigger {
+  readonly name: string;
+  readonly type: "schedule";
+  readonly team: string;
+  readonly task?: string;
+  readonly enabled?: boolean;
+  readonly cron: string;            // 5-field: "0 2 * * *"
+  readonly timezone?: string;       // IANA, default "UTC"
+}
+
+export type Trigger = WebhookTrigger | EventTrigger | ScheduleTrigger;
+```
+
+| Type | Activation | Validation | Runtime |
+|------|-----------|------------|---------|
+| `webhook` | HTTP request to `path` | HMAC-SHA256 via `secretEnv` | Hono routes mounted per app |
+| `event` | Internal EventBus emission matching `event` + `filter` | Shallow equality on filter fields | EventListener subscription |
+| `schedule` | Cron expression fires at intervals | Pure cron parser (5-field, zero deps) | setTimeout chains via Scheduler |
+
+The `task` field on all trigger types supports `{{payload.field}}` template interpolation, allowing the triggering payload to parameterize the task dispatched to the team.
+
+The cron parser (`packages/core/src/engine/domain/cron.ts`) is a zero-dependency implementation supporting standard 5-field cron expressions with `*`, ranges, lists, and step values.
+
+Source: `packages/core/src/engine/domain/trigger.ts`
+
 ---
 
 ## 4. Engine Composites
@@ -200,6 +272,8 @@ Three composite interfaces compose the primitives into deployable units. Each co
 A Team is a self-contained execution unit. Teams operate independently; they do not share agents or workflows with other teams in the same App.
 
 ```typescript
+export type TeamMode = "sequential" | "supervisor" | "swarm";
+
 export interface QualityGate {
   readonly name: string;
   readonly command: string;
@@ -209,6 +283,8 @@ export interface QualityGate {
 
 export interface Team {
   readonly name: string;
+  readonly mode?: TeamMode;
+  readonly manager?: string;
   readonly agents: Record<string, Agent>;
   readonly workflow: Workflow;
   readonly capabilities: readonly Capability[];
@@ -217,7 +293,15 @@ export interface Team {
 }
 ```
 
-`validateTeam()` enforces: at least one agent, at least one workflow phase, all agent tool references must resolve to declared capabilities, all gate phase references must exist in the workflow phase list.
+Three team execution modes:
+
+| Mode | Behavior | Requirements |
+|------|----------|-------------|
+| `sequential` (default) | Agents execute in workflow phase order | At least 1 agent |
+| `supervisor` | Manager agent delegates tasks to workers by name, validates results | `manager` field pointing to an agent identifier |
+| `swarm` | Agents hand control to each other via `handoff` capability, no central coordinator | At least 2 agents + a capability with `type: "handoff"` |
+
+`validateTeam()` enforces: at least one agent, at least one workflow phase, all agent tool references must resolve to declared capabilities, all gate phase references must exist in the workflow phase list, supervisor mode requires a valid manager, swarm mode requires handoff capability and 2+ agents.
 
 ### 4.2 Router
 
@@ -238,15 +322,15 @@ export interface Router {
 
 Routing layers in priority order:
 
-1. **Pattern rules** — regex matching against the incoming message. Deterministic, zero cost. Handles approximately 80% of inputs.
-2. **Classifier agent** — a `fast`-tier LLM call for inputs that match no pattern rule. Handles approximately 15% of inputs.
-3. **Fallback team** — a statically configured team name for all unresolved inputs. Handles the remaining 5%.
+1. **Pattern rules** -- regex matching against the incoming message. Deterministic, zero cost. Handles approximately 80% of inputs.
+2. **Classifier agent** -- a `fast`-tier LLM call for inputs that match no pattern rule. Handles approximately 15% of inputs.
+3. **Fallback team** -- a statically configured team name for all unresolved inputs. Handles the remaining 5%.
 
 `validateRouter()` enforces: `fallback` must be a non-empty string, all `match` values must be valid regular expressions, the classifier agent (if present) must have tier `"fast"`.
 
 ### 4.3 App
 
-An App is the top-level deployment unit. It composes teams, a router, memory configuration, and channel bindings.
+An App is the top-level deployment unit. It composes teams, a router, memory configuration, channel bindings, and triggers.
 
 ```typescript
 export interface MemoryConfig {
@@ -261,10 +345,11 @@ export interface App {
   readonly router: Router;
   readonly memory: MemoryConfig;
   readonly channels: readonly string[];
+  readonly triggers?: readonly Trigger[];
 }
 ```
 
-`validateApp()` enforces: at least one team, at least one channel, at least one memory scope, router fallback references an existing team name, all router rule team references resolve to existing team names. It then delegates to `validateTeam()` and `validateRouter()` for each nested composite.
+`validateApp()` enforces: at least one team, at least one channel, at least one memory scope, router fallback references an existing team name, all router rule team references resolve to existing team names, trigger names are unique, webhook paths are unique. It then delegates to `validateTeam()`, `validateRouter()`, and `validateTrigger()` for each nested composite.
 
 ---
 
@@ -318,12 +403,27 @@ router:
 
 teams:
   development:
+    mode: supervisor
+    manager: architect
     agents:
       architect:
+        name: Aria
+        role: Senior Architect
+        goal: Design robust, maintainable solutions with minimal complexity
+        backstory: >
+          Pragmatic architect who values simplicity over cleverness.
+          Always considers failure modes and edge cases first.
         tier: reasoning
         tools: []
         structured: true
       worker:
+        name: Marcus
+        role: Implementation Specialist
+        goal: Write clean, well-tested code that follows team conventions
+        backstory: >
+          Detail-oriented developer who questions vague requirements before
+          writing a single line. Takes pride in code that other developers
+          enjoy reading.
         tier: coding
         count: 2
         sandbox: true
@@ -353,11 +453,24 @@ teams:
         command: tsc --noEmit
         description: TypeScript type checking
         required: true
+
+triggers:
+  - name: on-deploy
+    type: webhook
+    path: /hooks/deploy
+    team: development
+    task: "Deploy triggered by {{payload.user}} for {{payload.branch}}"
+    secretEnv: DEPLOY_WEBHOOK_SECRET
+  - name: nightly-audit
+    type: schedule
+    cron: "0 2 * * *"
+    team: development
+    task: "Run nightly security audit"
 ```
 
 ### 5.3 Presets
 
-A preset is a complete, named YAML configuration for a specific domain. Presets demonstrate the engine's domain-agnosticism: distinct domains with distinct vocabulary use the same six primitive interfaces and three composite interfaces with zero engine-layer modifications.
+A preset is a complete, named YAML configuration for a specific domain. Presets demonstrate the engine's domain-agnosticism: distinct domains with distinct vocabulary use the same seven primitive interfaces and three composite interfaces with zero engine-layer modifications.
 
 Consumer applications ship preset YAML files that wire into Kiln's runtime. The `loadPresetConfig()` function bridges an `App` composite to an `OrchestratorConfig` for Mode A sessions.
 
@@ -367,7 +480,7 @@ Consumer applications ship preset YAML files that wire into Kiln's runtime. The 
 
 The Gateway supports two distinct runtime modes. The mode is determined per App by the `mode` field in `gateway.yaml`.
 
-### 6.1 Mode A — Claude Code Sessions
+### 6.1 Mode A -- Claude Code Sessions
 
 Mode A delegates execution to Claude Code via the `@anthropic-ai/claude-agent-sdk`. It is used for deep, phase-gated coding and research workflows.
 
@@ -397,7 +510,7 @@ Post-session teardown
 
 Mode A requires an Anthropic API key or a BYOK provider key. It operates single-session-per-task. The `PresetLoader` bridges the `App` composite to an `OrchestratorConfig` by extracting workflow phases, `human_approval` gate detection, and parallel worker count from the target team.
 
-### 6.2 Mode B — Provider-Adapter Sessions
+### 6.2 Mode B -- Provider-Adapter Sessions
 
 Mode B is used by multi-user conversational Apps. It calls provider adapters directly without spawning a subprocess.
 
@@ -450,12 +563,12 @@ billing:
 States: `idle`, `running`, `awaiting_approval`, `completed`, `failed`, `cancelled`.
 
 Transitions:
-- `start()` — `idle` -> `running`
-- `advance(gateResult?)` — advances to the next phase if gates pass; returns a `Promise<Phase | null>` when an approval gate is encountered
-- `approve()` — `awaiting_approval` -> `running`, advances past the approval phase
-- `reject(reason)` — `awaiting_approval` -> `running`, stays on the current phase
-- `fail(error)` — any -> `failed`
-- `cancel()` — any -> `cancelled`
+- `start()` -- `idle` -> `running`
+- `advance(gateResult?)` -- advances to the next phase if gates pass; returns a `Promise<Phase | null>` when an approval gate is encountered
+- `approve()` -- `awaiting_approval` -> `running`, advances past the approval phase
+- `reject(reason)` -- `awaiting_approval` -> `running`, stays on the current phase
+- `fail(error)` -- any -> `failed`
+- `cancel()` -- any -> `cancelled`
 
 The approval phase is derived from `OrchestratorConfig.approvalAfterPhase`. If a gate's `requires` array contains `"human_approval"`, the preset loader sets this field automatically.
 
@@ -467,11 +580,13 @@ The approval phase is derived from `OrchestratorConfig.approvalAfterPhase`. If a
 
 Key responsibilities:
 
-- **Session lifecycle** — `start(task)` generates a session ID and starts the phase machine.
-- **Plan loading** — `loadPlan(plan)` hydrates the `TaskTree` from the Architect's structured JSON output.
-- **Implement loop** — `runImplementLoop(handler)` selects task batches and executes them concurrently via `BatchExecutor`. Results carry evidence strings that update task scoring.
-- **Verification** — `runVerification(gates, cwd, fixHandler?)` instantiates a `GateRunner` and `VerificationLoop`, executes the verification loop, and stores the result.
-- **Memory sync** — `initMemorySync(projectPath)` and `flushMemory(store)` manage git-synced memory through `GitSyncManager`.
+- **Session lifecycle** -- `start(task)` generates a session ID and starts the phase machine.
+- **Checkpointing** -- workflow state (phase, task tree, memory snapshot) is persisted to SQLite after each phase transition. `resume(checkpointId)` restores from any checkpoint. `fork(checkpointId)` creates alternative branches for A/B testing.
+- **Plan loading** -- `loadPlan(plan)` hydrates the `TaskTree` from the Architect's structured JSON output.
+- **Implement loop** -- `runImplementLoop(handler)` selects task batches and executes them concurrently via `BatchExecutor`. Results carry evidence strings that update task scoring.
+- **Interrupt/Resume** -- `interrupt()` pauses execution at any point, checkpoints state, and emits `interrupt_requested`. External input resumes via `Command(resume=value)`.
+- **Verification** -- `runVerification(gates, cwd, fixHandler?)` instantiates a `GateRunner` and `VerificationLoop`, executes the verification loop, and stores the result.
+- **Memory sync** -- `initMemorySync(projectPath)` and `flushMemory(store)` manage git-synced memory through `GitSyncManager`.
 
 The `ArchitectPlan` interface defines the reasoning agent's structured output:
 
@@ -492,6 +607,16 @@ export interface ArchitectPlan {
 ### 7.3 BatchExecutor
 
 `BatchExecutor` selects tasks from the `TaskTree` in batches up to `parallelWorkers` in size. Within a batch, each task is assigned to a worker index. Workers are aware of their siblings in the batch (sibling context prevents duplicate work). Completed tasks return evidence strings and a `success` flag that update the scoring of subsequent batch selections.
+
+### 7.4 Execution Strategies
+
+Three execution strategies are available via the `strategies/` module:
+
+| Strategy | Behavior |
+|----------|----------|
+| `SequentialStrategy` | Agents execute tasks one at a time in order |
+| `SupervisorStrategy` | Manager agent delegates tasks to workers by name |
+| `SwarmStrategy` | Active agent hands off to another via handoff capability |
 
 ---
 
@@ -528,57 +653,236 @@ These rules are enforced by convention and package boundary.
 
 ---
 
-## 10. Bounded Contexts
+## 10. Security Architecture
 
-| Context | Package | Location | Purpose |
-|---------|---------|----------|---------|
-| `engine` | `@kilnai/core` | `packages/core/src/engine/` | 6 primitives + 3 composites + YAML loader + gateway config types. Zero external dependencies. |
-| `orchestrator` | `@kilnai/core` | `packages/core/src/orchestrator/` | Phase machine, orchestrator, configurable phase sequence and gate enforcement. |
-| `agents` | `@kilnai/core` | `packages/core/src/agents/` | Provider adapter interface and implementations: Anthropic, OpenAI, DeepSeek, Ollama. |
-| `memory` | `@kilnai/core` | `packages/core/src/memory/` | Scoped storage implementations: SQLite + FTS5, gzipped JSONL, git sync. |
-| `tree` | `@kilnai/core` | `packages/core/src/tree/` | Task tree manager: scoring, batch selection, deepen/branch/prune actions. |
-| `domain` | `@kilnai/core` | `packages/core/src/domain/` | Domain registry, YAML schema, marketplace types and security validation. |
-| `sandbox` | `@kilnai/core` | `packages/core/src/sandbox/` | Per-agent filesystem allowlists and network proxy policies. |
-| `verification` | `@kilnai/core` | `packages/core/src/verification/` | Gate runner, verification loop (Ralph pattern): test, lint, type-check. |
-| `events` | `@kilnai/core` | `packages/core/src/events/` | EventBus: synchronous emit with typed subscriber dispatch (16 event types). |
-| `cost` | `@kilnai/core` | `packages/core/src/cost/` | Per-role, cache-aware cost tracking. |
-| `channels` | `@kilnai/runtime` | `packages/runtime/src/channels/` | Channel adapters (CLI, Web, WhatsApp, Slack, API), EventBridge, ChannelRegistry, ChannelRouter, MessageFormatter. |
-| `gateway` | `@kilnai/runtime` | `packages/runtime/src/gateway/` | Gateway runtime: multi-App loading, per-App isolation, Mode B route mounting, budget middleware, cross-app delegation. |
-| `session` | `@kilnai/runtime` | `packages/runtime/src/session/` | Mode B session management: ModeBSession, ModeBOrchestrator, SessionRegistry. |
-| `tenant` | `@kilnai/runtime` | `packages/runtime/src/tenant/` | Multi-tenant management: TenantRegistry, system prompt builder, phone-to-tenant resolution. |
+Six security layers provide defense-in-depth, all opt-in via configuration:
+
+### 10.1 Prompt Injection Detection (2-Tier)
+
+`PromptScanner` implements a two-tier detection pipeline:
+
+- **Tier 1 (Heuristic):** 20+ regex patterns across 10 categories (role override, instruction injection, context manipulation, etc.). Zero-cost, runs on every input. Returns threat count and categories.
+- **Tier 2 (Deep):** Secondary LLM call that analyzes the input for sophisticated injection attempts that bypass regex. Only triggered when Tier 1 is inconclusive or for high-security contexts.
+
+The gateway security middleware (`packages/runtime/src/gateway/security-middleware.ts`) scans incoming messages and blocks or warns based on configuration.
+
+### 10.2 Guardian Review
+
+`Guardian` provides secondary LLM review for capabilities annotated as `destructive`. Before a destructive tool executes, a secondary model evaluates the action, agent context, and arguments. Configurable `blockOnError` (fail-closed vs fail-open) and `bypassForReadOnly` (skip review for read-only tools). Emits `guardian_reviewed` events and logs to audit trail.
+
+### 10.3 Encrypted Secrets
+
+`AesSecretStore` encrypts sensitive values with AES-256-GCM. Key derivation uses PBKDF2 with configurable iterations. Atomic key rotation re-encrypts all values without downtime. `TenantRegistry` automatically encrypts sensitive tenant fields (API keys, webhook secrets).
+
+### 10.4 Audit Logging
+
+`JsonlAuditLog` provides append-only JSONL audit logs with SHA-256 hash chaining. Each entry includes the hash of the previous entry, making the chain tamper-evident. 16 audit action types cover capability execution, memory access, tenant operations, and security events. `verifyChain()` validates the entire chain for integrity.
+
+### 10.5 Tenant Isolation
+
+Two isolation mechanisms:
+- **Memory namespace enforcement:** `SqliteMemoryStore` auto-tags entries with tenant ID and blocks cross-tenant queries.
+- **Filesystem jail:** `createTenantSandbox()` creates per-tenant filesystem policies that restrict agent access to tenant-specific directories.
+
+### 10.6 Self-Audit Daemon
+
+`SelfAudit` runs periodic health checks: verifies secrets are encrypted, audit chain is intact, tenant isolation is enforced, and configuration is valid. Produces a `SecurityAuditReport` JSON document.
 
 ---
 
-## 11. Event Streaming
+## 11. Triggers
 
-16 event types are emitted by the engine and broadcast to all connected channels.
+Three trigger types activate workflows in response to external or internal events.
+
+### 11.1 Trigger Runtime
+
+`TriggerRegistry` (`packages/runtime/src/trigger/trigger-registry.ts`) manages per-app trigger lifecycle:
+
+1. **Registration:** Triggers are parsed from app YAML and registered per app.
+2. **Webhook mounting:** For webhook triggers, Hono routes are created and mounted on the gateway. HMAC-SHA256 signature validation (`validateWebhookSignature()`) uses timing-safe comparison.
+3. **Event listeners:** For event triggers, `EventListener` subscribes to the EventBus and evaluates filter conditions (shallow equality matching).
+4. **Scheduler:** For schedule triggers, `Scheduler` uses `nextFireTime()` from the cron parser to set up setTimeout chains.
+5. **Execution:** `executeTrigger()` interpolates `{{payload.field}}` templates in the task string and dispatches to the target team.
+
+Four trigger event types are emitted: `webhook_received`, `trigger_fired`, `trigger_failed`, `schedule_fired`.
+
+---
+
+## 12. Skills and Packages
+
+### 12.1 Skills
+
+Skills are reusable capability bundles defined in `SKILL.yaml`:
+
+```yaml
+name: web-search
+description: Search the web and extract content
+tools: [browser_search, browser_extract]
+triggers: [search, lookup, find online]
+tags: [web, search]
+instructions: |
+  Use this skill when the user asks about current events or needs
+  information that may not be in the knowledge base.
+```
+
+`SkillRegistry` discovers skills via 3-tier priority: workspace (`./skills/`) > user (`~/.kiln/skills/`) > builtin. Additionally, `discoverFromPackage()` loads skills from installed domain packages.
+
+### 12.2 Packages
+
+The package bounded context (`packages/core/src/package/`) handles distribution:
+
+- **`PackageManifest`** -- base type with name, version, description, author, license
+- **`DomainPackageManifest`** -- extends with domain config (quality gates, tool tags, detect patterns)
+- **`SkillPackageManifest`** -- extends with skill config (tools, triggers, instructions)
+- **Security validation:** `validatePackageSecurity()` blocks forbidden lifecycle scripts, `validatePackageFiles()` detects path traversal and absolute paths, `computeContentHash()` provides SHA-256 integrity verification
+
+---
+
+## 13. Error Handling
+
+`KilnError` (`packages/core/src/engine/errors.ts`) is the base error class for all Kiln errors:
+
+```typescript
+export class KilnError extends Error {
+  readonly code: KilnErrorCode;
+  readonly context: Record<string, unknown>;
+  readonly retryable: boolean;
+  readonly suggestion?: string;
+  readonly docUrl?: string;
+}
+```
+
+38 error codes are organized by bounded context (engine, domain, tenant, provider, budget, config, agent intelligence, security, skill, package, trigger). Each code maps to a context-aware suggestion via `getErrorSuggestion(code, context)` in `packages/core/src/engine/error-catalog.ts`.
+
+---
+
+## 14. Developer Tools
+
+### 14.1 `kiln init`
+
+Interactive CLI wizard that generates `app.yaml` and `gateway.yaml`:
+- Select domain kit (react-ts, python, docs, support, data-pipeline)
+- Choose provider (Anthropic, OpenAI, DeepSeek, Ollama)
+- Configure channels (CLI, Web, WhatsApp, Slack, API)
+- Select team mode (sequential, supervisor, swarm)
+- `--non-interactive` flag for CI/CD
+
+### 14.2 `kiln dev`
+
+Development mode with hot-reload:
+- Starts gateway with `devMode: true`
+- `YamlWatcher` monitors YAML files with `fs.watch` + 300ms debounce
+- On change, reloads app configuration without restart
+
+### 14.3 Inline Web Debugger
+
+When `devMode` is true, the gateway serves an inline HTML debugger at `/dev/`:
+- Self-contained HTML page (zero external deps, vanilla JS)
+- SSE-connected to `/dev/events` for real-time event streaming
+- Endpoints: `/dev/state`, `/dev/memory`, `/dev/cost`, `/dev/apps`, `/dev/triggers`
+- Read-only -- no mutations from the debugger
+
+---
+
+## 15. Bounded Contexts
+
+| Context | Package | Location | Purpose |
+|---------|---------|----------|---------|
+| `engine` | `@kilnai/core` | `packages/core/src/engine/` | 7 primitives + 3 composites + YAML loader + gateway config types + cron parser. Zero external dependencies. |
+| `orchestrator` | `@kilnai/core` | `packages/core/src/orchestrator/` | Phase machine, orchestrator, checkpoint/resume/fork, configurable phase sequence and gate enforcement. |
+| `agents` | `@kilnai/core` | `packages/core/src/agents/` | Provider adapter interface and implementations: Anthropic, OpenAI, DeepSeek, Ollama. Circuit breaker. |
+| `memory` | `@kilnai/core` | `packages/core/src/memory/` | Scoped storage implementations: SQLite + FTS5 (with decay + compaction), gzipped JSONL, git sync. |
+| `tree` | `@kilnai/core` | `packages/core/src/tree/` | Task tree manager: scoring, batch selection, deepen/branch/prune actions. |
+| `domain` | `@kilnai/core` | `packages/core/src/domain/` | Domain registry, YAML schema, 5 built-in domain kits, backward-compatible marketplace adapter. |
+| `package` | `@kilnai/core` | `packages/core/src/package/` | Package distribution: versioning, content hashing, security validation, YAML schema. |
+| `skill` | `@kilnai/core` | `packages/core/src/skill/` | Skill system: SKILL.yaml format, SkillRegistry with 3-tier discovery + domain package discovery. |
+| `sandbox` | `@kilnai/core` | `packages/core/src/sandbox/` | Per-agent filesystem allowlists and network proxy policies. |
+| `verification` | `@kilnai/core` | `packages/core/src/verification/` | Gate runner, verification loop: test, lint, type-check. |
+| `events` | `@kilnai/core` | `packages/core/src/events/` | EventBus: synchronous emit with typed subscriber dispatch (29 event types), multi-level streaming, ring buffer. |
+| `cost` | `@kilnai/core` | `packages/core/src/cost/` | Per-role, cache-aware cost tracking. |
+| `security` | `@kilnai/core` | `packages/core/src/security/` | Audit logging (JSONL + hash chaining), prompt injection (2-tier), encrypted secrets (AES-256-GCM), Guardian review, self-audit. |
+| `channels` | `@kilnai/runtime` | `packages/runtime/src/channels/` | Channel adapters (CLI, Web, WhatsApp, Slack, API), EventBridge, ChannelRegistry, ChannelRouter, MessageFormatter. |
+| `gateway` | `@kilnai/runtime` | `packages/runtime/src/gateway/` | Gateway runtime: multi-App loading, per-App isolation, Mode B routes, budget middleware, cross-app delegation, trigger webhook mounting, dev-mode API routes, inline web debugger. |
+| `trigger` | `@kilnai/runtime` | `packages/runtime/src/trigger/` | TriggerRegistry, webhook handler (HMAC-SHA256), event listener, cron scheduler, trigger executor. |
+| `session` | `@kilnai/runtime` | `packages/runtime/src/session/` | Mode B session management: ModeBSession, ModeBOrchestrator, SessionRegistry. |
+| `tenant` | `@kilnai/runtime` | `packages/runtime/src/tenant/` | Multi-tenant management: TenantRegistry, system prompt builder, phone-to-tenant resolution. |
+| `cli` | `@kilnai/cli` | `packages/cli/` | CLI commands (init, run, dev, gateway, skill, domain), formatters, MCP server. |
+
+---
+
+## 16. Event Streaming
+
+29 event types are emitted by the engine and broadcast to all connected channels.
+
+### Core Events
 
 | Event | Key Payload Fields |
 |-------|--------------------|
 | `phase_changed` | `phase`, `phaseName`, `phaseDescription` |
-| `phase_completed` | `phase`, `duration`, `gates` |
-| `task_created` | `taskId`, `statement`, `depth` |
-| `task_started` | `taskId`, `workerId` |
-| `task_completed` | `taskId`, `action`, `result` |
-| `task_pruned` | `taskId`, `reason` |
-| `tool_called` | `toolName`, `args` |
-| `tool_result` | `toolName`, `output` |
-| `gate_result` | `gate`, `passed`, `output` |
-| `memory_captured` | `scope`, `tags`, `preview` |
-| `memory_recalled` | `scope`, `count` |
-| `approval_requested` | `description` |
-| `approval_received` | `approved` |
-| `cost_update` | `role`, `tokens`, `cost` |
-| `error` | `message`, `code`, `recoverable` |
-| `session_completed` | `summary`, `totalCost` |
+| `task_started` | `taskId`, `statement`, `parentId` |
+| `task_completed` | `taskId`, `action`, `status` |
+| `tool_called` | `toolName`, `taskId`, `workerIndex` |
+| `tool_result` | `toolName`, `taskId`, `durationMs`, `success` |
+| `thinking` | `role`, `content` |
+| `verification_result` | `passed`, `iteration`, `maxIterations`, `checks` |
+| `cost_update` | `inputTokens`, `outputTokens`, `totalCostUsd`, `byRole` |
+| `memory_saved` | `memoryId`, `layer`, `tags` |
+| `memory_recalled` | `query`, `resultsCount` |
+| `memory_sync` | `imported`, `entries`, `developers` |
+| `approval_requested` | `taskId`, `description` |
+| `approval_received` | `taskId`, `approved` |
+| `worker_assigned` | `workerIndex`, `taskId` |
+| `error` | `message`, `code`, `taskId` |
+| `trace_span` | `span` (TraceSpan) |
 
-`WebChannel` forwards events as WebSocket messages to the console. `CliChannel` formats them for stdout. `ApiChannel` delivers them as SSE frames. The `EventBridge` component converts the synchronous `EventBus` push model to `AsyncIterable<EngineEvent>` for the `Channel.stream()` interface.
+### Agent Intelligence Events
+
+| Event | Key Payload Fields |
+|-------|--------------------|
+| `handoff_requested` | `fromAgent`, `toAgent`, `reason`, `context` |
+| `handoff_completed` | `fromAgent`, `toAgent`, `accepted` |
+| `interrupt_requested` | `checkpointId`, `reason`, `resumeSchema` |
+| `interrupt_resumed` | `checkpointId`, `resumeValue` |
+
+### Security Events
+
+| Event | Key Payload Fields |
+|-------|--------------------|
+| `injection_scanned` | `safe`, `threats`, `tier`, `inputPreview` |
+| `guardian_reviewed` | `approved`, `capabilityName`, `agentName`, `riskLevel` |
+| `audit_entry` | `action`, `actor`, `outcome`, `resource` |
+| `tenant_isolation_violation` | `tenantId`, `attemptedResource`, `blockedBy` |
+| `security_alert` | `severity`, `category`, `message` |
+
+### Trigger Events
+
+| Event | Key Payload Fields |
+|-------|--------------------|
+| `webhook_received` | `path`, `appName`, `triggerName`, `method` |
+| `trigger_fired` | `triggerName`, `triggerType`, `team`, `task` |
+| `trigger_failed` | `triggerName`, `triggerType`, `error` |
+| `schedule_fired` | `triggerName`, `cron`, `team` |
+
+### Multi-Level Streaming
+
+Events are assigned to streaming levels via `EVENT_LEVEL_MAP`:
+
+| Level | Includes | Use Case |
+|-------|----------|----------|
+| `state` | State-level events only (cost, memory, audit, trace) | Dashboard summaries |
+| `phase` | State + phase-level (transitions, tasks, security, triggers) | Progress tracking |
+| `tool` | State + phase + tool-level (tool calls, verification) | Developer debugging |
+| `token` | All events including token-level (thinking) | Full observability |
+
+`EventBus.onLevel(level, callback)` subscribes to all events at or above the specified level. `EventBridge` supports level filtering for channel adapters.
+
+`WebChannel` forwards events as WebSocket messages. `CliChannel` formats them for stdout. `ApiChannel` delivers them as SSE frames. The `EventBridge` component converts the synchronous `EventBus` push model to `AsyncIterable<EngineEvent>` for the `Channel.stream()` interface.
 
 Source: `packages/core/src/events/event-bus.ts`
 
 ---
 
-## 12. Project Structure
+## 17. Project Structure
 
 ```
 kiln/
@@ -586,31 +890,42 @@ kiln/
 │   ├── core/                              # Engine layer + infrastructure
 │   │   └── src/
 │   │       ├── engine/
-│   │       │   ├── domain/               # 6 primitives (zero deps)
+│   │       │   ├── domain/               # 7 primitives (zero deps)
 │   │       │   ├── composites/           # 3 composites + validate*()
 │   │       │   ├── loader/               # app-loader.ts, preset-loader.ts
 │   │       │   └── gateway/              # gateway-config.ts, mode-b-config.ts, delegation-config.ts
-│   │       ├── orchestrator/             # phase-machine.ts, orchestrator.ts
+│   │       ├── orchestrator/             # phase-machine.ts, orchestrator.ts, strategies/
 │   │       ├── agents/
 │   │       │   └── infrastructure/       # anthropic.ts, openai.ts, deepseek.ts, ollama.ts
-│   │       ├── memory/                   # sqlite-store.ts, project-store.ts
+│   │       ├── memory/                   # sqlite-store.ts, project-store.ts, decay-curves.ts, compactor.ts
 │   │       ├── tree/                     # task-tree.ts
-│   │       ├── events/                   # event-bus.ts
+│   │       ├── events/                   # event-bus.ts, trace.ts
 │   │       ├── cost/                     # cost-tracker.ts
 │   │       ├── sandbox/                  # policies.ts
 │   │       ├── verification/             # verification-loop.ts
-│   │       └── domain/                   # domain-registry.ts, yaml-schema.ts, marketplace.ts
-│   └── runtime/                          # Gateway + channels
+│   │       ├── domain/                   # domain-registry.ts, yaml-schema.ts, marketplace.ts
+│   │       ├── domains/                  # 5 built-in domain kits (react-ts, python, docs, support, data-pipeline)
+│   │       ├── package/                  # types.ts, security.ts, yaml-schema.ts, yaml-parser.ts
+│   │       ├── skill/                    # skill-registry.ts, yaml-schema.ts, yaml-parser.ts
+│   │       └── security/                 # audit-log.ts, prompt-scanner.ts, secret-store.ts, guardian.ts, self-audit.ts
+│   ├── runtime/                          # Gateway + channels + triggers
+│   │   └── src/
+│   │       ├── gateway/                  # gateway-server.ts, gateway-routes.ts, dev-routes.ts, dev-inspector.ts
+│   │       ├── session/                  # mode-b-session.ts, mode-b-orchestrator.ts, session-registry.ts
+│   │       ├── tenant/                   # tenant-registry.ts, system-prompt-builder.ts
+│   │       ├── channels/                 # cli-, web-, whatsapp-, slack-, api-channel.ts
+│   │       └── trigger/                  # trigger-registry.ts, webhook-handler.ts, event-listener.ts, scheduler.ts
+│   └── cli/                              # CLI commands + MCP server
 │       └── src/
-│           ├── gateway/                  # gateway-server.ts, gateway-routes.ts, app-resolver.ts
-│           ├── session/                  # mode-b-session.ts, mode-b-orchestrator.ts, session-registry.ts
-│           ├── tenant/                   # tenant-registry.ts, system-prompt-builder.ts
-│           └── channels/                 # cli-, web-, whatsapp-, slack-, api-channel.ts
+│           ├── commands/                 # init.ts, dev.ts, gateway.ts, skill.ts
+│           └── formatters.ts             # CLI output formatters
 ├── docs/
 │   ├── architecture.md                   # This document
+│   ├── evolution-plan.md                 # Vision, roadmap, design principles
 │   ├── gateway.md                        # Gateway runtime reference
 │   ├── channels.md                       # Channel adapter reference
 │   ├── marketplace.md                    # Domain marketplace reference
+│   ├── consumer-guide.md                 # Consumer integration guide
 │   └── preset-format.md                  # Preset YAML format reference
 ├── CLAUDE.md
 └── package.json
