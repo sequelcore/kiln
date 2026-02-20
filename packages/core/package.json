@@ -1,7 +1,7 @@
 {
   "name": "@kilnai/core",
-  "version": "0.1.0",
-  "description": "Domain-agnostic AI orchestration engine -- 6 primitives, 3 composites, YAML-configured",
+  "version": "0.2.0",
+  "description": "Domain-agnostic AI orchestration engine -- 7 primitives, 3 composites, YAML-configured",
   "type": "module",
   "exports": {
     ".": {
