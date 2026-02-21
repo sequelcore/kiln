@@ -47,6 +47,27 @@ a{color:#60a5fa;text-decoration:none}
 .info-value{color:#d4d4d8}
 pre.json{font-size:12px;color:#a1a1aa;white-space:pre-wrap;word-break:break-all}
 .full-width{grid-column:1/-1}
+.tabs{display:flex;gap:0;border-bottom:1px solid #27272a}
+.tab{padding:6px 16px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:#71717a;cursor:pointer;border-bottom:2px solid transparent;user-select:none}
+.tab:hover{color:#a1a1aa}
+.tab-active{color:#60a5fa;border-bottom-color:#60a5fa}
+.tab-panel{display:none;flex:1;min-height:0;overflow:hidden}
+.tab-panel-active{display:flex;flex-direction:column;flex:1;min-height:0}
+.timeline-wrap{position:relative;overflow-y:auto;flex:1;min-height:0;padding:8px 12px}
+.tl-row{position:relative;height:22px;margin-bottom:2px;display:flex;align-items:center}
+.tl-label{font-size:11px;color:#a1a1aa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:0 0 180px;padding-right:8px;cursor:pointer}
+.tl-ruler{position:relative;flex:1;height:14px}
+.tl-bar{position:absolute;top:0;height:100%;border-radius:2px;opacity:.85;cursor:pointer;min-width:4px}
+.tl-phase{background:#60a5fa}
+.tl-tool{background:#facc15}
+.tl-agent{background:#4ade80}
+.tl-task{background:#c084fc}
+.tl-trigger{background:#fb923c}
+.tl-other{background:#71717a}
+.tl-detail{background:#1c1c1e;border:1px solid #3f3f46;border-radius:4px;padding:8px 12px;font-size:11px;color:#a1a1aa;margin:0 0 6px 180px;white-space:pre-wrap;word-break:break-all;display:none}
+.tl-detail-visible{display:block}
+.tl-empty{padding:24px;color:#52525b;font-size:12px}
+.tl-axis{display:flex;justify-content:space-between;font-size:10px;color:#52525b;padding:0 0 4px 180px}
 </style>
 </head>
 <body>
@@ -61,10 +82,17 @@ pre.json{font-size:12px;color:#a1a1aa;white-space:pre-wrap;word-break:break-all}
     <div class="card-body"><div id="phases" class="phases"></div></div>
   </div>
   <div class="card" style="min-height:0">
-    <div class="card-title">Event Stream</div>
-    <div class="card-body" style="display:flex;flex-direction:column;min-height:0">
+    <div class="tabs">
+      <div class="tab tab-active" id="tab-events" onclick="switchTab('events')">Events</div>
+      <div class="tab" id="tab-timeline" onclick="switchTab('timeline')">Timeline</div>
+    </div>
+    <div class="tab-panel tab-panel-active" id="panel-events" style="display:flex;flex-direction:column;flex:1;min-height:0;padding:12px">
       <input id="filter" class="filter-input" placeholder="Filter events..." />
       <div id="events" class="event-log" style="flex:1;overflow-y:auto;min-height:0"></div>
+    </div>
+    <div class="tab-panel" id="panel-timeline" style="flex-direction:column;flex:1;min-height:0">
+      <div class="tl-axis" id="tl-axis"><span>0ms</span><span id="tl-axis-end">0ms</span></div>
+      <div class="timeline-wrap" id="timeline"><div class="tl-empty">No spans yet. Spans arrive via trace_span events.</div></div>
     </div>
   </div>
   <div class="card" style="min-height:0;display:flex;flex-direction:column">
@@ -90,6 +118,79 @@ pre.json{font-size:12px;color:#a1a1aa;white-space:pre-wrap;word-break:break-all}
 </div>
 <script>
 (function(){
+  // ---- Timeline state
+  var spans=[];
+  var selectedSpanId=null;
+  var timelineEl=document.getElementById("timeline");
+  var axisEndEl=document.getElementById("tl-axis-end");
+
+  function spanKindClass(kind){
+    if(kind==="phase")return"tl-phase";
+    if(kind==="tool")return"tl-tool";
+    if(kind==="agent")return"tl-agent";
+    if(kind==="task")return"tl-task";
+    if(kind==="trigger")return"tl-trigger";
+    return"tl-other";
+  }
+
+  function renderTimeline(){
+    if(spans.length===0){
+      timelineEl.innerHTML='<div class="tl-empty">No spans yet. Spans arrive via trace_span events.</div>';
+      return;
+    }
+    var minT=Infinity,maxT=-Infinity;
+    for(var i=0;i<spans.length;i++){
+      var s=spans[i];
+      var st=s.startTime?new Date(s.startTime).getTime():0;
+      var et=s.endTime?new Date(s.endTime).getTime():st+1;
+      if(st<minT)minT=st;
+      if(et>maxT)maxT=et;
+    }
+    var total=maxT-minT||1;
+    axisEndEl.textContent=total+"ms";
+    var html="";
+    for(var j=0;j<spans.length;j++){
+      var sp=spans[j];
+      var st2=sp.startTime?new Date(sp.startTime).getTime():minT;
+      var et2=sp.endTime?new Date(sp.endTime).getTime():st2+1;
+      var left=Math.max(0,((st2-minT)/total)*100);
+      var width=Math.max(0.2,((et2-st2)/total)*100);
+      var indent=sp.parentSpanId?"padding-left:16px;":"";
+      var cls=spanKindClass(sp.kind||"");
+      var isSelected=selectedSpanId===sp.spanId;
+      var label=sp.name||sp.spanId||(sp.spanKind+" span");
+      var attrs=JSON.stringify(sp,null,2);
+      html+='<div class="tl-row" style="'+indent+'">';
+      html+='<div class="tl-label" title="'+label+'" onclick="toggleSpanDetail(\''+sp.spanId+'\')">'+label+'</div>';
+      html+='<div class="tl-ruler"><div class="tl-bar '+cls+'" style="left:'+left+'%;width:'+width+'%"';
+      html+=' title="'+label+' ('+Math.round(et2-st2)+'ms)'+'" onclick="toggleSpanDetail(\''+sp.spanId+'\')"';
+      html+='></div></div>';
+      html+='</div>';
+      html+='<div class="tl-detail'+(isSelected?' tl-detail-visible':''+'"')+'" id="detail-'+sp.spanId+'">'+attrs.replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</div>';
+    }
+    timelineEl.innerHTML=html;
+  }
+
+  window.toggleSpanDetail=function(spanId){
+    if(selectedSpanId===spanId){
+      selectedSpanId=null;
+    }else{
+      selectedSpanId=spanId;
+    }
+    renderTimeline();
+  };
+
+  window.switchTab=function(tab){
+    var panels=['events','timeline'];
+    for(var k=0;k<panels.length;k++){
+      var p=document.getElementById('panel-'+panels[k]);
+      var t=document.getElementById('tab-'+panels[k]);
+      if(p)p.className='tab-panel'+(panels[k]===tab?' tab-panel-active':'');
+      if(t)t.className='tab'+(panels[k]===tab?' tab-active':'');
+    }
+  };
+
+  // ---- Event log state
   var events=[];
   var MAX=1000;
   var secCounts={scans:0,blocked:0,guardian:0,violations:0};
@@ -186,6 +287,15 @@ pre.json{font-size:12px;color:#a1a1aa;white-space:pre-wrap;word-break:break-all}
       renderSecEvents();
     }
     if(ev.type==="phase_changed")renderPhases({phase:ev.phaseName||ev.phase,phases:null});
+    // Feed trace_span events into the timeline
+    if(ev.type==="trace_span"&&ev.span){
+      var existingIdx=-1;
+      for(var si=0;si<spans.length;si++){if(spans[si].spanId===ev.span.spanId){existingIdx=si;break;}}
+      if(existingIdx>=0){spans[existingIdx]=Object.assign({},spans[existingIdx],ev.span);}
+      else{spans.push(ev.span);}
+      if(spans.length>500)spans.shift();
+      renderTimeline();
+    }
     renderEvents();
   }
 
