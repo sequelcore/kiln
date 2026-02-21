@@ -621,23 +621,20 @@ function mapKnowledge(raw: RawKnowledge): { knowledge: KnowledgeConfig | undefin
   const rawStore = raw.store as RawKnowledgeStore | undefined;
   const rawChunking = raw.chunking as RawKnowledgeChunking | undefined;
 
-  const embeddingProvider = rawEmbedding?.provider;
   const embedding: KnowledgeEmbeddingConfig = {
-    provider: embeddingProvider === "openai" || embeddingProvider === "ollama" ? embeddingProvider : "openai",
+    provider: (typeof rawEmbedding?.provider === "string" ? rawEmbedding.provider : "") as KnowledgeEmbeddingConfig["provider"],
     model: typeof rawEmbedding?.model === "string" ? rawEmbedding.model : undefined,
     apiKeyEnv: typeof rawEmbedding?.apiKeyEnv === "string" ? rawEmbedding.apiKeyEnv : undefined,
     baseUrl: typeof rawEmbedding?.baseUrl === "string" ? rawEmbedding.baseUrl : undefined,
   };
 
-  const storeBackend = rawStore?.backend;
   const store: KnowledgeStoreConfig = {
-    backend: storeBackend === "memory" || storeBackend === "pgvector" || storeBackend === "sqlite-vec" ? storeBackend : "memory",
+    backend: (typeof rawStore?.backend === "string" ? rawStore.backend : "") as KnowledgeStoreConfig["backend"],
     connectionString: typeof rawStore?.connectionString === "string" ? rawStore.connectionString : undefined,
   };
 
-  const chunkingStrategy = rawChunking?.strategy;
   const chunking: KnowledgeChunkingConfig = {
-    strategy: chunkingStrategy === "recursive" || chunkingStrategy === "markdown" ? chunkingStrategy : "recursive",
+    strategy: (typeof rawChunking?.strategy === "string" ? rawChunking.strategy : "") as KnowledgeChunkingConfig["strategy"],
     chunkSize: typeof rawChunking?.chunkSize === "number" ? rawChunking.chunkSize : undefined,
     chunkOverlap: typeof rawChunking?.chunkOverlap === "number" ? rawChunking.chunkOverlap : undefined,
   };
@@ -649,11 +646,10 @@ function mapKnowledge(raw: RawKnowledge): { knowledge: KnowledgeConfig | undefin
       if (!source) continue;
       
       const rawSourceChunking = source.chunking as RawKnowledgeChunking | undefined;
-      const sourceStrategy = rawSourceChunking?.strategy;
       const sourceChunking: KnowledgeChunkingConfig | undefined = rawSourceChunking ? {
-        strategy: sourceStrategy === "recursive" || sourceStrategy === "markdown" ? sourceStrategy : "recursive",
-        chunkSize: typeof rawSourceChunking?.chunkSize === "number" ? rawSourceChunking.chunkSize : undefined,
-        chunkOverlap: typeof rawSourceChunking?.chunkOverlap === "number" ? rawSourceChunking.chunkOverlap : undefined,
+        strategy: (typeof rawSourceChunking.strategy === "string" ? rawSourceChunking.strategy : "") as KnowledgeChunkingConfig["strategy"],
+        chunkSize: typeof rawSourceChunking.chunkSize === "number" ? rawSourceChunking.chunkSize : undefined,
+        chunkOverlap: typeof rawSourceChunking.chunkOverlap === "number" ? rawSourceChunking.chunkOverlap : undefined,
       } : undefined;
 
       sources.push({

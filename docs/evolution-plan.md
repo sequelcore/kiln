@@ -65,17 +65,40 @@ Every competitor forces a choice: code-first flexibility (LangGraph, Mastra) or 
 | Metric | Value |
 |--------|-------|
 | Packages | 3 (core, runtime, cli) |
-| Bounded contexts | 21 |
-| Tests passing | 1,990+ (vitest) |
+| Bounded contexts | 23 |
+| Tests passing | 2,070+ (vitest) |
 | Primitives | 7 (Agent, Capability, Workflow, Memory, Task, Channel, Trigger) |
 | Composites | 3 (Team, Router, App) |
 | Provider adapters | 4 (Anthropic w/ native output_config, OpenAI, DeepSeek, Ollama) |
+| Embedding adapters | 2 (OpenAI, Ollama) |
 | Channel adapters | 5 (CLI, Web, WhatsApp, Slack, API) |
 | Trigger types | 3 (webhook, event, schedule) |
 | Security layers | 6 (injection scan, Guardian, secrets, audit, tenant isolation, self-audit) |
+| Observability | OTel span mapping (29 event types) + exporter |
+| Knowledge (RAG) | Chunkers (2), EmbeddingAdapters (2), VectorStore (1), RetrievalPipeline, auto-injected capability |
 
-### Recently Completed (Phase 6 -- Ehrlich Gaps)
+### Recently Completed (Phase 8 -- Knowledge RAG Primitives)
 
+- Engine primitives: `EmbeddingAdapter`, `VectorStore`, `Chunker`, `Document`, `Chunk` interfaces
+- `RecursiveTextChunker` (paragraph -> sentence -> character, configurable overlap, SHA-256 chunk IDs)
+- `MarkdownChunker` (heading hierarchy, code block preservation, fallback chunking)
+- Infrastructure: `OpenAIEmbeddingAdapter` (fetch-based, retry), `OllamaEmbeddingAdapter` (fetch-based)
+- `InMemoryVectorStore` with cosine similarity (for tests/prototyping)
+- `RetrievalPipeline` (ingest: chunk -> embed -> store; retrieve: embed -> search -> rerank)
+- `Reranker` interface for optional result re-ranking
+- `KnowledgeConfig` YAML types + `validateKnowledgeConfig()` with full validation
+- `knowledge` block parsing in `app-loader.ts` (optional top-level field in app.yaml)
+- `knowledge_search` capability auto-injection (`readOnly`, `idempotent`, `cacheTtl: 60`)
+- `isAgentAllowed()` for restricting knowledge access to specific agents
+
+### Previously Completed
+
+**Phase 7 -- Observability (OTel Integration):**
+- `SpanMapper`: maps all 29 `KilnEvent` types to OTel span operations
+- `OTelExporter`: implements `EventStore` interface, accepts standard `TracerProvider`
+- Zero OTel deps in engine primitives; `@opentelemetry/api` as peer dependency
+
+**Phase 6 -- Ehrlich Gaps:**
 - Anthropic native `output_config` with `additionalProperties` validation
 - ToolCache with SHA-256 keys, per-entry TTL, capability annotations
 - `compressContext()` utility for large tool output compression
@@ -86,7 +109,7 @@ Every competitor forces a choice: code-first flexibility (LangGraph, Mastra) or 
 
 ## 3. Roadmap
 
-### Phase 7: Observability (OTel Integration)
+### Phase 7: Observability (OTel Integration) -- COMPLETED
 
 **Why:** Every enterprise prospect asks "can we plug this into Datadog?" Without OTel, the answer is no. Every major competitor (CrewAI, LangGraph, AG2, Mastra) emits OTel spans natively. This is the smallest effort gap with the biggest enterprise unlock.
 
@@ -139,7 +162,7 @@ observability:
 
 ---
 
-### Phase 8: Knowledge (RAG Primitives)
+### Phase 8: Knowledge (RAG Primitives) -- COMPLETED
 
 **Why:** Table-stakes gap. Every orchestration framework except bare-bones SDKs has RAG primitives. Without them, every Kiln user who needs knowledge retrieval builds it outside the framework. Mastra has the most complete TypeScript RAG system; we study it but build cleaner.
 
@@ -755,8 +778,8 @@ Every feature in every phase follows the same rule: **if it can be configured, i
 ## 5. Phase Dependencies
 
 ```
-Phase 7 (OTel)              -- standalone, no deps
-Phase 8 (Knowledge/RAG)     -- standalone, no deps
+Phase 7 (OTel)              -- COMPLETED
+Phase 8 (Knowledge/RAG)     -- COMPLETED
 Phase 9 (Multimodal)        -- standalone, no deps
 Phase 10 (Eval)             -- benefits from Phase 7 (latency spans) but not blocked
 Phase 11 (A2A + MCP)        -- benefits from Phase 8 (Tool RAG needs embeddings)
@@ -768,8 +791,8 @@ Phase 15 (Durable)          -- requires Phase 14.3 (stateless gateway / external
 
 ### Recommended Execution Order
 
-1. **Phase 7** (OTel) -- smallest effort, biggest enterprise unlock
-2. **Phase 8** (Knowledge/RAG) -- table-stakes, unblocks many use cases
+1. ~~**Phase 7** (OTel) -- COMPLETED~~
+2. ~~**Phase 8** (Knowledge/RAG) -- COMPLETED~~
 3. **Phase 10** (Eval) -- critical for production iteration loops
 4. **Phase 11** (A2A + Dynamic MCP) -- ecosystem interop before it's too late
 5. **Phase 9** (Multimodal) -- growing demand, unlocks voice/vision agents
