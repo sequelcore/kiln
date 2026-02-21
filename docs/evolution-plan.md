@@ -65,8 +65,8 @@ Every competitor forces a choice: code-first flexibility (LangGraph, Mastra) or 
 | Metric | Value |
 |--------|-------|
 | Packages | 3 (core, runtime, cli) |
-| Bounded contexts | 24 |
-| Tests passing | 2,270+ (vitest) |
+| Bounded contexts | 25 |
+| Tests passing | 2,356+ (vitest) |
 | Primitives | 7 (Agent, Capability, Workflow, Memory, Task, Channel, Trigger) |
 | Composites | 3 (Team, Router, App) |
 | Provider adapters | 4 (Anthropic w/ native output_config, OpenAI, DeepSeek, Ollama) |
@@ -77,9 +77,29 @@ Every competitor forces a choice: code-first flexibility (LangGraph, Mastra) or 
 | Observability | OTel span mapping (29 event types) + exporter |
 | Knowledge (RAG) | Chunkers (2), EmbeddingAdapters (2), VectorStore (1), RetrievalPipeline, auto-injected capability |
 | Eval | 12 scorer types (6 rule-based + 6 LLM-as-judge), dataset JSONL loader, experiment runner, experiment comparator |
-| Error codes | 43 (across 12 bounded contexts) |
+| Interoperability | A2A protocol (Agent Card, JSON-RPC server/client, task store), MCP client (SSE, circuit breaker), Tool RAG |
+| Error codes | 46 (across 13 bounded contexts) |
 
-### Recently Completed (Phase 10 -- Evaluation Framework)
+### Recently Completed (Phase 11 -- Interoperability: A2A + Dynamic MCP)
+
+- Engine primitives: `AgentCard`, `A2ATask`, `A2ATaskStatus`, `A2AMessage`, `A2AArtifact`, `A2APart` types + `validateAgentCard()`
+- Engine primitives: `McpTransport` (SSE), `McpServerConfig`, `McpConfig` + `validateMcpConfig()`
+- Engine primitives: `ToolSelectionConfig` (strategy: all/rag, maxTools, threshold) + `validateToolSelectionConfig()`
+- `App` composite extended with `readonly mcp?` and `readonly toolSelection?` fields
+- `app-loader.ts` extended with `mapMcp()` and `mapToolSelection()` YAML parsers
+- A2A bounded context (`packages/runtime/src/a2a/`):
+  - `generateAgentCard()`: App -> AgentCard from team capabilities
+  - `A2ATaskStore`: in-memory task lifecycle (create, updateStatus, get, cancel, cleanExpired)
+  - `createA2ARoutes()`: Hono sub-app with `/.well-known/agent.json` + JSON-RPC 2.0 dispatch (tasks/send, sendSubscribe, get, cancel)
+  - `A2AClient`: outbound A2A delegation (discoverAgent, sendTask with timeout)
+- `McpClient`: SSE transport, JSON-RPC 2.0 tool discovery + execution, circuit breaker protected
+- `CircuitBreaker`: closed -> open -> half-open state machine with configurable thresholds
+- `ToolRAG`: embeds tool descriptions via EmbeddingAdapter, retrieves top-K relevant tools per query via VectorStore
+- `delegation-handler.ts` extended: `ExtendedDelegation` type routes `delegationType: "a2a"` to `executeA2ADelegation()`
+- `gateway-routes.ts` mounts A2A routes at `/{appName}/a2a` when explicit `a2aConfig` is present
+- 8 error codes: `A2A_INVALID_REQUEST`, `A2A_TASK_NOT_FOUND`, `A2A_TASK_FAILED`, `A2A_CLIENT_FAILED`, `MCP_CONNECTION_FAILED`, `MCP_DISCOVERY_FAILED`, `MCP_SERVER_ERROR`, `TOOL_RAG_FAILED`
+
+### Previously Completed (Phase 10 -- Evaluation Framework)
 
 - Engine primitive: `EvalConfig` types (`EvalScorerType`, `EvalScorerConfig`, `EvalDatasetConfig`, `EvalExperimentConfig`) + `validateEvalConfig()` with circular compare detection
 - 6 rule-based scorers: `ExactMatchScorer`, `ContainsScorer`, `JsonValidityScorer`, `LengthScorer`, `LatencyScorer`, `CostScorer`
@@ -96,8 +116,6 @@ Every competitor forces a choice: code-first flexibility (LangGraph, Mastra) or 
 - 5 error codes: `EVAL_YAML_INVALID`, `EVAL_DATASET_NOT_FOUND`, `EVAL_DATASET_INVALID`, `EVAL_SCORER_FAILED`, `EVAL_EXPERIMENT_FAILED`
 - Conservative safety scoring: Hallucination/Toxicity return 0.0 (unsafe) on LLM parse failure
 
-### Previously Completed
-
 **Phase 8 -- Knowledge RAG Primitives:**
 - Engine primitives: `EmbeddingAdapter`, `VectorStore`, `Chunker`, `Document`, `Chunk` interfaces
 - `RecursiveTextChunker` (paragraph -> sentence -> character, configurable overlap, SHA-256 chunk IDs)
@@ -110,8 +128,6 @@ Every competitor forces a choice: code-first flexibility (LangGraph, Mastra) or 
 - `knowledge` block parsing in `app-loader.ts` (optional top-level field in app.yaml)
 - `knowledge_search` capability auto-injection (`readOnly`, `idempotent`, `cacheTtl: 60`)
 - `isAgentAllowed()` for restricting knowledge access to specific agents
-
-### Previously Completed
 
 **Phase 7 -- Observability (OTel Integration):**
 - `SpanMapper`: maps all 29 `KilnEvent` types to OTel span operations
@@ -436,7 +452,7 @@ experiments:
 
 ---
 
-### Phase 11: Interoperability (A2A + Dynamic MCP)
+### Phase 11: Interoperability (A2A + Dynamic MCP) -- COMPLETED
 
 **Why:** A2A (Agent-to-Agent protocol, Linux Foundation, 50+ partners) is becoming the standard for inter-agent communication. Without it, Kiln agents are invisible to the ecosystem. Dynamic MCP connection is table-stakes -- OpenAI and Vercel already auto-discover tools from live MCP servers.
 
@@ -798,7 +814,7 @@ Phase 7 (OTel)              -- COMPLETED
 Phase 8 (Knowledge/RAG)     -- COMPLETED
 Phase 9 (Multimodal)        -- standalone, no deps
 Phase 10 (Eval)             -- COMPLETED
-Phase 11 (A2A + MCP)        -- benefits from Phase 8 (Tool RAG needs embeddings)
+Phase 11 (A2A + MCP)        -- COMPLETED
 Phase 12 (Safety)           -- standalone, extends existing security context
 Phase 13 (Studio + SDK)     -- benefits from Phase 7 (timeline), Phase 10 (eval dashboard)
 Phase 14 (Deploy + Scale)   -- standalone, but Phase 15 depends on it
@@ -810,7 +826,7 @@ Phase 15 (Durable)          -- requires Phase 14.3 (stateless gateway / external
 1. ~~**Phase 7** (OTel) -- COMPLETED~~
 2. ~~**Phase 8** (Knowledge/RAG) -- COMPLETED~~
 3. ~~**Phase 10** (Eval) -- COMPLETED~~
-4. **Phase 11** (A2A + Dynamic MCP) -- ecosystem interop before it's too late
+4. ~~**Phase 11** (A2A + Dynamic MCP) -- COMPLETED~~
 5. **Phase 9** (Multimodal) -- growing demand, unlocks voice/vision agents
 6. **Phase 12** (Safety) -- enterprise blocker for regulated industries
 7. **Phase 14** (Deploy) -- ops maturity for production users
