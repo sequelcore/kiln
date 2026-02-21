@@ -75,3 +75,5 @@ export type { CircuitBreakerConfig, CircuitState } from "./circuit-breaker.js";
 export { ToolCache } from "./tool-cache.js";
 export { compressContext } from "./context-compressor.js";
 export type { CompressOptions } from "./context-compressor.js";
+export { McpClient } from "./mcp-client.js";
+export { ToolRAG } from "./tool-rag.js";
