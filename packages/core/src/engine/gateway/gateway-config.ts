@@ -1,6 +1,8 @@
 // Engine type: GatewayConfig -- multi-app gateway configuration
 // Declares which Apps to host and how they bind to channels
 
+import type { ObservabilityConfig } from "./observability-config.js";
+
 /** Channel binding for a specific platform adapter */
 export interface GatewayChannelBinding {
   readonly type: string;
@@ -21,10 +23,11 @@ export interface GatewayAppBinding {
   readonly channels: readonly GatewayChannelBinding[];
 }
 
-/** Top-level gateway configuration: port + multiple app bindings */
+/** Top-level gateway configuration: port + multiple app bindings + optional observability */
 export interface GatewayConfig {
   readonly port: number;
   readonly apps: readonly GatewayAppBinding[];
+  readonly observability?: ObservabilityConfig;
 }
 
 /** Validation error for gateway configuration */

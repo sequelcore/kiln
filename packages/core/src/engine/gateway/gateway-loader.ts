@@ -5,6 +5,8 @@ import { parse } from "yaml";
 import { KilnError } from "../errors.js";
 import type { GatewayConfig, GatewayAppBinding, GatewayChannelBinding, GatewayValidationError } from "./gateway-config.js";
 import { validateGatewayConfig } from "./gateway-config.js";
+import type { ObservabilityConfig } from "./observability-config.js";
+import { validateObservabilityConfig } from "./observability-config.js";
 
 /** Error class for gateway YAML loader failures, aggregating all validation errors */
 export class GatewayLoaderError extends KilnError {
@@ -43,6 +45,7 @@ interface RawAppBinding {
 interface RawGateway {
   port?: unknown;
   apps?: unknown;
+  observability?: unknown;
 }
 
 // ---------------------------------------------------------------------------
@@ -150,7 +153,34 @@ export function parseGatewayYaml(content: string): GatewayConfig {
 
   if (errors.length > 0) throw new GatewayLoaderError(errors);
 
-  const config: GatewayConfig = { port, apps };
+  // Parse optional observability block
+  let observability: ObservabilityConfig | undefined;
+  if (raw.observability !== undefined) {
+    if (typeof raw.observability !== "object" || Array.isArray(raw.observability) || raw.observability === null) {
+      errors.push({ field: "observability", message: "must be an object" });
+    } else {
+      const rawObs = raw.observability as Record<string, unknown>;
+      const parsed: ObservabilityConfig = {
+        enabled: typeof rawObs["enabled"] === "boolean" ? rawObs["enabled"] : true,
+        exporter: (rawObs["exporter"] as ObservabilityConfig["exporter"]) ?? "none",
+        ...(typeof rawObs["endpoint"] === "string" ? { endpoint: rawObs["endpoint"] } : {}),
+        serviceName: typeof rawObs["serviceName"] === "string" ? rawObs["serviceName"] : "",
+        ...(rawObs["attributes"] && typeof rawObs["attributes"] === "object" && !Array.isArray(rawObs["attributes"])
+          ? { attributes: rawObs["attributes"] as Record<string, string> }
+          : {}),
+      };
+      const obsErrors = validateObservabilityConfig(parsed);
+      if (obsErrors.length > 0) {
+        errors.push(...obsErrors);
+      } else {
+        observability = parsed;
+      }
+    }
+  }
+
+  if (errors.length > 0) throw new GatewayLoaderError(errors);
+
+  const config: GatewayConfig = { port, apps, ...(observability ? { observability } : {}) };
 
   const validationErrors = validateGatewayConfig(config);
   if (validationErrors.length > 0) throw new GatewayLoaderError(validationErrors);

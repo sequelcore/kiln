@@ -45,6 +45,8 @@ export type {
 } from "./engine/gateway/gateway-config.js";
 export { validateGatewayConfig } from "./engine/gateway/gateway-config.js";
 export { GatewayLoaderError, parseGatewayYaml } from "./engine/gateway/gateway-loader.js";
+export type { ObservabilityConfig, ObservabilityExporter } from "./engine/gateway/observability-config.js";
+export { validateObservabilityConfig } from "./engine/gateway/observability-config.js";
 
 // App loader re-exported for direct access by runtime gateway
 export type { App, MemoryConfig, AppValidationError } from "./engine/composites/app.js";

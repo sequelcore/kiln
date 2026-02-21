@@ -169,4 +169,109 @@ apps: []
       expect(loaderErr.errors.length).toBeGreaterThan(0);
     }
   });
+
+  // ---------------------------------------------------------------------------
+  // Observability block
+  // ---------------------------------------------------------------------------
+
+  it("leaves config.observability undefined when observability block is omitted", () => {
+    const yaml = `
+port: 4800
+apps:
+  - name: no-obs-app
+    config: app.yaml
+    channels:
+      - type: web
+`;
+    const config = parseGatewayYaml(yaml);
+    expect(config.observability).toBeUndefined();
+  });
+
+  it("parses a valid console observability block", () => {
+    const yaml = `
+port: 4800
+apps:
+  - name: my-app
+    config: app.yaml
+    channels:
+      - type: web
+observability:
+  exporter: console
+  serviceName: my-kiln-service
+`;
+    const config = parseGatewayYaml(yaml);
+    expect(config.observability).toBeDefined();
+    expect(config.observability?.exporter).toBe("console");
+    expect(config.observability?.serviceName).toBe("my-kiln-service");
+    expect(config.observability?.enabled).toBe(true);
+  });
+
+  it("parses a valid otlp observability block with endpoint and attributes", () => {
+    const yaml = `
+port: 4800
+apps:
+  - name: my-app
+    config: app.yaml
+    channels:
+      - type: web
+observability:
+  exporter: otlp
+  endpoint: "http://collector:4318/v1/traces"
+  serviceName: my-service
+  attributes:
+    env: production
+    region: us-east-1
+`;
+    const config = parseGatewayYaml(yaml);
+    expect(config.observability?.exporter).toBe("otlp");
+    expect(config.observability?.endpoint).toBe("http://collector:4318/v1/traces");
+    expect(config.observability?.attributes?.["env"]).toBe("production");
+  });
+
+  it("respects explicit enabled: false", () => {
+    const yaml = `
+port: 4800
+apps:
+  - name: my-app
+    config: app.yaml
+    channels:
+      - type: web
+observability:
+  enabled: false
+  exporter: console
+  serviceName: my-service
+`;
+    const config = parseGatewayYaml(yaml);
+    expect(config.observability?.enabled).toBe(false);
+  });
+
+  it("throws GatewayLoaderError when observability exporter is otlp but endpoint is missing", () => {
+    const yaml = `
+port: 4800
+apps:
+  - name: my-app
+    config: app.yaml
+    channels:
+      - type: web
+observability:
+  exporter: otlp
+  serviceName: my-service
+`;
+    expect(() => parseGatewayYaml(yaml)).toThrow(GatewayLoaderError);
+  });
+
+  it("throws GatewayLoaderError when observability serviceName is missing", () => {
+    const yaml = `
+port: 4800
+apps:
+  - name: my-app
+    config: app.yaml
+    channels:
+      - type: web
+observability:
+  exporter: console
+`;
+    expect(() => parseGatewayYaml(yaml)).toThrow(GatewayLoaderError);
+  });
 });
+
