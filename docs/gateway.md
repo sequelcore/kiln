@@ -284,6 +284,63 @@ Delegation sessions do not write to git-synced memory scopes. No workspace acces
 
 Source: `packages/runtime/src/gateway/delegation-handler.ts`, `packages/runtime/src/gateway/delegation-routes.ts`
 
+### A2A Delegation
+
+When `delegationType` is `"a2a"`, `executeDelegation()` routes to `executeA2ADelegation()` instead of the Kiln-native flow. A2A delegation uses the `A2AClient` to communicate with a remote agent via the A2A protocol:
+
+1. Validates that `agentUrl` is present. Returns `TARGET_APP_NOT_FOUND` if missing.
+2. Constructs an `A2AMessage` from `a2aMessage` or falls back to wrapping `delegation.task` as a text part.
+3. Sends the task via `A2AClient.sendTask()` with the configured timeout.
+4. If the remote task completes, extracts the result from the first artifact's first part (data or text).
+5. Returns `PROVIDER_ERROR` if the task ends in a non-completed state or returns no extractable data.
+
+A2A delegation does not use the `DelegationRegistry` -- it communicates directly with the remote agent URL.
+
+```typescript
+interface ExtendedDelegation extends AppDelegation {
+  readonly delegationType?: "a2a";
+  readonly agentUrl?: string;
+  readonly a2aMessage?: A2AMessage;
+}
+```
+
+## A2A Protocol (Agent-to-Agent)
+
+Apps with explicit A2A configuration expose A2A-compliant endpoints at `/{appName}/a2a/`.
+
+### Agent Card
+
+Served at `/{appName}/a2a/.well-known/agent.json`. Generated from the App's team capabilities via `generateAgentCard()`.
+
+### JSON-RPC 2.0 Endpoints
+
+All task operations are dispatched via `POST /{appName}/a2a/` with a JSON-RPC 2.0 body.
+
+| Method | Params | Description |
+|--------|--------|-------------|
+| `tasks/send` | `{ message: A2AMessage }` | Submit a task and receive the completed result synchronously. |
+| `tasks/sendSubscribe` | `{ message: A2AMessage }` | Submit a task and stream progress via SSE (task-created, status-update, task-completed/task-failed events). |
+| `tasks/get` | `{ id: string }` | Query the status of a previously submitted task. |
+| `tasks/cancel` | `{ id: string }` | Cancel a running task. Terminal tasks (completed/failed/canceled) are returned unchanged. |
+
+### A2A Error Codes
+
+| JSON-RPC Code | Constant | Description |
+|---------------|----------|-------------|
+| `-32600` | `INVALID_REQUEST` | Missing or invalid JSON-RPC envelope. |
+| `-32601` | `METHOD_NOT_FOUND` | Unknown method name. |
+| `-32602` | `INVALID_PARAMS` | Missing required params (e.g., `message`, `id`). |
+| `-32603` | `INTERNAL_ERROR` | Task execution failed internally. |
+| `-32001` | `TASK_NOT_FOUND` | No task with the given ID exists. |
+
+### A2A Task Lifecycle
+
+Tasks progress through states: `submitted` -> `working` -> `completed` | `failed` | `canceled`.
+
+The `A2ATaskStore` holds tasks in memory. Terminal tasks can be cleaned up via `cleanExpired(ttlMs)`.
+
+Source: `packages/runtime/src/a2a/a2a-server-routes.ts`, `packages/runtime/src/a2a/a2a-task-store.ts`, `packages/runtime/src/a2a/agent-card-generator.ts`
+
 ## API Routes
 
 All routes are served from the single Gateway process on the configured port.
@@ -329,6 +386,15 @@ When budget is exhausted, `POST /message` returns `{ content: "{overBudgetMessag
 When tier is restricted, `POST /message` returns `{ content: "...", tierRestricted: true }`.
 
 Source: `packages/runtime/src/gateway/mode-b-routes.ts`
+
+### A2A Routes
+
+Mounted at `/{appName}/a2a` when the App has explicit `a2aConfig`.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/{appName}/a2a/.well-known/agent.json` | Returns the Agent Card for this App. |
+| `POST` | `/{appName}/a2a/` | JSON-RPC 2.0 dispatch: `tasks/send`, `tasks/sendSubscribe`, `tasks/get`, `tasks/cancel`. |
 
 ### Delegation Internal Routes
 

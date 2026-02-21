@@ -791,7 +791,7 @@ When `devMode` is true, the gateway serves an inline HTML debugger at `/dev/`:
 |---------|---------|----------|---------|
 | `engine` | `@kilnai/core` | `packages/core/src/engine/` | 7 primitives + 3 composites + YAML loader + gateway config types + cron parser. Zero external dependencies. |
 | `orchestrator` | `@kilnai/core` | `packages/core/src/orchestrator/` | Phase machine, orchestrator, checkpoint/resume/fork, configurable phase sequence and gate enforcement. |
-| `agents` | `@kilnai/core` | `packages/core/src/agents/` | Provider adapter interface and implementations: Anthropic, OpenAI, DeepSeek, Ollama. Circuit breaker. |
+| `agents` | `@kilnai/core` | `packages/core/src/agents/` | Provider adapter interface and implementations: Anthropic, OpenAI, DeepSeek, Ollama. MCP client (SSE transport, circuit breaker protected). Tool RAG (embedding-based tool selection). |
 | `memory` | `@kilnai/core` | `packages/core/src/memory/` | Scoped storage implementations: SQLite + FTS5 (with decay + compaction), gzipped JSONL, git sync. |
 | `tree` | `@kilnai/core` | `packages/core/src/tree/` | Task tree manager: scoring, batch selection, deepen/branch/prune actions. |
 | `domain` | `@kilnai/core` | `packages/core/src/domain/` | Domain registry, YAML schema, 5 built-in domain kits, backward-compatible marketplace adapter. |
@@ -804,7 +804,8 @@ When `devMode` is true, the gateway serves an inline HTML debugger at `/dev/`:
 | `cost` | `@kilnai/core` | `packages/core/src/cost/` | Per-role, cache-aware cost tracking. |
 | `security` | `@kilnai/core` | `packages/core/src/security/` | Audit logging (JSONL + hash chaining), prompt injection (2-tier), encrypted secrets (AES-256-GCM), Guardian review, self-audit. |
 | `channels` | `@kilnai/runtime` | `packages/runtime/src/channels/` | Channel adapters (CLI, Web, WhatsApp, Slack, API), EventBridge, ChannelRegistry, ChannelRouter, MessageFormatter. |
-| `gateway` | `@kilnai/runtime` | `packages/runtime/src/gateway/` | Gateway runtime: multi-App loading, per-App isolation, Mode B routes, budget middleware, cross-app delegation, trigger webhook mounting, dev-mode API routes, inline web debugger. |
+| `gateway` | `@kilnai/runtime` | `packages/runtime/src/gateway/` | Gateway runtime: multi-App loading, per-App isolation, Mode B routes, budget middleware, cross-app delegation (Kiln-native + A2A), A2A route mounting, trigger webhook mounting, dev-mode API routes, inline web debugger. |
+| `a2a` | `@kilnai/runtime` | `packages/runtime/src/a2a/` | A2A protocol: Agent Card generation, JSON-RPC 2.0 server (tasks/send, sendSubscribe, get, cancel), A2ATaskStore, A2AClient for outbound delegation. |
 | `trigger` | `@kilnai/runtime` | `packages/runtime/src/trigger/` | TriggerRegistry, webhook handler (HMAC-SHA256), event listener, cron scheduler, trigger executor. |
 | `session` | `@kilnai/runtime` | `packages/runtime/src/session/` | Mode B session management: ModeBSession, ModeBOrchestrator, SessionRegistry. |
 | `tenant` | `@kilnai/runtime` | `packages/runtime/src/tenant/` | Multi-tenant management: TenantRegistry, system prompt builder, phone-to-tenant resolution. |

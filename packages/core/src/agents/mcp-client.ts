@@ -1,4 +1,4 @@
-// McpClient: connects to MCP servers via SSE or stdio and discovers tools
+// McpClient: connects to MCP servers via SSE and discovers tools
 
 import type { Capability, CapabilityAnnotations } from "../engine/domain/capability.js";
 import type { McpServerConfig } from "../engine/domain/mcp-config.js";
@@ -49,18 +49,16 @@ export class McpClient {
   }
 
   async connect(): Promise<void> {
-    if (this.config.transport === "sse" && this.config.url) {
-      const response = await this.sendRawRequest("initialize", {
-        protocolVersion: "2024-11-05",
-        capabilities: {},
-        clientInfo: { name: "kiln", version: "1.0.0" },
-      });
+    const response = await this.sendRawRequest("initialize", {
+      protocolVersion: "2024-11-05",
+      capabilities: {},
+      clientInfo: { name: "kiln", version: "1.0.0" },
+    });
 
-      if (response.error) {
-        throw new KilnError("MCP_CONNECTION_FAILED", `Failed to initialize: ${response.error.message}`, {
-          context: { serverName: this.serverName },
-        });
-      }
+    if (response.error) {
+      throw new KilnError("MCP_CONNECTION_FAILED", `Failed to initialize: ${response.error.message}`, {
+        context: { serverName: this.serverName },
+      });
     }
   }
 
@@ -165,14 +163,7 @@ export class McpClient {
 
   private async sendRawRequest<T>(method: string, params?: Record<string, unknown>): Promise<JsonRpcResponse<T>> {
     const id = ++this.requestId;
-
-    if (this.config.transport === "sse" && this.config.url) {
-      return this.sendHttpRequest<T>(this.config.url, id, method, params);
-    }
-
-    throw new KilnError("MCP_CONNECTION_FAILED", "stdio transport not yet implemented", {
-      context: { serverName: this.serverName, transport: this.config.transport },
-    });
+    return this.sendHttpRequest<T>(this.config.url!, id, method, params);
   }
 
   private async sendHttpRequest<T>(url: string, id: number, method: string, params?: Record<string, unknown>): Promise<JsonRpcResponse<T>> {

@@ -11,15 +11,6 @@ describe("validateMcpConfig", () => {
     expect(validateMcpConfig(config)).toEqual([]);
   });
 
-  it("returns empty array for valid stdio config", () => {
-    const config: McpConfig = {
-      servers: [
-        { name: "local-mcp", transport: "stdio", command: "node", args: ["server.js"] },
-      ],
-    };
-    expect(validateMcpConfig(config)).toEqual([]);
-  });
-
   it("errors on empty servers array", () => {
     const config: McpConfig = { servers: [] };
     const errors = validateMcpConfig(config);
@@ -30,7 +21,7 @@ describe("validateMcpConfig", () => {
     const config: McpConfig = {
       servers: [
         { name: "mcp-server", transport: "sse", url: "https://example.com/mcp" },
-        { name: "mcp-server", transport: "stdio", command: "node" },
+        { name: "mcp-server", transport: "sse", url: "https://example.com/mcp2" },
       ],
     };
     const errors = validateMcpConfig(config);
@@ -47,16 +38,6 @@ describe("validateMcpConfig", () => {
     expect(errors).toContainEqual({ field: "servers[0].url", message: "required when transport is 'sse'" });
   });
 
-  it("errors on missing command for stdio transport", () => {
-    const config: McpConfig = {
-      servers: [
-        { name: "local-mcp", transport: "stdio" },
-      ],
-    };
-    const errors = validateMcpConfig(config);
-    expect(errors).toContainEqual({ field: "servers[0].command", message: "required when transport is 'stdio'" });
-  });
-
   it("errors on invalid transport value", () => {
     const config = {
       servers: [
@@ -64,7 +45,7 @@ describe("validateMcpConfig", () => {
       ],
     } as unknown as McpConfig;
     const errors = validateMcpConfig(config);
-    expect(errors).toContainEqual({ field: "servers[0].transport", message: "must be 'sse' or 'stdio'" });
+    expect(errors).toContainEqual({ field: "servers[0].transport", message: "must be 'sse'" });
   });
 
   it("errors on missing server name", () => {

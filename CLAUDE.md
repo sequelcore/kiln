@@ -2,7 +2,7 @@
 
 MIT
 
-Domain-agnostic AI orchestration engine. 7 primitives (Agent, Capability, Workflow, Memory, Task, Channel, Trigger) + 3 composites (Team, Router, App) configured via YAML. Multi-tenant gateway runtime with provider adapters, budget enforcement, cross-app delegation, 5 channel adapters, and trigger runtime (webhooks, event listeners, cron scheduler). Domain config system with tech stack auto-detection, YAML schema/parser, DomainRegistry, and 5 built-in domain kits. Package bounded context for distribution (versioning, security validation, content hashing). Skill system (SKILL.yaml format + 3-tier discovery + CLI marketplace). Observability via OTel span mapping + exporter (EventStore sink). Knowledge (RAG) primitives: chunkers, embedding adapters, vector store, retrieval pipeline, auto-injected knowledge_search capability. Eval framework: 12 scorer types (6 rule-based + 6 LLM-as-judge), YAML-configured experiments, dataset JSONL loader, experiment runner with per-scorer error isolation, experiment comparator. Error catalog with actionable suggestions. Interactive init wizard, dev mode with hot-reload and inline dev inspector.
+Domain-agnostic AI orchestration engine. 7 primitives (Agent, Capability, Workflow, Memory, Task, Channel, Trigger) + 3 composites (Team, Router, App) configured via YAML. Multi-tenant gateway runtime with provider adapters, budget enforcement, cross-app delegation, 5 channel adapters, and trigger runtime (webhooks, event listeners, cron scheduler). Domain config system with tech stack auto-detection, YAML schema/parser, DomainRegistry, and 5 built-in domain kits. Package bounded context for distribution (versioning, security validation, content hashing). Skill system (SKILL.yaml format + 3-tier discovery + CLI marketplace). Observability via OTel span mapping + exporter (EventStore sink). Knowledge (RAG) primitives: chunkers, embedding adapters, vector store, retrieval pipeline, auto-injected knowledge_search capability. Eval framework: 12 scorer types (6 rule-based + 6 LLM-as-judge), YAML-configured experiments, dataset JSONL loader, experiment runner with per-scorer error isolation, experiment comparator. Interoperability: A2A protocol (Agent Card generation, JSON-RPC 2.0 server/client, task lifecycle), dynamic MCP server connections (SSE transport, circuit breaker), Tool RAG (embedding-based tool selection when tools exceed threshold). Error catalog with actionable suggestions. Interactive init wizard, dev mode with hot-reload and inline dev inspector.
 
 ## Architecture
 
@@ -30,7 +30,7 @@ App (YAML-configured)
 |---------|----------|---------|
 | engine | `packages/core/src/engine/` | Engine primitives (7: Agent, Capability, Workflow, Memory, Task, Channel, Trigger) + composites (Team, Router, App) + YAML loader + gateway config + cron parser (zero external deps except yaml) |
 | orchestrator | `packages/core/src/orchestrator/` | Workflow implementation: phase machine (configurable phases + gates) |
-| agents | `packages/core/src/agents/` | Agent implementation: provider adapters (Anthropic, OpenAI, DeepSeek, Ollama), tool cache, context compressor |
+| agents | `packages/core/src/agents/` | Agent implementation: provider adapters (Anthropic, OpenAI, DeepSeek, Ollama), tool cache, context compressor, MCP client (SSE), circuit breaker, Tool RAG |
 | memory | `packages/core/src/memory/` | Memory implementation: scoped storage (user, agent, team, project, org) |
 | tree | `packages/core/src/tree/` | Task implementation: tree manager (scoring, deepen/branch/prune, batch selection) |
 | sandbox | `packages/core/src/sandbox/` | Per-agent isolation: filesystem policies, network proxy, tenant FS jails |
@@ -43,7 +43,8 @@ App (YAML-configured)
 | package | `packages/core/src/package/` | Package distribution: versioning, content hashing, security validation (lifecycle scripts, path traversal, extension whitelist), YAML schema for domain + skill packages |
 | skill | `packages/core/src/skill/` | Skill system: SKILL.yaml format (name, description, tools, triggers, tags, instructions), SkillRegistry with 3-tier discovery (workspace > user > builtin) + domain package discovery |
 | eval | `packages/core/src/eval/` | Evaluation framework: 12 scorer types (6 rule-based + 6 LLM-as-judge), composite scoring, dataset JSONL loader, experiment runner with error isolation, experiment comparator |
-| gateway | `packages/runtime/src/gateway/` | Gateway runtime: multi-App loading, per-App isolation, Mode B routes, budget middleware, cross-app delegation, multi-tenant routes, WhatsApp webhooks, tenant admin CRUD, trigger webhook mounting, dev-mode API routes |
+| gateway | `packages/runtime/src/gateway/` | Gateway runtime: multi-App loading, per-App isolation, Mode B routes, budget middleware, cross-app delegation (Kiln-native + A2A), multi-tenant routes, WhatsApp webhooks, tenant admin CRUD, trigger webhook mounting, dev-mode API routes |
+| a2a | `packages/runtime/src/a2a/` | A2A protocol: Agent Card generation, JSON-RPC 2.0 server routes (tasks/send, sendSubscribe, get, cancel), A2ATaskStore, A2AClient (outbound delegation) |
 | trigger | `packages/runtime/src/trigger/` | Trigger runtime: TriggerRegistry (per-app lifecycle), webhook handler (HMAC-SHA256), event listener (filter matching), cron scheduler (setTimeout chains), trigger executor (template interpolation) |
 | session | `packages/runtime/src/session/` | Mode B session management: ModeBSession, ModeBOrchestrator, SessionRegistry |
 | tenant | `packages/runtime/src/tenant/` | Multi-tenant management: TenantRegistry (JSON persistence), system prompt builder, phone-to-tenant resolution |
@@ -83,7 +84,7 @@ type(scope): description
 
 Types: `feat`, `fix`, `refactor`, `chore`, `docs`, `test`
 
-Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree, events, cost, sandbox, verification, security, observability, knowledge, eval, runtime, gateway, trigger, session, tenant, channel, cli, docs
+Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree, events, cost, sandbox, verification, security, observability, knowledge, eval, a2a, runtime, gateway, trigger, session, tenant, channel, cli, docs
 
 ## Key Files
 
@@ -93,8 +94,8 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 |------|---------|
 | `engine/domain/agent.ts` | Engine primitive: Agent interface (name, role, goal, backstory, instructions, tier, tools) |
 | `engine/domain/prompt-assembler.ts` | Pure function: assembleAgentPrompt() -- identity fields + context -> system prompt |
-| `engine/errors.ts` | KilnError base class (code, context, retryable, suggestion, docUrl) + KilnErrorCode union type (38 codes) |
-| `engine/error-catalog.ts` | getErrorSuggestion(code, context): context-aware error suggestions + doc URLs for all 38 error codes |
+| `engine/errors.ts` | KilnError base class (code, context, retryable, suggestion, docUrl) + KilnErrorCode union type (46 codes) |
+| `engine/error-catalog.ts` | getErrorSuggestion(code, context): context-aware error suggestions + doc URLs for all 46 error codes |
 | `engine/domain/capability.ts` | Engine primitive: Capability interface (schema, tags, annotations incl. cacheTtl, guardrail, outputSchema) |
 | `engine/domain/workflow.ts` | Engine primitive: Workflow interface (string phases, gates) |
 | `engine/domain/memory.ts` | Engine primitive: Memory interface (5 scopes, store/recall/forget) |
@@ -102,8 +103,8 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `engine/domain/channel.ts` | Engine primitive: Channel interface (receive/send/stream) |
 | `engine/composites/team.ts` | Engine composite: Team (agents + workflow + capabilities + gates + mode + manager) + validateTeam() |
 | `engine/composites/router.ts` | Engine composite: Router (pattern rules + classifier + fallback) + validateRouter() |
-| `engine/composites/app.ts` | Engine composite: App (teams + router + memory + channels + triggers + knowledge?) + validateApp() |
-| `engine/loader/app-loader.ts` | YAML -> App loader (parseAppYaml, validateAppGraph, AppLoaderError) with trigger + knowledge YAML parsing |
+| `engine/composites/app.ts` | Engine composite: App (teams + router + memory + channels + triggers + knowledge? + mcp? + toolSelection?) + validateApp() |
+| `engine/loader/app-loader.ts` | YAML -> App loader (parseAppYaml, validateAppGraph, AppLoaderError) with trigger + knowledge + mcp + toolSelection YAML parsing |
 | `engine/loader/preset-loader.ts` | App -> OrchestratorConfig bridge (loadPresetConfig, PresetLoaderError) |
 | `engine/gateway/gateway-config.ts` | Gateway config types + validateGatewayConfig() |
 | `engine/gateway/mode-b-config.ts` | Mode B config types + validateModeBConfig() |
@@ -177,12 +178,18 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `eval/experiment-runner.ts` | ExperimentRunner: generates outputs, scores with error isolation per scorer |
 | `eval/experiment-comparator.ts` | compareExperiments(): side-by-side experiment comparison |
 | `eval/scorer-factory.ts` | createScorer(): EvalScorerConfig -> Scorer instance factory |
+| `engine/domain/a2a-config.ts` | A2A types: AgentCard, A2ATask, A2ATaskStatus, A2AMessage, A2AArtifact, A2APart + validateAgentCard() |
+| `engine/domain/mcp-config.ts` | MCP types: McpTransport (SSE only), McpServerConfig, McpConfig + validateMcpConfig() |
+| `engine/domain/tool-selection-config.ts` | ToolSelectionConfig types (strategy: all/rag, maxTools, threshold) + validateToolSelectionConfig() |
+| `agents/mcp-client.ts` | McpClient: SSE transport, JSON-RPC 2.0, tool discovery, tool execution, circuit breaker protected |
+| `agents/tool-rag.ts` | ToolRAG: embeds tool descriptions, retrieves top-K relevant tools per query via vector store |
+| `agents/circuit-breaker.ts` | CircuitBreaker: closed -> open -> half-open state machine for external service call protection |
 
 ### Runtime (`packages/runtime/src/`)
 
 | File | Purpose |
 |------|---------|
-| `gateway/gateway-routes.ts` | Pure Hono app factory: health + per-App API routes + webhook trigger mounting + dev inspector HTML |
+| `gateway/gateway-routes.ts` | Pure Hono app factory: health + per-App API routes + A2A routes + webhook trigger mounting + dev inspector HTML |
 | `gateway/gateway-server.ts` | startGateway(configPath, options?: StartGatewayOptions): Bun.serve, Mode B + multi-tenant runtime init + TriggerRegistry lifecycle + devMode wiring |
 | `gateway/dev-inspector.ts` | createDevInspectorHtml(): self-contained HTML dev inspector (zero deps, vanilla JS, SSE-connected) |
 | `gateway/app-resolver.ts` | resolveApps(): YAML path resolution, memory namespacing |
@@ -190,7 +197,7 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `gateway/budget-middleware.ts` | checkBudget(), reportUsage(), checkTier() -- fail-open by design, circuit breaker wrapped |
 | `gateway/config-validator.ts` | validateStartupConfig(), assertValidStartupConfig() -- fail-fast env var validation |
 | `gateway/health-registry.ts` | HealthRegistry: register subsystem checkers, checkAll(), aggregateStatus() |
-| `gateway/delegation-handler.ts` | DelegationRegistry, executeDelegation() |
+| `gateway/delegation-handler.ts` | DelegationRegistry, executeDelegation() (Kiln-native + A2A routing via ExtendedDelegation) |
 | `gateway/delegation-routes.ts` | Delegation Hono sub-app: POST /delegate, GET /delegation-targets |
 | `gateway/tenant-routes.ts` | Tenant Hono sub-app: POST /message, GET/DELETE /sessions |
 | `gateway/whatsapp-webhook-routes.ts` | WhatsApp webhook: GET /webhook (verify), POST /webhook (messages) |
@@ -217,6 +224,11 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `trigger/scheduler.ts` | Scheduler: cron-based setTimeout chains. Register, start, stop. Emits schedule_fired then executeTrigger(). |
 | `trigger/trigger-executor.ts` | executeTrigger(): interpolates {{payload.field}} templates, emits trigger_fired/trigger_failed events. interpolateTemplate() exported. |
 | `trigger/index.ts` | Barrel exports for trigger bounded context |
+| `a2a/agent-card-generator.ts` | generateAgentCard(): App -> AgentCard from team capabilities |
+| `a2a/a2a-task-store.ts` | A2ATaskStore: in-memory task lifecycle (create, updateStatus, get, cancel, cleanExpired) |
+| `a2a/a2a-server-routes.ts` | createA2ARoutes(): Hono sub-app with /.well-known/agent.json + JSON-RPC 2.0 dispatch |
+| `a2a/a2a-client.ts` | A2AClient: discoverAgent() + sendTask() for outbound A2A delegation |
+| `a2a/index.ts` | Barrel exports for A2A bounded context |
 
 ### CLI (`packages/cli/src/`)
 

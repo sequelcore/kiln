@@ -22,7 +22,7 @@ import type { DevRoutesConfig } from "./dev-routes.js";
 import { createDevRoutes } from "./dev-routes.js";
 import { createDevInspectorHtml } from "./dev-inspector.js";
 import type { TriggerRegistry } from "../trigger/trigger-registry.js";
-import { createA2ARoutes, A2ATaskStore, generateAgentCard } from "../a2a/index.js";
+import { createA2ARoutes, A2ATaskStore } from "../a2a/index.js";
 
 export interface LoadedApp {
   readonly name: string;
@@ -132,26 +132,10 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
       app.route(`/admin/${loadedApp.name}`, adminApp);
     }
 
-    // A2A routes per app
+    // A2A routes per app (only when explicitly configured)
     if (loadedApp.a2aConfig) {
       const a2aApp = createA2ARoutes(loadedApp.a2aConfig);
       app.route(`/${loadedApp.name}/a2a`, a2aApp);
-    } else {
-      // Auto-generate A2A config if app has capabilities to expose
-      const hasCapabilities = Object.values(loadedApp.app.teams).some(
-        (team) => team.capabilities && team.capabilities.length > 0,
-      );
-      if (hasCapabilities) {
-        const agentCard = generateAgentCard(loadedApp.app, {
-          baseUrl: `/${loadedApp.name}/a2a`,
-        });
-        const taskStore = new A2ATaskStore();
-        const executeTask = async (): Promise<{ status: A2ATaskStatus; artifacts?: readonly A2AArtifact[] }> => ({
-          status: { state: "failed" as const, timestamp: new Date().toISOString(), message: "A2A execution not configured" },
-        });
-        const a2aApp = createA2ARoutes({ agentCard, taskStore, executeTask });
-        app.route(`/${loadedApp.name}/a2a`, a2aApp);
-      }
     }
   }
 

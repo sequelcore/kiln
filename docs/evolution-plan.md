@@ -485,7 +485,7 @@ capabilities:
 
 #### 11.4 Dynamic MCP Server Connection
 
-- `McpClient` class: connect to any MCP server via SSE or stdio at runtime
+- `McpClient` class: connect to any MCP server via SSE at runtime
 - Auto-discover tools from the server's `tools/list` response
 - Register discovered tools as Kiln `Capability` objects with proper annotations
 - YAML config:
@@ -496,10 +496,6 @@ mcp:
     - name: github
       transport: sse
       url: http://localhost:3100/sse
-    - name: filesystem
-      transport: stdio
-      command: npx
-      args: ["@anthropic/mcp-server-filesystem", "./workspace"]
 ```
 
 - Tools from MCP servers merge with YAML-defined capabilities

@@ -301,7 +301,7 @@ export async function executeA2ADelegation(
       };
     }
 
-    let result: Record<string, unknown> = {};
+    let result: Record<string, unknown> | undefined;
     if (task.artifacts && task.artifacts.length > 0) {
       const firstArtifact = task.artifacts[0];
       if (firstArtifact?.parts && firstArtifact.parts.length > 0) {
@@ -316,6 +316,16 @@ export async function executeA2ADelegation(
           }
         }
       }
+    }
+
+    if (result === undefined) {
+      return {
+        code: "PROVIDER_ERROR",
+        message: "A2A task completed but returned no artifacts or extractable data",
+        delegationId,
+        fromApp,
+        toApp: a2aConfig.agentUrl,
+      };
     }
 
     return {

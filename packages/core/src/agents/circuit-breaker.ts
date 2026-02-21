@@ -1,3 +1,5 @@
+// CircuitBreaker: state machine for external service call protection (closed -> open -> half-open)
+
 import { KilnError } from "../engine/errors.js";
 
 export interface CircuitBreakerConfig {
