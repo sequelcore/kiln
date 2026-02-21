@@ -166,7 +166,7 @@ pre.json{font-size:12px;color:#a1a1aa;white-space:pre-wrap;word-break:break-all}
       html+=' title="'+label+' ('+Math.round(et2-st2)+'ms)'+'" onclick="toggleSpanDetail(\''+sp.spanId+'\')"';
       html+='></div></div>';
       html+='</div>';
-      html+='<div class="tl-detail'+(isSelected?' tl-detail-visible':''+'"')+'" id="detail-'+sp.spanId+'">'+attrs.replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</div>';
+      html+='<div class="tl-detail'+(isSelected?' tl-detail-visible':'')+'" id="detail-'+sp.spanId+'">'+attrs.replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</div>';
     }
     timelineEl.innerHTML=html;
   }

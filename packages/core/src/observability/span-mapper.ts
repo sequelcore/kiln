@@ -240,7 +240,7 @@ function mapInjectionScanned(e: InjectionScannedEvent): SpanOperation {
     return {
         action: "addEvent",
         name: "security.injection_scan",
-        attributes: { safe: e.safe, threats: e.threats, tier: e.tier },
+        attributes: { safe: e.safe, threats: e.threats, tier: e.tier, inputPreview: e.inputPreview.slice(0, 256) },
     };
 }
 
@@ -253,6 +253,7 @@ function mapGuardianReviewed(e: GuardianReviewedEvent): SpanOperation {
             capabilityName: e.capabilityName,
             agentName: e.agentName,
             riskLevel: e.riskLevel,
+            reason: e.reason.slice(0, 256),
         },
     };
 }
@@ -387,9 +388,11 @@ export function mapEventToSpan(event: KilnEvent): SpanOperation {
         case "schedule_fired":
             return mapScheduleFired(event as ScheduleFiredEvent);
         default: {
-            // Exhaustiveness guard: TypeScript will flag here if EventType gains a new member
-            // and this switch is not updated. The runtime throw is the safety net.
-            throw new Error(`Unhandled event type: ${(event as KilnEvent).type}`);
+            // Exhaustiveness guard: TypeScript will produce a compile error here if a new
+            // EventType is added without a corresponding case above, because event.type
+            // narrows to `never` when all cases are covered.
+            const _exhaustive: never = event.type;
+            throw new Error(`Unhandled event type: ${_exhaustive}`);
         }
     }
 }

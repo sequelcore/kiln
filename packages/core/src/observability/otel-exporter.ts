@@ -134,17 +134,22 @@ export class OTelExporter implements EventStore {
      */
     private resolveSpanKey(event: KilnEvent): string {
         const e = event as unknown as Record<string, unknown>;
-        // Tool spans: keyed by toolName + taskId
+        // Tool spans: keyed by toolName + taskId (must be first -- tool events have both)
         if (typeof e["toolName"] === "string" && typeof e["taskId"] === "string") {
             return `tool:${e["toolName"]}:${e["taskId"]}`;
         }
-        // Task spans: keyed by taskId
-        if (typeof e["taskId"] === "string") {
-            return `task:${e["taskId"]}`;
+        // Worker spans: keyed by workerIndex + taskId (check BEFORE bare taskId).
+        // WorkerAssignedEvent has both workerIndex AND taskId -- without this ordering it would
+        // collide with the task:taskId key and overwrite the task span.
+        if (typeof e["workerIndex"] === "number" && typeof e["taskId"] === "string") {
+            return `worker:${String(e["workerIndex"])}:${e["taskId"]}`;
         }
-        // Worker spans: keyed by workerIndex + taskId
         if (typeof e["workerIndex"] === "number") {
             return `worker:${String(e["workerIndex"])}`;
+        }
+        // Task spans: keyed by taskId alone
+        if (typeof e["taskId"] === "string") {
+            return `task:${e["taskId"]}`;
         }
         // Trigger spans: keyed by triggerName
         if (typeof e["triggerName"] === "string") {

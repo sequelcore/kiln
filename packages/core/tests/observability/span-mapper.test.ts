@@ -365,6 +365,7 @@ describe("mapEventToSpan", () => {
                 expect(result.name).toBe("security.injection_scan");
                 expect(result.attributes["safe"]).toBe(true);
                 expect(result.attributes["tier"]).toBe("heuristic");
+                expect(result.attributes["inputPreview"]).toBe("hello");
             }
         });
     });
@@ -386,6 +387,7 @@ describe("mapEventToSpan", () => {
                 expect(result.name).toBe("security.guardian_review");
                 expect(result.attributes["approved"]).toBe(false);
                 expect(result.attributes["riskLevel"]).toBe("critical");
+                expect(result.attributes["reason"]).toBe("too dangerous");
             }
         });
     });
