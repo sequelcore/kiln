@@ -14,6 +14,8 @@ import type { MemoryScope } from "../domain/memory.js";
 import type { Trigger, TriggerType } from "../domain/trigger.js";
 import type { KnowledgeConfig, KnowledgeEmbeddingConfig, KnowledgeStoreConfig, KnowledgeChunkingConfig, KnowledgeSourceConfig } from "../domain/knowledge-config.js";
 import { validateKnowledgeConfig } from "../domain/knowledge-config.js";
+import type { EvalConfig, EvalScorerConfig, EvalDatasetConfig, EvalExperimentConfig } from "../domain/eval-config.js";
+import { validateEvalConfig } from "../domain/eval-config.js";
 
 /** Error class for YAML loader failures, aggregating all validation errors */
 export class AppLoaderError extends KilnError {
@@ -155,6 +157,39 @@ interface RawKnowledge {
   allowedAgents?: unknown;
 }
 
+interface RawEvalScorer {
+  name?: unknown;
+  type?: unknown;
+  scorers?: unknown;
+  schema?: unknown;
+  prompt?: unknown;
+  minLength?: unknown;
+  maxLength?: unknown;
+  maxLatencyMs?: unknown;
+  maxCostUsd?: unknown;
+  substrings?: unknown;
+}
+
+interface RawEvalDataset {
+  name?: unknown;
+  path?: unknown;
+}
+
+interface RawEvalExperiment {
+  name?: unknown;
+  dataset?: unknown;
+  team?: unknown;
+  scorers?: unknown;
+  overrides?: unknown;
+  compare?: unknown;
+}
+
+interface RawEval {
+  datasets?: unknown;
+  scorers?: unknown;
+  experiments?: unknown;
+}
+
 interface RawApp {
   name?: unknown;
   channels?: unknown;
@@ -163,6 +198,7 @@ interface RawApp {
   teams?: unknown;
   triggers?: unknown;
   knowledge?: unknown;
+  eval?: unknown;
 }
 
 // ---------------------------------------------------------------------------
@@ -681,6 +717,143 @@ function mapKnowledge(raw: RawKnowledge): { knowledge: KnowledgeConfig | undefin
   return { knowledge: validationErrors.length > 0 ? undefined : knowledge, errors };
 }
 
+function mapEvalScorer(raw: RawEvalScorer, path: string): { scorer: EvalScorerConfig; errors: { field: string; message: string }[] } {
+  const errors: { field: string; message: string }[] = [];
+
+  if (!raw.name || typeof raw.name !== "string") {
+    errors.push({ field: `${path}.name`, message: "must be a non-empty string" });
+  }
+
+  if (!raw.type || typeof raw.type !== "string") {
+    errors.push({ field: `${path}.type`, message: "must be a non-empty string" });
+  }
+
+  const subScorers: EvalScorerConfig[] = [];
+  if (raw.scorers !== undefined) {
+    if (!Array.isArray(raw.scorers)) {
+      errors.push({ field: `${path}.scorers`, message: "must be an array" });
+    } else {
+      for (let i = 0; i < raw.scorers.length; i++) {
+        const { scorer, errors: subErrors } = mapEvalScorer(
+          raw.scorers[i] as RawEvalScorer,
+          `${path}.scorers[${i}]`,
+        );
+        subScorers.push(scorer);
+        errors.push(...subErrors);
+      }
+    }
+  }
+
+  const scorer: EvalScorerConfig = {
+    name: typeof raw.name === "string" ? raw.name : "",
+    type: typeof raw.type === "string" ? raw.type as EvalScorerConfig["type"] : "exact-match",
+    ...(subScorers.length > 0 ? { scorers: subScorers } : {}),
+    ...(typeof raw.schema === "object" && raw.schema !== null && !Array.isArray(raw.schema) ? { schema: raw.schema as Record<string, unknown> } : {}),
+    ...(typeof raw.prompt === "string" ? { prompt: raw.prompt } : {}),
+    ...(typeof raw.minLength === "number" ? { minLength: raw.minLength } : {}),
+    ...(typeof raw.maxLength === "number" ? { maxLength: raw.maxLength } : {}),
+    ...(typeof raw.maxLatencyMs === "number" ? { maxLatencyMs: raw.maxLatencyMs } : {}),
+    ...(typeof raw.maxCostUsd === "number" ? { maxCostUsd: raw.maxCostUsd } : {}),
+    ...(Array.isArray(raw.substrings) ? { substrings: raw.substrings.filter((s): s is string => typeof s === "string") } : {}),
+  };
+
+  return { scorer, errors };
+}
+
+function mapEval(raw: RawEval): { eval: EvalConfig | undefined; errors: { field: string; message: string }[] } {
+  const errors: { field: string; message: string }[] = [];
+
+  if (!raw || typeof raw !== "object") {
+    return { eval: undefined, errors: [] };
+  }
+
+  const datasets: EvalDatasetConfig[] = [];
+  if (!Array.isArray(raw.datasets)) {
+    errors.push({ field: "eval.datasets", message: "must be a non-empty array" });
+  } else {
+    for (let i = 0; i < raw.datasets.length; i++) {
+      const ds = raw.datasets[i] as RawEvalDataset | undefined;
+      if (!ds) continue;
+      if (!ds.name || typeof ds.name !== "string") {
+        errors.push({ field: `eval.datasets[${i}].name`, message: "must be a non-empty string" });
+      }
+      if (!ds.path || typeof ds.path !== "string") {
+        errors.push({ field: `eval.datasets[${i}].path`, message: "must be a non-empty string" });
+      }
+      datasets.push({
+        name: typeof ds.name === "string" ? ds.name : "",
+        path: typeof ds.path === "string" ? ds.path : "",
+      });
+    }
+  }
+
+  const scorers: EvalScorerConfig[] = [];
+  if (!Array.isArray(raw.scorers)) {
+    errors.push({ field: "eval.scorers", message: "must be a non-empty array" });
+  } else {
+    for (let i = 0; i < raw.scorers.length; i++) {
+      const { scorer, errors: scorerErrors } = mapEvalScorer(
+        raw.scorers[i] as RawEvalScorer,
+        `eval.scorers[${i}]`,
+      );
+      scorers.push(scorer);
+      errors.push(...scorerErrors);
+    }
+  }
+
+  const experiments: EvalExperimentConfig[] = [];
+  if (!Array.isArray(raw.experiments)) {
+    errors.push({ field: "eval.experiments", message: "must be a non-empty array" });
+  } else {
+    for (let i = 0; i < raw.experiments.length; i++) {
+      const exp = raw.experiments[i] as RawEvalExperiment | undefined;
+      if (!exp) continue;
+      if (!exp.name || typeof exp.name !== "string") {
+        errors.push({ field: `eval.experiments[${i}].name`, message: "must be a non-empty string" });
+      }
+      if (!exp.dataset || typeof exp.dataset !== "string") {
+        errors.push({ field: `eval.experiments[${i}].dataset`, message: "must be a non-empty string" });
+      }
+      if (!exp.team || typeof exp.team !== "string") {
+        errors.push({ field: `eval.experiments[${i}].team`, message: "must be a non-empty string" });
+      }
+      const expScorers: string[] = [];
+      if (!Array.isArray(exp.scorers)) {
+        errors.push({ field: `eval.experiments[${i}].scorers`, message: "must be a non-empty array" });
+      } else {
+        for (const s of exp.scorers) {
+          if (typeof s === "string") expScorers.push(s);
+        }
+      }
+      experiments.push({
+        name: typeof exp.name === "string" ? exp.name : "",
+        dataset: typeof exp.dataset === "string" ? exp.dataset : "",
+        team: typeof exp.team === "string" ? exp.team : "",
+        scorers: expScorers,
+        ...(typeof exp.overrides === "object" && exp.overrides !== null && !Array.isArray(exp.overrides) ? { overrides: exp.overrides as Record<string, unknown> } : {}),
+        ...(typeof exp.compare === "string" ? { compare: exp.compare } : {}),
+      });
+    }
+  }
+
+  if (errors.length > 0) {
+    return { eval: undefined, errors };
+  }
+
+  const evalConfig: EvalConfig = {
+    datasets,
+    scorers,
+    experiments,
+  };
+
+  const validationErrors = validateEvalConfig(evalConfig);
+  for (const ve of validationErrors) {
+    errors.push({ field: `eval.${ve.field}`, message: ve.message });
+  }
+
+  return { eval: validationErrors.length > 0 ? undefined : evalConfig, errors };
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -776,6 +949,14 @@ export function parseAppYaml(content: string): App {
     errors.push(...knowledgeErrors);
   }
 
+  // eval (optional)
+  let evalConfig: EvalConfig | undefined;
+  if (raw.eval !== undefined) {
+    const { eval: parsedEval, errors: evalErrors } = mapEval(raw.eval as RawEval);
+    evalConfig = parsedEval;
+    errors.push(...evalErrors);
+  }
+
   if (errors.length > 0) throw new AppLoaderError(errors);
 
   return {
@@ -786,6 +967,7 @@ export function parseAppYaml(content: string): App {
     channels,
     ...(triggers.length > 0 ? { triggers } : {}),
     ...(knowledge ? { knowledge } : {}),
+    ...(evalConfig ? { eval: evalConfig } : {}),
   };
 }
 

@@ -942,4 +942,112 @@ triggers:
 `;
     expect(() => parseAppYaml(yaml)).toThrow(AppLoaderError);
   });
+
+  describe("eval parsing", () => {
+    it("parses eval block with datasets, scorers, and experiments", () => {
+      const yaml = BASE_YAML + `
+eval:
+  datasets:
+    - name: test-ds
+      path: ./data.jsonl
+  scorers:
+    - name: accuracy
+      type: exact-match
+    - name: speed
+      type: latency
+      maxLatencyMs: 5000
+  experiments:
+    - name: exp1
+      dataset: test-ds
+      team: ops
+      scorers: [accuracy, speed]
+`;
+      const app = parseAppYaml(yaml);
+      expect(app.eval).toBeDefined();
+      expect(app.eval?.datasets).toHaveLength(1);
+      expect(app.eval?.datasets[0]?.name).toBe("test-ds");
+      expect(app.eval?.scorers).toHaveLength(2);
+      expect(app.eval?.experiments).toHaveLength(1);
+      expect(app.eval?.experiments[0]?.team).toBe("ops");
+    });
+
+    it("parses composite scorer with sub-scorers", () => {
+      const yaml = BASE_YAML + `
+eval:
+  datasets:
+    - name: ds1
+      path: ./data.jsonl
+  scorers:
+    - name: composite-scorer
+      type: composite
+      scorers:
+        - name: exact
+          type: exact-match
+        - name: contains-check
+          type: contains
+          substrings: ["hello", "world"]
+  experiments:
+    - name: exp1
+      dataset: ds1
+      team: ops
+      scorers: [composite-scorer]
+`;
+      const app = parseAppYaml(yaml);
+      expect(app.eval?.scorers[0]?.type).toBe("composite");
+      expect(app.eval?.scorers[0]?.scorers).toHaveLength(2);
+    });
+
+    it("throws AppLoaderError for missing eval.datasets", () => {
+      const yaml = BASE_YAML + `
+eval:
+  scorers:
+    - name: s1
+      type: exact-match
+  experiments:
+    - name: e1
+      dataset: ds1
+      team: ops
+      scorers: [s1]
+`;
+      expect(() => parseAppYaml(yaml)).toThrow(AppLoaderError);
+    });
+
+    it("throws AppLoaderError for missing eval.scorers", () => {
+      const yaml = BASE_YAML + `
+eval:
+  datasets:
+    - name: ds1
+      path: ./data.jsonl
+  experiments:
+    - name: e1
+      dataset: ds1
+      team: ops
+      scorers: []
+`;
+      expect(() => parseAppYaml(yaml)).toThrow(AppLoaderError);
+    });
+
+    it("throws AppLoaderError for experiment referencing unknown dataset", () => {
+      const yaml = BASE_YAML + `
+eval:
+  datasets:
+    - name: ds1
+      path: ./data.jsonl
+  scorers:
+    - name: s1
+      type: exact-match
+  experiments:
+    - name: e1
+      dataset: nonexistent
+      team: ops
+      scorers: [s1]
+`;
+      expect(() => parseAppYaml(yaml)).toThrow(AppLoaderError);
+    });
+
+    it("returns undefined eval when not present", () => {
+      const app = parseAppYaml(BASE_YAML);
+      expect(app.eval).toBeUndefined();
+    });
+  });
 });
