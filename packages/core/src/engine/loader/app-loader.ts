@@ -682,7 +682,7 @@ function mapKnowledge(raw: RawKnowledge): { knowledge: KnowledgeConfig | undefin
     errors.push(ve);
   }
 
-  return { knowledge, errors };
+  return { knowledge: validationErrors.length > 0 ? undefined : knowledge, errors };
 }
 
 // ---------------------------------------------------------------------------

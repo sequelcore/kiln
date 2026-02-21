@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { validateKnowledgeConfig } from "../../src/engine/domain/knowledge-config.js";
-import type { KnowledgeConfig } from "../../src/engine/domain/knowledge-config.js";
+import { validateKnowledgeConfig } from "../../../src/engine/domain/knowledge-config.js";
+import type { KnowledgeConfig } from "../../../src/engine/domain/knowledge-config.js";
 
 describe("validateKnowledgeConfig", () => {
   const validConfig: KnowledgeConfig = {

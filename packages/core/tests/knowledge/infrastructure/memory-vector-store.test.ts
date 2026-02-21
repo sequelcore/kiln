@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { InMemoryVectorStore, cosineSimilarity } from "../../src/knowledge/infrastructure/memory-vector-store.js";
-import type { VectorEntry, VectorQueryOptions } from "../../src/engine/domain/vector-store.js";
+import { InMemoryVectorStore, cosineSimilarity } from "../../../src/knowledge/infrastructure/memory-vector-store.js";
+import type { VectorEntry } from "../../../src/engine/domain/vector-store.js";
 
 describe("InMemoryVectorStore", () => {
   it("upsert and query single entry", async () => {
@@ -59,11 +59,11 @@ describe("InMemoryVectorStore", () => {
     const store = new InMemoryVectorStore();
     await store.upsert([
       { id: "1", content: "similar", embedding: [1, 0, 0], metadata: {} },
-      { id: "2", content: "dissimilar", embedding: [0.1, 0, 0], metadata: {} },
+      { id: "2", content: "dissimilar", embedding: [0, 1, 0], metadata: {} },
     ]);
 
     const results = await store.query([1, 0, 0], { topK: 2, minScore: 0.5 });
-    expect(results).toHaveLength(1);
+    expect(results.length).toBe(1);
     expect(results[0]!.id).toBe("1");
   });
 
