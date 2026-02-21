@@ -30,12 +30,13 @@ export class RetrievalPipeline {
   }
 
   async ingest(documents: Document[]): Promise<number> {
-    const allChunks: Array<{ content: string; metadata: Record<string, unknown> }> = [];
+    const allChunks: Array<{ id: string; content: string; metadata: Record<string, unknown> }> = [];
 
     for (const doc of documents) {
       const chunks = this.chunker.chunk(doc, this.chunkConfig);
       for (const chunk of chunks) {
         allChunks.push({
+          id: chunk.id,
           content: chunk.content,
           metadata: chunk.metadata,
         });
@@ -50,7 +51,7 @@ export class RetrievalPipeline {
     const embeddings = await this.embedder.embed(texts);
 
     const entries = allChunks.map((chunk, index) => ({
-      id: this.generateEntryId(chunk.metadata),
+      id: chunk.id,
       content: chunk.content,
       embedding: embeddings[index]!,
       metadata: chunk.metadata,
@@ -82,11 +83,5 @@ export class RetrievalPipeline {
     }
 
     return results;
-  }
-
-  private generateEntryId(metadata: Record<string, unknown>): string {
-    const source = (metadata.source as string) || "unknown";
-    const chunkIndex = (metadata.chunkIndex as number) || 0;
-    return `${source}:${chunkIndex}`;
   }
 }

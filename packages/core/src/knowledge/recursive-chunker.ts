@@ -54,14 +54,16 @@ export class RecursiveTextChunker implements Chunker {
   }
 
   private findBestSplitPoint(content: string, start: number, end: number): number {
-    const doubleNewline = content.indexOf("\n\n", start);
-    if (doubleNewline !== -1 && doubleNewline < end) {
-      return doubleNewline;
+    const searchWindow = content.slice(start, end);
+    
+    const lastDoubleNewline = searchWindow.lastIndexOf("\n\n");
+    if (lastDoubleNewline !== -1) {
+      return start + lastDoubleNewline + 2;
     }
 
-    const singleNewline = content.indexOf("\n", start);
-    if (singleNewline !== -1 && singleNewline < end) {
-      return singleNewline;
+    const lastNewline = searchWindow.lastIndexOf("\n");
+    if (lastNewline !== -1) {
+      return start + lastNewline + 1;
     }
 
     const sentenceEnd = this.findSentenceEnd(content, start, end);

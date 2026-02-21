@@ -31,8 +31,10 @@ export class MarkdownChunker implements Chunker {
     const source = (metadata.source as string) || "unknown";
 
     for (const section of sections) {
-      const sectionContent = currentHeading
-        ? `${currentHeading}\n\n${section.content}`
+      const sectionHeading = section.heading || currentHeading;
+      const sectionLevel = section.level || currentLevel;
+      const sectionContent = sectionHeading
+        ? `${"#".repeat(sectionLevel)} ${sectionHeading}\n\n${section.content}`
         : section.content;
 
       if (currentChunk.length + sectionContent.length > safeChunkSize && currentChunk.length > 0) {
@@ -47,17 +49,15 @@ export class MarkdownChunker implements Chunker {
         const overlapText = currentChunk.slice(overlapStart);
         currentChunk = overlapText + sectionContent;
         chunkIndex++;
-        currentHeading = section.heading || currentHeading;
-        currentLevel = section.level || currentLevel;
+        currentHeading = sectionHeading;
+        currentLevel = sectionLevel;
       } else {
         if (section.heading && currentChunk.length > 0) {
           currentChunk += "\n\n";
         }
         currentChunk += sectionContent;
-        if (section.heading) {
-          currentHeading = section.heading;
-          currentLevel = section.level || 0;
-        }
+        currentHeading = sectionHeading;
+        currentLevel = sectionLevel;
       }
     }
 
@@ -79,8 +79,20 @@ export class MarkdownChunker implements Chunker {
     let currentHeading = "";
     let currentLevel = 0;
     let currentContent: string[] = [];
+    let inCodeBlock = false;
 
     for (const line of lines) {
+      if (line.startsWith("```")) {
+        currentContent.push(line);
+        inCodeBlock = !inCodeBlock;
+        continue;
+      }
+
+      if (inCodeBlock) {
+        currentContent.push(line);
+        continue;
+      }
+
       const headingMatch = line.match(/^(#{1,6})\s+(.+)$/);
 
       if (headingMatch) {
@@ -95,15 +107,11 @@ export class MarkdownChunker implements Chunker {
         currentLevel = headingMatch[1]!.length;
         currentContent = [];
       } else {
-        if (this.isCodeBlockLine(line)) {
+        const trimmedLine = line.trim();
+        if (trimmedLine) {
           currentContent.push(line);
-        } else {
-          const trimmedLine = line.trim();
-          if (trimmedLine) {
-            currentContent.push(line);
-          } else if (currentContent.length > 0 && currentContent[currentContent.length - 1]!.trim() !== "") {
-            currentContent.push(line);
-          }
+        } else if (currentContent.length > 0 && currentContent[currentContent.length - 1]!.trim() !== "") {
+          currentContent.push(line);
         }
       }
     }
@@ -119,26 +127,41 @@ export class MarkdownChunker implements Chunker {
     return sections;
   }
 
-  private isCodeBlockLine(line: string): boolean {
-    return line.startsWith("```") || line.startsWith("    ") || line.startsWith("\t");
-  }
-
   private fallbackChunk(document: Document, config: ChunkConfig): Chunk[] {
     const { content, metadata } = document;
-    const { chunkSize } = config;
+    const { chunkSize, chunkOverlap } = config;
     const safeChunkSize = chunkSize > 0 ? chunkSize : 512;
+    const safeChunkOverlap = Math.min(
+      chunkOverlap >= 0 ? chunkOverlap : 0,
+      safeChunkSize,
+    );
     const source = (metadata.source as string) || "unknown";
 
     const chunks: Chunk[] = [];
-    for (let i = 0; i < content.length; i += safeChunkSize) {
-      const chunkContent = content.slice(i, i + safeChunkSize);
-      const chunkIndex = Math.floor(i / safeChunkSize);
+    let startIndex = 0;
+    let chunkIndex = 0;
+
+    while (startIndex < content.length) {
+      let endIndex = startIndex + safeChunkSize;
+      if (endIndex >= content.length) {
+        endIndex = content.length;
+      }
+
+      const chunkContent = content.slice(startIndex, endIndex);
       const chunkId = this.generateChunkId(source, chunkIndex);
       chunks.push({
         id: chunkId,
         content: chunkContent,
         metadata: { ...metadata, chunkIndex },
       });
+
+      if (endIndex >= content.length) {
+        break;
+      }
+
+      const nextStart = endIndex - safeChunkOverlap;
+      startIndex = nextStart > startIndex ? nextStart : endIndex;
+      chunkIndex++;
     }
 
     return chunks;

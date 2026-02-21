@@ -75,6 +75,12 @@ export function validateKnowledgeConfig(config: KnowledgeConfig): KnowledgeValid
     errors.push({ field: "chunking.chunkOverlap", message: "must be greater than or equal to 0" });
   }
 
+  const effectiveChunkSize = config.chunking.chunkSize ?? 512;
+  const effectiveChunkOverlap = config.chunking.chunkOverlap ?? 50;
+  if (effectiveChunkOverlap >= effectiveChunkSize) {
+    errors.push({ field: "chunking.chunkOverlap", message: "must be less than chunkSize" });
+  }
+
   if (!config.sources || !Array.isArray(config.sources) || config.sources.length === 0) {
     errors.push({ field: "sources", message: "must be a non-empty array" });
   } else {

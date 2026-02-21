@@ -88,8 +88,8 @@ export type {
   KnowledgeChunkingConfig,
   KnowledgeSourceConfig,
   KnowledgeValidationError,
-  validateKnowledgeConfig,
 } from "./domain/knowledge-config.js";
+export { validateKnowledgeConfig } from "./domain/knowledge-config.js";
 
 // Tenant -- multi-tenant business configuration (Phase 25)
 export type {
