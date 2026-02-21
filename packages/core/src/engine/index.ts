@@ -77,6 +77,11 @@ export { validateTrigger } from "./domain/trigger.js";
 export type { CronExpression } from "./domain/cron.js";
 export { parseCronExpression, validateCronExpression, nextFireTime } from "./domain/cron.js";
 
+// Knowledge primitives (Phase 8)
+export type { EmbeddingAdapter } from "./domain/embedding.js";
+export type { VectorEntry, VectorResult, VectorQueryOptions, VectorStore } from "./domain/vector-store.js";
+export type { Document, Chunk, ChunkConfig, Chunker } from "./domain/chunker.js";
+
 // Tenant -- multi-tenant business configuration (Phase 25)
 export type {
   TenantConfig,
