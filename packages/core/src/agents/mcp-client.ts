@@ -6,30 +6,30 @@ import { KilnError } from "../engine/errors.js";
 import { CircuitBreaker } from "./circuit-breaker.js";
 
 interface JsonRpcResponse<T> {
-  jsonrpc: "2.0";
-  id: number;
-  result?: T;
-  error?: { code: number; message: string; data?: unknown };
+  readonly jsonrpc: "2.0";
+  readonly id: number;
+  readonly result?: T;
+  readonly error?: { readonly code: number; readonly message: string; readonly data?: unknown };
 }
 
 interface McpTool {
-  name: string;
-  description?: string;
-  inputSchema: Record<string, unknown>;
-  annotations?: {
-    readOnlyHint?: boolean;
-    destructiveHint?: boolean;
-    idempotentHint?: boolean;
+  readonly name: string;
+  readonly description?: string;
+  readonly inputSchema: Record<string, unknown>;
+  readonly annotations?: {
+    readonly readOnlyHint?: boolean;
+    readonly destructiveHint?: boolean;
+    readonly idempotentHint?: boolean;
   };
 }
 
 interface McpToolsListResult {
-  tools: McpTool[];
+  readonly tools: readonly McpTool[];
 }
 
 interface McpToolCallResult {
-  content: Array<{ type: string; text?: string; data?: unknown }>;
-  isError?: boolean;
+  readonly content: readonly { readonly type: string; readonly text?: string; readonly data?: unknown }[];
+  readonly isError?: boolean;
 }
 
 export class McpClient {

@@ -1,6 +1,6 @@
 // McpConfig types -- YAML configuration for dynamic MCP server connections
 
-export type McpTransport = "sse" | "stdio";
+export type McpTransport = "sse";
 
 export interface McpServerConfig {
   readonly name: string;

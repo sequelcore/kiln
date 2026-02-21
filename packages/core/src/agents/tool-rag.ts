@@ -24,6 +24,9 @@ export class ToolRAG {
   }
 
   async ingestTools(tools: readonly Capability[]): Promise<void> {
+    this.toolNameToCapability.clear();
+    this.ingested = false;
+
     if (tools.length === 0) {
       this.ingested = true;
       return;

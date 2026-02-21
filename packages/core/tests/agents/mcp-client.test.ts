@@ -174,6 +174,8 @@ describe("McpClient", () => {
     });
 
     it("resets after cooldown", async () => {
+      vi.useFakeTimers();
+      
       const shortCircuitConfig: McpServerConfig = {
         name: "test-mcp-server",
         transport: "sse",
@@ -197,11 +199,15 @@ describe("McpClient", () => {
         result: { tools: [] },
       }), { status: 200 }));
 
-      // Use a new client with a fresh circuit breaker for the success case
-      const newClient = new McpClient(shortCircuitConfig);
-      const tools = await newClient.discoverTools();
+      // Advance past the 30000ms reset timeout
+      await vi.advanceTimersByTimeAsync(31000);
+
+      // Same client should now succeed after cooldown
+      const tools = await client.discoverTools();
       expect(tools).toEqual([]);
-    }, 10000);
+      
+      vi.useRealTimers();
+    });
   });
 
   describe("constructor", () => {

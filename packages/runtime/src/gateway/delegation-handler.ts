@@ -32,10 +32,11 @@ export interface A2ADelegationConfig {
   readonly timeout?: number;
 }
 
-/** Combined config for executeDelegationWithA2a */
-export interface DelegationWithA2aConfig {
-  readonly registry: DelegationRegistry;
-  readonly a2aClient?: A2AClient;
+/** Extended delegation type for A2A routing */
+export interface ExtendedDelegation extends AppDelegation {
+  readonly delegationType?: "a2a";
+  readonly agentUrl?: string;
+  readonly a2aMessage?: A2AMessage;
 }
 
 /** Result of lightweight JSON Schema validation */
@@ -122,9 +123,44 @@ export function validateResponseSchema(
 
 /**
  * Execute a delegation request.
+ * Routes to A2A or Kiln-native delegation based on delegationType field.
  * Returns AppDelegationResult on success, DelegationError on failure.
  */
 export async function executeDelegation(
+  delegation: ExtendedDelegation,
+  registry: DelegationRegistry,
+  a2aClient?: A2AClient,
+): Promise<AppDelegationResult | DelegationError> {
+  if (delegation.delegationType === "a2a") {
+    if (!delegation.agentUrl) {
+      return {
+        code: "TARGET_APP_NOT_FOUND",
+        message: "agentUrl is required for A2A delegation",
+        fromApp: delegation.fromApp,
+        toApp: delegation.toApp,
+      };
+    }
+
+    const message: A2AMessage = delegation.a2aMessage ?? {
+      role: "user",
+      parts: [{ type: "text", text: delegation.task }],
+    };
+
+    return executeA2ADelegation(
+      { type: "a2a", agentUrl: delegation.agentUrl, message, timeout: delegation.timeout },
+      delegation.fromApp,
+      a2aClient,
+    );
+  }
+
+  return executeKilnDelegation(delegation, registry);
+}
+
+/**
+ * Execute a Kiln-native delegation request.
+ * Returns AppDelegationResult on success, DelegationError on failure.
+ */
+export async function executeKilnDelegation(
   delegation: AppDelegation,
   registry: DelegationRegistry,
 ): Promise<AppDelegationResult | DelegationError> {
@@ -240,13 +276,14 @@ export async function executeDelegation(
 export async function executeA2ADelegation(
   a2aConfig: A2ADelegationConfig,
   fromApp: string,
-  client: A2AClient = new A2AClient(),
+  client?: A2AClient,
 ): Promise<AppDelegationResult | DelegationError> {
+  const effectiveClient = client ?? new A2AClient();
   const delegationId = crypto.randomUUID();
   const startTime = performance.now();
 
   try {
-    const task = await client.sendTask(
+    const task = await effectiveClient.sendTask(
       a2aConfig.agentUrl,
       a2aConfig.message,
       a2aConfig.timeout ?? DEFAULT_TIMEOUT_MS,

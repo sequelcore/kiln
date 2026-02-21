@@ -3,16 +3,12 @@
 import type { A2ATask, A2ATaskStatus, A2AMessage, A2AArtifact } from "@kilnai/core";
 
 interface StoredTask extends A2ATask {
-  createdAt: number;
-  updatedAt: number;
+  readonly createdAt: number;
+  readonly updatedAt: number;
 }
 
 export class A2ATaskStore {
   private readonly tasks = new Map<string, StoredTask>();
-
-  constructor(taskTtlMs = 3600000) {
-    void taskTtlMs;
-  }
 
   createTask(id: string, message: A2AMessage): A2ATask {
     const now = Date.now();

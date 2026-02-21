@@ -13,26 +13,26 @@ export interface A2AServerConfig {
 }
 
 interface JsonRpcRequest {
-  jsonrpc: "2.0";
-  method: string;
-  params?: Record<string, unknown>;
-  id?: string | number;
+  readonly jsonrpc: "2.0";
+  readonly method: string;
+  readonly params?: Record<string, unknown>;
+  readonly id?: string | number;
 }
 
 interface JsonRpcSuccessResponse<T> {
-  jsonrpc: "2.0";
-  result: T;
-  id?: string | number;
+  readonly jsonrpc: "2.0";
+  readonly result: T;
+  readonly id?: string | number;
 }
 
 interface JsonRpcErrorResponse {
-  jsonrpc: "2.0";
-  error: {
-    code: number;
-    message: string;
-    data?: unknown;
+  readonly jsonrpc: "2.0";
+  readonly error: {
+    readonly code: number;
+    readonly message: string;
+    readonly data?: unknown;
   };
-  id?: string | number;
+  readonly id?: string | number;
 }
 
 const JSON_RPC_ERRORS = {
