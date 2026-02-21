@@ -8,6 +8,7 @@ import type { Team } from "./team.js";
 import type { Router } from "./router.js";
 import { validateTeam } from "./team.js";
 import { validateRouter } from "./router.js";
+import type { KnowledgeConfig } from "../domain/knowledge-config.js";
 
 /** Memory configuration for an App */
 export interface MemoryConfig {
@@ -24,6 +25,7 @@ export interface App {
   readonly memory: MemoryConfig;
   readonly channels: readonly string[];
   readonly triggers?: readonly Trigger[];
+  readonly knowledge?: KnowledgeConfig;
 }
 
 /** Validation error for app configuration */

@@ -12,6 +12,8 @@ import type { Capability } from "../domain/capability.js";
 import type { Workflow, Gate } from "../domain/workflow.js";
 import type { MemoryScope } from "../domain/memory.js";
 import type { Trigger, TriggerType } from "../domain/trigger.js";
+import type { KnowledgeConfig, KnowledgeEmbeddingConfig, KnowledgeStoreConfig, KnowledgeChunkingConfig, KnowledgeSourceConfig } from "../domain/knowledge-config.js";
+import { validateKnowledgeConfig } from "../domain/knowledge-config.js";
 
 /** Error class for YAML loader failures, aggregating all validation errors */
 export class AppLoaderError extends KilnError {
@@ -120,6 +122,39 @@ interface RawTrigger {
   timezone?: unknown;
 }
 
+interface RawKnowledgeEmbedding {
+  provider?: unknown;
+  model?: unknown;
+  apiKeyEnv?: unknown;
+  baseUrl?: unknown;
+}
+
+interface RawKnowledgeStore {
+  backend?: unknown;
+  connectionString?: unknown;
+}
+
+interface RawKnowledgeChunking {
+  strategy?: unknown;
+  chunkSize?: unknown;
+  chunkOverlap?: unknown;
+}
+
+interface RawKnowledgeSource {
+  name?: unknown;
+  path?: unknown;
+  watch?: unknown;
+  chunking?: unknown;
+}
+
+interface RawKnowledge {
+  embedding?: unknown;
+  store?: unknown;
+  chunking?: unknown;
+  sources?: unknown;
+  allowedAgents?: unknown;
+}
+
 interface RawApp {
   name?: unknown;
   channels?: unknown;
@@ -127,6 +162,7 @@ interface RawApp {
   router?: unknown;
   teams?: unknown;
   triggers?: unknown;
+  knowledge?: unknown;
 }
 
 // ---------------------------------------------------------------------------
@@ -574,6 +610,81 @@ function mapTrigger(raw: RawTrigger, path: string): { trigger: Trigger; errors: 
   }
 }
 
+function mapKnowledge(raw: RawKnowledge): { knowledge: KnowledgeConfig | undefined; errors: { field: string; message: string }[] } {
+  const errors: { field: string; message: string }[] = [];
+
+  if (!raw || typeof raw !== "object") {
+    return { knowledge: undefined, errors: [] };
+  }
+
+  const rawEmbedding = raw.embedding as RawKnowledgeEmbedding | undefined;
+  const rawStore = raw.store as RawKnowledgeStore | undefined;
+  const rawChunking = raw.chunking as RawKnowledgeChunking | undefined;
+
+  const embeddingProvider = rawEmbedding?.provider;
+  const embedding: KnowledgeEmbeddingConfig = {
+    provider: embeddingProvider === "openai" || embeddingProvider === "ollama" ? embeddingProvider : "openai",
+    model: typeof rawEmbedding?.model === "string" ? rawEmbedding.model : undefined,
+    apiKeyEnv: typeof rawEmbedding?.apiKeyEnv === "string" ? rawEmbedding.apiKeyEnv : undefined,
+    baseUrl: typeof rawEmbedding?.baseUrl === "string" ? rawEmbedding.baseUrl : undefined,
+  };
+
+  const storeBackend = rawStore?.backend;
+  const store: KnowledgeStoreConfig = {
+    backend: storeBackend === "memory" || storeBackend === "pgvector" || storeBackend === "sqlite-vec" ? storeBackend : "memory",
+    connectionString: typeof rawStore?.connectionString === "string" ? rawStore.connectionString : undefined,
+  };
+
+  const chunkingStrategy = rawChunking?.strategy;
+  const chunking: KnowledgeChunkingConfig = {
+    strategy: chunkingStrategy === "recursive" || chunkingStrategy === "markdown" ? chunkingStrategy : "recursive",
+    chunkSize: typeof rawChunking?.chunkSize === "number" ? rawChunking.chunkSize : undefined,
+    chunkOverlap: typeof rawChunking?.chunkOverlap === "number" ? rawChunking.chunkOverlap : undefined,
+  };
+
+  const sources: KnowledgeSourceConfig[] = [];
+  if (Array.isArray(raw.sources)) {
+    for (let i = 0; i < raw.sources.length; i++) {
+      const source = raw.sources[i] as RawKnowledgeSource | undefined;
+      if (!source) continue;
+      
+      const rawSourceChunking = source.chunking as RawKnowledgeChunking | undefined;
+      const sourceStrategy = rawSourceChunking?.strategy;
+      const sourceChunking: KnowledgeChunkingConfig | undefined = rawSourceChunking ? {
+        strategy: sourceStrategy === "recursive" || sourceStrategy === "markdown" ? sourceStrategy : "recursive",
+        chunkSize: typeof rawSourceChunking?.chunkSize === "number" ? rawSourceChunking.chunkSize : undefined,
+        chunkOverlap: typeof rawSourceChunking?.chunkOverlap === "number" ? rawSourceChunking.chunkOverlap : undefined,
+      } : undefined;
+
+      sources.push({
+        name: typeof source.name === "string" ? source.name : "",
+        path: typeof source.path === "string" ? source.path : "",
+        watch: typeof source.watch === "boolean" ? source.watch : undefined,
+        chunking: sourceChunking,
+      });
+    }
+  }
+
+  const allowedAgents: string[] | undefined = Array.isArray(raw.allowedAgents)
+    ? raw.allowedAgents.filter((a): a is string => typeof a === "string")
+    : undefined;
+
+  const knowledge: KnowledgeConfig = {
+    embedding,
+    store,
+    chunking,
+    sources,
+    ...(allowedAgents && allowedAgents.length > 0 ? { allowedAgents } : {}),
+  };
+
+  const validationErrors = validateKnowledgeConfig(knowledge);
+  for (const ve of validationErrors) {
+    errors.push(ve);
+  }
+
+  return { knowledge, errors };
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -661,6 +772,14 @@ export function parseAppYaml(content: string): App {
     }
   }
 
+  // knowledge (optional)
+  let knowledge: KnowledgeConfig | undefined;
+  if (raw.knowledge !== undefined) {
+    const { knowledge: knowledgeConfig, errors: knowledgeErrors } = mapKnowledge(raw.knowledge as RawKnowledge);
+    knowledge = knowledgeConfig;
+    errors.push(...knowledgeErrors);
+  }
+
   if (errors.length > 0) throw new AppLoaderError(errors);
 
   return {
@@ -670,6 +789,7 @@ export function parseAppYaml(content: string): App {
     memory,
     channels,
     ...(triggers.length > 0 ? { triggers } : {}),
+    ...(knowledge ? { knowledge } : {}),
   };
 }
 

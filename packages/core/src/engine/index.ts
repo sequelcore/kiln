@@ -81,6 +81,15 @@ export { parseCronExpression, validateCronExpression, nextFireTime } from "./dom
 export type { EmbeddingAdapter } from "./domain/embedding.js";
 export type { VectorEntry, VectorResult, VectorQueryOptions, VectorStore } from "./domain/vector-store.js";
 export type { Document, Chunk, ChunkConfig, Chunker } from "./domain/chunker.js";
+export type {
+  KnowledgeConfig,
+  KnowledgeEmbeddingConfig,
+  KnowledgeStoreConfig,
+  KnowledgeChunkingConfig,
+  KnowledgeSourceConfig,
+  KnowledgeValidationError,
+  validateKnowledgeConfig,
+} from "./domain/knowledge-config.js";
 
 // Tenant -- multi-tenant business configuration (Phase 25)
 export type {
