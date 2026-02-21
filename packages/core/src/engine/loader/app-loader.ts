@@ -16,6 +16,10 @@ import type { KnowledgeConfig, KnowledgeEmbeddingConfig, KnowledgeStoreConfig, K
 import { validateKnowledgeConfig } from "../domain/knowledge-config.js";
 import type { EvalConfig, EvalScorerConfig, EvalDatasetConfig, EvalExperimentConfig } from "../domain/eval-config.js";
 import { validateEvalConfig } from "../domain/eval-config.js";
+import type { McpConfig, McpServerConfig, McpTransport } from "../domain/mcp-config.js";
+import { validateMcpConfig } from "../domain/mcp-config.js";
+import type { ToolSelectionConfig, ToolSelectionStrategy } from "../domain/tool-selection-config.js";
+import { validateToolSelectionConfig } from "../domain/tool-selection-config.js";
 
 /** Error class for YAML loader failures, aggregating all validation errors */
 export class AppLoaderError extends KilnError {
@@ -190,6 +194,26 @@ interface RawEval {
   experiments?: unknown;
 }
 
+interface RawMcpServer {
+  name?: unknown;
+  transport?: unknown;
+  url?: unknown;
+  command?: unknown;
+  args?: unknown;
+  env?: unknown;
+  reconnect?: unknown;
+}
+
+interface RawMcp {
+  servers?: unknown;
+}
+
+interface RawToolSelection {
+  strategy?: unknown;
+  maxTools?: unknown;
+  threshold?: unknown;
+}
+
 interface RawApp {
   name?: unknown;
   channels?: unknown;
@@ -199,6 +223,8 @@ interface RawApp {
   triggers?: unknown;
   knowledge?: unknown;
   eval?: unknown;
+  mcp?: unknown;
+  toolSelection?: unknown;
 }
 
 // ---------------------------------------------------------------------------
@@ -822,6 +848,82 @@ function mapEval(raw: RawEval): { eval: EvalConfig | undefined; errors: { field:
   return { eval: validationErrors.length > 0 ? undefined : evalConfig, errors };
 }
 
+function mapMcp(raw: RawMcp): { mcp: McpConfig | undefined; errors: { field: string; message: string }[] } {
+  const errors: { field: string; message: string }[] = [];
+
+  if (!raw || typeof raw !== "object") {
+    return { mcp: undefined, errors: [] };
+  }
+
+  const servers: McpServerConfig[] = [];
+  if (Array.isArray(raw.servers)) {
+    for (let i = 0; i < raw.servers.length; i++) {
+      const server = raw.servers[i] as RawMcpServer | undefined;
+      if (!server) continue;
+
+      const transport = typeof server.transport === "string" ? server.transport as McpTransport : undefined;
+      const args: string[] | undefined = Array.isArray(server.args)
+        ? server.args.filter((a): a is string => typeof a === "string")
+        : undefined;
+
+      let env: Record<string, string> | undefined;
+      if (server.env && typeof server.env === "object" && !Array.isArray(server.env)) {
+        const envObj: Record<string, string> = {};
+        for (const [key, value] of Object.entries(server.env as Record<string, unknown>)) {
+          if (typeof value === "string") {
+            envObj[key] = value;
+          }
+        }
+        if (Object.keys(envObj).length > 0) {
+          env = envObj;
+        }
+      }
+
+      servers.push({
+        name: typeof server.name === "string" ? server.name : "",
+        transport: transport ?? "sse",
+        ...(typeof server.url === "string" ? { url: server.url } : {}),
+        ...(typeof server.command === "string" ? { command: server.command } : {}),
+        ...(args && args.length > 0 ? { args } : {}),
+        ...(env && Object.keys(env).length > 0 ? { env } : {}),
+        ...(typeof server.reconnect === "boolean" ? { reconnect: server.reconnect } : {}),
+      });
+    }
+  }
+
+  const mcpConfig: McpConfig = { servers };
+
+  const validationErrors = validateMcpConfig(mcpConfig);
+  for (const ve of validationErrors) {
+    errors.push({ field: `mcp.${ve.field}`, message: ve.message });
+  }
+
+  return { mcp: validationErrors.length > 0 ? undefined : mcpConfig, errors };
+}
+
+function mapToolSelection(raw: RawToolSelection): { toolSelection: ToolSelectionConfig | undefined; errors: { field: string; message: string }[] } {
+  const errors: { field: string; message: string }[] = [];
+
+  if (!raw || typeof raw !== "object") {
+    return { toolSelection: undefined, errors: [] };
+  }
+
+  const strategy = typeof raw.strategy === "string" ? raw.strategy as ToolSelectionStrategy : undefined;
+
+  const config: ToolSelectionConfig = {
+    strategy: strategy ?? "all",
+    ...(typeof raw.maxTools === "number" ? { maxTools: raw.maxTools } : {}),
+    ...(typeof raw.threshold === "number" ? { threshold: raw.threshold } : {}),
+  };
+
+  const validationErrors = validateToolSelectionConfig(config);
+  for (const ve of validationErrors) {
+    errors.push({ field: `toolSelection.${ve.field}`, message: ve.message });
+  }
+
+  return { toolSelection: validationErrors.length > 0 ? undefined : config, errors };
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -925,6 +1027,22 @@ export function parseAppYaml(content: string): App {
     errors.push(...evalErrors);
   }
 
+  // mcp (optional)
+  let mcpConfig: McpConfig | undefined;
+  if (raw.mcp !== undefined) {
+    const { mcp, errors: mcpErrors } = mapMcp(raw.mcp as RawMcp);
+    mcpConfig = mcp;
+    errors.push(...mcpErrors);
+  }
+
+  // toolSelection (optional)
+  let toolSelectionConfig: ToolSelectionConfig | undefined;
+  if (raw.toolSelection !== undefined) {
+    const { toolSelection, errors: tsErrors } = mapToolSelection(raw.toolSelection as RawToolSelection);
+    toolSelectionConfig = toolSelection;
+    errors.push(...tsErrors);
+  }
+
   if (errors.length > 0) throw new AppLoaderError(errors);
 
   return {
@@ -936,6 +1054,8 @@ export function parseAppYaml(content: string): App {
     ...(triggers.length > 0 ? { triggers } : {}),
     ...(knowledge ? { knowledge } : {}),
     ...(evalConfig ? { eval: evalConfig } : {}),
+    ...(mcpConfig ? { mcp: mcpConfig } : {}),
+    ...(toolSelectionConfig ? { toolSelection: toolSelectionConfig } : {}),
   };
 }
 

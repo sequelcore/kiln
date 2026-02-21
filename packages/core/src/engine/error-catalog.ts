@@ -328,6 +328,62 @@ export function getErrorSuggestion(
         docUrl: docUrl(code),
       };
 
+    case "A2A_INVALID_REQUEST":
+      return {
+        suggestion:
+          "The incoming A2A JSON-RPC request is malformed. Check the request body against the A2A specification.",
+        docUrl: docUrl(code),
+      };
+
+    case "A2A_TASK_NOT_FOUND":
+      return {
+        suggestion:
+          "The requested A2A task ID does not exist. Tasks are ephemeral and may have been cleaned up.",
+        docUrl: docUrl(code),
+      };
+
+    case "A2A_TASK_FAILED":
+      return {
+        suggestion:
+          "The A2A task failed during execution. Check the target team and orchestrator logs.",
+        docUrl: docUrl(code),
+      };
+
+    case "A2A_CLIENT_FAILED":
+      return {
+        suggestion:
+          "Failed to communicate with a remote A2A agent. Verify the agent URL and network connectivity.",
+        docUrl: docUrl(code),
+      };
+
+    case "MCP_CONNECTION_FAILED":
+      return {
+        suggestion:
+          "Cannot connect to MCP server. Check the server URL/command and ensure the server is running.",
+        docUrl: docUrl(code),
+      };
+
+    case "MCP_DISCOVERY_FAILED":
+      return {
+        suggestion:
+          "Failed to discover tools from MCP server. The server may not implement tools/list correctly.",
+        docUrl: docUrl(code),
+      };
+
+    case "MCP_SERVER_ERROR":
+      return {
+        suggestion:
+          "The MCP server returned an error. Check server logs for details.",
+        docUrl: docUrl(code),
+      };
+
+    case "TOOL_RAG_FAILED":
+      return {
+        suggestion:
+          "Tool retrieval failed. Check the embedding adapter configuration and vector store availability.",
+        docUrl: docUrl(code),
+      };
+
     case "INTERNAL_ERROR":
       return {
         suggestion:

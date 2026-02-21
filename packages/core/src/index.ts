@@ -107,3 +107,34 @@ export type {
   TenantValidationError,
 } from "./engine/gateway/tenant-config.js";
 export { validateTenantConfig } from "./engine/gateway/tenant-config.js";
+
+// A2A types re-exported for direct access by runtime a2a module
+export type {
+  AgentCard,
+  A2ACapabilitySchema,
+  A2AAuthConfig,
+  A2ATaskStatus,
+  A2AArtifact,
+  A2APart,
+  A2ATask,
+  A2AMessage,
+  A2AValidationError,
+} from "./engine/domain/a2a-config.js";
+export { validateAgentCard } from "./engine/domain/a2a-config.js";
+
+// MCP types re-exported for direct access by runtime mcp module
+export type {
+  McpConfig,
+  McpServerConfig,
+  McpTransport,
+  McpValidationError,
+} from "./engine/domain/mcp-config.js";
+export { validateMcpConfig } from "./engine/domain/mcp-config.js";
+
+// Tool selection types re-exported for direct access
+export type {
+  ToolSelectionConfig,
+  ToolSelectionStrategy,
+  ToolSelectionValidationError,
+} from "./engine/domain/tool-selection-config.js";
+export { validateToolSelectionConfig } from "./engine/domain/tool-selection-config.js";

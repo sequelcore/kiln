@@ -11,6 +11,10 @@ import { validateRouter } from "./router.js";
 import type { KnowledgeConfig } from "../domain/knowledge-config.js";
 import type { EvalConfig } from "../domain/eval-config.js";
 import { validateEvalConfig } from "../domain/eval-config.js";
+import type { McpConfig } from "../domain/mcp-config.js";
+import { validateMcpConfig } from "../domain/mcp-config.js";
+import type { ToolSelectionConfig } from "../domain/tool-selection-config.js";
+import { validateToolSelectionConfig } from "../domain/tool-selection-config.js";
 
 /** Memory configuration for an App */
 export interface MemoryConfig {
@@ -29,6 +33,8 @@ export interface App {
   readonly triggers?: readonly Trigger[];
   readonly knowledge?: KnowledgeConfig;
   readonly eval?: EvalConfig;
+  readonly mcp?: McpConfig;
+  readonly toolSelection?: ToolSelectionConfig;
 }
 
 /** Validation error for app configuration */
@@ -133,6 +139,22 @@ export function validateApp(app: App): AppValidationError[] {
           message: `references unknown team "${exp.team}"`,
         });
       }
+    }
+  }
+
+  // MCP validation
+  if (app.mcp) {
+    const mcpErrors = validateMcpConfig(app.mcp);
+    for (const e of mcpErrors) {
+      errors.push({ field: `mcp.${e.field}`, message: e.message });
+    }
+  }
+
+  // Tool selection validation
+  if (app.toolSelection) {
+    const tsErrors = validateToolSelectionConfig(app.toolSelection);
+    for (const e of tsErrors) {
+      errors.push({ field: `toolSelection.${e.field}`, message: e.message });
     }
   }
 
