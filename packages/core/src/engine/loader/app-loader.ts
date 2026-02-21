@@ -717,36 +717,32 @@ function mapKnowledge(raw: RawKnowledge): { knowledge: KnowledgeConfig | undefin
   return { knowledge: validationErrors.length > 0 ? undefined : knowledge, errors };
 }
 
-function mapEvalScorer(raw: RawEvalScorer, path: string): { scorer: EvalScorerConfig; errors: { field: string; message: string }[] } {
+const VALID_SCORER_TYPES = [
+  "exact-match", "contains", "json-validity", "length", "latency", "cost",
+  "faithfulness", "relevance", "coherence", "hallucination", "toxicity",
+  "custom-prompt", "composite",
+] as const;
+
+function mapEvalScorer(raw: RawEvalScorer): { scorer: EvalScorerConfig; errors: { field: string; message: string }[] } {
   const errors: { field: string; message: string }[] = [];
 
-  if (!raw.name || typeof raw.name !== "string") {
-    errors.push({ field: `${path}.name`, message: "must be a non-empty string" });
-  }
-
-  if (!raw.type || typeof raw.type !== "string") {
-    errors.push({ field: `${path}.type`, message: "must be a non-empty string" });
-  }
-
   const subScorers: EvalScorerConfig[] = [];
-  if (raw.scorers !== undefined) {
-    if (!Array.isArray(raw.scorers)) {
-      errors.push({ field: `${path}.scorers`, message: "must be an array" });
-    } else {
-      for (let i = 0; i < raw.scorers.length; i++) {
-        const { scorer, errors: subErrors } = mapEvalScorer(
-          raw.scorers[i] as RawEvalScorer,
-          `${path}.scorers[${i}]`,
-        );
-        subScorers.push(scorer);
-        errors.push(...subErrors);
-      }
+  if (raw.scorers !== undefined && Array.isArray(raw.scorers)) {
+    for (let i = 0; i < raw.scorers.length; i++) {
+      const { scorer, errors: subErrors } = mapEvalScorer(raw.scorers[i] as RawEvalScorer);
+      subScorers.push(scorer);
+      errors.push(...subErrors);
     }
+  }
+
+  let scorerType: EvalScorerConfig["type"] = "exact-match";
+  if (typeof raw.type === "string" && VALID_SCORER_TYPES.includes(raw.type as typeof VALID_SCORER_TYPES[number])) {
+    scorerType = raw.type as EvalScorerConfig["type"];
   }
 
   const scorer: EvalScorerConfig = {
     name: typeof raw.name === "string" ? raw.name : "",
-    type: typeof raw.type === "string" ? raw.type as EvalScorerConfig["type"] : "exact-match",
+    type: scorerType,
     ...(subScorers.length > 0 ? { scorers: subScorers } : {}),
     ...(typeof raw.schema === "object" && raw.schema !== null && !Array.isArray(raw.schema) ? { schema: raw.schema as Record<string, unknown> } : {}),
     ...(typeof raw.prompt === "string" ? { prompt: raw.prompt } : {}),
@@ -768,76 +764,46 @@ function mapEval(raw: RawEval): { eval: EvalConfig | undefined; errors: { field:
   }
 
   const datasets: EvalDatasetConfig[] = [];
-  if (!Array.isArray(raw.datasets)) {
-    errors.push({ field: "eval.datasets", message: "must be a non-empty array" });
-  } else {
-    for (let i = 0; i < raw.datasets.length; i++) {
-      const ds = raw.datasets[i] as RawEvalDataset | undefined;
-      if (!ds) continue;
-      if (!ds.name || typeof ds.name !== "string") {
-        errors.push({ field: `eval.datasets[${i}].name`, message: "must be a non-empty string" });
-      }
-      if (!ds.path || typeof ds.path !== "string") {
-        errors.push({ field: `eval.datasets[${i}].path`, message: "must be a non-empty string" });
-      }
+  if (Array.isArray(raw.datasets)) {
+    for (const ds of raw.datasets) {
+      const rawDs = ds as RawEvalDataset | undefined;
+      if (!rawDs) continue;
       datasets.push({
-        name: typeof ds.name === "string" ? ds.name : "",
-        path: typeof ds.path === "string" ? ds.path : "",
+        name: typeof rawDs.name === "string" ? rawDs.name : "",
+        path: typeof rawDs.path === "string" ? rawDs.path : "",
       });
     }
   }
 
   const scorers: EvalScorerConfig[] = [];
-  if (!Array.isArray(raw.scorers)) {
-    errors.push({ field: "eval.scorers", message: "must be a non-empty array" });
-  } else {
-    for (let i = 0; i < raw.scorers.length; i++) {
-      const { scorer, errors: scorerErrors } = mapEvalScorer(
-        raw.scorers[i] as RawEvalScorer,
-        `eval.scorers[${i}]`,
-      );
+  if (Array.isArray(raw.scorers)) {
+    for (const s of raw.scorers) {
+      const { scorer, errors: scorerErrors } = mapEvalScorer(s as RawEvalScorer);
       scorers.push(scorer);
       errors.push(...scorerErrors);
     }
   }
 
   const experiments: EvalExperimentConfig[] = [];
-  if (!Array.isArray(raw.experiments)) {
-    errors.push({ field: "eval.experiments", message: "must be a non-empty array" });
-  } else {
-    for (let i = 0; i < raw.experiments.length; i++) {
-      const exp = raw.experiments[i] as RawEvalExperiment | undefined;
-      if (!exp) continue;
-      if (!exp.name || typeof exp.name !== "string") {
-        errors.push({ field: `eval.experiments[${i}].name`, message: "must be a non-empty string" });
-      }
-      if (!exp.dataset || typeof exp.dataset !== "string") {
-        errors.push({ field: `eval.experiments[${i}].dataset`, message: "must be a non-empty string" });
-      }
-      if (!exp.team || typeof exp.team !== "string") {
-        errors.push({ field: `eval.experiments[${i}].team`, message: "must be a non-empty string" });
-      }
+  if (Array.isArray(raw.experiments)) {
+    for (const exp of raw.experiments) {
+      const rawExp = exp as RawEvalExperiment | undefined;
+      if (!rawExp) continue;
       const expScorers: string[] = [];
-      if (!Array.isArray(exp.scorers)) {
-        errors.push({ field: `eval.experiments[${i}].scorers`, message: "must be a non-empty array" });
-      } else {
-        for (const s of exp.scorers) {
+      if (Array.isArray(rawExp.scorers)) {
+        for (const s of rawExp.scorers) {
           if (typeof s === "string") expScorers.push(s);
         }
       }
       experiments.push({
-        name: typeof exp.name === "string" ? exp.name : "",
-        dataset: typeof exp.dataset === "string" ? exp.dataset : "",
-        team: typeof exp.team === "string" ? exp.team : "",
+        name: typeof rawExp.name === "string" ? rawExp.name : "",
+        dataset: typeof rawExp.dataset === "string" ? rawExp.dataset : "",
+        team: typeof rawExp.team === "string" ? rawExp.team : "",
         scorers: expScorers,
-        ...(typeof exp.overrides === "object" && exp.overrides !== null && !Array.isArray(exp.overrides) ? { overrides: exp.overrides as Record<string, unknown> } : {}),
-        ...(typeof exp.compare === "string" ? { compare: exp.compare } : {}),
+        ...(typeof rawExp.overrides === "object" && rawExp.overrides !== null && !Array.isArray(rawExp.overrides) ? { overrides: rawExp.overrides as Record<string, unknown> } : {}),
+        ...(typeof rawExp.compare === "string" ? { compare: rawExp.compare } : {}),
       });
     }
-  }
-
-  if (errors.length > 0) {
-    return { eval: undefined, errors };
   }
 
   const evalConfig: EvalConfig = {

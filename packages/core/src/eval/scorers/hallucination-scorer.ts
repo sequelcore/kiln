@@ -24,6 +24,9 @@ REASONING: <one sentence explanation>`;
 
     const response = await this.llm.evaluate(prompt);
     const { score: llmScore, reasoning } = parseLLMResponse(response, this.name);
+    if (llmScore === 0 && reasoning.includes("failed to parse")) {
+      return { name: this.name, score: 0, reasoning: "LLM response parsing failed, assuming unsafe" };
+    }
     const score = 1 - llmScore;
     return { name: this.name, score, reasoning: `inverted: ${reasoning}` };
   }

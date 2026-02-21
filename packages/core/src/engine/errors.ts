@@ -56,6 +56,7 @@ export type KilnErrorCode =
   // Eval (Phase 10)
   | "EVAL_YAML_INVALID"
   | "EVAL_DATASET_NOT_FOUND"
+  | "EVAL_DATASET_INVALID"
   | "EVAL_SCORER_FAILED"
   | "EVAL_EXPERIMENT_FAILED"
   // Generic

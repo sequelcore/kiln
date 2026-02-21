@@ -114,4 +114,41 @@ describe("ExperimentRunner", () => {
     expect(receivedDuration).toBe(123);
     expect(receivedCost).toBe(0.045);
   });
+
+  it("continues when scorer throws", async () => {
+    const failingScorer: Scorer = {
+      name: "failing",
+      async score() {
+        throw new Error("Scorer crashed");
+      },
+    };
+
+    const successScorer: Scorer = {
+      name: "success",
+      async score() {
+        return { name: "success", score: 0.8 };
+      },
+    };
+
+    const runner = new ExperimentRunner({
+      scorers: [failingScorer, successScorer],
+      dataset: { name: "d", items: [{ id: "1", input: "q" }] },
+      experimentName: "test",
+      generateOutput: async () => ({
+        output: "response",
+        durationMs: 50,
+        costUsd: 0.01,
+        inputTokens: 5,
+        outputTokens: 10,
+      }),
+    });
+
+    const result = await runner.run();
+
+    expect(result.results).toHaveLength(1);
+    expect(result.results[0]?.scores).toHaveLength(2);
+    expect(result.results[0]?.scores[0]?.score).toBe(0);
+    expect(result.results[0]?.scores[0]?.reasoning).toContain("crashed");
+    expect(result.results[0]?.scores[1]?.score).toBe(0.8);
+  });
 });

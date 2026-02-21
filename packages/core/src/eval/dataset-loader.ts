@@ -24,13 +24,13 @@ export function parseDatasetJsonl(name: string, content: string): Dataset {
     try {
       parsed = JSON.parse(line);
     } catch {
-      throw new KilnError("EVAL_DATASET_NOT_FOUND", `Invalid JSON at line ${i + 1} in dataset "${name}"`, {
+      throw new KilnError("EVAL_DATASET_INVALID", `Invalid JSON at line ${i + 1} in dataset "${name}"`, {
         context: { name, line: i + 1 },
       });
     }
 
     if (typeof parsed !== "object" || parsed === null) {
-      throw new KilnError("EVAL_DATASET_NOT_FOUND", `Line ${i + 1} is not a JSON object in dataset "${name}"`, {
+      throw new KilnError("EVAL_DATASET_INVALID", `Line ${i + 1} is not a JSON object in dataset "${name}"`, {
         context: { name, line: i + 1 },
       });
     }
@@ -38,19 +38,19 @@ export function parseDatasetJsonl(name: string, content: string): Dataset {
     const obj = parsed as Record<string, unknown>;
 
     if (!obj.id || typeof obj.id !== "string") {
-      throw new KilnError("EVAL_DATASET_NOT_FOUND", `Missing or invalid "id" at line ${i + 1} in dataset "${name}"`, {
+      throw new KilnError("EVAL_DATASET_INVALID", `Missing or invalid "id" at line ${i + 1} in dataset "${name}"`, {
         context: { name, line: i + 1 },
       });
     }
 
     if (!obj.input || typeof obj.input !== "string") {
-      throw new KilnError("EVAL_DATASET_NOT_FOUND", `Missing or invalid "input" at line ${i + 1} in dataset "${name}"`, {
+      throw new KilnError("EVAL_DATASET_INVALID", `Missing or invalid "input" at line ${i + 1} in dataset "${name}"`, {
         context: { name, line: i + 1 },
       });
     }
 
     if (seenIds.has(obj.id)) {
-      throw new KilnError("EVAL_DATASET_NOT_FOUND", `Duplicate id "${obj.id}" at line ${i + 1} in dataset "${name}"`, {
+      throw new KilnError("EVAL_DATASET_INVALID", `Duplicate id "${obj.id}" at line ${i + 1} in dataset "${name}"`, {
         context: { name, line: i + 1, id: obj.id },
       });
     }

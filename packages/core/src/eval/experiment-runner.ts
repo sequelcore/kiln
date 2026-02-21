@@ -1,6 +1,7 @@
 // ExperimentRunner: executes an experiment by generating outputs and scoring them
 
 import type { Scorer, Dataset, Experiment, ExperimentResult, EvalInput } from "./types.js";
+import { KilnError } from "../engine/errors.js";
 
 export interface GenerateOutputResult {
   readonly output: string;
@@ -37,7 +38,17 @@ export class ExperimentRunner {
       };
 
       const scores = await Promise.all(
-        this.config.scorers.map((s) => s.score(evalInput)),
+        this.config.scorers.map(async (s) => {
+          try {
+            return await s.score(evalInput);
+          } catch (err) {
+            return {
+              name: s.name,
+              score: 0,
+              reasoning: err instanceof KilnError ? err.message : String(err),
+            };
+          }
+        }),
       );
 
       results.push({

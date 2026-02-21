@@ -42,10 +42,11 @@ describe("HallucinationScorer", () => {
     expect(result.score).toBe(1);
   });
 
-  it("returns 1 for malformed LLM response (inverted from 0)", async () => {
+  it("returns 0 for malformed LLM response (conservative fallback)", async () => {
     const llm = new MockLLM("Invalid");
     const scorer = new HallucinationScorer(llm);
     const result = await scorer.score({ input: "q", output: "a", context: ["c"] });
-    expect(result.score).toBe(1);
+    expect(result.score).toBe(0);
+    expect(result.reasoning).toContain("failed");
   });
 });

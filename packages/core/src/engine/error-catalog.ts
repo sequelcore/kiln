@@ -307,6 +307,13 @@ export function getErrorSuggestion(
         docUrl: docUrl(code),
       };
 
+    case "EVAL_DATASET_INVALID":
+      return {
+        suggestion:
+          "The dataset file exists but has invalid content. Check JSON syntax and ensure all entries have 'id' and 'input' fields.",
+        docUrl: docUrl(code),
+      };
+
     case "EVAL_SCORER_FAILED":
       return {
         suggestion:

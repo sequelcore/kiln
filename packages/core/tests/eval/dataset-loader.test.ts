@@ -31,7 +31,7 @@ describe("parseDatasetJsonl", () => {
     try {
       parseDatasetJsonl("test", '{"id": "1", "input": "q"}\ninvalid json');
     } catch (e) {
-      expect((e as KilnError).code).toBe("EVAL_DATASET_NOT_FOUND");
+      expect((e as KilnError).code).toBe("EVAL_DATASET_INVALID");
       expect((e as KilnError).message).toContain("line 2");
     }
   });
@@ -53,7 +53,7 @@ describe("parseDatasetJsonl", () => {
     try {
       parseDatasetJsonl("test", content);
     } catch (e) {
-      expect((e as KilnError).code).toBe("EVAL_DATASET_NOT_FOUND");
+      expect((e as KilnError).code).toBe("EVAL_DATASET_INVALID");
       expect((e as KilnError).message).toContain("Duplicate id");
     }
   });
@@ -63,6 +63,7 @@ describe("parseDatasetJsonl", () => {
     try {
       parseDatasetJsonl("test", '{"input": "q"}');
     } catch (e) {
+      expect((e as KilnError).code).toBe("EVAL_DATASET_INVALID");
       expect((e as KilnError).message).toContain('"id"');
     }
   });
@@ -72,6 +73,7 @@ describe("parseDatasetJsonl", () => {
     try {
       parseDatasetJsonl("test", '{"id": "1"}');
     } catch (e) {
+      expect((e as KilnError).code).toBe("EVAL_DATASET_INVALID");
       expect((e as KilnError).message).toContain('"input"');
     }
   });

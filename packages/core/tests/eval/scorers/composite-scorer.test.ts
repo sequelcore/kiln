@@ -39,4 +39,11 @@ describe("CompositeScorer", () => {
     expect(result.reasoning).toContain("exact-match");
     expect(result.reasoning).toContain("contains");
   });
+
+  it("returns 0 when no sub-scorers configured", async () => {
+    const scorer = new CompositeScorer("composite-test", []);
+    const result = await scorer.score({ input: "q", output: "hello" });
+    expect(result.score).toBe(0);
+    expect(result.reasoning).toContain("no sub-scorers");
+  });
 });
