@@ -10,6 +10,7 @@ export * from "./cost/index.js";
 export * from "./security/index.js";
 export * from "./observability/index.js";
 export * from "./knowledge/index.js";
+export * from "./eval/index.js";
 export * as engine from "./engine/index.js";
 
 // Re-export streaming types for runtime

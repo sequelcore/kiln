@@ -293,6 +293,34 @@ export function getErrorSuggestion(
         docUrl: docUrl(code),
       };
 
+    case "EVAL_YAML_INVALID":
+      return {
+        suggestion:
+          "Check your eval.yaml against the schema. Ensure datasets, scorers, and experiments are all valid.",
+        docUrl: docUrl(code),
+      };
+
+    case "EVAL_DATASET_NOT_FOUND":
+      return {
+        suggestion:
+          "Verify the dataset JSONL file exists and each line is valid JSON with 'id' and 'input' fields.",
+        docUrl: docUrl(code),
+      };
+
+    case "EVAL_SCORER_FAILED":
+      return {
+        suggestion:
+          "Check scorer configuration. LLM scorers require a ScorerLLM instance.",
+        docUrl: docUrl(code),
+      };
+
+    case "EVAL_EXPERIMENT_FAILED":
+      return {
+        suggestion:
+          "Ensure the experiment references valid datasets and scorers.",
+        docUrl: docUrl(code),
+      };
+
     case "INTERNAL_ERROR":
       return {
         suggestion:

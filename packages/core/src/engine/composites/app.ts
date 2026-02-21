@@ -9,6 +9,8 @@ import type { Router } from "./router.js";
 import { validateTeam } from "./team.js";
 import { validateRouter } from "./router.js";
 import type { KnowledgeConfig } from "../domain/knowledge-config.js";
+import type { EvalConfig } from "../domain/eval-config.js";
+import { validateEvalConfig } from "../domain/eval-config.js";
 
 /** Memory configuration for an App */
 export interface MemoryConfig {
@@ -26,6 +28,7 @@ export interface App {
   readonly channels: readonly string[];
   readonly triggers?: readonly Trigger[];
   readonly knowledge?: KnowledgeConfig;
+  readonly eval?: EvalConfig;
 }
 
 /** Validation error for app configuration */
@@ -112,6 +115,23 @@ export function validateApp(app: App): AppValidationError[] {
           errors.push({ field: `triggers[${i}].path`, message: `duplicate webhook path "${trigger.path}"` });
         }
         webhookPaths.add(trigger.path);
+      }
+    }
+  }
+
+  // Eval validation
+  if (app.eval) {
+    const evalErrors = validateEvalConfig(app.eval);
+    for (const e of evalErrors) {
+      errors.push({ field: `eval.${e.field}`, message: e.message });
+    }
+    for (let i = 0; i < app.eval.experiments.length; i++) {
+      const exp = app.eval.experiments[i]!;
+      if (exp.team && !app.teams[exp.team]) {
+        errors.push({
+          field: `eval.experiments[${i}].team`,
+          message: `references unknown team "${exp.team}"`,
+        });
       }
     }
   }
