@@ -8,3 +8,4 @@ export { InMemoryVectorStore, cosineSimilarity } from "./infrastructure/memory-v
 export { RetrievalPipeline } from "./retrieval-pipeline.js";
 export type { RetrievalPipelineConfig } from "./retrieval-pipeline.js";
 export { type Reranker } from "./reranker.js";
+export { createKnowledgeCapability, executeKnowledgeSearch, isAgentAllowed } from "./knowledge-capability.js";
