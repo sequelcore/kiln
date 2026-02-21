@@ -63,8 +63,10 @@ App (YAML-configured)
 ```bash
 bun install                    # Install all workspace deps
 bun run typecheck              # tsc --noEmit all packages
-bun run test                   # Vitest all packages
+bun run test                   # Vitest all packages (MUST use 'bun run test', NOT 'bun test')
 ```
+
+**WARNING:** `bun test` (without `run`) invokes Bun's built-in test runner which does NOT use Vitest config -- it runs all `.test.ts` files in a single process without isolation, causing hundreds of false failures from mock leakage. Always use `bun run test`.
 
 ## Quality Gates
 

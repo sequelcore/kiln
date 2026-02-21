@@ -22,7 +22,8 @@ describe("createDevInspectorHtml", () => {
 
   it("contains expected section elements", () => {
     expect(html).toContain("Phase Pipeline");
-    expect(html).toContain("Event Stream");
+    expect(html).toContain("Events");
+    expect(html).toContain("Timeline");
     expect(html).toContain("Security");
   });
 
