@@ -1,12 +1,13 @@
 // Cross-app cognitive delegation handler (Phase 24)
 
-import type { ProviderAdapter } from "@kilnai/core";
+import type { ProviderAdapter, A2AMessage } from "@kilnai/core";
 import type {
   AppDelegation,
   AppDelegationResult,
   DelegationError,
 } from "@kilnai/core";
 import { validateDelegation } from "@kilnai/core";
+import { A2AClient } from "../a2a/a2a-client.js";
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 const DEFAULT_MAX_TOKENS = 4096;
@@ -21,6 +22,20 @@ export interface DelegationTarget {
 /** Registry of apps available for delegation */
 export interface DelegationRegistry {
   readonly targets: ReadonlyMap<string, DelegationTarget>;
+}
+
+/** Configuration for A2A delegation */
+export interface A2ADelegationConfig {
+  readonly type: "a2a";
+  readonly agentUrl: string;
+  readonly message: A2AMessage;
+  readonly timeout?: number;
+}
+
+/** Combined config for executeDelegationWithA2a */
+export interface DelegationWithA2aConfig {
+  readonly registry: DelegationRegistry;
+  readonly a2aClient?: A2AClient;
 }
 
 /** Result of lightweight JSON Schema validation */
@@ -214,6 +229,79 @@ export async function executeDelegation(
       delegationId,
       fromApp,
       toApp,
+    };
+  }
+}
+
+/**
+ * Execute an A2A delegation request to a remote agent.
+ * Returns AppDelegationResult on success, DelegationError on failure.
+ */
+export async function executeA2ADelegation(
+  a2aConfig: A2ADelegationConfig,
+  fromApp: string,
+  client: A2AClient = new A2AClient(),
+): Promise<AppDelegationResult | DelegationError> {
+  const delegationId = crypto.randomUUID();
+  const startTime = performance.now();
+
+  try {
+    const task = await client.sendTask(
+      a2aConfig.agentUrl,
+      a2aConfig.message,
+      a2aConfig.timeout ?? DEFAULT_TIMEOUT_MS,
+    );
+
+    const durationMs = performance.now() - startTime;
+
+    if (task.status.state !== "completed") {
+      return {
+        code: "PROVIDER_ERROR",
+        message: `A2A task ended with state: ${task.status.state}. ${task.status.message ?? ""}`,
+        delegationId,
+        fromApp,
+        toApp: a2aConfig.agentUrl,
+      };
+    }
+
+    let result: Record<string, unknown> = {};
+    if (task.artifacts && task.artifacts.length > 0) {
+      const firstArtifact = task.artifacts[0];
+      if (firstArtifact?.parts && firstArtifact.parts.length > 0) {
+        const firstPart = firstArtifact.parts[0];
+        if (firstPart?.type === "data") {
+          result = firstPart.data;
+        } else if (firstPart?.type === "text") {
+          try {
+            result = JSON.parse(firstPart.text) as Record<string, unknown>;
+          } catch {
+            result = { text: firstPart.text };
+          }
+        }
+      }
+    }
+
+    return {
+      delegationId,
+      fromApp,
+      toApp: a2aConfig.agentUrl,
+      result,
+      tokenUsage: {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+      },
+      durationMs,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      code: "PROVIDER_ERROR",
+      message,
+      delegationId,
+      fromApp,
+      toApp: a2aConfig.agentUrl,
     };
   }
 }

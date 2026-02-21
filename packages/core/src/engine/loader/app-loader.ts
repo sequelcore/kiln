@@ -401,6 +401,12 @@ function mapCapability(raw: RawCapability, path: string): { capability: Capabili
     }
   }
 
+  if (raw.type === "a2a") {
+    if (typeof raw.targetApp !== "string" || raw.targetApp === "") {
+      errors.push({ field: `${path}.targetApp`, message: "required when type is 'a2a' (must be agent URL)" });
+    }
+  }
+
   return { capability, errors };
 }
 
