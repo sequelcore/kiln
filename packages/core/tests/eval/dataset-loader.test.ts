@@ -77,4 +77,15 @@ describe("parseDatasetJsonl", () => {
       expect((e as KilnError).message).toContain('"input"');
     }
   });
+
+  it("throws for non-string context entries", () => {
+    const content = '{"id": "1", "input": "q", "context": [1, 2, 3]}';
+    expect(() => parseDatasetJsonl("test", content)).toThrow(KilnError);
+    try {
+      parseDatasetJsonl("test", content);
+    } catch (e) {
+      expect((e as KilnError).code).toBe("EVAL_DATASET_INVALID");
+      expect((e as KilnError).message).toContain("Non-string context");
+    }
+  });
 });

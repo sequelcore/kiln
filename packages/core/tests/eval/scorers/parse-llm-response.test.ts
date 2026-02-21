@@ -41,4 +41,11 @@ describe("parseLLMResponse", () => {
     const result = parseLLMResponse("SCORE: invalid\nREASONING: Bad score", "test");
     expect(result.score).toBe(0);
   });
+
+  it("does not bleed trailing SCORE into reasoning", () => {
+    const result = parseLLMResponse("SCORE: 0.8\nREASONING: The output is good\nSCORE: 0.5", "test");
+    expect(result.score).toBe(0.8);
+    expect(result.reasoning).not.toContain("SCORE");
+    expect(result.reasoning).toBe("The output is good");
+  });
 });

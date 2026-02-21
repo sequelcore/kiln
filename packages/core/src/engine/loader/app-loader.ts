@@ -738,6 +738,8 @@ function mapEvalScorer(raw: RawEvalScorer): { scorer: EvalScorerConfig; errors: 
   let scorerType: EvalScorerConfig["type"] = "exact-match";
   if (typeof raw.type === "string" && VALID_SCORER_TYPES.includes(raw.type as typeof VALID_SCORER_TYPES[number])) {
     scorerType = raw.type as EvalScorerConfig["type"];
+  } else if (typeof raw.type === "string") {
+    errors.push({ field: "type", message: `unknown scorer type "${raw.type}", must be one of: ${VALID_SCORER_TYPES.join(", ")}` });
   }
 
   const scorer: EvalScorerConfig = {

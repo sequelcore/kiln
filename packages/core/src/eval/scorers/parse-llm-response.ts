@@ -5,7 +5,7 @@ export function parseLLMResponse(
   scorerName: string,
 ): { readonly score: number; readonly reasoning: string } {
   const scoreMatch = response.match(/SCORE:\s*([\d.]+)/i);
-  const reasoningMatch = response.match(/REASONING:\s*(.+)/is);
+  const reasoningMatch = response.match(/REASONING:\s*(.+?)(?:\n[A-Z]+:|$)/is);
 
   if (!scoreMatch) {
     return { score: 0, reasoning: `failed to parse LLM response for ${scorerName}` };

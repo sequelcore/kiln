@@ -1045,6 +1045,24 @@ eval:
       expect(() => parseAppYaml(yaml)).toThrow(AppLoaderError);
     });
 
+    it("throws AppLoaderError for invalid scorer type", () => {
+      const yaml = BASE_YAML + `
+eval:
+  datasets:
+    - name: ds1
+      path: ./data.jsonl
+  scorers:
+    - name: s1
+      type: my-typo
+  experiments:
+    - name: e1
+      dataset: ds1
+      team: ops
+      scorers: [s1]
+`;
+      expect(() => parseAppYaml(yaml)).toThrow(AppLoaderError);
+    });
+
     it("returns undefined eval when not present", () => {
       const app = parseAppYaml(BASE_YAML);
       expect(app.eval).toBeUndefined();

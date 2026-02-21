@@ -3,6 +3,19 @@
 import type { Dataset, DatasetItem } from "./types.js";
 import { KilnError } from "../engine/errors.js";
 
+function validateContextArray(context: unknown[], id: string, datasetName: string, lineNum: number): string[] {
+  const result: string[] = [];
+  for (const entry of context) {
+    if (typeof entry !== "string") {
+      throw new KilnError("EVAL_DATASET_INVALID", `Non-string context entry at line ${lineNum} in dataset "${datasetName}" (id="${id}")`, {
+        context: { name: datasetName, line: lineNum, id },
+      });
+    }
+    result.push(entry);
+  }
+  return result;
+}
+
 export function parseDatasetJsonl(name: string, content: string): Dataset {
   if (!content || content.trim().length === 0) {
     throw new KilnError("EVAL_DATASET_NOT_FOUND", `Dataset "${name}" is empty`, {
@@ -60,7 +73,7 @@ export function parseDatasetJsonl(name: string, content: string): Dataset {
       id: obj.id,
       input: obj.input,
       expected: typeof obj.expected === "string" ? obj.expected : undefined,
-      context: Array.isArray(obj.context) ? obj.context.filter((c): c is string => typeof c === "string") : undefined,
+      context: Array.isArray(obj.context) ? validateContextArray(obj.context, obj.id, name, i + 1) : undefined,
       metadata: typeof obj.metadata === "object" && obj.metadata !== null ? obj.metadata as Record<string, unknown> : undefined,
     });
   }

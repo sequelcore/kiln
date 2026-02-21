@@ -175,6 +175,27 @@ export function validateEvalConfig(config: EvalConfig): EvalValidationError[] {
         }
       }
     }
+
+    // cycle detection for compare references
+    const compareGraph = new Map<string, string>();
+    for (const exp of config.experiments) {
+      if (exp.compare !== undefined && exp.name) {
+        compareGraph.set(exp.name, exp.compare);
+      }
+    }
+    for (const [start, target] of compareGraph) {
+      let current = target;
+      const visited = new Set([start]);
+      while (current && compareGraph.has(current)) {
+        if (visited.has(current)) {
+          const idx = config.experiments.findIndex((e) => e.name === start);
+          errors.push({ field: `experiments[${idx}].compare`, message: `circular compare reference: ${start} -> ... -> ${current}` });
+          break;
+        }
+        visited.add(current);
+        current = compareGraph.get(current)!;
+      }
+    }
   }
 
   return errors;

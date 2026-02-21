@@ -181,4 +181,16 @@ describe("validateEvalConfig", () => {
     const errors = validateEvalConfig(config);
     expect(errors.some((e) => e.field === "experiments[0].compare" && e.message.includes("unknown"))).toBe(true);
   });
+
+  it("errors on circular compare references (A -> B -> A)", () => {
+    const config = {
+      ...validConfig(),
+      experiments: [
+        { name: "expA", dataset: "ds1", team: "t1", scorers: ["sc1"], compare: "expB" },
+        { name: "expB", dataset: "ds1", team: "t1", scorers: ["sc1"], compare: "expA" },
+      ],
+    };
+    const errors = validateEvalConfig(config);
+    expect(errors.some((e) => e.message.includes("circular compare"))).toBe(true);
+  });
 });

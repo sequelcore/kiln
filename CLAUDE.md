@@ -2,7 +2,7 @@
 
 MIT
 
-Domain-agnostic AI orchestration engine. 7 primitives (Agent, Capability, Workflow, Memory, Task, Channel, Trigger) + 3 composites (Team, Router, App) configured via YAML. Multi-tenant gateway runtime with provider adapters, budget enforcement, cross-app delegation, 5 channel adapters, and trigger runtime (webhooks, event listeners, cron scheduler). Domain config system with tech stack auto-detection, YAML schema/parser, DomainRegistry, and 5 built-in domain kits. Package bounded context for distribution (versioning, security validation, content hashing). Skill system (SKILL.yaml format + 3-tier discovery + CLI marketplace). Observability via OTel span mapping + exporter (EventStore sink). Knowledge (RAG) primitives: chunkers, embedding adapters, vector store, retrieval pipeline, auto-injected knowledge_search capability. Error catalog with actionable suggestions. Interactive init wizard, dev mode with hot-reload and inline dev inspector.
+Domain-agnostic AI orchestration engine. 7 primitives (Agent, Capability, Workflow, Memory, Task, Channel, Trigger) + 3 composites (Team, Router, App) configured via YAML. Multi-tenant gateway runtime with provider adapters, budget enforcement, cross-app delegation, 5 channel adapters, and trigger runtime (webhooks, event listeners, cron scheduler). Domain config system with tech stack auto-detection, YAML schema/parser, DomainRegistry, and 5 built-in domain kits. Package bounded context for distribution (versioning, security validation, content hashing). Skill system (SKILL.yaml format + 3-tier discovery + CLI marketplace). Observability via OTel span mapping + exporter (EventStore sink). Knowledge (RAG) primitives: chunkers, embedding adapters, vector store, retrieval pipeline, auto-injected knowledge_search capability. Eval framework: 12 scorer types (6 rule-based + 6 LLM-as-judge), YAML-configured experiments, dataset JSONL loader, experiment runner with per-scorer error isolation, experiment comparator. Error catalog with actionable suggestions. Interactive init wizard, dev mode with hot-reload and inline dev inspector.
 
 ## Architecture
 
@@ -42,6 +42,7 @@ App (YAML-configured)
 | domain | `packages/core/src/domain/` | Domain config: tech stack detection, YAML schema/parser, DomainRegistry, backward-compatible marketplace adapter, 5 built-in domain kits |
 | package | `packages/core/src/package/` | Package distribution: versioning, content hashing, security validation (lifecycle scripts, path traversal, extension whitelist), YAML schema for domain + skill packages |
 | skill | `packages/core/src/skill/` | Skill system: SKILL.yaml format (name, description, tools, triggers, tags, instructions), SkillRegistry with 3-tier discovery (workspace > user > builtin) + domain package discovery |
+| eval | `packages/core/src/eval/` | Evaluation framework: 12 scorer types (6 rule-based + 6 LLM-as-judge), composite scoring, dataset JSONL loader, experiment runner with error isolation, experiment comparator |
 | gateway | `packages/runtime/src/gateway/` | Gateway runtime: multi-App loading, per-App isolation, Mode B routes, budget middleware, cross-app delegation, multi-tenant routes, WhatsApp webhooks, tenant admin CRUD, trigger webhook mounting, dev-mode API routes |
 | trigger | `packages/runtime/src/trigger/` | Trigger runtime: TriggerRegistry (per-app lifecycle), webhook handler (HMAC-SHA256), event listener (filter matching), cron scheduler (setTimeout chains), trigger executor (template interpolation) |
 | session | `packages/runtime/src/session/` | Mode B session management: ModeBSession, ModeBOrchestrator, SessionRegistry |
@@ -82,7 +83,7 @@ type(scope): description
 
 Types: `feat`, `fix`, `refactor`, `chore`, `docs`, `test`
 
-Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree, events, cost, sandbox, verification, security, observability, knowledge, runtime, gateway, trigger, session, tenant, channel, cli, docs
+Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree, events, cost, sandbox, verification, security, observability, knowledge, eval, runtime, gateway, trigger, session, tenant, channel, cli, docs
 
 ## Key Files
 
@@ -168,6 +169,14 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `security/secret-store.ts` | AesSecretStore: AES-256-GCM encryption, PBKDF2 key derivation, atomic key rotation |
 | `security/guardian.ts` | Guardian: secondary LLM review for destructive capabilities |
 | `security/self-audit.ts` | SelfAudit: periodic security health checks (secrets, audit chain, tenant isolation, config) |
+| `engine/domain/eval-config.ts` | EvalConfig types (EvalScorerType, EvalScorerConfig, EvalDatasetConfig, EvalExperimentConfig, EvalConfig) + validateEvalConfig() with cycle detection |
+| `eval/types.ts` | Eval runtime types: EvalInput, EvalScore, Scorer, ScorerLLM, DatasetItem, Dataset, Experiment, ExperimentResult |
+| `eval/scorers/*.ts` | 12 scorer implementations: ExactMatch, Contains, JsonValidity, Length, Latency, Cost, Composite, Faithfulness, Relevance, Coherence, Hallucination, Toxicity, CustomPrompt |
+| `eval/scorers/parse-llm-response.ts` | Internal: extracts SCORE + REASONING from LLM evaluation output |
+| `eval/dataset-loader.ts` | parseDatasetJsonl(): JSONL -> Dataset with strict validation |
+| `eval/experiment-runner.ts` | ExperimentRunner: generates outputs, scores with error isolation per scorer |
+| `eval/experiment-comparator.ts` | compareExperiments(): side-by-side experiment comparison |
+| `eval/scorer-factory.ts` | createScorer(): EvalScorerConfig -> Scorer instance factory |
 
 ### Runtime (`packages/runtime/src/`)
 

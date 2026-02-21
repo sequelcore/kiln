@@ -65,8 +65,8 @@ Every competitor forces a choice: code-first flexibility (LangGraph, Mastra) or 
 | Metric | Value |
 |--------|-------|
 | Packages | 3 (core, runtime, cli) |
-| Bounded contexts | 23 |
-| Tests passing | 2,070+ (vitest) |
+| Bounded contexts | 24 |
+| Tests passing | 2,270+ (vitest) |
 | Primitives | 7 (Agent, Capability, Workflow, Memory, Task, Channel, Trigger) |
 | Composites | 3 (Team, Router, App) |
 | Provider adapters | 4 (Anthropic w/ native output_config, OpenAI, DeepSeek, Ollama) |
@@ -76,9 +76,29 @@ Every competitor forces a choice: code-first flexibility (LangGraph, Mastra) or 
 | Security layers | 6 (injection scan, Guardian, secrets, audit, tenant isolation, self-audit) |
 | Observability | OTel span mapping (29 event types) + exporter |
 | Knowledge (RAG) | Chunkers (2), EmbeddingAdapters (2), VectorStore (1), RetrievalPipeline, auto-injected capability |
+| Eval | 12 scorer types (6 rule-based + 6 LLM-as-judge), dataset JSONL loader, experiment runner, experiment comparator |
+| Error codes | 43 (across 12 bounded contexts) |
 
-### Recently Completed (Phase 8 -- Knowledge RAG Primitives)
+### Recently Completed (Phase 10 -- Evaluation Framework)
 
+- Engine primitive: `EvalConfig` types (`EvalScorerType`, `EvalScorerConfig`, `EvalDatasetConfig`, `EvalExperimentConfig`) + `validateEvalConfig()` with circular compare detection
+- 6 rule-based scorers: `ExactMatchScorer`, `ContainsScorer`, `JsonValidityScorer`, `LengthScorer`, `LatencyScorer`, `CostScorer`
+- `CompositeScorer` (averages sub-scorers, guards empty array)
+- 6 LLM-as-judge scorers: `FaithfulnessScorer`, `RelevanceScorer`, `CoherenceScorer`, `HallucinationScorer`, `ToxicityScorer`, `CustomPromptScorer`
+- `ScorerLLM` interface for LLM-based evaluation
+- `parseLLMResponse()` internal utility (SCORE + REASONING extraction, clamping, anchored regex)
+- `parseDatasetJsonl()` JSONL loader with strict validation (duplicate IDs, non-string context rejection)
+- `ExperimentRunner` with per-scorer error isolation (try/catch per scorer, degraded score on failure)
+- `compareExperiments()` side-by-side experiment comparison
+- `createScorer()` factory: `EvalScorerConfig` -> `Scorer` instance
+- `eval` block parsing in `app-loader.ts` (optional top-level field in app.yaml)
+- `validateApp()` extended: eval config validation + experiment team reference checking
+- 5 error codes: `EVAL_YAML_INVALID`, `EVAL_DATASET_NOT_FOUND`, `EVAL_DATASET_INVALID`, `EVAL_SCORER_FAILED`, `EVAL_EXPERIMENT_FAILED`
+- Conservative safety scoring: Hallucination/Toxicity return 0.0 (unsafe) on LLM parse failure
+
+### Previously Completed
+
+**Phase 8 -- Knowledge RAG Primitives:**
 - Engine primitives: `EmbeddingAdapter`, `VectorStore`, `Chunker`, `Document`, `Chunk` interfaces
 - `RecursiveTextChunker` (paragraph -> sentence -> character, configurable overlap, SHA-256 chunk IDs)
 - `MarkdownChunker` (heading hierarchy, code block preservation, fallback chunking)
@@ -317,7 +337,7 @@ channels:
 
 ---
 
-### Phase 10: Evaluation Framework
+### Phase 10: Evaluation Framework -- COMPLETED
 
 **Why:** Without evals, users can't answer "is my agent getting better or worse?" This separates prototype tools from production platforms. Mastra has the most complete TypeScript eval system (scorers, datasets, experiments). LangSmith has the best workflow (trace -> dataset -> eval -> compare). We take the best of both.
 
@@ -781,7 +801,7 @@ Every feature in every phase follows the same rule: **if it can be configured, i
 Phase 7 (OTel)              -- COMPLETED
 Phase 8 (Knowledge/RAG)     -- COMPLETED
 Phase 9 (Multimodal)        -- standalone, no deps
-Phase 10 (Eval)             -- benefits from Phase 7 (latency spans) but not blocked
+Phase 10 (Eval)             -- COMPLETED
 Phase 11 (A2A + MCP)        -- benefits from Phase 8 (Tool RAG needs embeddings)
 Phase 12 (Safety)           -- standalone, extends existing security context
 Phase 13 (Studio + SDK)     -- benefits from Phase 7 (timeline), Phase 10 (eval dashboard)
@@ -793,7 +813,7 @@ Phase 15 (Durable)          -- requires Phase 14.3 (stateless gateway / external
 
 1. ~~**Phase 7** (OTel) -- COMPLETED~~
 2. ~~**Phase 8** (Knowledge/RAG) -- COMPLETED~~
-3. **Phase 10** (Eval) -- critical for production iteration loops
+3. ~~**Phase 10** (Eval) -- COMPLETED~~
 4. **Phase 11** (A2A + Dynamic MCP) -- ecosystem interop before it's too late
 5. **Phase 9** (Multimodal) -- growing demand, unlocks voice/vision agents
 6. **Phase 12** (Safety) -- enterprise blocker for regulated industries

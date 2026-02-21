@@ -346,10 +346,11 @@ export interface App {
   readonly memory: MemoryConfig;
   readonly channels: readonly string[];
   readonly triggers?: readonly Trigger[];
+  readonly eval?: EvalConfig;
 }
 ```
 
-`validateApp()` enforces: at least one team, at least one channel, at least one memory scope, router fallback references an existing team name, all router rule team references resolve to existing team names, trigger names are unique, webhook paths are unique. It then delegates to `validateTeam()`, `validateRouter()`, and `validateTrigger()` for each nested composite.
+`validateApp()` enforces: at least one team, at least one channel, at least one memory scope, router fallback references an existing team name, all router rule team references resolve to existing team names, trigger names are unique, webhook paths are unique, eval experiment team references resolve to existing teams. It then delegates to `validateTeam()`, `validateRouter()`, `validateTrigger()`, and `validateEvalConfig()` for each nested composite.
 
 ---
 
@@ -752,7 +753,7 @@ export class KilnError extends Error {
 }
 ```
 
-38 error codes are organized by bounded context (engine, domain, tenant, provider, budget, config, agent intelligence, security, skill, package, trigger). Each code maps to a context-aware suggestion via `getErrorSuggestion(code, context)` in `packages/core/src/engine/error-catalog.ts`.
+43 error codes are organized by bounded context (engine, domain, tenant, provider, budget, config, agent intelligence, security, skill, package, trigger, eval). Each code maps to a context-aware suggestion via `getErrorSuggestion(code, context)` in `packages/core/src/engine/error-catalog.ts`.
 
 ---
 
@@ -796,6 +797,7 @@ When `devMode` is true, the gateway serves an inline HTML debugger at `/dev/`:
 | `domain` | `@kilnai/core` | `packages/core/src/domain/` | Domain registry, YAML schema, 5 built-in domain kits, backward-compatible marketplace adapter. |
 | `package` | `@kilnai/core` | `packages/core/src/package/` | Package distribution: versioning, content hashing, security validation, YAML schema. |
 | `skill` | `@kilnai/core` | `packages/core/src/skill/` | Skill system: SKILL.yaml format, SkillRegistry with 3-tier discovery + domain package discovery. |
+| `eval` | `@kilnai/core` | `packages/core/src/eval/` | Evaluation framework: 12 scorer types (6 rule-based + 6 LLM-as-judge), dataset JSONL loader, experiment runner with per-scorer error isolation, experiment comparator. |
 | `sandbox` | `@kilnai/core` | `packages/core/src/sandbox/` | Per-agent filesystem allowlists and network proxy policies. |
 | `verification` | `@kilnai/core` | `packages/core/src/verification/` | Gate runner, verification loop: test, lint, type-check. |
 | `events` | `@kilnai/core` | `packages/core/src/events/` | EventBus: synchronous emit with typed subscriber dispatch (29 event types), multi-level streaming, ring buffer. |
@@ -907,6 +909,7 @@ kiln/
 │   │       ├── domains/                  # 5 built-in domain kits (react-ts, python, docs, support, data-pipeline)
 │   │       ├── package/                  # types.ts, security.ts, yaml-schema.ts, yaml-parser.ts
 │   │       ├── skill/                    # skill-registry.ts, yaml-schema.ts, yaml-parser.ts
+│   │       ├── eval/                     # scorers/, dataset-loader.ts, experiment-runner.ts, experiment-comparator.ts, scorer-factory.ts
 │   │       └── security/                 # audit-log.ts, prompt-scanner.ts, secret-store.ts, guardian.ts, self-audit.ts
 │   ├── runtime/                          # Gateway + channels + triggers
 │   │   └── src/

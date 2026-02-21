@@ -14,7 +14,6 @@ export { CoherenceScorer } from "./scorers/coherence-scorer.js";
 export { HallucinationScorer } from "./scorers/hallucination-scorer.js";
 export { ToxicityScorer } from "./scorers/toxicity-scorer.js";
 export { CustomPromptScorer } from "./scorers/custom-prompt-scorer.js";
-export { parseLLMResponse } from "./scorers/parse-llm-response.js";
 export { parseDatasetJsonl } from "./dataset-loader.js";
 export { createScorer } from "./scorer-factory.js";
 export { ExperimentRunner } from "./experiment-runner.js";

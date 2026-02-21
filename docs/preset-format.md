@@ -66,6 +66,33 @@ teams:
         required: boolean
 ```
 
+eval:                          # Optional evaluation framework config
+  datasets:
+    - name: string             # Dataset identifier
+      path: string             # Path to JSONL file
+  scorers:
+    - name: string             # Scorer identifier
+      type: exact-match | contains | json-validity | length | latency | cost | faithfulness | relevance | coherence | hallucination | toxicity | custom-prompt | composite
+      # Type-specific fields:
+      substrings: [string, ...]      # contains scorer
+      minLength: number              # length scorer
+      maxLength: number              # length scorer
+      maxLatencyMs: number           # latency scorer
+      maxCostUsd: number             # cost scorer
+      prompt: string                 # custom-prompt scorer
+      schema: object                 # json-validity scorer
+      scorers:                       # composite scorer (nested)
+        - name: string
+          type: ...
+  experiments:
+    - name: string             # Experiment identifier
+      dataset: string          # References a dataset name
+      team: string             # References a team name in the App
+      scorers: [string, ...]   # References scorer names
+      overrides: object        # Optional agent config overrides
+      compare: string          # Optional: compare against another experiment (no cycles)
+```
+
 All fields shown are required unless marked optional. The loader accepts `quality` as an alias for `qualityGates`.
 
 ---
@@ -340,6 +367,59 @@ Source: `packages/core/src/verification/verification-loop.ts`
 
 ---
 
+## Eval Configuration
+
+The optional `eval` block defines evaluation pipelines for measuring agent quality. When present, the loader validates all cross-references: dataset names, scorer names, experiment team references.
+
+### Datasets
+
+Each dataset points to a JSONL file where each line is a JSON object with `id` (string, unique), `input` (string, required), `expected` (string, optional), `context` (string array, optional), and `metadata` (object, optional).
+
+```jsonl
+{"id": "1", "input": "What is Kiln?", "expected": "An AI orchestration engine", "context": ["Kiln docs"]}
+{"id": "2", "input": "How do agents work?"}
+```
+
+### Scorers
+
+12 built-in scorer types:
+
+| Type | Category | Formula |
+|------|----------|---------|
+| `exact-match` | Rule-based | `output === expected ? 1 : 0` |
+| `contains` | Rule-based | `found.length / substrings.length` (case-insensitive) |
+| `json-validity` | Rule-based | Parse + optional key-presence check |
+| `length` | Rule-based | Proportional penalty below min or above max |
+| `latency` | Rule-based | `1.0` if under threshold, `maxLatencyMs / durationMs` if over |
+| `cost` | Rule-based | `1.0` if under threshold, `maxCostUsd / costUsd` if over |
+| `faithfulness` | LLM-as-judge | LLM rates 0-1 |
+| `relevance` | LLM-as-judge | LLM rates 0-1 |
+| `coherence` | LLM-as-judge | LLM rates 0-1 |
+| `hallucination` | LLM-as-judge | `1 - llmScore` (inverted; 0 on parse failure = conservative) |
+| `toxicity` | LLM-as-judge | `1 - llmScore` (inverted; 0 on parse failure = conservative) |
+| `custom-prompt` | LLM-as-judge | User-defined evaluation prompt |
+| `composite` | Meta | Average of sub-scorer scores |
+
+### Experiments
+
+Each experiment references a dataset, a team, and a set of scorers. The `compare` field enables side-by-side comparison against another experiment. Circular compare references are rejected.
+
+### Validation Rules
+
+- Datasets, scorers, and experiments arrays must all be non-empty
+- Dataset names, scorer names, and experiment names must be unique within their arrays
+- Experiment `dataset` must reference a declared dataset name
+- Experiment `scorers` must all reference declared scorer names
+- Experiment `team` must reference a team in the App's `teams` map
+- Experiment `compare` cannot reference itself or create cycles
+- Composite scorers must have a non-empty `scorers` array
+- Custom-prompt scorers must have a non-empty `prompt` string
+- Contains scorers must have a non-empty `substrings` array
+
+Source: `packages/core/src/engine/domain/eval-config.ts`, `packages/core/src/eval/`
+
+---
+
 ## Loading a Preset
 
 ### Basic loading
@@ -381,3 +461,6 @@ For Mode B sessions (Provider-Adapter), the App is consumed directly by the Gate
 - **Delegation capability missing targetApp or task.** When `type: delegation` is set, both `targetApp` and `task` are required fields.
 - **Empty channels array.** At least one channel must be listed.
 - **Empty memory scopes.** At least one scope must be listed.
+- **Eval experiment references non-existent team.** The `team` field in each experiment must match a key in the `teams` map.
+- **Eval circular compare reference.** Experiments A and B cannot both reference each other via `compare`.
+- **Eval scorer type typo.** Invalid scorer types are rejected. Use one of the 13 valid types.
