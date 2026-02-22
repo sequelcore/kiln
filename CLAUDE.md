@@ -1,84 +1,75 @@
 # Kiln - Domain-Agnostic AI Orchestration Engine
 
-MIT
-
-Domain-agnostic AI orchestration engine. 7 primitives (Agent, Capability, Workflow, Memory, Task, Channel, Trigger) + 3 composites (Team, Router, App) configured via YAML. Multi-tenant gateway runtime with provider adapters, budget enforcement, cross-app delegation, 6 channel adapters, and trigger runtime (webhooks, event listeners, cron scheduler). Multimodal message primitives (`ContentPart[]`: text, image, audio, file) with per-channel `supportedModalities`, Voice Channel (STT/TTS), and agent `modalities` YAML declaration. Domain config system with tech stack auto-detection, YAML schema/parser, DomainRegistry, and 5 built-in domain kits. Package bounded context for distribution (versioning, security validation, content hashing). Skill system (SKILL.yaml format + 3-tier discovery + CLI marketplace). Observability via OTel span mapping + exporter (EventStore sink). Knowledge (RAG) primitives: chunkers, embedding adapters, vector store, retrieval pipeline, auto-injected knowledge_search capability. Eval framework: 12 scorer types (6 rule-based + 6 LLM-as-judge), YAML-configured experiments, dataset JSONL loader, experiment runner with per-scorer error isolation, experiment comparator. Interoperability: A2A protocol (Agent Card generation, JSON-RPC 2.0 server/client, task lifecycle), dynamic MCP server connections (SSE transport, circuit breaker), Tool RAG (embedding-based tool selection when tools exceed threshold). Enterprise safety: PII scanner (2-tier, 6 types, redact/block), content classifier (6 categories), 4 policy rails (topic, competitor, escalation, compliance), safety middleware on gateway I/O. Error catalog with actionable suggestions. Interactive init wizard, dev mode with hot-reload and inline dev inspector. Developer experience: React hooks SDK (`@kilnai/react`) for frontend integration + Studio SPA (graph view, playground, timeline, memory inspector, eval dashboard) served at `/studio` in dev mode.
+MIT-licensed. YAML-configured AI orchestration with 7 primitives (Agent, Capability, Workflow, Memory, Task, Channel, Trigger) + 3 composites (Team, Router, App). Multi-tenant gateway, 6 channel adapters, provider adapters, cross-app delegation, eval framework, enterprise safety pipeline.
 
 ## Architecture
 
-Bun monorepo workspace: `packages/core` (engine primitives + implementations) + `packages/runtime` (gateway server + channel adapters) + `packages/cli` (CLI commands + MCP server) + `packages/sdk` (React hooks library) + `packages/studio` (dev UI SPA, internal).
+Bun monorepo with 5 packages:
 
-### Engine Overview
-
-```
-App (YAML-configured)
-+-- Router (pattern rules -> classifier -> fallback)
-+-- Teams[]
-|   +-- Team = Agents + Workflow + Capabilities + QualityGates
-+-- Memory (scoped: user, agent:X, team:X, project:X, org)
-+-- Channels[] (CLI, web, WhatsApp, Slack, API)
-+-- Triggers[] (webhook, event, schedule)
-```
-
-**7 Primitives:** Agent (tier-based LLM instance), Capability (MCP tool with annotations), Workflow (phase sequence + gates), Memory (scoped storage), Task (tree node with scoring), Channel (platform adapter), Trigger (webhook / event / schedule).
-
-**3 Composites:** Team (agents + workflow + capabilities), Router (rules -> classifier -> fallback), App (teams + router + memory + channels + triggers).
+| Package | Scope | Purpose |
+|---------|-------|---------|
+| `packages/core` | `@kilnai/core` | Engine primitives, implementations, YAML loader |
+| `packages/runtime` | `@kilnai/runtime` | Gateway server, channel adapters, triggers |
+| `packages/cli` | `@kilnai/cli` | CLI commands, init wizard, dev mode |
+| `packages/sdk` | `@kilnai/react` | React hooks (KilnProvider, useKilnChat, useKilnEvents, useKilnMemory, useKilnState) |
+| `packages/studio` | `@kilnai/studio` | Dev UI SPA (private, served at `/studio` in dev mode) |
 
 ### Bounded Contexts
 
 | Context | Location | Purpose |
 |---------|----------|---------|
-| engine | `packages/core/src/engine/` | Engine primitives (7: Agent, Capability, Workflow, Memory, Task, Channel, Trigger) + composites (Team, Router, App) + YAML loader + gateway config + cron parser (zero external deps except yaml) |
-| orchestrator | `packages/core/src/orchestrator/` | Workflow implementation: phase machine (configurable phases + gates) |
-| agents | `packages/core/src/agents/` | Agent implementation: provider adapters (Anthropic, OpenAI, DeepSeek, Ollama), tool cache, context compressor, MCP client (SSE), circuit breaker, Tool RAG |
-| memory | `packages/core/src/memory/` | Memory implementation: scoped storage (user, agent, team, project, org) |
-| tree | `packages/core/src/tree/` | Task implementation: tree manager (scoring, deepen/branch/prune, batch selection) |
-| sandbox | `packages/core/src/sandbox/` | Per-agent isolation: filesystem policies, network proxy, tenant FS jails |
-| verification | `packages/core/src/verification/` | Gate runner: test, lint, type-check verification loop |
-| events | `packages/core/src/events/` | Event streaming (32 event types including 5 security + 4 trigger + 3 safety events), EventBus with ring buffer + optional EventStore sink |
-| security | `packages/core/src/security/` | Security: audit log (JSONL + hash chaining), prompt injection detection (2-tier), encrypted secrets (AES-256-GCM), Guardian review, self-audit |
-| safety | `packages/core/src/safety/` | Enterprise safety: PII scanner (2-tier, 6 types), content classifier (6 categories), 4 policy rails, safety pipeline orchestrator |
-| cost | `packages/core/src/cost/` | Cost tracking: per-role, cache-aware pricing |
-| knowledge | `packages/core/src/knowledge/` | Knowledge (RAG): chunkers (recursive, markdown), embedding adapters (OpenAI, Ollama), InMemoryVectorStore, RetrievalPipeline, Reranker interface, knowledge_search capability auto-injection |
-| domain | `packages/core/src/domain/` | Domain config: tech stack detection, YAML schema/parser, DomainRegistry, backward-compatible marketplace adapter, 5 built-in domain kits |
-| package | `packages/core/src/package/` | Package distribution: versioning, content hashing, security validation (lifecycle scripts, path traversal, extension whitelist), YAML schema for domain + skill packages |
-| skill | `packages/core/src/skill/` | Skill system: SKILL.yaml format (name, description, tools, triggers, tags, instructions), SkillRegistry with 3-tier discovery (workspace > user > builtin) + domain package discovery |
-| eval | `packages/core/src/eval/` | Evaluation framework: 12 scorer types (6 rule-based + 6 LLM-as-judge), composite scoring, dataset JSONL loader, experiment runner with error isolation, experiment comparator |
-| gateway | `packages/runtime/src/gateway/` | Gateway runtime: multi-App loading, per-App isolation, Mode B routes, budget middleware, cross-app delegation (Kiln-native + A2A), multi-tenant routes, WhatsApp webhooks, tenant admin CRUD, trigger webhook mounting, dev-mode API routes |
-| a2a | `packages/runtime/src/a2a/` | A2A protocol: Agent Card generation, JSON-RPC 2.0 server routes (tasks/send, sendSubscribe, get, cancel), A2ATaskStore, A2AClient (outbound delegation) |
-| trigger | `packages/runtime/src/trigger/` | Trigger runtime: TriggerRegistry (per-app lifecycle), webhook handler (HMAC-SHA256), event listener (filter matching), cron scheduler (setTimeout chains), trigger executor (template interpolation) |
-| session | `packages/runtime/src/session/` | Mode B session management: ModeBSession, ModeBOrchestrator, SessionRegistry |
-| tenant | `packages/runtime/src/tenant/` | Multi-tenant management: TenantRegistry (JSON persistence), system prompt builder, phone-to-tenant resolution |
-| channels | `packages/runtime/src/channels/` | Channel adapters (CLI, Web, WhatsApp, Slack, API, Voice) + EventBridge + ChannelRegistry + ChannelRouter + MessageFormatter. Multimodal ContentPart[] messages with per-channel supportedModalities |
-| sdk | `packages/sdk/src/` | React hooks library (`@kilnai/react`): KilnProvider, useKilnChat, useKilnEvents, useKilnMemory, useKilnState, ApiClient, SseClient. Types-only import from core. |
-| studio | `packages/studio/src/` | Dev UI SPA (`@kilnai/studio`, private): React 19 + Vite + TanStack Router/Query + @xyflow/react. Graph view, Playground, Timeline, Memory inspector, Eval dashboard. Served at `/studio` in dev mode. |
+| engine | `core/src/engine/` | 7 primitives + 3 composites + YAML loader + gateway config + cron parser. Zero external deps except `yaml`. |
+| orchestrator | `core/src/orchestrator/` | Phase machine, checkpoint/resume, strategies (sequential, supervisor, swarm) |
+| agents | `core/src/agents/` | Provider adapters (Anthropic, OpenAI, DeepSeek, Ollama), tool cache, MCP client, circuit breaker, Tool RAG |
+| memory | `core/src/memory/` | Scoped storage (user, agent, team, project, org), SQLite + FTS5, git sync, decay, compaction |
+| tree | `core/src/tree/` | Task tree (scoring, deepen/branch/prune), batch executor |
+| sandbox | `core/src/sandbox/` | Per-agent filesystem + network isolation |
+| verification | `core/src/verification/` | Gate runner: test, lint, type-check loop |
+| events | `core/src/events/` | EventBus (32 typed events, ring buffer), EventStore sink |
+| security | `core/src/security/` | Audit log (JSONL + hash chain), prompt injection (2-tier), AES-256-GCM secrets, Guardian, self-audit |
+| safety | `core/src/safety/` | PII scanner (2-tier, 6 types), content classifier (6 categories), 4 policy rails, pipeline orchestrator |
+| cost | `core/src/cost/` | Per-role cache-aware cost tracking |
+| knowledge | `core/src/knowledge/` | RAG: chunkers, embedding adapters, vector store, retrieval pipeline, knowledge_search auto-injection |
+| domain | `core/src/domain/` | Domain config: tech stack detection, YAML schema, DomainRegistry. Built-in kits at `core/src/domains/*.yaml` |
+| package | `core/src/package/` | Distribution: versioning, content hashing, security validation |
+| skill | `core/src/skill/` | SKILL.yaml format, SkillRegistry (3-tier discovery) |
+| eval | `core/src/eval/` | 12 scorers (6 rule + 6 LLM-as-judge), dataset loader, experiment runner, comparator |
+| observability | `core/src/observability/` | OTel span mapper + exporter (EventStore sink) |
+| gateway | `runtime/src/gateway/` | Multi-app loading, Mode B routes, budget middleware, delegation, dev routes, safety/security middleware |
+| a2a | `runtime/src/a2a/` | Agent Card, JSON-RPC 2.0 server/client, task store |
+| trigger | `runtime/src/trigger/` | TriggerRegistry, webhook handler (HMAC-SHA256), event listener, cron scheduler |
+| session | `runtime/src/session/` | ModeBSession, ModeBOrchestrator, SessionRegistry |
+| tenant | `runtime/src/tenant/` | TenantRegistry (JSON persistence), system prompt builder |
+| channels | `runtime/src/channels/` | 6 adapters (CLI, Web, WhatsApp, Slack, API, Voice), ChannelRouter, MessageFormatter |
+| sdk | `sdk/src/` | React hooks, ApiClient, SseClient. Types-only import from core. |
+| studio | `studio/src/` | React 19 + Vite + TanStack Router/Query + @xyflow/react. 5 views. |
 
 ### Dependency Rules (STRICT)
 
-1. **Engine primitives have zero external dependencies** -- pure TypeScript interfaces
-2. Application layer depends on engine interfaces, never on infrastructure
+1. Engine primitives have zero external dependencies -- pure TypeScript interfaces
+2. Application layer depends on engine interfaces, never infrastructure
 3. Infrastructure implements engine interfaces
-4. No cross-context imports -- communicate via shared kernel types (barrel exports)
+4. No cross-context imports -- communicate via barrel exports
 5. Provider SDKs ONLY in `agents/infrastructure/`
 6. Channel adapters ONLY in channel implementations
-7. **@kilnai/runtime depends on @kilnai/core** only, never the reverse
-8. **@kilnai/react (SDK) imports only types** from @kilnai/core -- never implementations, never runtime
-9. **@kilnai/studio depends on @kilnai/react** + UI libs -- runtime serves its dist/ as static files, never imports Studio code
+7. `@kilnai/runtime` depends on `@kilnai/core` only, never reverse
+8. `@kilnai/react` imports only types from `@kilnai/core` -- never implementations
+9. `@kilnai/studio` depends on `@kilnai/react` + UI libs -- runtime serves its `dist/` as static files
 
 ## Commands
 
 ```bash
 bun install                    # Install all workspace deps
-bun run typecheck              # tsc --noEmit all packages
-bun run test                   # Vitest all packages (MUST use 'bun run test', NOT 'bun test')
+bun run typecheck              # tsc -b (project references across all packages)
+bun run test                   # Vitest all packages
 ```
 
-**WARNING:** `bun test` (without `run`) invokes Bun's built-in test runner which does NOT use Vitest config -- it runs all `.test.ts` files in a single process without isolation, causing hundreds of false failures from mock leakage. Always use `bun run test`.
+**WARNING:** Always use `bun run test`, never `bun test`. The latter invokes Bun's built-in test runner without Vitest config, causing false failures from mock leakage.
 
 ## Quality Gates
 
-- TypeScript: `tsc --noEmit` -- zero errors
-- Testing: `vitest` -- all pass
+- TypeScript: `bun run typecheck` -- zero errors
+- Tests: `bun run test` -- all pass
 - No `@temper` references: `grep -r "@temper" packages/` -- zero results
 
 ## Commit Format
@@ -89,206 +80,74 @@ type(scope): description
 
 Types: `feat`, `fix`, `refactor`, `chore`, `docs`, `test`
 
-Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree, events, cost, sandbox, verification, security, safety, observability, knowledge, eval, a2a, runtime, gateway, trigger, session, tenant, channel, cli, docs
+Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree, events, cost, sandbox, verification, security, safety, observability, knowledge, eval, a2a, runtime, gateway, trigger, session, tenant, channel, cli, sdk, studio, docs
 
-## Key Files
+## Key Entry Points
 
 ### Core (`packages/core/src/`)
 
 | File | Purpose |
 |------|---------|
-| `engine/domain/agent.ts` | Engine primitive: Agent interface (name, role, goal, backstory, instructions, tier, tools, modalities?) |
-| `engine/domain/prompt-assembler.ts` | Pure function: assembleAgentPrompt() -- identity fields + context -> system prompt |
-| `engine/errors.ts` | KilnError base class (code, context, retryable, suggestion, docUrl) + KilnErrorCode union type (55 codes) |
-| `engine/error-catalog.ts` | getErrorSuggestion(code, context): context-aware error suggestions + doc URLs for all 55 error codes |
-| `engine/domain/capability.ts` | Engine primitive: Capability interface (schema, tags, annotations incl. cacheTtl, guardrail, outputSchema) |
-| `engine/domain/workflow.ts` | Engine primitive: Workflow interface (string phases, gates) |
-| `engine/domain/memory.ts` | Engine primitive: Memory interface (5 scopes, store/recall/forget) |
-| `engine/domain/task.ts` | Engine primitive: Task interface (tree structure, statuses, actions) |
-| `engine/domain/channel.ts` | Engine primitive: Channel interface (receive/send/stream), IncomingMessage/OutgoingMessage with `parts: readonly ContentPart[]`, `supportedModalities` |
-| `engine/domain/content.ts` | ContentPart discriminated union (TextPart, ImagePart, AudioPart, FilePart) + helpers (textPart, textParts, extractText, hasModality, validateContentPart, validateContentParts) |
-| `engine/domain/modality.ts` | Modality type ("text", "image", "audio", "file") + VALID_MODALITIES + validateModalities() |
-| `engine/domain/speech-config.ts` | SttAdapter, TtsAdapter, VoiceConfig, SttProviderConfig, TtsProviderConfig interfaces + validateVoiceConfig() |
-| `engine/composites/team.ts` | Engine composite: Team (agents + workflow + capabilities + gates + mode + manager) + validateTeam() |
-| `engine/composites/router.ts` | Engine composite: Router (pattern rules + classifier + fallback) + validateRouter() |
-| `engine/composites/app.ts` | Engine composite: App (teams + router + memory + channels + triggers + knowledge? + mcp? + toolSelection? + safety?) + validateApp() |
-| `engine/loader/app-loader.ts` | YAML -> App loader (parseAppYaml, validateAppGraph, AppLoaderError) with trigger + knowledge + mcp + toolSelection + safety YAML parsing |
-| `engine/loader/preset-loader.ts` | App -> OrchestratorConfig bridge (loadPresetConfig, PresetLoaderError) |
-| `engine/gateway/gateway-config.ts` | Gateway config types + validateGatewayConfig() |
-| `engine/gateway/mode-b-config.ts` | Mode B config types + validateModeBConfig() |
-| `engine/gateway/delegation-config.ts` | Delegation types + isDelegationCapability() + validateDelegation() |
-| `engine/domain/trigger.ts` | Engine primitive: Trigger union type (WebhookTrigger, EventTrigger, ScheduleTrigger) + validateTrigger() |
-| `engine/domain/cron.ts` | Pure cron parser: parseCronExpression(), validateCronExpression(), nextFireTime(). 5-field format, zero deps. |
-| `engine/gateway/tenant-config.ts` | Tenant config types + validateTenantConfig() |
-| `orchestrator/phase-machine.ts` | Configurable phase machine: uses config.phases, configurable approval gate |
-| `orchestrator/orchestrator.ts` | Orchestrator: session lifecycle, checkpoint/resume, interrupt/resume, strategy-based execution |
-| `orchestrator/strategies/index.ts` | Strategy pattern: SequentialStrategy, SupervisorStrategy, SwarmStrategy |
-| `orchestrator/guardrails.ts` | Pure JSON Schema validation + retry loop for structured output |
-| `orchestrator/interrupt.ts` | Interrupt/resume types (InterruptRequest, ResumeCommand, InterruptState) |
-| `agents/infrastructure/anthropic.ts` | Anthropic SDK adapter (retry, streaming, native output_config for structured outputs) |
+| `engine/domain/agent.ts` | Agent interface (name, role, goal, backstory, tier, tools, modalities) |
+| `engine/domain/capability.ts` | Capability interface (schema, tags, annotations: cacheTtl, guardrail, outputSchema) |
+| `engine/domain/workflow.ts` | Workflow interface (phases, gates) |
+| `engine/domain/memory.ts` | Memory interface (5 scopes, store/recall/forget) |
+| `engine/domain/task.ts` | Task interface (tree structure, statuses, actions) |
+| `engine/domain/channel.ts` | Channel interface (receive/send/stream), IncomingMessage/OutgoingMessage with `ContentPart[]` |
+| `engine/domain/content.ts` | ContentPart union (Text, Image, Audio, File) + helpers (textPart, textParts, extractText, hasModality) |
+| `engine/domain/trigger.ts` | Trigger union (Webhook, Event, Schedule) + validateTrigger() |
+| `engine/composites/app.ts` | App composite + validateApp() |
+| `engine/composites/team.ts` | Team composite + validateTeam() |
+| `engine/composites/router.ts` | Router composite + validateRouter() |
+| `engine/loader/app-loader.ts` | YAML -> App (parseAppYaml, validateAppGraph) |
+| `engine/errors.ts` | KilnError base class (55 codes) + KilnErrorCode union type |
+| `engine/error-catalog.ts` | getErrorSuggestion(): context-aware suggestions + doc URLs |
+| `orchestrator/orchestrator.ts` | Session lifecycle, checkpoint/resume, strategy-based execution |
+| `orchestrator/phase-machine.ts` | Configurable phases + gates |
+| `agents/infrastructure/anthropic.ts` | Anthropic SDK adapter (retry, streaming, structured outputs) |
 | `agents/infrastructure/openai.ts` | OpenAI adapter |
 | `agents/infrastructure/deepseek.ts` | DeepSeek adapter |
 | `agents/infrastructure/ollama.ts` | Ollama adapter (local models) |
-| `memory/sqlite-store.ts` | SQLite + FTS5 memory store (configurable decay + auto-compaction + tenant namespace enforcement) |
-| `memory/decay-curves.ts` | Pure decay functions: exponential, linear, step curves |
-| `memory/compactor.ts` | MemoryCompactor: tag-based grouping, deterministic summarization, archival |
-| `memory/project-store.ts` | Git-synced gzipped JSONL project memory |
-| `tree/task-tree.ts` | Task tree: scoring, selection, deepen/branch/prune |
-| `events/event-bus.ts` | Event emission and subscription (32 event types), optional EventStore persistence sink |
-| `events/event-store.ts` | EventStore interface: save, getBySession, getAfter (consumer-implemented persistence) |
-| `agents/tool-cache.ts` | ToolCache: in-memory tool result cache with SHA-256 keys and per-entry TTL |
-| `agents/context-compressor.ts` | compressContext(): LLM-based text compression utility with threshold skip |
-| `cost/cost-tracker.ts` | Per-role cache-aware cost tracking |
-| `sandbox/policies.ts` | Per-agent filesystem + network isolation policies + createTenantSandbox() |
-| `verification/verification-loop.ts` | Gate runner: test -> lint -> type-check loop |
-| `domain/index.ts` | Domain config: DomainConfig interface, QualityGate re-export, mergeDomainConfigs(), barrel exports |
-| `domain/domain-registry.ts` | DomainRegistry: register, detect by file patterns, detectAndMerge, loadInstalledDomains, loadInstalledPackages (returns DomainPackageManifest[]), loadBuiltinDomains() static |
-| `domain/yaml-schema.ts` | DomainYaml interfaces + validateDomainYaml() |
-| `domain/yaml-parser.ts` | parseDomainYaml(), loadDomainYaml(), DomainYamlError |
-| `domain/marketplace.ts` | Backward-compatible adapter: parseDomainPackageYaml() (domain YAML without type/version/author), re-exports DomainPackageManifest |
-| `domains/*.yaml` | 5 built-in domain kits: react-ts, python, docs, support, data-pipeline |
-| `domain/schema/domain.schema.json` | JSON Schema draft-07 for domain.yaml IDE autocomplete |
-| `skill/types.ts` | SkillConfig, SkillTrigger interfaces (runtime form) |
-| `skill/yaml-schema.ts` | SkillYaml, SkillTriggerYaml interfaces + validateSkillYaml() |
-| `skill/yaml-parser.ts` | parseSkillYaml(), loadSkillYaml(), SkillYamlError |
-| `skill/skill-registry.ts` | SkillRegistry: register, get, all, discoverFrom, discoverFromPackage, discoverAll (3-tier: workspace > user > builtin + domain package discovery) |
-| `skill/index.ts` | Barrel exports for skill bounded context |
-| `package/types.ts` | PackageManifest (base), DomainPackageManifest, SkillPackageManifest, PackageToolsConfig, PackageKnowledgeConfig |
-| `package/security.ts` | computeContentHash (SHA-256), verifyContentHash, validatePackageSecurity (lifecycle scripts), applyDefaultAnnotations, validatePackageFiles (path traversal, absolute paths) |
-| `package/yaml-schema.ts` | PackageYaml interface (type-discriminated: domain or skill) + validatePackageYaml() |
-| `package/yaml-parser.ts` | Strict parsers: parseDomainPackageYaml (requires type), parseSkillPackageYaml, PackageYamlError |
-| `package/index.ts` | Barrel exports for package bounded context |
-| `observability/span-mapper.ts` | SpanMapper: maps all 32 KilnEvent types to OTel span operations |
-| `observability/otel-exporter.ts` | OTelExporter: implements EventStore interface, accepts standard TracerProvider |
-| `engine/domain/embedding.ts` | Engine primitive: EmbeddingAdapter interface (name, dimensions, embed) |
-| `engine/domain/vector-store.ts` | Engine primitive: VectorStore, VectorEntry, VectorResult, VectorQueryOptions interfaces |
-| `engine/domain/chunker.ts` | Engine primitive: Chunker, Document, Chunk, ChunkConfig interfaces |
-| `engine/domain/knowledge-config.ts` | KnowledgeConfig types + validateKnowledgeConfig() (YAML knowledge block schema) |
-| `knowledge/recursive-chunker.ts` | RecursiveTextChunker: paragraph -> sentence -> char splitting with overlap and SHA-256 IDs |
-| `knowledge/markdown-chunker.ts` | MarkdownChunker: heading hierarchy splitting, code block preservation, fallback path |
-| `knowledge/infrastructure/openai-embedding.ts` | OpenAI embedding adapter (fetch-based, retry with exponential backoff) |
-| `knowledge/infrastructure/ollama-embedding.ts` | Ollama embedding adapter (fetch-based, local model) |
-| `knowledge/infrastructure/memory-vector-store.ts` | InMemoryVectorStore (cosine similarity) + cosineSimilarity() helper |
-| `knowledge/retrieval-pipeline.ts` | RetrievalPipeline: ingest (chunk -> embed -> store) + retrieve (embed -> search -> rerank) |
-| `knowledge/reranker.ts` | Reranker interface: optional result re-ranking for retrieval |
-| `knowledge/knowledge-capability.ts` | knowledge_search auto-injection: createKnowledgeCapability(), executeKnowledgeSearch(), isAgentAllowed() |
-| `engine/domain/safety-config.ts` | SafetyConfig types (PiiConfig, ContentConfig, RailConfig) + validateSafetyConfig() |
-| `safety/types.ts` | Safety runtime types: PiiMatch, PiiScanResult, ContentScore, ContentScanResult, PolicyResult, SafetyPipelineResult |
-| `safety/pii-scanner.ts` | PiiScanner: 2-tier PII detection (regex + LLM), 6 types, configurable actions, allowlist, fail-open |
-| `safety/content-classifier.ts` | ContentClassifier: 2-tier content classification, 6 categories, configurable thresholds |
-| `safety/rails.ts` | 4 policy rails (topic, competitor, escalation, compliance) + createRail() factory |
-| `safety/safety-pipeline.ts` | SafetyPipeline: orchestrator (PII -> content -> rails), short-circuit on block, fail-open |
-| `safety/index.ts` | Barrel exports for safety bounded context |
-| `security/types.ts` | Security interfaces: AuditLog, SecretStore, PromptScanResult, GuardianReviewResult, SecurityConfig |
-| `security/audit-log.ts` | JsonlAuditLog: append-only JSONL + SHA-256 hash chaining, query, verifyChain() |
-| `security/prompt-scanner.ts` | PromptScanner: Tier 1 heuristic (20+ regex patterns) + Tier 2 deep LLM scan |
-| `security/secret-store.ts` | AesSecretStore: AES-256-GCM encryption, PBKDF2 key derivation, atomic key rotation |
-| `security/guardian.ts` | Guardian: secondary LLM review for destructive capabilities |
-| `security/self-audit.ts` | SelfAudit: periodic security health checks (secrets, audit chain, tenant isolation, config) |
-| `engine/domain/eval-config.ts` | EvalConfig types (EvalScorerType, EvalScorerConfig, EvalDatasetConfig, EvalExperimentConfig, EvalConfig) + validateEvalConfig() with cycle detection |
-| `eval/types.ts` | Eval runtime types: EvalInput, EvalScore, Scorer, ScorerLLM, DatasetItem, Dataset, Experiment, ExperimentResult |
-| `eval/scorers/*.ts` | 12 scorer implementations: ExactMatch, Contains, JsonValidity, Length, Latency, Cost, Composite, Faithfulness, Relevance, Coherence, Hallucination, Toxicity, CustomPrompt |
-| `eval/scorers/parse-llm-response.ts` | Internal: extracts SCORE + REASONING from LLM evaluation output |
-| `eval/dataset-loader.ts` | parseDatasetJsonl(): JSONL -> Dataset with strict validation |
-| `eval/experiment-runner.ts` | ExperimentRunner: generates outputs, scores with error isolation per scorer |
-| `eval/experiment-comparator.ts` | compareExperiments(): side-by-side experiment comparison |
-| `eval/scorer-factory.ts` | createScorer(): EvalScorerConfig -> Scorer instance factory |
-| `engine/domain/a2a-config.ts` | A2A types: AgentCard, A2ATask, A2ATaskStatus, A2AMessage, A2AArtifact, A2APart + validateAgentCard() |
-| `engine/domain/mcp-config.ts` | MCP types: McpTransport (SSE only), McpServerConfig, McpConfig + validateMcpConfig() |
-| `engine/domain/tool-selection-config.ts` | ToolSelectionConfig types (strategy: all/rag, maxTools, threshold) + validateToolSelectionConfig() |
-| `agents/mcp-client.ts` | McpClient: SSE transport, JSON-RPC 2.0, tool discovery, tool execution, circuit breaker protected |
-| `agents/tool-rag.ts` | ToolRAG: embeds tool descriptions, retrieves top-K relevant tools per query via vector store |
-| `agents/circuit-breaker.ts` | CircuitBreaker: closed -> open -> half-open state machine for external service call protection |
+| `agents/mcp-client.ts` | MCP SSE client with circuit breaker |
+| `agents/tool-rag.ts` | Embedding-based tool selection |
+| `memory/sqlite-store.ts` | SQLite + FTS5 memory (decay, compaction, tenant namespacing) |
+| `safety/safety-pipeline.ts` | PII -> content -> rails pipeline (fail-open) |
+| `eval/experiment-runner.ts` | Generate outputs, score with error isolation |
+| `knowledge/retrieval-pipeline.ts` | Ingest (chunk -> embed -> store) + retrieve (embed -> search -> rerank) |
 
 ### Runtime (`packages/runtime/src/`)
 
 | File | Purpose |
 |------|---------|
-| `gateway/gateway-routes.ts` | Pure Hono app factory: health + per-App API routes + A2A routes + webhook trigger mounting + dev inspector HTML |
-| `gateway/gateway-server.ts` | startGateway(configPath, options?: StartGatewayOptions): Bun.serve, Mode B + multi-tenant runtime init + TriggerRegistry lifecycle + devMode wiring |
-| `gateway/dev-inspector.ts` | createDevInspectorHtml(): self-contained HTML dev inspector (zero deps, vanilla JS, SSE-connected) |
-| `gateway/app-resolver.ts` | resolveApps(): YAML path resolution, memory namespacing |
-| `gateway/mode-b-routes.ts` | Mode B Hono sub-app: POST /message, GET/DELETE /sessions |
-| `gateway/budget-middleware.ts` | checkBudget(), reportUsage(), checkTier() -- fail-open by design, circuit breaker wrapped |
-| `gateway/config-validator.ts` | validateStartupConfig(), assertValidStartupConfig() -- fail-fast env var validation |
-| `gateway/health-registry.ts` | HealthRegistry: register subsystem checkers, checkAll(), aggregateStatus() |
-| `gateway/delegation-handler.ts` | DelegationRegistry, executeDelegation() (Kiln-native + A2A routing via ExtendedDelegation) |
-| `gateway/delegation-routes.ts` | Delegation Hono sub-app: POST /delegate, GET /delegation-targets |
-| `gateway/tenant-routes.ts` | Tenant Hono sub-app: POST /message, GET/DELETE /sessions |
-| `gateway/whatsapp-webhook-routes.ts` | WhatsApp webhook: GET /webhook (verify), POST /webhook (messages) |
-| `gateway/tenant-admin-routes.ts` | Tenant admin CRUD: GET/POST/PATCH/DELETE /tenants |
-| `session/mode-b-session.ts` | ModeBSession: conversation history, idle timeout, tenant scoping |
-| `session/mode-b-orchestrator.ts` | ModeBOrchestrator.processMessage(): provider adapter call + memory |
-| `session/session-registry.ts` | SessionRegistry: multi-user session management + cleanup |
-| `gateway/security-middleware.ts` | Hono middleware: prompt injection scanning on incoming messages |
-| `gateway/safety-middleware.ts` | Hono middleware: safety pipeline (PII + content + rails) on input and output messages |
-| `tenant/tenant-registry.ts` | TenantRegistry: in-memory Map + JSON persistence, CRUD, optional encrypted secrets |
-| `tenant/system-prompt-builder.ts` | buildTenantSystemPrompt(): TenantConfig -> system prompt |
-| `channels/event-bridge.ts` | EventBridge: sync EventBus -> AsyncIterable for Channel.stream() |
-| `channels/channel-registry.ts` | ChannelRegistry: multi-channel management (broadcast + targeted) |
-| `channels/channel-router.ts` | ChannelRouter: incoming message -> identity -> pattern matching -> team |
-| `channels/message-formatter.ts` | Unified message formatting + channel format adaptation |
-| `channels/cli-channel.ts` | CliChannel: stdin/stdout adapter (format: full) |
-| `channels/web-channel.ts` | WebChannel: WebSocket adapter (format: full) |
-| `channels/whatsapp-channel.ts` | WhatsAppChannel: Business API webhook adapter (format: short) |
-| `channels/slack-channel.ts` | SlackChannel: Bot Events + Web API adapter (format: full) |
-| `gateway/dev-routes.ts` | Dev-mode Hono sub-app: GET /dev/state, /dev/events (SSE), /dev/memory, /dev/cost, /dev/apps, /dev/triggers |
-| `channels/api-channel.ts` | ApiChannel: REST + SSE streaming adapter (format: structured) |
-| `channels/voice-channel.ts` | VoiceChannel: STT/TTS adapter (format: full, modalities: text + audio) |
-| `channels/speech/openai-stt.ts` | OpenAI Whisper STT adapter (fetch-based) |
-| `channels/speech/openai-tts.ts` | OpenAI TTS adapter (fetch-based) |
-| `trigger/trigger-registry.ts` | TriggerRegistry: per-app registration, webhook Hono app creation, event listener + scheduler lifecycle, start/stop, listAll() |
-| `trigger/webhook-handler.ts` | createWebhookHandler(): Hono routes for webhook triggers. validateWebhookSignature(): HMAC-SHA256 (timing-safe) |
-| `trigger/event-listener.ts` | EventListener: subscribes to EventBus, evaluates trigger filters (shallow equality), fires executeTrigger on match. matchesFilter() exported. |
-| `trigger/scheduler.ts` | Scheduler: cron-based setTimeout chains. Register, start, stop. Emits schedule_fired then executeTrigger(). |
-| `trigger/trigger-executor.ts` | executeTrigger(): interpolates {{payload.field}} templates, emits trigger_fired/trigger_failed events. interpolateTemplate() exported. |
-| `trigger/index.ts` | Barrel exports for trigger bounded context |
-| `a2a/agent-card-generator.ts` | generateAgentCard(): App -> AgentCard from team capabilities |
-| `a2a/a2a-task-store.ts` | A2ATaskStore: in-memory task lifecycle (create, updateStatus, get, cancel, cleanExpired) |
-| `a2a/a2a-server-routes.ts` | createA2ARoutes(): Hono sub-app with /.well-known/agent.json + JSON-RPC 2.0 dispatch |
-| `a2a/a2a-client.ts` | A2AClient: discoverAgent() + sendTask() for outbound A2A delegation |
-| `a2a/index.ts` | Barrel exports for A2A bounded context |
+| `gateway/gateway-server.ts` | startGateway(): Bun.serve, multi-app, Mode B, triggers, dev mode |
+| `gateway/gateway-routes.ts` | Hono app factory: health + per-App routes + A2A + webhooks |
+| `gateway/mode-b-routes.ts` | POST /message, GET/DELETE /sessions |
+| `gateway/delegation-handler.ts` | DelegationRegistry, executeDelegation() (Kiln-native + A2A) |
+| `gateway/budget-middleware.ts` | checkBudget(), reportUsage() -- fail-open |
+| `gateway/dev-routes.ts` | Dev-mode: /dev/state, /dev/events (SSE), /dev/memory, /dev/cost |
+| `channels/voice-channel.ts` | STT/TTS adapter (modalities: text + audio) |
+| `channels/whatsapp-channel.ts` | WhatsApp Business API webhook adapter |
+| `channels/slack-channel.ts` | Slack Bot Events + Web API adapter |
+| `session/session-registry.ts` | Multi-user session management + cleanup |
+| `trigger/trigger-registry.ts` | Per-app lifecycle, webhook app, event listener, scheduler |
+| `a2a/a2a-server-routes.ts` | Agent Card + JSON-RPC 2.0 dispatch |
 
 ### CLI (`packages/cli/src/`)
 
 | File | Purpose |
 |------|---------|
-| `index.ts` | createCli(): command dispatch (init, run, status, memory, config, dev, domain, gateway, skill) |
-| `config.ts` | KilnAppConfig, SystemPromptOptions interfaces |
-| `commands/init.ts` | Interactive init wizard: domain selection, provider, channels, team mode. Generates app.yaml + gateway.yaml |
-| `commands/init-templates.ts` | Pure YAML generators: generateAppYaml(), generateGatewayYaml() |
-| `commands/dev.ts` | devCommand(): starts gateway in dev mode with YAML hot-reload |
-| `commands/dev-watcher.ts` | YamlWatcher: fs.watch with 300ms debounce for hot-reload |
-| `commands/skill.ts` | Skill marketplace CLI: list (3-tier + domain packages), install (validate + copy), publish (generate kiln-package.yaml) |
-| `formatters.ts` | CLI formatters: phase bar, task tree, cost, events, formatError(), formatDomainList(), formatSkillList() |
+| `index.ts` | Command dispatch (init, run, dev, domain, gateway, skill, memory, config, status) |
+| `commands/init.ts` | Interactive wizard: generates app.yaml + gateway.yaml |
+| `commands/dev.ts` | Dev mode with YAML hot-reload |
 
-### SDK (`packages/sdk/src/`)
+## Documentation
 
-| File | Purpose |
-|------|---------|
-| `index.ts` | Barrel exports: provider, hooks, clients, types |
-| `provider.tsx` | KilnProvider (baseUrl, appName, userId context) + useKilnContext() |
-| `types.ts` | ChatMessage, ChatOptions, KilnConfig, KilnEventData, MemoryEntry, hook return types |
-| `use-kiln-chat.ts` | useKilnChat(): POST /message, local message history, loading/error state |
-| `use-kiln-events.ts` | useKilnEvents(): SSE /dev/events, typed event buffer (max 500) |
-| `use-kiln-memory.ts` | useKilnMemory(scope): GET/POST/DELETE /dev/memory/:scope CRUD |
-| `use-kiln-state.ts` | useKilnState(): GET /dev/state, /dev/cost, /dev/apps |
-| `api-client.ts` | ApiClient: fetch wrapper with baseUrl, JSON/text parsing, error handling |
-| `sse-client.ts` | SseClient: EventSource wrapper with auto-reconnect |
+See `docs/` for full documentation:
 
-### Studio (`packages/studio/src/`)
-
-| File | Purpose |
-|------|---------|
-| `main.tsx` | createRoot + RouterProvider |
-| `app.tsx` | Root layout (sidebar + main content) |
-| `styles/tokens.css` | Design tokens (dark theme, CSS custom properties) |
-| `routes/graph.tsx` | Workflow Graph View (@xyflow/react canvas) |
-| `routes/playground.tsx` | Agent Playground (chat via useKilnChat) |
-| `routes/timeline.tsx` | Timeline View (OTel spans via useKilnEvents) |
-| `routes/memory.tsx` | Memory Inspector (CRUD via useKilnMemory) |
-| `routes/eval.tsx` | Eval Dashboard (experiments, scores, comparison) |
-| `hooks/use-app-graph.ts` | TanStack Query: GET /dev/app-graph -> React Flow nodes/edges |
-| `hooks/use-yaml.ts` | TanStack Query: GET/PUT /dev/yaml |
-| `api/client.ts` | Configured fetch client (base URL defaults to window.location.origin) |
-
+| Guide | Content |
+|-------|---------|
+| [Getting Started](docs/getting-started.md) | Installation, init wizard, first app |
+| [Concepts](docs/concepts.md) | 7 primitives, 3 composites, YAML-first philosophy |
+| [App YAML](docs/configuration/app-yaml.md) | Complete app.yaml field reference |
+| [Gateway YAML](docs/configuration/gateway-yaml.md) | Gateway config, Mode A/B, billing |
+| [Architecture](docs/architecture.md) | Contributor internals, TypeScript interfaces |
