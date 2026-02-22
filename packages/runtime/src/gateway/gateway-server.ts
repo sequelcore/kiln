@@ -451,7 +451,43 @@ function createProviderFromConfig(config: ProviderConfig): ProviderAdapter {
   }
 }
 
-/** Build a basic system prompt from an App composite */
+/** Build a system prompt from an App composite using agent metadata */
 function buildSystemPromptFromApp(app: App): string {
-  return `You are ${app.name}. Respond helpfully.`;
+  // Find the primary agent: the manager of the fallback team, or first agent
+  const fallbackTeam = app.teams[app.router.fallback];
+  let primaryAgent: { name: string; role: string; goal: string; backstory?: string; instructions?: string } | undefined;
+
+  if (fallbackTeam) {
+    if (fallbackTeam.manager && fallbackTeam.agents[fallbackTeam.manager]) {
+      primaryAgent = fallbackTeam.agents[fallbackTeam.manager];
+    } else {
+      const agents = Object.values(fallbackTeam.agents);
+      primaryAgent = agents[0];
+    }
+  }
+
+  if (!primaryAgent) {
+    return `You are ${app.name}. Respond helpfully.`;
+  }
+
+  const parts: string[] = [];
+
+  // Identity
+  if (primaryAgent.backstory) {
+    parts.push(primaryAgent.backstory);
+  } else {
+    parts.push(`You are ${primaryAgent.name}, ${primaryAgent.role}.`);
+  }
+
+  // Goal
+  if (primaryAgent.goal) {
+    parts.push(`\nYour goal: ${primaryAgent.goal}`);
+  }
+
+  // Instructions
+  if (primaryAgent.instructions) {
+    parts.push(`\n${primaryAgent.instructions}`);
+  }
+
+  return parts.join("\n");
 }
