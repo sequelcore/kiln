@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { ProviderAdapter, TenantConfig } from "@kilnai/core";
+import { textParts } from "@kilnai/core";
 import { createWhatsAppWebhookRoutes } from "../../src/gateway/whatsapp-webhook-routes.js";
 import type { WhatsAppWebhookConfig } from "../../src/gateway/whatsapp-webhook-routes.js";
 import { ModeBOrchestrator } from "../../src/session/mode-b-orchestrator.js";
@@ -34,7 +35,7 @@ function makeMockProvider(): ProviderAdapter {
   return {
     name: "mock",
     createMessage: vi.fn().mockResolvedValue({
-      content: "mock response",
+      parts: textParts("mock response"),
       inputTokens: 100,
       outputTokens: 50,
       cacheReadTokens: 0,

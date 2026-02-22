@@ -1,4 +1,4 @@
-import type { ProviderAdapter } from "@kilnai/core";
+import type { ProviderAdapter, ContentPart } from "@kilnai/core";
 import type { ModeBSession } from "./mode-b-session.js";
 
 export interface OrchestratorDeps {
@@ -7,7 +7,7 @@ export interface OrchestratorDeps {
 }
 
 export interface OrchestrateResult {
-  readonly content: string;
+  readonly parts: readonly ContentPart[];
   readonly inputTokens: number;
   readonly outputTokens: number;
   readonly cacheReadTokens: number;
@@ -23,10 +23,10 @@ export class ModeBOrchestrator {
 
   async processMessage(
     session: ModeBSession,
-    userMessage: string,
+    userParts: readonly ContentPart[],
     recalledMemory?: string,
   ): Promise<OrchestrateResult> {
-    session.addUserMessage(userMessage);
+    session.addUserMessage(userParts);
 
     let system = session.systemPrompt;
     if (recalledMemory) {
@@ -41,10 +41,10 @@ export class ModeBOrchestrator {
       maxTokens: this.deps.maxTokens,
     });
 
-    session.addAssistantMessage(response.content);
+    session.addAssistantMessage(response.parts);
 
     return {
-      content: response.content,
+      parts: response.parts,
       inputTokens: response.inputTokens,
       outputTokens: response.outputTokens,
       cacheReadTokens: response.cacheReadTokens,

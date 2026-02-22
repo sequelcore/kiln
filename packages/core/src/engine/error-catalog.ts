@@ -384,6 +384,44 @@ export function getErrorSuggestion(
         docUrl: docUrl(code),
       };
 
+    case "UNSUPPORTED_MODALITY": {
+      const modality = context?.modality;
+      const provider = context?.provider;
+      let suggestion = "The requested content modality is not supported by the provider.";
+      if (modality && provider) {
+        suggestion = `${provider} does not support "${modality}" content. Use a provider that supports this modality or remove it from the agent's modalities.`;
+      }
+      return { suggestion, docUrl: docUrl(code) };
+    }
+
+    case "CONTENT_PART_INVALID":
+      return {
+        suggestion:
+          "A content part is invalid. Binary parts (image, audio, file) must have exactly one of 'data' or 'url'.",
+        docUrl: docUrl(code),
+      };
+
+    case "VOICE_CONFIG_INVALID":
+      return {
+        suggestion:
+          "Voice configuration is invalid. Check STT/TTS provider settings and ensure required fields (provider, apiKeyEnv) are set.",
+        docUrl: docUrl(code),
+      };
+
+    case "STT_FAILED":
+      return {
+        suggestion:
+          "Speech-to-text transcription failed. Check the audio format, API key, and provider availability.",
+        docUrl: docUrl(code),
+      };
+
+    case "TTS_FAILED":
+      return {
+        suggestion:
+          "Text-to-speech synthesis failed. Check the TTS provider configuration and API key.",
+        docUrl: docUrl(code),
+      };
+
     case "INTERNAL_ERROR":
       return {
         suggestion:

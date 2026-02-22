@@ -1,7 +1,8 @@
 // CliChannel: wraps stdin/stdout as a Channel adapter
 // Formalizes the existing run.ts console output as a Channel implementation
 
-import type { Channel, IncomingMessage, OutgoingMessage, EngineEvent, MessageFormat } from "@kilnai/core";
+import type { Channel, IncomingMessage, OutgoingMessage, EngineEvent, MessageFormat, Modality } from "@kilnai/core";
+import { extractText } from "@kilnai/core";
 import { formatForChannel } from "./message-formatter.js";
 
 /**
@@ -13,6 +14,7 @@ import { formatForChannel } from "./message-formatter.js";
 export class CliChannel implements Channel {
   readonly name = "cli";
   readonly defaultFormat: MessageFormat = "full";
+  readonly supportedModalities: readonly Modality[] = ["text"];
 
   private messageHandler: ((message: IncomingMessage) => void) | null = null;
 
@@ -28,7 +30,8 @@ export class CliChannel implements Channel {
   }
 
   async send(response: OutgoingMessage): Promise<void> {
-    const formatted = formatForChannel(response.content, response.format ?? this.defaultFormat);
+    const text = extractText(response.parts);
+    const formatted = formatForChannel(text, response.format ?? this.defaultFormat);
     process.stdout.write(formatted + "\n");
   }
 

@@ -1,4 +1,4 @@
-import type { AgentMessage } from "@kilnai/core";
+import type { AgentMessage, ContentPart } from "@kilnai/core";
 
 export interface ModeBSessionConfig {
   readonly appName: string;
@@ -53,13 +53,13 @@ export class ModeBSession {
     return this._systemPrompt;
   }
 
-  addUserMessage(content: string): void {
-    this._history.push({ role: "user", content });
+  addUserMessage(parts: readonly ContentPart[]): void {
+    this._history.push({ role: "user", parts });
     this.touch();
   }
 
-  addAssistantMessage(content: string): void {
-    this._history.push({ role: "assistant", content });
+  addAssistantMessage(parts: readonly ContentPart[]): void {
+    this._history.push({ role: "assistant", parts });
     this.touch();
   }
 

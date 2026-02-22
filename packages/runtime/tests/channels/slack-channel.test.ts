@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createHmac } from "node:crypto";
 import { SlackChannel } from "../../src/channels/slack-channel.js";
 import type { IncomingMessage, OutgoingMessage, EngineEvent } from "@kilnai/core";
+import { textParts } from "@kilnai/core";
 
 const CONFIG = {
   botToken: "xoxb-test-bot-token",
@@ -38,7 +39,7 @@ describe("SlackChannel", () => {
       channel.onMessage(handler);
 
       const msg: IncomingMessage = {
-        content: "Help me refactor this",
+        parts: textParts("Help me refactor this"),
         source: "slack",
         userId: "U12345",
         threadId: "1234567890.123456",
@@ -49,7 +50,7 @@ describe("SlackChannel", () => {
     });
 
     it("does nothing without a handler", async () => {
-      const msg: IncomingMessage = { content: "hello", source: "slack" };
+      const msg: IncomingMessage = { parts: textParts("hello"), source: "slack" };
       await expect(channel.receive(msg)).resolves.not.toThrow();
     });
   });
@@ -57,7 +58,7 @@ describe("SlackChannel", () => {
   describe("send()", () => {
     it("calls fetch with correct URL, headers, and body", async () => {
       const msg: OutgoingMessage = {
-        content: "**Build passed** :white_check_mark:",
+        parts: textParts("**Build passed** :white_check_mark:"),
         target: "C12345678",
       };
       await channel.send(msg);
@@ -80,7 +81,7 @@ describe("SlackChannel", () => {
 
     it("includes thread_ts when threadId is provided", async () => {
       const msg: OutgoingMessage = {
-        content: "Reply in thread",
+        parts: textParts("Reply in thread"),
         target: "C12345678",
         threadId: "1234567890.123456",
       };
@@ -92,7 +93,7 @@ describe("SlackChannel", () => {
 
     it("does not include thread_ts when threadId is absent", async () => {
       const msg: OutgoingMessage = {
-        content: "Top-level message",
+        parts: textParts("Top-level message"),
         target: "C12345678",
       };
       await channel.send(msg);
@@ -103,7 +104,7 @@ describe("SlackChannel", () => {
 
     it("keeps markdown for full format", async () => {
       const msg: OutgoingMessage = {
-        content: "**Bold** and `code`",
+        parts: textParts("**Bold** and `code`"),
         target: "C12345678",
         format: "full",
       };

@@ -2,6 +2,7 @@
 // Bridges Channel.receive() -> IdentityResolver -> Router pattern matching -> Team dispatch
 
 import type { IncomingMessage, OutgoingMessage } from "@kilnai/core";
+import { extractText } from "@kilnai/core";
 import type { IdentityResolver } from "./types.js";
 import type { ChannelRegistry } from "./channel-registry.js";
 
@@ -59,10 +60,11 @@ export class ChannelRouter {
       engineUserId = await this.identityResolver.resolve(channelName, message.userId);
     }
 
-    // 2. Match pattern rules against message content
+    // 2. Match pattern rules against message text content
+    const text = extractText(message.parts);
     let team = this.fallbackTeam;
     for (const rule of this.rules) {
-      if (rule.match.test(message.content)) {
+      if (rule.match.test(text)) {
         team = rule.team;
         break;
       }

@@ -8,6 +8,10 @@ import { validateApp } from "../composites/app.js";
 import type { Team, QualityGate, TeamMode } from "../composites/team.js";
 import type { Router, PatternRule } from "../composites/router.js";
 import type { Agent, AgentTier } from "../domain/agent.js";
+import type { Modality } from "../domain/modality.js";
+import { VALID_MODALITIES } from "../domain/modality.js";
+import type { VoiceConfig, SttProviderConfig, TtsProviderConfig } from "../domain/speech-config.js";
+import { validateVoiceConfig } from "../domain/speech-config.js";
 import type { Capability } from "../domain/capability.js";
 import type { Workflow, Gate } from "../domain/workflow.js";
 import type { MemoryScope } from "../domain/memory.js";
@@ -51,6 +55,7 @@ interface RawAgent {
   structured?: unknown;
   count?: unknown;
   sandbox?: unknown;
+  modalities?: unknown;  // Content modalities -- optional (defaults to ["text"])
   // systemPrompt REMOVED -- replaced by auto-assembled prompt
 }
 
@@ -214,6 +219,25 @@ interface RawToolSelection {
   threshold?: unknown;
 }
 
+interface RawVoice {
+  stt?: unknown;
+  tts?: unknown;
+}
+
+interface RawSttProvider {
+  provider?: unknown;
+  model?: unknown;
+  apiKeyEnv?: unknown;
+  language?: unknown;
+}
+
+interface RawTtsProvider {
+  provider?: unknown;
+  model?: unknown;
+  apiKeyEnv?: unknown;
+  voice?: unknown;
+}
+
 interface RawApp {
   name?: unknown;
   channels?: unknown;
@@ -225,6 +249,7 @@ interface RawApp {
   eval?: unknown;
   mcp?: unknown;
   toolSelection?: unknown;
+  voice?: unknown;
 }
 
 // ---------------------------------------------------------------------------
@@ -278,6 +303,27 @@ function mapAgent(identifier: string, raw: RawAgent, path: string): { agent: Age
     }
   }
 
+  // modalities: optional content type declarations
+  let modalities: Modality[] | undefined;
+  if (raw.modalities !== undefined) {
+    if (!Array.isArray(raw.modalities)) {
+      errors.push({ field: `${path}.modalities`, message: "must be an array" });
+    } else {
+      modalities = [];
+      for (const m of raw.modalities) {
+        if (typeof m !== "string") {
+          errors.push({ field: `${path}.modalities`, message: "all entries must be strings" });
+          break;
+        }
+        if (!VALID_MODALITIES.includes(m as Modality)) {
+          errors.push({ field: `${path}.modalities`, message: `unknown modality "${m}", must be one of: ${VALID_MODALITIES.join(", ")}` });
+        } else {
+          modalities.push(m as Modality);
+        }
+      }
+    }
+  }
+
   const agent: Agent = {
     name,
     role,
@@ -289,6 +335,7 @@ function mapAgent(identifier: string, raw: RawAgent, path: string): { agent: Age
     ...(typeof raw.structured === "boolean" ? { structured: raw.structured } : {}),
     ...(typeof raw.count === "number" ? { count: raw.count } : {}),
     ...(typeof raw.sandbox === "boolean" ? { sandbox: raw.sandbox } : {}),
+    ...(modalities && modalities.length > 0 ? { modalities } : {}),
   };
 
   return { agent, errors };
@@ -930,6 +977,49 @@ function mapToolSelection(raw: RawToolSelection): { toolSelection: ToolSelection
   return { toolSelection: validationErrors.length > 0 ? undefined : config, errors };
 }
 
+function mapVoiceConfig(raw: RawVoice): { voice: VoiceConfig | undefined; errors: { field: string; message: string }[] } {
+  const errors: { field: string; message: string }[] = [];
+
+  if (!raw || typeof raw !== "object") {
+    return { voice: undefined, errors: [] };
+  }
+
+  const rawStt = raw.stt as RawSttProvider | undefined;
+  const rawTts = raw.tts as RawTtsProvider | undefined;
+
+  if (!rawStt || typeof rawStt !== "object") {
+    errors.push({ field: "voice.stt", message: "must be an object" });
+  }
+  if (!rawTts || typeof rawTts !== "object") {
+    errors.push({ field: "voice.tts", message: "must be an object" });
+  }
+
+  if (errors.length > 0) return { voice: undefined, errors };
+
+  const stt: SttProviderConfig = {
+    provider: (typeof rawStt!.provider === "string" ? rawStt!.provider : "") as SttProviderConfig["provider"],
+    ...(typeof rawStt!.model === "string" ? { model: rawStt!.model } : {}),
+    ...(typeof rawStt!.apiKeyEnv === "string" ? { apiKeyEnv: rawStt!.apiKeyEnv } : {}),
+    ...(typeof rawStt!.language === "string" ? { language: rawStt!.language } : {}),
+  };
+
+  const tts: TtsProviderConfig = {
+    provider: (typeof rawTts!.provider === "string" ? rawTts!.provider : "") as TtsProviderConfig["provider"],
+    ...(typeof rawTts!.model === "string" ? { model: rawTts!.model } : {}),
+    ...(typeof rawTts!.apiKeyEnv === "string" ? { apiKeyEnv: rawTts!.apiKeyEnv } : {}),
+    ...(typeof rawTts!.voice === "string" ? { voice: rawTts!.voice } : {}),
+  };
+
+  const voice: VoiceConfig = { stt, tts };
+
+  const validationErrors = validateVoiceConfig(voice);
+  for (const ve of validationErrors) {
+    errors.push(ve);
+  }
+
+  return { voice: validationErrors.length > 0 ? undefined : voice, errors };
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -1049,6 +1139,14 @@ export function parseAppYaml(content: string): App {
     errors.push(...tsErrors);
   }
 
+  // voice (optional)
+  let voiceConfig: VoiceConfig | undefined;
+  if (raw.voice !== undefined) {
+    const { voice, errors: voiceErrors } = mapVoiceConfig(raw.voice as RawVoice);
+    voiceConfig = voice;
+    errors.push(...voiceErrors);
+  }
+
   if (errors.length > 0) throw new AppLoaderError(errors);
 
   return {
@@ -1062,6 +1160,7 @@ export function parseAppYaml(content: string): App {
     ...(evalConfig ? { eval: evalConfig } : {}),
     ...(mcpConfig ? { mcp: mcpConfig } : {}),
     ...(toolSelectionConfig ? { toolSelection: toolSelectionConfig } : {}),
+    ...(voiceConfig ? { voice: voiceConfig } : {}),
   };
 }
 

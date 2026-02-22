@@ -46,6 +46,7 @@ export interface Agent {
   readonly structured?: boolean;  // Require JSON output
   readonly count?: number;        // Parallel instance pool size
   readonly sandbox?: boolean;     // Enable filesystem/network isolation
+  readonly modalities?: readonly Modality[];  // Supported content types (defaults to ["text"])
 }
 ```
 
@@ -66,7 +67,7 @@ Tiers are resolved to concrete provider and model combinations at runtime by the
 | `coding` | Sonnet 4.6 | Implementation, tool execution | Full access | Free-form + tool calls |
 | `fast` | Haiku 4.5 | Classification, compression, summaries | Read-only | Free-form |
 
-The `count` field declares parallel worker instances. The `sandbox` field enables per-agent filesystem and network isolation policies. The `structured` field instructs the provider adapter to enforce JSON schema output.
+The `count` field declares parallel worker instances. The `sandbox` field enables per-agent filesystem and network isolation policies. The `structured` field instructs the provider adapter to enforce JSON schema output. The `modalities` field declares which content types the agent can process (defaults to `["text"]`); valid values are `"text"`, `"image"`, `"audio"`, and `"file"`.
 
 ### 3.2 Capability
 
@@ -187,24 +188,45 @@ A Channel is an input/output adapter that connects the engine to an external pla
 ```typescript
 export type MessageFormat = "short" | "full" | "structured";
 
+export interface IncomingMessage {
+  readonly parts: readonly ContentPart[];
+  readonly source: string;
+  readonly userId?: string;
+  readonly threadId?: string;
+  readonly metadata?: Record<string, unknown>;
+}
+
+export interface OutgoingMessage {
+  readonly parts: readonly ContentPart[];
+  readonly target: string;
+  readonly format?: MessageFormat;
+  readonly userId?: string;
+  readonly threadId?: string;
+  readonly metadata?: Record<string, unknown>;
+}
+
 export interface Channel {
   readonly name: string;
   readonly defaultFormat: MessageFormat;
+  readonly supportedModalities: readonly Modality[];
   receive(message: IncomingMessage): Promise<void>;
   send(response: OutgoingMessage): Promise<void>;
   stream(events: AsyncIterable<EngineEvent>): Promise<void>;
 }
 ```
 
-Agents produce content without knowledge of the destination platform. The channel adapter formats output for its target: `short` for character-constrained platforms (WhatsApp/SMS), `full` for rich-text platforms (web/Slack), and `structured` for machine consumers (REST/SSE).
+Messages use `parts: readonly ContentPart[]` -- a discriminated union of `TextPart`, `ImagePart`, `AudioPart`, and `FilePart`. Text-only messages use `[{ type: "text", text: "..." }]`. Helper functions `textParts()` and `extractText()` simplify working with text-only messages.
 
-| Adapter | Format | Transport |
-|---------|--------|-----------|
-| `CliChannel` | full | stdin/stdout |
-| `WebChannel` | full | WebSocket (Hono) |
-| `WhatsAppChannel` | short | WhatsApp Business API |
-| `SlackChannel` | full | Slack Bot Events + Web API |
-| `ApiChannel` | structured | HTTP REST + SSE |
+Agents produce content without knowledge of the destination platform. The channel adapter formats output for its target: `short` for character-constrained platforms (WhatsApp/SMS), `full` for rich-text platforms (web/Slack), and `structured` for machine consumers (REST/SSE). Each channel declares its `supportedModalities` to indicate which content types it can handle.
+
+| Adapter | Format | Transport | Supported Modalities |
+|---------|--------|-----------|---------------------|
+| `CliChannel` | full | stdin/stdout | text |
+| `WebChannel` | full | WebSocket (Hono) | text, image, audio, file |
+| `WhatsAppChannel` | short | WhatsApp Business API | text, image, audio, file |
+| `SlackChannel` | full | Slack Bot Events + Web API | text, image, file |
+| `ApiChannel` | structured | HTTP REST + SSE | text, image, audio, file |
+| `VoiceChannel` | full | STT/TTS pipeline | text, audio |
 
 The `EventBridge` converts the synchronous `EventBus.emit()` push model to an `AsyncIterable<EngineEvent>` pull model for consumption by `Channel.stream()`.
 
@@ -753,7 +775,7 @@ export class KilnError extends Error {
 }
 ```
 
-43 error codes are organized by bounded context (engine, domain, tenant, provider, budget, config, agent intelligence, security, skill, package, trigger, eval). Each code maps to a context-aware suggestion via `getErrorSuggestion(code, context)` in `packages/core/src/engine/error-catalog.ts`.
+51 error codes are organized by bounded context (engine, domain, tenant, provider, budget, config, agent intelligence, security, skill, package, trigger, eval). Each code maps to a context-aware suggestion via `getErrorSuggestion(code, context)` in `packages/core/src/engine/error-catalog.ts`.
 
 ---
 
@@ -803,7 +825,7 @@ When `devMode` is true, the gateway serves an inline HTML debugger at `/dev/`:
 | `events` | `@kilnai/core` | `packages/core/src/events/` | EventBus: synchronous emit with typed subscriber dispatch (29 event types), multi-level streaming, ring buffer. |
 | `cost` | `@kilnai/core` | `packages/core/src/cost/` | Per-role, cache-aware cost tracking. |
 | `security` | `@kilnai/core` | `packages/core/src/security/` | Audit logging (JSONL + hash chaining), prompt injection (2-tier), encrypted secrets (AES-256-GCM), Guardian review, self-audit. |
-| `channels` | `@kilnai/runtime` | `packages/runtime/src/channels/` | Channel adapters (CLI, Web, WhatsApp, Slack, API), EventBridge, ChannelRegistry, ChannelRouter, MessageFormatter. |
+| `channels` | `@kilnai/runtime` | `packages/runtime/src/channels/` | Channel adapters (CLI, Web, WhatsApp, Slack, API, Voice), EventBridge, ChannelRegistry, ChannelRouter, MessageFormatter. Multimodal `ContentPart[]` message primitives with per-channel `supportedModalities`. |
 | `gateway` | `@kilnai/runtime` | `packages/runtime/src/gateway/` | Gateway runtime: multi-App loading, per-App isolation, Mode B routes, budget middleware, cross-app delegation (Kiln-native + A2A), A2A route mounting, trigger webhook mounting, dev-mode API routes, inline web debugger. |
 | `a2a` | `@kilnai/runtime` | `packages/runtime/src/a2a/` | A2A protocol: Agent Card generation, JSON-RPC 2.0 server (tasks/send, sendSubscribe, get, cancel), A2ATaskStore, A2AClient for outbound delegation. |
 | `trigger` | `@kilnai/runtime` | `packages/runtime/src/trigger/` | TriggerRegistry, webhook handler (HMAC-SHA256), event listener, cron scheduler, trigger executor. |
@@ -917,7 +939,7 @@ kiln/
 │   │       ├── gateway/                  # gateway-server.ts, gateway-routes.ts, dev-routes.ts, dev-inspector.ts
 │   │       ├── session/                  # mode-b-session.ts, mode-b-orchestrator.ts, session-registry.ts
 │   │       ├── tenant/                   # tenant-registry.ts, system-prompt-builder.ts
-│   │       ├── channels/                 # cli-, web-, whatsapp-, slack-, api-channel.ts
+│   │       ├── channels/                 # cli-, web-, whatsapp-, slack-, api-, voice-channel.ts + speech/
 │   │       └── trigger/                  # trigger-registry.ts, webhook-handler.ts, event-listener.ts, scheduler.ts
 │   └── cli/                              # CLI commands + MCP server
 │       └── src/

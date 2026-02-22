@@ -3,6 +3,7 @@
 import type { EventBus, GuardianReviewedEvent } from "../events/index.js";
 import type { Capability } from "../engine/domain/capability.js";
 import type { ProviderAdapter } from "../agents/index.js";
+import { textParts, extractText } from "../agents/index.js";
 import type { AuditLog, GuardianConfig, GuardianReviewResult } from "./types.js";
 
 export interface GuardianRequest {
@@ -126,10 +127,10 @@ export class Guardian {
       const prompt = buildReviewPrompt(request);
       const response = await this.provider.createMessage({
         system: "You are a security reviewer that evaluates capability execution requests.",
-        messages: [{ role: "user", content: prompt }],
+        messages: [{ role: "user", parts: textParts(prompt) }],
       });
 
-      const parsed = parseReviewerResponse(response.content);
+      const parsed = parseReviewerResponse(extractText(response.parts));
 
       if (parsed === null) {
         // Malformed response -- treat as blockOnError

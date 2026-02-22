@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { WhatsAppChannel } from "../../src/channels/whatsapp-channel.js";
 import type { IncomingMessage, OutgoingMessage, EngineEvent } from "@kilnai/core";
+import { textParts } from "@kilnai/core";
 
 const CONFIG = {
   phoneNumberId: "123456789",
@@ -33,7 +34,7 @@ describe("WhatsAppChannel", () => {
       channel.onMessage(handler);
 
       const msg: IncomingMessage = {
-        content: "Hello from WhatsApp",
+        parts: textParts("Hello from WhatsApp"),
         source: "whatsapp",
         userId: "+521234567890",
       };
@@ -43,7 +44,7 @@ describe("WhatsAppChannel", () => {
     });
 
     it("does nothing without a handler", async () => {
-      const msg: IncomingMessage = { content: "hello", source: "whatsapp" };
+      const msg: IncomingMessage = { parts: textParts("hello"), source: "whatsapp" };
       await expect(channel.receive(msg)).resolves.not.toThrow();
     });
   });
@@ -51,7 +52,7 @@ describe("WhatsAppChannel", () => {
   describe("send()", () => {
     it("calls fetch with correct URL, headers, and body", async () => {
       const msg: OutgoingMessage = {
-        content: "Task is complete",
+        parts: textParts("Task is complete"),
         target: "+521234567890",
       };
       await channel.send(msg);
@@ -77,7 +78,7 @@ describe("WhatsAppChannel", () => {
 
     it("strips markdown for short format", async () => {
       const msg: OutgoingMessage = {
-        content: "**Bold** and `code`",
+        parts: textParts("**Bold** and `code`"),
         target: "+521234567890",
         format: "short",
       };

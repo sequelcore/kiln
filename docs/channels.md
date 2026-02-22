@@ -12,9 +12,17 @@ All adapters implement the `Channel` interface defined in `packages/core/src/eng
 
 ```typescript
 export type MessageFormat = "short" | "full" | "structured";
+export type Modality = "text" | "image" | "audio" | "file";
+
+export type ContentPart = TextPart | ImagePart | AudioPart | FilePart;
+
+export interface TextPart   { readonly type: "text";  readonly text: string }
+export interface ImagePart  { readonly type: "image"; readonly mimeType: string; readonly data?: string; readonly url?: string }
+export interface AudioPart  { readonly type: "audio"; readonly mimeType: string; readonly data?: string; readonly url?: string; readonly durationMs?: number }
+export interface FilePart   { readonly type: "file";  readonly mimeType: string; readonly data?: string; readonly url?: string; readonly filename?: string }
 
 export interface IncomingMessage {
-  readonly content: string;
+  readonly parts: readonly ContentPart[];
   readonly source: string;
   readonly userId?: string;
   readonly threadId?: string;
@@ -22,7 +30,7 @@ export interface IncomingMessage {
 }
 
 export interface OutgoingMessage {
-  readonly content: string;
+  readonly parts: readonly ContentPart[];
   readonly target: string;
   readonly format?: MessageFormat;
   readonly userId?: string;
@@ -39,11 +47,18 @@ export interface EngineEvent {
 export interface Channel {
   readonly name: string;
   readonly defaultFormat: MessageFormat;
+  readonly supportedModalities: readonly Modality[];
   receive(message: IncomingMessage): Promise<void>;
   send(response: OutgoingMessage): Promise<void>;
   stream(events: AsyncIterable<EngineEvent>): Promise<void>;
 }
 ```
+
+Helper functions for working with content parts:
+- `textPart(text)` -- creates a single `TextPart`
+- `textParts(text)` -- creates `readonly ContentPart[]` containing one `TextPart`
+- `extractText(parts)` -- concatenates all `TextPart.text` values from a parts array
+- `hasModality(parts, type)` -- checks if any part matches the given modality type
 
 **`receive()`** accepts a message from the external platform and forwards it to the registered message handler for processing.
 
@@ -141,7 +156,7 @@ Routing pipeline for each call to `route(channelName, message)`:
 
 1. **Identity resolution.** If an `IdentityResolver` is configured and `message.userId` is present, `IdentityResolver.resolve(channelName, platformUserId)` maps the platform-specific user ID to an engine user ID. If resolution returns `null`, `engineUserId` is `null` in the `RouteResult`.
 
-2. **Pattern matching.** Each `ChannelRouterRule.match` regex is tested against `message.content` in declaration order. The first match sets the target team. If no rule matches, the `fallbackTeam` is used.
+2. **Pattern matching.** Each `ChannelRouterRule.match` regex is tested against `extractText(message.parts)` in declaration order. The first match sets the target team. If no rule matches, the `fallbackTeam` is used.
 
 3. **Dispatch and response.** If an `onRoute()` handler is registered, it receives the `RouteResult` and may return an `OutgoingMessage`. If a response is returned, it is delivered via `ChannelRegistry.get(channelName).send()` — the response always flows back through the channel that received the original message.
 
@@ -168,13 +183,14 @@ resolver.addMapping("whatsapp", "+521234567890", "user:abc123");
 
 ### Adapter Comparison
 
-| Adapter | Class | Format | Transport | Authentication | Typical Use |
-|---------|-------|--------|-----------|----------------|-------------|
-| CLI | `CliChannel` | `full` | stdin / stdout | None | Local sessions, development |
-| Web | `WebChannel` | `full` | WebSocket (Hono) | Session-level (delegated) | Web console dashboard |
-| WhatsApp | `WhatsAppChannel` | `short` | HTTPS (Business API v21.0) | Bearer token + verify token | WhatsApp Business messaging |
-| Slack | `SlackChannel` | `full` | HTTPS (Bot Events + Web API) | Bearer token + HMAC-SHA256 | Slack workspace bot |
-| API | `ApiChannel` | `structured` | HTTP REST + SSE | Optional API key | Programmatic integrations |
+| Adapter | Class | Format | Transport | Authentication | Modalities | Typical Use |
+|---------|-------|--------|-----------|----------------|------------|-------------|
+| CLI | `CliChannel` | `full` | stdin / stdout | None | text | Local sessions, development |
+| Web | `WebChannel` | `full` | WebSocket (Hono) | Session-level (delegated) | text, image, audio, file | Web console dashboard |
+| WhatsApp | `WhatsAppChannel` | `short` | HTTPS (Business API v21.0) | Bearer token + verify token | text, image, audio, file | WhatsApp Business messaging |
+| Slack | `SlackChannel` | `full` | HTTPS (Bot Events + Web API) | Bearer token + HMAC-SHA256 | text, image, file | Slack workspace bot |
+| API | `ApiChannel` | `structured` | HTTP REST + SSE | Optional API key | text, image, audio, file | Programmatic integrations |
+| Voice | `VoiceChannel` | `full` | STT/TTS pipeline | None | text, audio | Voice agents (STT/TTS) |
 
 ### CLI (`CliChannel`)
 
@@ -187,7 +203,7 @@ const cli = new CliChannel();
 cli.onMessage((msg) => { /* orchestrator processes msg */ });
 ```
 
-- `send()` writes `formatForChannel(content, "full") + "\n"` to `process.stdout`.
+- `send()` writes `formatForChannel(extractText(parts), "full") + "\n"` to `process.stdout`.
 - `stream()` writes `[type] {payload JSON}` lines to `process.stdout` for each engine event.
 - `receive()` calls the registered `onMessage` handler. The handler is wired by the session layer.
 
@@ -243,10 +259,12 @@ Returns the `challenge` string if `mode === "subscribe"` and `token` matches `ve
 **Incoming messages.** Parse the Cloud API webhook payload and pass it to `receive()`:
 
 ```typescript
+import { textParts } from "@kilnai/core";
+
 const body = await c.req.json();
 const msg = body.entry[0].changes[0].value.messages[0];
 await whatsapp.receive({
-  content: msg.text.body,
+  parts: textParts(msg.text.body),
   source: "whatsapp",
   userId: msg.from,       // E.164 phone number
   threadId: msg.id,
@@ -287,8 +305,10 @@ if (!slack.verifyRequest(timestamp, rawBody, signature)) {
 **Incoming messages.** Parse the Slack Events API payload and call `receive()`:
 
 ```typescript
+import { textParts } from "@kilnai/core";
+
 await slack.receive({
-  content: event.text,
+  parts: textParts(event.text),
   source: "slack",
   userId: event.user,
   threadId: event.thread_ts ?? event.ts,
@@ -319,13 +339,15 @@ if (!api.validateApiKey(key)) return c.json({ error: "Unauthorized" }, 401);
 **Incoming messages.** Parse the request body and call `receive()`:
 
 ```typescript
-await api.receive({ content: body.message, source: "api", userId: body.userId });
+import { textParts } from "@kilnai/core";
+
+await api.receive({ parts: textParts(body.message), source: "api", userId: body.userId });
 ```
 
 **Outgoing messages.** `send()` does two things:
 
 1. Queues the `OutgoingMessage` in a bounded response queue (maximum 100 items). When the queue is full, the oldest entry is discarded.
-2. Broadcasts an SSE frame `data: { type: "message", content, target, userId, threadId }` to all connected SSE clients.
+2. Broadcasts an SSE frame `data: { type: "message", content, target, userId, threadId }` to all connected SSE clients (`content` is extracted text from `parts`).
 
 **REST polling.** Consumers that do not maintain an SSE connection can poll `pollResponses()`:
 
@@ -345,6 +367,48 @@ api.removeSseClient(writer);
 
 `stream()` forwards engine events as SSE frames: `data: { type: "event", event, payload, timestamp }`.
 
+### Voice (`VoiceChannel`)
+
+**File:** `packages/runtime/src/channels/voice-channel.ts`
+
+Provides a voice interface using STT (speech-to-text) and TTS (text-to-speech) adapters. Audio input is transcribed to text for processing; text output is synthesized to audio for delivery.
+
+**Configuration:**
+
+```typescript
+import { VoiceChannel } from "@kilnai/runtime";
+import { OpenAISttAdapter } from "@kilnai/runtime";
+import { OpenAITtsAdapter } from "@kilnai/runtime";
+
+const voice = new VoiceChannel({
+  stt: new OpenAISttAdapter({ apiKey: process.env.OPENAI_API_KEY }),
+  tts: new OpenAITtsAdapter({ apiKey: process.env.OPENAI_API_KEY, voice: "alloy" }),
+});
+```
+
+- `supportedModalities`: `["text", "audio"]`
+- `receive()`: transcribes `AudioPart` content via `SttAdapter`, passes `TextPart` content unchanged.
+- `send()`: synthesizes text parts via `TtsAdapter` for audio delivery.
+
+**Speech adapters:**
+- `OpenAISttAdapter` (`packages/runtime/src/channels/speech/openai-stt.ts`): OpenAI Whisper API, fetch-based.
+- `OpenAITtsAdapter` (`packages/runtime/src/channels/speech/openai-tts.ts`): OpenAI TTS API, fetch-based.
+
+**YAML configuration:**
+
+```yaml
+channels: [cli, voice]
+voice:
+  stt:
+    provider: openai
+    apiKeyEnv: OPENAI_API_KEY
+    model: whisper-1
+  tts:
+    provider: openai
+    apiKeyEnv: OPENAI_API_KEY
+    voice: alloy
+```
+
 ## Routing
 
 Incoming messages follow a two-step routing pipeline through `ChannelRouter`:
@@ -352,7 +416,7 @@ Incoming messages follow a two-step routing pipeline through `ChannelRouter`:
 ```
 IncomingMessage
   -> IdentityResolver.resolve(channelName, platformUserId)
-  -> ChannelRouterRule[] (regex match on content, first wins)
+  -> ChannelRouterRule[] (regex match on extractText(message.parts), first wins)
   -> fallbackTeam (if no rule matches)
   -> onRoute() handler
   -> OutgoingMessage via Channel.send() on source channel

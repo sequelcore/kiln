@@ -3,7 +3,8 @@
 // Request signature verification uses node:crypto HMAC-SHA256
 
 import { createHmac, timingSafeEqual } from "node:crypto";
-import type { Channel, IncomingMessage, OutgoingMessage, EngineEvent, MessageFormat } from "@kilnai/core";
+import type { Channel, IncomingMessage, OutgoingMessage, EngineEvent, MessageFormat, Modality } from "@kilnai/core";
+import { extractText, textParts } from "@kilnai/core";
 import { formatForChannel } from "./message-formatter.js";
 
 export interface SlackConfig {
@@ -21,6 +22,7 @@ export interface SlackConfig {
 export class SlackChannel implements Channel {
   readonly name = "slack";
   readonly defaultFormat: MessageFormat = "full";
+  readonly supportedModalities: readonly Modality[] = ["text", "image", "file"];
 
   private readonly config: SlackConfig;
   private messageHandler: ((message: IncomingMessage) => void) | null = null;
@@ -41,7 +43,8 @@ export class SlackChannel implements Channel {
   }
 
   async send(response: OutgoingMessage): Promise<void> {
-    const formatted = formatForChannel(response.content, response.format ?? this.defaultFormat);
+    const text = extractText(response.parts);
+    const formatted = formatForChannel(text, response.format ?? this.defaultFormat);
 
     const body: Record<string, unknown> = {
       channel: response.target,
@@ -65,7 +68,7 @@ export class SlackChannel implements Channel {
   async stream(events: AsyncIterable<EngineEvent>): Promise<void> {
     for await (const event of events) {
       await this.send({
-        content: `[${event.type}] ${JSON.stringify(event.payload)}`,
+        parts: textParts(`[${event.type}] ${JSON.stringify(event.payload)}`),
         target: "stream",
         format: this.defaultFormat,
       });

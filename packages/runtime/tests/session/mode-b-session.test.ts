@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { textParts } from "@kilnai/core";
 import { ModeBSession } from "../../src/session/mode-b-session.js";
 
 describe("ModeBSession", () => {
@@ -40,35 +41,35 @@ describe("ModeBSession", () => {
   describe("addUserMessage", () => {
     it("adds message to conversation history with role user", () => {
       const session = new ModeBSession({ appName: "app", userId: "u", systemPrompt: "sys" });
-      session.addUserMessage("hello");
+      session.addUserMessage(textParts("hello"));
       expect(session.conversationHistory).toHaveLength(1);
-      expect(session.conversationHistory[0]).toEqual({ role: "user", content: "hello" });
+      expect(session.conversationHistory[0]).toEqual({ role: "user", parts: textParts("hello") });
     });
   });
 
   describe("addAssistantMessage", () => {
     it("adds message to conversation history with role assistant", () => {
       const session = new ModeBSession({ appName: "app", userId: "u", systemPrompt: "sys" });
-      session.addAssistantMessage("hi there");
+      session.addAssistantMessage(textParts("hi there"));
       expect(session.conversationHistory).toHaveLength(1);
-      expect(session.conversationHistory[0]).toEqual({ role: "assistant", content: "hi there" });
+      expect(session.conversationHistory[0]).toEqual({ role: "assistant", parts: textParts("hi there") });
     });
   });
 
   describe("conversationHistory", () => {
     it("preserves order of messages", () => {
       const session = new ModeBSession({ appName: "app", userId: "u", systemPrompt: "sys" });
-      session.addUserMessage("msg1");
-      session.addAssistantMessage("msg2");
-      session.addUserMessage("msg3");
-      session.addAssistantMessage("msg4");
+      session.addUserMessage(textParts("msg1"));
+      session.addAssistantMessage(textParts("msg2"));
+      session.addUserMessage(textParts("msg3"));
+      session.addAssistantMessage(textParts("msg4"));
 
       const history = session.conversationHistory;
       expect(history).toHaveLength(4);
-      expect(history[0]).toEqual({ role: "user", content: "msg1" });
-      expect(history[1]).toEqual({ role: "assistant", content: "msg2" });
-      expect(history[2]).toEqual({ role: "user", content: "msg3" });
-      expect(history[3]).toEqual({ role: "assistant", content: "msg4" });
+      expect(history[0]).toEqual({ role: "user", parts: textParts("msg1") });
+      expect(history[1]).toEqual({ role: "assistant", parts: textParts("msg2") });
+      expect(history[2]).toEqual({ role: "user", parts: textParts("msg3") });
+      expect(history[3]).toEqual({ role: "assistant", parts: textParts("msg4") });
     });
   });
 
@@ -76,9 +77,9 @@ describe("ModeBSession", () => {
     it("returns correct count", () => {
       const session = new ModeBSession({ appName: "app", userId: "u", systemPrompt: "sys" });
       expect(session.messageCount).toBe(0);
-      session.addUserMessage("a");
+      session.addUserMessage(textParts("a"));
       expect(session.messageCount).toBe(1);
-      session.addAssistantMessage("b");
+      session.addAssistantMessage(textParts("b"));
       expect(session.messageCount).toBe(2);
     });
   });

@@ -3,6 +3,7 @@ import { ChannelRouter } from "../../src/channels/channel-router.js";
 import { ChannelRegistry } from "../../src/channels/channel-registry.js";
 import { InMemoryIdentityResolver } from "../../src/channels/types.js";
 import type { Channel, IncomingMessage, OutgoingMessage } from "@kilnai/core";
+import { textParts, extractText } from "@kilnai/core";
 
 function makeChannel(name: string): Channel {
   return {
@@ -14,8 +15,8 @@ function makeChannel(name: string): Channel {
   };
 }
 
-function makeMessage(content: string, overrides: Partial<IncomingMessage> = {}): IncomingMessage {
-  return { content, source: "test", ...overrides };
+function makeMessage(text: string, overrides: Partial<IncomingMessage> = {}): IncomingMessage {
+  return { parts: textParts(text), source: "test", ...overrides };
 }
 
 describe("ChannelRouter", () => {
@@ -82,7 +83,7 @@ describe("ChannelRouter", () => {
       expect(result.team).toBe("ops");
       expect(result.engineUserId).toBe("user-42");
       expect(result.channelName).toBe("slack");
-      expect(result.message.content).toBe("deploy to staging");
+      expect(extractText(result.message.parts)).toBe("deploy to staging");
     });
 
     it("returns null userId when resolver has no mapping", async () => {
@@ -117,7 +118,7 @@ describe("ChannelRouter", () => {
         registry,
       });
 
-      const response: OutgoingMessage = { content: "Done", target: "user-1" };
+      const response: OutgoingMessage = { parts: textParts("Done"), target: "user-1" };
       router.onRoute(async () => response);
 
       await router.route("web", makeMessage("do something"));
@@ -147,7 +148,7 @@ describe("ChannelRouter", () => {
         registry,
       });
 
-      const response: OutgoingMessage = { content: "Done", target: "user-1" };
+      const response: OutgoingMessage = { parts: textParts("Done"), target: "user-1" };
       router.onRoute(async () => response);
 
       // Should not throw even though channel "unknown" is not registered

@@ -4,6 +4,7 @@ import type {
   ToolDefinition,
   AgentStreamEvent,
 } from "../../../src/agents/index.js";
+import { extractText, textParts } from "../../../src/agents/index.js";
 
 const mockCreate = vi.fn();
 
@@ -40,7 +41,7 @@ function makeOptions(
 ): CreateMessageOptions {
   return {
     system: "You are a helpful assistant.",
-    messages: [{ role: "user", content: "Hello" }],
+    messages: [{ role: "user", parts: textParts("Hello") }],
     ...overrides,
   };
 }
@@ -198,7 +199,7 @@ describe("AnthropicAdapter", () => {
 
       const response = await adapter.createMessage(makeOptions());
 
-      expect(response.content).toBe("Hello there!");
+      expect(extractText(response.parts)).toBe("Hello there!");
     });
 
     it("maps tool_use blocks to toolCalls", async () => {
@@ -218,7 +219,7 @@ describe("AnthropicAdapter", () => {
 
       const response = await adapter.createMessage(makeOptions());
 
-      expect(response.content).toBe("Let me search.");
+      expect(extractText(response.parts)).toBe("Let me search.");
       expect(response.toolCalls).toEqual([
         { id: "toolu_123", name: "search", input: { query: "test" } },
       ]);
@@ -367,7 +368,7 @@ describe("AnthropicAdapter", () => {
       const response = await adapter.createMessage(makeOptions());
 
       expect(mockCreate).toHaveBeenCalledTimes(2);
-      expect(response.content).toBe("Hello there!");
+      expect(extractText(response.parts)).toBe("Hello there!");
     });
 
     it("retries on 500 error", async () => {
@@ -384,7 +385,7 @@ describe("AnthropicAdapter", () => {
       const response = await adapter.createMessage(makeOptions());
 
       expect(mockCreate).toHaveBeenCalledTimes(2);
-      expect(response.content).toBe("Hello there!");
+      expect(extractText(response.parts)).toBe("Hello there!");
     });
 
     it("retries on 529 error", async () => {
@@ -401,7 +402,7 @@ describe("AnthropicAdapter", () => {
       const response = await adapter.createMessage(makeOptions());
 
       expect(mockCreate).toHaveBeenCalledTimes(2);
-      expect(response.content).toBe("Hello there!");
+      expect(extractText(response.parts)).toBe("Hello there!");
     });
 
     it("throws on 400 error without retry", async () => {

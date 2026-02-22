@@ -68,6 +68,12 @@ export type KilnErrorCode =
   | "MCP_DISCOVERY_FAILED"
   | "MCP_SERVER_ERROR"
   | "TOOL_RAG_FAILED"
+  // Multimodal (Phase 9)
+  | "UNSUPPORTED_MODALITY"
+  | "CONTENT_PART_INVALID"
+  | "VOICE_CONFIG_INVALID"
+  | "STT_FAILED"
+  | "TTS_FAILED"
   // Generic
   | "INTERNAL_ERROR";
 

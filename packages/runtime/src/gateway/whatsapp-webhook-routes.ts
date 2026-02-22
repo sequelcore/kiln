@@ -2,6 +2,8 @@
 // Resolves tenant by phone number, processes messages via Mode B orchestrator, replies via Cloud API
 
 import { Hono } from "hono";
+import type { ContentPart } from "@kilnai/core";
+import { textParts, extractText } from "@kilnai/core";
 import type { ModeBOrchestrator } from "../session/mode-b-orchestrator.js";
 import type { SessionRegistry } from "../session/session-registry.js";
 import type { TenantRegistry } from "../tenant/tenant-registry.js";
@@ -15,6 +17,15 @@ export interface WhatsAppWebhookConfig {
   readonly verifyToken: string;
 }
 
+interface MetaWebhookMessage {
+  from: string;
+  type: string;
+  text?: { body: string };
+  image?: { id: string; mime_type: string; caption?: string };
+  audio?: { id: string; mime_type: string };
+  document?: { id: string; mime_type: string; filename?: string; caption?: string };
+}
+
 interface MetaWebhookPayload {
   object: string;
   entry?: Array<{
@@ -23,14 +34,39 @@ interface MetaWebhookPayload {
       value: {
         messaging_product: string;
         metadata?: { phone_number_id?: string };
-        messages?: Array<{
-          from: string;
-          type: string;
-          text?: { body: string };
-        }>;
+        messages?: MetaWebhookMessage[];
       };
     }>;
   }>;
+}
+
+/** Parse a WhatsApp message into ContentPart[] */
+function parseWhatsAppMessageParts(msg: MetaWebhookMessage): readonly ContentPart[] | null {
+  switch (msg.type) {
+    case "text":
+      return msg.text?.body ? textParts(msg.text.body) : null;
+    case "image": {
+      if (!msg.image) return null;
+      const parts: ContentPart[] = [
+        { type: "image", mimeType: msg.image.mime_type, url: `whatsapp://media/${msg.image.id}` },
+      ];
+      if (msg.image.caption) parts.push({ type: "text", text: msg.image.caption });
+      return parts;
+    }
+    case "audio":
+      if (!msg.audio) return null;
+      return [{ type: "audio", mimeType: msg.audio.mime_type, url: `whatsapp://media/${msg.audio.id}` }];
+    case "document": {
+      if (!msg.document) return null;
+      const parts: ContentPart[] = [
+        { type: "file", mimeType: msg.document.mime_type, url: `whatsapp://media/${msg.document.id}`, filename: msg.document.filename },
+      ];
+      if (msg.document.caption) parts.push({ type: "text", text: msg.document.caption });
+      return parts;
+    }
+    default:
+      return null;
+  }
 }
 
 export function createWhatsAppWebhookRoutes(config: WhatsAppWebhookConfig): Hono {
@@ -77,14 +113,14 @@ export function createWhatsAppWebhookRoutes(config: WhatsAppWebhookConfig): Hono
         if (!tenant) continue;
 
         for (const msg of messages) {
-          // Only handle text messages
-          if (msg.type !== "text" || !msg.text?.body) continue;
+          const msgParts = parseWhatsAppMessageParts(msg);
+          if (!msgParts) continue;
 
           const promise = processWhatsAppMessage(
             config,
             tenant.tenantId,
             msg.from,
-            msg.text.body,
+            msgParts,
             phoneNumberId,
             tenant.whatsappAccessToken,
           );
@@ -106,7 +142,7 @@ async function processWhatsAppMessage(
   config: WhatsAppWebhookConfig,
   tenantId: string,
   senderPhone: string,
-  messageText: string,
+  messageParts: readonly ContentPart[],
   phoneNumberId: string,
   accessTokenEnv?: string,
 ): Promise<void> {
@@ -123,11 +159,13 @@ async function processWhatsAppMessage(
     idleTimeoutMs: tenant.idleTimeoutMs,
   });
 
-  const result = await config.orchestrator.processMessage(session, messageText);
+  const result = await config.orchestrator.processMessage(session, messageParts);
 
   // Reply via WhatsApp Cloud API
   const accessToken = accessTokenEnv ? process.env[accessTokenEnv] ?? "" : "";
   const url = `https://graph.facebook.com/v21.0/${phoneNumberId}/messages`;
+
+  const replyText = extractText(result.parts);
 
   try {
     await fetch(url, {
@@ -140,7 +178,7 @@ async function processWhatsAppMessage(
         messaging_product: "whatsapp",
         to: senderPhone,
         type: "text",
-        text: { body: result.content },
+        text: { body: replyText },
       }),
     });
   } catch {

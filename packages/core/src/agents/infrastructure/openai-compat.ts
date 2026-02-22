@@ -4,7 +4,9 @@ import type {
   AgentResponse,
   AgentStreamEvent,
   ToolCall,
+  ContentPart,
 } from "../index.js";
+import { textPart, extractText } from "../index.js";
 
 const MAX_RETRIES = 3;
 const BASE_DELAY_MS = 1000;
@@ -17,10 +19,14 @@ interface OpenAICompatConfig {
   readonly providerName: string;
 }
 
-interface OpenAIChatMessage {
-  readonly role: string;
-  readonly content: string;
+type OpenAIContent = string | readonly OpenAIContentBlock[];
+
+interface OpenAIContentBlock {
+  readonly type: string;
+  readonly text?: string;
+  readonly image_url?: { readonly url: string };
 }
+
 
 interface OpenAIToolFunction {
   readonly type: "function";
@@ -33,7 +39,7 @@ interface OpenAIToolFunction {
 
 interface OpenAIRequestBody {
   model: string;
-  messages: OpenAIChatMessage[];
+  messages: { role: string; content: OpenAIContent }[];
   max_tokens: number;
   tools?: OpenAIToolFunction[];
   stream?: boolean;
@@ -214,12 +220,39 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
     yield { type: "done", content: "" };
   }
 
+  private mapPartsToOpenAI(parts: readonly ContentPart[]): OpenAIContent {
+    // Optimization: all-text messages use plain string
+    if (parts.every((p) => p.type === "text")) {
+      return extractText(parts);
+    }
+
+    const blocks: OpenAIContentBlock[] = [];
+    for (const part of parts) {
+      switch (part.type) {
+        case "text":
+          blocks.push({ type: "text", text: part.text });
+          break;
+        case "image": {
+          const url = part.url ?? `data:${part.mimeType};base64,${part.data}`;
+          blocks.push({ type: "image_url", image_url: { url } });
+          break;
+        }
+        case "audio":
+        case "file":
+          // Degrade to text placeholder for unsupported types
+          blocks.push({ type: "text", text: `[${part.type}: unsupported]` });
+          break;
+      }
+    }
+    return blocks;
+  }
+
   private buildRequestBody(options: CreateMessageOptions): OpenAIRequestBody {
-    const messages: OpenAIChatMessage[] = [
+    const messages: { role: string; content: OpenAIContent }[] = [
       { role: "system", content: options.system },
       ...options.messages.map((msg) => ({
         role: msg.role,
-        content: msg.content,
+        content: this.mapPartsToOpenAI(msg.parts),
       })),
     ];
 
@@ -275,7 +308,7 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
     );
 
     return {
-      content,
+      parts: [textPart(content)],
       inputTokens: response.usage.prompt_tokens,
       outputTokens: response.usage.completion_tokens,
       cacheReadTokens: 0,

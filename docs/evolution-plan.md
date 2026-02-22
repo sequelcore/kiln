@@ -67,20 +67,40 @@ Every competitor forces a choice: code-first flexibility (LangGraph, Mastra) or 
 | Packages | 3 (core, runtime, cli) |
 | Bounded contexts | 25 |
 | Tests passing | 2,356+ (vitest) |
+| Multimodal | ContentPart[] message primitives, 4 modalities (text, image, audio, file), Voice Channel (STT/TTS) |
 | Primitives | 7 (Agent, Capability, Workflow, Memory, Task, Channel, Trigger) |
 | Composites | 3 (Team, Router, App) |
 | Provider adapters | 4 (Anthropic w/ native output_config, OpenAI, DeepSeek, Ollama) |
 | Embedding adapters | 2 (OpenAI, Ollama) |
-| Channel adapters | 5 (CLI, Web, WhatsApp, Slack, API) |
+| Channel adapters | 6 (CLI, Web, WhatsApp, Slack, API, Voice) |
 | Trigger types | 3 (webhook, event, schedule) |
 | Security layers | 6 (injection scan, Guardian, secrets, audit, tenant isolation, self-audit) |
 | Observability | OTel span mapping (29 event types) + exporter |
 | Knowledge (RAG) | Chunkers (2), EmbeddingAdapters (2), VectorStore (1), RetrievalPipeline, auto-injected capability |
 | Eval | 12 scorer types (6 rule-based + 6 LLM-as-judge), dataset JSONL loader, experiment runner, experiment comparator |
 | Interoperability | A2A protocol (Agent Card, JSON-RPC server/client, task store), MCP client (SSE, circuit breaker), Tool RAG |
-| Error codes | 46 (across 13 bounded contexts) |
+| Error codes | 51 (across 14 bounded contexts) |
 
-### Recently Completed (Phase 11 -- Interoperability: A2A + Dynamic MCP)
+### Recently Completed (Phase 9 -- Multimodal Support)
+
+- Engine primitives: `ContentPart` discriminated union (`TextPart | ImagePart | AudioPart | FilePart`) with helpers (`textPart`, `textParts`, `extractText`, `hasModality`, `validateContentPart`, `validateContentParts`)
+- Engine primitives: `Modality` type (`"text" | "image" | "audio" | "file"`) + `VALID_MODALITIES` + `validateModalities()`
+- Engine primitives: `SttAdapter`, `TtsAdapter`, `VoiceConfig`, `SttProviderConfig`, `TtsProviderConfig` interfaces + `validateVoiceConfig()`
+- Clean break migration: `content: string` replaced with `parts: readonly ContentPart[]` on `AgentMessage`, `AgentResponse`, `IncomingMessage`, `OutgoingMessage`
+- `Agent` interface extended with `readonly modalities?: readonly Modality[]` (defaults to `["text"]`)
+- `Channel` interface extended with `readonly supportedModalities: readonly Modality[]`
+- Provider adapters updated: Anthropic (image + file/PDF), OpenAI (image), DeepSeek (image), Ollama (image) map `ContentPart[]` to native format
+- All consumers updated: `context-compressor.ts`, `guardian.ts`, `prompt-scanner.ts` use `textParts()`/`extractText()`
+- All 6 channel adapters updated with `parts[]` + `supportedModalities`
+- Voice channel: `VoiceChannel` adapter with STT/TTS pipeline (`packages/runtime/src/channels/voice-channel.ts`)
+- Speech adapters: `OpenAISttAdapter` (Whisper API), `OpenAITtsAdapter` (TTS API) in `packages/runtime/src/channels/speech/`
+- `ChannelRouter` uses `extractText(message.parts)` for pattern matching
+- `ModeBOrchestrator` and `ModeBSession` accept `ContentPart[]`
+- Gateway routes accept `{ message: string }` or `{ parts: ContentPart[] }` in request body; responses include both `content` (extracted text) and `parts`
+- `app-loader.ts` extended with modalities parsing + `mapVoiceConfig()` for voice channel YAML
+- 5 error codes: `UNSUPPORTED_MODALITY`, `CONTENT_PART_INVALID`, `VOICE_CONFIG_INVALID`, `STT_FAILED`, `TTS_FAILED`
+
+### Previously Completed (Phase 11 -- Interoperability: A2A + Dynamic MCP)
 
 - Engine primitives: `AgentCard`, `A2ATask`, `A2ATaskStatus`, `A2AMessage`, `A2AArtifact`, `A2APart` types + `validateAgentCard()`
 - Engine primitives: `McpTransport` (SSE), `McpServerConfig`, `McpConfig` + `validateMcpConfig()`
@@ -283,7 +303,7 @@ knowledge:
 
 ---
 
-### Phase 9: Multimodal Support
+### Phase 9: Multimodal Support -- COMPLETED
 
 **Why:** Voice agents and vision are no longer niche. Google ADK and OpenAI Agents SDK have real-time audio. Vercel AI SDK has unified speech. Not having multimodal types means Kiln can't orchestrate any non-text workflow.
 
@@ -293,25 +313,31 @@ knowledge:
 
 #### 9.1 Message Content Parts
 
-- Replace `content: string` in `AgentMessage` with `content: string | ContentPart[]`
-- `ContentPart` union type:
+- Clean break: `content: string` replaced with `parts: readonly ContentPart[]` across the entire stack
+- `ContentPart` discriminated union:
   - `TextPart: { type: "text", text: string }`
-  - `ImagePart: { type: "image", source: ImageSource }` where `ImageSource` = `{ type: "url", url: string } | { type: "base64", mediaType: string, data: string }`
-  - `AudioPart: { type: "audio", source: AudioSource }` where `AudioSource` = `{ type: "url", url: string } | { type: "base64", mediaType: string, data: string }`
-  - `FilePart: { type: "file", name: string, mimeType: string, data: string | Buffer }`
+  - `ImagePart: { type: "image", mimeType: string, data?: string, url?: string }`
+  - `AudioPart: { type: "audio", mimeType: string, data?: string, url?: string, durationMs?: number }`
+  - `FilePart: { type: "file", mimeType: string, data?: string, url?: string, filename?: string }`
+- Helper functions: `textPart()`, `textParts()`, `extractText()`, `hasModality()`, `validateContentPart()`, `validateContentParts()`
 - Provider adapters map `ContentPart[]` to their native format:
-  - Anthropic: `content: [{ type: "image", source: { type: "base64", ... } }]`
+  - Anthropic: `content: [{ type: "image", source: { type: "base64"|"url", ... } }]` (image + file/PDF)
   - OpenAI: `content: [{ type: "image_url", image_url: { url: "data:..." } }]`
+  - DeepSeek: OpenAI-compatible format (image support depends on model)
   - Ollama: `images: [base64String]`
+- `AgentStreamEvent.content: string` intentionally unchanged (streaming multimodal chunks out of scope)
 
 #### 9.2 Channel Multimodal Support
 
-- `Channel` interface gains `supportedModalities: readonly Modality[]` (text, image, audio, file)
-- Channel router validates modality compatibility before routing messages
-- WhatsApp channel: image/audio/document support via Business API media endpoints
-- Slack channel: file upload via `files.upload` API
-- Web channel: binary WebSocket frames for audio/image
-- API channel: multipart/form-data support for file uploads
+- `Channel` interface gained `supportedModalities: readonly Modality[]`
+- Each adapter declares its supported modalities:
+  - CLI: `["text"]`
+  - Web: `["text", "image", "audio", "file"]`
+  - WhatsApp: `["text", "image", "audio", "file"]`
+  - Slack: `["text", "image", "file"]`
+  - API: `["text", "image", "audio", "file"]`
+  - Voice: `["text", "audio"]`
+- `ChannelRouter` uses `extractText(message.parts)` for pattern matching
 
 #### 9.3 Agent Modality Declaration
 
@@ -328,27 +354,30 @@ teams:
         tools: [extract_text, describe_image]
 ```
 
-- `modalities` is optional, defaults to `[text]`
-- Router validates that incoming message modalities match agent capabilities
+- `modalities` is optional, defaults to `["text"]`
+- Validated against `VALID_MODALITIES` during YAML loading
 - Mismatched modalities get a clear error event, not a silent failure
 
-#### 9.4 Voice Channel (Stretch)
+#### 9.4 Voice Channel
 
-- `VoiceChannel` adapter for WebRTC/WebSocket real-time audio
-- Speech-to-text on input (Whisper/Deepgram adapter)
-- Text-to-speech on output (ElevenLabs/OpenAI TTS adapter)
-- `SpeechAdapter` interface: `transcribe(audio) -> text`, `synthesize(text) -> audio`
+- `VoiceChannel` adapter with STT/TTS pipeline
+- `SttAdapter` interface: `transcribe(audio: Uint8Array, mimeType: string): Promise<SttResult>`
+- `TtsAdapter` interface: `synthesize(text: string, options?: TtsOptions): Promise<TtsResult>`
+- OpenAI Whisper STT adapter (fetch-based)
+- OpenAI TTS adapter (fetch-based)
 - YAML config:
 
 ```yaml
-channels:
-  - type: voice
-    stt:
-      provider: deepgram
-      model: nova-2
-    tts:
-      provider: elevenlabs
-      voice: rachel
+channels: [cli, voice]
+voice:
+  stt:
+    provider: openai
+    apiKeyEnv: OPENAI_API_KEY
+    model: whisper-1
+  tts:
+    provider: openai
+    apiKeyEnv: OPENAI_API_KEY
+    voice: alloy
 ```
 
 ---
@@ -812,7 +841,7 @@ Every feature in every phase follows the same rule: **if it can be configured, i
 ```
 Phase 7 (OTel)              -- COMPLETED
 Phase 8 (Knowledge/RAG)     -- COMPLETED
-Phase 9 (Multimodal)        -- standalone, no deps
+Phase 9 (Multimodal)        -- COMPLETED
 Phase 10 (Eval)             -- COMPLETED
 Phase 11 (A2A + MCP)        -- COMPLETED
 Phase 12 (Safety)           -- standalone, extends existing security context
@@ -827,7 +856,7 @@ Phase 15 (Durable)          -- requires Phase 14.3 (stateless gateway / external
 2. ~~**Phase 8** (Knowledge/RAG) -- COMPLETED~~
 3. ~~**Phase 10** (Eval) -- COMPLETED~~
 4. ~~**Phase 11** (A2A + Dynamic MCP) -- COMPLETED~~
-5. **Phase 9** (Multimodal) -- growing demand, unlocks voice/vision agents
+5. ~~**Phase 9** (Multimodal) -- COMPLETED~~
 6. **Phase 12** (Safety) -- enterprise blocker for regulated industries
 7. **Phase 14** (Deploy) -- ops maturity for production users
 8. **Phase 13** (Studio + SDK) -- DX acceleration, adoption driver

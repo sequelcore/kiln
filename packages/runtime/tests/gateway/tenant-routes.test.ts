@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import type { ProviderAdapter, TenantConfig } from "@kilnai/core";
+import { textParts } from "@kilnai/core";
 import { createTenantRoutes } from "../../src/gateway/tenant-routes.js";
 import type { TenantAppRuntime } from "../../src/gateway/tenant-routes.js";
 import { ModeBOrchestrator } from "../../src/session/mode-b-orchestrator.js";
@@ -15,7 +16,7 @@ function makeMockProvider(): ProviderAdapter {
   return {
     name: "mock",
     createMessage: vi.fn().mockResolvedValue({
-      content: "mock response",
+      parts: textParts("mock response"),
       inputTokens: 100,
       outputTokens: 50,
       cacheReadTokens: 0,
@@ -226,7 +227,7 @@ describe("createTenantRoutes", () => {
 
       expect(res.status).toBe(400);
       const body = (await res.json()) as { error: string };
-      expect(body.error).toBe("message is required");
+      expect(body.error).toBe("message or parts is required");
     });
 
     it("returns 400 for missing userId", async () => {

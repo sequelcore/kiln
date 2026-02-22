@@ -4,6 +4,7 @@ import type {
   AgentStreamEvent,
   ToolDefinition,
 } from "../../../src/agents/index.js";
+import { extractText, textParts } from "../../../src/agents/index.js";
 import {
   OllamaAdapter,
   LLAMA3,
@@ -16,7 +17,7 @@ function makeOptions(
 ): CreateMessageOptions {
   return {
     system: "You are a helpful assistant.",
-    messages: [{ role: "user", content: "Hello" }],
+    messages: [{ role: "user", parts: textParts("Hello") }],
     ...overrides,
   };
 }
@@ -115,7 +116,7 @@ describe("OllamaAdapter", () => {
       const adapter = new OllamaAdapter();
       const response = await adapter.createMessage(makeOptions());
 
-      expect(response.content).toBe("Hello there!");
+      expect(extractText(response.parts)).toBe("Hello there!");
       expect(response.inputTokens).toBe(100);
       expect(response.outputTokens).toBe(50);
       expect(response.cacheReadTokens).toBe(0);

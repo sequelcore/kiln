@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { WebChannel } from "../../src/channels/web-channel.js";
 import type { WebSocketLike } from "../../src/channels/web-channel.js";
 import type { IncomingMessage, OutgoingMessage, EngineEvent } from "@kilnai/core";
+import { textParts } from "@kilnai/core";
 
 function makeMockWs(open = true): WebSocketLike {
   return {
@@ -45,7 +46,7 @@ describe("WebChannel", () => {
       channel.onMessage(handler);
 
       const msg: IncomingMessage = {
-        content: "start session",
+        parts: textParts("start session"),
         source: "web",
         userId: "u1",
         threadId: "t1",
@@ -57,7 +58,7 @@ describe("WebChannel", () => {
 
     it("does nothing without a handler", async () => {
       await expect(
-        channel.receive({ content: "hello", source: "web" }),
+        channel.receive({ parts: textParts("hello"), source: "web" }),
       ).resolves.not.toThrow();
     });
   });
@@ -70,7 +71,7 @@ describe("WebChannel", () => {
       channel.addClient(ws2);
 
       const msg: OutgoingMessage = {
-        content: "Result ready",
+        parts: textParts("Result ready"),
         target: "broadcast",
         userId: "u1",
       };
@@ -91,7 +92,7 @@ describe("WebChannel", () => {
       channel.addClient(open);
       channel.addClient(closed);
 
-      await channel.send({ content: "test", target: "all" });
+      await channel.send({ parts: textParts("test"), target: "all" });
 
       expect(open.send).toHaveBeenCalledOnce();
       expect(closed.send).not.toHaveBeenCalled();
@@ -106,7 +107,7 @@ describe("WebChannel", () => {
       channel.addClient(good);
       channel.addClient(bad);
 
-      await channel.send({ content: "test", target: "all" });
+      await channel.send({ parts: textParts("test"), target: "all" });
 
       expect(channel.clientCount).toBe(1);
     });

@@ -4,7 +4,9 @@ import type {
   AgentResponse,
   AgentStreamEvent,
   ToolCall,
+  ContentPart,
 } from "../index.js";
+import { textPart, extractText } from "../index.js";
 
 export const LLAMA3 = "llama3.1";
 export const CODELLAMA = "codellama";
@@ -81,7 +83,7 @@ export class OllamaAdapter implements ProviderAdapter {
     }
 
     return {
-      content: data.message.content,
+      parts: [textPart(data.message.content)],
       inputTokens: data.prompt_eval_count ?? 0,
       outputTokens: data.eval_count ?? 0,
       cacheReadTokens: 0,
@@ -149,6 +151,17 @@ export class OllamaAdapter implements ProviderAdapter {
     }
   }
 
+  private mapPartsToOllama(parts: readonly ContentPart[]): { content: string; images?: string[] } {
+    const text = extractText(parts);
+    const images: string[] = [];
+    for (const part of parts) {
+      if (part.type === "image" && part.data) {
+        images.push(part.data);
+      }
+    }
+    return images.length > 0 ? { content: text, images } : { content: text };
+  }
+
   private buildRequest(
     options: CreateMessageOptions,
     stream: boolean,
@@ -157,7 +170,7 @@ export class OllamaAdapter implements ProviderAdapter {
       { role: "system", content: options.system },
       ...options.messages.map((msg) => ({
         role: msg.role,
-        content: msg.content,
+        ...this.mapPartsToOllama(msg.parts),
       })),
     ];
 

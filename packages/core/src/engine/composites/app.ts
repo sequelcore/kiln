@@ -15,6 +15,8 @@ import type { McpConfig } from "../domain/mcp-config.js";
 import { validateMcpConfig } from "../domain/mcp-config.js";
 import type { ToolSelectionConfig } from "../domain/tool-selection-config.js";
 import { validateToolSelectionConfig } from "../domain/tool-selection-config.js";
+import type { VoiceConfig } from "../domain/speech-config.js";
+import { validateVoiceConfig } from "../domain/speech-config.js";
 
 /** Memory configuration for an App */
 export interface MemoryConfig {
@@ -35,6 +37,7 @@ export interface App {
   readonly eval?: EvalConfig;
   readonly mcp?: McpConfig;
   readonly toolSelection?: ToolSelectionConfig;
+  readonly voice?: VoiceConfig;
 }
 
 /** Validation error for app configuration */
@@ -155,6 +158,14 @@ export function validateApp(app: App): AppValidationError[] {
     const tsErrors = validateToolSelectionConfig(app.toolSelection);
     for (const e of tsErrors) {
       errors.push({ field: `toolSelection.${e.field}`, message: e.message });
+    }
+  }
+
+  // Voice validation
+  if (app.voice) {
+    const voiceErrors = validateVoiceConfig(app.voice);
+    for (const e of voiceErrors) {
+      errors.push({ field: e.field, message: e.message });
     }
   }
 

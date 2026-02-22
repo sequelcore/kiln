@@ -1,3 +1,5 @@
+import type { ContentPart } from "../engine/domain/content.js";
+
 /**
  * Agent role in the orchestration.
  * Built-in roles: "architect", "worker", "optimizer".
@@ -8,7 +10,7 @@ export type AgentRole = string;
 /** Message for agent communication */
 export interface AgentMessage {
   readonly role: "user" | "assistant";
-  readonly content: string;
+  readonly parts: readonly ContentPart[];
 }
 
 /** Streaming event from an agent */
@@ -35,7 +37,7 @@ export interface CreateMessageOptions {
 
 /** Response from an agent */
 export interface AgentResponse {
-  readonly content: string;
+  readonly parts: readonly ContentPart[];
   readonly inputTokens: number;
   readonly outputTokens: number;
   readonly cacheReadTokens: number;
@@ -77,3 +79,7 @@ export { compressContext } from "./context-compressor.js";
 export type { CompressOptions } from "./context-compressor.js";
 export { McpClient } from "./mcp-client.js";
 export { ToolRAG } from "./tool-rag.js";
+export type { ContentPart, TextPart, ImagePart, AudioPart, FilePart } from "../engine/domain/content.js";
+export { textPart, textParts, extractText, hasModality, validateContentPart, validateContentParts } from "../engine/domain/content.js";
+export type { Modality } from "../engine/domain/modality.js";
+export { VALID_MODALITIES, validateModalities } from "../engine/domain/modality.js";

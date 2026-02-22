@@ -2,6 +2,8 @@
 // Handles tenant-scoped message processing, session listing, and session removal
 
 import { Hono } from "hono";
+import type { ContentPart } from "@kilnai/core";
+import { textParts, extractText } from "@kilnai/core";
 import type { ModeBOrchestrator } from "../session/mode-b-orchestrator.js";
 import type { SessionRegistry } from "../session/session-registry.js";
 import type { TenantRegistry } from "../tenant/tenant-registry.js";
@@ -27,7 +29,8 @@ export interface TenantAppRuntime {
 
 /** Request body for POST /message */
 interface TenantMessageRequest {
-  readonly message: string;
+  readonly message?: string;
+  readonly parts?: readonly ContentPart[];
   readonly userId: string;
   readonly tenantId: string;
   readonly plan?: string;
@@ -44,8 +47,12 @@ export function createTenantRoutes(runtime: TenantAppRuntime): Hono {
       return c.json({ error: "Invalid JSON body" }, 400);
     }
 
-    if (!body.message || typeof body.message !== "string") {
-      return c.json({ error: "message is required" }, 400);
+    // Accept either { message: string } or { parts: ContentPart[] }
+    const userParts: readonly ContentPart[] = body.parts && Array.isArray(body.parts)
+      ? body.parts
+      : (body.message && typeof body.message === "string" ? textParts(body.message) : []);
+    if (userParts.length === 0) {
+      return c.json({ error: "message or parts is required" }, 400);
     }
     if (!body.userId || typeof body.userId !== "string") {
       return c.json({ error: "userId is required" }, 400);
@@ -91,7 +98,7 @@ export function createTenantRoutes(runtime: TenantAppRuntime): Hono {
     });
 
     // Process message
-    const result = await runtime.orchestrator.processMessage(session, body.message);
+    const result = await runtime.orchestrator.processMessage(session, userParts);
 
     // Report usage
     if (billingConfig) {
@@ -104,7 +111,8 @@ export function createTenantRoutes(runtime: TenantAppRuntime): Hono {
     }
 
     return c.json({
-      content: result.content,
+      content: extractText(result.parts),
+      parts: result.parts,
       inputTokens: result.inputTokens,
       outputTokens: result.outputTokens,
       sessionId: session.id,

@@ -4,6 +4,7 @@ import { EventBus } from "../../src/events/event-bus.js";
 import type { GuardianConfig } from "../../src/security/types.js";
 import type { Capability } from "../../src/engine/domain/capability.js";
 import type { ProviderAdapter, AgentResponse } from "../../src/agents/index.js";
+import { textParts } from "../../src/agents/index.js";
 import type { AuditLog, AuditEntry, AuditFilter, AuditChainResult } from "../../src/security/types.js";
 
 // --- Helpers ---
@@ -54,7 +55,7 @@ function makeApprovedProvider(): ProviderAdapter {
     name: "mock-provider",
     async createMessage() {
       return {
-        content: JSON.stringify({ approved: true, reason: "looks safe", riskLevel: "low" }),
+        parts: textParts(JSON.stringify({ approved: true, reason: "looks safe", riskLevel: "low" })),
         inputTokens: 0,
         outputTokens: 0,
         cacheReadTokens: 0,
@@ -71,7 +72,7 @@ function makeDeniedProvider(): ProviderAdapter {
     name: "mock-provider",
     async createMessage() {
       return {
-        content: JSON.stringify({ approved: false, reason: "dangerous path", riskLevel: "critical" }),
+        parts: textParts(JSON.stringify({ approved: false, reason: "dangerous path", riskLevel: "critical" })),
         inputTokens: 0,
         outputTokens: 0,
         cacheReadTokens: 0,
@@ -98,7 +99,7 @@ function makeMalformedProvider(): ProviderAdapter {
     name: "mock-provider",
     async createMessage() {
       return {
-        content: "not json at all",
+        parts: textParts("not json at all"),
         inputTokens: 0,
         outputTokens: 0,
         cacheReadTokens: 0,

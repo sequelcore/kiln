@@ -140,7 +140,7 @@ Supported providers: `anthropic`, `openai`, `deepseek`, `ollama`. The `apiKeyEnv
 2. Builds the system prompt: `session.systemPrompt` + optional `recalledMemory` block.
 3. Calls `provider.createMessage()` with the full conversation history.
 4. Appends the assistant response to the session history.
-5. Returns `OrchestrateResult`: `content`, `inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheWriteTokens`.
+5. Returns `OrchestrateResult`: `parts` (readonly ContentPart[]), `inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheWriteTokens`.
 
 Source: `packages/runtime/src/session/mode-b-orchestrator.ts`
 
@@ -377,11 +377,11 @@ Mounted at the path declared in the App's `api` channel binding.
 
 | Method | Path | Request Body | Response Body | Description |
 |--------|------|--------------|---------------|-------------|
-| `POST` | `/{path}/message` | `{ message, userId, plan? }` | `{ content, inputTokens, outputTokens, sessionId }` | Send a message. Runs budget check, processes message, reports usage. |
+| `POST` | `/{path}/message` | `{ message, userId, plan? }` or `{ parts, userId, plan? }` | `{ content, parts, inputTokens, outputTokens, sessionId }` | Send a message. Accepts `message` (string) or `parts` (ContentPart[]). Response includes both `content` (extracted text) and `parts` (full multimodal). |
 | `GET` | `/{path}/sessions` | — | `{ sessions: [{ id, userId, messageCount, createdAt, lastActivityAt }] }` | List active sessions for this App. |
 | `DELETE` | `/{path}/sessions/:userId` | — | `{ removed: boolean }` | Remove the session for a specific user. |
 
-When budget is exhausted, `POST /message` returns `{ content: "{overBudgetMessage}", budgetExhausted: true }` without calling the provider.
+When budget is exhausted, `POST /message` returns `{ content: "{overBudgetMessage}", parts: [{ type: "text", text: "{overBudgetMessage}" }], budgetExhausted: true }` without calling the provider.
 
 When tier is restricted, `POST /message` returns `{ content: "...", tierRestricted: true }`.
 

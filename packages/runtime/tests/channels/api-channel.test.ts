@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ApiChannel } from "../../src/channels/api-channel.js";
 import type { SseWriter } from "../../src/channels/api-channel.js";
 import type { IncomingMessage, OutgoingMessage, EngineEvent } from "@kilnai/core";
+import { textParts, extractText } from "@kilnai/core";
 
 function makeMockWriter(): SseWriter {
   return {
@@ -28,7 +29,7 @@ describe("ApiChannel", () => {
       channel.onMessage(handler);
 
       const msg: IncomingMessage = {
-        content: "run task",
+        parts: textParts("run task"),
         source: "api",
         userId: "u1",
         threadId: "t1",
@@ -40,7 +41,7 @@ describe("ApiChannel", () => {
 
     it("does nothing without a handler", async () => {
       await expect(
-        channel.receive({ content: "hello", source: "api" }),
+        channel.receive({ parts: textParts("hello"), source: "api" }),
       ).resolves.not.toThrow();
     });
   });
@@ -48,7 +49,7 @@ describe("ApiChannel", () => {
   describe("send()", () => {
     it("pushes message to the response queue", async () => {
       const msg: OutgoingMessage = {
-        content: "done",
+        parts: textParts("done"),
         target: "client",
         userId: "u1",
         threadId: "t1",
@@ -67,7 +68,7 @@ describe("ApiChannel", () => {
       channel.addSseClient(writer2);
 
       const msg: OutgoingMessage = {
-        content: "result",
+        parts: textParts("result"),
         target: "broadcast",
         userId: "u1",
         threadId: "t2",
@@ -98,7 +99,7 @@ describe("ApiChannel", () => {
       channel.addSseClient(good);
       channel.addSseClient(bad);
 
-      await channel.send({ content: "test", target: "all" });
+      await channel.send({ parts: textParts("test"), target: "all" });
 
       expect(channel.sseClientCount).toBe(1);
     });
@@ -106,8 +107,8 @@ describe("ApiChannel", () => {
 
   describe("pollResponses()", () => {
     it("returns and clears the queue", async () => {
-      await channel.send({ content: "a", target: "c1" });
-      await channel.send({ content: "b", target: "c2" });
+      await channel.send({ parts: textParts("a"), target: "c1" });
+      await channel.send({ parts: textParts("b"), target: "c2" });
 
       const first = channel.pollResponses();
       expect(first).toHaveLength(2);
@@ -185,16 +186,16 @@ describe("ApiChannel", () => {
     it("discards oldest entry when queue exceeds max size", async () => {
       // Fill queue with 100 items
       for (let i = 0; i < 100; i++) {
-        await channel.send({ content: `msg-${i}`, target: "t" });
+        await channel.send({ parts: textParts(`msg-${i}`), target: "t" });
       }
 
       // Add one more: oldest (msg-0) should be dropped
-      await channel.send({ content: "msg-100", target: "t" });
+      await channel.send({ parts: textParts("msg-100"), target: "t" });
 
       const responses = channel.pollResponses();
       expect(responses).toHaveLength(100);
-      expect(responses[0]!.content).toBe("msg-1");
-      expect(responses[99]!.content).toBe("msg-100");
+      expect(extractText(responses[0]!.parts)).toBe("msg-1");
+      expect(extractText(responses[99]!.parts)).toBe("msg-100");
     });
   });
 });

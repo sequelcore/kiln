@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { PromptScanner, INJECTION_PATTERNS } from "../../src/security/prompt-scanner.js";
 import type { ProviderAdapter, CreateMessageOptions, AgentResponse } from "../../src/agents/index.js";
+import { textParts } from "../../src/agents/index.js";
 
 // ---------------------------------------------------------------------------
 // Mock provider adapter
@@ -10,7 +11,7 @@ function makeMockProvider(response: string): ProviderAdapter {
   return {
     name: "mock",
     createMessage: vi.fn(async (_opts: CreateMessageOptions): Promise<AgentResponse> => ({
-      content: response,
+      parts: textParts(response),
       inputTokens: 10,
       outputTokens: 5,
       cacheReadTokens: 0,

@@ -11,6 +11,7 @@ import {
 } from "../../src/index.js";
 import type { KilnEvent } from "../../src/index.js";
 import type { ProviderAdapter, AgentMessage, AgentStreamEvent } from "../../src/index.js";
+import { textParts } from "../../src/index.js";
 
 // ---------------------------------------------------------------------------
 // Shared YAML fixtures
@@ -73,7 +74,7 @@ function makeMockProvider(opts?: { throws?: boolean }): ProviderAdapter {
         return Promise.reject(new Error("Provider failure"));
       }
       return Promise.resolve({
-        content: "mock response",
+        parts: textParts("mock response"),
         inputTokens: 100,
         outputTokens: 50,
         cacheReadTokens: 0,
@@ -212,7 +213,7 @@ describe("Pipeline Integration Tests", () => {
       await expect(
         provider.createMessage({
           system: "test",
-          messages: [{ role: "user", content: "hello" }],
+          messages: [{ role: "user", parts: textParts("hello") }],
         }),
       ).rejects.toThrow("Provider failure");
 

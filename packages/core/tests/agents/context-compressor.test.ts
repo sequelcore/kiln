@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { compressContext } from "../../src/agents/context-compressor.js";
 import type { ProviderAdapter, CreateMessageOptions, AgentResponse, AgentStreamEvent } from "../../src/agents/index.js";
+import { textParts } from "../../src/agents/index.js";
 
 function makeProvider(response: string): ProviderAdapter & { lastCall: CreateMessageOptions | null } {
   const provider: ProviderAdapter & { lastCall: CreateMessageOptions | null } = {
@@ -9,7 +10,7 @@ function makeProvider(response: string): ProviderAdapter & { lastCall: CreateMes
     async createMessage(options: CreateMessageOptions): Promise<AgentResponse> {
       provider.lastCall = options;
       return {
-        content: response,
+        parts: textParts(response),
         inputTokens: 100,
         outputTokens: 50,
         cacheReadTokens: 0,

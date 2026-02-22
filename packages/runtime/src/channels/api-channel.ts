@@ -1,7 +1,8 @@
 // ApiChannel: wraps REST API + Server-Sent Events as a Channel adapter
 // Supports polling via response queue and real-time streaming via SSE connections
 
-import type { Channel, IncomingMessage, OutgoingMessage, EngineEvent, MessageFormat } from "@kilnai/core";
+import type { Channel, IncomingMessage, OutgoingMessage, EngineEvent, MessageFormat, Modality } from "@kilnai/core";
+import { extractText } from "@kilnai/core";
 import { formatForChannel } from "./message-formatter.js";
 
 const MAX_QUEUE_SIZE = 100;
@@ -25,6 +26,7 @@ interface ApiChannelConfig {
 export class ApiChannel implements Channel {
   readonly name = "api";
   readonly defaultFormat: MessageFormat = "structured";
+  readonly supportedModalities: readonly Modality[] = ["text", "image", "audio", "file"];
 
   private readonly config: ApiChannelConfig;
   private readonly responseQueue: OutgoingMessage[] = [];
@@ -53,10 +55,12 @@ export class ApiChannel implements Channel {
     }
     this.responseQueue.push(response);
 
-    const formatted = formatForChannel(response.content, response.format ?? this.defaultFormat);
+    const text = extractText(response.parts);
+    const formatted = formatForChannel(text, response.format ?? this.defaultFormat);
     const payload = `data: ${JSON.stringify({
       type: "message",
       content: formatted,
+      parts: response.parts,
       target: response.target,
       userId: response.userId,
       threadId: response.threadId,

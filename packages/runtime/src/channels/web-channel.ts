@@ -1,7 +1,8 @@
 // WebChannel: wraps Hono WebSocket connections as a Channel adapter
 // Formalizes the existing ws.ts + session-state.ts pattern as a Channel implementation
 
-import type { Channel, IncomingMessage, OutgoingMessage, EngineEvent, MessageFormat } from "@kilnai/core";
+import type { Channel, IncomingMessage, OutgoingMessage, EngineEvent, MessageFormat, Modality } from "@kilnai/core";
+import { extractText } from "@kilnai/core";
 import { formatForChannel } from "./message-formatter.js";
 
 /** Minimal WebSocket interface (compatible with Hono WSContext) */
@@ -20,6 +21,7 @@ export interface WebSocketLike {
 export class WebChannel implements Channel {
   readonly name = "web";
   readonly defaultFormat: MessageFormat = "full";
+  readonly supportedModalities: readonly Modality[] = ["text", "image", "audio", "file"];
 
   private readonly clients = new Set<WebSocketLike>();
   private messageHandler: ((message: IncomingMessage) => void) | null = null;
@@ -51,10 +53,12 @@ export class WebChannel implements Channel {
   }
 
   async send(response: OutgoingMessage): Promise<void> {
-    const formatted = formatForChannel(response.content, response.format ?? this.defaultFormat);
+    const text = extractText(response.parts);
+    const formatted = formatForChannel(text, response.format ?? this.defaultFormat);
     const payload = JSON.stringify({
       type: "output",
       text: formatted,
+      parts: response.parts,
       target: response.target,
       userId: response.userId,
       threadId: response.threadId,

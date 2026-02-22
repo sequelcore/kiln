@@ -1,4 +1,5 @@
 import type { ProviderAdapter } from "./index.js";
+import { textParts, extractText } from "./index.js";
 
 export interface CompressOptions {
   /** Skip compression if text is shorter than this. Default: 2000. */
@@ -28,9 +29,9 @@ export async function compressContext(
 
   const response = await provider.createMessage({
     system: options?.system ?? DEFAULT_SYSTEM,
-    messages: [{ role: "user", content: text }],
+    messages: [{ role: "user", parts: textParts(text) }],
     maxTokens: Math.ceil(threshold / 2),
   });
 
-  return response.content;
+  return extractText(response.parts);
 }

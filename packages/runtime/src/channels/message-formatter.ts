@@ -1,7 +1,8 @@
 // MessageFormatter: unified SDK message formatting for all channel adapters
 // Single source of truth -- replaces duplicate switch statements in run.ts and session-state.ts
 
-import type { MessageFormat } from "@kilnai/core";
+import type { MessageFormat, ContentPart } from "@kilnai/core";
+import { extractText } from "@kilnai/core";
 
 /** A formatted output line ready for channel delivery */
 export interface OutputLine {
@@ -58,6 +59,11 @@ export function formatSdkMessage(msg: { type: string; [key: string]: unknown }):
     default:
       return null;
   }
+}
+
+/** Adapt content parts for a specific channel format (extracts text, applies formatting) */
+export function formatPartsForChannel(parts: readonly ContentPart[], format: MessageFormat): string {
+  return formatForChannel(extractText(parts), format);
 }
 
 /** Adapt content for a specific channel format */

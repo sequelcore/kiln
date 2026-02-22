@@ -10,6 +10,7 @@ import { SessionRegistry } from "../../src/session/session-registry.js";
 import { ModeBOrchestrator } from "../../src/session/mode-b-orchestrator.js";
 import { TenantRegistry } from "../../src/tenant/tenant-registry.js";
 import type { App, ProviderAdapter, TenantConfig } from "@kilnai/core";
+import { textParts } from "@kilnai/core";
 
 const originalFetch = globalThis.fetch;
 
@@ -52,7 +53,7 @@ function makeMockProvider(): ProviderAdapter {
   return {
     name: "mock",
     createMessage: vi.fn().mockResolvedValue({
-      content: "mock response",
+      parts: textParts("mock response"),
       inputTokens: 100,
       outputTokens: 50,
       cacheReadTokens: 0,

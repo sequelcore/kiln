@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import type { ProviderAdapter } from "@kilnai/core";
 import type { AppDelegation } from "@kilnai/core";
+import { textParts } from "@kilnai/core";
 import {
   executeDelegation,
   validateResponseSchema,
@@ -14,7 +15,7 @@ function makeMockProvider(
   return {
     name: "mock",
     createMessage: vi.fn().mockResolvedValue({
-      content,
+      parts: textParts(content),
       inputTokens: 200,
       outputTokens: 100,
       cacheReadTokens: 50,
@@ -144,7 +145,7 @@ describe("executeDelegation", () => {
             setTimeout(
               () =>
                 resolve({
-                  content: '{"recommendation":"slow"}',
+                  parts: textParts('{"recommendation":"slow"}'),
                   inputTokens: 10,
                   outputTokens: 5,
                   cacheReadTokens: 0,

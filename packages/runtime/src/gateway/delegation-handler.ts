@@ -198,7 +198,7 @@ export async function executeKilnDelegation(
     const response = await Promise.race([
       target.provider.createMessage({
         system: systemPrompt,
-        messages: [{ role: "user" as const, content: delegation.task }],
+        messages: [{ role: "user" as const, parts: [{ type: "text" as const, text: delegation.task }] }],
         outputSchema: delegation.schema,
         maxTokens: DEFAULT_MAX_TOKENS,
       }),
@@ -211,7 +211,8 @@ export async function executeKilnDelegation(
 
     let parsed: unknown;
     try {
-      parsed = JSON.parse(response.content);
+      const responseText = response.parts.map(p => p.type === "text" ? p.text : "").join("");
+      parsed = JSON.parse(responseText);
     } catch {
       return {
         code: "SCHEMA_VALIDATION_FAILED",

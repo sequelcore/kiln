@@ -4,6 +4,7 @@ import type {
   ToolDefinition,
   AgentStreamEvent,
 } from "../../../src/agents/index.js";
+import { extractText, textParts } from "../../../src/agents/index.js";
 import { OpenAIAdapter, GPT4O, GPT4O_MINI, O3, O3_MINI, CODEX } from "../../../src/agents/infrastructure/openai.js";
 import { DeepSeekAdapter, DEEPSEEK_CHAT, DEEPSEEK_REASONER } from "../../../src/agents/infrastructure/deepseek.js";
 
@@ -12,7 +13,7 @@ function makeOptions(
 ): CreateMessageOptions {
   return {
     system: "You are a helpful assistant.",
-    messages: [{ role: "user", content: "Hello" }],
+    messages: [{ role: "user", parts: textParts("Hello") }],
     ...overrides,
   };
 }
@@ -129,7 +130,7 @@ describe("OpenAIAdapter", () => {
 
     const response = await adapter.createMessage(makeOptions());
 
-    expect(response.content).toBe("Hello there!");
+    expect(extractText(response.parts)).toBe("Hello there!");
     expect(response.inputTokens).toBe(100);
     expect(response.outputTokens).toBe(50);
     expect(response.toolCalls).toEqual([]);
@@ -159,7 +160,7 @@ describe("OpenAIAdapter", () => {
 
     const response = await adapter.createMessage(makeOptions());
 
-    expect(response.content).toBe("Let me search.");
+    expect(extractText(response.parts)).toBe("Let me search.");
     expect(response.toolCalls).toEqual([
       { id: "call_123", name: "search", input: { query: "test" } },
     ]);
@@ -190,7 +191,7 @@ describe("OpenAIAdapter", () => {
     const response = await adapter.createMessage(makeOptions());
 
     expect(mockFetch).toHaveBeenCalledTimes(2);
-    expect(response.content).toBe("Hello there!");
+    expect(extractText(response.parts)).toBe("Hello there!");
   });
 
   it("streamMessage yields text events", async () => {
@@ -263,7 +264,7 @@ describe("DeepSeekAdapter", () => {
 
     const response = await adapter.createMessage(makeOptions());
 
-    expect(response.content).toBe("Hello there!");
+    expect(extractText(response.parts)).toBe("Hello there!");
     expect(response.inputTokens).toBe(100);
     expect(response.outputTokens).toBe(50);
     expect(response.toolCalls).toEqual([]);

@@ -38,6 +38,36 @@ export type {
   EngineEvent,
 } from "./engine/domain/channel.js";
 
+// Multimodal content types re-exported for direct access by runtime
+export type {
+  ContentPart,
+  TextPart,
+  ImagePart,
+  AudioPart,
+  FilePart,
+} from "./engine/domain/content.js";
+export {
+  textPart,
+  textParts,
+  extractText,
+  hasModality,
+  validateContentPart,
+  validateContentParts,
+} from "./engine/domain/content.js";
+export type { Modality } from "./engine/domain/modality.js";
+export { VALID_MODALITIES, validateModalities } from "./engine/domain/modality.js";
+export type {
+  SttAdapter,
+  SttResult,
+  TtsAdapter,
+  TtsOptions,
+  TtsResult,
+  VoiceConfig,
+  SttProviderConfig,
+  TtsProviderConfig,
+} from "./engine/domain/speech-config.js";
+export { validateVoiceConfig } from "./engine/domain/speech-config.js";
+
 // Gateway types re-exported for direct access by runtime gateway
 export type {
   GatewayConfig,

@@ -5,7 +5,9 @@ import type {
   AgentResponse,
   AgentStreamEvent,
   ToolCall,
+  ContentPart,
 } from "../index.js";
+import { textPart, extractText } from "../index.js";
 import { KilnError } from "../../engine/errors.js";
 
 export const CLAUDE_OPUS = "claude-opus-4-6";
@@ -122,7 +124,7 @@ export class AnthropicAdapter implements ProviderAdapter {
     const messages: Anthropic.Messages.MessageParam[] = options.messages.map(
       (msg) => ({
         role: msg.role,
-        content: msg.content,
+        content: this.mapPartsToAnthropic(msg.parts),
       }),
     );
 
@@ -154,13 +156,52 @@ export class AnthropicAdapter implements ProviderAdapter {
     return params;
   }
 
+  private mapPartsToAnthropic(
+    parts: readonly ContentPart[],
+  ): string | Anthropic.Messages.ContentBlockParam[] {
+    // Optimization: all-text messages use plain string
+    if (parts.every((p) => p.type === "text")) {
+      return extractText(parts);
+    }
+
+    const blocks: Anthropic.Messages.ContentBlockParam[] = [];
+    for (const part of parts) {
+      switch (part.type) {
+        case "text":
+          blocks.push({ type: "text", text: part.text });
+          break;
+        case "image":
+          blocks.push({
+            type: "image",
+            source: part.data
+              ? { type: "base64", media_type: part.mimeType as "image/jpeg" | "image/png" | "image/gif" | "image/webp", data: part.data }
+              : { type: "url", url: part.url! },
+          });
+          break;
+        case "file":
+          blocks.push({
+            type: "document",
+            source: part.data
+              ? { type: "base64", media_type: part.mimeType as "application/pdf", data: part.data }
+              : { type: "url", url: part.url! },
+          });
+          break;
+        case "audio":
+          throw new KilnError("UNSUPPORTED_MODALITY", "Anthropic does not support audio content blocks", {
+            context: { modality: "audio", provider: "anthropic" },
+          });
+      }
+    }
+    return blocks;
+  }
+
   private mapResponse(response: Anthropic.Messages.Message): AgentResponse {
-    const textParts: string[] = [];
+    const responseParts: ContentPart[] = [];
     const toolCalls: ToolCall[] = [];
 
     for (const block of response.content) {
       if (block.type === "text") {
-        textParts.push(block.text);
+        responseParts.push(textPart(block.text));
       } else if (block.type === "tool_use") {
         toolCalls.push({
           id: block.id,
@@ -171,7 +212,7 @@ export class AnthropicAdapter implements ProviderAdapter {
     }
 
     return {
-      content: textParts.join(""),
+      parts: responseParts.length > 0 ? responseParts : [textPart("")],
       inputTokens: response.usage.input_tokens,
       outputTokens: response.usage.output_tokens,
       cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,

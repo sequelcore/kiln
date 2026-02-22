@@ -2,6 +2,7 @@
 
 import type { PromptScanResult, PromptThreat, PromptInjectionConfig } from "./types.js";
 import type { ProviderAdapter } from "../agents/index.js";
+import { textParts, extractText } from "../agents/index.js";
 
 /** A single injection detection pattern */
 export interface InjectionPattern {
@@ -350,13 +351,13 @@ export class PromptScanner {
     try {
       const response = await provider.createMessage({
         system: DEEP_SCAN_SYSTEM_PROMPT,
-        messages: [{ role: "user", content: input }],
+        messages: [{ role: "user", parts: textParts(input) }],
         maxTokens: 200,
       });
 
       let parsed: { safe: boolean; reason: string; threats: string[] };
       try {
-        parsed = JSON.parse(response.content) as typeof parsed;
+        parsed = JSON.parse(extractText(response.parts)) as typeof parsed;
       } catch {
         // If we can't parse the response, assume safe (fail-open for deep scan)
         return {

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import type { ProviderAdapter } from "@kilnai/core";
+import { textParts } from "@kilnai/core";
 import { createDelegationRoutes } from "../../src/gateway/delegation-routes.js";
 import type { DelegationRegistry, DelegationTarget } from "../../src/gateway/delegation-handler.js";
 
@@ -7,7 +8,7 @@ function makeMockProvider(content: string = '{"recommendation":"use TypeScript"}
   return {
     name: "mock",
     createMessage: vi.fn().mockResolvedValue({
-      content,
+      parts: textParts(content),
       inputTokens: 200,
       outputTokens: 100,
       cacheReadTokens: 0,

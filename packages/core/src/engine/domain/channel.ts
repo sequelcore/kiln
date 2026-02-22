@@ -1,12 +1,15 @@
 // Engine primitive: Channel -- input/output adapter for external platforms
 // Agents produce content; channels format for the platform
 
+import type { ContentPart } from "./content.js";
+import type { Modality } from "./modality.js";
+
 /** Message format hint for channel-specific rendering */
 export type MessageFormat = "short" | "full" | "structured";
 
 /** An incoming message from an external source */
 export interface IncomingMessage {
-  readonly content: string;
+  readonly parts: readonly ContentPart[];
   readonly source: string;
   readonly userId?: string;
   readonly threadId?: string;
@@ -15,7 +18,7 @@ export interface IncomingMessage {
 
 /** An outgoing response to an external target */
 export interface OutgoingMessage {
-  readonly content: string;
+  readonly parts: readonly ContentPart[];
   readonly target: string;
   readonly format?: MessageFormat;
   readonly userId?: string;
@@ -34,6 +37,7 @@ export interface EngineEvent {
 export interface Channel {
   readonly name: string;
   readonly defaultFormat: MessageFormat;
+  readonly supportedModalities: readonly Modality[];
   receive(message: IncomingMessage): Promise<void>;
   send(response: OutgoingMessage): Promise<void>;
   stream(events: AsyncIterable<EngineEvent>): Promise<void>;

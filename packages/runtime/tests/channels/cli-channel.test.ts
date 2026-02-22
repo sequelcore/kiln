@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { CliChannel } from "../../src/channels/cli-channel.js";
 import type { IncomingMessage, OutgoingMessage, EngineEvent } from "@kilnai/core";
+import { textParts } from "@kilnai/core";
 
 describe("CliChannel", () => {
   let channel: CliChannel;
@@ -26,7 +27,7 @@ describe("CliChannel", () => {
       channel.onMessage(handler);
 
       const msg: IncomingMessage = {
-        content: "Fix the bug",
+        parts: textParts("Fix the bug"),
         source: "stdin",
       };
       await channel.receive(msg);
@@ -35,7 +36,7 @@ describe("CliChannel", () => {
     });
 
     it("does nothing without a handler", async () => {
-      const msg: IncomingMessage = { content: "hello", source: "stdin" };
+      const msg: IncomingMessage = { parts: textParts("hello"), source: "stdin" };
       await expect(channel.receive(msg)).resolves.not.toThrow();
     });
   });
@@ -43,7 +44,7 @@ describe("CliChannel", () => {
   describe("send()", () => {
     it("writes formatted content to stdout", async () => {
       const msg: OutgoingMessage = {
-        content: "Task complete",
+        parts: textParts("Task complete"),
         target: "user",
       };
       await channel.send(msg);
@@ -53,7 +54,7 @@ describe("CliChannel", () => {
 
     it("uses provided format over default", async () => {
       const msg: OutgoingMessage = {
-        content: "**Bold** text",
+        parts: textParts("**Bold** text"),
         target: "user",
         format: "short",
       };
