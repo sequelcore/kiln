@@ -24,6 +24,8 @@ import type { McpConfig, McpServerConfig, McpTransport } from "../domain/mcp-con
 import { validateMcpConfig } from "../domain/mcp-config.js";
 import type { ToolSelectionConfig, ToolSelectionStrategy } from "../domain/tool-selection-config.js";
 import { validateToolSelectionConfig } from "../domain/tool-selection-config.js";
+import type { SafetyConfig, PiiType, PiiAction, ContentAction, RailConfig } from "../domain/safety-config.js";
+import { validateSafetyConfig } from "../domain/safety-config.js";
 
 /** Error class for YAML loader failures, aggregating all validation errors */
 export class AppLoaderError extends KilnError {
@@ -238,6 +240,41 @@ interface RawTtsProvider {
   voice?: unknown;
 }
 
+interface RawPiiConfig {
+  detect?: unknown;
+  action?: unknown;
+  deepScan?: unknown;
+  allowlist?: unknown;
+}
+
+interface RawContentCategoryConfig {
+  threshold?: unknown;
+  action?: unknown;
+}
+
+interface RawContentConfig {
+  enabled?: unknown;
+  categories?: unknown;
+  deepScan?: unknown;
+}
+
+interface RawRailConfig {
+  type?: unknown;
+  block?: unknown;
+  escalate?: unknown;
+  competitors?: unknown;
+  response?: unknown;
+  triggers?: unknown;
+  required?: unknown;
+  forbid?: unknown;
+}
+
+interface RawSafetyConfig {
+  pii?: unknown;
+  content?: unknown;
+  rails?: unknown;
+}
+
 interface RawApp {
   name?: unknown;
   channels?: unknown;
@@ -250,6 +287,7 @@ interface RawApp {
   mcp?: unknown;
   toolSelection?: unknown;
   voice?: unknown;
+  safety?: unknown;
 }
 
 // ---------------------------------------------------------------------------
@@ -1020,6 +1058,124 @@ function mapVoiceConfig(raw: RawVoice): { voice: VoiceConfig | undefined; errors
   return { voice: validationErrors.length > 0 ? undefined : voice, errors };
 }
 
+function mapSafety(raw: RawSafetyConfig): { safety: SafetyConfig | undefined; errors: { field: string; message: string }[] } {
+  const errors: { field: string; message: string }[] = [];
+
+  if (!raw || typeof raw !== "object") {
+    return { safety: undefined, errors: [] };
+  }
+
+  let pii: SafetyConfig["pii"];
+  if (raw.pii !== undefined) {
+    const rawPii = raw.pii as RawPiiConfig;
+
+    const detect: PiiType[] = [];
+    if (Array.isArray(rawPii.detect)) {
+      for (const d of rawPii.detect) {
+        if (typeof d === "string") detect.push(d as PiiType);
+      }
+    }
+
+    const allowlist: string[] = [];
+    if (Array.isArray(rawPii.allowlist)) {
+      for (const a of rawPii.allowlist) {
+        if (typeof a === "string") allowlist.push(a);
+      }
+    }
+
+    pii = {
+      detect,
+      action: (typeof rawPii.action === "string" ? rawPii.action : "detect") as PiiAction,
+      ...(typeof rawPii.deepScan === "boolean" ? { deepScan: rawPii.deepScan } : {}),
+      ...(allowlist.length > 0 ? { allowlist } : {}),
+    };
+  }
+
+  let content: SafetyConfig["content"];
+  if (raw.content !== undefined) {
+    const rawContent = raw.content as RawContentConfig;
+
+    const categories: Record<string, { threshold: number; action: ContentAction }> = {};
+    if (rawContent.categories && typeof rawContent.categories === "object" && !Array.isArray(rawContent.categories)) {
+      for (const [cat, catConfig] of Object.entries(rawContent.categories as Record<string, RawContentCategoryConfig>)) {
+        if (!catConfig) continue;
+        categories[cat] = {
+          threshold: typeof catConfig.threshold === "number" ? catConfig.threshold : 0.5,
+          action: (typeof catConfig.action === "string" ? catConfig.action : "block") as ContentAction,
+        };
+      }
+    }
+
+    content = {
+      enabled: typeof rawContent.enabled === "boolean" ? rawContent.enabled : true,
+      categories,
+      ...(typeof rawContent.deepScan === "boolean" ? { deepScan: rawContent.deepScan } : {}),
+    };
+  }
+
+  const rails: RailConfig[] = [];
+  if (raw.rails !== undefined) {
+    if (!Array.isArray(raw.rails)) {
+      errors.push({ field: "safety.rails", message: "must be an array" });
+    } else {
+      for (let i = 0; i < raw.rails.length; i++) {
+        const rawRail = raw.rails[i] as RawRailConfig;
+        if (!rawRail) continue;
+
+        const railType = typeof rawRail.type === "string" ? rawRail.type : "";
+
+        switch (railType) {
+          case "topic": {
+            const block: string[] = Array.isArray(rawRail.block) ? rawRail.block.filter((b): b is string => typeof b === "string") : [];
+            const escalate: string[] = Array.isArray(rawRail.escalate) ? rawRail.escalate.filter((e): e is string => typeof e === "string") : [];
+            rails.push({ type: "topic", ...(block.length > 0 ? { block } : {}), ...(escalate.length > 0 ? { escalate } : {}) });
+            break;
+          }
+          case "competitor": {
+            const competitors: string[] = Array.isArray(rawRail.competitors) ? rawRail.competitors.filter((c): c is string => typeof c === "string") : [];
+            rails.push({
+              type: "competitor",
+              competitors,
+              response: typeof rawRail.response === "string" ? rawRail.response : "",
+            });
+            break;
+          }
+          case "escalation": {
+            const triggers: string[] = Array.isArray(rawRail.triggers) ? rawRail.triggers.filter((t): t is string => typeof t === "string") : [];
+            rails.push({ type: "escalation", triggers });
+            break;
+          }
+          case "compliance": {
+            const required: string[] = Array.isArray(rawRail.required) ? rawRail.required.filter((r): r is string => typeof r === "string") : [];
+            const forbid: string[] = Array.isArray(rawRail.forbid) ? rawRail.forbid.filter((f): f is string => typeof f === "string") : [];
+            rails.push({
+              type: "compliance",
+              ...(required.length > 0 ? { required } : {}),
+              ...(forbid.length > 0 ? { forbid } : {}),
+            });
+            break;
+          }
+          default:
+            errors.push({ field: `safety.rails[${i}].type`, message: `unknown rail type "${railType}"` });
+        }
+      }
+    }
+  }
+
+  const safety: SafetyConfig = {
+    ...(pii ? { pii } : {}),
+    ...(content ? { content } : {}),
+    ...(rails.length > 0 ? { rails } : {}),
+  };
+
+  const validationErrors = validateSafetyConfig(safety);
+  for (const ve of validationErrors) {
+    errors.push({ field: `safety.${ve.field}`, message: ve.message });
+  }
+
+  return { safety: validationErrors.length > 0 ? undefined : safety, errors };
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -1147,6 +1303,14 @@ export function parseAppYaml(content: string): App {
     errors.push(...voiceErrors);
   }
 
+  // safety (optional)
+  let safetyConfig: SafetyConfig | undefined;
+  if (raw.safety !== undefined) {
+    const { safety, errors: safetyErrors } = mapSafety(raw.safety as RawSafetyConfig);
+    safetyConfig = safety;
+    errors.push(...safetyErrors);
+  }
+
   if (errors.length > 0) throw new AppLoaderError(errors);
 
   return {
@@ -1161,6 +1325,7 @@ export function parseAppYaml(content: string): App {
     ...(mcpConfig ? { mcp: mcpConfig } : {}),
     ...(toolSelectionConfig ? { toolSelection: toolSelectionConfig } : {}),
     ...(voiceConfig ? { voice: voiceConfig } : {}),
+    ...(safetyConfig ? { safety: safetyConfig } : {}),
   };
 }
 

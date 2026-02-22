@@ -36,6 +36,10 @@ export const EVENT_LEVEL_MAP: Record<EventType, StreamLevel> = {
   trigger_fired: "phase",
   trigger_failed: "phase",
   schedule_fired: "phase",
+  // Safety (Phase 12)
+  pii_detected: "phase",
+  content_classified: "phase",
+  policy_evaluated: "phase",
 };
 
 /** Level hierarchy: subscribing to "phase" includes "state" + "phase" */
@@ -78,7 +82,11 @@ export type EventType =
   | "webhook_received"
   | "trigger_fired"
   | "trigger_failed"
-  | "schedule_fired";
+  | "schedule_fired"
+  // Safety (Phase 12)
+  | "pii_detected"
+  | "content_classified"
+  | "policy_evaluated";
 
 /** Base event interface */
 export interface KilnEvent {
@@ -322,6 +330,34 @@ export interface ScheduleFiredEvent extends KilnEvent {
   readonly team: string;
 }
 
+/** PII detected event (safety) */
+export interface PiiDetectedEvent extends KilnEvent {
+  readonly type: "pii_detected";
+  readonly direction: "input" | "output";
+  readonly piiTypes: readonly string[];
+  readonly action: string;
+  readonly count: number;
+  readonly tier: "heuristic" | "deep";
+}
+
+/** Content classified event (safety) */
+export interface ContentClassifiedEvent extends KilnEvent {
+  readonly type: "content_classified";
+  readonly direction: "input" | "output";
+  readonly categories: Record<string, number>;
+  readonly blocked: boolean;
+  readonly tier: "heuristic" | "deep";
+}
+
+/** Policy evaluated event (safety) */
+export interface PolicyEvaluatedEvent extends KilnEvent {
+  readonly type: "policy_evaluated";
+  readonly railType: string;
+  readonly allowed: boolean;
+  readonly reason?: string;
+  readonly direction: "input" | "output";
+}
+
 /** Maps each event type to its corresponding event interface */
 export interface EventMap {
   phase_changed: PhaseChangedEvent;
@@ -355,6 +391,10 @@ export interface EventMap {
   trigger_fired: TriggerFiredEvent;
   trigger_failed: TriggerFailedEvent;
   schedule_fired: ScheduleFiredEvent;
+  // Safety (Phase 12)
+  pii_detected: PiiDetectedEvent;
+  content_classified: ContentClassifiedEvent;
+  policy_evaluated: PolicyEvaluatedEvent;
 }
 
 export { EventBus } from "./event-bus.js";

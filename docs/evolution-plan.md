@@ -51,7 +51,7 @@ These are confirmed unique or best-in-class across 10+ competitors:
 6. **Agent Identity Standard** -- name/role/goal/backstory persona model with auto-assembled system prompts
 7. **Budget enforcement** -- cache-aware cost tracking with per-role pricing
 8. **Cross-app delegation** -- schema-contracted inter-app communication
-9. **Security layers** -- prompt injection (2-tier), Guardian review, encrypted secrets, audit logging
+9. **Security layers** -- prompt injection (2-tier), Guardian review, encrypted secrets, audit logging, enterprise safety (PII + content + rails)
 10. **TypeScript/Bun** -- only production framework in the Bun ecosystem
 
 ### Kiln Differentiator Thesis
@@ -65,8 +65,8 @@ Every competitor forces a choice: code-first flexibility (LangGraph, Mastra) or 
 | Metric | Value |
 |--------|-------|
 | Packages | 3 (core, runtime, cli) |
-| Bounded contexts | 25 |
-| Tests passing | 2,356+ (vitest) |
+| Bounded contexts | 26 |
+| Tests passing | 2,462+ (vitest) |
 | Multimodal | ContentPart[] message primitives, 4 modalities (text, image, audio, file), Voice Channel (STT/TTS) |
 | Primitives | 7 (Agent, Capability, Workflow, Memory, Task, Channel, Trigger) |
 | Composites | 3 (Team, Router, App) |
@@ -74,14 +74,38 @@ Every competitor forces a choice: code-first flexibility (LangGraph, Mastra) or 
 | Embedding adapters | 2 (OpenAI, Ollama) |
 | Channel adapters | 6 (CLI, Web, WhatsApp, Slack, API, Voice) |
 | Trigger types | 3 (webhook, event, schedule) |
-| Security layers | 6 (injection scan, Guardian, secrets, audit, tenant isolation, self-audit) |
-| Observability | OTel span mapping (29 event types) + exporter |
+| Security layers | 7 (injection scan, Guardian, secrets, audit, tenant isolation, self-audit, safety pipeline) |
+| Observability | OTel span mapping (32 event types) + exporter |
 | Knowledge (RAG) | Chunkers (2), EmbeddingAdapters (2), VectorStore (1), RetrievalPipeline, auto-injected capability |
 | Eval | 12 scorer types (6 rule-based + 6 LLM-as-judge), dataset JSONL loader, experiment runner, experiment comparator |
 | Interoperability | A2A protocol (Agent Card, JSON-RPC server/client, task store), MCP client (SSE, circuit breaker), Tool RAG |
-| Error codes | 51 (across 14 bounded contexts) |
+| Error codes | 55 (across 15 bounded contexts) |
+| Safety | PII scanner (2-tier), content classifier (6 categories), 4 policy rails, safety middleware |
 
-### Recently Completed (Phase 9 -- Multimodal Support)
+### Recently Completed (Phase 12 -- Enterprise Safety)
+
+- Engine config: `SafetyConfig` types (`PiiConfig`, `ContentConfig`, `RailConfig`) + `validateSafetyConfig()` in `engine/domain/safety-config.ts`
+- Safety runtime types: `PiiMatch`, `PiiScanResult`, `ContentScore`, `ContentScanResult`, `PolicyResult`, `SafetyPipelineResult` in `safety/types.ts`
+- `PiiScanner`: two-tier PII detection (regex heuristic + optional LLM deep scan), 6 PII types (email, phone, SSN, credit card, IP, date of birth), configurable actions (detect/redact/block), allowlist support, fail-open design
+- `ContentClassifier`: two-tier content classification (regex + optional LLM), 6 categories (hate, violence, sexual, self-harm, harassment, misinformation), configurable thresholds and actions per category
+- 4 policy rails + `createRail()` factory in `safety/rails.ts`:
+  - `TopicRail` -- block/allow specific topics (keyword matching)
+  - `CompetitorRail` -- prevent discussing competitor products
+  - `EscalationRail` -- auto-escalate sensitive topics
+  - `ComplianceRail` -- enforce regulatory language requirements
+- `SafetyPipeline`: orchestrates PII -> content -> rails with short-circuit on block, configurable scan direction (input/output), fail-open on scanner errors
+- Safety middleware (`packages/runtime/src/gateway/safety-middleware.ts`): Hono middleware scanning both input and output messages, emits safety events
+- `App` composite extended with `readonly safety?: SafetyConfig` + validation in `validateApp()`
+- `app-loader.ts` extended with `mapSafety()` YAML parser for `safety` block
+- 3 event types: `pii_detected`, `content_classified`, `policy_evaluated` (32 total)
+- 3 audit actions: `pii_scan`, `content_classification`, `policy_evaluation`
+- 4 error codes: `PII_DETECTED`, `CONTENT_POLICY_VIOLATED`, `SAFETY_RAIL_BLOCKED`, `SAFETY_SCAN_FAILED` (55 total)
+- `SpanMapper` updated for all 3 safety event types (exhaustive switch)
+- Dev inspector extended with safety metrics (PII/content scan counters)
+- Dev routes extended with `/dev/safety` endpoint
+- Gateway wiring: `SafetyPipeline` init + middleware integration in `gateway-server.ts` and `gateway-routes.ts`
+
+### Previously Completed (Phase 9 -- Multimodal Support)
 
 - Engine primitives: `ContentPart` discriminated union (`TextPart | ImagePart | AudioPart | FilePart`) with helpers (`textPart`, `textParts`, `extractText`, `hasModality`, `validateContentPart`, `validateContentParts`)
 - Engine primitives: `Modality` type (`"text" | "image" | "audio" | "file"`) + `VALID_MODALITIES` + `validateModalities()`
@@ -564,13 +588,13 @@ toolSelection:
 
 ---
 
-### Phase 12: Enterprise Safety (PII + Content Policy)
+### Phase 12: Enterprise Safety (PII + Content Policy) -- COMPLETED
 
 **Why:** Prompt injection detection is necessary but not sufficient. Enterprise and regulated industries require PII detection, data loss prevention, and content policy enforcement. Without PII handling, Kiln is blocked from healthcare, finance, and government deployments.
 
 **Kiln advantage:** YAML-declared safety policies. Competitors require code to wire PII detectors and content filters. Kiln lets you declare a `safety` block and the engine applies it as middleware on all channel I/O.
 
-**Where:** `packages/core/src/security/` (extend existing bounded context)
+**Where:** `packages/core/src/safety/` (new bounded context), `packages/runtime/src/gateway/safety-middleware.ts`
 
 #### 12.1 PII Detection
 
@@ -828,7 +852,7 @@ Five memory scopes (user, agent, team, project, org) are backed by SQLite + FTS5
 
 ### Security: Defense-in-Depth, All Opt-In
 
-Six security layers are available: 2-tier prompt injection detection (regex heuristics + deep LLM scan), Guardian review for destructive capabilities, AES-256-GCM encrypted secrets with PBKDF2 key derivation, append-only JSONL audit logging with SHA-256 hash chaining, tenant isolation enforcement (memory namespace + FS jail), and periodic self-audit health checks. Every layer is opt-in to maintain simplicity for local development.
+Seven security layers are available: 2-tier prompt injection detection (regex heuristics + deep LLM scan), Guardian review for destructive capabilities, AES-256-GCM encrypted secrets with PBKDF2 key derivation, append-only JSONL audit logging with SHA-256 hash chaining, tenant isolation enforcement (memory namespace + FS jail), periodic self-audit health checks, and enterprise safety pipeline (PII detection, content classification, policy rails). Every layer is opt-in to maintain simplicity for local development.
 
 ### YAML Is The Source of Truth
 
@@ -844,7 +868,7 @@ Phase 8 (Knowledge/RAG)     -- COMPLETED
 Phase 9 (Multimodal)        -- COMPLETED
 Phase 10 (Eval)             -- COMPLETED
 Phase 11 (A2A + MCP)        -- COMPLETED
-Phase 12 (Safety)           -- standalone, extends existing security context
+Phase 12 (Safety)           -- COMPLETED
 Phase 13 (Studio + SDK)     -- benefits from Phase 7 (timeline), Phase 10 (eval dashboard)
 Phase 14 (Deploy + Scale)   -- standalone, but Phase 15 depends on it
 Phase 15 (Durable)          -- requires Phase 14.3 (stateless gateway / external stores)
@@ -857,7 +881,7 @@ Phase 15 (Durable)          -- requires Phase 14.3 (stateless gateway / external
 3. ~~**Phase 10** (Eval) -- COMPLETED~~
 4. ~~**Phase 11** (A2A + Dynamic MCP) -- COMPLETED~~
 5. ~~**Phase 9** (Multimodal) -- COMPLETED~~
-6. **Phase 12** (Safety) -- enterprise blocker for regulated industries
+6. ~~**Phase 12** (Safety) -- COMPLETED~~
 7. **Phase 14** (Deploy) -- ops maturity for production users
 8. **Phase 13** (Studio + SDK) -- DX acceleration, adoption driver
 9. **Phase 15** (Durable) -- advanced production resilience

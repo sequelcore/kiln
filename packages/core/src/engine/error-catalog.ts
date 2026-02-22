@@ -422,6 +422,34 @@ export function getErrorSuggestion(
         docUrl: docUrl(code),
       };
 
+    case "PII_DETECTED":
+      return {
+        suggestion:
+          "Personally identifiable information was detected in the message. Configure allowlist in safety.pii.allowlist or adjust the action.",
+        docUrl: docUrl(code),
+      };
+
+    case "CONTENT_POLICY_VIOLATED":
+      return {
+        suggestion:
+          "Message content violated the content safety policy. Review the content categories and thresholds in safety.content.categories.",
+        docUrl: docUrl(code),
+      };
+
+    case "SAFETY_RAIL_BLOCKED":
+      return {
+        suggestion:
+          "A safety rail blocked the message. Check the rail configuration in safety.rails to adjust blocked topics or responses.",
+        docUrl: docUrl(code),
+      };
+
+    case "SAFETY_SCAN_FAILED":
+      return {
+        suggestion:
+          "The safety scan encountered an error. This is non-fatal -- the pipeline uses fail-open behavior for deep scans.",
+        docUrl: docUrl(code),
+      };
+
     case "INTERNAL_ERROR":
       return {
         suggestion:

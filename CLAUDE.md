@@ -2,7 +2,7 @@
 
 MIT
 
-Domain-agnostic AI orchestration engine. 7 primitives (Agent, Capability, Workflow, Memory, Task, Channel, Trigger) + 3 composites (Team, Router, App) configured via YAML. Multi-tenant gateway runtime with provider adapters, budget enforcement, cross-app delegation, 6 channel adapters, and trigger runtime (webhooks, event listeners, cron scheduler). Multimodal message primitives (`ContentPart[]`: text, image, audio, file) with per-channel `supportedModalities`, Voice Channel (STT/TTS), and agent `modalities` YAML declaration. Domain config system with tech stack auto-detection, YAML schema/parser, DomainRegistry, and 5 built-in domain kits. Package bounded context for distribution (versioning, security validation, content hashing). Skill system (SKILL.yaml format + 3-tier discovery + CLI marketplace). Observability via OTel span mapping + exporter (EventStore sink). Knowledge (RAG) primitives: chunkers, embedding adapters, vector store, retrieval pipeline, auto-injected knowledge_search capability. Eval framework: 12 scorer types (6 rule-based + 6 LLM-as-judge), YAML-configured experiments, dataset JSONL loader, experiment runner with per-scorer error isolation, experiment comparator. Interoperability: A2A protocol (Agent Card generation, JSON-RPC 2.0 server/client, task lifecycle), dynamic MCP server connections (SSE transport, circuit breaker), Tool RAG (embedding-based tool selection when tools exceed threshold). Error catalog with actionable suggestions. Interactive init wizard, dev mode with hot-reload and inline dev inspector.
+Domain-agnostic AI orchestration engine. 7 primitives (Agent, Capability, Workflow, Memory, Task, Channel, Trigger) + 3 composites (Team, Router, App) configured via YAML. Multi-tenant gateway runtime with provider adapters, budget enforcement, cross-app delegation, 6 channel adapters, and trigger runtime (webhooks, event listeners, cron scheduler). Multimodal message primitives (`ContentPart[]`: text, image, audio, file) with per-channel `supportedModalities`, Voice Channel (STT/TTS), and agent `modalities` YAML declaration. Domain config system with tech stack auto-detection, YAML schema/parser, DomainRegistry, and 5 built-in domain kits. Package bounded context for distribution (versioning, security validation, content hashing). Skill system (SKILL.yaml format + 3-tier discovery + CLI marketplace). Observability via OTel span mapping + exporter (EventStore sink). Knowledge (RAG) primitives: chunkers, embedding adapters, vector store, retrieval pipeline, auto-injected knowledge_search capability. Eval framework: 12 scorer types (6 rule-based + 6 LLM-as-judge), YAML-configured experiments, dataset JSONL loader, experiment runner with per-scorer error isolation, experiment comparator. Interoperability: A2A protocol (Agent Card generation, JSON-RPC 2.0 server/client, task lifecycle), dynamic MCP server connections (SSE transport, circuit breaker), Tool RAG (embedding-based tool selection when tools exceed threshold). Enterprise safety: PII scanner (2-tier, 6 types, redact/block), content classifier (6 categories), 4 policy rails (topic, competitor, escalation, compliance), safety middleware on gateway I/O. Error catalog with actionable suggestions. Interactive init wizard, dev mode with hot-reload and inline dev inspector.
 
 ## Architecture
 
@@ -35,8 +35,9 @@ App (YAML-configured)
 | tree | `packages/core/src/tree/` | Task implementation: tree manager (scoring, deepen/branch/prune, batch selection) |
 | sandbox | `packages/core/src/sandbox/` | Per-agent isolation: filesystem policies, network proxy, tenant FS jails |
 | verification | `packages/core/src/verification/` | Gate runner: test, lint, type-check verification loop |
-| events | `packages/core/src/events/` | Event streaming (29 event types including 5 security + 4 trigger events), EventBus with ring buffer + optional EventStore sink |
+| events | `packages/core/src/events/` | Event streaming (32 event types including 5 security + 4 trigger + 3 safety events), EventBus with ring buffer + optional EventStore sink |
 | security | `packages/core/src/security/` | Security: audit log (JSONL + hash chaining), prompt injection detection (2-tier), encrypted secrets (AES-256-GCM), Guardian review, self-audit |
+| safety | `packages/core/src/safety/` | Enterprise safety: PII scanner (2-tier, 6 types), content classifier (6 categories), 4 policy rails, safety pipeline orchestrator |
 | cost | `packages/core/src/cost/` | Cost tracking: per-role, cache-aware pricing |
 | knowledge | `packages/core/src/knowledge/` | Knowledge (RAG): chunkers (recursive, markdown), embedding adapters (OpenAI, Ollama), InMemoryVectorStore, RetrievalPipeline, Reranker interface, knowledge_search capability auto-injection |
 | domain | `packages/core/src/domain/` | Domain config: tech stack detection, YAML schema/parser, DomainRegistry, backward-compatible marketplace adapter, 5 built-in domain kits |
@@ -84,7 +85,7 @@ type(scope): description
 
 Types: `feat`, `fix`, `refactor`, `chore`, `docs`, `test`
 
-Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree, events, cost, sandbox, verification, security, observability, knowledge, eval, a2a, runtime, gateway, trigger, session, tenant, channel, cli, docs
+Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree, events, cost, sandbox, verification, security, safety, observability, knowledge, eval, a2a, runtime, gateway, trigger, session, tenant, channel, cli, docs
 
 ## Key Files
 
@@ -94,8 +95,8 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 |------|---------|
 | `engine/domain/agent.ts` | Engine primitive: Agent interface (name, role, goal, backstory, instructions, tier, tools, modalities?) |
 | `engine/domain/prompt-assembler.ts` | Pure function: assembleAgentPrompt() -- identity fields + context -> system prompt |
-| `engine/errors.ts` | KilnError base class (code, context, retryable, suggestion, docUrl) + KilnErrorCode union type (51 codes) |
-| `engine/error-catalog.ts` | getErrorSuggestion(code, context): context-aware error suggestions + doc URLs for all 46 error codes |
+| `engine/errors.ts` | KilnError base class (code, context, retryable, suggestion, docUrl) + KilnErrorCode union type (55 codes) |
+| `engine/error-catalog.ts` | getErrorSuggestion(code, context): context-aware error suggestions + doc URLs for all 55 error codes |
 | `engine/domain/capability.ts` | Engine primitive: Capability interface (schema, tags, annotations incl. cacheTtl, guardrail, outputSchema) |
 | `engine/domain/workflow.ts` | Engine primitive: Workflow interface (string phases, gates) |
 | `engine/domain/memory.ts` | Engine primitive: Memory interface (5 scopes, store/recall/forget) |
@@ -106,8 +107,8 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `engine/domain/speech-config.ts` | SttAdapter, TtsAdapter, VoiceConfig, SttProviderConfig, TtsProviderConfig interfaces + validateVoiceConfig() |
 | `engine/composites/team.ts` | Engine composite: Team (agents + workflow + capabilities + gates + mode + manager) + validateTeam() |
 | `engine/composites/router.ts` | Engine composite: Router (pattern rules + classifier + fallback) + validateRouter() |
-| `engine/composites/app.ts` | Engine composite: App (teams + router + memory + channels + triggers + knowledge? + mcp? + toolSelection?) + validateApp() |
-| `engine/loader/app-loader.ts` | YAML -> App loader (parseAppYaml, validateAppGraph, AppLoaderError) with trigger + knowledge + mcp + toolSelection YAML parsing |
+| `engine/composites/app.ts` | Engine composite: App (teams + router + memory + channels + triggers + knowledge? + mcp? + toolSelection? + safety?) + validateApp() |
+| `engine/loader/app-loader.ts` | YAML -> App loader (parseAppYaml, validateAppGraph, AppLoaderError) with trigger + knowledge + mcp + toolSelection + safety YAML parsing |
 | `engine/loader/preset-loader.ts` | App -> OrchestratorConfig bridge (loadPresetConfig, PresetLoaderError) |
 | `engine/gateway/gateway-config.ts` | Gateway config types + validateGatewayConfig() |
 | `engine/gateway/mode-b-config.ts` | Mode B config types + validateModeBConfig() |
@@ -129,7 +130,7 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `memory/compactor.ts` | MemoryCompactor: tag-based grouping, deterministic summarization, archival |
 | `memory/project-store.ts` | Git-synced gzipped JSONL project memory |
 | `tree/task-tree.ts` | Task tree: scoring, selection, deepen/branch/prune |
-| `events/event-bus.ts` | Event emission and subscription (29 event types), optional EventStore persistence sink |
+| `events/event-bus.ts` | Event emission and subscription (32 event types), optional EventStore persistence sink |
 | `events/event-store.ts` | EventStore interface: save, getBySession, getAfter (consumer-implemented persistence) |
 | `agents/tool-cache.ts` | ToolCache: in-memory tool result cache with SHA-256 keys and per-entry TTL |
 | `agents/context-compressor.ts` | compressContext(): LLM-based text compression utility with threshold skip |
@@ -153,7 +154,7 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `package/yaml-schema.ts` | PackageYaml interface (type-discriminated: domain or skill) + validatePackageYaml() |
 | `package/yaml-parser.ts` | Strict parsers: parseDomainPackageYaml (requires type), parseSkillPackageYaml, PackageYamlError |
 | `package/index.ts` | Barrel exports for package bounded context |
-| `observability/span-mapper.ts` | SpanMapper: maps all 29 KilnEvent types to OTel span operations |
+| `observability/span-mapper.ts` | SpanMapper: maps all 32 KilnEvent types to OTel span operations |
 | `observability/otel-exporter.ts` | OTelExporter: implements EventStore interface, accepts standard TracerProvider |
 | `engine/domain/embedding.ts` | Engine primitive: EmbeddingAdapter interface (name, dimensions, embed) |
 | `engine/domain/vector-store.ts` | Engine primitive: VectorStore, VectorEntry, VectorResult, VectorQueryOptions interfaces |
@@ -167,6 +168,13 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `knowledge/retrieval-pipeline.ts` | RetrievalPipeline: ingest (chunk -> embed -> store) + retrieve (embed -> search -> rerank) |
 | `knowledge/reranker.ts` | Reranker interface: optional result re-ranking for retrieval |
 | `knowledge/knowledge-capability.ts` | knowledge_search auto-injection: createKnowledgeCapability(), executeKnowledgeSearch(), isAgentAllowed() |
+| `engine/domain/safety-config.ts` | SafetyConfig types (PiiConfig, ContentConfig, RailConfig) + validateSafetyConfig() |
+| `safety/types.ts` | Safety runtime types: PiiMatch, PiiScanResult, ContentScore, ContentScanResult, PolicyResult, SafetyPipelineResult |
+| `safety/pii-scanner.ts` | PiiScanner: 2-tier PII detection (regex + LLM), 6 types, configurable actions, allowlist, fail-open |
+| `safety/content-classifier.ts` | ContentClassifier: 2-tier content classification, 6 categories, configurable thresholds |
+| `safety/rails.ts` | 4 policy rails (topic, competitor, escalation, compliance) + createRail() factory |
+| `safety/safety-pipeline.ts` | SafetyPipeline: orchestrator (PII -> content -> rails), short-circuit on block, fail-open |
+| `safety/index.ts` | Barrel exports for safety bounded context |
 | `security/types.ts` | Security interfaces: AuditLog, SecretStore, PromptScanResult, GuardianReviewResult, SecurityConfig |
 | `security/audit-log.ts` | JsonlAuditLog: append-only JSONL + SHA-256 hash chaining, query, verifyChain() |
 | `security/prompt-scanner.ts` | PromptScanner: Tier 1 heuristic (20+ regex patterns) + Tier 2 deep LLM scan |
@@ -209,6 +217,7 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `session/mode-b-orchestrator.ts` | ModeBOrchestrator.processMessage(): provider adapter call + memory |
 | `session/session-registry.ts` | SessionRegistry: multi-user session management + cleanup |
 | `gateway/security-middleware.ts` | Hono middleware: prompt injection scanning on incoming messages |
+| `gateway/safety-middleware.ts` | Hono middleware: safety pipeline (PII + content + rails) on input and output messages |
 | `tenant/tenant-registry.ts` | TenantRegistry: in-memory Map + JSON persistence, CRUD, optional encrypted secrets |
 | `tenant/system-prompt-builder.ts` | buildTenantSystemPrompt(): TenantConfig -> system prompt |
 | `channels/event-bridge.ts` | EventBridge: sync EventBus -> AsyncIterable for Channel.stream() |

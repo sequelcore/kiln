@@ -40,10 +40,11 @@
 - AES-256-GCM encrypted secrets with PBKDF2 key derivation and atomic rotation
 - Append-only audit logging with SHA-256 hash chaining + tamper verification
 - Tenant isolation: memory namespace enforcement + per-tenant filesystem jails
+- Enterprise safety: PII detection (6 types, redact/block), content classification (6 categories), 4 policy rails
 
 **Runtime**
 - Multi-tenant gateway: multiple apps in one Bun/Hono process with per-app isolation
-- 5 channel adapters: CLI, Web (WebSocket), WhatsApp, Slack, REST API (SSE)
+- 6 channel adapters: CLI, Web (WebSocket), WhatsApp, Slack, REST API (SSE), Voice (STT/TTS)
 - Triggers: webhooks (HMAC-SHA256), event listeners, cron scheduler
 - Budget enforcement with per-role cost tracking and tier limits
 - Cross-app delegation with schema contracts
@@ -52,8 +53,8 @@
 - `kiln init` -- interactive wizard generates app.yaml + gateway.yaml
 - `kiln dev` -- hot-reload with YAML file watching + inline web debugger at `/dev/`
 - `kiln skill list|install|publish` -- skill marketplace with 3-tier discovery
-- 38 error codes with context-aware suggestions and doc links
-- 29 typed events with multi-level streaming (state/phase/tool/token)
+- 55 error codes with context-aware suggestions and doc links
+- 32 typed events with multi-level streaming (state/phase/tool/token)
 
 ## Quick Start
 
@@ -187,7 +188,7 @@ The runtime hosts multiple Apps in a single process. Each app gets its own route
 
 | Package | Description |
 |---------|-------------|
-| [`@kilnai/core`](packages/core) | Engine primitives, composites, YAML loader, provider adapters, memory (decay + compaction), task tree, orchestrator (checkpoint/resume/fork), domain config (5 kits), package distribution, skill system, security (6 layers), events (29 types), cost tracking |
+| [`@kilnai/core`](packages/core) | Engine primitives, composites, YAML loader, provider adapters, memory (decay + compaction), task tree, orchestrator (checkpoint/resume/fork), domain config (5 kits), package distribution, skill system, security (7 layers), safety pipeline (PII + content + rails), events (32 types), cost tracking |
 | [`@kilnai/runtime`](packages/runtime) | Multi-app gateway server, Mode B sessions, multi-tenant management, channel adapters (5), trigger runtime (webhook/event/cron), budget middleware, cross-app delegation |
 | [`@kilnai/cli`](packages/cli) | CLI commands (init, dev, run, gateway, skill, domain), interactive wizard, YAML hot-reload watcher, formatters |
 

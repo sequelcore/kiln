@@ -103,6 +103,8 @@ pre.json{font-size:12px;color:#a1a1aa;white-space:pre-wrap;word-break:break-all}
         <div class="stat"><div class="stat-value" id="s-blocked">0</div><div class="stat-label">Blocked</div></div>
         <div class="stat"><div class="stat-value" id="s-guardian">0</div><div class="stat-label">Guardian Reviews</div></div>
         <div class="stat"><div class="stat-value" id="s-violations">0</div><div class="stat-label">Violations</div></div>
+        <div class="stat"><div class="stat-value" id="s-pii">0</div><div class="stat-label">PII Detected</div></div>
+        <div class="stat"><div class="stat-value" id="s-content">0</div><div class="stat-label">Content Flagged</div></div>
       </div>
       <div id="sec-events" class="event-log" style="flex:1;overflow-y:auto;min-height:0"></div>
     </div>
@@ -193,7 +195,7 @@ pre.json{font-size:12px;color:#a1a1aa;white-space:pre-wrap;word-break:break-all}
   // ---- Event log state
   var events=[];
   var MAX=1000;
-  var secCounts={scans:0,blocked:0,guardian:0,violations:0};
+  var secCounts={scans:0,blocked:0,guardian:0,violations:0,pii:0,content:0};
   var secEvents=[];
   var filterText="";
 
@@ -219,7 +221,7 @@ pre.json{font-size:12px;color:#a1a1aa;white-space:pre-wrap;word-break:break-all}
   }
 
   function isSecurity(type){
-    return type==="injection_scanned"||type==="guardian_reviewed"||type==="audit_entry"||type==="tenant_isolation_violation"||type==="security_alert";
+    return type==="injection_scanned"||type==="guardian_reviewed"||type==="audit_entry"||type==="tenant_isolation_violation"||type==="security_alert"||type==="pii_detected"||type==="content_classified"||type==="policy_evaluated";
   }
 
   function fmtTime(ts){
@@ -249,6 +251,8 @@ pre.json{font-size:12px;color:#a1a1aa;white-space:pre-wrap;word-break:break-all}
     document.getElementById("s-blocked").textContent=secCounts.blocked;
     document.getElementById("s-guardian").textContent=secCounts.guardian;
     document.getElementById("s-violations").textContent=secCounts.violations;
+    document.getElementById("s-pii").textContent=secCounts.pii;
+    document.getElementById("s-content").textContent=secCounts.content;
     var html="";
     for(var i=secEvents.length-1;i>=Math.max(0,secEvents.length-20);i--){
       var ev=secEvents[i];
@@ -284,6 +288,8 @@ pre.json{font-size:12px;color:#a1a1aa;white-space:pre-wrap;word-break:break-all}
       if(ev.type==="injection_scanned"&&ev.safe===false)secCounts.blocked++;
       if(ev.type==="guardian_reviewed")secCounts.guardian++;
       if(ev.type==="tenant_isolation_violation"||ev.type==="security_alert")secCounts.violations++;
+      if(ev.type==="pii_detected")secCounts.pii++;
+      if(ev.type==="content_classified"&&ev.blocked)secCounts.content++;
       renderSecEvents();
     }
     if(ev.type==="phase_changed")renderPhases({phase:ev.phaseName||ev.phase,phases:null});
@@ -333,7 +339,8 @@ pre.json{font-size:12px;color:#a1a1aa;white-space:pre-wrap;word-break:break-all}
       "approval_requested","approval_received","worker_assigned","error","trace_span",
       "handoff_requested","handoff_completed","interrupt_requested","interrupt_resumed",
       "injection_scanned","guardian_reviewed","audit_entry","tenant_isolation_violation","security_alert",
-      "webhook_received","trigger_fired","trigger_failed","schedule_fired"];
+      "webhook_received","trigger_fired","trigger_failed","schedule_fired",
+      "pii_detected","content_classified","policy_evaluated"];
     types.forEach(function(t){
       es.addEventListener(t,function(e){
         try{pushEvent(JSON.parse(e.data))}catch(err){}

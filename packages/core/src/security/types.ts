@@ -19,7 +19,10 @@ export type AuditAction =
   | "session_started"
   | "session_ended"
   | "config_changed"
-  | "self_audit_completed";
+  | "self_audit_completed"
+  | "pii_detected"
+  | "content_classified"
+  | "policy_evaluated";
 
 /** Single audit log entry */
 export interface AuditEntry {

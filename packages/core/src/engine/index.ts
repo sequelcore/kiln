@@ -109,3 +109,23 @@ export type {
   TenantValidationError,
 } from "./gateway/tenant-config.js";
 export { validateTenantConfig } from "./gateway/tenant-config.js";
+
+// Safety config (Phase 12)
+export type {
+  SafetyConfig,
+  SafetyValidationError,
+  PiiConfig,
+  PiiType,
+  PiiAction,
+  ContentConfig,
+  ContentCategory,
+  ContentAction,
+  ContentCategoryConfig,
+  RailConfig,
+  RailType,
+  TopicRailConfig,
+  CompetitorRailConfig,
+  EscalationRailConfig,
+  ComplianceRailConfig,
+} from "./domain/safety-config.js";
+export { validateSafetyConfig } from "./domain/safety-config.js";

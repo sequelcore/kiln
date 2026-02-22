@@ -8,6 +8,7 @@ export interface DevRoutesConfig {
   readonly getCostSummary?: () => Record<string, unknown>;
   readonly getAppNames?: () => string[];
   readonly getTriggers?: () => { appName: string; name: string; type: string; enabled: boolean }[];
+  readonly getSafetyMetrics?: () => Record<string, unknown>;
 }
 
 export function createDevRoutes(config: DevRoutesConfig): Hono {
@@ -85,6 +86,12 @@ export function createDevRoutes(config: DevRoutesConfig): Hono {
   app.get("/triggers", (c) => {
     const triggers = config.getTriggers?.() ?? [];
     return c.json({ triggers });
+  });
+
+  // GET /safety -- safety pipeline metrics
+  app.get("/safety", (c) => {
+    const metrics = config.getSafetyMetrics?.() ?? { enabled: false };
+    return c.json(metrics);
   });
 
   return app;

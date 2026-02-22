@@ -32,6 +32,9 @@ import type {
     TriggerFiredEvent,
     TriggerFailedEvent,
     ScheduleFiredEvent,
+    PiiDetectedEvent,
+    ContentClassifiedEvent,
+    PolicyEvaluatedEvent,
 } from "../events/index.js";
 
 // ---------------------------------------------------------------------------
@@ -319,6 +322,45 @@ function mapScheduleFired(e: ScheduleFiredEvent): SpanOperation {
     };
 }
 
+function mapPiiDetected(e: PiiDetectedEvent): SpanOperation {
+    return {
+        action: "addEvent",
+        name: "safety.pii_detected",
+        attributes: {
+            direction: e.direction,
+            piiTypes: e.piiTypes.join(","),
+            action: e.action,
+            count: e.count,
+            tier: e.tier,
+        },
+    };
+}
+
+function mapContentClassified(e: ContentClassifiedEvent): SpanOperation {
+    return {
+        action: "addEvent",
+        name: "safety.content_classified",
+        attributes: {
+            direction: e.direction,
+            blocked: e.blocked,
+            tier: e.tier,
+        },
+    };
+}
+
+function mapPolicyEvaluated(e: PolicyEvaluatedEvent): SpanOperation {
+    return {
+        action: "addEvent",
+        name: "safety.policy_evaluated",
+        attributes: {
+            railType: e.railType,
+            allowed: e.allowed,
+            direction: e.direction,
+            ...(e.reason ? { reason: e.reason.slice(0, 256) } : {}),
+        },
+    };
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -387,6 +429,12 @@ export function mapEventToSpan(event: KilnEvent): SpanOperation {
             return mapTriggerFailed(event as TriggerFailedEvent);
         case "schedule_fired":
             return mapScheduleFired(event as ScheduleFiredEvent);
+        case "pii_detected":
+            return mapPiiDetected(event as PiiDetectedEvent);
+        case "content_classified":
+            return mapContentClassified(event as ContentClassifiedEvent);
+        case "policy_evaluated":
+            return mapPolicyEvaluated(event as PolicyEvaluatedEvent);
         default: {
             // Exhaustiveness guard: TypeScript will produce a compile error here if a new
             // EventType is added without a corresponding case above, because event.type

@@ -372,7 +372,7 @@ export interface App {
 }
 ```
 
-`validateApp()` enforces: at least one team, at least one channel, at least one memory scope, router fallback references an existing team name, all router rule team references resolve to existing team names, trigger names are unique, webhook paths are unique, eval experiment team references resolve to existing teams. It then delegates to `validateTeam()`, `validateRouter()`, `validateTrigger()`, and `validateEvalConfig()` for each nested composite.
+`validateApp()` enforces: at least one team, at least one channel, at least one memory scope, router fallback references an existing team name, all router rule team references resolve to existing team names, trigger names are unique, webhook paths are unique, eval experiment team references resolve to existing teams, safety config validation when present. It then delegates to `validateTeam()`, `validateRouter()`, `validateTrigger()`, `validateEvalConfig()`, and `validateSafetyConfig()` for each nested composite.
 
 ---
 
@@ -678,7 +678,7 @@ These rules are enforced by convention and package boundary.
 
 ## 10. Security Architecture
 
-Six security layers provide defense-in-depth, all opt-in via configuration:
+Seven security layers provide defense-in-depth, all opt-in via configuration:
 
 ### 10.1 Prompt Injection Detection (2-Tier)
 
@@ -710,6 +710,49 @@ Two isolation mechanisms:
 ### 10.6 Self-Audit Daemon
 
 `SelfAudit` runs periodic health checks: verifies secrets are encrypted, audit chain is intact, tenant isolation is enforced, and configuration is valid. Produces a `SecurityAuditReport` JSON document.
+
+### 10.7 Safety Pipeline (PII + Content Policy)
+
+`SafetyPipeline` (`packages/core/src/safety/safety-pipeline.ts`) orchestrates enterprise safety checks as a three-stage pipeline applied to both input and output messages:
+
+1. **PII Detection.** `PiiScanner` runs two-tier detection (regex heuristics + optional LLM deep scan) for 6 PII types: email, phone, SSN, credit card, IP address, date of birth. Configurable actions per type: `detect` (log only), `redact` (mask with `[REDACTED]`), `block` (reject message). Supports allowlists for permitted values (e.g., `support@company.com`).
+
+2. **Content Classification.** `ContentClassifier` runs two-tier classification across 6 categories: hate, violence, sexual, self-harm, harassment, misinformation. Configurable thresholds and actions per category. Returns confidence scores.
+
+3. **Policy Rails.** Four built-in rail types enforce content policies:
+   - `TopicRail` -- block/allow specific topics via keyword matching
+   - `CompetitorRail` -- prevent discussing competitor products
+   - `EscalationRail` -- auto-escalate sensitive topics to human agents
+   - `ComplianceRail` -- enforce regulatory language requirements
+
+The pipeline short-circuits on block: if PII detection blocks a message, content classification and rails are skipped. All stages are fail-open: scanner errors are logged but do not block message processing.
+
+The gateway integrates the safety pipeline via Hono middleware (`packages/runtime/src/gateway/safety-middleware.ts`) that scans both incoming and outgoing messages. Safety events (`pii_detected`, `content_classified`, `policy_evaluated`) are emitted for observability.
+
+YAML configuration:
+
+```yaml
+safety:
+  pii:
+    detect: [email, phone, ssn, credit_card]
+    action: redact
+    allowlist: ["support@company.com"]
+  content:
+    enabled: true
+    categories:
+      hate: { threshold: 0.7, action: block }
+      violence: { threshold: 0.8, action: block }
+    deepScan: false
+  rails:
+    - type: topic
+      block: [medical_advice, legal_advice]
+      escalate: [billing_dispute]
+    - type: competitor
+      competitors: [CompetitorA, CompetitorB]
+      response: "I can only discuss our products."
+```
+
+Source: `packages/core/src/safety/`, `packages/runtime/src/gateway/safety-middleware.ts`
 
 ---
 
@@ -775,7 +818,7 @@ export class KilnError extends Error {
 }
 ```
 
-51 error codes are organized by bounded context (engine, domain, tenant, provider, budget, config, agent intelligence, security, skill, package, trigger, eval). Each code maps to a context-aware suggestion via `getErrorSuggestion(code, context)` in `packages/core/src/engine/error-catalog.ts`.
+55 error codes are organized by bounded context (engine, domain, tenant, provider, budget, config, agent intelligence, security, skill, package, trigger, eval). Each code maps to a context-aware suggestion via `getErrorSuggestion(code, context)` in `packages/core/src/engine/error-catalog.ts`.
 
 ---
 
@@ -822,9 +865,10 @@ When `devMode` is true, the gateway serves an inline HTML debugger at `/dev/`:
 | `eval` | `@kilnai/core` | `packages/core/src/eval/` | Evaluation framework: 12 scorer types (6 rule-based + 6 LLM-as-judge), dataset JSONL loader, experiment runner with per-scorer error isolation, experiment comparator. |
 | `sandbox` | `@kilnai/core` | `packages/core/src/sandbox/` | Per-agent filesystem allowlists and network proxy policies. |
 | `verification` | `@kilnai/core` | `packages/core/src/verification/` | Gate runner, verification loop: test, lint, type-check. |
-| `events` | `@kilnai/core` | `packages/core/src/events/` | EventBus: synchronous emit with typed subscriber dispatch (29 event types), multi-level streaming, ring buffer. |
+| `events` | `@kilnai/core` | `packages/core/src/events/` | EventBus: synchronous emit with typed subscriber dispatch (32 event types), multi-level streaming, ring buffer. |
 | `cost` | `@kilnai/core` | `packages/core/src/cost/` | Per-role, cache-aware cost tracking. |
 | `security` | `@kilnai/core` | `packages/core/src/security/` | Audit logging (JSONL + hash chaining), prompt injection (2-tier), encrypted secrets (AES-256-GCM), Guardian review, self-audit. |
+| `safety` | `@kilnai/core` | `packages/core/src/safety/` | Enterprise safety pipeline: PII scanner (2-tier, 6 types), content classifier (6 categories), 4 policy rails (topic, competitor, escalation, compliance). |
 | `channels` | `@kilnai/runtime` | `packages/runtime/src/channels/` | Channel adapters (CLI, Web, WhatsApp, Slack, API, Voice), EventBridge, ChannelRegistry, ChannelRouter, MessageFormatter. Multimodal `ContentPart[]` message primitives with per-channel `supportedModalities`. |
 | `gateway` | `@kilnai/runtime` | `packages/runtime/src/gateway/` | Gateway runtime: multi-App loading, per-App isolation, Mode B routes, budget middleware, cross-app delegation (Kiln-native + A2A), A2A route mounting, trigger webhook mounting, dev-mode API routes, inline web debugger. |
 | `a2a` | `@kilnai/runtime` | `packages/runtime/src/a2a/` | A2A protocol: Agent Card generation, JSON-RPC 2.0 server (tasks/send, sendSubscribe, get, cancel), A2ATaskStore, A2AClient for outbound delegation. |
@@ -837,7 +881,7 @@ When `devMode` is true, the gateway serves an inline HTML debugger at `/dev/`:
 
 ## 16. Event Streaming
 
-29 event types are emitted by the engine and broadcast to all connected channels.
+32 event types are emitted by the engine and broadcast to all connected channels.
 
 ### Core Events
 
@@ -888,6 +932,14 @@ When `devMode` is true, the gateway serves an inline HTML debugger at `/dev/`:
 | `trigger_failed` | `triggerName`, `triggerType`, `error` |
 | `schedule_fired` | `triggerName`, `cron`, `team` |
 
+### Safety Events
+
+| Event | Key Payload Fields |
+|-------|--------------------|
+| `pii_detected` | `direction`, `piiTypes`, `action`, `count`, `tier` |
+| `content_classified` | `direction`, `categories`, `blocked`, `tier` |
+| `policy_evaluated` | `railType`, `allowed`, `reason`, `direction` |
+
 ### Multi-Level Streaming
 
 Events are assigned to streaming levels via `EVENT_LEVEL_MAP`:
@@ -933,7 +985,8 @@ kiln/
 │   │       ├── package/                  # types.ts, security.ts, yaml-schema.ts, yaml-parser.ts
 │   │       ├── skill/                    # skill-registry.ts, yaml-schema.ts, yaml-parser.ts
 │   │       ├── eval/                     # scorers/, dataset-loader.ts, experiment-runner.ts, experiment-comparator.ts, scorer-factory.ts
-│   │       └── security/                 # audit-log.ts, prompt-scanner.ts, secret-store.ts, guardian.ts, self-audit.ts
+│   │       ├── security/                 # audit-log.ts, prompt-scanner.ts, secret-store.ts, guardian.ts, self-audit.ts
+│   │       └── safety/                  # pii-scanner.ts, content-classifier.ts, rails.ts, safety-pipeline.ts
 │   ├── runtime/                          # Gateway + channels + triggers
 │   │   └── src/
 │   │       ├── gateway/                  # gateway-server.ts, gateway-routes.ts, dev-routes.ts, dev-inspector.ts

@@ -17,6 +17,8 @@ import type { ToolSelectionConfig } from "../domain/tool-selection-config.js";
 import { validateToolSelectionConfig } from "../domain/tool-selection-config.js";
 import type { VoiceConfig } from "../domain/speech-config.js";
 import { validateVoiceConfig } from "../domain/speech-config.js";
+import type { SafetyConfig } from "../domain/safety-config.js";
+import { validateSafetyConfig } from "../domain/safety-config.js";
 
 /** Memory configuration for an App */
 export interface MemoryConfig {
@@ -38,6 +40,7 @@ export interface App {
   readonly mcp?: McpConfig;
   readonly toolSelection?: ToolSelectionConfig;
   readonly voice?: VoiceConfig;
+  readonly safety?: SafetyConfig;
 }
 
 /** Validation error for app configuration */
@@ -166,6 +169,14 @@ export function validateApp(app: App): AppValidationError[] {
     const voiceErrors = validateVoiceConfig(app.voice);
     for (const e of voiceErrors) {
       errors.push({ field: e.field, message: e.message });
+    }
+  }
+
+  // Safety validation
+  if (app.safety) {
+    const safetyErrors = validateSafetyConfig(app.safety);
+    for (const e of safetyErrors) {
+      errors.push({ field: `safety.${e.field}`, message: e.message });
     }
   }
 

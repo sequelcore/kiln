@@ -11,6 +11,7 @@ export * from "./security/index.js";
 export * from "./observability/index.js";
 export * from "./knowledge/index.js";
 export * from "./eval/index.js";
+export * from "./safety/index.js";
 export * as engine from "./engine/index.js";
 
 // Re-export streaming types for runtime
@@ -168,3 +169,23 @@ export type {
   ToolSelectionValidationError,
 } from "./engine/domain/tool-selection-config.js";
 export { validateToolSelectionConfig } from "./engine/domain/tool-selection-config.js";
+
+// Safety config types re-exported for direct access by runtime
+export type {
+  SafetyConfig,
+  SafetyValidationError,
+  PiiConfig,
+  PiiType,
+  PiiAction,
+  ContentConfig,
+  ContentCategory,
+  ContentAction,
+  ContentCategoryConfig,
+  RailConfig,
+  RailType,
+  TopicRailConfig,
+  CompetitorRailConfig,
+  EscalationRailConfig,
+  ComplianceRailConfig,
+} from "./engine/domain/safety-config.js";
+export { validateSafetyConfig } from "./engine/domain/safety-config.js";

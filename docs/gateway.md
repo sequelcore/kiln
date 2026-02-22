@@ -428,12 +428,13 @@ Cross-App communication is explicit and typed: one App must declare a `type: del
 3. Creates a `ChannelRegistry` per App.
 4. Initializes `ModeBOrchestrator` and `ModeBAppRuntime` for each Mode B App.
 5. Builds a `DelegationRegistry` from all Mode B Apps.
-6. Calls `createGatewayApp()` to produce the Hono app with all routes mounted.
-7. Mounts static SPA files from `dist/console/` for the web console.
-8. Calls `Bun.serve({ port, fetch, websocket })`.
-9. If `EADDRINUSE` is thrown, logs the error and exits with code 1.
-10. Logs the started port and list of App names.
-11. Awaits SIGINT or SIGTERM to call `server.stop(true)`.
+6. Initializes `SafetyPipeline` for each App that declares a `safety` block in YAML.
+7. Calls `createGatewayApp()` to produce the Hono app with all routes mounted (including safety middleware on Apps with safety config).
+8. Mounts static SPA files from `dist/console/` for the web console.
+9. Calls `Bun.serve({ port, fetch, websocket })`.
+10. If `EADDRINUSE` is thrown, logs the error and exits with code 1.
+11. Logs the started port and list of App names.
+12. Awaits SIGINT or SIGTERM to call `server.stop(true)`.
 
 Source: `packages/runtime/src/gateway/gateway-server.ts`
 

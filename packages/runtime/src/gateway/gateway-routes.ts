@@ -18,6 +18,8 @@ import type { TenantAdminRoutesConfig } from "./tenant-admin-routes.js";
 import { createTenantAdminRoutes } from "./tenant-admin-routes.js";
 import { HealthRegistry } from "./health-registry.js";
 import { securityMiddleware } from "./security-middleware.js";
+import { safetyMiddleware } from "./safety-middleware.js";
+import type { SafetyPipeline } from "@kilnai/core";
 import type { DevRoutesConfig } from "./dev-routes.js";
 import { createDevRoutes } from "./dev-routes.js";
 import { createDevInspectorHtml } from "./dev-inspector.js";
@@ -51,6 +53,7 @@ export interface GatewayServerConfig {
   readonly devMode?: boolean;
   readonly devRoutesConfig?: DevRoutesConfig;
   readonly triggerRegistry?: TriggerRegistry;
+  readonly safetyPipelines?: Map<string, SafetyPipeline>;
 }
 
 export function createGatewayApp(config: GatewayServerConfig): Hono {
@@ -100,6 +103,16 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
 
   // Per-app routes
   for (const loadedApp of config.apps) {
+    // Safety middleware per app (scans both input and output)
+    const safetyPipeline = config.safetyPipelines?.get(loadedApp.name);
+    if (safetyPipeline) {
+      for (const channel of loadedApp.binding.channels) {
+        if (channel.type === "api" && channel.path) {
+          app.use(`${channel.path}/*`, safetyMiddleware(safetyPipeline));
+        }
+      }
+    }
+
     for (const channel of loadedApp.binding.channels) {
       if (channel.type === "api" && channel.path) {
         // Multi-tenant apps use tenant routes; otherwise Mode B or placeholder

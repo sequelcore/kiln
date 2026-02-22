@@ -11,6 +11,7 @@ import {
   OllamaAdapter,
   KilnError,
   OTelExporter,
+  SafetyPipeline,
 } from "@kilnai/core";
 import type { ProviderAdapter, ProviderConfig, App } from "@kilnai/core";
 import { EventBus } from "@kilnai/core";
@@ -295,6 +296,15 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
     }
   }
 
+  // Initialize safety pipelines per app
+  const safetyPipelines = new Map<string, SafetyPipeline>();
+  for (const loaded of loadedApps) {
+    if (loaded.app.safety) {
+      safetyPipelines.set(loaded.name, new SafetyPipeline(loaded.app.safety));
+      console.log(`  ${loaded.name}: safety pipeline enabled`);
+    }
+  }
+
   const honoApp = createGatewayApp({
     port,
     apps: loadedApps,
@@ -302,6 +312,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
     healthRegistry,
     startTime,
     triggerRegistry,
+    safetyPipelines,
     devMode: options?.devMode,
     devRoutesConfig: options?.devMode
       ? {
