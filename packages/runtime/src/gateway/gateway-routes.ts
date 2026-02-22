@@ -54,6 +54,7 @@ export interface GatewayServerConfig {
   readonly devRoutesConfig?: DevRoutesConfig;
   readonly triggerRegistry?: TriggerRegistry;
   readonly safetyPipelines?: Map<string, SafetyPipeline>;
+  readonly studioDistPath?: string;
 }
 
 export function createGatewayApp(config: GatewayServerConfig): Hono {
@@ -96,7 +97,12 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
 
   // Dev mode routes (local development only -- no auth)
   if (config.devMode) {
-    app.get("/dev/", (c) => c.html(createDevInspectorHtml()));
+    if (config.studioDistPath) {
+      app.get("/dev/", (c) => c.redirect("/studio/"));
+      // Studio static files are served separately by the gateway server
+    } else {
+      app.get("/dev/", (c) => c.html(createDevInspectorHtml()));
+    }
     const devRoutes = createDevRoutes(config.devRoutesConfig ?? {});
     app.route("/dev", devRoutes);
   }

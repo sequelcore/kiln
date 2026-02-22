@@ -2,11 +2,11 @@
 
 MIT
 
-Domain-agnostic AI orchestration engine. 7 primitives (Agent, Capability, Workflow, Memory, Task, Channel, Trigger) + 3 composites (Team, Router, App) configured via YAML. Multi-tenant gateway runtime with provider adapters, budget enforcement, cross-app delegation, 6 channel adapters, and trigger runtime (webhooks, event listeners, cron scheduler). Multimodal message primitives (`ContentPart[]`: text, image, audio, file) with per-channel `supportedModalities`, Voice Channel (STT/TTS), and agent `modalities` YAML declaration. Domain config system with tech stack auto-detection, YAML schema/parser, DomainRegistry, and 5 built-in domain kits. Package bounded context for distribution (versioning, security validation, content hashing). Skill system (SKILL.yaml format + 3-tier discovery + CLI marketplace). Observability via OTel span mapping + exporter (EventStore sink). Knowledge (RAG) primitives: chunkers, embedding adapters, vector store, retrieval pipeline, auto-injected knowledge_search capability. Eval framework: 12 scorer types (6 rule-based + 6 LLM-as-judge), YAML-configured experiments, dataset JSONL loader, experiment runner with per-scorer error isolation, experiment comparator. Interoperability: A2A protocol (Agent Card generation, JSON-RPC 2.0 server/client, task lifecycle), dynamic MCP server connections (SSE transport, circuit breaker), Tool RAG (embedding-based tool selection when tools exceed threshold). Enterprise safety: PII scanner (2-tier, 6 types, redact/block), content classifier (6 categories), 4 policy rails (topic, competitor, escalation, compliance), safety middleware on gateway I/O. Error catalog with actionable suggestions. Interactive init wizard, dev mode with hot-reload and inline dev inspector.
+Domain-agnostic AI orchestration engine. 7 primitives (Agent, Capability, Workflow, Memory, Task, Channel, Trigger) + 3 composites (Team, Router, App) configured via YAML. Multi-tenant gateway runtime with provider adapters, budget enforcement, cross-app delegation, 6 channel adapters, and trigger runtime (webhooks, event listeners, cron scheduler). Multimodal message primitives (`ContentPart[]`: text, image, audio, file) with per-channel `supportedModalities`, Voice Channel (STT/TTS), and agent `modalities` YAML declaration. Domain config system with tech stack auto-detection, YAML schema/parser, DomainRegistry, and 5 built-in domain kits. Package bounded context for distribution (versioning, security validation, content hashing). Skill system (SKILL.yaml format + 3-tier discovery + CLI marketplace). Observability via OTel span mapping + exporter (EventStore sink). Knowledge (RAG) primitives: chunkers, embedding adapters, vector store, retrieval pipeline, auto-injected knowledge_search capability. Eval framework: 12 scorer types (6 rule-based + 6 LLM-as-judge), YAML-configured experiments, dataset JSONL loader, experiment runner with per-scorer error isolation, experiment comparator. Interoperability: A2A protocol (Agent Card generation, JSON-RPC 2.0 server/client, task lifecycle), dynamic MCP server connections (SSE transport, circuit breaker), Tool RAG (embedding-based tool selection when tools exceed threshold). Enterprise safety: PII scanner (2-tier, 6 types, redact/block), content classifier (6 categories), 4 policy rails (topic, competitor, escalation, compliance), safety middleware on gateway I/O. Error catalog with actionable suggestions. Interactive init wizard, dev mode with hot-reload and inline dev inspector. Developer experience: React hooks SDK (`@kilnai/react`) for frontend integration + Studio SPA (graph view, playground, timeline, memory inspector, eval dashboard) served at `/studio` in dev mode.
 
 ## Architecture
 
-Bun monorepo workspace: `packages/core` (engine primitives + implementations) + `packages/runtime` (gateway server + channel adapters) + `packages/cli` (CLI commands + MCP server).
+Bun monorepo workspace: `packages/core` (engine primitives + implementations) + `packages/runtime` (gateway server + channel adapters) + `packages/cli` (CLI commands + MCP server) + `packages/sdk` (React hooks library) + `packages/studio` (dev UI SPA, internal).
 
 ### Engine Overview
 
@@ -50,6 +50,8 @@ App (YAML-configured)
 | session | `packages/runtime/src/session/` | Mode B session management: ModeBSession, ModeBOrchestrator, SessionRegistry |
 | tenant | `packages/runtime/src/tenant/` | Multi-tenant management: TenantRegistry (JSON persistence), system prompt builder, phone-to-tenant resolution |
 | channels | `packages/runtime/src/channels/` | Channel adapters (CLI, Web, WhatsApp, Slack, API, Voice) + EventBridge + ChannelRegistry + ChannelRouter + MessageFormatter. Multimodal ContentPart[] messages with per-channel supportedModalities |
+| sdk | `packages/sdk/src/` | React hooks library (`@kilnai/react`): KilnProvider, useKilnChat, useKilnEvents, useKilnMemory, useKilnState, ApiClient, SseClient. Types-only import from core. |
+| studio | `packages/studio/src/` | Dev UI SPA (`@kilnai/studio`, private): React 19 + Vite + TanStack Router/Query + @xyflow/react. Graph view, Playground, Timeline, Memory inspector, Eval dashboard. Served at `/studio` in dev mode. |
 
 ### Dependency Rules (STRICT)
 
@@ -60,6 +62,8 @@ App (YAML-configured)
 5. Provider SDKs ONLY in `agents/infrastructure/`
 6. Channel adapters ONLY in channel implementations
 7. **@kilnai/runtime depends on @kilnai/core** only, never the reverse
+8. **@kilnai/react (SDK) imports only types** from @kilnai/core -- never implementations, never runtime
+9. **@kilnai/studio depends on @kilnai/react** + UI libs -- runtime serves its dist/ as static files, never imports Studio code
 
 ## Commands
 
@@ -257,4 +261,34 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `commands/dev-watcher.ts` | YamlWatcher: fs.watch with 300ms debounce for hot-reload |
 | `commands/skill.ts` | Skill marketplace CLI: list (3-tier + domain packages), install (validate + copy), publish (generate kiln-package.yaml) |
 | `formatters.ts` | CLI formatters: phase bar, task tree, cost, events, formatError(), formatDomainList(), formatSkillList() |
+
+### SDK (`packages/sdk/src/`)
+
+| File | Purpose |
+|------|---------|
+| `index.ts` | Barrel exports: provider, hooks, clients, types |
+| `provider.tsx` | KilnProvider (baseUrl, appName, userId context) + useKilnContext() |
+| `types.ts` | ChatMessage, ChatOptions, KilnConfig, KilnEventData, MemoryEntry, hook return types |
+| `use-kiln-chat.ts` | useKilnChat(): POST /message, local message history, loading/error state |
+| `use-kiln-events.ts` | useKilnEvents(): SSE /dev/events, typed event buffer (max 500) |
+| `use-kiln-memory.ts` | useKilnMemory(scope): GET/POST/DELETE /dev/memory/:scope CRUD |
+| `use-kiln-state.ts` | useKilnState(): GET /dev/state, /dev/cost, /dev/apps |
+| `api-client.ts` | ApiClient: fetch wrapper with baseUrl, JSON/text parsing, error handling |
+| `sse-client.ts` | SseClient: EventSource wrapper with auto-reconnect |
+
+### Studio (`packages/studio/src/`)
+
+| File | Purpose |
+|------|---------|
+| `main.tsx` | createRoot + RouterProvider |
+| `app.tsx` | Root layout (sidebar + main content) |
+| `styles/tokens.css` | Design tokens (dark theme, CSS custom properties) |
+| `routes/graph.tsx` | Workflow Graph View (@xyflow/react canvas) |
+| `routes/playground.tsx` | Agent Playground (chat via useKilnChat) |
+| `routes/timeline.tsx` | Timeline View (OTel spans via useKilnEvents) |
+| `routes/memory.tsx` | Memory Inspector (CRUD via useKilnMemory) |
+| `routes/eval.tsx` | Eval Dashboard (experiments, scores, comparison) |
+| `hooks/use-app-graph.ts` | TanStack Query: GET /dev/app-graph -> React Flow nodes/edges |
+| `hooks/use-yaml.ts` | TanStack Query: GET/PUT /dev/yaml |
+| `api/client.ts` | Configured fetch client (base URL defaults to window.location.origin) |
 

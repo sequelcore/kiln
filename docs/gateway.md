@@ -454,14 +454,20 @@ No session state is persisted across restarts. In-flight Mode B requests that ha
 
 ```
 Developer machine
-  CLI process
-    localhost:4800 -> web console
-    stdio -> Claude Code session (API key)
+  kiln dev [--playground]
+    localhost:4000 -> Gateway (devMode: true)
+      /studio/           -> Kiln Studio SPA (graph, playground, timeline, memory, eval)
+      /dev/events         -> SSE event stream
+      /dev/app-graph      -> App topology (teams, agents, capabilities)
+      /dev/yaml           -> YAML read/write
+      /dev/memory/:scope  -> Memory CRUD
+      /dev/eval/*         -> Eval experiments
     ~/.kiln/ -> user + agent memory
     {projectDir}/.kiln/ -> project memory
+    YamlWatcher -> hot-reload on YAML changes
 ```
 
-Single-user, single-project. Memory local. Started with the consumer app CLI.
+Single-user, single-project. Memory local. `--playground` opens Studio in browser. Studio reads/writes `app.yaml` for live editing. Falls back to inline HTML debugger at `/dev/` when Studio is not built.
 
 ### VPS Gateway
 

@@ -1,0 +1,26 @@
+import { useState, type ReactNode } from "react";
+import { Sidebar } from "./components/sidebar.js";
+import { GraphView } from "./routes/graph.js";
+import { PlaygroundView } from "./routes/playground.js";
+import { TimelineView } from "./routes/timeline.js";
+import { MemoryView } from "./routes/memory.js";
+import { EvalView } from "./routes/eval.js";
+
+type View = "graph" | "playground" | "timeline" | "memory" | "eval";
+
+export function App(): ReactNode {
+  const [view, setView] = useState<View>("graph");
+
+  return (
+    <div className="studio-layout">
+      <Sidebar activeView={view} onNavigate={setView} />
+      <main className="studio-main">
+        {view === "graph" && <GraphView />}
+        {view === "playground" && <PlaygroundView />}
+        {view === "timeline" && <TimelineView />}
+        {view === "memory" && <MemoryView />}
+        {view === "eval" && <EvalView />}
+      </main>
+    </div>
+  );
+}

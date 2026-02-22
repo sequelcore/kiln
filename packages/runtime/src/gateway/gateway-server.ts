@@ -1,10 +1,11 @@
 // Gateway: GatewayServer -- persistent Bun/Hono process hosting multiple Apps
 
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { createBunWebSocket } from "hono/bun";
 import {
   parseGatewayYaml,
+  parseAppYaml,
   AnthropicAdapter,
   OpenAIAdapter,
   DeepSeekAdapter,
@@ -31,6 +32,7 @@ export type { LoadedApp, GatewayServerConfig } from "./gateway-routes.js";
 export { createGatewayApp } from "./gateway-routes.js";
 export type { DevRoutesConfig } from "./dev-routes.js";
 export { createDevRoutes } from "./dev-routes.js";
+export type { AppGraphResponse, AppGraphTeam, AppGraphAgent, AppGraphRouter, EvalExperimentSummary } from "./dev-routes-types.js";
 export { createDevInspectorHtml } from "./dev-inspector.js";
 
 export interface StartGatewayOptions {
@@ -322,6 +324,70 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
         getCostSummary: () => ({ totalCostUsd: 0, byRole: {} }),
         getAppNames: () => loadedApps.map((a) => a.name),
         getTriggers: () => triggerRegistry.listAll(),
+        getAppGraph: () => {
+          const firstLoaded = loadedApps[0];
+          if (!firstLoaded) return undefined;
+          const app = firstLoaded.app;
+          return {
+            name: app.name,
+            teams: Object.entries(app.teams).map(([name, team]) => ({
+              name,
+              agents: Object.values(team.agents).map((a) => ({
+                name: a.name,
+                role: a.role,
+                goal: a.goal,
+                tier: a.tier,
+                tools: [...a.tools],
+                modalities: a.modalities ? [...a.modalities] : undefined,
+              })),
+              capabilities: team.capabilities.map((c) => c.name),
+              phases: [...team.workflow.phases],
+              mode: team.mode,
+            })),
+            router: {
+              rules: app.router.rules.map((r) => ({ pattern: r.match, team: r.team })),
+              fallback: app.router.fallback,
+              classifier: app.router.classifier?.name,
+            },
+            channels: [...app.channels],
+            triggers: app.triggers?.map((t) => t.name) ?? [],
+            hasKnowledge: !!app.knowledge,
+            hasEval: !!app.eval,
+            hasSafety: !!app.safety,
+          };
+        },
+        getYamlContent: () => {
+          try {
+            const firstBinding = gatewayConfig.apps[0];
+            if (!firstBinding) return undefined;
+            const yamlPath = join(gatewayYamlDir, firstBinding.config);
+            return readFileSync(yamlPath, "utf-8");
+          } catch { return undefined; }
+        },
+        putYamlContent: (content: string) => {
+          try {
+            // Validate YAML before writing
+            parseAppYaml(content);
+            const firstBinding = gatewayConfig.apps[0];
+            if (!firstBinding) return { ok: false, errors: ["No YAML path available"] };
+            const yamlPath = join(gatewayYamlDir, firstBinding.config);
+            writeFileSync(yamlPath, content, "utf-8");
+            return { ok: true };
+          } catch (e: unknown) {
+            const msg = e instanceof Error ? e.message : String(e);
+            return { ok: false, errors: [msg] };
+          }
+        },
+        getEvalExperiments: () => {
+          const firstLoaded = loadedApps[0];
+          if (!firstLoaded?.app.eval?.experiments) return [];
+          return firstLoaded.app.eval.experiments.map((exp) => ({
+            name: exp.name,
+            dataset: exp.dataset,
+            scorers: [...exp.scorers],
+          }));
+        },
+        getEvalResults: () => undefined,
       }
       : undefined,
   });

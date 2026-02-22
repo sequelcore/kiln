@@ -839,11 +839,41 @@ Development mode with hot-reload:
 - Starts gateway with `devMode: true`
 - `YamlWatcher` monitors YAML files with `fs.watch` + 300ms debounce
 - On change, reloads app configuration without restart
+- `--playground` flag opens Studio in the browser automatically
 
-### 14.3 Inline Web Debugger
+### 14.3 Kiln Studio
 
-When `devMode` is true, the gateway serves an inline HTML debugger at `/dev/`:
-- Self-contained HTML page (zero external deps, vanilla JS)
+When `devMode` is true, the gateway serves the Studio SPA at `/studio/` (or falls back to the inline HTML debugger at `/dev/` if Studio is not built).
+
+**Studio** (`packages/studio/`, `@kilnai/studio`) is a React 19 + Vite SPA with 5 views:
+- **Graph View**: `@xyflow/react` canvas rendering the app topology (router -> teams -> agents). Click a node to inspect details.
+- **Playground**: Chat UI using `useKilnChat` hook. Side panel shows tool calls from `useKilnEvents`.
+- **Timeline**: Waterfall visualization of `trace_span` events with duration bars and span detail inspector.
+- **Memory Inspector**: Tabs for each scope (user, agent, team, project, org). CRUD operations via `useKilnMemory`.
+- **Eval Dashboard**: Experiment list from `/dev/eval/experiments`. Score visualization and A/B comparison.
+
+**Dev API endpoints** (extended `DevRoutesConfig` in `dev-routes.ts`):
+- `GET /dev/app-graph` -- serialized App composite for the graph view
+- `GET /dev/yaml`, `PUT /dev/yaml` -- raw YAML read/write with validation
+- `GET /dev/memory/:scope`, `POST /dev/memory`, `DELETE /dev/memory/:id` -- memory CRUD
+- `GET /dev/eval/experiments`, `GET /dev/eval/experiments/:name/results` -- eval data
+
+### 14.4 Frontend SDK (`@kilnai/react`)
+
+Published React hooks library for apps building on Kiln:
+- `KilnProvider` -- context provider (baseUrl, appName, userId)
+- `useKilnChat(options?)` -- POST /message, local message history, loading/error state
+- `useKilnEvents()` -- SSE /dev/events, typed event buffer (max 500), auto-reconnect
+- `useKilnMemory(scope)` -- GET/POST/DELETE memory entries per scope
+- `useKilnState()` -- GET /dev/state, /dev/cost, /dev/apps
+- `ApiClient` -- fetch wrapper, `SseClient` -- EventSource wrapper with auto-reconnect
+- Imports only **types** from `@kilnai/core` (never implementations, never runtime)
+- Peer dependency on React 19+
+
+### 14.5 Inline Web Debugger (Fallback)
+
+When Studio is not built, the gateway serves a self-contained inline HTML debugger at `/dev/`:
+- Zero external dependencies, vanilla JS
 - SSE-connected to `/dev/events` for real-time event streaming
 - Endpoints: `/dev/state`, `/dev/memory`, `/dev/cost`, `/dev/apps`, `/dev/triggers`
 - Read-only -- no mutations from the debugger
@@ -876,6 +906,8 @@ When `devMode` is true, the gateway serves an inline HTML debugger at `/dev/`:
 | `session` | `@kilnai/runtime` | `packages/runtime/src/session/` | Mode B session management: ModeBSession, ModeBOrchestrator, SessionRegistry. |
 | `tenant` | `@kilnai/runtime` | `packages/runtime/src/tenant/` | Multi-tenant management: TenantRegistry, system prompt builder, phone-to-tenant resolution. |
 | `cli` | `@kilnai/cli` | `packages/cli/` | CLI commands (init, run, dev, gateway, skill, domain), formatters, MCP server. |
+| `sdk` | `@kilnai/react` | `packages/sdk/` | React hooks library: KilnProvider, useKilnChat, useKilnEvents, useKilnMemory, useKilnState, ApiClient, SseClient. Types-only import from core. |
+| `studio` | `@kilnai/studio` | `packages/studio/` | Dev UI SPA (private): React 19 + Vite + TanStack Query + @xyflow/react. Graph view, Playground, Timeline, Memory inspector, Eval dashboard. Served at `/studio` in dev mode. |
 
 ---
 
@@ -994,6 +1026,21 @@ kiln/
 │   │       ├── tenant/                   # tenant-registry.ts, system-prompt-builder.ts
 │   │       ├── channels/                 # cli-, web-, whatsapp-, slack-, api-, voice-channel.ts + speech/
 │   │       └── trigger/                  # trigger-registry.ts, webhook-handler.ts, event-listener.ts, scheduler.ts
+│   ├── sdk/                              # Frontend SDK (@kilnai/react)
+│   │   └── src/
+│   │       ├── provider.tsx             # KilnProvider context
+│   │       ├── use-kiln-chat.ts         # Chat hook
+│   │       ├── use-kiln-events.ts       # SSE events hook
+│   │       ├── use-kiln-memory.ts       # Memory CRUD hook
+│   │       ├── use-kiln-state.ts        # Dev state hook
+│   │       ├── api-client.ts            # Fetch wrapper
+│   │       └── sse-client.ts            # EventSource wrapper
+│   ├── studio/                           # Dev UI SPA (@kilnai/studio, private)
+│   │   └── src/
+│   │       ├── routes/                  # graph.tsx, playground.tsx, timeline.tsx, memory.tsx, eval.tsx
+│   │       ├── components/              # sidebar.tsx
+│   │       ├── hooks/                   # use-app-graph.ts, use-yaml.ts, use-timeline.ts
+│   │       └── styles/                  # tokens.css
 │   └── cli/                              # CLI commands + MCP server
 │       └── src/
 │           ├── commands/                 # init.ts, dev.ts, gateway.ts, skill.ts

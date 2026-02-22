@@ -64,9 +64,9 @@ Every competitor forces a choice: code-first flexibility (LangGraph, Mastra) or 
 
 | Metric | Value |
 |--------|-------|
-| Packages | 3 (core, runtime, cli) |
-| Bounded contexts | 26 |
-| Tests passing | 2,462+ (vitest) |
+| Packages | 5 (core, runtime, cli, sdk, studio) |
+| Bounded contexts | 28 |
+| Tests passing | 2,492+ (vitest) |
 | Multimodal | ContentPart[] message primitives, 4 modalities (text, image, audio, file), Voice Channel (STT/TTS) |
 | Primitives | 7 (Agent, Capability, Workflow, Memory, Task, Channel, Trigger) |
 | Composites | 3 (Team, Router, App) |
@@ -82,7 +82,33 @@ Every competitor forces a choice: code-first flexibility (LangGraph, Mastra) or 
 | Error codes | 55 (across 15 bounded contexts) |
 | Safety | PII scanner (2-tier), content classifier (6 categories), 4 policy rails, safety middleware |
 
-### Recently Completed (Phase 12 -- Enterprise Safety)
+### Recently Completed (Phase 13 -- Developer Experience: Studio + Frontend SDK)
+
+- New package `@kilnai/react` (`packages/sdk/`): React hooks library for frontend integration
+  - `KilnProvider` context provider (baseUrl, appName, userId)
+  - `useKilnChat()`: POST /message, local message history, loading/error state
+  - `useKilnEvents()`: SSE /dev/events, typed event buffer (max 500)
+  - `useKilnMemory(scope)`: GET/POST/DELETE /dev/memory/:scope CRUD
+  - `useKilnState()`: GET /dev/state, /dev/cost, /dev/apps
+  - `ApiClient` (fetch wrapper) + `SseClient` (EventSource with auto-reconnect)
+  - Types-only import from `@kilnai/core` (never implementations, never runtime)
+  - Built with `tsc` (publishable library), peer dep on React 19
+- New package `@kilnai/studio` (`packages/studio/`, private): Dev UI SPA
+  - React 19 + Vite 7 + TanStack Query + @xyflow/react
+  - 5 views: Graph (React Flow canvas), Playground (chat), Timeline (spans), Memory (CRUD), Eval (experiments)
+  - Dark theme with CSS custom properties
+  - Served at `/studio` in dev mode, built with `vite build`
+- Extended dev API routes (`packages/runtime/src/gateway/dev-routes.ts`): 8 new endpoints
+  - `GET /dev/app-graph`: serialized App composite (teams, agents, capabilities, phases, router)
+  - `GET /dev/yaml` + `PUT /dev/yaml`: raw YAML read/write with validation
+  - `GET /dev/memory/:scope` + `POST /dev/memory` + `DELETE /dev/memory/:id`: memory CRUD
+  - `GET /dev/eval/experiments` + `GET /dev/eval/experiments/:name/results`: eval data
+- Response types in `dev-routes-types.ts`: `AppGraphResponse`, `EvalExperimentSummary`
+- Gateway routes: `/dev/` redirects to `/studio/` when Studio is built, falls back to inline HTML
+- CLI `--playground` flag on `kiln dev`: opens browser to `/studio` automatically
+- Dev inspector (`dev-inspector.ts`) preserved as zero-dep fallback
+
+### Previously Completed (Phase 12 -- Enterprise Safety)
 
 - Engine config: `SafetyConfig` types (`PiiConfig`, `ContentConfig`, `RailConfig`) + `validateSafetyConfig()` in `engine/domain/safety-config.ts`
 - Safety runtime types: `PiiMatch`, `PiiScanResult`, `ContentScore`, `ContentScanResult`, `PolicyResult`, `SafetyPipelineResult` in `safety/types.ts`
@@ -654,7 +680,7 @@ safety:
 
 ---
 
-### Phase 13: Developer Experience (Studio + Frontend SDK)
+### Phase 13: Developer Experience (Studio + Frontend SDK) -- COMPLETED
 
 **Why:** A CLI-only interface limits adoption. LangGraph Studio and Mastra Studio prove that a visual dev tool dramatically accelerates agent development. A frontend SDK is required for any team building a web app on top of Kiln.
 
@@ -869,7 +895,7 @@ Phase 9 (Multimodal)        -- COMPLETED
 Phase 10 (Eval)             -- COMPLETED
 Phase 11 (A2A + MCP)        -- COMPLETED
 Phase 12 (Safety)           -- COMPLETED
-Phase 13 (Studio + SDK)     -- benefits from Phase 7 (timeline), Phase 10 (eval dashboard)
+Phase 13 (Studio + SDK)     -- COMPLETED
 Phase 14 (Deploy + Scale)   -- standalone, but Phase 15 depends on it
 Phase 15 (Durable)          -- requires Phase 14.3 (stateless gateway / external stores)
 ```
@@ -882,6 +908,6 @@ Phase 15 (Durable)          -- requires Phase 14.3 (stateless gateway / external
 4. ~~**Phase 11** (A2A + Dynamic MCP) -- COMPLETED~~
 5. ~~**Phase 9** (Multimodal) -- COMPLETED~~
 6. ~~**Phase 12** (Safety) -- COMPLETED~~
-7. **Phase 14** (Deploy) -- ops maturity for production users
-8. **Phase 13** (Studio + SDK) -- DX acceleration, adoption driver
+7. ~~**Phase 13** (Studio + SDK) -- COMPLETED~~
+8. **Phase 14** (Deploy) -- ops maturity for production users
 9. **Phase 15** (Durable) -- advanced production resilience

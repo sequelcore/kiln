@@ -1,0 +1,40 @@
+{
+  "name": "@kilnai/react",
+  "version": "0.1.0",
+  "description": "React hooks SDK for building apps on @kilnai/core",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0"
+  },
+  "dependencies": {
+    "@kilnai/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16.1.0",
+    "@types/react": "^19.0.0",
+    "jsdom": "^25.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "vitest": "^4.0.18"
+  }
+}

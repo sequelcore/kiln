@@ -1,3 +1,4 @@
+import { exec } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { KilnAppConfig } from "../config.js";
@@ -6,6 +7,7 @@ import { YamlWatcher } from "./dev-watcher.js";
 export interface DevFlags {
   port?: number;
   configPath?: string;
+  playground?: boolean;
 }
 
 export async function devCommand(appConfig: KilnAppConfig, flags?: DevFlags): Promise<void> {
@@ -47,6 +49,13 @@ export async function devCommand(appConfig: KilnAppConfig, flags?: DevFlags): Pr
   try {
     const { startGateway } = await import("@kilnai/runtime");
     await startGateway(configPath, { port: flags?.port, devMode: true });
+
+    if (flags?.playground) {
+      const port = flags.port ?? 4000;
+      const url = `http://localhost:${port}/studio/`;
+      openBrowser(url);
+      console.log(`Playground opened: ${url}`);
+    }
   } catch (err) {
     console.error(`Failed to start gateway: ${err instanceof Error ? err.message : String(err)}`);
     watcher.stop();
@@ -54,4 +63,14 @@ export async function devCommand(appConfig: KilnAppConfig, flags?: DevFlags): Pr
   }
 
   watcher.stop();
+}
+
+function openBrowser(url: string): void {
+  const cmd =
+    process.platform === "win32" ? `start "" "${url}"` :
+    process.platform === "darwin" ? `open "${url}"` :
+    `xdg-open "${url}"`;
+  exec(cmd, (err) => {
+    if (err) console.error(`Could not open browser: ${err.message}`);
+  });
 }

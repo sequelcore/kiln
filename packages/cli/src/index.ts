@@ -25,7 +25,7 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     "mcp-config": "Generate MCP client configuration JSON",
     domain: "Manage domain packages (install, list, search, info, remove)",
     gateway: "Start persistent Gateway (multi-app hosting)",
-    dev: "Start development mode with hot-reload and event streaming",
+    dev: "Start development mode with hot-reload and event streaming (--playground)",
     skill: "Manage skills (list, install, publish)",
   };
 
@@ -40,6 +40,7 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     console.log("  --api-key    Anthropic API key (required for Mode A)");
     console.log("  --provider   LLM provider (claude, openai, deepseek)");
     console.log("  --port       Port override (dev/gateway)");
+    console.log("  --playground Open Studio in browser (dev mode)");
     console.log(`\nRun '${config.appName} <command> --help' for command-specific help.\n`);
   }
 
@@ -134,7 +135,8 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     const { devCommand } = await import("./commands/dev.js");
     const port = parsePort(args);
     const configPath = findFlag(args, "--config");
-    await devCommand(config, { port: port !== 4800 ? port : undefined, configPath });
+    const playground = args.includes("--playground");
+    await devCommand(config, { port: port !== 4800 ? port : undefined, configPath, playground });
     return;
   }
 
