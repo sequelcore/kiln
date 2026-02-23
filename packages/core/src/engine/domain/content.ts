@@ -33,8 +33,24 @@ export interface FilePart {
   readonly filename?: string;
 }
 
+/** Tool use request from assistant */
+export interface ToolUsePart {
+  readonly type: "tool_use";
+  readonly id: string;
+  readonly name: string;
+  readonly input: Record<string, unknown>;
+}
+
+/** Tool execution result */
+export interface ToolResultPart {
+  readonly type: "tool_result";
+  readonly toolUseId: string;
+  readonly content: string;
+  readonly isError?: boolean;
+}
+
 /** Discriminated union of all content part types */
-export type ContentPart = TextPart | ImagePart | AudioPart | FilePart;
+export type ContentPart = TextPart | ImagePart | AudioPart | FilePart | ToolUsePart | ToolResultPart;
 
 /** Create a single TextPart */
 export function textPart(text: string): TextPart {
@@ -68,6 +84,9 @@ export function hasModality(parts: readonly ContentPart[], type: ContentPart["ty
 /** Validate a single ContentPart. Returns error message or null if valid. */
 export function validateContentPart(part: ContentPart): string | null {
   if (part.type === "text") {
+    return null;
+  }
+  if (part.type === "tool_use" || part.type === "tool_result") {
     return null;
   }
   // Binary parts must have exactly one of data or url

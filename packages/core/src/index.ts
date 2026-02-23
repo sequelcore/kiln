@@ -46,6 +46,8 @@ export type {
   ImagePart,
   AudioPart,
   FilePart,
+  ToolUsePart,
+  ToolResultPart,
 } from "./engine/domain/content.js";
 export {
   textPart,

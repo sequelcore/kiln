@@ -14,8 +14,8 @@ import {
   OTelExporter,
   SafetyPipeline,
 } from "@kilnai/core";
-import type { ProviderAdapter, ProviderConfig, App } from "@kilnai/core";
-import { EventBus } from "@kilnai/core";
+import type { ProviderAdapter, ProviderConfig, App, ToolDefinition } from "@kilnai/core";
+import { EventBus, McpClient } from "@kilnai/core";
 import { ChannelRegistry } from "../channels/channel-registry.js";
 import { TriggerRegistry } from "../trigger/trigger-registry.js";
 import { resolveApps } from "./app-resolver.js";
@@ -112,7 +112,36 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
     if (!resolved?.modeBConfig || resolved.modeBConfig.runtime !== "provider-adapter") continue;
 
     const provider = createProviderFromConfig(resolved.modeBConfig.provider);
-    const orchestrator = new ModeBOrchestrator({ provider });
+
+    // Discover MCP tools if configured
+    const mcpClients: McpClient[] = [];
+    const tools: ToolDefinition[] = [];
+    if (resolved.app.mcp?.servers) {
+      for (const serverConfig of resolved.app.mcp.servers) {
+        try {
+          const client = new McpClient(serverConfig);
+          const capabilities = await client.discoverTools();
+          for (const cap of capabilities) {
+            tools.push({
+              name: cap.name,
+              description: cap.description,
+              inputSchema: cap.schema,
+              tags: new Set(cap.tags),
+            });
+          }
+          mcpClients.push(client);
+          console.log(`  ${loaded.name}: discovered ${capabilities.length} tools from MCP server "${serverConfig.name}"`);
+        } catch (err) {
+          console.warn(`  ${loaded.name}: failed to connect to MCP server "${serverConfig.name}": ${err}`);
+        }
+      }
+    }
+
+    const orchestrator = new ModeBOrchestrator({
+      provider,
+      tools: tools.length > 0 ? tools : undefined,
+      mcpClients: mcpClients.length > 0 ? mcpClients : undefined,
+    });
     const isMultiTenant = loaded.binding.channels.some((ch) => ch.multiTenant === true);
 
     if (isMultiTenant) {

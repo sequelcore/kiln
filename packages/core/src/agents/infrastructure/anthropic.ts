@@ -186,6 +186,22 @@ export class AnthropicAdapter implements ProviderAdapter {
               : { type: "url", url: part.url! },
           });
           break;
+        case "tool_use":
+          blocks.push({
+            type: "tool_use",
+            id: part.id,
+            name: part.name,
+            input: part.input,
+          });
+          break;
+        case "tool_result":
+          blocks.push({
+            type: "tool_result",
+            tool_use_id: part.toolUseId,
+            content: part.content,
+            is_error: part.isError,
+          });
+          break;
         case "audio":
           throw new KilnError("UNSUPPORTED_MODALITY", "Anthropic does not support audio content blocks", {
             context: { modality: "audio", provider: "anthropic" },
@@ -211,8 +227,13 @@ export class AnthropicAdapter implements ProviderAdapter {
       }
     }
 
+    // Only add fallback empty text if there are no tool calls and no text
+    const parts = responseParts.length > 0
+      ? responseParts
+      : toolCalls.length > 0 ? [] : [textPart("")];
+
     return {
-      parts: responseParts.length > 0 ? responseParts : [textPart("")],
+      parts,
       inputTokens: response.usage.input_tokens,
       outputTokens: response.usage.output_tokens,
       cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,

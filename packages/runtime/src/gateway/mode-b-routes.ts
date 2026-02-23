@@ -85,7 +85,13 @@ export function createModeBRoutes(runtime: ModeBAppRuntime): Hono {
     });
 
     // Process message
-    const result = await runtime.orchestrator.processMessage(session, userParts);
+    let result;
+    try {
+      result = await runtime.orchestrator.processMessage(session, userParts);
+    } catch (err) {
+      console.error(`[${runtime.appName}] processMessage error:`, err);
+      return c.json({ error: String(err) }, 500);
+    }
 
     // Report usage
     if (runtime.billing) {

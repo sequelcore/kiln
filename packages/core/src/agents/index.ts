@@ -79,7 +79,7 @@ export { compressContext } from "./context-compressor.js";
 export type { CompressOptions } from "./context-compressor.js";
 export { McpClient } from "./mcp-client.js";
 export { ToolRAG } from "./tool-rag.js";
-export type { ContentPart, TextPart, ImagePart, AudioPart, FilePart } from "../engine/domain/content.js";
+export type { ContentPart, TextPart, ImagePart, AudioPart, FilePart, ToolUsePart, ToolResultPart } from "../engine/domain/content.js";
 export { textPart, textParts, extractText, hasModality, validateContentPart, validateContentParts } from "../engine/domain/content.js";
 export type { Modality } from "../engine/domain/modality.js";
 export { VALID_MODALITIES, validateModalities } from "../engine/domain/modality.js";
