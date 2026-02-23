@@ -20,7 +20,7 @@ Bun monorepo with 5 packages:
 |---------|----------|---------|
 | engine | `core/src/engine/` | 7 primitives + 3 composites + YAML loader + gateway config + cron parser. Zero external deps except `yaml`. |
 | orchestrator | `core/src/orchestrator/` | Phase machine, checkpoint/resume, strategies (sequential, supervisor, swarm) |
-| agents | `core/src/agents/` | Provider adapters (Anthropic, OpenAI, DeepSeek, Ollama), tool cache, MCP client, circuit breaker, Tool RAG |
+| agents | `core/src/agents/` | Provider adapters (Anthropic, OpenAI, DeepSeek, Ollama), tool cache, MCP client (Streamable HTTP, official SDK), circuit breaker, Tool RAG |
 | memory | `core/src/memory/` | Scoped storage (user, agent, team, project, org), SQLite + FTS5, git sync, decay, compaction |
 | tree | `core/src/tree/` | Task tree (scoring, deepen/branch/prune), batch executor |
 | sandbox | `core/src/sandbox/` | Per-agent filesystem + network isolation |
@@ -108,7 +108,7 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `agents/infrastructure/openai.ts` | OpenAI adapter |
 | `agents/infrastructure/deepseek.ts` | DeepSeek adapter |
 | `agents/infrastructure/ollama.ts` | Ollama adapter (local models) |
-| `agents/mcp-client.ts` | MCP SSE client with circuit breaker |
+| `agents/mcp-client.ts` | MCP client (Streamable HTTP via official SDK, circuit breaker) |
 | `agents/tool-rag.ts` | Embedding-based tool selection |
 | `memory/sqlite-store.ts` | SQLite + FTS5 memory (decay, compaction, tenant namespacing) |
 | `safety/safety-pipeline.ts` | PII -> content -> rails pipeline (fail-open) |

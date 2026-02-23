@@ -20,7 +20,7 @@ This document is for contributors. For user documentation, see the [guides](guid
 |---------|---------|----------|---------|
 | `engine` | `@kilnai/core` | `packages/core/src/engine/` | 7 primitives + 3 composites + YAML loader + gateway config types + cron parser. Zero external dependencies. |
 | `orchestrator` | `@kilnai/core` | `packages/core/src/orchestrator/` | Phase machine, orchestrator, checkpoint/resume/fork, configurable phase sequence and gate enforcement. |
-| `agents` | `@kilnai/core` | `packages/core/src/agents/` | Provider adapter interface and implementations (Anthropic, OpenAI, DeepSeek, Ollama). MCP client (SSE transport, circuit breaker). Tool RAG (embedding-based tool selection). |
+| `agents` | `@kilnai/core` | `packages/core/src/agents/` | Provider adapter interface and implementations (Anthropic, OpenAI, DeepSeek, Ollama). MCP client (Streamable HTTP transport via official SDK, circuit breaker). Tool RAG (embedding-based tool selection). |
 | `memory` | `@kilnai/core` | `packages/core/src/memory/` | SQLite + FTS5 store (decay + compaction), gzipped JSONL store, git sync. |
 | `tree` | `@kilnai/core` | `packages/core/src/tree/` | Task tree: scoring, batch selection, deepen/branch/prune. |
 | `domain` | `@kilnai/core` | `packages/core/src/domain/` | Domain registry, YAML schema, 5 built-in domain kits, marketplace adapter. |

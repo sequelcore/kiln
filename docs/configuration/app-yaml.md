@@ -167,8 +167,7 @@ knowledge:
 mcp:
   servers:
     - name: filesystem
-      transport: sse
-      url: http://localhost:3100/sse
+      url: http://localhost:3100/mcp
 
 toolSelection:
   strategy: rag
@@ -738,20 +737,17 @@ Declares external MCP server connections. Tools discovered from connected server
 mcp:
   servers:
     - name: filesystem
-      transport: sse
-      url: http://localhost:3100/sse
+      url: http://localhost:3100/mcp
     - name: search
-      transport: sse
-      url: http://localhost:3101/sse
+      url: http://localhost:3101/mcp
 ```
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `servers[].name` | `string` | Yes | Unique identifier for the MCP server. |
-| `servers[].transport` | `"sse"` | Yes | Transport type. Only SSE is supported. |
-| `servers[].url` | `string` | Yes | SSE endpoint URL for the MCP server. |
+| `servers[].url` | `string` | Yes | Streamable HTTP endpoint URL for the MCP server. |
 
-MCP connections use a circuit breaker. If the server is unreachable, the circuit opens and the connection is retried with exponential backoff.
+MCP connections use the official `@modelcontextprotocol/sdk` client with Streamable HTTP transport. A circuit breaker protects against unreachable servers with exponential backoff retries.
 
 ---
 
