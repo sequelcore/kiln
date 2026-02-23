@@ -94,6 +94,59 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
     tenantAdmin: tenantAdminConfig,
   });
 
+  // Initialize OTel exporter if observability is configured
+  // @opentelemetry/sdk-trace-base and @opentelemetry/exporter-trace-otlp-http are user-installed
+  // optional packages -- loaded via dynamic import so they're truly optional at compile time.
+  let otelExporter: OTelExporter | undefined;
+  const obsConfig = gatewayConfig.observability;
+  if (obsConfig?.enabled) {
+    try {
+      const { trace } = await import("@opentelemetry/api");
+      let provider: import("@opentelemetry/api").TracerProvider;
+
+      if (obsConfig.exporter === "console") {
+        // eslint-disable-next-line @typescript-eslint/no-implied-eval
+        const sdkBase = await (new Function("m", "return import(m)"))("@opentelemetry/sdk-trace-base") as {
+          BasicTracerProvider: new () => { addSpanProcessor(p: unknown): void; register(): void };
+          ConsoleSpanExporter: new () => unknown;
+          SimpleSpanProcessor: new (e: unknown) => unknown;
+        };
+        const p = new sdkBase.BasicTracerProvider();
+        p.addSpanProcessor(new sdkBase.SimpleSpanProcessor(new sdkBase.ConsoleSpanExporter()));
+        p.register();
+        provider = p as unknown as import("@opentelemetry/api").TracerProvider;
+      } else if (obsConfig.exporter === "otlp") {
+        // eslint-disable-next-line @typescript-eslint/no-implied-eval
+        const sdkBase = await (new Function("m", "return import(m)"))("@opentelemetry/sdk-trace-base") as {
+          BasicTracerProvider: new () => { addSpanProcessor(p: unknown): void; register(): void };
+          SimpleSpanProcessor: new (e: unknown) => unknown;
+        };
+        // eslint-disable-next-line @typescript-eslint/no-implied-eval
+        const otlpMod = await (new Function("m", "return import(m)"))("@opentelemetry/exporter-trace-otlp-http") as {
+          OTLPTraceExporter: new (opts: { url?: string }) => unknown;
+        };
+        const p = new sdkBase.BasicTracerProvider();
+        p.addSpanProcessor(new sdkBase.SimpleSpanProcessor(new otlpMod.OTLPTraceExporter({ url: obsConfig.endpoint })));
+        p.register();
+        provider = p as unknown as import("@opentelemetry/api").TracerProvider;
+      } else {
+        // exporter: none -- use the global noop tracer provider
+        provider = trace.getTracerProvider();
+      }
+
+      otelExporter = new OTelExporter(provider, {
+        serviceName: obsConfig.serviceName,
+        attributes: obsConfig.attributes,
+      });
+      console.log(`Observability: OTel exporter "${obsConfig.exporter}" enabled for service "${obsConfig.serviceName}"`);
+    } catch (err) {
+      console.warn(`Observability: failed to initialize OTel exporter -- ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  // EventBus: shared across all apps for observability and dev inspector
+  const gatewayEventBus = new EventBus(100, otelExporter);
+
   const loadedApps = resolvedApps.map((resolved: ResolvedApp) => ({
     name: resolved.name,
     app: resolved.app,
@@ -141,6 +194,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
       provider,
       tools: tools.length > 0 ? tools : undefined,
       mcpClients: mcpClients.length > 0 ? mcpClients : undefined,
+      eventBus: gatewayEventBus,
     });
     const isMultiTenant = loaded.binding.channels.some((ch) => ch.multiTenant === true);
 
@@ -265,58 +319,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
     return { status: "ok" as const, details: { configured: true } };
   });
 
-  // Initialize OTel exporter if observability is configured
-  // @opentelemetry/sdk-trace-base and @opentelemetry/exporter-trace-otlp-http are user-installed
-  // optional packages -- loaded via dynamic import so they're truly optional at compile time.
-  let otelExporter: OTelExporter | undefined;
-  const obsConfig = gatewayConfig.observability;
-  if (obsConfig?.enabled) {
-    try {
-      const { trace } = await import("@opentelemetry/api");
-      let provider: import("@opentelemetry/api").TracerProvider;
-
-      if (obsConfig.exporter === "console") {
-        // eslint-disable-next-line @typescript-eslint/no-implied-eval
-        const sdkBase = await (new Function("m", "return import(m)"))("@opentelemetry/sdk-trace-base") as {
-          BasicTracerProvider: new () => { addSpanProcessor(p: unknown): void; register(): void };
-          ConsoleSpanExporter: new () => unknown;
-          SimpleSpanProcessor: new (e: unknown) => unknown;
-        };
-        const p = new sdkBase.BasicTracerProvider();
-        p.addSpanProcessor(new sdkBase.SimpleSpanProcessor(new sdkBase.ConsoleSpanExporter()));
-        p.register();
-        provider = p as unknown as import("@opentelemetry/api").TracerProvider;
-      } else if (obsConfig.exporter === "otlp") {
-        // eslint-disable-next-line @typescript-eslint/no-implied-eval
-        const sdkBase = await (new Function("m", "return import(m)"))("@opentelemetry/sdk-trace-base") as {
-          BasicTracerProvider: new () => { addSpanProcessor(p: unknown): void; register(): void };
-          SimpleSpanProcessor: new (e: unknown) => unknown;
-        };
-        // eslint-disable-next-line @typescript-eslint/no-implied-eval
-        const otlpMod = await (new Function("m", "return import(m)"))("@opentelemetry/exporter-trace-otlp-http") as {
-          OTLPTraceExporter: new (opts: { url?: string }) => unknown;
-        };
-        const p = new sdkBase.BasicTracerProvider();
-        p.addSpanProcessor(new sdkBase.SimpleSpanProcessor(new otlpMod.OTLPTraceExporter({ url: obsConfig.endpoint })));
-        p.register();
-        provider = p as unknown as import("@opentelemetry/api").TracerProvider;
-      } else {
-        // exporter: none -- use the global noop tracer provider
-        provider = trace.getTracerProvider();
-      }
-
-      otelExporter = new OTelExporter(provider, {
-        serviceName: obsConfig.serviceName,
-        attributes: obsConfig.attributes,
-      });
-      console.log(`Observability: OTel exporter "${obsConfig.exporter}" enabled for service "${obsConfig.serviceName}"`);
-    } catch (err) {
-      console.warn(`Observability: failed to initialize OTel exporter -- ${err instanceof Error ? err.message : String(err)}`);
-    }
-  }
-
   // Initialize trigger registry for apps with triggers
-  const gatewayEventBus = new EventBus(100, otelExporter);
   const triggerRegistry = new TriggerRegistry({ eventBus: gatewayEventBus });
 
   for (const loaded of loadedApps) {

@@ -1,44 +1,45 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { McpClient } from "../../src/agents/mcp-client.js";
 import type { McpServerConfig } from "../../src/engine/domain/mcp-config.js";
 
-describe("McpClient", () => {
-  let client: McpClient;
-  const originalFetch = global.fetch;
-  let fetchMock: ReturnType<typeof vi.fn>;
+const mockConnect = vi.fn();
+const mockClose = vi.fn();
+const mockListTools = vi.fn();
+const mockCallTool = vi.fn();
 
-  const sseConfig: McpServerConfig = {
+vi.mock("@modelcontextprotocol/sdk/client/index.js", () => ({
+  Client: class MockClient {
+    connect = mockConnect;
+    close = mockClose;
+    listTools = mockListTools;
+    callTool = mockCallTool;
+  },
+}));
+
+vi.mock("@modelcontextprotocol/sdk/client/streamableHttp.js", () => ({
+  StreamableHTTPClientTransport: class MockTransport {},
+}));
+
+describe("McpClient", () => {
+  const config: McpServerConfig = {
     name: "test-mcp-server",
-    transport: "sse",
     url: "https://example.com/mcp",
   };
 
   beforeEach(() => {
-    fetchMock = vi.fn();
-    global.fetch = fetchMock as unknown as typeof fetch;
-  });
-
-  afterEach(() => {
-    global.fetch = originalFetch;
-    if (client) {
-      client.disconnect();
-    }
+    vi.clearAllMocks();
   });
 
   describe("discoverTools", () => {
     it("maps MCP tools to Capabilities", async () => {
-      client = new McpClient(sseConfig);
+      const client = new McpClient(config);
 
-      fetchMock.mockResolvedValue(new Response(JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        result: {
-          tools: [
-            { name: "search", description: "Search the web", inputSchema: { type: "object" } },
-            { name: "email", description: "Send email", inputSchema: { type: "object", properties: { to: { type: "string" } } } },
-          ],
-        },
-      }), { status: 200 }));
+      mockListTools.mockResolvedValue({
+        tools: [
+          { name: "search", description: "Search the web", inputSchema: { type: "object" } },
+          { name: "email", description: "Send email", inputSchema: { type: "object", properties: { to: { type: "string" } } } },
+        ],
+      });
 
       const tools = await client.discoverTools();
 
@@ -50,22 +51,18 @@ describe("McpClient", () => {
     });
 
     it("maps MCP annotation hints correctly", async () => {
-      client = new McpClient(sseConfig);
+      const client = new McpClient(config);
 
-      fetchMock.mockResolvedValue(new Response(JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        result: {
-          tools: [
-            {
-              name: "safe-read",
-              description: "Read file",
-              inputSchema: {},
-              annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
-            },
-          ],
-        },
-      }), { status: 200 }));
+      mockListTools.mockResolvedValue({
+        tools: [
+          {
+            name: "safe-read",
+            description: "Read file",
+            inputSchema: {},
+            annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+          },
+        ],
+      });
 
       const tools = await client.discoverTools();
 
@@ -74,54 +71,35 @@ describe("McpClient", () => {
       expect(tools[0]?.annotations?.idempotent).toBe(true);
     });
 
-    it("throws MCP_DISCOVERY_FAILED on invalid response", async () => {
-      client = new McpClient(sseConfig);
+    it("throws MCP_DISCOVERY_FAILED on SDK error", async () => {
+      const client = new McpClient(config);
 
-      fetchMock.mockResolvedValue(new Response(JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        result: {},
-      }), { status: 200 }));
+      mockListTools.mockRejectedValue(new Error("Connection refused"));
 
-      await expect(client.discoverTools()).rejects.toThrow("tools/list response missing tools array");
-    });
-
-    it("throws MCP_CONNECTION_FAILED on network error", async () => {
-      client = new McpClient(sseConfig);
-
-      fetchMock.mockRejectedValue(new Error("Network error"));
-
-      await expect(client.discoverTools()).rejects.toThrow("Request failed");
+      await expect(client.discoverTools()).rejects.toThrow("Failed to discover tools");
     });
   });
 
   describe("executeTool", () => {
-    it("sends JSON-RPC call and returns result", async () => {
-      client = new McpClient(sseConfig);
+    it("calls tool and returns parsed JSON", async () => {
+      const client = new McpClient(config);
 
-      fetchMock.mockResolvedValue(new Response(JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        result: {
-          content: [{ type: "text", text: '{"status": "ok"}' }],
-        },
-      }), { status: 200 }));
+      mockCallTool.mockResolvedValue({
+        content: [{ type: "text", text: '{"status": "ok"}' }],
+      });
 
       const result = await client.executeTool("search", { query: "test" });
 
       expect(result).toEqual({ status: "ok" });
+      expect(mockCallTool).toHaveBeenCalledWith({ name: "search", arguments: { query: "test" } });
     });
 
     it("returns text when not JSON", async () => {
-      client = new McpClient(sseConfig);
+      const client = new McpClient(config);
 
-      fetchMock.mockResolvedValue(new Response(JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        result: {
-          content: [{ type: "text", text: "Plain text result" }],
-        },
-      }), { status: 200 }));
+      mockCallTool.mockResolvedValue({
+        content: [{ type: "text", text: "Plain text result" }],
+      });
 
       const result = await client.executeTool("search", { query: "test" });
 
@@ -129,90 +107,72 @@ describe("McpClient", () => {
     });
 
     it("throws MCP_SERVER_ERROR on tool error", async () => {
-      client = new McpClient(sseConfig);
+      const client = new McpClient(config);
 
-      fetchMock.mockResolvedValue(new Response(JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        result: {
-          content: [{ type: "text", text: "Tool failed" }],
-          isError: true,
-        },
-      }), { status: 200 }));
+      mockCallTool.mockResolvedValue({
+        content: [{ type: "text", text: "Tool failed" }],
+        isError: true,
+      });
 
       await expect(client.executeTool("search", { query: "test" })).rejects.toThrow("Tool failed");
     });
 
-    it("throws MCP_SERVER_ERROR on missing content", async () => {
-      client = new McpClient(sseConfig);
+    it("returns content array for multi-block responses", async () => {
+      const client = new McpClient(config);
 
-      fetchMock.mockResolvedValue(new Response(JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        result: {},
-      }), { status: 200 }));
+      mockCallTool.mockResolvedValue({
+        content: [
+          { type: "text", text: "Line 1" },
+          { type: "text", text: "Line 2" },
+        ],
+      });
 
-      await expect(client.executeTool("search", {})).rejects.toThrow("tools/call response missing content");
+      const result = await client.executeTool("search", { query: "test" });
+
+      expect(result).toEqual([
+        { type: "text", text: "Line 1" },
+        { type: "text", text: "Line 2" },
+      ]);
+    });
+
+    it("throws MCP_SERVER_ERROR on SDK error", async () => {
+      const client = new McpClient(config);
+
+      mockCallTool.mockRejectedValue(new Error("Timeout"));
+
+      await expect(client.executeTool("search", {})).rejects.toThrow("Tool execution failed");
     });
   });
 
-  describe("circuit breaker", () => {
-    it("opens after consecutive failures", async () => {
-      client = new McpClient(sseConfig);
+  describe("connect/disconnect", () => {
+    it("connects via StreamableHTTPClientTransport", async () => {
+      const client = new McpClient(config);
 
-      fetchMock.mockRejectedValue(new Error("Network error"));
+      await client.connect();
 
-      for (let i = 0; i < 3; i++) {
-        try {
-          await client.discoverTools();
-        } catch {
-          // expected
-        }
-      }
-
-      await expect(client.discoverTools()).rejects.toThrow("Circuit breaker is open");
+      expect(mockConnect).toHaveBeenCalled();
     });
 
-    it("resets after cooldown", async () => {
-      vi.useFakeTimers();
-      
-      const shortCircuitConfig: McpServerConfig = {
-        name: "test-mcp-server",
-        transport: "sse",
-        url: "https://example.com/mcp",
-      };
-      client = new McpClient(shortCircuitConfig);
+    it("throws MCP_CONNECTION_FAILED when url is empty", async () => {
+      const badConfig: McpServerConfig = { name: "bad", url: "" };
+      const client = new McpClient(badConfig);
 
-      fetchMock.mockRejectedValue(new Error("Network error"));
+      await expect(client.connect()).rejects.toThrow("MCP server URL is required");
+    });
 
-      for (let i = 0; i < 3; i++) {
-        try {
-          await client.discoverTools();
-        } catch {
-          // expected
-        }
-      }
+    it("disconnects cleanly", async () => {
+      const client = new McpClient(config);
+      await client.connect();
 
-      fetchMock.mockResolvedValue(new Response(JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        result: { tools: [] },
-      }), { status: 200 }));
+      await client.disconnect();
 
-      // Advance past the 30000ms reset timeout
-      await vi.advanceTimersByTimeAsync(31000);
-
-      // Same client should now succeed after cooldown
-      const tools = await client.discoverTools();
-      expect(tools).toEqual([]);
-      
-      vi.useRealTimers();
+      expect(mockClose).toHaveBeenCalled();
     });
   });
 
   describe("constructor", () => {
     it("stores server name", () => {
-      client = new McpClient(sseConfig);
+      const client = new McpClient(config);
       expect(client.serverName).toBe("test-mcp-server");
     });
   });

@@ -1,11 +1,8 @@
-// McpConfig types -- YAML configuration for dynamic MCP server connections
-
-export type McpTransport = "sse";
+// McpConfig types -- YAML configuration for MCP server connections
 
 export interface McpServerConfig {
   readonly name: string;
-  readonly transport: McpTransport;
-  readonly url?: string;
+  readonly url: string;
   readonly env?: Record<string, string>;
   readonly reconnect?: boolean;
 }
@@ -39,14 +36,8 @@ export function validateMcpConfig(config: McpConfig): McpValidationError[] {
       serverNames.add(server.name);
     }
 
-    if (server.transport !== "sse") {
-      errors.push({ field: `servers[${i}].transport`, message: "must be 'sse'" });
-    }
-
-    if (server.transport === "sse") {
-      if (!server.url || typeof server.url !== "string") {
-        errors.push({ field: `servers[${i}].url`, message: "required when transport is 'sse'" });
-      }
+    if (!server.url || typeof server.url !== "string") {
+      errors.push({ field: `servers[${i}].url`, message: "must be a non-empty string" });
     }
   }
 

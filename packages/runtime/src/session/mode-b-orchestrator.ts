@@ -1,5 +1,12 @@
 import type { ProviderAdapter, ContentPart, ToolDefinition, ToolCall } from "@kilnai/core";
 import type { McpClient } from "@kilnai/core";
+import type {
+  EventBus,
+  ToolCalledEvent,
+  ToolResultEvent,
+  CostUpdateEvent,
+  ErrorEvent,
+} from "@kilnai/core";
 import type { ModeBSession } from "./mode-b-session.js";
 
 const MAX_TOOL_ROUNDS = 10;
@@ -9,6 +16,7 @@ export interface OrchestratorDeps {
   readonly maxTokens?: number;
   readonly tools?: readonly ToolDefinition[];
   readonly mcpClients?: readonly McpClient[];
+  readonly eventBus?: EventBus;
 }
 
 export interface OrchestrateResult {
@@ -60,8 +68,9 @@ export class ModeBOrchestrator {
       totalCacheRead += response.cacheReadTokens;
       totalCacheWrite += response.cacheWriteTokens;
 
+      this.emitCostUpdate(session.id, totalInputTokens, totalOutputTokens, totalCacheRead);
+
       if (!hasTools || response.toolCalls.length === 0) {
-        // No tool calls -- final response
         session.addAssistantMessage(response.parts);
         return {
           parts: response.parts,
@@ -87,18 +96,39 @@ export class ModeBOrchestrator {
       // Execute tools and build tool_result parts
       const resultParts: ContentPart[] = [];
       for (const tc of response.toolCalls) {
-        const result = await this.executeTool(tc);
-        resultParts.push({
-          type: "tool_result",
-          toolUseId: tc.id,
-          content: typeof result === "string" ? result : JSON.stringify(result),
-          isError: false,
-        });
+        this.emitToolCalled(session.id, tc.name);
+        const startMs = Date.now();
+
+        try {
+          const result = await this.executeTool(tc);
+          const durationMs = Date.now() - startMs;
+          this.emitToolResult(session.id, tc.name, durationMs, true);
+
+          resultParts.push({
+            type: "tool_result",
+            toolUseId: tc.id,
+            content: typeof result === "string" ? result : JSON.stringify(result),
+            isError: false,
+          });
+        } catch (err) {
+          const durationMs = Date.now() - startMs;
+          this.emitToolResult(session.id, tc.name, durationMs, false);
+          this.emitError(session.id, `Tool "${tc.name}" failed: ${err}`);
+
+          resultParts.push({
+            type: "tool_result",
+            toolUseId: tc.id,
+            content: `Error: ${err instanceof Error ? err.message : String(err)}`,
+            isError: true,
+          });
+        }
       }
       session.addUserMessage(resultParts);
     }
 
     // Safety: max rounds exceeded, return last available response
+    this.emitError(session.id, `Max tool rounds (${MAX_TOOL_ROUNDS}) exceeded`);
+
     const finalMessages = [...session.conversationHistory];
     const finalResponse = await this.deps.provider.createMessage({
       system,
@@ -110,6 +140,8 @@ export class ModeBOrchestrator {
     totalOutputTokens += finalResponse.outputTokens;
     totalCacheRead += finalResponse.cacheReadTokens;
     totalCacheWrite += finalResponse.cacheWriteTokens;
+
+    this.emitCostUpdate(session.id, totalInputTokens, totalOutputTokens, totalCacheRead);
 
     session.addAssistantMessage(finalResponse.parts);
     return {
@@ -123,18 +155,68 @@ export class ModeBOrchestrator {
 
   private async executeTool(tc: ToolCall): Promise<unknown> {
     if (!this.deps.mcpClients) {
-      return `Error: no MCP clients configured`;
+      throw new Error("No MCP clients configured");
     }
 
     for (const client of this.deps.mcpClients) {
       try {
         return await client.executeTool(tc.name, tc.input);
       } catch {
-        // Tool not found on this client, try next
         continue;
       }
     }
 
-    return `Error: tool "${tc.name}" not found on any MCP server`;
+    throw new Error(`Tool "${tc.name}" not found on any MCP server`);
+  }
+
+  private emitToolCalled(sessionId: string, toolName: string): void {
+    const event: ToolCalledEvent = {
+      type: "tool_called",
+      toolName,
+      taskId: "",
+      workerIndex: 0,
+      timestamp: new Date(),
+      sessionId,
+    };
+    this.deps.eventBus?.emit(event);
+  }
+
+  private emitToolResult(sessionId: string, toolName: string, durationMs: number, success: boolean): void {
+    const event: ToolResultEvent = {
+      type: "tool_result",
+      toolName,
+      taskId: "",
+      durationMs,
+      success,
+      timestamp: new Date(),
+      sessionId,
+    };
+    this.deps.eventBus?.emit(event);
+  }
+
+  private emitCostUpdate(sessionId: string, inputTokens: number, outputTokens: number, cacheReadTokens: number): void {
+    const event: CostUpdateEvent = {
+      type: "cost_update",
+      inputTokens,
+      outputTokens,
+      cacheReadTokens,
+      totalCostUsd: 0,
+      byRole: {},
+      timestamp: new Date(),
+      sessionId,
+    };
+    this.deps.eventBus?.emit(event);
+  }
+
+  private emitError(sessionId: string, message: string): void {
+    const event: ErrorEvent = {
+      type: "error",
+      message,
+      code: "MODE_B_ERROR",
+      taskId: null,
+      timestamp: new Date(),
+      sessionId,
+    };
+    this.deps.eventBus?.emit(event);
   }
 }

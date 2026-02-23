@@ -159,7 +159,6 @@ export { validateAgentCard } from "./engine/domain/a2a-config.js";
 export type {
   McpConfig,
   McpServerConfig,
-  McpTransport,
   McpValidationError,
 } from "./engine/domain/mcp-config.js";
 export { validateMcpConfig } from "./engine/domain/mcp-config.js";

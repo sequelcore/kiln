@@ -1,84 +1,51 @@
-// McpClient: connects to MCP servers via SSE and discovers tools
+// McpClient: connects to MCP servers via Streamable HTTP transport
 
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Capability, CapabilityAnnotations } from "../engine/domain/capability.js";
 import type { McpServerConfig } from "../engine/domain/mcp-config.js";
 import { KilnError } from "../engine/errors.js";
-import { CircuitBreaker } from "./circuit-breaker.js";
-
-interface JsonRpcResponse<T> {
-  readonly jsonrpc: "2.0";
-  readonly id: number;
-  readonly result?: T;
-  readonly error?: { readonly code: number; readonly message: string; readonly data?: unknown };
-}
-
-interface McpTool {
-  readonly name: string;
-  readonly description?: string;
-  readonly inputSchema: Record<string, unknown>;
-  readonly annotations?: {
-    readonly readOnlyHint?: boolean;
-    readonly destructiveHint?: boolean;
-    readonly idempotentHint?: boolean;
-  };
-}
-
-interface McpToolsListResult {
-  readonly tools: readonly McpTool[];
-}
-
-interface McpToolCallResult {
-  readonly content: readonly { readonly type: string; readonly text?: string; readonly data?: unknown }[];
-  readonly isError?: boolean;
-}
 
 export class McpClient {
   readonly serverName: string;
   private readonly config: McpServerConfig;
-  private readonly circuitBreaker: CircuitBreaker;
-  private requestId = 0;
+  private client: Client | undefined;
 
   constructor(config: McpServerConfig) {
     this.serverName = config.name;
     this.config = config;
-    this.circuitBreaker = new CircuitBreaker({
-      failureThreshold: 3,
-      resetTimeoutMs: 30000,
-      halfOpenMaxAttempts: 1,
-    });
   }
 
   async connect(): Promise<void> {
-    const response = await this.sendRawRequest("initialize", {
-      protocolVersion: "2024-11-05",
-      capabilities: {},
-      clientInfo: { name: "kiln", version: "1.0.0" },
-    });
-
-    if (response.error) {
-      throw new KilnError("MCP_CONNECTION_FAILED", `Failed to initialize: ${response.error.message}`, {
+    if (!this.config.url) {
+      throw new KilnError("MCP_CONNECTION_FAILED", "MCP server URL is required", {
         context: { serverName: this.serverName },
       });
     }
+
+    this.client = new Client(
+      { name: "kiln", version: "1.0.0" },
+      { capabilities: {} },
+    );
+
+    const transport = new StreamableHTTPClientTransport(new URL(this.config.url));
+    await this.client.connect(transport);
   }
 
   async disconnect(): Promise<void> {
-    // No persistent connection to close for simple HTTP transport
+    if (this.client) {
+      await this.client.close();
+      this.client = undefined;
+    }
   }
 
   async discoverTools(): Promise<readonly Capability[]> {
+    if (!this.client) {
+      await this.connect();
+    }
+
     try {
-      const result = await this.circuitBreaker.execute(async () => {
-        const response = await this.sendRequest<McpToolsListResult>("tools/list");
-        return response;
-      });
-
-      if (!result?.tools) {
-        throw new KilnError("MCP_DISCOVERY_FAILED", "tools/list response missing tools array", {
-          context: { serverName: this.serverName },
-        });
-      }
-
+      const result = await this.client!.listTools();
       return result.tools.map((tool) => this.mapToolToCapability(tool));
     } catch (err) {
       if (err instanceof KilnError) throw err;
@@ -90,30 +57,24 @@ export class McpClient {
   }
 
   async executeTool(name: string, args: Record<string, unknown>): Promise<unknown> {
-    try {
-      const result = await this.circuitBreaker.execute(async () => {
-        const response = await this.sendRequest<McpToolCallResult>("tools/call", {
-          name,
-          arguments: args,
-        });
-        return response;
-      });
+    if (!this.client) {
+      await this.connect();
+    }
 
-      if (!result?.content) {
-        throw new KilnError("MCP_SERVER_ERROR", "tools/call response missing content", {
-          context: { serverName: this.serverName, toolName: name },
-        });
-      }
+    try {
+      const result = await this.client!.callTool({ name, arguments: args });
 
       if (result.isError) {
-        const errorMessage = result.content.map((c) => c.text ?? String(c.data)).join("\n");
+        const content = result.content as readonly { type: string; text?: string }[];
+        const errorMessage = content.map((c) => c.text ?? "").join("\n");
         throw new KilnError("MCP_SERVER_ERROR", errorMessage, {
           context: { serverName: this.serverName, toolName: name },
         });
       }
 
-      if (result.content.length === 1 && result.content[0]?.type === "text") {
-        const text = result.content[0].text ?? "";
+      const content = result.content as readonly { type: string; text?: string }[];
+      if (content.length === 1 && content[0]?.type === "text") {
+        const text = content[0].text ?? "";
         try {
           return JSON.parse(text);
         } catch {
@@ -121,7 +82,7 @@ export class McpClient {
         }
       }
 
-      return result.content;
+      return content;
     } catch (err) {
       if (err instanceof KilnError) throw err;
       throw new KilnError("MCP_SERVER_ERROR", `Tool execution failed: ${err}`, {
@@ -131,7 +92,16 @@ export class McpClient {
     }
   }
 
-  private mapToolToCapability(tool: McpTool): Capability {
+  private mapToolToCapability(tool: {
+    name: string;
+    description?: string;
+    inputSchema: Record<string, unknown>;
+    annotations?: {
+      readOnlyHint?: boolean;
+      destructiveHint?: boolean;
+      idempotentHint?: boolean;
+    };
+  }): Capability {
     const annotations: CapabilityAnnotations | undefined = tool.annotations
       ? {
           readOnly: tool.annotations.readOnlyHint,
@@ -147,56 +117,5 @@ export class McpClient {
       tags: ["mcp", this.serverName],
       ...(annotations ? { annotations } : {}),
     };
-  }
-
-  private async sendRequest<T>(method: string, params?: Record<string, unknown>): Promise<T> {
-    const response = await this.sendRawRequest<T>(method, params);
-
-    if (response.error) {
-      throw new KilnError("MCP_SERVER_ERROR", response.error.message, {
-        context: { serverName: this.serverName, code: response.error.code, method },
-      });
-    }
-
-    return response.result as T;
-  }
-
-  private async sendRawRequest<T>(method: string, params?: Record<string, unknown>): Promise<JsonRpcResponse<T>> {
-    const id = ++this.requestId;
-    return this.sendHttpRequest<T>(this.config.url!, id, method, params);
-  }
-
-  private async sendHttpRequest<T>(url: string, id: number, method: string, params?: Record<string, unknown>): Promise<JsonRpcResponse<T>> {
-    let response: Response;
-    try {
-      response = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jsonrpc: "2.0", id, method, params }),
-      });
-    } catch (err) {
-      throw new KilnError("MCP_CONNECTION_FAILED", `Request failed: ${err}`, {
-        context: { serverName: this.serverName, url, method },
-        cause: err,
-      });
-    }
-
-    if (!response.ok) {
-      throw new KilnError("MCP_CONNECTION_FAILED", `Request failed with status ${response.status}`, {
-        context: { serverName: this.serverName, url, method, status: response.status },
-      });
-    }
-
-    let data: unknown;
-    try {
-      data = await response.json();
-    } catch (err) {
-      throw new KilnError("MCP_CONNECTION_FAILED", `Failed to parse response: ${err}`, {
-        context: { serverName: this.serverName, url, method },
-        cause: err,
-      });
-    }
-
-    return data as JsonRpcResponse<T>;
   }
 }

@@ -20,7 +20,7 @@ import type { KnowledgeConfig, KnowledgeEmbeddingConfig, KnowledgeStoreConfig, K
 import { validateKnowledgeConfig } from "../domain/knowledge-config.js";
 import type { EvalConfig, EvalScorerConfig, EvalDatasetConfig, EvalExperimentConfig } from "../domain/eval-config.js";
 import { validateEvalConfig } from "../domain/eval-config.js";
-import type { McpConfig, McpServerConfig, McpTransport } from "../domain/mcp-config.js";
+import type { McpConfig, McpServerConfig } from "../domain/mcp-config.js";
 import { validateMcpConfig } from "../domain/mcp-config.js";
 import type { ToolSelectionConfig, ToolSelectionStrategy } from "../domain/tool-selection-config.js";
 import { validateToolSelectionConfig } from "../domain/tool-selection-config.js";
@@ -203,10 +203,7 @@ interface RawEval {
 
 interface RawMcpServer {
   name?: unknown;
-  transport?: unknown;
   url?: unknown;
-  command?: unknown;
-  args?: unknown;
   env?: unknown;
   reconnect?: unknown;
 }
@@ -952,11 +949,6 @@ function mapMcp(raw: RawMcp): { mcp: McpConfig | undefined; errors: { field: str
       const server = raw.servers[i] as RawMcpServer | undefined;
       if (!server) continue;
 
-      const transport = typeof server.transport === "string" ? server.transport as McpTransport : undefined;
-      const args: string[] | undefined = Array.isArray(server.args)
-        ? server.args.filter((a): a is string => typeof a === "string")
-        : undefined;
-
       let env: Record<string, string> | undefined;
       if (server.env && typeof server.env === "object" && !Array.isArray(server.env)) {
         const envObj: Record<string, string> = {};
@@ -972,10 +964,7 @@ function mapMcp(raw: RawMcp): { mcp: McpConfig | undefined; errors: { field: str
 
       servers.push({
         name: typeof server.name === "string" ? server.name : "",
-        transport: transport ?? "sse",
-        ...(typeof server.url === "string" ? { url: server.url } : {}),
-        ...(typeof server.command === "string" ? { command: server.command } : {}),
-        ...(args && args.length > 0 ? { args } : {}),
+        url: typeof server.url === "string" ? server.url : "",
         ...(env && Object.keys(env).length > 0 ? { env } : {}),
         ...(typeof server.reconnect === "boolean" ? { reconnect: server.reconnect } : {}),
       });
