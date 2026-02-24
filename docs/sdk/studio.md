@@ -22,18 +22,26 @@ kiln dev --playground
 
 **Without `gateway.yaml`** (Mode A consumers): `kiln dev` calls `startDevServer()` -- a lightweight Bun/Hono server with Studio + dev API endpoints only. No providers, channels, or sessions. Graph View and YAML editor work from `app.yaml` if present.
 
-Both modes auto-resolve `@kilnai/studio` at startup via `require.resolve("@kilnai/studio/package.json")` and serve the built SPA at `/studio/*` using Hono's `serveStatic` middleware with SPA fallback. The `/dev/` path redirects to `/studio/` when the SPA is available.
+Both modes serve the built SPA at `/studio/*` using Hono's `serveStatic` middleware with SPA fallback. The `/dev/` path redirects to `/studio/` when the SPA is available.
 
-`@kilnai/studio` is declared as an optional peerDependency of `@kilnai/runtime`. Within the Kiln monorepo it resolves automatically. Consumer apps (e.g., Temper) that want the full Studio UI add it explicitly:
+### Locating Studio
 
-```json
-"@kilnai/studio": "file:../kiln/packages/studio"
+Studio is a pre-built static asset, not a runtime dependency. The runtime locates it by path, not by package resolution. Three mechanisms, checked in order:
+
+1. **Explicit path via `KilnAppConfig.studioDistPath`** -- consumer apps set this to point at the `dist/` directory. This is the recommended approach for external consumers:
+
+```typescript
+const config: KilnAppConfig = {
+  // ...
+  studioDistPath: join(__dirname, "../../kiln/packages/studio/dist"),
+};
 ```
 
-When Studio is not installed or not built, both modes fall back to an inline HTML debugger at `/dev/`. The console warns with the specific cause:
+2. **Auto-resolution via `require.resolve`** -- within the Kiln monorepo, `resolveStudioDist()` finds `@kilnai/studio` through workspace resolution. No configuration needed.
 
-- `@kilnai/studio not installed` -- add the dependency
-- `@kilnai/studio found but dist/ not built` -- run `bun run build` in `packages/studio`
+3. **Fallback** -- when Studio is not found, both modes fall back to an inline HTML debugger at `/dev/`. The console warns with the specific cause:
+   - `@kilnai/studio not installed` -- set `studioDistPath` in your config or install the package
+   - `@kilnai/studio found but dist/ not built` -- run `bun run build` in `packages/studio`
 
 ## Views
 

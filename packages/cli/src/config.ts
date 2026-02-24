@@ -17,4 +17,5 @@ export interface KilnAppConfig {
   readonly createRegistry: () => DomainRegistry;
   readonly buildSystemPrompt: (opts: SystemPromptOptions) => string;
   readonly mcpServerName: string;        // "temper", "kiln", etc.
+  readonly studioDistPath?: string;      // path to @kilnai/studio dist/ (auto-resolved in monorepo)
 }

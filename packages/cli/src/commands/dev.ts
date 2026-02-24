@@ -46,10 +46,10 @@ export async function devCommand(appConfig: KilnAppConfig, flags?: DevFlags): Pr
   try {
     if (hasGateway) {
       const { startGateway } = await import("@kilnai/runtime");
-      await startGateway(gatewayPath, { port, devMode: true });
+      await startGateway(gatewayPath, { port, devMode: true, studioDistPath: appConfig.studioDistPath });
     } else {
       const { startDevServer } = await import("@kilnai/runtime");
-      await startDevServer({ port, appYamlPath: existsSync(appYamlPath) ? appYamlPath : undefined });
+      await startDevServer({ port, appYamlPath: existsSync(appYamlPath) ? appYamlPath : undefined, studioDistPath: appConfig.studioDistPath });
     }
 
     if (flags?.playground) {

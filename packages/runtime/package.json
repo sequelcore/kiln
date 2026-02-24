@@ -43,13 +43,9 @@
   },
   "peerDependencies": {
     "@kilnai/core": "workspace:*",
-    "@kilnai/studio": "workspace:*",
     "@opentelemetry/api": "^1.9.0"
   },
   "peerDependenciesMeta": {
-    "@kilnai/studio": {
-      "optional": true
-    },
     "@opentelemetry/api": {
       "optional": true
     }
