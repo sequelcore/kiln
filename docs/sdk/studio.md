@@ -24,7 +24,16 @@ kiln dev --playground
 
 Both modes auto-resolve `@kilnai/studio` at startup via `require.resolve("@kilnai/studio/package.json")` and serve the built SPA at `/studio/*` using Hono's `serveStatic` middleware with SPA fallback. The `/dev/` path redirects to `/studio/` when the SPA is available.
 
-When Studio is not installed or not built, both modes fall back to an inline HTML debugger at `/dev/`. The fallback is read-only -- it provides event streaming and state inspection but no mutations.
+`@kilnai/studio` is declared as an optional peerDependency of `@kilnai/runtime`. Within the Kiln monorepo it resolves automatically. Consumer apps (e.g., Temper) that want the full Studio UI add it explicitly:
+
+```json
+"@kilnai/studio": "file:../kiln/packages/studio"
+```
+
+When Studio is not installed or not built, both modes fall back to an inline HTML debugger at `/dev/`. The console warns with the specific cause:
+
+- `@kilnai/studio not installed` -- add the dependency
+- `@kilnai/studio found but dist/ not built` -- run `bun run build` in `packages/studio`
 
 ## Views
 
