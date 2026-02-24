@@ -86,7 +86,7 @@ describe("generateGatewayYaml", () => {
   it("includes the correct port", () => {
     const yaml = generateGatewayYaml(makeOptions());
     const parsed = parseYaml(yaml) as Record<string, unknown>;
-    expect(parsed["port"]).toBe(4000);
+    expect(parsed["port"]).toBe(4800);
   });
 
   it("includes the app name in apps list", () => {

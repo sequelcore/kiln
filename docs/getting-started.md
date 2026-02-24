@@ -128,7 +128,7 @@ teams:
 And a minimal `gateway.yaml`:
 
 ```yaml
-port: 4000
+port: 4800
 
 apps:
   - name: my-app

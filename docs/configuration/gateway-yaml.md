@@ -218,7 +218,7 @@ Mounted when the App has `a2aConfig` in its YAML.
 ```
 Developer machine
   kiln dev [--playground]
-    localhost:4000 -> Gateway (devMode: true)
+    localhost:4800 -> Gateway (devMode: true)
       /studio/         -> Kiln Studio SPA
       /dev/events      -> SSE event stream
     ~/.kiln/           -> user + agent memory
