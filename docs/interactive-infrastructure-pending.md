@@ -6,13 +6,9 @@ Status after Phases 1-4 (4 phases, ~2100 lines, 2573 tests).
 
 Implemented via `DevOrchestrator` in `packages/runtime/src/gateway/dev-orchestrator.ts`. Bridges core `Orchestrator` with `ApprovalGateRegistry` and gateway `EventBus`. Wired to `POST /dev/run` (start), `GET /dev/run` (status), and reflected in `GET /dev/state`. Both `startGateway` (dev mode) and `startDevServer` instantiate a `DevOrchestrator`.
 
-## 2. Studio Playground WebSocket Chat (High)
+## 2. ~~Studio Playground WebSocket Chat~~ (Done -- Phase 5)
 
-Playground uses `useKilnChat` which does HTTP POST to `/apps/{appName}/message`. The WebSocket route at `/apps/:appName/ws` exists with session scoping but Studio doesn't connect to it. For real-time streaming responses, Playground should use WebSocket instead of request-response.
-
-**Approach:** Create a `useKilnWsChat` hook in `@kilnai/react` that opens a WebSocket, sends messages as JSON frames, and receives streamed responses. Or enhance `useKilnChat` to support both modes.
-
-**Key files:** `packages/sdk/src/use-kiln-chat.ts`, `packages/studio/src/routes/playground.tsx`, `packages/runtime/src/gateway/ws-routes.ts`.
+Implemented via `useKilnWsChat` hook in `@kilnai/react` and server-side `processMessage` callback in `ws-routes.ts`. Protocol: `WsChatRequest` (client->server) and `WsChatFrame` (server->client, `done`/`error`/`chunk` types). `chunk` reserved for future streaming. Studio Playground swapped from `useKilnChat` to `useKilnWsChat`. Only wired for Mode B apps -- multi-tenant WS chat deferred until frame protocol carries `tenantId`.
 
 ## 3. Identity Resolution for WebSocket (Low)
 

@@ -151,8 +151,23 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
       }
 
       // WebSocket route for web channel
+      // processMessage only wired for Mode B apps -- tenant apps require tenantId
+      // scoping, validation, and billing that the WS frame protocol doesn't carry yet.
       if (channel.type === "web" && loadedApp.webChannel && config.upgradeWebSocket) {
-        const wsApp = createWsRoutes({ webChannel: loadedApp.webChannel, upgradeWebSocket: config.upgradeWebSocket, validateToken: config.validateToken });
+        const runtime = loadedApp.modeBRuntime;
+        const wsApp = createWsRoutes({
+          webChannel: loadedApp.webChannel,
+          upgradeWebSocket: config.upgradeWebSocket,
+          validateToken: config.validateToken,
+          processMessage: runtime ? async (userId, parts) => {
+            const session = runtime.sessionRegistry.getOrCreate({
+              appName: loadedApp.name,
+              userId,
+              systemPrompt: runtime.systemPrompt,
+            });
+            return runtime.orchestrator.processMessage(session, parts);
+          } : undefined,
+        });
         app.route(`/apps/${loadedApp.name}`, wsApp);
       }
     }

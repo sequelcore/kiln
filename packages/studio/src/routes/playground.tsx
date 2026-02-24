@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, type ReactNode, type FormEvent } from "react";
-import { useKilnChat, useKilnEvents, useKilnContext } from "@kilnai/react";
+import { useKilnWsChat, useKilnEvents, useKilnContext } from "@kilnai/react";
 
 interface ApprovalRequest {
   taskId: string;
@@ -142,7 +142,7 @@ function ApprovalCard({
 }
 
 export function PlaygroundView(): ReactNode {
-  const { messages, send, isLoading, error, clearMessages } = useKilnChat();
+  const { messages, send, isLoading, error, clearMessages } = useKilnWsChat();
   const { events } = useKilnEvents();
   const [input, setInput] = useState("");
   const [resolvedApprovals, setResolvedApprovals] = useState<Set<string>>(new Set());

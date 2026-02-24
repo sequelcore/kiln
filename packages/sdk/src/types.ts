@@ -70,3 +70,16 @@ export interface KilnEventData {
   readonly timestamp: string;
   readonly data: Record<string, unknown>;
 }
+
+/** WebSocket chat request frame (client -> server) */
+export interface WsChatRequest {
+  readonly type: "message";
+  readonly content: string;
+  readonly parts?: readonly ContentPart[];
+}
+
+/** WebSocket chat response frame (server -> client) */
+export type WsChatFrame =
+  | { readonly type: "chunk"; readonly content: string }
+  | { readonly type: "done"; readonly content: string; readonly parts?: readonly ContentPart[]; readonly inputTokens: number; readonly outputTokens: number }
+  | { readonly type: "error"; readonly message: string };

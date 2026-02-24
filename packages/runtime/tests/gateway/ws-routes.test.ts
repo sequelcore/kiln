@@ -137,7 +137,7 @@ describe("createWsRoutes", () => {
   });
 
   describe("onMessage", () => {
-    it("forwards parsed IncomingMessage to channel", async () => {
+    it("forwards non-message frames to channel", async () => {
       const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
       createWsRoutes({ webChannel: channel, upgradeWebSocket });
 
@@ -162,6 +162,166 @@ describe("createWsRoutes", () => {
       await expect(
         handlers.onMessage!(new MessageEvent("message", { data: "not-json" }), wsCtx),
       ).resolves.not.toThrow();
+    });
+
+    it("falls back to webChannel.receive when processMessage is not provided", async () => {
+      const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
+      createWsRoutes({ webChannel: channel, upgradeWebSocket });
+
+      const handler = vi.fn();
+      channel.onMessage(handler);
+
+      const { handlers, wsCtx } = simulateConnection({ userId: "u1" });
+      const frame = { type: "message", content: "hello" };
+      await handlers.onMessage!(
+        new MessageEvent("message", { data: JSON.stringify(frame) }),
+        wsCtx,
+      );
+
+      // Without processMessage, should fall through to webChannel.receive
+      expect(handler).toHaveBeenCalled();
+    });
+  });
+
+  describe("processMessage (chat frames)", () => {
+    it("calls processMessage with userId and text parts on message frame", async () => {
+      const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
+      const processMessage = vi.fn().mockResolvedValue({
+        parts: textParts("response"),
+        inputTokens: 10,
+        outputTokens: 20,
+      });
+
+      createWsRoutes({ webChannel: channel, upgradeWebSocket, processMessage });
+
+      const { handlers, mockWs, wsCtx } = simulateConnection({ userId: "user-1" });
+      handlers.onOpen!(new Event("open"), wsCtx);
+
+      await handlers.onMessage!(
+        new MessageEvent("message", { data: JSON.stringify({ type: "message", content: "hello" }) }),
+        wsCtx,
+      );
+
+      expect(processMessage).toHaveBeenCalledWith("user-1", textParts("hello"));
+    });
+
+    it("sends done frame with response content", async () => {
+      const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
+      const responseParts = textParts("world");
+      const processMessage = vi.fn().mockResolvedValue({
+        parts: responseParts,
+        inputTokens: 5,
+        outputTokens: 15,
+      });
+
+      createWsRoutes({ webChannel: channel, upgradeWebSocket, processMessage });
+
+      const { handlers, mockWs, wsCtx } = simulateConnection({ userId: "user-2" });
+      handlers.onOpen!(new Event("open"), wsCtx);
+
+      await handlers.onMessage!(
+        new MessageEvent("message", { data: JSON.stringify({ type: "message", content: "hi" }) }),
+        wsCtx,
+      );
+
+      expect(mockWs.send).toHaveBeenCalledOnce();
+      const sent = JSON.parse(mockWs.send.mock.calls[0][0] as string);
+      expect(sent).toEqual({
+        type: "done",
+        content: "world",
+        parts: responseParts,
+        inputTokens: 5,
+        outputTokens: 15,
+      });
+    });
+
+    it("uses provided parts when available instead of content", async () => {
+      const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
+      const userParts = textParts("explicit parts");
+      const processMessage = vi.fn().mockResolvedValue({
+        parts: textParts("response"),
+        inputTokens: 1,
+        outputTokens: 2,
+      });
+
+      createWsRoutes({ webChannel: channel, upgradeWebSocket, processMessage });
+
+      const { handlers, wsCtx } = simulateConnection({ userId: "user-3" });
+      handlers.onOpen!(new Event("open"), wsCtx);
+
+      await handlers.onMessage!(
+        new MessageEvent("message", { data: JSON.stringify({ type: "message", content: "ignored", parts: userParts }) }),
+        wsCtx,
+      );
+
+      expect(processMessage).toHaveBeenCalledWith("user-3", userParts);
+    });
+
+    it("sends error frame when processMessage throws", async () => {
+      const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
+      const processMessage = vi.fn().mockRejectedValue(new Error("Processing failed"));
+
+      createWsRoutes({ webChannel: channel, upgradeWebSocket, processMessage });
+
+      const { handlers, mockWs, wsCtx } = simulateConnection({ userId: "user-4" });
+      handlers.onOpen!(new Event("open"), wsCtx);
+
+      await handlers.onMessage!(
+        new MessageEvent("message", { data: JSON.stringify({ type: "message", content: "test" }) }),
+        wsCtx,
+      );
+
+      expect(mockWs.send).toHaveBeenCalledOnce();
+      const sent = JSON.parse(mockWs.send.mock.calls[0][0] as string);
+      expect(sent).toEqual({
+        type: "error",
+        message: "Processing failed",
+      });
+    });
+
+    it("does not call webChannel.receive for message frames when processMessage exists", async () => {
+      const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
+      const processMessage = vi.fn().mockResolvedValue({
+        parts: textParts("ok"),
+        inputTokens: 1,
+        outputTokens: 1,
+      });
+
+      createWsRoutes({ webChannel: channel, upgradeWebSocket, processMessage });
+
+      const handler = vi.fn();
+      channel.onMessage(handler);
+
+      const { handlers, wsCtx } = simulateConnection({ userId: "user-5" });
+      handlers.onOpen!(new Event("open"), wsCtx);
+
+      await handlers.onMessage!(
+        new MessageEvent("message", { data: JSON.stringify({ type: "message", content: "test" }) }),
+        wsCtx,
+      );
+
+      expect(handler).not.toHaveBeenCalled();
+    });
+
+    it("falls through to webChannel.receive for non-message type frames even with processMessage", async () => {
+      const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
+      const processMessage = vi.fn();
+
+      createWsRoutes({ webChannel: channel, upgradeWebSocket, processMessage });
+
+      const handler = vi.fn();
+      channel.onMessage(handler);
+
+      const { handlers, wsCtx } = simulateConnection({ userId: "user-6" });
+      const incoming = { type: "ping", data: {} };
+
+      await handlers.onMessage!(
+        new MessageEvent("message", { data: JSON.stringify(incoming) }),
+        wsCtx,
+      );
+
+      expect(processMessage).not.toHaveBeenCalled();
+      expect(handler).toHaveBeenCalledWith(incoming);
     });
   });
 
