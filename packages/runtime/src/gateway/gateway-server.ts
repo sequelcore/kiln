@@ -4,6 +4,7 @@ import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { createRequire } from "node:module";
 import { createBunWebSocket, serveStatic } from "hono/bun";
+import type { Hono } from "hono";
 import {
   parseGatewayYaml,
   parseAppYaml,
@@ -16,6 +17,7 @@ import {
   SafetyPipeline,
 } from "@kilnai/core";
 import type { ProviderAdapter, ProviderConfig, App, ToolDefinition } from "@kilnai/core";
+import type { AppGraphResponse } from "./dev-routes-types.js";
 import { EventBus, McpClient } from "@kilnai/core";
 import { ChannelRegistry } from "../channels/channel-registry.js";
 import { TriggerRegistry } from "../trigger/trigger-registry.js";
@@ -39,6 +41,12 @@ export { createDevInspectorHtml } from "./dev-inspector.js";
 export interface StartGatewayOptions {
   readonly port?: number;
   readonly devMode?: boolean;
+  readonly studioDistPath?: string;
+}
+
+export interface DevServerOptions {
+  readonly port?: number;
+  readonly appYamlPath?: string;
   readonly studioDistPath?: string;
 }
 
@@ -376,34 +384,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
         getAppGraph: () => {
           const firstLoaded = loadedApps[0];
           if (!firstLoaded) return undefined;
-          const app = firstLoaded.app;
-          return {
-            name: app.name,
-            teams: Object.entries(app.teams).map(([name, team]) => ({
-              name,
-              agents: Object.values(team.agents).map((a) => ({
-                name: a.name,
-                role: a.role,
-                goal: a.goal,
-                tier: a.tier,
-                tools: [...a.tools],
-                modalities: a.modalities ? [...a.modalities] : undefined,
-              })),
-              capabilities: team.capabilities.map((c) => c.name),
-              phases: [...team.workflow.phases],
-              mode: team.mode,
-            })),
-            router: {
-              rules: app.router.rules.map((r) => ({ pattern: r.match, team: r.team })),
-              fallback: app.router.fallback,
-              classifier: app.router.classifier?.name,
-            },
-            channels: [...app.channels],
-            triggers: app.triggers?.map((t) => t.name) ?? [],
-            hasKnowledge: !!app.knowledge,
-            hasEval: !!app.eval,
-            hasSafety: !!app.safety,
-          };
+          return appToGraph(firstLoaded.app);
         },
         getYamlContent: () => {
           try {
@@ -442,21 +423,10 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
   });
 
   if (studioDistPath) {
-    honoApp.get("/studio", (c) => c.redirect("/studio/"));
-    honoApp.use("/studio/*", serveStatic({
-      root: studioDistPath,
-      rewriteRequestPath: (path) => {
-        const stripped = path.replace(/^\/studio/, "");
-        return stripped === "/" || stripped === "" ? "/index.html" : stripped;
-      },
-    }));
-    honoApp.get("/studio/*", (c) => {
-      const html = readFileSync(join(studioDistPath, "index.html"), "utf-8");
-      return c.html(html);
-    });
+    mountStudio(honoApp, studioDistPath);
   }
 
-  const { websocket } = createBunWebSocket();
+  triggerRegistry.start();
 
   const appNames = loadedApps.map((a) => a.name).join(", ");
   console.log(`Gateway started on port ${port} with ${loadedApps.length} apps: ${appNames}`);
@@ -464,34 +434,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
     console.log(`Studio: http://localhost:${port}/${studioDistPath ? "studio" : "dev"}/`);
   }
 
-  // Start trigger listeners and schedulers after server starts
-  triggerRegistry.start();
-
-  let server: ReturnType<typeof Bun.serve>;
-  try {
-    server = Bun.serve({
-      port,
-      fetch: honoApp.fetch,
-      websocket,
-    });
-  } catch (err: unknown) {
-    if (err instanceof Error && "code" in err && err.code === "EADDRINUSE") {
-      console.error(`Error: Port ${port} is already in use.`);
-      process.exit(1);
-    }
-    throw err;
-  }
-
-  await new Promise<void>((resolve) => {
-    const shutdown = () => {
-      console.log("\nGateway shutting down...");
-      triggerRegistry.stop();
-      server.stop(true);
-      resolve();
-    };
-    process.on("SIGINT", shutdown);
-    process.on("SIGTERM", shutdown);
-  });
+  await serveAndWait(honoApp, port, () => triggerRegistry.stop());
 }
 
 /** Create a ProviderAdapter from a Mode B provider config */
@@ -554,4 +497,141 @@ function buildSystemPromptFromApp(app: App): string {
   }
 
   return parts.join("\n");
+}
+
+function appToGraph(app: App): AppGraphResponse {
+  return {
+    name: app.name,
+    teams: Object.entries(app.teams).map(([name, team]) => ({
+      name,
+      agents: Object.values(team.agents).map((a) => ({
+        name: a.name,
+        role: a.role,
+        goal: a.goal,
+        tier: a.tier,
+        tools: [...a.tools],
+        modalities: a.modalities ? [...a.modalities] : undefined,
+      })),
+      capabilities: team.capabilities.map((c) => c.name),
+      phases: [...team.workflow.phases],
+      mode: team.mode,
+    })),
+    router: {
+      rules: app.router.rules.map((r) => ({ pattern: r.match, team: r.team })),
+      fallback: app.router.fallback,
+      classifier: app.router.classifier?.name,
+    },
+    channels: [...app.channels],
+    triggers: app.triggers?.map((t) => t.name) ?? [],
+    hasKnowledge: !!app.knowledge,
+    hasEval: !!app.eval,
+    hasSafety: !!app.safety,
+  };
+}
+
+function mountStudio(app: Hono, distPath: string): void {
+  app.get("/studio", (c) => c.redirect("/studio/"));
+  app.use("/studio/*", serveStatic({
+    root: distPath,
+    rewriteRequestPath: (path) => {
+      const stripped = path.replace(/^\/studio/, "");
+      return stripped === "/" || stripped === "" ? "/index.html" : stripped;
+    },
+  }));
+  app.get("/studio/*", (c) => {
+    const html = readFileSync(join(distPath, "index.html"), "utf-8");
+    return c.html(html);
+  });
+}
+
+async function serveAndWait(app: Hono, port: number, onShutdown?: () => void): Promise<void> {
+  const { websocket } = createBunWebSocket();
+
+  let server: ReturnType<typeof Bun.serve>;
+  try {
+    server = Bun.serve({ port, fetch: app.fetch, websocket });
+  } catch (err: unknown) {
+    if (err instanceof Error && "code" in err && err.code === "EADDRINUSE") {
+      console.error(`Error: Port ${port} is already in use.`);
+      process.exit(1);
+    }
+    throw err;
+  }
+
+  await new Promise<void>((resolve) => {
+    const shutdown = () => {
+      console.log("\nShutting down...");
+      onShutdown?.();
+      server.stop(true);
+      resolve();
+    };
+    process.on("SIGINT", shutdown);
+    process.on("SIGTERM", shutdown);
+  });
+}
+
+export async function startDevServer(options?: DevServerOptions): Promise<void> {
+  const port = options?.port ?? 4800;
+  const eventBus = new EventBus(100);
+  const studioDistPath = options?.studioDistPath ?? resolveStudioDist();
+
+  let app: App | undefined;
+  const appYamlPath = options?.appYamlPath;
+  if (appYamlPath && existsSync(appYamlPath)) {
+    try {
+      app = parseAppYaml(readFileSync(appYamlPath, "utf-8"));
+    } catch {
+      // Invalid YAML -- Studio will show empty graph
+    }
+  }
+
+  const honoApp = createGatewayApp({
+    port,
+    apps: [],
+    devMode: true,
+    studioDistPath,
+    devRoutesConfig: {
+      getEventBus: () => eventBus,
+      getPhaseState: () => ({ status: "idle", phase: null }),
+      getMemorySnapshot: () => ({ entries: [] }),
+      getCostSummary: () => ({ totalCostUsd: 0, byRole: {} }),
+      getAppNames: () => app ? [app.name] : [],
+      getTriggers: () => [],
+      getAppGraph: () => app ? appToGraph(app) : undefined,
+      getYamlContent: () => {
+        if (!appYamlPath) return undefined;
+        try { return readFileSync(appYamlPath, "utf-8"); } catch { return undefined; }
+      },
+      putYamlContent: (content: string) => {
+        if (!appYamlPath) return { ok: false, errors: ["No app.yaml path"] };
+        try {
+          parseAppYaml(content);
+          writeFileSync(appYamlPath, content, "utf-8");
+          try { app = parseAppYaml(content); } catch { /* keep previous */ }
+          return { ok: true };
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          return { ok: false, errors: [msg] };
+        }
+      },
+      getEvalExperiments: () => {
+        if (!app?.eval?.experiments) return [];
+        return app.eval.experiments.map((exp) => ({
+          name: exp.name,
+          dataset: exp.dataset,
+          scorers: [...exp.scorers],
+        }));
+      },
+      getEvalResults: () => undefined,
+    },
+  });
+
+  if (studioDistPath) {
+    mountStudio(honoApp, studioDistPath);
+  }
+
+  console.log(`Dev server started on port ${port}`);
+  console.log(`Studio: http://localhost:${port}/${studioDistPath ? "studio" : "dev"}/`);
+
+  await serveAndWait(honoApp, port);
 }

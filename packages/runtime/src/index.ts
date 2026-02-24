@@ -3,6 +3,8 @@ export { createGatewayApp } from "./gateway/gateway-routes.js";
 export type { LoadedApp, GatewayServerConfig } from "./gateway/gateway-routes.js";
 export { startGateway } from "./gateway/gateway-server.js";
 export type { StartGatewayOptions } from "./gateway/gateway-server.js";
+export { startDevServer } from "./gateway/gateway-server.js";
+export type { DevServerOptions } from "./gateway/gateway-server.js";
 export { resolveApps } from "./gateway/app-resolver.js";
 export type { ResolvedApp } from "./gateway/app-resolver.js";
 export { createModeBRoutes } from "./gateway/mode-b-routes.js";
