@@ -18,7 +18,9 @@ Studio is served at `http://localhost:4000/studio/`. The `--playground` flag ope
 kiln dev --playground
 ```
 
-When Studio is not built (i.e., `packages/studio/dist/` does not exist), the Gateway falls back to an inline HTML debugger at `/dev/`. The fallback is read-only — it provides event streaming and state inspection but no mutations.
+The gateway auto-resolves `@kilnai/studio` at startup via `require.resolve("@kilnai/studio/package.json")` and serves the built SPA from its `dist/` directory. Static files are served at `/studio/*` using Hono's `serveStatic` middleware with SPA fallback (unmatched routes serve `index.html`). The `/dev/` path redirects to `/studio/` when the SPA is available.
+
+When Studio is not installed or not built, the gateway falls back to an inline HTML debugger at `/dev/`. The fallback is read-only -- it provides event streaming and state inspection but no mutations.
 
 ## Views
 

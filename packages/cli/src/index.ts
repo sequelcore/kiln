@@ -44,10 +44,10 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     console.log(`\nRun '${config.appName} <command> --help' for command-specific help.\n`);
   }
 
-  // No command -> show help
   if (!command) {
-    printHelp();
-    process.exit(0);
+    const { devCommand } = await import("./commands/dev.js");
+    await devCommand(config, {});
+    return;
   }
 
   if (command === "--help" || command === "-h") {

@@ -337,7 +337,7 @@ await createCli(config);
 
 | Command | Behavior |
 |---------|---------|
-| `my-app` (no args) | Prints help and available commands |
+| `my-app` (no args) | Starts dev mode (gateway + Studio at `:4000`) |
 | `my-app run "task"` | CLI session via Claude Code Agent SDK |
 | `my-app init` | Creates `.my-app/` in the current project |
 | `my-app serve` | Standalone MCP server over stdio |

@@ -1,8 +1,9 @@
 // Gateway: GatewayServer -- persistent Bun/Hono process hosting multiple Apps
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
-import { createBunWebSocket } from "hono/bun";
+import { createRequire } from "node:module";
+import { createBunWebSocket, serveStatic } from "hono/bun";
 import {
   parseGatewayYaml,
   parseAppYaml,
@@ -38,6 +39,19 @@ export { createDevInspectorHtml } from "./dev-inspector.js";
 export interface StartGatewayOptions {
   readonly port?: number;
   readonly devMode?: boolean;
+  readonly studioDistPath?: string;
+}
+
+function resolveStudioDist(): string | undefined {
+  try {
+    const require = createRequire(import.meta.url);
+    const pkgPath = require.resolve("@kilnai/studio/package.json");
+    const distDir = join(dirname(pkgPath), "dist");
+    if (existsSync(join(distDir, "index.html"))) return distDir;
+    return undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export async function startGateway(configPath: string, options?: StartGatewayOptions): Promise<void> {
@@ -339,6 +353,8 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
     }
   }
 
+  const studioDistPath = options?.studioDistPath ?? (options?.devMode ? resolveStudioDist() : undefined);
+
   const honoApp = createGatewayApp({
     port,
     apps: loadedApps,
@@ -348,6 +364,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
     triggerRegistry,
     safetyPipelines,
     devMode: options?.devMode,
+    studioDistPath,
     devRoutesConfig: options?.devMode
       ? {
         getEventBus: () => gatewayEventBus,
@@ -424,12 +441,27 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
       : undefined,
   });
 
+  if (studioDistPath) {
+    honoApp.get("/studio", (c) => c.redirect("/studio/"));
+    honoApp.use("/studio/*", serveStatic({
+      root: studioDistPath,
+      rewriteRequestPath: (path) => {
+        const stripped = path.replace(/^\/studio/, "");
+        return stripped === "/" || stripped === "" ? "/index.html" : stripped;
+      },
+    }));
+    honoApp.get("/studio/*", (c) => {
+      const html = readFileSync(join(studioDistPath, "index.html"), "utf-8");
+      return c.html(html);
+    });
+  }
+
   const { websocket } = createBunWebSocket();
 
   const appNames = loadedApps.map((a) => a.name).join(", ");
   console.log(`Gateway started on port ${port} with ${loadedApps.length} apps: ${appNames}`);
   if (options?.devMode) {
-    console.log(`Dev inspector: http://localhost:${port}/dev/`);
+    console.log(`Studio: http://localhost:${port}/${studioDistPath ? "studio" : "dev"}/`);
   }
 
   // Start trigger listeners and schedulers after server starts
