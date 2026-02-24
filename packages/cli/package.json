@@ -40,9 +40,11 @@
     "access": "public"
   },
   "dependencies": {
-    "@kilnai/core": "workspace:*",
-    "@kilnai/runtime": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "yaml": "^2.8.2"
+  },
+  "peerDependencies": {
+    "@kilnai/core": "workspace:*",
+    "@kilnai/runtime": "workspace:*"
   }
 }

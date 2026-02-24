@@ -24,10 +24,8 @@
     "access": "public"
   },
   "peerDependencies": {
+    "@kilnai/core": "workspace:*",
     "react": "^19.0.0"
-  },
-  "dependencies": {
-    "@kilnai/core": "workspace:*"
   },
   "devDependencies": {
     "@testing-library/react": "^16.1.0",
