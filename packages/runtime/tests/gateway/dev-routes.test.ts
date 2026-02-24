@@ -406,6 +406,78 @@ describe("createDevRoutes", () => {
     });
   });
 
+  describe("POST /run", () => {
+    it("returns 404 when no startRun callback", async () => {
+      const app = createDevRoutes({});
+      const res = await requestWithMethod(app, "/run", "POST", JSON.stringify({ task: "hello" }), "application/json");
+      expect(res.status).toBe(404);
+      const data = await res.json();
+      expect(data.error).toBe("Orchestrator not available");
+    });
+
+    it("returns 400 when task is empty", async () => {
+      const startRun = vi.fn(() => ({ sessionId: "s1" }));
+      const app = createDevRoutes({ startRun });
+      const res = await requestWithMethod(app, "/run", "POST", JSON.stringify({ task: "" }), "application/json");
+      expect(res.status).toBe(400);
+      const data = await res.json();
+      expect(data.error).toBe("task is required");
+    });
+
+    it("returns 400 when body has no task field", async () => {
+      const startRun = vi.fn(() => ({ sessionId: "s1" }));
+      const app = createDevRoutes({ startRun });
+      const res = await requestWithMethod(app, "/run", "POST", JSON.stringify({}), "application/json");
+      expect(res.status).toBe(400);
+    });
+
+    it("returns 201 with sessionId on success", async () => {
+      const startRun = vi.fn(() => ({ sessionId: "sess-abc" }));
+      const app = createDevRoutes({ startRun });
+      const res = await requestWithMethod(app, "/run", "POST", JSON.stringify({ task: "Build feature X" }), "application/json");
+      expect(res.status).toBe(201);
+      const data = await res.json();
+      expect(data.sessionId).toBe("sess-abc");
+      expect(startRun).toHaveBeenCalledWith("Build feature X");
+    });
+
+    it("returns 409 when run already in progress", async () => {
+      const startRun = vi.fn(() => ({ error: "A run is already in progress" }));
+      const app = createDevRoutes({ startRun });
+      const res = await requestWithMethod(app, "/run", "POST", JSON.stringify({ task: "Another task" }), "application/json");
+      expect(res.status).toBe(409);
+      const data = await res.json();
+      expect(data.error).toBe("A run is already in progress");
+    });
+  });
+
+  describe("GET /run", () => {
+    it("returns idle status when no getRunStatus callback", async () => {
+      const app = createDevRoutes({});
+      const res = await request(app, "/run");
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data).toEqual({ sessionId: null, status: "idle", phase: null, task: null });
+    });
+
+    it("returns current run status from callback", async () => {
+      const getRunStatus = vi.fn(() => ({
+        sessionId: "sess-xyz",
+        status: "running",
+        phase: "implement",
+        task: "Build feature",
+      }));
+      const app = createDevRoutes({ getRunStatus });
+      const res = await request(app, "/run");
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.sessionId).toBe("sess-xyz");
+      expect(data.status).toBe("running");
+      expect(data.phase).toBe("implement");
+      expect(data.task).toBe("Build feature");
+    });
+  });
+
   describe("POST /approve", () => {
     it("returns 404 when no approvePhase callback configured", async () => {
       const app = createDevRoutes({});

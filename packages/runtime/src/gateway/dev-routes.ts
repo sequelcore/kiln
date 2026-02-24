@@ -20,6 +20,8 @@ export interface DevRoutesConfig {
   readonly getEvalResults?: (name: string) => Record<string, unknown> | undefined;
   readonly approvePhase?: (sessionId?: string) => { ok: boolean; error?: string };
   readonly rejectPhase?: (reason: string, sessionId?: string) => { ok: boolean; error?: string };
+  readonly startRun?: (task: string) => { sessionId: string } | { error: string };
+  readonly getRunStatus?: () => { sessionId: string | null; status: string; phase: string | null; task: string | null };
 }
 
 export function createDevRoutes(config: DevRoutesConfig): Hono {
@@ -170,6 +172,28 @@ export function createDevRoutes(config: DevRoutesConfig): Hono {
     const results = config.getEvalResults?.(name);
     if (!results) return c.json({ error: "Experiment not found" }, 404);
     return c.json(results);
+  });
+
+  // POST /run -- start a dev orchestrator run
+  app.post("/run", async (c) => {
+    if (!config.startRun) return c.json({ error: "Orchestrator not available" }, 404);
+    let task = "";
+    try {
+      const body = await c.req.json<{ task?: string }>();
+      task = body.task ?? "";
+    } catch {
+      // body parse failed
+    }
+    if (!task.trim()) return c.json({ error: "task is required" }, 400);
+    const result = config.startRun(task);
+    if ("error" in result) return c.json(result, 409);
+    return c.json(result, 201);
+  });
+
+  // GET /run -- current run status
+  app.get("/run", (c) => {
+    const status = config.getRunStatus?.();
+    return c.json(status ?? { sessionId: null, status: "idle", phase: null, task: null });
   });
 
   // POST /approve -- approve a pending phase gate

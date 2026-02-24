@@ -33,6 +33,7 @@ import { TenantRegistry } from "../tenant/tenant-registry.js";
 import { assertValidStartupConfig } from "./config-validator.js";
 import { HealthRegistry } from "./health-registry.js";
 import { ApprovalGateRegistry } from "./approval-registry.js";
+import { DevOrchestrator } from "./dev-orchestrator.js";
 
 export type { LoadedApp, GatewayServerConfig } from "./gateway-routes.js";
 export { createGatewayApp } from "./gateway-routes.js";
@@ -42,6 +43,8 @@ export type { AppGraphResponse, AppGraphTeam, AppGraphAgent, AppGraphRouter, Eva
 export { createDevInspectorHtml } from "./dev-inspector.js";
 export { ApprovalGateRegistry } from "./approval-registry.js";
 export type { ApprovalTarget } from "./approval-registry.js";
+export { DevOrchestrator } from "./dev-orchestrator.js";
+export type { DevOrchestratorConfig, DevRunResult } from "./dev-orchestrator.js";
 
 export interface StartGatewayOptions {
   readonly port?: number;
@@ -374,6 +377,9 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
   }
 
   const approvalRegistry = new ApprovalGateRegistry();
+  const devOrchestrator = options?.devMode
+    ? new DevOrchestrator({ eventBus: gatewayEventBus, approvalRegistry })
+    : undefined;
 
   const studioDistPath = options?.studioDistPath ?? (options?.devMode ? resolveStudioDist() : undefined);
 
@@ -412,11 +418,9 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
         getEventBus: () => gatewayEventBus,
         getPhaseState: () => {
           const active = sessionRegistry.activeSessions();
-          if (active.length === 0) {
-            return { status: "idle", activeSessions: 0, sessions: [] };
-          }
+          const orch = devOrchestrator?.orchestrator;
           return {
-            status: "active",
+            status: orch && devOrchestrator.isRunning ? orch.status : (active.length > 0 ? "active" : "idle"),
             activeSessions: active.length,
             sessions: active.map((s) => ({
               id: s.id,
@@ -426,6 +430,12 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
               createdAt: s.createdAt.toISOString(),
               lastActivityAt: s.lastActivityAt.toISOString(),
             })),
+            orchestrator: orch ? {
+              sessionId: orch.sessionId,
+              status: orch.status,
+              phase: orch.currentPhase,
+              task: orch.task,
+            } : undefined,
           };
         },
         getMemorySnapshot: () => {
@@ -545,6 +555,21 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
         getEvalResults: () => undefined,
         approvePhase: (sessionId?: string) => approvalRegistry.approve(sessionId),
         rejectPhase: (reason: string, sessionId?: string) => approvalRegistry.reject(reason, sessionId),
+        startRun: devOrchestrator
+          ? (task: string) => {
+              if (devOrchestrator.isRunning) return { error: "A run is already in progress" };
+              const sessionId = devOrchestrator.start(task);
+              return { sessionId };
+            }
+          : undefined,
+        getRunStatus: devOrchestrator
+          ? () => ({
+              sessionId: devOrchestrator.orchestrator.sessionId,
+              status: devOrchestrator.orchestrator.status,
+              phase: devOrchestrator.orchestrator.currentPhase,
+              task: devOrchestrator.orchestrator.task,
+            })
+          : undefined,
       }
       : undefined,
   });
@@ -714,6 +739,7 @@ export async function startDevServer(options?: DevServerOptions): Promise<void> 
   }
 
   const approvalRegistry = new ApprovalGateRegistry();
+  const devOrchestrator = new DevOrchestrator({ eventBus, approvalRegistry });
 
   const honoApp = createGatewayApp({
     port,
@@ -722,7 +748,18 @@ export async function startDevServer(options?: DevServerOptions): Promise<void> 
     studioDistPath,
     devRoutesConfig: {
       getEventBus: () => eventBus,
-      getPhaseState: () => ({ status: "idle", phase: null }),
+      getPhaseState: () => {
+        const orch = devOrchestrator.orchestrator;
+        return {
+          status: devOrchestrator.isRunning ? orch.status : "idle",
+          orchestrator: {
+            sessionId: orch.sessionId,
+            status: orch.status,
+            phase: orch.currentPhase,
+            task: orch.task,
+          },
+        };
+      },
       getMemorySnapshot: () => ({ entries: [] }),
       getCostSummary: () => costTracker.summary,
       getSafetyMetrics: () => ({ enabled: false }),
@@ -756,6 +793,17 @@ export async function startDevServer(options?: DevServerOptions): Promise<void> 
       getEvalResults: () => undefined,
       approvePhase: (sessionId?: string) => approvalRegistry.approve(sessionId),
       rejectPhase: (reason: string, sessionId?: string) => approvalRegistry.reject(reason, sessionId),
+      startRun: (task: string) => {
+        if (devOrchestrator.isRunning) return { error: "A run is already in progress" };
+        const sessionId = devOrchestrator.start(task);
+        return { sessionId };
+      },
+      getRunStatus: () => ({
+        sessionId: devOrchestrator.orchestrator.sessionId,
+        status: devOrchestrator.orchestrator.status,
+        phase: devOrchestrator.orchestrator.currentPhase,
+        task: devOrchestrator.orchestrator.task,
+      }),
     },
   });
 

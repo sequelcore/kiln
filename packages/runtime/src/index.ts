@@ -22,6 +22,8 @@ export { createTenantAdminRoutes } from "./gateway/tenant-admin-routes.js";
 export type { TenantAdminRoutesConfig } from "./gateway/tenant-admin-routes.js";
 export { ApprovalGateRegistry } from "./gateway/approval-registry.js";
 export type { ApprovalTarget } from "./gateway/approval-registry.js";
+export { DevOrchestrator } from "./gateway/dev-orchestrator.js";
+export type { DevOrchestratorConfig, DevRunResult } from "./gateway/dev-orchestrator.js";
 
 // Session
 export { ModeBSession } from "./session/mode-b-session.js";
