@@ -36,14 +36,14 @@ This document is for contributors. For user documentation, see the [guides](guid
 | `observability` | `@kilnai/core` | `packages/core/src/observability/` | OTel integration: SpanMapper (maps 32 event types to spans), OTelExporter (implements EventStore, accepts TracerProvider). |
 | `knowledge` | `@kilnai/core` | `packages/core/src/knowledge/` | RAG pipeline: chunkers (recursive, markdown), embedding adapters (OpenAI, Ollama), InMemoryVectorStore, RetrievalPipeline, knowledge_search capability auto-injection. |
 | `channels` | `@kilnai/runtime` | `packages/runtime/src/channels/` | Channel adapters (CLI, Web, WhatsApp, Slack, API, Voice), EventBridge, ChannelRegistry, ChannelRouter, MessageFormatter. |
-| `gateway` | `@kilnai/runtime` | `packages/runtime/src/gateway/` | Gateway runtime: multi-App loading, per-App isolation, Mode B routes, budget middleware, cross-app delegation, trigger webhook mounting, dev-mode API routes, Studio static file serving, lightweight dev server (`startDevServer`). |
+| `gateway` | `@kilnai/runtime` | `packages/runtime/src/gateway/` | Gateway runtime: multi-App loading, per-App isolation, Mode B routes, budget middleware, cross-app delegation, trigger webhook mounting, dev-mode API routes (SSE, memory, cost, safety, token, orchestrator), WebSocket chat, Studio static file serving, lightweight dev server (`startDevServer`). |
 | `a2a` | `@kilnai/runtime` | `packages/runtime/src/a2a/` | A2A protocol: Agent Card generation, JSON-RPC 2.0 server, A2ATaskStore, A2AClient. |
 | `trigger` | `@kilnai/runtime` | `packages/runtime/src/trigger/` | TriggerRegistry, webhook handler (HMAC-SHA256), event listener, cron scheduler, trigger executor. |
 | `session` | `@kilnai/runtime` | `packages/runtime/src/session/` | Mode B session management: ModeBSession, ModeBOrchestrator, SessionRegistry. |
 | `tenant` | `@kilnai/runtime` | `packages/runtime/src/tenant/` | Multi-tenant management: TenantRegistry, system prompt builder, phone-to-tenant resolution. |
 | `cli` | `@kilnai/cli` | `packages/cli/` | CLI commands (init, run, dev, gateway, skill, domain), formatters, MCP server. |
-| `sdk` | `@kilnai/react` | `packages/sdk/` | React hooks library: KilnProvider, useKilnChat, useKilnEvents, useKilnMemory, useKilnState, ApiClient, SseClient. Types-only import from core. |
-| `studio` | `@kilnai/studio` | `packages/studio/` | Dev UI SPA (private): React 19 + Vite + TanStack Query + @xyflow/react. Served at `/studio` in dev mode. |
+| `sdk` | `@kilnai/react` | `packages/sdk/` | React hooks library: KilnProvider, useKilnChat, useKilnWsChat, useKilnEvents, useKilnMemory, useKilnState, useApproval, ApiClient, SseClient. Types-only import from core. |
+| `studio` | `@kilnai/studio` | `packages/studio/` | Dev UI SPA (private): React 19 + Vite + TanStack Query + @xyflow/react. 7 views. Served at `/studio` in dev mode. |
 
 ## Dependency Rules
 
@@ -357,7 +357,7 @@ kiln/
 │   │       └── safety/                   # pii-scanner.ts, content-classifier.ts, rails.ts, safety-pipeline.ts
 │   ├── runtime/                          # @kilnai/runtime
 │   │   └── src/
-│   │       ├── gateway/                  # gateway-server.ts, gateway-routes.ts, dev-routes.ts, ws-routes.ts (auth), approval-registry.ts
+│   │       ├── gateway/                  # gateway-server.ts, gateway-routes.ts, dev-routes.ts, ws-routes.ts, dev-token-store.ts, dev-orchestrator.ts, approval-registry.ts
 │   │       ├── session/                  # mode-b-session.ts, mode-b-orchestrator.ts, session-registry.ts
 │   │       ├── tenant/                   # tenant-registry.ts, system-prompt-builder.ts
 │   │       ├── channels/                 # cli-, web-, whatsapp-, slack-, api-, voice-channel.ts + speech/
@@ -371,14 +371,16 @@ kiln/
 │   │   └── src/
 │   │       ├── provider.tsx
 │   │       ├── use-kiln-chat.ts
+│   │       ├── use-kiln-ws-chat.ts
 │   │       ├── use-kiln-events.ts
 │   │       ├── use-kiln-memory.ts
 │   │       ├── use-kiln-state.ts
+│   │       ├── use-approval.ts
 │   │       ├── api-client.ts
 │   │       └── sse-client.ts
 │   └── studio/                           # @kilnai/studio (private)
 │       └── src/
-│           ├── routes/                   # graph.tsx, playground.tsx, timeline.tsx, memory.tsx, eval.tsx
+│           ├── routes/                   # graph.tsx, playground.tsx, timeline.tsx, memory.tsx, eval.tsx, cost.tsx, safety.tsx
 │           ├── hooks/                    # use-app-graph.ts, use-yaml.ts
 │           └── styles/                   # tokens.css
 ├── docs/

@@ -93,6 +93,34 @@ function Chat() {
 
 `send` accepts either a plain string or a `ContentPart[]` array for multimodal messages. `clearMessages()` resets local history and clears any error state.
 
+## useKilnWsChat
+
+WebSocket-based alternative to `useKilnChat`. Opens a persistent WebSocket to `/apps/{appName}/ws`, sends messages as JSON frames, and receives responses in real time. Returns the same `UseChatReturn` interface -- drop-in replacement.
+
+```typescript
+function useKilnWsChat(options?: ChatOptions): UseChatReturn
+```
+
+```tsx
+import { useKilnWsChat } from "@kilnai/react";
+
+function Chat() {
+  const { messages, send, isLoading, error, clearMessages } = useKilnWsChat();
+  // Identical API to useKilnChat -- same JSX works
+}
+```
+
+**Protocol:** The hook sends `WsChatRequest` frames (`{ type: "message", content, parts? }`) and receives `WsChatFrame` responses:
+- `done` -- full response with `content`, `parts`, `inputTokens`, `outputTokens`
+- `error` -- server-side error with `message`
+- `chunk` -- reserved for future streaming (not handled yet)
+
+**Connection lifecycle:** Connects on mount, disconnects on unmount. The `userId` is encoded in the WebSocket URL query parameter at connection time. If `config.userId` is not set, a stable random UUID is generated once per component lifetime.
+
+**When to use which:**
+- `useKilnWsChat` -- Studio Playground and real-time UIs where low latency matters
+- `useKilnChat` -- simpler integrations, server-rendered pages, or when HTTP is preferred
+
 ## useKilnEvents
 
 Connects to the Gateway's SSE event stream at `/dev/events`. Maintains a typed event buffer capped at 500 events.

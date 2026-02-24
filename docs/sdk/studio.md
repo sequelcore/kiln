@@ -53,7 +53,7 @@ Click any node to open a detail panel showing the full configuration of that ent
 
 ### Playground
 
-A chat interface backed by the `useKilnChat` hook. Send messages to any loaded App and inspect responses inline.
+A chat interface backed by the `useKilnWsChat` hook over WebSocket. Send messages to any loaded App and receive responses in real time.
 
 A side panel displays tool calls and events from `useKilnEvents` in real time. Tool call entries show the capability name, arguments, result, and duration.
 
@@ -78,7 +78,11 @@ Each tab uses `useKilnMemory(scope)` to fetch and display entries. Supports:
 
 ### Cost Dashboard
 
-Displays cost tracking data from `GET /dev/cost`. Summary grid shows total cost (USD), input tokens, output tokens, cache read/write tokens, and tool calls. A by-role breakdown table shows per-agent-role usage with model, token counts, and call counts.
+Displays cost tracking data from `GET /dev/cost`. Summary grid shows total cost (USD), input tokens, output tokens, cache read/write tokens, and tool calls. A by-role breakdown table shows per-agent-role usage with model, token counts, and call counts. Auto-refreshes via `cost_update` SSE events from `useKilnEvents`.
+
+### Safety Dashboard
+
+Displays safety pipeline metrics from `GET /dev/safety`. When the pipeline is configured, shows per-app metric cards in a 3-column grid: input/output scans, input/output blocks, PII detections, content blocks, and policy evaluations. Non-zero warning metrics are highlighted. Auto-refreshes every 5 seconds. Shows "Safety pipeline is not configured" when no pipeline is active.
 
 ### Eval Dashboard
 
@@ -108,6 +112,9 @@ All dev endpoints are mounted at `/dev/` when the Gateway starts in dev mode (`d
 | `GET` | `/dev/eval/experiments/:name/results` | Fetch results for a named experiment. |
 | `POST` | `/dev/approve` | Approve a pending phase gate. Body: `{ sessionId? }`. |
 | `POST` | `/dev/reject` | Reject a pending phase gate. Body: `{ reason?, sessionId? }`. |
+| `POST` | `/dev/token` | Issue a dev-mode WebSocket auth token. Body: `{ userId? }`. |
+| `POST` | `/dev/run` | Start a dev orchestrator run. Body: `{ task }`. |
+| `GET` | `/dev/run` | Current orchestrator run status. |
 
 Dev endpoints are only active when `devMode: true`. They are not mounted in production.
 

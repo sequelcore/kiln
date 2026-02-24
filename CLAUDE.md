@@ -11,7 +11,7 @@ Bun monorepo with 5 packages:
 | `packages/core` | `@kilnai/core` | Engine primitives, implementations, YAML loader |
 | `packages/runtime` | `@kilnai/runtime` | Gateway server, channel adapters, triggers |
 | `packages/cli` | `@kilnai/cli` | CLI commands, init wizard, dev mode |
-| `packages/sdk` | `@kilnai/react` | React hooks (KilnProvider, useKilnChat, useKilnEvents, useKilnMemory, useKilnState) |
+| `packages/sdk` | `@kilnai/react` | React hooks (KilnProvider, useKilnChat, useKilnWsChat, useKilnEvents, useKilnMemory, useKilnState, useApproval) |
 | `packages/studio` | `@kilnai/studio` | Dev UI SPA (private, served at `/studio` in dev mode) |
 
 ### Bounded Contexts
@@ -41,8 +41,8 @@ Bun monorepo with 5 packages:
 | session | `runtime/src/session/` | ModeBSession, ModeBOrchestrator, SessionRegistry |
 | tenant | `runtime/src/tenant/` | TenantRegistry (JSON persistence), system prompt builder |
 | channels | `runtime/src/channels/` | 6 adapters (CLI, Web, WhatsApp, Slack, API, Voice), ChannelRouter, MessageFormatter |
-| sdk | `sdk/src/` | React hooks, ApiClient, SseClient. Types-only import from core. |
-| studio | `studio/src/` | React 19 + Vite + TanStack Router/Query + @xyflow/react. 5 views. |
+| sdk | `sdk/src/` | React hooks (useKilnChat, useKilnWsChat, useKilnEvents, useKilnMemory, useKilnState, useApproval), ApiClient, SseClient. Types-only import from core. |
+| studio | `studio/src/` | React 19 + Vite + TanStack Router/Query + @xyflow/react. 7 views (Graph, Playground, Timeline, Memory, Eval, Cost, Safety). |
 
 ### Dependency Rules (STRICT)
 
@@ -124,7 +124,9 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `gateway/mode-b-routes.ts` | POST /message, GET/DELETE /sessions |
 | `gateway/delegation-handler.ts` | DelegationRegistry, executeDelegation() (Kiln-native + A2A) |
 | `gateway/budget-middleware.ts` | checkBudget(), reportUsage() -- fail-open |
-| `gateway/dev-routes.ts` | Dev-mode: /dev/state, /dev/events (SSE), /dev/memory, /dev/cost |
+| `gateway/dev-routes.ts` | Dev-mode: /dev/state, /dev/events (SSE), /dev/memory, /dev/cost, /dev/safety, /dev/token, /dev/run |
+| `gateway/dev-token-store.ts` | In-memory sliding-window TTL token store for dev-mode WebSocket auth |
+| `gateway/dev-orchestrator.ts` | DevOrchestrator: bridges core Orchestrator with ApprovalGateRegistry and gateway EventBus |
 | `channels/voice-channel.ts` | STT/TTS adapter (modalities: text + audio) |
 | `channels/whatsapp-channel.ts` | WhatsApp Business API webhook adapter |
 | `channels/slack-channel.ts` | Slack Bot Events + Web API adapter |
