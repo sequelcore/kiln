@@ -1,6 +1,6 @@
 # Interactive Infrastructure -- Pending Work
 
-Status after Phases 1-4 (4 phases, ~2100 lines, 2573 tests).
+Status after Phases 1-6 (6 phases).
 
 ## 1. ~~Gateway-Hosted Orchestrator~~ (Done -- Phase 4)
 
@@ -10,22 +10,14 @@ Implemented via `DevOrchestrator` in `packages/runtime/src/gateway/dev-orchestra
 
 Implemented via `useKilnWsChat` hook in `@kilnai/react` and server-side `processMessage` callback in `ws-routes.ts`. Protocol: `WsChatRequest` (client->server) and `WsChatFrame` (server->client, `done`/`error`/`chunk` types). `chunk` reserved for future streaming. Studio Playground swapped from `useKilnChat` to `useKilnWsChat`. Only wired for Mode B apps -- multi-tenant WS chat deferred until frame protocol carries `tenantId`.
 
-## 3. Identity Resolution for WebSocket (Low)
+## 3. ~~Identity Resolution for WebSocket~~ (Done -- Phase 6)
 
-`validateToken` callback is plumbed through `WsRoutesConfig` -> `GatewayServerConfig` but no default implementation exists. Consumers must provide their own validator. Could ship a built-in JWT validator or session token store.
+Implemented via `DevTokenStore` in `packages/runtime/src/gateway/dev-token-store.ts`. In-memory token store with sliding-window TTL (30 min default). Wired to `POST /dev/token` (issue) and `validateToken` callback in both `startGateway` and `startDevServer`. Production JWT validation remains a consumer responsibility.
 
-**Key files:** `packages/runtime/src/gateway/ws-routes.ts` (`validateToken` in `WsRoutesConfig`).
+## 4. ~~Cost View Auto-Refresh~~ (Done -- Phase 6)
 
-## 4. Cost View Auto-Refresh (Low)
+Replaced manual Refresh button with SSE-driven auto-refresh. Cost view subscribes to `cost_update` events via `useKilnEvents` and triggers `refetch()` on each event.
 
-Studio Cost view has a manual Refresh button. Could auto-refresh by polling or subscribing to `cost_update` SSE events via `useKilnEvents`.
+## 5. ~~Studio Safety View~~ (Done -- Phase 6)
 
-**Key files:** `packages/studio/src/routes/cost.tsx`.
-
-## 5. Studio Safety View (Low)
-
-Safety metrics are wired to `GET /dev/safety` and return per-app pipeline counters (scans, blocks, PII detections, content classifications, policy evaluations). No Studio view exists for this data.
-
-**Approach:** New route `packages/studio/src/routes/safety.tsx` with per-app metric cards. Register in sidebar.
-
-**Key files:** `packages/core/src/safety/safety-pipeline.ts` (SafetyMetrics), `packages/runtime/src/gateway/gateway-server.ts` (getSafetyMetrics wiring), `packages/studio/src/app.tsx`, `packages/studio/src/components/sidebar.tsx`.
+New `packages/studio/src/routes/safety.tsx` with per-app metric cards (7 metrics in 3-column grid). Registered in sidebar and app routing. Polls `GET /dev/safety` every 5 seconds. Shows "not configured" when safety pipeline is absent.

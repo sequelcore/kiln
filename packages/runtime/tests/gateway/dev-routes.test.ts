@@ -565,4 +565,36 @@ describe("createDevRoutes", () => {
       expect(rejectPhase).toHaveBeenCalledWith("", undefined);
     });
   });
+
+  describe("POST /token", () => {
+    it("returns 404 when no issueToken callback", async () => {
+      const app = createDevRoutes({});
+      const res = await requestWithMethod(app, "/token", "POST", JSON.stringify({}), "application/json");
+      expect(res.status).toBe(404);
+      const data = await res.json();
+      expect(data.error).toBe("Token management not available");
+    });
+
+    it("returns token and userId on success", async () => {
+      const issueToken = vi.fn(() => "tok-abc-123");
+      const app = createDevRoutes({ issueToken });
+      const res = await requestWithMethod(app, "/token", "POST", JSON.stringify({ userId: "custom-user" }), "application/json");
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.token).toBe("tok-abc-123");
+      expect(data.userId).toBe("custom-user");
+      expect(issueToken).toHaveBeenCalledWith("custom-user");
+    });
+
+    it("uses dev-user default when body is empty", async () => {
+      const issueToken = vi.fn(() => "tok-default");
+      const app = createDevRoutes({ issueToken });
+      const res = await requestWithMethod(app, "/token", "POST");
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.token).toBe("tok-default");
+      expect(data.userId).toBe("dev-user");
+      expect(issueToken).toHaveBeenCalledWith("dev-user");
+    });
+  });
 });

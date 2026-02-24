@@ -34,6 +34,7 @@ import { assertValidStartupConfig } from "./config-validator.js";
 import { HealthRegistry } from "./health-registry.js";
 import { ApprovalGateRegistry } from "./approval-registry.js";
 import { DevOrchestrator } from "./dev-orchestrator.js";
+import { DevTokenStore } from "./dev-token-store.js";
 
 export type { LoadedApp, GatewayServerConfig } from "./gateway-routes.js";
 export { createGatewayApp } from "./gateway-routes.js";
@@ -45,6 +46,8 @@ export { ApprovalGateRegistry } from "./approval-registry.js";
 export type { ApprovalTarget } from "./approval-registry.js";
 export { DevOrchestrator } from "./dev-orchestrator.js";
 export type { DevOrchestratorConfig, DevRunResult } from "./dev-orchestrator.js";
+export { DevTokenStore } from "./dev-token-store.js";
+export type { DevToken } from "./dev-token-store.js";
 
 export interface StartGatewayOptions {
   readonly port?: number;
@@ -400,6 +403,8 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
     }
   }
 
+  const tokenStore = options?.devMode ? new DevTokenStore() : undefined;
+
   const { upgradeWebSocket, websocket: bunWebsocket } = createBunWebSocket();
 
   const honoApp = createGatewayApp({
@@ -411,6 +416,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
     triggerRegistry,
     safetyPipelines,
     upgradeWebSocket,
+    validateToken: tokenStore ? (token) => tokenStore.validate(token) : undefined,
     devMode: options?.devMode,
     studioDistPath,
     devRoutesConfig: options?.devMode
@@ -570,6 +576,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
               task: devOrchestrator.orchestrator.task,
             })
           : undefined,
+        issueToken: tokenStore ? (userId: string) => tokenStore.issue(userId) : undefined,
       }
       : undefined,
   });
@@ -740,12 +747,15 @@ export async function startDevServer(options?: DevServerOptions): Promise<void> 
 
   const approvalRegistry = new ApprovalGateRegistry();
   const devOrchestrator = new DevOrchestrator({ eventBus, approvalRegistry });
+  const tokenStore = new DevTokenStore();
 
   const honoApp = createGatewayApp({
     port,
     apps: [],
     devMode: true,
     studioDistPath,
+    upgradeWebSocket: undefined,
+    validateToken: (token) => tokenStore.validate(token),
     devRoutesConfig: {
       getEventBus: () => eventBus,
       getPhaseState: () => {
@@ -804,6 +814,7 @@ export async function startDevServer(options?: DevServerOptions): Promise<void> 
         phase: devOrchestrator.orchestrator.currentPhase,
         task: devOrchestrator.orchestrator.task,
       }),
+      issueToken: (userId: string) => tokenStore.issue(userId),
     },
   });
 

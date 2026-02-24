@@ -1,6 +1,6 @@
-import { type ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useKilnContext } from "@kilnai/react";
+import { useKilnContext, useKilnEvents } from "@kilnai/react";
 
 interface RoleCost {
   role: string;
@@ -38,16 +38,17 @@ export function CostView(): ReactNode {
     queryFn: () => client.get<CostData>("/dev/cost"),
   });
 
+  const { events } = useKilnEvents();
+  const costEventCount = events.filter((e) => e.type === "cost_update").length;
+  useEffect(() => {
+    if (costEventCount > 0) void refetch();
+  }, [costEventCount, refetch]);
+
   const roles = data ? Object.values(data.byRole) : [];
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-16">
-        <div className="card-header" style={{ marginBottom: 0 }}>Cost</div>
-        <button className="btn" onClick={() => void refetch()} disabled={isLoading}>
-          {isLoading ? "Loading..." : "Refresh"}
-        </button>
-      </div>
+      <div className="card-header">Cost</div>
 
       {error && (
         <div style={{ color: "var(--error)", fontSize: 13, marginBottom: 16 }}>

@@ -22,6 +22,7 @@ export interface DevRoutesConfig {
   readonly rejectPhase?: (reason: string, sessionId?: string) => { ok: boolean; error?: string };
   readonly startRun?: (task: string) => { sessionId: string } | { error: string };
   readonly getRunStatus?: () => { sessionId: string | null; status: string; phase: string | null; task: string | null };
+  readonly issueToken?: (userId: string) => string;
 }
 
 export function createDevRoutes(config: DevRoutesConfig): Hono {
@@ -234,6 +235,20 @@ export function createDevRoutes(config: DevRoutesConfig): Hono {
       return c.json({ error: result.error ?? "No approval pending" }, 409);
     }
     return c.json({ ok: true });
+  });
+
+  // POST /token -- issue a dev-mode WebSocket auth token
+  app.post("/token", async (c) => {
+    if (!config.issueToken) return c.json({ error: "Token management not available" }, 404);
+    let userId = "dev-user";
+    try {
+      const body = await c.req.json<{ userId?: string }>();
+      if (body.userId) userId = body.userId;
+    } catch {
+      // body is optional
+    }
+    const token = config.issueToken(userId);
+    return c.json({ token, userId });
   });
 
   return app;

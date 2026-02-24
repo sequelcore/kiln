@@ -24,6 +24,8 @@ export { ApprovalGateRegistry } from "./gateway/approval-registry.js";
 export type { ApprovalTarget } from "./gateway/approval-registry.js";
 export { DevOrchestrator } from "./gateway/dev-orchestrator.js";
 export type { DevOrchestratorConfig, DevRunResult } from "./gateway/dev-orchestrator.js";
+export { DevTokenStore } from "./gateway/dev-token-store.js";
+export type { DevToken } from "./gateway/dev-token-store.js";
 
 // Session
 export { ModeBSession } from "./session/mode-b-session.js";
