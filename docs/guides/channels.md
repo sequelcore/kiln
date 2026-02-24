@@ -85,6 +85,8 @@ When an App declares a `web` channel binding, the Gateway mounts a WebSocket upg
 
 The WebSocket lifecycle is managed by `ws-routes.ts` using Hono's `upgradeWebSocket` helper with `createBunWebSocket()`.
 
+**Authentication:** Optionally, a `validateToken` callback can be configured in `GatewayServerConfig`. When set, clients must include a `?token=` query param on the WebSocket URL. Invalid or missing tokens receive a `401` response before upgrade. If the validator returns a `userId`, it is used as the session key.
+
 ---
 
 ### WhatsApp

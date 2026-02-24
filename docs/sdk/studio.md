@@ -76,6 +76,10 @@ Each tab uses `useKilnMemory(scope)` to fetch and display entries. Supports:
 - Creating new entries with optional tags and metadata
 - Deleting entries by ID
 
+### Cost Dashboard
+
+Displays cost tracking data from `GET /dev/cost`. Summary grid shows total cost (USD), input tokens, output tokens, cache read/write tokens, and tool calls. A by-role breakdown table shows per-agent-role usage with model, token counts, and call counts.
+
 ### Eval Dashboard
 
 Displays experiment results and score comparisons. Experiments are fetched from `GET /dev/eval/experiments`. Individual results from `GET /dev/eval/experiments/:name/results`.

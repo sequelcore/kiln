@@ -5,8 +5,9 @@ import { PlaygroundView } from "./routes/playground.js";
 import { TimelineView } from "./routes/timeline.js";
 import { MemoryView } from "./routes/memory.js";
 import { EvalView } from "./routes/eval.js";
+import { CostView } from "./routes/cost.js";
 
-type View = "graph" | "playground" | "timeline" | "memory" | "eval";
+type View = "graph" | "playground" | "timeline" | "memory" | "eval" | "cost";
 
 export function App(): ReactNode {
   const [view, setView] = useState<View>("graph");
@@ -20,6 +21,7 @@ export function App(): ReactNode {
         {view === "timeline" && <TimelineView />}
         {view === "memory" && <MemoryView />}
         {view === "eval" && <EvalView />}
+        {view === "cost" && <CostView />}
       </main>
     </div>
   );

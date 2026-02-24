@@ -192,3 +192,96 @@ describe("SafetyPipeline", () => {
     expect(result.content).toBeDefined(); // content classifier ran on redacted text
   });
 });
+
+describe("SafetyPipeline.metrics", () => {
+  it("starts at zero", () => {
+    const pipeline = new SafetyPipeline({});
+    const m = pipeline.metrics;
+    expect(m.scansInput).toBe(0);
+    expect(m.scansOutput).toBe(0);
+    expect(m.blocksInput).toBe(0);
+    expect(m.blocksOutput).toBe(0);
+    expect(m.piiDetections).toBe(0);
+    expect(m.contentBlocks).toBe(0);
+    expect(m.policyEvaluations).toBe(0);
+  });
+
+  it("increments scansInput and scansOutput by direction", async () => {
+    const pipeline = new SafetyPipeline({});
+    await pipeline.evaluate("hello", "input");
+    await pipeline.evaluate("world", "output");
+    await pipeline.evaluate("again", "input");
+    expect(pipeline.metrics.scansInput).toBe(2);
+    expect(pipeline.metrics.scansOutput).toBe(1);
+  });
+
+  it("increments blocksInput when PII action=block on input", async () => {
+    const pipeline = new SafetyPipeline({ pii: { detect: ["email"], action: "block" } });
+    await pipeline.evaluate("user@example.com", "input");
+    expect(pipeline.metrics.blocksInput).toBe(1);
+    expect(pipeline.metrics.blocksOutput).toBe(0);
+    expect(pipeline.metrics.piiDetections).toBe(1);
+  });
+
+  it("increments blocksOutput when PII action=block on output", async () => {
+    const pipeline = new SafetyPipeline({ pii: { detect: ["email"], action: "block" } });
+    await pipeline.evaluate("user@example.com", "output");
+    expect(pipeline.metrics.blocksOutput).toBe(1);
+    expect(pipeline.metrics.blocksInput).toBe(0);
+  });
+
+  it("increments piiDetections without blocking when action=detect", async () => {
+    const pipeline = new SafetyPipeline({ pii: { detect: ["email"], action: "detect" } });
+    await pipeline.evaluate("user@example.com", "input");
+    expect(pipeline.metrics.piiDetections).toBe(1);
+    expect(pipeline.metrics.blocksInput).toBe(0);
+  });
+
+  it("increments contentBlocks when content policy exceeded", async () => {
+    const pipeline = new SafetyPipeline({
+      content: { enabled: true, categories: { hate: { threshold: 0.1, action: "block" } } },
+    });
+    await pipeline.evaluate("hate speech racist content", "input");
+    expect(pipeline.metrics.contentBlocks).toBe(1);
+    expect(pipeline.metrics.blocksInput).toBe(1);
+  });
+
+  it("increments policyEvaluations per rail per call", async () => {
+    const pipeline = new SafetyPipeline({
+      rails: [
+        { type: "topic", block: ["forbidden"] },
+        { type: "topic", block: ["banned"] },
+      ],
+    });
+    await pipeline.evaluate("clean text", "input");
+    // Both rails ran
+    expect(pipeline.metrics.policyEvaluations).toBe(2);
+    await pipeline.evaluate("clean text", "input");
+    expect(pipeline.metrics.policyEvaluations).toBe(4);
+  });
+
+  it("short-circuits policyEvaluations on first block", async () => {
+    const pipeline = new SafetyPipeline({
+      rails: [
+        { type: "topic", block: ["forbidden"] },
+        { type: "topic", block: ["other"] },
+      ],
+    });
+    await pipeline.evaluate("this is forbidden", "input");
+    // Only first rail evaluated before short-circuit
+    expect(pipeline.metrics.policyEvaluations).toBe(1);
+    expect(pipeline.metrics.blocksInput).toBe(1);
+  });
+
+  it("accumulates metrics across multiple evaluations", async () => {
+    const pipeline = new SafetyPipeline({ pii: { detect: ["email"], action: "block" } });
+    await pipeline.evaluate("user@example.com", "input");
+    await pipeline.evaluate("clean text", "input");
+    await pipeline.evaluate("other@example.com", "output");
+    expect(pipeline.metrics.scansInput).toBe(2);
+    expect(pipeline.metrics.scansOutput).toBe(1);
+    expect(pipeline.metrics.piiDetections).toBe(2);
+    expect(pipeline.metrics.blocksInput).toBe(1);
+    expect(pipeline.metrics.blocksOutput).toBe(1);
+  });
+});

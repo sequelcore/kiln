@@ -60,6 +60,7 @@ export interface GatewayServerConfig {
   readonly safetyPipelines?: Map<string, SafetyPipeline>;
   readonly studioDistPath?: string;
   readonly upgradeWebSocket?: WsRoutesConfig["upgradeWebSocket"];
+  readonly validateToken?: WsRoutesConfig["validateToken"];
 }
 
 export function createGatewayApp(config: GatewayServerConfig): Hono {
@@ -151,7 +152,7 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
 
       // WebSocket route for web channel
       if (channel.type === "web" && loadedApp.webChannel && config.upgradeWebSocket) {
-        const wsApp = createWsRoutes({ webChannel: loadedApp.webChannel, upgradeWebSocket: config.upgradeWebSocket });
+        const wsApp = createWsRoutes({ webChannel: loadedApp.webChannel, upgradeWebSocket: config.upgradeWebSocket, validateToken: config.validateToken });
         app.route(`/apps/${loadedApp.name}`, wsApp);
       }
     }

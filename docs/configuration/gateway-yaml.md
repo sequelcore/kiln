@@ -216,7 +216,7 @@ Mounted when the App has `a2aConfig` in its YAML.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/apps/:appName/ws` | WebSocket upgrade for Apps with a `web` channel binding. |
+| `GET` | `/apps/:appName/ws` | WebSocket upgrade for Apps with a `web` channel binding. Supports optional `?token=` query param for auth when `validateToken` is configured. |
 
 ---
 

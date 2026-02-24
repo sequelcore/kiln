@@ -6,19 +6,33 @@ import type { IncomingMessage } from "@kilnai/core";
 export interface WsRoutesConfig {
   readonly webChannel: WebChannel;
   readonly upgradeWebSocket: UpgradeWebSocket;
+  readonly validateToken?: (token: string) => { valid: boolean; userId?: string };
 }
 
 export function createWsRoutes(config: WsRoutesConfig): Hono {
   const app = new Hono();
 
+  let validatedUserId: string | undefined;
+
   app.get(
     "/ws",
+    async (c, next) => {
+      if (config.validateToken) {
+        const token = c.req.query("token");
+        if (!token) return c.text("Unauthorized", 401);
+        const result = config.validateToken(token);
+        if (!result.valid) return c.text("Unauthorized", 401);
+        validatedUserId = result.userId;
+      }
+      await next();
+    },
     config.upgradeWebSocket((c) => {
-      // Prefer sessionId param; fall back to userId; generate one if absent
       const sessionId =
+        validatedUserId ??
         c.req.query("sessionId") ??
         c.req.query("userId") ??
         crypto.randomUUID();
+      validatedUserId = undefined;
 
       return {
         onOpen(_event: Event, ws: WSContext) {

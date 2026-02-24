@@ -14,11 +14,29 @@ export interface SafetyPipelineOptions {
   readonly contentProvider?: ContentDeepScanProvider;
 }
 
+export interface SafetyMetrics {
+  readonly scansInput: number;
+  readonly scansOutput: number;
+  readonly blocksInput: number;
+  readonly blocksOutput: number;
+  readonly piiDetections: number;
+  readonly contentBlocks: number;
+  readonly policyEvaluations: number;
+}
+
 export class SafetyPipeline {
   private readonly config: SafetyConfig;
   private readonly piiScanner?: PiiScanner;
   private readonly contentClassifier?: ContentClassifier;
   private readonly rails: readonly PolicyRail[];
+
+  private _scansInput = 0;
+  private _scansOutput = 0;
+  private _blocksInput = 0;
+  private _blocksOutput = 0;
+  private _piiDetections = 0;
+  private _contentBlocks = 0;
+  private _policyEvaluations = 0;
 
   constructor(config: SafetyConfig) {
     this.config = config;
@@ -34,6 +52,18 @@ export class SafetyPipeline {
     this.rails = (config.rails ?? []).map(createRail);
   }
 
+  get metrics(): SafetyMetrics {
+    return {
+      scansInput: this._scansInput,
+      scansOutput: this._scansOutput,
+      blocksInput: this._blocksInput,
+      blocksOutput: this._blocksOutput,
+      piiDetections: this._piiDetections,
+      contentBlocks: this._contentBlocks,
+      policyEvaluations: this._policyEvaluations,
+    };
+  }
+
   /**
    * Evaluate text through the full safety pipeline.
    * Order: PII scan -> content classification -> policy rails.
@@ -45,6 +75,12 @@ export class SafetyPipeline {
     direction: SafetyDirection,
     options?: SafetyPipelineOptions,
   ): Promise<SafetyPipelineResult> {
+    if (direction === "input") {
+      this._scansInput++;
+    } else {
+      this._scansOutput++;
+    }
+
     let currentText = text;
     const policyResults: PolicyResult[] = [];
 
@@ -53,9 +89,15 @@ export class SafetyPipeline {
       const piiResult = await this.piiScanner.scan(currentText, options?.piiProvider);
 
       if (piiResult.matches.length > 0) {
+        this._piiDetections++;
         const action = this.config.pii!.action;
 
         if (action === "block") {
+          if (direction === "input") {
+            this._blocksInput++;
+          } else {
+            this._blocksOutput++;
+          }
           return {
             allowed: false,
             pii: piiResult,
@@ -67,6 +109,13 @@ export class SafetyPipeline {
         if (action === "redact") {
           currentText = this.piiScanner.redact(currentText, piiResult.matches);
           const result = await this.evaluateContentAndRails(currentText, direction, options, policyResults);
+          if (!result.allowed) {
+            if (direction === "input") {
+              this._blocksInput++;
+            } else {
+              this._blocksOutput++;
+            }
+          }
           return {
             ...result,
             redactedText: currentText,
@@ -76,12 +125,27 @@ export class SafetyPipeline {
 
         // action === "detect" -- just record, continue with original text
         const result = await this.evaluateContentAndRails(currentText, direction, options, policyResults);
+        if (!result.allowed) {
+          if (direction === "input") {
+            this._blocksInput++;
+          } else {
+            this._blocksOutput++;
+          }
+        }
         return { ...result, pii: piiResult };
       }
     }
 
     // No PII found or no PII config -- continue to content + rails
-    return this.evaluateContentAndRails(currentText, direction, options, policyResults);
+    const result = await this.evaluateContentAndRails(currentText, direction, options, policyResults);
+    if (!result.allowed) {
+      if (direction === "input") {
+        this._blocksInput++;
+      } else {
+        this._blocksOutput++;
+      }
+    }
+    return result;
   }
 
   private async evaluateContentAndRails(
@@ -98,6 +162,7 @@ export class SafetyPipeline {
 
       const blocked = violations.some((v) => v.action === "block");
       if (blocked) {
+        this._contentBlocks++;
         return {
           allowed: false,
           content: contentResult,
@@ -109,6 +174,7 @@ export class SafetyPipeline {
 
     // 3. Policy rails -- evaluate all, short-circuit on first block
     for (const rail of this.rails) {
+      this._policyEvaluations++;
       const result = rail.evaluate(text, direction);
       policyResults.push(result);
 

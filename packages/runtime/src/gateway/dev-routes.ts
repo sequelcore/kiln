@@ -1,12 +1,12 @@
 import { Hono } from "hono";
-import type { EventBus, KilnEvent } from "@kilnai/core";
+import type { EventBus, KilnEvent, CostSummary } from "@kilnai/core";
 import type { AppGraphResponse, EvalExperimentSummary } from "./dev-routes-types.js";
 
 export interface DevRoutesConfig {
   readonly getEventBus?: () => EventBus | undefined;
   readonly getPhaseState?: () => Record<string, unknown>;
   readonly getMemorySnapshot?: () => Record<string, unknown>;
-  readonly getCostSummary?: () => Record<string, unknown>;
+  readonly getCostSummary?: () => CostSummary;
   readonly getAppNames?: () => string[];
   readonly getTriggers?: () => { appName: string; name: string; type: string; enabled: boolean }[];
   readonly getSafetyMetrics?: () => Record<string, unknown>;

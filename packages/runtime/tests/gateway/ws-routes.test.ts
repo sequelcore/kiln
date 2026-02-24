@@ -44,6 +44,18 @@ function makeUpgradeWebSocket() {
   return { upgradeWebSocket, simulateConnection };
 }
 
+
+async function sendWsRequest(
+  app: ReturnType<typeof createWsRoutes>,
+  queryParams: Record<string, string> = {},
+): Promise<Response> {
+  const url = new URL("http://localhost/ws");
+  for (const [k, v] of Object.entries(queryParams)) {
+    url.searchParams.set(k, v);
+  }
+  return app.request(url.toString());
+}
+
 describe("createWsRoutes", () => {
   let channel: WebChannel;
 
@@ -150,6 +162,83 @@ describe("createWsRoutes", () => {
       await expect(
         handlers.onMessage!(new MessageEvent("message", { data: "not-json" }), wsCtx),
       ).resolves.not.toThrow();
+    });
+  });
+
+  describe("validateToken", () => {
+    it("allows connection when no validateToken configured", async () => {
+      const { upgradeWebSocket } = makeUpgradeWebSocket();
+      const app = createWsRoutes({ webChannel: channel, upgradeWebSocket });
+
+      const res = await sendWsRequest(app);
+      expect(res.status).not.toBe(401);
+    });
+
+    it("returns 401 when token is missing and validateToken is configured", async () => {
+      const { upgradeWebSocket } = makeUpgradeWebSocket();
+      const validateToken = vi.fn().mockReturnValue({ valid: true, userId: "u1" });
+      const app = createWsRoutes({ webChannel: channel, upgradeWebSocket, validateToken });
+
+      const res = await sendWsRequest(app, {});
+      expect(res.status).toBe(401);
+      expect(validateToken).not.toHaveBeenCalled();
+    });
+
+    it("returns 401 when token is invalid", async () => {
+      const { upgradeWebSocket } = makeUpgradeWebSocket();
+      const validateToken = vi.fn().mockReturnValue({ valid: false });
+      const app = createWsRoutes({ webChannel: channel, upgradeWebSocket, validateToken });
+
+      const res = await sendWsRequest(app, { token: "bad-token" });
+      expect(res.status).toBe(401);
+      expect(validateToken).toHaveBeenCalledWith("bad-token");
+    });
+
+    it("allows connection when token is valid", async () => {
+      const { upgradeWebSocket } = makeUpgradeWebSocket();
+      const validateToken = vi.fn().mockReturnValue({ valid: true, userId: "validated-user" });
+      const app = createWsRoutes({ webChannel: channel, upgradeWebSocket, validateToken });
+
+      const res = await sendWsRequest(app, { token: "good-token" });
+      expect(res.status).not.toBe(401);
+      expect(validateToken).toHaveBeenCalledWith("good-token");
+    });
+
+    it("uses userId from validateToken result as sessionId", async () => {
+      const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
+      const validateToken = vi.fn().mockImplementation((token: string) => {
+        if (token === "valid-token") return { valid: true, userId: "token-user-id" };
+        return { valid: false };
+      });
+
+      const app = createWsRoutes({ webChannel: channel, upgradeWebSocket, validateToken });
+
+      // Run auth middleware: sets the closure validatedUserId to "token-user-id"
+      await app.request("http://localhost/ws?token=valid-token");
+
+      // Simulate upgrade factory called immediately after (closure var is set)
+      const { handlers, mockWs, wsCtx } = simulateConnection({ token: "valid-token" });
+      handlers.onOpen!(new Event("open"), wsCtx);
+
+      await channel.send({ parts: textParts("hello"), userId: "token-user-id" });
+      expect(mockWs.send).toHaveBeenCalledOnce();
+    });
+
+    it("falls back to query params when validateToken returns no userId", async () => {
+      const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
+      const validateToken = vi.fn().mockReturnValue({ valid: true }); // no userId
+
+      const app = createWsRoutes({ webChannel: channel, upgradeWebSocket, validateToken });
+
+      // Run auth middleware to pass validation (userId will be undefined)
+      await app.request("http://localhost/ws?token=valid-token");
+
+      // Simulate connection with sessionId param -- should use it as fallback
+      const { handlers, mockWs, wsCtx } = simulateConnection({ sessionId: "fallback-sess" });
+      handlers.onOpen!(new Event("open"), wsCtx);
+
+      await channel.send({ parts: textParts("hi"), userId: "fallback-sess" });
+      expect(mockWs.send).toHaveBeenCalledOnce();
     });
   });
 });

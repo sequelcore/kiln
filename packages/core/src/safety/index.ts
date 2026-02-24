@@ -25,4 +25,4 @@ export type { PolicyRail } from "./rails.js";
 
 // Safety Pipeline
 export { SafetyPipeline } from "./safety-pipeline.js";
-export type { SafetyPipelineOptions } from "./safety-pipeline.js";
+export type { SafetyPipelineOptions, SafetyMetrics } from "./safety-pipeline.js";

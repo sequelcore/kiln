@@ -1,16 +1,19 @@
 import type { ReactNode } from "react";
 
+type View = "graph" | "playground" | "timeline" | "memory" | "eval" | "cost";
+
 interface SidebarProps {
   activeView: string;
-  onNavigate: (view: "graph" | "playground" | "timeline" | "memory" | "eval") => void;
+  onNavigate: (view: View) => void;
 }
 
-const NAV_ITEMS = [
-  { id: "graph" as const, label: "App Graph", icon: "\u25C9" },
-  { id: "playground" as const, label: "Playground", icon: "\u25B6" },
-  { id: "timeline" as const, label: "Timeline", icon: "\u2261" },
-  { id: "memory" as const, label: "Memory", icon: "\u25A0" },
-  { id: "eval" as const, label: "Eval", icon: "\u2605" },
+const NAV_ITEMS: { id: View; label: string; icon: string }[] = [
+  { id: "graph", label: "App Graph", icon: "\u25C9" },
+  { id: "playground", label: "Playground", icon: "\u25B6" },
+  { id: "timeline", label: "Timeline", icon: "\u2261" },
+  { id: "memory", label: "Memory", icon: "\u25A0" },
+  { id: "eval", label: "Eval", icon: "\u2605" },
+  { id: "cost", label: "Cost", icon: "\u25CE" },
 ];
 
 export function Sidebar({ activeView, onNavigate }: SidebarProps): ReactNode {

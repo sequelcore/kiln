@@ -19,7 +19,7 @@ import {
 } from "@kilnai/core";
 import type { ProviderAdapter, ProviderConfig, App, ToolDefinition, MemoryLayer } from "@kilnai/core";
 import type { AppGraphResponse } from "./dev-routes-types.js";
-import { EventBus, McpClient } from "@kilnai/core";
+import { EventBus, McpClient, CostTracker } from "@kilnai/core";
 import { ChannelRegistry } from "../channels/channel-registry.js";
 import { WebChannel } from "../channels/web-channel.js";
 import { TriggerRegistry } from "../trigger/trigger-registry.js";
@@ -175,6 +175,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
 
   // EventBus: shared across all apps for observability and dev inspector
   const gatewayEventBus = new EventBus(100, otelExporter);
+  const costTracker = new CostTracker(gatewayEventBus);
 
   const loadedApps = resolvedApps.map((resolved: ResolvedApp) => {
     const hasWebChannel = resolved.binding.channels.some((ch) => ch.type === "web");
@@ -435,8 +436,16 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
           }
           return { layers: counts, total: Object.values(counts).reduce((a, b) => a + b, 0) };
         },
-        getCostSummary: () => ({ totalCostUsd: 0, byRole: {} }),
+        getCostSummary: () => costTracker.summary,
         getAppNames: () => loadedApps.map((a) => a.name),
+        getSafetyMetrics: () => {
+          if (safetyPipelines.size === 0) return { enabled: false };
+          const apps: Record<string, unknown> = {};
+          for (const [appName, pipeline] of safetyPipelines) {
+            apps[appName] = pipeline.metrics;
+          }
+          return { enabled: true, apps };
+        },
         getTriggers: () => triggerRegistry.listAll(),
         getMemoryByScope: async (scope: string, q?: string, tags?: string) => {
           if (!devMemoryStores) return [];
@@ -691,6 +700,7 @@ async function serveAndWait(app: Hono, port: number, onShutdown?: () => void, we
 export async function startDevServer(options?: DevServerOptions): Promise<void> {
   const port = options?.port ?? 4800;
   const eventBus = new EventBus(100);
+  const costTracker = new CostTracker(eventBus);
   const studioDistPath = options?.studioDistPath ?? resolveStudioDist();
 
   let app: App | undefined;
@@ -714,7 +724,8 @@ export async function startDevServer(options?: DevServerOptions): Promise<void> 
       getEventBus: () => eventBus,
       getPhaseState: () => ({ status: "idle", phase: null }),
       getMemorySnapshot: () => ({ entries: [] }),
-      getCostSummary: () => ({ totalCostUsd: 0, byRole: {} }),
+      getCostSummary: () => costTracker.summary,
+      getSafetyMetrics: () => ({ enabled: false }),
       getAppNames: () => app ? [app.name] : [],
       getTriggers: () => [],
       getAppGraph: () => app ? appToGraph(app) : undefined,

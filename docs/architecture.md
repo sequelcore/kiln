@@ -357,7 +357,7 @@ kiln/
 │   │       └── safety/                   # pii-scanner.ts, content-classifier.ts, rails.ts, safety-pipeline.ts
 │   ├── runtime/                          # @kilnai/runtime
 │   │   └── src/
-│   │       ├── gateway/                  # gateway-server.ts, gateway-routes.ts, dev-routes.ts, ws-routes.ts, approval-registry.ts
+│   │       ├── gateway/                  # gateway-server.ts, gateway-routes.ts, dev-routes.ts, ws-routes.ts (auth), approval-registry.ts
 │   │       ├── session/                  # mode-b-session.ts, mode-b-orchestrator.ts, session-registry.ts
 │   │       ├── tenant/                   # tenant-registry.ts, system-prompt-builder.ts
 │   │       ├── channels/                 # cli-, web-, whatsapp-, slack-, api-, voice-channel.ts + speech/
