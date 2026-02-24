@@ -24,19 +24,42 @@ describe("WebChannel", () => {
   });
 
   describe("client management", () => {
-    it("tracks client count", () => {
+    it("tracks clientCount across sessions", () => {
       expect(channel.clientCount).toBe(0);
 
       const ws1 = makeMockWs();
       const ws2 = makeMockWs();
-      channel.addClient(ws1);
+      channel.addClient(ws1, "session-a");
       expect(channel.clientCount).toBe(1);
 
-      channel.addClient(ws2);
+      channel.addClient(ws2, "session-b");
       expect(channel.clientCount).toBe(2);
 
       channel.removeClient(ws1);
       expect(channel.clientCount).toBe(1);
+    });
+
+    it("allows multiple clients in the same session", () => {
+      const ws1 = makeMockWs();
+      const ws2 = makeMockWs();
+      channel.addClient(ws1, "session-a");
+      channel.addClient(ws2, "session-a");
+      expect(channel.clientCount).toBe(2);
+    });
+
+    it("removeClient cleans up empty session", () => {
+      const ws = makeMockWs();
+      channel.addClient(ws, "session-a");
+      channel.removeClient(ws);
+      // Adding a new client to same key should still work (map entry was deleted)
+      const ws2 = makeMockWs();
+      channel.addClient(ws2, "session-a");
+      expect(channel.clientCount).toBe(1);
+    });
+
+    it("removeClient is a no-op when client is not tracked", () => {
+      const ws = makeMockWs();
+      expect(() => channel.removeClient(ws)).not.toThrow();
     });
   });
 
@@ -64,35 +87,56 @@ describe("WebChannel", () => {
   });
 
   describe("send()", () => {
-    it("broadcasts formatted JSON to all open clients", async () => {
-      const ws1 = makeMockWs();
-      const ws2 = makeMockWs();
-      channel.addClient(ws1);
-      channel.addClient(ws2);
+    it("delivers to the matching session when userId is set", async () => {
+      const wsA = makeMockWs();
+      const wsB = makeMockWs();
+      channel.addClient(wsA, "session-a");
+      channel.addClient(wsB, "session-b");
 
       const msg: OutgoingMessage = {
-        parts: textParts("Result ready"),
-        target: "broadcast",
-        userId: "u1",
+        parts: textParts("For A only"),
+        userId: "session-a",
       };
       await channel.send(msg);
 
-      expect(ws1.send).toHaveBeenCalledOnce();
-      expect(ws2.send).toHaveBeenCalledOnce();
+      expect(wsA.send).toHaveBeenCalledOnce();
+      expect(wsB.send).not.toHaveBeenCalled();
 
-      const payload = JSON.parse(vi.mocked(ws1.send).mock.calls[0]![0] as string);
+      const payload = JSON.parse(vi.mocked(wsA.send).mock.calls[0]![0] as string);
       expect(payload.type).toBe("output");
-      expect(payload.text).toBe("Result ready");
-      expect(payload.userId).toBe("u1");
+      expect(payload.text).toBe("For A only");
+      expect(payload.userId).toBe("session-a");
+    });
+
+    it("broadcasts to all sessions when userId is absent", async () => {
+      const wsA = makeMockWs();
+      const wsB = makeMockWs();
+      channel.addClient(wsA, "session-a");
+      channel.addClient(wsB, "session-b");
+
+      const msg: OutgoingMessage = { parts: textParts("Broadcast") };
+      await channel.send(msg);
+
+      expect(wsA.send).toHaveBeenCalledOnce();
+      expect(wsB.send).toHaveBeenCalledOnce();
+    });
+
+    it("is a no-op when userId targets an unknown session", async () => {
+      const ws = makeMockWs();
+      channel.addClient(ws, "session-a");
+
+      await channel.send({ parts: textParts("lost"), userId: "unknown" });
+
+      expect(ws.send).not.toHaveBeenCalled();
     });
 
     it("skips closed clients", async () => {
       const open = makeMockWs(true);
       const closed = makeMockWs(false);
-      channel.addClient(open);
-      channel.addClient(closed);
+      channel.addClient(open, "session-a");
+      channel.addClient(closed, "session-a");
 
-      await channel.send({ parts: textParts("test"), target: "all" });
+      await channel.send({ parts: textParts("test"), userId: "session-a" });
 
       expect(open.send).toHaveBeenCalledOnce();
       expect(closed.send).not.toHaveBeenCalled();
@@ -104,19 +148,21 @@ describe("WebChannel", () => {
       vi.mocked(bad.send).mockImplementation(() => {
         throw new Error("closed");
       });
-      channel.addClient(good);
-      channel.addClient(bad);
+      channel.addClient(good, "session-a");
+      channel.addClient(bad, "session-a");
 
-      await channel.send({ parts: textParts("test"), target: "all" });
+      await channel.send({ parts: textParts("test"), userId: "session-a" });
 
       expect(channel.clientCount).toBe(1);
     });
   });
 
   describe("stream()", () => {
-    it("broadcasts events as JSON to all clients", async () => {
-      const ws = makeMockWs();
-      channel.addClient(ws);
+    it("broadcasts events to all sessions", async () => {
+      const wsA = makeMockWs();
+      const wsB = makeMockWs();
+      channel.addClient(wsA, "session-a");
+      channel.addClient(wsB, "session-b");
 
       async function* events(): AsyncGenerator<EngineEvent> {
         yield {
@@ -128,8 +174,10 @@ describe("WebChannel", () => {
 
       await channel.stream(events());
 
-      expect(ws.send).toHaveBeenCalledOnce();
-      const payload = JSON.parse(vi.mocked(ws.send).mock.calls[0]![0] as string);
+      expect(wsA.send).toHaveBeenCalledOnce();
+      expect(wsB.send).toHaveBeenCalledOnce();
+
+      const payload = JSON.parse(vi.mocked(wsA.send).mock.calls[0]![0] as string);
       expect(payload.type).toBe("event");
       expect(payload.event).toBe("phase_changed");
       expect(payload.data).toEqual({ phase: "analyze" });

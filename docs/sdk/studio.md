@@ -57,6 +57,10 @@ A chat interface backed by the `useKilnChat` hook. Send messages to any loaded A
 
 A side panel displays tool calls and events from `useKilnEvents` in real time. Tool call entries show the capability name, arguments, result, and duration.
 
+**Phase state indicator:** When `phase_changed` events arrive, a pill next to the Playground header displays the current phase name and description.
+
+**Approval cards:** When an `approval_requested` event arrives, an inline card appears in the message stream with the task description and Approve / Reject buttons. Reject reveals a text input for the rejection reason. Cards are hidden once an `approval_received` event confirms the action, or after manual resolution via the buttons. Calls `POST /dev/approve` and `POST /dev/reject` via `ApiClient`.
+
 ### Timeline
 
 A waterfall visualization of `trace_span` events received from `useKilnEvents`. Each span is displayed as a horizontal bar proportional to its `durationMs`. Spans are grouped by session and phase.

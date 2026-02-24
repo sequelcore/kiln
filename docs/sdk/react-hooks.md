@@ -224,6 +224,39 @@ function StatusBar() {
 
 State is not loaded automatically on mount. Call `refresh()` to fetch. Errors are silently swallowed — dev endpoints may not be available in all environments.
 
+## useApproval
+
+Provides approve/reject actions for pending phase gates via the dev API.
+
+```typescript
+function useApproval(): UseApprovalReturn
+
+interface UseApprovalReturn {
+  readonly approve: (sessionId?: string) => Promise<void>;
+  readonly reject: (reason: string, sessionId?: string) => Promise<void>;
+  readonly isLoading: boolean;
+  readonly error: Error | null;
+}
+```
+
+```tsx
+import { useApproval } from "@kilnai/react";
+
+function ApprovalPanel() {
+  const { approve, reject, isLoading, error } = useApproval();
+
+  return (
+    <div>
+      <button onClick={() => approve()} disabled={isLoading}>Approve</button>
+      <button onClick={() => reject("not ready")} disabled={isLoading}>Reject</button>
+      {error && <p>Error: {error.message}</p>}
+    </div>
+  );
+}
+```
+
+`approve(sessionId?)` calls `POST /dev/approve`. `reject(reason, sessionId?)` calls `POST /dev/reject`. When `sessionId` is omitted, the gateway targets the first session in `awaiting_approval` state.
+
 ## ApiClient and SseClient
 
 The SDK exposes two low-level clients for direct use:

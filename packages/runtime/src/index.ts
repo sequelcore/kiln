@@ -20,6 +20,8 @@ export { createWhatsAppWebhookRoutes } from "./gateway/whatsapp-webhook-routes.j
 export type { WhatsAppWebhookConfig } from "./gateway/whatsapp-webhook-routes.js";
 export { createTenantAdminRoutes } from "./gateway/tenant-admin-routes.js";
 export type { TenantAdminRoutesConfig } from "./gateway/tenant-admin-routes.js";
+export { ApprovalGateRegistry } from "./gateway/approval-registry.js";
+export type { ApprovalTarget } from "./gateway/approval-registry.js";
 
 // Session
 export { ModeBSession } from "./session/mode-b-session.js";

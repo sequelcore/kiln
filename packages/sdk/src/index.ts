@@ -1,6 +1,8 @@
 export { KilnProvider, useKilnContext } from "./provider.js";
 export type { KilnProviderProps } from "./provider.js";
 
+export { useApproval } from "./use-approval.js";
+export type { UseApprovalReturn } from "./use-approval.js";
 export { useKilnChat } from "./use-kiln-chat.js";
 export { useKilnEvents } from "./use-kiln-events.js";
 export { useKilnMemory } from "./use-kiln-memory.js";

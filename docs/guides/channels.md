@@ -55,21 +55,21 @@ channels:
 
 ### Web
 
-Manages a set of concurrent WebSocket connections. Clients can connect and disconnect without interrupting the session.
+Manages WebSocket connections grouped by session. Clients can connect and disconnect without interrupting the session.
 
 ```typescript
 import { WebChannel } from "@kilnai/runtime";
 
 const web = new WebChannel();
 
-// On WebSocket open:
-web.addClient(wsContext);
+// On WebSocket open (sessionId from handshake query params):
+web.addClient(wsContext, sessionId);
 
 // On WebSocket close:
 web.removeClient(wsContext);
 ```
 
-`send()` broadcasts a JSON frame `{ type: "output", text, target, userId, threadId }` to all clients with `readyState === 1`. `stream()` broadcasts `{ type: "event", event, data, timestamp }` per engine event.
+`send()` delivers a JSON frame `{ type: "output", text, target, userId, threadId }` to clients in the session matching `response.userId`, or broadcasts to all sessions when `userId` is absent. `stream()` broadcasts `{ type: "event", event, data, timestamp }` per engine event to all sessions.
 
 **Gateway YAML:**
 

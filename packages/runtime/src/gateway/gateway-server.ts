@@ -32,6 +32,7 @@ import type { DelegationTarget, DelegationRegistry } from "./delegation-handler.
 import { TenantRegistry } from "../tenant/tenant-registry.js";
 import { assertValidStartupConfig } from "./config-validator.js";
 import { HealthRegistry } from "./health-registry.js";
+import { ApprovalGateRegistry } from "./approval-registry.js";
 
 export type { LoadedApp, GatewayServerConfig } from "./gateway-routes.js";
 export { createGatewayApp } from "./gateway-routes.js";
@@ -39,6 +40,8 @@ export type { DevRoutesConfig } from "./dev-routes.js";
 export { createDevRoutes } from "./dev-routes.js";
 export type { AppGraphResponse, AppGraphTeam, AppGraphAgent, AppGraphRouter, EvalExperimentSummary } from "./dev-routes-types.js";
 export { createDevInspectorHtml } from "./dev-inspector.js";
+export { ApprovalGateRegistry } from "./approval-registry.js";
+export type { ApprovalTarget } from "./approval-registry.js";
 
 export interface StartGatewayOptions {
   readonly port?: number;
@@ -369,6 +372,8 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
     }
   }
 
+  const approvalRegistry = new ApprovalGateRegistry();
+
   const studioDistPath = options?.studioDistPath ?? (options?.devMode ? resolveStudioDist() : undefined);
 
   // Initialize dev-mode memory stores (one per layer)
@@ -529,6 +534,8 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
           }));
         },
         getEvalResults: () => undefined,
+        approvePhase: (sessionId?: string) => approvalRegistry.approve(sessionId),
+        rejectPhase: (reason: string, sessionId?: string) => approvalRegistry.reject(reason, sessionId),
       }
       : undefined,
   });
@@ -696,6 +703,8 @@ export async function startDevServer(options?: DevServerOptions): Promise<void> 
     }
   }
 
+  const approvalRegistry = new ApprovalGateRegistry();
+
   const honoApp = createGatewayApp({
     port,
     apps: [],
@@ -734,6 +743,8 @@ export async function startDevServer(options?: DevServerOptions): Promise<void> 
         }));
       },
       getEvalResults: () => undefined,
+      approvePhase: (sessionId?: string) => approvalRegistry.approve(sessionId),
+      rejectPhase: (reason: string, sessionId?: string) => approvalRegistry.reject(reason, sessionId),
     },
   });
 

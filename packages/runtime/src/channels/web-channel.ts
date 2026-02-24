@@ -1,5 +1,5 @@
 // WebChannel: wraps Hono WebSocket connections as a Channel adapter
-// Formalizes the existing ws.ts + session-state.ts pattern as a Channel implementation
+// Session-scoped delivery: send() targets a session by userId, stream() is global.
 
 import type { Channel, IncomingMessage, OutgoingMessage, EngineEvent, MessageFormat, Modality } from "@kilnai/core";
 import { extractText } from "@kilnai/core";
@@ -13,17 +13,17 @@ export interface WebSocketLike {
 
 /**
  * Channel adapter for WebSocket connections.
- * Manages multiple concurrent client connections.
- * receive() accepts parsed messages from WebSocket onMessage.
- * send() broadcasts formatted output to all connected clients.
- * stream() sends each event as JSON to all connected clients.
+ * Clients are tracked per sessionId for targeted delivery.
+ * send()  -- delivers to the session matching response.userId, or all sessions if absent.
+ * stream() -- always broadcasts to all sessions (engine events are global).
+ * receive() -- delegates to the registered onMessage handler.
  */
 export class WebChannel implements Channel {
   readonly name = "web";
   readonly defaultFormat: MessageFormat = "full";
   readonly supportedModalities: readonly Modality[] = ["text", "image", "audio", "file"];
 
-  private readonly clients = new Set<WebSocketLike>();
+  private readonly sessions = new Map<string, Set<WebSocketLike>>();
   private messageHandler: ((message: IncomingMessage) => void) | null = null;
 
   /** Register a handler for incoming WebSocket messages */
@@ -31,19 +31,35 @@ export class WebChannel implements Channel {
     this.messageHandler = handler;
   }
 
-  /** Add a WebSocket client */
-  addClient(ws: WebSocketLike): void {
-    this.clients.add(ws);
+  /** Add a WebSocket client to the given session */
+  addClient(ws: WebSocketLike, sessionId: string): void {
+    let set = this.sessions.get(sessionId);
+    if (!set) {
+      set = new Set();
+      this.sessions.set(sessionId, set);
+    }
+    set.add(ws);
   }
 
-  /** Remove a WebSocket client */
+  /** Remove a WebSocket client from whichever session contains it */
   removeClient(ws: WebSocketLike): void {
-    this.clients.delete(ws);
+    for (const [sessionId, set] of this.sessions) {
+      if (set.delete(ws)) {
+        if (set.size === 0) {
+          this.sessions.delete(sessionId);
+        }
+        return;
+      }
+    }
   }
 
-  /** Number of connected clients */
+  /** Total number of connected clients across all sessions */
   get clientCount(): number {
-    return this.clients.size;
+    let total = 0;
+    for (const set of this.sessions.values()) {
+      total += set.size;
+    }
+    return total;
   }
 
   async receive(message: IncomingMessage): Promise<void> {
@@ -63,7 +79,12 @@ export class WebChannel implements Channel {
       userId: response.userId,
       threadId: response.threadId,
     });
-    this.broadcast(payload);
+
+    if (response.userId) {
+      this.sendToSession(response.userId, payload);
+    } else {
+      this.broadcastAll(payload);
+    }
   }
 
   async stream(events: AsyncIterable<EngineEvent>): Promise<void> {
@@ -74,20 +95,35 @@ export class WebChannel implements Channel {
         data: event.payload,
         timestamp: event.timestamp,
       });
-      this.broadcast(payload);
+      this.broadcastAll(payload);
     }
   }
 
-  /** Broadcast a raw string payload to all connected clients */
-  private broadcast(payload: string): void {
-    for (const client of this.clients) {
-      try {
-        if (client.readyState === 1) {
-          client.send(payload);
-        }
-      } catch {
-        this.clients.delete(client);
+  /** Send to clients in a specific session */
+  private sendToSession(sessionId: string, payload: string): void {
+    const set = this.sessions.get(sessionId);
+    if (!set) return;
+    for (const client of set) {
+      this.trySend(set, client, payload);
+    }
+  }
+
+  /** Send to all clients across all sessions */
+  private broadcastAll(payload: string): void {
+    for (const set of this.sessions.values()) {
+      for (const client of set) {
+        this.trySend(set, client, payload);
       }
+    }
+  }
+
+  private trySend(set: Set<WebSocketLike>, client: WebSocketLike, payload: string): void {
+    try {
+      if (client.readyState === 1) {
+        client.send(payload);
+      }
+    } catch {
+      set.delete(client);
     }
   }
 }
