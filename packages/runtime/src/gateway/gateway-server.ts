@@ -1,6 +1,6 @@
 // Gateway: GatewayServer -- persistent Bun/Hono process hosting multiple Apps
 
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { createRequire } from "node:module";
 import { createBunWebSocket, serveStatic } from "hono/bun";
@@ -15,11 +15,13 @@ import {
   KilnError,
   OTelExporter,
   SafetyPipeline,
+  SqliteMemoryStore,
 } from "@kilnai/core";
-import type { ProviderAdapter, ProviderConfig, App, ToolDefinition } from "@kilnai/core";
+import type { ProviderAdapter, ProviderConfig, App, ToolDefinition, MemoryLayer } from "@kilnai/core";
 import type { AppGraphResponse } from "./dev-routes-types.js";
 import { EventBus, McpClient } from "@kilnai/core";
 import { ChannelRegistry } from "../channels/channel-registry.js";
+import { WebChannel } from "../channels/web-channel.js";
 import { TriggerRegistry } from "../trigger/trigger-registry.js";
 import { resolveApps } from "./app-resolver.js";
 import type { ResolvedApp } from "./app-resolver.js";
@@ -171,16 +173,20 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
   // EventBus: shared across all apps for observability and dev inspector
   const gatewayEventBus = new EventBus(100, otelExporter);
 
-  const loadedApps = resolvedApps.map((resolved: ResolvedApp) => ({
-    name: resolved.name,
-    app: resolved.app,
-    binding: resolved.binding,
-    registry: new ChannelRegistry(),
-    modeBRuntime: undefined as undefined | import("./mode-b-routes.js").ModeBAppRuntime,
-    tenantRuntime: undefined as undefined | import("./tenant-routes.js").TenantAppRuntime,
-    whatsappWebhookConfig: undefined as undefined | import("./whatsapp-webhook-routes.js").WhatsAppWebhookConfig,
-    tenantAdminConfig: undefined as undefined | import("./tenant-admin-routes.js").TenantAdminRoutesConfig,
-  }));
+  const loadedApps = resolvedApps.map((resolved: ResolvedApp) => {
+    const hasWebChannel = resolved.binding.channels.some((ch) => ch.type === "web");
+    return {
+      name: resolved.name,
+      app: resolved.app,
+      binding: resolved.binding,
+      registry: new ChannelRegistry(),
+      modeBRuntime: undefined as undefined | import("./mode-b-routes.js").ModeBAppRuntime,
+      tenantRuntime: undefined as undefined | import("./tenant-routes.js").TenantAppRuntime,
+      whatsappWebhookConfig: undefined as undefined | import("./whatsapp-webhook-routes.js").WhatsAppWebhookConfig,
+      tenantAdminConfig: undefined as undefined | import("./tenant-admin-routes.js").TenantAdminRoutesConfig,
+      webChannel: hasWebChannel ? new WebChannel() : undefined,
+    };
+  });
 
   // Initialize Mode B and multi-tenant runtimes
   const sessionRegistry = new SessionRegistry();
@@ -365,6 +371,25 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
 
   const studioDistPath = options?.studioDistPath ?? (options?.devMode ? resolveStudioDist() : undefined);
 
+  // Initialize dev-mode memory stores (one per layer)
+  let devMemoryStores: Map<MemoryLayer, SqliteMemoryStore> | undefined;
+  if (options?.devMode) {
+    const firstResolved = resolvedApps[0];
+    if (firstResolved) {
+      const devMemoryDir = join(firstResolved.memoryBasePath, "dev");
+      mkdirSync(devMemoryDir, { recursive: true });
+      devMemoryStores = new Map<MemoryLayer, SqliteMemoryStore>();
+      for (const layer of ["user", "agent", "project"] as MemoryLayer[]) {
+        devMemoryStores.set(layer, new SqliteMemoryStore({
+          dbPath: join(devMemoryDir, `${layer}.db`),
+          layer,
+        }));
+      }
+    }
+  }
+
+  const { upgradeWebSocket, websocket: bunWebsocket } = createBunWebSocket();
+
   const honoApp = createGatewayApp({
     port,
     apps: loadedApps,
@@ -373,16 +398,100 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
     startTime,
     triggerRegistry,
     safetyPipelines,
+    upgradeWebSocket,
     devMode: options?.devMode,
     studioDistPath,
     devRoutesConfig: options?.devMode
       ? {
         getEventBus: () => gatewayEventBus,
-        getPhaseState: () => ({ status: "idle", phase: null }),
-        getMemorySnapshot: () => ({ entries: [] }),
+        getPhaseState: () => {
+          const active = sessionRegistry.activeSessions();
+          if (active.length === 0) {
+            return { status: "idle", activeSessions: 0, sessions: [] };
+          }
+          return {
+            status: "active",
+            activeSessions: active.length,
+            sessions: active.map((s) => ({
+              id: s.id,
+              appName: s.appName,
+              userId: s.userId,
+              messageCount: s.messageCount,
+              createdAt: s.createdAt.toISOString(),
+              lastActivityAt: s.lastActivityAt.toISOString(),
+            })),
+          };
+        },
+        getMemorySnapshot: () => {
+          if (!devMemoryStores) return { entries: [] };
+          const counts: Record<string, number> = {};
+          for (const [layer, store] of devMemoryStores) {
+            counts[layer] = store.count;
+          }
+          return { layers: counts, total: Object.values(counts).reduce((a, b) => a + b, 0) };
+        },
         getCostSummary: () => ({ totalCostUsd: 0, byRole: {} }),
         getAppNames: () => loadedApps.map((a) => a.name),
         getTriggers: () => triggerRegistry.listAll(),
+        getMemoryByScope: async (scope: string, q?: string, tags?: string) => {
+          if (!devMemoryStores) return [];
+          const validLayers: MemoryLayer[] = ["user", "agent", "project"];
+          const layer = validLayers.includes(scope as MemoryLayer) ? (scope as MemoryLayer) : "project";
+          const store = devMemoryStores.get(layer);
+          if (!store) return [];
+
+          if (q) {
+            const results = await store.search(q, layer, 100);
+            return results.map((r) => ({
+              id: r.entry.id,
+              layer: r.entry.layer,
+              content: r.entry.content,
+              tags: r.entry.tags,
+              score: r.score,
+              snippet: r.snippet,
+              createdAt: r.entry.createdAt.toISOString(),
+              lastAccessedAt: r.entry.lastAccessedAt.toISOString(),
+              accessCount: r.entry.accessCount,
+            }));
+          }
+
+          const entries = store.listEntries({ tags });
+          return entries.map((e) => ({
+            id: e.id,
+            layer: e.layer,
+            content: e.content,
+            tags: e.tags,
+            createdAt: e.createdAt.toISOString(),
+            lastAccessedAt: e.lastAccessedAt.toISOString(),
+            accessCount: e.accessCount,
+          }));
+        },
+        createMemoryEntry: async (entry: Record<string, unknown>) => {
+          if (!devMemoryStores) return { id: "" };
+          const validLayers: MemoryLayer[] = ["user", "agent", "project"];
+          const layer = validLayers.includes(entry["layer"] as MemoryLayer)
+            ? (entry["layer"] as MemoryLayer)
+            : "project";
+          const store = devMemoryStores.get(layer);
+          if (!store) return { id: "" };
+
+          const content = typeof entry["content"] === "string" ? entry["content"] : String(entry["content"] ?? "");
+          const rawTags = Array.isArray(entry["tags"]) ? entry["tags"] : [];
+          const entryTags = rawTags.filter((t): t is string => typeof t === "string");
+
+          const id = await store.save({ layer, content, tags: entryTags });
+          return { id };
+        },
+        deleteMemoryEntry: async (id: string) => {
+          if (!devMemoryStores) return false;
+          for (const store of devMemoryStores.values()) {
+            if (store.hasEntry(id)) {
+              await store.forget(id);
+              return true;
+            }
+          }
+          return false;
+        },
         getAppGraph: () => {
           const firstLoaded = loadedApps[0];
           if (!firstLoaded) return undefined;
@@ -436,7 +545,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
     console.log(`Studio: http://localhost:${port}/${studioDistPath ? "studio" : "dev"}/`);
   }
 
-  await serveAndWait(honoApp, port, () => triggerRegistry.stop());
+  await serveAndWait(honoApp, port, () => triggerRegistry.stop(), bunWebsocket);
 }
 
 /** Create a ProviderAdapter from a Mode B provider config */
@@ -546,8 +655,8 @@ function mountStudio(app: Hono, distPath: string): void {
   });
 }
 
-async function serveAndWait(app: Hono, port: number, onShutdown?: () => void): Promise<void> {
-  const { websocket } = createBunWebSocket();
+async function serveAndWait(app: Hono, port: number, onShutdown?: () => void, websocketHandler?: ReturnType<typeof createBunWebSocket>["websocket"]): Promise<void> {
+  const websocket = websocketHandler ?? createBunWebSocket().websocket;
 
   let server: ReturnType<typeof Bun.serve>;
   try {

@@ -208,6 +208,15 @@ Mounted when the App has `a2aConfig` in its YAML.
 | `GET` | `/dev/app-graph` | App topology for Studio graph view. |
 | `GET` | `/dev/yaml` | Raw YAML content. |
 | `PUT` | `/dev/yaml` | Write and hot-reload YAML. |
+| `GET` | `/dev/safety` | Safety pipeline metrics. |
+| `POST` | `/dev/approve` | Approve a pending phase gate. |
+| `POST` | `/dev/reject` | Reject a pending phase gate. |
+
+### WebSocket Routes
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/apps/:appName/ws` | WebSocket upgrade for Apps with a `web` channel binding. |
 
 ---
 

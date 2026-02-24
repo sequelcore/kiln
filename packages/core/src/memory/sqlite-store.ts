@@ -291,6 +291,53 @@ export class SqliteMemoryStore implements MemoryStore {
     };
   }
 
+  listEntries(options?: { limit?: number; tags?: string }): readonly MemoryEntry[] {
+    const limit = options?.limit ?? 100;
+    const tagFilter = options?.tags ? options.tags.split(",").map((t) => t.trim()).filter(Boolean) : [];
+
+    let rows: MemoryRow[];
+
+    if (this.tenantId) {
+      const tenantTag = `_tenant:${this.tenantId}`;
+      rows = this.db.prepare(`
+        SELECT * FROM memories
+        WHERE tags LIKE ?
+        ORDER BY last_accessed_at DESC
+        LIMIT ?
+      `).all(`%"${tenantTag}"%`, limit) as MemoryRow[];
+
+      for (const row of rows) {
+        const tags = JSON.parse(row.tags) as string[];
+        if (!tags.includes(tenantTag)) {
+          throw new KilnError("TENANT_ISOLATION_VIOLATED", `Memory entry ${row.id} lacks tenant tag for tenant ${this.tenantId}`, {
+            context: { entryId: row.id, tenantId: this.tenantId },
+            retryable: false,
+          });
+        }
+      }
+    } else {
+      rows = this.db.prepare(`
+        SELECT * FROM memories
+        ORDER BY last_accessed_at DESC
+        LIMIT ?
+      `).all(limit) as MemoryRow[];
+    }
+
+    if (tagFilter.length > 0) {
+      rows = rows.filter((row) => {
+        const rowTags = JSON.parse(row.tags) as string[];
+        return tagFilter.every((t) => rowTags.includes(t));
+      });
+    }
+
+    return rows.map((row) => this.toEntry(row));
+  }
+
+  hasEntry(id: string): boolean {
+    const row = this.db.prepare("SELECT 1 FROM memories WHERE id = ?").get(id) as { 1: number } | undefined;
+    return row !== undefined;
+  }
+
   close(): void {
     this.db.close();
   }

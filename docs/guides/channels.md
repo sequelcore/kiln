@@ -78,6 +78,13 @@ channels:
   - type: web
 ```
 
+When an App declares a `web` channel binding, the Gateway mounts a WebSocket upgrade route at `GET /apps/:appName/ws`. Clients connect via standard WebSocket and exchange JSON frames:
+
+- **Inbound** (client to server): `IncomingMessage` JSON (`{ parts, source, userId?, threadId? }`)
+- **Outbound** (server to client): `{ type: "output", text, target?, userId?, threadId? }` for messages, `{ type: "event", event, data, timestamp }` for engine events
+
+The WebSocket lifecycle is managed by `ws-routes.ts` using Hono's `upgradeWebSocket` helper with `createBunWebSocket()`.
+
 ---
 
 ### WhatsApp

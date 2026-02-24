@@ -232,6 +232,15 @@ The SDK exposes two low-level clients for direct use:
 
 **`SseClient`** is an `EventSource` wrapper with auto-reconnect. Accepts `onEvent`, `onConnect`, and `onDisconnect` callbacks. Call `connect()` to start and `disconnect()` to stop.
 
+`SseClient` uses **named SSE events** — it subscribes to all 32 engine event types (e.g., `phase_changed`, `tool_called`, `pii_detected`) via `EventSource.addEventListener()` rather than the generic `onmessage` handler. This means the server must emit frames with an `event:` field:
+
+```
+event: phase_changed
+data: {"phase":"implement","phaseName":"Implement","timestamp":"..."}
+```
+
+On connect, the server replays recent event history (up to 50 events) so that late-joining clients receive context.
+
 ```typescript
 import { ApiClient, SseClient } from "@kilnai/react";
 

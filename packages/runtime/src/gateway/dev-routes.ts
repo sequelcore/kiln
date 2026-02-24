@@ -13,11 +13,13 @@ export interface DevRoutesConfig {
   readonly getAppGraph?: () => AppGraphResponse | undefined;
   readonly getYamlContent?: () => string | undefined;
   readonly putYamlContent?: (content: string) => { ok: boolean; errors?: string[] };
-  readonly getMemoryByScope?: (scope: string, query?: string, tags?: string) => Record<string, unknown>[];
-  readonly createMemoryEntry?: (entry: Record<string, unknown>) => { id: string };
-  readonly deleteMemoryEntry?: (id: string) => boolean;
+  readonly getMemoryByScope?: (scope: string, query?: string, tags?: string) => Record<string, unknown>[] | Promise<Record<string, unknown>[]>;
+  readonly createMemoryEntry?: (entry: Record<string, unknown>) => { id: string } | Promise<{ id: string }>;
+  readonly deleteMemoryEntry?: (id: string) => boolean | Promise<boolean>;
   readonly getEvalExperiments?: () => EvalExperimentSummary[];
   readonly getEvalResults?: (name: string) => Record<string, unknown> | undefined;
+  readonly approvePhase?: (sessionId?: string) => { ok: boolean; error?: string };
+  readonly rejectPhase?: (reason: string, sessionId?: string) => { ok: boolean; error?: string };
 }
 
 export function createDevRoutes(config: DevRoutesConfig): Hono {
@@ -32,6 +34,8 @@ export function createDevRoutes(config: DevRoutesConfig): Hono {
   // GET /events -- SSE stream of real-time events
   app.get("/events", (c) => {
     const eventBus = config.getEventBus?.();
+
+    let liveHandler: ((event: KilnEvent) => void) | undefined;
 
     return c.newResponse(
       new ReadableStream({
@@ -57,10 +61,14 @@ export function createDevRoutes(config: DevRoutesConfig): Hono {
             }
           };
 
+          liveHandler = handler;
           eventBus.onAny(handler);
         },
         cancel() {
-          // Cleanup handled by GC -- eventBus reference goes out of scope
+          if (liveHandler) {
+            eventBus?.offAny(liveHandler);
+            liveHandler = undefined;
+          }
         },
       }),
       {
@@ -126,26 +134,26 @@ export function createDevRoutes(config: DevRoutesConfig): Hono {
   });
 
   // GET /memory/:scope -- memory entries by scope with optional query/tags
-  app.get("/memory/:scope", (c) => {
+  app.get("/memory/:scope", async (c) => {
     const scope = c.req.param("scope");
     const q = c.req.query("q");
     const tags = c.req.query("tags");
-    const entries = config.getMemoryByScope?.(scope, q, tags) ?? [];
+    const entries = await (config.getMemoryByScope?.(scope, q, tags) ?? []);
     return c.json(entries);
   });
 
   // POST /memory -- create a memory entry
   app.post("/memory", async (c) => {
     const entry = await c.req.json();
-    const result = config.createMemoryEntry?.(entry as Record<string, unknown>);
+    const result = await config.createMemoryEntry?.(entry as Record<string, unknown>);
     if (!result) return c.json({ error: "Memory creation not available" }, 400);
     return c.json(result, 201);
   });
 
   // DELETE /memory/:id -- delete a memory entry
-  app.delete("/memory/:id", (c) => {
+  app.delete("/memory/:id", async (c) => {
     const id = c.req.param("id");
-    const deleted = config.deleteMemoryEntry?.(id) ?? false;
+    const deleted = await (config.deleteMemoryEntry?.(id) ?? false);
     if (!deleted) return c.json({ error: "Not found" }, 404);
     return c.json({ ok: true });
   });
@@ -162,6 +170,46 @@ export function createDevRoutes(config: DevRoutesConfig): Hono {
     const results = config.getEvalResults?.(name);
     if (!results) return c.json({ error: "Experiment not found" }, 404);
     return c.json(results);
+  });
+
+  // POST /approve -- approve a pending phase gate
+  app.post("/approve", async (c) => {
+    if (!config.approvePhase) {
+      return c.json({ error: "No active orchestrator" }, 404);
+    }
+    let sessionId: string | undefined;
+    try {
+      const body = await c.req.json<{ sessionId?: string }>();
+      sessionId = body.sessionId;
+    } catch {
+      // body is optional
+    }
+    const result = config.approvePhase(sessionId);
+    if (!result.ok) {
+      return c.json({ error: result.error ?? "No approval pending" }, 409);
+    }
+    return c.json({ ok: true });
+  });
+
+  // POST /reject -- reject a pending phase gate
+  app.post("/reject", async (c) => {
+    if (!config.rejectPhase) {
+      return c.json({ error: "No active orchestrator" }, 404);
+    }
+    let reason = "";
+    let sessionId: string | undefined;
+    try {
+      const body = await c.req.json<{ reason?: string; sessionId?: string }>();
+      reason = body.reason ?? "";
+      sessionId = body.sessionId;
+    } catch {
+      // body is optional
+    }
+    const result = config.rejectPhase(reason, sessionId);
+    if (!result.ok) {
+      return c.json({ error: result.error ?? "No approval pending" }, 409);
+    }
+    return c.json({ ok: true });
   });
 
   return app;

@@ -132,3 +132,14 @@ Declare budgets at the orchestrator level to control how much memory each agent 
 In multi-tenant deployments, `SqliteMemoryStore` automatically tags every entry with the tenant ID at write time and filters by tenant ID at read time. Cross-tenant queries are blocked at the store level; a query from tenant A will never return entries written by tenant B, even if they use the same scope name.
 
 This enforcement is transparent to agents and capabilities — isolation happens inside the store implementation, not in the application layer.
+
+---
+
+## Dev API
+
+In dev mode, the Gateway creates three SQLite stores (one per layer: `user`, `agent`, `project`) under `{memoryBasePath}/dev/`. The dev routes (`/dev/memory/:scope`, `POST /dev/memory`, `DELETE /dev/memory/:id`) delegate to these stores.
+
+`SqliteMemoryStore` exposes two methods used by the dev API:
+
+- **`listEntries(options?)`** — Scans entries without FTS, ordered by `last_accessed_at DESC`. Accepts optional `limit` and `tags` (comma-separated) filters. Respects tenant isolation when configured.
+- **`hasEntry(id)`** — Checks if an entry exists by primary key. Used by `DELETE /dev/memory/:id` to locate which layer store holds the entry.

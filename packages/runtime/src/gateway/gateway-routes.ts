@@ -6,8 +6,11 @@ import type { App } from "@kilnai/core";
 import type { GatewayAppBinding, SecurityConfig, AuditLog, AgentCard, A2AMessage, A2ATaskStatus, A2AArtifact } from "@kilnai/core";
 import { PromptScanner } from "@kilnai/core";
 import type { ChannelRegistry } from "../channels/channel-registry.js";
+import type { WebChannel } from "../channels/web-channel.js";
 import type { ModeBAppRuntime } from "./mode-b-routes.js";
 import { createModeBRoutes } from "./mode-b-routes.js";
+import type { WsRoutesConfig } from "./ws-routes.js";
+import { createWsRoutes } from "./ws-routes.js";
 import type { DelegationRegistry } from "./delegation-handler.js";
 import { createDelegationRoutes } from "./delegation-routes.js";
 import type { TenantAppRuntime } from "./tenant-routes.js";
@@ -35,6 +38,7 @@ export interface LoadedApp {
   tenantRuntime?: TenantAppRuntime;
   whatsappWebhookConfig?: WhatsAppWebhookConfig;
   tenantAdminConfig?: TenantAdminRoutesConfig;
+  webChannel?: WebChannel;
   a2aConfig?: {
     readonly agentCard: AgentCard;
     readonly taskStore: A2ATaskStore;
@@ -55,6 +59,7 @@ export interface GatewayServerConfig {
   readonly triggerRegistry?: TriggerRegistry;
   readonly safetyPipelines?: Map<string, SafetyPipeline>;
   readonly studioDistPath?: string;
+  readonly upgradeWebSocket?: WsRoutesConfig["upgradeWebSocket"];
 }
 
 export function createGatewayApp(config: GatewayServerConfig): Hono {
@@ -142,6 +147,12 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
       if (channel.type === "whatsapp" && loadedApp.whatsappWebhookConfig) {
         const webhookApp = createWhatsAppWebhookRoutes(loadedApp.whatsappWebhookConfig);
         app.route(`/whatsapp/${loadedApp.name}`, webhookApp);
+      }
+
+      // WebSocket route for web channel
+      if (channel.type === "web" && loadedApp.webChannel && config.upgradeWebSocket) {
+        const wsApp = createWsRoutes({ webChannel: loadedApp.webChannel, upgradeWebSocket: config.upgradeWebSocket });
+        app.route(`/apps/${loadedApp.name}`, wsApp);
       }
     }
 

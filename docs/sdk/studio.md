@@ -95,8 +95,11 @@ All dev endpoints are mounted at `/dev/` when the Gateway starts in dev mode (`d
 | `GET` | `/dev/app-graph` | Serialized App composite for the Graph View. |
 | `GET` | `/dev/yaml` | Read the current `app.yaml` content. |
 | `PUT` | `/dev/yaml` | Write and validate an updated `app.yaml`. |
+| `GET` | `/dev/safety` | Safety pipeline metrics (enabled, counters). |
 | `GET` | `/dev/eval/experiments` | List all configured experiments. |
 | `GET` | `/dev/eval/experiments/:name/results` | Fetch results for a named experiment. |
+| `POST` | `/dev/approve` | Approve a pending phase gate. Body: `{ sessionId? }`. |
+| `POST` | `/dev/reject` | Reject a pending phase gate. Body: `{ reason?, sessionId? }`. |
 
 Dev endpoints are only active when `devMode: true`. They are not mounted in production.
 

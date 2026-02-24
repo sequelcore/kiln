@@ -150,6 +150,26 @@ describe("createDevRoutes", () => {
       expect(res.status).toBe(200);
       expect(res.headers.get("Content-Type")).toContain("text/event-stream");
     });
+
+    it("unsubscribes from eventBus when stream is cancelled", async () => {
+      const bus = new EventBus(100);
+      const onAny = vi.spyOn(bus, "onAny");
+      const offAny = vi.spyOn(bus, "offAny");
+
+      const app = createDevRoutes({ getEventBus: () => bus });
+      const res = await request(app, "/events");
+
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error("No body reader");
+
+      await reader.cancel();
+
+      expect(onAny).toHaveBeenCalledOnce();
+      expect(offAny).toHaveBeenCalledOnce();
+      const subscribedHandler = onAny.mock.calls[0][0];
+      const unsubscribedHandler = offAny.mock.calls[0][0];
+      expect(subscribedHandler).toBe(unsubscribedHandler);
+    });
   });
 
   describe("custom config callbacks", () => {
@@ -383,6 +403,94 @@ describe("createDevRoutes", () => {
       const data = await res.json();
       expect(data.scores.exact_match).toBe(0.85);
       expect(getEvalResults).toHaveBeenCalledWith("accuracy-test");
+    });
+  });
+
+  describe("POST /approve", () => {
+    it("returns 404 when no approvePhase callback configured", async () => {
+      const app = createDevRoutes({});
+      const res = await requestWithMethod(app, "/approve", "POST", JSON.stringify({}), "application/json");
+      expect(res.status).toBe(404);
+      const data = await res.json();
+      expect(data.error).toBe("No active orchestrator");
+    });
+
+    it("returns 409 when callback signals no approval pending", async () => {
+      const approvePhase = vi.fn(() => ({ ok: false, error: "No gate is awaiting approval" }));
+      const app = createDevRoutes({ approvePhase });
+      const res = await requestWithMethod(app, "/approve", "POST", JSON.stringify({}), "application/json");
+      expect(res.status).toBe(409);
+      const data = await res.json();
+      expect(data.error).toBe("No gate is awaiting approval");
+    });
+
+    it("returns 200 and ok:true when approval succeeds", async () => {
+      const approvePhase = vi.fn(() => ({ ok: true }));
+      const app = createDevRoutes({ approvePhase });
+      const res = await requestWithMethod(app, "/approve", "POST", JSON.stringify({}), "application/json");
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.ok).toBe(true);
+      expect(approvePhase).toHaveBeenCalledWith(undefined);
+    });
+
+    it("passes sessionId from request body to callback", async () => {
+      const approvePhase = vi.fn(() => ({ ok: true }));
+      const app = createDevRoutes({ approvePhase });
+      await requestWithMethod(app, "/approve", "POST", JSON.stringify({ sessionId: "sess-123" }), "application/json");
+      expect(approvePhase).toHaveBeenCalledWith("sess-123");
+    });
+
+    it("handles missing body gracefully", async () => {
+      const approvePhase = vi.fn(() => ({ ok: true }));
+      const app = createDevRoutes({ approvePhase });
+      const res = await requestWithMethod(app, "/approve", "POST");
+      expect(res.status).toBe(200);
+      expect(approvePhase).toHaveBeenCalledWith(undefined);
+    });
+  });
+
+  describe("POST /reject", () => {
+    it("returns 404 when no rejectPhase callback configured", async () => {
+      const app = createDevRoutes({});
+      const res = await requestWithMethod(app, "/reject", "POST", JSON.stringify({ reason: "Plan too risky" }), "application/json");
+      expect(res.status).toBe(404);
+      const data = await res.json();
+      expect(data.error).toBe("No active orchestrator");
+    });
+
+    it("returns 409 when callback signals no approval pending", async () => {
+      const rejectPhase = vi.fn(() => ({ ok: false, error: "No gate is awaiting approval" }));
+      const app = createDevRoutes({ rejectPhase });
+      const res = await requestWithMethod(app, "/reject", "POST", JSON.stringify({ reason: "bad plan" }), "application/json");
+      expect(res.status).toBe(409);
+      const data = await res.json();
+      expect(data.error).toBe("No gate is awaiting approval");
+    });
+
+    it("returns 200 and ok:true when rejection succeeds", async () => {
+      const rejectPhase = vi.fn(() => ({ ok: true }));
+      const app = createDevRoutes({ rejectPhase });
+      const res = await requestWithMethod(app, "/reject", "POST", JSON.stringify({ reason: "Needs rework" }), "application/json");
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.ok).toBe(true);
+      expect(rejectPhase).toHaveBeenCalledWith("Needs rework", undefined);
+    });
+
+    it("passes sessionId and reason from request body to callback", async () => {
+      const rejectPhase = vi.fn(() => ({ ok: true }));
+      const app = createDevRoutes({ rejectPhase });
+      await requestWithMethod(app, "/reject", "POST", JSON.stringify({ reason: "Scope too broad", sessionId: "sess-456" }), "application/json");
+      expect(rejectPhase).toHaveBeenCalledWith("Scope too broad", "sess-456");
+    });
+
+    it("uses empty string reason when body is missing", async () => {
+      const rejectPhase = vi.fn(() => ({ ok: true }));
+      const app = createDevRoutes({ rejectPhase });
+      const res = await requestWithMethod(app, "/reject", "POST");
+      expect(res.status).toBe(200);
+      expect(rejectPhase).toHaveBeenCalledWith("", undefined);
     });
   });
 });
