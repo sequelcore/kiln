@@ -56,8 +56,10 @@ function resolveStudioDist(): string | undefined {
     const pkgPath = require.resolve("@kilnai/studio/package.json");
     const distDir = join(dirname(pkgPath), "dist");
     if (existsSync(join(distDir, "index.html"))) return distDir;
+    console.warn("Studio: @kilnai/studio found but dist/ not built. Run `bun run build` in packages/studio.");
     return undefined;
   } catch {
+    console.warn("Studio: @kilnai/studio not installed. Using inline dev inspector. Install it for the full Studio UI.");
     return undefined;
   }
 }
