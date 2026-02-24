@@ -44,6 +44,14 @@
     "@modelcontextprotocol/sdk": "^1.26.0",
     "yaml": "^2.8.2"
   },
+  "peerDependencies": {
+    "@opentelemetry/api": "^1.9.0"
+  },
+  "peerDependenciesMeta": {
+    "@opentelemetry/api": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@opentelemetry/api": "^1.9.0"
   }

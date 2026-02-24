@@ -3,7 +3,7 @@
 import type { EventBus, GuardianReviewedEvent } from "../events/index.js";
 import type { Capability } from "../engine/domain/capability.js";
 import type { ProviderAdapter } from "../agents/index.js";
-import { textParts, extractText } from "../agents/index.js";
+import { textParts, extractText } from "../engine/domain/content.js";
 import type { AuditLog, GuardianConfig, GuardianReviewResult } from "./types.js";
 
 export interface GuardianRequest {

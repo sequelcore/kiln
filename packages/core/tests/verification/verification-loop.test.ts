@@ -18,8 +18,6 @@ function createMockGateRunner(
 
 const baseConfig: VerificationConfig = {
   maxIterations: 3,
-  checks: [],
-  screenshotEnabled: false,
   coverageThreshold: 0,
 };
 

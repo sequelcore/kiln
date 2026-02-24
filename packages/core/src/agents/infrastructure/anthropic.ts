@@ -5,9 +5,9 @@ import type {
   AgentResponse,
   AgentStreamEvent,
   ToolCall,
-  ContentPart,
 } from "../index.js";
-import { textPart, extractText } from "../index.js";
+import type { ContentPart } from "../../engine/domain/content.js";
+import { textPart, extractText } from "../../engine/domain/content.js";
 import { KilnError } from "../../engine/errors.js";
 
 export const CLAUDE_OPUS = "claude-opus-4-6";

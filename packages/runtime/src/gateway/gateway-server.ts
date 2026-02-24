@@ -181,7 +181,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
 
   // EventBus: shared across all apps for observability and dev inspector
   const gatewayEventBus = new EventBus(100, otelExporter);
-  const costTracker = new CostTracker(gatewayEventBus);
+  const costTracker = new CostTracker();
 
   const loadedApps = resolvedApps.map((resolved: ResolvedApp) => {
     const hasWebChannel = resolved.binding.channels.some((ch) => ch.type === "web");
@@ -309,17 +309,6 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
   // Create health registry and register subsystem checkers
   const healthRegistry = new HealthRegistry();
   const startTime = Date.now();
-
-  // Register memory health checker
-  healthRegistry.register("memory", () => {
-    // Simple memory check - verify we have access to memory
-    try {
-      // Check if we can create a session (basic connectivity test)
-      return { status: "ok" as const };
-    } catch {
-      return { status: "error" as const, details: { reason: "Memory store unreachable" } };
-    }
-  });
 
   // Register provider health checker
   healthRegistry.register("providers", () => {
@@ -732,7 +721,7 @@ async function serveAndWait(app: Hono, port: number, onShutdown?: () => void, we
 export async function startDevServer(options?: DevServerOptions): Promise<void> {
   const port = options?.port ?? 4800;
   const eventBus = new EventBus(100);
-  const costTracker = new CostTracker(eventBus);
+  const costTracker = new CostTracker();
   const studioDistPath = options?.studioDistPath ?? resolveStudioDist();
 
   let app: App | undefined;

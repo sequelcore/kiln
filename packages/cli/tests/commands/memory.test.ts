@@ -36,16 +36,7 @@ describe("memoryCommand", () => {
 
     const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
     expect(output).toContain("Usage: kiln memory");
-    expect(output).toContain("search");
-    expect(output).toContain("show");
     expect(output).toContain("stats");
-  });
-
-  it("search prints placeholder message", () => {
-    memoryCommand(MOCK_APP_CONFIG, "search", ["test query"], tempDir);
-
-    const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
-    expect(output).toContain("Memory search requires a running session.");
   });
 
   it("stats shows file count when memory directory exists", () => {

@@ -5,7 +5,7 @@ import type { KilnAppConfig } from "../config.js";
 export function memoryCommand(
   appConfig: KilnAppConfig,
   subcommand: string,
-  args: string[],
+  _args: string[],
   projectPath?: string,
 ): void {
   const root = projectPath ?? process.cwd();
@@ -16,23 +16,6 @@ export function memoryCommand(
   }
 
   switch (subcommand) {
-    case "search": {
-      const query = args.join(" ");
-      if (!query) {
-        console.log(`Usage: ${appConfig.appName} memory search <query>`);
-        return;
-      }
-      console.log("Memory search requires a running session.");
-      break;
-    }
-
-    case "show": {
-      const layer = args[0] ?? "all";
-      console.log(`Memory layer: ${layer}`);
-      console.log("Memory show requires a running session.");
-      break;
-    }
-
     case "stats": {
       printMemoryStats(appConfig, root);
       break;
@@ -47,8 +30,6 @@ export function memoryCommand(
 function printMemoryHelp(appConfig: KilnAppConfig): void {
   console.log(`\nUsage: ${appConfig.appName} memory <subcommand>\n`);
   console.log("Subcommands:");
-  console.log("  search <query>   Search all memory layers");
-  console.log("  show [layer]     Show recent entries (user, agent, project)");
   console.log("  stats            Show memory file counts and sizes");
   console.log("");
 }

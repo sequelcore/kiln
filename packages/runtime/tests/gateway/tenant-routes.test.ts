@@ -260,7 +260,7 @@ describe("createTenantRoutes", () => {
       expect(globalThis.fetch).not.toHaveBeenCalled();
     });
 
-    it("reports usage with tenantId:userId as billing key", async () => {
+    it("does not report usage (billing usage is tracked externally)", async () => {
       const runtime = makeRuntime({ billing: makeBillingConfig() });
       runtime.tenantRegistry.create(makeTenantConfig());
       const app = createTenantRoutes(runtime);
@@ -271,11 +271,8 @@ describe("createTenantRoutes", () => {
         body: JSON.stringify({ message: "hello", userId: "user-1", tenantId: "test-tenant" }),
       });
 
-      // fetch called twice: once for budget check, once for usage report
-      expect(globalThis.fetch).toHaveBeenCalledTimes(2);
-      const usageCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[1];
-      expect(usageCall![0]).toContain("test-tenant:user-1");
-      expect(usageCall![1]?.method).toBe("POST");
+      // fetch called once: budget check only, no usage report
+      expect(globalThis.fetch).toHaveBeenCalledTimes(1);
     });
   });
 

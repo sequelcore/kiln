@@ -199,13 +199,6 @@ describe("Orchestrator", () => {
     expect(handler).toHaveBeenCalledOnce();
   });
 
-  it("onPhaseEnter registers handler without error", () => {
-    const orch = new Orchestrator(makeConfig());
-
-    // Phase handlers are placeholder for Phase 2 -- just verify no error
-    orch.onPhaseEnter("analyze", async () => ({ output: "done" }));
-  });
-
   it("completes after advancing past synthesize", () => {
     const orch = new Orchestrator(makeConfig());
     orch.start("task");

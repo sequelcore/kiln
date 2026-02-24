@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { PromptScanner, INJECTION_PATTERNS } from "../../src/security/prompt-scanner.js";
 import type { ProviderAdapter, CreateMessageOptions, AgentResponse } from "../../src/agents/index.js";
-import { textParts } from "../../src/agents/index.js";
+import { textParts } from "../../src/engine/domain/content.js";
 
 // ---------------------------------------------------------------------------
 // Mock provider adapter

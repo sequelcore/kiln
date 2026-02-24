@@ -4,7 +4,7 @@ import { EventBus } from "../../src/events/event-bus.js";
 import type { GuardianConfig } from "../../src/security/types.js";
 import type { Capability } from "../../src/engine/domain/capability.js";
 import type { ProviderAdapter, AgentResponse } from "../../src/agents/index.js";
-import { textParts } from "../../src/agents/index.js";
+import { textParts } from "../../src/engine/domain/content.js";
 import type { AuditLog, AuditEntry, AuditFilter, AuditChainResult } from "../../src/security/types.js";
 
 // --- Helpers ---

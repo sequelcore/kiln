@@ -4,10 +4,6 @@ export default defineConfig({
   test: {
     exclude: [
       "**/node_modules/**",
-      "**/sqlite-store.test.ts",
-      "**/checkpoint-store.test.ts",
-      "**/checkpoint-integration.test.ts",
-      "**/tenant-isolation.test.ts",
     ],
     alias: {
       "bun:sqlite": new URL("./vitest-bun-sqlite-mock.ts", import.meta.url).pathname,

@@ -168,7 +168,7 @@ describe("Pipeline Integration Tests", () => {
       // Directly record cost via the eventBus-connected CostTracker
       // The orchestrator exposes costSummary which delegates to CostTracker
       // We use a standalone CostTracker wired to the same EventBus to simulate provider response
-      const costTracker = new CostTracker(orchestrator.eventBus);
+      const costTracker = new CostTracker();
       costTracker.record("worker", "claude-sonnet-4-6", {
         inputTokens: 500,
         outputTokens: 200,
@@ -252,7 +252,7 @@ describe("Pipeline Integration Tests", () => {
 
     it("should track costs via CostTracker and reflect accurate summary", () => {
       const eventBus = new EventBus();
-      const costTracker = new CostTracker(eventBus);
+      const costTracker = new CostTracker();
       const costEvents: KilnEvent[] = [];
 
       eventBus.on("cost_update", (e) => costEvents.push(e));

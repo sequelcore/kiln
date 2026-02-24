@@ -25,9 +25,6 @@ function buildConfig(flags: RunFlags, mode: SessionMode): WrapperConfig {
     provider: flags.provider,
     claudeCodePath: "claude",
     dangerouslySkipPermissions: flags.dangerouslySkipPermissions ?? false,
-    sandbox: true,
-    autoApprove: false,
-    autoApproveTimeout: 30000,
   };
 }
 
@@ -42,10 +39,9 @@ export function printReport(report: SessionReport, appName: string): void {
   console.log(`\n--- ${appLabel} Session Complete ---`);
   console.log(`Task:     ${report.task}`);
   console.log(`Domain:   ${report.domain}`);
-  console.log(`Phases:   ${report.phasesCompleted}/${report.totalPhases} (reached: ${report.phaseReached})`);
+  console.log(`Phase:    ${report.phaseReached}`);
   console.log(`Cost:     $${report.cost.total.toFixed(2)}${costParts ? ` (${costParts})` : ""}`);
   console.log(`Duration: ${durationSec}s`);
-  console.log(`Gates:    ${report.qualityGates.passed} passed, ${report.qualityGates.failed} failed`);
   console.log("");
 }
 

@@ -16,24 +16,18 @@ describe("KilnMcpServer", () => {
     expect(server).toBeDefined();
   });
 
-  it("registers all 13 tool names", () => {
+  it("registers all 7 tool names", () => {
     const names = server.toolNames;
-    expect(names).toHaveLength(13);
+    expect(names).toHaveLength(7);
 
     const expectedTools: KilnTool[] = [
       "kiln_init",
       "kiln_phase_start",
-      "kiln_phase_gate",
       "kiln_memory_save",
       "kiln_memory_recall",
       "kiln_memory_search",
-      "kiln_task_create",
-      "kiln_task_score",
-      "kiln_task_action",
-      "kiln_verify",
       "kiln_cost_track",
       "kiln_cost_summary",
-      "kiln_domain_detect",
     ];
 
     for (const name of expectedTools) {
@@ -41,8 +35,8 @@ describe("KilnMcpServer", () => {
     }
   });
 
-  it("KILN_TOOLS array has 13 definitions", () => {
-    expect(KILN_TOOLS).toHaveLength(13);
+  it("KILN_TOOLS array has 7 definitions", () => {
+    expect(KILN_TOOLS).toHaveLength(7);
   });
 
   it("every handler returns structured JSON content", async () => {
@@ -92,18 +86,6 @@ describe("KilnMcpServer", () => {
     });
   });
 
-  describe("kiln_phase_gate", () => {
-    it("returns current phase with passed=true", async () => {
-      orchestrator.start("test task");
-      const handler = server.getHandler("kiln_phase_gate")!;
-      const result = await handler({});
-      const data = JSON.parse(result.content[0]!.text as string);
-      expect(data.phase).toBe("analyze");
-      expect(data.passed).toBe(true);
-      expect(data.violations).toEqual([]);
-    });
-  });
-
   describe("kiln_memory_save", () => {
     it("returns saved=true with an id", async () => {
       const handler = server.getHandler("kiln_memory_save")!;
@@ -129,47 +111,6 @@ describe("KilnMcpServer", () => {
       const result = await handler({ query: "test" });
       const data = JSON.parse(result.content[0]!.text as string);
       expect(data.results).toEqual([]);
-    });
-  });
-
-  describe("kiln_task_create", () => {
-    it("returns a task ID", async () => {
-      const handler = server.getHandler("kiln_task_create")!;
-      const result = await handler({ statement: "do something" });
-      const data = JSON.parse(result.content[0]!.text as string);
-      expect(data.taskId).toBeDefined();
-      expect(data.created).toBe(true);
-    });
-  });
-
-  describe("kiln_task_score", () => {
-    it("returns a score for the task", async () => {
-      const handler = server.getHandler("kiln_task_score")!;
-      const result = await handler({ taskId: "abc-123" });
-      const data = JSON.parse(result.content[0]!.text as string);
-      expect(data.taskId).toBe("abc-123");
-      expect(data.score).toBe(0.5);
-    });
-  });
-
-  describe("kiln_task_action", () => {
-    it("returns applied=true", async () => {
-      const handler = server.getHandler("kiln_task_action")!;
-      const result = await handler({ taskId: "abc", action: "deepen" });
-      const data = JSON.parse(result.content[0]!.text as string);
-      expect(data.taskId).toBe("abc");
-      expect(data.action).toBe("deepen");
-      expect(data.applied).toBe(true);
-    });
-  });
-
-  describe("kiln_verify", () => {
-    it("returns passed=true", async () => {
-      const handler = server.getHandler("kiln_verify")!;
-      const result = await handler({});
-      const data = JSON.parse(result.content[0]!.text as string);
-      expect(data.passed).toBe(true);
-      expect(data.checks).toEqual([]);
     });
   });
 
@@ -218,19 +159,9 @@ describe("KilnMcpServer", () => {
     });
   });
 
-  describe("kiln_domain_detect", () => {
-    it("returns unknown domain", async () => {
-      const handler = server.getHandler("kiln_domain_detect")!;
-      const result = await handler({});
-      const data = JSON.parse(result.content[0]!.text as string);
-      expect(data.domain).toBe("unknown");
-      expect(data.detected).toBe(false);
-    });
-  });
-
   describe("tool annotations", () => {
     it("read-only tools have readOnlyHint=true", () => {
-      const readOnlyTools = ["kiln_init", "kiln_memory_recall", "kiln_memory_search", "kiln_phase_gate", "kiln_task_score", "kiln_verify", "kiln_cost_summary", "kiln_domain_detect"];
+      const readOnlyTools = ["kiln_init", "kiln_memory_recall", "kiln_memory_search", "kiln_cost_summary"];
       for (const toolName of readOnlyTools) {
         const tool = KILN_TOOLS.find((t) => t.name === toolName);
         expect(tool?.annotations?.readOnlyHint, `${toolName} should be readOnly`).toBe(true);
@@ -238,7 +169,7 @@ describe("KilnMcpServer", () => {
     });
 
     it("mutating tools do not have readOnlyHint=true", () => {
-      const mutatingTools = ["kiln_phase_start", "kiln_memory_save", "kiln_task_create", "kiln_task_action", "kiln_cost_track"];
+      const mutatingTools = ["kiln_phase_start", "kiln_memory_save", "kiln_cost_track"];
       for (const toolName of mutatingTools) {
         const tool = KILN_TOOLS.find((t) => t.name === toolName);
         expect(tool?.annotations?.readOnlyHint, `${toolName} should not be readOnly`).not.toBe(true);

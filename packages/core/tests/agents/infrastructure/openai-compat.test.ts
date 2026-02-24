@@ -4,7 +4,7 @@ import type {
   ToolDefinition,
   AgentStreamEvent,
 } from "../../../src/agents/index.js";
-import { extractText, textParts } from "../../../src/agents/index.js";
+import { extractText, textParts } from "../../../src/engine/domain/content.js";
 import { OpenAIAdapter, GPT4O, GPT4O_MINI, O3, O3_MINI, CODEX } from "../../../src/agents/infrastructure/openai.js";
 import { DeepSeekAdapter, DEEPSEEK_CHAT, DEEPSEEK_REASONER } from "../../../src/agents/infrastructure/deepseek.js";
 

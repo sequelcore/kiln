@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildSystemPrompt, buildMcpConfig } from "../../src/wrapper/context-builder.js";
+import { buildSystemPrompt } from "../../src/wrapper/context-builder.js";
 import type { KilnAppConfig } from "../../src/config.js";
 import type { DomainConfig } from "@kilnai/core";
 
@@ -114,34 +114,3 @@ describe("buildSystemPrompt", () => {
   });
 });
 
-describe("buildMcpConfig", () => {
-  it("returns correct structure", () => {
-    const config = buildMcpConfig("/path/to/mcp/server.ts", "kiln");
-    expect(config).toHaveProperty("mcpServers");
-    expect(config.mcpServers).toHaveProperty("kiln");
-    expect(config.mcpServers["kiln"]).toHaveProperty("command", "bun");
-    expect(config.mcpServers["kiln"]).toHaveProperty("transportType", "stdio");
-  });
-
-  it("points to given server path", () => {
-    const serverPath = "/custom/path/to/server.ts";
-    const config = buildMcpConfig(serverPath, "kiln");
-    expect(config.mcpServers["kiln"]!.args).toContain(serverPath);
-  });
-
-  it("uses bun as the command", () => {
-    const config = buildMcpConfig("/any/path.ts", "kiln");
-    expect(config.mcpServers["kiln"]!.command).toBe("bun");
-  });
-
-  it('includes "run" in args', () => {
-    const config = buildMcpConfig("/any/path.ts", "kiln");
-    expect(config.mcpServers["kiln"]!.args).toContain("run");
-  });
-
-  it("uses provided mcpServerName as key", () => {
-    const config = buildMcpConfig("/any/path.ts", "my-app");
-    expect(config.mcpServers).toHaveProperty("my-app");
-    expect(config.mcpServers).not.toHaveProperty("kiln");
-  });
-});

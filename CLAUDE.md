@@ -42,7 +42,7 @@ Bun monorepo with 5 packages:
 | tenant | `runtime/src/tenant/` | TenantRegistry (JSON persistence), system prompt builder |
 | channels | `runtime/src/channels/` | 6 adapters (CLI, Web, WhatsApp, Slack, API, Voice), ChannelRouter, MessageFormatter |
 | sdk | `sdk/src/` | React hooks (useKilnChat, useKilnWsChat, useKilnEvents, useKilnMemory, useKilnState, useApproval), ApiClient, SseClient. Types-only import from core. |
-| studio | `studio/src/` | React 19 + Vite + TanStack Router/Query + @xyflow/react. 7 views (Graph, Playground, Timeline, Memory, Eval, Cost, Safety). |
+| studio | `studio/src/` | React 19 + Vite + TanStack Query + @xyflow/react. 7 views (Graph, Playground, Timeline, Memory, Eval, Cost, Safety). |
 
 ### Dependency Rules (STRICT)
 

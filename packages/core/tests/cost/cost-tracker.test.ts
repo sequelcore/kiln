@@ -10,7 +10,7 @@ function makeBus(): EventBus {
 describe("CostTracker", () => {
   it("records usage for a single role", () => {
     const bus = makeBus();
-    const tracker = new CostTracker(bus);
+    const tracker = new CostTracker();
 
     tracker.record("architect", "claude-opus-4-6", {
       inputTokens: 1000,
@@ -31,7 +31,7 @@ describe("CostTracker", () => {
 
   it("computes correct USD cost without cache tokens", () => {
     const bus = makeBus();
-    const tracker = new CostTracker(bus);
+    const tracker = new CostTracker();
 
     // Opus: $15/M input, $75/M output
     tracker.record("architect", "claude-opus-4-6", {
@@ -48,7 +48,7 @@ describe("CostTracker", () => {
 
   it("computes correct cache-aware pricing", () => {
     const bus = makeBus();
-    const tracker = new CostTracker(bus);
+    const tracker = new CostTracker();
 
     // Sonnet: $3/M input, $15/M output
     // 1000 input, 200 cache read, 100 cache write => 700 uncached
@@ -69,7 +69,7 @@ describe("CostTracker", () => {
 
   it("uncached input cannot go below zero", () => {
     const bus = makeBus();
-    const tracker = new CostTracker(bus);
+    const tracker = new CostTracker();
 
     // cacheRead + cacheWrite > inputTokens
     tracker.record("worker", "claude-sonnet-4-6", {
@@ -89,7 +89,7 @@ describe("CostTracker", () => {
 
   it("accumulates across multiple records for the same role", () => {
     const bus = makeBus();
-    const tracker = new CostTracker(bus);
+    const tracker = new CostTracker();
 
     tracker.record("worker", "claude-sonnet-4-6", {
       inputTokens: 500,
@@ -115,7 +115,7 @@ describe("CostTracker", () => {
 
   it("tracks multiple roles independently", () => {
     const bus = makeBus();
-    const tracker = new CostTracker(bus);
+    const tracker = new CostTracker();
 
     tracker.record("architect", "claude-opus-4-6", {
       inputTokens: 1000,
@@ -161,7 +161,7 @@ describe("CostTracker", () => {
 
   it("summary returns zero totals when no usage recorded", () => {
     const bus = makeBus();
-    const tracker = new CostTracker(bus);
+    const tracker = new CostTracker();
     const summary = tracker.summary;
 
     expect(summary.totalInputTokens).toBe(0);
@@ -175,7 +175,7 @@ describe("CostTracker", () => {
 
   it("reset clears all accumulated usage", () => {
     const bus = makeBus();
-    const tracker = new CostTracker(bus);
+    const tracker = new CostTracker();
 
     tracker.record("architect", "claude-opus-4-6", {
       inputTokens: 1000,
@@ -197,13 +197,13 @@ describe("CostTracker", () => {
 
   it("costForRole returns 0 for unrecorded role", () => {
     const bus = makeBus();
-    const tracker = new CostTracker(bus);
+    const tracker = new CostTracker();
     expect(tracker.costForRole("optimizer")).toBe(0);
   });
 
   it("unknown model uses zero pricing (no crash)", () => {
     const bus = makeBus();
-    const tracker = new CostTracker(bus);
+    const tracker = new CostTracker();
 
     tracker.record("worker", "unknown-model-xyz", {
       inputTokens: 10000,
@@ -218,45 +218,6 @@ describe("CostTracker", () => {
     expect(tracker.summary.totalInputTokens).toBe(10000);
     expect(tracker.summary.totalOutputTokens).toBe(5000);
     expect(tracker.summary.totalToolCalls).toBe(1);
-  });
-
-  it("subscribes to cost_update events on construction", () => {
-    const bus = makeBus();
-    const _tracker = new CostTracker(bus);
-
-    // Emitting a cost_update event should not throw
-    const event: CostUpdateEvent = {
-      type: "cost_update",
-      timestamp: new Date(),
-      sessionId: "test",
-      inputTokens: 100,
-      outputTokens: 50,
-      cacheReadTokens: 10,
-      totalCostUsd: 0.01,
-      byRole: {
-        architect: { model: "claude-opus-4-6", calls: 1, costUsd: 0.01 },
-      },
-    };
-    expect(() => bus.emit(event)).not.toThrow();
-  });
-
-  it("reset unsubscribes from EventBus", () => {
-    const bus = makeBus();
-    const tracker = new CostTracker(bus);
-    tracker.reset();
-
-    // After reset, emitting cost_update should not throw (handler removed gracefully)
-    const event: CostUpdateEvent = {
-      type: "cost_update",
-      timestamp: new Date(),
-      sessionId: "test",
-      inputTokens: 100,
-      outputTokens: 50,
-      cacheReadTokens: 10,
-      totalCostUsd: 0.01,
-      byRole: {},
-    };
-    expect(() => bus.emit(event)).not.toThrow();
   });
 
   it("MODEL_PRICING contains all Claude models", () => {
@@ -283,7 +244,7 @@ describe("CostTracker", () => {
 
   it("Haiku cache-aware pricing is correct", () => {
     const bus = makeBus();
-    const tracker = new CostTracker(bus);
+    const tracker = new CostTracker();
 
     // Haiku: $0.80/M input, $4/M output
     tracker.record("optimizer", "claude-haiku-4-5-20251001", {

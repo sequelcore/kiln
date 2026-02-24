@@ -4,7 +4,6 @@
 import type { ExecutionStrategy, StrategyContext, StrategyHandler } from "./index.js";
 import type { TaskNode } from "../../tree/index.js";
 import type { HandoffRequestedEvent, HandoffCompletedEvent } from "../../events/index.js";
-import { KilnError } from "../../engine/errors.js";
 
 /** Handoff request parsed from agent output */
 export interface HandoffRequest {
@@ -55,68 +54,71 @@ export class SwarmStrategy implements ExecutionStrategy {
       if (batch.length === 0) break;
 
       for (const task of batch) {
-        let activeAgent = agentKeys[0]!;
-        const visitedAgents = new Set<string>();
-        let handoffCount = 0;
-        let taskCompleted = false;
+        try {
+          let activeAgent = agentKeys[0]!;
+          const visitedAgents = new Set<string>();
+          let handoffCount = 0;
+          let taskCompleted = false;
 
-        while (!taskCompleted) {
-          // Cycle detection
-          if (visitedAgents.has(activeAgent)) {
-            throw new KilnError("HANDOFF_FAILED", `Handoff cycle detected: agent "${activeAgent}" already processed this task`, {
-              context: { agent: activeAgent, taskId: task.id, chain: [...visitedAgents] },
-            });
+          while (!taskCompleted) {
+            // Cycle detection -- mark task as refuted instead of aborting batch
+            if (visitedAgents.has(activeAgent)) {
+              tree.updateStatus(task.id, "refuted");
+              break;
+            }
+            visitedAgents.add(activeAgent);
+
+            // Depth check -- mark task as refuted instead of aborting batch
+            if (handoffCount >= this.config.maxHandoffDepth) {
+              tree.updateStatus(task.id, "refuted");
+              break;
+            }
+
+            // Execute with active agent
+            const result = await handler(task, handoffCount, activeAgent);
+
+            // Record evidence
+            for (const evidence of result.evidence) {
+              tree.addEvidence(task.id, evidence);
+            }
+
+            // Check for handoff in the output
+            const handoff = this.parseHandoff(result.output, agentKeys);
+
+            if (handoff) {
+              // Emit handoff events
+              const handoffRequest: HandoffRequestedEvent = {
+                type: "handoff_requested",
+                fromAgent: activeAgent,
+                toAgent: handoff.targetAgent,
+                reason: handoff.reason,
+                context: handoff.context,
+                timestamp: new Date(),
+                sessionId,
+              };
+              eventBus.emit(handoffRequest);
+
+              const handoffComplete: HandoffCompletedEvent = {
+                type: "handoff_completed",
+                fromAgent: activeAgent,
+                toAgent: handoff.targetAgent,
+                accepted: true,
+                timestamp: new Date(),
+                sessionId,
+              };
+              eventBus.emit(handoffComplete);
+
+              activeAgent = handoff.targetAgent;
+              handoffCount++;
+            } else {
+              // No handoff -- task is complete
+              tree.updateStatus(task.id, result.success ? "supported" : "refuted");
+              taskCompleted = true;
+            }
           }
-          visitedAgents.add(activeAgent);
-
-          // Depth check
-          if (handoffCount >= this.config.maxHandoffDepth) {
-            throw new KilnError("HANDOFF_FAILED", `Max handoff depth (${this.config.maxHandoffDepth}) exceeded for task "${task.id}"`, {
-              context: { taskId: task.id, depth: handoffCount },
-            });
-          }
-
-          // Execute with active agent
-          const result = await handler(task, handoffCount, activeAgent);
-
-          // Record evidence
-          for (const evidence of result.evidence) {
-            tree.addEvidence(task.id, evidence);
-          }
-
-          // Check for handoff in the output
-          const handoff = this.parseHandoff(result.output, agentKeys);
-
-          if (handoff) {
-            // Emit handoff events
-            const handoffRequest: HandoffRequestedEvent = {
-              type: "handoff_requested",
-              fromAgent: activeAgent,
-              toAgent: handoff.targetAgent,
-              reason: handoff.reason,
-              context: handoff.context,
-              timestamp: new Date(),
-              sessionId,
-            };
-            eventBus.emit(handoffRequest);
-
-            const handoffComplete: HandoffCompletedEvent = {
-              type: "handoff_completed",
-              fromAgent: activeAgent,
-              toAgent: handoff.targetAgent,
-              accepted: true,
-              timestamp: new Date(),
-              sessionId,
-            };
-            eventBus.emit(handoffComplete);
-
-            activeAgent = handoff.targetAgent;
-            handoffCount++;
-          } else {
-            // No handoff -- task is complete
-            tree.updateStatus(task.id, result.success ? "supported" : "refuted");
-            taskCompleted = true;
-          }
+        } catch {
+          // Handler error -- mark task as refuted, continue with remaining tasks
+          tree.updateStatus(task.id, "refuted");
         }
       }
     }

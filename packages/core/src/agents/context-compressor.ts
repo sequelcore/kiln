@@ -1,5 +1,5 @@
 import type { ProviderAdapter } from "./index.js";
-import { textParts, extractText } from "./index.js";
+import { textParts, extractText } from "../engine/domain/content.js";
 
 export interface CompressOptions {
   /** Skip compression if text is shorter than this. Default: 2000. */

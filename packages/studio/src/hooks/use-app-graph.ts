@@ -18,21 +18,10 @@ interface AppGraphTeam {
   mode?: string;
 }
 
-interface AppGraphRouter {
-  rules: { pattern: string; team: string }[];
-  fallback: string;
-  classifier?: string;
-}
-
 interface AppGraphResponse {
   name: string;
   teams: AppGraphTeam[];
-  router: AppGraphRouter;
-  channels: string[];
-  triggers: string[];
-  hasKnowledge: boolean;
-  hasEval: boolean;
-  hasSafety: boolean;
+  router: { rules: { pattern: string; team: string }[]; fallback: string; classifier?: string };
 }
 
 export function useAppGraph() {
@@ -44,4 +33,4 @@ export function useAppGraph() {
   });
 }
 
-export type { AppGraphResponse, AppGraphTeam, AppGraphAgent, AppGraphRouter };
+export type { AppGraphTeam, AppGraphAgent };

@@ -346,7 +346,7 @@ await createCli(config);
 | `my-app run "task"` | CLI session via Claude Code Agent SDK |
 | `my-app init` | Creates `.my-app/` in the current project |
 | `my-app serve` | Standalone MCP server over stdio |
-| `my-app memory` | Browse and search memory layers |
+| `my-app memory` | View memory layer statistics |
 | `my-app status` | Show phase, tasks, costs |
 | `my-app domain install` | Install marketplace domain packages |
 | `my-app gateway` | Multi-app hosting via Gateway |

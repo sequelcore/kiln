@@ -29,23 +29,9 @@ export interface SessionReport {
   readonly task: string;
   readonly domain: string;
   readonly phaseReached: string;
-  readonly phasesCompleted: number;
-  readonly totalPhases: number;
-  readonly tasksCompleted: number;
-  readonly tasksPruned: number;
-  readonly filesModified: number;
   readonly cost: {
     readonly total: number;
     readonly byRole: Record<string, number>;
-  };
-  readonly memory: {
-    readonly recalled: number;
-    readonly saved: number;
-  };
-  readonly qualityGates: {
-    readonly passed: number;
-    readonly failed: number;
-    readonly violations: readonly string[];
   };
   readonly duration: number;
 }
@@ -57,13 +43,10 @@ export interface WrapperConfig {
   readonly provider?: string;
   readonly claudeCodePath: string;
   readonly dangerouslySkipPermissions: boolean;
-  readonly sandbox: boolean;
-  readonly autoApprove: boolean;
-  readonly autoApproveTimeout: number;
 }
 
 export { ClaudeSession } from "./claude-code-process.js";
 export type { ClaudeSessionConfig } from "./claude-code-process.js";
-export { buildSystemPrompt, buildMcpConfig } from "./context-builder.js";
+export { buildSystemPrompt } from "./context-builder.js";
 export { SessionManager } from "./session-manager.js";
 export type { KilnAppConfig, SystemPromptOptions } from "../config.js";

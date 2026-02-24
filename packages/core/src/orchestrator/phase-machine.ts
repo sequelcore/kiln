@@ -8,7 +8,7 @@ import type {
 } from "../events/index.js";
 
 /** Derive display name from a phase string: "analyze" -> "Analyze", "my_phase" -> "My_phase" */
-function phaseMeta(phase: string): { name: string; description: string } {
+export function phaseMeta(phase: string): { name: string; description: string } {
   const name = phase.charAt(0).toUpperCase() + phase.slice(1);
   return { name, description: `${name} phase` };
 }
@@ -22,15 +22,14 @@ export class PhaseMachine {
   private _currentIndex = 0;
   private _status: OrchestratorStatus = "idle";
   private _approvalResolve: ((phase: Phase | null) => void) | null = null;
-  private readonly _sessionId: string;
+  private _sessionId: string;
   private readonly _approvalPhase: string | undefined;
 
   constructor(
     private readonly eventBus: EventBus,
     private readonly config: OrchestratorConfig,
-    sessionId = "session",
   ) {
-    this._sessionId = sessionId;
+    this._sessionId = "";
     this._approvalPhase =
       config.approvalAfterPhase ?? (config.requireApproval ? "architect" : undefined);
   }
@@ -41,6 +40,11 @@ export class PhaseMachine {
 
   get status(): OrchestratorStatus {
     return this._status;
+  }
+
+  /** Set the session ID for event emission. Must be called before start(). */
+  setSessionId(sessionId: string): void {
+    this._sessionId = sessionId;
   }
 
   /** Set status to running. Called by orchestrator before advancing. */

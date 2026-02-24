@@ -43,7 +43,7 @@ This document is for contributors. For user documentation, see the [guides](guid
 | `tenant` | `@kilnai/runtime` | `packages/runtime/src/tenant/` | Multi-tenant management: TenantRegistry, system prompt builder, phone-to-tenant resolution. |
 | `cli` | `@kilnai/cli` | `packages/cli/` | CLI commands (init, run, dev, gateway, skill, domain), formatters, MCP server. |
 | `sdk` | `@kilnai/react` | `packages/sdk/` | React hooks library: KilnProvider, useKilnChat, useKilnWsChat, useKilnEvents, useKilnMemory, useKilnState, useApproval, ApiClient, SseClient. Types-only import from core. |
-| `studio` | `@kilnai/studio` | `packages/studio/` | Dev UI SPA (private): React 19 + Vite + TanStack Query + @xyflow/react. 7 views. Served at `/studio` in dev mode. |
+| `studio` | `@kilnai/studio` | `packages/studio/` | Dev UI SPA (private): React 19 + Vite + TanStack Query + @xyflow/react. 7 views (Graph, Playground, Timeline, Memory, Eval, Cost, Safety). Served at `/studio` in dev mode. |
 
 ## Dependency Rules
 
@@ -381,7 +381,7 @@ kiln/
 │   └── studio/                           # @kilnai/studio (private)
 │       └── src/
 │           ├── routes/                   # graph.tsx, playground.tsx, timeline.tsx, memory.tsx, eval.tsx, cost.tsx, safety.tsx
-│           ├── hooks/                    # use-app-graph.ts, use-yaml.ts
+│           ├── hooks/                    # use-app-graph.ts
 │           └── styles/                   # tokens.css
 ├── docs/
 │   ├── architecture.md                   # This document

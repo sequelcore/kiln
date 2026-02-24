@@ -6,6 +6,39 @@ import type { TenantConfig } from "@kilnai/core";
 import type { TenantRegistry } from "../tenant/tenant-registry.js";
 import { TenantNotFoundError, TenantValidationFailedError } from "../tenant/tenant-registry.js";
 
+/**
+ * Mutable fields allowed in tenant create/update requests.
+ * Immutable fields (tenantId, appName, createdAt, updatedAt) are set server-side.
+ * This prevents prototype pollution and field injection from untrusted request bodies.
+ */
+const MUTABLE_TENANT_FIELDS = [
+  "name",
+  "description",
+  "services",
+  "hours",
+  "faqEntries",
+  "escalationContact",
+  "tone",
+  "language",
+  "whatsappPhoneNumberId",
+  "whatsappAccessToken",
+  "whatsappVerifyToken",
+  "billing",
+  "idleTimeoutMs",
+  "enabled",
+] as const satisfies readonly (keyof TenantConfig)[];
+
+/** Pick only safe mutable fields from an untrusted body */
+function pickMutableFields(body: Record<string, unknown>): Partial<TenantConfig> {
+  const result: Record<string, unknown> = {};
+  for (const field of MUTABLE_TENANT_FIELDS) {
+    if (field in body) {
+      result[field] = body[field];
+    }
+  }
+  return result as Partial<TenantConfig>;
+}
+
 export interface TenantAdminRoutesConfig {
   readonly tenantRegistry: TenantRegistry;
   readonly appName: string;
@@ -68,15 +101,16 @@ export function createTenantAdminRoutes(config: TenantAdminRoutesConfig): Hono {
 
     const now = new Date().toISOString();
     const tenantId = (body.tenantId as string) || generateTenantId((body.name as string) ?? "");
+    const safeFields = pickMutableFields(body);
 
     const tenantConfig: TenantConfig = {
-      ...(body as unknown as TenantConfig),
+      ...safeFields,
       tenantId,
       appName: config.appName,
       enabled: body.enabled !== undefined ? Boolean(body.enabled) : true,
       createdAt: now,
       updatedAt: now,
-    };
+    } as TenantConfig;
 
     try {
       const created = config.tenantRegistry.create(tenantConfig);
@@ -105,7 +139,8 @@ export function createTenantAdminRoutes(config: TenantAdminRoutesConfig): Hono {
     }
 
     try {
-      const updated = config.tenantRegistry.update(tenantId, body as Partial<TenantConfig>);
+      const safeUpdate = pickMutableFields(body);
+      const updated = config.tenantRegistry.update(tenantId, safeUpdate);
       return c.json(updated);
     } catch (err) {
       if (err instanceof TenantNotFoundError) {

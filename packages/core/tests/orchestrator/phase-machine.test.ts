@@ -362,7 +362,8 @@ describe("PhaseMachine", () => {
     const handler = vi.fn();
     bus.on("phase_changed", handler);
 
-    const machine = new PhaseMachine(bus, makeConfig(), "my-session");
+    const machine = new PhaseMachine(bus, makeConfig());
+    machine.setSessionId("my-session");
     machine.start();
     machine.advance();
 

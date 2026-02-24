@@ -21,6 +21,8 @@ export interface TriggerRegistryConfig {
 interface AppTriggers {
   readonly appName: string;
   readonly webhookTriggers: WebhookTrigger[];
+  readonly eventTriggers: EventTrigger[];
+  readonly scheduleTriggers: ScheduleTrigger[];
   readonly eventListener: EventListener;
   readonly scheduler: Scheduler;
   webhookApp: Hono | null;
@@ -49,18 +51,26 @@ export class TriggerRegistry {
     });
 
     const webhookTriggers: WebhookTrigger[] = [];
+    const eventTriggers: EventTrigger[] = [];
+    const scheduleTriggers: ScheduleTrigger[] = [];
 
     for (const trigger of triggers) {
       switch (trigger.type) {
         case "webhook":
           webhookTriggers.push(trigger);
           break;
-        case "event":
-          eventListener.register(trigger as EventTrigger);
+        case "event": {
+          const eventTrigger = trigger as EventTrigger;
+          eventTriggers.push(eventTrigger);
+          eventListener.register(eventTrigger);
           break;
-        case "schedule":
-          scheduler.register(trigger as ScheduleTrigger);
+        }
+        case "schedule": {
+          const scheduleTrigger = trigger as ScheduleTrigger;
+          scheduleTriggers.push(scheduleTrigger);
+          scheduler.register(scheduleTrigger);
           break;
+        }
       }
     }
 
@@ -78,6 +88,8 @@ export class TriggerRegistry {
     this.apps.set(appName, {
       appName,
       webhookTriggers,
+      eventTriggers,
+      scheduleTriggers,
       eventListener,
       scheduler,
       webhookApp,
@@ -119,6 +131,22 @@ export class TriggerRegistry {
           appName: app.appName,
           name: trigger.name,
           type: "webhook",
+          enabled: trigger.enabled !== false,
+        });
+      }
+      for (const trigger of app.eventTriggers) {
+        result.push({
+          appName: app.appName,
+          name: trigger.name,
+          type: "event",
+          enabled: trigger.enabled !== false,
+        });
+      }
+      for (const trigger of app.scheduleTriggers) {
+        result.push({
+          appName: app.appName,
+          name: trigger.name,
+          type: "schedule",
           enabled: trigger.enabled !== false,
         });
       }

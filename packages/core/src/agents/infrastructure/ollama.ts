@@ -4,9 +4,9 @@ import type {
   AgentResponse,
   AgentStreamEvent,
   ToolCall,
-  ContentPart,
 } from "../index.js";
-import { textPart, extractText } from "../index.js";
+import type { ContentPart } from "../../engine/domain/content.js";
+import { textPart, extractText } from "../../engine/domain/content.js";
 
 export const LLAMA3 = "llama3.1";
 export const CODELLAMA = "codellama";

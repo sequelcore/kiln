@@ -17,7 +17,7 @@ function jsonResult(data: unknown): CallToolResult {
 }
 
 /**
- * MCP server exposing 13 Kiln tools via stdio or SSE transport.
+ * MCP server exposing 7 Kiln tools via stdio or SSE transport.
  * Bridges the MCP protocol to the Orchestrator.
  */
 export class KilnMcpServer {
@@ -123,14 +123,6 @@ export class KilnMcpServer {
       return jsonResult({ phase: result, advanced: result !== null });
     });
 
-    handlers.set("kiln_phase_gate", () =>
-      jsonResult({
-        phase: this.orchestrator.currentPhase,
-        passed: true,
-        violations: [],
-      }),
-    );
-
     handlers.set("kiln_memory_save", async (args) => {
       if (!this._memoryManager) {
         return jsonResult({ saved: true, id: randomUUID() });
@@ -172,26 +164,6 @@ export class KilnMcpServer {
       });
     });
 
-    handlers.set("kiln_task_create", () =>
-      jsonResult({ taskId: randomUUID(), created: true }),
-    );
-
-    handlers.set("kiln_task_score", (args) =>
-      jsonResult({ taskId: args["taskId"], score: 0.5 }),
-    );
-
-    handlers.set("kiln_task_action", (args) =>
-      jsonResult({ taskId: args["taskId"], action: args["action"], applied: true }),
-    );
-
-    handlers.set("kiln_verify", async (_args) => {
-      const result = this.orchestrator.verificationResult;
-      if (result) {
-        return jsonResult(result);
-      }
-      return jsonResult({ passed: true, checks: [], message: "No verification run yet" });
-    });
-
     handlers.set("kiln_cost_track", (args) => {
       const role = args["role"] as "architect" | "worker" | "optimizer";
       const inputTokens = (args["inputTokens"] as number) ?? 0;
@@ -213,10 +185,6 @@ export class KilnMcpServer {
 
     handlers.set("kiln_cost_summary", () =>
       jsonResult(this.orchestrator.costSummary),
-    );
-
-    handlers.set("kiln_domain_detect", () =>
-      jsonResult({ domain: "unknown", detected: false }),
     );
 
     return handlers;

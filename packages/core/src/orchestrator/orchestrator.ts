@@ -4,10 +4,8 @@ import type {
   OrchestratorStatus,
   Phase,
   PhaseGateResult,
-  PhaseContext,
-  PhaseResult,
 } from "./index.js";
-import { PhaseMachine } from "./phase-machine.js";
+import { PhaseMachine, phaseMeta } from "./phase-machine.js";
 import { EventBus } from "../events/event-bus.js";
 import { CostTracker } from "../cost/cost-tracker.js";
 import type { PhaseChangedEvent, TraceSpanEvent } from "../events/index.js";
@@ -16,7 +14,6 @@ import type { TraceSpan, TraceContext } from "../events/trace.js";
 import type { CostSummary } from "../cost/index.js";
 import { TaskTree, BatchExecutor } from "../tree/index.js";
 import type { TaskNode, TreeAction, TreeConfig } from "../tree/index.js";
-import type { BatchResult } from "../tree/index.js";
 import { GateRunner, VerificationLoop } from "../verification/index.js";
 import type { VerificationResult, VerificationConfig } from "../verification/index.js";
 import type { FixHandler } from "../verification/index.js";
@@ -43,14 +40,6 @@ const DEFAULT_CONFIG: OrchestratorConfig = {
   phases: ["analyze", "research", "architect", "implement", "verify", "synthesize"],
   maxIterations: 3,
 };
-
-/** Derive display name from a phase string: "analyze" -> "Analyze" */
-function phaseMeta(phase: string): { name: string; description: string } {
-  const name = phase.charAt(0).toUpperCase() + phase.slice(1);
-  return { name, description: `${name} phase` };
-}
-
-type PhaseHandler = (ctx: PhaseContext) => Promise<PhaseResult>;
 
 /** Architect's structured plan output */
 export interface ArchitectPlan {
@@ -80,7 +69,6 @@ export class Orchestrator {
   private readonly _phaseMachine: PhaseMachine;
   private _costTracker: CostTracker;
   private readonly _config: OrchestratorConfig;
-  private readonly _phaseHandlers = new Map<Phase, PhaseHandler>();
   private readonly _tree: TaskTree;
   private readonly _batchExecutor: BatchExecutor;
   private readonly _providerRegistry: ProviderRegistry;
@@ -92,7 +80,6 @@ export class Orchestrator {
   private _checkpointStore: CheckpointStore | null = null;
   private _autoCheckpointUnsubscribe: (() => void) | null = null;
   private _traceContext: TraceContext | null = null;
-  private _activeSpans: Map<string, TraceSpan> = new Map();
   private _isRestoring = false;
   private _lastRestoredCheckpointId: string | null = null;
   private _team: Team | null = null;
@@ -101,8 +88,9 @@ export class Orchestrator {
   constructor(config?: Partial<OrchestratorConfig>) {
     this._config = { ...DEFAULT_CONFIG, ...config };
     this._eventBus = new EventBus();
+    this._costTracker = new CostTracker();
+    // PhaseMachine is constructed without a sessionId; it gets set in start()
     this._phaseMachine = new PhaseMachine(this._eventBus, this._config);
-    this._costTracker = new CostTracker(this._eventBus);
     this._providerRegistry = new ProviderRegistry();
 
     const treeConfig: TreeConfig = {
@@ -169,8 +157,6 @@ export class Orchestrator {
     const gateRunner = new GateRunner({ cwd });
     const verificationConfig: VerificationConfig = {
       maxIterations: this._config.maxIterations ?? 3,
-      checks: [],
-      screenshotEnabled: false,
       coverageThreshold: 0,
     };
     const loop = new VerificationLoop({
@@ -201,19 +187,11 @@ export class Orchestrator {
       "phase",
       { task },
     );
-    this._activeSpans.set(sessionSpan.spanId, sessionSpan);
     this.emitTraceSpan(sessionSpan);
 
     this._phaseMachine.reset();
+    this._phaseMachine.setSessionId(sessionId);
     this._phaseMachine.start();
-
-    const { span: phaseSpan } = startSpan(
-      this._traceContext,
-      `phase:${this._phaseMachine.currentPhase}`,
-      "phase",
-      { phase: this._phaseMachine.currentPhase },
-    );
-    this._activeSpans.set(phaseSpan.spanId, phaseSpan);
 
     const meta = phaseMeta(this._phaseMachine.currentPhase);
     const phaseEvent: PhaseChangedEvent = {
@@ -247,15 +225,6 @@ export class Orchestrator {
   /** Cancel the current session -- delegates to PhaseMachine */
   cancel(): void {
     this._phaseMachine.cancel();
-  }
-
-  /**
-   * Register a phase-specific handler.
-   * Handlers are `async (ctx: PhaseContext) => PhaseResult`.
-   * Not invoked in Phase 1 -- placeholder for Phase 2 agent integration.
-   */
-  onPhaseEnter(phase: Phase, handler: PhaseHandler): void {
-    this._phaseHandlers.set(phase, handler);
   }
 
   /** Set the team for strategy-based execution */
@@ -377,59 +346,27 @@ export class Orchestrator {
 
   /**
    * Main implement phase loop.
-   * When a team is configured, delegates to the appropriate strategy based on team mode.
-   * When no team is set, uses sequential behavior (backward compatible).
-   *
-   * Supports two handler signatures:
-   * - Legacy: (task, workerIndex) => BatchResult
-   * - Strategy: (task, workerIndex, agentName) => BatchResult
+   * Delegates to the appropriate strategy based on team mode.
+   * Defaults to sequential strategy when no team is configured.
    */
-  async runImplementLoop(
-    handler: ((task: TaskNode, workerIndex: number) => Promise<BatchResult>) | StrategyHandler,
-  ): Promise<TaskNode[]> {
-    if (this._team) {
-      const mode = this._team.mode ?? "sequential";
-      const strategy = createStrategy(mode);
-      const strategyHandler: StrategyHandler =
-        handler.length >= 3
-          ? (handler as StrategyHandler)
-          : (task, workerIndex, _agentName) =>
-              (handler as (task: TaskNode, workerIndex: number) => Promise<BatchResult>)(task, workerIndex);
+  async runImplementLoop(handler: StrategyHandler): Promise<TaskNode[]> {
+    const mode = this._team?.mode ?? "sequential";
+    const strategy = createStrategy(mode);
+    const team = this._team ?? {
+      agents: {},
+      workflow: { phases: this._config.phases, gates: {} },
+    } as Team;
 
-      return strategy.execute(
-        {
-          team: this._team,
-          eventBus: this._eventBus,
-          tree: this._tree,
-          batchExecutor: this._batchExecutor,
-          sessionId: this._sessionId ?? "",
-        },
-        strategyHandler,
-      );
-    }
-
-    // Legacy path: no team configured -- sequential behavior
-    while (!this._tree.isComplete) {
-      const batch = this._tree.selectBatch();
-      if (batch.length === 0) break;
-
-      const results = await this._batchExecutor.execute(
-        batch,
-        handler as (task: TaskNode, workerIndex: number) => Promise<BatchResult>,
-      );
-
-      for (const result of results) {
-        for (const evidence of result.evidence) {
-          this._tree.addEvidence(result.taskId, evidence);
-        }
-        this._tree.updateStatus(
-          result.taskId,
-          result.success ? "supported" : "refuted",
-        );
-      }
-    }
-
-    return this._tree.allNodes;
+    return strategy.execute(
+      {
+        team,
+        eventBus: this._eventBus,
+        tree: this._tree,
+        batchExecutor: this._batchExecutor,
+        sessionId: this._sessionId ?? "",
+      },
+      handler,
+    );
   }
 
   /**
@@ -516,7 +453,7 @@ export class Orchestrator {
       this._tree.loadFromJSON(checkpoint.tree);
 
       // M4: reset cost tracker before replaying checkpoint costs to avoid double-counting
-      this._costTracker = new CostTracker(this._eventBus);
+      this._costTracker = new CostTracker();
       for (const role of Object.keys(checkpoint.costSummary.byRole)) {
         const usage = checkpoint.costSummary.byRole[role];
         if (usage) {

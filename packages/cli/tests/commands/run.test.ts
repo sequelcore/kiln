@@ -48,9 +48,6 @@ function makeConfig(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
     mode: "api-key",
     claudeCodePath: "claude",
     dangerouslySkipPermissions: false,
-    sandbox: true,
-    autoApprove: false,
-    autoApproveTimeout: 30000,
     ...overrides,
   };
 }
@@ -61,17 +58,10 @@ function makeReport(overrides: Partial<SessionReport> = {}): SessionReport {
     task: "Fix the login bug",
     domain: "Python",
     phaseReached: "implement",
-    phasesCompleted: 3,
-    totalPhases: 6,
-    tasksCompleted: 5,
-    tasksPruned: 1,
-    filesModified: 4,
     cost: {
       total: 0.42,
       byRole: { architect: 0.25, worker: 0.17 },
     },
-    memory: { recalled: 3, saved: 2 },
-    qualityGates: { passed: 4, failed: 1, violations: ["lint: 2 warnings"] },
     duration: 45000,
     ...overrides,
   };
@@ -121,7 +111,6 @@ describe("run command", () => {
 
       const report = manager.cleanup("session-123");
       expect(report.sessionId).toBe("session-123");
-      expect(report.totalPhases).toBe(6);
     });
   });
 
@@ -135,12 +124,11 @@ describe("run command", () => {
       expect(output).toContain("--- Kiln Session Complete ---");
       expect(output).toContain("Task:     Fix the login bug");
       expect(output).toContain("Domain:   Python");
-      expect(output).toContain("Phases:   3/6 (reached: implement)");
+      expect(output).toContain("Phase:    implement");
       expect(output).toContain("Cost:     $0.42");
       expect(output).toContain("architect: $0.25");
       expect(output).toContain("worker: $0.17");
       expect(output).toContain("Duration: 45.0s");
-      expect(output).toContain("Gates:    4 passed, 1 failed");
 
       consoleSpy.mockRestore();
     });

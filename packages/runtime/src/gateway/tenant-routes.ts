@@ -8,7 +8,7 @@ import type { ModeBOrchestrator } from "../session/mode-b-orchestrator.js";
 import type { SessionRegistry } from "../session/session-registry.js";
 import type { TenantRegistry } from "../tenant/tenant-registry.js";
 import { buildTenantSystemPrompt } from "../tenant/system-prompt-builder.js";
-import { checkBudget, reportUsage } from "./budget-middleware.js";
+import { checkBudget } from "./budget-middleware.js";
 
 /** Billing configuration for tenant routes (matches BillingConfig from mode-b-config) */
 interface BillingConfig {
@@ -99,16 +99,6 @@ export function createTenantRoutes(runtime: TenantAppRuntime): Hono {
 
     // Process message
     const result = await runtime.orchestrator.processMessage(session, userParts);
-
-    // Report usage
-    if (billingConfig) {
-      const billingUserId = `${body.tenantId}:${body.userId}`;
-      await reportUsage(billingConfig, billingUserId, {
-        tokens: result.inputTokens + result.outputTokens,
-        model: "unknown",
-        role: "fast",
-      });
-    }
 
     return c.json({
       content: extractText(result.parts),

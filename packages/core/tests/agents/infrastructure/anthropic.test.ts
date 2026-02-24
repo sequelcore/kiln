@@ -4,7 +4,7 @@ import type {
   ToolDefinition,
   AgentStreamEvent,
 } from "../../../src/agents/index.js";
-import { extractText, textParts } from "../../../src/agents/index.js";
+import { extractText, textParts } from "../../../src/engine/domain/content.js";
 
 const mockCreate = vi.fn();
 

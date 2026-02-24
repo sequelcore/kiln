@@ -4,7 +4,7 @@ import type {
   AgentStreamEvent,
   ToolDefinition,
 } from "../../../src/agents/index.js";
-import { extractText, textParts } from "../../../src/agents/index.js";
+import { extractText, textParts } from "../../../src/engine/domain/content.js";
 import {
   OllamaAdapter,
   LLAMA3,

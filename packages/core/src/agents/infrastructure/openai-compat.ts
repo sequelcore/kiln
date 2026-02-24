@@ -4,9 +4,9 @@ import type {
   AgentResponse,
   AgentStreamEvent,
   ToolCall,
-  ContentPart,
 } from "../index.js";
-import { textPart, extractText } from "../index.js";
+import type { ContentPart } from "../../engine/domain/content.js";
+import { textPart, extractText } from "../../engine/domain/content.js";
 
 const MAX_RETRIES = 3;
 const BASE_DELAY_MS = 1000;
@@ -130,7 +130,9 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
 
     if (!response.ok) {
       const text = await response.text();
-      throw new Error(`${this.name} API error ${response.status}: ${text}`);
+      const error = new Error(`${this.name} API error ${response.status}: ${text}`);
+      (error as unknown as Record<string, unknown>).status = response.status;
+      throw error;
     }
 
     if (!response.body) {

@@ -31,9 +31,6 @@ const MOCK_CONFIG: WrapperConfig = {
   mode: "api-key",
   claudeCodePath: "claude",
   dangerouslySkipPermissions: false,
-  sandbox: true,
-  autoApprove: false,
-  autoApproveTimeout: 30000,
 };
 
 const MOCK_APP_CONFIG: KilnAppConfig = {
@@ -131,13 +128,9 @@ describe("SessionManager", () => {
       const report = manager.cleanup("test-session-id");
 
       expect(report.sessionId).toBe("test-session-id");
-      expect(report.totalPhases).toBe(6);
       expect(report.domain).toBeTruthy();
       expect(report.cost).toHaveProperty("total");
       expect(report.cost).toHaveProperty("byRole");
-      expect(report.qualityGates).toHaveProperty("passed");
-      expect(report.qualityGates).toHaveProperty("failed");
-      expect(report.qualityGates).toHaveProperty("violations");
       expect(report.duration).toBeGreaterThanOrEqual(0);
     });
   });

@@ -6,7 +6,7 @@ import type { ContentPart } from "@kilnai/core";
 import { textParts, extractText } from "@kilnai/core";
 import type { ModeBOrchestrator } from "../session/mode-b-orchestrator.js";
 import type { SessionRegistry } from "../session/session-registry.js";
-import { checkBudget, reportUsage, checkTier } from "./budget-middleware.js";
+import { checkBudget, checkTier } from "./budget-middleware.js";
 
 /** Billing configuration for Mode B routes (matches BillingConfig from mode-b-config) */
 interface BillingConfig {
@@ -91,15 +91,6 @@ export function createModeBRoutes(runtime: ModeBAppRuntime): Hono {
     } catch (err) {
       console.error(`[${runtime.appName}] processMessage error:`, err);
       return c.json({ error: String(err) }, 500);
-    }
-
-    // Report usage
-    if (runtime.billing) {
-      await reportUsage(runtime.billing, body.userId, {
-        tokens: result.inputTokens + result.outputTokens,
-        model: "unknown",
-        role: "fast",
-      });
     }
 
     return c.json({

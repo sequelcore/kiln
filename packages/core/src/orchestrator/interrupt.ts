@@ -21,5 +21,4 @@ export interface InterruptState {
   readonly resumeSchema?: Record<string, unknown>;
   readonly requestedAt: string; // ISO string for serialization
   readonly phase: string;
-  readonly agentName?: string;
 }

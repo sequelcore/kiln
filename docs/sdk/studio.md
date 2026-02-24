@@ -2,7 +2,7 @@
 
 Kiln Studio is a development UI served in dev mode. It provides a visual interface for inspecting app topology, running agent conversations, monitoring events, managing memory, and reviewing evaluation results.
 
-Studio is an internal package (`@kilnai/studio`, private) built with React 19, Vite, TanStack Router, TanStack Query, and `@xyflow/react`. It is not published to npm.
+Studio is an internal package (`@kilnai/studio`, private) built with React 19, Vite, TanStack Query, and `@xyflow/react`. It is not published to npm.
 
 ## Accessing Studio
 
@@ -49,7 +49,7 @@ const config: KilnAppConfig = {
 
 Renders the app topology as an interactive `@xyflow/react` canvas. Nodes represent the Router, Teams, and Agents. Edges show routing relationships and agent-to-capability bindings.
 
-Click any node to open a detail panel showing the full configuration of that entity. Topology data is fetched from `GET /dev/app-graph`. Live YAML editing is available via `GET /dev/yaml` and `PUT /dev/yaml`.
+Click any node to open a detail panel showing the full configuration of that entity. Topology data is fetched from `GET /dev/app-graph`.
 
 ### Playground
 

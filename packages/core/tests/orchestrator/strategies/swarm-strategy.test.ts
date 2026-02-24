@@ -3,7 +3,6 @@ import { SwarmStrategy } from "../../../src/orchestrator/strategies/swarm-strate
 import { EventBus } from "../../../src/events/event-bus.js";
 import { TaskTree } from "../../../src/tree/task-tree.js";
 import { BatchExecutor } from "../../../src/tree/batch-executor.js";
-import { KilnError } from "../../../src/engine/errors.js";
 import type { StrategyContext, StrategyHandler } from "../../../src/orchestrator/strategies/index.js";
 import type { Team } from "../../../src/engine/composites/team.js";
 import type { HandoffRequestedEvent } from "../../../src/events/index.js";
@@ -147,13 +146,8 @@ describe("SwarmStrategy", () => {
     });
 
     const strategy = new SwarmStrategy();
-    try {
-      await strategy.execute(ctx, handler);
-      expect.fail("should have thrown");
-    } catch (err) {
-      expect(err).toBeInstanceOf(KilnError);
-      expect((err as Error).message).toMatch(/cycle/i);
-    }
+    const nodes = await strategy.execute(ctx, handler);
+    expect(nodes.some(n => n.status === "refuted")).toBe(true);
   });
 
   it("enforces max handoff depth", async () => {
@@ -179,8 +173,9 @@ describe("SwarmStrategy", () => {
     });
 
     const strategy = new SwarmStrategy({ maxHandoffDepth: 2 });
-    // Will either hit cycle detection or depth limit
-    await expect(strategy.execute(ctx, handler)).rejects.toThrow(KilnError);
+    // Cycle/depth limit marks tasks as refuted instead of throwing
+    const nodes = await strategy.execute(ctx, handler);
+    expect(nodes.some(n => n.status === "refuted")).toBe(true);
   });
 
   it("throws when fewer than 2 agents", async () => {

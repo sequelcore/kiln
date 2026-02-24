@@ -81,23 +81,9 @@ export class SessionManager {
       task: this.orchestrator?.task ?? "",
       domain: this.domain?.displayName ?? "Unknown",
       phaseReached: this.orchestrator?.currentPhase ?? "analyze",
-      phasesCompleted: 0,
-      totalPhases: 6,
-      tasksCompleted: 0,
-      tasksPruned: 0,
-      filesModified: 0,
       cost: {
         total: costSummary?.totalCostUsd ?? 0,
         byRole,
-      },
-      memory: {
-        recalled: 0,
-        saved: 0,
-      },
-      qualityGates: {
-        passed: 0,
-        failed: 0,
-        violations: [],
       },
       duration,
     };

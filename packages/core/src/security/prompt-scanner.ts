@@ -2,7 +2,7 @@
 
 import type { PromptScanResult, PromptThreat, PromptInjectionConfig } from "./types.js";
 import type { ProviderAdapter } from "../agents/index.js";
-import { textParts, extractText } from "../agents/index.js";
+import { textParts, extractText } from "../engine/domain/content.js";
 
 /** A single injection detection pattern */
 export interface InjectionPattern {

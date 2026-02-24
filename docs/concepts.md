@@ -140,7 +140,7 @@ See [Memory](guides/memory.md) for full configuration details.
 
 A Task is a unit of work in a tree structure. Agents can explore problems by creating subtasks (`deepen`), alternative approaches (`branch`), or abandoning dead ends (`prune`). A configurable `maxDepth` prevents unbounded recursion. Tasks are scored by a formula (`priority * depthDiscount^depth * (1 + evidenceBonus)`) to guide selection.
 
-Tasks are managed by agents via the `kiln_task_create` and `kiln_task_action` capabilities. The `BatchExecutor` selects tasks for concurrent execution across parallel worker instances.
+Tasks are managed internally by the orchestrator via the `TaskTree`. The `BatchExecutor` selects tasks for concurrent execution across parallel worker instances.
 
 ### Channel
 

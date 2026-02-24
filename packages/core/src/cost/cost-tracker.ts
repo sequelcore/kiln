@@ -1,6 +1,4 @@
 import type { AgentRole } from "../agents/index.js";
-import type { EventBus } from "../events/event-bus.js";
-import type { CostUpdateEvent } from "../events/index.js";
 import type { RoleUsage, ModelPricing, CostSummary } from "./index.js";
 
 /** Built-in pricing per million tokens for Claude models */
@@ -58,17 +56,8 @@ interface MutableRoleUsage {
  */
 export class CostTracker {
   private readonly usageByRole = new Map<AgentRole, MutableRoleUsage>();
-  private readonly eventBus: EventBus;
-  private readonly handler: (event: CostUpdateEvent) => void;
 
-  constructor(eventBus: EventBus) {
-    this.eventBus = eventBus;
-    this.handler = (_event: CostUpdateEvent) => {
-      // cost_update events are processed -- the CostTracker can react
-      // to externally emitted cost events if needed in the future.
-    };
-    this.eventBus.on("cost_update", this.handler);
-  }
+  constructor() {}
 
   /** Record token usage for a specific role and model */
   record(
@@ -146,10 +135,9 @@ export class CostTracker {
     };
   }
 
-  /** Clear all accumulated usage and unsubscribe from events */
+  /** Clear all accumulated usage */
   reset(): void {
     this.usageByRole.clear();
-    this.eventBus.off("cost_update", this.handler);
   }
 }
 

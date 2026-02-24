@@ -17,8 +17,6 @@ export interface VerificationResult {
 /** Verification loop configuration */
 export interface VerificationConfig {
   readonly maxIterations: number;
-  readonly checks: readonly string[];
-  readonly screenshotEnabled: boolean;
   readonly coverageThreshold: number;
 }
 
