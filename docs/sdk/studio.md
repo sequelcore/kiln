@@ -1,26 +1,30 @@
 # Kiln Studio
 
-Kiln Studio is a development UI served by the Gateway in dev mode. It provides a visual interface for inspecting app topology, running agent conversations, monitoring events, managing memory, and reviewing evaluation results.
+Kiln Studio is a development UI served in dev mode. It provides a visual interface for inspecting app topology, running agent conversations, monitoring events, managing memory, and reviewing evaluation results.
 
 Studio is an internal package (`@kilnai/studio`, private) built with React 19, Vite, TanStack Router, TanStack Query, and `@xyflow/react`. It is not published to npm.
 
 ## Accessing Studio
 
-Start the Gateway in dev mode:
-
 ```bash
 kiln dev
 ```
 
-Studio is served at `http://localhost:4000/studio/`. The `--playground` flag opens the browser automatically:
+Studio is served at `http://localhost:4800/studio/`. The `--playground` flag opens the browser automatically:
 
 ```bash
 kiln dev --playground
 ```
 
-The gateway auto-resolves `@kilnai/studio` at startup via `require.resolve("@kilnai/studio/package.json")` and serves the built SPA from its `dist/` directory. Static files are served at `/studio/*` using Hono's `serveStatic` middleware with SPA fallback (unmatched routes serve `index.html`). The `/dev/` path redirects to `/studio/` when the SPA is available.
+### Two Startup Modes
 
-When Studio is not installed or not built, the gateway falls back to an inline HTML debugger at `/dev/`. The fallback is read-only -- it provides event streaming and state inspection but no mutations.
+**With `gateway.yaml`** (Mode B consumers): `kiln dev` calls `startGateway()` with full app loading, channels, providers, and triggers. Studio has access to live sessions and the Playground view.
+
+**Without `gateway.yaml`** (Mode A consumers): `kiln dev` calls `startDevServer()` -- a lightweight Bun/Hono server with Studio + dev API endpoints only. No providers, channels, or sessions. Graph View and YAML editor work from `app.yaml` if present.
+
+Both modes auto-resolve `@kilnai/studio` at startup via `require.resolve("@kilnai/studio/package.json")` and serve the built SPA at `/studio/*` using Hono's `serveStatic` middleware with SPA fallback. The `/dev/` path redirects to `/studio/` when the SPA is available.
+
+When Studio is not installed or not built, both modes fall back to an inline HTML debugger at `/dev/`. The fallback is read-only -- it provides event streaming and state inspection but no mutations.
 
 ## Views
 

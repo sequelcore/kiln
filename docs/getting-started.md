@@ -150,10 +150,15 @@ bunx kiln dev
 You will see output similar to:
 
 ```
-[kiln] Gateway started on port 4000
-[kiln] App "my-app" loaded (2 agents, 3 phases)
-[kiln] Studio available at http://localhost:4000/studio
-[kiln] Watching app.yaml for changes...
+Dev server started on port 4800
+Studio: http://localhost:4800/studio/
+```
+
+If a `gateway.yaml` exists, the full gateway starts instead:
+
+```
+Gateway started on port 4800 with 1 apps: my-app
+Studio: http://localhost:4800/studio/
 ```
 
 Any save to `app.yaml` or `gateway.yaml` restarts the affected app within ~300ms.
@@ -162,10 +167,10 @@ Any save to `app.yaml` or `gateway.yaml` restarts the affected app within ~300ms
 
 When you run `kiln dev`, the following sequence executes:
 
-1. **YAML parsed** -- `app.yaml` is read and mapped to raw typed structures
-2. **App validated** -- `validateApp()` checks all cross-references: agent tools must name declared capabilities, gate phase keys must exist in the workflow phase list, router fallback must name a real team
-3. **Gateway started** -- a Bun/Hono server binds to the configured port
-4. **Channels bound** -- each channel adapter (cli, web, api, etc.) is registered and connected
+1. **Config detected** -- if `gateway.yaml` exists, the full gateway starts; otherwise a lightweight dev server starts
+2. **YAML parsed** -- `app.yaml` is read and mapped to raw typed structures
+3. **App validated** -- `validateApp()` checks all cross-references: agent tools must name declared capabilities, gate phase keys must exist in the workflow phase list, router fallback must name a real team
+4. **Server started** -- a Bun/Hono server binds to port 4800 (override with `--port`)
 5. **Studio available** -- the dev UI is served at `/studio` with graph view, playground, timeline, memory inspector, and eval dashboard
 6. **Event stream open** -- `GET /dev/events` provides an SSE stream of all engine events
 
@@ -337,7 +342,7 @@ await createCli(config);
 
 | Command | Behavior |
 |---------|---------|
-| `my-app` (no args) | Starts dev mode (gateway + Studio at `:4000`) |
+| `my-app` (no args) | Starts dev mode (Studio dashboard at `:4800`) |
 | `my-app run "task"` | CLI session via Claude Code Agent SDK |
 | `my-app init` | Creates `.my-app/` in the current project |
 | `my-app serve` | Standalone MCP server over stdio |

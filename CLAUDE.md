@@ -119,7 +119,7 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 
 | File | Purpose |
 |------|---------|
-| `gateway/gateway-server.ts` | startGateway(): Bun.serve, multi-app, Mode B, triggers, dev mode |
+| `gateway/gateway-server.ts` | startGateway() + startDevServer(): Bun.serve, multi-app, Mode B, triggers, dev mode, lightweight Mode A dashboard |
 | `gateway/gateway-routes.ts` | Hono app factory: health + per-App routes + A2A + webhooks |
 | `gateway/mode-b-routes.ts` | POST /message, GET/DELETE /sessions |
 | `gateway/delegation-handler.ts` | DelegationRegistry, executeDelegation() (Kiln-native + A2A) |
