@@ -2,8 +2,10 @@
 // Resolves tenant by phone number, processes messages via Mode B orchestrator, replies via Cloud API
 
 import { Hono } from "hono";
-import type { ContentPart } from "@kilnai/core";
-import { textParts, extractText } from "@kilnai/core";
+import { join } from "node:path";
+import { mkdirSync } from "node:fs";
+import type { ContentPart, ToolDefinition } from "@kilnai/core";
+import { textParts, extractText, SqliteMemoryStore } from "@kilnai/core";
 import type { ModeBOrchestrator } from "../session/mode-b-orchestrator.js";
 import type { SessionRegistry } from "../session/session-registry.js";
 import type { TenantRegistry } from "../tenant/tenant-registry.js";
@@ -16,6 +18,8 @@ export interface WhatsAppWebhookConfig {
   readonly sessionRegistry: SessionRegistry;
   readonly tenantRegistry: TenantRegistry;
   readonly verifyToken: string;
+  /** Base path for per-tenant data (e.g. ~/.kiln/gateway/bonitas). Memory DBs stored under <basePath>/memory/ */
+  readonly memoryBasePath?: string;
 }
 
 interface MetaWebhookMessage {
@@ -41,6 +45,42 @@ interface MetaWebhookPayload {
     }>;
   }>;
 }
+
+/** Lazily-opened per-tenant memory stores. Keyed by tenantId. */
+const memoryStores = new Map<string, SqliteMemoryStore>();
+
+function getMemoryStore(memoryBasePath: string, tenantId: string): SqliteMemoryStore {
+  let store = memoryStores.get(tenantId);
+  if (store) return store;
+
+  const dir = join(memoryBasePath, "memory");
+  mkdirSync(dir, { recursive: true });
+
+  store = new SqliteMemoryStore({
+    dbPath: join(dir, `${tenantId}.db`),
+    layer: "user",
+    tenantId,
+  });
+  memoryStores.set(tenantId, store);
+  return store;
+}
+
+/** Tool definition for notify_owner -- injected when tenant has escalationContact */
+const NOTIFY_OWNER_TOOL: ToolDefinition = {
+  name: "notify_owner",
+  description: "Send a WhatsApp notification to the business owner. Use this when a customer wants to schedule an appointment, needs escalation, or when the owner needs to be informed about something. Include a clear summary of what the customer needs.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      message: {
+        type: "string",
+        description: "The message to send to the owner. Include customer name (if known), requested service, date/time, and phone number.",
+      },
+    },
+    required: ["message"],
+  },
+  tags: new Set(["builtin"]),
+};
 
 /** Parse a WhatsApp message into ContentPart[] */
 function parseWhatsAppMessageParts(msg: MetaWebhookMessage): readonly ContentPart[] | null {
@@ -172,6 +212,8 @@ async function processWhatsAppMessage(
   if (!tenant) return;
 
   const systemPrompt = buildTenantSystemPrompt(tenant);
+  const accessToken = accessTokenEnv ? process.env[accessTokenEnv] ?? "" : "";
+  const messageText = extractText(messageParts);
 
   const session = config.sessionRegistry.getOrCreate({
     appName: config.appName,
@@ -181,10 +223,52 @@ async function processWhatsAppMessage(
     idleTimeoutMs: tenant.idleTimeoutMs,
   });
 
-  const result = await config.orchestrator.processMessage(session, messageParts);
+  // --- Memory: recall past context about this user ---
+  let recalledMemory: string | undefined;
+  if (config.memoryBasePath) {
+    try {
+      const store = getMemoryStore(config.memoryBasePath, tenantId);
+      const query = `${senderPhone} ${messageText}`;
+      recalledMemory = await store.recall(query, 500) || undefined;
+    } catch (err) {
+      console.warn(`[whatsapp] Memory recall failed for tenant=${tenantId}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  // --- Tools: build per-call builtin tools ---
+  const callTools = new Map<string, (input: Record<string, unknown>) => Promise<unknown>>();
+
+  if (tenant.escalationContact?.phone) {
+    const ownerPhone = tenant.escalationContact.phone.replace(/\+/g, "");
+    callTools.set("notify_owner", async (input: Record<string, unknown>) => {
+      const msg = String(input.message ?? "");
+      const fullMessage = `[Ale - Notificación automática]\n\nCliente: ${senderPhone}\n${msg}`;
+
+      await sendWhatsAppMessage(phoneNumberId, accessToken, ownerPhone, {
+        type: "text",
+        text: { body: fullMessage },
+      });
+      console.log(`[whatsapp] Owner notified for tenant=${tenantId} owner=${ownerPhone}`);
+      return { success: true, message: "Owner has been notified." };
+    });
+  }
+
+  // Register notify_owner tool definition on the orchestrator if not already present
+  if (callTools.size > 0 && config.orchestrator.tools) {
+    const hasNotifyTool = config.orchestrator.tools.some((t) => t.name === "notify_owner");
+    if (!hasNotifyTool) {
+      config.orchestrator.registerTools([NOTIFY_OWNER_TOOL]);
+    }
+  }
+
+  const result = await config.orchestrator.processMessage(
+    session,
+    messageParts,
+    recalledMemory,
+    callTools.size > 0 ? callTools : undefined,
+  );
 
   // Reply via WhatsApp Cloud API
-  const accessToken = accessTokenEnv ? process.env[accessTokenEnv] ?? "" : "";
   const replyText = extractText(result.parts);
 
   try {
@@ -196,5 +280,19 @@ async function processWhatsAppMessage(
     console.warn(
       `[whatsapp] Failed to send reply -- phoneNumberId=${phoneNumberId} recipient=${senderPhone} error=${err instanceof Error ? err.message : String(err)}`,
     );
+  }
+
+  // --- Memory: save what was learned from this exchange ---
+  if (config.memoryBasePath && messageText.length > 5) {
+    try {
+      const store = getMemoryStore(config.memoryBasePath, tenantId);
+      await store.save({
+        layer: "user",
+        content: `[${senderPhone}] User: ${messageText}\nAssistant: ${replyText}`,
+        tags: [senderPhone],
+      });
+    } catch (err) {
+      console.warn(`[whatsapp] Memory save failed for tenant=${tenantId}: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 }

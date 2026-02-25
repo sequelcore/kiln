@@ -20,6 +20,7 @@ export interface OrchestratorDeps {
   readonly maxToolRounds?: number;
   readonly tools?: readonly ToolDefinition[];
   readonly mcpClients?: readonly McpClient[];
+  readonly builtinTools?: ReadonlyMap<string, (input: Record<string, unknown>) => Promise<unknown>>;
   readonly eventBus?: EventBus;
 }
 
@@ -34,10 +35,13 @@ export interface OrchestrateResult {
 export class ModeBOrchestrator {
   private readonly deps: OrchestratorDeps;
   private readonly maxToolRounds: number;
+  private _tools: readonly ToolDefinition[] | undefined;
+  private _callBuiltinTools?: ReadonlyMap<string, (input: Record<string, unknown>) => Promise<unknown>>;
 
   constructor(deps: OrchestratorDeps) {
     this.deps = deps;
     this.maxToolRounds = deps.maxToolRounds ?? DEFAULT_MAX_TOOL_ROUNDS;
+    this._tools = deps.tools;
     if (!deps.model) {
       console.warn("[ModeBOrchestrator] No model specified in deps -- cost tracking will be $0. Pass model to OrchestratorDeps for accurate cost reporting.");
     }
@@ -48,10 +52,26 @@ export class ModeBOrchestrator {
     return this.deps.model;
   }
 
+  /** Current tool definitions. */
+  get tools(): readonly ToolDefinition[] | undefined {
+    return this._tools;
+  }
+
+  /** Register additional tool definitions at runtime (e.g. builtin tools discovered per-tenant). */
+  registerTools(newTools: readonly ToolDefinition[]): void {
+    const existing = this._tools ?? [];
+    const names = new Set(existing.map((t) => t.name));
+    const additions = newTools.filter((t) => !names.has(t.name));
+    if (additions.length > 0) {
+      this._tools = [...existing, ...additions];
+    }
+  }
+
   async processMessage(
     session: ModeBSession,
     userParts: readonly ContentPart[],
     recalledMemory?: string,
+    callBuiltinTools?: ReadonlyMap<string, (input: Record<string, unknown>) => Promise<unknown>>,
   ): Promise<OrchestrateResult> {
     session.addUserMessage(userParts);
 
@@ -60,7 +80,11 @@ export class ModeBOrchestrator {
       system += "\n\n--- Recalled Memory ---\n" + recalledMemory;
     }
 
-    const hasTools = this.deps.tools && this.deps.tools.length > 0 && this.deps.mcpClients && this.deps.mcpClients.length > 0;
+    // Merge dep-level and per-call builtin tools
+    this._callBuiltinTools = callBuiltinTools;
+    const hasBuiltins = (this.deps.builtinTools?.size ?? 0) + (callBuiltinTools?.size ?? 0) > 0;
+    const hasMcp = (this.deps.mcpClients?.length ?? 0) > 0;
+    const hasTools = (this._tools?.length ?? 0) > 0 && (hasBuiltins || hasMcp);
 
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
@@ -73,7 +97,7 @@ export class ModeBOrchestrator {
       const response = await this.deps.provider.createMessage({
         system,
         messages,
-        tools: hasTools ? this.deps.tools : undefined,
+        tools: hasTools ? this._tools : undefined,
         maxTokens: this.deps.maxTokens,
       });
 
@@ -168,19 +192,25 @@ export class ModeBOrchestrator {
   }
 
   private async executeTool(tc: ToolCall): Promise<unknown> {
-    if (!this.deps.mcpClients) {
-      throw new Error("No MCP clients configured");
-    }
+    // Check per-call builtin tools first, then dep-level builtins
+    const callBuiltin = this._callBuiltinTools?.get(tc.name);
+    if (callBuiltin) return callBuiltin(tc.input);
 
-    for (const client of this.deps.mcpClients) {
-      try {
-        return await client.executeTool(tc.name, tc.input);
-      } catch {
-        continue;
+    const depBuiltin = this.deps.builtinTools?.get(tc.name);
+    if (depBuiltin) return depBuiltin(tc.input);
+
+    // Fall back to MCP clients
+    if (this.deps.mcpClients) {
+      for (const client of this.deps.mcpClients) {
+        try {
+          return await client.executeTool(tc.name, tc.input);
+        } catch {
+          continue;
+        }
       }
     }
 
-    throw new Error(`Tool "${tc.name}" not found on any MCP server`);
+    throw new Error(`Tool "${tc.name}" not found`);
   }
 
   private emitToolCalled(sessionId: string, toolName: string): void {
