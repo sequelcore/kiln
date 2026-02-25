@@ -1,15 +1,9 @@
-/**
- * Dev-mode only -- requires a dev-mode gateway (`/dev/memory` routes).
- * This hook will fail at runtime if the gateway is not started in dev mode.
- */
-
 import { useCallback, useState } from "react";
 import { useKilnContext } from "./provider.js";
 import type { CreateMemoryInput, MemoryEntry, UseMemoryReturn } from "./types.js";
 
 /**
- * Read, create, and delete memory entries via the dev-mode gateway.
- * @dev Only works when connected to a gateway started with `kiln dev`.
+ * Read, create, and delete memory entries via the gateway memory API.
  */
 export function useKilnMemory(scope: string): UseMemoryReturn {
   const { client } = useKilnContext();
@@ -21,7 +15,7 @@ export function useKilnMemory(scope: string): UseMemoryReturn {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await client.get<MemoryEntry[]>(`/dev/memory/${scope}`);
+      const data = await client.get<MemoryEntry[]>(`/api/memory/${scope}`);
       setEntries(data);
     } catch (e) {
       setError(e instanceof Error ? e : new Error(String(e)));
@@ -34,7 +28,7 @@ export function useKilnMemory(scope: string): UseMemoryReturn {
     async (entry: CreateMemoryInput) => {
       setError(null);
       try {
-        await client.post("/dev/memory", { ...entry, scope });
+        await client.post("/api/memory", { ...entry, scope });
         await refresh();
       } catch (e) {
         setError(e instanceof Error ? e : new Error(String(e)));
@@ -47,7 +41,7 @@ export function useKilnMemory(scope: string): UseMemoryReturn {
     async (id: string) => {
       setError(null);
       try {
-        await client.delete(`/dev/memory/${id}`);
+        await client.delete(`/api/memory/${id}`);
         await refresh();
       } catch (e) {
         setError(e instanceof Error ? e : new Error(String(e)));

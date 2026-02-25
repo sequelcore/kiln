@@ -124,6 +124,7 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `gateway/mode-b-routes.ts` | POST /message, GET/DELETE /sessions |
 | `gateway/delegation-handler.ts` | DelegationRegistry, executeDelegation() (Kiln-native + A2A) |
 | `gateway/budget-middleware.ts` | checkBudget(), reportUsage() -- fail-open |
+| `gateway/memory-routes.ts` | Production memory routes: /api/memory (all modes) |
 | `gateway/dev-routes.ts` | Dev-mode: /dev/state, /dev/events (SSE), /dev/memory, /dev/cost, /dev/safety, /dev/token, /dev/run |
 | `gateway/dev-token-store.ts` | In-memory sliding-window TTL token store for dev-mode WebSocket auth |
 | `gateway/dev-orchestrator.ts` | DevOrchestrator: bridges core Orchestrator with ApprovalGateRegistry and gateway EventBus |

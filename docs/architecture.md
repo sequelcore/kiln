@@ -251,7 +251,7 @@ export class KilnError extends Error {
 | `tool_result` | `toolName`, `taskId`, `durationMs`, `success` |
 | `thinking` | `role`, `content` |
 | `verification_result` | `passed`, `iteration`, `maxIterations`, `checks` |
-| `cost_update` | `inputTokens`, `outputTokens`, `totalCostUsd`, `byRole` |
+| `cost_update` | `inputTokens`, `outputTokens`, `totalCostUsd`, `byRole`. Requires `model` in `OrchestratorDeps`; defaults to $0 if missing. |
 | `memory_saved` | `memoryId`, `layer`, `tags` |
 | `memory_recalled` | `query`, `resultsCount` |
 | `memory_sync` | `imported`, `entries`, `developers` |

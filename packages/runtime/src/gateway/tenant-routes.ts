@@ -98,7 +98,7 @@ export function createTenantRoutes(runtime: TenantAppRuntime): Hono {
       const billingUserId = `${body.tenantId}:${body.userId}`;
       reportUsage(billingConfig, billingUserId, {
         tokens: result.inputTokens + result.outputTokens,
-        model: "default",
+        model: runtime.orchestrator.model ?? "unknown",
         role: "assistant",
       });
     }

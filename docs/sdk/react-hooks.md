@@ -176,9 +176,7 @@ This hook is intended for dev tooling and the Studio. For production monitoring,
 
 ## useKilnMemory
 
-> **Note:** This hook only works when connected to a gateway started with `kiln dev`. The `/dev/memory` routes are not available in production mode.
-
-Provides CRUD access to a specific memory scope via the dev API.
+Provides CRUD access to a specific memory scope via the `/api/memory` routes.
 
 ```typescript
 function useKilnMemory(scope: string): UseMemoryReturn
@@ -228,7 +226,7 @@ function MemoryPanel() {
 }
 ```
 
-Entries are not loaded automatically on mount — call `refresh()` explicitly. `create()` calls `POST /dev/memory` then calls `refresh()`. `remove()` calls `DELETE /dev/memory/{id}` then calls `refresh()`.
+Entries are not loaded automatically on mount — call `refresh()` explicitly. `create()` calls `POST /api/memory` then calls `refresh()`. `remove()` calls `DELETE /api/memory/{id}` then calls `refresh()`.
 
 Scope values match the engine's `MemoryScope` type: `"user"`, `"agent:{role}"`, `"team:{name}"`, `"project:{path}"`, `"org"`.
 

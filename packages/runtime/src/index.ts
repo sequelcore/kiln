@@ -20,6 +20,8 @@ export { createWhatsAppWebhookRoutes } from "./gateway/whatsapp-webhook-routes.j
 export type { WhatsAppWebhookConfig } from "./gateway/whatsapp-webhook-routes.js";
 export { createTenantAdminRoutes } from "./gateway/tenant-admin-routes.js";
 export type { TenantAdminRoutesConfig } from "./gateway/tenant-admin-routes.js";
+export { createMemoryRoutes } from "./gateway/memory-routes.js";
+export type { MemoryRoutesConfig } from "./gateway/memory-routes.js";
 export { ApprovalGateRegistry } from "./gateway/approval-registry.js";
 export type { ApprovalTarget } from "./gateway/approval-registry.js";
 export { DevOrchestrator } from "./gateway/dev-orchestrator.js";

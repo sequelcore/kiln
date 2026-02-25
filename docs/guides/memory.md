@@ -135,11 +135,21 @@ This enforcement is transparent to agents and capabilities — isolation happens
 
 ---
 
-## Dev API
+## Memory API
 
-In dev mode, the Gateway creates three SQLite stores (one per layer: `user`, `agent`, `project`) under `{memoryBasePath}/dev/`. The dev routes (`/dev/memory/:scope`, `POST /dev/memory`, `DELETE /dev/memory/:id`) delegate to these stores.
+The Gateway exposes production memory routes at `/api/memory`, available in all modes (dev and production):
 
-`SqliteMemoryStore` exposes two methods used by the dev API:
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/memory/:scope` | List memory entries for a scope. Accepts optional `q` (query) and `tags` query params. |
+| `POST` | `/api/memory` | Create a memory entry. Returns `{ id }`. |
+| `DELETE` | `/api/memory/:id` | Delete a memory entry by ID. Returns `{ ok: true }` or 404. |
+
+The SDK's `useKilnMemory` hook targets these routes. In dev mode, the same endpoints are also mirrored at `/dev/memory` for Studio and the inline debugger.
+
+The Gateway creates three SQLite stores (one per layer: `user`, `agent`, `project`) under `{memoryBasePath}/`. The memory routes delegate to these stores.
+
+`SqliteMemoryStore` exposes two methods used by the memory API:
 
 - **`listEntries(options?)`** — Scans entries without FTS, ordered by `last_accessed_at DESC`. Accepts optional `limit` and `tags` (comma-separated) filters. Respects tenant isolation when configured.
-- **`hasEntry(id)`** — Checks if an entry exists by primary key. Used by `DELETE /dev/memory/:id` to locate which layer store holds the entry.
+- **`hasEntry(id)`** — Checks if an entry exists by primary key. Used by `DELETE /api/memory/:id` to locate which layer store holds the entry.

@@ -266,6 +266,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
 
     const orchestrator = new ModeBOrchestrator({
       provider,
+      model: resolved.modeBConfig.provider.model,
       tools: tools.length > 0 ? tools : undefined,
       mcpClients: mcpClients.length > 0 ? mcpClients : undefined,
       eventBus: gatewayEventBus,

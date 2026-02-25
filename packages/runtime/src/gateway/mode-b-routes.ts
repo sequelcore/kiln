@@ -90,7 +90,7 @@ export function createModeBRoutes(runtime: ModeBAppRuntime): Hono {
     if (runtime.billing) {
       reportUsage(runtime.billing, body.userId, {
         tokens: result.inputTokens + result.outputTokens,
-        model: "default",
+        model: runtime.orchestrator.model ?? "unknown",
         role: "assistant",
       });
     }

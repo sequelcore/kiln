@@ -38,6 +38,14 @@ export class ModeBOrchestrator {
   constructor(deps: OrchestratorDeps) {
     this.deps = deps;
     this.maxToolRounds = deps.maxToolRounds ?? DEFAULT_MAX_TOOL_ROUNDS;
+    if (!deps.model) {
+      console.warn("[ModeBOrchestrator] No model specified in deps -- cost tracking will be $0. Pass model to OrchestratorDeps for accurate cost reporting.");
+    }
+  }
+
+  /** The model identifier passed to this orchestrator. Used by callers for usage reporting. */
+  get model(): string | undefined {
+    return this.deps.model;
   }
 
   async processMessage(
@@ -219,7 +227,11 @@ export class ModeBOrchestrator {
 
   private get resolvedPricing(): ModelPricing | undefined {
     if (!this.deps.model) return undefined;
-    return MODEL_PRICING.get(this.deps.model);
+    const pricing = MODEL_PRICING.get(this.deps.model);
+    if (!pricing) {
+      console.warn(`[ModeBOrchestrator] Model "${this.deps.model}" not found in MODEL_PRICING -- cost will be $0. Add it to the pricing table or use a known model identifier.`);
+    }
+    return pricing;
   }
 
   private emitCostUpdate(

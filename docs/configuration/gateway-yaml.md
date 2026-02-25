@@ -184,15 +184,23 @@ When budget is exhausted, `POST /message` returns `{ content: "...", budgetExhau
 | `POST` | `/_internal/delegation/delegate` | Execute a cross-App delegation. |
 | `GET` | `/_internal/delegation/delegation-targets` | List Apps registered as delegation targets. |
 
+### Memory Routes (all modes)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/memory/:scope` | Memory entries for a scope. Accepts `q` and `tags` query params. |
+| `POST` | `/api/memory` | Create a memory entry. Returns `{ id }`. |
+| `DELETE` | `/api/memory/:id` | Delete a memory entry by ID. |
+
 ### Dev Routes (devMode only)
 
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/dev/state` | App state summary. |
 | `GET` | `/dev/events` | SSE event stream. |
-| `GET` | `/dev/memory/:scope` | Memory entries for a scope. |
-| `POST` | `/dev/memory` | Write a memory entry. |
-| `DELETE` | `/dev/memory/:id` | Delete a memory entry. |
+| `GET` | `/dev/memory/:scope` | Memory entries for a scope (mirrors `/api/memory/:scope`). |
+| `POST` | `/dev/memory` | Write a memory entry (mirrors `/api/memory`). |
+| `DELETE` | `/dev/memory/:id` | Delete a memory entry (mirrors `/api/memory/:id`). |
 | `GET` | `/dev/cost` | Cost summary. |
 | `GET` | `/dev/apps` | Loaded App list. |
 | `GET` | `/dev/triggers` | Trigger registry state. |
@@ -292,7 +300,7 @@ A single turn with `fast` tier costs approximately $0.001. A full multi-turn ses
 1. Parse and validate `gateway.yaml`. Throw `GatewayLoaderError` on invalid config.
 2. Load all App YAML files via `resolveApps()`. Assign memory paths (`~/.kiln/gateway/{appName}/`).
 3. Instantiate `ChannelRegistry` per App.
-4. Initialize `ModeBOrchestrator` for each Mode B App.
+4. Initialize `ModeBOrchestrator` for each Mode B App. The `model` field from each App's provider config is passed to `OrchestratorDeps` for accurate cost tracking. If `model` is omitted, a warning is logged and costs default to $0.
 5. Build `DelegationRegistry` from all Mode B Apps.
 6. Initialize `SafetyPipeline` for each App with a `safety` block.
 7. Mount all Hono routes: health, per-App routes, trigger webhooks, delegation internal.
