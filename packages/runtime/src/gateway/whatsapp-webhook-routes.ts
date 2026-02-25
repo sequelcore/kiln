@@ -35,6 +35,7 @@ interface MetaWebhookPayload {
       value: {
         messaging_product: string;
         metadata?: { phone_number_id?: string };
+        contacts?: Array<{ profile?: { name?: string }; wa_id: string }>;
         messages?: MetaWebhookMessage[];
       };
     }>;
@@ -111,16 +112,30 @@ export function createWhatsAppWebhookRoutes(config: WhatsAppWebhookConfig): Hono
 
         // Resolve tenant by phone number
         const tenant = config.tenantRegistry.resolveByPhone(phoneNumberId, config.appName);
-        if (!tenant) continue;
+        if (!tenant) {
+          console.warn(`[whatsapp] No tenant found for phone_number_id=${phoneNumberId} app=${config.appName}`);
+          continue;
+        }
+
+        const contacts = change.value.contacts ?? [];
 
         for (const msg of messages) {
           const msgParts = parseWhatsAppMessageParts(msg);
-          if (!msgParts) continue;
+          if (!msgParts) {
+            console.warn(`[whatsapp] Unsupported message type=${msg.type} from=${msg.from}`);
+            continue;
+          }
+
+          // Resolve canonical reply address from contacts; fall back to msg.from
+          const contact = contacts.find((c) => c.wa_id === msg.from);
+          const replyTo = contact?.wa_id ?? msg.from;
+
+          console.log(`[whatsapp] Received message from=${replyTo} tenant=${tenant.tenantId} type=${msg.type}`);
 
           const promise = processWhatsAppMessage(
             config,
             tenant.tenantId,
-            msg.from,
+            replyTo,
             msgParts,
             phoneNumberId,
             tenant.whatsappAccessToken,
@@ -130,8 +145,14 @@ export function createWhatsAppWebhookRoutes(config: WhatsAppWebhookConfig): Hono
       }
     }
 
-    // Fire and forget -- don't await (but handle errors)
-    Promise.allSettled(processPromises).catch(() => {});
+    // Fire and forget -- log any failures from settled promises
+    Promise.allSettled(processPromises).then((results) => {
+      for (const result of results) {
+        if (result.status === "rejected") {
+          console.warn("[whatsapp] Message processing failed:", result.reason);
+        }
+      }
+    });
 
     return c.text("OK", 200);
   });
@@ -171,7 +192,9 @@ async function processWhatsAppMessage(
       type: "text",
       text: { body: replyText },
     });
-  } catch {
-    // Fire and forget - errors are logged but not thrown
+  } catch (err) {
+    console.warn(
+      `[whatsapp] Failed to send reply -- phoneNumberId=${phoneNumberId} recipient=${senderPhone} error=${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 }

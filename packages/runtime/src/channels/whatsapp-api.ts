@@ -32,7 +32,7 @@ export async function sendWhatsAppMessage(
   to: string,
   body: Record<string, unknown>,
 ): Promise<Response> {
-  return fetch(whatsappMessagesUrl(phoneNumberId), {
+  const res = await fetch(whatsappMessagesUrl(phoneNumberId), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -44,4 +44,9 @@ export async function sendWhatsAppMessage(
       ...body,
     }),
   });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "(unreadable)");
+    throw new Error(`WhatsApp API error ${res.status}: ${text}`);
+  }
+  return res;
 }
