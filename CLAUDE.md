@@ -38,7 +38,7 @@ Bun monorepo with 5 packages:
 | gateway | `runtime/src/gateway/` | Multi-app loading, Mode B routes, budget middleware, delegation, dev routes, safety/security middleware |
 | a2a | `runtime/src/a2a/` | A2AClient (outbound delegation only) |
 | trigger | `runtime/src/trigger/` | TriggerRegistry, webhook handler (HMAC-SHA256), event listener, cron scheduler |
-| session | `runtime/src/session/` | ModeBSession, ModeBOrchestrator, SessionRegistry |
+| session | `runtime/src/session/` | ModeBSession, ModeBOrchestrator (builtin tools, per-call tools, recalledMemory), SessionRegistry |
 | tenant | `runtime/src/tenant/` | TenantRegistry (JSON persistence), system prompt builder |
 | channels | `runtime/src/channels/` | 5 adapters (CLI, Web, WhatsApp, Slack, API), ChannelRouter, formatForChannel |
 | sdk | `sdk/src/` | React hooks (useKilnChat, useKilnWsChat, useKilnEvents, useKilnMemory, useKilnState, useApproval), ApiClient, SseClient. Types-only import from core. |
@@ -124,6 +124,7 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `gateway/mode-b-routes.ts` | POST /message, GET/DELETE /sessions |
 | `gateway/delegation-handler.ts` | DelegationRegistry, executeDelegation() (Kiln-native + A2A) |
 | `gateway/budget-middleware.ts` | checkBudget(), reportUsage() -- fail-open |
+| `gateway/whatsapp-webhook-routes.ts` | WhatsApp webhook: tenant resolution, persistent memory (SQLite), builtin notify_owner tool |
 | `gateway/memory-routes.ts` | Production memory routes: /api/memory (all modes) |
 | `gateway/dev-routes.ts` | Dev-mode: /dev/state, /dev/events (SSE), /dev/memory, /dev/cost, /dev/safety, /dev/token, /dev/run |
 | `gateway/dev-token-store.ts` | In-memory sliding-window TTL token store for dev-mode WebSocket auth |
