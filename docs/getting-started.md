@@ -222,6 +222,10 @@ bun run test
 - [App Configuration](configuration/app-yaml.md) -- full `app.yaml` schema reference
 - [Channels](guides/channels.md) -- configure WhatsApp, Slack, and other adapters
 
+## Examples
+
+- [`examples/whatsapp-bot/`](../examples/whatsapp-bot/) -- complete WhatsApp business chatbot with persistent memory, real pricing, and owner notification
+
 ---
 
 ## Building a Consumer App

@@ -145,6 +145,8 @@ channels:
 
 The `phoneNumber` in `gateway.yaml` must be unique across all Apps.
 
+**Multi-tenant mode.** For SaaS products serving multiple businesses through one WhatsApp number, use `multiTenant: true` with `verifyTokenEnv`. This enables tenant resolution by `phone_number_id`, persistent per-tenant memory (SQLite + FTS5), and builtin `notify_owner` tool for real-time escalation to the business owner. See [`examples/whatsapp-bot/`](../../examples/whatsapp-bot/) for a complete working example.
+
 ---
 
 ### Slack

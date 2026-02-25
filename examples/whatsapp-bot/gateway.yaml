@@ -1,0 +1,9 @@
+port: 3800
+
+apps:
+  - name: my-shop
+    config: apps/my-shop/app.yaml
+    channels:
+      - type: whatsapp
+        multiTenant: true
+        verifyTokenEnv: MY_WHATSAPP_WEBHOOK_SECRET

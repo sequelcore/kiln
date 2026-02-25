@@ -1,0 +1,42 @@
+name: my-shop
+
+runtime: provider-adapter
+
+channels: [whatsapp]
+
+provider:
+  name: anthropic
+  model: claude-haiku-4-5-20251001
+  apiKeyEnv: ANTHROPIC_API_KEY
+
+memory:
+  scopes: [user]
+  backend: sqlite+fts5
+
+router:
+  rules: []
+  fallback: support
+
+teams:
+  support:
+    agents:
+      assistant:
+        name: Assistant
+        role: Virtual receptionist
+        goal: |
+          Answer customer questions about services, prices, and hours.
+          Capture appointment requests and notify the owner.
+          Never fabricate information -- if unsure, offer to check and confirm.
+        backstory: |
+          You are a friendly virtual assistant for a small business.
+          You communicate via WhatsApp -- keep messages short, natural, and human.
+          Never use Markdown formatting, bullet points, or asterisks.
+        tier: fast
+        tools: []
+
+    workflow:
+      phases: [respond]
+      gates: {}
+
+    capabilities: []
+    qualityGates: []
