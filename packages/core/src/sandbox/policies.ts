@@ -75,48 +75,24 @@ export class SandboxPolicy {
 
   canRead(filePath: string): boolean {
     if (this._config.fsPolicy === "none") return false;
-
-    const resolved = resolve(filePath);
-
-    // Find the most specific (longest) matching allowed and denied paths
-    const matchedAllow = this._resolvedAllowedPaths
-      .filter((a) => resolved.startsWith(a))
-      .reduce<string | null>((best, a) => (best === null || a.length > best.length ? a : best), null);
-
-    const matchedDeny = this._resolvedDeniedPaths
-      .filter((d) => resolved.startsWith(d))
-      .reduce<string | null>((best, d) => (best === null || d.length > best.length ? d : best), null);
-
-    if (matchedAllow !== null && matchedDeny !== null) {
-      // Most specific rule wins
-      return matchedAllow.length >= matchedDeny.length;
-    }
-
-    if (matchedDeny !== null) return false;
-
-    if (this._resolvedAllowedPaths.length > 0) {
-      return matchedAllow !== null;
-    }
-
-    return true;
+    return this.resolvePathAccess(resolve(filePath));
   }
 
   canWrite(filePath: string): boolean {
     if (this._config.fsPolicy !== "read-write") return false;
+    return this.resolvePathAccess(resolve(filePath));
+  }
 
-    const resolved = resolve(filePath);
-
-    // Find the most specific (longest) matching allowed and denied paths
+  private resolvePathAccess(resolvedPath: string): boolean {
     const matchedAllow = this._resolvedAllowedPaths
-      .filter((a) => resolved.startsWith(a))
+      .filter((a) => resolvedPath.startsWith(a))
       .reduce<string | null>((best, a) => (best === null || a.length > best.length ? a : best), null);
 
     const matchedDeny = this._resolvedDeniedPaths
-      .filter((d) => resolved.startsWith(d))
+      .filter((d) => resolvedPath.startsWith(d))
       .reduce<string | null>((best, d) => (best === null || d.length > best.length ? d : best), null);
 
     if (matchedAllow !== null && matchedDeny !== null) {
-      // Most specific rule wins
       return matchedAllow.length >= matchedDeny.length;
     }
 

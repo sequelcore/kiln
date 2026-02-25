@@ -18,15 +18,20 @@ export interface SseCallbacks {
   onDisconnect(): void;
 }
 
+const DEFAULT_RECONNECT_DELAY_MS = 3000;
+
 export class SseClient {
   private source: EventSource | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  private readonly reconnectDelay = 3000;
+  private readonly reconnectDelay: number;
 
   constructor(
     private readonly url: string,
     private readonly callbacks: SseCallbacks,
-  ) {}
+    reconnectDelayMs?: number,
+  ) {
+    this.reconnectDelay = reconnectDelayMs ?? DEFAULT_RECONNECT_DELAY_MS;
+  }
 
   connect(): void {
     if (this.source) return;

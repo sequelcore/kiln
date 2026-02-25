@@ -21,7 +21,7 @@ App (app.yaml)
 |       +-- Capabilities (MCP tools)
 |       +-- QualityGates (shell commands)
 +-- Memory (scoped storage, SQLite or PostgreSQL)
-+-- Channels (CLI, Web, WhatsApp, Slack, API, Voice)
++-- Channels (CLI, Web, WhatsApp, Slack, API)
 +-- Triggers (webhook, event, schedule)
 ```
 
@@ -157,7 +157,6 @@ channels: [cli, web, api]
 | `whatsapp` | short | WhatsApp Business API | text, image, audio, file |
 | `slack` | full | Slack Bot Events + Web API | text, image, file |
 | `api` | structured | HTTP REST + SSE | text, image, audio, file |
-| `voice` | full | STT/TTS pipeline | text, audio |
 
 Messages use `ContentPart[]` -- a discriminated union of `TextPart`, `ImagePart`, `AudioPart`, and `FilePart`. This is the internal message format across all channels and agent interactions. See [Content Model](#content-model) below.
 
@@ -329,7 +328,7 @@ All messages in Kiln use `ContentPart[]` -- a discriminated union supporting fou
 |------|--------|-----|
 | `text` | `text: string` | All channels; default type |
 | `image` | `url: string`, `mimeType: string` | Web, WhatsApp, Slack, API |
-| `audio` | `data: string` (base64), `mimeType: string` | Voice, WhatsApp, Web, API |
+| `audio` | `data: string` (base64), `mimeType: string` | WhatsApp, Web, API |
 | `file` | `url: string`, `name: string`, `mimeType: string` | Web, WhatsApp, Slack, API |
 
 Text-only messages are represented as `[{ type: "text", text: "..." }]`. Helper functions `textParts()` and `extractText()` simplify working with text-only payloads. Each channel declares `supportedModalities` and silently drops content parts it cannot render.

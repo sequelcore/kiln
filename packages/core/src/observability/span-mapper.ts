@@ -86,7 +86,11 @@ function mapToolCalled(e: ToolCalledEvent): SpanOperation {
         action: "startSpan",
         name: e.toolName,
         kind: "tool",
-        attributes: { toolName: e.toolName, taskId: e.taskId, workerIndex: e.workerIndex },
+        attributes: {
+            toolName: e.toolName,
+            ...(e.taskId !== undefined ? { taskId: e.taskId } : {}),
+            ...(e.workerIndex !== undefined ? { workerIndex: e.workerIndex } : {}),
+        },
     };
 }
 
@@ -94,7 +98,12 @@ function mapToolResult(e: ToolResultEvent): SpanOperation {
     return {
         action: "endSpan",
         status: e.success ? "ok" : "error",
-        attributes: { toolName: e.toolName, taskId: e.taskId, durationMs: e.durationMs, success: e.success },
+        attributes: {
+            toolName: e.toolName,
+            ...(e.taskId !== undefined ? { taskId: e.taskId } : {}),
+            durationMs: e.durationMs,
+            success: e.success,
+        },
     };
 }
 

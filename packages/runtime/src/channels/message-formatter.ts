@@ -1,77 +1,17 @@
-// MessageFormatter: unified SDK message formatting for all channel adapters
-// Single source of truth -- replaces duplicate switch statements in run.ts and session-state.ts
+// MessageFormatter: unified channel output formatting
+// Single source of truth for adapting content to channel-specific formats
 
-import type { MessageFormat, ContentPart } from "@kilnai/core";
-import { extractText } from "@kilnai/core";
+import type { MessageFormat } from "@kilnai/core";
 
-/** A formatted output line ready for channel delivery */
-export interface OutputLine {
-  readonly text: string;
-  readonly stream: "stdout" | "stderr" | "system";
-  readonly timestamp: number;
-}
-
-/** Format an SDK message into an OutputLine. Handles all known message types. */
-export function formatSdkMessage(msg: { type: string; [key: string]: unknown }): OutputLine | null {
-  const timestamp = Date.now();
-
-  switch (msg.type) {
-    case "system/init":
-      return {
-        text: `[system] Model: ${(msg as { model?: string }).model ?? "unknown"}`,
-        stream: "system",
-        timestamp,
-      };
-    case "assistant/text":
-      return {
-        text: String((msg as { text?: string }).text ?? ""),
-        stream: "stdout",
-        timestamp,
-      };
-    case "assistant/tool_use": {
-      const toolMsg = msg as { name?: string; input?: unknown };
-      return {
-        text: `[tool] ${toolMsg.name ?? "unknown"}`,
-        stream: "system",
-        timestamp,
-      };
-    }
-    case "assistant/tool_result": {
-      const resultMsg = msg as { name?: string; output?: string };
-      const output = resultMsg.output;
-      if (output && output.length > 200) {
-        return { text: `[tool result] ${resultMsg.name}: ${output.slice(0, 197)}...`, stream: "system", timestamp };
-      }
-      return { text: `[tool result] ${resultMsg.name}: ${output ?? ""}`, stream: "system", timestamp };
-    }
-    case "result/success":
-      return {
-        text: `[result] ${String((msg as { result?: string }).result ?? "Session complete")}`,
-        stream: "system",
-        timestamp,
-      };
-    case "result/error":
-      return {
-        text: `[error] ${String((msg as { error?: string }).error ?? "Unknown error")}`,
-        stream: "stderr",
-        timestamp,
-      };
-    default:
-      return null;
-  }
-}
-
-/** Adapt content parts for a specific channel format (extracts text, applies formatting) */
-export function formatPartsForChannel(parts: readonly ContentPart[], format: MessageFormat): string {
-  return formatForChannel(extractText(parts), format);
-}
+/** WhatsApp Cloud API enforces a 4096-character limit per text message */
+const WHATSAPP_MAX_MESSAGE_LENGTH = 4096;
 
 /** Adapt content for a specific channel format */
 export function formatForChannel(content: string, format: MessageFormat): string {
   switch (format) {
     case "short":
       // Strip markdown, truncate for messaging platforms (WhatsApp, SMS)
-      return stripMarkdown(content).slice(0, 4096);
+      return stripMarkdown(content).slice(0, WHATSAPP_MAX_MESSAGE_LENGTH);
     case "full":
       // Keep full markdown (web, Slack)
       return content;

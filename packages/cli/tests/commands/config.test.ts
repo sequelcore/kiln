@@ -28,6 +28,8 @@ function readConfig(dir: string): ProjectConfig {
 
 const DEFAULT_CONFIG: ProjectConfig = {
   domain: "python",
+  channels: ["cli", "web"],
+  teamMode: "sequential",
   requireApproval: true,
   maxDepth: 3,
   parallelWorkers: 2,

@@ -18,7 +18,12 @@ export interface WsRoutesConfig {
 export function createWsRoutes(config: WsRoutesConfig): Hono {
   const app = new Hono();
 
-  let validatedUserId: string | undefined;
+  /**
+   * Per-request validated userId, scoped by token to avoid module-level mutable state.
+   * Entries are consumed (deleted) immediately in the upgrade handler, so concurrent
+   * requests with different tokens never collide.
+   */
+  const validatedUserIds = new Map<string, string>();
 
   app.get(
     "/ws",
@@ -28,17 +33,22 @@ export function createWsRoutes(config: WsRoutesConfig): Hono {
         if (!token) return c.text("Unauthorized", 401);
         const result = config.validateToken(token);
         if (!result.valid) return c.text("Unauthorized", 401);
-        validatedUserId = result.userId;
+        if (result.userId) {
+          validatedUserIds.set(token, result.userId);
+        }
       }
       await next();
     },
     config.upgradeWebSocket((c) => {
+      const token = c.req.query("token");
+      const validatedUserId = token ? validatedUserIds.get(token) : undefined;
+      if (token) validatedUserIds.delete(token);
+
       const userId =
         validatedUserId ??
         c.req.query("sessionId") ??
         c.req.query("userId") ??
         crypto.randomUUID();
-      validatedUserId = undefined;
 
       return {
         onOpen(_event: Event, ws: WSContext) {

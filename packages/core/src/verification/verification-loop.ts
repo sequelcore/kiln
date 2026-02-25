@@ -23,17 +23,20 @@ export class VerificationLoop {
   private readonly eventBus: EventBus;
   private readonly config: VerificationConfig;
   private readonly gates: readonly QualityGate[];
+  private readonly sessionId: string;
 
   constructor(opts: {
     gateRunner: GateRunnerPort;
     eventBus: EventBus;
     config: VerificationConfig;
     gates: readonly QualityGate[];
+    sessionId?: string;
   }) {
     this.gateRunner = opts.gateRunner;
     this.eventBus = opts.eventBus;
     this.config = opts.config;
     this.gates = opts.gates;
+    this.sessionId = opts.sessionId ?? "";
   }
 
   async run(fixHandler?: FixHandler): Promise<VerificationResult> {
@@ -74,7 +77,7 @@ export class VerificationLoop {
         maxIterations: this.config.maxIterations,
         checks: result.checks.map((c) => ({ name: c.name, passed: c.passed, output: c.output })),
         timestamp: new Date(),
-        sessionId: "",
+        sessionId: this.sessionId,
       };
       this.eventBus.emit(event);
 

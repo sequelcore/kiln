@@ -66,8 +66,9 @@ function printDomainHelp(appConfig: KilnAppConfig): void {
   console.log("");
 }
 
+/** Validate scoped npm package name: @scope/name with valid npm characters */
 function isValidPackageName(name: string): boolean {
-  return name.startsWith("@");
+  return /^@[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*$/.test(name);
 }
 
 async function installDomain(appConfig: KilnAppConfig, pkg: string | undefined, root: string): Promise<void> {
@@ -78,7 +79,7 @@ async function installDomain(appConfig: KilnAppConfig, pkg: string | undefined, 
 
   if (!isValidPackageName(pkg)) {
     console.error(`Invalid package name: ${pkg}`);
-    console.error("Package must be a scoped npm package (starts with @).");
+    console.error("Package must be a scoped npm package (e.g. @kilnai/domain-name).");
     return;
   }
 
@@ -170,21 +171,32 @@ async function searchDomains(query: string | undefined): Promise<void> {
     return;
   }
 
-  const result = await spawnCommand("npm", ["search", "--json", `@kiln-domains/${query}`]);
-  if (result.exitCode !== 0) {
-    console.error("Failed to search npm registry.");
+  // Use the npm registry API directly instead of shelling out to npm/bun,
+  // since bun has no native `search` command and we want to avoid requiring npm.
+  const url = `https://registry.npmjs.org/-/v1/search?text=@kilnai/${encodeURIComponent(query)}&size=20`;
+  let response: Response;
+  try {
+    response = await fetch(url);
+  } catch {
+    console.error("Failed to reach npm registry.");
     return;
   }
 
-  let results: { name: string; description: string; version: string }[];
+  if (!response.ok) {
+    console.error(`npm registry returned ${response.status}.`);
+    return;
+  }
+
+  let body: { objects?: { package: { name: string; description?: string; version: string } }[] };
   try {
-    results = JSON.parse(result.stdout) as typeof results;
+    body = (await response.json()) as typeof body;
   } catch {
     console.error("Failed to parse search results.");
     return;
   }
 
-  if (!Array.isArray(results) || results.length === 0) {
+  const results = body.objects ?? [];
+  if (results.length === 0) {
     console.log("No packages found.");
     return;
   }
@@ -194,8 +206,9 @@ async function searchDomains(query: string | undefined): Promise<void> {
   console.log(`${"─".repeat(35)} ${"─".repeat(12)} ${"─".repeat(40)}`);
 
   for (const r of results) {
+    const pkg = r.package;
     console.log(
-      `${r.name.padEnd(35)} ${(r.version ?? "").padEnd(12)} ${r.description ?? ""}`,
+      `${pkg.name.padEnd(35)} ${(pkg.version ?? "").padEnd(12)} ${pkg.description ?? ""}`,
     );
   }
   console.log("");

@@ -16,6 +16,12 @@ function jsonResult(data: unknown): CallToolResult {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
 
+/** MCP server identity passed to the MCP protocol handshake. */
+export interface McpServerInfo {
+  readonly name: string;
+  readonly version: string;
+}
+
 /**
  * MCP server exposing 7 Kiln tools via stdio or SSE transport.
  * Bridges the MCP protocol to the Orchestrator.
@@ -25,12 +31,15 @@ export class KilnMcpServer {
   private _httpServer: Server | null = null;
   private readonly _handlers: Map<KilnTool, ToolHandler>;
   private readonly _memoryManager: MemoryManager | null;
+  private readonly _serverInfo: McpServerInfo;
 
   constructor(
     private readonly orchestrator: Orchestrator,
     memoryManager?: MemoryManager,
+    serverInfo?: McpServerInfo,
   ) {
     this._memoryManager = memoryManager ?? null;
+    this._serverInfo = serverInfo ?? { name: "kiln", version: "0.2.1" };
     this._handlers = this._buildHandlers();
   }
 
@@ -84,7 +93,7 @@ export class KilnMcpServer {
 
   private _createMcpServer(): McpServer {
     return new McpServer(
-      { name: "kiln", version: "0.1.0" },
+      { name: this._serverInfo.name, version: this._serverInfo.version },
       { capabilities: { tools: {} } },
     );
   }
@@ -151,7 +160,9 @@ export class KilnMcpServer {
       const query = (args["query"] as string) ?? "";
       const layer = args["layer"] as MemoryLayer | undefined;
       const limit = args["limit"] as number | undefined;
-      const results = await this._memoryManager.search(query, layer, limit);
+      const results = layer
+        ? await this._memoryManager.searchByLayer(query, layer, limit)
+        : await this._memoryManager.search(query, limit);
       return jsonResult({
         results: results.map((r) => ({
           id: r.entry.id,
@@ -165,15 +176,13 @@ export class KilnMcpServer {
     });
 
     handlers.set("kiln_cost_track", (args) => {
-      const role = args["role"] as "architect" | "worker" | "optimizer";
+      const role = args["role"] as string;
+      const model = (args["model"] as string) ?? "unknown";
       const inputTokens = (args["inputTokens"] as number) ?? 0;
       const outputTokens = (args["outputTokens"] as number) ?? 0;
       const cacheReadTokens = (args["cacheReadTokens"] as number) ?? 0;
 
-      // Record via the orchestrator's EventBus -> CostTracker listens
-      // CostTracker.record needs a model string; use a default for MCP-reported usage
-      const costTracker = (this.orchestrator as unknown as { _costTracker: { record: (role: string, model: string, usage: { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number }) => void } })._costTracker;
-      costTracker.record(role, "claude-sonnet-4-6", {
+      this.orchestrator.recordUsage(role, model, {
         inputTokens,
         outputTokens,
         cacheReadTokens,

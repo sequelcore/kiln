@@ -23,7 +23,6 @@ function buildConfig(flags: RunFlags, mode: SessionMode): WrapperConfig {
     mode,
     apiKey: flags.apiKey,
     provider: flags.provider,
-    claudeCodePath: "claude",
     dangerouslySkipPermissions: flags.dangerouslySkipPermissions ?? false,
   };
 }

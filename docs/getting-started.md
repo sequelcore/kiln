@@ -220,7 +220,7 @@ bun run test
 
 - [Core Concepts](concepts.md) -- understand primitives, composites, and how the engine works
 - [App Configuration](configuration/app-yaml.md) -- full `app.yaml` schema reference
-- [Channels](guides/channels.md) -- configure WhatsApp, Slack, Voice, and other adapters
+- [Channels](guides/channels.md) -- configure WhatsApp, Slack, and other adapters
 
 ---
 
@@ -348,5 +348,5 @@ await createCli(config);
 | `my-app serve` | Standalone MCP server over stdio |
 | `my-app memory` | View memory layer statistics |
 | `my-app status` | Show phase, tasks, costs |
-| `my-app domain install` | Install marketplace domain packages |
+| `my-app domain install` | Install domain packages |
 | `my-app gateway` | Multi-app hosting via Gateway |

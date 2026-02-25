@@ -1,5 +1,5 @@
 // Package security: content hashing, lifecycle script validation, path traversal detection
-// Moved from domain/marketplace.ts -- package-level concern, not domain config
+// Moved from domain/ -- package-level concern, not domain config
 
 import { createHash } from "node:crypto";
 import type { CapabilityAnnotations } from "../engine/domain/capability.js";

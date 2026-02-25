@@ -1,11 +1,11 @@
 // SlackChannel: Slack Bot Events API + Web API adapter
 // Uses Slack Web API (slack.com/api) via native fetch -- no SDK dependency
-// Request signature verification uses node:crypto HMAC-SHA256
+// Request signature verification uses shared HMAC-SHA256 utility
 
-import { createHmac, timingSafeEqual } from "node:crypto";
 import type { Channel, IncomingMessage, OutgoingMessage, EngineEvent, MessageFormat, Modality } from "@kilnai/core";
 import { extractText, textParts } from "@kilnai/core";
 import { formatForChannel } from "./message-formatter.js";
+import { verifyHmacSha256 } from "../utils/hmac.js";
 
 export interface SlackConfig {
   readonly botToken: string;
@@ -81,14 +81,8 @@ export class SlackChannel implements Channel {
    * and compares it to the provided signature using a timing-safe comparison.
    */
   verifyRequest(timestamp: string, body: string, signature: string): boolean {
-    const baseString = `v0:${timestamp}:${body}`;
-    const expected = `v0=${createHmac("sha256", this.config.signingSecret).update(baseString).digest("hex")}`;
-
-    // Use timing-safe comparison to prevent timing attacks
-    if (expected.length !== signature.length) {
-      return false;
-    }
-
-    return timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
+    const payload = `v0:${timestamp}:${body}`;
+    const sig = signature.startsWith("v0=") ? signature.slice(3) : signature;
+    return verifyHmacSha256(this.config.signingSecret, payload, sig);
   }
 }

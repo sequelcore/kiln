@@ -25,23 +25,6 @@ describe("HealthRegistry", () => {
       expect(results.database).toEqual({ status: "ok" });
     });
 
-    it("should unregister a health checker", async () => {
-      const registry = new HealthRegistry();
-
-      registry.register("test", () => ({ status: "ok" as const }));
-      const removed = registry.unregister("test");
-
-      expect(removed).toBe(true);
-
-      const results = await registry.checkAll();
-      expect(results.test).toBeUndefined();
-    });
-
-    it("should return false when unregistering non-existent checker", () => {
-      const registry = new HealthRegistry();
-      const removed = registry.unregister("non-existent");
-      expect(removed).toBe(false);
-    });
   });
 
   describe("checkAll", () => {

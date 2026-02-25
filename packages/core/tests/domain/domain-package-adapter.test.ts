@@ -6,7 +6,7 @@ import {
   parseDomainPackageYaml,
   loadDomainPackageYaml,
   verifyContentHash,
-} from "../../src/domain/marketplace.js";
+} from "../../src/domain/domain-package-adapter.js";
 import {
   computeContentHash,
   validatePackageSecurity,

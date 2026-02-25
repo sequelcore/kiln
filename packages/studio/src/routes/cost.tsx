@@ -1,6 +1,7 @@
 import { useEffect, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useKilnContext, useKilnEvents } from "@kilnai/react";
+import "./cost.css";
 
 interface RoleCost {
   role: string;
@@ -127,51 +128,6 @@ export function CostView(): ReactNode {
         </>
       )}
 
-      <style>{`
-        .summary-grid {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 12px;
-          margin-bottom: 0;
-        }
-        .stat-value {
-          font-size: 22px;
-          font-weight: 700;
-          font-family: var(--font-mono);
-          color: var(--text-primary);
-        }
-        .stat-value.accent {
-          color: var(--accent);
-        }
-        .cost-table {
-          width: 100%;
-          border-collapse: collapse;
-          font-size: 13px;
-        }
-        .cost-table th {
-          text-align: left;
-          padding: 8px 12px;
-          color: var(--text-secondary);
-          font-size: 11px;
-          font-weight: 600;
-          text-transform: uppercase;
-          letter-spacing: 0.5px;
-          border-bottom: 1px solid var(--border);
-        }
-        .cost-table td {
-          padding: 10px 12px;
-          border-bottom: 1px solid var(--border);
-          color: var(--text-secondary);
-          font-family: var(--font-mono);
-          font-size: 12px;
-        }
-        .cost-table tr:last-child td {
-          border-bottom: none;
-        }
-        .cost-table tr:hover td {
-          background: var(--bg-hover);
-        }
-      `}</style>
     </div>
   );
 }

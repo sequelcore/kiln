@@ -16,9 +16,10 @@ bun add @kilnai/react
 
 ```typescript
 interface KilnConfig {
-  readonly baseUrl: string;    // Gateway URL, e.g. "http://localhost:4800"
-  readonly appName?: string;   // Default App name for useKilnChat
-  readonly userId?: string;    // User ID for session scoping
+  readonly baseUrl: string;              // Gateway URL, e.g. "http://localhost:4800"
+  readonly appName?: string;             // Default App name for useKilnChat
+  readonly userId?: string;              // User ID for session scoping
+  readonly reconnectDelayMs?: number;    // SSE reconnect delay in milliseconds (default: 3000)
 }
 
 interface KilnProviderProps {
@@ -39,9 +40,19 @@ export function App() {
 }
 ```
 
-`KilnProvider` creates one `ApiClient` instance per unique `baseUrl`. The client is memoized and recreated only when `baseUrl`, `appName`, or `userId` changes.
+`KilnProvider` creates one `ApiClient` instance per unique `baseUrl`. The client is memoized and recreated only when `baseUrl`, `appName`, `userId`, or `reconnectDelayMs` changes.
 
 Calling any hook outside a `KilnProvider` throws: `"useKilnContext must be used within a KilnProvider"`.
+
+## useKilnContext
+
+> **@internal** -- Exposes the raw `ApiClient` and `KilnConfig`. Intended for dev tooling (e.g. Studio), not public consumers.
+
+```typescript
+function useKilnContext(): { readonly config: KilnConfig; readonly client: ApiClient }
+```
+
+All hooks use `useKilnContext` internally. It is exported for advanced use cases where direct access to the `ApiClient` is needed, such as custom fetch calls or Studio-specific views.
 
 ## useKilnChat
 
@@ -165,6 +176,8 @@ This hook is intended for dev tooling and the Studio. For production monitoring,
 
 ## useKilnMemory
 
+> **Note:** This hook only works when connected to a gateway started with `kiln dev`. The `/dev/memory` routes are not available in production mode.
+
 Provides CRUD access to a specific memory scope via the dev API.
 
 ```typescript
@@ -231,6 +244,7 @@ interface UseStateReturn {
   readonly cost: Record<string, unknown>;
   readonly apps: readonly string[];
   readonly isLoading: boolean;
+  readonly error: Error | null;
   refresh(): Promise<void>;
 }
 ```
@@ -239,18 +253,19 @@ interface UseStateReturn {
 import { useKilnState } from "@kilnai/react";
 
 function StatusBar() {
-  const { apps, cost, isLoading, refresh } = useKilnState();
+  const { apps, cost, isLoading, error, refresh } = useKilnState();
 
   return (
     <div>
       <span>Apps: {apps.join(", ")}</span>
       <button onClick={refresh} disabled={isLoading}>Refresh</button>
+      {error && <p>Error: {error.message}</p>}
     </div>
   );
 }
 ```
 
-State is not loaded automatically on mount. Call `refresh()` to fetch. Errors are silently swallowed — dev endpoints may not be available in all environments.
+State is not loaded automatically on mount. Call `refresh()` to fetch. Failed requests are captured in the `error` field -- dev endpoints may not be available in all environments.
 
 ## useApproval
 
@@ -293,7 +308,7 @@ The SDK exposes two low-level clients for direct use:
 
 **`SseClient`** is an `EventSource` wrapper with auto-reconnect. Accepts `onEvent`, `onConnect`, and `onDisconnect` callbacks. Call `connect()` to start and `disconnect()` to stop.
 
-`SseClient` uses **named SSE events** — it subscribes to all 32 engine event types (e.g., `phase_changed`, `tool_called`, `pii_detected`) via `EventSource.addEventListener()` rather than the generic `onmessage` handler. This means the server must emit frames with an `event:` field:
+`SseClient` uses **named SSE events** — it subscribes to all 31 engine event types (e.g., `phase_changed`, `tool_called`, `pii_detected`) via `EventSource.addEventListener()` rather than the generic `onmessage` handler. This means the server must emit frames with an `event:` field:
 
 ```
 event: phase_changed

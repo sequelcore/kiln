@@ -7,7 +7,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import type { MemoryEntry, MemoryLayer, MemorySearchResult, MemoryStore } from "./index.js";
+import type { MemoryEntry, MemorySearchResult, MemoryStore } from "./index.js";
 
 interface ManifestChunk {
   readonly hash: string;
@@ -24,6 +24,9 @@ interface Manifest {
 
 const FLUSH_THRESHOLD = 10;
 
+/** Rough heuristic: ~4 characters per token for English text */
+const CHARS_PER_TOKEN_ESTIMATE = 4;
+
 /** Remove `<private>...</private>` blocks from content */
 export function stripPrivateTags(content: string): string {
   return content.replace(/<private>[\s\S]*?<\/private>/g, "").trim();
@@ -39,6 +42,7 @@ export function stripPrivateTags(content: string): string {
 export class ProjectMemoryStore implements MemoryStore {
   private readonly dir: string;
   private buffer: MemoryEntry[] = [];
+  private _manifestCache: Manifest | null = null;
 
   constructor(opts: { projectPath: string }) {
     this.dir = opts.projectPath;
@@ -71,7 +75,6 @@ export class ProjectMemoryStore implements MemoryStore {
 
   async search(
     query: string,
-    _layer?: MemoryLayer,
     limit: number = 10,
   ): Promise<readonly MemorySearchResult[]> {
     const allEntries = this.readAllEntries();
@@ -113,13 +116,12 @@ export class ProjectMemoryStore implements MemoryStore {
   }
 
   async recall(query: string, tokenBudget: number): Promise<string> {
-    const results = await this.search(query, undefined, 50);
+    const results = await this.search(query, 50);
     const parts: string[] = [];
     let usedTokens = 0;
 
     for (const r of results) {
-      // Rough estimate: 1 token ~ 4 characters
-      const entryTokens = Math.ceil(r.entry.content.length / 4);
+      const entryTokens = Math.ceil(r.entry.content.length / CHARS_PER_TOKEN_ESTIMATE);
       if (usedTokens + entryTokens > tokenBudget) break;
       parts.push(r.entry.content);
       usedTokens += entryTokens;
@@ -167,11 +169,13 @@ export class ProjectMemoryStore implements MemoryStore {
   // -- Private helpers --
 
   private readManifest(): Manifest {
+    if (this._manifestCache) return this._manifestCache;
     const path = join(this.dir, "manifest.json");
     if (!existsSync(path)) {
       return { version: 1, chunks: [], deleted: [] };
     }
-    return JSON.parse(readFileSync(path, "utf-8")) as Manifest;
+    this._manifestCache = JSON.parse(readFileSync(path, "utf-8")) as Manifest;
+    return this._manifestCache;
   }
 
   private writeManifest(manifest: Manifest): void {
@@ -179,6 +183,7 @@ export class ProjectMemoryStore implements MemoryStore {
       join(this.dir, "manifest.json"),
       JSON.stringify(manifest, null, 2),
     );
+    this._manifestCache = null;
   }
 
   private readAllEntries(): MemoryEntry[] {

@@ -228,44 +228,7 @@ eval:
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `name` | `string` | Yes | Unique identifier for this App. Used for memory namespacing in the Gateway. |
-| `channels` | `string[]` | Yes | Channel adapter names to activate. Valid values: `cli`, `web`, `api`, `whatsapp`, `slack`, `voice`. At least one required. |
-
----
-
-## voice
-
-Required when `channels` includes `voice`. Configures speech-to-text and text-to-speech adapters for the voice channel.
-
-```yaml
-voice:
-  stt:
-    provider: openai
-    apiKeyEnv: OPENAI_API_KEY
-    model: whisper-1
-    language: en
-  tts:
-    provider: openai
-    apiKeyEnv: OPENAI_API_KEY
-    voice: alloy
-```
-
-### voice.stt
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `provider` | `string` | Yes | STT provider. Valid values: `openai`, `deepgram`. |
-| `apiKeyEnv` | `string` | No | Environment variable containing the API key. |
-| `model` | `string` | No | Model name (e.g., `whisper-1`). Provider-specific default used if omitted. |
-| `language` | `string` | No | Language hint for transcription. |
-
-### voice.tts
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `provider` | `string` | Yes | TTS provider. Valid values: `openai`, `elevenlabs`. |
-| `apiKeyEnv` | `string` | No | Environment variable containing the API key. |
-| `model` | `string` | No | Model name. Provider-specific default used if omitted. |
-| `voice` | `string` | No | Voice name (e.g., `alloy`, `nova`). Provider-specific default used if omitted. |
+| `channels` | `string[]` | Yes | Channel adapter names to activate. Valid values: `cli`, `web`, `api`, `whatsapp`, `slack`. At least one required. |
 
 ---
 

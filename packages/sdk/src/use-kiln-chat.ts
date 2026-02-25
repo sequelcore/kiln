@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import type { ContentPart } from "@kilnai/core";
 import { useKilnContext } from "./provider.js";
+import { buildUserMessage } from "./build-user-message.js";
 import type { ChatMessage, ChatOptions, UseChatReturn } from "./types.js";
 
 export function useKilnChat(options?: ChatOptions): UseChatReturn {
@@ -14,16 +15,7 @@ export function useKilnChat(options?: ChatOptions): UseChatReturn {
 
   const send = useCallback(
     async (content: string | ContentPart[]) => {
-      const userContent = typeof content === "string" ? content : undefined;
-      const userParts = typeof content !== "string" ? content : undefined;
-
-      const userMsg: ChatMessage = {
-        id: String(++idCounter.current),
-        role: "user",
-        content: userContent ?? "",
-        parts: userParts,
-        timestamp: Date.now(),
-      };
+      const userMsg = buildUserMessage(content, String(++idCounter.current));
 
       setMessages((prev) => [...prev, userMsg]);
       setIsLoading(true);
@@ -31,13 +23,13 @@ export function useKilnChat(options?: ChatOptions): UseChatReturn {
 
       try {
         const body: Record<string, unknown> = {
-          message: userContent ?? "",
+          message: userMsg.content,
           appName,
           userId: config.userId,
           sessionId: options?.sessionId,
         };
-        if (userParts) {
-          body.parts = userParts;
+        if (userMsg.parts) {
+          body.parts = userMsg.parts;
         }
 
         const res = await client.post<{ response: string }>(`/apps/${appName}/message`, body);

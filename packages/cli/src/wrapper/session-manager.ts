@@ -1,10 +1,10 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Orchestrator } from "@kilnai/core";
-import type { DomainConfig } from "@kilnai/core";
+import type { DomainConfig, RoleUsage } from "@kilnai/core";
+import { MODEL_PRICING } from "@kilnai/core";
 import type { WrapperConfig, SessionContext, SessionReport } from "./index.js";
 import type { KilnAppConfig } from "../config.js";
-import { buildSystemPrompt } from "./context-builder.js";
 
 /**
  * Manages the full session lifecycle: prepare -> cleanup.
@@ -33,17 +33,19 @@ export class SessionManager {
     registry.loadInstalledDomains(projectPath);
     this.domain = registry.detectAndMerge(projectPath);
 
-    const systemPrompt = buildSystemPrompt(this.appConfig, {
+    const systemPrompt = this.appConfig.buildSystemPrompt({
       task,
       domain: this.domain,
       memorySnapshot,
       projectPath,
     });
 
-    // Resolve the MCP server entry script path (for SDK stdio transport)
+    // Resolve the MCP server entry script path (for SDK stdio transport).
+    // Uses .js extension so the path is valid in both dev (bun runs .js) and
+    // published npm packages (only .js exists in dist/).
     const mcpServerEntryPath = join(
       dirname(fileURLToPath(import.meta.url)),
-      "..", "mcp", "index.ts",
+      "..", "mcp", "index.js",
     );
 
     this.orchestrator = new Orchestrator();
@@ -54,7 +56,6 @@ export class SessionManager {
       domain: this.domain,
       systemPrompt,
       mcpServerEntryPath,
-      memorySnapshot: memorySnapshot ?? "",
       workingDirectory: projectPath,
       task,
     };
@@ -72,7 +73,7 @@ export class SessionManager {
     const byRole: Record<string, number> = {};
     if (costSummary) {
       for (const [role, usage] of Object.entries(costSummary.byRole)) {
-        byRole[role] = usage.calls;
+        byRole[role] = computeRoleCostUsd(usage);
       }
     }
 
@@ -88,4 +89,24 @@ export class SessionManager {
       duration,
     };
   }
+}
+
+
+/** Compute USD cost for a single role usage entry */
+function computeRoleCostUsd(usage: RoleUsage): number {
+  const pricing = MODEL_PRICING.get(usage.model);
+  if (!pricing) return 0;
+
+  const uncachedInput = Math.max(
+    0,
+    usage.inputTokens - usage.cacheReadTokens - usage.cacheWriteTokens,
+  );
+
+  return (
+    (uncachedInput * pricing.inputRate +
+      usage.outputTokens * pricing.outputRate +
+      usage.cacheReadTokens * pricing.inputRate * pricing.cacheReadMultiplier +
+      usage.cacheWriteTokens * pricing.inputRate * pricing.cacheWriteMultiplier) /
+    1_000_000
+  );
 }

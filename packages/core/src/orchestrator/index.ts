@@ -14,16 +14,9 @@ export interface PhaseGateResult {
   readonly violations: readonly string[];
 }
 
-/** Orchestrator configuration */
-export interface OrchestratorConfig {
-  readonly requireApproval: boolean;
-  readonly maxDepth: number;
-  readonly parallelWorkers: number;
-  readonly phases: readonly Phase[];
-  readonly maxIterations?: number;
-  /** Phase after which to pause for approval. Defaults to "architect" when requireApproval is true. */
-  readonly approvalAfterPhase?: string;
-}
+// Re-exported from engine domain (single source of truth)
+import type { OrchestratorConfig } from "../engine/domain/orchestrator-config.js";
+export type { OrchestratorConfig } from "../engine/domain/orchestrator-config.js";
 
 /** Orchestrator status */
 export type OrchestratorStatus =

@@ -11,6 +11,8 @@ const VALID_KEYS: ReadonlySet<keyof ProjectConfig> = new Set([
   "parallelWorkers",
   "provider",
   "mode",
+  "channels",
+  "teamMode",
 ]);
 
 export function configCommand(
@@ -78,13 +80,17 @@ export function configCommand(
   }
 }
 
-function parseValue(value: string, key: string): string | number | boolean {
+function parseValue(value: string, key: string): string | number | boolean | string[] {
   if (value === "true") return true;
   if (value === "false") return false;
 
   if (key === "maxDepth" || key === "parallelWorkers") {
     const num = Number(value);
     if (!Number.isNaN(num)) return num;
+  }
+
+  if (key === "channels") {
+    return value.split(",").map((c) => c.trim()).filter(Boolean);
   }
 
   return value;

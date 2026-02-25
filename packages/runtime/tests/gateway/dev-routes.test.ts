@@ -381,31 +381,6 @@ describe("createDevRoutes", () => {
     });
   });
 
-  describe("GET /eval/experiments/:name/results", () => {
-    it("returns 404 when no callback", async () => {
-      const app = createDevRoutes({});
-      const res = await request(app, "/eval/experiments/accuracy-test/results");
-      expect(res.status).toBe(404);
-    });
-
-    it("returns 404 when experiment not found", async () => {
-      const app = createDevRoutes({ getEvalResults: () => undefined });
-      const res = await request(app, "/eval/experiments/unknown/results");
-      expect(res.status).toBe(404);
-    });
-
-    it("returns results from callback", async () => {
-      const results = { scores: { exact_match: 0.85 }, runAt: "2026-01-01T00:00:00Z" };
-      const getEvalResults = vi.fn(() => results);
-      const app = createDevRoutes({ getEvalResults });
-      const res = await request(app, "/eval/experiments/accuracy-test/results");
-      expect(res.status).toBe(200);
-      const data = await res.json();
-      expect(data.scores.exact_match).toBe(0.85);
-      expect(getEvalResults).toHaveBeenCalledWith("accuracy-test");
-    });
-  });
-
   describe("POST /run", () => {
     it("returns 404 when no startRun callback", async () => {
       const app = createDevRoutes({});

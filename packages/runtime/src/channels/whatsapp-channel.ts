@@ -1,9 +1,10 @@
 // WhatsAppChannel: WhatsApp Business API adapter
-// Uses WhatsApp Cloud API (graph.facebook.com) via native fetch -- no SDK dependency
+// Uses WhatsApp Cloud API (graph.facebook.com) via shared API client
 
 import type { Channel, IncomingMessage, OutgoingMessage, EngineEvent, MessageFormat, Modality } from "@kilnai/core";
 import { extractText, textParts } from "@kilnai/core";
 import { formatForChannel } from "./message-formatter.js";
+import { sendWhatsAppMessage } from "./whatsapp-api.js";
 
 export interface WhatsAppConfig {
   readonly phoneNumberId: string;
@@ -42,51 +43,25 @@ export class WhatsAppChannel implements Channel {
   }
 
   async send(response: OutgoingMessage): Promise<void> {
-    const url = `https://graph.facebook.com/v21.0/${this.config.phoneNumberId}/messages`;
+    const { phoneNumberId, accessToken } = this.config;
+    const to = response.target;
 
     // Send media parts first, then text
     for (const part of response.parts) {
       if (part.type === "image" && part.url) {
-        await fetch(url, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${this.config.accessToken}`,
-          },
-          body: JSON.stringify({
-            messaging_product: "whatsapp",
-            to: response.target,
-            type: "image",
-            image: { link: part.url },
-          }),
+        await sendWhatsAppMessage(phoneNumberId, accessToken, to, {
+          type: "image",
+          image: { link: part.url },
         });
       } else if (part.type === "audio" && part.url) {
-        await fetch(url, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${this.config.accessToken}`,
-          },
-          body: JSON.stringify({
-            messaging_product: "whatsapp",
-            to: response.target,
-            type: "audio",
-            audio: { link: part.url },
-          }),
+        await sendWhatsAppMessage(phoneNumberId, accessToken, to, {
+          type: "audio",
+          audio: { link: part.url },
         });
       } else if (part.type === "file" && part.url) {
-        await fetch(url, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${this.config.accessToken}`,
-          },
-          body: JSON.stringify({
-            messaging_product: "whatsapp",
-            to: response.target,
-            type: "document",
-            document: { link: part.url, filename: part.filename },
-          }),
+        await sendWhatsAppMessage(phoneNumberId, accessToken, to, {
+          type: "document",
+          document: { link: part.url, filename: part.filename },
         });
       }
     }
@@ -95,18 +70,9 @@ export class WhatsAppChannel implements Channel {
     const text = extractText(response.parts);
     if (text) {
       const formatted = formatForChannel(text, response.format ?? this.defaultFormat);
-      await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${this.config.accessToken}`,
-        },
-        body: JSON.stringify({
-          messaging_product: "whatsapp",
-          to: response.target,
-          type: "text",
-          text: { body: formatted },
-        }),
+      await sendWhatsAppMessage(phoneNumberId, accessToken, to, {
+        type: "text",
+        text: { body: formatted },
       });
     }
   }

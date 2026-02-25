@@ -158,7 +158,7 @@ describe("createModeBRoutes", () => {
       expect(res.status).toBe(400);
     });
 
-    it("does not report usage (billing usage is tracked externally)", async () => {
+    it("reports usage after successful message processing", async () => {
       const runtime = makeRuntime({ billing: makeBillingConfig() });
       const app = createModeBRoutes(runtime);
 
@@ -168,11 +168,20 @@ describe("createModeBRoutes", () => {
         body: JSON.stringify({ message: "hello", userId: "user-1" }),
       });
 
-      // fetch called once: budget check only, no usage report
-      expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+      // fetch called twice: budget check + usage report
+      expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+
+      const usageCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[1];
+      expect(usageCall[0]).toBe("https://api.example.com/users/user-1/ai-usage");
+      expect(usageCall[1]).toMatchObject({
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      const usageBody = JSON.parse(usageCall[1].body as string);
+      expect(usageBody.tokens).toBe(150); // 100 input + 50 output
     });
 
-    it("skips budget check when no billing configured", async () => {
+    it("skips budget check and usage report when no billing configured", async () => {
       const runtime = makeRuntime();
       const app = createModeBRoutes(runtime);
 

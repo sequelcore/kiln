@@ -18,10 +18,6 @@ export class HealthRegistry {
     this.checkers.set(name, checker);
   }
 
-  unregister(name: string): boolean {
-    return this.checkers.delete(name);
-  }
-
   async checkAll(): Promise<Record<string, SubsystemHealth>> {
     const results: Record<string, SubsystemHealth> = {};
 

@@ -62,7 +62,7 @@ Implement the `Channel` interface from `packages/core/src/engine/domain/channel.
 
 **What is the difference between domains and skills?**
 
-Domains describe a technology context -- detection patterns, quality gates, few-shot examples -- and are merged automatically when a project matches multiple domains. Skills are reusable YAML-configured behavior packages (tools, triggers, instructions) that can be installed from the marketplace and composed into any App. Domains answer "what is this project?"; skills answer "what can this app do?". See [Domains](guides/domains.md) for domain kits and detection. The `kiln skill list|install|publish` commands manage skills.
+Domains describe a technology context -- detection patterns, quality gates, few-shot examples -- and are merged automatically when a project matches multiple domains. Skills are reusable YAML-configured behavior packages (tools, triggers, instructions) that can be installed from the registry and composed into any App. Domains answer "what is this project?"; skills answer "what can this app do?". See [Domains](guides/domains.md) for domain kits and detection. The `kiln skill list|install|publish` commands manage skills.
 
 ---
 

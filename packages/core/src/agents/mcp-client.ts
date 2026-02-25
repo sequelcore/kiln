@@ -6,14 +6,29 @@ import type { Capability, CapabilityAnnotations } from "../engine/domain/capabil
 import type { McpServerConfig } from "../engine/domain/mcp-config.js";
 import { KilnError } from "../engine/errors.js";
 
+/** Package identity for MCP client registration */
+const CLIENT_NAME = "kilnai";
+const CLIENT_VERSION = "0.2.1";
+
+export interface McpClientOptions {
+  /** Override the client name reported to MCP servers */
+  readonly clientName?: string;
+  /** Override the client version reported to MCP servers */
+  readonly clientVersion?: string;
+}
+
 export class McpClient {
   readonly serverName: string;
   private readonly config: McpServerConfig;
+  private readonly clientName: string;
+  private readonly clientVersion: string;
   private client: Client | undefined;
 
-  constructor(config: McpServerConfig) {
+  constructor(config: McpServerConfig, options?: McpClientOptions) {
     this.serverName = config.name;
     this.config = config;
+    this.clientName = options?.clientName ?? CLIENT_NAME;
+    this.clientVersion = options?.clientVersion ?? CLIENT_VERSION;
   }
 
   async connect(): Promise<void> {
@@ -24,7 +39,7 @@ export class McpClient {
     }
 
     this.client = new Client(
-      { name: "kiln", version: "1.0.0" },
+      { name: this.clientName, version: this.clientVersion },
       { capabilities: {} },
     );
 

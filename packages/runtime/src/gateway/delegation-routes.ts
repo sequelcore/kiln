@@ -1,4 +1,4 @@
-// Gateway: Delegation routes -- Hono sub-app for cross-app cognitive delegation (Phase 24)
+// Gateway: Delegation routes -- Hono sub-app for cross-app cognitive delegation
 
 import { Hono } from "hono";
 import type { DelegationRegistry } from "./delegation-handler.js";

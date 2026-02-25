@@ -4,6 +4,8 @@ export interface KilnConfig {
   readonly baseUrl: string;
   readonly appName?: string;
   readonly userId?: string;
+  /** SSE reconnect delay in milliseconds (default: 3000) */
+  readonly reconnectDelayMs?: number;
 }
 
 export interface ChatMessage {
@@ -47,6 +49,7 @@ export interface UseStateReturn {
   readonly cost: Record<string, unknown>;
   readonly apps: readonly string[];
   readonly isLoading: boolean;
+  readonly error: Error | null;
   refresh(): Promise<void>;
 }
 

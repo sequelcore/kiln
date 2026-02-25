@@ -178,32 +178,49 @@ describe("domainCommand", () => {
   });
 
   it("search displays results from npm", async () => {
-    const results = [
-      { name: "@kiln-domains/rust", description: "Rust domain", version: "1.0.0" },
-      { name: "@kiln-domains/rust-wasm", description: "Rust WASM domain", version: "0.2.0" },
-    ];
-    mockExecSuccess(JSON.stringify(results));
+    const body = {
+      objects: [
+        { package: { name: "@kilnai/domain-rust", description: "Rust domain", version: "1.0.0" } },
+        { package: { name: "@kilnai/domain-rust-wasm", description: "Rust WASM domain", version: "0.2.0" } },
+      ],
+    };
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => body,
+    }) as unknown as typeof fetch;
 
     await domainCommand(MOCK_APP_CONFIG, "search", ["rust"], tempDir);
+    globalThis.fetch = originalFetch;
+
     const output = getOutput();
-    expect(output).toContain("@kiln-domains/rust");
+    expect(output).toContain("@kilnai/domain-rust");
     expect(output).toContain("Rust domain");
     expect(output).toContain("1.0.0");
-    expect(output).toContain("@kiln-domains/rust-wasm");
+    expect(output).toContain("@kilnai/domain-rust-wasm");
   });
 
   it("search shows 'no packages found' for empty results", async () => {
-    mockExecSuccess("[]");
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ objects: [] }),
+    }) as unknown as typeof fetch;
 
     await domainCommand(MOCK_APP_CONFIG, "search", ["nonexistent"], tempDir);
+    globalThis.fetch = originalFetch;
+
     expect(getOutput()).toContain("No packages found.");
   });
 
   it("search handles npm failure", async () => {
-    mockExecFailure("network error");
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn().mockRejectedValue(new Error("network error")) as unknown as typeof fetch;
 
     await domainCommand(MOCK_APP_CONFIG, "search", ["rust"], tempDir);
-    expect(getErrors()).toContain("Failed to search npm registry.");
+    globalThis.fetch = originalFetch;
+
+    expect(getErrors()).toContain("Failed to reach npm registry.");
   });
 
   // --- Install ---

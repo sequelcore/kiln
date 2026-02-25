@@ -1,9 +1,8 @@
-// Channel adapters -- multi-platform message delivery (Phase 20)
+// Channel adapters -- multi-platform message delivery
 
 export { EventBridge, toEngineEvent } from "./event-bridge.js";
 export { ChannelRegistry } from "./channel-registry.js";
-export { formatSdkMessage, formatForChannel } from "./message-formatter.js";
-export type { OutputLine } from "./message-formatter.js";
+export { formatForChannel } from "./message-formatter.js";
 export type { ChannelConfig, ChannelStatus, IdentityMapping, IdentityResolver } from "./types.js";
 export { InMemoryIdentityResolver } from "./types.js";
 export { CliChannel } from "./cli-channel.js";

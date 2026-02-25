@@ -41,8 +41,3 @@ export async function executeKnowledgeSearch(
     })),
   };
 }
-
-export function isAgentAllowed(agentName: string, allowedAgents?: readonly string[]): boolean {
-  if (!allowedAgents || allowedAgents.length === 0) return true;
-  return allowedAgents.includes(agentName);
-}

@@ -7,13 +7,17 @@ import type {
   CostUpdateEvent,
   ErrorEvent,
 } from "@kilnai/core";
+import { MODEL_PRICING } from "@kilnai/core";
+import type { ModelPricing } from "@kilnai/core";
 import type { ModeBSession } from "./mode-b-session.js";
 
-const MAX_TOOL_ROUNDS = 10;
+const DEFAULT_MAX_TOOL_ROUNDS = 10;
 
 export interface OrchestratorDeps {
   readonly provider: ProviderAdapter;
+  readonly model?: string;
   readonly maxTokens?: number;
+  readonly maxToolRounds?: number;
   readonly tools?: readonly ToolDefinition[];
   readonly mcpClients?: readonly McpClient[];
   readonly eventBus?: EventBus;
@@ -29,9 +33,11 @@ export interface OrchestrateResult {
 
 export class ModeBOrchestrator {
   private readonly deps: OrchestratorDeps;
+  private readonly maxToolRounds: number;
 
   constructor(deps: OrchestratorDeps) {
     this.deps = deps;
+    this.maxToolRounds = deps.maxToolRounds ?? DEFAULT_MAX_TOOL_ROUNDS;
   }
 
   async processMessage(
@@ -53,7 +59,7 @@ export class ModeBOrchestrator {
     let totalCacheRead = 0;
     let totalCacheWrite = 0;
 
-    for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+    for (let round = 0; round < this.maxToolRounds; round++) {
       const messages = [...session.conversationHistory];
 
       const response = await this.deps.provider.createMessage({
@@ -68,7 +74,7 @@ export class ModeBOrchestrator {
       totalCacheRead += response.cacheReadTokens;
       totalCacheWrite += response.cacheWriteTokens;
 
-      this.emitCostUpdate(session.id, totalInputTokens, totalOutputTokens, totalCacheRead);
+      this.emitCostUpdate(session.id, totalInputTokens, totalOutputTokens, totalCacheRead, totalCacheWrite);
 
       if (!hasTools || response.toolCalls.length === 0) {
         session.addAssistantMessage(response.parts);
@@ -127,7 +133,7 @@ export class ModeBOrchestrator {
     }
 
     // Safety: max rounds exceeded, return last available response
-    this.emitError(session.id, `Max tool rounds (${MAX_TOOL_ROUNDS}) exceeded`);
+    this.emitError(session.id, `Max tool rounds (${this.maxToolRounds}) exceeded`);
 
     const finalMessages = [...session.conversationHistory];
     const finalResponse = await this.deps.provider.createMessage({
@@ -141,7 +147,7 @@ export class ModeBOrchestrator {
     totalCacheRead += finalResponse.cacheReadTokens;
     totalCacheWrite += finalResponse.cacheWriteTokens;
 
-    this.emitCostUpdate(session.id, totalInputTokens, totalOutputTokens, totalCacheRead);
+    this.emitCostUpdate(session.id, totalInputTokens, totalOutputTokens, totalCacheRead, totalCacheWrite);
 
     session.addAssistantMessage(finalResponse.parts);
     return {
@@ -173,8 +179,6 @@ export class ModeBOrchestrator {
     const event: ToolCalledEvent = {
       type: "tool_called",
       toolName,
-      taskId: "",
-      workerIndex: 0,
       timestamp: new Date(),
       sessionId,
     };
@@ -185,7 +189,6 @@ export class ModeBOrchestrator {
     const event: ToolResultEvent = {
       type: "tool_result",
       toolName,
-      taskId: "",
       durationMs,
       success,
       timestamp: new Date(),
@@ -194,14 +197,50 @@ export class ModeBOrchestrator {
     this.deps.eventBus?.emit(event);
   }
 
-  private emitCostUpdate(sessionId: string, inputTokens: number, outputTokens: number, cacheReadTokens: number): void {
+  private computeTotalCostUsd(
+    inputTokens: number,
+    outputTokens: number,
+    cacheReadTokens: number,
+    cacheWriteTokens: number,
+  ): number {
+    const pricing = this.resolvedPricing;
+    if (!pricing) return 0;
+
+    const uncachedInput = Math.max(0, inputTokens - cacheReadTokens - cacheWriteTokens);
+
+    return (
+      (uncachedInput * pricing.inputRate +
+        outputTokens * pricing.outputRate +
+        cacheReadTokens * pricing.inputRate * pricing.cacheReadMultiplier +
+        cacheWriteTokens * pricing.inputRate * pricing.cacheWriteMultiplier) /
+      1_000_000
+    );
+  }
+
+  private get resolvedPricing(): ModelPricing | undefined {
+    if (!this.deps.model) return undefined;
+    return MODEL_PRICING.get(this.deps.model);
+  }
+
+  private emitCostUpdate(
+    sessionId: string,
+    inputTokens: number,
+    outputTokens: number,
+    cacheReadTokens: number,
+    cacheWriteTokens: number,
+  ): void {
+    const totalCostUsd = this.computeTotalCostUsd(inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens);
+    const model = this.deps.model ?? "unknown";
+
     const event: CostUpdateEvent = {
       type: "cost_update",
       inputTokens,
       outputTokens,
       cacheReadTokens,
-      totalCostUsd: 0,
-      byRole: {},
+      totalCostUsd,
+      byRole: {
+        assistant: { model, calls: 1, costUsd: totalCostUsd },
+      },
       timestamp: new Date(),
       sessionId,
     };

@@ -1,6 +1,7 @@
 import { type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useKilnContext } from "@kilnai/react";
+import "./safety.css";
 
 interface SafetyData {
   enabled: boolean;
@@ -40,19 +41,6 @@ export function SafetyView(): ReactNode {
           </div>
         </div>
       ))}
-      <style>{`
-        .safety-grid {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 12px;
-        }
-        .safety-stat {
-          font-size: 22px;
-          font-weight: 700;
-          font-family: var(--font-mono);
-          color: var(--text-primary);
-        }
-      `}</style>
     </div>
   );
 }

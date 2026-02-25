@@ -1,4 +1,4 @@
-// Cross-app cognitive delegation handler (Phase 24)
+// Cross-app cognitive delegation handler
 
 import type { ProviderAdapter, A2AMessage } from "@kilnai/core";
 import type {
@@ -10,7 +10,8 @@ import { validateDelegation } from "@kilnai/core";
 import { A2AClient } from "../a2a/a2a-client.js";
 
 const DEFAULT_TIMEOUT_MS = 120_000;
-const DEFAULT_MAX_TOKENS = 4096;
+/** Max output tokens for LLM calls during cross-app delegation */
+const DELEGATION_MAX_TOKENS = 4096;
 
 /** Minimal info about a loaded app available as delegation target */
 export interface DelegationTarget {
@@ -200,7 +201,7 @@ export async function executeKilnDelegation(
         system: systemPrompt,
         messages: [{ role: "user" as const, parts: [{ type: "text" as const, text: delegation.task }] }],
         outputSchema: delegation.schema,
-        maxTokens: DEFAULT_MAX_TOKENS,
+        maxTokens: DELEGATION_MAX_TOKENS,
       }),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error("DELEGATION_TIMEOUT")), timeoutMs),

@@ -346,12 +346,13 @@ describe("AnthropicAdapter", () => {
   });
 
   describe("retry logic", () => {
-    // We need to mock the sleep to avoid real delays
+    // Override retryOptions to use instant sleep for tests
     beforeEach(() => {
-      vi.spyOn(
-        AnthropicAdapter.prototype as unknown as { sleep: (ms: number) => Promise<void> },
-        "sleep" as never,
-      ).mockResolvedValue(undefined as never);
+      const originalRetryOptions = adapter.retryOptions.bind(adapter);
+      vi.spyOn(adapter, "retryOptions").mockImplementation(() => ({
+        ...originalRetryOptions(),
+        sleep: () => Promise.resolve(),
+      }));
     });
 
     it("retries on 429 error", async () => {

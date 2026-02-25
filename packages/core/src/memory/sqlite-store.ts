@@ -6,6 +6,9 @@ import { MemoryCompactor } from "./compactor.js";
 import type { CompactionConfig, CompactionResult, CompactableStore, CompactableEntry } from "./compactor.js";
 import { KilnError } from "../engine/errors.js";
 
+/** Rough heuristic: ~4 characters per token for English text */
+const CHARS_PER_TOKEN_ESTIMATE = 4;
+
 export interface SqliteMemoryStoreOptions {
   readonly dbPath: string;
   readonly layer: MemoryLayer;
@@ -47,6 +50,12 @@ export class SqliteMemoryStore implements MemoryStore {
     this.decayConfig = options.decay ?? DEFAULT_DECAY_CONFIG;
     this.compactor = options.compaction ? new MemoryCompactor(options.compaction) : null;
     this.tenantId = options.tenantId;
+    if (this.tenantId && /[%_]/.test(this.tenantId)) {
+      throw new KilnError('CONFIG_INVALID', 'tenantId must not contain SQL wildcard characters (% or _)', {
+        context: { tenantId: this.tenantId },
+        retryable: false,
+      });
+    }
     this.db = new Database(options.dbPath);
     this.db.exec("PRAGMA journal_mode = WAL;");
     this.initSchema();
@@ -114,7 +123,6 @@ export class SqliteMemoryStore implements MemoryStore {
 
   async search(
     query: string,
-    _layer?: MemoryLayer,
     limit?: number,
   ): Promise<readonly MemorySearchResult[]> {
     const maxResults = limit ?? 10;
@@ -159,12 +167,12 @@ export class SqliteMemoryStore implements MemoryStore {
   }
 
   async recall(query: string, tokenBudget: number): Promise<string> {
-    const results = await this.search(query, undefined, 50);
+    const results = await this.search(query, 50);
     const parts: string[] = [];
     let tokensUsed = 0;
 
     for (const result of results) {
-      const tokenEstimate = Math.ceil(result.entry.content.length / 4);
+      const tokenEstimate = Math.ceil(result.entry.content.length / CHARS_PER_TOKEN_ESTIMATE);
       if (tokensUsed + tokenEstimate > tokenBudget) break;
       parts.push(result.entry.content);
       tokensUsed += tokenEstimate;

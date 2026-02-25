@@ -20,7 +20,7 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "bunx vitest run"
+    "test": "vitest run"
   },
   "license": "MIT",
   "repository": {
@@ -41,8 +41,7 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.45",
-    "@modelcontextprotocol/sdk": "^1.26.0",
-    "yaml": "^2.8.2"
+    "@modelcontextprotocol/sdk": "^1.26.0"
   },
   "peerDependencies": {
     "@kilnai/core": "workspace:*",

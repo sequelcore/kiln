@@ -1,6 +1,6 @@
 # Kiln - Domain-Agnostic AI Orchestration Engine
 
-MIT-licensed. YAML-configured AI orchestration with 7 primitives (Agent, Capability, Workflow, Memory, Task, Channel, Trigger) + 3 composites (Team, Router, App). Multi-tenant gateway, 6 channel adapters, provider adapters, cross-app delegation, eval framework, enterprise safety pipeline.
+MIT-licensed. YAML-configured AI orchestration with 7 primitives (Agent, Capability, Workflow, Memory, Task, Channel, Trigger) + 3 composites (Team, Router, App). Multi-tenant gateway, 5 channel adapters, provider adapters, cross-app delegation, eval framework, enterprise safety pipeline.
 
 ## Architecture
 
@@ -36,11 +36,11 @@ Bun monorepo with 5 packages:
 | eval | `core/src/eval/` | 12 scorers (6 rule + 6 LLM-as-judge), dataset loader, experiment runner, comparator |
 | observability | `core/src/observability/` | OTel span mapper + exporter (EventStore sink) |
 | gateway | `runtime/src/gateway/` | Multi-app loading, Mode B routes, budget middleware, delegation, dev routes, safety/security middleware |
-| a2a | `runtime/src/a2a/` | Agent Card, JSON-RPC 2.0 server/client, task store |
+| a2a | `runtime/src/a2a/` | A2AClient (outbound delegation only) |
 | trigger | `runtime/src/trigger/` | TriggerRegistry, webhook handler (HMAC-SHA256), event listener, cron scheduler |
 | session | `runtime/src/session/` | ModeBSession, ModeBOrchestrator, SessionRegistry |
 | tenant | `runtime/src/tenant/` | TenantRegistry (JSON persistence), system prompt builder |
-| channels | `runtime/src/channels/` | 6 adapters (CLI, Web, WhatsApp, Slack, API, Voice), ChannelRouter, MessageFormatter |
+| channels | `runtime/src/channels/` | 5 adapters (CLI, Web, WhatsApp, Slack, API), ChannelRouter, formatForChannel |
 | sdk | `sdk/src/` | React hooks (useKilnChat, useKilnWsChat, useKilnEvents, useKilnMemory, useKilnState, useApproval), ApiClient, SseClient. Types-only import from core. |
 | studio | `studio/src/` | React 19 + Vite + TanStack Query + @xyflow/react. 7 views (Graph, Playground, Timeline, Memory, Eval, Cost, Safety). |
 
@@ -127,12 +127,10 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `gateway/dev-routes.ts` | Dev-mode: /dev/state, /dev/events (SSE), /dev/memory, /dev/cost, /dev/safety, /dev/token, /dev/run |
 | `gateway/dev-token-store.ts` | In-memory sliding-window TTL token store for dev-mode WebSocket auth |
 | `gateway/dev-orchestrator.ts` | DevOrchestrator: bridges core Orchestrator with ApprovalGateRegistry and gateway EventBus |
-| `channels/voice-channel.ts` | STT/TTS adapter (modalities: text + audio) |
 | `channels/whatsapp-channel.ts` | WhatsApp Business API webhook adapter |
 | `channels/slack-channel.ts` | Slack Bot Events + Web API adapter |
 | `session/session-registry.ts` | Multi-user session management + cleanup |
 | `trigger/trigger-registry.ts` | Per-app lifecycle, webhook app, event listener, scheduler |
-| `a2a/a2a-server-routes.ts` | Agent Card + JSON-RPC 2.0 dispatch |
 
 ### CLI (`packages/cli/src/`)
 

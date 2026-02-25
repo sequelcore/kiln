@@ -17,7 +17,7 @@ export interface KilnProviderProps {
 export function KilnProvider({ config, children }: KilnProviderProps): ReactNode {
   const value = useMemo<KilnContextValue>(
     () => ({ config, client: new ApiClient(config.baseUrl) }),
-    [config.baseUrl, config.appName, config.userId],
+    [config.baseUrl, config.appName, config.userId, config.reconnectDelayMs],
   );
 
   return <KilnContext value={value}>{children}</KilnContext>;

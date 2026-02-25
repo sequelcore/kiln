@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { EventBus } from "../../src/events/event-bus.js";
 import type {
   MemoryEntry,
-  MemoryLayer,
   MemorySearchResult,
   MemoryStore,
 } from "../../src/memory/index.js";
@@ -32,7 +31,6 @@ class MockMemoryStore implements MemoryStore {
 
   async search(
     query: string,
-    _layer?: MemoryLayer,
     limit?: number,
   ): Promise<readonly MemorySearchResult[]> {
     const maxResults = limit ?? 10;
@@ -55,7 +53,7 @@ class MockMemoryStore implements MemoryStore {
   }
 
   async recall(query: string, tokenBudget: number): Promise<string> {
-    const results = await this.search(query, undefined, 50);
+    const results = await this.search(query, 50);
     const parts: string[] = [];
     let tokensUsed = 0;
 
@@ -185,7 +183,7 @@ describe("MemoryManager", () => {
     });
 
     it("searches only specified layer", async () => {
-      const results = await manager.search("react", "user");
+      const results = await manager.searchByLayer("react", "user");
       expect(results.length).toBe(1);
       expect(results[0]!.entry.content).toContain("component");
     });
@@ -198,7 +196,7 @@ describe("MemoryManager", () => {
     });
 
     it("respects limit", async () => {
-      const results = await manager.search("react", undefined, 2);
+      const results = await manager.search("react", 2);
       expect(results.length).toBe(2);
     });
 
@@ -221,7 +219,7 @@ describe("MemoryManager", () => {
         agentRole: "architect",
       });
 
-      const results = await manager.search("react", "agent");
+      const results = await manager.searchByLayer("react", "agent");
       expect(results.length).toBe(2); // worker + architect
     });
   });

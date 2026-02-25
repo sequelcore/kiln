@@ -26,9 +26,11 @@ export interface MemorySearchResult {
 /** Memory store interface */
 export interface MemoryStore {
   save(entry: Omit<MemoryEntry, "id" | "createdAt" | "lastAccessedAt" | "accessCount">): Promise<string>;
-  search(query: string, layer?: MemoryLayer, limit?: number): Promise<readonly MemorySearchResult[]>;
+  search(query: string, limit?: number): Promise<readonly MemorySearchResult[]>;
   recall(query: string, tokenBudget: number): Promise<string>;
   forget(id: string): Promise<void>;
+  applyDecay?(factor?: number): void;
+  close?(): void;
 }
 
 export { SqliteMemoryStore } from "./sqlite-store.js";

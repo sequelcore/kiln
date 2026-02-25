@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ContentPart } from "@kilnai/core";
 import { useKilnContext } from "./provider.js";
+import { buildUserMessage } from "./build-user-message.js";
 import type { ChatMessage, ChatOptions, UseChatReturn, WsChatFrame } from "./types.js";
 
 export function useKilnWsChat(options?: ChatOptions): UseChatReturn {
@@ -52,8 +53,9 @@ export function useKilnWsChat(options?: ChatOptions): UseChatReturn {
     ws.onclose = () => { wsRef.current = null; };
 
     return () => { ws.close(); wsRef.current = null; };
-  }, [config.baseUrl, config.userId, appName]);
+  }, [config.baseUrl, appName]);
 
+  // deps: [] is correct -- wsRef and idCounter are stable refs
   const send = useCallback(
     async (content: string | ContentPart[]) => {
       const ws = wsRef.current;
@@ -62,16 +64,7 @@ export function useKilnWsChat(options?: ChatOptions): UseChatReturn {
         return;
       }
 
-      const userContent = typeof content === "string" ? content : undefined;
-      const userParts = typeof content !== "string" ? content : undefined;
-
-      const userMsg: ChatMessage = {
-        id: String(++idCounter.current),
-        role: "user",
-        content: userContent ?? "",
-        parts: userParts,
-        timestamp: Date.now(),
-      };
+      const userMsg = buildUserMessage(content, String(++idCounter.current));
 
       setMessages((prev) => [...prev, userMsg]);
       setIsLoading(true);
@@ -79,8 +72,8 @@ export function useKilnWsChat(options?: ChatOptions): UseChatReturn {
 
       ws.send(JSON.stringify({
         type: "message",
-        content: userContent ?? "",
-        ...(userParts ? { parts: userParts } : {}),
+        content: userMsg.content,
+        ...(userMsg.parts ? { parts: userMsg.parts } : {}),
       }));
     },
     [],

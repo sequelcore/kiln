@@ -195,7 +195,9 @@ export function formatEvent(event: KilnEvent): string {
     }
     case "tool_called": {
       const e = event as ToolCalledEvent;
-      return `[Tool] ${e.toolName} (worker ${e.workerIndex})`;
+      return e.workerIndex !== undefined
+        ? `[Tool] ${e.toolName} (worker ${e.workerIndex})`
+        : `[Tool] ${e.toolName}`;
     }
     case "cost_update": {
       const e = event as CostUpdateEvent;

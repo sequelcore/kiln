@@ -177,15 +177,6 @@ Mounted at the `path` declared in the App's `api` channel binding.
 
 When budget is exhausted, `POST /message` returns `{ content: "...", budgetExhausted: true }` without calling the provider. When tier is restricted, it returns `{ content: "...", tierRestricted: true }`.
 
-### A2A Routes
-
-Mounted when the App has `a2aConfig` in its YAML.
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/{appName}/a2a/.well-known/agent.json` | Agent Card for this App. |
-| `POST` | `/{appName}/a2a/` | JSON-RPC 2.0 dispatch: `tasks/send`, `tasks/sendSubscribe`, `tasks/get`, `tasks/cancel`. |
-
 ### Delegation Internal Routes
 
 | Method | Path | Description |
@@ -304,7 +295,7 @@ A single turn with `fast` tier costs approximately $0.001. A full multi-turn ses
 4. Initialize `ModeBOrchestrator` for each Mode B App.
 5. Build `DelegationRegistry` from all Mode B Apps.
 6. Initialize `SafetyPipeline` for each App with a `safety` block.
-7. Mount all Hono routes: health, per-App routes, A2A routes, trigger webhooks, delegation internal.
+7. Mount all Hono routes: health, per-App routes, trigger webhooks, delegation internal.
 8. Call `Bun.serve()`. Exit with code 1 on `EADDRINUSE`.
 9. Register `TriggerRegistry` lifecycle (event listeners, cron schedulers).
 

@@ -5,7 +5,7 @@ import type {
   AgentStreamEvent,
 } from "../../../src/agents/index.js";
 import { extractText, textParts } from "../../../src/engine/domain/content.js";
-import { OpenAIAdapter, GPT4O, GPT4O_MINI, O3, O3_MINI, CODEX } from "../../../src/agents/infrastructure/openai.js";
+import { OpenAIAdapter, GPT4O, GPT4O_MINI, O3, O3_MINI } from "../../../src/agents/infrastructure/openai.js";
 import { DeepSeekAdapter, DEEPSEEK_CHAT, DEEPSEEK_REASONER } from "../../../src/agents/infrastructure/deepseek.js";
 
 function makeOptions(
@@ -76,10 +76,12 @@ describe("OpenAIAdapter", () => {
 
   beforeEach(() => {
     adapter = new OpenAIAdapter({ apiKey: "test-openai-key" });
-    // Mock sleep to avoid real delays
-    vi.spyOn(adapter as unknown as { sleep: (ms: number) => Promise<void> }, "sleep" as never).mockResolvedValue(
-      undefined as never,
-    );
+    // Override retryOptions to use instant sleep for tests
+    const originalRetryOptions = adapter.retryOptions.bind(adapter);
+    vi.spyOn(adapter, "retryOptions").mockImplementation(() => ({
+      ...originalRetryOptions(),
+      sleep: () => Promise.resolve(),
+    }));
   });
 
   afterEach(() => {
@@ -229,9 +231,11 @@ describe("DeepSeekAdapter", () => {
 
   beforeEach(() => {
     adapter = new DeepSeekAdapter({ apiKey: "test-deepseek-key" });
-    vi.spyOn(adapter as unknown as { sleep: (ms: number) => Promise<void> }, "sleep" as never).mockResolvedValue(
-      undefined as never,
-    );
+    const originalRetryOptions = adapter.retryOptions.bind(adapter);
+    vi.spyOn(adapter, "retryOptions").mockImplementation(() => ({
+      ...originalRetryOptions(),
+      sleep: () => Promise.resolve(),
+    }));
   });
 
   afterEach(() => {
@@ -306,7 +310,6 @@ describe("model constants", () => {
     expect(GPT4O_MINI).toBe("gpt-4o-mini");
     expect(O3).toBe("o3");
     expect(O3_MINI).toBe("o3-mini");
-    expect(CODEX).toBe("codex-mini-latest");
   });
 
   it("exports correct DeepSeek model IDs", () => {

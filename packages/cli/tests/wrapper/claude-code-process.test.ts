@@ -12,11 +12,6 @@ function baseConfig(overrides: Partial<ClaudeSessionConfig> = {}): ClaudeSession
 }
 
 describe("ClaudeSession", () => {
-  it("creates instance with config", () => {
-    const session = new ClaudeSession(baseConfig());
-    expect(session).toBeDefined();
-  });
-
   it("isRunning returns false before start", () => {
     const session = new ClaudeSession(baseConfig());
     expect(session.isRunning).toBe(false);
@@ -27,17 +22,44 @@ describe("ClaudeSession", () => {
     expect(() => session.stop()).not.toThrow();
   });
 
-  it("accepts message handlers before start", () => {
+  it("stop can be called multiple times without error", () => {
     const session = new ClaudeSession(baseConfig());
-    expect(() => session.onMessage(() => {})).not.toThrow();
+    expect(() => {
+      session.stop();
+      session.stop();
+      session.stop();
+    }).not.toThrow();
   });
 
-  it("accepts exit handlers before start", () => {
+  it("isRunning remains false after stop without start", () => {
     const session = new ClaudeSession(baseConfig());
-    expect(() => session.onExit(() => {})).not.toThrow();
+    session.stop();
+    expect(session.isRunning).toBe(false);
   });
 
-  it("stores MCP server config", () => {
+  it("accepts message handlers before start without error", () => {
+    const session = new ClaudeSession(baseConfig());
+    const handler = () => {};
+    expect(() => session.onMessage(handler)).not.toThrow();
+  });
+
+  it("accepts exit handlers before start without error", () => {
+    const session = new ClaudeSession(baseConfig());
+    const handler = () => {};
+    expect(() => session.onExit(handler)).not.toThrow();
+  });
+
+  it("accepts multiple message handlers", () => {
+    const session = new ClaudeSession(baseConfig());
+    expect(() => {
+      session.onMessage(() => {});
+      session.onMessage(() => {});
+    }).not.toThrow();
+    // Session still not running -- handlers are queued for when start() is called
+    expect(session.isRunning).toBe(false);
+  });
+
+  it("accepts MCP server config without affecting pre-start state", () => {
     const session = new ClaudeSession(
       baseConfig({
         mcpServers: {
@@ -48,25 +70,28 @@ describe("ClaudeSession", () => {
         },
       }),
     );
-    expect(session).toBeDefined();
+    expect(session.isRunning).toBe(false);
+    expect(() => session.stop()).not.toThrow();
   });
 
-  it("stores permission mode config", () => {
+  it("accepts permission mode config without affecting pre-start state", () => {
     const session = new ClaudeSession(
       baseConfig({
         permissionMode: "bypassPermissions",
         allowDangerouslySkipPermissions: true,
       }),
     );
-    expect(session).toBeDefined();
+    expect(session.isRunning).toBe(false);
+    expect(() => session.stop()).not.toThrow();
   });
 
-  it("stores env config", () => {
+  it("accepts env config without affecting pre-start state", () => {
     const session = new ClaudeSession(
       baseConfig({
         env: { ANTHROPIC_API_KEY: "sk-test" },
       }),
     );
-    expect(session).toBeDefined();
+    expect(session.isRunning).toBe(false);
+    expect(() => session.stop()).not.toThrow();
   });
 });

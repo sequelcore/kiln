@@ -9,6 +9,8 @@ import type {
 import type { ContentPart } from "../../engine/domain/content.js";
 import { textPart, extractText } from "../../engine/domain/content.js";
 import { KilnError } from "../../engine/errors.js";
+import { withRetry } from "./retry.js";
+import type { RetryOptions } from "./retry.js";
 
 export const CLAUDE_OPUS = "claude-opus-4-6";
 export const CLAUDE_SONNET = "claude-sonnet-4-6";
@@ -37,10 +39,11 @@ export class AnthropicAdapter implements ProviderAdapter {
 
   async createMessage(options: CreateMessageOptions): Promise<AgentResponse> {
     const params = this.buildParams(options);
-    const response = await this.withRetry(() =>
-      this.client.messages.create(params, {
+    const response = await withRetry(
+      () => this.client.messages.create(params, {
         headers: { "anthropic-beta": BETA_HEADER },
       }),
+      this.retryOptions(),
     );
 
     return this.mapResponse(response as Anthropic.Messages.Message);
@@ -50,11 +53,12 @@ export class AnthropicAdapter implements ProviderAdapter {
     options: CreateMessageOptions,
   ): AsyncGenerator<AgentStreamEvent> {
     const params = this.buildParams(options);
-    const stream = await this.withRetry(() =>
-      this.client.messages.create(
+    const stream = await withRetry(
+      () => this.client.messages.create(
         { ...params, stream: true },
         { headers: { "anthropic-beta": BETA_HEADER } },
       ),
+      this.retryOptions(),
     );
 
     const toolInputBuffers = new Map<number, { id: string; name: string; json: string }>();
@@ -242,29 +246,15 @@ export class AnthropicAdapter implements ProviderAdapter {
     };
   }
 
-  private async withRetry<T>(fn: () => Promise<T>): Promise<T> {
-    let lastError: unknown;
-    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-      try {
-        return await fn();
-      } catch (error: unknown) {
-        lastError = error;
-        if (
-          error instanceof Anthropic.APIError &&
-          !RETRYABLE_STATUSES.has(error.status ?? 0)
-        ) {
-          throw error;
-        }
-        if (attempt < MAX_RETRIES - 1) {
-          await this.sleep(BASE_DELAY_MS * 2 ** attempt);
-        }
-      }
-    }
-    throw lastError;
-  }
-
-  private sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+  /** @internal Retry options exposed for test overriding */
+  retryOptions(): RetryOptions {
+    return {
+      maxRetries: MAX_RETRIES,
+      baseDelayMs: BASE_DELAY_MS,
+      isRetryable: (error: unknown): boolean =>
+        !(error instanceof Anthropic.APIError) ||
+        RETRYABLE_STATUSES.has(error.status ?? 0),
+    };
   }
 }
 

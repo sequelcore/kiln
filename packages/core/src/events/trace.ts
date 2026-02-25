@@ -19,12 +19,14 @@ export interface SpanEvent {
 
 export interface TraceContext {
   readonly traceId: string;
+  readonly sessionId: string;
   readonly activeSpanId: string | null;
 }
 
-export function createTraceContext(_sessionId: string): TraceContext {
+export function createTraceContext(sessionId: string): TraceContext {
   return {
     traceId: crypto.randomUUID(),
+    sessionId,
     activeSpanId: null,
   };
 }
@@ -49,6 +51,7 @@ export function startSpan(
 
   const childContext: TraceContext = {
     traceId: context.traceId,
+    sessionId: context.sessionId,
     activeSpanId: span.spanId,
   };
 

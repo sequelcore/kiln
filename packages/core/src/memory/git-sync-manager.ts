@@ -110,28 +110,6 @@ export class GitSyncManager {
     };
   }
 
-  developers(): DeveloperInfo[] {
-    const manifest = this.readManifest();
-    const devMap = new Map<string, { chunks: number; entries: number }>();
-
-    for (const chunk of manifest.chunks) {
-      const devId = chunk.developer ?? "unknown";
-      const existing = devMap.get(devId);
-      if (existing) {
-        existing.chunks++;
-        existing.entries += chunk.entries;
-      } else {
-        devMap.set(devId, { chunks: 1, entries: chunk.entries });
-      }
-    }
-
-    const result: DeveloperInfo[] = [];
-    for (const [developerId, info] of devMap) {
-      result.push({ developerId, chunks: info.chunks, entries: info.entries });
-    }
-    return result;
-  }
-
   private readManifest(): Manifest {
     const path = join(this.projectPath, "manifest.json");
     if (!existsSync(path)) {

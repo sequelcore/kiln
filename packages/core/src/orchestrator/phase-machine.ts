@@ -145,7 +145,7 @@ export class PhaseMachine {
   }
 
   /** Reject the plan, keeping phase at the approval gate. */
-  reject(_reason: string): void {
+  reject(reason: string): void {
     if (this._status !== "awaiting_approval" || !this._approvalResolve) return;
 
     this._status = "running";
@@ -153,6 +153,7 @@ export class PhaseMachine {
       type: "approval_received",
       taskId: "",
       approved: false,
+      reason,
       timestamp: new Date(),
       sessionId: this._sessionId,
     };

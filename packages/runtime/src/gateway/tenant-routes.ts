@@ -8,15 +8,8 @@ import type { ModeBOrchestrator } from "../session/mode-b-orchestrator.js";
 import type { SessionRegistry } from "../session/session-registry.js";
 import type { TenantRegistry } from "../tenant/tenant-registry.js";
 import { buildTenantSystemPrompt } from "../tenant/system-prompt-builder.js";
-import { checkBudget } from "./budget-middleware.js";
-
-/** Billing configuration for tenant routes (matches BillingConfig from mode-b-config) */
-interface BillingConfig {
-  readonly budgetEndpoint: string;
-  readonly usageEndpoint: string;
-  readonly overBudgetMessage: string;
-  readonly tiers?: Readonly<Record<string, { readonly agents: readonly string[] }>>;
-}
+import { checkBudget, reportUsage } from "./budget-middleware.js";
+import type { BillingConfig } from "./budget-middleware.js";
 
 /** Runtime configuration for a multi-tenant App */
 export interface TenantAppRuntime {
@@ -99,6 +92,16 @@ export function createTenantRoutes(runtime: TenantAppRuntime): Hono {
 
     // Process message
     const result = await runtime.orchestrator.processMessage(session, userParts);
+
+    // Report token usage to billing (fire-and-forget)
+    if (billingConfig) {
+      const billingUserId = `${body.tenantId}:${body.userId}`;
+      reportUsage(billingConfig, billingUserId, {
+        tokens: result.inputTokens + result.outputTokens,
+        model: "default",
+        role: "assistant",
+      });
+    }
 
     return c.json({
       content: extractText(result.parts),

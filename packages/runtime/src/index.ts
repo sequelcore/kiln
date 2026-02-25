@@ -10,7 +10,7 @@ export type { ResolvedApp } from "./gateway/app-resolver.js";
 export { createModeBRoutes } from "./gateway/mode-b-routes.js";
 export type { ModeBAppRuntime } from "./gateway/mode-b-routes.js";
 export { checkBudget, reportUsage, checkTier } from "./gateway/budget-middleware.js";
-export type { BudgetCheckResult, TierCheckResult } from "./gateway/budget-middleware.js";
+export type { BudgetCheckResult, TierCheckResult, BillingConfig } from "./gateway/budget-middleware.js";
 export { executeDelegation, validateResponseSchema } from "./gateway/delegation-handler.js";
 export type { DelegationTarget, DelegationRegistry } from "./gateway/delegation-handler.js";
 export { createDelegationRoutes } from "./gateway/delegation-routes.js";
@@ -52,8 +52,7 @@ export type { TriggerExecutionContext } from "./trigger/trigger-executor.js";
 // Channels
 export { EventBridge, toEngineEvent } from "./channels/event-bridge.js";
 export { ChannelRegistry } from "./channels/channel-registry.js";
-export { formatSdkMessage, formatForChannel } from "./channels/message-formatter.js";
-export type { OutputLine } from "./channels/message-formatter.js";
+export { formatForChannel } from "./channels/message-formatter.js";
 export type { ChannelConfig, ChannelStatus, IdentityMapping, IdentityResolver } from "./channels/types.js";
 export { InMemoryIdentityResolver } from "./channels/types.js";
 export { CliChannel } from "./channels/cli-channel.js";
@@ -67,3 +66,7 @@ export { SlackChannel } from "./channels/slack-channel.js";
 export type { SlackConfig } from "./channels/slack-channel.js";
 export { ApiChannel } from "./channels/api-channel.js";
 export type { SseWriter } from "./channels/api-channel.js";
+export { sendWhatsAppMessage, whatsappMessagesUrl, WHATSAPP_GRAPH_API_VERSION } from "./channels/whatsapp-api.js";
+
+// Utils
+export { verifyHmacSha256 } from "./utils/hmac.js";

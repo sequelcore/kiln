@@ -21,6 +21,7 @@ export class DevTokenStore {
   }
 
   validate(token: string): { valid: boolean; userId?: string } {
+    this.cleanup();
     const entry = this.tokens.get(token);
     if (!entry) return { valid: false };
     if (Date.now() - entry.lastActivityAt > this.ttlMs) {

@@ -117,8 +117,8 @@ export interface CostUpdateEvent extends KilnEvent {
 export interface ToolCalledEvent extends KilnEvent {
   readonly type: "tool_called";
   readonly toolName: string;
-  readonly taskId: string;
-  readonly workerIndex: number;
+  readonly taskId?: string;
+  readonly workerIndex?: number;
 }
 
 /** Task started event */
@@ -141,7 +141,7 @@ export interface TaskCompletedEvent extends KilnEvent {
 export interface ToolResultEvent extends KilnEvent {
   readonly type: "tool_result";
   readonly toolName: string;
-  readonly taskId: string;
+  readonly taskId?: string;
   readonly durationMs: number;
   readonly success: boolean;
 }
@@ -197,6 +197,7 @@ export interface ApprovalReceivedEvent extends KilnEvent {
   readonly type: "approval_received";
   readonly taskId: string;
   readonly approved: boolean;
+  readonly reason?: string;
 }
 
 /** Worker assigned event */

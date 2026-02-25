@@ -7,8 +7,7 @@ import { MemoryView } from "./routes/memory.js";
 import { EvalView } from "./routes/eval.js";
 import { CostView } from "./routes/cost.js";
 import { SafetyView } from "./routes/safety.js";
-
-type View = "graph" | "playground" | "timeline" | "memory" | "eval" | "cost" | "safety";
+import type { View } from "./types.js";
 
 export function App(): ReactNode {
   const [view, setView] = useState<View>("graph");

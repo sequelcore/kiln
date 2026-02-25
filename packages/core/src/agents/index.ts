@@ -68,10 +68,10 @@ export {
   CLAUDE_HAIKU,
 } from "./infrastructure/anthropic.js";
 export { ProviderRegistry } from "./provider-registry.js";
-export { OpenAIAdapter, GPT4O, GPT4O_MINI, O3, O3_MINI, CODEX } from "./infrastructure/openai.js";
+export { OpenAIAdapter, GPT4O, GPT4O_MINI, O3, O3_MINI } from "./infrastructure/openai.js";
 export { DeepSeekAdapter, DEEPSEEK_CHAT, DEEPSEEK_REASONER } from "./infrastructure/deepseek.js";
 export { OllamaAdapter, LLAMA3, CODELLAMA, DEEPSEEK_CODER } from "./infrastructure/ollama.js";
-export { type CatalogPricing, MODEL_CATALOG, findCheapest } from "./model-pricing.js";
+export { type CatalogPricing, MODEL_CATALOG } from "./model-pricing.js";
 export { CircuitBreaker } from "./circuit-breaker.js";
 export type { CircuitBreakerConfig, CircuitState } from "./circuit-breaker.js";
 export { ToolCache } from "./tool-cache.js";

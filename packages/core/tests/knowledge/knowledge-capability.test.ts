@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { createKnowledgeCapability, executeKnowledgeSearch, isAgentAllowed } from "../../src/knowledge/knowledge-capability.js";
+import { createKnowledgeCapability, executeKnowledgeSearch } from "../../src/knowledge/knowledge-capability.js";
 
 describe("createKnowledgeCapability", () => {
   it("returns a valid Capability", () => {
@@ -31,24 +31,6 @@ describe("createKnowledgeCapability", () => {
     const cap = createKnowledgeCapability();
     const schema = cap.schema as { required: string[] };
     expect(schema.required).toContain("query");
-  });
-});
-
-describe("isAgentAllowed", () => {
-  it("returns true when allowedAgents is undefined", () => {
-    expect(isAgentAllowed("agent1", undefined)).toBe(true);
-  });
-
-  it("returns true when allowedAgents is empty", () => {
-    expect(isAgentAllowed("agent1", [])).toBe(true);
-  });
-
-  it("returns true when agent is in allowedAgents", () => {
-    expect(isAgentAllowed("agent1", ["agent1", "agent2"])).toBe(true);
-  });
-
-  it("returns false when agent is not in allowedAgents", () => {
-    expect(isAgentAllowed("agent3", ["agent1", "agent2"])).toBe(false);
   });
 });
 

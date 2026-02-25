@@ -17,7 +17,7 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "bunx vitest run"
+    "test": "vitest run"
   },
   "license": "MIT",
   "repository": {

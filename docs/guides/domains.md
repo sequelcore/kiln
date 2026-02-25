@@ -108,7 +108,7 @@ qualityGates:
 }
 ```
 
-Do not add any lifecycle scripts. The marketplace rejects packages that declare `preinstall`, `postinstall`, `prepare`, `prepublish`, or any other npm lifecycle script.
+Do not add any lifecycle scripts. The registry rejects packages that declare `preinstall`, `postinstall`, `prepare`, `prepublish`, or any other npm lifecycle script.
 
 ### 2. Author domain.yaml
 

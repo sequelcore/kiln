@@ -44,11 +44,11 @@ export { parseDomainYaml, loadDomainYaml, DomainYamlError } from "./yaml-parser.
 export type { DomainYaml, QualityGateYaml, YamlValidationError } from "./yaml-schema.js";
 export { validateDomainYaml } from "./yaml-schema.js";
 
-// Backward-compatible re-exports from marketplace adapter (delegates to package/)
+// Domain package adapter: parses domain YAML into DomainPackageManifest (delegates to package/)
 // These accept domain YAML without requiring type/version/author fields.
 export {
   parseDomainPackageYaml,
   loadDomainPackageYaml,
   verifyContentHash,
-} from "./marketplace.js";
-export type { DomainPackageManifest } from "./marketplace.js";
+} from "./domain-package-adapter.js";
+export type { DomainPackageManifest } from "./domain-package-adapter.js";

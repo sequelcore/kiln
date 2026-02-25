@@ -29,7 +29,6 @@ vi.mock("node:fs", async () => {
 
 const MOCK_CONFIG: WrapperConfig = {
   mode: "api-key",
-  claudeCodePath: "claude",
   dangerouslySkipPermissions: false,
 };
 
@@ -77,7 +76,7 @@ describe("SessionManager", () => {
       const ctx = manager.prepare("task", "/home/user/project");
 
       expect(ctx.mcpServerEntryPath).toContain("mcp");
-      expect(ctx.mcpServerEntryPath).toContain("index.ts");
+      expect(ctx.mcpServerEntryPath).toContain("index.js");
     });
 
     it("detects domain via DomainRegistry", () => {
@@ -110,14 +109,6 @@ describe("SessionManager", () => {
       );
 
       expect(ctx.systemPrompt).toContain("Remember: use strict mode");
-      expect(ctx.memorySnapshot).toBe("Remember: use strict mode");
-    });
-
-    it("sets empty memorySnapshot when none provided", () => {
-      const manager = new SessionManager(MOCK_CONFIG, MOCK_APP_CONFIG);
-      const ctx = manager.prepare("task", "/home/user/project");
-
-      expect(ctx.memorySnapshot).toBe("");
     });
   });
 

@@ -53,7 +53,7 @@ describe("SqliteMemoryStore", () => {
     await store.save({ layer: "user", content: "Second memory about testing", tags: ["testing"] });
     await store.save({ layer: "user", content: "Third memory about testing", tags: ["testing"] });
 
-    const results = await store.search("testing", undefined, 2);
+    const results = await store.search("testing", 2);
     expect(results.length).toBeLessThanOrEqual(2);
   });
 

@@ -75,7 +75,7 @@ export class OllamaAdapter implements ProviderAdapter {
     if (data.message.tool_calls) {
       for (const tc of data.message.tool_calls) {
         toolCalls.push({
-          id: `ollama_${tc.function.name}_${Date.now()}`,
+          id: crypto.randomUUID(),
           name: tc.function.name,
           input: tc.function.arguments,
         });

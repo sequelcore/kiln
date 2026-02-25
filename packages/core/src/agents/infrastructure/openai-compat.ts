@@ -7,6 +7,8 @@ import type {
 } from "../index.js";
 import type { ContentPart } from "../../engine/domain/content.js";
 import { textPart, extractText } from "../../engine/domain/content.js";
+import { withRetry } from "./retry.js";
+import type { RetryOptions } from "./retry.js";
 
 const MAX_RETRIES = 3;
 const BASE_DELAY_MS = 1000;
@@ -107,7 +109,7 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
 
   async createMessage(options: CreateMessageOptions): Promise<AgentResponse> {
     const body = this.buildRequestBody(options);
-    const response = await this.withRetry(() => this.sendRequest(body));
+    const response = await withRetry(() => this.sendRequest(body), this.retryOptions());
     return this.mapResponse(response);
   }
 
@@ -117,8 +119,8 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
     const body = this.buildRequestBody(options);
     body.stream = true;
 
-    const response = await this.withRetry(() =>
-      fetch(`${this.baseUrl}/chat/completions`, {
+    const response = await withRetry(
+      () => fetch(`${this.baseUrl}/chat/completions`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${this.apiKey}`,
@@ -126,6 +128,7 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
         },
         body: JSON.stringify(body),
       }),
+      this.retryOptions(),
     );
 
     if (!response.ok) {
@@ -319,27 +322,15 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
     };
   }
 
-  private async withRetry<T>(fn: () => Promise<T>): Promise<T> {
-    let lastError: unknown;
-    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-      try {
-        return await fn();
-      } catch (error: unknown) {
-        lastError = error;
+  /** @internal Retry options exposed for test overriding */
+  retryOptions(): RetryOptions {
+    return {
+      maxRetries: MAX_RETRIES,
+      baseDelayMs: BASE_DELAY_MS,
+      isRetryable: (error: unknown): boolean => {
         const status = (error as Record<string, unknown>).status;
-        if (typeof status === "number" && !RETRYABLE_STATUSES.has(status)) {
-          throw error;
-        }
-        if (attempt < MAX_RETRIES - 1) {
-          await this.sleep(BASE_DELAY_MS * 2 ** attempt);
-        }
-      }
-    }
-    throw lastError;
-  }
-
-  /** @internal exposed for test mocking */
-  protected sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+        return typeof status !== "number" || RETRYABLE_STATUSES.has(status);
+      },
+    };
   }
 }

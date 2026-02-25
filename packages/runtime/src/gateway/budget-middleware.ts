@@ -28,7 +28,7 @@ export interface TierCheckResult {
 }
 
 /** Billing configuration (matches ModeBConfig.billing from @kilnai/core) */
-interface BillingConfig {
+export interface BillingConfig {
   readonly budgetEndpoint: string;
   readonly usageEndpoint: string;
   readonly overBudgetMessage: string;

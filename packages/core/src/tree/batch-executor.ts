@@ -15,15 +15,23 @@ export class BatchExecutor {
   private readonly concurrency: number;
   private readonly eventBus: EventBus;
   private readonly timeoutMs: number;
+  private _sessionId: string;
 
   constructor(opts: {
     concurrency: number;
     eventBus: EventBus;
     timeoutMs?: number;
+    sessionId?: string;
   }) {
     this.concurrency = opts.concurrency;
     this.eventBus = opts.eventBus;
     this.timeoutMs = opts.timeoutMs ?? 300_000;
+    this._sessionId = opts.sessionId ?? "";
+  }
+
+  /** Update session ID (called when orchestrator starts a new session) */
+  setSessionId(sessionId: string): void {
+    this._sessionId = sessionId;
   }
 
   async execute(
@@ -72,7 +80,7 @@ export class BatchExecutor {
       workerIndex,
       taskId: task.id,
       timestamp: new Date(),
-      sessionId: "",
+      sessionId: this._sessionId,
     };
     this.eventBus.emit(event);
 

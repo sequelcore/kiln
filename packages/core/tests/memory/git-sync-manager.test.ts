@@ -148,7 +148,7 @@ describe("GitSyncManager", () => {
     });
   });
 
-  describe("developers", () => {
+  describe("syncStatus().developers", () => {
     it("lists unique contributors", () => {
       writeManifest(tmpDir, {
         version: 1,
@@ -161,7 +161,7 @@ describe("GitSyncManager", () => {
       });
 
       const manager = new GitSyncManager({ projectPath: tmpDir });
-      const devs = manager.developers();
+      const devs = manager.syncStatus().developers;
 
       expect(devs).toHaveLength(2);
 
@@ -187,7 +187,7 @@ describe("GitSyncManager", () => {
       });
 
       const manager = new GitSyncManager({ projectPath: tmpDir });
-      const devs = manager.developers();
+      const devs = manager.syncStatus().developers;
 
       expect(devs).toHaveLength(2);
       const unknown = devs.find((d) => d.developerId === "unknown");

@@ -44,10 +44,17 @@ export class TaskTree {
   private readonly nodes = new Map<string, MutableTaskNode>();
   private readonly config: TreeConfig;
   private readonly eventBus: EventBus;
+  private _sessionId: string;
 
-  constructor({ config, eventBus }: { config: TreeConfig; eventBus: EventBus }) {
+  constructor({ config, eventBus, sessionId }: { config: TreeConfig; eventBus: EventBus; sessionId?: string }) {
     this.config = config;
     this.eventBus = eventBus;
+    this._sessionId = sessionId ?? "";
+  }
+
+  /** Update session ID (called when orchestrator starts a new session) */
+  setSessionId(sessionId: string): void {
+    this._sessionId = sessionId;
   }
 
   /** Create a root task at depth 0 with status "proposed" */
@@ -73,7 +80,7 @@ export class TaskTree {
       statement,
       parentId: null,
       timestamp: new Date(),
-      sessionId: "",
+      sessionId: this._sessionId,
     };
     this.eventBus.emit(event);
 
@@ -122,7 +129,7 @@ export class TaskTree {
         statement: evaluation,
         parentId: taskId,
         timestamp: new Date(),
-        sessionId: "",
+        sessionId: this._sessionId,
       };
       this.eventBus.emit(deepenEvent);
 
@@ -159,7 +166,7 @@ export class TaskTree {
         statement: evaluation,
         parentId: node.parentId,
         timestamp: new Date(),
-        sessionId: "",
+        sessionId: this._sessionId,
       };
       this.eventBus.emit(branchEvent);
 
@@ -174,7 +181,7 @@ export class TaskTree {
       status: "rejected",
       action: "update",
       timestamp: new Date(),
-      sessionId: "",
+      sessionId: this._sessionId,
     };
     this.eventBus.emit(pruneEvent);
 
@@ -193,7 +200,7 @@ export class TaskTree {
         status,
         action: "update",
         timestamp: new Date(),
-        sessionId: "",
+        sessionId: this._sessionId,
       };
       this.eventBus.emit(completedEvent);
     }

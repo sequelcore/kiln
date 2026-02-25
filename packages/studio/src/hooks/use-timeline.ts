@@ -47,5 +47,5 @@ export function useTimeline() {
     return [...spanMap.values()].sort((a, b) => a.startTime - b.startTime);
   }, [events]);
 
-  return { spans, events, connected, clear };
+  return { spans, connected, clear };
 }

@@ -120,6 +120,7 @@ describe("KilnMcpServer", () => {
       const handler = server.getHandler("kiln_cost_track")!;
       const result = await handler({
         role: "architect",
+        model: "claude-sonnet-4-6",
         inputTokens: 1000,
         outputTokens: 500,
         cacheReadTokens: 200,
@@ -145,6 +146,7 @@ describe("KilnMcpServer", () => {
       const trackHandler = server.getHandler("kiln_cost_track")!;
       await trackHandler({
         role: "worker",
+        model: "claude-sonnet-4-6",
         inputTokens: 5000,
         outputTokens: 1000,
       });
@@ -194,12 +196,28 @@ describe("KilnMcpServer", () => {
         savedEntries.push({ content: entry.content, layer: entry.layer, tags: [...entry.tags] });
         return "mock-memory-id";
       },
-      async search(query: string, layer?: MemoryLayer, limit?: number): Promise<readonly MemorySearchResult[]> {
-        searchCalls.push({ query, layer, limit });
+      async search(query: string, limit?: number): Promise<readonly MemorySearchResult[]> {
+        searchCalls.push({ query, limit });
         return [{
           entry: {
             id: "result-1",
             layer: "user" as MemoryLayer,
+            content: "mock result",
+            tags: ["test"],
+            createdAt: new Date(),
+            lastAccessedAt: new Date(),
+            accessCount: 1,
+          },
+          score: 0.95,
+          snippet: "mock result",
+        }];
+      },
+      async searchByLayer(query: string, layer: MemoryLayer, limit?: number): Promise<readonly MemorySearchResult[]> {
+        searchCalls.push({ query, layer, limit });
+        return [{
+          entry: {
+            id: "result-1",
+            layer: layer,
             content: "mock result",
             tags: ["test"],
             createdAt: new Date(),

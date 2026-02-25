@@ -7,7 +7,7 @@
   ],
   "scripts": {
     "build": "bun run --filter '*' build",
-    "typecheck": "tsc -b packages/core packages/runtime packages/sdk packages/cli",
+    "typecheck": "tsc -b packages/core packages/runtime packages/sdk packages/cli && tsc -p packages/studio/tsconfig.json --noEmit",
     "test": "bun run --filter '*' test"
   },
   "devDependencies": {

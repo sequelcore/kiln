@@ -86,7 +86,7 @@ Displays safety pipeline metrics from `GET /dev/safety`. When the pipeline is co
 
 ### Eval Dashboard
 
-Displays experiment results and score comparisons. Experiments are fetched from `GET /dev/eval/experiments`. Individual results from `GET /dev/eval/experiments/:name/results`.
+Displays experiment configurations and score comparisons. Experiments are fetched from `GET /dev/eval/experiments`.
 
 Score visualization shows per-scorer averages across all dataset items. When an experiment declares a `compare` field, a side-by-side table is rendered with delta indicators for each scorer.
 
@@ -97,7 +97,7 @@ All dev endpoints are mounted at `/dev/` when the Gateway starts in dev mode (`d
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/dev/state` | Current gateway and session state. |
-| `GET` | `/dev/events` | SSE stream of all engine events (32 types). |
+| `GET` | `/dev/events` | SSE stream of all engine events (31 types). |
 | `GET` | `/dev/memory/:scope` | List memory entries for a scope. |
 | `POST` | `/dev/memory` | Create a memory entry. |
 | `DELETE` | `/dev/memory/:id` | Delete a memory entry by ID. |
@@ -109,7 +109,6 @@ All dev endpoints are mounted at `/dev/` when the Gateway starts in dev mode (`d
 | `PUT` | `/dev/yaml` | Write and validate an updated `app.yaml`. |
 | `GET` | `/dev/safety` | Safety pipeline metrics (enabled, counters). |
 | `GET` | `/dev/eval/experiments` | List all configured experiments. |
-| `GET` | `/dev/eval/experiments/:name/results` | Fetch results for a named experiment. |
 | `POST` | `/dev/approve` | Approve a pending phase gate. Body: `{ sessionId? }`. |
 | `POST` | `/dev/reject` | Reject a pending phase gate. Body: `{ reason?, sessionId? }`. |
 | `POST` | `/dev/token` | Issue a dev-mode WebSocket auth token. Body: `{ userId? }`. |
@@ -122,7 +121,7 @@ Dev endpoints are only active when `devMode: true`. They are not mounted in prod
 
 When Studio is not built, `GET /dev/` serves a self-contained HTML page with zero external dependencies. It connects to `/dev/events` via `EventSource` and provides read-only views of:
 
-- Event stream (real-time, all 32 types)
+- Event stream (real-time, all 31 types)
 - Current state (`/dev/state`)
 - Memory entries (`/dev/memory`)
 - Cost data (`/dev/cost`)

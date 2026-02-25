@@ -46,7 +46,6 @@ const MOCK_APP_CONFIG: KilnAppConfig = {
 function makeConfig(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
   return {
     mode: "api-key",
-    claudeCodePath: "claude",
     dangerouslySkipPermissions: false,
     ...overrides,
   };

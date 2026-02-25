@@ -23,7 +23,7 @@ This document is for contributors. For user documentation, see the [guides](guid
 | `agents` | `@kilnai/core` | `packages/core/src/agents/` | Provider adapter interface and implementations (Anthropic, OpenAI, DeepSeek, Ollama). MCP client (Streamable HTTP transport via official SDK, circuit breaker). Tool RAG (embedding-based tool selection). |
 | `memory` | `@kilnai/core` | `packages/core/src/memory/` | SQLite + FTS5 store (decay + compaction), gzipped JSONL store, git sync. |
 | `tree` | `@kilnai/core` | `packages/core/src/tree/` | Task tree: scoring, batch selection, deepen/branch/prune. |
-| `domain` | `@kilnai/core` | `packages/core/src/domain/` | Domain registry, YAML schema, 5 built-in domain kits, marketplace adapter. |
+| `domain` | `@kilnai/core` | `packages/core/src/domain/` | Domain registry, YAML schema, 5 built-in domain kits, domain package adapter. |
 | `package` | `@kilnai/core` | `packages/core/src/package/` | Package distribution: versioning, content hashing, security validation. |
 | `skill` | `@kilnai/core` | `packages/core/src/skill/` | Skill system: SKILL.yaml format, SkillRegistry with 3-tier discovery. |
 | `eval` | `@kilnai/core` | `packages/core/src/eval/` | Evaluation: 12 scorer types, dataset JSONL loader, experiment runner with per-scorer error isolation, comparator. |
@@ -35,9 +35,9 @@ This document is for contributors. For user documentation, see the [guides](guid
 | `safety` | `@kilnai/core` | `packages/core/src/safety/` | Enterprise safety: PII scanner (2-tier, 6 types), content classifier (6 categories), 4 policy rails. |
 | `observability` | `@kilnai/core` | `packages/core/src/observability/` | OTel integration: SpanMapper (maps 32 event types to spans), OTelExporter (implements EventStore, accepts TracerProvider). |
 | `knowledge` | `@kilnai/core` | `packages/core/src/knowledge/` | RAG pipeline: chunkers (recursive, markdown), embedding adapters (OpenAI, Ollama), InMemoryVectorStore, RetrievalPipeline, knowledge_search capability auto-injection. |
-| `channels` | `@kilnai/runtime` | `packages/runtime/src/channels/` | Channel adapters (CLI, Web, WhatsApp, Slack, API, Voice), EventBridge, ChannelRegistry, ChannelRouter, MessageFormatter. |
+| `channels` | `@kilnai/runtime` | `packages/runtime/src/channels/` | Channel adapters (CLI, Web, WhatsApp, Slack, API), EventBridge, ChannelRegistry, ChannelRouter, formatForChannel. |
 | `gateway` | `@kilnai/runtime` | `packages/runtime/src/gateway/` | Gateway runtime: multi-App loading, per-App isolation, Mode B routes, budget middleware, cross-app delegation, trigger webhook mounting, dev-mode API routes (SSE, memory, cost, safety, token, orchestrator), WebSocket chat, Studio static file serving, lightweight dev server (`startDevServer`). |
-| `a2a` | `@kilnai/runtime` | `packages/runtime/src/a2a/` | A2A protocol: Agent Card generation, JSON-RPC 2.0 server, A2ATaskStore, A2AClient. |
+| `a2a` | `@kilnai/runtime` | `packages/runtime/src/a2a/` | A2A protocol: A2AClient (outbound delegation only). |
 | `trigger` | `@kilnai/runtime` | `packages/runtime/src/trigger/` | TriggerRegistry, webhook handler (HMAC-SHA256), event listener, cron scheduler, trigger executor. |
 | `session` | `@kilnai/runtime` | `packages/runtime/src/session/` | Mode B session management: ModeBSession, ModeBOrchestrator, SessionRegistry. |
 | `tenant` | `@kilnai/runtime` | `packages/runtime/src/tenant/` | Multi-tenant management: TenantRegistry, system prompt builder, phone-to-tenant resolution. |
@@ -193,7 +193,7 @@ States: `idle` -> `running` -> `awaiting_approval` -> `completed` | `failed` | `
 
 `Orchestrator` (`packages/core/src/orchestrator/orchestrator.ts`) owns the `PhaseMachine`, `EventBus`, `CostTracker`, `TaskTree`, `BatchExecutor`, `ProviderRegistry`, and `GitSyncManager`.
 
-Key responsibilities: session lifecycle, checkpointing (persist to SQLite after each phase transition), plan loading (hydrate `TaskTree` from architect structured output), implement loop (select batches, execute via `BatchExecutor`), interrupt/resume (pause at any point, checkpoint, resume via command), verification (instantiate `GateRunner` + `VerificationLoop`), memory sync.
+Key responsibilities: session lifecycle, checkpointing (persist to SQLite after each phase transition), plan loading (hydrate `TaskTree` from architect structured output), implement loop (select batches, execute via `BatchExecutor`), interrupt/resume (pause at any point, checkpoint, resume via command), verification (instantiate `GateRunner` + `VerificationLoop`), memory sync, cost recording (`recordUsage()` public API for MCP/CLI consumers).
 
 ### BatchExecutor and Strategies
 
@@ -347,7 +347,7 @@ kiln/
 │   │       ├── cost/                     # cost-tracker.ts
 │   │       ├── sandbox/                  # policies.ts
 │   │       ├── verification/             # verification-loop.ts
-│   │       ├── domain/                   # domain-registry.ts, yaml-schema.ts, marketplace.ts
+│   │       ├── domain/                   # domain-registry.ts, yaml-schema.ts, domain-package-adapter.ts
 │   │       ├── domains/                  # react-ts.yaml, python.yaml, docs.yaml, support.yaml, data-pipeline.yaml
 │   │       ├── package/                  # types.ts, security.ts, yaml-schema.ts, yaml-parser.ts
 │   │       ├── skill/                    # skill-registry.ts, yaml-schema.ts, yaml-parser.ts
@@ -360,9 +360,9 @@ kiln/
 │   │       ├── gateway/                  # gateway-server.ts, gateway-routes.ts, dev-routes.ts, ws-routes.ts, dev-token-store.ts, dev-orchestrator.ts, approval-registry.ts
 │   │       ├── session/                  # mode-b-session.ts, mode-b-orchestrator.ts, session-registry.ts
 │   │       ├── tenant/                   # tenant-registry.ts, system-prompt-builder.ts
-│   │       ├── channels/                 # cli-, web-, whatsapp-, slack-, api-, voice-channel.ts + speech/
+│   │       ├── channels/                 # cli-, web-, whatsapp-, slack-, api-channel.ts, channel-router.ts, whatsapp-api.ts
 │   │       ├── trigger/                  # trigger-registry.ts, webhook-handler.ts, scheduler.ts
-│   │       └── a2a/                      # agent-card-generator.ts, a2a-server-routes.ts, a2a-client.ts
+│   │       └── a2a/                      # a2a-client.ts
 │   ├── cli/                              # @kilnai/cli
 │   │   └── src/
 │   │       ├── commands/                 # init.ts, dev.ts, gateway.ts, skill.ts

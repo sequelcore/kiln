@@ -18,7 +18,6 @@ export interface SessionContext {
   readonly domain: DomainConfig;
   readonly systemPrompt: string;
   readonly mcpServerEntryPath: string;
-  readonly memorySnapshot: string;
   readonly workingDirectory: string;
   readonly task: string;
 }
@@ -41,12 +40,10 @@ export interface WrapperConfig {
   readonly mode: SessionMode;
   readonly apiKey?: string;
   readonly provider?: string;
-  readonly claudeCodePath: string;
   readonly dangerouslySkipPermissions: boolean;
 }
 
 export { ClaudeSession } from "./claude-code-process.js";
 export type { ClaudeSessionConfig } from "./claude-code-process.js";
-export { buildSystemPrompt } from "./context-builder.js";
 export { SessionManager } from "./session-manager.js";
 export type { KilnAppConfig, SystemPromptOptions } from "../config.js";

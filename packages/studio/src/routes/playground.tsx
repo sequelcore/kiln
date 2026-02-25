@@ -9,7 +9,7 @@ interface ApprovalRequest {
 interface PhaseState {
   phase: string | number;
   phaseName: string;
-  phaseDescription?: string;
+  phaseDescription: string;
 }
 
 function ApprovalCard({
@@ -164,7 +164,7 @@ export function PlaygroundView(): ReactNode {
     return {
       phase: ev.data.phase as string | number,
       phaseName: ev.data.phaseName as string,
-      phaseDescription: ev.data.phaseDescription as string | undefined,
+      phaseDescription: (ev.data.phaseDescription as string) ?? "",
     };
   }, null);
 
@@ -187,7 +187,7 @@ export function PlaygroundView(): ReactNode {
     }));
 
   const toolEvents = events.filter(
-    (e) => e.type === "tool_call" || e.type === "tool_result",
+    (e) => e.type === "tool_called" || e.type === "tool_result",
   );
 
   return (
@@ -299,7 +299,7 @@ export function PlaygroundView(): ReactNode {
         )}
         {toolEvents.map((event, i) => (
           <div key={i} style={{ marginBottom: 8, padding: 8, background: "var(--bg-tertiary)", borderRadius: 4, fontSize: 12 }}>
-            <div className="mono" style={{ color: event.type === "tool_call" ? "var(--accent)" : "var(--success)" }}>
+            <div className="mono" style={{ color: event.type === "tool_called" ? "var(--accent)" : "var(--success)" }}>
               {event.type}
             </div>
             <pre className="mono text-secondary" style={{ fontSize: 11, marginTop: 4, overflow: "auto", maxHeight: 100 }}>

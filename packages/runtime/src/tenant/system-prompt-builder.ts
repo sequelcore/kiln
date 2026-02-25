@@ -4,7 +4,7 @@ export function buildTenantSystemPrompt(tenant: TenantConfig): string {
   const parts: string[] = [];
 
   // Opening line
-  parts.push(`Eres el asistente virtual de "${tenant.name}".`);
+  parts.push(`You are the virtual assistant for "${tenant.name}".`);
 
   // Description
   if (tenant.description) {
@@ -15,23 +15,23 @@ export function buildTenantSystemPrompt(tenant: TenantConfig): string {
   const lang = tenant.language ?? "es-MX";
   switch (tenant.tone) {
     case "formal":
-      parts.push("Usa un tono formal y profesional en todas tus respuestas.");
+      parts.push("Use a formal and professional tone in all your responses.");
       break;
     case "casual":
-      parts.push("Usa un tono casual y relajado en tus respuestas.");
+      parts.push("Use a casual and relaxed tone in your responses.");
       break;
     case "friendly":
-      parts.push("Usa un tono amigable y cercano en tus respuestas.");
+      parts.push("Use a friendly and approachable tone in your responses.");
       break;
     default:
-      parts.push("Usa un tono amigable y cercano en tus respuestas.");
+      parts.push("Use a friendly and approachable tone in your responses.");
       break;
   }
 
   // Services
   if (tenant.services && tenant.services.length > 0) {
     parts.push("");
-    parts.push("## Servicios");
+    parts.push("## Services");
     for (const svc of tenant.services) {
       let line = `- ${svc.name}`;
       const details: string[] = [];
@@ -46,7 +46,7 @@ export function buildTenantSystemPrompt(tenant: TenantConfig): string {
   // Hours
   if (tenant.hours && Object.keys(tenant.hours).length > 0) {
     parts.push("");
-    parts.push("## Horarios");
+    parts.push("## Business Hours");
     for (const [day, hours] of Object.entries(tenant.hours)) {
       parts.push(`- ${day}: ${hours}`);
     }
@@ -55,26 +55,26 @@ export function buildTenantSystemPrompt(tenant: TenantConfig): string {
   // FAQ
   if (tenant.faqEntries && tenant.faqEntries.length > 0) {
     parts.push("");
-    parts.push("## Preguntas frecuentes");
+    parts.push("## Frequently Asked Questions");
     for (const faq of tenant.faqEntries) {
-      parts.push(`**P:** ${faq.q}`);
-      parts.push(`**R:** ${faq.r}`);
+      parts.push(`**Q:** ${faq.q}`);
+      parts.push(`**A:** ${faq.r}`);
     }
   }
 
   // Escalation
   if (tenant.escalationContact) {
-    parts.push("");
-    let escalation = `Si no puedes resolver algo, escala con: ${tenant.escalationContact.name}`;
+    let escalation = `If you cannot resolve something, escalate to: ${tenant.escalationContact.name}`;
     if (tenant.escalationContact.phone) escalation += ` (${tenant.escalationContact.phone})`;
     if (tenant.escalationContact.email) escalation += ` <${tenant.escalationContact.email}>`;
+    parts.push("");
     parts.push(escalation);
   }
 
-  // Closing instructions
+  // Closing instructions: language directive and guardrails
   parts.push("");
-  parts.push(`Responde siempre en ${lang}.`);
-  parts.push("Se conciso. No inventes informacion que no conoces. Responde solo sobre este negocio.");
+  parts.push(`Always respond in ${lang}.`);
+  parts.push("Be concise. Do not fabricate information you do not know. Only respond about this business.");
 
   return parts.join("\n");
 }

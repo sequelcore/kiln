@@ -39,6 +39,9 @@ export { validateApp } from "./composites/app.js";
 // Engine loader -- YAML -> typed composites (Phase 16)
 export { AppLoaderError, parseAppYaml, validateAppGraph } from "./loader/app-loader.js";
 
+// Orchestrator config -- shared interface in engine domain (used by orchestrator + preset loader)
+export type { OrchestratorConfig } from "./domain/orchestrator-config.js";
+
 // Preset loader -- App -> OrchestratorConfig (Phase 17)
 export { PresetLoaderError, loadPresetConfig } from "./loader/preset-loader.js";
 

@@ -66,7 +66,7 @@ describe("YamlWatcher", () => {
     expect(onReload.mock.calls.length).toBeLessThanOrEqual(2);
   });
 
-  it("stop() closes all watchers and cancels pending timers", async () => {
+  it("stop() cancels pending debounce timer so onReload does not fire", async () => {
     const filePath = join(tmpDir, "stop-test.yaml");
     writeFileSync(filePath, "port: 4000\n");
 
@@ -86,13 +86,27 @@ describe("YamlWatcher", () => {
     // Stop before debounce fires
     watcher.stop();
 
-    // Wait longer than debounce
+    // Wait longer than debounce -- onReload should NOT have fired after stop
     await new Promise<void>((resolve) => setTimeout(resolve, 300));
 
-    // onReload should not have been called since we stopped before debounce fired
-    // (or it may have fired once if the OS event came quickly enough -- acceptable)
-    // Primary assertion: watcher does not error after stop
-    expect(watcher).toBeDefined();
+    expect(onReload).not.toHaveBeenCalled();
+  });
+
+  it("stop() can be called multiple times without error", () => {
+    const filePath = join(tmpDir, "multi-stop.yaml");
+    writeFileSync(filePath, "port: 4000\n");
+
+    const watcher = new YamlWatcher({
+      paths: [filePath],
+      debounceMs: 50,
+      onReload: vi.fn(),
+    });
+
+    watcher.start();
+    expect(() => {
+      watcher.stop();
+      watcher.stop();
+    }).not.toThrow();
   });
 
   it("calls onError for non-existent paths", () => {

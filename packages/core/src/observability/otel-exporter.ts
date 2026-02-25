@@ -7,6 +7,10 @@ import type { KilnEvent } from "../events/index.js";
 import type { EventStore } from "../events/event-store.js";
 import { mapEventToSpan } from "./span-mapper.js";
 
+// SpanStatusCode numeric values from @opentelemetry/api -- avoids importing the enum at runtime.
+const SPAN_STATUS_OK: SpanStatusCode = 1 as SpanStatusCode;
+const SPAN_STATUS_ERROR: SpanStatusCode = 2 as SpanStatusCode;
+
 export interface OTelExporterConfig {
     readonly serviceName: string;
     readonly attributes?: Record<string, string>;
@@ -53,9 +57,7 @@ export class OTelExporter implements EventStore {
                     if (operation.attributes) {
                         this.setAttributes(span, operation.attributes);
                     }
-                    // SpanStatusCode.OK = 1, ERROR = 2 -- access through the tracer provider's context
-                    // We use numeric literals to avoid importing @opentelemetry/api at runtime in core.
-                    const statusCode = operation.status === "error" ? (2 as SpanStatusCode) : (1 as SpanStatusCode);
+                    const statusCode = operation.status === "error" ? SPAN_STATUS_ERROR : SPAN_STATUS_OK;
                     span.setStatus({ code: statusCode });
                     span.end();
                     spans.delete(spanKey);

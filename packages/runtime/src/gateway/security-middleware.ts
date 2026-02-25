@@ -32,9 +32,6 @@ export function securityMiddleware(
       return next();
     }
 
-    // Re-attach body so downstream handlers can read it
-    // Hono caches parsed JSON so this is a no-op (body already consumed)
-
     const rawMessage = body?.["message"] ?? body?.["content"];
     if (typeof rawMessage !== "string" || rawMessage.length === 0) {
       return next();

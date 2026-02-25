@@ -43,6 +43,8 @@ describe("statusCommand", () => {
   it("prints domain when initialized", () => {
     const config: ProjectConfig = {
       domain: "python",
+      channels: ["cli", "web"],
+      teamMode: "sequential",
       requireApproval: true,
       maxDepth: 3,
       parallelWorkers: 2,
@@ -62,6 +64,8 @@ describe("statusCommand", () => {
   it("shows all config values", () => {
     const config: ProjectConfig = {
       domain: "react-typescript",
+      channels: ["cli", "web"],
+      teamMode: "sequential",
       requireApproval: false,
       maxDepth: 5,
       parallelWorkers: 4,
@@ -86,6 +90,8 @@ describe("statusCommand", () => {
   it("shows memory file count", () => {
     const config: ProjectConfig = {
       domain: "python",
+      channels: ["cli", "web"],
+      teamMode: "sequential",
       requireApproval: true,
       maxDepth: 3,
       parallelWorkers: 2,
@@ -101,6 +107,6 @@ describe("statusCommand", () => {
     statusCommand(MOCK_APP_CONFIG, tempDir);
 
     const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
-    expect(output).toContain("2");
+    expect(output).toContain("Memory files:     2");
   });
 });

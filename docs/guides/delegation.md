@@ -100,36 +100,7 @@ capabilities:
 4. If the remote task completes, extracts the result from the first artifact's first part (data or text).
 5. Returns `PROVIDER_ERROR` if the task ends in a non-completed state or no extractable data is present.
 
-### Agent Card
-
-Apps with A2A configuration expose an Agent Card at `/{appName}/a2a/.well-known/agent.json`. Generated automatically from the App's team capabilities via `generateAgentCard()`. Remote agents use this to discover capabilities before sending tasks.
-
-### JSON-RPC 2.0 Endpoints
-
-All task operations are dispatched via `POST /{appName}/a2a/` with a JSON-RPC 2.0 body.
-
-| Method | Params | Description |
-|--------|--------|-------------|
-| `tasks/send` | `{ message: A2AMessage }` | Submit a task and receive the completed result synchronously. |
-| `tasks/sendSubscribe` | `{ message: A2AMessage }` | Submit a task and stream progress via SSE. |
-| `tasks/get` | `{ id: string }` | Query the status of a previously submitted task. |
-| `tasks/cancel` | `{ id: string }` | Cancel a running task. Terminal tasks are returned unchanged. |
-
-### A2A Task Lifecycle
-
-Tasks progress through states: `submitted` -> `working` -> `completed` | `failed` | `canceled`.
-
-The `A2ATaskStore` holds tasks in memory. Terminal tasks can be cleaned up via `cleanExpired(ttlMs)`.
-
-### A2A Error Codes
-
-| JSON-RPC Code | Constant | Description |
-|---------------|----------|-------------|
-| `-32600` | `INVALID_REQUEST` | Missing or invalid JSON-RPC envelope. |
-| `-32601` | `METHOD_NOT_FOUND` | Unknown method name. |
-| `-32602` | `INVALID_PARAMS` | Missing required params. |
-| `-32603` | `INTERNAL_ERROR` | Task execution failed internally. |
-| `-32001` | `TASK_NOT_FOUND` | No task with the given ID exists. |
+Kiln uses `A2AClient` for outbound A2A delegation to external agents. The client sends tasks via JSON-RPC 2.0 to remote A2A-compliant agents.
 
 ## Internal Routes
 

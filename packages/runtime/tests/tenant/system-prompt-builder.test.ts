@@ -17,7 +17,7 @@ function makeMinimalTenant(overrides: Partial<TenantConfig> = {}): TenantConfig 
 describe("buildTenantSystemPrompt", () => {
   it("includes business name in opening line", () => {
     const prompt = buildTenantSystemPrompt(makeMinimalTenant());
-    expect(prompt).toContain('asistente virtual de "Test Business"');
+    expect(prompt).toContain('virtual assistant for "Test Business"');
   });
 
   it("includes description when present", () => {
@@ -33,7 +33,7 @@ describe("buildTenantSystemPrompt", () => {
         ],
       }),
     );
-    expect(prompt).toContain("## Servicios");
+    expect(prompt).toContain("## Services");
     expect(prompt).toContain("Corte");
     expect(prompt).toContain("$150");
     expect(prompt).toContain("30 min");
@@ -44,7 +44,7 @@ describe("buildTenantSystemPrompt", () => {
     const prompt = buildTenantSystemPrompt(
       makeMinimalTenant({ hours: { lun: "09:00-18:00", mar: "09:00-18:00" } }),
     );
-    expect(prompt).toContain("## Horarios");
+    expect(prompt).toContain("## Business Hours");
     expect(prompt).toContain("lun: 09:00-18:00");
     expect(prompt).toContain("mar: 09:00-18:00");
   });
@@ -55,9 +55,9 @@ describe("buildTenantSystemPrompt", () => {
         faqEntries: [{ q: "Do you accept cards?", r: "Yes, all cards." }],
       }),
     );
-    expect(prompt).toContain("## Preguntas frecuentes");
-    expect(prompt).toContain("**P:** Do you accept cards?");
-    expect(prompt).toContain("**R:** Yes, all cards.");
+    expect(prompt).toContain("## Frequently Asked Questions");
+    expect(prompt).toContain("**Q:** Do you accept cards?");
+    expect(prompt).toContain("**A:** Yes, all cards.");
   });
 
   it("renders escalation contact with phone", () => {
@@ -81,17 +81,17 @@ describe("buildTenantSystemPrompt", () => {
 
   it("uses formal tone instruction when tone is formal", () => {
     const prompt = buildTenantSystemPrompt(makeMinimalTenant({ tone: "formal" }));
-    expect(prompt).toContain("formal y profesional");
+    expect(prompt).toContain("formal and professional");
   });
 
   it("uses casual tone instruction when tone is casual", () => {
     const prompt = buildTenantSystemPrompt(makeMinimalTenant({ tone: "casual" }));
-    expect(prompt).toContain("casual y relajado");
+    expect(prompt).toContain("casual and relaxed");
   });
 
   it("uses friendly tone by default", () => {
     const prompt = buildTenantSystemPrompt(makeMinimalTenant());
-    expect(prompt).toContain("amigable y cercano");
+    expect(prompt).toContain("friendly and approachable");
   });
 
   it("defaults to es-MX language", () => {
@@ -106,6 +106,6 @@ describe("buildTenantSystemPrompt", () => {
 
   it("includes instruction to not fabricate information", () => {
     const prompt = buildTenantSystemPrompt(makeMinimalTenant());
-    expect(prompt).toContain("No inventes");
+    expect(prompt).toContain("Do not fabricate");
   });
 });

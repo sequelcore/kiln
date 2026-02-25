@@ -6,15 +6,8 @@ import type { ContentPart } from "@kilnai/core";
 import { textParts, extractText } from "@kilnai/core";
 import type { ModeBOrchestrator } from "../session/mode-b-orchestrator.js";
 import type { SessionRegistry } from "../session/session-registry.js";
-import { checkBudget, checkTier } from "./budget-middleware.js";
-
-/** Billing configuration for Mode B routes (matches BillingConfig from mode-b-config) */
-interface BillingConfig {
-  readonly budgetEndpoint: string;
-  readonly usageEndpoint: string;
-  readonly overBudgetMessage: string;
-  readonly tiers?: Readonly<Record<string, { readonly agents: readonly string[] }>>;
-}
+import { checkBudget, reportUsage, checkTier } from "./budget-middleware.js";
+import type { BillingConfig } from "./budget-middleware.js";
 
 /** Runtime configuration for a Mode B App */
 export interface ModeBAppRuntime {
@@ -91,6 +84,15 @@ export function createModeBRoutes(runtime: ModeBAppRuntime): Hono {
     } catch (err) {
       console.error(`[${runtime.appName}] processMessage error:`, err);
       return c.json({ error: String(err) }, 500);
+    }
+
+    // Report token usage to billing (fire-and-forget)
+    if (runtime.billing) {
+      reportUsage(runtime.billing, body.userId, {
+        tokens: result.inputTokens + result.outputTokens,
+        model: "default",
+        role: "assistant",
+      });
     }
 
     return c.json({

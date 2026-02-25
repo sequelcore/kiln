@@ -2,11 +2,11 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    exclude: [
-      "**/node_modules/**",
+    projects: [
+      "packages/core",
+      "packages/runtime",
+      "packages/cli",
+      "packages/sdk",
     ],
-    alias: {
-      "bun:sqlite": new URL("./vitest-bun-sqlite-mock.ts", import.meta.url).pathname,
-    },
   },
 });

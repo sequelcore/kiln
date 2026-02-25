@@ -9,7 +9,7 @@ export type { ClaudeSessionConfig } from "./wrapper/claude-code-process.js";
 export type { SessionMode, SessionContext, SessionReport, WrapperConfig } from "./wrapper/index.js";
 export { SessionManager } from "./wrapper/session-manager.js";
 export { KilnMcpServer, KILN_TOOLS } from "./mcp/index.js";
-export type { KilnTool } from "./mcp/index.js";
+export type { KilnTool, McpServerInfo } from "./mcp/index.js";
 
 export async function createCli(config: KilnAppConfig): Promise<void> {
   const args = process.argv.slice(2);
@@ -136,7 +136,7 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     const port = parsePort(args);
     const configPath = findFlag(args, "--config");
     const playground = args.includes("--playground");
-    await devCommand(config, { port: port !== 4800 ? port : undefined, configPath, playground });
+    await devCommand(config, { port, configPath, playground });
     return;
   }
 
@@ -145,8 +145,6 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     await skillCommand(config, args[1] ?? "", args.slice(2));
     return;
   }
-
-  console.log(`${config.appName} ${command}: not yet implemented`);
 }
 
 function findFlag(args: readonly string[], flag: string): string | undefined {

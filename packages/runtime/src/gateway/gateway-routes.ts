@@ -3,7 +3,7 @@
 
 import { Hono } from "hono";
 import type { App } from "@kilnai/core";
-import type { GatewayAppBinding, SecurityConfig, AuditLog, AgentCard, A2AMessage, A2ATaskStatus, A2AArtifact } from "@kilnai/core";
+import type { GatewayAppBinding, SecurityConfig, AuditLog } from "@kilnai/core";
 import { PromptScanner } from "@kilnai/core";
 import type { ChannelRegistry } from "../channels/channel-registry.js";
 import type { WebChannel } from "../channels/web-channel.js";
@@ -27,7 +27,6 @@ import type { DevRoutesConfig } from "./dev-routes.js";
 import { createDevRoutes } from "./dev-routes.js";
 import { createDevInspectorHtml } from "./dev-inspector.js";
 import type { TriggerRegistry } from "../trigger/trigger-registry.js";
-import { createA2ARoutes, A2ATaskStore } from "../a2a/index.js";
 
 export interface LoadedApp {
   readonly name: string;
@@ -39,11 +38,6 @@ export interface LoadedApp {
   whatsappWebhookConfig?: WhatsAppWebhookConfig;
   tenantAdminConfig?: TenantAdminRoutesConfig;
   webChannel?: WebChannel;
-  a2aConfig?: {
-    readonly agentCard: AgentCard;
-    readonly taskStore: A2ATaskStore;
-    readonly executeTask: (taskId: string, message: A2AMessage) => Promise<{ status: A2ATaskStatus; artifacts?: readonly A2AArtifact[] }>;
-  };
 }
 
 export interface GatewayServerConfig {
@@ -176,12 +170,6 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
     if (loadedApp.tenantAdminConfig) {
       const adminApp = createTenantAdminRoutes(loadedApp.tenantAdminConfig);
       app.route(`/admin/${loadedApp.name}`, adminApp);
-    }
-
-    // A2A routes per app (only when explicitly configured)
-    if (loadedApp.a2aConfig) {
-      const a2aApp = createA2ARoutes(loadedApp.a2aConfig);
-      app.route(`/${loadedApp.name}/a2a`, a2aApp);
     }
   }
 

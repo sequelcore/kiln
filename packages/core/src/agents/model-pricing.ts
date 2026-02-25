@@ -22,26 +22,3 @@ export const MODEL_CATALOG: readonly CatalogPricing[] = [
   // Local
   { model: "ollama-local", provider: "ollama", inputPer1M: 0, outputPer1M: 0, qualityTier: "low" },
 ];
-
-const TIER_ORDER: Record<string, number> = { high: 3, medium: 2, low: 1 };
-
-/** Find the cheapest model at or above the given quality tier. */
-export function findCheapest(
-  minQualityTier: "high" | "medium" | "low",
-  catalog?: readonly CatalogPricing[],
-): CatalogPricing {
-  const models = catalog ?? MODEL_CATALOG;
-  const minTierValue = TIER_ORDER[minQualityTier] ?? 1;
-
-  const eligible = models.filter(
-    (m) => (TIER_ORDER[m.qualityTier] ?? 0) >= minTierValue,
-  );
-
-  if (eligible.length === 0) {
-    throw new Error(`No models found at tier: ${minQualityTier}`);
-  }
-
-  return eligible.sort(
-    (a, b) => (a.inputPer1M + a.outputPer1M) - (b.inputPer1M + b.outputPer1M),
-  )[0]!;
-}

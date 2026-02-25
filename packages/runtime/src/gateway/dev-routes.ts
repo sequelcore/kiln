@@ -17,7 +17,6 @@ export interface DevRoutesConfig {
   readonly createMemoryEntry?: (entry: Record<string, unknown>) => { id: string } | Promise<{ id: string }>;
   readonly deleteMemoryEntry?: (id: string) => boolean | Promise<boolean>;
   readonly getEvalExperiments?: () => EvalExperimentSummary[];
-  readonly getEvalResults?: (name: string) => Record<string, unknown> | undefined;
   readonly approvePhase?: (sessionId?: string) => { ok: boolean; error?: string };
   readonly rejectPhase?: (reason: string, sessionId?: string) => { ok: boolean; error?: string };
   readonly startRun?: (task: string) => { sessionId: string } | { error: string };
@@ -165,14 +164,6 @@ export function createDevRoutes(config: DevRoutesConfig): Hono {
   app.get("/eval/experiments", (c) => {
     const experiments = config.getEvalExperiments?.() ?? [];
     return c.json(experiments);
-  });
-
-  // GET /eval/experiments/:name/results -- experiment run results
-  app.get("/eval/experiments/:name/results", (c) => {
-    const name = c.req.param("name");
-    const results = config.getEvalResults?.(name);
-    if (!results) return c.json({ error: "Experiment not found" }, 404);
-    return c.json(results);
   });
 
   // POST /run -- start a dev orchestrator run

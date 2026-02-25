@@ -5,15 +5,45 @@ import type { VectorStore, VectorEntry, VectorResult } from "../../src/engine/do
 import type { Capability } from "../../src/engine/domain/capability.js";
 import type { ToolSelectionConfig } from "../../src/engine/domain/tool-selection-config.js";
 
+/**
+ * Deterministic hash-based embedder: produces a unique 3D unit vector for each
+ * input string so that cosine similarity actually differentiates results.
+ */
 class MockEmbedder implements EmbeddingAdapter {
   readonly name = "mock";
   readonly dimensions = 3;
 
   async embed(texts: string[]): Promise<number[][]> {
-    return texts.map(() => [0.1, 0.2, 0.3]);
+    return texts.map((text) => {
+      let h = 0;
+      for (let i = 0; i < text.length; i++) {
+        h = ((h << 5) - h + text.charCodeAt(i)) | 0;
+      }
+      const a = ((h & 0xff) / 255) * Math.PI * 2;
+      const b = (((h >> 8) & 0xff) / 255) * Math.PI;
+      return [Math.sin(b) * Math.cos(a), Math.sin(b) * Math.sin(a), Math.cos(b)];
+    });
   }
 }
 
+/** Cosine similarity between two vectors */
+function cosineSimilarity(a: number[], b: number[]): number {
+  let dot = 0;
+  let magA = 0;
+  let magB = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i]! * b[i]!;
+    magA += a[i]! * a[i]!;
+    magB += b[i]! * b[i]!;
+  }
+  const denom = Math.sqrt(magA) * Math.sqrt(magB);
+  return denom === 0 ? 0 : dot / denom;
+}
+
+/**
+ * Vector store that actually computes cosine similarity when querying,
+ * so relevance ranking is meaningful.
+ */
 class MockVectorStore implements VectorStore {
   private entries: VectorEntry[] = [];
 
@@ -21,13 +51,15 @@ class MockVectorStore implements VectorStore {
     this.entries = entries;
   }
 
-  async query(_embedding: number[], options: { topK: number }): Promise<VectorResult[]> {
-    return this.entries.slice(0, options.topK).map((e) => ({
+  async query(embedding: number[], options: { topK: number }): Promise<VectorResult[]> {
+    const scored = this.entries.map((e) => ({
       id: e.id,
       content: e.content,
-      score: 0.9,
+      score: cosineSimilarity(embedding, e.embedding),
       metadata: e.metadata,
     }));
+    scored.sort((a, b) => b.score - a.score);
+    return scored.slice(0, options.topK);
   }
 
   async delete(ids: string[]): Promise<void> {
@@ -72,6 +104,40 @@ describe("ToolRAG", () => {
       const selected = await rag.selectTools("query", tools);
 
       expect(selected.length).toBeLessThanOrEqual(5);
+      expect(selected.length).toBeGreaterThan(0);
+      // Every selected tool must come from the original tool set
+      for (const tool of selected) {
+        expect(tools.some((t) => t.name === tool.name)).toBe(true);
+      }
+    });
+
+    it("ranks tools by relevance -- most similar tool appears first", async () => {
+      const rag = new ToolRAG(embedder, store, config);
+      // Create tools with very different descriptions
+      const tools = [
+        createTool("web_search", "Search the internet for information"),
+        createTool("send_email", "Compose and send an email message"),
+        createTool("read_file", "Read contents of a local file"),
+        createTool("write_file", "Write data to a local file"),
+        createTool("run_tests", "Execute unit test suite"),
+        createTool("deploy_app", "Deploy application to production"),
+        createTool("lint_code", "Check code style and formatting"),
+        createTool("git_commit", "Create a git commit with changes"),
+        createTool("db_query", "Run a database SQL query"),
+        createTool("http_request", "Make an HTTP API request"),
+        createTool("parse_json", "Parse a JSON document"),
+      ];
+
+      await rag.ingestTools(tools);
+
+      // ToolRAG ingests as "name: description", so querying with the exact
+      // ingested text should yield a perfect cosine match for that tool.
+      const selected = await rag.selectTools("web_search: Search the internet for information", tools);
+
+      expect(selected.length).toBeLessThanOrEqual(5);
+      expect(selected.length).toBeGreaterThan(0);
+      // The top result should be web_search since the query matches its embedding exactly
+      expect(selected[0]!.name).toBe("web_search");
     });
 
     it("returns maxTools count of results", async () => {
@@ -101,28 +167,42 @@ describe("ToolRAG", () => {
       const selected = await rag.selectTools("query", tools);
 
       expect(selected).toHaveLength(5);
+      // Should be the first 5 tools in order (fallback slice)
+      expect(selected.map((t) => t.name)).toEqual(["tool-0", "tool-1", "tool-2", "tool-3", "tool-4"]);
     });
   });
 
   describe("ingestTools", () => {
-    it("stores tools in vector store", async () => {
+    it("stores tools in vector store and makes them retrievable", async () => {
       const rag = new ToolRAG(embedder, store, config);
-      const tools = [
-        createTool("search", "Search the web"),
-        createTool("email", "Send emails"),
-      ];
+      const tools = Array.from({ length: 15 }, (_, i) =>
+        createTool(`tool-${i}`, `Description ${i}`),
+      );
 
       await rag.ingestTools(tools);
 
-      // Verify by querying
-      const selected = await rag.selectTools("query", tools);
+      // Verify ingested tools are retrievable and are actual tools from the set
+      const selected = await rag.selectTools("Description 3", tools);
       expect(selected.length).toBeGreaterThan(0);
+      for (const tool of selected) {
+        expect(tools.some((t) => t.name === tool.name)).toBe(true);
+      }
     });
 
     it("handles empty tools array", async () => {
       const rag = new ToolRAG(embedder, store, config);
 
       await expect(rag.ingestTools([])).resolves.toBeUndefined();
+    });
+  });
+
+  describe("mock embedder produces distinct vectors", () => {
+    it("returns different embeddings for different inputs", async () => {
+      const vectors = await embedder.embed(["hello", "world", "hello"]);
+      // "hello" and "world" should produce different vectors
+      expect(vectors[0]).not.toEqual(vectors[1]);
+      // Same input should produce the same vector
+      expect(vectors[0]).toEqual(vectors[2]);
     });
   });
 });

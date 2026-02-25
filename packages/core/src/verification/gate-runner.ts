@@ -47,11 +47,7 @@ export class GateRunner {
 
   private execute(command: string): Promise<{ exitCode: number; output: string }> {
     return new Promise((resolve, reject) => {
-      const parts = command.split(" ");
-      const cmd = parts[0]!;
-      const args = parts.slice(1);
-
-      const child = spawn(cmd, args, { cwd: this.cwd, shell: true });
+      const child = spawn(command, { cwd: this.cwd, shell: true });
       const chunks: string[] = [];
 
       child.stdout?.on("data", (data: Buffer) => {

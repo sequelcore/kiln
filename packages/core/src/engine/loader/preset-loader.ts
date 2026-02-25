@@ -4,15 +4,7 @@
 import { KilnError } from "../errors.js";
 import type { App } from "../composites/app.js";
 import type { Team } from "../composites/team.js";
-/** OrchestratorConfig shape needed by the preset loader (defined locally to avoid engine -> orchestrator dependency) */
-interface OrchestratorConfig {
-  readonly requireApproval: boolean;
-  readonly maxDepth: number;
-  readonly parallelWorkers: number;
-  readonly phases: readonly string[];
-  readonly maxIterations?: number;
-  readonly approvalAfterPhase?: string;
-}
+import type { OrchestratorConfig } from "../domain/orchestrator-config.js";
 
 /** Error thrown when preset loading fails */
 export class PresetLoaderError extends KilnError {

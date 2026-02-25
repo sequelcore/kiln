@@ -2,27 +2,19 @@
 // Mounts under /webhooks/{appName}{trigger.path}
 
 import { Hono } from "hono";
-import { createHmac, timingSafeEqual } from "node:crypto";
 import type { EventBus, WebhookTrigger, WebhookReceivedEvent } from "@kilnai/core";
 import { executeTrigger } from "./trigger-executor.js";
 import type { TriggerExecutionContext } from "./trigger-executor.js";
+import { verifyHmacSha256 } from "../utils/hmac.js";
 
-/** Validate HMAC-SHA256 webhook signature */
+/** Validate HMAC-SHA256 webhook signature (strips optional "sha256=" prefix) */
 export function validateWebhookSignature(
   body: string,
   signature: string,
   secret: string,
 ): boolean {
-  const expected = createHmac("sha256", secret).update(body).digest("hex");
   const sig = signature.startsWith("sha256=") ? signature.slice(7) : signature;
-
-  if (expected.length !== sig.length) return false;
-
-  try {
-    return timingSafeEqual(Buffer.from(expected, "hex"), Buffer.from(sig, "hex"));
-  } catch {
-    return false;
-  }
+  return verifyHmacSha256(secret, body, sig);
 }
 
 export interface WebhookHandlerConfig {
@@ -101,11 +93,7 @@ export function createWebhookHandler(
       }
     };
 
-    if (method === "POST") {
-      app.post(routePath, handler);
-    } else {
-      app.put(routePath, handler);
-    }
+    app.on(method, routePath, handler);
   }
 
   return app;

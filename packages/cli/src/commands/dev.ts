@@ -31,8 +31,7 @@ export async function devCommand(appConfig: KilnAppConfig, flags?: DevFlags): Pr
       paths: watchPaths,
       debounceMs: 300,
       onReload: (path) => {
-        console.log(`\n[hot-reload] ${path} changed, reloading...`);
-        console.log("[hot-reload] Config reloaded.");
+        console.log(`\n[watch] ${path} changed. Restart \`kiln dev\` to apply changes.`);
       },
       onError: (err) => {
         console.error(`[watch-error] ${err.message}`);

@@ -108,8 +108,12 @@ export class ClaudeSession {
     }
   }
 
-  /** Stop the session by closing the SDK query. */
+  /** Stop the session by aborting and closing the SDK query. */
   stop(): void {
+    if (this.abortController) {
+      this.abortController.abort();
+      this.abortController = null;
+    }
     if (this.queryInstance) {
       this.queryInstance.close();
       this.queryInstance = null;

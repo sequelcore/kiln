@@ -85,12 +85,13 @@ export const KILN_TOOLS: readonly McpToolDefinition[] = [
     inputSchema: {
       type: "object",
       properties: {
-        role: { type: "string", enum: ["architect", "worker", "optimizer"] },
+        role: { type: "string", description: "Agent role (e.g. architect, worker, optimizer)" },
+        model: { type: "string", description: "Model identifier for cost calculation" },
         inputTokens: { type: "number" },
         outputTokens: { type: "number" },
         cacheReadTokens: { type: "number" },
       },
-      required: ["role", "inputTokens", "outputTokens"],
+      required: ["role", "model", "inputTokens", "outputTokens"],
     },
   },
   {
@@ -102,6 +103,7 @@ export const KILN_TOOLS: readonly McpToolDefinition[] = [
 ] as const;
 
 export { KilnMcpServer } from "./server.js";
+export type { McpServerInfo } from "./server.js";
 export type { TransportType, TransportConfig, TransportResult } from "./transports.js";
 export { createStdioTransport, createSSETransport } from "./transports.js";
 export { generateConfig } from "./config-generator.js";

@@ -5,7 +5,7 @@ import type { DomainConfig } from "./index.js";
 import { mergeDomainConfigs } from "./index.js";
 import { loadDomainYaml } from "./yaml-parser.js";
 import type { DomainPackageManifest } from "../package/types.js";
-import { loadDomainPackageYaml } from "./marketplace.js";
+import { loadDomainPackageYaml } from "./domain-package-adapter.js";
 
 const GENERIC_FALLBACK: DomainConfig = {
   name: "generic",

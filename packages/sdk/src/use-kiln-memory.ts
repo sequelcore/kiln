@@ -1,7 +1,16 @@
+/**
+ * Dev-mode only -- requires a dev-mode gateway (`/dev/memory` routes).
+ * This hook will fail at runtime if the gateway is not started in dev mode.
+ */
+
 import { useCallback, useState } from "react";
 import { useKilnContext } from "./provider.js";
 import type { CreateMemoryInput, MemoryEntry, UseMemoryReturn } from "./types.js";
 
+/**
+ * Read, create, and delete memory entries via the dev-mode gateway.
+ * @dev Only works when connected to a gateway started with `kiln dev`.
+ */
 export function useKilnMemory(scope: string): UseMemoryReturn {
   const { client } = useKilnContext();
   const [entries, setEntries] = useState<MemoryEntry[]>([]);

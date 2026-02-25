@@ -10,6 +10,7 @@ export class SessionRegistry {
   }
 
   getOrCreate(config: ModeBSessionConfig): ModeBSession {
+    this.cleanup();
     const key = this.sessionKey(config.appName, config.userId, config.tenantId);
     const existing = this.sessions.get(key);
     if (existing && !existing.isExpired) {

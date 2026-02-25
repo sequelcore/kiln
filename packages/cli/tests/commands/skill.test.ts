@@ -45,12 +45,30 @@ describe("skillCommand", () => {
   });
 
   describe("list subcommand", () => {
-    it("lists skills without errors", async () => {
+    it("reports no skills when none are installed", async () => {
       const { skillCommand } = await import("../../src/commands/skill.js");
       const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
       await skillCommand(TEST_CONFIG, "list", []);
-      expect(consoleSpy).toHaveBeenCalled();
+      const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
+      expect(output).toContain("No skills available");
       consoleSpy.mockRestore();
+    });
+
+    it("lists installed skills by name", async () => {
+      // Install a skill first so list has something to show
+      const skillPath = join(tmpDir, "my-skill.yaml");
+      writeFileSync(skillPath, VALID_SKILL_YAML, "utf-8");
+
+      const { skillCommand } = await import("../../src/commands/skill.js");
+      const installSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      await skillCommand(TEST_CONFIG, "install", [skillPath]);
+      installSpy.mockRestore();
+
+      const listSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      await skillCommand(TEST_CONFIG, "list", []);
+      const output = listSpy.mock.calls.map((c) => c[0]).join("\n");
+      expect(output).toContain("test-skill");
+      listSpy.mockRestore();
     });
   });
 

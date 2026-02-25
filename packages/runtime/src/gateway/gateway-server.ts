@@ -61,6 +61,41 @@ export interface DevServerOptions {
   readonly studioDistPath?: string;
 }
 
+interface DevRoutesSharedDeps {
+  readonly eventBus: EventBus;
+  readonly costTracker: CostTracker;
+  readonly approvalRegistry: ApprovalGateRegistry;
+  readonly devOrchestrator?: DevOrchestrator;
+  readonly tokenStore?: DevTokenStore;
+}
+
+/** Build the shared portion of DevRoutesConfig from common dependencies */
+function buildSharedDevRoutesConfig(deps: DevRoutesSharedDeps): Partial<import("./dev-routes.js").DevRoutesConfig> {
+  const { eventBus, costTracker, approvalRegistry, devOrchestrator, tokenStore } = deps;
+  return {
+    getEventBus: () => eventBus,
+    getCostSummary: () => costTracker.summary,
+    approvePhase: (sessionId?: string) => approvalRegistry.approve(sessionId),
+    rejectPhase: (reason: string, sessionId?: string) => approvalRegistry.reject(reason, sessionId),
+    startRun: devOrchestrator
+      ? (task: string) => {
+          if (devOrchestrator.isRunning) return { error: "A run is already in progress" };
+          const sessionId = devOrchestrator.start(task);
+          return { sessionId };
+        }
+      : undefined,
+    getRunStatus: devOrchestrator
+      ? () => ({
+          sessionId: devOrchestrator.orchestrator.sessionId,
+          status: devOrchestrator.orchestrator.status,
+          phase: devOrchestrator.orchestrator.currentPhase,
+          task: devOrchestrator.orchestrator.task,
+        })
+      : undefined,
+    issueToken: tokenStore ? (userId: string) => tokenStore.issue(userId) : undefined,
+  };
+}
+
 function resolveStudioDist(): string | undefined {
   try {
     const require = createRequire(import.meta.url);
@@ -139,29 +174,25 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
       const { trace } = await import("@opentelemetry/api");
       let provider: import("@opentelemetry/api").TracerProvider;
 
-      if (obsConfig.exporter === "console") {
-        // eslint-disable-next-line @typescript-eslint/no-implied-eval
-        const sdkBase = await (new Function("m", "return import(m)"))("@opentelemetry/sdk-trace-base") as {
+      if (obsConfig.exporter === "console" || obsConfig.exporter === "otlp") {
+        const sdkModuleName = "@opentelemetry/sdk-trace-base";
+        const sdkBase = await import(sdkModuleName) as {
           BasicTracerProvider: new () => { addSpanProcessor(p: unknown): void; register(): void };
           ConsoleSpanExporter: new () => unknown;
           SimpleSpanProcessor: new (e: unknown) => unknown;
         };
         const p = new sdkBase.BasicTracerProvider();
-        p.addSpanProcessor(new sdkBase.SimpleSpanProcessor(new sdkBase.ConsoleSpanExporter()));
-        p.register();
-        provider = p as unknown as import("@opentelemetry/api").TracerProvider;
-      } else if (obsConfig.exporter === "otlp") {
-        // eslint-disable-next-line @typescript-eslint/no-implied-eval
-        const sdkBase = await (new Function("m", "return import(m)"))("@opentelemetry/sdk-trace-base") as {
-          BasicTracerProvider: new () => { addSpanProcessor(p: unknown): void; register(): void };
-          SimpleSpanProcessor: new (e: unknown) => unknown;
-        };
-        // eslint-disable-next-line @typescript-eslint/no-implied-eval
-        const otlpMod = await (new Function("m", "return import(m)"))("@opentelemetry/exporter-trace-otlp-http") as {
-          OTLPTraceExporter: new (opts: { url?: string }) => unknown;
-        };
-        const p = new sdkBase.BasicTracerProvider();
-        p.addSpanProcessor(new sdkBase.SimpleSpanProcessor(new otlpMod.OTLPTraceExporter({ url: obsConfig.endpoint })));
+
+        if (obsConfig.exporter === "console") {
+          p.addSpanProcessor(new sdkBase.SimpleSpanProcessor(new sdkBase.ConsoleSpanExporter()));
+        } else {
+          const otlpModuleName = "@opentelemetry/exporter-trace-otlp-http";
+          const otlpMod = await import(otlpModuleName) as {
+            OTLPTraceExporter: new (opts: { url?: string }) => unknown;
+          };
+          p.addSpanProcessor(new sdkBase.SimpleSpanProcessor(new otlpMod.OTLPTraceExporter({ url: obsConfig.endpoint })));
+        }
+
         p.register();
         provider = p as unknown as import("@opentelemetry/api").TracerProvider;
       } else {
@@ -198,13 +229,16 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
     };
   });
 
-  // Initialize Mode B and multi-tenant runtimes
+  // Initialize Mode B runtimes and delegation targets in a single pass
   const sessionRegistry = new SessionRegistry();
+  const delegationTargets = new Map<string, DelegationTarget>();
+
   for (const loaded of loadedApps) {
     const resolved = resolvedApps.find((r) => r.name === loaded.name);
     if (!resolved?.modeBConfig || resolved.modeBConfig.runtime !== "provider-adapter") continue;
 
     const provider = createProviderFromConfig(resolved.modeBConfig.provider);
+    const systemPrompt = buildSystemPromptFromApp(resolved.app);
 
     // Discover MCP tools if configured
     const mcpClients: McpClient[] = [];
@@ -236,6 +270,10 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
       mcpClients: mcpClients.length > 0 ? mcpClients : undefined,
       eventBus: gatewayEventBus,
     });
+
+    // Register delegation target (reuse provider + systemPrompt)
+    delegationTargets.set(loaded.name, { appName: loaded.name, provider, systemPrompt });
+
     const isMultiTenant = loaded.binding.channels.some((ch) => ch.multiTenant === true);
 
     if (isMultiTenant) {
@@ -278,7 +316,6 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
       console.log(`  ${loaded.name}: multi-tenant mode (${tenantCount} tenants loaded)`);
     } else {
       // Standard Mode B (non-tenant)
-      const systemPrompt = buildSystemPromptFromApp(resolved.app);
       loaded.modeBRuntime = {
         appName: loaded.name,
         orchestrator,
@@ -290,20 +327,6 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
   }
 
   const port = options?.port ?? gatewayConfig.port;
-
-  // Build delegation registry from Mode B apps
-  const delegationTargets = new Map<string, DelegationTarget>();
-  for (const loaded of loadedApps) {
-    const resolved = resolvedApps.find((r) => r.name === loaded.name);
-    if (resolved?.modeBConfig?.runtime === "provider-adapter") {
-      const provider = createProviderFromConfig(resolved.modeBConfig.provider);
-      delegationTargets.set(loaded.name, {
-        appName: loaded.name,
-        provider,
-        systemPrompt: buildSystemPromptFromApp(resolved.app),
-      });
-    }
-  }
   const delegationRegistry: DelegationRegistry = { targets: delegationTargets };
 
   // Create health registry and register subsystem checkers
@@ -410,7 +433,13 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
     studioDistPath,
     devRoutesConfig: options?.devMode
       ? {
-        getEventBus: () => gatewayEventBus,
+        ...buildSharedDevRoutesConfig({
+          eventBus: gatewayEventBus,
+          costTracker,
+          approvalRegistry,
+          devOrchestrator,
+          tokenStore,
+        }),
         getPhaseState: () => {
           const active = sessionRegistry.activeSessions();
           const orch = devOrchestrator?.orchestrator;
@@ -441,7 +470,6 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
           }
           return { layers: counts, total: Object.values(counts).reduce((a, b) => a + b, 0) };
         },
-        getCostSummary: () => costTracker.summary,
         getAppNames: () => loadedApps.map((a) => a.name),
         getSafetyMetrics: () => {
           if (safetyPipelines.size === 0) return { enabled: false };
@@ -460,7 +488,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
           if (!store) return [];
 
           if (q) {
-            const results = await store.search(q, layer, 100);
+            const results = await store.search(q, 100);
             return results.map((r) => ({
               id: r.entry.id,
               layer: r.entry.layer,
@@ -547,25 +575,6 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
             scorers: [...exp.scorers],
           }));
         },
-        getEvalResults: () => undefined,
-        approvePhase: (sessionId?: string) => approvalRegistry.approve(sessionId),
-        rejectPhase: (reason: string, sessionId?: string) => approvalRegistry.reject(reason, sessionId),
-        startRun: devOrchestrator
-          ? (task: string) => {
-              if (devOrchestrator.isRunning) return { error: "A run is already in progress" };
-              const sessionId = devOrchestrator.start(task);
-              return { sessionId };
-            }
-          : undefined,
-        getRunStatus: devOrchestrator
-          ? () => ({
-              sessionId: devOrchestrator.orchestrator.sessionId,
-              status: devOrchestrator.orchestrator.status,
-              phase: devOrchestrator.orchestrator.currentPhase,
-              task: devOrchestrator.orchestrator.task,
-            })
-          : undefined,
-        issueToken: tokenStore ? (userId: string) => tokenStore.issue(userId) : undefined,
       }
       : undefined,
   });
@@ -746,7 +755,13 @@ export async function startDevServer(options?: DevServerOptions): Promise<void> 
     upgradeWebSocket: undefined,
     validateToken: (token) => tokenStore.validate(token),
     devRoutesConfig: {
-      getEventBus: () => eventBus,
+      ...buildSharedDevRoutesConfig({
+        eventBus,
+        costTracker,
+        approvalRegistry,
+        devOrchestrator,
+        tokenStore,
+      }),
       getPhaseState: () => {
         const orch = devOrchestrator.orchestrator;
         return {
@@ -760,7 +775,6 @@ export async function startDevServer(options?: DevServerOptions): Promise<void> 
         };
       },
       getMemorySnapshot: () => ({ entries: [] }),
-      getCostSummary: () => costTracker.summary,
       getSafetyMetrics: () => ({ enabled: false }),
       getAppNames: () => app ? [app.name] : [],
       getTriggers: () => [],
@@ -789,21 +803,6 @@ export async function startDevServer(options?: DevServerOptions): Promise<void> 
           scorers: [...exp.scorers],
         }));
       },
-      getEvalResults: () => undefined,
-      approvePhase: (sessionId?: string) => approvalRegistry.approve(sessionId),
-      rejectPhase: (reason: string, sessionId?: string) => approvalRegistry.reject(reason, sessionId),
-      startRun: (task: string) => {
-        if (devOrchestrator.isRunning) return { error: "A run is already in progress" };
-        const sessionId = devOrchestrator.start(task);
-        return { sessionId };
-      },
-      getRunStatus: () => ({
-        sessionId: devOrchestrator.orchestrator.sessionId,
-        status: devOrchestrator.orchestrator.status,
-        phase: devOrchestrator.orchestrator.currentPhase,
-        task: devOrchestrator.orchestrator.task,
-      }),
-      issueToken: (userId: string) => tokenStore.issue(userId),
     },
   });
 

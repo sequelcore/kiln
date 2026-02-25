@@ -21,7 +21,7 @@ import type { QualityGate } from "../engine/composites/team.js";
 import type { Team } from "../engine/composites/team.js";
 import { createStrategy } from "./strategies/index.js";
 import type { StrategyHandler } from "./strategies/index.js";
-import { createPolicy } from "../sandbox/index.js";
+import { createPolicy, ROLE_PRESETS } from "../sandbox/index.js";
 import type { SandboxPolicy } from "../sandbox/index.js";
 import { ProviderRegistry } from "../agents/provider-registry.js";
 import type { ProviderAdapter, AgentRole } from "../agents/index.js";
@@ -125,6 +125,15 @@ export class Orchestrator {
     return this._costTracker.summary;
   }
 
+  /** Record token usage for a specific role and model -- public API for MCP/CLI */
+  recordUsage(
+    role: string,
+    model: string,
+    usage: { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number },
+  ): void {
+    this._costTracker.record(role, model, usage);
+  }
+
   /** Orchestrator configuration */
   get config(): OrchestratorConfig {
     return this._config;
@@ -164,6 +173,7 @@ export class Orchestrator {
       eventBus: this._eventBus,
       config: verificationConfig,
       gates,
+      sessionId: this._sessionId ?? "",
     });
     const result = await loop.run(fixHandler);
     this._lastVerificationResult = result;
@@ -191,6 +201,8 @@ export class Orchestrator {
 
     this._phaseMachine.reset();
     this._phaseMachine.setSessionId(sessionId);
+    this._tree.setSessionId(sessionId);
+    this._batchExecutor.setSessionId(sessionId);
     this._phaseMachine.start();
 
     const meta = phaseMeta(this._phaseMachine.currentPhase);
@@ -239,7 +251,7 @@ export class Orchestrator {
 
   /** Initialize sandbox policies for the given project directory */
   initSandbox(projectPath: string): void {
-    for (const role of ["architect", "worker", "optimizer"]) {
+    for (const role of Object.keys(ROLE_PRESETS)) {
       this._sandboxPolicies.set(role, createPolicy(role, projectPath));
     }
   }
@@ -450,6 +462,8 @@ export class Orchestrator {
 
       this._phaseMachine.reset();
       this._phaseMachine.restoreState(checkpoint.phaseIndex, checkpoint.status);
+      this._tree.setSessionId(newSessionId);
+      this._batchExecutor.setSessionId(newSessionId);
       this._tree.loadFromJSON(checkpoint.tree);
 
       // M4: reset cost tracker before replaying checkpoint costs to avoid double-counting

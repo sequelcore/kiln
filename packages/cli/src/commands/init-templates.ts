@@ -68,10 +68,7 @@ teams:
         tools:
           - kiln_memory_save
           - kiln_memory_recall
-          - kiln_phase_gate
-          - kiln_task_create
-          - kiln_task_score
-          - kiln_verify
+          - kiln_memory_search
           - kiln_cost_track
         count: 2
         sandbox: true
@@ -101,27 +98,12 @@ teams:
       - name: kiln_memory_search
         description: Full-text search across memory scopes
         tags: [memory]
-      - name: kiln_phase_gate
-        description: Check and enforce phase transition gates
-        tags: [orchestrator]
-      - name: kiln_task_create
-        description: Create a new task in the exploration tree
-        tags: [tasks]
-      - name: kiln_task_score
-        description: Score and rank tasks by priority and evidence
-        tags: [tasks]
-      - name: kiln_verify
-        description: Execute quality gates (test, lint, typecheck)
-        tags: [verification]
       - name: kiln_cost_track
         description: Track token usage and cost for an agent interaction
         tags: [cost]
       - name: kiln_cost_summary
         description: Get cost breakdown by role and total
         tags: [cost]
-      - name: kiln_domain_detect
-        description: Auto-detect project tech stack from file patterns
-        tags: [domain]
 
     qualityGates:
 ${qualityGatesSection}

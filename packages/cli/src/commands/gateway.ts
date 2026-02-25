@@ -46,7 +46,7 @@ export async function gatewayCommand(args: string[]): Promise<void> {
 }
 
 function printGatewayHelp(): void {
-  console.log("\nUsage: kiln gateway [options]\n");
+  console.log("\nUsage: gateway [options]\n");
   console.log("Start persistent Gateway (multi-app hosting)\n");
   console.log("Options:");
   console.log("  --config <path>  Path to gateway.yaml (default: ./gateway.yaml)");

@@ -15,7 +15,6 @@ Sources: `packages/runtime/src/channels/`, `packages/core/src/engine/domain/chan
 | WhatsApp | `WhatsAppChannel` | short | HTTPS (Business API v21.0) | Bearer token + verify token | text, image, audio, file |
 | Slack | `SlackChannel` | full | HTTPS (Bot Events + Web API) | Bearer token + HMAC-SHA256 | text, image, file |
 | API | `ApiChannel` | structured | HTTP REST + SSE | Optional API key | text, image, audio, file |
-| Voice | `VoiceChannel` | full | STT/TTS pipeline | None | text, audio |
 
 ---
 
@@ -260,53 +259,6 @@ channels:
 ```
 
 The `path` must be unique across all Apps in `gateway.yaml`.
-
----
-
-### Voice
-
-Provides a voice interface using STT (speech-to-text) and TTS (text-to-speech) adapters.
-
-```typescript
-import { VoiceChannel, OpenAISttAdapter, OpenAITtsAdapter } from "@kilnai/runtime";
-
-const voice = new VoiceChannel({
-  stt: new OpenAISttAdapter({ apiKey: process.env.OPENAI_API_KEY }),
-  tts: new OpenAITtsAdapter({
-    apiKey: process.env.OPENAI_API_KEY,
-    voice: "alloy",
-  }),
-});
-```
-
-`receive()` transcribes `AudioPart` content via `SttAdapter` and passes `TextPart` content through unchanged. `send()` synthesizes text parts via `TtsAdapter`.
-
-**Available adapters:**
-- `OpenAISttAdapter` — OpenAI Whisper API, fetch-based
-- `OpenAITtsAdapter` — OpenAI TTS API, fetch-based
-
-**YAML configuration:**
-
-```yaml
-channels: [voice]
-
-voice:
-  stt:
-    provider: openai
-    apiKeyEnv: OPENAI_API_KEY
-    model: whisper-1
-  tts:
-    provider: openai
-    apiKeyEnv: OPENAI_API_KEY
-    voice: alloy
-```
-
-**Gateway YAML:**
-
-```yaml
-channels:
-  - type: voice
-```
 
 ---
 

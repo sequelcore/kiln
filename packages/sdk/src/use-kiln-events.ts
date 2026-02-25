@@ -12,20 +12,24 @@ export function useKilnEvents(): UseEventsReturn {
   const clientRef = useRef<SseClient | null>(null);
 
   useEffect(() => {
-    const sse = new SseClient(`${config.baseUrl}/dev/events`, {
-      onEvent(event) {
-        setEvents((prev) => {
-          const next = [...prev, event];
-          return next.length > MAX_EVENTS ? next.slice(-MAX_EVENTS) : next;
-        });
+    const sse = new SseClient(
+      `${config.baseUrl}/dev/events`,
+      {
+        onEvent(event) {
+          setEvents((prev) => {
+            const next = [...prev, event];
+            return next.length > MAX_EVENTS ? next.slice(-MAX_EVENTS) : next;
+          });
+        },
+        onConnect() {
+          setConnected(true);
+        },
+        onDisconnect() {
+          setConnected(false);
+        },
       },
-      onConnect() {
-        setConnected(true);
-      },
-      onDisconnect() {
-        setConnected(false);
-      },
-    });
+      config.reconnectDelayMs,
+    );
 
     clientRef.current = sse;
     sse.connect();
@@ -34,7 +38,7 @@ export function useKilnEvents(): UseEventsReturn {
       sse.disconnect();
       clientRef.current = null;
     };
-  }, [config.baseUrl]);
+  }, [config.baseUrl, config.reconnectDelayMs]);
 
   const clear = useCallback(() => {
     setEvents([]);

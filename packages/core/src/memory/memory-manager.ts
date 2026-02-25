@@ -56,6 +56,22 @@ export class MemoryManager implements MemoryStore {
 
   async search(
     query: string,
+    limit?: number,
+  ): Promise<readonly MemorySearchResult[]> {
+    return this.searchAll(query, undefined, limit);
+  }
+
+  /** Search with optional layer filter for cross-layer routing */
+  async searchByLayer(
+    query: string,
+    layer: MemoryLayer,
+    limit?: number,
+  ): Promise<readonly MemorySearchResult[]> {
+    return this.searchAll(query, layer, limit);
+  }
+
+  private async searchAll(
+    query: string,
     layer?: MemoryLayer,
     limit?: number,
   ): Promise<readonly MemorySearchResult[]> {
@@ -66,10 +82,10 @@ export class MemoryManager implements MemoryStore {
       results = [...await this.searchLayer(layer, query, maxResults)];
     } else {
       const [userResults, projectResults, ...agentResults] = await Promise.all([
-        this.userStore.search(query, "user", maxResults),
-        this.projectStore.search(query, "project", maxResults),
+        this.userStore.search(query, maxResults),
+        this.projectStore.search(query, maxResults),
         ...Array.from(this.agentStores.values()).map((s) =>
-          s.search(query, "agent", maxResults),
+          s.search(query, maxResults),
         ),
       ]);
 
@@ -140,10 +156,7 @@ export class MemoryManager implements MemoryStore {
 
   applyDecay(factor?: number): void {
     for (const store of this.agentStores.values()) {
-      const sqliteStore = store as { applyDecay?: (factor?: number) => void };
-      if (typeof sqliteStore.applyDecay === "function") {
-        sqliteStore.applyDecay(factor);
-      }
+      store.applyDecay?.(factor);
     }
   }
 
@@ -154,10 +167,7 @@ export class MemoryManager implements MemoryStore {
       ...this.agentStores.values(),
     ];
     for (const store of allStores) {
-      const closeable = store as { close?: () => void };
-      if (typeof closeable.close === "function") {
-        closeable.close();
-      }
+      store.close?.();
     }
   }
 
@@ -188,18 +198,18 @@ export class MemoryManager implements MemoryStore {
   ): Promise<readonly MemorySearchResult[]> {
     switch (layer) {
       case "user":
-        return this.userStore.search(query, "user", limit);
+        return this.userStore.search(query, limit);
       case "agent": {
         const allResults: MemorySearchResult[] = [];
         for (const store of this.agentStores.values()) {
-          const results = await store.search(query, "agent", limit);
+          const results = await store.search(query, limit);
           allResults.push(...results);
         }
         allResults.sort((a, b) => b.score - a.score);
         return allResults.slice(0, limit);
       }
       case "project":
-        return this.projectStore.search(query, "project", limit);
+        return this.projectStore.search(query, limit);
     }
   }
 }

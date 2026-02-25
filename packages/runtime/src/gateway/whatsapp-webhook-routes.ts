@@ -8,6 +8,7 @@ import type { ModeBOrchestrator } from "../session/mode-b-orchestrator.js";
 import type { SessionRegistry } from "../session/session-registry.js";
 import type { TenantRegistry } from "../tenant/tenant-registry.js";
 import { buildTenantSystemPrompt } from "../tenant/system-prompt-builder.js";
+import { sendWhatsAppMessage, whatsappMediaUrl } from "../channels/whatsapp-api.js";
 
 export interface WhatsAppWebhookConfig {
   readonly appName: string;
@@ -48,18 +49,18 @@ function parseWhatsAppMessageParts(msg: MetaWebhookMessage): readonly ContentPar
     case "image": {
       if (!msg.image) return null;
       const parts: ContentPart[] = [
-        { type: "image", mimeType: msg.image.mime_type, url: `whatsapp://media/${msg.image.id}` },
+        { type: "image", mimeType: msg.image.mime_type, url: whatsappMediaUrl(msg.image.id) },
       ];
       if (msg.image.caption) parts.push({ type: "text", text: msg.image.caption });
       return parts;
     }
     case "audio":
       if (!msg.audio) return null;
-      return [{ type: "audio", mimeType: msg.audio.mime_type, url: `whatsapp://media/${msg.audio.id}` }];
+      return [{ type: "audio", mimeType: msg.audio.mime_type, url: whatsappMediaUrl(msg.audio.id) }];
     case "document": {
       if (!msg.document) return null;
       const parts: ContentPart[] = [
-        { type: "file", mimeType: msg.document.mime_type, url: `whatsapp://media/${msg.document.id}`, filename: msg.document.filename },
+        { type: "file", mimeType: msg.document.mime_type, url: whatsappMediaUrl(msg.document.id), filename: msg.document.filename },
       ];
       if (msg.document.caption) parts.push({ type: "text", text: msg.document.caption });
       return parts;
@@ -163,23 +164,12 @@ async function processWhatsAppMessage(
 
   // Reply via WhatsApp Cloud API
   const accessToken = accessTokenEnv ? process.env[accessTokenEnv] ?? "" : "";
-  const url = `https://graph.facebook.com/v21.0/${phoneNumberId}/messages`;
-
   const replyText = extractText(result.parts);
 
   try {
-    await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify({
-        messaging_product: "whatsapp",
-        to: senderPhone,
-        type: "text",
-        text: { body: replyText },
-      }),
+    await sendWhatsAppMessage(phoneNumberId, accessToken, senderPhone, {
+      type: "text",
+      text: { body: replyText },
     });
   } catch {
     // Fire and forget - errors are logged but not thrown

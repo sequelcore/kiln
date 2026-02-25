@@ -1,5 +1,6 @@
-// Thin adapter: delegates marketplace functionality to package/ bounded context
-// Keeps backward compatibility for existing consumers -- domain YAML without type/version/author fields
+// Domain package adapter: parses domain YAML into DomainPackageManifest with content hashing.
+// Delegates to package/ bounded context for hashing and manifest types.
+// Backward-compatible: domain YAML does not require type/version/author fields.
 
 import { parse } from "yaml";
 import { readFileSync } from "node:fs";

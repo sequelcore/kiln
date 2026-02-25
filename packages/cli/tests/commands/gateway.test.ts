@@ -9,7 +9,7 @@ describe("gatewayCommand", () => {
     const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const { gatewayCommand } = await import("../../src/commands/gateway.js");
     await gatewayCommand(["--help"]);
-    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("Usage: kiln gateway"));
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("Usage: gateway [options]"));
     consoleSpy.mockRestore();
   });
 
@@ -17,7 +17,7 @@ describe("gatewayCommand", () => {
     const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const { gatewayCommand } = await import("../../src/commands/gateway.js");
     await gatewayCommand(["-h"]);
-    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("kiln gateway"));
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("Usage: gateway [options]"));
     consoleSpy.mockRestore();
   });
 

@@ -19,7 +19,6 @@ interface AppGraphTeam {
 }
 
 interface AppGraphResponse {
-  name: string;
   teams: AppGraphTeam[];
   router: { rules: { pattern: string; team: string }[]; fallback: string; classifier?: string };
 }
