@@ -40,7 +40,12 @@ jobs:
         run: bun run --filter @kilnai/cli build
 
       - name: Configure npm auth
-        run: echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > ~/.npmrc
+        run: |
+          echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > .npmrc
+          cp .npmrc packages/core/.npmrc
+          cp .npmrc packages/runtime/.npmrc
+          cp .npmrc packages/sdk/.npmrc
+          cp .npmrc packages/cli/.npmrc
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
