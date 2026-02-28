@@ -39,26 +39,23 @@ jobs:
       - name: Build cli
         run: bun run --filter @kilnai/cli build
 
+      - name: Configure npm auth
+        run: echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > ~/.npmrc
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
       - name: Publish @kilnai/core
         working-directory: packages/core
         run: bun publish --access public --no-git-checks
-        env:
-          BUN_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @kilnai/runtime
         working-directory: packages/runtime
         run: bun publish --access public --no-git-checks
-        env:
-          BUN_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @kilnai/react
         working-directory: packages/sdk
         run: bun publish --access public --no-git-checks
-        env:
-          BUN_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @kilnai/cli
         working-directory: packages/cli
         run: bun publish --access public --no-git-checks
-        env:
-          BUN_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
