@@ -49,6 +49,16 @@ jobs:
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+      - name: Resolve workspace versions
+        run: |
+          VERSION=$(jq -r .version packages/core/package.json)
+          for pkg in packages/runtime packages/sdk packages/cli; do
+            jq --arg v "^$VERSION" '
+              (.peerDependencies // {}) |= with_entries(if .value == "workspace:*" then .value = $v else . end) |
+              (.dependencies // {}) |= with_entries(if .value == "workspace:*" then .value = $v else . end)
+            ' "$pkg/package.json" > tmp.json && mv tmp.json "$pkg/package.json"
+          done
+
       - name: Publish @kilnai/core
         working-directory: packages/core
         run: bun publish --access public --no-git-checks

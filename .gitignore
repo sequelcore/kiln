@@ -5,7 +5,6 @@ dist/
 *.db-journal
 .env
 .env.local
-bun.lock
 .DS_Store
 *.tsbuildinfo
 .claude/
