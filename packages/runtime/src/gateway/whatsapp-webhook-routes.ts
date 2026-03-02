@@ -206,13 +206,15 @@ async function processWhatsAppMessage(
   senderPhone: string,
   messageParts: readonly ContentPart[],
   phoneNumberId: string,
-  accessTokenEnv?: string,
+  accessToken?: string,
 ): Promise<void> {
   const tenant = config.tenantRegistry.get(tenantId);
   if (!tenant) return;
 
   const systemPrompt = buildTenantSystemPrompt(tenant);
-  const accessToken = accessTokenEnv ? process.env[accessTokenEnv] ?? "" : "";
+  const resolvedAccessToken = accessToken
+    ? (process.env[accessToken] ?? accessToken)
+    : "";
   const messageText = extractText(messageParts);
 
   const session = config.sessionRegistry.getOrCreate({
@@ -244,7 +246,7 @@ async function processWhatsAppMessage(
       const msg = String(input.message ?? "");
       const fullMessage = `[Ale - Notificación automática]\n\nCliente: ${senderPhone}\n${msg}`;
 
-      await sendWhatsAppMessage(phoneNumberId, accessToken, ownerPhone, {
+      await sendWhatsAppMessage(phoneNumberId, resolvedAccessToken, ownerPhone, {
         type: "text",
         text: { body: fullMessage },
       });
@@ -272,7 +274,7 @@ async function processWhatsAppMessage(
   const replyText = extractText(result.parts);
 
   try {
-    await sendWhatsAppMessage(phoneNumberId, accessToken, senderPhone, {
+    await sendWhatsAppMessage(phoneNumberId, resolvedAccessToken, senderPhone, {
       type: "text",
       text: { body: replyText },
     });
