@@ -94,9 +94,11 @@ provider:
   apiKeyEnv: ANTHROPIC_API_KEY
 
 billing:
-  budgetEndpoint: https://api.example.com/billing/budget/{userId}
-  usageEndpoint: https://api.example.com/billing/usage/{userId}
+  budgetEndpoint: https://api.example.com/billing/budget?tenantId={userId}
+  usageEndpoint: https://api.example.com/billing/usage
   overBudgetMessage: "You have reached your monthly limit."
+  headers:
+    X-Gateway-Secret: $MY_GATEWAY_SECRET
   tiers:
     free:
       agents: [fast]
@@ -128,21 +130,24 @@ Expired sessions are recreated rather than resumed. In-flight requests dropped o
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `budgetEndpoint` | `string` | GET URL. `{userId}` is interpolated at request time. Must return `{ "remaining": number, "unit": string }`. |
-| `usageEndpoint` | `string` | POST URL. `{userId}` interpolated. Receives `{ "tokens": number, "model": string, "role": string }`. |
-| `overBudgetMessage` | `string` | Returned to the user when `remaining <= 0`. |
+| `budgetEndpoint` | `string` | GET URL. `{userId}` is interpolated to the tenant ID at request time. Must return `{ "allowed": boolean, "remaining": number, "unit": string, "reason"?: string }`. |
+| `usageEndpoint` | `string` | POST URL (no interpolation). Receives `{ "tenantId": string, "messages": number, "tokens": number, "model": string }`. |
+| `overBudgetMessage` | `string` | Returned to the user when `allowed` is `false`. |
+| `headers` | `Record<string, string>` | Optional headers sent on both budget and usage requests. Values starting with `$` are resolved from environment variables (e.g., `$MY_SECRET`). |
 | `tiers` | `Record<string, BillingTier>` | Optional tier-to-agents mapping. |
 | `tiers.<name>.agents` | `string[]` | Agent tiers allowed for this plan (e.g., `["fast", "coding"]`). |
 
 ### Budget Enforcement
 
-Three functions implement budget control, all fail-open:
+Three functions implement budget control, all fail-open. Auth headers from `billing.headers` are sent on every request.
 
-**`checkBudget(billing, userId)`** — Sends a GET to `budgetEndpoint`. If `remaining <= 0`, skips the LLM call and returns `overBudgetMessage`. On network error or non-2xx response, returns `{ allowed: true }` and proceeds.
+**`checkBudget(billing, tenantId)`** — Sends a GET to `budgetEndpoint` (with `{userId}` interpolated to the tenant ID). If the response has `allowed: false`, skips the LLM call and returns `overBudgetMessage`. On network error or non-2xx response, returns `{ allowed: true }` and proceeds.
 
-**`reportUsage(billing, userId, usage)`** — Sends a POST to `usageEndpoint` after each LLM call. Fire-and-forget: errors are silently swallowed. Usage reporting never blocks the response path.
+**`reportUsage(billing, usage)`** — Sends a POST to `usageEndpoint` after each LLM call with `{ tenantId, messages, tokens, model }`. Fire-and-forget: errors are silently swallowed. Usage reporting never blocks the response path.
 
 **`checkTier(billing, userPlan, requestedTier)`** — Synchronous. Verifies the requested agent tier is in `billing.tiers[userPlan].agents`. Returns `{ allowed: true }` for any unknown plan (fail-open).
+
+Budget enforcement runs on all channels: REST API (`/message`), WebSocket, and WhatsApp webhooks.
 
 ---
 
