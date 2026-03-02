@@ -11,6 +11,7 @@ import type { ModeBOrchestrator } from "../session/mode-b-orchestrator.js";
 import type { SessionRegistry } from "../session/session-registry.js";
 import type { TenantRegistry } from "../tenant/tenant-registry.js";
 import { buildTenantSystemPrompt } from "../tenant/system-prompt-builder.js";
+import { stripSuggestionTags } from "../tenant/suggestion-parser.js";
 import { sendWhatsAppMessage, whatsappMediaUrl } from "../channels/whatsapp-api.js";
 import { checkBudget, reportUsage } from "./budget-middleware.js";
 import type { BillingConfig } from "./budget-middleware.js";
@@ -215,7 +216,7 @@ async function processWhatsAppMessage(
   const tenant = config.tenantRegistry.get(tenantId);
   if (!tenant) return;
 
-  const systemPrompt = buildTenantSystemPrompt(tenant);
+  const systemPrompt = buildTenantSystemPrompt(tenant, "whatsapp");
   const resolvedAccessToken = accessToken
     ? (process.env[accessToken] ?? accessToken)
     : "";
@@ -268,11 +269,14 @@ async function processWhatsAppMessage(
   }
 
   // --- Budget check ---
-  const activeBilling = config.billing;
+  const activeBilling = tenant.billing?.budgetEndpoint
+    ? (tenant.billing as unknown as BillingConfig)
+    : config.billing;
   if (activeBilling) {
     const budgetResult = await checkBudget(activeBilling, tenantId);
     if (!budgetResult.allowed) {
-      const overBudgetMsg = activeBilling.overBudgetMessage ?? "Budget exhausted.";
+      const overBudgetMsg = tenant.billing?.overBudgetMessage
+        ?? activeBilling.overBudgetMessage ?? "Budget exhausted.";
       console.log(`[whatsapp] Budget exhausted for tenant=${tenantId} sender=${senderPhone}`);
       try {
         await sendWhatsAppMessage(phoneNumberId, resolvedAccessToken, senderPhone, {
@@ -295,7 +299,7 @@ async function processWhatsAppMessage(
       callTools.size > 0 ? callTools : undefined,
     );
 
-    replyText = toWhatsAppFormat(extractText(result.parts));
+    replyText = toWhatsAppFormat(stripSuggestionTags(extractText(result.parts)));
 
     // Report usage (fire-and-forget)
     if (activeBilling) {

@@ -298,6 +298,45 @@ export function getStyles(theme: string): string {
       border: 1px solid #fca5a5;
     }
 
+    /* Info message (amber, for budget exhaustion) */
+    .kiln-msg.info .kiln-bubble {
+      background: #fef3c7;
+      color: #92400e;
+      border: 1px solid #fcd34d;
+    }
+
+    /* Suggestion chips */
+    .kiln-suggestions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      padding: 4px 0;
+      align-self: flex-start;
+      max-width: 90%;
+      animation: kiln-msg-in 0.18s ease;
+    }
+
+    .kiln-chip {
+      background: var(--kiln-bg-secondary);
+      color: var(--kiln-text);
+      border: 1px solid var(--kiln-border);
+      border-radius: 14px;
+      padding: 6px 12px;
+      font-size: 13px;
+      font-family: var(--kiln-font);
+      cursor: pointer;
+      transition: background 0.15s ease, border-color 0.15s ease;
+    }
+
+    .kiln-chip:hover {
+      border-color: var(--kiln-accent);
+      background: var(--kiln-bg);
+    }
+
+    .kiln-chip:active {
+      transform: scale(0.97);
+    }
+
     /* Typing indicator */
     #kiln-typing {
       display: flex;
@@ -356,6 +395,19 @@ export function getStyles(theme: string): string {
       min-height: 40px;
       transition: border-color 0.15s ease;
       overflow-y: auto;
+    }
+
+    #kiln-input::-webkit-scrollbar {
+      width: 4px;
+    }
+
+    #kiln-input::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    #kiln-input::-webkit-scrollbar-thumb {
+      background: var(--kiln-border);
+      border-radius: 2px;
     }
 
     #kiln-input::placeholder {

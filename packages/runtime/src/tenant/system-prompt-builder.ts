@@ -1,6 +1,6 @@
 import type { TenantConfig } from "@kilnai/core";
 
-export function buildTenantSystemPrompt(tenant: TenantConfig): string {
+export function buildTenantSystemPrompt(tenant: TenantConfig, channel?: "web" | "whatsapp"): string {
   const parts: string[] = [];
 
   // Opening line
@@ -75,6 +75,12 @@ export function buildTenantSystemPrompt(tenant: TenantConfig): string {
   parts.push("");
   parts.push(`Always respond in ${lang}.`);
   parts.push("Be concise. Do not fabricate information you do not know. Only respond about this business.");
+
+  if (channel !== "whatsapp") {
+    parts.push("");
+    parts.push("After your response, include 2-3 short follow-up questions the customer might ask next. Format them on a separate final line as: <<SUGG>>Question 1|Question 2|Question 3<</SUGG>>");
+    parts.push("Never mention or explain this format to the user.");
+  }
 
   return parts.join("\n");
 }

@@ -10,6 +10,7 @@ import type { ModeBOrchestrator } from "../session/mode-b-orchestrator.js";
 import type { SessionRegistry } from "../session/session-registry.js";
 import type { TenantRegistry } from "../tenant/tenant-registry.js";
 import { buildTenantSystemPrompt } from "../tenant/system-prompt-builder.js";
+import { extractSuggestions } from "../tenant/suggestion-parser.js";
 import { checkBudget, reportUsage } from "./budget-middleware.js";
 import type { BillingConfig } from "./budget-middleware.js";
 
@@ -42,11 +43,20 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
       const tenant = config.tenantRegistry.resolveByWidgetId(widgetId, config.appName)!;
 
       const userId = c.req.query("userId") ?? crypto.randomUUID();
-      const systemPrompt = buildTenantSystemPrompt(tenant);
+      const systemPrompt = buildTenantSystemPrompt(tenant, "web");
 
       return {
         onOpen(_event: Event, ws: WSContext) {
           config.webChannel.addClient(ws, userId);
+
+          const suggestions = tenant.faqEntries?.map((f) => f.q) ?? [];
+          if (tenant.greeting || suggestions.length > 0) {
+            ws.send(JSON.stringify({
+              type: "welcome",
+              ...(tenant.greeting && { greeting: tenant.greeting }),
+              ...(suggestions.length > 0 && { suggestions }),
+            }));
+          }
         },
         onClose(_event: CloseEvent, ws: WSContext) {
           config.webChannel.removeClient(ws);
@@ -74,7 +84,9 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
                   if (!budgetResult.allowed) {
                     ws.send(JSON.stringify({
                       type: "error",
-                      message: activeBilling.overBudgetMessage ?? "Budget exhausted.",
+                      code: "BUDGET_EXHAUSTED",
+                      message: tenant.billing?.overBudgetMessage
+                        ?? activeBilling.overBudgetMessage ?? "Budget exhausted.",
                     }));
                     return;
                   }
@@ -100,13 +112,23 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
                   });
                 }
 
+                const { content: responseContent, suggestions: followUpSuggestions } =
+                  extractSuggestions(extractText(result.parts));
+
                 ws.send(JSON.stringify({
                   type: "done",
-                  content: extractText(result.parts),
+                  content: responseContent,
                   parts: result.parts,
                   inputTokens: result.inputTokens,
                   outputTokens: result.outputTokens,
                 }));
+
+                if (followUpSuggestions.length > 0) {
+                  ws.send(JSON.stringify({
+                    type: "suggestions",
+                    items: followUpSuggestions,
+                  }));
+                }
               } catch {
                 ws.send(JSON.stringify({
                   type: "error",

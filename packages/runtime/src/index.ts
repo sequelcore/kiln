@@ -41,6 +41,8 @@ export { SessionRegistry } from "./session/session-registry.js";
 // Tenant
 export { TenantRegistry, TenantNotFoundError, TenantValidationFailedError } from "./tenant/tenant-registry.js";
 export { buildTenantSystemPrompt } from "./tenant/system-prompt-builder.js";
+export { extractSuggestions, stripSuggestionTags } from "./tenant/suggestion-parser.js";
+export type { ParsedResponse } from "./tenant/suggestion-parser.js";
 
 // Triggers
 export { TriggerRegistry } from "./trigger/trigger-registry.js";

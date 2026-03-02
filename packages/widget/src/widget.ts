@@ -57,6 +57,7 @@ export class KilnWidget {
   private isOpen = false;
   private isLoading = false;
   private idCounter = 0;
+  private greetingShown = false;
 
   // Cached DOM refs set during render()
   private panelEl!: HTMLDivElement;
@@ -93,6 +94,7 @@ export class KilnWidget {
         content: config.greeting,
         timestamp: Date.now(),
       });
+      this.greetingShown = true;
     }
   }
 
@@ -228,14 +230,16 @@ export class KilnWidget {
     }
   }
 
-  sendMessage(): void {
-    const content = this.inputEl.value.trim();
-    if (!content || this.isLoading) return;
+  sendMessage(content?: string): void {
+    const text = content ?? this.inputEl.value.trim();
+    if (!text || this.isLoading) return;
+
+    this.removeSuggestions();
 
     this.addMessage({
       id: String(++this.idCounter),
       role: "user",
-      content,
+      content: text,
       timestamp: Date.now(),
     });
 
@@ -243,7 +247,7 @@ export class KilnWidget {
     this.inputEl.style.height = "auto";
     this.setLoading(true);
 
-    this.client.send(content);
+    this.client.send(text);
   }
 
   private addMessage(msg: ChatMessage): void {
@@ -315,8 +319,65 @@ export class KilnWidget {
       });
     } else if (frame.type === "error") {
       this.setLoading(false);
-      this.renderErrorMessage(frame.message);
+      if (frame.code === "BUDGET_EXHAUSTED") {
+        this.renderInfoMessage(frame.message);
+      } else {
+        this.renderErrorMessage(frame.message);
+      }
+    } else if (frame.type === "welcome") {
+      if (frame.greeting && !this.greetingShown) {
+        this.addMessage({
+          id: String(++this.idCounter),
+          role: "assistant",
+          content: frame.greeting,
+          timestamp: Date.now(),
+        });
+        this.greetingShown = true;
+      }
+      if (frame.suggestions && frame.suggestions.length > 0) {
+        this.renderSuggestions([...frame.suggestions]);
+      }
+    } else if (frame.type === "suggestions") {
+      this.renderSuggestions([...frame.items]);
     }
+  }
+
+  private renderSuggestions(items: string[]): void {
+    this.removeSuggestions();
+
+    const container = document.createElement("div");
+    container.className = "kiln-suggestions";
+
+    for (const item of items) {
+      const chip = document.createElement("button");
+      chip.className = "kiln-chip";
+      chip.textContent = item;
+      chip.addEventListener("click", () => {
+        this.sendMessage(item);
+      });
+      container.appendChild(chip);
+    }
+
+    this.messagesEl.insertBefore(container, this.typingEl);
+    this.scrollToBottom();
+  }
+
+  private removeSuggestions(): void {
+    const existing = this.messagesEl.querySelector(".kiln-suggestions");
+    if (existing) existing.remove();
+  }
+
+  private renderInfoMessage(text: string): void {
+    const wrapper = document.createElement("div");
+    wrapper.className = "kiln-msg info";
+
+    const bubble = document.createElement("div");
+    bubble.className = "kiln-bubble";
+    bubble.textContent = text;
+
+    wrapper.appendChild(bubble);
+    this.messagesEl.insertBefore(wrapper, this.typingEl);
+    this.scrollToBottom();
   }
 
   private updateStatus(status: ConnectionStatus): void {

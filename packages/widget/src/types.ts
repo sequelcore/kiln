@@ -18,7 +18,9 @@ export interface WsOutboundFrame {
 /** Inbound frame: server -> client */
 export type WsInboundFrame =
   | { readonly type: "done"; readonly content: string; readonly inputTokens: number; readonly outputTokens: number }
-  | { readonly type: "error"; readonly message: string };
+  | { readonly type: "error"; readonly message: string; readonly code?: string }
+  | { readonly type: "welcome"; readonly greeting?: string; readonly suggestions?: readonly string[] }
+  | { readonly type: "suggestions"; readonly items: readonly string[] };
 
 /** Chat message for UI rendering */
 export interface ChatMessage {
