@@ -298,7 +298,7 @@ describe("createWsTenantRoutes", () => {
 
       expect(mockWs.send).toHaveBeenCalledOnce();
       const sent = JSON.parse(mockWs.send.mock.calls[0]![0] as string);
-      expect(sent).toEqual({ type: "error", message: "LLM failed" });
+      expect(sent).toEqual({ type: "error", message: "Something went wrong. Please try again." });
     });
 
     it("silently discards malformed JSON", async () => {
