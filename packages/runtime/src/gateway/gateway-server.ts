@@ -310,6 +310,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
       const adminTokenEnv = (adminChannel?.adminTokenEnv as string) ?? "";
       loaded.tenantAdminConfig = {
         tenantRegistry,
+        sessionRegistry,
         appName: loaded.name,
         adminToken: adminTokenEnv ? process.env[adminTokenEnv] ?? undefined : undefined,
       };

@@ -54,7 +54,7 @@ export type { TriggerExecutionContext } from "./trigger/trigger-executor.js";
 // Channels
 export { EventBridge, toEngineEvent } from "./channels/event-bridge.js";
 export { ChannelRegistry } from "./channels/channel-registry.js";
-export { formatForChannel } from "./channels/message-formatter.js";
+export { formatForChannel, toWhatsAppFormat } from "./channels/message-formatter.js";
 export type { ChannelConfig, ChannelStatus, IdentityMapping, IdentityResolver } from "./channels/types.js";
 export { InMemoryIdentityResolver } from "./channels/types.js";
 export { CliChannel } from "./channels/cli-channel.js";

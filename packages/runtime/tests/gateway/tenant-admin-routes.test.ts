@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { TenantRegistry } from "../../src/tenant/tenant-registry.js";
+import { SessionRegistry } from "../../src/session/session-registry.js";
 import { createTenantAdminRoutes, generateTenantId } from "../../src/gateway/tenant-admin-routes.js";
 import type { TenantAdminRoutesConfig } from "../../src/gateway/tenant-admin-routes.js";
 import type { TenantConfig } from "@kilnai/core";
@@ -254,6 +255,71 @@ describe("createTenantAdminRoutes", () => {
       expect(res.status).toBe(404);
       const body = (await res.json()) as { error: string };
       expect(body.error).toBe("Tenant not found");
+    });
+  });
+
+  describe("session invalidation", () => {
+    it("invalidates tenant sessions on PATCH", async () => {
+      const sessionRegistry = new SessionRegistry();
+      const configWithSessions: TenantAdminRoutesConfig = { ...config, sessionRegistry };
+      const app = createTenantAdminRoutes(configWithSessions);
+
+      // Create tenant and some sessions
+      await app.request("/tenants", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(makeTenantBody({ tenantId: "patched", name: "Patched Salon" })),
+      });
+      sessionRegistry.getOrCreate({ appName: "test-app", tenantId: "patched", userId: "u1", systemPrompt: "old" });
+      sessionRegistry.getOrCreate({ appName: "test-app", tenantId: "patched", userId: "u2", systemPrompt: "old" });
+      sessionRegistry.getOrCreate({ appName: "test-app", tenantId: "other", userId: "u1", systemPrompt: "keep" });
+
+      const res = await app.request("/tenants/patched", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "New Name" }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(sessionRegistry.get("test-app", "u1", "patched")).toBeUndefined();
+      expect(sessionRegistry.get("test-app", "u2", "patched")).toBeUndefined();
+      expect(sessionRegistry.get("test-app", "u1", "other")).toBeDefined();
+    });
+
+    it("invalidates tenant sessions on DELETE", async () => {
+      const sessionRegistry = new SessionRegistry();
+      const configWithSessions: TenantAdminRoutesConfig = { ...config, sessionRegistry };
+      const app = createTenantAdminRoutes(configWithSessions);
+
+      await app.request("/tenants", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(makeTenantBody({ tenantId: "doomed", name: "Doomed Salon" })),
+      });
+      sessionRegistry.getOrCreate({ appName: "test-app", tenantId: "doomed", userId: "u1", systemPrompt: "sys" });
+
+      const res = await app.request("/tenants/doomed", { method: "DELETE" });
+
+      expect(res.status).toBe(200);
+      expect(sessionRegistry.get("test-app", "u1", "doomed")).toBeUndefined();
+    });
+
+    it("works without sessionRegistry (backward compatible)", async () => {
+      const app = createTenantAdminRoutes(config); // no sessionRegistry
+
+      await app.request("/tenants", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(makeTenantBody({ tenantId: "safe", name: "Safe Salon" })),
+      });
+
+      const res = await app.request("/tenants/safe", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Updated" }),
+      });
+
+      expect(res.status).toBe(200);
     });
   });
 

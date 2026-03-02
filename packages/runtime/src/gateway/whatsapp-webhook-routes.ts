@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { mkdirSync } from "node:fs";
 import type { ContentPart, ToolDefinition } from "@kilnai/core";
 import { textParts, extractText, SqliteMemoryStore } from "@kilnai/core";
+import { toWhatsAppFormat } from "../channels/message-formatter.js";
 import type { ModeBOrchestrator } from "../session/mode-b-orchestrator.js";
 import type { SessionRegistry } from "../session/session-registry.js";
 import type { TenantRegistry } from "../tenant/tenant-registry.js";
@@ -270,8 +271,8 @@ async function processWhatsAppMessage(
     callTools.size > 0 ? callTools : undefined,
   );
 
-  // Reply via WhatsApp Cloud API
-  const replyText = extractText(result.parts);
+  // Reply via WhatsApp Cloud API — convert markdown to WhatsApp formatting
+  const replyText = toWhatsAppFormat(extractText(result.parts));
 
   try {
     await sendWhatsAppMessage(phoneNumberId, resolvedAccessToken, senderPhone, {

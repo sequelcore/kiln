@@ -3,7 +3,7 @@
 
 import type { Channel, IncomingMessage, OutgoingMessage, EngineEvent, MessageFormat, Modality } from "@kilnai/core";
 import { extractText, textParts } from "@kilnai/core";
-import { formatForChannel } from "./message-formatter.js";
+import { toWhatsAppFormat } from "./message-formatter.js";
 import { sendWhatsAppMessage } from "./whatsapp-api.js";
 
 export interface WhatsAppConfig {
@@ -69,7 +69,7 @@ export class WhatsAppChannel implements Channel {
     // Send text content
     const text = extractText(response.parts);
     if (text) {
-      const formatted = formatForChannel(text, response.format ?? this.defaultFormat);
+      const formatted = toWhatsAppFormat(text);
       await sendWhatsAppMessage(phoneNumberId, accessToken, to, {
         type: "text",
         text: { body: formatted },

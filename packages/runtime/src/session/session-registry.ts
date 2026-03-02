@@ -36,6 +36,19 @@ export class SessionRegistry {
     return this.sessions.delete(key);
   }
 
+  /** Remove all sessions for a given tenant. Returns the number of sessions invalidated. */
+  invalidateByTenant(appName: string, tenantId: string): number {
+    const prefix = `${appName}:${tenantId}:`;
+    let removed = 0;
+    for (const key of this.sessions.keys()) {
+      if (key.startsWith(prefix)) {
+        this.sessions.delete(key);
+        removed++;
+      }
+    }
+    return removed;
+  }
+
   activeCount(): number {
     let count = 0;
     for (const session of this.sessions.values()) {

@@ -2,7 +2,7 @@
 
 export { EventBridge, toEngineEvent } from "./event-bridge.js";
 export { ChannelRegistry } from "./channel-registry.js";
-export { formatForChannel } from "./message-formatter.js";
+export { formatForChannel, toWhatsAppFormat } from "./message-formatter.js";
 export type { ChannelConfig, ChannelStatus, IdentityMapping, IdentityResolver } from "./types.js";
 export { InMemoryIdentityResolver } from "./types.js";
 export { CliChannel } from "./cli-channel.js";

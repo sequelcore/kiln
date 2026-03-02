@@ -222,4 +222,51 @@ describe("SessionRegistry", () => {
       expect(session.id).toContain("tenant-x");
     });
   });
+
+  describe("invalidateByTenant", () => {
+    it("removes all sessions for a given tenant", () => {
+      const registry = new SessionRegistry();
+      registry.getOrCreate({ appName: "app", tenantId: "tenant-a", userId: "u1", systemPrompt: "sys" });
+      registry.getOrCreate({ appName: "app", tenantId: "tenant-a", userId: "u2", systemPrompt: "sys" });
+      registry.getOrCreate({ appName: "app", tenantId: "tenant-b", userId: "u1", systemPrompt: "sys" });
+
+      const removed = registry.invalidateByTenant("app", "tenant-a");
+
+      expect(removed).toBe(2);
+      expect(registry.get("app", "u1", "tenant-a")).toBeUndefined();
+      expect(registry.get("app", "u2", "tenant-a")).toBeUndefined();
+      expect(registry.get("app", "u1", "tenant-b")).toBeDefined();
+    });
+
+    it("returns 0 when no sessions match", () => {
+      const registry = new SessionRegistry();
+      registry.getOrCreate({ appName: "app", tenantId: "tenant-a", userId: "u1", systemPrompt: "sys" });
+
+      expect(registry.invalidateByTenant("app", "nonexistent")).toBe(0);
+      expect(registry.get("app", "u1", "tenant-a")).toBeDefined();
+    });
+
+    it("does not affect sessions from a different app", () => {
+      const registry = new SessionRegistry();
+      registry.getOrCreate({ appName: "app1", tenantId: "tenant-a", userId: "u1", systemPrompt: "sys" });
+      registry.getOrCreate({ appName: "app2", tenantId: "tenant-a", userId: "u1", systemPrompt: "sys" });
+
+      const removed = registry.invalidateByTenant("app1", "tenant-a");
+
+      expect(removed).toBe(1);
+      expect(registry.get("app1", "u1", "tenant-a")).toBeUndefined();
+      expect(registry.get("app2", "u1", "tenant-a")).toBeDefined();
+    });
+
+    it("does not affect non-tenant sessions", () => {
+      const registry = new SessionRegistry();
+      registry.getOrCreate({ appName: "app", userId: "u1", systemPrompt: "sys" });
+      registry.getOrCreate({ appName: "app", tenantId: "tenant-a", userId: "u1", systemPrompt: "sys" });
+
+      const removed = registry.invalidateByTenant("app", "tenant-a");
+
+      expect(removed).toBe(1);
+      expect(registry.get("app", "u1")).toBeDefined();
+    });
+  });
 });
