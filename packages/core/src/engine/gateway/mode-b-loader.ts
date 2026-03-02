@@ -39,6 +39,7 @@ interface RawBilling {
   budgetEndpoint?: unknown;
   usageEndpoint?: unknown;
   overBudgetMessage?: unknown;
+  headers?: unknown;
   tiers?: unknown;
 }
 
@@ -71,17 +72,37 @@ function mapBillingTier(raw: RawBillingTier): BillingTier {
   return { agents };
 }
 
+/** Resolve a value: if it starts with $ treat it as an env var name */
+function resolveEnvValue(value: string): string {
+  if (value.startsWith("$")) {
+    const envName = value.slice(1);
+    return process.env[envName] ?? "";
+  }
+  return value;
+}
+
 function mapBilling(raw: RawBilling): BillingConfig {
   const billing: {
     budgetEndpoint: string;
     usageEndpoint: string;
     overBudgetMessage: string;
+    headers?: Record<string, string>;
     tiers?: Record<string, BillingTier>;
   } = {
     budgetEndpoint: typeof raw.budgetEndpoint === "string" ? raw.budgetEndpoint : "",
     usageEndpoint: typeof raw.usageEndpoint === "string" ? raw.usageEndpoint : "",
     overBudgetMessage: typeof raw.overBudgetMessage === "string" ? raw.overBudgetMessage : "",
   };
+
+  if (raw.headers && typeof raw.headers === "object" && !Array.isArray(raw.headers)) {
+    const headers: Record<string, string> = {};
+    for (const [key, value] of Object.entries(raw.headers as Record<string, unknown>)) {
+      if (typeof value === "string") {
+        headers[key] = resolveEnvValue(value);
+      }
+    }
+    billing.headers = headers;
+  }
 
   if (raw.tiers && typeof raw.tiers === "object" && !Array.isArray(raw.tiers)) {
     const tiers: Record<string, BillingTier> = {};

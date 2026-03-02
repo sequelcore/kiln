@@ -32,20 +32,24 @@ export interface BillingConfig {
   readonly budgetEndpoint: string;
   readonly usageEndpoint: string;
   readonly overBudgetMessage: string;
+  readonly headers?: Readonly<Record<string, string>>;
   readonly tiers?: Readonly<Record<string, { readonly agents: readonly string[] }>>;
 }
 
 /** Budget response from product API */
 interface BudgetResponse {
+  readonly allowed: boolean;
   readonly remaining: number;
   readonly unit: string;
+  readonly reason?: string;
 }
 
 /** Usage report sent to product API */
 interface UsageReport {
+  readonly tenantId: string;
+  readonly messages: number;
   readonly tokens: number;
   readonly model: string;
-  readonly role: string;
 }
 
 /** Shared circuit breaker for budget API calls */
@@ -55,14 +59,26 @@ const budgetCircuitBreaker = new CircuitBreaker({
   halfOpenMaxAttempts: 1,
 });
 
+/** Build request headers: merge billing.headers with Content-Type */
+function buildHeaders(billing: BillingConfig, contentType?: string): Record<string, string> {
+  const headers: Record<string, string> = {};
+  if (billing.headers) {
+    for (const [key, value] of Object.entries(billing.headers)) {
+      if (value) headers[key] = value;
+    }
+  }
+  if (contentType) headers["Content-Type"] = contentType;
+  return headers;
+}
+
 /**
- * Check if the user has remaining budget.
+ * Check if the tenant has remaining budget.
  * Interpolates {userId} in the budget endpoint URL.
  * Fail-open: returns allowed=true on any fetch error or when circuit is open.
  */
 export async function checkBudget(
   billing: BillingConfig,
-  userId: string,
+  tenantId: string,
 ): Promise<BudgetCheckResult> {
   // If circuit is open, fail open immediately (consistent with current behavior)
   if (budgetCircuitBreaker.currentState === "open") {
@@ -71,22 +87,22 @@ export async function checkBudget(
 
   try {
     return await budgetCircuitBreaker.execute(async () => {
-      const url = billing.budgetEndpoint.replace("{userId}", userId);
-      const res = await fetch(url);
+      const url = billing.budgetEndpoint.replace("{userId}", tenantId);
+      const res = await fetch(url, { headers: buildHeaders(billing) });
       if (!res.ok) {
         // Fail-open: billing failures should not block users
         return { allowed: true, remaining: -1, unit: "unknown" };
       }
       const data = (await res.json()) as BudgetResponse;
-      if (data.remaining <= 0) {
+      if (data.allowed === false) {
         return {
           allowed: false,
-          remaining: data.remaining,
-          unit: data.unit,
+          remaining: data.remaining ?? 0,
+          unit: data.unit ?? "tokens",
           overBudgetMessage: billing.overBudgetMessage,
         };
       }
-      return { allowed: true, remaining: data.remaining, unit: data.unit };
+      return { allowed: true, remaining: data.remaining ?? -1, unit: data.unit ?? "tokens" };
     });
   } catch {
     // Fail-open on network/fetch errors or circuit open
@@ -96,19 +112,17 @@ export async function checkBudget(
 
 /**
  * Report token usage to the product API.
- * Interpolates {userId} in the usage endpoint URL.
  * Fire-and-forget: errors are logged but not thrown.
  */
 export async function reportUsage(
   billing: BillingConfig,
-  userId: string,
   usage: UsageReport,
 ): Promise<void> {
-  const url = billing.usageEndpoint.replace("{userId}", userId);
+  const url = billing.usageEndpoint;
   try {
     await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: buildHeaders(billing, "application/json"),
       body: JSON.stringify(usage),
     });
   } catch {

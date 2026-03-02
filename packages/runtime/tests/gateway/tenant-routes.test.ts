@@ -67,7 +67,7 @@ describe("createTenantRoutes", () => {
   beforeEach(() => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({ remaining: 50000, unit: "tokens" }),
+      json: () => Promise.resolve({ allowed: true, remaining: 50000, unit: "tokens" }),
     });
   });
 
@@ -196,7 +196,7 @@ describe("createTenantRoutes", () => {
     it("returns budgetExhausted when budget exhausted", async () => {
       globalThis.fetch = vi.fn().mockResolvedValue({
         ok: true,
-        json: () => Promise.resolve({ remaining: 0, unit: "tokens" }),
+        json: () => Promise.resolve({ allowed: false, remaining: 0, unit: "tokens", reason: "Monthly token quota exhausted" }),
       });
 
       const runtime = makeRuntime({ billing: makeBillingConfig() });
@@ -275,12 +275,13 @@ describe("createTenantRoutes", () => {
       expect(globalThis.fetch).toHaveBeenCalledTimes(2);
 
       const usageCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[1];
-      expect(usageCall[0]).toBe("https://api.example.com/users/test-tenant:user-1/ai-usage");
+      expect(usageCall[0]).toBe("https://api.example.com/users/{userId}/ai-usage");
       expect(usageCall[1]).toMatchObject({
         method: "POST",
-        headers: { "Content-Type": "application/json" },
       });
       const usageBody = JSON.parse(usageCall[1].body as string);
+      expect(usageBody.tenantId).toBe("test-tenant");
+      expect(usageBody.messages).toBe(1);
       expect(usageBody.tokens).toBe(150); // 100 input + 50 output
     });
   });

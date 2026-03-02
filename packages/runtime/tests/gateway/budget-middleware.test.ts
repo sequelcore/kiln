@@ -2,9 +2,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { checkBudget, reportUsage, checkTier } from "../../src/gateway/budget-middleware.js";
 
 const originalFetch = globalThis.fetch;
+let mockFetch: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
-  globalThis.fetch = vi.fn();
+  mockFetch = vi.fn();
+  globalThis.fetch = mockFetch;
 });
 
 afterEach(() => {
@@ -13,9 +15,12 @@ afterEach(() => {
 
 function makeBillingConfig() {
   return {
-    budgetEndpoint: "https://api.example.com/users/{userId}/ai-budget",
-    usageEndpoint: "https://api.example.com/users/{userId}/ai-usage",
+    budgetEndpoint: "https://api.example.com/budget?tenantId={userId}",
+    usageEndpoint: "https://api.example.com/usage",
     overBudgetMessage: "Budget exhausted.",
+    headers: {
+      "X-Gateway-Secret": "test-secret",
+    },
     tiers: {
       free: { agents: ["fast"] },
       pro: { agents: ["fast", "coding"] },
@@ -24,13 +29,13 @@ function makeBillingConfig() {
 }
 
 describe("checkBudget", () => {
-  it("returns allowed when remaining > 0", async () => {
-    vi.mocked(globalThis.fetch).mockResolvedValueOnce({
+  it("returns allowed when API responds with allowed=true", async () => {
+    mockFetch.mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ remaining: 50000, unit: "tokens" }),
+      json: async () => ({ allowed: true, remaining: 50000, unit: "tokens" }),
     } as Response);
 
-    const result = await checkBudget(makeBillingConfig(), "user-123");
+    const result = await checkBudget(makeBillingConfig(), "kilvo-abc123");
 
     expect(result.allowed).toBe(true);
     expect(result.remaining).toBe(50000);
@@ -38,13 +43,13 @@ describe("checkBudget", () => {
     expect(result.overBudgetMessage).toBeUndefined();
   });
 
-  it("returns not allowed with overBudgetMessage when remaining <= 0", async () => {
-    vi.mocked(globalThis.fetch).mockResolvedValueOnce({
+  it("returns not allowed with overBudgetMessage when API responds with allowed=false", async () => {
+    mockFetch.mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ remaining: 0, unit: "tokens" }),
+      json: async () => ({ allowed: false, remaining: 0, unit: "tokens", reason: "Monthly token quota exhausted" }),
     } as Response);
 
-    const result = await checkBudget(makeBillingConfig(), "user-123");
+    const result = await checkBudget(makeBillingConfig(), "kilvo-abc123");
 
     expect(result.allowed).toBe(false);
     expect(result.remaining).toBe(0);
@@ -52,35 +57,35 @@ describe("checkBudget", () => {
     expect(result.overBudgetMessage).toBe("Budget exhausted.");
   });
 
-  it("returns not allowed when remaining is negative", async () => {
-    vi.mocked(globalThis.fetch).mockResolvedValueOnce({
+  it("sends auth headers from billing config", async () => {
+    mockFetch.mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ remaining: -100, unit: "tokens" }),
+      json: async () => ({ allowed: true, remaining: 1000, unit: "tokens" }),
     } as Response);
 
-    const result = await checkBudget(makeBillingConfig(), "user-456");
+    await checkBudget(makeBillingConfig(), "kilvo-abc123");
 
-    expect(result.allowed).toBe(false);
-    expect(result.remaining).toBe(-100);
+    const [, options] = mockFetch.mock.calls[0]!;
+    const headers = (options as RequestInit).headers as Record<string, string>;
+    expect(headers["X-Gateway-Secret"]).toBe("test-secret");
   });
 
   it("interpolates {userId} in endpoint URL", async () => {
-    vi.mocked(globalThis.fetch).mockResolvedValueOnce({
+    mockFetch.mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ remaining: 1000, unit: "requests" }),
+      json: async () => ({ allowed: true, remaining: 1000, unit: "tokens" }),
     } as Response);
 
-    await checkBudget(makeBillingConfig(), "user-abc");
+    await checkBudget(makeBillingConfig(), "kilvo-tenant1");
 
-    expect(globalThis.fetch).toHaveBeenCalledWith(
-      "https://api.example.com/users/user-abc/ai-budget",
-    );
+    const [calledUrl] = mockFetch.mock.calls[0]!;
+    expect(calledUrl).toBe("https://api.example.com/budget?tenantId=kilvo-tenant1");
   });
 
   it("returns allowed on fetch error (fail-open)", async () => {
-    vi.mocked(globalThis.fetch).mockRejectedValueOnce(new Error("Network error"));
+    mockFetch.mockRejectedValueOnce(new Error("Network error"));
 
-    const result = await checkBudget(makeBillingConfig(), "user-123");
+    const result = await checkBudget(makeBillingConfig(), "kilvo-abc123");
 
     expect(result.allowed).toBe(true);
     expect(result.remaining).toBe(-1);
@@ -88,12 +93,12 @@ describe("checkBudget", () => {
   });
 
   it("returns allowed on non-OK response (fail-open)", async () => {
-    vi.mocked(globalThis.fetch).mockResolvedValueOnce({
+    mockFetch.mockResolvedValueOnce({
       ok: false,
       status: 500,
     } as Response);
 
-    const result = await checkBudget(makeBillingConfig(), "user-123");
+    const result = await checkBudget(makeBillingConfig(), "kilvo-abc123");
 
     expect(result.allowed).toBe(true);
     expect(result.remaining).toBe(-1);
@@ -102,41 +107,27 @@ describe("checkBudget", () => {
 });
 
 describe("reportUsage", () => {
-  it("sends POST with correct body", async () => {
-    vi.mocked(globalThis.fetch).mockResolvedValueOnce({
-      ok: true,
-    } as Response);
+  it("sends POST with tenantId, messages, tokens, model", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true } as Response);
 
-    const usage = { tokens: 1500, model: "claude-sonnet-4-6", role: "coding" };
-    await reportUsage(makeBillingConfig(), "user-123", usage);
+    const usage = { tenantId: "kilvo-abc123", messages: 1, tokens: 1500, model: "claude-haiku-4-5" };
+    await reportUsage(makeBillingConfig(), usage);
 
-    expect(globalThis.fetch).toHaveBeenCalledWith(
-      "https://api.example.com/users/user-123/ai-usage",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(usage),
-      },
-    );
+    const [calledUrl, options] = mockFetch.mock.calls[0]!;
+    expect(calledUrl).toBe("https://api.example.com/usage");
+
+    const init = options as RequestInit;
+    const headers = init.headers as Record<string, string>;
+    expect(headers["Content-Type"]).toBe("application/json");
+    expect(headers["X-Gateway-Secret"]).toBe("test-secret");
+    expect(JSON.parse(init.body as string)).toEqual(usage);
   });
 
   it("does not throw on fetch error", async () => {
-    vi.mocked(globalThis.fetch).mockRejectedValueOnce(new Error("Network error"));
+    mockFetch.mockRejectedValueOnce(new Error("Network error"));
 
-    const usage = { tokens: 500, model: "claude-haiku-4-5-20251001", role: "fast" };
-    await expect(reportUsage(makeBillingConfig(), "user-123", usage)).resolves.toBeUndefined();
-  });
-
-  it("interpolates {userId} in endpoint URL", async () => {
-    vi.mocked(globalThis.fetch).mockResolvedValueOnce({
-      ok: true,
-    } as Response);
-
-    const usage = { tokens: 200, model: "claude-opus-4-6", role: "reasoning" };
-    await reportUsage(makeBillingConfig(), "user-xyz", usage);
-
-    const [calledUrl] = vi.mocked(globalThis.fetch).mock.calls[0]!;
-    expect(calledUrl).toBe("https://api.example.com/users/user-xyz/ai-usage");
+    const usage = { tenantId: "kilvo-abc123", messages: 1, tokens: 500, model: "claude-haiku-4-5" };
+    await expect(reportUsage(makeBillingConfig(), usage)).resolves.toBeUndefined();
   });
 });
 
@@ -167,8 +158,8 @@ describe("checkTier", () => {
 
   it("allows when no tiers configured (fail-open)", () => {
     const billing = {
-      budgetEndpoint: "https://api.example.com/users/{userId}/ai-budget",
-      usageEndpoint: "https://api.example.com/users/{userId}/ai-usage",
+      budgetEndpoint: "https://api.example.com/budget?tenantId={userId}",
+      usageEndpoint: "https://api.example.com/usage",
       overBudgetMessage: "Budget exhausted.",
     };
 

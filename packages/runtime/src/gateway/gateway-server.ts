@@ -301,6 +301,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
           sessionRegistry,
           tenantRegistry,
           verifyToken: verifyTokenEnv ? process.env[verifyTokenEnv] ?? "" : "",
+          billing: resolved.modeBConfig.billing,
           memoryBasePath: resolved.memoryBasePath,
         };
       }

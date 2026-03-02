@@ -63,13 +63,12 @@ export function createTenantRoutes(runtime: TenantAppRuntime): Hono {
       return c.json({ error: "Tenant is disabled" }, 403);
     }
 
-    // Budget check (use tenantId:userId as billing key)
+    // Budget check
     const billingConfig = tenant.billing?.budgetEndpoint
       ? (tenant.billing as unknown as BillingConfig)
       : runtime.billing;
     if (billingConfig) {
-      const billingUserId = `${body.tenantId}:${body.userId}`;
-      const budgetResult = await checkBudget(billingConfig, billingUserId);
+      const budgetResult = await checkBudget(billingConfig, body.tenantId);
       if (!budgetResult.allowed) {
         return c.json({
           content: billingConfig.overBudgetMessage ?? "Budget exhausted.",
@@ -95,11 +94,11 @@ export function createTenantRoutes(runtime: TenantAppRuntime): Hono {
 
     // Report token usage to billing (fire-and-forget)
     if (billingConfig) {
-      const billingUserId = `${body.tenantId}:${body.userId}`;
-      reportUsage(billingConfig, billingUserId, {
+      reportUsage(billingConfig, {
+        tenantId: body.tenantId,
+        messages: 1,
         tokens: result.inputTokens + result.outputTokens,
         model: runtime.orchestrator.model ?? "unknown",
-        role: "assistant",
       });
     }
 

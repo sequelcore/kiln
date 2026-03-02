@@ -70,8 +70,7 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
               try {
                 // Budget check
                 if (activeBilling) {
-                  const billingUserId = `${tenant.tenantId}:${userId}`;
-                  const budgetResult = await checkBudget(activeBilling, billingUserId);
+                  const budgetResult = await checkBudget(activeBilling, tenant.tenantId);
                   if (!budgetResult.allowed) {
                     ws.send(JSON.stringify({
                       type: "error",
@@ -93,11 +92,11 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
 
                 // Report usage (fire-and-forget)
                 if (activeBilling) {
-                  const billingUserId = `${tenant.tenantId}:${userId}`;
-                  reportUsage(activeBilling, billingUserId, {
+                  reportUsage(activeBilling, {
+                    tenantId: tenant.tenantId,
+                    messages: 1,
                     tokens: result.inputTokens + result.outputTokens,
                     model: config.orchestrator.model ?? "unknown",
-                    role: "assistant",
                   });
                 }
 
@@ -108,10 +107,10 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
                   inputTokens: result.inputTokens,
                   outputTokens: result.outputTokens,
                 }));
-              } catch (err) {
+              } catch {
                 ws.send(JSON.stringify({
                   type: "error",
-                  message: err instanceof Error ? err.message : String(err),
+                  message: "Something went wrong. Please try again.",
                 }));
               }
             }

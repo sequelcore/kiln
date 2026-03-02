@@ -12,6 +12,8 @@ import type { SessionRegistry } from "../session/session-registry.js";
 import type { TenantRegistry } from "../tenant/tenant-registry.js";
 import { buildTenantSystemPrompt } from "../tenant/system-prompt-builder.js";
 import { sendWhatsAppMessage, whatsappMediaUrl } from "../channels/whatsapp-api.js";
+import { checkBudget, reportUsage } from "./budget-middleware.js";
+import type { BillingConfig } from "./budget-middleware.js";
 
 export interface WhatsAppWebhookConfig {
   readonly appName: string;
@@ -19,6 +21,7 @@ export interface WhatsAppWebhookConfig {
   readonly sessionRegistry: SessionRegistry;
   readonly tenantRegistry: TenantRegistry;
   readonly verifyToken: string;
+  readonly billing?: BillingConfig;
   /** Base path for per-tenant data (e.g. ~/.kiln/gateway/bonitas). Memory DBs stored under <basePath>/memory/ */
   readonly memoryBasePath?: string;
 }
@@ -264,16 +267,51 @@ async function processWhatsAppMessage(
     }
   }
 
-  const result = await config.orchestrator.processMessage(
-    session,
-    messageParts,
-    recalledMemory,
-    callTools.size > 0 ? callTools : undefined,
-  );
+  // --- Budget check ---
+  const activeBilling = config.billing;
+  if (activeBilling) {
+    const budgetResult = await checkBudget(activeBilling, tenantId);
+    if (!budgetResult.allowed) {
+      const overBudgetMsg = activeBilling.overBudgetMessage ?? "Budget exhausted.";
+      console.log(`[whatsapp] Budget exhausted for tenant=${tenantId} sender=${senderPhone}`);
+      try {
+        await sendWhatsAppMessage(phoneNumberId, resolvedAccessToken, senderPhone, {
+          type: "text",
+          text: { body: overBudgetMsg },
+        });
+      } catch (err) {
+        console.warn(`[whatsapp] Failed to send over-budget reply: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      return;
+    }
+  }
 
-  // Reply via WhatsApp Cloud API — convert markdown to WhatsApp formatting
-  const replyText = toWhatsAppFormat(extractText(result.parts));
+  let replyText: string;
+  try {
+    const result = await config.orchestrator.processMessage(
+      session,
+      messageParts,
+      recalledMemory,
+      callTools.size > 0 ? callTools : undefined,
+    );
 
+    replyText = toWhatsAppFormat(extractText(result.parts));
+
+    // Report usage (fire-and-forget)
+    if (activeBilling) {
+      reportUsage(activeBilling, {
+        tenantId,
+        messages: 1,
+        tokens: result.inputTokens + result.outputTokens,
+        model: config.orchestrator.model ?? "unknown",
+      });
+    }
+  } catch (err) {
+    console.error(`[whatsapp] Orchestrator error for tenant=${tenantId}: ${err instanceof Error ? err.message : String(err)}`);
+    replyText = "Something went wrong. Please try again.";
+  }
+
+  // Reply via WhatsApp Cloud API
   try {
     await sendWhatsAppMessage(phoneNumberId, resolvedAccessToken, senderPhone, {
       type: "text",

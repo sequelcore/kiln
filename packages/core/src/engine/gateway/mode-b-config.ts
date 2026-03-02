@@ -21,20 +21,24 @@ export interface BillingConfig {
   readonly budgetEndpoint: string;
   readonly usageEndpoint: string;
   readonly overBudgetMessage: string;
+  readonly headers?: Readonly<Record<string, string>>;
   readonly tiers?: Readonly<Record<string, BillingTier>>;
 }
 
 /** Budget response from product API */
 export interface BudgetResponse {
+  readonly allowed: boolean;
   readonly remaining: number;
-  readonly unit: "tokens" | "requests";
+  readonly unit: string;
+  readonly reason?: string;
 }
 
 /** Usage report sent to product API */
 export interface UsageReport {
+  readonly tenantId: string;
+  readonly messages: number;
   readonly tokens: number;
   readonly model: string;
-  readonly role: string;
 }
 
 /** Full Mode B configuration parsed from App YAML */
