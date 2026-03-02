@@ -86,6 +86,39 @@ The WebSocket lifecycle is managed by `ws-routes.ts` using Hono's `upgradeWebSoc
 
 **Authentication:** Optionally, a `validateToken` callback can be configured in `GatewayServerConfig`. When set, clients must include a `?token=` query param on the WebSocket URL. Invalid or missing tokens receive a `401` response before upgrade. If the validator returns a `userId`, it is used as the session key.
 
+**Multi-tenant mode.** For SaaS products with `multiTenant: true`, the Gateway mounts `ws-tenant-routes.ts` instead. Clients connect with `?widgetId=UUID`, which resolves to a tenant via `TenantRegistry.resolveByWidgetId()`. The tenant's system prompt, billing, and idle timeout are applied per-session.
+
+```yaml
+channels:
+  - type: web
+    multiTenant: true
+```
+
+**Embeddable Widget.** The `@kilnai/widget` package provides a ready-made chat UI for embedding on any website. It connects to the gateway WebSocket, manages reconnection, and renders inside a Shadow DOM for style isolation.
+
+```html
+<script
+  src="https://cdn.jsdelivr.net/npm/@kilnai/widget@latest/dist/widget.js"
+  data-gateway="https://gw.example.com"
+  data-app="my-app"
+  data-widget-id="550e8400-e29b-41d4-a716-446655440000"
+  data-theme="auto"
+  data-greeting="Hello! How can I help?"
+  async></script>
+```
+
+Configuration via `data-*` attributes on the script tag:
+
+| Attribute | Required | Description |
+|-----------|----------|-------------|
+| `data-gateway` | Yes | Gateway URL (https or wss) |
+| `data-app` | Yes | App name in gateway.yaml |
+| `data-widget-id` | Yes | Widget UUID (from tenant provisioning) |
+| `data-position` | No | `bottom-right` (default) or `bottom-left` |
+| `data-theme` | No | `light`, `dark`, or `auto` (default) |
+| `data-greeting` | No | Initial assistant message |
+| `data-placeholder` | No | Input placeholder text |
+
 ---
 
 ### WhatsApp

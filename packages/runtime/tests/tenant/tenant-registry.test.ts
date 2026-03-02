@@ -142,6 +142,49 @@ describe("TenantRegistry", () => {
     });
   });
 
+  describe("resolveByWidgetId", () => {
+    it("finds matching tenant by widgetId and appName", () => {
+      registry.create(
+        makeTenant({
+          tenantId: "biz-widget",
+          appName: "kilvo",
+          widgetId: "widget-uuid-1",
+          enabled: true,
+        }),
+      );
+      const found = registry.resolveByWidgetId("widget-uuid-1", "kilvo");
+      expect(found?.tenantId).toBe("biz-widget");
+    });
+
+    it("returns undefined for unknown widgetId", () => {
+      expect(registry.resolveByWidgetId("no-such-widget", "kilvo")).toBeUndefined();
+    });
+
+    it("returns undefined for disabled tenant", () => {
+      registry.create(
+        makeTenant({
+          tenantId: "biz-widget-disabled",
+          appName: "kilvo",
+          widgetId: "widget-uuid-2",
+          enabled: false,
+        }),
+      );
+      expect(registry.resolveByWidgetId("widget-uuid-2", "kilvo")).toBeUndefined();
+    });
+
+    it("returns undefined for wrong appName", () => {
+      registry.create(
+        makeTenant({
+          tenantId: "biz-widget-other-app",
+          appName: "other-app",
+          widgetId: "widget-uuid-3",
+          enabled: true,
+        }),
+      );
+      expect(registry.resolveByWidgetId("widget-uuid-3", "kilvo")).toBeUndefined();
+    });
+  });
+
   describe("load", () => {
     it("reads existing JSON files from disk", () => {
       mkdirSync(storageDir, { recursive: true });

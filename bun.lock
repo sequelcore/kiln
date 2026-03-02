@@ -14,7 +14,7 @@
     },
     "packages/cli": {
       "name": "@kilnai/cli",
-      "version": "0.1.0",
+      "version": "0.1.3",
       "bin": {
         "kiln": "./dist/index.js",
       },
@@ -32,7 +32,7 @@
     },
     "packages/core": {
       "name": "@kilnai/core",
-      "version": "0.1.0",
+      "version": "0.1.3",
       "dependencies": {
         "@anthropic-ai/sdk": "^0.74.0",
         "@modelcontextprotocol/sdk": "^1.26.0",
@@ -50,7 +50,7 @@
     },
     "packages/runtime": {
       "name": "@kilnai/runtime",
-      "version": "0.1.0",
+      "version": "0.1.3",
       "dependencies": {
         "hono": "^4.7.0",
       },
@@ -64,7 +64,7 @@
     },
     "packages/sdk": {
       "name": "@kilnai/react",
-      "version": "0.1.0",
+      "version": "0.1.3",
       "devDependencies": {
         "@testing-library/react": "^16.1.0",
         "@types/react": "^19.0.0",
@@ -92,6 +92,14 @@
         "react-dom": "^19.0.0",
         "typescript": "^5.6.0",
         "vite": "^7.0.0",
+      },
+    },
+    "packages/widget": {
+      "name": "@kilnai/widget",
+      "version": "0.1.3",
+      "devDependencies": {
+        "jsdom": "^25.0.0",
+        "vitest": "^4.0.18",
       },
     },
   },
@@ -257,6 +265,8 @@
     "@kilnai/runtime": ["@kilnai/runtime@workspace:packages/runtime"],
 
     "@kilnai/studio": ["@kilnai/studio@workspace:packages/studio"],
+
+    "@kilnai/widget": ["@kilnai/widget@workspace:packages/widget"],
 
     "@modelcontextprotocol/sdk": ["@modelcontextprotocol/sdk@1.26.0", "", { "dependencies": { "@hono/node-server": "^1.19.9", "ajv": "^8.17.1", "ajv-formats": "^3.0.1", "content-type": "^1.0.5", "cors": "^2.8.5", "cross-spawn": "^7.0.5", "eventsource": "^3.0.2", "eventsource-parser": "^3.0.0", "express": "^5.2.1", "express-rate-limit": "^8.2.1", "hono": "^4.11.4", "jose": "^6.1.3", "json-schema-typed": "^8.0.2", "pkce-challenge": "^5.0.0", "raw-body": "^3.0.0", "zod": "^3.25 || ^4.0", "zod-to-json-schema": "^3.25.1" }, "peerDependencies": { "@cfworker/json-schema": "^4.1.1" }, "optionalPeers": ["@cfworker/json-schema"] }, "sha512-Y5RmPncpiDtTXDbLKswIJzTqu2hyBKxTNsgKqKclDbhIgg1wgtf1fRuvxgTnRfcnxtvvgbIEcqUOzZrJ6iSReg=="],
 

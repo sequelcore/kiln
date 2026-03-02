@@ -161,6 +161,19 @@ export class TenantRegistry {
     return undefined;
   }
 
+  resolveByWidgetId(widgetId: string, appName: string): TenantConfig | undefined {
+    for (const tenant of this.tenants.values()) {
+      if (
+        tenant.widgetId === widgetId &&
+        tenant.appName === appName &&
+        tenant.enabled
+      ) {
+        return tenant;
+      }
+    }
+    return undefined;
+  }
+
   private persist(config: TenantConfig): void {
     mkdirSync(this.storageDir, { recursive: true });
     const filePath = join(this.storageDir, `${config.tenantId}.json`);

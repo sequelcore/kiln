@@ -52,6 +52,7 @@ export interface TenantConfig {
   readonly whatsappPhoneNumberId?: string;
   readonly whatsappAccessToken?: string;
   readonly whatsappVerifyToken?: string;
+  readonly widgetId?: string;
   readonly billing?: TenantBilling;
   readonly idleTimeoutMs?: number;
   readonly enabled: boolean;

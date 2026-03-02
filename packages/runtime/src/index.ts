@@ -16,6 +16,8 @@ export type { DelegationTarget, DelegationRegistry } from "./gateway/delegation-
 export { createDelegationRoutes } from "./gateway/delegation-routes.js";
 export { createTenantRoutes } from "./gateway/tenant-routes.js";
 export type { TenantAppRuntime } from "./gateway/tenant-routes.js";
+export { createWsTenantRoutes } from "./gateway/ws-tenant-routes.js";
+export type { WsTenantRoutesConfig } from "./gateway/ws-tenant-routes.js";
 export { createWhatsAppWebhookRoutes } from "./gateway/whatsapp-webhook-routes.js";
 export type { WhatsAppWebhookConfig } from "./gateway/whatsapp-webhook-routes.js";
 export { createTenantAdminRoutes } from "./gateway/tenant-admin-routes.js";

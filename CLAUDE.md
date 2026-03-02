@@ -4,7 +4,7 @@ MIT-licensed. YAML-configured AI orchestration with 7 primitives (Agent, Capabil
 
 ## Architecture
 
-Bun monorepo with 5 packages:
+Bun monorepo with 6 packages:
 
 | Package | Scope | Purpose |
 |---------|-------|---------|
@@ -12,6 +12,7 @@ Bun monorepo with 5 packages:
 | `packages/runtime` | `@kilnai/runtime` | Gateway server, channel adapters, triggers |
 | `packages/cli` | `@kilnai/cli` | CLI commands, init wizard, dev mode |
 | `packages/sdk` | `@kilnai/react` | React hooks (KilnProvider, useKilnChat, useKilnWsChat, useKilnEvents, useKilnMemory, useKilnState, useApproval) |
+| `packages/widget` | `@kilnai/widget` | Embeddable chat widget (Shadow DOM, auto-reconnect WS, zero deps) |
 | `packages/studio` | `@kilnai/studio` | Dev UI SPA (private, served at `/studio` in dev mode) |
 
 ### Bounded Contexts
@@ -42,6 +43,7 @@ Bun monorepo with 5 packages:
 | tenant | `runtime/src/tenant/` | TenantRegistry (JSON persistence), system prompt builder |
 | channels | `runtime/src/channels/` | 5 adapters (CLI, Web, WhatsApp, Slack, API), ChannelRouter, formatForChannel |
 | sdk | `sdk/src/` | React hooks (useKilnChat, useKilnWsChat, useKilnEvents, useKilnMemory, useKilnState, useApproval), ApiClient, SseClient. Types-only import from core. |
+| widget | `widget/src/` | Embeddable chat widget: WsClient (auto-reconnect), KilnWidget (Shadow DOM), auto-loader (script tag data-* attrs). Zero deps, IIFE bundle. |
 | studio | `studio/src/` | React 19 + Vite + TanStack Query + @xyflow/react. 7 views (Graph, Playground, Timeline, Memory, Eval, Cost, Safety). |
 
 ### Dependency Rules (STRICT)
@@ -80,7 +82,7 @@ type(scope): description
 
 Types: `feat`, `fix`, `refactor`, `chore`, `docs`, `test`
 
-Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree, events, cost, sandbox, verification, security, safety, observability, knowledge, eval, a2a, runtime, gateway, trigger, session, tenant, channel, cli, sdk, studio, docs
+Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree, events, cost, sandbox, verification, security, safety, observability, knowledge, eval, a2a, runtime, gateway, trigger, session, tenant, channel, cli, sdk, widget, studio, docs
 
 ## Key Entry Points
 

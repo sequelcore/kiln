@@ -1,0 +1,97 @@
+import type { WsInboundFrame, WsOutboundFrame, ConnectionStatus } from "./types.js";
+
+export class WsClient {
+  private ws: WebSocket | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private reconnectDelay = 1000;
+  private readonly maxReconnectDelay = 30000;
+  private intentionalClose = false;
+  private messageHandler: ((frame: WsInboundFrame) => void) | null = null;
+  private statusHandler: ((status: ConnectionStatus) => void) | null = null;
+  private readonly url: string;
+  private readonly userId: string;
+
+  constructor(gatewayUrl: string, appName: string, widgetId: string) {
+    const protocol = gatewayUrl.startsWith("https") ? "wss" : "ws";
+    const host = gatewayUrl.replace(/^https?:\/\//, "").replace(/^wss?:\/\//, "");
+
+    const storageKey = `kiln_widget_${widgetId}`;
+    this.userId = sessionStorage.getItem(storageKey) ?? crypto.randomUUID();
+    sessionStorage.setItem(storageKey, this.userId);
+
+    this.url = `${protocol}://${host}/apps/${appName}/ws?widgetId=${widgetId}&userId=${encodeURIComponent(this.userId)}`;
+  }
+
+  connect(): void {
+    this.intentionalClose = false;
+    this.setStatus("connecting");
+
+    const ws = new WebSocket(this.url);
+    this.ws = ws;
+
+    ws.onopen = () => {
+      this.reconnectDelay = 1000;
+      this.setStatus("connected");
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const frame = JSON.parse(event.data as string) as WsInboundFrame;
+        this.messageHandler?.(frame);
+      } catch {
+        // Discard malformed frames
+      }
+    };
+
+    ws.onerror = () => this.setStatus("error");
+
+    ws.onclose = () => {
+      this.ws = null;
+      if (!this.intentionalClose) {
+        this.setStatus("disconnected");
+        this.scheduleReconnect();
+      }
+    };
+  }
+
+  send(content: string): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    const frame: WsOutboundFrame = { type: "message", content };
+    this.ws.send(JSON.stringify(frame));
+  }
+
+  onMessage(handler: (frame: WsInboundFrame) => void): void {
+    this.messageHandler = handler;
+  }
+
+  onStatusChange(handler: (status: ConnectionStatus) => void): void {
+    this.statusHandler = handler;
+  }
+
+  disconnect(): void {
+    this.intentionalClose = true;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.ws?.close();
+    this.ws = null;
+    this.setStatus("disconnected");
+  }
+
+  get connected(): boolean {
+    return this.ws?.readyState === WebSocket.OPEN;
+  }
+
+  private setStatus(status: ConnectionStatus): void {
+    this.statusHandler?.(status);
+  }
+
+  private scheduleReconnect(): void {
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.connect();
+    }, this.reconnectDelay);
+    this.reconnectDelay = Math.min(this.reconnectDelay * 2, this.maxReconnectDelay);
+  }
+}

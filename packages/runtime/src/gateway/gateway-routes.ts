@@ -11,6 +11,7 @@ import type { ModeBAppRuntime } from "./mode-b-routes.js";
 import { createModeBRoutes } from "./mode-b-routes.js";
 import type { WsRoutesConfig } from "./ws-routes.js";
 import { createWsRoutes } from "./ws-routes.js";
+import { createWsTenantRoutes } from "./ws-tenant-routes.js";
 import type { DelegationRegistry } from "./delegation-handler.js";
 import { createDelegationRoutes } from "./delegation-routes.js";
 import type { TenantAppRuntime } from "./tenant-routes.js";
@@ -154,24 +155,36 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
       }
 
       // WebSocket route for web channel
-      // processMessage only wired for Mode B apps -- tenant apps require tenantId
-      // scoping, validation, and billing that the WS frame protocol doesn't carry yet.
       if (channel.type === "web" && loadedApp.webChannel && config.upgradeWebSocket) {
-        const runtime = loadedApp.modeBRuntime;
-        const wsApp = createWsRoutes({
-          webChannel: loadedApp.webChannel,
-          upgradeWebSocket: config.upgradeWebSocket,
-          validateToken: config.validateToken,
-          processMessage: runtime ? async (userId, parts) => {
-            const session = runtime.sessionRegistry.getOrCreate({
-              appName: loadedApp.name,
-              userId,
-              systemPrompt: runtime.systemPrompt,
-            });
-            return runtime.orchestrator.processMessage(session, parts);
-          } : undefined,
-        });
-        app.route(`/apps/${loadedApp.name}`, wsApp);
+        if (loadedApp.tenantRuntime) {
+          const tenantRuntime = loadedApp.tenantRuntime;
+          const wsTenantApp = createWsTenantRoutes({
+            webChannel: loadedApp.webChannel,
+            upgradeWebSocket: config.upgradeWebSocket,
+            appName: loadedApp.name,
+            orchestrator: tenantRuntime.orchestrator,
+            sessionRegistry: tenantRuntime.sessionRegistry,
+            tenantRegistry: tenantRuntime.tenantRegistry,
+            billing: tenantRuntime.billing,
+          });
+          app.route(`/apps/${loadedApp.name}`, wsTenantApp);
+        } else if (loadedApp.modeBRuntime) {
+          const runtime = loadedApp.modeBRuntime;
+          const wsApp = createWsRoutes({
+            webChannel: loadedApp.webChannel,
+            upgradeWebSocket: config.upgradeWebSocket,
+            validateToken: config.validateToken,
+            processMessage: async (userId, parts) => {
+              const session = runtime.sessionRegistry.getOrCreate({
+                appName: loadedApp.name,
+                userId,
+                systemPrompt: runtime.systemPrompt,
+              });
+              return runtime.orchestrator.processMessage(session, parts);
+            },
+          });
+          app.route(`/apps/${loadedApp.name}`, wsApp);
+        }
       }
     }
 
