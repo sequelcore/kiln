@@ -24,6 +24,7 @@ const MUTABLE_TENANT_FIELDS = [
   "whatsappPhoneNumberId",
   "whatsappAccessToken",
   "whatsappVerifyToken",
+  "widgetId",
   "billing",
   "idleTimeoutMs",
   "enabled",

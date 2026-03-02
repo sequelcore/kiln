@@ -228,6 +228,57 @@ describe("createTenantAdminRoutes", () => {
     });
   });
 
+  describe("widgetId field", () => {
+    it("POST /tenants with widgetId persists it", async () => {
+      const app = createTenantAdminRoutes(config);
+
+      const res = await app.request("/tenants", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(makeTenantBody({ tenantId: "widget-salon", name: "Widget Salon", widgetId: "wgt-abc123" })),
+      });
+
+      expect(res.status).toBe(201);
+      const body = (await res.json()) as TenantConfig;
+      expect(body.widgetId).toBe("wgt-abc123");
+    });
+
+    it("PATCH /tenants/:id with widgetId updates it", async () => {
+      const app = createTenantAdminRoutes(config);
+
+      await app.request("/tenants", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(makeTenantBody({ tenantId: "widget-patch", name: "Widget Patch" })),
+      });
+
+      const res = await app.request("/tenants/widget-patch", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ widgetId: "wgt-xyz789" }),
+      });
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as TenantConfig;
+      expect(body.widgetId).toBe("wgt-xyz789");
+    });
+
+    it("GET /tenants/:id returns widgetId after being set", async () => {
+      const app = createTenantAdminRoutes(config);
+
+      await app.request("/tenants", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(makeTenantBody({ tenantId: "widget-get", name: "Widget Get", widgetId: "wgt-get001" })),
+      });
+
+      const res = await app.request("/tenants/widget-get");
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as TenantConfig;
+      expect(body.widgetId).toBe("wgt-get001");
+    });
+  });
+
   describe("DELETE /tenants/:tenantId", () => {
     it("removes tenant", async () => {
       const app = createTenantAdminRoutes(config);
