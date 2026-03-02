@@ -40,10 +40,10 @@ Bun monorepo with 6 packages:
 | a2a | `runtime/src/a2a/` | A2AClient (outbound delegation only) |
 | trigger | `runtime/src/trigger/` | TriggerRegistry, webhook handler (HMAC-SHA256), event listener, cron scheduler |
 | session | `runtime/src/session/` | ModeBSession, ModeBOrchestrator (builtin tools, per-call tools, recalledMemory), SessionRegistry |
-| tenant | `runtime/src/tenant/` | TenantRegistry (JSON persistence), system prompt builder |
+| tenant | `runtime/src/tenant/` | TenantRegistry (JSON persistence), system prompt builder, suggestion parser |
 | channels | `runtime/src/channels/` | 5 adapters (CLI, Web, WhatsApp, Slack, API), ChannelRouter, formatForChannel |
 | sdk | `sdk/src/` | React hooks (useKilnChat, useKilnWsChat, useKilnEvents, useKilnMemory, useKilnState, useApproval), ApiClient, SseClient. Types-only import from core. |
-| widget | `widget/src/` | Embeddable chat widget: WsClient (auto-reconnect), KilnWidget (Shadow DOM), auto-loader (script tag data-* attrs). Zero deps, IIFE bundle. |
+| widget | `widget/src/` | Embeddable chat widget: WsClient (auto-reconnect), KilnWidget (Shadow DOM), auto-loader (script tag data-* attrs). Welcome frame, suggestion chips, info bubbles. Zero deps, IIFE bundle. |
 | studio | `studio/src/` | React 19 + Vite + TanStack Query + @xyflow/react. 7 views (Graph, Playground, Timeline, Memory, Eval, Cost, Safety). |
 
 ### Dependency Rules (STRICT)
@@ -126,7 +126,8 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `gateway/mode-b-routes.ts` | POST /message, GET/DELETE /sessions |
 | `gateway/delegation-handler.ts` | DelegationRegistry, executeDelegation() (Kiln-native + A2A) |
 | `gateway/budget-middleware.ts` | checkBudget(), reportUsage() -- fail-open |
-| `gateway/whatsapp-webhook-routes.ts` | WhatsApp webhook: tenant resolution, persistent memory (SQLite), builtin notify_owner tool |
+| `gateway/whatsapp-webhook-routes.ts` | WhatsApp webhook: tenant resolution, persistent memory (SQLite), builtin notify_owner tool, tenant-level billing override |
+| `gateway/ws-tenant-routes.ts` | Multi-tenant WebSocket: welcome frame (greeting + FAQ suggestions), AI follow-up suggestion chips, BUDGET_EXHAUSTED error code |
 | `gateway/memory-routes.ts` | Production memory routes: /api/memory (all modes) |
 | `gateway/dev-routes.ts` | Dev-mode: /dev/state, /dev/events (SSE), /dev/memory, /dev/cost, /dev/safety, /dev/token, /dev/run |
 | `gateway/dev-token-store.ts` | In-memory sliding-window TTL token store for dev-mode WebSocket auth |
