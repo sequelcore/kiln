@@ -27,7 +27,7 @@ bunx kiln dev
 - **3 team modes** -- sequential, supervisor (manager delegates by name), swarm (agents hand off to each other)
 - **Phase-gated workflows** -- configurable phases, quality gates (test, lint, typecheck), checkpoint/resume, human-in-the-loop
 - **5 memory scopes** -- user, agent, team, project, org; SQLite + FTS5 with decay curves and auto-compaction
-- **6 channel adapters** -- CLI, Web (WebSocket), WhatsApp, Slack, REST/SSE, Voice (STT/TTS)
+- **5 channel adapters** -- CLI, Web (WebSocket), WhatsApp, Slack, REST/SSE
 - **Multi-tenant gateway** -- multiple apps in one Bun/Hono process, each isolated by memory, sessions, and routes
 - **Triggers** -- webhooks (HMAC-SHA256), event listeners, cron scheduler with `{{payload.field}}` interpolation
 - **Enterprise safety** -- PII detection (6 types), content classification (6 categories), 4 policy rails
@@ -44,6 +44,8 @@ bunx kiln dev
 |---------|-------------|
 | [`@kilnai/core`](packages/core) | Engine primitives, composites, YAML loader, provider adapters, memory, orchestrator, domain kits, security, safety, eval |
 | [`@kilnai/runtime`](packages/runtime) | Multi-app gateway server, channel adapters, trigger runtime, budget middleware, cross-app delegation, A2A protocol |
+| [`@kilnai/react`](packages/sdk) | React hooks SDK (KilnProvider, useKilnChat, useKilnWsChat, useKilnEvents, useKilnMemory, useKilnState) |
+| [`@kilnai/widget`](packages/widget) | Embeddable chat widget -- Shadow DOM, auto-reconnect WebSocket, zero runtime deps, single IIFE bundle |
 | [`@kilnai/cli`](packages/cli) | CLI commands (init, dev, run, gateway, skill, domain), interactive wizard, YAML hot-reload |
 
 ## Documentation
