@@ -88,10 +88,11 @@ export function createModeBRoutes(runtime: ModeBAppRuntime): Hono {
 
     // Report token usage to billing (fire-and-forget)
     if (runtime.billing) {
-      reportUsage(runtime.billing, body.userId, {
+      reportUsage(runtime.billing, {
+        tenantId: body.userId,
+        messages: 1,
         tokens: result.inputTokens + result.outputTokens,
         model: runtime.orchestrator.model ?? "unknown",
-        role: "assistant",
       });
     }
 
