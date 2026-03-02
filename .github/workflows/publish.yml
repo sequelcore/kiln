@@ -39,6 +39,9 @@ jobs:
       - name: Build cli
         run: bun run --filter @kilnai/cli build
 
+      - name: Build widget
+        run: bun run --filter @kilnai/widget build
+
       - name: Configure npm auth
         run: |
           echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > .npmrc
@@ -46,6 +49,7 @@ jobs:
           cp .npmrc packages/runtime/.npmrc
           cp .npmrc packages/sdk/.npmrc
           cp .npmrc packages/cli/.npmrc
+          cp .npmrc packages/widget/.npmrc
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -73,4 +77,8 @@ jobs:
 
       - name: Publish @kilnai/cli
         working-directory: packages/cli
+        run: bun publish --access public --no-git-checks
+
+      - name: Publish @kilnai/widget
+        working-directory: packages/widget
         run: bun publish --access public --no-git-checks
