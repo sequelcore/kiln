@@ -90,7 +90,7 @@ export async function checkBudget(
       const url = billing.budgetEndpoint.replace("{userId}", tenantId);
       const res = await fetch(url, { headers: buildHeaders(billing) });
       if (!res.ok) {
-        // Fail-open: billing failures should not block users
+        console.warn(`[billing] checkBudget failed: ${res.status} ${res.statusText} (tenant=${tenantId})`);
         return { allowed: true, remaining: -1, unit: "unknown" };
       }
       const data = (await res.json()) as BudgetResponse;
@@ -120,13 +120,16 @@ export async function reportUsage(
 ): Promise<void> {
   const url = billing.usageEndpoint;
   try {
-    await fetch(url, {
+    const res = await fetch(url, {
       method: "POST",
       headers: buildHeaders(billing, "application/json"),
       body: JSON.stringify(usage),
     });
-  } catch {
-    // Fire-and-forget: errors logged but not thrown
+    if (!res.ok) {
+      console.warn(`[billing] reportUsage failed: ${res.status} ${res.statusText} (tenant=${usage.tenantId})`);
+    }
+  } catch (err) {
+    console.warn(`[billing] reportUsage error (tenant=${usage.tenantId}):`, err);
   }
 }
 
