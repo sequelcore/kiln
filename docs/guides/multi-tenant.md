@@ -87,3 +87,23 @@ The Gateway exposes CRUD routes for managing tenants at runtime. These are mount
 | `DELETE` | `/admin/tenants/:id` | Remove a tenant. |
 
 Sensitive tenant fields (API keys, webhook secrets) are automatically encrypted by `AesSecretStore` before persistence. See [architecture](../architecture.md#security-architecture) for encryption details.
+
+### Mutable Tenant Config Fields
+
+These fields can be updated via `PATCH /admin/{appName}/tenants/:tenantId`:
+
+| Field | Type | Purpose |
+|-------|------|---------|
+| `name` | string | Agent display name (used in system prompt as agent identity) |
+| `businessName` | string | Business name (used in system prompt as business identity) |
+| `greeting` | string | Welcome message sent to web widget users on connect |
+| `widgetId` | string | UUID for multi-tenant web widget routing |
+| `persona` | string | Agent persona description (system prompt base) |
+| `tone` | string | Communication tone (formal/friendly/casual) |
+| `language` | string | Default language (BCP-47); agent auto-detects customer language |
+| `services` | array | Business services injected into system prompt |
+| `hours` | object | Business hours injected into system prompt |
+| `faqEntries` | array | FAQ pairs injected into system prompt |
+| `escalationContact` | object | Contact for human handoff |
+
+Session invalidation: when a tenant config is updated via PATCH, `SessionRegistry.invalidateByTenant()` clears all active sessions for that tenant so the next message picks up fresh config.
