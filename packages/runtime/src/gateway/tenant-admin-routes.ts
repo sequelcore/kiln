@@ -14,6 +14,7 @@ import type { SessionRegistry } from "../session/session-registry.js";
  */
 const MUTABLE_TENANT_FIELDS = [
   "name",
+  "businessName",
   "description",
   "services",
   "hours",

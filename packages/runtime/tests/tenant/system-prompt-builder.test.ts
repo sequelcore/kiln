@@ -5,7 +5,7 @@ import { buildTenantSystemPrompt } from "../../src/tenant/system-prompt-builder.
 function makeMinimalTenant(overrides: Partial<TenantConfig> = {}): TenantConfig {
   return {
     tenantId: "test-biz",
-    appName: "atendia",
+    appName: "kilvo",
     name: "Test Business",
     enabled: true,
     createdAt: "2026-01-01T00:00:00Z",
@@ -15,9 +15,15 @@ function makeMinimalTenant(overrides: Partial<TenantConfig> = {}): TenantConfig 
 }
 
 describe("buildTenantSystemPrompt", () => {
-  it("includes business name in opening line", () => {
+  it("uses name as both agent and business when businessName is absent", () => {
     const prompt = buildTenantSystemPrompt(makeMinimalTenant());
-    expect(prompt).toContain('virtual assistant for "Test Business"');
+    expect(prompt).toContain('"Test Business", the virtual assistant for "Test Business"');
+  });
+
+  it("uses businessName for the business and name for the agent identity", () => {
+    const prompt = buildTenantSystemPrompt(makeMinimalTenant({ businessName: "Acme Corp" }));
+    expect(prompt).toContain('"Test Business", the virtual assistant for "Acme Corp"');
+    expect(prompt).not.toContain('for "Test Business"');
   });
 
   it("includes description when present", () => {

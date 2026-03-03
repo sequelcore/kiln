@@ -4,7 +4,8 @@ export function buildTenantSystemPrompt(tenant: TenantConfig, channel?: "web" | 
   const parts: string[] = [];
 
   // Opening line
-  parts.push(`You are the virtual assistant for "${tenant.name}".`);
+  const business = tenant.businessName ?? tenant.name;
+  parts.push(`You are "${tenant.name}", the virtual assistant for "${business}".`);
 
   // Description
   if (tenant.description) {

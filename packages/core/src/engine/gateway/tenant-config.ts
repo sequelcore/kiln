@@ -42,6 +42,7 @@ export interface TenantConfig {
   readonly tenantId: string;
   readonly appName: string;
   readonly name: string;
+  readonly businessName?: string;
   readonly description?: string;
   readonly services?: readonly TenantService[];
   readonly hours?: TenantHours;
