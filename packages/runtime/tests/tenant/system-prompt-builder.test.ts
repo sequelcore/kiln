@@ -102,12 +102,18 @@ describe("buildTenantSystemPrompt", () => {
 
   it("defaults to es-MX language", () => {
     const prompt = buildTenantSystemPrompt(makeMinimalTenant());
-    expect(prompt).toContain("es-MX");
+    expect(prompt).toContain("default to es-MX");
   });
 
   it("uses custom language when provided", () => {
     const prompt = buildTenantSystemPrompt(makeMinimalTenant({ language: "es-AR" }));
-    expect(prompt).toContain("es-AR");
+    expect(prompt).toContain("default to es-AR");
+  });
+
+  it("includes auto-detect language instruction", () => {
+    const prompt = buildTenantSystemPrompt(makeMinimalTenant());
+    expect(prompt).toContain("Detect the customer's language");
+    expect(prompt).not.toContain("Always respond in");
   });
 
   it("includes instruction to not fabricate information", () => {

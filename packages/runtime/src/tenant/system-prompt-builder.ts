@@ -74,7 +74,7 @@ export function buildTenantSystemPrompt(tenant: TenantConfig, channel?: "web" | 
 
   // Closing instructions: language directive and guardrails
   parts.push("");
-  parts.push(`Always respond in ${lang}.`);
+  parts.push(`Detect the customer's language from their messages and respond in the same language. If you cannot determine their language, default to ${lang}.`);
   parts.push("Be concise. Do not fabricate information you do not know. Only respond about this business.");
 
   if (channel !== "whatsapp") {
