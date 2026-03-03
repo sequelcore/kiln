@@ -179,6 +179,7 @@ describe("AnthropicAdapter", () => {
             type: "object",
             properties: { query: { type: "string" } },
           },
+          cache_control: { type: "ephemeral" },
         },
       ]);
     });

@@ -147,6 +147,14 @@ export class AnthropicAdapter implements ProviderAdapter {
       }));
     }
 
+    if (options.toolChoice && params.tools) {
+      if (options.toolChoice.type === "tool") {
+        params.tool_choice = { type: "tool", name: options.toolChoice.name };
+      } else {
+        params.tool_choice = { type: options.toolChoice.type };
+      }
+    }
+
     if (options.outputSchema) {
       assertAdditionalPropertiesFalse(options.outputSchema);
       params.output_config = {
@@ -155,6 +163,29 @@ export class AnthropicAdapter implements ProviderAdapter {
           schema: options.outputSchema,
         },
       };
+    }
+
+    // Tool caching: mark last tool for prompt cache reuse across turns
+    if (params.tools && params.tools.length > 0) {
+      const lastTool = params.tools[params.tools.length - 1];
+      (lastTool as unknown as { cache_control: { type: string } }).cache_control = { type: "ephemeral" };
+    }
+
+    // Conversation prefix caching: mark penultimate user message for reuse
+    if (messages.length >= 3) {
+      for (let i = messages.length - 2; i >= 0; i--) {
+        const msg = messages[i];
+        if (msg && msg.role === "user") {
+          const content = msg.content;
+          if (Array.isArray(content) && content.length > 0) {
+            const lastBlock = content[content.length - 1];
+            if (lastBlock) {
+              (lastBlock as unknown as { cache_control: { type: string } }).cache_control = { type: "ephemeral" };
+            }
+          }
+          break;
+        }
+      }
     }
 
     return params;
@@ -243,6 +274,7 @@ export class AnthropicAdapter implements ProviderAdapter {
       cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
       cacheWriteTokens: response.usage.cache_creation_input_tokens ?? 0,
       toolCalls,
+      stopReason: response.stop_reason ?? "end_turn",
     };
   }
 

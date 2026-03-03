@@ -228,8 +228,11 @@ export class TaskTree {
     return proposed.map(toReadonly);
   }
 
-  /** Scoring: priority * depthDiscount^depth * (1 + evidenceBonus) */
+  /** Scoring: custom function or default (priority * depthDiscount^depth * (1 + evidenceBonus)) */
   computeBranchScore(node: Pick<MutableTaskNode, "priority" | "depth" | "evidence">): number {
+    if (this.config.scoringFn) {
+      return this.config.scoringFn(node, (id) => this.getNode(id));
+    }
     const evidenceBonus = Math.min(node.evidence.length * 0.1, 0.5);
     return (
       node.priority *

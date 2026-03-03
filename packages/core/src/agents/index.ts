@@ -26,11 +26,19 @@ export interface ProviderAdapter {
   streamMessage(options: CreateMessageOptions): AsyncGenerator<AgentStreamEvent>;
 }
 
+/** Tool choice strategy for agent calls */
+export type ToolChoiceOption =
+  | { readonly type: "auto" }
+  | { readonly type: "any" }
+  | { readonly type: "none" }
+  | { readonly type: "tool"; readonly name: string };
+
 /** Options for creating a message */
 export interface CreateMessageOptions {
   readonly system: string;
   readonly messages: readonly AgentMessage[];
   readonly tools?: readonly ToolDefinition[];
+  readonly toolChoice?: ToolChoiceOption;
   readonly outputSchema?: Record<string, unknown>;
   readonly maxTokens?: number;
 }
@@ -43,6 +51,7 @@ export interface AgentResponse {
   readonly cacheReadTokens: number;
   readonly cacheWriteTokens: number;
   readonly toolCalls: readonly ToolCall[];
+  readonly stopReason: string;
 }
 
 /** Tool definition for agent */

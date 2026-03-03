@@ -35,6 +35,7 @@ import type {
     PiiDetectedEvent,
     ContentClassifiedEvent,
     PolicyEvaluatedEvent,
+    DomainEventData,
 } from "../events/index.js";
 
 // ---------------------------------------------------------------------------
@@ -370,6 +371,16 @@ function mapPolicyEvaluated(e: PolicyEvaluatedEvent): SpanOperation {
     };
 }
 
+function mapDomainEvent(e: DomainEventData): SpanOperation {
+    return {
+        action: "addEvent",
+        name: `domain.${e.name}`,
+        attributes: {
+            name: e.name,
+        },
+    };
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -444,6 +455,8 @@ export function mapEventToSpan(event: KilnEvent): SpanOperation {
             return mapContentClassified(event as ContentClassifiedEvent);
         case "policy_evaluated":
             return mapPolicyEvaluated(event as PolicyEvaluatedEvent);
+        case "domain_event":
+            return mapDomainEvent(event as DomainEventData);
         default: {
             // Exhaustiveness guard: TypeScript will produce a compile error here if a new
             // EventType is added without a corresponding case above, because event.type

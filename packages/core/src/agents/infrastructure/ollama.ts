@@ -89,6 +89,7 @@ export class OllamaAdapter implements ProviderAdapter {
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
       toolCalls,
+      stopReason: data.done ? "stop" : "length",
     };
   }
 

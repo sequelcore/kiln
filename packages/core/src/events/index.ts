@@ -40,6 +40,8 @@ export const EVENT_LEVEL_MAP: Record<EventType, StreamLevel> = {
   pii_detected: "phase",
   content_classified: "phase",
   policy_evaluated: "phase",
+  // Domain apps
+  domain_event: "tool",
 };
 
 /** Level hierarchy: subscribing to "phase" includes "state" + "phase" */
@@ -86,7 +88,9 @@ export type EventType =
   // Safety (Phase 12)
   | "pii_detected"
   | "content_classified"
-  | "policy_evaluated";
+  | "policy_evaluated"
+  // Domain apps
+  | "domain_event";
 
 /** Base event interface */
 export interface KilnEvent {
@@ -359,6 +363,13 @@ export interface PolicyEvaluatedEvent extends KilnEvent {
   readonly direction: "input" | "output";
 }
 
+/** Custom domain event for app-specific event types */
+export interface DomainEventData extends KilnEvent {
+  readonly type: "domain_event";
+  readonly name: string;
+  readonly payload: Record<string, unknown>;
+}
+
 /** Maps each event type to its corresponding event interface */
 export interface EventMap {
   phase_changed: PhaseChangedEvent;
@@ -396,6 +407,8 @@ export interface EventMap {
   pii_detected: PiiDetectedEvent;
   content_classified: ContentClassifiedEvent;
   policy_evaluated: PolicyEvaluatedEvent;
+  // Domain apps
+  domain_event: DomainEventData;
 }
 
 export { EventBus } from "./event-bus.js";

@@ -23,11 +23,18 @@ export interface TaskNode {
   readonly evidence: readonly string[];
 }
 
+/** Scoring function signature for custom tree scoring */
+export type ScoringFn = (
+  node: { readonly priority: number; readonly depth: number; readonly evidence: readonly string[] },
+  getNode: (id: string) => TaskNode | undefined,
+) => number;
+
 /** Tree manager configuration */
 export interface TreeConfig {
   readonly maxDepth: number;
   readonly batchSize: number;
   readonly depthDiscount: number;
+  readonly scoringFn?: ScoringFn;
 }
 
 export { TaskTree } from "./task-tree.js";

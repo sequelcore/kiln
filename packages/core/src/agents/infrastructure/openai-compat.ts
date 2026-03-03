@@ -44,6 +44,7 @@ interface OpenAIRequestBody {
   messages: { role: string; content: OpenAIContent }[];
   max_tokens: number;
   tools?: OpenAIToolFunction[];
+  tool_choice?: string | { type: string; function?: { name: string } };
   stream?: boolean;
 }
 
@@ -61,6 +62,7 @@ interface OpenAIChoice {
     readonly content: string | null;
     readonly tool_calls?: readonly OpenAIToolCallResponse[];
   };
+  readonly finish_reason?: string;
 }
 
 interface OpenAIUsage {
@@ -276,6 +278,23 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
           parameters: tool.inputSchema,
         },
       }));
+
+      if (options.toolChoice) {
+        switch (options.toolChoice.type) {
+          case "auto":
+            body.tool_choice = "auto";
+            break;
+          case "any":
+            body.tool_choice = "required";
+            break;
+          case "none":
+            body.tool_choice = "none";
+            break;
+          case "tool":
+            body.tool_choice = { type: "function", function: { name: options.toolChoice.name } };
+            break;
+        }
+      }
     }
 
     return body;
@@ -319,6 +338,7 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
       toolCalls,
+      stopReason: choice?.finish_reason ?? "stop",
     };
   }
 
