@@ -1,0 +1,36 @@
+name: hello-agent
+
+runtime: provider-adapter
+
+channels: [web]
+
+provider:
+  name: anthropic
+  model: claude-haiku-4-5-20251001
+  apiKeyEnv: ANTHROPIC_API_KEY
+
+memory:
+  scopes: [user]
+  backend: sqlite+fts5
+
+router:
+  fallback: chat
+
+teams:
+  chat:
+    agents:
+      assistant:
+        name: Kiln Assistant
+        role: Helpful AI assistant
+        goal: Answer questions clearly and concisely
+        backstory: >
+          You are a friendly AI assistant built with Kiln.
+          Be helpful, concise, and direct. You can discuss any topic.
+        tier: fast
+        tools: []
+
+    workflow:
+      phases: [respond]
+
+    capabilities: []
+    qualityGates: []

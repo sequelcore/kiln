@@ -1,0 +1,16 @@
+{
+  "name": "kiln-booking-assistant-example",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun run server.ts",
+    "dev": "bun run --watch server.ts",
+    "tools": "bun run tools-server.ts",
+    "billing": "bun run mock-billing-server.ts"
+  },
+  "dependencies": {
+    "@kilnai/core": "workspace:*",
+    "@kilnai/runtime": "workspace:*"
+  }
+}

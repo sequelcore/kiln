@@ -1,0 +1,12 @@
+services:
+  gateway:
+    build: .
+    ports:
+      - "3000:3000"
+    env_file: .env
+    volumes:
+      - kiln-data:/root/.kiln/gateway
+    restart: unless-stopped
+
+volumes:
+  kiln-data:

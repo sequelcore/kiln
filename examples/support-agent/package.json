@@ -1,0 +1,15 @@
+{
+  "name": "kiln-support-agent-example",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun run server.ts",
+    "dev": "bun run --watch server.ts",
+    "tools": "bun run tools-server.ts"
+  },
+  "dependencies": {
+    "@kilnai/core": "workspace:*",
+    "@kilnai/runtime": "workspace:*"
+  }
+}

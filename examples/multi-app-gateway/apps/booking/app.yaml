@@ -1,0 +1,37 @@
+name: booking
+
+runtime: provider-adapter
+
+channels: [web, api]
+
+provider:
+  name: anthropic
+  model: claude-haiku-4-5-20251001
+  apiKeyEnv: ANTHROPIC_API_KEY
+
+memory:
+  scopes: [user]
+  backend: sqlite+fts5
+
+router:
+  fallback: booking
+
+teams:
+  booking:
+    agents:
+      assistant:
+        name: Booking Assistant
+        role: Appointment scheduling specialist
+        goal: Help customers with appointment inquiries and scheduling
+        backstory: >
+          You are a scheduling assistant. Help customers find available times
+          and answer questions about services. Be conversational and friendly.
+          Guide customers through the booking process step by step.
+        tier: fast
+        tools: []
+
+    workflow:
+      phases: [respond]
+
+    capabilities: []
+    qualityGates: []

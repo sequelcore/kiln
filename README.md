@@ -38,6 +38,16 @@ bunx kiln dev
 - **Studio** -- graph view, playground, timeline, memory inspector, eval dashboard at `/studio` in dev mode
 - **55 error codes** with context-aware suggestions and doc links
 
+## Examples
+
+| Example | Description | Features |
+|---------|-------------|----------|
+| [hello-agent](examples/hello-agent) | Your first AI agent in 60 seconds | YAML config, web channel, conversation memory |
+| [support-agent](examples/support-agent) | E-commerce support with tools and safety | MCP tools, PII redaction, topic rails |
+| [booking-assistant](examples/booking-assistant) | Appointment booking for a hair salon | Multi-tenant, billing, webhook triggers, chat widget |
+| [multi-app-gateway](examples/multi-app-gateway) | Production gateway hosting multiple apps | Multi-app, Docker, tenant provisioning |
+| [whatsapp-bot](examples/whatsapp-bot) | WhatsApp multi-tenant business bot | WhatsApp Cloud API, builtin tools, persistent memory |
+
 ## Packages
 
 | Package | Description |
