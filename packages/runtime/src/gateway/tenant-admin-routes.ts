@@ -6,6 +6,7 @@ import type { TenantConfig } from "@kilnai/core";
 import type { TenantRegistry } from "../tenant/tenant-registry.js";
 import { TenantNotFoundError, TenantValidationFailedError } from "../tenant/tenant-registry.js";
 import type { SessionRegistry } from "../session/session-registry.js";
+import { requireBearer } from "./auth-middleware.js";
 
 /**
  * Mutable fields allowed in tenant create/update requests.
@@ -26,6 +27,7 @@ const MUTABLE_TENANT_FIELDS = [
   "whatsappAccessToken",
   "whatsappVerifyToken",
   "widgetId",
+  "allowedOrigins",
   "greeting",
   "billing",
   "idleTimeoutMs",
@@ -68,15 +70,8 @@ export function generateTenantId(name: string): string {
 export function createTenantAdminRoutes(config: TenantAdminRoutesConfig): Hono {
   const app = new Hono();
 
-  // Auth middleware: if adminToken is configured, require Bearer token
   if (config.adminToken) {
-    app.use("*", async (c, next) => {
-      const auth = c.req.header("Authorization");
-      if (!auth || auth !== `Bearer ${config.adminToken}`) {
-        return c.json({ error: "Unauthorized" }, 401);
-      }
-      await next();
-    });
+    app.use("*", requireBearer(config.adminToken));
   }
 
   // GET /tenants -- list tenants for this App

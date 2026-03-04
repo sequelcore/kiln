@@ -10,6 +10,7 @@ import type { TenantRegistry } from "../tenant/tenant-registry.js";
 import { buildTenantSystemPrompt } from "../tenant/system-prompt-builder.js";
 import { checkBudget, reportUsage } from "./budget-middleware.js";
 import type { BillingConfig } from "./budget-middleware.js";
+import { requireApiKey } from "./auth-middleware.js";
 
 /** Runtime configuration for a multi-tenant App */
 export interface TenantAppRuntime {
@@ -18,6 +19,7 @@ export interface TenantAppRuntime {
   readonly sessionRegistry: SessionRegistry;
   readonly tenantRegistry: TenantRegistry;
   readonly billing?: BillingConfig;
+  readonly apiKey?: string;
 }
 
 /** Request body for POST /message */
@@ -31,6 +33,10 @@ interface TenantMessageRequest {
 
 export function createTenantRoutes(runtime: TenantAppRuntime): Hono {
   const app = new Hono();
+
+  if (runtime.apiKey) {
+    app.use("*", requireApiKey(runtime.apiKey));
+  }
 
   app.post("/message", async (c) => {
     let body: TenantMessageRequest;

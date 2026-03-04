@@ -169,6 +169,7 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
             tenantRegistry: tenantRuntime.tenantRegistry,
             billing: tenantRuntime.billing,
             eventEmitter: loadedApp.eventEmitter,
+            allowedOrigins: channel.allowedOrigins,
           });
           app.route(`/apps/${loadedApp.name}`, wsTenantApp);
         } else if (loadedApp.modeBRuntime) {
@@ -177,6 +178,7 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
             webChannel: loadedApp.webChannel,
             upgradeWebSocket: config.upgradeWebSocket,
             validateToken: config.validateToken,
+            apiKey: runtime.apiKey,
             processMessage: async (userId, parts) => {
               const session = runtime.sessionRegistry.getOrCreate({
                 appName: loadedApp.name,

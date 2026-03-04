@@ -11,10 +11,10 @@ Sources: `packages/runtime/src/channels/`, `packages/core/src/engine/domain/chan
 | Adapter | Class | Format | Transport | Auth | Modalities |
 |---------|-------|--------|-----------|------|------------|
 | CLI | `CliChannel` | full | stdin / stdout | None | text |
-| Web | `WebChannel` | full | WebSocket (Hono) | Session-level (delegated) | text, image, audio, file |
-| WhatsApp | `WhatsAppChannel` | short | HTTPS (Business API v21.0) | Bearer token + verify token | text, image, audio, file |
-| Slack | `SlackChannel` | full | HTTPS (Bot Events + Web API) | Bearer token + HMAC-SHA256 | text, image, file |
-| API | `ApiChannel` | structured | HTTP REST + SSE | Optional API key | text, image, audio, file |
+| Web | `WebChannel` | full | WebSocket (Hono) | Origin validation (`allowedOrigins`) | text, image, audio, file |
+| WhatsApp | `WhatsAppChannel` | short | HTTPS (Business API v21.0) | HMAC-SHA256 (`appSecretEnv`) + verify token | text, image, audio, file |
+| Slack | `SlackChannel` | full | HTTPS (Bot Events + Web API) | HMAC-SHA256 (signing secret) | text, image, file |
+| API | `ApiChannel` | structured | HTTP REST + SSE | API key (`apiKeyEnv`) | text, image, audio, file |
 
 ---
 
@@ -84,14 +84,24 @@ When an App declares a `web` channel binding, the Gateway mounts a WebSocket upg
 
 The WebSocket lifecycle is managed by `ws-routes.ts` using Hono's `upgradeWebSocket` helper with `createBunWebSocket()`.
 
-**Authentication:** Optionally, a `validateToken` callback can be configured in `GatewayServerConfig`. When set, clients must include a `?token=` query param on the WebSocket URL. Invalid or missing tokens receive a `401` response before upgrade. If the validator returns a `userId`, it is used as the session key.
+**Authentication:** Two auth modes for WebSocket:
+
+- **Dev mode:** A `validateToken` callback validates `?token=` query params (via `DevTokenStore` sliding-window TTL).
+- **Production mode:** `apiKeyEnv` on the channel binding validates `?apiKey=` query params. Dev mode takes priority when both are configured.
+
+Invalid or missing credentials receive a `401` response before upgrade. If the dev token validator returns a `userId`, it is used as the session key.
 
 **Multi-tenant mode.** For SaaS products with `multiTenant: true`, the Gateway mounts `ws-tenant-routes.ts` instead. Clients connect with `?widgetId=UUID`, which resolves to a tenant via `TenantRegistry.resolveByWidgetId()`. The tenant's system prompt, billing, and idle timeout are applied per-session.
+
+**Origin validation** is enforced on multi-tenant WebSocket connections. After tenant resolution, the `Origin` header is checked against `TenantConfig.allowedOrigins` (with fallback to the channel-level `allowedOrigins`). Localhost and 127.0.0.1 are always allowed. Connections from disallowed origins receive a `403` before upgrade.
 
 ```yaml
 channels:
   - type: web
     multiTenant: true
+    adminTokenEnv: MY_ADMIN_TOKEN
+    allowedOrigins:
+      - https://myapp.com
 ```
 
 **Embeddable Widget.** The `@kilnai/widget` package provides a ready-made chat UI for embedding on any website. It connects to the gateway WebSocket, manages reconnection, and renders inside a Shadow DOM for style isolation.
@@ -168,12 +178,15 @@ await whatsapp.receive({
 
 **Outgoing messages.** `send()` posts to the Cloud API. `response.target` must be the recipient's E.164 phone number. Content is formatted as `short` before delivery.
 
+**Webhook signature verification.** Configure `appSecretEnv` on the channel binding to verify `X-Hub-Signature-256` HMAC-SHA256 signatures on incoming POST requests from Meta. The gateway applies `requireWebhookSignature` middleware automatically. Requests with missing or invalid signatures receive `401`. If `appSecretEnv` is not configured, a warning is logged at startup and signatures are not verified.
+
 **Gateway YAML:**
 
 ```yaml
 channels:
   - type: whatsapp
     phoneNumber: "+521234567890"
+    appSecretEnv: META_APP_SECRET
 ```
 
 The `phoneNumber` in `gateway.yaml` must be unique across all Apps.
@@ -241,17 +254,10 @@ Provides a REST + Server-Sent Events interface for programmatic consumers.
 ```typescript
 import { ApiChannel } from "@kilnai/runtime";
 
-const api = new ApiChannel({ apiKey: process.env.API_KEY }); // omit apiKey to disable auth
+const api = new ApiChannel();
 ```
 
-**API key validation:**
-
-```typescript
-const key = c.req.header("x-api-key") ?? "";
-if (!api.validateApiKey(key)) return c.json({ error: "Unauthorized" }, 401);
-```
-
-If no `apiKey` was configured, `validateApiKey()` always returns `true`.
+**API key authentication** is configured at the gateway level via `apiKeyEnv` on the channel binding in `gateway.yaml`. The gateway applies `requireApiKey` middleware automatically when configured.
 
 **Incoming messages:**
 
@@ -291,9 +297,10 @@ api.removeSseClient(writer); // on SSE connection close
 channels:
   - type: api
     path: /api/my-app
+    apiKeyEnv: MY_APP_API_KEY
 ```
 
-The `path` must be unique across all Apps in `gateway.yaml`.
+The `path` must be unique across all Apps in `gateway.yaml`. When `apiKeyEnv` is configured, the gateway applies `requireApiKey` middleware on all routes under that path. Clients must include `X-Api-Key: <key>` in request headers. If `apiKeyEnv` is not configured, a warning is logged at startup and endpoints are unauthenticated.
 
 ---
 

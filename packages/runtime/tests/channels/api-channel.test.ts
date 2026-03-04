@@ -164,24 +164,6 @@ describe("ApiChannel", () => {
     });
   });
 
-  describe("validateApiKey()", () => {
-    it("returns true when no apiKey is configured", () => {
-      expect(channel.validateApiKey("anything")).toBe(true);
-      expect(channel.validateApiKey("")).toBe(true);
-    });
-
-    it("returns true when key matches configured apiKey", () => {
-      const secured = new ApiChannel({ apiKey: "secret-key" });
-      expect(secured.validateApiKey("secret-key")).toBe(true);
-    });
-
-    it("returns false when key does not match configured apiKey", () => {
-      const secured = new ApiChannel({ apiKey: "secret-key" });
-      expect(secured.validateApiKey("wrong-key")).toBe(false);
-      expect(secured.validateApiKey("")).toBe(false);
-    });
-  });
-
   describe("Queue bounds (max 100)", () => {
     it("discards oldest entry when queue exceeds max size", async () => {
       // Fill queue with 100 items

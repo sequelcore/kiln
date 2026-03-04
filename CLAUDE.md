@@ -36,7 +36,7 @@ Bun monorepo with 6 packages:
 | skill | `core/src/skill/` | SKILL.yaml format, SkillRegistry (3-tier discovery) |
 | eval | `core/src/eval/` | 12 scorers (6 rule + 6 LLM-as-judge), dataset loader, experiment runner, comparator |
 | observability | `core/src/observability/` | OTel span mapper + exporter (EventStore sink) |
-| gateway | `runtime/src/gateway/` | Multi-app loading, Mode B routes, budget middleware, delegation, dev routes, safety/security middleware |
+| gateway | `runtime/src/gateway/` | Multi-app loading, Mode B routes, budget middleware, composable auth middleware, delegation, dev routes, safety/security middleware |
 | a2a | `runtime/src/a2a/` | A2AClient (outbound delegation only) |
 | trigger | `runtime/src/trigger/` | TriggerRegistry, webhook handler (HMAC-SHA256), event listener, cron scheduler |
 | session | `runtime/src/session/` | ModeBSession, ModeBOrchestrator (builtin tools, per-call tools, recalledMemory), SessionRegistry. Future: handoff state (AI/human/paused), operator message injection |
@@ -123,6 +123,7 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 |------|---------|
 | `gateway/gateway-server.ts` | startGateway() + startDevServer(): Bun.serve, multi-app, Mode B, triggers, dev mode, lightweight Mode A dashboard |
 | `gateway/gateway-routes.ts` | Hono app factory: health + per-App routes + A2A + webhooks |
+| `gateway/auth-middleware.ts` | Composable auth: requireApiKey, requireBearer, requireWebhookSignature, isOriginAllowed |
 | `gateway/mode-b-routes.ts` | POST /message, GET/DELETE /sessions |
 | `gateway/delegation-handler.ts` | DelegationRegistry, executeDelegation() (Kiln-native + A2A) |
 | `gateway/budget-middleware.ts` | checkBudget(), reportUsage() -- fail-open |

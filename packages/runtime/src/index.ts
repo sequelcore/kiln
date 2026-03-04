@@ -75,5 +75,8 @@ export { ApiChannel } from "./channels/api-channel.js";
 export type { SseWriter } from "./channels/api-channel.js";
 export { sendWhatsAppMessage, whatsappMessagesUrl, WHATSAPP_GRAPH_API_VERSION } from "./channels/whatsapp-api.js";
 
+// Auth
+export { requireApiKey, requireBearer, requireWebhookSignature, isOriginAllowed } from "./gateway/auth-middleware.js";
+
 // Utils
 export { verifyHmacSha256 } from "./utils/hmac.js";

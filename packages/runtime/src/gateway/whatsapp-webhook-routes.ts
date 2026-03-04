@@ -16,6 +16,7 @@ import { sendWhatsAppMessage, whatsappMediaUrl } from "../channels/whatsapp-api.
 import { checkBudget, reportUsage } from "./budget-middleware.js";
 import type { BillingConfig } from "./budget-middleware.js";
 import type { ConversationEventEmitter } from "./conversation-event-emitter.js";
+import { requireWebhookSignature } from "./auth-middleware.js";
 
 export interface WhatsAppWebhookConfig {
   readonly appName: string;
@@ -23,6 +24,7 @@ export interface WhatsAppWebhookConfig {
   readonly sessionRegistry: SessionRegistry;
   readonly tenantRegistry: TenantRegistry;
   readonly verifyToken: string;
+  readonly appSecret?: string;
   readonly billing?: BillingConfig;
   readonly eventEmitter?: ConversationEventEmitter;
   /** Base path for per-tenant data (e.g. ~/.kiln/gateway/bonitas). Memory DBs stored under <basePath>/memory/ */
@@ -132,6 +134,11 @@ export function createWhatsAppWebhookRoutes(config: WhatsAppWebhookConfig): Hono
     }
     return c.text("Forbidden", 403);
   });
+
+  // HMAC-SHA256 signature validation for POST webhooks
+  if (config.appSecret) {
+    app.use("/webhook", requireWebhookSignature(config.appSecret, "x-hub-signature-256"));
+  }
 
   // POST /webhook -- Incoming messages from Meta
   app.post("/webhook", async (c) => {

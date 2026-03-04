@@ -36,7 +36,7 @@ This document is for contributors. For user documentation, see the [guides](guid
 | `observability` | `@kilnai/core` | `packages/core/src/observability/` | OTel integration: SpanMapper (maps 32 event types to spans), OTelExporter (implements EventStore, accepts TracerProvider). |
 | `knowledge` | `@kilnai/core` | `packages/core/src/knowledge/` | RAG pipeline: chunkers (recursive, markdown), embedding adapters (OpenAI, Ollama), InMemoryVectorStore, RetrievalPipeline, knowledge_search capability auto-injection. |
 | `channels` | `@kilnai/runtime` | `packages/runtime/src/channels/` | Channel adapters (CLI, Web, WhatsApp, Slack, API), EventBridge, ChannelRegistry, ChannelRouter, formatForChannel. |
-| `gateway` | `@kilnai/runtime` | `packages/runtime/src/gateway/` | Gateway runtime: multi-App loading, per-App isolation, Mode B routes, budget middleware, cross-app delegation, trigger webhook mounting, dev-mode API routes (SSE, memory, cost, safety, token, orchestrator), WebSocket chat, Studio static file serving, lightweight dev server (`startDevServer`). |
+| `gateway` | `@kilnai/runtime` | `packages/runtime/src/gateway/` | Gateway runtime: multi-App loading, per-App isolation, Mode B routes, budget middleware, composable auth middleware (API key, Bearer, HMAC-SHA256, origin validation), cross-app delegation, trigger webhook mounting, dev-mode API routes (SSE, memory, cost, safety, token, orchestrator), WebSocket chat, Studio static file serving, lightweight dev server (`startDevServer`). |
 | `a2a` | `@kilnai/runtime` | `packages/runtime/src/a2a/` | A2A protocol: A2AClient (outbound delegation only). |
 | `trigger` | `@kilnai/runtime` | `packages/runtime/src/trigger/` | TriggerRegistry, webhook handler (HMAC-SHA256), event listener, cron scheduler, trigger executor. |
 | `session` | `@kilnai/runtime` | `packages/runtime/src/session/` | Mode B session management: ModeBSession, ModeBOrchestrator, SessionRegistry. |
@@ -326,6 +326,8 @@ Seven layers provide defense-in-depth, all opt-in via configuration.
 
 **Safety Pipeline.** `SafetyPipeline` orchestrates three stages on both input and output: PII detection (regex + optional LLM, 6 types, redact/block), content classification (6 categories, configurable thresholds), policy rails (topic, competitor, escalation, compliance). Short-circuits on block. Fail-open on errors. Source: `packages/core/src/safety/`.
 
+**Gateway Auth Layer.** Four composable Hono middleware functions in `packages/runtime/src/gateway/auth-middleware.ts`: `requireApiKey` (X-Api-Key header), `requireBearer` (Authorization: Bearer), `requireWebhookSignature` (HMAC-SHA256 via configurable header), `isOriginAllowed` (origin validation utility for WebSocket). Each channel type has one natural auth mechanism configured via `gateway.yaml` env var fields (`apiKeyEnv`, `appSecretEnv`, `adminTokenEnv`). Two-level origin validation for WebSocket widgets: channel-level `allowedOrigins` default, overridden by `TenantConfig.allowedOrigins`. All auth is optional — missing config logs a startup warning and runs unauthenticated.
+
 ## Project Structure
 
 ```
@@ -357,7 +359,7 @@ kiln/
 │   │       └── safety/                   # pii-scanner.ts, content-classifier.ts, rails.ts, safety-pipeline.ts
 │   ├── runtime/                          # @kilnai/runtime
 │   │   └── src/
-│   │       ├── gateway/                  # gateway-server.ts, gateway-routes.ts, dev-routes.ts, ws-routes.ts, dev-token-store.ts, dev-orchestrator.ts, approval-registry.ts
+│   │       ├── gateway/                  # gateway-server.ts, gateway-routes.ts, auth-middleware.ts, dev-routes.ts, ws-routes.ts, dev-token-store.ts, dev-orchestrator.ts, approval-registry.ts
 │   │       ├── session/                  # mode-b-session.ts, mode-b-orchestrator.ts, session-registry.ts
 │   │       ├── tenant/                   # tenant-registry.ts, system-prompt-builder.ts
 │   │       ├── channels/                 # cli-, web-, whatsapp-, slack-, api-channel.ts, channel-router.ts, whatsapp-api.ts

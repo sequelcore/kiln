@@ -385,7 +385,7 @@ describe("createTenantAdminRoutes", () => {
       const res = await app.request("/tenants");
       expect(res.status).toBe(401);
       const body = (await res.json()) as { error: string };
-      expect(body.error).toBe("Unauthorized");
+      expect(body.error).toBe("unauthorized");
     });
 
     it("returns 200 with valid token", async () => {

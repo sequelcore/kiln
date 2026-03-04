@@ -8,6 +8,7 @@ import type { ModeBOrchestrator } from "../session/mode-b-orchestrator.js";
 import type { SessionRegistry } from "../session/session-registry.js";
 import { checkBudget, reportUsage, checkTier } from "./budget-middleware.js";
 import type { BillingConfig } from "./budget-middleware.js";
+import { requireApiKey } from "./auth-middleware.js";
 
 /** Runtime configuration for a Mode B App */
 export interface ModeBAppRuntime {
@@ -16,6 +17,7 @@ export interface ModeBAppRuntime {
   readonly sessionRegistry: SessionRegistry;
   readonly billing?: BillingConfig;
   readonly systemPrompt: string;
+  readonly apiKey?: string;
 }
 
 /** Request body for POST /message */
@@ -28,6 +30,10 @@ interface MessageRequest {
 
 export function createModeBRoutes(runtime: ModeBAppRuntime): Hono {
   const app = new Hono();
+
+  if (runtime.apiKey) {
+    app.use("*", requireApiKey(runtime.apiKey));
+  }
 
   app.post("/message", async (c) => {
     let body: MessageRequest;

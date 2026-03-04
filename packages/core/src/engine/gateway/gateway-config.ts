@@ -12,7 +12,10 @@ export interface GatewayChannelBinding {
   readonly multiTenant?: boolean;
   readonly verifyTokenEnv?: string;
   readonly adminTokenEnv?: string;
-  readonly [key: string]: unknown;
+  readonly accessTokenEnv?: string;
+  readonly apiKeyEnv?: string;
+  readonly appSecretEnv?: string;
+  readonly allowedOrigins?: readonly string[];
 }
 
 /** App binding: name, config path, optional workspace, and channel bindings */

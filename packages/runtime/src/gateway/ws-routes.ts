@@ -8,6 +8,7 @@ export interface WsRoutesConfig {
   readonly webChannel: WebChannel;
   readonly upgradeWebSocket: UpgradeWebSocket;
   readonly validateToken?: (token: string) => { valid: boolean; userId?: string };
+  readonly apiKey?: string;
   readonly processMessage?: (userId: string, parts: readonly ContentPart[]) => Promise<{
     parts: readonly ContentPart[];
     inputTokens: number;
@@ -36,6 +37,9 @@ export function createWsRoutes(config: WsRoutesConfig): Hono {
         if (result.userId) {
           validatedUserIds.set(token, result.userId);
         }
+      } else if (config.apiKey) {
+        const key = c.req.query("apiKey");
+        if (!key || key !== config.apiKey) return c.text("Unauthorized", 401);
       }
       await next();
     },

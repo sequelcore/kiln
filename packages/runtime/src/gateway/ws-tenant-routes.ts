@@ -14,6 +14,7 @@ import { extractSuggestions } from "../tenant/suggestion-parser.js";
 import { checkBudget, reportUsage } from "./budget-middleware.js";
 import type { BillingConfig } from "./budget-middleware.js";
 import type { ConversationEventEmitter } from "./conversation-event-emitter.js";
+import { isOriginAllowed } from "./auth-middleware.js";
 
 export interface WsTenantRoutesConfig {
   readonly webChannel: WebChannel;
@@ -24,6 +25,7 @@ export interface WsTenantRoutesConfig {
   readonly tenantRegistry: TenantRegistry;
   readonly billing?: BillingConfig;
   readonly eventEmitter?: ConversationEventEmitter;
+  readonly allowedOrigins?: readonly string[];
 }
 
 export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
@@ -37,6 +39,12 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
 
       const tenant = config.tenantRegistry.resolveByWidgetId(widgetId, config.appName);
       if (!tenant) return c.text("Widget not found", 404);
+
+      const origin = c.req.header("origin") ?? null;
+      const origins = tenant.allowedOrigins ?? config.allowedOrigins;
+      if (!isOriginAllowed(origin, origins)) {
+        return c.text("Origin not allowed", 403);
+      }
 
       await next();
     },

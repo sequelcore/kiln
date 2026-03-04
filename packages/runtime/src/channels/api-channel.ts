@@ -13,10 +13,6 @@ export interface SseWriter {
   close(): void;
 }
 
-interface ApiChannelConfig {
-  apiKey?: string;
-}
-
 /**
  * Channel adapter for REST API consumers with SSE streaming.
  * receive() accepts incoming API messages and invokes the registered handler.
@@ -28,14 +24,9 @@ export class ApiChannel implements Channel {
   readonly defaultFormat: MessageFormat = "structured";
   readonly supportedModalities: readonly Modality[] = ["text", "image", "audio", "file"];
 
-  private readonly config: ApiChannelConfig;
   private readonly responseQueue: OutgoingMessage[] = [];
   private readonly sseClients = new Set<SseWriter>();
   private messageHandler: ((message: IncomingMessage) => void) | null = null;
-
-  constructor(config: ApiChannelConfig = {}) {
-    this.config = config;
-  }
 
   /** Register a handler for incoming API messages */
   onMessage(handler: (message: IncomingMessage) => void): void {
@@ -99,14 +90,6 @@ export class ApiChannel implements Channel {
   /** Returns and clears all queued responses (for REST polling) */
   pollResponses(): OutgoingMessage[] {
     return this.responseQueue.splice(0);
-  }
-
-  /** Returns true if no apiKey configured, or if key matches */
-  validateApiKey(key: string): boolean {
-    if (!this.config.apiKey) {
-      return true;
-    }
-    return key === this.config.apiKey;
   }
 
   private broadcastSse(payload: string): void {

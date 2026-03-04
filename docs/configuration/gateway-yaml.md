@@ -18,15 +18,23 @@ apps:
     channels:
       - type: api
         path: /api/my-app
+        apiKeyEnv: MY_APP_API_KEY
       - type: web
+        multiTenant: true
+        adminTokenEnv: MY_APP_ADMIN_TOKEN
+        allowedOrigins:
+          - https://myapp.com
+          - https://app.myapp.com
 
   - name: assistant-ai
     config: ./apps/assistant-ai.yaml
     channels:
       - type: api
         path: /api/assistant
+        apiKeyEnv: ASSISTANT_API_KEY
       - type: whatsapp
         phoneNumber: "+521234567890"
+        appSecretEnv: META_APP_SECRET
 
   - name: ops-ai
     config: ./apps/ops-ai.yaml
@@ -35,6 +43,7 @@ apps:
         botToken: xoxb-...
       - type: api
         path: /api/ops
+        apiKeyEnv: OPS_API_KEY
 ```
 
 ---
@@ -65,8 +74,40 @@ apps:
 | `path` | `string` | No | URL path prefix for `api` channel bindings. Must be unique across all Apps. |
 | `phoneNumber` | `string` | No | E.164 phone number for `whatsapp` bindings. Must be unique across all Apps. |
 | `botToken` | `string` | No | Bot User OAuth Token for `slack` bindings (format: `xoxb-...`). |
+| `multiTenant` | `boolean` | No | Enable multi-tenant mode for `web` channel. Uses `ws-tenant-routes` with widgetId-based routing. |
+| `verifyTokenEnv` | `string` | No | Env var for WhatsApp webhook verification token. |
+| `adminTokenEnv` | `string` | No | Env var for Bearer token protecting admin routes (tenant CRUD). |
+| `accessTokenEnv` | `string` | No | Env var for WhatsApp Business API access token. |
+| `apiKeyEnv` | `string` | No | Env var for API key protecting REST endpoints. Applied as `X-Api-Key` header middleware. |
+| `appSecretEnv` | `string` | No | Env var for WhatsApp App Secret. Used to verify `X-Hub-Signature-256` HMAC on incoming webhooks. |
+| `allowedOrigins` | `string[]` | No | Allowed origins for WebSocket connections. Localhost/127.0.0.1 always allowed. Empty = open. |
 
 Validation enforces: port in range, unique App names, unique API paths, unique phone numbers. Errors are aggregated and reported before the server starts.
+
+---
+
+## Authentication
+
+Each channel type has one natural authentication mechanism configured via YAML. The gateway resolves environment variables at startup and applies middleware automatically.
+
+| Channel | Auth Mechanism | Config Field | Header / Param |
+|---------|---------------|--------------|----------------|
+| CLI | None (local) | — | — |
+| REST API | API key | `apiKeyEnv` | `X-Api-Key` header |
+| WebSocket widget | Origin validation | `allowedOrigins` (channel + tenant) | `Origin` header |
+| WebSocket Mode B | API key | `apiKeyEnv` | `?apiKey=` query param |
+| WhatsApp | HMAC-SHA256 | `appSecretEnv` | `X-Hub-Signature-256` header |
+| Slack | HMAC-SHA256 | Built into `SlackChannel.verifyRequest()` | `X-Slack-Signature` header |
+| Admin | Bearer token | `adminTokenEnv` | `Authorization: Bearer <token>` header |
+
+**Two-level auth for WebSocket widgets:** Channel-level `allowedOrigins` provides the default. Per-tenant `TenantConfig.allowedOrigins` overrides the default when set. Localhost and 127.0.0.1 (any port) are always allowed regardless of configuration.
+
+**Startup warnings.** The gateway logs warnings for missing auth configuration:
+- WhatsApp channel without `appSecretEnv` — webhook signatures will not be verified
+- API channel without `apiKeyEnv` — endpoints are unauthenticated
+- Multi-tenant app without `adminTokenEnv` — admin routes are unauthenticated
+
+**Graceful degradation.** All auth fields are optional. When omitted, the channel runs unauthenticated. This allows incremental adoption and frictionless local development.
 
 ---
 
@@ -220,7 +261,7 @@ When budget is exhausted, `POST /message` returns `{ content: "...", budgetExhau
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/apps/:appName/ws` | WebSocket upgrade for Apps with a `web` channel binding. Supports optional `?token=` query param for auth when `validateToken` is configured. |
+| `GET` | `/apps/:appName/ws` | WebSocket upgrade for Apps with a `web` channel binding. Supports `?token=` (dev mode) or `?apiKey=` (production) query param for auth. |
 
 ---
 
@@ -304,12 +345,14 @@ A single turn with `fast` tier costs approximately $0.001. A full multi-turn ses
 **Startup order:**
 1. Parse and validate `gateway.yaml`. Throw `GatewayLoaderError` on invalid config.
 2. Load all App YAML files via `resolveApps()`. Assign memory paths (`~/.kiln/gateway/{appName}/`).
-3. Instantiate `ChannelRegistry` per App.
-4. Initialize `ModeBOrchestrator` for each Mode B App. The `model` field from each App's provider config is passed to `OrchestratorDeps` for accurate cost tracking. If `model` is omitted, a warning is logged and costs default to $0.
-5. Build `DelegationRegistry` from all Mode B Apps.
-6. Initialize `SafetyPipeline` for each App with a `safety` block.
-7. Mount all Hono routes: health, per-App routes, trigger webhooks, delegation internal.
-8. Call `Bun.serve()`. Exit with code 1 on `EADDRINUSE`.
-9. Register `TriggerRegistry` lifecycle (event listeners, cron schedulers).
+3. Resolve auth environment variables (`apiKeyEnv`, `appSecretEnv`, `adminTokenEnv`, `accessTokenEnv`) from channel bindings.
+4. Instantiate `ChannelRegistry` per App.
+5. Initialize `ModeBOrchestrator` for each Mode B App. The `model` field from each App's provider config is passed to `OrchestratorDeps` for accurate cost tracking. If `model` is omitted, a warning is logged and costs default to $0.
+6. Build `DelegationRegistry` from all Mode B Apps.
+7. Initialize `SafetyPipeline` for each App with a `safety` block.
+8. Log auth warnings for channels missing auth configuration.
+9. Mount all Hono routes with auth middleware: health, per-App routes, trigger webhooks, delegation internal.
+10. Call `Bun.serve()`. Exit with code 1 on `EADDRINUSE`.
+11. Register `TriggerRegistry` lifecycle (event listeners, cron schedulers).
 
 **Shutdown:** SIGINT or SIGTERM calls `server.stop(true)` to drain in-flight requests. In-flight Mode B requests without a provider response are dropped. No session state persists across restarts.

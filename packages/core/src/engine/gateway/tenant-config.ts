@@ -54,6 +54,7 @@ export interface TenantConfig {
   readonly whatsappAccessToken?: string;
   readonly whatsappVerifyToken?: string;
   readonly widgetId?: string;
+  readonly allowedOrigins?: readonly string[];
   readonly greeting?: string;
   readonly billing?: TenantBilling;
   readonly idleTimeoutMs?: number;
@@ -98,6 +99,20 @@ export function validateTenantConfig(config: TenantConfig): TenantValidationErro
   // tone: if present, must be valid
   if (config.tone !== undefined && !VALID_TONES.includes(config.tone as TenantTone)) {
     errors.push({ field: "tone", message: `must be one of: ${VALID_TONES.join(", ")}` });
+  }
+
+  // allowedOrigins: if present, must be array of valid origin strings
+  if (config.allowedOrigins !== undefined) {
+    if (!Array.isArray(config.allowedOrigins)) {
+      errors.push({ field: "allowedOrigins", message: "must be an array of origin strings" });
+    } else {
+      for (let i = 0; i < config.allowedOrigins.length; i++) {
+        const origin = config.allowedOrigins[i];
+        if (typeof origin !== "string" || (!origin.startsWith("http://") && !origin.startsWith("https://"))) {
+          errors.push({ field: `allowedOrigins[${i}]`, message: "must be an HTTP or HTTPS origin" });
+        }
+      }
+    }
   }
 
   // enabled: must be boolean

@@ -142,8 +142,8 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
       // Check for WhatsApp channel
       const whatsappChannel = resolved.binding.channels.find((ch) => ch.type === "whatsapp");
       if (whatsappChannel) {
-        const verifyTokenEnv = (whatsappChannel.verifyTokenEnv as string) ?? "";
-        const accessTokenEnv = (whatsappChannel.accessTokenEnv as string) ?? "";
+        const verifyTokenEnv = whatsappChannel.verifyTokenEnv ?? "";
+        const accessTokenEnv = whatsappChannel.accessTokenEnv ?? "";
         if (verifyTokenEnv && accessTokenEnv) {
           whatsappConfig = { verifyTokenEnv, accessTokenEnv };
         }
@@ -151,7 +151,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
 
       // Check for tenant admin
       const adminChannel = resolved.binding.channels.find((ch) => ch.adminTokenEnv);
-      const adminTokenEnv = (adminChannel?.adminTokenEnv as string) ?? "";
+      const adminTokenEnv = adminChannel?.adminTokenEnv ?? "";
       if (adminTokenEnv) {
         tenantAdminConfig = { adminTokenEnv };
       }
@@ -289,6 +289,10 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
       loaded.eventEmitter = eventEmitter;
     }
 
+    // Resolve API key from channel binding (shared across REST + WS for this app)
+    const apiChannel = loaded.binding.channels.find((ch) => ch.type === "api");
+    const resolvedApiKey = apiChannel?.apiKeyEnv ? process.env[apiChannel.apiKeyEnv] ?? undefined : undefined;
+
     if (isMultiTenant) {
       // Multi-tenant: use TenantRegistry + tenant routes
       const tenantStorageDir = join(resolved.memoryBasePath, "tenants");
@@ -301,18 +305,21 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
         sessionRegistry,
         tenantRegistry,
         billing: resolved.modeBConfig.billing,
+        apiKey: resolvedApiKey,
       };
 
       // WhatsApp webhook: find whatsapp channel with verifyTokenEnv
       const whatsappChannel = loaded.binding.channels.find((ch) => ch.type === "whatsapp");
       if (whatsappChannel) {
-        const verifyTokenEnv = (whatsappChannel.verifyTokenEnv as string) ?? "";
+        const verifyTokenEnv = whatsappChannel.verifyTokenEnv ?? "";
+        const appSecretEnv = whatsappChannel.appSecretEnv ?? "";
         loaded.whatsappWebhookConfig = {
           appName: loaded.name,
           orchestrator,
           sessionRegistry,
           tenantRegistry,
           verifyToken: verifyTokenEnv ? process.env[verifyTokenEnv] ?? "" : "",
+          appSecret: appSecretEnv ? process.env[appSecretEnv] ?? undefined : undefined,
           billing: resolved.modeBConfig.billing,
           eventEmitter,
           memoryBasePath: resolved.memoryBasePath,
@@ -321,7 +328,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
 
       // Admin routes
       const adminChannel = loaded.binding.channels.find((ch) => ch.adminTokenEnv);
-      const adminTokenEnv = (adminChannel?.adminTokenEnv as string) ?? "";
+      const adminTokenEnv = adminChannel?.adminTokenEnv ?? "";
       loaded.tenantAdminConfig = {
         tenantRegistry,
         sessionRegistry,
@@ -339,7 +346,23 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
         sessionRegistry,
         billing: resolved.modeBConfig.billing,
         systemPrompt,
+        apiKey: resolvedApiKey,
       };
+    }
+  }
+
+  // Auth warnings: notify when channels lack auth configuration
+  for (const loaded of loadedApps) {
+    for (const channel of loaded.binding.channels) {
+      if (channel.type === "api" && channel.path && !channel.apiKeyEnv) {
+        console.warn(`  [warn] API channel at ${channel.path} has no apiKeyEnv -- endpoints are unauthenticated`);
+      }
+      if (channel.type === "whatsapp" && !channel.appSecretEnv) {
+        console.warn(`  [warn] WhatsApp channel for ${loaded.name} has no appSecretEnv -- webhook signatures will not be verified`);
+      }
+      if (channel.multiTenant && !channel.adminTokenEnv) {
+        console.warn(`  [warn] Multi-tenant app ${loaded.name} has no adminTokenEnv -- admin routes are unauthenticated`);
+      }
     }
   }
 

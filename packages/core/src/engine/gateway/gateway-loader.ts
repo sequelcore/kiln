@@ -53,23 +53,24 @@ interface RawGateway {
 // ---------------------------------------------------------------------------
 
 function mapChannelBinding(raw: RawChannelBinding): GatewayChannelBinding {
-  const binding: Record<string, unknown> = {};
+  const str = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
+  const bool = (v: unknown): boolean | undefined => (typeof v === "boolean" ? v : undefined);
+  const strArr = (v: unknown): readonly string[] | undefined =>
+    Array.isArray(v) && v.every((s) => typeof s === "string") ? v : undefined;
 
-  if (typeof raw.type === "string") binding["type"] = raw.type;
-  else binding["type"] = "";
-
-  if (typeof raw.path === "string") binding["path"] = raw.path;
-  if (typeof raw.phoneNumber === "string") binding["phoneNumber"] = raw.phoneNumber;
-  if (typeof raw.botToken === "string") binding["botToken"] = raw.botToken;
-
-  // Preserve any additional channel-specific keys
-  for (const [key, value] of Object.entries(raw)) {
-    if (key !== "type" && key !== "path" && key !== "phoneNumber" && key !== "botToken") {
-      binding[key] = value;
-    }
-  }
-
-  return binding as GatewayChannelBinding;
+  return {
+    type: str(raw.type) ?? "",
+    path: str(raw.path),
+    phoneNumber: str(raw.phoneNumber),
+    botToken: str(raw.botToken),
+    multiTenant: bool(raw.multiTenant),
+    verifyTokenEnv: str(raw.verifyTokenEnv),
+    adminTokenEnv: str(raw.adminTokenEnv),
+    accessTokenEnv: str(raw.accessTokenEnv),
+    apiKeyEnv: str(raw.apiKeyEnv),
+    appSecretEnv: str(raw.appSecretEnv),
+    allowedOrigins: strArr(raw.allowedOrigins),
+  };
 }
 
 function mapAppBinding(raw: RawAppBinding, path: string): { binding: GatewayAppBinding; errors: GatewayValidationError[] } {

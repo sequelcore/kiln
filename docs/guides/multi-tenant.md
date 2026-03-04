@@ -104,6 +104,7 @@ These fields can be updated via `PATCH /admin/{appName}/tenants/:tenantId`:
 | `services` | array | Business services injected into system prompt |
 | `hours` | object | Business hours injected into system prompt |
 | `faqEntries` | array | FAQ pairs injected into system prompt |
+| `allowedOrigins` | string[] | Allowed origins for WebSocket connections (overrides channel-level default) |
 | `escalationContact` | object | Contact for human handoff |
 
 Session invalidation: when a tenant config is updated via PATCH, `SessionRegistry.invalidateByTenant()` clears all active sessions for that tenant so the next message picks up fresh config.
