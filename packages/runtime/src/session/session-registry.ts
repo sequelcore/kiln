@@ -1,9 +1,11 @@
 import { ModeBSession } from "./mode-b-session.js";
 import type { ModeBSessionConfig } from "./mode-b-session.js";
+import type { ConversationEventEmitter } from "../gateway/conversation-event-emitter.js";
 
 export class SessionRegistry {
   private readonly sessions = new Map<string, ModeBSession>();
   private readonly defaultIdleTimeoutMs?: number;
+  eventEmitter?: ConversationEventEmitter;
 
   constructor(defaultIdleTimeoutMs?: number) {
     this.defaultIdleTimeoutMs = defaultIdleTimeoutMs;
@@ -71,6 +73,16 @@ export class SessionRegistry {
       if (session.isExpired) {
         this.sessions.delete(key);
         removed++;
+
+        if (this.eventEmitter && session.tenantId) {
+          this.eventEmitter.emit({
+            eventType: "SESSION_EXPIRED",
+            tenantId: session.tenantId,
+            channel: "unknown",
+            externalUserId: session.userId,
+            timestamp: new Date().toISOString(),
+          });
+        }
       }
     }
     return removed;

@@ -3,8 +3,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { parseAppYaml, parseModeBConfig, KilnError } from "@kilnai/core";
-import type { App, ModeBConfig } from "@kilnai/core";
+import { parseAppYaml, parseModeBConfig, parseEventsConfig, KilnError } from "@kilnai/core";
+import type { App, ModeBConfig, EventsConfig } from "@kilnai/core";
 import type { GatewayConfig, GatewayAppBinding } from "@kilnai/core";
 
 export interface ResolvedApp {
@@ -13,6 +13,7 @@ export interface ResolvedApp {
   readonly binding: GatewayAppBinding;
   readonly memoryBasePath: string;
   readonly modeBConfig?: ModeBConfig;
+  readonly eventsConfig?: EventsConfig;
 }
 
 export function resolveApps(config: GatewayConfig, gatewayYamlDir: string): ResolvedApp[] {
@@ -48,6 +49,14 @@ export function resolveApps(config: GatewayConfig, gatewayYamlDir: string): Reso
       // Mode B parse failure is non-fatal: app may be Mode A
     }
 
-    return { name: binding.name, app, binding, memoryBasePath, modeBConfig };
+    // Parse events config from the same YAML (optional, gateway-level concern)
+    let eventsConfig: EventsConfig | undefined;
+    try {
+      eventsConfig = parseEventsConfig(content);
+    } catch {
+      // Events config parse failure is non-fatal
+    }
+
+    return { name: binding.name, app, binding, memoryBasePath, modeBConfig, eventsConfig };
   });
 }

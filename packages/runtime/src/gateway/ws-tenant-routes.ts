@@ -13,6 +13,7 @@ import { buildTenantSystemPrompt } from "../tenant/system-prompt-builder.js";
 import { extractSuggestions } from "../tenant/suggestion-parser.js";
 import { checkBudget, reportUsage } from "./budget-middleware.js";
 import type { BillingConfig } from "./budget-middleware.js";
+import type { ConversationEventEmitter } from "./conversation-event-emitter.js";
 
 export interface WsTenantRoutesConfig {
   readonly webChannel: WebChannel;
@@ -22,6 +23,7 @@ export interface WsTenantRoutesConfig {
   readonly sessionRegistry: SessionRegistry;
   readonly tenantRegistry: TenantRegistry;
   readonly billing?: BillingConfig;
+  readonly eventEmitter?: ConversationEventEmitter;
 }
 
 export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
@@ -77,6 +79,19 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
                 ? (tenant.billing as unknown as BillingConfig)
                 : config.billing;
 
+              // Emit MESSAGE_RECEIVED event (fire-and-forget)
+              if (config.eventEmitter) {
+                config.eventEmitter.emit({
+                  eventType: "MESSAGE_RECEIVED",
+                  tenantId: tenant.tenantId,
+                  channel: "web",
+                  externalUserId: userId,
+                  messageContent: extractText(userParts),
+                  messageRole: "USER",
+                  timestamp: new Date().toISOString(),
+                });
+              }
+
               try {
                 // Budget check
                 if (activeBilling) {
@@ -128,6 +143,19 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
                     type: "suggestions",
                     items: followUpSuggestions,
                   }));
+                }
+
+                // Emit MESSAGE_SENT event (fire-and-forget)
+                if (config.eventEmitter) {
+                  config.eventEmitter.emit({
+                    eventType: "MESSAGE_SENT",
+                    tenantId: tenant.tenantId,
+                    channel: "web",
+                    externalUserId: userId,
+                    messageContent: responseContent,
+                    messageRole: "ASSISTANT",
+                    timestamp: new Date().toISOString(),
+                  });
                 }
               } catch {
                 ws.send(JSON.stringify({

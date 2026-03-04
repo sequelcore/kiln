@@ -35,6 +35,7 @@ import { HealthRegistry } from "./health-registry.js";
 import { ApprovalGateRegistry } from "./approval-registry.js";
 import { DevOrchestrator } from "./dev-orchestrator.js";
 import { DevTokenStore } from "./dev-token-store.js";
+import { ConversationEventEmitter } from "./conversation-event-emitter.js";
 
 export type { LoadedApp, GatewayServerConfig } from "./gateway-routes.js";
 export { createGatewayApp } from "./gateway-routes.js";
@@ -226,6 +227,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
       whatsappWebhookConfig: undefined as undefined | import("./whatsapp-webhook-routes.js").WhatsAppWebhookConfig,
       tenantAdminConfig: undefined as undefined | import("./tenant-admin-routes.js").TenantAdminRoutesConfig,
       webChannel: hasWebChannel ? new WebChannel() : undefined,
+      eventEmitter: undefined as undefined | ConversationEventEmitter,
     };
   });
 
@@ -277,6 +279,16 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
 
     const isMultiTenant = loaded.binding.channels.some((ch) => ch.multiTenant === true);
 
+    // Create event emitter if events config is present
+    const eventEmitter = resolved.eventsConfig
+      ? new ConversationEventEmitter(resolved.eventsConfig)
+      : undefined;
+
+    if (eventEmitter) {
+      sessionRegistry.eventEmitter = eventEmitter;
+      loaded.eventEmitter = eventEmitter;
+    }
+
     if (isMultiTenant) {
       // Multi-tenant: use TenantRegistry + tenant routes
       const tenantStorageDir = join(resolved.memoryBasePath, "tenants");
@@ -302,6 +314,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
           tenantRegistry,
           verifyToken: verifyTokenEnv ? process.env[verifyTokenEnv] ?? "" : "",
           billing: resolved.modeBConfig.billing,
+          eventEmitter,
           memoryBasePath: resolved.memoryBasePath,
         };
       }

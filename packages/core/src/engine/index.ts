@@ -113,6 +113,15 @@ export type {
 } from "./gateway/tenant-config.js";
 export { validateTenantConfig } from "./gateway/tenant-config.js";
 
+// Conversation events -- fire-and-forget event emission (Phase 26)
+export type {
+  ConversationEventType,
+  ConversationEvent,
+  ConversationEventBatch,
+} from "./gateway/conversation-event.js";
+export type { EventsConfig } from "./gateway/events-config.js";
+export { parseEventsConfig } from "./gateway/events-loader.js";
+
 // Safety config (Phase 12)
 export type {
   SafetyConfig,

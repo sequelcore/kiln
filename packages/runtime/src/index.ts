@@ -11,6 +11,7 @@ export { createModeBRoutes } from "./gateway/mode-b-routes.js";
 export type { ModeBAppRuntime } from "./gateway/mode-b-routes.js";
 export { checkBudget, reportUsage, checkTier } from "./gateway/budget-middleware.js";
 export type { BudgetCheckResult, TierCheckResult, BillingConfig } from "./gateway/budget-middleware.js";
+export { ConversationEventEmitter } from "./gateway/conversation-event-emitter.js";
 export { executeDelegation, validateResponseSchema } from "./gateway/delegation-handler.js";
 export type { DelegationTarget, DelegationRegistry } from "./gateway/delegation-handler.js";
 export { createDelegationRoutes } from "./gateway/delegation-routes.js";

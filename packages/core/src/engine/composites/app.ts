@@ -19,6 +19,7 @@ import type { VoiceConfig } from "../domain/speech-config.js";
 import { validateVoiceConfig } from "../domain/speech-config.js";
 import type { SafetyConfig } from "../domain/safety-config.js";
 import { validateSafetyConfig } from "../domain/safety-config.js";
+import type { EventsConfig } from "../gateway/events-config.js";
 
 /** Memory configuration for an App */
 export interface MemoryConfig {
@@ -41,6 +42,7 @@ export interface App {
   readonly toolSelection?: ToolSelectionConfig;
   readonly voice?: VoiceConfig;
   readonly safety?: SafetyConfig;
+  readonly events?: EventsConfig;
 }
 
 /** Validation error for app configuration */

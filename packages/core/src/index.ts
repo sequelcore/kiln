@@ -85,6 +85,8 @@ export { validateObservabilityConfig } from "./engine/gateway/observability-conf
 
 // App loader re-exported for direct access by runtime gateway
 export type { App, MemoryConfig, AppValidationError } from "./engine/composites/app.js";
+export type { EventsConfig } from "./engine/gateway/events-config.js";
+export { parseEventsConfig } from "./engine/gateway/events-loader.js";
 export { AppLoaderError, parseAppYaml, validateAppGraph } from "./engine/loader/app-loader.js";
 
 // Preset loader re-exported for direct access by tests and tooling
@@ -170,6 +172,13 @@ export type {
   ToolSelectionValidationError,
 } from "./engine/domain/tool-selection-config.js";
 export { validateToolSelectionConfig } from "./engine/domain/tool-selection-config.js";
+
+// Conversation event types re-exported for direct access by runtime
+export type {
+  ConversationEventType,
+  ConversationEvent,
+  ConversationEventBatch,
+} from "./engine/gateway/conversation-event.js";
 
 // Safety config types re-exported for direct access by runtime
 export type {

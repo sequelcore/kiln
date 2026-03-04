@@ -30,6 +30,7 @@ import { createDevInspectorHtml } from "./dev-inspector.js";
 import type { MemoryRoutesConfig } from "./memory-routes.js";
 import { createMemoryRoutes } from "./memory-routes.js";
 import type { TriggerRegistry } from "../trigger/trigger-registry.js";
+import type { ConversationEventEmitter } from "./conversation-event-emitter.js";
 
 export interface LoadedApp {
   readonly name: string;
@@ -41,6 +42,7 @@ export interface LoadedApp {
   whatsappWebhookConfig?: WhatsAppWebhookConfig;
   tenantAdminConfig?: TenantAdminRoutesConfig;
   webChannel?: WebChannel;
+  eventEmitter?: ConversationEventEmitter;
 }
 
 export interface GatewayServerConfig {
@@ -166,6 +168,7 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
             sessionRegistry: tenantRuntime.sessionRegistry,
             tenantRegistry: tenantRuntime.tenantRegistry,
             billing: tenantRuntime.billing,
+            eventEmitter: loadedApp.eventEmitter,
           });
           app.route(`/apps/${loadedApp.name}`, wsTenantApp);
         } else if (loadedApp.modeBRuntime) {

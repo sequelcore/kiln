@@ -15,6 +15,7 @@ import { stripSuggestionTags } from "../tenant/suggestion-parser.js";
 import { sendWhatsAppMessage, whatsappMediaUrl } from "../channels/whatsapp-api.js";
 import { checkBudget, reportUsage } from "./budget-middleware.js";
 import type { BillingConfig } from "./budget-middleware.js";
+import type { ConversationEventEmitter } from "./conversation-event-emitter.js";
 
 export interface WhatsAppWebhookConfig {
   readonly appName: string;
@@ -23,6 +24,7 @@ export interface WhatsAppWebhookConfig {
   readonly tenantRegistry: TenantRegistry;
   readonly verifyToken: string;
   readonly billing?: BillingConfig;
+  readonly eventEmitter?: ConversationEventEmitter;
   /** Base path for per-tenant data (e.g. ~/.kiln/gateway/bonitas). Memory DBs stored under <basePath>/memory/ */
   readonly memoryBasePath?: string;
 }
@@ -290,6 +292,19 @@ async function processWhatsAppMessage(
     }
   }
 
+  // Emit MESSAGE_RECEIVED event (fire-and-forget)
+  if (config.eventEmitter) {
+    config.eventEmitter.emit({
+      eventType: "MESSAGE_RECEIVED",
+      tenantId,
+      channel: "whatsapp",
+      externalUserId: senderPhone,
+      messageContent: messageText,
+      messageRole: "USER",
+      timestamp: new Date().toISOString(),
+    });
+  }
+
   let replyText: string;
   try {
     const result = await config.orchestrator.processMessage(
@@ -308,6 +323,19 @@ async function processWhatsAppMessage(
         messages: 1,
         tokens: result.inputTokens + result.outputTokens,
         model: config.orchestrator.model ?? "unknown",
+      });
+    }
+
+    // Emit MESSAGE_SENT event (fire-and-forget)
+    if (config.eventEmitter) {
+      config.eventEmitter.emit({
+        eventType: "MESSAGE_SENT",
+        tenantId,
+        channel: "whatsapp",
+        externalUserId: senderPhone,
+        messageContent: replyText,
+        messageRole: "ASSISTANT",
+        timestamp: new Date().toISOString(),
       });
     }
   } catch (err) {
