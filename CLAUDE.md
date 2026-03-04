@@ -36,7 +36,7 @@ Bun monorepo with 6 packages:
 | skill | `core/src/skill/` | SKILL.yaml format, SkillRegistry (3-tier discovery) |
 | eval | `core/src/eval/` | 12 scorers (6 rule + 6 LLM-as-judge), dataset loader, experiment runner, comparator |
 | observability | `core/src/observability/` | OTel span mapper + exporter (EventStore sink) |
-| gateway | `runtime/src/gateway/` | Multi-app loading, Mode B routes, budget middleware, composable auth middleware, delegation, dev routes, safety/security middleware |
+| gateway | `runtime/src/gateway/` | Multi-app loading, Mode B routes, budget middleware, composable auth middleware, conversation event emitter, delegation, dev routes, safety/security middleware |
 | a2a | `runtime/src/a2a/` | A2AClient (outbound delegation only) |
 | trigger | `runtime/src/trigger/` | TriggerRegistry, webhook handler (HMAC-SHA256), event listener, cron scheduler |
 | session | `runtime/src/session/` | ModeBSession, ModeBOrchestrator (builtin tools, per-call tools, recalledMemory), SessionRegistry. Future: handoff state (AI/human/paused), operator message injection |
@@ -98,7 +98,7 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `engine/domain/channel.ts` | Channel interface (receive/send/stream), IncomingMessage/OutgoingMessage with `ContentPart[]` |
 | `engine/domain/content.ts` | ContentPart union (Text, Image, Audio, File) + helpers (textPart, textParts, extractText, hasModality) |
 | `engine/domain/trigger.ts` | Trigger union (Webhook, Event, Schedule) + validateTrigger() |
-| `engine/composites/app.ts` | App composite + validateApp() |
+| `engine/composites/app.ts` | App composite (includes `events?: EventsConfig`) + validateApp() |
 | `engine/composites/team.ts` | Team composite + validateTeam() |
 | `engine/composites/router.ts` | Router composite + validateRouter() |
 | `engine/loader/app-loader.ts` | YAML -> App (parseAppYaml, validateAppGraph) |
@@ -127,15 +127,16 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `gateway/mode-b-routes.ts` | POST /message, GET/DELETE /sessions |
 | `gateway/delegation-handler.ts` | DelegationRegistry, executeDelegation() (Kiln-native + A2A) |
 | `gateway/budget-middleware.ts` | checkBudget(), reportUsage() -- fail-open |
-| `gateway/whatsapp-webhook-routes.ts` | WhatsApp webhook: tenant resolution, persistent memory (SQLite), builtin notify_owner tool, tenant-level billing override |
-| `gateway/ws-tenant-routes.ts` | Multi-tenant WebSocket: welcome frame (greeting + FAQ suggestions), AI follow-up suggestion chips, BUDGET_EXHAUSTED error code |
+| `gateway/conversation-event-emitter.ts` | Fire-and-forget POST of conversation events to product webhooks, env var resolution for headers |
+| `gateway/whatsapp-webhook-routes.ts` | WhatsApp webhook: tenant resolution, persistent memory (SQLite), builtin notify_owner tool, tenant-level billing override, conversation event emission |
+| `gateway/ws-tenant-routes.ts` | Multi-tenant WebSocket: welcome frame (greeting + FAQ suggestions), AI follow-up suggestion chips, BUDGET_EXHAUSTED error code, conversation event emission |
 | `gateway/memory-routes.ts` | Production memory routes: /api/memory (all modes) |
 | `gateway/dev-routes.ts` | Dev-mode: /dev/state, /dev/events (SSE), /dev/memory, /dev/cost, /dev/safety, /dev/token, /dev/run |
 | `gateway/dev-token-store.ts` | In-memory sliding-window TTL token store for dev-mode WebSocket auth |
 | `gateway/dev-orchestrator.ts` | DevOrchestrator: bridges core Orchestrator with ApprovalGateRegistry and gateway EventBus |
 | `channels/whatsapp-channel.ts` | WhatsApp Business API webhook adapter |
 | `channels/slack-channel.ts` | Slack Bot Events + Web API adapter |
-| `session/session-registry.ts` | Multi-user session management + cleanup |
+| `session/session-registry.ts` | Multi-user session management + cleanup, SESSION_EXPIRED event emission |
 | `trigger/trigger-registry.ts` | Per-app lifecycle, webhook app, event listener, scheduler |
 
 ### CLI (`packages/cli/src/`)
