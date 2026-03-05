@@ -15,6 +15,7 @@ import { checkBudget, reportUsage } from "./budget-middleware.js";
 import type { BillingConfig } from "./budget-middleware.js";
 import type { ConversationEventEmitter } from "./conversation-event-emitter.js";
 import { isOriginAllowed } from "./auth-middleware.js";
+import { TraceContext } from "./trace-context.js";
 
 export interface WsTenantRoutesConfig {
   readonly webChannel: WebChannel;
@@ -78,6 +79,9 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
             const parsed = JSON.parse(text) as Record<string, unknown>;
 
             if (parsed.type === "message") {
+              const trace = new TraceContext();
+              trace.log("ws", "Message received", { tenantId: tenant.tenantId, userId });
+
               const userParts: readonly ContentPart[] = Array.isArray(parsed.parts)
                 ? (parsed.parts as ContentPart[])
                 : textParts(String(parsed.content ?? ""));
@@ -96,6 +100,7 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
                   externalUserId: userId,
                   messageContent: extractText(userParts),
                   messageRole: "USER",
+                  traceId: trace.traceId,
                   timestamp: new Date().toISOString(),
                 });
               }
@@ -162,6 +167,7 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
                     externalUserId: userId,
                     messageContent: responseContent,
                     messageRole: "ASSISTANT",
+                    traceId: trace.traceId,
                     timestamp: new Date().toISOString(),
                   });
                 }

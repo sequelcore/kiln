@@ -17,6 +17,7 @@ import { checkBudget, reportUsage } from "./budget-middleware.js";
 import type { BillingConfig } from "./budget-middleware.js";
 import type { ConversationEventEmitter } from "./conversation-event-emitter.js";
 import { requireWebhookSignature } from "./auth-middleware.js";
+import { TraceContext } from "./trace-context.js";
 
 export interface WhatsAppWebhookConfig {
   readonly appName: string;
@@ -173,7 +174,8 @@ export function createWhatsAppWebhookRoutes(config: WhatsAppWebhookConfig): Hono
         // Resolve tenant by phone number
         const tenant = config.tenantRegistry.resolveByPhone(phoneNumberId, config.appName);
         if (!tenant) {
-          console.warn(`[whatsapp] No tenant found for phone_number_id=${phoneNumberId} app=${config.appName}`);
+          const entryTrace = new TraceContext();
+          entryTrace.warn("whatsapp", "No tenant found", { phoneNumberId, appName: config.appName });
           continue;
         }
 
@@ -203,15 +205,14 @@ export function createWhatsAppWebhookRoutes(config: WhatsAppWebhookConfig): Hono
         for (const msg of messages) {
           const msgParts = parseWhatsAppMessageParts(msg);
           if (!msgParts) {
-            console.warn(`[whatsapp] Unsupported message type=${msg.type} from=${msg.from}`);
+            const msgTrace = new TraceContext();
+            msgTrace.warn("whatsapp", "Unsupported message type", { type: msg.type, from: msg.from });
             continue;
           }
 
           // Resolve canonical reply address from contacts; fall back to msg.from
           const contact = contacts.find((c) => c.wa_id === msg.from);
           const replyTo = contact?.wa_id ?? msg.from;
-
-          console.log(`[whatsapp] Received message from=${replyTo} tenant=${tenant.tenantId} type=${msg.type}`);
 
           const promise = processWhatsAppMessage(
             config,
@@ -230,7 +231,8 @@ export function createWhatsAppWebhookRoutes(config: WhatsAppWebhookConfig): Hono
     Promise.allSettled(processPromises).then((results) => {
       for (const result of results) {
         if (result.status === "rejected") {
-          console.warn("[whatsapp] Message processing failed:", result.reason);
+          const failTrace = new TraceContext();
+          failTrace.warn("whatsapp", "Message processing failed", { error: String(result.reason) });
         }
       }
     });
@@ -249,6 +251,9 @@ async function processWhatsAppMessage(
   phoneNumberId: string,
   accessToken?: string,
 ): Promise<void> {
+  const trace = new TraceContext();
+  trace.log("whatsapp", "Processing message", { tenantId, from: senderPhone });
+
   const tenant = config.tenantRegistry.get(tenantId);
   if (!tenant) return;
 
@@ -274,7 +279,7 @@ async function processWhatsAppMessage(
       const query = `${senderPhone} ${messageText}`;
       recalledMemory = await store.recall(query, 500) || undefined;
     } catch (err) {
-      console.warn(`[whatsapp] Memory recall failed for tenant=${tenantId}: ${err instanceof Error ? err.message : String(err)}`);
+      trace.warn("whatsapp", "Memory recall failed", { tenantId, error: err instanceof Error ? err.message : String(err) });
     }
   }
 
@@ -291,7 +296,7 @@ async function processWhatsAppMessage(
         type: "text",
         text: { body: fullMessage },
       });
-      console.log(`[whatsapp] Owner notified for tenant=${tenantId} owner=${ownerPhone}`);
+      trace.log("whatsapp", "Owner notified", { tenantId, ownerPhone });
       return { success: true, message: "Owner has been notified." };
     });
   }
@@ -313,14 +318,14 @@ async function processWhatsAppMessage(
     if (!budgetResult.allowed) {
       const overBudgetMsg = tenant.billing?.overBudgetMessage
         ?? activeBilling.overBudgetMessage ?? "Budget exhausted.";
-      console.log(`[whatsapp] Budget exhausted for tenant=${tenantId} sender=${senderPhone}`);
+      trace.log("whatsapp", "Budget exhausted", { tenantId, sender: senderPhone });
       try {
         await sendWhatsAppMessage(phoneNumberId, resolvedAccessToken, senderPhone, {
           type: "text",
           text: { body: overBudgetMsg },
         });
       } catch (err) {
-        console.warn(`[whatsapp] Failed to send over-budget reply: ${err instanceof Error ? err.message : String(err)}`);
+        trace.warn("whatsapp", "Failed to send over-budget reply", { error: err instanceof Error ? err.message : String(err) });
       }
       return;
     }
@@ -335,6 +340,7 @@ async function processWhatsAppMessage(
       externalUserId: senderPhone,
       messageContent: messageText,
       messageRole: "USER",
+      traceId: trace.traceId,
       timestamp: new Date().toISOString(),
     });
   }
@@ -369,11 +375,12 @@ async function processWhatsAppMessage(
         externalUserId: senderPhone,
         messageContent: replyText,
         messageRole: "ASSISTANT",
+        traceId: trace.traceId,
         timestamp: new Date().toISOString(),
       });
     }
   } catch (err) {
-    console.error(`[whatsapp] Orchestrator error for tenant=${tenantId}: ${err instanceof Error ? err.message : String(err)}`);
+    trace.error("whatsapp", "Orchestrator error", { tenantId, error: err instanceof Error ? err.message : String(err) });
     replyText = "Something went wrong. Please try again.";
   }
 
@@ -384,9 +391,7 @@ async function processWhatsAppMessage(
       text: { body: replyText },
     });
   } catch (err) {
-    console.warn(
-      `[whatsapp] Failed to send reply -- phoneNumberId=${phoneNumberId} recipient=${senderPhone} error=${err instanceof Error ? err.message : String(err)}`,
-    );
+    trace.warn("whatsapp", "Failed to send reply", { phoneNumberId, recipient: senderPhone, error: err instanceof Error ? err.message : String(err) });
   }
 
   // --- Memory: save what was learned from this exchange ---
@@ -399,7 +404,7 @@ async function processWhatsAppMessage(
         tags: [senderPhone],
       });
     } catch (err) {
-      console.warn(`[whatsapp] Memory save failed for tenant=${tenantId}: ${err instanceof Error ? err.message : String(err)}`);
+      trace.warn("whatsapp", "Memory save failed", { tenantId, error: err instanceof Error ? err.message : String(err) });
     }
   }
 }

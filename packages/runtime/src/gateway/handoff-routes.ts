@@ -9,6 +9,7 @@ import type { WebChannel } from "../channels/web-channel.js";
 import type { ConversationEventEmitter } from "./conversation-event-emitter.js";
 import { sendWhatsAppMessage } from "../channels/whatsapp-api.js";
 import { requireBearer } from "./auth-middleware.js";
+import { TraceContext } from "./trace-context.js";
 
 export interface HandoffRoutesConfig {
   readonly sessionRegistry: SessionRegistry;
@@ -50,6 +51,8 @@ export function createHandoffRoutes(config: HandoffRoutesConfig): Hono {
 
   // POST /handoff -- Initiate handoff (transition to queued or human_active)
   app.post("/handoff", async (c) => {
+    const trace = new TraceContext();
+
     let body: HandoffRequest;
     try {
       body = await c.req.json<HandoffRequest>();
@@ -60,6 +63,8 @@ export function createHandoffRoutes(config: HandoffRoutesConfig): Hono {
     if (!body.tenantId || !body.userId || !body.targetMode) {
       return c.json({ success: false, error: "Missing required fields: tenantId, userId, targetMode" }, 400);
     }
+
+    trace.log("handoff", "Initiating handoff", { tenantId: body.tenantId, userId: body.userId, targetMode: body.targetMode });
 
     const session = await config.sessionRegistry.get(config.appName, body.userId, body.tenantId);
     if (!session) {
@@ -86,9 +91,12 @@ export function createHandoffRoutes(config: HandoffRoutesConfig): Hono {
         sessionMode: session.sessionMode,
         escalationReason: body.reason,
         operatorId: body.operatorId,
+        traceId: trace.traceId,
         timestamp: new Date().toISOString(),
       });
     }
+
+    trace.log("handoff", "Handoff complete", { sessionId: session.id, previousMode, newMode: session.sessionMode });
 
     return c.json({
       success: true,
@@ -100,6 +108,8 @@ export function createHandoffRoutes(config: HandoffRoutesConfig): Hono {
 
   // POST /release -- Release session back to AI
   app.post("/release", async (c) => {
+    const trace = new TraceContext();
+
     let body: ReleaseRequest;
     try {
       body = await c.req.json<ReleaseRequest>();
@@ -110,6 +120,8 @@ export function createHandoffRoutes(config: HandoffRoutesConfig): Hono {
     if (!body.tenantId || !body.userId) {
       return c.json({ success: false, error: "Missing required fields: tenantId, userId" }, 400);
     }
+
+    trace.log("handoff", "Releasing session to AI", { tenantId: body.tenantId, userId: body.userId });
 
     const session = await config.sessionRegistry.get(config.appName, body.userId, body.tenantId);
     if (!session) {
@@ -139,9 +151,12 @@ export function createHandoffRoutes(config: HandoffRoutesConfig): Hono {
         externalUserId: body.userId,
         sessionMode: "ai_active",
         summary: body.contextSummary,
+        traceId: trace.traceId,
         timestamp: new Date().toISOString(),
       });
     }
+
+    trace.log("handoff", "Release complete", { sessionId: session.id, previousMode });
 
     return c.json({
       success: true,
@@ -153,6 +168,8 @@ export function createHandoffRoutes(config: HandoffRoutesConfig): Hono {
 
   // POST /operator-message -- Send human-authored message to end user
   app.post("/operator-message", async (c) => {
+    const trace = new TraceContext();
+
     let body: OperatorMessageRequest;
     try {
       body = await c.req.json<OperatorMessageRequest>();
@@ -166,6 +183,8 @@ export function createHandoffRoutes(config: HandoffRoutesConfig): Hono {
         400,
       );
     }
+
+    trace.log("handoff", "Sending operator message", { tenantId: body.tenantId, userId: body.userId, channel: body.channel });
 
     const session = await config.sessionRegistry.get(config.appName, body.userId, body.tenantId);
     if (!session) {
@@ -224,21 +243,27 @@ export function createHandoffRoutes(config: HandoffRoutesConfig): Hono {
         messageContent: body.message,
         messageRole: "operator",
         operatorId: body.operatorId,
+        traceId: trace.traceId,
         timestamp: new Date().toISOString(),
       });
     }
+
+    trace.log("handoff", "Operator message delivered", { channel: body.channel });
 
     return c.json({ success: true, delivered: true });
   });
 
   // GET /session-history -- Get full conversation history
   app.get("/session-history", async (c) => {
+    const trace = new TraceContext();
     const tenantId = c.req.query("tenantId");
     const userId = c.req.query("userId");
 
     if (!tenantId || !userId) {
       return c.json({ success: false, error: "Missing required query params: tenantId, userId" }, 400);
     }
+
+    trace.log("handoff", "Retrieving session history", { tenantId, userId });
 
     const session = await config.sessionRegistry.get(config.appName, userId, tenantId);
     if (!session) {

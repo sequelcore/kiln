@@ -45,6 +45,9 @@ export type {
   ProcessResult,
 } from "./gateway/message-pipeline.js";
 
+// Trace
+export { TraceContext } from "./gateway/trace-context.js";
+
 // Session
 export { ModeBSession } from "./session/mode-b-session.js";
 export type { ModeBSessionConfig, SerializedSessionData } from "./session/mode-b-session.js";

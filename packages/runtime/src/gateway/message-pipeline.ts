@@ -6,6 +6,7 @@ import { checkBudget, reportUsage } from "./budget-middleware.js";
 import type { ConversationEventEmitter } from "./conversation-event-emitter.js";
 import type { SessionMode } from "../session/session-mode.js";
 import type { EscalationSignal } from "../session/escalation-detector.js";
+import { TraceContext } from "./trace-context.js";
 
 export interface InboundMessageContext {
   readonly orchestrator: ModeBOrchestrator;
@@ -21,6 +22,7 @@ export interface InboundMessageContext {
   readonly idleTimeoutMs?: number;
   readonly recalledMemory?: string;
   readonly callBuiltinTools?: ReadonlyMap<string, (input: Record<string, unknown>) => Promise<unknown>>;
+  readonly traceId?: string;
 }
 
 export interface InboundMessageResult {
@@ -34,6 +36,7 @@ export interface InboundMessageResult {
   readonly sessionMode: SessionMode;
   readonly escalation?: EscalationSignal;
   readonly contextSummary?: string;
+  readonly traceId: string;
 }
 
 export interface BudgetDeniedResult {
@@ -46,10 +49,14 @@ export type ProcessResult =
   | { ok: false; budgetDenied: BudgetDeniedResult };
 
 export async function processInboundMessage(ctx: InboundMessageContext): Promise<ProcessResult> {
+  const trace = new TraceContext(ctx.traceId);
+  trace.log("pipeline", "Processing inbound message", { appName: ctx.appName, userId: ctx.userId, channel: ctx.channel });
+
   // Budget check
   if (ctx.billing) {
     const budgetResult = await checkBudget(ctx.billing, ctx.tenantId ?? ctx.userId);
     if (!budgetResult.allowed) {
+      trace.log("pipeline", "Budget denied");
       return {
         ok: false,
         budgetDenied: {
@@ -68,6 +75,7 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
     systemPrompt: ctx.systemPrompt,
     idleTimeoutMs: ctx.idleTimeoutMs,
   });
+  trace.log("pipeline", "Session ready", { sessionId: session.id, sessionMode: session.sessionMode });
 
   // Process message
   const result: OrchestrateResult = await ctx.orchestrator.processMessage(
@@ -94,6 +102,7 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
       tenantId: ctx.tenantId,
       channel: ctx.channel,
       externalUserId: ctx.userId,
+      traceId: trace.traceId,
       timestamp: new Date().toISOString(),
     });
 
@@ -105,12 +114,14 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
         channel: ctx.channel,
         externalUserId: ctx.userId,
         sessionMode: session.sessionMode,
+        traceId: trace.traceId,
         timestamp: new Date().toISOString(),
       });
     }
 
     // Emit ESCALATION_DETECTED when escalation signal is present
     if (result.escalation) {
+      trace.warn("pipeline", "Escalation detected", { reason: result.escalation.reason });
       ctx.eventEmitter.emit({
         eventType: "ESCALATION_DETECTED",
         tenantId: ctx.tenantId,
@@ -120,10 +131,13 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
         escalationDetail: result.escalation.detail,
         summary: result.contextSummary,
         sessionMode: session.sessionMode,
+        traceId: trace.traceId,
         timestamp: new Date().toISOString(),
       });
     }
   }
+
+  trace.log("pipeline", "Message processed", { queued: result.queued, tokens: result.inputTokens + result.outputTokens });
 
   return {
     ok: true,
@@ -138,6 +152,7 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
       sessionMode: session.sessionMode,
       escalation: result.escalation,
       contextSummary: result.contextSummary,
+      traceId: trace.traceId,
     },
   };
 }
