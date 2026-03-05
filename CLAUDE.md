@@ -41,6 +41,7 @@ Bun monorepo with 6 packages:
 | trigger | `runtime/src/trigger/` | TriggerRegistry, webhook handler (HMAC-SHA256), event listener, cron scheduler |
 | session | `runtime/src/session/` | ModeBSession, ModeBOrchestrator (builtin tools, per-call tools, recalledMemory), SessionRegistry. Future: handoff state (AI/human/paused), operator message injection |
 | tenant | `runtime/src/tenant/` | TenantRegistry (JSON persistence, resolveByWidgetId), system prompt builder (businessName + name identity), suggestion parser |
+| handoff | `runtime/src/gateway/handoff-routes.ts` + `runtime/src/session/escalation-detector.ts` + `runtime/src/session/context-summarizer.ts` | Human handoff: session mode state machine, escalation detection, operator messaging, AI guard |
 | channels | `runtime/src/channels/` | 5 adapters (CLI, Web, WhatsApp, Slack, API), ChannelRouter, formatForChannel |
 | sdk | `sdk/src/` | React hooks (useKilnChat, useKilnWsChat, useKilnEvents, useKilnMemory, useKilnState, useApproval), ApiClient, SseClient. Types-only import from core. |
 | widget | `widget/src/` | Embeddable chat widget: WsClient (auto-reconnect), KilnWidget (Shadow DOM), auto-loader (script tag data-* attrs). Welcome frame, suggestion chips, info bubbles. Zero deps, IIFE bundle. |
@@ -137,6 +138,16 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `channels/whatsapp-channel.ts` | WhatsApp Business API webhook adapter |
 | `channels/slack-channel.ts` | Slack Bot Events + Web API adapter |
 | `session/session-registry.ts` | Multi-user session management + cleanup, SESSION_EXPIRED event emission |
+| `session/session-mode.ts` | SessionMode type (ai_active, queued, human_active, resolved), transition validator |
+| `session/session-store.ts` | SessionStore interface (async get/set/delete/deleteByPrefix/keys) |
+| `session/in-memory-session-store.ts` | Map-based SessionStore for dev mode and tests |
+| `session/redis-session-store.ts` | Redis adapter with dynamic ioredis import, key prefix, TTL |
+| `session/session-serializer.ts` | JSON roundtrip for ModeBSession (handles Dates, ContentPart[], SessionMode) |
+| `session/escalation-detector.ts` | EscalationDetector interface, DefaultEscalationDetector (keywords + loop detection) |
+| `session/context-summarizer.ts` | ContextSummarizer interface, DefaultContextSummarizer (LLM-based) |
+| `gateway/handoff-routes.ts` | Handoff API: /handoff, /release, /operator-message, /session-history |
+| `gateway/message-pipeline.ts` | Shared processInboundMessage pipeline (budget, session, orchestrate, events) |
+| `gateway/trace-context.ts` | TraceContext: per-request trace ID + structured logging |
 | `trigger/trigger-registry.ts` | Per-app lifecycle, webhook app, event listener, scheduler |
 
 ### CLI (`packages/cli/src/`)

@@ -340,6 +340,40 @@ A single turn with `fast` tier costs approximately $0.001. A full multi-turn ses
 
 ---
 
+## Session & Handoff
+
+Mode B apps support human handoff -- transitioning a conversation from AI to a human operator and back. Configuration is set in the app's `app.yaml`, not `gateway.yaml`.
+
+### Session Store
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `redis.url` | `string` | — | Optional Redis URL for session persistence. When omitted, sessions are stored in-memory (lost on restart). |
+
+### Escalation Detection
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `escalation.keywords` | `string[]` | Built-in EN/ES keywords | Custom keywords that trigger escalation (e.g., `["help", "agent", "human"]`). |
+| `escalation.loopThreshold` | `number` | `0.85` | Word-overlap similarity threshold for detecting conversational loops. Range 0.0--1.0. |
+
+Escalation detection runs after every AI response. When triggered, an `ESCALATION_DETECTED` conversation event is emitted with the reason and a context summary. The session transitions to `queued` mode automatically.
+
+### Handoff API Routes
+
+When a multi-tenant web or WhatsApp channel is configured, handoff routes are mounted under the app's path:
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/{path}/handoff` | Transition session to `queued` or `human_active` |
+| `POST` | `/{path}/release` | Release session back to `ai_active` |
+| `POST` | `/{path}/operator-message` | Send operator message to end user via channel |
+| `GET` | `/{path}/session-history` | Retrieve full conversation history |
+
+All handoff routes require Bearer authentication via `adminTokenEnv`.
+
+---
+
 ## Startup and Shutdown
 
 **Startup order:**
