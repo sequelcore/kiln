@@ -354,6 +354,38 @@ async function processWhatsAppMessage(
       callTools.size > 0 ? callTools : undefined,
     );
 
+    // Persist mutated session (required for non-reference stores like Redis)
+    await config.sessionRegistry.save(session);
+
+    // Emit handoff events when message was queued
+    if (result.queued && config.eventEmitter) {
+      config.eventEmitter.emit({
+        eventType: "HANDOFF_MESSAGE_QUEUED",
+        tenantId,
+        channel: "whatsapp",
+        externalUserId: senderPhone,
+        sessionMode: session.sessionMode,
+        traceId: trace.traceId,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // Emit escalation event when detected
+    if (result.escalation && config.eventEmitter) {
+      config.eventEmitter.emit({
+        eventType: "ESCALATION_DETECTED",
+        tenantId,
+        channel: "whatsapp",
+        externalUserId: senderPhone,
+        escalationReason: result.escalation.reason,
+        escalationDetail: result.escalation.detail,
+        summary: result.contextSummary,
+        sessionMode: session.sessionMode,
+        traceId: trace.traceId,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
     replyText = toWhatsAppFormat(stripSuggestionTags(extractText(result.parts)));
 
     // Report usage (fire-and-forget)

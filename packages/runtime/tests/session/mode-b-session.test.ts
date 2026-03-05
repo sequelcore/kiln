@@ -146,4 +146,84 @@ describe("ModeBSession", () => {
       expect(session.isExpired).toBe(false);
     });
   });
+
+  describe("lastAssistantTexts", () => {
+    it("returns last N assistant messages in chronological order", () => {
+      const session = new ModeBSession({ appName: "app", userId: "u", systemPrompt: "sys" });
+      session.addUserMessage(textParts("q1"));
+      session.addAssistantMessage(textParts("a1"));
+      session.addUserMessage(textParts("q2"));
+      session.addAssistantMessage(textParts("a2"));
+      session.addUserMessage(textParts("q3"));
+      session.addAssistantMessage(textParts("a3"));
+
+      expect(session.lastAssistantTexts(2)).toEqual(["a2", "a3"]);
+    });
+
+    it("returns all assistant messages when count exceeds available", () => {
+      const session = new ModeBSession({ appName: "app", userId: "u", systemPrompt: "sys" });
+      session.addAssistantMessage(textParts("only"));
+
+      expect(session.lastAssistantTexts(5)).toEqual(["only"]);
+    });
+
+    it("returns empty array when no assistant messages", () => {
+      const session = new ModeBSession({ appName: "app", userId: "u", systemPrompt: "sys" });
+      session.addUserMessage(textParts("q1"));
+
+      expect(session.lastAssistantTexts(3)).toEqual([]);
+    });
+
+    it("skips user messages and only returns assistant texts", () => {
+      const session = new ModeBSession({ appName: "app", userId: "u", systemPrompt: "sys" });
+      session.addUserMessage(textParts("q1"));
+      session.addAssistantMessage(textParts("a1"));
+      session.addUserMessage(textParts("q2"));
+      session.addUserMessage(textParts("q3"));
+      session.addAssistantMessage(textParts("a2"));
+
+      expect(session.lastAssistantTexts(2)).toEqual(["a1", "a2"]);
+    });
+  });
+
+  describe("injectOperatorMessage", () => {
+    it("adds message as assistant role", () => {
+      const session = new ModeBSession({ appName: "app", userId: "u", systemPrompt: "sys" });
+      session.injectOperatorMessage(textParts("operator reply"));
+
+      expect(session.conversationHistory).toHaveLength(1);
+      expect(session.conversationHistory[0]).toEqual({
+        role: "assistant",
+        parts: textParts("operator reply"),
+      });
+    });
+
+    it("updates lastActivityAt", () => {
+      vi.useFakeTimers();
+      const session = new ModeBSession({ appName: "app", userId: "u", systemPrompt: "sys" });
+      const before = session.lastActivityAt.getTime();
+      vi.advanceTimersByTime(5000);
+      session.injectOperatorMessage(textParts("msg"));
+      expect(session.lastActivityAt.getTime()).toBeGreaterThan(before);
+      vi.useRealTimers();
+    });
+  });
+
+  describe("sessionMode", () => {
+    it("defaults to ai_active", () => {
+      const session = new ModeBSession({ appName: "app", userId: "u", systemPrompt: "sys" });
+      expect(session.sessionMode).toBe("ai_active");
+    });
+
+    it("transitions to queued", () => {
+      const session = new ModeBSession({ appName: "app", userId: "u", systemPrompt: "sys" });
+      session.setSessionMode("queued");
+      expect(session.sessionMode).toBe("queued");
+    });
+
+    it("throws on invalid transition", () => {
+      const session = new ModeBSession({ appName: "app", userId: "u", systemPrompt: "sys" });
+      expect(() => session.setSessionMode("resolved")).toThrow();
+    });
+  });
 });

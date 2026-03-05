@@ -85,6 +85,9 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
     ctx.callBuiltinTools,
   );
 
+  // Persist mutated session (required for non-reference stores like Redis)
+  await ctx.sessionRegistry.save(session);
+
   // Report usage (fire-and-forget)
   if (ctx.billing) {
     reportUsage(ctx.billing, {

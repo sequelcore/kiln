@@ -184,6 +184,24 @@ describe("ModeBOrchestrator", () => {
       expect(extractText(result.parts)).toBe("mock response");
       expect(provider.createMessage).toHaveBeenCalledTimes(1);
     });
+
+    it("auto-reopens resolved sessions and processes normally", async () => {
+      const provider = makeProvider();
+      const orchestrator = new ModeBOrchestrator({ provider });
+      const session = makeSession();
+      // Transition to resolved: ai_active -> queued -> human_active -> resolved
+      session.setSessionMode("queued");
+      session.setSessionMode("human_active");
+      session.setSessionMode("resolved");
+      expect(session.sessionMode).toBe("resolved");
+
+      const result = await orchestrator.processMessage(session, textParts("I'm back"));
+
+      expect(result.queued).toBe(false);
+      expect(extractText(result.parts)).toBe("mock response");
+      expect(session.sessionMode).toBe("ai_active");
+      expect(provider.createMessage).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe("escalation detection", () => {

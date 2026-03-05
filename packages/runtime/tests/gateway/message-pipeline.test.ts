@@ -38,6 +38,7 @@ function makeMockSessionRegistry(session?: ModeBSession): SessionRegistry {
   const mockSession = session ?? makeMockSession();
   return {
     getOrCreate: vi.fn().mockResolvedValue(mockSession),
+    save: vi.fn().mockResolvedValue(undefined),
   } as unknown as SessionRegistry;
 }
 

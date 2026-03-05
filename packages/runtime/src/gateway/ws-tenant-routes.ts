@@ -130,6 +130,38 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
 
                 const result = await config.orchestrator.processMessage(session, userParts);
 
+                // Persist mutated session (required for non-reference stores like Redis)
+                await config.sessionRegistry.save(session);
+
+                // Emit handoff events when message was queued
+                if (result.queued && config.eventEmitter) {
+                  config.eventEmitter.emit({
+                    eventType: "HANDOFF_MESSAGE_QUEUED",
+                    tenantId: tenant.tenantId,
+                    channel: "web",
+                    externalUserId: userId,
+                    sessionMode: session.sessionMode,
+                    traceId: trace.traceId,
+                    timestamp: new Date().toISOString(),
+                  });
+                }
+
+                // Emit escalation event when detected
+                if (result.escalation && config.eventEmitter) {
+                  config.eventEmitter.emit({
+                    eventType: "ESCALATION_DETECTED",
+                    tenantId: tenant.tenantId,
+                    channel: "web",
+                    externalUserId: userId,
+                    escalationReason: result.escalation.reason,
+                    escalationDetail: result.escalation.detail,
+                    summary: result.contextSummary,
+                    sessionMode: session.sessionMode,
+                    traceId: trace.traceId,
+                    timestamp: new Date().toISOString(),
+                  });
+                }
+
                 // Report usage (fire-and-forget)
                 if (activeBilling) {
                   reportUsage(activeBilling, {

@@ -105,6 +105,7 @@ describe("createWsTenantRoutes", () => {
 
     mockSessionRegistry = {
       getOrCreate: vi.fn().mockResolvedValue(mockSession),
+      save: vi.fn().mockResolvedValue(undefined),
     } as unknown as SessionRegistry;
 
     mockOrchestrator = {

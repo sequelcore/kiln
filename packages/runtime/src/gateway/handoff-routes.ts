@@ -47,6 +47,8 @@ export function createHandoffRoutes(config: HandoffRoutesConfig): Hono {
 
   if (config.adminToken) {
     app.use("*", requireBearer(config.adminToken));
+  } else {
+    console.warn("[handoff-routes] No adminToken configured -- handoff endpoints are unauthenticated");
   }
 
   // POST /handoff -- Initiate handoff (transition to queued or human_active)
@@ -81,6 +83,8 @@ export function createHandoffRoutes(config: HandoffRoutesConfig): Hono {
       }
       throw err;
     }
+
+    await config.sessionRegistry.save(session);
 
     if (config.eventEmitter && session.tenantId) {
       config.eventEmitter.emit({
@@ -140,8 +144,10 @@ export function createHandoffRoutes(config: HandoffRoutesConfig): Hono {
     }
 
     if (body.contextSummary) {
-      session.addUserMessage(textParts("[System] Handoff context: " + body.contextSummary));
+      session.addUserMessage(textParts("[Handoff context] " + body.contextSummary));
     }
+
+    await config.sessionRegistry.save(session);
 
     if (config.eventEmitter && session.tenantId) {
       config.eventEmitter.emit({
@@ -200,6 +206,7 @@ export function createHandoffRoutes(config: HandoffRoutesConfig): Hono {
 
     // Inject message into session history as assistant message
     session.injectOperatorMessage(textParts(body.message));
+    await config.sessionRegistry.save(session);
 
     // Deliver via channel
     if (body.channel === "web") {

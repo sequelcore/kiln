@@ -223,6 +223,33 @@ describe("SessionRegistry", () => {
     });
   });
 
+  describe("save", () => {
+    it("persists mutated session back to the store", async () => {
+      const registry = new SessionRegistry();
+      const session = await registry.getOrCreate({ appName: "app", userId: "u1", systemPrompt: "sys" });
+      session.setSessionMode("queued");
+      await registry.save(session);
+
+      const retrieved = await registry.get("app", "u1");
+      expect(retrieved?.sessionMode).toBe("queued");
+    });
+
+    it("persists tenant-scoped sessions correctly", async () => {
+      const registry = new SessionRegistry();
+      const session = await registry.getOrCreate({
+        appName: "app",
+        tenantId: "tenant-a",
+        userId: "u1",
+        systemPrompt: "sys",
+      });
+      session.setSessionMode("queued");
+      await registry.save(session);
+
+      const retrieved = await registry.get("app", "u1", "tenant-a");
+      expect(retrieved?.sessionMode).toBe("queued");
+    });
+  });
+
   describe("invalidateByTenant", () => {
     it("removes all sessions for a given tenant", async () => {
       const registry = new SessionRegistry();

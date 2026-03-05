@@ -59,7 +59,6 @@ export { InMemorySessionStore } from "./session/in-memory-session-store.js";
 export { RedisSessionStore, createRedisSessionStore } from "./session/redis-session-store.js";
 export type { RedisLike } from "./session/redis-session-store.js";
 export { serializeSession, deserializeSession } from "./session/session-serializer.js";
-export type { SerializedSession } from "./session/session-serializer.js";
 export { isValidTransition, transitionSessionMode } from "./session/session-mode.js";
 export type { SessionMode } from "./session/session-mode.js";
 export { DefaultEscalationDetector, wordOverlapSimilarity } from "./session/escalation-detector.js";

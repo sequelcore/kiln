@@ -36,6 +36,12 @@ export class SessionRegistry {
     return this.store.get(key);
   }
 
+  /** Persist a mutated session back to the store. Required for non-reference stores (e.g. Redis). */
+  async save(session: ModeBSession): Promise<void> {
+    const key = this.sessionKey(session.appName, session.userId, session.tenantId);
+    await this.store.set(key, session);
+  }
+
   async remove(appName: string, userId: string, tenantId?: string): Promise<boolean> {
     const key = this.sessionKey(appName, userId, tenantId);
     return this.store.delete(key);

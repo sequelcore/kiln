@@ -281,7 +281,7 @@ describe("createHandoffRoutes", () => {
       const history = session.conversationHistory;
       const lastMessage = history[history.length - 1]!;
       expect(lastMessage.role).toBe("user");
-      expect(lastMessage.parts[0]).toEqual({ type: "text", text: "[System] Handoff context: Customer wanted appointment rescheduled to Friday." });
+      expect(lastMessage.parts[0]).toEqual({ type: "text", text: "[Handoff context] Customer wanted appointment rescheduled to Friday." });
     });
 
     it("emits HANDOFF_RELEASED event", async () => {

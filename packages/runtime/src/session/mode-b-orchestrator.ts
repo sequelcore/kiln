@@ -82,15 +82,20 @@ export class ModeBOrchestrator {
   ): Promise<OrchestrateResult> {
     // AI guard: skip LLM when session is not ai_active
     if (session.sessionMode !== "ai_active") {
-      session.addUserMessage(userParts);
-      return {
-        parts: [],
-        inputTokens: 0,
-        outputTokens: 0,
-        cacheReadTokens: 0,
-        cacheWriteTokens: 0,
-        queued: true,
-      };
+      // Auto-reopen resolved sessions on new user message
+      if (session.sessionMode === "resolved") {
+        session.setSessionMode("ai_active");
+      } else {
+        session.addUserMessage(userParts);
+        return {
+          parts: [],
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          queued: true,
+        };
+      }
     }
 
     // Pre-LLM escalation check
