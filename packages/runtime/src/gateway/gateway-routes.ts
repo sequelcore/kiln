@@ -20,6 +20,7 @@ import type { WhatsAppWebhookConfig } from "./whatsapp-webhook-routes.js";
 import { createWhatsAppWebhookRoutes } from "./whatsapp-webhook-routes.js";
 import type { TenantAdminRoutesConfig } from "./tenant-admin-routes.js";
 import { createTenantAdminRoutes } from "./tenant-admin-routes.js";
+import { createOutboundRoutes } from "./outbound-routes.js";
 import { HealthRegistry } from "./health-registry.js";
 import { securityMiddleware } from "./security-middleware.js";
 import { safetyMiddleware } from "./safety-middleware.js";
@@ -197,6 +198,14 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
     if (loadedApp.tenantAdminConfig) {
       const adminApp = createTenantAdminRoutes(loadedApp.tenantAdminConfig);
       app.route(`/admin/${loadedApp.name}`, adminApp);
+
+      // Outbound send routes (same auth as admin)
+      const outboundApp = createOutboundRoutes({
+        tenantRegistry: loadedApp.tenantAdminConfig.tenantRegistry,
+        appName: loadedApp.name,
+        adminToken: loadedApp.tenantAdminConfig.adminToken,
+      });
+      app.route(`/outbound/${loadedApp.name}`, outboundApp);
     }
   }
 

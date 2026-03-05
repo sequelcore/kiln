@@ -23,6 +23,8 @@ export { createWhatsAppWebhookRoutes } from "./gateway/whatsapp-webhook-routes.j
 export type { WhatsAppWebhookConfig } from "./gateway/whatsapp-webhook-routes.js";
 export { createTenantAdminRoutes } from "./gateway/tenant-admin-routes.js";
 export type { TenantAdminRoutesConfig } from "./gateway/tenant-admin-routes.js";
+export { createOutboundRoutes } from "./gateway/outbound-routes.js";
+export type { OutboundRoutesConfig } from "./gateway/outbound-routes.js";
 export { createMemoryRoutes } from "./gateway/memory-routes.js";
 export type { MemoryRoutesConfig } from "./gateway/memory-routes.js";
 export { ApprovalGateRegistry } from "./gateway/approval-registry.js";
@@ -73,7 +75,17 @@ export { SlackChannel } from "./channels/slack-channel.js";
 export type { SlackConfig } from "./channels/slack-channel.js";
 export { ApiChannel } from "./channels/api-channel.js";
 export type { SseWriter } from "./channels/api-channel.js";
-export { sendWhatsAppMessage, whatsappMessagesUrl, WHATSAPP_GRAPH_API_VERSION } from "./channels/whatsapp-api.js";
+export {
+  sendWhatsAppMessage,
+  sendWhatsAppTemplate,
+  whatsappMessagesUrl,
+  WHATSAPP_GRAPH_API_VERSION,
+} from "./channels/whatsapp-api.js";
+export type {
+  WhatsAppTemplateComponent,
+  WhatsAppTemplateParameter,
+  WhatsAppSendResult,
+} from "./channels/whatsapp-api.js";
 
 // Auth
 export { requireApiKey, requireBearer, requireWebhookSignature, isOriginAllowed } from "./gateway/auth-middleware.js";

@@ -5,7 +5,8 @@ export type ConversationEventType =
   | "MESSAGE_RECEIVED"
   | "MESSAGE_SENT"
   | "SESSION_STARTED"
-  | "SESSION_EXPIRED";
+  | "SESSION_EXPIRED"
+  | "DELIVERY_STATUS";
 
 export interface ConversationEvent {
   readonly eventType: ConversationEventType;
@@ -16,6 +17,12 @@ export interface ConversationEvent {
   readonly messageContent?: string;
   readonly messageRole?: string;
   readonly timestamp: string;
+  /** WhatsApp message ID (wamid) -- present for DELIVERY_STATUS events */
+  readonly whatsappMessageId?: string;
+  /** Delivery status -- present for DELIVERY_STATUS events */
+  readonly deliveryStatus?: "sent" | "delivered" | "read" | "failed";
+  /** Meta error code -- present for failed DELIVERY_STATUS events */
+  readonly errorCode?: number;
 }
 
 export interface ConversationEventBatch {

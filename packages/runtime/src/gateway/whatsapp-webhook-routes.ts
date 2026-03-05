@@ -40,6 +40,14 @@ interface MetaWebhookMessage {
   document?: { id: string; mime_type: string; filename?: string; caption?: string };
 }
 
+interface MetaWebhookStatus {
+  id: string;
+  status: "sent" | "delivered" | "read" | "failed";
+  timestamp: string;
+  recipient_id: string;
+  errors?: Array<{ code: number; title: string }>;
+}
+
 interface MetaWebhookPayload {
   object: string;
   entry?: Array<{
@@ -50,6 +58,7 @@ interface MetaWebhookPayload {
         metadata?: { phone_number_id?: string };
         contacts?: Array<{ profile?: { name?: string }; wa_id: string }>;
         messages?: MetaWebhookMessage[];
+        statuses?: MetaWebhookStatus[];
       };
     }>;
   }>;
@@ -161,15 +170,33 @@ export function createWhatsAppWebhookRoutes(config: WhatsAppWebhookConfig): Hono
         const phoneNumberId = change.value.metadata?.phone_number_id;
         if (!phoneNumberId) continue;
 
-        const messages = change.value.messages;
-        if (!messages) continue;
-
         // Resolve tenant by phone number
         const tenant = config.tenantRegistry.resolveByPhone(phoneNumberId, config.appName);
         if (!tenant) {
           console.warn(`[whatsapp] No tenant found for phone_number_id=${phoneNumberId} app=${config.appName}`);
           continue;
         }
+
+        // Forward delivery statuses to product backend (fire-and-forget)
+        const statuses = change.value.statuses;
+        if (statuses && config.eventEmitter) {
+          for (const status of statuses) {
+            config.eventEmitter.emit({
+              eventType: "DELIVERY_STATUS",
+              tenantId: tenant.tenantId,
+              channel: "whatsapp",
+              externalUserId: status.recipient_id,
+              whatsappMessageId: status.id,
+              deliveryStatus: status.status,
+              errorCode: status.errors?.[0]?.code,
+              timestamp: new Date(Number(status.timestamp) * 1000).toISOString(),
+            });
+          }
+        }
+
+        // Process incoming messages (if any -- status-only payloads have no messages)
+        const messages = change.value.messages;
+        if (!messages) continue;
 
         const contacts = change.value.contacts ?? [];
 
