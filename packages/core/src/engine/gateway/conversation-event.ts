@@ -6,7 +6,12 @@ export type ConversationEventType =
   | "MESSAGE_SENT"
   | "SESSION_STARTED"
   | "SESSION_EXPIRED"
-  | "DELIVERY_STATUS";
+  | "DELIVERY_STATUS"
+  | "ESCALATION_DETECTED"
+  | "HANDOFF_INITIATED"
+  | "HANDOFF_RELEASED"
+  | "OPERATOR_MESSAGE_SENT"
+  | "HANDOFF_MESSAGE_QUEUED";
 
 export interface ConversationEvent {
   readonly eventType: ConversationEventType;
@@ -23,6 +28,18 @@ export interface ConversationEvent {
   readonly deliveryStatus?: "sent" | "delivered" | "read" | "failed";
   /** Meta error code -- present for failed DELIVERY_STATUS events */
   readonly errorCode?: number;
+  /** Current session mode -- present for handoff-related events */
+  readonly sessionMode?: "ai_active" | "queued" | "human_active" | "resolved";
+  /** Reason for escalation -- present for ESCALATION_DETECTED events */
+  readonly escalationReason?: string;
+  /** Additional detail about escalation -- present for ESCALATION_DETECTED events */
+  readonly escalationDetail?: string;
+  /** Conversation summary -- present for HANDOFF_INITIATED events */
+  readonly summary?: string;
+  /** Operator identifier -- present for OPERATOR_MESSAGE_SENT events */
+  readonly operatorId?: string;
+  /** Trace identifier for correlating handoff events */
+  readonly traceId?: string;
 }
 
 export interface ConversationEventBatch {

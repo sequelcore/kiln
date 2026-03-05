@@ -74,6 +74,8 @@ export type KilnErrorCode =
   | "VOICE_CONFIG_INVALID"
   | "STT_FAILED"
   | "TTS_FAILED"
+  // Session
+  | "INVALID_SESSION_TRANSITION"
   // Safety (Phase 12)
   | "PII_DETECTED"
   | "CONTENT_POLICY_VIOLATED"

@@ -30,6 +30,7 @@ export interface OrchestrateResult {
   readonly outputTokens: number;
   readonly cacheReadTokens: number;
   readonly cacheWriteTokens: number;
+  readonly queued: boolean;
 }
 
 export class ModeBOrchestrator {
@@ -116,6 +117,7 @@ export class ModeBOrchestrator {
           outputTokens: totalOutputTokens,
           cacheReadTokens: totalCacheRead,
           cacheWriteTokens: totalCacheWrite,
+          queued: false,
         };
       }
 
@@ -188,6 +190,7 @@ export class ModeBOrchestrator {
       outputTokens: totalOutputTokens,
       cacheReadTokens: totalCacheRead,
       cacheWriteTokens: totalCacheWrite,
+      queued: false,
     };
   }
 

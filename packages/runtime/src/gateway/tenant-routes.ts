@@ -8,9 +8,9 @@ import type { ModeBOrchestrator } from "../session/mode-b-orchestrator.js";
 import type { SessionRegistry } from "../session/session-registry.js";
 import type { TenantRegistry } from "../tenant/tenant-registry.js";
 import { buildTenantSystemPrompt } from "../tenant/system-prompt-builder.js";
-import { checkBudget, reportUsage } from "./budget-middleware.js";
 import type { BillingConfig } from "./budget-middleware.js";
 import { requireApiKey } from "./auth-middleware.js";
+import { processInboundMessage } from "./message-pipeline.js";
 
 /** Runtime configuration for a multi-tenant App */
 export interface TenantAppRuntime {
@@ -69,51 +69,41 @@ export function createTenantRoutes(runtime: TenantAppRuntime): Hono {
       return c.json({ error: "Tenant is disabled" }, 403);
     }
 
-    // Budget check
+    // Resolve billing: tenant-level billing takes precedence
     const billingConfig = tenant.billing?.budgetEndpoint
       ? (tenant.billing as unknown as BillingConfig)
       : runtime.billing;
-    if (billingConfig) {
-      const budgetResult = await checkBudget(billingConfig, body.tenantId);
-      if (!budgetResult.allowed) {
-        return c.json({
-          content: billingConfig.overBudgetMessage ?? "Budget exhausted.",
-          budgetExhausted: true,
-        });
-      }
-    }
 
     // Build system prompt from tenant config
     const systemPrompt = buildTenantSystemPrompt(tenant);
 
-    // Get or create session with tenantId
-    const session = runtime.sessionRegistry.getOrCreate({
+    const processResult = await processInboundMessage({
+      orchestrator: runtime.orchestrator,
+      sessionRegistry: runtime.sessionRegistry,
       appName: runtime.appName,
       tenantId: body.tenantId,
       userId: body.userId,
       systemPrompt,
+      userParts,
+      billing: billingConfig,
+      channel: "api",
       idleTimeoutMs: tenant.idleTimeoutMs,
     });
 
-    // Process message
-    const result = await runtime.orchestrator.processMessage(session, userParts);
-
-    // Report token usage to billing (fire-and-forget)
-    if (billingConfig) {
-      reportUsage(billingConfig, {
-        tenantId: body.tenantId,
-        messages: 1,
-        tokens: result.inputTokens + result.outputTokens,
-        model: runtime.orchestrator.model ?? "unknown",
+    if (!processResult.ok) {
+      return c.json({
+        content: processResult.budgetDenied.message,
+        budgetExhausted: true,
       });
     }
 
+    const result = processResult.result;
     return c.json({
       content: extractText(result.parts),
       parts: result.parts,
       inputTokens: result.inputTokens,
       outputTokens: result.outputTokens,
-      sessionId: session.id,
+      sessionId: result.sessionId,
       tenantId: body.tenantId,
     });
   });

@@ -1,4 +1,7 @@
 import type { AgentMessage, ContentPart } from "@kilnai/core";
+import { extractText } from "@kilnai/core";
+import type { SessionMode } from "./session-mode.js";
+import { transitionSessionMode } from "./session-mode.js";
 
 export interface ModeBSessionConfig {
   readonly appName: string;
@@ -19,6 +22,7 @@ export class ModeBSession {
   private readonly _systemPrompt: string;
   private readonly _idleTimeoutMs: number;
   private readonly _history: AgentMessage[] = [];
+  private _sessionMode: SessionMode = "ai_active";
 
   constructor(config: ModeBSessionConfig) {
     this.appName = config.appName;
@@ -65,5 +69,28 @@ export class ModeBSession {
 
   touch(): void {
     this._lastActivityAt = new Date();
+  }
+
+  get sessionMode(): SessionMode {
+    return this._sessionMode;
+  }
+
+  setSessionMode(mode: SessionMode): void {
+    this._sessionMode = transitionSessionMode(this._sessionMode, mode);
+  }
+
+  lastAssistantTexts(count: number): string[] {
+    const texts: string[] = [];
+    for (let i = this._history.length - 1; i >= 0 && texts.length < count; i--) {
+      if (this._history[i]!.role === "assistant") {
+        texts.push(extractText(this._history[i]!.parts));
+      }
+    }
+    return texts.reverse();
+  }
+
+  injectOperatorMessage(parts: readonly ContentPart[]): void {
+    this._history.push({ role: "assistant", parts });
+    this.touch();
   }
 }

@@ -450,6 +450,13 @@ export function getErrorSuggestion(
         docUrl: docUrl(code),
       };
 
+    case "INVALID_SESSION_TRANSITION":
+      return {
+        suggestion:
+          "The requested session mode transition is not allowed. Valid transitions: ai_active -> queued/human_active, queued -> human_active/ai_active, human_active -> ai_active/resolved, resolved -> ai_active.",
+        docUrl: docUrl(code),
+      };
+
     case "INTERNAL_ERROR":
       return {
         suggestion:

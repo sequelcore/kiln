@@ -6,9 +6,10 @@ import type { ContentPart } from "@kilnai/core";
 import { textParts, extractText } from "@kilnai/core";
 import type { ModeBOrchestrator } from "../session/mode-b-orchestrator.js";
 import type { SessionRegistry } from "../session/session-registry.js";
-import { checkBudget, reportUsage, checkTier } from "./budget-middleware.js";
+import { checkTier } from "./budget-middleware.js";
 import type { BillingConfig } from "./budget-middleware.js";
 import { requireApiKey } from "./auth-middleware.js";
+import { processInboundMessage } from "./message-pipeline.js";
 
 /** Runtime configuration for a Mode B App */
 export interface ModeBAppRuntime {
@@ -54,60 +55,48 @@ export function createModeBRoutes(runtime: ModeBAppRuntime): Hono {
       return c.json({ error: "userId is required" }, 400);
     }
 
-    // Budget check
-    if (runtime.billing) {
-      const budgetResult = await checkBudget(runtime.billing, body.userId);
-      if (!budgetResult.allowed) {
+    // Tier enforcement (Mode B specific -- not in the pipeline)
+    if (runtime.billing?.tiers && body.plan) {
+      const tierResult = checkTier(runtime.billing, body.plan, "fast");
+      if (!tierResult.allowed) {
         return c.json({
-          content: runtime.billing.overBudgetMessage,
-          budgetExhausted: true,
+          content: `Tier "fast" is not available on your "${body.plan}" plan. Allowed tiers: ${tierResult.allowedTiers.join(", ")}`,
+          tierRestricted: true,
         });
-      }
-
-      // Tier enforcement
-      if (runtime.billing.tiers && body.plan) {
-        const tierResult = checkTier(runtime.billing, body.plan, "fast");
-        if (!tierResult.allowed) {
-          return c.json({
-            content: `Tier "fast" is not available on your "${body.plan}" plan. Allowed tiers: ${tierResult.allowedTiers.join(", ")}`,
-            tierRestricted: true,
-          });
-        }
       }
     }
 
-    // Get or create session
-    const session = runtime.sessionRegistry.getOrCreate({
-      appName: runtime.appName,
-      userId: body.userId,
-      systemPrompt: runtime.systemPrompt,
-    });
-
-    // Process message
-    let result;
+    let processResult;
     try {
-      result = await runtime.orchestrator.processMessage(session, userParts);
+      processResult = await processInboundMessage({
+        orchestrator: runtime.orchestrator,
+        sessionRegistry: runtime.sessionRegistry,
+        appName: runtime.appName,
+        userId: body.userId,
+        systemPrompt: runtime.systemPrompt,
+        userParts,
+        billing: runtime.billing,
+        channel: "api",
+      });
     } catch (err) {
       console.error(`[${runtime.appName}] processMessage error:`, err);
       return c.json({ error: String(err) }, 500);
     }
 
-    // Report token usage to billing (fire-and-forget)
-    if (runtime.billing) {
-      reportUsage(runtime.billing, {
-        tenantId: body.userId,
-        messages: 1,
-        tokens: result.inputTokens + result.outputTokens,
-        model: runtime.orchestrator.model ?? "unknown",
+    if (!processResult.ok) {
+      return c.json({
+        content: processResult.budgetDenied.message,
+        budgetExhausted: true,
       });
     }
 
+    const result = processResult.result;
     return c.json({
       content: extractText(result.parts),
       parts: result.parts,
       inputTokens: result.inputTokens,
       outputTokens: result.outputTokens,
-      sessionId: session.id,
+      sessionId: result.sessionId,
     });
   });
 

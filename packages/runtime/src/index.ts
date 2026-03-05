@@ -34,12 +34,23 @@ export type { DevOrchestratorConfig, DevRunResult } from "./gateway/dev-orchestr
 export { DevTokenStore } from "./gateway/dev-token-store.js";
 export type { DevToken } from "./gateway/dev-token-store.js";
 
+// Message Pipeline
+export { processInboundMessage } from "./gateway/message-pipeline.js";
+export type {
+  InboundMessageContext,
+  InboundMessageResult,
+  BudgetDeniedResult,
+  ProcessResult,
+} from "./gateway/message-pipeline.js";
+
 // Session
 export { ModeBSession } from "./session/mode-b-session.js";
 export type { ModeBSessionConfig } from "./session/mode-b-session.js";
 export { ModeBOrchestrator } from "./session/mode-b-orchestrator.js";
 export type { OrchestratorDeps, OrchestrateResult } from "./session/mode-b-orchestrator.js";
 export { SessionRegistry } from "./session/session-registry.js";
+export { isValidTransition, transitionSessionMode } from "./session/session-mode.js";
+export type { SessionMode } from "./session/session-mode.js";
 
 // Tenant
 export { TenantRegistry, TenantNotFoundError, TenantValidationFailedError } from "./tenant/tenant-registry.js";
