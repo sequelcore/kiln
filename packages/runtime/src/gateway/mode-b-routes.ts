@@ -100,8 +100,8 @@ export function createModeBRoutes(runtime: ModeBAppRuntime): Hono {
     });
   });
 
-  app.get("/sessions", (c) => {
-    const sessions = runtime.sessionRegistry.activeSessions();
+  app.get("/sessions", async (c) => {
+    const sessions = await runtime.sessionRegistry.activeSessions();
     return c.json({
       sessions: sessions.map((s) => ({
         id: s.id,
@@ -113,9 +113,9 @@ export function createModeBRoutes(runtime: ModeBAppRuntime): Hono {
     });
   });
 
-  app.delete("/sessions/:userId", (c) => {
+  app.delete("/sessions/:userId", async (c) => {
     const userId = c.req.param("userId");
-    const removed = runtime.sessionRegistry.remove(runtime.appName, userId);
+    const removed = await runtime.sessionRegistry.remove(runtime.appName, userId);
     return c.json({ removed });
   });
 

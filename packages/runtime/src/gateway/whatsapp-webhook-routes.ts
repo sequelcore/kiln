@@ -258,7 +258,7 @@ async function processWhatsAppMessage(
     : "";
   const messageText = extractText(messageParts);
 
-  const session = config.sessionRegistry.getOrCreate({
+  const session = await config.sessionRegistry.getOrCreate({
     appName: config.appName,
     tenantId,
     userId: senderPhone,

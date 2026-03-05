@@ -4,7 +4,7 @@ import type { AppGraphResponse, EvalExperimentSummary } from "./dev-routes-types
 
 export interface DevRoutesConfig {
   readonly getEventBus?: () => EventBus | undefined;
-  readonly getPhaseState?: () => Record<string, unknown>;
+  readonly getPhaseState?: () => Record<string, unknown> | Promise<Record<string, unknown>>;
   readonly getMemorySnapshot?: () => Record<string, unknown>;
   readonly getCostSummary?: () => CostSummary;
   readonly getAppNames?: () => string[];
@@ -28,8 +28,8 @@ export function createDevRoutes(config: DevRoutesConfig): Hono {
   const app = new Hono();
 
   // GET /state -- current phase machine state
-  app.get("/state", (c) => {
-    const state = config.getPhaseState?.() ?? { status: "idle", phase: null };
+  app.get("/state", async (c) => {
+    const state = await (config.getPhaseState?.() ?? { status: "idle", phase: null });
     return c.json(state);
   });
 

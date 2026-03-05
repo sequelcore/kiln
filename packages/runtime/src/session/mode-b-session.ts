@@ -3,6 +3,19 @@ import { extractText } from "@kilnai/core";
 import type { SessionMode } from "./session-mode.js";
 import { transitionSessionMode } from "./session-mode.js";
 
+export interface SerializedSessionData {
+  readonly id: string;
+  readonly appName: string;
+  readonly tenantId?: string;
+  readonly userId: string;
+  readonly systemPrompt: string;
+  readonly idleTimeoutMs: number;
+  readonly sessionMode: SessionMode;
+  readonly createdAt: string;
+  readonly lastActivityAt: string;
+  readonly history: readonly AgentMessage[];
+}
+
 export interface ModeBSessionConfig {
   readonly appName: string;
   readonly tenantId?: string;
@@ -55,6 +68,33 @@ export class ModeBSession {
 
   get systemPrompt(): string {
     return this._systemPrompt;
+  }
+
+  get idleTimeoutMs(): number {
+    return this._idleTimeoutMs;
+  }
+
+  static fromSerialized(data: SerializedSessionData): ModeBSession {
+    const session = new ModeBSession({
+      appName: data.appName,
+      tenantId: data.tenantId,
+      userId: data.userId,
+      systemPrompt: data.systemPrompt,
+      idleTimeoutMs: data.idleTimeoutMs,
+    });
+    // Override auto-generated values with serialized state
+    (session as { id: string }).id = data.id;
+    (session as { createdAt: Date }).createdAt = new Date(data.createdAt);
+    (session as unknown as { _lastActivityAt: Date })._lastActivityAt = new Date(data.lastActivityAt);
+    (session as unknown as { _sessionMode: SessionMode })._sessionMode = data.sessionMode;
+    // Replay history
+    for (const msg of data.history) {
+      if (msg.role === "user") session.addUserMessage(msg.parts);
+      else session.addAssistantMessage(msg.parts);
+    }
+    // Re-set lastActivityAt since addMessage calls touch()
+    (session as unknown as { _lastActivityAt: Date })._lastActivityAt = new Date(data.lastActivityAt);
+    return session;
   }
 
   addUserMessage(parts: readonly ContentPart[]): void {

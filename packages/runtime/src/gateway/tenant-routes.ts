@@ -108,9 +108,9 @@ export function createTenantRoutes(runtime: TenantAppRuntime): Hono {
     });
   });
 
-  app.get("/sessions", (c) => {
+  app.get("/sessions", async (c) => {
     const tenantIdFilter = c.req.query("tenantId");
-    let sessions = runtime.sessionRegistry.activeSessions();
+    let sessions = await runtime.sessionRegistry.activeSessions();
     if (tenantIdFilter) {
       sessions = sessions.filter((s) => s.tenantId === tenantIdFilter);
     }
@@ -126,10 +126,10 @@ export function createTenantRoutes(runtime: TenantAppRuntime): Hono {
     });
   });
 
-  app.delete("/sessions/:tenantId/:userId", (c) => {
+  app.delete("/sessions/:tenantId/:userId", async (c) => {
     const tenantId = c.req.param("tenantId");
     const userId = c.req.param("userId");
-    const removed = runtime.sessionRegistry.remove(runtime.appName, userId, tenantId);
+    const removed = await runtime.sessionRegistry.remove(runtime.appName, userId, tenantId);
     return c.json({ removed });
   });
 

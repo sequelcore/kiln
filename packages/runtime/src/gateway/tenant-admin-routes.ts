@@ -141,7 +141,7 @@ export function createTenantAdminRoutes(config: TenantAdminRoutesConfig): Hono {
     try {
       const safeUpdate = pickMutableFields(body);
       const updated = config.tenantRegistry.update(tenantId, safeUpdate);
-      config.sessionRegistry?.invalidateByTenant(config.appName, tenantId);
+      await config.sessionRegistry?.invalidateByTenant(config.appName, tenantId);
       return c.json(updated);
     } catch (err) {
       if (err instanceof TenantNotFoundError) {
@@ -155,14 +155,14 @@ export function createTenantAdminRoutes(config: TenantAdminRoutesConfig): Hono {
   });
 
   // DELETE /tenants/:tenantId -- remove tenant
-  app.delete("/tenants/:tenantId", (c) => {
+  app.delete("/tenants/:tenantId", async (c) => {
     const tenantId = c.req.param("tenantId");
     const tenant = config.tenantRegistry.get(tenantId);
     if (!tenant || tenant.appName !== config.appName) {
       return c.json({ error: "Tenant not found" }, 404);
     }
     config.tenantRegistry.remove(tenantId);
-    config.sessionRegistry?.invalidateByTenant(config.appName, tenantId);
+    await config.sessionRegistry?.invalidateByTenant(config.appName, tenantId);
     return c.json({ removed: true });
   });
 

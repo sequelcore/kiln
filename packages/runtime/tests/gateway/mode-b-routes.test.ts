@@ -86,7 +86,7 @@ describe("createModeBRoutes", () => {
         body: JSON.stringify({ message: "hello", userId: "user-1" }),
       });
 
-      const session = runtime.sessionRegistry.get("test-app", "user-1");
+      const session = await runtime.sessionRegistry.get("test-app", "user-1");
       expect(session).toBeDefined();
     });
 
@@ -256,7 +256,7 @@ describe("createModeBRoutes", () => {
       expect(body.removed).toBe(true);
 
       // Verify session is removed
-      expect(runtime.sessionRegistry.get("test-app", "user-1")).toBeUndefined();
+      expect(await runtime.sessionRegistry.get("test-app", "user-1")).toBeUndefined();
     });
   });
 });

@@ -321,9 +321,9 @@ describe("createTenantAdminRoutes", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(makeTenantBody({ tenantId: "patched", name: "Patched Salon" })),
       });
-      sessionRegistry.getOrCreate({ appName: "test-app", tenantId: "patched", userId: "u1", systemPrompt: "old" });
-      sessionRegistry.getOrCreate({ appName: "test-app", tenantId: "patched", userId: "u2", systemPrompt: "old" });
-      sessionRegistry.getOrCreate({ appName: "test-app", tenantId: "other", userId: "u1", systemPrompt: "keep" });
+      await sessionRegistry.getOrCreate({ appName: "test-app", tenantId: "patched", userId: "u1", systemPrompt: "old" });
+      await sessionRegistry.getOrCreate({ appName: "test-app", tenantId: "patched", userId: "u2", systemPrompt: "old" });
+      await sessionRegistry.getOrCreate({ appName: "test-app", tenantId: "other", userId: "u1", systemPrompt: "keep" });
 
       const res = await app.request("/tenants/patched", {
         method: "PATCH",
@@ -332,9 +332,9 @@ describe("createTenantAdminRoutes", () => {
       });
 
       expect(res.status).toBe(200);
-      expect(sessionRegistry.get("test-app", "u1", "patched")).toBeUndefined();
-      expect(sessionRegistry.get("test-app", "u2", "patched")).toBeUndefined();
-      expect(sessionRegistry.get("test-app", "u1", "other")).toBeDefined();
+      expect(await sessionRegistry.get("test-app", "u1", "patched")).toBeUndefined();
+      expect(await sessionRegistry.get("test-app", "u2", "patched")).toBeUndefined();
+      expect(await sessionRegistry.get("test-app", "u1", "other")).toBeDefined();
     });
 
     it("invalidates tenant sessions on DELETE", async () => {
@@ -347,12 +347,12 @@ describe("createTenantAdminRoutes", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(makeTenantBody({ tenantId: "doomed", name: "Doomed Salon" })),
       });
-      sessionRegistry.getOrCreate({ appName: "test-app", tenantId: "doomed", userId: "u1", systemPrompt: "sys" });
+      await sessionRegistry.getOrCreate({ appName: "test-app", tenantId: "doomed", userId: "u1", systemPrompt: "sys" });
 
       const res = await app.request("/tenants/doomed", { method: "DELETE" });
 
       expect(res.status).toBe(200);
-      expect(sessionRegistry.get("test-app", "u1", "doomed")).toBeUndefined();
+      expect(await sessionRegistry.get("test-app", "u1", "doomed")).toBeUndefined();
     });
 
     it("works without sessionRegistry (backward compatible)", async () => {

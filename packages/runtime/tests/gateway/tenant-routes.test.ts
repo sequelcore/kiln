@@ -157,7 +157,7 @@ describe("createTenantRoutes", () => {
         body: JSON.stringify({ message: "hello", userId: "user-1", tenantId: "test-tenant" }),
       });
 
-      const session = runtime.sessionRegistry.get("test-app", "user-1", "test-tenant");
+      const session = await runtime.sessionRegistry.get("test-app", "user-1", "test-tenant");
       expect(session).toBeDefined();
       expect(session!.tenantId).toBe("test-tenant");
     });
@@ -186,8 +186,8 @@ describe("createTenantRoutes", () => {
       expect(body1.sessionId).not.toBe(body2.sessionId);
 
       // Both sessions exist independently
-      const sessionA = runtime.sessionRegistry.get("test-app", "user-1", "tenant-a");
-      const sessionB = runtime.sessionRegistry.get("test-app", "user-1", "tenant-b");
+      const sessionA = await runtime.sessionRegistry.get("test-app", "user-1", "tenant-a");
+      const sessionB = await runtime.sessionRegistry.get("test-app", "user-1", "tenant-b");
       expect(sessionA).toBeDefined();
       expect(sessionB).toBeDefined();
       expect(sessionA!.id).not.toBe(sessionB!.id);
@@ -358,7 +358,7 @@ describe("createTenantRoutes", () => {
       expect(body.removed).toBe(true);
 
       // Verify session is removed
-      expect(runtime.sessionRegistry.get("test-app", "user-1", "test-tenant")).toBeUndefined();
+      expect(await runtime.sessionRegistry.get("test-app", "user-1", "test-tenant")).toBeUndefined();
     });
 
     it("returns false when session does not exist", async () => {

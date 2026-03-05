@@ -115,7 +115,7 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
                   }
                 }
 
-                const session = config.sessionRegistry.getOrCreate({
+                const session = await config.sessionRegistry.getOrCreate({
                   appName: config.appName,
                   tenantId: tenant.tenantId,
                   userId,

@@ -181,7 +181,7 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
             validateToken: config.validateToken,
             apiKey: runtime.apiKey,
             processMessage: async (userId, parts) => {
-              const session = runtime.sessionRegistry.getOrCreate({
+              const session = await runtime.sessionRegistry.getOrCreate({
                 appName: loadedApp.name,
                 userId,
                 systemPrompt: runtime.systemPrompt,

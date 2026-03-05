@@ -5,6 +5,7 @@ import type { BillingConfig } from "./budget-middleware.js";
 import { checkBudget, reportUsage } from "./budget-middleware.js";
 import type { ConversationEventEmitter } from "./conversation-event-emitter.js";
 import type { SessionMode } from "../session/session-mode.js";
+import type { EscalationSignal } from "../session/escalation-detector.js";
 
 export interface InboundMessageContext {
   readonly orchestrator: ModeBOrchestrator;
@@ -31,6 +32,8 @@ export interface InboundMessageResult {
   readonly queued: boolean;
   readonly sessionId: string;
   readonly sessionMode: SessionMode;
+  readonly escalation?: EscalationSignal;
+  readonly contextSummary?: string;
 }
 
 export interface BudgetDeniedResult {
@@ -58,7 +61,7 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
   }
 
   // Get or create session
-  const session = ctx.sessionRegistry.getOrCreate({
+  const session = await ctx.sessionRegistry.getOrCreate({
     appName: ctx.appName,
     tenantId: ctx.tenantId,
     userId: ctx.userId,
@@ -93,6 +96,33 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
       externalUserId: ctx.userId,
       timestamp: new Date().toISOString(),
     });
+
+    // Emit HANDOFF_MESSAGE_QUEUED when message was queued (session not ai_active)
+    if (result.queued) {
+      ctx.eventEmitter.emit({
+        eventType: "HANDOFF_MESSAGE_QUEUED",
+        tenantId: ctx.tenantId,
+        channel: ctx.channel,
+        externalUserId: ctx.userId,
+        sessionMode: session.sessionMode,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // Emit ESCALATION_DETECTED when escalation signal is present
+    if (result.escalation) {
+      ctx.eventEmitter.emit({
+        eventType: "ESCALATION_DETECTED",
+        tenantId: ctx.tenantId,
+        channel: ctx.channel,
+        externalUserId: ctx.userId,
+        escalationReason: result.escalation.reason,
+        escalationDetail: result.escalation.detail,
+        summary: result.contextSummary,
+        sessionMode: session.sessionMode,
+        timestamp: new Date().toISOString(),
+      });
+    }
   }
 
   return {
@@ -106,6 +136,8 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
       queued: result.queued,
       sessionId: session.id,
       sessionMode: session.sessionMode,
+      escalation: result.escalation,
+      contextSummary: result.contextSummary,
     },
   };
 }

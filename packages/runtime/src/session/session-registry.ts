@@ -1,20 +1,23 @@
 import { ModeBSession } from "./mode-b-session.js";
 import type { ModeBSessionConfig } from "./mode-b-session.js";
 import type { ConversationEventEmitter } from "../gateway/conversation-event-emitter.js";
+import type { SessionStore } from "./session-store.js";
+import { InMemorySessionStore } from "./in-memory-session-store.js";
 
 export class SessionRegistry {
-  private readonly sessions = new Map<string, ModeBSession>();
+  private readonly store: SessionStore;
   private readonly defaultIdleTimeoutMs?: number;
   eventEmitter?: ConversationEventEmitter;
 
-  constructor(defaultIdleTimeoutMs?: number) {
+  constructor(defaultIdleTimeoutMs?: number, store?: SessionStore) {
     this.defaultIdleTimeoutMs = defaultIdleTimeoutMs;
+    this.store = store ?? new InMemorySessionStore();
   }
 
-  getOrCreate(config: ModeBSessionConfig): ModeBSession {
-    this.cleanup();
+  async getOrCreate(config: ModeBSessionConfig): Promise<ModeBSession> {
+    await this.cleanup();
     const key = this.sessionKey(config.appName, config.userId, config.tenantId);
-    const existing = this.sessions.get(key);
+    const existing = await this.store.get(key);
     if (existing && !existing.isExpired) {
       return existing;
     }
@@ -24,54 +27,53 @@ export class SessionRegistry {
         ? { ...config, idleTimeoutMs: config.idleTimeoutMs ?? this.defaultIdleTimeoutMs }
         : config;
     const session = new ModeBSession(sessionConfig);
-    this.sessions.set(key, session);
+    await this.store.set(key, session);
     return session;
   }
 
-  get(appName: string, userId: string, tenantId?: string): ModeBSession | undefined {
+  async get(appName: string, userId: string, tenantId?: string): Promise<ModeBSession | undefined> {
     const key = this.sessionKey(appName, userId, tenantId);
-    return this.sessions.get(key);
+    return this.store.get(key);
   }
 
-  remove(appName: string, userId: string, tenantId?: string): boolean {
+  async remove(appName: string, userId: string, tenantId?: string): Promise<boolean> {
     const key = this.sessionKey(appName, userId, tenantId);
-    return this.sessions.delete(key);
+    return this.store.delete(key);
   }
 
   /** Remove all sessions for a given tenant. Returns the number of sessions invalidated. */
-  invalidateByTenant(appName: string, tenantId: string): number {
+  async invalidateByTenant(appName: string, tenantId: string): Promise<number> {
     const prefix = `${appName}:${tenantId}:`;
-    let removed = 0;
-    for (const key of this.sessions.keys()) {
-      if (key.startsWith(prefix)) {
-        this.sessions.delete(key);
-        removed++;
-      }
-    }
-    return removed;
+    return this.store.deleteByPrefix(prefix);
   }
 
-  activeCount(): number {
+  async activeCount(): Promise<number> {
+    const allKeys = await this.store.keys();
     let count = 0;
-    for (const session of this.sessions.values()) {
-      if (!session.isExpired) count++;
+    for (const key of allKeys) {
+      const session = await this.store.get(key);
+      if (session && !session.isExpired) count++;
     }
     return count;
   }
 
-  activeSessions(): readonly ModeBSession[] {
+  async activeSessions(): Promise<readonly ModeBSession[]> {
+    const allKeys = await this.store.keys();
     const active: ModeBSession[] = [];
-    for (const session of this.sessions.values()) {
-      if (!session.isExpired) active.push(session);
+    for (const key of allKeys) {
+      const session = await this.store.get(key);
+      if (session && !session.isExpired) active.push(session);
     }
     return active;
   }
 
-  cleanup(): number {
+  async cleanup(): Promise<number> {
+    const allKeys = await this.store.keys();
     let removed = 0;
-    for (const [key, session] of this.sessions) {
-      if (session.isExpired) {
-        this.sessions.delete(key);
+    for (const key of allKeys) {
+      const session = await this.store.get(key);
+      if (session && session.isExpired) {
+        await this.store.delete(key);
         removed++;
 
         if (this.eventEmitter && session.tenantId) {

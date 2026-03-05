@@ -37,7 +37,7 @@ function makeMockOrchestrator(): ModeBOrchestrator {
 function makeMockSessionRegistry(session?: ModeBSession): SessionRegistry {
   const mockSession = session ?? makeMockSession();
   return {
-    getOrCreate: vi.fn().mockReturnValue(mockSession),
+    getOrCreate: vi.fn().mockResolvedValue(mockSession),
   } as unknown as SessionRegistry;
 }
 

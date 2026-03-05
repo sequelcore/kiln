@@ -43,10 +43,14 @@
   },
   "peerDependencies": {
     "@kilnai/core": "workspace:*",
-    "@opentelemetry/api": "^1.9.0"
+    "@opentelemetry/api": "^1.9.0",
+    "ioredis": ">=5.0.0"
   },
   "peerDependenciesMeta": {
     "@opentelemetry/api": {
+      "optional": true
+    },
+    "ioredis": {
       "optional": true
     }
   }

@@ -480,8 +480,8 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
           devOrchestrator,
           tokenStore,
         }),
-        getPhaseState: () => {
-          const active = sessionRegistry.activeSessions();
+        getPhaseState: async () => {
+          const active = await sessionRegistry.activeSessions();
           const orch = devOrchestrator?.orchestrator;
           return {
             status: orch && devOrchestrator.isRunning ? orch.status : (active.length > 0 ? "active" : "idle"),
