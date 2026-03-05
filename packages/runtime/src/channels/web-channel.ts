@@ -99,6 +99,15 @@ export class WebChannel implements Channel {
     }
   }
 
+  /** Send a payload to all WebSocket clients for a given user/session */
+  sendToUser(userId: string, payload: string): void {
+    const set = this.sessions.get(userId);
+    if (!set) return;
+    for (const client of set) {
+      this.trySend(set, client, payload);
+    }
+  }
+
   /** Send to clients in a specific session */
   private sendToSession(sessionId: string, payload: string): void {
     const set = this.sessions.get(sessionId);

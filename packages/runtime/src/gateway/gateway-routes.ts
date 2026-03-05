@@ -21,6 +21,7 @@ import { createWhatsAppWebhookRoutes } from "./whatsapp-webhook-routes.js";
 import type { TenantAdminRoutesConfig } from "./tenant-admin-routes.js";
 import { createTenantAdminRoutes } from "./tenant-admin-routes.js";
 import { createOutboundRoutes } from "./outbound-routes.js";
+import { createHandoffRoutes } from "./handoff-routes.js";
 import { HealthRegistry } from "./health-registry.js";
 import { securityMiddleware } from "./security-middleware.js";
 import { safetyMiddleware } from "./safety-middleware.js";
@@ -206,6 +207,20 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
         adminToken: loadedApp.tenantAdminConfig.adminToken,
       });
       app.route(`/outbound/${loadedApp.name}`, outboundApp);
+
+      // Handoff routes for multi-tenant apps (operator messaging, session transitions)
+      const sessionRegistry = loadedApp.tenantRuntime?.sessionRegistry ?? loadedApp.modeBRuntime?.sessionRegistry;
+      if (sessionRegistry) {
+        const handoffApp = createHandoffRoutes({
+          sessionRegistry,
+          tenantRegistry: loadedApp.tenantAdminConfig.tenantRegistry,
+          appName: loadedApp.name,
+          adminToken: loadedApp.tenantAdminConfig.adminToken,
+          webChannel: loadedApp.webChannel,
+          eventEmitter: loadedApp.eventEmitter,
+        });
+        app.route(`/handoff/${loadedApp.name}`, handoffApp);
+      }
     }
   }
 
