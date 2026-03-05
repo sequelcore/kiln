@@ -7,9 +7,11 @@ import type {
   CostUpdateEvent,
   ErrorEvent,
 } from "@kilnai/core";
-import { MODEL_PRICING } from "@kilnai/core";
+import { MODEL_PRICING, extractText } from "@kilnai/core";
 import type { ModelPricing } from "@kilnai/core";
 import type { ModeBSession } from "./mode-b-session.js";
+import type { EscalationDetector, EscalationSignal } from "./escalation-detector.js";
+import type { ContextSummarizer } from "./context-summarizer.js";
 
 const DEFAULT_MAX_TOOL_ROUNDS = 10;
 
@@ -22,6 +24,8 @@ export interface OrchestratorDeps {
   readonly mcpClients?: readonly McpClient[];
   readonly builtinTools?: ReadonlyMap<string, (input: Record<string, unknown>) => Promise<unknown>>;
   readonly eventBus?: EventBus;
+  readonly escalationDetector?: EscalationDetector;
+  readonly contextSummarizer?: ContextSummarizer;
 }
 
 export interface OrchestrateResult {
@@ -31,6 +35,8 @@ export interface OrchestrateResult {
   readonly cacheReadTokens: number;
   readonly cacheWriteTokens: number;
   readonly queued: boolean;
+  readonly escalation?: EscalationSignal;
+  readonly contextSummary?: string;
 }
 
 export class ModeBOrchestrator {
@@ -74,6 +80,27 @@ export class ModeBOrchestrator {
     recalledMemory?: string,
     callBuiltinTools?: ReadonlyMap<string, (input: Record<string, unknown>) => Promise<unknown>>,
   ): Promise<OrchestrateResult> {
+    // AI guard: skip LLM when session is not ai_active
+    if (session.sessionMode !== "ai_active") {
+      session.addUserMessage(userParts);
+      return {
+        parts: [],
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        queued: true,
+      };
+    }
+
+    // Pre-LLM escalation check
+    let escalation: EscalationSignal | undefined;
+    if (this.deps.escalationDetector) {
+      const userText = extractText(userParts);
+      const signal = this.deps.escalationDetector.checkPreLLM(userText);
+      if (signal) escalation = signal;
+    }
+
     session.addUserMessage(userParts);
 
     let system = session.systemPrompt;
@@ -111,6 +138,23 @@ export class ModeBOrchestrator {
 
       if (!hasTools || response.toolCalls.length === 0) {
         session.addAssistantMessage(response.parts);
+
+        // Post-LLM escalation check (only if pre-LLM didn't trigger)
+        if (!escalation && this.deps.escalationDetector) {
+          const postSignal = this.deps.escalationDetector.checkPostLLM(session, response.parts);
+          if (postSignal) escalation = postSignal;
+        }
+
+        // Generate context summary if escalation detected and summarizer available
+        let contextSummary: string | undefined;
+        if (escalation && this.deps.contextSummarizer) {
+          try {
+            contextSummary = await this.deps.contextSummarizer.summarize(session);
+          } catch {
+            // Non-critical: proceed without summary
+          }
+        }
+
         return {
           parts: response.parts,
           inputTokens: totalInputTokens,
@@ -118,6 +162,8 @@ export class ModeBOrchestrator {
           cacheReadTokens: totalCacheRead,
           cacheWriteTokens: totalCacheWrite,
           queued: false,
+          escalation,
+          contextSummary,
         };
       }
 
@@ -184,6 +230,23 @@ export class ModeBOrchestrator {
     this.emitCostUpdate(session.id, totalInputTokens, totalOutputTokens, totalCacheRead, totalCacheWrite);
 
     session.addAssistantMessage(finalResponse.parts);
+
+    // Post-LLM escalation check (only if pre-LLM didn't trigger)
+    if (!escalation && this.deps.escalationDetector) {
+      const postSignal = this.deps.escalationDetector.checkPostLLM(session, finalResponse.parts);
+      if (postSignal) escalation = postSignal;
+    }
+
+    // Generate context summary if escalation detected and summarizer available
+    let contextSummary: string | undefined;
+    if (escalation && this.deps.contextSummarizer) {
+      try {
+        contextSummary = await this.deps.contextSummarizer.summarize(session);
+      } catch {
+        // Non-critical: proceed without summary
+      }
+    }
+
     return {
       parts: finalResponse.parts,
       inputTokens: totalInputTokens,
@@ -191,6 +254,8 @@ export class ModeBOrchestrator {
       cacheReadTokens: totalCacheRead,
       cacheWriteTokens: totalCacheWrite,
       queued: false,
+      escalation,
+      contextSummary,
     };
   }
 

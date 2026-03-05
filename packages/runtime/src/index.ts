@@ -45,12 +45,26 @@ export type {
 
 // Session
 export { ModeBSession } from "./session/mode-b-session.js";
-export type { ModeBSessionConfig } from "./session/mode-b-session.js";
+export type { ModeBSessionConfig, SerializedSessionData } from "./session/mode-b-session.js";
 export { ModeBOrchestrator } from "./session/mode-b-orchestrator.js";
 export type { OrchestratorDeps, OrchestrateResult } from "./session/mode-b-orchestrator.js";
 export { SessionRegistry } from "./session/session-registry.js";
+export type { SessionStore } from "./session/session-store.js";
+export { InMemorySessionStore } from "./session/in-memory-session-store.js";
+export { RedisSessionStore, createRedisSessionStore } from "./session/redis-session-store.js";
+export type { RedisLike } from "./session/redis-session-store.js";
+export { serializeSession, deserializeSession } from "./session/session-serializer.js";
+export type { SerializedSession } from "./session/session-serializer.js";
 export { isValidTransition, transitionSessionMode } from "./session/session-mode.js";
 export type { SessionMode } from "./session/session-mode.js";
+export { DefaultEscalationDetector, wordOverlapSimilarity } from "./session/escalation-detector.js";
+export type {
+  EscalationSignal,
+  EscalationDetector,
+  DefaultEscalationDetectorConfig,
+} from "./session/escalation-detector.js";
+export { DefaultContextSummarizer } from "./session/context-summarizer.js";
+export type { ContextSummarizer } from "./session/context-summarizer.js";
 
 // Tenant
 export { TenantRegistry, TenantNotFoundError, TenantValidationFailedError } from "./tenant/tenant-registry.js";
