@@ -66,6 +66,18 @@ Domains describe a technology context -- detection patterns, quality gates, few-
 
 ---
 
+**How does human handoff work in Mode B?**
+
+Mode B sessions have a `sessionMode` state machine with four states: `ai_active` (default), `queued`, `human_active`, and `resolved`. When escalation is detected (keywords like "talk to agent" or conversational loop detection), the session transitions to `queued` and an `ESCALATION_DETECTED` event is emitted. A human operator can then claim the session via `POST /handoff`, send messages via `POST /operator-message`, and release back to AI via `POST /release`. Resolved sessions auto-reopen to `ai_active` on the next user message. All handoff routes require Bearer authentication. See [Gateway YAML Reference](configuration/gateway-yaml.md#session--handoff) for the full API.
+
+---
+
+**What happens if two requests modify the same session simultaneously?**
+
+`SessionRegistry.save()` uses optimistic concurrency control. Each session tracks a `version` counter that increments on every mutation. When saving, the stored version is compared to the session's `loadedVersion` (set when the session was loaded). If they differ, `CONCURRENT_SESSION_MODIFICATION` is thrown (retryable). This is critical for Redis-backed stores where each `get()` returns a new deserialized object. For the in-memory store, same-reference sessions bypass the version check since mutations are immediately visible.
+
+---
+
 **How does memory decay work?**
 
 Agent-scoped memory stores (`agent:{role}`) apply a decay function that reduces the relevance score of entries over time, so older memories are ranked lower in recall results but not deleted. Three curve types are supported: `exponential` (fast drop-off, good for ephemeral patterns), `linear` (steady reduction), and `step` (full relevance until a hard cutoff). When a store exceeds a configured size threshold, `MemoryCompactor` summarizes older entries into compressed form and archives the originals. Configure decay and compaction thresholds in the memory backend options. See [Memory](guides/memory.md) for configuration details.

@@ -358,6 +358,22 @@ Production deployments provide a custom `IdentityResolver` that queries a user i
 
 ---
 
+## Handoff Integration
+
+Channels participate in the human handoff workflow. When a session is in `queued` or `human_active` mode, messages from end users are stored in the session history but AI does not respond -- the channel receives a `queued: true` signal instead of AI output.
+
+**WebSocket (multi-tenant).** `ws-tenant-routes.ts` emits `HANDOFF_MESSAGE_QUEUED` conversation events when a message arrives for a non-`ai_active` session, and `ESCALATION_DETECTED` events when the escalation detector triggers. Operator messages sent via the handoff API are delivered as WebSocket frames to the connected user.
+
+**WhatsApp.** `whatsapp-webhook-routes.ts` follows the same pattern: `HANDOFF_MESSAGE_QUEUED` and `ESCALATION_DETECTED` events are emitted. Operator messages are delivered via the WhatsApp Business API (`sendWhatsAppMessage`).
+
+**REST API.** The shared `message-pipeline.ts` handles handoff for API channel requests. The response includes `{ queued: true }` when a message is queued for human review.
+
+All channels call `SessionRegistry.save()` after processing to persist session mutations (critical for Redis-backed stores).
+
+See [Gateway YAML Reference](../configuration/gateway-yaml.md#session--handoff) for the handoff API routes and event types.
+
+---
+
 ## Integration with Gateway
 
 Channels are declared per-App in `gateway.yaml` via channel bindings. The Gateway instantiates the corresponding adapter for each binding and mounts its routes under the Hono router. Each App has its own isolated set of channel instances.

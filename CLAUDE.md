@@ -39,7 +39,7 @@ Bun monorepo with 6 packages:
 | gateway | `runtime/src/gateway/` | Multi-app loading, Mode B routes, budget middleware, composable auth middleware, conversation event emitter, delegation, dev routes, safety/security middleware |
 | a2a | `runtime/src/a2a/` | A2AClient (outbound delegation only) |
 | trigger | `runtime/src/trigger/` | TriggerRegistry, webhook handler (HMAC-SHA256), event listener, cron scheduler |
-| session | `runtime/src/session/` | ModeBSession, ModeBOrchestrator (builtin tools, per-call tools, recalledMemory), SessionRegistry. Future: handoff state (AI/human/paused), operator message injection |
+| session | `runtime/src/session/` | ModeBSession (version tracking, optimistic concurrency), ModeBOrchestrator (builtin tools, per-call tools, recalledMemory, AI guard), SessionRegistry (pluggable SessionStore, save with concurrency check), SessionMode state machine (ai_active/queued/human_active/resolved), session serializer |
 | tenant | `runtime/src/tenant/` | TenantRegistry (JSON persistence, resolveByWidgetId), system prompt builder (businessName + name identity), suggestion parser |
 | handoff | `runtime/src/gateway/handoff-routes.ts` + `runtime/src/session/escalation-detector.ts` + `runtime/src/session/context-summarizer.ts` | Human handoff: session mode state machine, escalation detection, operator messaging, AI guard |
 | channels | `runtime/src/channels/` | 5 adapters (CLI, Web, WhatsApp, Slack, API), ChannelRouter, formatForChannel |
@@ -103,7 +103,7 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `engine/composites/team.ts` | Team composite + validateTeam() |
 | `engine/composites/router.ts` | Router composite + validateRouter() |
 | `engine/loader/app-loader.ts` | YAML -> App (parseAppYaml, validateAppGraph) |
-| `engine/errors.ts` | KilnError base class (55 codes) + KilnErrorCode union type |
+| `engine/errors.ts` | KilnError base class (56 codes) + KilnErrorCode union type |
 | `engine/error-catalog.ts` | getErrorSuggestion(): context-aware suggestions + doc URLs |
 | `orchestrator/orchestrator.ts` | Session lifecycle, checkpoint/resume, strategy-based execution |
 | `orchestrator/phase-machine.ts` | Configurable phases + gates |
@@ -137,7 +137,7 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `gateway/dev-orchestrator.ts` | DevOrchestrator: bridges core Orchestrator with ApprovalGateRegistry and gateway EventBus |
 | `channels/whatsapp-channel.ts` | WhatsApp Business API webhook adapter |
 | `channels/slack-channel.ts` | Slack Bot Events + Web API adapter |
-| `session/session-registry.ts` | Multi-user session management + cleanup, SESSION_EXPIRED event emission |
+| `session/session-registry.ts` | Multi-user session management + cleanup, save() with optimistic concurrency, SESSION_EXPIRED event emission |
 | `session/session-mode.ts` | SessionMode type (ai_active, queued, human_active, resolved), transition validator |
 | `session/session-store.ts` | SessionStore interface (async get/set/delete/deleteByPrefix/keys) |
 | `session/in-memory-session-store.ts` | Map-based SessionStore for dev mode and tests |

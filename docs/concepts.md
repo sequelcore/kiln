@@ -318,6 +318,32 @@ billing:
 
 Budget middleware is fail-open: a billing service outage never blocks users.
 
+### Handoff & Escalation
+
+Mode B apps support human handoff -- transitioning a conversation from AI to a human operator and back. The session mode state machine governs lifecycle:
+
+```
+ai_active ──→ queued ──→ human_active ──→ ai_active
+    │             │            │
+    │             └────────────┴──→ resolved
+    └──→ resolved ──→ ai_active (auto-reopen on new message)
+```
+
+| Mode | Description |
+|------|-------------|
+| `ai_active` | AI processes messages normally (default) |
+| `queued` | Messages are queued for human review; AI does not respond |
+| `human_active` | A human operator is handling the conversation |
+| `resolved` | Conversation is closed; auto-reopens to `ai_active` on new user message |
+
+**Escalation detection** runs after every AI response. The `EscalationDetector` checks for keywords (e.g., "hablar con humano", "talk to agent") and conversational loops (repeated similar responses). When triggered, an `ESCALATION_DETECTED` conversation event is emitted and the session transitions to `queued`.
+
+**Operator messaging** allows human operators to send messages to end users via the handoff API. Messages are injected into the session history as assistant messages and delivered through the active channel (WebSocket or WhatsApp).
+
+**Optimistic concurrency** prevents race conditions on session mutations. Each session tracks a `version` counter that increments on every mutation. `SessionRegistry.save()` checks that the stored version matches the version at load time, throwing `CONCURRENT_SESSION_MODIFICATION` on conflict.
+
+See [Gateway YAML Reference](configuration/gateway-yaml.md#session--handoff) for handoff API routes and configuration.
+
 ---
 
 ## Content Model

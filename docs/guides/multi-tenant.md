@@ -64,10 +64,35 @@ Mode B Apps support concurrent multi-user sessions managed by `SessionRegistry`.
 | Method | Description |
 |--------|-------------|
 | `getOrCreate(config)` | Returns existing non-expired session or creates new. |
-| `get(appName, userId)` | Returns session if it exists (may be expired). |
-| `remove(appName, userId)` | Deletes session. Returns `true` if it existed. |
+| `get(appName, userId, tenantId?)` | Returns session if it exists (may be expired). Tenant-scoped when `tenantId` is provided. |
+| `save(session)` | Persist a mutated session. Uses optimistic concurrency: throws `CONCURRENT_SESSION_MODIFICATION` if the stored version diverges from `loadedVersion`. Required for non-reference stores (e.g., Redis). |
+| `remove(appName, userId, tenantId?)` | Deletes session. Returns `true` if it existed. |
+| `invalidateByTenant(appName, tenantId)` | Removes all sessions for a tenant. Returns count removed. Used on tenant config updates. |
 | `activeSessions()` | Returns all non-expired sessions. |
-| `cleanup()` | Removes expired sessions. Returns count removed. |
+| `activeCount()` | Returns count of non-expired sessions. |
+| `cleanup()` | Removes expired sessions. Returns count removed. Emits `SESSION_EXPIRED` events. |
+
+### Session Store
+
+`SessionRegistry` accepts a pluggable `SessionStore` backend. Two implementations ship:
+
+- **`InMemorySessionStore`** (default) -- Map-based, suitable for dev mode and single-process deployments. Sessions are references, so mutations are visible immediately without calling `save()`.
+- **`RedisSessionStore`** -- Uses `ioredis` (dynamically imported). Sessions are serialized to JSON on write and deserialized on read, so `save()` must be called after every mutation.
+
+### SessionMode
+
+Sessions have a `sessionMode` field that controls how messages are processed:
+
+| Mode | Behavior |
+|------|----------|
+| `ai_active` | AI processes messages normally (default) |
+| `queued` | Messages stored but AI does not respond |
+| `human_active` | Human operator handling the conversation |
+| `resolved` | Conversation closed; auto-reopens on new user message |
+
+The AI guard in `ModeBOrchestrator` checks `sessionMode` before processing. When a session is `queued` or `human_active`, the message is stored and `{ queued: true }` is returned. When a session is `resolved`, it auto-transitions to `ai_active` and processes normally.
+
+See [Gateway YAML Reference](../configuration/gateway-yaml.md#session--handoff) for the full handoff API.
 
 ## Budget Enforcement
 

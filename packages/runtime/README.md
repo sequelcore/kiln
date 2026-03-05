@@ -86,7 +86,7 @@ await startDevServer("app.yaml", { port: 3000 });
 | Module | Exports |
 |--------|---------|
 | Gateway | `startGateway()`, `startDevServer()`, `createGatewayApp()`, `resolveApps()` |
-| Session | `ModeBOrchestrator`, `ModeBSession`, `SessionRegistry` |
+| Session | `ModeBOrchestrator`, `ModeBSession`, `SessionRegistry`, `SessionMode`, `SessionStore`, `InMemorySessionStore`, `RedisSessionStore`, `serializeSession`, `deserializeSession` |
 | Tenant | `TenantRegistry`, `buildTenantSystemPrompt()`, `extractSuggestions()` |
 | Triggers | `TriggerRegistry`, `createWebhookHandler()`, `EventListener`, `Scheduler` |
 | Channels | `WebChannel`, `WhatsAppChannel`, `SlackChannel`, `CliChannel`, `ApiChannel` |
@@ -105,6 +105,10 @@ When the gateway starts, it automatically mounts:
 | `POST /whatsapp/{name}/webhook` | WhatsApp webhook |
 | `POST /webhooks/{name}/{path}` | Webhook triggers |
 | `POST /admin/{name}/tenants` | Tenant CRUD (admin API) |
+| `POST /{path}/handoff` | Initiate handoff (transition to queued/human_active) |
+| `POST /{path}/release` | Release session back to ai_active |
+| `POST /{path}/operator-message` | Send operator message to end user |
+| `GET /{path}/session-history` | Retrieve full conversation history |
 | `GET /api/memory` | Memory read API |
 
 ## Documentation

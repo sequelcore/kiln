@@ -344,11 +344,47 @@ A single turn with `fast` tier costs approximately $0.001. A full multi-turn ses
 
 Mode B apps support human handoff -- transitioning a conversation from AI to a human operator and back. Configuration is set in the app's `app.yaml`, not `gateway.yaml`.
 
+### SessionMode State Machine
+
+Sessions have a `sessionMode` that governs how messages are processed:
+
+```
+ai_active ──→ queued ──→ human_active ──→ ai_active
+    │             │            │
+    │             └────────────┴──→ resolved
+    └──→ resolved ──→ ai_active (auto-reopen on new user message)
+```
+
+| Mode | Behavior |
+|------|----------|
+| `ai_active` | AI processes messages normally (default) |
+| `queued` | Messages are stored in session history but AI does not respond; `queued: true` is returned |
+| `human_active` | A human operator is handling the conversation via the handoff API |
+| `resolved` | Conversation is closed; auto-reopens to `ai_active` on the next user message |
+
+Invalid transitions (e.g., `ai_active` → `resolved`) throw `INVALID_SESSION_TRANSITION`.
+
 ### Session Store
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `redis.url` | `string` | — | Optional Redis URL for session persistence. When omitted, sessions are stored in-memory (lost on restart). |
+
+The `SessionStore` interface supports pluggable backends:
+
+| Method | Description |
+|--------|-------------|
+| `get(key)` | Retrieve a session by key (deserializes from JSON for non-reference stores) |
+| `set(key, session)` | Store a session (serializes to JSON for non-reference stores) |
+| `delete(key)` | Remove a session by key |
+| `deleteByPrefix(prefix)` | Remove all sessions matching a key prefix (used by `invalidateByTenant`) |
+| `keys()` | List all stored session keys |
+
+Two implementations ship: `InMemorySessionStore` (default, Map-based) and `RedisSessionStore` (dynamic `ioredis` import, TTL, key prefix).
+
+### Optimistic Concurrency
+
+Each `ModeBSession` tracks a `version` counter that increments on every mutation (addUserMessage, addAssistantMessage, setSessionMode, injectOperatorMessage). When saving via `SessionRegistry.save()`, the stored version is compared to the session's `loadedVersion`. A mismatch throws `CONCURRENT_SESSION_MODIFICATION` (retryable). This prevents lost updates when two requests modify the same session concurrently (critical for Redis-backed stores where each `get()` returns a new deserialized object).
 
 ### Escalation Detection
 
@@ -361,16 +397,110 @@ Escalation detection runs after every AI response. When triggered, an `ESCALATIO
 
 ### Handoff API Routes
 
-When a multi-tenant web or WhatsApp channel is configured, handoff routes are mounted under the app's path:
+When a multi-tenant web or WhatsApp channel is configured, handoff routes are mounted under the app's path. All routes require Bearer authentication via `adminTokenEnv`. A startup warning is logged if no `adminToken` is configured.
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/{path}/handoff` | Transition session to `queued` or `human_active` |
-| `POST` | `/{path}/release` | Release session back to `ai_active` |
-| `POST` | `/{path}/operator-message` | Send operator message to end user via channel |
-| `GET` | `/{path}/session-history` | Retrieve full conversation history |
+#### POST /{path}/handoff
 
-All handoff routes require Bearer authentication via `adminTokenEnv`.
+Transition session to `queued` or `human_active`.
+
+**Request:**
+```json
+{
+  "tenantId": "string",
+  "userId": "string",
+  "targetMode": "queued" | "human_active",
+  "operatorId": "string (optional)",
+  "reason": "string (optional)"
+}
+```
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "sessionId": "string",
+  "previousMode": "ai_active",
+  "newMode": "queued"
+}
+```
+
+**Errors:** 400 (missing fields), 404 (session not found), 409 (invalid transition or concurrent modification).
+
+#### POST /{path}/release
+
+Release session back to `ai_active`. Optionally inject a context summary as a user message.
+
+**Request:**
+```json
+{
+  "tenantId": "string",
+  "userId": "string",
+  "contextSummary": "string (optional)"
+}
+```
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "sessionId": "string",
+  "previousMode": "human_active",
+  "newMode": "ai_active"
+}
+```
+
+#### POST /{path}/operator-message
+
+Send a human-authored message to the end user. Injects the message into session history as an assistant message and delivers via the specified channel.
+
+**Request:**
+```json
+{
+  "tenantId": "string",
+  "userId": "string",
+  "message": "string",
+  "channel": "whatsapp" | "web",
+  "operatorId": "string (optional)"
+}
+```
+
+**Response (200):**
+```json
+{ "success": true, "delivered": true }
+```
+
+**Errors:** 409 (session in `ai_active` or `resolved` mode), 422 (missing WhatsApp credentials), 502 (WhatsApp delivery failed).
+
+#### GET /{path}/session-history
+
+Retrieve the full conversation history for a session.
+
+**Query params:** `tenantId`, `userId` (both required).
+
+**Response (200):**
+```json
+{
+  "sessionId": "string",
+  "mode": "ai_active",
+  "messageCount": 12,
+  "history": [{ "role": "user", "parts": [...] }, ...],
+  "createdAt": "ISO8601",
+  "lastActivityAt": "ISO8601"
+}
+```
+
+### Handoff Conversation Events
+
+The following conversation events are emitted during handoff workflows (delivered via the `conversationEventEmitter` webhook):
+
+| Event Type | Emitted When |
+|------------|-------------|
+| `HANDOFF_INITIATED` | Session transitions to queued/human_active via handoff API |
+| `HANDOFF_RELEASED` | Session released back to ai_active via release API |
+| `OPERATOR_MESSAGE_SENT` | Operator message delivered to end user |
+| `HANDOFF_MESSAGE_QUEUED` | User message received while session is in queued/human_active mode |
+| `ESCALATION_DETECTED` | Escalation detector triggers (keywords or loop detection) |
+| `SESSION_EXPIRED` | Session cleaned up due to idle timeout |
 
 ---
 

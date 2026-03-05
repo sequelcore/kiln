@@ -39,7 +39,7 @@ This document is for contributors. For user documentation, see the [guides](guid
 | `gateway` | `@kilnai/runtime` | `packages/runtime/src/gateway/` | Gateway runtime: multi-App loading, per-App isolation, Mode B routes, budget middleware, composable auth middleware (API key, Bearer, HMAC-SHA256, origin validation), cross-app delegation, trigger webhook mounting, dev-mode API routes (SSE, memory, cost, safety, token, orchestrator), WebSocket chat, Studio static file serving, lightweight dev server (`startDevServer`). |
 | `a2a` | `@kilnai/runtime` | `packages/runtime/src/a2a/` | A2A protocol: A2AClient (outbound delegation only). |
 | `trigger` | `@kilnai/runtime` | `packages/runtime/src/trigger/` | TriggerRegistry, webhook handler (HMAC-SHA256), event listener, cron scheduler, trigger executor. |
-| `session` | `@kilnai/runtime` | `packages/runtime/src/session/` | Mode B session management: ModeBSession, ModeBOrchestrator, SessionRegistry. |
+| `session` | `@kilnai/runtime` | `packages/runtime/src/session/` | Mode B session management: ModeBSession (version tracking, optimistic concurrency), ModeBOrchestrator (AI guard, auto-reopen resolved), SessionRegistry (pluggable SessionStore, save with concurrency check), SessionMode state machine (ai_active/queued/human_active/resolved), session serializer. |
 | `tenant` | `@kilnai/runtime` | `packages/runtime/src/tenant/` | Multi-tenant management: TenantRegistry, system prompt builder, phone-to-tenant resolution. |
 | `cli` | `@kilnai/cli` | `packages/cli/` | CLI commands (init, run, dev, gateway, skill, domain), formatters, MCP server. |
 | `sdk` | `@kilnai/react` | `packages/sdk/` | React hooks library: KilnProvider, useKilnChat, useKilnWsChat, useKilnEvents, useKilnMemory, useKilnState, useApproval, ApiClient, SseClient. Types-only import from core. |
@@ -219,7 +219,7 @@ export class KilnError extends Error {
 }
 ```
 
-55 error codes are organized by bounded context. Each code maps to a context-aware suggestion via `getErrorSuggestion(code, context)` in `packages/core/src/engine/error-catalog.ts`.
+56 error codes are organized by bounded context. Each code maps to a context-aware suggestion via `getErrorSuggestion(code, context)` in `packages/core/src/engine/error-catalog.ts`.
 
 | Context | Example Codes |
 |---------|---------------|
@@ -233,6 +233,7 @@ export class KilnError extends Error {
 | security | `INJECTION_DETECTED`, `AUDIT_CHAIN_BROKEN`, `SECRET_DECRYPTION_FAILED` |
 | skill | `SKILL_NOT_FOUND`, `INVALID_SKILL_YAML` |
 | package | `LIFECYCLE_SCRIPT_DETECTED`, `PATH_TRAVERSAL_DETECTED`, `CONTENT_HASH_MISMATCH` |
+| session | `INVALID_SESSION_TRANSITION`, `CONCURRENT_SESSION_MODIFICATION` |
 | trigger | `WEBHOOK_SIGNATURE_INVALID`, `TRIGGER_EXECUTION_FAILED`, `INVALID_CRON` |
 | eval | `DATASET_NOT_FOUND`, `SCORER_NOT_FOUND`, `EXPERIMENT_CYCLE_DETECTED` |
 
@@ -359,8 +360,8 @@ kiln/
 │   │       └── safety/                   # pii-scanner.ts, content-classifier.ts, rails.ts, safety-pipeline.ts
 │   ├── runtime/                          # @kilnai/runtime
 │   │   └── src/
-│   │       ├── gateway/                  # gateway-server.ts, gateway-routes.ts, auth-middleware.ts, dev-routes.ts, ws-routes.ts, dev-token-store.ts, dev-orchestrator.ts, approval-registry.ts
-│   │       ├── session/                  # mode-b-session.ts, mode-b-orchestrator.ts, session-registry.ts
+│   │       ├── gateway/                  # gateway-server.ts, gateway-routes.ts, auth-middleware.ts, handoff-routes.ts, message-pipeline.ts, trace-context.ts, dev-routes.ts, ws-routes.ts, dev-token-store.ts, dev-orchestrator.ts, approval-registry.ts
+│   │       ├── session/                  # mode-b-session.ts, mode-b-orchestrator.ts, session-registry.ts, session-mode.ts, session-store.ts, session-serializer.ts, escalation-detector.ts, context-summarizer.ts
 │   │       ├── tenant/                   # tenant-registry.ts, system-prompt-builder.ts
 │   │       ├── channels/                 # cli-, web-, whatsapp-, slack-, api-channel.ts, channel-router.ts, whatsapp-api.ts
 │   │       ├── trigger/                  # trigger-registry.ts, webhook-handler.ts, scheduler.ts
