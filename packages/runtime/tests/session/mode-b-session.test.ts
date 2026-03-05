@@ -226,4 +226,72 @@ describe("ModeBSession", () => {
       expect(() => session.setSessionMode("resolved")).toThrow();
     });
   });
+
+  describe("version tracking", () => {
+    it("starts at version 0", () => {
+      const session = new ModeBSession({ appName: "app", userId: "u", systemPrompt: "sys" });
+      expect(session.version).toBe(0);
+      expect(session.loadedVersion).toBe(0);
+    });
+
+    it("increments on addUserMessage", () => {
+      const session = new ModeBSession({ appName: "app", userId: "u", systemPrompt: "sys" });
+      session.addUserMessage(textParts("hello"));
+      expect(session.version).toBe(1);
+    });
+
+    it("increments on addAssistantMessage", () => {
+      const session = new ModeBSession({ appName: "app", userId: "u", systemPrompt: "sys" });
+      session.addAssistantMessage(textParts("hello"));
+      expect(session.version).toBe(1);
+    });
+
+    it("increments on setSessionMode", () => {
+      const session = new ModeBSession({ appName: "app", userId: "u", systemPrompt: "sys" });
+      session.setSessionMode("queued");
+      expect(session.version).toBe(1);
+    });
+
+    it("increments on injectOperatorMessage", () => {
+      const session = new ModeBSession({ appName: "app", userId: "u", systemPrompt: "sys" });
+      session.injectOperatorMessage(textParts("operator msg"));
+      expect(session.version).toBe(1);
+    });
+
+    it("accumulates across multiple mutations", () => {
+      const session = new ModeBSession({ appName: "app", userId: "u", systemPrompt: "sys" });
+      session.addUserMessage(textParts("q1"));
+      session.addAssistantMessage(textParts("a1"));
+      session.setSessionMode("queued");
+      expect(session.version).toBe(3);
+    });
+
+    it("restores version and loadedVersion from serialized data", () => {
+      const session = new ModeBSession({ appName: "app", userId: "u", systemPrompt: "sys" });
+      session.addUserMessage(textParts("q1"));
+      session.addAssistantMessage(textParts("a1"));
+      // version is now 2
+
+      const restored = ModeBSession.fromSerialized({
+        id: session.id,
+        appName: "app",
+        userId: "u",
+        systemPrompt: "sys",
+        idleTimeoutMs: session.idleTimeoutMs,
+        sessionMode: "ai_active",
+        version: 2,
+        createdAt: session.createdAt.toISOString(),
+        lastActivityAt: session.lastActivityAt.toISOString(),
+        history: [...session.conversationHistory],
+      });
+
+      expect(restored.version).toBe(2);
+      expect(restored.loadedVersion).toBe(2);
+
+      // New mutations increment from restored version
+      restored.addUserMessage(textParts("q2"));
+      expect(restored.version).toBe(3);
+      expect(restored.loadedVersion).toBe(2);
+    });
+  });
 });

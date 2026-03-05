@@ -77,14 +77,13 @@ export function createHandoffRoutes(config: HandoffRoutesConfig): Hono {
 
     try {
       session.setSessionMode(body.targetMode);
+      await config.sessionRegistry.save(session);
     } catch (err) {
-      if (err instanceof KilnError && err.code === "INVALID_SESSION_TRANSITION") {
+      if (err instanceof KilnError && (err.code === "INVALID_SESSION_TRANSITION" || err.code === "CONCURRENT_SESSION_MODIFICATION")) {
         return c.json({ success: false, error: err.message }, 409);
       }
       throw err;
     }
-
-    await config.sessionRegistry.save(session);
 
     if (config.eventEmitter && session.tenantId) {
       config.eventEmitter.emit({
@@ -136,18 +135,16 @@ export function createHandoffRoutes(config: HandoffRoutesConfig): Hono {
 
     try {
       session.setSessionMode("ai_active");
+      if (body.contextSummary) {
+        session.addUserMessage(textParts("[Handoff context] " + body.contextSummary));
+      }
+      await config.sessionRegistry.save(session);
     } catch (err) {
-      if (err instanceof KilnError && err.code === "INVALID_SESSION_TRANSITION") {
+      if (err instanceof KilnError && (err.code === "INVALID_SESSION_TRANSITION" || err.code === "CONCURRENT_SESSION_MODIFICATION")) {
         return c.json({ success: false, error: err.message }, 409);
       }
       throw err;
     }
-
-    if (body.contextSummary) {
-      session.addUserMessage(textParts("[Handoff context] " + body.contextSummary));
-    }
-
-    await config.sessionRegistry.save(session);
 
     if (config.eventEmitter && session.tenantId) {
       config.eventEmitter.emit({

@@ -76,6 +76,7 @@ export type KilnErrorCode =
   | "TTS_FAILED"
   // Session
   | "INVALID_SESSION_TRANSITION"
+  | "CONCURRENT_SESSION_MODIFICATION"
   // Safety (Phase 12)
   | "PII_DETECTED"
   | "CONTENT_POLICY_VIOLATED"

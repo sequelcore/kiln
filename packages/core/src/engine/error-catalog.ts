@@ -457,6 +457,13 @@ export function getErrorSuggestion(
         docUrl: docUrl(code),
       };
 
+    case "CONCURRENT_SESSION_MODIFICATION":
+      return {
+        suggestion:
+          "The session was modified by another request between read and save. Retry the operation. This typically happens when two handoff or message requests target the same session simultaneously.",
+        docUrl: docUrl(code),
+      };
+
     case "INTERNAL_ERROR":
       return {
         suggestion:

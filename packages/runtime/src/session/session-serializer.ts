@@ -11,6 +11,7 @@ export function serializeSession(session: ModeBSession): string {
     systemPrompt: session.systemPrompt,
     idleTimeoutMs: session.idleTimeoutMs,
     sessionMode: session.sessionMode,
+    version: session.version,
     createdAt: session.createdAt.toISOString(),
     lastActivityAt: session.lastActivityAt.toISOString(),
     history: session.conversationHistory as AgentMessage[],

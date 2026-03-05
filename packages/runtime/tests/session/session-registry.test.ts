@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { KilnError } from "@kilnai/core";
 import { SessionRegistry } from "../../src/session/session-registry.js";
+import type { SessionStore } from "../../src/session/session-store.js";
+import { ModeBSession } from "../../src/session/mode-b-session.js";
+import { serializeSession, deserializeSession } from "../../src/session/session-serializer.js";
 
 describe("SessionRegistry", () => {
   describe("getOrCreate", () => {
@@ -247,6 +251,46 @@ describe("SessionRegistry", () => {
 
       const retrieved = await registry.get("app", "u1", "tenant-a");
       expect(retrieved?.sessionMode).toBe("queued");
+    });
+
+    it("detects concurrent modification with non-reference stores", async () => {
+      // Simulate a Redis-like store that deserializes on every get (returns new objects)
+      const data = new Map<string, string>();
+      const store: SessionStore = {
+        async get(key) {
+          const json = data.get(key);
+          return json ? deserializeSession(json) : undefined;
+        },
+        async set(key, session) {
+          data.set(key, serializeSession(session));
+        },
+        async delete(key) {
+          return data.delete(key);
+        },
+        async deleteByPrefix(prefix) {
+          let count = 0;
+          for (const key of data.keys()) {
+            if (key.startsWith(prefix)) { data.delete(key); count++; }
+          }
+          return count;
+        },
+        async keys() {
+          return [...data.keys()];
+        },
+      };
+
+      const registry = new SessionRegistry(undefined, store);
+      const session = await registry.getOrCreate({ appName: "app", userId: "u1", systemPrompt: "sys" });
+
+      // Simulate a concurrent modification: another request modifies the stored session
+      const concurrentSession = await registry.get("app", "u1");
+      concurrentSession!.setSessionMode("queued");
+      await registry.save(concurrentSession!);
+
+      // Now the original session's loadedVersion is stale
+      session.setSessionMode("human_active");
+      await expect(registry.save(session)).rejects.toThrow(KilnError);
+      await expect(registry.save(session)).rejects.toThrow(/modified concurrently/);
     });
   });
 

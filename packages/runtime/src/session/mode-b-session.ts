@@ -11,6 +11,7 @@ export interface SerializedSessionData {
   readonly systemPrompt: string;
   readonly idleTimeoutMs: number;
   readonly sessionMode: SessionMode;
+  readonly version: number;
   readonly createdAt: string;
   readonly lastActivityAt: string;
   readonly history: readonly AgentMessage[];
@@ -36,6 +37,8 @@ export class ModeBSession {
   private readonly _idleTimeoutMs: number;
   private readonly _history: AgentMessage[] = [];
   private _sessionMode: SessionMode = "ai_active";
+  private _version = 0;
+  private _loadedVersion = 0;
 
   constructor(config: ModeBSessionConfig) {
     this.appName = config.appName;
@@ -74,6 +77,16 @@ export class ModeBSession {
     return this._idleTimeoutMs;
   }
 
+  /** Optimistic concurrency version. Incremented on every mutation. */
+  get version(): number {
+    return this._version;
+  }
+
+  /** Version when this session was loaded from the store (for conflict detection). */
+  get loadedVersion(): number {
+    return this._loadedVersion;
+  }
+
   static fromSerialized(data: SerializedSessionData): ModeBSession {
     const session = new ModeBSession({
       appName: data.appName,
@@ -94,6 +107,10 @@ export class ModeBSession {
     }
     // Re-set lastActivityAt since addMessage calls touch()
     (session as unknown as { _lastActivityAt: Date })._lastActivityAt = new Date(data.lastActivityAt);
+    // Restore version and record loaded version for conflict detection
+    const storedVersion = data.version ?? 0;
+    (session as unknown as { _version: number })._version = storedVersion;
+    (session as unknown as { _loadedVersion: number })._loadedVersion = storedVersion;
     return session;
   }
 
@@ -109,6 +126,7 @@ export class ModeBSession {
 
   touch(): void {
     this._lastActivityAt = new Date();
+    this._version++;
   }
 
   get sessionMode(): SessionMode {
@@ -117,6 +135,7 @@ export class ModeBSession {
 
   setSessionMode(mode: SessionMode): void {
     this._sessionMode = transitionSessionMode(this._sessionMode, mode);
+    this._version++;
   }
 
   lastAssistantTexts(count: number): string[] {

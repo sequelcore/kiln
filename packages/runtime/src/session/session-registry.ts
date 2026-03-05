@@ -1,3 +1,4 @@
+import { KilnError } from "@kilnai/core";
 import { ModeBSession } from "./mode-b-session.js";
 import type { ModeBSessionConfig } from "./mode-b-session.js";
 import type { ConversationEventEmitter } from "../gateway/conversation-event-emitter.js";
@@ -36,9 +37,20 @@ export class SessionRegistry {
     return this.store.get(key);
   }
 
-  /** Persist a mutated session back to the store. Required for non-reference stores (e.g. Redis). */
+  /**
+   * Persist a mutated session back to the store. Required for non-reference stores (e.g. Redis).
+   * Uses optimistic concurrency: checks that the stored version matches the version at load time.
+   * Throws CONCURRENT_SESSION_MODIFICATION if the session was modified by another request.
+   */
   async save(session: ModeBSession): Promise<void> {
     const key = this.sessionKey(session.appName, session.userId, session.tenantId);
+    const stored = await this.store.get(key);
+    if (stored && stored !== session && stored.version !== session.loadedVersion) {
+      throw new KilnError("CONCURRENT_SESSION_MODIFICATION", `Session ${session.id} was modified concurrently (stored v${stored.version}, loaded v${session.loadedVersion})`, {
+        context: { sessionId: session.id, storedVersion: stored.version, loadedVersion: session.loadedVersion },
+        retryable: true,
+      });
+    }
     await this.store.set(key, session);
   }
 
