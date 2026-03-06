@@ -429,6 +429,31 @@ export function getErrorSuggestion(
         docUrl: docUrl(code),
       };
 
+    case "SOURCE_NOT_FOUND": {
+      const sourceId = context?.sourceId;
+      const base = "The specified knowledge source was not found.";
+      return {
+        suggestion: sourceId ? `${base} Source ID: ${sourceId}` : base,
+        docUrl: docUrl(code),
+      };
+    }
+
+    case "SOURCE_EXTRACTION_FAILED": {
+      const uri = context?.uri;
+      let suggestion = "Failed to extract content from the knowledge source.";
+      if (uri) {
+        suggestion += ` URI: ${uri}. Check the file path or URL and ensure it is accessible.`;
+      }
+      return { suggestion, docUrl: docUrl(code) };
+    }
+
+    case "SOURCE_ALREADY_EXISTS":
+      return {
+        suggestion:
+          "A knowledge source with this name already exists for this app. Use a different name or remove the existing source first.",
+        docUrl: docUrl(code),
+      };
+
     case "PII_DETECTED":
       return {
         suggestion:

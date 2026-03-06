@@ -159,10 +159,15 @@ knowledge:
     chunkSize: 500
     overlap: 50
   sources:
-    - path: ./docs
-      glob: "**/*.md"
-    - path: ./src
-      glob: "**/*.ts"
+    - name: docs
+      path: ./docs
+      type: file          # file | url | pdf (default: file)
+    - name: faq
+      path: https://example.com/faq
+      type: url
+    - name: manual
+      path: ./manual.pdf
+      type: pdf
 
 mcp:
   servers:
@@ -716,9 +721,10 @@ knowledge:
 | `chunking.contextual.apiKeyEnv` | `string` | Conditional | Environment variable for API key. Required for non-Ollama providers. |
 | `chunking.contextual.baseUrl` | `string` | No | Base URL for Ollama or self-hosted providers. |
 | `chunking.contextual.concurrency` | `number` | No | Max concurrent LLM calls during enrichment. Default: 5. |
-| `sources` | `SourceConfig[]` | Yes | File sources to ingest. |
-| `sources[].path` | `string` | Yes | Directory path relative to the App YAML file. |
-| `sources[].glob` | `string` | Yes | Glob pattern for files to include. |
+| `sources` | `SourceConfig[]` | Yes | Sources to ingest into the knowledge base. |
+| `sources[].name` | `string` | Yes | Unique name for this source. |
+| `sources[].path` | `string` | Yes | File path, directory path, or URL. |
+| `sources[].type` | `"file" \| "url" \| "pdf"` | No | Source type. `file` reads local files, `url` fetches via Jina Reader, `pdf` extracts via unpdf. Default: `"file"`. |
 
 **Contextual enrichment example:**
 

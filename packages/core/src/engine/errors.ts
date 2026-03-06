@@ -79,6 +79,10 @@ export type KilnErrorCode =
   | "CONCURRENT_SESSION_MODIFICATION"
   // Knowledge enrichment (Phase 4b)
   | "ENRICHMENT_FAILED"
+  // Knowledge sources (Phase 4c)
+  | "SOURCE_NOT_FOUND"
+  | "SOURCE_EXTRACTION_FAILED"
+  | "SOURCE_ALREADY_EXISTS"
   // Safety (Phase 12)
   | "PII_DETECTED"
   | "CONTENT_POLICY_VIOLATED"

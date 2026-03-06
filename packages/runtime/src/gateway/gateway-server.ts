@@ -37,8 +37,9 @@ import { DevOrchestrator } from "./dev-orchestrator.js";
 import { DevTokenStore } from "./dev-token-store.js";
 import { ConversationEventEmitter } from "./conversation-event-emitter.js";
 import { createSttAdapter } from "./stt-factory.js";
-import { createKnowledgePipeline } from "./knowledge-factory.js";
+import { createKnowledgePipeline, createSourceManager } from "./knowledge-factory.js";
 import type { KnowledgePipelineResult } from "./knowledge-factory.js";
+import type { KnowledgeAdminRoutesConfig } from "./knowledge-admin-routes.js";
 
 export type { LoadedApp, GatewayServerConfig } from "./gateway-routes.js";
 export { createGatewayApp } from "./gateway-routes.js";
@@ -233,6 +234,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
       eventEmitter: undefined as undefined | ConversationEventEmitter,
       sttAdapter: undefined as undefined | SttAdapter,
       knowledgePipeline: undefined as undefined | KnowledgePipelineResult,
+      knowledgeAdminConfig: undefined as undefined | KnowledgeAdminRoutesConfig,
     };
   });
 
@@ -286,6 +288,51 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
       try {
         loaded.knowledgePipeline = await createKnowledgePipeline(resolved.app.knowledge);
         console.log(`  ${loaded.name}: knowledge pipeline initialized (mode: ${resolved.app.knowledge.mode ?? "auto"})`);
+
+        // Initialize source manager for knowledge admin
+        const storageDir = resolved.app.knowledge.store.backend === "pgvector"
+          ? undefined
+          : join(resolved.memoryBasePath, "knowledge-sources");
+        const { sourceManager } = createSourceManager(
+          loaded.knowledgePipeline.pipeline,
+          loaded.knowledgePipeline.store,
+          storageDir,
+        );
+
+        // Register YAML-declared sources
+        for (const yamlSource of resolved.app.knowledge.sources) {
+          const type = yamlSource.type ?? "file";
+          try {
+            await sourceManager.addSource({
+              appName: loaded.name,
+              name: yamlSource.name,
+              type,
+              uri: yamlSource.path,
+            });
+          } catch {
+            // Source may already exist from previous run (JsonSourceStore)
+          }
+        }
+
+        // Resolve admin token from channel binding
+        const adminChannel = loaded.binding.channels.find((ch) => ch.adminTokenEnv);
+        const adminTokenEnv = adminChannel?.adminTokenEnv ?? "";
+        loaded.knowledgeAdminConfig = {
+          sourceManager,
+          appName: loaded.name,
+          adminToken: adminTokenEnv ? process.env[adminTokenEnv] ?? undefined : undefined,
+        };
+
+        // Fire-and-forget startup ingestion
+        sourceManager.ingestAll(loaded.name).then((results) => {
+          const indexed = results.filter((r) => r.status === "indexed").length;
+          const failed = results.filter((r) => r.status === "failed").length;
+          if (indexed > 0 || failed > 0) {
+            console.log(`  ${loaded.name}: knowledge sources ingested (${indexed} indexed, ${failed} failed)`);
+          }
+        }).catch((err) => {
+          console.warn(`  ${loaded.name}: knowledge ingestion failed: ${err instanceof Error ? err.message : String(err)}`);
+        });
       } catch (err) {
         console.warn(`  ${loaded.name}: knowledge pipeline initialization failed: ${err instanceof Error ? err.message : String(err)}`);
       }

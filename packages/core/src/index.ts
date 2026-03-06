@@ -211,6 +211,20 @@ export type {
 } from "./engine/domain/knowledge-config.js";
 export { validateKnowledgeConfig } from "./engine/domain/knowledge-config.js";
 
+// Knowledge source types re-exported for direct access by runtime
+export type {
+  KnowledgeSource,
+  KnowledgeSourceType,
+  KnowledgeSourceStatus,
+  ExtractedContent,
+  ContentExtractor,
+  SourceStore,
+} from "./engine/domain/knowledge-source.js";
+
+// Source manager re-exported for direct access by runtime
+export { SourceManager } from "./knowledge/source-manager.js";
+export type { SourceManagerConfig } from "./knowledge/source-manager.js";
+
 // Vector store types re-exported for direct access by runtime
 export type { VectorStore, VectorEntry, VectorResult, VectorQueryOptions } from "./engine/domain/vector-store.js";
 

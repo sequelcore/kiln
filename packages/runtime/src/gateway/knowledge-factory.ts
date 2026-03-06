@@ -15,6 +15,13 @@ import {
   OpenAIAdapter,
   DeepSeekAdapter,
   OllamaAdapter,
+  SourceManager,
+  FileExtractor,
+  UrlExtractor,
+  PdfExtractor,
+  CompositeExtractor,
+  InMemorySourceStore,
+  JsonSourceStore,
 } from "@kilnai/core";
 
 export interface KnowledgePipelineResult {
@@ -90,4 +97,33 @@ export async function createKnowledgePipeline(config: KnowledgeConfig): Promise<
   });
 
   return { pipeline, store, close: closeFn };
+}
+
+export interface SourceManagerResult {
+  readonly sourceManager: SourceManager;
+}
+
+export function createSourceManager(
+  pipeline: RetrievalPipeline,
+  store: VectorStore,
+  storageDir?: string,
+): SourceManagerResult {
+  const extractor = new CompositeExtractor([
+    new FileExtractor(),
+    new UrlExtractor(),
+    new PdfExtractor(),
+  ]);
+
+  const sourceStore = storageDir
+    ? new JsonSourceStore(storageDir)
+    : new InMemorySourceStore();
+
+  const sourceManager = new SourceManager({
+    sourceStore,
+    extractor,
+    pipeline,
+    vectorStore: store,
+  });
+
+  return { sourceManager };
 }

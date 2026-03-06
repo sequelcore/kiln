@@ -100,6 +100,16 @@ export type {
 } from "./domain/knowledge-config.js";
 export { validateKnowledgeConfig } from "./domain/knowledge-config.js";
 
+// Knowledge source types (Phase 4c)
+export type {
+  KnowledgeSource,
+  KnowledgeSourceType,
+  KnowledgeSourceStatus,
+  ExtractedContent,
+  ContentExtractor,
+  SourceStore,
+} from "./domain/knowledge-source.js";
+
 // Tenant -- multi-tenant business configuration (Phase 25)
 export type {
   TenantConfig,

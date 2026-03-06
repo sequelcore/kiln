@@ -20,6 +20,8 @@ import type { WhatsAppWebhookConfig } from "./whatsapp-webhook-routes.js";
 import { createWhatsAppWebhookRoutes } from "./whatsapp-webhook-routes.js";
 import type { TenantAdminRoutesConfig } from "./tenant-admin-routes.js";
 import { createTenantAdminRoutes } from "./tenant-admin-routes.js";
+import type { KnowledgeAdminRoutesConfig } from "./knowledge-admin-routes.js";
+import { createKnowledgeAdminRoutes } from "./knowledge-admin-routes.js";
 import { createOutboundRoutes } from "./outbound-routes.js";
 import { createHandoffRoutes } from "./handoff-routes.js";
 import { HealthRegistry } from "./health-registry.js";
@@ -47,6 +49,7 @@ export interface LoadedApp {
   eventEmitter?: ConversationEventEmitter;
   sttAdapter?: SttAdapter;
   knowledgePipeline?: { readonly pipeline: RetrievalPipeline; readonly close: () => Promise<void> };
+  knowledgeAdminConfig?: KnowledgeAdminRoutesConfig;
 }
 
 export interface GatewayServerConfig {
@@ -226,6 +229,12 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
         });
         app.route(`/handoff/${loadedApp.name}`, handoffApp);
       }
+    }
+
+    // Knowledge admin routes (available for any app with knowledge config)
+    if (loadedApp.knowledgeAdminConfig) {
+      const knowledgeAdminApp = createKnowledgeAdminRoutes(loadedApp.knowledgeAdminConfig);
+      app.route(`/admin/${loadedApp.name}/knowledge`, knowledgeAdminApp);
     }
   }
 

@@ -31,6 +31,7 @@ export interface KnowledgeChunkingConfig {
 export interface KnowledgeSourceConfig {
   readonly name: string;
   readonly path: string;
+  readonly type?: "file" | "url" | "pdf";
   readonly watch?: boolean;
   readonly chunking?: KnowledgeChunkingConfig;
 }
