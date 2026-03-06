@@ -2,7 +2,7 @@
 // Handles message processing, session listing, and session removal
 
 import { Hono } from "hono";
-import type { ContentPart } from "@kilnai/core";
+import type { ContentPart, RetrievalPipeline } from "@kilnai/core";
 import { textParts, extractText } from "@kilnai/core";
 import type { ModeBOrchestrator } from "../session/mode-b-orchestrator.js";
 import type { SessionRegistry } from "../session/session-registry.js";
@@ -19,6 +19,8 @@ export interface ModeBAppRuntime {
   readonly billing?: BillingConfig;
   readonly systemPrompt: string;
   readonly apiKey?: string;
+  readonly knowledgePipeline?: RetrievalPipeline;
+  readonly knowledgeMode?: "auto" | "tool";
 }
 
 /** Request body for POST /message */
@@ -66,6 +68,22 @@ export function createModeBRoutes(runtime: ModeBAppRuntime): Hono {
       }
     }
 
+    // Knowledge retrieval (auto mode)
+    let knowledgeContext: string | undefined;
+    if (runtime.knowledgePipeline && (runtime.knowledgeMode ?? "auto") === "auto") {
+      const queryText = extractText(userParts);
+      if (queryText.length > 0) {
+        try {
+          const results = await runtime.knowledgePipeline.retrieve(queryText, { topK: 5 });
+          if (results.length > 0) {
+            knowledgeContext = "[Knowledge context]:\n" + results.map((r) => r.content).join("\n---\n");
+          }
+        } catch {
+          // fail-open
+        }
+      }
+    }
+
     let processResult;
     try {
       processResult = await processInboundMessage({
@@ -77,6 +95,7 @@ export function createModeBRoutes(runtime: ModeBAppRuntime): Hono {
         userParts,
         billing: runtime.billing,
         channel: "api",
+        knowledgeContext,
       });
     } catch (err) {
       console.error(`[${runtime.appName}] processMessage error:`, err);

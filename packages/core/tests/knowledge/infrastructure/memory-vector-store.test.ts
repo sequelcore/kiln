@@ -94,6 +94,49 @@ describe("InMemoryVectorStore", () => {
     expect(results).toHaveLength(0);
   });
 
+  describe("deleteByMetadata", () => {
+    it("deletes entries matching single metadata key", async () => {
+      const store = new InMemoryVectorStore();
+      await store.upsert([
+        { id: "1", content: "doc1", embedding: [1, 0, 0], metadata: { source: "docs" } },
+        { id: "2", content: "doc2", embedding: [0, 1, 0], metadata: { source: "docs" } },
+        { id: "3", content: "doc3", embedding: [0, 0, 1], metadata: { source: "api" } },
+      ]);
+
+      const deleted = await store.deleteByMetadata({ source: "docs" });
+      expect(deleted).toBe(2);
+      expect(store.size).toBe(1);
+
+      const results = await store.query([0, 0, 1], { topK: 10 });
+      expect(results).toHaveLength(1);
+      expect(results[0]!.id).toBe("3");
+    });
+
+    it("deletes entries matching multiple metadata keys", async () => {
+      const store = new InMemoryVectorStore();
+      await store.upsert([
+        { id: "1", content: "a", embedding: [1, 0, 0], metadata: { source: "docs", lang: "en" } },
+        { id: "2", content: "b", embedding: [0, 1, 0], metadata: { source: "docs", lang: "es" } },
+        { id: "3", content: "c", embedding: [0, 0, 1], metadata: { source: "api", lang: "en" } },
+      ]);
+
+      const deleted = await store.deleteByMetadata({ source: "docs", lang: "en" });
+      expect(deleted).toBe(1);
+      expect(store.size).toBe(2);
+    });
+
+    it("returns 0 when no entries match", async () => {
+      const store = new InMemoryVectorStore();
+      await store.upsert([
+        { id: "1", content: "a", embedding: [1, 0, 0], metadata: { source: "docs" } },
+      ]);
+
+      const deleted = await store.deleteByMetadata({ source: "nonexistent" });
+      expect(deleted).toBe(0);
+      expect(store.size).toBe(1);
+    });
+  });
+
   it("returns metadata in results", async () => {
     const store = new InMemoryVectorStore();
     await store.upsert([{ id: "1", content: "test", embedding: [1, 0, 0], metadata: { custom: "value" } }]);

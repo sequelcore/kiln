@@ -28,4 +28,5 @@ export interface VectorStore {
   upsert(entries: VectorEntry[]): Promise<void>;
   query(embedding: number[], options: VectorQueryOptions): Promise<VectorResult[]>;
   delete(ids: string[]): Promise<void>;
+  deleteByMetadata(filter: Record<string, unknown>): Promise<number>;
 }

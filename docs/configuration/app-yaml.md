@@ -656,16 +656,17 @@ safety:
 
 ## knowledge
 
-Configures the RAG pipeline. When present, a `knowledge_search` capability is automatically injected into agents that are allowed to use it.
+Configures the RAG pipeline. When `mode` is `"auto"` (default), retrieved knowledge context is injected into the system prompt before orchestration. When `mode` is `"tool"`, a `knowledge_search` capability is registered as a builtin tool for agents to invoke on demand.
 
 ```yaml
 knowledge:
+  mode: auto              # "auto" (inject context) or "tool" (agent-invoked search)
   embedding:
     provider: openai
     model: text-embedding-3-small
     apiKeyEnv: OPENAI_API_KEY
   store:
-    type: memory
+    backend: memory       # "memory" or "pgvector"
   chunking:
     strategy: recursive
     chunkSize: 500
@@ -677,18 +678,72 @@ knowledge:
       glob: "**/*.ts"
 ```
 
+**PgVector store example:**
+
+```yaml
+knowledge:
+  mode: auto
+  embedding:
+    provider: openai
+    model: text-embedding-3-small
+    apiKeyEnv: OPENAI_API_KEY
+  store:
+    backend: pgvector
+    connectionString: postgres://user:pass@localhost:5432/mydb
+  chunking:
+    strategy: markdown
+    chunkSize: 512
+    overlap: 50
+  sources:
+    - path: ./knowledge
+      glob: "**/*.md"
+```
+
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
+| `mode` | `"auto" \| "tool"` | No | Knowledge retrieval mode. `auto` injects context into system prompt; `tool` registers a `knowledge_search` builtin tool. Default: `"auto"`. |
 | `embedding.provider` | `"openai" \| "ollama"` | Yes | Embedding model provider. |
 | `embedding.model` | `string` | Yes | Model name (e.g., `text-embedding-3-small`). |
 | `embedding.apiKeyEnv` | `string` | No | Environment variable name for API key. Not required for Ollama. |
-| `store.type` | `"memory"` | Yes | Vector store type. `memory` uses `InMemoryVectorStore`. |
+| `store.backend` | `"memory" \| "pgvector"` | Yes | Vector store backend. `memory` uses `InMemoryVectorStore`; `pgvector` uses PostgreSQL with pgvector extension (halfvec, HNSW index, RRF hybrid search). |
+| `store.connectionString` | `string` | Conditional | PostgreSQL connection string. Required when `store.backend` is `"pgvector"`. |
 | `chunking.strategy` | `"recursive" \| "markdown"` | Yes | Chunking strategy. `markdown` preserves heading hierarchy. |
-| `chunking.chunkSize` | `number` | No | Maximum chunk size in tokens. |
-| `chunking.overlap` | `number` | No | Token overlap between adjacent chunks. |
+| `chunking.chunkSize` | `number` | No | Maximum chunk size in tokens. Default: 512. |
+| `chunking.overlap` | `number` | No | Token overlap between adjacent chunks. Default: 50. |
 | `sources` | `SourceConfig[]` | Yes | File sources to ingest. |
 | `sources[].path` | `string` | Yes | Directory path relative to the App YAML file. |
 | `sources[].glob` | `string` | Yes | Glob pattern for files to include. |
+
+---
+
+## voice
+
+Configures speech-to-text (STT) for audio input processing. When present, `AudioPart` content (e.g., WhatsApp voice notes) is automatically transcribed before reaching the orchestrator. Transcription is fail-open: if it fails, a fallback text part is injected instead of erroring.
+
+```yaml
+voice:
+  stt:
+    provider: openai
+    model: gpt-4o-transcribe
+    apiKeyEnv: OPENAI_API_KEY
+```
+
+**Deepgram example:**
+
+```yaml
+voice:
+  stt:
+    provider: deepgram
+    model: nova-3
+    apiKeyEnv: DEEPGRAM_API_KEY
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `stt.provider` | `"openai" \| "deepgram"` | Yes | STT provider. |
+| `stt.model` | `string` | No | Model name. Default: `gpt-4o-transcribe` (OpenAI), `nova-3` (Deepgram). |
+| `stt.apiKeyEnv` | `string` | Yes | Environment variable name for the provider API key. |
+| `stt.language` | `string` | No | Language hint (e.g., `"en"`, `"es"`). Optional. |
 
 ---
 

@@ -88,3 +88,7 @@ export { compressContext } from "./context-compressor.js";
 export type { CompressOptions } from "./context-compressor.js";
 export { McpClient } from "./mcp-client.js";
 export { ToolRAG } from "./tool-rag.js";
+export { OpenAISttAdapter } from "./infrastructure/openai-stt.js";
+export type { OpenAISttConfig } from "./infrastructure/openai-stt.js";
+export { DeepgramSttAdapter } from "./infrastructure/deepgram-stt.js";
+export type { DeepgramSttConfig } from "./infrastructure/deepgram-stt.js";

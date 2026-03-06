@@ -30,13 +30,13 @@ Bun monorepo with 6 packages:
 | security | `core/src/security/` | Audit log (JSONL + hash chain), prompt injection (2-tier), AES-256-GCM secrets, Guardian, self-audit |
 | safety | `core/src/safety/` | PII scanner (2-tier, 6 types), content classifier (6 categories), 4 policy rails, pipeline orchestrator |
 | cost | `core/src/cost/` | Per-role cache-aware cost tracking |
-| knowledge | `core/src/knowledge/` | RAG: chunkers, embedding adapters, vector store, retrieval pipeline, knowledge_search auto-injection |
+| knowledge | `core/src/knowledge/` | RAG: chunkers (recursive, markdown), embedding adapters (OpenAI, Ollama), vector stores (InMemory, PgVector with halfvec + HNSW + RRF hybrid search), STT adapters (OpenAI gpt-4o-transcribe, Deepgram nova-3), retrieval pipeline, knowledge modes (auto-inject / tool) |
 | domain | `core/src/domain/` | Domain config: tech stack detection, YAML schema, DomainRegistry. Built-in kits at `core/src/domains/*.yaml` |
 | package | `core/src/package/` | Distribution: versioning, content hashing, security validation |
 | skill | `core/src/skill/` | SKILL.yaml format, SkillRegistry (3-tier discovery) |
 | eval | `core/src/eval/` | 12 scorers (6 rule + 6 LLM-as-judge), dataset loader, experiment runner, comparator |
 | observability | `core/src/observability/` | OTel span mapper + exporter (EventStore sink) |
-| gateway | `runtime/src/gateway/` | Multi-app loading, Mode B routes, budget middleware, composable auth middleware, conversation event emitter, delegation, dev routes, safety/security middleware |
+| gateway | `runtime/src/gateway/` | Multi-app loading, Mode B routes, budget middleware, composable auth middleware, conversation event emitter, delegation, dev routes, safety/security middleware, audio preprocessing, knowledge pipeline wiring, STT/knowledge factories |
 | a2a | `runtime/src/a2a/` | A2AClient (outbound delegation only) |
 | trigger | `runtime/src/trigger/` | TriggerRegistry, webhook handler (HMAC-SHA256), event listener, cron scheduler |
 | session | `runtime/src/session/` | ModeBSession (version tracking, optimistic concurrency), ModeBOrchestrator (builtin tools, per-call tools, recalledMemory, AI guard), SessionRegistry (pluggable SessionStore, save with concurrency check), SessionMode state machine (ai_active/queued/human_active/resolved), session serializer |
@@ -117,6 +117,9 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `safety/safety-pipeline.ts` | PII -> content -> rails pipeline (fail-open) |
 | `eval/experiment-runner.ts` | Generate outputs, score with error isolation |
 | `knowledge/retrieval-pipeline.ts` | Ingest (chunk -> embed -> store) + retrieve (embed -> search -> rerank) |
+| `knowledge/infrastructure/pgvector-store.ts` | PgVectorStore: PostgreSQL + pgvector (halfvec, HNSW, RRF hybrid search) |
+| `agents/infrastructure/openai-stt.ts` | OpenAI STT adapter (gpt-4o-transcribe, fetch-based, withRetry) |
+| `agents/infrastructure/deepgram-stt.ts` | Deepgram STT adapter (nova-3, fetch-based, withRetry) |
 
 ### Runtime (`packages/runtime/src/`)
 
@@ -129,8 +132,11 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `gateway/delegation-handler.ts` | DelegationRegistry, executeDelegation() (Kiln-native + A2A) |
 | `gateway/budget-middleware.ts` | checkBudget(), reportUsage() -- fail-open |
 | `gateway/conversation-event-emitter.ts` | Fire-and-forget POST of conversation events to product webhooks, env var resolution for headers |
-| `gateway/whatsapp-webhook-routes.ts` | WhatsApp webhook: tenant resolution, persistent memory (SQLite), builtin notify_owner tool, tenant-level billing override, conversation event emission |
-| `gateway/ws-tenant-routes.ts` | Multi-tenant WebSocket: welcome frame (greeting + FAQ suggestions), AI follow-up suggestion chips, BUDGET_EXHAUSTED error code, conversation event emission |
+| `gateway/whatsapp-webhook-routes.ts` | WhatsApp webhook: tenant resolution, persistent memory (SQLite), builtin notify_owner tool, audio preprocessing, knowledge retrieval, tenant-level billing override, conversation event emission |
+| `gateway/ws-tenant-routes.ts` | Multi-tenant WebSocket: welcome frame (greeting + FAQ suggestions), AI follow-up suggestion chips, audio preprocessing, knowledge retrieval, BUDGET_EXHAUSTED error code, conversation event emission |
+| `gateway/audio-preprocessor.ts` | Audio preprocessing: MediaDownloader (WhatsApp two-step, generic), fail-open transcription |
+| `gateway/stt-factory.ts` | Resolve SttProviderConfig to concrete SttAdapter |
+| `gateway/knowledge-factory.ts` | Resolve KnowledgeConfig to RetrievalPipeline + VectorStore + close() |
 | `gateway/memory-routes.ts` | Production memory routes: /api/memory (all modes) |
 | `gateway/dev-routes.ts` | Dev-mode: /dev/state, /dev/events (SSE), /dev/memory, /dev/cost, /dev/safety, /dev/token, /dev/run |
 | `gateway/dev-token-store.ts` | In-memory sliding-window TTL token store for dev-mode WebSocket auth |

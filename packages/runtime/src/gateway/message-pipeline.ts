@@ -21,6 +21,7 @@ export interface InboundMessageContext {
   readonly channel: string;
   readonly idleTimeoutMs?: number;
   readonly recalledMemory?: string;
+  readonly knowledgeContext?: string;
   readonly callBuiltinTools?: ReadonlyMap<string, (input: Record<string, unknown>) => Promise<unknown>>;
   readonly traceId?: string;
 }
@@ -77,11 +78,14 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
   });
   trace.log("pipeline", "Session ready", { sessionId: session.id, sessionMode: session.sessionMode });
 
+  // Merge recalled memory + knowledge context
+  const combinedMemory = [ctx.recalledMemory, ctx.knowledgeContext].filter(Boolean).join("\n\n") || undefined;
+
   // Process message
   const result: OrchestrateResult = await ctx.orchestrator.processMessage(
     session,
     ctx.userParts,
-    ctx.recalledMemory,
+    combinedMemory,
     ctx.callBuiltinTools,
   );
 

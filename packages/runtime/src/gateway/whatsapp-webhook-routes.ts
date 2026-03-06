@@ -18,6 +18,8 @@ import type { BillingConfig } from "./budget-middleware.js";
 import type { ConversationEventEmitter } from "./conversation-event-emitter.js";
 import { requireWebhookSignature } from "./auth-middleware.js";
 import { TraceContext } from "./trace-context.js";
+import type { SttAdapter, RetrievalPipeline } from "@kilnai/core";
+import { preprocessAudio, createWhatsAppMediaDownloader } from "./audio-preprocessor.js";
 
 export interface WhatsAppWebhookConfig {
   readonly appName: string;
@@ -30,6 +32,9 @@ export interface WhatsAppWebhookConfig {
   readonly eventEmitter?: ConversationEventEmitter;
   /** Base path for per-tenant data (e.g. ~/.kiln/gateway/bonitas). Memory DBs stored under <basePath>/memory/ */
   readonly memoryBasePath?: string;
+  readonly sttAdapter?: SttAdapter;
+  readonly knowledgePipeline?: RetrievalPipeline;
+  readonly knowledgeMode?: "auto" | "tool";
 }
 
 interface MetaWebhookMessage {
@@ -83,6 +88,23 @@ function getMemoryStore(memoryBasePath: string, tenantId: string): SqliteMemoryS
   memoryStores.set(tenantId, store);
   return store;
 }
+
+/** Tool definition for knowledge_search -- injected when knowledge mode is "tool" */
+const KNOWLEDGE_SEARCH_TOOL: ToolDefinition = {
+  name: "knowledge_search",
+  description: "Search the knowledge base for relevant information. Use this when the user asks a question that may be answered by stored documents or knowledge.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      query: {
+        type: "string",
+        description: "The search query to find relevant knowledge.",
+      },
+    },
+    required: ["query"],
+  },
+  tags: new Set(["builtin"]),
+};
 
 /** Tool definition for notify_owner -- injected when tenant has escalationContact */
 const NOTIFY_OWNER_TOOL: ToolDefinition = {
@@ -261,7 +283,19 @@ async function processWhatsAppMessage(
   const resolvedAccessToken = accessToken
     ? (process.env[accessToken] ?? accessToken)
     : "";
-  const messageText = extractText(messageParts);
+
+  // Preprocess audio parts via STT (fail-open)
+  let processedParts = messageParts;
+  if (config.sttAdapter) {
+    try {
+      const downloader = createWhatsAppMediaDownloader(resolvedAccessToken);
+      processedParts = await preprocessAudio(messageParts, config.sttAdapter, downloader);
+    } catch (err) {
+      trace.warn("whatsapp", "Audio preprocessing failed", { error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  const messageText = extractText(processedParts);
 
   const session = await config.sessionRegistry.getOrCreate({
     appName: config.appName,
@@ -283,6 +317,25 @@ async function processWhatsAppMessage(
     }
   }
 
+  // --- Knowledge: retrieve relevant context ---
+  let knowledgeContext: string | undefined;
+  if (config.knowledgePipeline && messageText.length > 0) {
+    const knowledgeMode = config.knowledgeMode ?? "auto";
+    if (knowledgeMode === "auto") {
+      try {
+        const results = await config.knowledgePipeline.retrieve(messageText, { topK: 5 });
+        if (results.length > 0) {
+          knowledgeContext = "[Knowledge context]:\n" + results.map((r) => r.content).join("\n---\n");
+        }
+      } catch (err) {
+        trace.warn("whatsapp", "Knowledge retrieval failed", { error: err instanceof Error ? err.message : String(err) });
+      }
+    }
+  }
+
+  // Merge recalled memory + knowledge context
+  const combinedMemory = [recalledMemory, knowledgeContext].filter(Boolean).join("\n\n") || undefined;
+
   // --- Tools: build per-call builtin tools ---
   const callTools = new Map<string, (input: Record<string, unknown>) => Promise<unknown>>();
 
@@ -301,8 +354,22 @@ async function processWhatsAppMessage(
     });
   }
 
+  // Register knowledge_search tool for "tool" mode
+  if (config.knowledgePipeline && (config.knowledgeMode ?? "auto") === "tool") {
+    callTools.set("knowledge_search", async (input: Record<string, unknown>) => {
+      const query = String(input.query ?? "");
+      const results = await config.knowledgePipeline!.retrieve(query, { topK: 5 });
+      return results.map((r) => ({ content: r.content, score: r.score }));
+    });
+
+    const hasKnowledgeTool = config.orchestrator.tools?.some((t) => t.name === "knowledge_search");
+    if (!hasKnowledgeTool) {
+      config.orchestrator.registerTools([KNOWLEDGE_SEARCH_TOOL]);
+    }
+  }
+
   // Register notify_owner tool definition on the orchestrator if not already present
-  if (callTools.size > 0 && config.orchestrator.tools) {
+  if (callTools.has("notify_owner") && config.orchestrator.tools) {
     const hasNotifyTool = config.orchestrator.tools.some((t) => t.name === "notify_owner");
     if (!hasNotifyTool) {
       config.orchestrator.registerTools([NOTIFY_OWNER_TOOL]);
@@ -349,8 +416,8 @@ async function processWhatsAppMessage(
   try {
     const result = await config.orchestrator.processMessage(
       session,
-      messageParts,
-      recalledMemory,
+      processedParts,
+      combinedMemory,
       callTools.size > 0 ? callTools : undefined,
     );
 

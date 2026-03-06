@@ -31,6 +31,7 @@ export interface KnowledgeConfig {
   readonly chunking: KnowledgeChunkingConfig;
   readonly sources: readonly KnowledgeSourceConfig[];
   readonly allowedAgents?: readonly string[];
+  readonly mode?: "auto" | "tool";
 }
 
 export interface KnowledgeValidationError {
@@ -79,6 +80,10 @@ export function validateKnowledgeConfig(config: KnowledgeConfig): KnowledgeValid
   const effectiveChunkOverlap = config.chunking.chunkOverlap ?? 50;
   if (effectiveChunkOverlap >= effectiveChunkSize) {
     errors.push({ field: "chunking.chunkOverlap", message: "must be less than chunkSize" });
+  }
+
+  if (config.mode !== undefined && config.mode !== "auto" && config.mode !== "tool") {
+    errors.push({ field: "mode", message: "must be 'auto' or 'tool'" });
   }
 
   if (!config.sources || !Array.isArray(config.sources) || config.sources.length === 0) {

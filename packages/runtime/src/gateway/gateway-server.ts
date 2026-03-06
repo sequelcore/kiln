@@ -17,7 +17,7 @@ import {
   SafetyPipeline,
   SqliteMemoryStore,
 } from "@kilnai/core";
-import type { ProviderAdapter, ProviderConfig, App, ToolDefinition, MemoryLayer } from "@kilnai/core";
+import type { ProviderAdapter, ProviderConfig, App, ToolDefinition, MemoryLayer, SttAdapter } from "@kilnai/core";
 import type { AppGraphResponse } from "./dev-routes-types.js";
 import { EventBus, McpClient, CostTracker } from "@kilnai/core";
 import { ChannelRegistry } from "../channels/channel-registry.js";
@@ -36,6 +36,9 @@ import { ApprovalGateRegistry } from "./approval-registry.js";
 import { DevOrchestrator } from "./dev-orchestrator.js";
 import { DevTokenStore } from "./dev-token-store.js";
 import { ConversationEventEmitter } from "./conversation-event-emitter.js";
+import { createSttAdapter } from "./stt-factory.js";
+import { createKnowledgePipeline } from "./knowledge-factory.js";
+import type { KnowledgePipelineResult } from "./knowledge-factory.js";
 
 export type { LoadedApp, GatewayServerConfig } from "./gateway-routes.js";
 export { createGatewayApp } from "./gateway-routes.js";
@@ -228,6 +231,8 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
       tenantAdminConfig: undefined as undefined | import("./tenant-admin-routes.js").TenantAdminRoutesConfig,
       webChannel: hasWebChannel ? new WebChannel() : undefined,
       eventEmitter: undefined as undefined | ConversationEventEmitter,
+      sttAdapter: undefined as undefined | SttAdapter,
+      knowledgePipeline: undefined as undefined | KnowledgePipelineResult,
     };
   });
 
@@ -263,6 +268,26 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
         } catch (err) {
           console.warn(`  ${loaded.name}: failed to connect to MCP server "${serverConfig.name}": ${err}`);
         }
+      }
+    }
+
+    // Initialize STT adapter if voice config is present
+    if (resolved.app.voice?.stt) {
+      try {
+        loaded.sttAdapter = createSttAdapter(resolved.app.voice.stt);
+        console.log(`  ${loaded.name}: STT adapter "${resolved.app.voice.stt.provider}" initialized`);
+      } catch (err) {
+        console.warn(`  ${loaded.name}: STT initialization failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
+    // Initialize knowledge pipeline if knowledge config is present
+    if (resolved.app.knowledge) {
+      try {
+        loaded.knowledgePipeline = await createKnowledgePipeline(resolved.app.knowledge);
+        console.log(`  ${loaded.name}: knowledge pipeline initialized (mode: ${resolved.app.knowledge.mode ?? "auto"})`);
+      } catch (err) {
+        console.warn(`  ${loaded.name}: knowledge pipeline initialization failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
 
@@ -323,6 +348,9 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
           billing: resolved.modeBConfig.billing,
           eventEmitter,
           memoryBasePath: resolved.memoryBasePath,
+          sttAdapter: loaded.sttAdapter,
+          knowledgePipeline: loaded.knowledgePipeline?.pipeline,
+          knowledgeMode: resolved.app.knowledge?.mode,
         };
       }
 
@@ -347,6 +375,8 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
         billing: resolved.modeBConfig.billing,
         systemPrompt,
         apiKey: resolvedApiKey,
+        knowledgePipeline: loaded.knowledgePipeline?.pipeline,
+        knowledgeMode: resolved.app.knowledge?.mode,
       };
     }
   }
@@ -631,7 +661,12 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
     console.log(`Studio: http://localhost:${port}/${studioDistPath ? "studio" : "dev"}/`);
   }
 
-  await serveAndWait(honoApp, port, () => triggerRegistry.stop(), bunWebsocket);
+  await serveAndWait(honoApp, port, () => {
+    triggerRegistry.stop();
+    for (const loaded of loadedApps) {
+      loaded.knowledgePipeline?.close().catch(() => {});
+    }
+  }, bunWebsocket);
 }
 
 /** Create a ProviderAdapter from a Mode B provider config */

@@ -199,3 +199,16 @@ export type {
   ComplianceRailConfig,
 } from "./engine/domain/safety-config.js";
 export { validateSafetyConfig } from "./engine/domain/safety-config.js";
+
+// Knowledge config types re-exported for direct access by runtime gateway
+export type {
+  KnowledgeConfig,
+  KnowledgeEmbeddingConfig,
+  KnowledgeStoreConfig,
+  KnowledgeChunkingConfig,
+  KnowledgeSourceConfig,
+} from "./engine/domain/knowledge-config.js";
+export { validateKnowledgeConfig } from "./engine/domain/knowledge-config.js";
+
+// Vector store types re-exported for direct access by runtime
+export type { VectorStore, VectorEntry, VectorResult, VectorQueryOptions } from "./engine/domain/vector-store.js";

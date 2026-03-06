@@ -2,7 +2,7 @@
 // Separated from gateway-server.ts so it can be tested without Bun runtime.
 
 import { Hono } from "hono";
-import type { App } from "@kilnai/core";
+import type { App, SttAdapter, RetrievalPipeline } from "@kilnai/core";
 import type { GatewayAppBinding, SecurityConfig, AuditLog } from "@kilnai/core";
 import { PromptScanner } from "@kilnai/core";
 import type { ChannelRegistry } from "../channels/channel-registry.js";
@@ -45,6 +45,8 @@ export interface LoadedApp {
   tenantAdminConfig?: TenantAdminRoutesConfig;
   webChannel?: WebChannel;
   eventEmitter?: ConversationEventEmitter;
+  sttAdapter?: SttAdapter;
+  knowledgePipeline?: { readonly pipeline: RetrievalPipeline; readonly close: () => Promise<void> };
 }
 
 export interface GatewayServerConfig {
@@ -172,6 +174,9 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
             billing: tenantRuntime.billing,
             eventEmitter: loadedApp.eventEmitter,
             allowedOrigins: channel.allowedOrigins,
+            sttAdapter: loadedApp.sttAdapter,
+            knowledgePipeline: loadedApp.knowledgePipeline?.pipeline,
+            knowledgeMode: loadedApp.app.knowledge?.mode,
           });
           app.route(`/apps/${loadedApp.name}`, wsTenantApp);
         } else if (loadedApp.modeBRuntime) {

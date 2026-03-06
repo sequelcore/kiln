@@ -46,6 +46,17 @@ export class InMemoryVectorStore implements VectorStore {
     }
   }
 
+  async deleteByMetadata(filter: Record<string, unknown>): Promise<number> {
+    let deleted = 0;
+    for (const [id, entry] of this.entries) {
+      if (this.matchesFilter(entry.metadata, filter)) {
+        this.entries.delete(id);
+        deleted++;
+      }
+    }
+    return deleted;
+  }
+
   private matchesFilter(metadata: Record<string, unknown>, filter: Record<string, unknown>): boolean {
     for (const [key, value] of Object.entries(filter)) {
       if (metadata[key] !== value) {

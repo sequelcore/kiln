@@ -4,8 +4,8 @@
 import { Hono } from "hono";
 import type { UpgradeWebSocket, WSContext } from "hono/ws";
 import type { WebChannel } from "../channels/web-channel.js";
-import type { ContentPart } from "@kilnai/core";
-import { textParts, extractText } from "@kilnai/core";
+import type { ContentPart, SttAdapter, RetrievalPipeline } from "@kilnai/core";
+import { textParts, extractText, hasModality } from "@kilnai/core";
 import type { ModeBOrchestrator } from "../session/mode-b-orchestrator.js";
 import type { SessionRegistry } from "../session/session-registry.js";
 import type { TenantRegistry } from "../tenant/tenant-registry.js";
@@ -16,6 +16,7 @@ import type { BillingConfig } from "./budget-middleware.js";
 import type { ConversationEventEmitter } from "./conversation-event-emitter.js";
 import { isOriginAllowed } from "./auth-middleware.js";
 import { TraceContext } from "./trace-context.js";
+import { preprocessAudio, createGenericMediaDownloader } from "./audio-preprocessor.js";
 
 export interface WsTenantRoutesConfig {
   readonly webChannel: WebChannel;
@@ -27,6 +28,9 @@ export interface WsTenantRoutesConfig {
   readonly billing?: BillingConfig;
   readonly eventEmitter?: ConversationEventEmitter;
   readonly allowedOrigins?: readonly string[];
+  readonly sttAdapter?: SttAdapter;
+  readonly knowledgePipeline?: RetrievalPipeline;
+  readonly knowledgeMode?: "auto" | "tool";
 }
 
 export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
@@ -82,9 +86,18 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
               const trace = new TraceContext();
               trace.log("ws", "Message received", { tenantId: tenant.tenantId, userId });
 
-              const userParts: readonly ContentPart[] = Array.isArray(parsed.parts)
+              let userParts: readonly ContentPart[] = Array.isArray(parsed.parts)
                 ? (parsed.parts as ContentPart[])
                 : textParts(String(parsed.content ?? ""));
+
+              // Preprocess audio parts via STT (fail-open)
+              if (config.sttAdapter && hasModality(userParts, "audio")) {
+                try {
+                  userParts = await preprocessAudio(userParts, config.sttAdapter, createGenericMediaDownloader());
+                } catch {
+                  // fail-open
+                }
+              }
 
               // Resolve billing config once: tenant-level takes precedence
               const activeBilling = tenant.billing?.budgetEndpoint
@@ -128,7 +141,23 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
                   idleTimeoutMs: tenant.idleTimeoutMs,
                 });
 
-                const result = await config.orchestrator.processMessage(session, userParts);
+                // Knowledge retrieval (auto mode)
+                let knowledgeMemory: string | undefined;
+                if (config.knowledgePipeline && (config.knowledgeMode ?? "auto") === "auto") {
+                  const queryText = extractText(userParts);
+                  if (queryText.length > 0) {
+                    try {
+                      const results = await config.knowledgePipeline.retrieve(queryText, { topK: 5 });
+                      if (results.length > 0) {
+                        knowledgeMemory = "[Knowledge context]:\n" + results.map((r) => r.content).join("\n---\n");
+                      }
+                    } catch {
+                      // fail-open
+                    }
+                  }
+                }
+
+                const result = await config.orchestrator.processMessage(session, userParts, knowledgeMemory);
 
                 // Persist mutated session (required for non-reference stores like Redis)
                 await config.sessionRegistry.save(session);
