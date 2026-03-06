@@ -17,6 +17,7 @@ import type { ConversationEventEmitter } from "./conversation-event-emitter.js";
 import { isOriginAllowed } from "./auth-middleware.js";
 import { TraceContext } from "./trace-context.js";
 import { preprocessAudio, createGenericMediaDownloader } from "./audio-preprocessor.js";
+import { formatKnowledgeContext, formatContactContext, mergeContextSources } from "./context-formatter.js";
 
 export interface WsTenantRoutesConfig {
   readonly webChannel: WebChannel;
@@ -143,15 +144,13 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
                 });
 
                 // Knowledge retrieval (auto mode)
-                let knowledgeMemory: string | undefined;
+                let knowledgeContext: string | undefined;
                 if (config.knowledgePipeline && (config.knowledgeMode ?? "auto") === "auto") {
                   const queryText = extractText(userParts);
                   if (queryText.length > 0) {
                     try {
                       const results = await config.knowledgePipeline.retrieve(queryText, { topK: 5 });
-                      if (results.length > 0) {
-                        knowledgeMemory = "[Knowledge context]:\n" + results.map((r) => r.content).join("\n---\n");
-                      }
+                      knowledgeContext = formatKnowledgeContext(results);
                     } catch {
                       // fail-open
                     }
@@ -163,17 +162,13 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
                 if (config.contactMemoryService) {
                   try {
                     const facts = await config.contactMemoryService.recall(userId, tenant.tenantId);
-                    if (facts.length > 0) {
-                      contactContext = "--- Customer Context ---\n" +
-                        facts.map((f) => f.content).join("\n") +
-                        "\n---";
-                    }
+                    contactContext = formatContactContext(facts);
                   } catch {
                     // fail-open
                   }
                 }
 
-                const combinedMemory = [knowledgeMemory, contactContext].filter(Boolean).join("\n\n") || undefined;
+                const combinedMemory = mergeContextSources(knowledgeContext, contactContext);
 
                 const result = await config.orchestrator.processMessage(session, userParts, combinedMemory);
 

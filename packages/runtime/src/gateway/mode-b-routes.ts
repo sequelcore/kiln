@@ -4,6 +4,7 @@
 import { Hono } from "hono";
 import type { ContentPart, RetrievalPipeline } from "@kilnai/core";
 import { textParts, extractText } from "@kilnai/core";
+import { formatKnowledgeContext } from "./context-formatter.js";
 import type { ModeBOrchestrator } from "../session/mode-b-orchestrator.js";
 import type { SessionRegistry } from "../session/session-registry.js";
 import { checkTier } from "./budget-middleware.js";
@@ -75,9 +76,7 @@ export function createModeBRoutes(runtime: ModeBAppRuntime): Hono {
       if (queryText.length > 0) {
         try {
           const results = await runtime.knowledgePipeline.retrieve(queryText, { topK: 5 });
-          if (results.length > 0) {
-            knowledgeContext = "[Knowledge context]:\n" + results.map((r) => r.content).join("\n---\n");
-          }
+          knowledgeContext = formatKnowledgeContext(results);
         } catch {
           // fail-open
         }

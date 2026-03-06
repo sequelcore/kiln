@@ -20,6 +20,7 @@ import { requireWebhookSignature } from "./auth-middleware.js";
 import { TraceContext } from "./trace-context.js";
 import type { SttAdapter, RetrievalPipeline, ContactMemoryService } from "@kilnai/core";
 import { preprocessAudio, createWhatsAppMediaDownloader } from "./audio-preprocessor.js";
+import { formatKnowledgeContext, formatContactContext, mergeContextSources } from "./context-formatter.js";
 
 export interface WhatsAppWebhookConfig {
   readonly appName: string;
@@ -325,9 +326,7 @@ async function processWhatsAppMessage(
     if (knowledgeMode === "auto") {
       try {
         const results = await config.knowledgePipeline.retrieve(messageText, { topK: 5 });
-        if (results.length > 0) {
-          knowledgeContext = "[Knowledge context]:\n" + results.map((r) => r.content).join("\n---\n");
-        }
+        knowledgeContext = formatKnowledgeContext(results);
       } catch (err) {
         trace.warn("whatsapp", "Knowledge retrieval failed", { error: err instanceof Error ? err.message : String(err) });
       }
@@ -339,18 +338,14 @@ async function processWhatsAppMessage(
   if (config.contactMemoryService) {
     try {
       const facts = await config.contactMemoryService.recall(senderPhone, tenantId);
-      if (facts.length > 0) {
-        contactContext = "--- Customer Context ---\n" +
-          facts.map((f) => f.content).join("\n") +
-          "\n---";
-      }
+      contactContext = formatContactContext(facts);
     } catch (err) {
       trace.warn("whatsapp", "Contact memory recall failed", { tenantId, error: err instanceof Error ? err.message : String(err) });
     }
   }
 
   // Merge recalled memory + knowledge context + contact context
-  const combinedMemory = [recalledMemory, knowledgeContext, contactContext].filter(Boolean).join("\n\n") || undefined;
+  const combinedMemory = mergeContextSources(recalledMemory, knowledgeContext, contactContext);
 
   // --- Tools: build per-call builtin tools ---
   const callTools = new Map<string, (input: Record<string, unknown>) => Promise<unknown>>();
@@ -359,7 +354,7 @@ async function processWhatsAppMessage(
     const ownerPhone = tenant.escalationContact.phone.replace(/\+/g, "");
     callTools.set("notify_owner", async (input: Record<string, unknown>) => {
       const msg = String(input.message ?? "");
-      const fullMessage = `[Ale - Notificación automática]\n\nCliente: ${senderPhone}\n${msg}`;
+      const fullMessage = `[${tenant.businessName ?? tenant.name} - Notificación automática]\n\nCliente: ${senderPhone}\n${msg}`;
 
       await sendWhatsAppMessage(phoneNumberId, resolvedAccessToken, ownerPhone, {
         type: "text",
