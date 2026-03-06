@@ -71,6 +71,13 @@ describe("createKnowledgePipeline", () => {
     ).rejects.toThrow("connectionString");
   });
 
+  it("throws CONFIG_MISSING_ENV for empty API key", async () => {
+    delete process.env.OPENAI_API_KEY;
+    await expect(
+      createKnowledgePipeline(baseConfig()),
+    ).rejects.toThrow("requires API key from env var");
+  });
+
   it("close is noop for memory store", async () => {
     const result = await createKnowledgePipeline(baseConfig());
     await expect(result.close()).resolves.toBeUndefined();

@@ -1,6 +1,7 @@
 // PgVectorStore -- PostgreSQL + pgvector vector storage with hybrid search (RRF)
 
 import type { VectorEntry, VectorResult, VectorQueryOptions, VectorStore } from "../../engine/domain/vector-store.js";
+import { KilnError } from "../../engine/errors.js";
 
 export interface PgVectorStoreConfig {
   readonly connectionString: string;
@@ -175,9 +176,15 @@ export class PgVectorStore implements VectorStore {
 /** Create a PgVectorStore with a real postgres (Porsager) client via dynamic import. */
 export async function createPgVectorStore(config: PgVectorStoreConfig): Promise<PgVectorStore> {
   const moduleName = "postgres";
-  const { default: postgres } = (await import(/* @vite-ignore */ moduleName)) as {
-    default: (connectionString: string) => SqlLike;
-  };
+  let postgres: (connectionString: string) => SqlLike;
+  try {
+    const mod = (await import(/* @vite-ignore */ moduleName)) as { default: (connectionString: string) => SqlLike };
+    postgres = mod.default;
+  } catch {
+    throw new KilnError("CONFIG_INVALID", "postgres module not found. Install: bun add postgres", {
+      context: { backend: "pgvector" },
+    });
+  }
   const sql = postgres(config.connectionString);
   return new PgVectorStore(sql, config);
 }

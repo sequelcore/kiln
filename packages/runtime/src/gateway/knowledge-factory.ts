@@ -33,6 +33,16 @@ export interface KnowledgePipelineResult {
 }
 
 export async function createKnowledgePipeline(config: KnowledgeConfig): Promise<KnowledgePipelineResult> {
+  // Fail-fast: validate API key for non-ollama providers
+  if (config.embedding.provider !== "ollama" && config.embedding.apiKeyEnv) {
+    const apiKey = process.env[config.embedding.apiKeyEnv] ?? "";
+    if (!apiKey) {
+      throw new KilnError("CONFIG_MISSING_ENV", `Embedding provider "${config.embedding.provider}" requires API key from env var "${config.embedding.apiKeyEnv}"`, {
+        context: { provider: config.embedding.provider, apiKeyEnv: config.embedding.apiKeyEnv },
+      });
+    }
+  }
+
   // Resolve embedding adapter
   const embedder = config.embedding.provider === "openai"
     ? new OpenAIEmbeddingAdapter({
