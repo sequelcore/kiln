@@ -8,7 +8,7 @@ export interface KnowledgeEmbeddingConfig {
 }
 
 export interface KnowledgeStoreConfig {
-  readonly backend: "memory" | "pgvector" | "sqlite-vec";
+  readonly backend: "memory" | "pgvector";
   readonly connectionString?: string;
 }
 
@@ -74,11 +74,11 @@ export function validateKnowledgeConfig(config: KnowledgeConfig): KnowledgeValid
 
   if (!config.store || !config.store.backend) {
     errors.push({ field: "store.backend", message: "required" });
-  } else if (!["memory", "pgvector", "sqlite-vec"].includes(config.store.backend)) {
-    errors.push({ field: "store.backend", message: "must be 'memory', 'pgvector', or 'sqlite-vec'" });
+  } else if (!["memory", "pgvector"].includes(config.store.backend)) {
+    errors.push({ field: "store.backend", message: "must be 'memory' or 'pgvector'" });
   }
 
-  if (["pgvector", "sqlite-vec"].includes(config.store.backend) && !config.store.connectionString) {
+  if (config.store.backend === "pgvector" && !config.store.connectionString) {
     errors.push({ field: "store.connectionString", message: `required when backend is '${config.store.backend}'` });
   }
 

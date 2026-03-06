@@ -53,13 +53,13 @@ describe("validateKnowledgeConfig", () => {
     expect(errors.find((e) => e.field === "store.connectionString")).toBeDefined();
   });
 
-  it("requires connectionString for sqlite-vec", () => {
+  it("rejects invalid backend", () => {
     const config: KnowledgeConfig = {
       ...validConfig,
-      store: { backend: "sqlite-vec" },
+      store: { backend: "sqlite-vec" as never },
     };
     const errors = validateKnowledgeConfig(config);
-    expect(errors.find((e) => e.field === "store.connectionString")).toBeDefined();
+    expect(errors.find((e) => e.field === "store.backend")).toBeDefined();
   });
 
   it("requires chunking.strategy", () => {
