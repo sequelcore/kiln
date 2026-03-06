@@ -4,7 +4,7 @@
 import { Hono } from "hono";
 import type { UpgradeWebSocket, WSContext } from "hono/ws";
 import type { WebChannel } from "../channels/web-channel.js";
-import type { ContentPart, SttAdapter, RetrievalPipeline } from "@kilnai/core";
+import type { ContentPart, SttAdapter, RetrievalPipeline, ContactMemoryService } from "@kilnai/core";
 import { textParts, extractText, hasModality } from "@kilnai/core";
 import type { ModeBOrchestrator } from "../session/mode-b-orchestrator.js";
 import type { SessionRegistry } from "../session/session-registry.js";
@@ -31,6 +31,7 @@ export interface WsTenantRoutesConfig {
   readonly sttAdapter?: SttAdapter;
   readonly knowledgePipeline?: RetrievalPipeline;
   readonly knowledgeMode?: "auto" | "tool";
+  readonly contactMemoryService?: ContactMemoryService;
 }
 
 export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
@@ -157,7 +158,24 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
                   }
                 }
 
-                const result = await config.orchestrator.processMessage(session, userParts, knowledgeMemory);
+                // Contact memory recall (fail-open)
+                let contactContext: string | undefined;
+                if (config.contactMemoryService) {
+                  try {
+                    const facts = await config.contactMemoryService.recall(userId, tenant.tenantId);
+                    if (facts.length > 0) {
+                      contactContext = "--- Customer Context ---\n" +
+                        facts.map((f) => f.content).join("\n") +
+                        "\n---";
+                    }
+                  } catch {
+                    // fail-open
+                  }
+                }
+
+                const combinedMemory = [knowledgeMemory, contactContext].filter(Boolean).join("\n\n") || undefined;
+
+                const result = await config.orchestrator.processMessage(session, userParts, combinedMemory);
 
                 // Persist mutated session (required for non-reference stores like Redis)
                 await config.sessionRegistry.save(session);

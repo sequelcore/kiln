@@ -454,6 +454,13 @@ export function getErrorSuggestion(
         docUrl: docUrl(code),
       };
 
+    case "CONTACT_MEMORY_EXTRACTION_FAILED":
+      return {
+        suggestion:
+          "Contact memory fact extraction failed. Check the LLM provider configuration and API key in knowledge.contactMemory.",
+        docUrl: docUrl(code),
+      };
+
     case "PII_DETECTED":
       return {
         suggestion:

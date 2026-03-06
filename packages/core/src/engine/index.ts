@@ -97,8 +97,12 @@ export type {
   KnowledgeChunkingConfig,
   KnowledgeSourceConfig,
   KnowledgeValidationError,
+  ContactMemoryConfig,
 } from "./domain/knowledge-config.js";
 export { validateKnowledgeConfig } from "./domain/knowledge-config.js";
+
+// Contact memory (Phase 4d)
+export type { ContactFact, ExtractedFact, FactCategory, FactAction, ContactMemoryService } from "./domain/contact-memory.js";
 
 // Knowledge source types (Phase 4c)
 export type {

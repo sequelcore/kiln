@@ -742,6 +742,28 @@ knowledge:
       concurrency: 5
 ```
 
+**Contact memory** (per-user fact storage across conversations):
+
+When enabled, facts about each customer are extracted via LLM after session expiry and stored as vector embeddings. On the next conversation, these facts are recalled and injected into the system prompt as customer context.
+
+```yaml
+knowledge:
+  # ...embedding, store, chunking, sources...
+  contactMemory:
+    enabled: true
+    provider: anthropic           # LLM provider for fact extraction
+    model: claude-haiku-4-5-20251001
+    apiKeyEnv: ANTHROPIC_API_KEY
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `contactMemory.enabled` | `boolean` | No | Enable per-user contact memory. Default: `false`. |
+| `contactMemory.provider` | `"anthropic" \| "openai" \| "deepseek" \| "ollama"` | Yes (when enabled) | LLM provider for fact extraction. |
+| `contactMemory.model` | `string` | No | Model name. Uses provider default if omitted. |
+| `contactMemory.apiKeyEnv` | `string` | Yes (non-ollama) | Environment variable name for the API key. |
+| `contactMemory.baseUrl` | `string` | No | Base URL for Ollama or self-hosted providers. |
+
 ---
 
 ## voice

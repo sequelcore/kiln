@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { createKnowledgePipeline } from "../../src/gateway/knowledge-factory.js";
-import type { KnowledgeConfig } from "@kilnai/core";
+import { createKnowledgePipeline, createContactMemoryService } from "../../src/gateway/knowledge-factory.js";
+import type { KnowledgeConfig, ContactMemoryConfig, VectorStore, EmbeddingAdapter } from "@kilnai/core";
 
 // Mock createPgVectorStore to avoid actual postgres dependency
 vi.mock("@kilnai/core", async () => {
@@ -108,5 +108,89 @@ describe("createKnowledgePipeline", () => {
       },
     }));
     expect(result.pipeline).toBeDefined();
+  });
+
+  it("exposes embedder on pipeline result", async () => {
+    const result = await createKnowledgePipeline(baseConfig());
+    expect(result.embedder).toBeDefined();
+    expect(result.embedder.name).toBeDefined();
+  });
+});
+
+describe("createContactMemoryService", () => {
+  const originalEnv = process.env;
+
+  beforeEach(() => {
+    process.env = { ...originalEnv, ANTHROPIC_API_KEY: "sk-ant-test" };
+  });
+
+  afterEach(() => {
+    process.env = originalEnv;
+  });
+
+  function mockVectorStore(): VectorStore {
+    return {
+      upsert: vi.fn(),
+      query: vi.fn().mockResolvedValue([]),
+      delete: vi.fn(),
+      deleteByMetadata: vi.fn().mockResolvedValue(0),
+    };
+  }
+
+  function mockEmbedder(): EmbeddingAdapter {
+    return {
+      name: "mock",
+      dimensions: 3,
+      embed: vi.fn().mockResolvedValue([[0.1, 0.2, 0.3]]),
+    };
+  }
+
+  it("creates contact memory service with anthropic provider", () => {
+    const config: ContactMemoryConfig = {
+      enabled: true,
+      provider: "anthropic",
+      model: "claude-haiku-4-5-20251001",
+      apiKeyEnv: "ANTHROPIC_API_KEY",
+    };
+    const service = createContactMemoryService({
+      contactMemoryConfig: config,
+      vectorStore: mockVectorStore(),
+      embedder: mockEmbedder(),
+    });
+    expect(service).toBeDefined();
+    expect(service.recall).toBeInstanceOf(Function);
+    expect(service.extractAndStore).toBeInstanceOf(Function);
+    expect(service.forget).toBeInstanceOf(Function);
+    expect(service.forgetAll).toBeInstanceOf(Function);
+  });
+
+  it("creates contact memory service with openai provider", () => {
+    process.env.OPENAI_API_KEY = "sk-test";
+    const config: ContactMemoryConfig = {
+      enabled: true,
+      provider: "openai",
+      apiKeyEnv: "OPENAI_API_KEY",
+    };
+    const service = createContactMemoryService({
+      contactMemoryConfig: config,
+      vectorStore: mockVectorStore(),
+      embedder: mockEmbedder(),
+    });
+    expect(service).toBeDefined();
+  });
+
+  it("creates contact memory service with ollama provider", () => {
+    const config: ContactMemoryConfig = {
+      enabled: true,
+      provider: "ollama",
+      model: "llama3",
+      baseUrl: "http://localhost:11434",
+    };
+    const service = createContactMemoryService({
+      contactMemoryConfig: config,
+      vectorStore: mockVectorStore(),
+      embedder: mockEmbedder(),
+    });
+    expect(service).toBeDefined();
   });
 });

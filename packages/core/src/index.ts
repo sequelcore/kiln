@@ -208,8 +208,18 @@ export type {
   KnowledgeChunkingConfig,
   KnowledgeSourceConfig,
   ContextualConfig,
+  ContactMemoryConfig,
 } from "./engine/domain/knowledge-config.js";
 export { validateKnowledgeConfig } from "./engine/domain/knowledge-config.js";
+
+// Contact memory types re-exported for direct access by runtime
+export type {
+  ContactFact,
+  ExtractedFact,
+  FactCategory,
+  FactAction,
+  ContactMemoryService,
+} from "./engine/domain/contact-memory.js";
 
 // Knowledge source types re-exported for direct access by runtime
 export type {
@@ -227,6 +237,9 @@ export type { SourceManagerConfig } from "./knowledge/source-manager.js";
 
 // Vector store types re-exported for direct access by runtime
 export type { VectorStore, VectorEntry, VectorResult, VectorQueryOptions } from "./engine/domain/vector-store.js";
+
+// Embedding adapter type re-exported for direct access by runtime
+export type { EmbeddingAdapter } from "./engine/domain/embedding.js";
 
 // Chunker types re-exported for direct access by runtime
 export type { ChunkEnricher } from "./engine/domain/chunker.js";

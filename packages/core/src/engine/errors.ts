@@ -83,6 +83,8 @@ export type KilnErrorCode =
   | "SOURCE_NOT_FOUND"
   | "SOURCE_EXTRACTION_FAILED"
   | "SOURCE_ALREADY_EXISTS"
+  // Contact memory (Phase 4d)
+  | "CONTACT_MEMORY_EXTRACTION_FAILED"
   // Safety (Phase 12)
   | "PII_DETECTED"
   | "CONTENT_POLICY_VIOLATED"

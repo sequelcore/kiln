@@ -36,6 +36,14 @@ export interface KnowledgeSourceConfig {
   readonly chunking?: KnowledgeChunkingConfig;
 }
 
+export interface ContactMemoryConfig {
+  readonly enabled: boolean;
+  readonly provider: "anthropic" | "openai" | "deepseek" | "ollama";
+  readonly model?: string;
+  readonly apiKeyEnv?: string;
+  readonly baseUrl?: string;
+}
+
 export interface KnowledgeConfig {
   readonly embedding: KnowledgeEmbeddingConfig;
   readonly store: KnowledgeStoreConfig;
@@ -43,6 +51,7 @@ export interface KnowledgeConfig {
   readonly sources: readonly KnowledgeSourceConfig[];
   readonly allowedAgents?: readonly string[];
   readonly mode?: "auto" | "tool";
+  readonly contactMemory?: ContactMemoryConfig;
 }
 
 export interface KnowledgeValidationError {
@@ -109,6 +118,18 @@ export function validateKnowledgeConfig(config: KnowledgeConfig): KnowledgeValid
     }
     if (ctx.concurrency !== undefined && ctx.concurrency <= 0) {
       errors.push({ field: "chunking.contextual.concurrency", message: "must be greater than 0" });
+    }
+  }
+
+  if (config.contactMemory?.enabled) {
+    const cm = config.contactMemory;
+    if (!cm.provider) {
+      errors.push({ field: "contactMemory.provider", message: "required when contact memory is enabled" });
+    } else if (!["anthropic", "openai", "deepseek", "ollama"].includes(cm.provider)) {
+      errors.push({ field: "contactMemory.provider", message: "must be 'anthropic', 'openai', 'deepseek', or 'ollama'" });
+    }
+    if (cm.provider !== "ollama" && !cm.apiKeyEnv) {
+      errors.push({ field: "contactMemory.apiKeyEnv", message: `required when provider is '${cm.provider}'` });
     }
   }
 

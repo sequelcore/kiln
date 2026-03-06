@@ -18,7 +18,7 @@ import type { BillingConfig } from "./budget-middleware.js";
 import type { ConversationEventEmitter } from "./conversation-event-emitter.js";
 import { requireWebhookSignature } from "./auth-middleware.js";
 import { TraceContext } from "./trace-context.js";
-import type { SttAdapter, RetrievalPipeline } from "@kilnai/core";
+import type { SttAdapter, RetrievalPipeline, ContactMemoryService } from "@kilnai/core";
 import { preprocessAudio, createWhatsAppMediaDownloader } from "./audio-preprocessor.js";
 
 export interface WhatsAppWebhookConfig {
@@ -35,6 +35,7 @@ export interface WhatsAppWebhookConfig {
   readonly sttAdapter?: SttAdapter;
   readonly knowledgePipeline?: RetrievalPipeline;
   readonly knowledgeMode?: "auto" | "tool";
+  readonly contactMemoryService?: ContactMemoryService;
 }
 
 interface MetaWebhookMessage {
@@ -333,8 +334,23 @@ async function processWhatsAppMessage(
     }
   }
 
-  // Merge recalled memory + knowledge context
-  const combinedMemory = [recalledMemory, knowledgeContext].filter(Boolean).join("\n\n") || undefined;
+  // --- Contact memory: recall persistent facts about this user ---
+  let contactContext: string | undefined;
+  if (config.contactMemoryService) {
+    try {
+      const facts = await config.contactMemoryService.recall(senderPhone, tenantId);
+      if (facts.length > 0) {
+        contactContext = "--- Customer Context ---\n" +
+          facts.map((f) => f.content).join("\n") +
+          "\n---";
+      }
+    } catch (err) {
+      trace.warn("whatsapp", "Contact memory recall failed", { tenantId, error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  // Merge recalled memory + knowledge context + contact context
+  const combinedMemory = [recalledMemory, knowledgeContext, contactContext].filter(Boolean).join("\n\n") || undefined;
 
   // --- Tools: build per-call builtin tools ---
   const callTools = new Map<string, (input: Record<string, unknown>) => Promise<unknown>>();

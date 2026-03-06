@@ -14,6 +14,10 @@ export { createKnowledgeCapability, executeKnowledgeSearch } from "./knowledge-c
 export { ContextualEnricher } from "./contextual-enricher.js";
 export type { ContextualEnricherConfig } from "./contextual-enricher.js";
 
+// Contact memory (Phase 4d)
+export { ContactMemoryServiceImpl } from "./contact-memory.js";
+export type { ContactMemoryServiceConfig } from "./contact-memory.js";
+
 // Source management (Phase 4c)
 export { FileExtractor } from "./infrastructure/file-extractor.js";
 export { UrlExtractor } from "./infrastructure/url-extractor.js";

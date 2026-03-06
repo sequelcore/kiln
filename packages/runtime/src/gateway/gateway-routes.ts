@@ -2,7 +2,7 @@
 // Separated from gateway-server.ts so it can be tested without Bun runtime.
 
 import { Hono } from "hono";
-import type { App, SttAdapter, RetrievalPipeline } from "@kilnai/core";
+import type { App, SttAdapter, RetrievalPipeline, ContactMemoryService } from "@kilnai/core";
 import type { GatewayAppBinding, SecurityConfig, AuditLog } from "@kilnai/core";
 import { PromptScanner } from "@kilnai/core";
 import type { ChannelRegistry } from "../channels/channel-registry.js";
@@ -22,6 +22,8 @@ import type { TenantAdminRoutesConfig } from "./tenant-admin-routes.js";
 import { createTenantAdminRoutes } from "./tenant-admin-routes.js";
 import type { KnowledgeAdminRoutesConfig } from "./knowledge-admin-routes.js";
 import { createKnowledgeAdminRoutes } from "./knowledge-admin-routes.js";
+import type { ContactMemoryAdminRoutesConfig } from "./contact-memory-admin-routes.js";
+import { createContactMemoryAdminRoutes } from "./contact-memory-admin-routes.js";
 import { createOutboundRoutes } from "./outbound-routes.js";
 import { createHandoffRoutes } from "./handoff-routes.js";
 import { HealthRegistry } from "./health-registry.js";
@@ -50,6 +52,8 @@ export interface LoadedApp {
   sttAdapter?: SttAdapter;
   knowledgePipeline?: { readonly pipeline: RetrievalPipeline; readonly close: () => Promise<void> };
   knowledgeAdminConfig?: KnowledgeAdminRoutesConfig;
+  contactMemoryService?: ContactMemoryService;
+  contactMemoryAdminConfig?: ContactMemoryAdminRoutesConfig;
 }
 
 export interface GatewayServerConfig {
@@ -180,6 +184,7 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
             sttAdapter: loadedApp.sttAdapter,
             knowledgePipeline: loadedApp.knowledgePipeline?.pipeline,
             knowledgeMode: loadedApp.app.knowledge?.mode,
+            contactMemoryService: loadedApp.contactMemoryService,
           });
           app.route(`/apps/${loadedApp.name}`, wsTenantApp);
         } else if (loadedApp.modeBRuntime) {
@@ -235,6 +240,12 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
     if (loadedApp.knowledgeAdminConfig) {
       const knowledgeAdminApp = createKnowledgeAdminRoutes(loadedApp.knowledgeAdminConfig);
       app.route(`/admin/${loadedApp.name}/knowledge`, knowledgeAdminApp);
+    }
+
+    // Contact memory admin routes (GDPR: forget, forgetAll)
+    if (loadedApp.contactMemoryAdminConfig) {
+      const contactMemoryAdminApp = createContactMemoryAdminRoutes(loadedApp.contactMemoryAdminConfig);
+      app.route(`/admin/${loadedApp.name}/contact-memory`, contactMemoryAdminApp);
     }
   }
 

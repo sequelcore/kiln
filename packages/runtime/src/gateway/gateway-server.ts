@@ -37,9 +37,11 @@ import { DevOrchestrator } from "./dev-orchestrator.js";
 import { DevTokenStore } from "./dev-token-store.js";
 import { ConversationEventEmitter } from "./conversation-event-emitter.js";
 import { createSttAdapter } from "./stt-factory.js";
-import { createKnowledgePipeline, createSourceManager } from "./knowledge-factory.js";
+import { createKnowledgePipeline, createSourceManager, createContactMemoryService } from "./knowledge-factory.js";
 import type { KnowledgePipelineResult } from "./knowledge-factory.js";
 import type { KnowledgeAdminRoutesConfig } from "./knowledge-admin-routes.js";
+import type { ContactMemoryService } from "@kilnai/core";
+import { extractText } from "@kilnai/core";
 
 export type { LoadedApp, GatewayServerConfig } from "./gateway-routes.js";
 export { createGatewayApp } from "./gateway-routes.js";
@@ -235,6 +237,8 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
       sttAdapter: undefined as undefined | SttAdapter,
       knowledgePipeline: undefined as undefined | KnowledgePipelineResult,
       knowledgeAdminConfig: undefined as undefined | KnowledgeAdminRoutesConfig,
+      contactMemoryService: undefined as undefined | ContactMemoryService,
+      contactMemoryAdminConfig: undefined as undefined | import("./contact-memory-admin-routes.js").ContactMemoryAdminRoutesConfig,
     };
   });
 
@@ -323,6 +327,27 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
           adminToken: adminTokenEnv ? process.env[adminTokenEnv] ?? undefined : undefined,
         };
 
+        // Initialize contact memory service if configured
+        if (resolved.app.knowledge.contactMemory?.enabled && loaded.knowledgePipeline) {
+          try {
+            loaded.contactMemoryService = createContactMemoryService({
+              contactMemoryConfig: resolved.app.knowledge.contactMemory,
+              vectorStore: loaded.knowledgePipeline.store,
+              embedder: loaded.knowledgePipeline.embedder,
+            });
+            console.log(`  ${loaded.name}: contact memory service initialized`);
+
+            // Wire contact memory admin routes (reuse same admin token as knowledge)
+            loaded.contactMemoryAdminConfig = {
+              contactMemoryService: loaded.contactMemoryService,
+              appName: loaded.name,
+              adminToken: adminTokenEnv ? process.env[adminTokenEnv] ?? undefined : undefined,
+            };
+          } catch (err) {
+            console.warn(`  ${loaded.name}: contact memory initialization failed: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+
         // Fire-and-forget startup ingestion
         sourceManager.ingestAll(loaded.name).then((results) => {
           const indexed = results.filter((r) => r.status === "indexed").length;
@@ -359,6 +384,20 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
     if (eventEmitter) {
       sessionRegistry.eventEmitter = eventEmitter;
       loaded.eventEmitter = eventEmitter;
+    }
+
+    // Wire contact memory extraction on session expiry
+    if (loaded.contactMemoryService) {
+      const cms = loaded.contactMemoryService;
+      sessionRegistry.onSessionExpired = (session) => {
+        if (session.tenantId && session.messageCount > 0) {
+          const history = session.conversationHistory
+            .map((m) => `${m.role}: ${extractText(m.parts)}`)
+            .join("\n");
+          cms.extractAndStore(history, session.userId, session.tenantId)
+            .catch((err) => console.warn(`Contact memory extraction failed: ${err}`));
+        }
+      };
     }
 
     // Resolve API key from channel binding (shared across REST + WS for this app)
@@ -398,6 +437,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
           sttAdapter: loaded.sttAdapter,
           knowledgePipeline: loaded.knowledgePipeline?.pipeline,
           knowledgeMode: resolved.app.knowledge?.mode,
+          contactMemoryService: loaded.contactMemoryService,
         };
       }
 

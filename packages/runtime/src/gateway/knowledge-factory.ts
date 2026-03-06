@@ -1,6 +1,6 @@
 // Knowledge pipeline factory -- resolves KnowledgeConfig to concrete pipeline
 
-import type { KnowledgeConfig, VectorStore, ChunkEnricher } from "@kilnai/core";
+import type { KnowledgeConfig, VectorStore, ChunkEnricher, ContactMemoryConfig, EmbeddingAdapter, ContactMemoryService } from "@kilnai/core";
 import {
   OpenAIEmbeddingAdapter,
   OllamaEmbeddingAdapter,
@@ -22,11 +22,13 @@ import {
   CompositeExtractor,
   InMemorySourceStore,
   JsonSourceStore,
+  ContactMemoryServiceImpl,
 } from "@kilnai/core";
 
 export interface KnowledgePipelineResult {
   readonly pipeline: RetrievalPipeline;
   readonly store: VectorStore;
+  readonly embedder: EmbeddingAdapter;
   readonly close: () => Promise<void>;
 }
 
@@ -96,7 +98,35 @@ export async function createKnowledgePipeline(config: KnowledgeConfig): Promise<
     enricher,
   });
 
-  return { pipeline, store, close: closeFn };
+  return { pipeline, store, embedder, close: closeFn };
+}
+
+export function createContactMemoryService(config: {
+  contactMemoryConfig: ContactMemoryConfig;
+  vectorStore: VectorStore;
+  embedder: EmbeddingAdapter;
+}): ContactMemoryService {
+  const apiKey = config.contactMemoryConfig.apiKeyEnv
+    ? process.env[config.contactMemoryConfig.apiKeyEnv] ?? ""
+    : "";
+
+  const provider =
+    config.contactMemoryConfig.provider === "anthropic"
+      ? new AnthropicAdapter({ apiKey, defaultModel: config.contactMemoryConfig.model })
+      : config.contactMemoryConfig.provider === "openai"
+        ? new OpenAIAdapter({ apiKey, defaultModel: config.contactMemoryConfig.model })
+        : config.contactMemoryConfig.provider === "deepseek"
+          ? new DeepSeekAdapter({ apiKey, defaultModel: config.contactMemoryConfig.model })
+          : new OllamaAdapter({
+              baseUrl: config.contactMemoryConfig.baseUrl,
+              defaultModel: config.contactMemoryConfig.model,
+            });
+
+  return new ContactMemoryServiceImpl({
+    vectorStore: config.vectorStore,
+    embedder: config.embedder,
+    provider,
+  });
 }
 
 export interface SourceManagerResult {

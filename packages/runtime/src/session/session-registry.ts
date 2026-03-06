@@ -9,6 +9,7 @@ export class SessionRegistry {
   private readonly store: SessionStore;
   private readonly defaultIdleTimeoutMs?: number;
   eventEmitter?: ConversationEventEmitter;
+  onSessionExpired?: (session: ModeBSession) => void;
 
   constructor(defaultIdleTimeoutMs?: number, store?: SessionStore) {
     this.defaultIdleTimeoutMs = defaultIdleTimeoutMs;
@@ -91,6 +92,11 @@ export class SessionRegistry {
     for (const key of allKeys) {
       const session = await this.store.get(key);
       if (session && session.isExpired) {
+        // Trigger contact memory extraction before deleting
+        if (this.onSessionExpired) {
+          try { this.onSessionExpired(session); } catch { /* fire-and-forget */ }
+        }
+
         await this.store.delete(key);
         removed++;
 
