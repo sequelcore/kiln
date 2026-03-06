@@ -142,6 +142,7 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `gateway/audio-preprocessor.ts` | Audio preprocessing: MediaDownloader (WhatsApp two-step, generic), fail-open transcription |
 | `gateway/stt-factory.ts` | Resolve SttProviderConfig to concrete SttAdapter |
 | `gateway/knowledge-factory.ts` | Resolve KnowledgeConfig to RetrievalPipeline + VectorStore + close(), createSourceManager() |
+| `gateway/context-formatter.ts` | formatKnowledgeContext, formatContactContext, mergeContextSources -- shared by WS tenant, WhatsApp, Mode B |
 | `gateway/knowledge-admin-routes.ts` | Knowledge source CRUD: /sources (list, create, get, reindex, delete) |
 | `gateway/contact-memory-admin-routes.ts` | Contact memory CRUD: /facts (list, forget, forgetAll -- GDPR) |
 | `gateway/memory-routes.ts` | Production memory routes: /api/memory (all modes) |
