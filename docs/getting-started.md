@@ -221,6 +221,7 @@ bun run test
 - [Core Concepts](concepts.md) -- understand primitives, composites, and how the engine works
 - [App Configuration](configuration/app-yaml.md) -- full `app.yaml` schema reference
 - [Channels](guides/channels.md) -- configure WhatsApp, Slack, and other adapters
+- [Knowledge](guides/knowledge.md) -- RAG pipeline, vector stores, contact memory, speech-to-text
 
 ## Examples
 

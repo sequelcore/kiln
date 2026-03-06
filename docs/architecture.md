@@ -388,7 +388,7 @@ kiln/
 │           └── styles/                   # tokens.css
 ├── docs/
 │   ├── architecture.md                   # This document
-│   ├── guides/                           # User guides (multi-tenant, delegation, domains, eval)
+│   ├── guides/                           # User guides (multi-tenant, delegation, domains, eval, knowledge)
 │   └── sdk/                              # SDK docs (react-hooks, studio)
 ├── CLAUDE.md
 ├── CONTRIBUTING.md

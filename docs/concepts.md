@@ -200,6 +200,48 @@ See [Triggers](guides/triggers.md) for full configuration.
 
 ---
 
+## Knowledge
+
+Knowledge provides RAG (Retrieval-Augmented Generation) capabilities. Ingest documents from files, URLs, or PDFs; chunk, embed, and store them in a vector store; then retrieve relevant context at query time to ground agent responses.
+
+```yaml
+knowledge:
+  embedding:
+    provider: openai
+    model: text-embedding-3-small
+    apiKeyEnv: OPENAI_API_KEY
+  store:
+    backend: pgvector
+    connectionString: ${DATABASE_URL}
+  chunking:
+    strategy: recursive
+    chunkSize: 512
+    chunkOverlap: 50
+    contextual:
+      enabled: true
+      provider: anthropic
+      apiKeyEnv: ANTHROPIC_API_KEY
+  sources:
+    - name: docs
+      path: ./docs
+    - name: faq
+      path: https://example.com/faq
+      type: url
+  mode: auto
+  contactMemory:
+    enabled: true
+    provider: anthropic
+    apiKeyEnv: ANTHROPIC_API_KEY
+```
+
+Two retrieval modes: `auto` injects context into the system prompt automatically; `tool` registers a `knowledge_search` capability that agents invoke on demand.
+
+Contact memory extracts per-user facts from conversations (preferences, entities, issues) and recalls them at session start for personalization. Facts use bi-temporal tracking and support GDPR deletion.
+
+See [Knowledge](guides/knowledge.md) for full configuration details.
+
+---
+
 ## The 3 Composites
 
 ### Team
