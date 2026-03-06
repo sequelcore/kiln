@@ -75,4 +75,38 @@ describe("createKnowledgePipeline", () => {
     const result = await createKnowledgePipeline(baseConfig());
     await expect(result.close()).resolves.toBeUndefined();
   });
+
+  it("creates pipeline with contextual enricher when enabled", async () => {
+    process.env.ANTHROPIC_API_KEY = "sk-ant-test";
+    const result = await createKnowledgePipeline(baseConfig({
+      chunking: {
+        strategy: "recursive",
+        chunkSize: 512,
+        chunkOverlap: 50,
+        contextual: {
+          enabled: true,
+          provider: "anthropic",
+          model: "claude-haiku-4-5-20251001",
+          apiKeyEnv: "ANTHROPIC_API_KEY",
+          concurrency: 3,
+        },
+      },
+    }));
+    expect(result.pipeline).toBeDefined();
+  });
+
+  it("creates pipeline without enricher when contextual is disabled", async () => {
+    const result = await createKnowledgePipeline(baseConfig({
+      chunking: {
+        strategy: "recursive",
+        chunkSize: 512,
+        chunkOverlap: 50,
+        contextual: {
+          enabled: false,
+          provider: "anthropic",
+        },
+      },
+    }));
+    expect(result.pipeline).toBeDefined();
+  });
 });

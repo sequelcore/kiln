@@ -11,3 +11,5 @@ export { RetrievalPipeline } from "./retrieval-pipeline.js";
 export type { RetrievalPipelineConfig } from "./retrieval-pipeline.js";
 export { type Reranker } from "./reranker.js";
 export { createKnowledgeCapability, executeKnowledgeSearch } from "./knowledge-capability.js";
+export { ContextualEnricher } from "./contextual-enricher.js";
+export type { ContextualEnricherConfig } from "./contextual-enricher.js";

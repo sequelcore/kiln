@@ -710,9 +710,31 @@ knowledge:
 | `chunking.strategy` | `"recursive" \| "markdown"` | Yes | Chunking strategy. `markdown` preserves heading hierarchy. |
 | `chunking.chunkSize` | `number` | No | Maximum chunk size in tokens. Default: 512. |
 | `chunking.overlap` | `number` | No | Token overlap between adjacent chunks. Default: 50. |
+| `chunking.contextual.enabled` | `boolean` | No | Enable contextual retrieval enrichment (Anthropic pattern). When enabled, each chunk is enriched with a LLM-generated context prefix before embedding, reducing failed retrievals by ~49%. Default: `false`. |
+| `chunking.contextual.provider` | `"anthropic" \| "openai" \| "deepseek" \| "ollama"` | Conditional | LLM provider for enrichment. Required when `contextual.enabled` is `true`. Anthropic recommended (supports prompt caching for ~90% cost reduction). |
+| `chunking.contextual.model` | `string` | No | Model override for enrichment (e.g., `claude-haiku-4-5-20251001` for cost savings). |
+| `chunking.contextual.apiKeyEnv` | `string` | Conditional | Environment variable for API key. Required for non-Ollama providers. |
+| `chunking.contextual.baseUrl` | `string` | No | Base URL for Ollama or self-hosted providers. |
+| `chunking.contextual.concurrency` | `number` | No | Max concurrent LLM calls during enrichment. Default: 5. |
 | `sources` | `SourceConfig[]` | Yes | File sources to ingest. |
 | `sources[].path` | `string` | Yes | Directory path relative to the App YAML file. |
 | `sources[].glob` | `string` | Yes | Glob pattern for files to include. |
+
+**Contextual enrichment example:**
+
+```yaml
+knowledge:
+  chunking:
+    strategy: markdown
+    chunkSize: 512
+    chunkOverlap: 50
+    contextual:
+      enabled: true
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      apiKeyEnv: ANTHROPIC_API_KEY
+      concurrency: 5
+```
 
 ---
 

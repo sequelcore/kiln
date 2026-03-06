@@ -24,3 +24,8 @@ export interface ChunkConfig {
 export interface Chunker {
   chunk(document: Document, config: ChunkConfig): Chunk[];
 }
+
+/** Optional post-chunking enrichment. Adds contextual prefixes to chunks using an LLM. */
+export interface ChunkEnricher {
+  enrich(document: Document, chunks: Chunk[]): Promise<Chunk[]>;
+}

@@ -422,6 +422,13 @@ export function getErrorSuggestion(
         docUrl: docUrl(code),
       };
 
+    case "ENRICHMENT_FAILED":
+      return {
+        suggestion:
+          "Contextual enrichment failed for one or more chunks. Check the LLM provider configuration and API key in chunking.contextual.",
+        docUrl: docUrl(code),
+      };
+
     case "PII_DETECTED":
       return {
         suggestion:

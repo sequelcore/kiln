@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { RetrievalPipeline } from "../../src/knowledge/retrieval-pipeline.js";
 import type { EmbeddingAdapter } from "../../src/engine/domain/embedding.js";
 import type { VectorStore, VectorEntry, VectorQueryOptions, VectorResult } from "../../src/engine/domain/vector-store.js";
-import type { Chunker, ChunkConfig, Document } from "../../src/engine/domain/chunker.js";
+import type { Chunker, ChunkConfig, ChunkEnricher, Document, Chunk } from "../../src/engine/domain/chunker.js";
 
 class MockChunker implements Chunker {
   chunk(document: Document, config: ChunkConfig) {
@@ -50,6 +50,9 @@ class MockVectorStore implements VectorStore {
     for (const id of ids) {
       this.entries.delete(id);
     }
+  }
+  async deleteByMetadata(_filter: Record<string, unknown>): Promise<number> {
+    return 0;
   }
 }
 
@@ -163,6 +166,35 @@ describe("RetrievalPipeline", () => {
 
     const count = await pipeline.ingest([]);
     expect(count).toBe(0);
+  });
+
+  it("calls enricher when provided and embeds enriched content", async () => {
+    const chunker = new MockChunker();
+    const embedder = new MockEmbedder();
+    const store = new MockVectorStore();
+    const enricher: ChunkEnricher = {
+      enrich: vi.fn().mockImplementation(async (_doc: Document, chunks: Chunk[]) =>
+        chunks.map((c) => ({ ...c, content: `<context>\nEnriched\n</context>\n${c.content}` })),
+      ),
+    };
+
+    const pipeline = new RetrievalPipeline({
+      embedder,
+      store,
+      chunker,
+      chunkConfig: { chunkSize: 100, chunkOverlap: 2 },
+      enricher,
+    });
+
+    const count = await pipeline.ingest([{ content: "Test content", metadata: { source: "test" } }]);
+
+    expect(count).toBeGreaterThan(0);
+    expect(enricher.enrich).toHaveBeenCalled();
+
+    // Verify the store received enriched content
+    const results = await store.query([1, 1, 1], { topK: 10 });
+    expect(results[0]!.content).toContain("<context>");
+    expect(results[0]!.content).toContain("Enriched");
   });
 
   it("uses custom reranker when provided", async () => {

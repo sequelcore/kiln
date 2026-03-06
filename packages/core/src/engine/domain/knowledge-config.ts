@@ -12,10 +12,20 @@ export interface KnowledgeStoreConfig {
   readonly connectionString?: string;
 }
 
+export interface ContextualConfig {
+  readonly enabled: boolean;
+  readonly provider: "anthropic" | "openai" | "deepseek" | "ollama";
+  readonly model?: string;
+  readonly apiKeyEnv?: string;
+  readonly baseUrl?: string;
+  readonly concurrency?: number;
+}
+
 export interface KnowledgeChunkingConfig {
   readonly strategy: "recursive" | "markdown";
   readonly chunkSize?: number;
   readonly chunkOverlap?: number;
+  readonly contextual?: ContextualConfig;
 }
 
 export interface KnowledgeSourceConfig {
@@ -84,6 +94,21 @@ export function validateKnowledgeConfig(config: KnowledgeConfig): KnowledgeValid
 
   if (config.mode !== undefined && config.mode !== "auto" && config.mode !== "tool") {
     errors.push({ field: "mode", message: "must be 'auto' or 'tool'" });
+  }
+
+  if (config.chunking.contextual?.enabled) {
+    const ctx = config.chunking.contextual;
+    if (!ctx.provider) {
+      errors.push({ field: "chunking.contextual.provider", message: "required when contextual enrichment is enabled" });
+    } else if (!["anthropic", "openai", "deepseek", "ollama"].includes(ctx.provider)) {
+      errors.push({ field: "chunking.contextual.provider", message: "must be 'anthropic', 'openai', 'deepseek', or 'ollama'" });
+    }
+    if (ctx.provider !== "ollama" && !ctx.apiKeyEnv) {
+      errors.push({ field: "chunking.contextual.apiKeyEnv", message: `required when provider is '${ctx.provider}'` });
+    }
+    if (ctx.concurrency !== undefined && ctx.concurrency <= 0) {
+      errors.push({ field: "chunking.contextual.concurrency", message: "must be greater than 0" });
+    }
   }
 
   if (!config.sources || !Array.isArray(config.sources) || config.sources.length === 0) {

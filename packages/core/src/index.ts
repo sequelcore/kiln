@@ -207,8 +207,12 @@ export type {
   KnowledgeStoreConfig,
   KnowledgeChunkingConfig,
   KnowledgeSourceConfig,
+  ContextualConfig,
 } from "./engine/domain/knowledge-config.js";
 export { validateKnowledgeConfig } from "./engine/domain/knowledge-config.js";
 
 // Vector store types re-exported for direct access by runtime
 export type { VectorStore, VectorEntry, VectorResult, VectorQueryOptions } from "./engine/domain/vector-store.js";
+
+// Chunker types re-exported for direct access by runtime
+export type { ChunkEnricher } from "./engine/domain/chunker.js";

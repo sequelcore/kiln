@@ -1,6 +1,6 @@
 // Knowledge pipeline factory -- resolves KnowledgeConfig to concrete pipeline
 
-import type { KnowledgeConfig, VectorStore } from "@kilnai/core";
+import type { KnowledgeConfig, VectorStore, ChunkEnricher } from "@kilnai/core";
 import {
   OpenAIEmbeddingAdapter,
   OllamaEmbeddingAdapter,
@@ -10,6 +10,11 @@ import {
   RetrievalPipeline,
   KilnError,
   createPgVectorStore,
+  ContextualEnricher,
+  AnthropicAdapter,
+  OpenAIAdapter,
+  DeepSeekAdapter,
+  OllamaAdapter,
 } from "@kilnai/core";
 
 export interface KnowledgePipelineResult {
@@ -53,6 +58,26 @@ export async function createKnowledgePipeline(config: KnowledgeConfig): Promise<
     ? new MarkdownChunker()
     : new RecursiveTextChunker();
 
+  // Resolve contextual enricher (optional)
+  let enricher: ChunkEnricher | undefined;
+  if (config.chunking.contextual?.enabled) {
+    const ctx = config.chunking.contextual;
+    const apiKey = ctx.apiKeyEnv ? process.env[ctx.apiKeyEnv] ?? "" : "";
+
+    const provider = ctx.provider === "anthropic"
+      ? new AnthropicAdapter({ apiKey, defaultModel: ctx.model })
+      : ctx.provider === "openai"
+        ? new OpenAIAdapter({ apiKey, defaultModel: ctx.model })
+        : ctx.provider === "deepseek"
+          ? new DeepSeekAdapter({ apiKey, defaultModel: ctx.model })
+          : new OllamaAdapter({ baseUrl: ctx.baseUrl, defaultModel: ctx.model });
+
+    enricher = new ContextualEnricher({
+      provider,
+      concurrency: ctx.concurrency,
+    });
+  }
+
   const pipeline = new RetrievalPipeline({
     embedder,
     store,
@@ -61,6 +86,7 @@ export async function createKnowledgePipeline(config: KnowledgeConfig): Promise<
       chunkSize: config.chunking.chunkSize ?? 512,
       chunkOverlap: config.chunking.chunkOverlap ?? 50,
     },
+    enricher,
   });
 
   return { pipeline, store, close: closeFn };

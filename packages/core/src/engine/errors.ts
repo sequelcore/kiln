@@ -77,6 +77,8 @@ export type KilnErrorCode =
   // Session
   | "INVALID_SESSION_TRANSITION"
   | "CONCURRENT_SESSION_MODIFICATION"
+  // Knowledge enrichment (Phase 4b)
+  | "ENRICHMENT_FAILED"
   // Safety (Phase 12)
   | "PII_DETECTED"
   | "CONTENT_POLICY_VIOLATED"

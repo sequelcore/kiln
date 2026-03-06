@@ -3,7 +3,7 @@
 import type { Document } from "../engine/domain/chunker.js";
 import type { EmbeddingAdapter } from "../engine/domain/embedding.js";
 import type { VectorStore, VectorResult, VectorQueryOptions } from "../engine/domain/vector-store.js";
-import type { Chunker, ChunkConfig } from "../engine/domain/chunker.js";
+import type { Chunker, ChunkConfig, ChunkEnricher } from "../engine/domain/chunker.js";
 import type { Reranker } from "./reranker.js";
 
 export interface RetrievalPipelineConfig {
@@ -12,6 +12,7 @@ export interface RetrievalPipelineConfig {
   readonly chunker: Chunker;
   readonly chunkConfig: ChunkConfig;
   readonly reranker?: Reranker;
+  readonly enricher?: ChunkEnricher;
 }
 
 export class RetrievalPipeline {
@@ -20,6 +21,7 @@ export class RetrievalPipeline {
   private readonly chunker: Chunker;
   private readonly chunkConfig: ChunkConfig;
   private readonly reranker?: Reranker;
+  private readonly enricher?: ChunkEnricher;
 
   constructor(config: RetrievalPipelineConfig) {
     this.embedder = config.embedder;
@@ -27,13 +29,19 @@ export class RetrievalPipeline {
     this.chunker = config.chunker;
     this.chunkConfig = config.chunkConfig;
     this.reranker = config.reranker;
+    this.enricher = config.enricher;
   }
 
   async ingest(documents: Document[]): Promise<number> {
     const allChunks: Array<{ id: string; content: string; metadata: Record<string, unknown> }> = [];
 
     for (const doc of documents) {
-      const chunks = this.chunker.chunk(doc, this.chunkConfig);
+      let chunks = this.chunker.chunk(doc, this.chunkConfig);
+
+      if (this.enricher) {
+        chunks = await this.enricher.enrich(doc, chunks);
+      }
+
       for (const chunk of chunks) {
         allChunks.push({
           id: chunk.id,
