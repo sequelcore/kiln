@@ -200,6 +200,7 @@ export class ContactMemoryServiceImpl implements ContactMemoryService {
     return facts;
   }
 
+  // tenantId reserved for future per-tenant isolation at the store level
   async forget(factId: string, _tenantId: string): Promise<void> {
     await this.vectorStore.delete([factId]);
   }
