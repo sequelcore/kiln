@@ -62,14 +62,12 @@ export class ContextualEnricher implements ChunkEnricher {
     };
 
     // Simple semaphore-based concurrency control
-    const tasks: Promise<void>[] = [];
     while (cursor < chunks.length) {
       const batch = Math.min(this.concurrency, chunks.length - cursor);
       const batchTasks: Promise<void>[] = [];
       for (let i = 0; i < batch; i++) {
         batchTasks.push(processChunk(cursor + i));
       }
-      tasks.push(...batchTasks);
       await Promise.all(batchTasks);
       cursor += batch;
     }
