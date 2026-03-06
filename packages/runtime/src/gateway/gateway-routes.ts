@@ -2,7 +2,7 @@
 // Separated from gateway-server.ts so it can be tested without Bun runtime.
 
 import { Hono } from "hono";
-import type { App, SttAdapter, RetrievalPipeline, ContactMemoryService } from "@kilnai/core";
+import type { App, SttAdapter, ContactMemoryService } from "@kilnai/core";
 import type { GatewayAppBinding, SecurityConfig, AuditLog } from "@kilnai/core";
 import { PromptScanner } from "@kilnai/core";
 import type { ChannelRegistry } from "../channels/channel-registry.js";
@@ -37,6 +37,7 @@ import type { MemoryRoutesConfig } from "./memory-routes.js";
 import { createMemoryRoutes } from "./memory-routes.js";
 import type { TriggerRegistry } from "../trigger/trigger-registry.js";
 import type { ConversationEventEmitter } from "./conversation-event-emitter.js";
+import type { KnowledgePipelineResult } from "./knowledge-factory.js";
 
 export interface LoadedApp {
   readonly name: string;
@@ -50,7 +51,7 @@ export interface LoadedApp {
   webChannel?: WebChannel;
   eventEmitter?: ConversationEventEmitter;
   sttAdapter?: SttAdapter;
-  knowledgePipeline?: { readonly pipeline: RetrievalPipeline; readonly close: () => Promise<void> };
+  knowledgePipeline?: KnowledgePipelineResult;
   knowledgeAdminConfig?: KnowledgeAdminRoutesConfig;
   contactMemoryService?: ContactMemoryService;
   contactMemoryAdminConfig?: ContactMemoryAdminRoutesConfig;
