@@ -11,7 +11,9 @@ export type ConversationEventType =
   | "HANDOFF_INITIATED"
   | "HANDOFF_RELEASED"
   | "OPERATOR_MESSAGE_SENT"
-  | "HANDOFF_MESSAGE_QUEUED";
+  | "HANDOFF_MESSAGE_QUEUED"
+  | "TOOL_CALLED"
+  | "TOOL_EXECUTED";
 
 export interface ConversationEvent {
   readonly eventType: ConversationEventType;
@@ -40,6 +42,16 @@ export interface ConversationEvent {
   readonly operatorId?: string;
   /** Trace identifier for correlating handoff events */
   readonly traceId?: string;
+  /** Tool name -- present for TOOL_CALLED and TOOL_EXECUTED events */
+  readonly toolName?: string;
+  /** Tool input (truncated) -- present for TOOL_CALLED events */
+  readonly toolInput?: Record<string, unknown>;
+  /** Duration in ms -- present for TOOL_EXECUTED events */
+  readonly durationMs?: number;
+  /** Whether tool execution succeeded -- present for TOOL_EXECUTED events */
+  readonly success?: boolean;
+  /** Brief result summary (truncated to 200 chars) -- present for TOOL_EXECUTED events */
+  readonly resultSummary?: string;
 }
 
 export interface ConversationEventBatch {
