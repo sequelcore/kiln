@@ -131,5 +131,55 @@ These fields can be updated via `PATCH /admin/{appName}/tenants/:tenantId`:
 | `faqEntries` | array | FAQ pairs injected into system prompt |
 | `allowedOrigins` | string[] | Allowed origins for WebSocket connections (overrides channel-level default) |
 | `escalationContact` | object | Contact for human handoff |
+| `tools` | string[] | Tool name allowlist -- only listed tools are available |
+| `toolConfig` | object | Tool execution config: `maxIterationsPerSession`, `rateLimits` |
+| `webhookTools` | array | External webhook-backed tools with HMAC signing |
 
 Session invalidation: when a tenant config is updated via PATCH, `SessionRegistry.invalidateByTenant()` clears all active sessions for that tenant so the next message picks up fresh config.
+
+## Tenant Tool Configuration
+
+Tenants can configure tool execution behavior at three levels:
+
+### Tool Allowlist
+
+The `tools` field restricts which capabilities are available to a tenant's sessions. When set, only named tools (plus any webhook tools) are allowed. When omitted, all app-level capabilities are available.
+
+### Webhook Tools
+
+External HTTP endpoints registered as tools via `webhookTools`. Each entry defines:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | yes | Tool name (unique per tenant) |
+| `description` | string | no | Description shown to the LLM |
+| `url` | string | yes | HTTPS endpoint URL |
+| `secret` | string | yes | HMAC-SHA256 signing secret (encrypted at rest) |
+| `timeout` | number | no | Timeout in seconds (default: 30) |
+| `inputSchema` | object | no | JSON Schema for tool input |
+
+Webhook secrets are encrypted by `AesSecretStore` using the key pattern `tenant:{tenantId}:webhookTool:{toolName}`.
+
+Requests include `X-Kiln-Signature: sha256=<hmac>` and `X-Kiln-Timestamp` headers for verification.
+
+### Rate Limiting
+
+Per-tenant rate limiting via `toolConfig.rateLimits`:
+
+```yaml
+# Example PATCH body
+{
+  "toolConfig": {
+    "maxIterationsPerSession": 15,
+    "rateLimits": {
+      "defaultPerMinute": 60,
+      "perTool": {
+        "process_refund": 5,
+        "send_notification": 10
+      }
+    }
+  }
+}
+```
+
+Uses a 60-second sliding window. Rate-limited calls return error results to the LLM with retry-after guidance. Per-tenant isolation ensures one tenant's usage doesn't affect others.

@@ -80,6 +80,8 @@ capabilities:
 
 Annotation semantics: `readOnly` tools run without locks and are available to all tiers; `destructive` tools require approval gates; `idempotent` tools are safe to cache and retry. Unannotated capabilities default to `destructive: true`.
 
+Capabilities can declare retry and fallback behavior. A `retry` block specifies `maxAttempts`, `backoff` (none, linear, exponential), and an optional `fallback` tool name. When the primary tool fails after all retries, the orchestrator invokes the fallback tool with the same input. See [Tool Use](guides/tool-use.md) for the full execution model.
+
 A special `type: delegation` capability routes a task to another App in the same Gateway:
 
 ```yaml
@@ -239,6 +241,16 @@ Two retrieval modes: `auto` injects context into the system prompt automatically
 Contact memory extracts per-user facts from conversations (preferences, entities, issues) and recalls them at session start for personalization. Facts use bi-temporal tracking and support GDPR deletion.
 
 See [Knowledge](guides/knowledge.md) for full configuration details.
+
+---
+
+## Tool Use
+
+Agents execute tools (capabilities) during conversations through a while-loop in the orchestrator. The LLM decides which tools to call; the orchestrator executes them, feeds results back, and repeats until the LLM produces a final text response. Authorization, retry/fallback, rate limiting, result sanitization, and budget checking are enforced at each step.
+
+Per-tenant webhook tools enable external HTTP endpoints to be called as tools, with HMAC-SHA256 signing and configurable timeouts. Tenant-level tool allowlists and rate limits provide per-customer control.
+
+See [Tool Use](guides/tool-use.md) for the full guide.
 
 ---
 

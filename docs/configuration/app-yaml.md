@@ -338,6 +338,9 @@ capabilities:
 | `annotations.destructive` | `boolean` | No | Tool has irreversible side effects. Unannotated tools default to `destructive: true`. |
 | `annotations.idempotent` | `boolean` | No | Repeated calls produce the same result. Engine may cache or retry safely. |
 | `schema` | `object` | No | JSON Schema describing the tool's input parameters. Omitting results in an empty schema `{}`. |
+| `annotations.cacheTtl` | `number` | No | Cache TTL in seconds for tool results. |
+| `annotations.guardrail` | `boolean` | No | Always require confirmation (authorization level 3). Default: `false`. |
+| `annotations.outputSchema` | `object` | No | JSON Schema for structured tool output validation. |
 
 **Delegation capability:**
 
@@ -360,6 +363,30 @@ capabilities:
 | `targetApp` | `string` | Yes | Must match an App `name` in `gateway.yaml`. |
 | `task` | `string` | Yes | Instruction sent to the target App. |
 | `timeout` | `number` | No | Seconds to wait for the delegation response. |
+
+**Retry and fallback:**
+
+Capabilities support declarative retry and fallback configuration for error recovery:
+
+```yaml
+capabilities:
+  - name: search_inventory
+    description: Search product inventory
+    tags: [inventory]
+    annotations:
+      readOnly: true
+      idempotent: true
+    retry:
+      maxAttempts: 3
+      backoff: exponential     # none | linear | exponential
+      fallback: search_cache   # tool name to try if all retries fail
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `maxAttempts` | number | 1 | Maximum retry attempts before failing |
+| `backoff` | string | `"none"` | Backoff strategy: `none`, `linear`, `exponential` |
+| `fallback` | string | - | Tool name to invoke if all retries fail |
 
 ### teams.\<name\>.qualityGates
 

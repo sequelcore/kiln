@@ -501,6 +501,18 @@ The following conversation events are emitted during handoff workflows (delivere
 | `HANDOFF_MESSAGE_QUEUED` | User message received while session is in queued/human_active mode |
 | `ESCALATION_DETECTED` | Escalation detector triggers (keywords or loop detection) |
 | `SESSION_EXPIRED` | Session cleaned up due to idle timeout |
+| `TOOL_CALLED` | A tool was invoked by the LLM |
+| `TOOL_EXECUTED` | A tool execution completed |
+
+**Tool event payload fields:**
+
+| Field | Type | Included In |
+|-------|------|-------------|
+| `toolName` | string | TOOL_CALLED, TOOL_EXECUTED |
+| `toolInput` | object | TOOL_CALLED (parameters, truncated) |
+| `durationMs` | number | TOOL_EXECUTED (execution duration in milliseconds) |
+| `success` | boolean | TOOL_EXECUTED (whether execution succeeded) |
+| `resultSummary` | string | TOOL_EXECUTED (brief result summary, max 200 chars) |
 
 ---
 

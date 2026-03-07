@@ -21,12 +21,12 @@ Bun monorepo with 6 packages:
 |---------|----------|---------|
 | engine | `core/src/engine/` | 7 primitives + 3 composites + YAML loader + gateway config + cron parser. Zero external deps except `yaml`. |
 | orchestrator | `core/src/orchestrator/` | Phase machine, checkpoint/resume, strategies (sequential, supervisor, swarm) |
-| agents | `core/src/agents/` | Provider adapters (Anthropic, OpenAI, DeepSeek, Ollama), tool cache, MCP client (Streamable HTTP, official SDK), circuit breaker, Tool RAG |
+| agents | `core/src/agents/` | Provider adapters (Anthropic, OpenAI, DeepSeek, Ollama), tool cache, MCP client (Streamable HTTP, official SDK), circuit breaker, Tool RAG, sliding window rate limiter |
 | memory | `core/src/memory/` | Scoped storage (user, agent, team, project, org), SQLite + FTS5, git sync, decay, compaction |
 | tree | `core/src/tree/` | Task tree (scoring, deepen/branch/prune), batch executor |
 | sandbox | `core/src/sandbox/` | Per-agent filesystem + network isolation |
 | verification | `core/src/verification/` | Gate runner: test, lint, type-check loop |
-| events | `core/src/events/` | EventBus (32 typed events, ring buffer), EventStore sink |
+| events | `core/src/events/` | EventBus (35 typed events, ring buffer), EventStore sink |
 | security | `core/src/security/` | Audit log (JSONL + hash chain), prompt injection (2-tier), AES-256-GCM secrets, Guardian, self-audit |
 | safety | `core/src/safety/` | PII scanner (2-tier, 6 types), content classifier (6 categories), 4 policy rails, pipeline orchestrator |
 | cost | `core/src/cost/` | Per-role cache-aware cost tracking |
@@ -36,11 +36,11 @@ Bun monorepo with 6 packages:
 | skill | `core/src/skill/` | SKILL.yaml format, SkillRegistry (3-tier discovery) |
 | eval | `core/src/eval/` | 12 scorers (6 rule + 6 LLM-as-judge), dataset loader, experiment runner, comparator |
 | observability | `core/src/observability/` | OTel span mapper + exporter (EventStore sink) |
-| gateway | `runtime/src/gateway/` | Multi-app loading, Mode B routes, budget middleware, composable auth middleware, conversation event emitter, delegation, dev routes, safety/security middleware, audio preprocessing, knowledge pipeline wiring, STT/knowledge factories |
+| gateway | `runtime/src/gateway/` | Multi-app loading, Mode B routes, budget middleware, composable auth middleware, conversation event emitter (incl. tool execution events), delegation, dev routes, safety/security middleware, audio preprocessing, knowledge pipeline wiring, STT/knowledge factories, webhook tool executor, tenant tool factory |
 | a2a | `runtime/src/a2a/` | A2AClient (outbound delegation only) |
 | trigger | `runtime/src/trigger/` | TriggerRegistry, webhook handler (HMAC-SHA256), event listener, cron scheduler |
-| session | `runtime/src/session/` | ModeBSession (version tracking, optimistic concurrency), ModeBOrchestrator (builtin tools, per-call tools, recalledMemory, AI guard), SessionRegistry (pluggable SessionStore, save with concurrency check), SessionMode state machine (ai_active/queued/human_active/resolved), session serializer |
-| tenant | `runtime/src/tenant/` | TenantRegistry (JSON persistence, resolveByWidgetId), system prompt builder (businessName + name identity), suggestion parser |
+| session | `runtime/src/session/` | ModeBSession (version tracking, optimistic concurrency), ModeBOrchestrator (tool authorization, retry/fallback, result sanitization, ToolRAG, PerCallToolConfig, AI guard), SessionRegistry (pluggable SessionStore, save with concurrency check), SessionMode state machine (ai_active/queued/human_active/resolved), session serializer |
+| tenant | `runtime/src/tenant/` | TenantRegistry (JSON persistence, resolveByWidgetId, webhook tool secret encryption), system prompt builder (businessName + name identity), suggestion parser |
 | handoff | `runtime/src/gateway/handoff-routes.ts` + `runtime/src/session/escalation-detector.ts` + `runtime/src/session/context-summarizer.ts` | Human handoff: session mode state machine, escalation detection, operator messaging, AI guard |
 | channels | `runtime/src/channels/` | 5 adapters (CLI, Web, WhatsApp, Slack, API), ChannelRouter, formatForChannel |
 | sdk | `sdk/src/` | React hooks (useKilnChat, useKilnWsChat, useKilnEvents, useKilnMemory, useKilnState, useApproval), ApiClient, SseClient. Types-only import from core. |
@@ -103,7 +103,7 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `engine/composites/team.ts` | Team composite + validateTeam() |
 | `engine/composites/router.ts` | Router composite + validateRouter() |
 | `engine/loader/app-loader.ts` | YAML -> App (parseAppYaml, validateAppGraph) |
-| `engine/errors.ts` | KilnError base class (56 codes) + KilnErrorCode union type |
+| `engine/errors.ts` | KilnError base class (73 codes) + KilnErrorCode union type |
 | `engine/error-catalog.ts` | getErrorSuggestion(): context-aware suggestions + doc URLs |
 | `orchestrator/orchestrator.ts` | Session lifecycle, checkpoint/resume, strategy-based execution |
 | `orchestrator/phase-machine.ts` | Configurable phases + gates |
@@ -113,6 +113,9 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `agents/infrastructure/ollama.ts` | Ollama adapter (local models) |
 | `agents/mcp-client.ts` | MCP client (Streamable HTTP via official SDK, circuit breaker) |
 | `agents/tool-rag.ts` | Embedding-based tool selection |
+| `agents/sliding-window-rate-limiter.ts` | In-memory sliding window rate limiter (per-tool, per-tenant) |
+| `engine/domain/rate-limiter.ts` | RateLimiter, RateLimitConfig, RateLimitResult interfaces |
+| `engine/domain/tool-execution.ts` | RetryStrategy, ToolAuthorizer, ToolExecutionResult interfaces |
 | `memory/sqlite-store.ts` | SQLite + FTS5 memory (decay, compaction, tenant namespacing) |
 | `safety/safety-pipeline.ts` | PII -> content -> rails pipeline (fail-open) |
 | `eval/experiment-runner.ts` | Generate outputs, score with error isolation |
@@ -160,7 +163,9 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `session/escalation-detector.ts` | EscalationDetector interface, DefaultEscalationDetector (keywords + loop detection) |
 | `session/context-summarizer.ts` | ContextSummarizer interface, DefaultContextSummarizer (LLM-based) |
 | `gateway/handoff-routes.ts` | Handoff API: /handoff, /release, /operator-message, /session-history |
-| `gateway/message-pipeline.ts` | Shared processInboundMessage pipeline (budget, session, orchestrate, events) |
+| `gateway/webhook-tool-executor.ts` | WebhookToolExecutor: HTTP POST + HMAC-SHA256 for external tool calls |
+| `gateway/tenant-tool-factory.ts` | buildTenantToolContext(): per-tenant tool infrastructure (webhook tools, allowlist, rate limiter) |
+| `gateway/message-pipeline.ts` | Shared processInboundMessage pipeline (budget, session, orchestrate, events, tool event emission) |
 | `gateway/trace-context.ts` | TraceContext: per-request trace ID + structured logging |
 | `trigger/trigger-registry.ts` | Per-app lifecycle, webhook app, event listener, scheduler |
 
@@ -182,4 +187,5 @@ See `docs/` for full documentation:
 | [Concepts](docs/concepts.md) | 7 primitives, 3 composites, YAML-first philosophy |
 | [App YAML](docs/configuration/app-yaml.md) | Complete app.yaml field reference |
 | [Gateway YAML](docs/configuration/gateway-yaml.md) | Gateway config, Mode A/B, billing |
+| [Tool Use](docs/guides/tool-use.md) | Agentic actions, authorization, webhook tools, rate limiting |
 | [Architecture](docs/architecture.md) | Contributor internals, TypeScript interfaces |
