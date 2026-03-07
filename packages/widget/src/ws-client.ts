@@ -36,8 +36,13 @@ export class WsClient {
 
     ws.onmessage = (event) => {
       try {
-        const frame = JSON.parse(event.data as string) as WsInboundFrame;
-        this.messageHandler?.(frame);
+        const parsed = JSON.parse(event.data as string);
+        // Respond to server heartbeat pings with a pong
+        if (parsed.type === "ping") {
+          try { ws.send(JSON.stringify({ type: "pong" })); } catch { /* closing */ }
+          return;
+        }
+        this.messageHandler?.(parsed as WsInboundFrame);
       } catch {
         // Discard malformed frames
       }

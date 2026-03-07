@@ -19,6 +19,7 @@ import type { ConversationEventEmitter } from "./conversation-event-emitter.js";
 import { requireWebhookSignature } from "./auth-middleware.js";
 import { verifyMetaWebhook } from "./meta-webhook-foundation.js";
 import { TraceContext } from "./trace-context.js";
+import type { WebhookDedup } from "./webhook-dedup.js";
 import type { SttAdapter, RetrievalPipeline, ContactMemoryService } from "@kilnai/core";
 import { preprocessAudio, createGenericMediaDownloader } from "./audio-preprocessor.js";
 import { formatKnowledgeContext, formatContactContext, mergeContextSources } from "./context-formatter.js";
@@ -37,6 +38,7 @@ export interface MessengerWebhookConfig {
   readonly knowledgePipeline?: RetrievalPipeline;
   readonly knowledgeMode?: "auto" | "tool";
   readonly contactMemoryService?: ContactMemoryService;
+  readonly dedup?: WebhookDedup;
 }
 
 /** Messenger webhook messaging entry (same structure as Instagram) */
@@ -154,6 +156,12 @@ export function createMessengerWebhookRoutes(config: MessengerWebhookConfig): Ho
       for (const messaging of entry.messaging) {
         // Filter echo messages (business-sent messages echoed back)
         if (messaging.message?.is_echo) continue;
+
+        // Deduplicate -- Meta uses at-least-once delivery
+        if (messaging.message?.mid && config.dedup?.isDuplicate(messaging.message.mid)) {
+          console.debug(`[messenger] Skipping duplicate message ${messaging.message.mid}`);
+          continue;
+        }
 
         const senderId = messaging.sender.id;
         const recipientPageId = messaging.recipient.id;

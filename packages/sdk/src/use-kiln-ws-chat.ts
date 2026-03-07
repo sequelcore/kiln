@@ -30,7 +30,13 @@ export function useKilnWsChat(options?: ChatOptions): UseChatReturn {
 
     ws.onmessage = (event) => {
       try {
-        const frame = JSON.parse(event.data as string) as WsChatFrame;
+        const parsed = JSON.parse(event.data as string);
+        // Respond to server heartbeat pings with a pong
+        if (parsed.type === "ping") {
+          try { ws.send(JSON.stringify({ type: "pong" })); } catch { /* closing */ }
+          return;
+        }
+        const frame = parsed as WsChatFrame;
         if (frame.type === "done") {
           setMessages((prev) => [...prev, {
             id: String(++idCounter.current),

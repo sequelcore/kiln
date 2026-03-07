@@ -23,6 +23,22 @@ export interface PiiDeepScanProvider {
   scan(input: string): Promise<PiiMatch[]>;
 }
 
+/** Luhn algorithm: validates credit card numbers by checksum */
+function luhnCheck(digits: string): boolean {
+  let sum = 0;
+  let alternate = false;
+  for (let i = digits.length - 1; i >= 0; i--) {
+    let n = parseInt(digits.charAt(i), 10);
+    if (alternate) {
+      n *= 2;
+      if (n > 9) n -= 9;
+    }
+    sum += n;
+    alternate = !alternate;
+  }
+  return sum % 10 === 0;
+}
+
 export class PiiScanner {
   private readonly config: PiiConfig;
 
@@ -45,6 +61,7 @@ export class PiiScanner {
       while ((match = regex.exec(input)) !== null) {
         const value = match[0];
         if (allowlist.has(value)) continue;
+        if (pattern.type === "credit_card" && !luhnCheck(value.replace(/\D/g, ""))) continue;
 
         matches.push({
           type: pattern.type,

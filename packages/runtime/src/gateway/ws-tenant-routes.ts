@@ -36,8 +36,18 @@ export interface WsTenantRoutesConfig {
   readonly contactMemoryService?: ContactMemoryService;
 }
 
+/** Heartbeat state tracked per WebSocket connection */
+interface HeartbeatEntry {
+  readonly interval: ReturnType<typeof setInterval>;
+  lastPong: number;
+}
+
+const HEARTBEAT_INTERVAL_MS = 30_000;
+const HEARTBEAT_TIMEOUT_MS = 90_000;
+
 export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
   const app = new Hono();
+  const heartbeats = new Map<WSContext, HeartbeatEntry>();
 
   app.get(
     "/ws",
@@ -67,6 +77,22 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
         onOpen(_event: Event, ws: WSContext) {
           config.webChannel.addClient(ws, userId);
 
+          // Start heartbeat for stale connection detection
+          const entry: HeartbeatEntry = {
+            interval: setInterval(() => {
+              if (Date.now() - entry.lastPong > HEARTBEAT_TIMEOUT_MS) {
+                clearInterval(entry.interval);
+                heartbeats.delete(ws);
+                try { ws.close(1001, "heartbeat timeout"); } catch { /* already closing */ }
+                config.webChannel.removeClient(ws);
+                return;
+              }
+              try { ws.send(JSON.stringify({ type: "ping" })); } catch { /* connection closing */ }
+            }, HEARTBEAT_INTERVAL_MS),
+            lastPong: Date.now(),
+          };
+          heartbeats.set(ws, entry);
+
           const suggestions = tenant.faqEntries?.map((f) => f.q) ?? [];
           if (tenant.greeting || suggestions.length > 0) {
             ws.send(JSON.stringify({
@@ -77,13 +103,25 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
           }
         },
         onClose(_event: CloseEvent, ws: WSContext) {
+          const hb = heartbeats.get(ws);
+          if (hb) {
+            clearInterval(hb.interval);
+            heartbeats.delete(ws);
+          }
           config.webChannel.removeClient(ws);
         },
         async onMessage(event: MessageEvent, ws: WSContext) {
+          // Any client message counts as proof of liveness
+          const hb = heartbeats.get(ws);
+          if (hb) hb.lastPong = Date.now();
+
           try {
             const raw = event.data;
             const text = typeof raw === "string" ? raw : new TextDecoder().decode(raw as ArrayBuffer);
             const parsed = JSON.parse(text) as Record<string, unknown>;
+
+            // Pong is a heartbeat reply -- no further processing needed
+            if (parsed.type === "pong") return;
 
             if (parsed.type === "message") {
               const trace = new TraceContext();

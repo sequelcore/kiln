@@ -49,6 +49,24 @@ describe("requireApiKey", () => {
     });
     expect(res.status).toBe(200);
   });
+
+  it("rejects key with different length (timing-safe short-circuit)", async () => {
+    const res = await app.request("/test", {
+      method: "POST",
+      headers: { "X-Api-Key": "short", "Content-Type": "application/json" },
+      body: "{}",
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("rejects key with same length but wrong content", async () => {
+    const res = await app.request("/test", {
+      method: "POST",
+      headers: { "X-Api-Key": "test-key-999", "Content-Type": "application/json" },
+      body: "{}",
+    });
+    expect(res.status).toBe(401);
+  });
 });
 
 describe("requireBearer", () => {
@@ -76,6 +94,20 @@ describe("requireBearer", () => {
   it("rejects request with non-Bearer auth scheme", async () => {
     const res = await app.request("/test", {
       headers: { Authorization: "Basic dXNlcjpwYXNz" },
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("rejects token with different length (timing-safe short-circuit)", async () => {
+    const res = await app.request("/test", {
+      headers: { Authorization: "Bearer x" },
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("rejects token with same length but wrong content", async () => {
+    const res = await app.request("/test", {
+      headers: { Authorization: "Bearer my-bearer-XXXXX" },
     });
     expect(res.status).toBe(401);
   });

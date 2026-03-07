@@ -33,10 +33,28 @@ describe("PiiScanner", () => {
       expect(result.matches.some((m) => m.type === "ssn")).toBe(true);
     });
 
-    it("detects credit card", () => {
+    it("detects credit card with valid Luhn checksum", () => {
       const scanner = new PiiScanner(makeConfig());
       const result = scanner.scanHeuristic("Card: 4111 1111 1111 1111");
       expect(result.matches.some((m) => m.type === "credit_card")).toBe(true);
+    });
+
+    it("detects Mastercard test number (Luhn valid)", () => {
+      const scanner = new PiiScanner(makeConfig());
+      const result = scanner.scanHeuristic("Card: 5500 0000 0000 0004");
+      expect(result.matches.some((m) => m.type === "credit_card")).toBe(true);
+    });
+
+    it("ignores 16-digit sequence that fails Luhn check", () => {
+      const scanner = new PiiScanner(makeConfig());
+      const result = scanner.scanHeuristic("Card: 1234 5678 9012 3456");
+      expect(result.matches.some((m) => m.type === "credit_card")).toBe(false);
+    });
+
+    it("ignores another Luhn-invalid 16-digit sequence", () => {
+      const scanner = new PiiScanner(makeConfig());
+      const result = scanner.scanHeuristic("Num: 0000-0000-0000-0001");
+      expect(result.matches.some((m) => m.type === "credit_card")).toBe(false);
     });
 
     it("detects IP address", () => {

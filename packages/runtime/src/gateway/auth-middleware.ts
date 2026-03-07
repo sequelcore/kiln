@@ -2,7 +2,14 @@
 // Each function returns a Hono middleware or utility for a specific auth mechanism
 
 import type { Context, Next } from "hono";
+import { timingSafeEqual } from "node:crypto";
 import { verifyHmacSha256 } from "../utils/hmac.js";
+
+/** Timing-safe string comparison. Returns false immediately for different lengths (safe — no content leak). */
+function safeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(Buffer.from(a), Buffer.from(b));
+}
 
 /**
  * Require API key via X-Api-Key header. Returns 401 if missing or invalid.
@@ -10,7 +17,7 @@ import { verifyHmacSha256 } from "../utils/hmac.js";
 export function requireApiKey(key: string): (c: Context, next: Next) => Promise<Response | void> {
   return async (c: Context, next: Next): Promise<Response | void> => {
     const provided = c.req.header("x-api-key");
-    if (!provided || provided !== key) {
+    if (!provided || !safeEqual(provided, key)) {
       return c.json({ error: "unauthorized", message: "Invalid or missing API key" }, 401);
     }
     return next();
@@ -23,7 +30,8 @@ export function requireApiKey(key: string): (c: Context, next: Next) => Promise<
 export function requireBearer(token: string): (c: Context, next: Next) => Promise<Response | void> {
   return async (c: Context, next: Next): Promise<Response | void> => {
     const auth = c.req.header("authorization");
-    if (!auth || auth !== `Bearer ${token}`) {
+    const expected = `Bearer ${token}`;
+    if (!auth || !safeEqual(auth, expected)) {
       return c.json({ error: "unauthorized", message: "Invalid or missing Bearer token" }, 401);
     }
     return next();

@@ -20,6 +20,7 @@ import type { ConversationEventEmitter } from "./conversation-event-emitter.js";
 import { requireWebhookSignature } from "./auth-middleware.js";
 import { verifyMetaWebhook } from "./meta-webhook-foundation.js";
 import { TraceContext } from "./trace-context.js";
+import type { WebhookDedup } from "./webhook-dedup.js";
 import type { SttAdapter, RetrievalPipeline, ContactMemoryService } from "@kilnai/core";
 import { preprocessAudio, createWhatsAppMediaDownloader } from "./audio-preprocessor.js";
 import { formatKnowledgeContext, formatContactContext, mergeContextSources } from "./context-formatter.js";
@@ -39,9 +40,11 @@ export interface WhatsAppWebhookConfig {
   readonly knowledgePipeline?: RetrievalPipeline;
   readonly knowledgeMode?: "auto" | "tool";
   readonly contactMemoryService?: ContactMemoryService;
+  readonly dedup?: WebhookDedup;
 }
 
 interface MetaWebhookMessage {
+  id: string;
   from: string;
   type: string;
   text?: { body: string };
@@ -220,6 +223,12 @@ export function createWhatsAppWebhookRoutes(config: WhatsAppWebhookConfig): Hono
         const contacts = change.value.contacts ?? [];
 
         for (const msg of messages) {
+          // Deduplicate -- Meta uses at-least-once delivery
+          if (config.dedup?.isDuplicate(msg.id)) {
+            console.debug(`[whatsapp] Skipping duplicate message ${msg.id}`);
+            continue;
+          }
+
           const msgParts = parseWhatsAppMessageParts(msg);
           if (!msgParts) {
             const msgTrace = new TraceContext();
