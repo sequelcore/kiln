@@ -44,6 +44,22 @@ apps:
       - type: api
         path: /api/ops
         apiKeyEnv: OPS_API_KEY
+
+  - name: social-ai
+    config: ./apps/social-ai.yaml
+    channels:
+      - type: instagram
+        appSecretEnv: META_APP_SECRET
+        verifyTokenEnv: META_VERIFY_TOKEN
+      - type: messenger
+        appSecretEnv: META_APP_SECRET
+        verifyTokenEnv: META_VERIFY_TOKEN
+
+  - name: support-ai
+    config: ./apps/support-ai.yaml
+    channels:
+      - type: email
+        appSecretEnv: EMAIL_WEBHOOK_SECRET
 ```
 
 ---
@@ -70,7 +86,7 @@ apps:
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `type` | `string` | Yes | Channel adapter type: `api`, `web`, `whatsapp`, `slack`, `cli`. |
+| `type` | `string` | Yes | Channel adapter type: `api`, `web`, `whatsapp`, `instagram`, `messenger`, `slack`, `email`, `cli`. |
 | `path` | `string` | No | URL path prefix for `api` channel bindings. Must be unique across all Apps. |
 | `phoneNumber` | `string` | No | E.164 phone number for `whatsapp` bindings. Must be unique across all Apps. |
 | `botToken` | `string` | No | Bot User OAuth Token for `slack` bindings (format: `xoxb-...`). |
@@ -79,7 +95,10 @@ apps:
 | `adminTokenEnv` | `string` | No | Env var for Bearer token protecting admin routes (tenant CRUD). |
 | `accessTokenEnv` | `string` | No | Env var for WhatsApp Business API access token. |
 | `apiKeyEnv` | `string` | No | Env var for API key protecting REST endpoints. Applied as `X-Api-Key` header middleware. |
-| `appSecretEnv` | `string` | No | Env var for WhatsApp App Secret. Used to verify `X-Hub-Signature-256` HMAC on incoming webhooks. |
+| `appSecretEnv` | `string` | No | Env var for Meta App Secret (WhatsApp, Instagram, Messenger) or email webhook signing secret. Used to verify HMAC-SHA256 on incoming webhooks. |
+| `instagramPageId` | `string` | No | Instagram Page ID for `instagram` bindings. Used for tenant resolution. |
+| `messengerPageId` | `string` | No | Facebook Page ID for `messenger` bindings. Used for tenant resolution. |
+| `emailAddress` | `string` | No | Inbound email address for `email` bindings. Used for tenant resolution (case-insensitive). |
 | `allowedOrigins` | `string[]` | No | Allowed origins for WebSocket connections. Localhost/127.0.0.1 always allowed. Empty = open. |
 
 Validation enforces: port in range, unique App names, unique API paths, unique phone numbers. Errors are aggregated and reported before the server starts.
@@ -97,13 +116,19 @@ Each channel type has one natural authentication mechanism configured via YAML. 
 | WebSocket widget | Origin validation | `allowedOrigins` (channel + tenant) | `Origin` header |
 | WebSocket Mode B | API key | `apiKeyEnv` | `?apiKey=` query param |
 | WhatsApp | HMAC-SHA256 | `appSecretEnv` | `X-Hub-Signature-256` header |
+| Instagram | HMAC-SHA256 | `appSecretEnv` | `X-Hub-Signature-256` header |
+| Messenger | HMAC-SHA256 | `appSecretEnv` | `X-Hub-Signature-256` header |
 | Slack | HMAC-SHA256 | Built into `SlackChannel.verifyRequest()` | `X-Slack-Signature` header |
+| Email | HMAC-SHA256 | `appSecretEnv` | Webhook signature header |
 | Admin | Bearer token | `adminTokenEnv` | `Authorization: Bearer <token>` header |
 
 **Two-level auth for WebSocket widgets:** Channel-level `allowedOrigins` provides the default. Per-tenant `TenantConfig.allowedOrigins` overrides the default when set. Localhost and 127.0.0.1 (any port) are always allowed regardless of configuration.
 
 **Startup warnings.** The gateway logs warnings for missing auth configuration:
 - WhatsApp channel without `appSecretEnv` — webhook signatures will not be verified
+- Instagram channel without `appSecretEnv` — webhook signatures will not be verified
+- Messenger channel without `appSecretEnv` — webhook signatures will not be verified
+- Email channel without `appSecretEnv` — webhook signatures will not be verified
 - API channel without `apiKeyEnv` — endpoints are unauthenticated
 - Multi-tenant app without `adminTokenEnv` — admin routes are unauthenticated
 
@@ -256,6 +281,20 @@ When budget is exhausted, `POST /message` returns `{ content: "...", budgetExhau
 | `GET` | `/dev/safety` | Safety pipeline metrics. |
 | `POST` | `/dev/approve` | Approve a pending phase gate. |
 | `POST` | `/dev/reject` | Reject a pending phase gate. |
+
+### Channel Webhook Routes
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/whatsapp/{appName}/webhook` | WhatsApp webhook verification (Meta challenge-response). |
+| `POST` | `/whatsapp/{appName}/webhook` | WhatsApp inbound messages. |
+| `GET` | `/instagram/{appName}/webhook` | Instagram webhook verification (Meta challenge-response). |
+| `POST` | `/instagram/{appName}/webhook` | Instagram DM inbound messages. |
+| `GET` | `/messenger/{appName}/webhook` | Messenger webhook verification (Meta challenge-response). |
+| `POST` | `/messenger/{appName}/webhook` | Messenger inbound messages. |
+| `POST` | `/email/{appName}/webhook` | Email inbound webhook (provider-agnostic). |
+
+All three Meta channels (WhatsApp, Instagram, Messenger) share the same verification flow: GET requests return `hub.challenge` when `hub.verify_token` matches `verifyTokenEnv`. POST requests verify `X-Hub-Signature-256` HMAC-SHA256 when `appSecretEnv` is configured.
 
 ### WebSocket Routes
 

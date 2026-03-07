@@ -13,16 +13,19 @@ Sources: `packages/runtime/src/channels/`, `packages/core/src/engine/domain/chan
 | CLI | `CliChannel` | full | stdin / stdout | None | text |
 | Web | `WebChannel` | full | WebSocket (Hono) | Origin validation (`allowedOrigins`) | text, image, audio, file |
 | WhatsApp | `WhatsAppChannel` | short | HTTPS (Business API v21.0) | HMAC-SHA256 (`appSecretEnv`) + verify token | text, image, audio, file |
+| Instagram | `InstagramChannel` | short | HTTPS (Graph API v21.0) | HMAC-SHA256 (`appSecretEnv`) + verify token | text, image |
+| Messenger | `MessengerChannel` | short | HTTPS (Graph API v21.0) | HMAC-SHA256 (`appSecretEnv`) + verify token | text, image |
 | Slack | `SlackChannel` | full | HTTPS (Bot Events + Web API) | HMAC-SHA256 (signing secret) | text, image, file |
+| Email | `EmailChannel` | full | API-based (Postmark, Resend, generic) | HMAC-SHA256 (`appSecretEnv`) | text, file |
 | API | `ApiChannel` | structured | HTTP REST + SSE | API key (`apiKeyEnv`) | text, image, audio, file |
 
 ---
 
 ## Message Formats
 
-**`short` — Plain Text.** Used by WhatsApp. Markdown is stripped before delivery: code blocks become `[code block]`, inline code has backticks removed, bold and italic markers are stripped, and links are reduced to display text. Output is truncated to 4,096 characters.
+**`short` — Plain Text.** Used by WhatsApp, Instagram, and Messenger. Markdown is stripped before delivery: code blocks become `[code block]`, inline code has backticks removed, bold and italic markers are stripped, and links are reduced to display text. Output is truncated per-channel (WhatsApp: 4,096 chars, Instagram: 1,000 chars, Messenger: 2,000 chars).
 
-**`full` — Full Markdown.** Used by CLI, Web, and Slack. Content is delivered without modification. Markdown renders natively in the Slack client and in the web console.
+**`full` — Full Markdown.** Used by CLI, Web, Slack, and Email. Content is delivered without modification. Markdown renders natively in the Slack client, in the web console, and is converted to HTML for email delivery.
 
 **`structured` — JSON Envelope.** Used by the REST API adapter. Content is placed inside a typed JSON object with explicit fields (`type`, `content`, `target`, `userId`, `threadId`), enabling programmatic consumers to parse and route responses without text parsing.
 
@@ -192,6 +195,107 @@ channels:
 The `phoneNumber` in `gateway.yaml` must be unique across all Apps.
 
 **Multi-tenant mode.** For SaaS products serving multiple businesses through one WhatsApp number, use `multiTenant: true` with `verifyTokenEnv`. This enables tenant resolution by `phone_number_id`, persistent per-tenant memory (SQLite + FTS5), and builtin `notify_owner` tool for real-time escalation to the business owner. See [`examples/whatsapp-bot/`](../../examples/whatsapp-bot/) for a complete working example.
+
+---
+
+### Instagram DM
+
+Connects to the Instagram Messaging API via `graph.facebook.com/v21.0` using native `fetch` (no SDK). Shares the Meta webhook foundation with WhatsApp and Messenger for verification and HMAC-SHA256 signature validation.
+
+```typescript
+import { InstagramChannel } from "@kilnai/runtime";
+
+const instagram = new InstagramChannel({
+  accessToken: process.env.INSTAGRAM_ACCESS_TOKEN,
+});
+```
+
+**Webhook verification.** Same flow as WhatsApp -- Meta sends a GET challenge, the handler returns `hub.challenge` when the token matches `verifyTokenEnv`.
+
+**Incoming messages.** Instagram DM webhooks deliver messages via the `messaging` field in `entry[].messaging[]`. Text and image attachments are supported. The webhook route resolves tenants by Instagram Page ID via `TenantRegistry.resolveByInstagramPageId()`.
+
+**Outgoing messages.** `send()` posts to `graph.facebook.com/v21.0/me/messages` with the recipient's Instagram-scoped ID (IGSID). Content is formatted as `short` (plain text, 1,000 character limit). Image parts are sent as separate attachment messages.
+
+**Gateway YAML:**
+
+```yaml
+channels:
+  - type: instagram
+    appSecretEnv: META_APP_SECRET
+    verifyTokenEnv: META_VERIFY_TOKEN
+```
+
+**Multi-tenant mode.** For SaaS products serving multiple businesses, tenant resolution uses the `instagramPageId` field on `TenantConfig`. Each tenant configures its own `instagramAccessToken` for outbound delivery.
+
+---
+
+### Facebook Messenger
+
+Connects to the Messenger Platform API via `graph.facebook.com/v21.0` using native `fetch` (no SDK). Shares the Meta webhook foundation with WhatsApp and Instagram.
+
+```typescript
+import { MessengerChannel } from "@kilnai/runtime";
+
+const messenger = new MessengerChannel({
+  accessToken: process.env.MESSENGER_ACCESS_TOKEN,
+});
+```
+
+**Webhook verification.** Same Meta challenge-response flow as WhatsApp and Instagram.
+
+**Incoming messages.** Messenger webhooks deliver messages via `entry[].messaging[]`. Text and image attachments are supported. The webhook route resolves tenants by Facebook Page ID via `TenantRegistry.resolveByMessengerPageId()`.
+
+**Outgoing messages.** `send()` posts to `graph.facebook.com/v21.0/me/messages` with the recipient's Page-Scoped ID (PSID). Content is formatted as `short` (plain text, 2,000 character limit). Image parts are sent as separate attachment messages.
+
+**Gateway YAML:**
+
+```yaml
+channels:
+  - type: messenger
+    appSecretEnv: META_APP_SECRET
+    verifyTokenEnv: META_VERIFY_TOKEN
+```
+
+**Multi-tenant mode.** Tenant resolution uses the `messengerPageId` field on `TenantConfig`. Each tenant configures its own `messengerAccessToken` for outbound delivery.
+
+---
+
+### Email
+
+Connects to email providers via the `EmailTransport` interface. Supports Postmark, Resend, and generic HTTP transports. Uses `full` format with markdown preserved and HTML rendering via inline CSS templates.
+
+```typescript
+import { EmailChannel } from "@kilnai/runtime";
+
+const email = new EmailChannel({
+  fromAddress: "support@example.com",
+  fromName: "Support AI",
+  transport: { provider: "postmark", apiKey: process.env.POSTMARK_API_KEY },
+});
+```
+
+**Inbound messages.** Email arrives via provider-agnostic webhooks (e.g., CloudMailin, Postmark inbound). The webhook route parses sender, subject, and body from the POST payload. Tenant resolution uses `TenantRegistry.resolveByEmailAddress()` with case-insensitive matching on the recipient address.
+
+**Outbound messages.** `send()` renders the AI response as HTML using the email template engine (inline CSS, branding support) and delivers via the configured transport. File parts are sent as attachments.
+
+**Threading.** Email threads are tracked via Message-ID chains using `EmailThreadStore`. Replies include `In-Reply-To` and `References` headers to maintain threading in email clients. An `InMemoryEmailThreadStore` ships for development; production deployments should use a persistent store.
+
+**Loop prevention.** The `EmailLoopGuard` prevents auto-reply storms:
+- **RFC 3834 detection:** Checks `Auto-Submitted`, `X-Auto-Response-Suppress`, and `Precedence` headers
+- **Ignored senders:** Configurable list of addresses that are silently dropped (e.g., `noreply@`, `mailer-daemon@`)
+- **Self-send detection:** Messages from the configured `fromAddress` are rejected
+
+**System prompt.** Email sessions receive an additional system prompt instruction for professional email tone with structured paragraphs.
+
+**Gateway YAML:**
+
+```yaml
+channels:
+  - type: email
+    appSecretEnv: EMAIL_WEBHOOK_SECRET
+```
+
+**Multi-tenant mode.** Tenant resolution uses the `emailAddress` field on `TenantConfig` (case-insensitive). Each tenant configures `emailFromAddress`, `emailFromName`, and `emailTransportConfig` for outbound delivery.
 
 ---
 
@@ -365,6 +469,12 @@ Channels participate in the human handoff workflow. When a session is in `queued
 **WebSocket (multi-tenant).** `ws-tenant-routes.ts` emits `HANDOFF_MESSAGE_QUEUED` conversation events when a message arrives for a non-`ai_active` session, and `ESCALATION_DETECTED` events when the escalation detector triggers. Operator messages sent via the handoff API are delivered as WebSocket frames to the connected user.
 
 **WhatsApp.** `whatsapp-webhook-routes.ts` follows the same pattern: `HANDOFF_MESSAGE_QUEUED` and `ESCALATION_DETECTED` events are emitted. Operator messages are delivered via the WhatsApp Business API (`sendWhatsAppMessage`).
+
+**Instagram.** `instagram-webhook-routes.ts` follows the same pattern as WhatsApp. Operator messages are delivered via the Instagram Send API.
+
+**Messenger.** `messenger-webhook-routes.ts` follows the same pattern as WhatsApp. Operator messages are delivered via the Messenger Send API.
+
+**Email.** `email-webhook-routes.ts` handles handoff for email. Queued messages are stored and `HANDOFF_MESSAGE_QUEUED` events are emitted. Operator messages are delivered as email replies with proper threading headers.
 
 **REST API.** The shared `message-pipeline.ts` handles handoff for API channel requests. The response includes `{ queued: true }` when a message is queued for human review.
 

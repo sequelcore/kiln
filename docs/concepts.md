@@ -21,7 +21,7 @@ App (app.yaml)
 |       +-- Capabilities (MCP tools)
 |       +-- QualityGates (shell commands)
 +-- Memory (scoped storage, SQLite or PostgreSQL)
-+-- Channels (CLI, Web, WhatsApp, Slack, API)
++-- Channels (CLI, Web, WhatsApp, Instagram, Messenger, Slack, Email, API)
 +-- Triggers (webhook, event, schedule)
 ```
 
@@ -157,7 +157,10 @@ channels: [cli, web, api]
 | `cli` | full | stdin/stdout | text |
 | `web` | full | WebSocket | text, image, audio, file |
 | `whatsapp` | short | WhatsApp Business API | text, image, audio, file |
+| `instagram` | short | HTTPS (Graph API v21.0) | text, image |
+| `messenger` | short | HTTPS (Graph API v21.0) | text, image |
 | `slack` | full | Slack Bot Events + Web API | text, image, file |
+| `email` | full | API-based (Postmark, Resend, generic) | text, file |
 | `api` | structured | HTTP REST + SSE | text, image, audio, file |
 
 Messages use `ContentPart[]` -- a discriminated union of `TextPart`, `ImagePart`, `AudioPart`, and `FilePart`. This is the internal message format across all channels and agent interactions. See [Content Model](#content-model) below.
@@ -407,9 +410,9 @@ All messages in Kiln use `ContentPart[]` -- a discriminated union supporting fou
 | Type | Fields | Use |
 |------|--------|-----|
 | `text` | `text: string` | All channels; default type |
-| `image` | `url: string`, `mimeType: string` | Web, WhatsApp, Slack, API |
+| `image` | `url: string`, `mimeType: string` | Web, WhatsApp, Instagram, Messenger, Slack, API |
 | `audio` | `data: string` (base64), `mimeType: string` | WhatsApp, Web, API |
-| `file` | `url: string`, `name: string`, `mimeType: string` | Web, WhatsApp, Slack, API |
+| `file` | `url: string`, `name: string`, `mimeType: string` | Web, WhatsApp, Slack, Email, API |
 
 Text-only messages are represented as `[{ type: "text", text: "..." }]`. Helper functions `textParts()` and `extractText()` simplify working with text-only payloads. Each channel declares `supportedModalities` and silently drops content parts it cannot render.
 

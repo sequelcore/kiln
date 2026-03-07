@@ -1,6 +1,6 @@
 # Kiln - Domain-Agnostic AI Orchestration Engine
 
-MIT-licensed. YAML-configured AI orchestration with 7 primitives (Agent, Capability, Workflow, Memory, Task, Channel, Trigger) + 3 composites (Team, Router, App). Multi-tenant gateway, 5 channel adapters, provider adapters, cross-app delegation, eval framework, enterprise safety pipeline.
+MIT-licensed. YAML-configured AI orchestration with 7 primitives (Agent, Capability, Workflow, Memory, Task, Channel, Trigger) + 3 composites (Team, Router, App). Multi-tenant gateway, 8 channel adapters, provider adapters, cross-app delegation, eval framework, enterprise safety pipeline.
 
 ## Architecture
 
@@ -36,13 +36,13 @@ Bun monorepo with 6 packages:
 | skill | `core/src/skill/` | SKILL.yaml format, SkillRegistry (3-tier discovery) |
 | eval | `core/src/eval/` | 12 scorers (6 rule + 6 LLM-as-judge), dataset loader, experiment runner, comparator |
 | observability | `core/src/observability/` | OTel span mapper + exporter (EventStore sink) |
-| gateway | `runtime/src/gateway/` | Multi-app loading, Mode B routes, budget middleware, composable auth middleware, conversation event emitter (incl. tool execution events), delegation, dev routes, safety/security middleware, audio preprocessing, knowledge pipeline wiring, STT/knowledge factories, webhook tool executor, tenant tool factory |
+| gateway | `runtime/src/gateway/` | Multi-app loading, Mode B routes, budget middleware, composable auth middleware, conversation event emitter (incl. tool execution events), delegation, dev routes, safety/security middleware, audio preprocessing, knowledge pipeline wiring, STT/knowledge factories, webhook tool executor, tenant tool factory, Meta webhook foundation (shared verification + HMAC-SHA256), Instagram/Messenger/Email webhook routes, email loop guard, email thread store |
 | a2a | `runtime/src/a2a/` | A2AClient (outbound delegation only) |
 | trigger | `runtime/src/trigger/` | TriggerRegistry, webhook handler (HMAC-SHA256), event listener, cron scheduler |
 | session | `runtime/src/session/` | ModeBSession (version tracking, optimistic concurrency), ModeBOrchestrator (tool authorization, retry/fallback, result sanitization, ToolRAG, PerCallToolConfig, AI guard), SessionRegistry (pluggable SessionStore, save with concurrency check), SessionMode state machine (ai_active/queued/human_active/resolved), session serializer |
-| tenant | `runtime/src/tenant/` | TenantRegistry (JSON persistence, resolveByWidgetId, webhook tool secret encryption), system prompt builder (businessName + name identity), suggestion parser |
+| tenant | `runtime/src/tenant/` | TenantRegistry (JSON persistence, resolveByWidgetId, resolveByInstagramPageId, resolveByMessengerPageId, resolveByEmailAddress, webhook tool secret encryption), system prompt builder (businessName + name identity), suggestion parser |
 | handoff | `runtime/src/gateway/handoff-routes.ts` + `runtime/src/session/escalation-detector.ts` + `runtime/src/session/context-summarizer.ts` | Human handoff: session mode state machine, escalation detection, operator messaging, AI guard |
-| channels | `runtime/src/channels/` | 5 adapters (CLI, Web, WhatsApp, Slack, API), ChannelRouter, formatForChannel |
+| channels | `runtime/src/channels/` | 8 adapters (CLI, Web, WhatsApp, Instagram, Messenger, Slack, Email, API), ChannelRouter, formatForChannel |
 | sdk | `sdk/src/` | React hooks (useKilnChat, useKilnWsChat, useKilnEvents, useKilnMemory, useKilnState, useApproval), ApiClient, SseClient. Types-only import from core. |
 | widget | `widget/src/` | Embeddable chat widget: WsClient (auto-reconnect), KilnWidget (Shadow DOM), auto-loader (script tag data-* attrs). Welcome frame, suggestion chips, info bubbles. Zero deps, IIFE bundle. |
 | studio | `studio/src/` | React 19 + Vite + TanStack Query + @xyflow/react. 7 views (Graph, Playground, Timeline, Memory, Eval, Cost, Safety). |
@@ -141,6 +141,12 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `gateway/budget-middleware.ts` | checkBudget(), reportUsage() -- fail-open |
 | `gateway/conversation-event-emitter.ts` | Fire-and-forget POST of conversation events to product webhooks, env var resolution for headers |
 | `gateway/whatsapp-webhook-routes.ts` | WhatsApp webhook: tenant resolution, persistent memory (SQLite), builtin notify_owner tool, audio preprocessing, knowledge retrieval, tenant-level billing override, conversation event emission |
+| `gateway/instagram-webhook-routes.ts` | Instagram webhook: tenant resolution, full pipeline |
+| `gateway/messenger-webhook-routes.ts` | Messenger webhook: tenant resolution, full pipeline |
+| `gateway/email-webhook-routes.ts` | Email webhook: inbound parsing, thread tracking, auto-reply |
+| `gateway/meta-webhook-foundation.ts` | Shared Meta verification + HMAC-SHA256 |
+| `gateway/email-loop-guard.ts` | Auto-reply detection (RFC 3834), ignored senders |
+| `gateway/email-thread-store.ts` | Email thread tracking via Message-ID chain |
 | `gateway/ws-tenant-routes.ts` | Multi-tenant WebSocket: welcome frame (greeting + FAQ suggestions), AI follow-up suggestion chips, audio preprocessing, knowledge retrieval, BUDGET_EXHAUSTED error code, conversation event emission |
 | `gateway/audio-preprocessor.ts` | Audio preprocessing: MediaDownloader (WhatsApp two-step, generic), fail-open transcription |
 | `gateway/stt-factory.ts` | Resolve SttProviderConfig to concrete SttAdapter |
@@ -153,6 +159,13 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `gateway/dev-token-store.ts` | In-memory sliding-window TTL token store for dev-mode WebSocket auth |
 | `gateway/dev-orchestrator.ts` | DevOrchestrator: bridges core Orchestrator with ApprovalGateRegistry and gateway EventBus |
 | `channels/whatsapp-channel.ts` | WhatsApp Business API webhook adapter |
+| `channels/instagram-channel.ts` | Instagram DM adapter (Graph API v21.0, text + image) |
+| `channels/instagram-api.ts` | Instagram send API (raw fetch) |
+| `channels/messenger-channel.ts` | Messenger adapter (Graph API v21.0, text + image) |
+| `channels/messenger-api.ts` | Messenger send API (raw fetch) |
+| `channels/email-channel.ts` | Email adapter (full format, text + file) |
+| `channels/email-api.ts` | Email transport (Postmark, Resend, Generic) |
+| `channels/email-template.ts` | HTML email rendering (inline CSS, branding) |
 | `channels/slack-channel.ts` | Slack Bot Events + Web API adapter |
 | `session/session-registry.ts` | Multi-user session management + cleanup, save() with optimistic concurrency, SESSION_EXPIRED event emission |
 | `session/session-mode.ts` | SessionMode type (ai_active, queued, human_active, resolved), transition validator |
@@ -188,4 +201,5 @@ See `docs/` for full documentation:
 | [App YAML](docs/configuration/app-yaml.md) | Complete app.yaml field reference |
 | [Gateway YAML](docs/configuration/gateway-yaml.md) | Gateway config, Mode A/B, billing |
 | [Tool Use](docs/guides/tool-use.md) | Agentic actions, authorization, webhook tools, rate limiting |
+| [Channels](docs/guides/channels.md) | 8 channel adapters (CLI, Web, WhatsApp, Instagram, Messenger, Slack, Email, API) |
 | [Architecture](docs/architecture.md) | Contributor internals, TypeScript interfaces |

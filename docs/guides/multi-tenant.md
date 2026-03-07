@@ -27,7 +27,7 @@ apps:
         botToken: xoxb-...
 ```
 
-`validateGatewayConfig()` enforces unique app names, unique API paths, and unique phone numbers. Duplicate values are rejected at startup before any App is loaded.
+`validateGatewayConfig()` enforces unique app names, unique API paths, unique phone numbers, unique Instagram page IDs, unique Messenger page IDs, and unique email addresses. Duplicate values are rejected at startup before any App is loaded.
 
 ## Per-App Isolation Model
 
@@ -134,8 +134,30 @@ These fields can be updated via `PATCH /admin/{appName}/tenants/:tenantId`:
 | `tools` | string[] | Tool name allowlist -- only listed tools are available |
 | `toolConfig` | object | Tool execution config: `maxIterationsPerSession`, `rateLimits` |
 | `webhookTools` | array | External webhook-backed tools with HMAC signing |
+| `instagramPageId` | string | Instagram Page ID for tenant resolution via Instagram DM |
+| `instagramAccessToken` | string | Instagram Page access token for sending DMs |
+| `messengerPageId` | string | Facebook Page ID for tenant resolution via Messenger |
+| `messengerAccessToken` | string | Messenger Page access token for sending messages |
+| `emailAddress` | string | Inbound email address for tenant resolution (case-insensitive) |
+| `emailFromAddress` | string | Outbound sender email address |
+| `emailFromName` | string | Outbound sender display name |
+| `emailTransportConfig` | object | Email transport provider config (Postmark, Resend, or generic) |
 
 Session invalidation: when a tenant config is updated via PATCH, `SessionRegistry.invalidateByTenant()` clears all active sessions for that tenant so the next message picks up fresh config.
+
+## Tenant Resolution by Channel
+
+Each channel resolves tenants using a channel-specific identifier:
+
+| Channel | Resolution Method | Lookup Field | Notes |
+|---------|------------------|--------------|-------|
+| Web | `resolveByWidgetId(widgetId, appName)` | `widgetId` | UUID from widget `data-widget-id` |
+| WhatsApp | `resolveByPhoneNumber(phoneNumber, appName)` | `phoneNumber` | E.164 format |
+| Instagram | `resolveByInstagramPageId(pageId, appName)` | `instagramPageId` | Instagram Page ID from webhook payload |
+| Messenger | `resolveByMessengerPageId(pageId, appName)` | `messengerPageId` | Facebook Page ID from webhook payload |
+| Email | `resolveByEmailAddress(emailAddress, appName)` | `emailAddress` | Case-insensitive match |
+
+All resolution methods return the matching `TenantConfig` or throw `TENANT_NOT_FOUND`.
 
 ## Tenant Tool Configuration
 

@@ -27,7 +27,7 @@ The wizard asks:
 | App name | Top-level `name` field in `app.yaml` |
 | Provider | Which LLM provider (`anthropic`, `openai`, `deepseek`, `ollama`) and which API key env var |
 | Domain | Auto-detects your tech stack (react-ts, python, docs, support, data-pipeline) or lets you skip |
-| Channels | Which channel adapters to activate (`cli`, `web`, `api`, `whatsapp`, `slack`) |
+| Channels | Which channel adapters to activate (`cli`, `web`, `api`, `whatsapp`, `instagram`, `messenger`, `slack`, `email`) |
 | Team mode | How agents collaborate: `sequential`, `supervisor`, or `swarm` |
 | Quality gates | Which verification commands to run (test, lint, typecheck) |
 
