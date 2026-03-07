@@ -13,6 +13,7 @@ export const EVENT_LEVEL_MAP: Record<EventType, StreamLevel> = {
   tool_called: "tool",
   tool_authorized: "tool",
   tool_result: "tool",
+  tool_cache_hit: "tool",
   thinking: "token",
   verification_result: "tool",
   cost_update: "state",
@@ -41,6 +42,8 @@ export const EVENT_LEVEL_MAP: Record<EventType, StreamLevel> = {
   pii_detected: "phase",
   content_classified: "phase",
   policy_evaluated: "phase",
+  // Knowledge (Phase 14)
+  knowledge_gap: "state",
   // Domain apps
   domain_event: "tool",
 };
@@ -61,6 +64,7 @@ export type EventType =
   | "tool_called"
   | "tool_authorized"
   | "tool_result"
+  | "tool_cache_hit"
   | "thinking"
   | "verification_result"
   | "cost_update"
@@ -91,6 +95,8 @@ export type EventType =
   | "pii_detected"
   | "content_classified"
   | "policy_evaluated"
+  // Knowledge (Phase 14)
+  | "knowledge_gap"
   // Domain apps
   | "domain_event";
 
@@ -165,6 +171,13 @@ export interface ToolResultEvent extends KilnEvent {
   readonly resultSummary?: string;
   readonly isError?: boolean;
   readonly retryAttempt?: number;
+}
+
+/** Tool cache hit event -- cached result used instead of executing tool */
+export interface ToolCacheHitEvent extends KilnEvent {
+  readonly type: "tool_cache_hit";
+  readonly toolName: string;
+  readonly cacheTtl: number;
 }
 
 /** Thinking event (agent reasoning) */
@@ -380,6 +393,15 @@ export interface PolicyEvaluatedEvent extends KilnEvent {
   readonly direction: "input" | "output";
 }
 
+/** Knowledge gap detected event -- query had low or no results */
+export interface KnowledgeGapEvent extends KilnEvent {
+  readonly type: "knowledge_gap";
+  readonly query: string;
+  readonly topScore: number;
+  readonly threshold: number;
+  readonly retrievedCount: number;
+}
+
 /** Custom domain event for app-specific event types */
 export interface DomainEventData extends KilnEvent {
   readonly type: "domain_event";
@@ -395,6 +417,7 @@ export interface EventMap {
   tool_called: ToolCalledEvent;
   tool_authorized: ToolAuthorizedEvent;
   tool_result: ToolResultEvent;
+  tool_cache_hit: ToolCacheHitEvent;
   thinking: ThinkingEvent;
   verification_result: VerificationResultEvent;
   cost_update: CostUpdateEvent;
@@ -425,6 +448,8 @@ export interface EventMap {
   pii_detected: PiiDetectedEvent;
   content_classified: ContentClassifiedEvent;
   policy_evaluated: PolicyEvaluatedEvent;
+  // Knowledge (Phase 14)
+  knowledge_gap: KnowledgeGapEvent;
   // Domain apps
   domain_event: DomainEventData;
 }

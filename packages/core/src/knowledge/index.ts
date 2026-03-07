@@ -10,6 +10,8 @@ export type { PgVectorStoreConfig } from "./infrastructure/pgvector-store.js";
 export { RetrievalPipeline } from "./retrieval-pipeline.js";
 export type { RetrievalPipelineConfig } from "./retrieval-pipeline.js";
 export { type Reranker } from "./reranker.js";
+export { CohereReranker } from "./infrastructure/cohere-reranker.js";
+export type { CohereRerankerConfig } from "./infrastructure/cohere-reranker.js";
 export { createKnowledgeCapability, executeKnowledgeSearch } from "./knowledge-capability.js";
 export { ContextualEnricher } from "./contextual-enricher.js";
 export type { ContextualEnricherConfig } from "./contextual-enricher.js";

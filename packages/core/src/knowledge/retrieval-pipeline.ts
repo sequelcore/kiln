@@ -5,6 +5,8 @@ import type { EmbeddingAdapter } from "../engine/domain/embedding.js";
 import type { VectorStore, VectorResult, VectorQueryOptions } from "../engine/domain/vector-store.js";
 import type { Chunker, ChunkConfig, ChunkEnricher } from "../engine/domain/chunker.js";
 import type { Reranker } from "./reranker.js";
+import type { EventBus } from "../events/event-bus.js";
+import type { KnowledgeGapEvent } from "../events/index.js";
 
 export interface RetrievalPipelineConfig {
   readonly embedder: EmbeddingAdapter;
@@ -13,6 +15,8 @@ export interface RetrievalPipelineConfig {
   readonly chunkConfig: ChunkConfig;
   readonly reranker?: Reranker;
   readonly enricher?: ChunkEnricher;
+  readonly eventBus?: EventBus;
+  readonly gapThreshold?: number;
 }
 
 export class RetrievalPipeline {
@@ -22,6 +26,8 @@ export class RetrievalPipeline {
   private readonly chunkConfig: ChunkConfig;
   private readonly reranker?: Reranker;
   private readonly enricher?: ChunkEnricher;
+  private readonly eventBus?: EventBus;
+  private readonly gapThreshold: number;
 
   constructor(config: RetrievalPipelineConfig) {
     this.embedder = config.embedder;
@@ -30,6 +36,8 @@ export class RetrievalPipeline {
     this.chunkConfig = config.chunkConfig;
     this.reranker = config.reranker;
     this.enricher = config.enricher;
+    this.eventBus = config.eventBus;
+    this.gapThreshold = config.gapThreshold ?? 0.3;
   }
 
   async ingest(documents: Document[]): Promise<number> {
@@ -75,19 +83,37 @@ export class RetrievalPipeline {
     options?: { topK?: number; source?: string },
   ): Promise<VectorResult[]> {
     const topK = options?.topK ?? 5;
+    const fetchK = this.reranker ? topK * 4 : topK;
 
     const queryEmbedding = await this.embedder.embed([query]);
     const queryVector = queryEmbedding[0]!;
 
     const queryOptions: VectorQueryOptions = {
-      topK,
+      topK: fetchK,
       ...(options?.source ? { filter: { source: options.source } } : {}),
     };
 
     let results = await this.store.query(queryVector, queryOptions);
 
+    if (this.eventBus) {
+      const topScore = results.length > 0 ? results[0]!.score : 0;
+      if (topScore < this.gapThreshold || results.length === 0) {
+        const gapEvent: KnowledgeGapEvent = {
+          type: "knowledge_gap",
+          query,
+          topScore,
+          threshold: this.gapThreshold,
+          retrievedCount: results.length,
+          timestamp: new Date(),
+          sessionId: "retrieval",
+        };
+        this.eventBus.emit(gapEvent);
+      }
+    }
+
     if (this.reranker && results.length > 0) {
       results = await this.reranker.rerank(query, results);
+      results = results.slice(0, topK);
     }
 
     return results;

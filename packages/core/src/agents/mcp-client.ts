@@ -5,16 +5,19 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import type { Capability, CapabilityAnnotations } from "../engine/domain/capability.js";
 import type { McpServerConfig } from "../engine/domain/mcp-config.js";
 import { KilnError } from "../engine/errors.js";
+import type { PromptScanner } from "../security/prompt-scanner.js";
 
 /** Package identity for MCP client registration */
 const CLIENT_NAME = "kilnai";
-const CLIENT_VERSION = "0.2.1";
+const CLIENT_VERSION = "0.5.0";
 
 export interface McpClientOptions {
   /** Override the client name reported to MCP servers */
   readonly clientName?: string;
   /** Override the client version reported to MCP servers */
   readonly clientVersion?: string;
+  /** Optional prompt scanner to filter tools with injection patterns in descriptions */
+  readonly promptScanner?: PromptScanner;
 }
 
 export class McpClient {
@@ -22,6 +25,7 @@ export class McpClient {
   private readonly config: McpServerConfig;
   private readonly clientName: string;
   private readonly clientVersion: string;
+  private readonly promptScanner?: PromptScanner;
   private client: Client | undefined;
 
   constructor(config: McpServerConfig, options?: McpClientOptions) {
@@ -29,6 +33,7 @@ export class McpClient {
     this.config = config;
     this.clientName = options?.clientName ?? CLIENT_NAME;
     this.clientVersion = options?.clientVersion ?? CLIENT_VERSION;
+    this.promptScanner = options?.promptScanner;
   }
 
   async connect(): Promise<void> {
@@ -61,7 +66,22 @@ export class McpClient {
 
     try {
       const result = await this.client!.listTools();
-      return result.tools.map((tool) => this.mapToolToCapability(tool));
+      const capabilities: Capability[] = [];
+
+      for (const tool of result.tools) {
+        if (this.promptScanner && tool.description) {
+          const scanResult = this.promptScanner.scanHeuristic(tool.description);
+          if (!scanResult.safe) {
+            console.warn(
+              `[McpClient] Skipping MCP tool "${tool.name}" from server "${this.serverName}": description contains injection patterns (${scanResult.threats.map((t) => t.pattern).join(", ")})`,
+            );
+            continue;
+          }
+        }
+        capabilities.push(this.mapToolToCapability(tool));
+      }
+
+      return capabilities;
     } catch (err) {
       if (err instanceof KilnError) throw err;
       throw new KilnError("MCP_DISCOVERY_FAILED", `Failed to discover tools: ${err}`, {

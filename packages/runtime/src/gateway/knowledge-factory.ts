@@ -1,6 +1,6 @@
 // Knowledge pipeline factory -- resolves KnowledgeConfig to concrete pipeline
 
-import type { KnowledgeConfig, VectorStore, ChunkEnricher, ContactMemoryConfig, EmbeddingAdapter, ContactMemoryService } from "@kilnai/core";
+import type { KnowledgeConfig, VectorStore, ChunkEnricher, ContactMemoryConfig, EmbeddingAdapter, ContactMemoryService, Reranker } from "@kilnai/core";
 import {
   OpenAIEmbeddingAdapter,
   OllamaEmbeddingAdapter,
@@ -23,6 +23,7 @@ import {
   InMemorySourceStore,
   JsonSourceStore,
   ContactMemoryServiceImpl,
+  CohereReranker,
 } from "@kilnai/core";
 
 export interface KnowledgePipelineResult {
@@ -97,6 +98,18 @@ export async function createKnowledgePipeline(config: KnowledgeConfig): Promise<
     });
   }
 
+  // Resolve reranker (optional)
+  let reranker: Reranker | undefined;
+  if (config.reranker) {
+    const apiKey = process.env[config.reranker.apiKeyEnv] ?? "";
+    if (!apiKey) {
+      throw new KilnError("CONFIG_MISSING_ENV", `Reranker provider "${config.reranker.provider}" requires API key from env var "${config.reranker.apiKeyEnv}"`, {
+        context: { provider: config.reranker.provider, apiKeyEnv: config.reranker.apiKeyEnv },
+      });
+    }
+    reranker = new CohereReranker({ apiKey, model: config.reranker.model });
+  }
+
   const pipeline = new RetrievalPipeline({
     embedder,
     store,
@@ -106,6 +119,7 @@ export async function createKnowledgePipeline(config: KnowledgeConfig): Promise<
       chunkOverlap: config.chunking.chunkOverlap ?? 50,
     },
     enricher,
+    reranker,
   });
 
   return { pipeline, store, embedder, close: closeFn };

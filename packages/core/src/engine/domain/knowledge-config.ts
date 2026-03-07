@@ -36,6 +36,12 @@ export interface KnowledgeSourceConfig {
   readonly chunking?: KnowledgeChunkingConfig;
 }
 
+export interface KnowledgeRerankerConfig {
+  readonly provider: "cohere";
+  readonly model?: string;
+  readonly apiKeyEnv: string;
+}
+
 export interface ContactMemoryConfig {
   readonly enabled: boolean;
   readonly provider: "anthropic" | "openai" | "deepseek" | "ollama";
@@ -49,6 +55,7 @@ export interface KnowledgeConfig {
   readonly store: KnowledgeStoreConfig;
   readonly chunking: KnowledgeChunkingConfig;
   readonly sources: readonly KnowledgeSourceConfig[];
+  readonly reranker?: KnowledgeRerankerConfig;
   readonly allowedAgents?: readonly string[];
   readonly mode?: "auto" | "tool";
   readonly contactMemory?: ContactMemoryConfig;
@@ -130,6 +137,15 @@ export function validateKnowledgeConfig(config: KnowledgeConfig): KnowledgeValid
     }
     if (cm.provider !== "ollama" && !cm.apiKeyEnv) {
       errors.push({ field: "contactMemory.apiKeyEnv", message: `required when provider is '${cm.provider}'` });
+    }
+  }
+
+  if (config.reranker) {
+    if (config.reranker.provider !== "cohere") {
+      errors.push({ field: "reranker.provider", message: "must be 'cohere'" });
+    }
+    if (!config.reranker.apiKeyEnv || typeof config.reranker.apiKeyEnv !== "string") {
+      errors.push({ field: "reranker.apiKeyEnv", message: "required" });
     }
   }
 

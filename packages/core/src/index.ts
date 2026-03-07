@@ -211,6 +211,7 @@ export type {
   KnowledgeChunkingConfig,
   KnowledgeSourceConfig,
   ContextualConfig,
+  KnowledgeRerankerConfig,
   ContactMemoryConfig,
 } from "./engine/domain/knowledge-config.js";
 export { validateKnowledgeConfig } from "./engine/domain/knowledge-config.js";

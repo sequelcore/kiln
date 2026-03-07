@@ -5,6 +5,7 @@ import type {
   ToolCalledEvent,
   ToolAuthorizedEvent,
   ToolResultEvent,
+  ToolCacheHitEvent,
   CostUpdateEvent,
   ErrorEvent,
 } from "@kilnai/core";
@@ -15,6 +16,7 @@ import type { AuditLog } from "@kilnai/core";
 import type { ToolResultSanitizer } from "@kilnai/core";
 import type { ToolRAG } from "@kilnai/core";
 import type { RateLimiter } from "@kilnai/core";
+import type { ToolCache } from "@kilnai/core";
 import { executeWithRetry } from "@kilnai/core";
 import type { ModeBSession } from "./mode-b-session.js";
 import type { EscalationDetector, EscalationSignal } from "./escalation-detector.js";
@@ -39,6 +41,7 @@ export interface OrchestratorDeps {
   readonly budgetChecker?: () => Promise<{ allowed: boolean; message?: string }>;
   readonly auditLog?: AuditLog;
   readonly toolRAG?: ToolRAG;
+  readonly toolCache?: ToolCache;
 }
 
 export interface ToolExecutionSummary {
@@ -301,6 +304,29 @@ export class ModeBOrchestrator {
           }
         }
 
+        // Resolve cacheTtl before try block so it's accessible for both check and store
+        const cacheTtl = capability?.annotations?.cacheTtl;
+
+        // Cache check (fail-open)
+        if (cacheTtl && this.deps.toolCache) {
+          try {
+            const cached = this.deps.toolCache.get(tc.name, tc.input);
+            if (cached !== undefined) {
+              const resultString = typeof cached === "string" ? cached : JSON.stringify(cached);
+              this.emitToolCacheHit(session.id, tc.name, cacheTtl);
+              resultParts.push({
+                type: "tool_result",
+                toolUseId: tc.id,
+                content: resultString,
+                isError: false,
+              });
+              continue;
+            }
+          } catch {
+            // Fail-open: proceed to execute tool if cache throws
+          }
+        }
+
         const annotations = capability?.annotations
           ? { readOnly: capability.annotations.readOnly, destructive: capability.annotations.destructive, idempotent: capability.annotations.idempotent }
           : undefined;
@@ -363,6 +389,15 @@ export class ModeBOrchestrator {
             content: resultString,
             isError: false,
           });
+
+          // Cache store (fail-open)
+          if (cacheTtl && this.deps.toolCache) {
+            try {
+              this.deps.toolCache.set(tc.name, tc.input, resultValue, cacheTtl);
+            } catch {
+              // Fail-open: don't break execution if cache store fails
+            }
+          }
 
           // Record rate limit usage after successful execution
           if (perCallConfig?.rateLimiter && perCallConfig?.tenantId) {
@@ -519,6 +554,17 @@ export class ModeBOrchestrator {
       ...(resultSummary ? { resultSummary } : {}),
       ...(isError !== undefined ? { isError } : {}),
       ...(retryAttempt !== undefined ? { retryAttempt } : {}),
+    };
+    this.deps.eventBus?.emit(event);
+  }
+
+  private emitToolCacheHit(sessionId: string, toolName: string, cacheTtl: number): void {
+    const event: ToolCacheHitEvent = {
+      type: "tool_cache_hit",
+      toolName,
+      cacheTtl,
+      timestamp: new Date(),
+      sessionId,
     };
     this.deps.eventBus?.emit(event);
   }

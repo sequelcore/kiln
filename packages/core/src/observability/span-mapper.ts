@@ -37,6 +37,8 @@ import type {
     PolicyEvaluatedEvent,
     DomainEventData,
     ToolAuthorizedEvent,
+    ToolCacheHitEvent,
+    KnowledgeGapEvent,
 } from "../events/index.js";
 
 // ---------------------------------------------------------------------------
@@ -395,6 +397,30 @@ function mapDomainEvent(e: DomainEventData): SpanOperation {
     };
 }
 
+function mapToolCacheHit(e: ToolCacheHitEvent): SpanOperation {
+    return {
+        action: "addEvent",
+        name: "tool_cache_hit",
+        attributes: {
+            toolName: e.toolName,
+            cacheTtl: e.cacheTtl,
+        },
+    };
+}
+
+function mapKnowledgeGap(e: KnowledgeGapEvent): SpanOperation {
+    return {
+        action: "addEvent",
+        name: "knowledge_gap",
+        attributes: {
+            query: e.query,
+            topScore: e.topScore,
+            threshold: e.threshold,
+            retrievedCount: e.retrievedCount,
+        },
+    };
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -417,6 +443,8 @@ export function mapEventToSpan(event: KilnEvent): SpanOperation {
             return mapToolAuthorized(event as ToolAuthorizedEvent);
         case "tool_result":
             return mapToolResult(event as ToolResultEvent);
+        case "tool_cache_hit":
+            return mapToolCacheHit(event as ToolCacheHitEvent);
         case "thinking":
             return mapThinking(event as ThinkingEvent);
         case "verification_result":
@@ -471,6 +499,8 @@ export function mapEventToSpan(event: KilnEvent): SpanOperation {
             return mapContentClassified(event as ContentClassifiedEvent);
         case "policy_evaluated":
             return mapPolicyEvaluated(event as PolicyEvaluatedEvent);
+        case "knowledge_gap":
+            return mapKnowledgeGap(event as KnowledgeGapEvent);
         case "domain_event":
             return mapDomainEvent(event as DomainEventData);
         default: {

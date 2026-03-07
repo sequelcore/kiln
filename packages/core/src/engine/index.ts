@@ -107,6 +107,7 @@ export type {
   KnowledgeChunkingConfig,
   KnowledgeSourceConfig,
   KnowledgeValidationError,
+  KnowledgeRerankerConfig,
   ContactMemoryConfig,
 } from "./domain/knowledge-config.js";
 export { validateKnowledgeConfig } from "./domain/knowledge-config.js";
