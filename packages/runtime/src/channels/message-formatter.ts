@@ -63,6 +63,14 @@ export function toMessengerFormat(text: string): string {
   return stripMarkdown(text).slice(0, MESSENGER_MAX_MESSAGE_LENGTH);
 }
 
+/**
+ * Format content for email -- keep full markdown (email supports rich formatting).
+ * No character truncation (email has no message length limit).
+ */
+export function toEmailFormat(text: string): string {
+  return text;
+}
+
 /** Strip basic markdown formatting for plain text channels */
 function stripMarkdown(text: string): string {
   return text

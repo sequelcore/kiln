@@ -26,6 +26,11 @@ export type { InstagramWebhookConfig } from "./gateway/instagram-webhook-routes.
 export { createMessengerWebhookRoutes } from "./gateway/messenger-webhook-routes.js";
 export type { MessengerWebhookConfig } from "./gateway/messenger-webhook-routes.js";
 export { verifyMetaWebhook, validateMetaSignature } from "./gateway/meta-webhook-foundation.js";
+export { createEmailWebhookRoutes } from "./gateway/email-webhook-routes.js";
+export type { EmailWebhookConfig } from "./gateway/email-webhook-routes.js";
+export { shouldRejectEmail, isAutoReply, isIgnoredSender } from "./gateway/email-loop-guard.js";
+export { InMemoryEmailThreadStore } from "./gateway/email-thread-store.js";
+export type { EmailThread, EmailThreadStore } from "./gateway/email-thread-store.js";
 export { createTenantAdminRoutes } from "./gateway/tenant-admin-routes.js";
 export type { TenantAdminRoutesConfig } from "./gateway/tenant-admin-routes.js";
 export { createOutboundRoutes } from "./gateway/outbound-routes.js";
@@ -95,7 +100,7 @@ export type { TriggerExecutionContext } from "./trigger/trigger-executor.js";
 // Channels
 export { EventBridge, toEngineEvent } from "./channels/event-bridge.js";
 export { ChannelRegistry } from "./channels/channel-registry.js";
-export { formatForChannel, toWhatsAppFormat, toInstagramFormat, toMessengerFormat } from "./channels/message-formatter.js";
+export { formatForChannel, toWhatsAppFormat, toInstagramFormat, toMessengerFormat, toEmailFormat } from "./channels/message-formatter.js";
 export type { ChannelConfig, ChannelStatus, IdentityMapping, IdentityResolver } from "./channels/types.js";
 export { InMemoryIdentityResolver } from "./channels/types.js";
 export { CliChannel } from "./channels/cli-channel.js";
@@ -138,6 +143,12 @@ export {
   MESSENGER_GRAPH_API_VERSION,
 } from "./channels/messenger-api.js";
 export type { MessengerSendResult } from "./channels/messenger-api.js";
+export { EmailChannel } from "./channels/email-channel.js";
+export type { EmailChannelConfig } from "./channels/email-channel.js";
+export { createEmailTransport } from "./channels/email-api.js";
+export type { EmailTransport, OutboundEmail, EmailSendResult } from "./channels/email-api.js";
+export { renderEmailHtml, renderEmailPlainText } from "./channels/email-template.js";
+export type { EmailBranding } from "./channels/email-template.js";
 
 // Auth
 export { requireApiKey, requireBearer, requireWebhookSignature, isOriginAllowed } from "./gateway/auth-middleware.js";

@@ -53,6 +53,13 @@ export interface TenantToolConfig {
   readonly rateLimits?: import("../domain/rate-limiter.js").RateLimitConfig;
 }
 
+/** Email transport provider configuration */
+export interface EmailTransportConfig {
+  readonly provider: "postmark" | "resend" | "sendgrid" | "generic";
+  readonly apiKey?: string;
+  readonly endpoint?: string;
+}
+
 /** Full tenant configuration for a business within a multi-tenant App */
 export interface TenantConfig {
   readonly tenantId: string;
@@ -73,6 +80,10 @@ export interface TenantConfig {
   readonly instagramAccessToken?: string;
   readonly messengerPageId?: string;
   readonly messengerAccessToken?: string;
+  readonly emailAddress?: string;
+  readonly emailFromAddress?: string;
+  readonly emailFromName?: string;
+  readonly emailTransportConfig?: EmailTransportConfig;
   readonly widgetId?: string;
   readonly allowedOrigins?: readonly string[];
   readonly greeting?: string;

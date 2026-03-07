@@ -22,6 +22,8 @@ import type { InstagramWebhookConfig } from "./instagram-webhook-routes.js";
 import { createInstagramWebhookRoutes } from "./instagram-webhook-routes.js";
 import type { MessengerWebhookConfig } from "./messenger-webhook-routes.js";
 import { createMessengerWebhookRoutes } from "./messenger-webhook-routes.js";
+import type { EmailWebhookConfig } from "./email-webhook-routes.js";
+import { createEmailWebhookRoutes } from "./email-webhook-routes.js";
 import type { TenantAdminRoutesConfig } from "./tenant-admin-routes.js";
 import { createTenantAdminRoutes } from "./tenant-admin-routes.js";
 import type { KnowledgeAdminRoutesConfig } from "./knowledge-admin-routes.js";
@@ -53,6 +55,7 @@ export interface LoadedApp {
   whatsappWebhookConfig?: WhatsAppWebhookConfig;
   instagramWebhookConfig?: InstagramWebhookConfig;
   messengerWebhookConfig?: MessengerWebhookConfig;
+  emailWebhookConfig?: EmailWebhookConfig;
   tenantAdminConfig?: TenantAdminRoutesConfig;
   webChannel?: WebChannel;
   eventEmitter?: ConversationEventEmitter;
@@ -184,6 +187,12 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
       if (channel.type === "messenger" && loadedApp.messengerWebhookConfig) {
         const msgWebhookApp = createMessengerWebhookRoutes(loadedApp.messengerWebhookConfig);
         app.route(`/messenger/${loadedApp.name}`, msgWebhookApp);
+      }
+
+      // Email webhook routes for multi-tenant apps
+      if (channel.type === "email" && loadedApp.emailWebhookConfig) {
+        const emailWebhookApp = createEmailWebhookRoutes(loadedApp.emailWebhookConfig);
+        app.route(`/email/${loadedApp.name}`, emailWebhookApp);
       }
 
       // WebSocket route for web channel

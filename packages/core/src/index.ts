@@ -141,6 +141,7 @@ export type {
   TenantBilling,
   TenantWebhookTool,
   TenantToolConfig,
+  EmailTransportConfig,
   TenantValidationError,
 } from "./engine/gateway/tenant-config.js";
 export { validateTenantConfig } from "./engine/gateway/tenant-config.js";

@@ -1,6 +1,6 @@
 import type { TenantConfig } from "@kilnai/core";
 
-export function buildTenantSystemPrompt(tenant: TenantConfig, channel?: "web" | "whatsapp" | "instagram" | "messenger"): string {
+export function buildTenantSystemPrompt(tenant: TenantConfig, channel?: "web" | "whatsapp" | "instagram" | "messenger" | "email"): string {
   const parts: string[] = [];
 
   // Opening line
@@ -83,6 +83,9 @@ export function buildTenantSystemPrompt(tenant: TenantConfig, channel?: "web" | 
   } else if (channel === "messenger") {
     parts.push("");
     parts.push("You are responding via Facebook Messenger. Keep messages under 2000 characters. Use plain text only -- no markdown, no bold, no headers, no bullet points.");
+  } else if (channel === "email") {
+    parts.push("");
+    parts.push("You are responding to an email. Structure your response with clear paragraphs. Use a professional tone appropriate for business correspondence. Do not include email headers (Subject, From, To) in your response -- only the body text. Provide complete, thorough answers.");
   } else if (channel !== "whatsapp") {
     parts.push("");
     parts.push("After your response, include 2-3 short follow-up questions the customer might ask next. Format them on a separate final line as: <<SUGG>>Question 1|Question 2|Question 3<</SUGG>>");

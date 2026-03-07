@@ -52,6 +52,13 @@ export class TenantRegistry {
       }
     }
 
+    // Encrypt email transport API key
+    if (config.emailTransportConfig?.apiKey && config.emailTransportConfig.apiKey !== ENCRYPTED_PLACEHOLDER) {
+      const secretKey = `tenant:${config.tenantId}:emailTransportApiKey`;
+      this.secretStore!.set(secretKey, config.emailTransportConfig.apiKey);
+      result.emailTransportConfig = { ...config.emailTransportConfig, apiKey: ENCRYPTED_PLACEHOLDER };
+    }
+
     // Encrypt webhook tool secrets
     if (config.webhookTools && config.webhookTools.length > 0) {
       const encryptedTools = config.webhookTools.map(wt => {
@@ -80,6 +87,15 @@ export class TenantRegistry {
       }
     }
 
+    // Hydrate email transport API key
+    if (config.emailTransportConfig?.apiKey === ENCRYPTED_PLACEHOLDER) {
+      const secretKey = `tenant:${config.tenantId}:emailTransportApiKey`;
+      const decrypted = this.secretStore!.get(secretKey);
+      if (decrypted) {
+        result.emailTransportConfig = { ...config.emailTransportConfig, apiKey: decrypted };
+      }
+    }
+
     // Hydrate webhook tool secrets
     if (config.webhookTools && config.webhookTools.length > 0) {
       const hydratedTools = config.webhookTools.map(wt => {
@@ -101,6 +117,9 @@ export class TenantRegistry {
     for (const field of SENSITIVE_FIELDS) {
       this.secretStore.delete(`tenant:${tenantId}:${field}`);
     }
+
+    // Delete email transport API key
+    this.secretStore.delete(`tenant:${tenantId}:emailTransportApiKey`);
 
     // Delete webhook tool secrets if config is available
     if (config?.webhookTools) {
@@ -227,6 +246,20 @@ export class TenantRegistry {
     for (const tenant of this.tenants.values()) {
       if (
         tenant.messengerPageId === pageId &&
+        tenant.appName === appName &&
+        tenant.enabled
+      ) {
+        return tenant;
+      }
+    }
+    return undefined;
+  }
+
+  resolveByEmailAddress(emailAddress: string, appName: string): TenantConfig | undefined {
+    const normalized = emailAddress.toLowerCase();
+    for (const tenant of this.tenants.values()) {
+      if (
+        tenant.emailAddress?.toLowerCase() === normalized &&
         tenant.appName === appName &&
         tenant.enabled
       ) {

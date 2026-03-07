@@ -234,6 +234,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
       whatsappWebhookConfig: undefined as undefined | import("./whatsapp-webhook-routes.js").WhatsAppWebhookConfig,
       instagramWebhookConfig: undefined as undefined | import("./instagram-webhook-routes.js").InstagramWebhookConfig,
       messengerWebhookConfig: undefined as undefined | import("./messenger-webhook-routes.js").MessengerWebhookConfig,
+      emailWebhookConfig: undefined as undefined | import("./email-webhook-routes.js").EmailWebhookConfig,
       tenantAdminConfig: undefined as undefined | import("./tenant-admin-routes.js").TenantAdminRoutesConfig,
       webChannel: hasWebChannel ? new WebChannel() : undefined,
       eventEmitter: undefined as undefined | ConversationEventEmitter,
@@ -512,6 +513,25 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
           eventEmitter,
           memoryBasePath: resolved.memoryBasePath,
           sttAdapter: loaded.sttAdapter,
+          knowledgePipeline: loaded.knowledgePipeline?.pipeline,
+          knowledgeMode: resolved.app.knowledge?.mode,
+          contactMemoryService: loaded.contactMemoryService,
+        };
+      }
+
+      // Email webhook: find email channel config
+      const emailChannel = loaded.binding.channels.find((ch) => ch.type === "email");
+      if (emailChannel) {
+        const emailWebhookSecretEnv = emailChannel.appSecretEnv ?? "";
+        loaded.emailWebhookConfig = {
+          appName: loaded.name,
+          orchestrator,
+          sessionRegistry,
+          tenantRegistry,
+          webhookSecret: emailWebhookSecretEnv ? process.env[emailWebhookSecretEnv] ?? undefined : undefined,
+          billing: resolved.modeBConfig.billing,
+          eventEmitter,
+          memoryBasePath: resolved.memoryBasePath,
           knowledgePipeline: loaded.knowledgePipeline?.pipeline,
           knowledgeMode: resolved.app.knowledge?.mode,
           contactMemoryService: loaded.contactMemoryService,

@@ -40,7 +40,7 @@ interface OperatorMessageRequest {
   readonly tenantId: string;
   readonly userId: string;
   readonly message: string;
-  readonly channel: "whatsapp" | "web" | "instagram" | "messenger";
+  readonly channel: "whatsapp" | "web" | "instagram" | "messenger" | "email";
   readonly operatorId?: string;
 }
 
@@ -270,6 +270,10 @@ export function createHandoffRoutes(config: HandoffRoutesConfig): Hono {
         const message = err instanceof Error ? err.message : String(err);
         return c.json({ success: false, error: `Messenger delivery failed: ${message}` }, 502);
       }
+    } else if (body.channel === "email") {
+      // Email operator messages are injected into session history but not auto-delivered.
+      // Email is async -- operators reply directly via their email client.
+      trace.log("handoff", "Email operator message recorded in session (delivery via email client)");
     }
 
     if (config.eventEmitter && session.tenantId) {
