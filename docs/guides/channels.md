@@ -96,6 +96,8 @@ Invalid or missing credentials receive a `401` response before upgrade. If the d
 
 **Multi-tenant mode.** For SaaS products with `multiTenant: true`, the Gateway mounts `ws-tenant-routes.ts` instead. Clients connect with `?widgetId=UUID`, which resolves to a tenant via `TenantRegistry.resolveByWidgetId()`. The tenant's system prompt, billing, and idle timeout are applied per-session.
 
+**WebSocket heartbeat.** The gateway sends a `ping` frame every 30 seconds. Clients must respond with a `pong` within 90 seconds or the connection is closed. The `@kilnai/widget` and `@kilnai/react` (useKilnWsChat) handle pong responses automatically. Custom WebSocket clients must implement pong handling to maintain the connection.
+
 **Origin validation** is enforced on multi-tenant WebSocket connections. After tenant resolution, the `Origin` header is checked against `TenantConfig.allowedOrigins` (with fallback to the channel-level `allowedOrigins`). Localhost and 127.0.0.1 are always allowed. Connections from disallowed origins receive a `403` before upgrade.
 
 ```yaml
@@ -194,6 +196,8 @@ channels:
 
 The `phoneNumber` in `gateway.yaml` must be unique across all Apps.
 
+**Webhook deduplication.** Meta delivers webhooks with at-least-once semantics, meaning the same message may be delivered multiple times. The `WebhookDedup` class (shared across WhatsApp, Instagram, and Messenger) tracks recently processed message IDs in a time-windowed set and silently drops duplicates. This prevents double-processing of messages without requiring external state.
+
 **Multi-tenant mode.** For SaaS products serving multiple businesses through one WhatsApp number, use `multiTenant: true` with `verifyTokenEnv`. This enables tenant resolution by `phone_number_id`, persistent per-tenant memory (SQLite + FTS5), and builtin `notify_owner` tool for real-time escalation to the business owner. See [`examples/whatsapp-bot/`](../../examples/whatsapp-bot/) for a complete working example.
 
 ---
@@ -278,7 +282,7 @@ const email = new EmailChannel({
 
 **Outbound messages.** `send()` renders the AI response as HTML using the email template engine (inline CSS, branding support) and delivers via the configured transport. File parts are sent as attachments.
 
-**Threading.** Email threads are tracked via Message-ID chains using `EmailThreadStore`. Replies include `In-Reply-To` and `References` headers to maintain threading in email clients. An `InMemoryEmailThreadStore` ships for development; production deployments should use a persistent store.
+**Threading.** Email threads are tracked via Message-ID chains using `EmailThreadStore`. Replies include `In-Reply-To` and `References` headers to maintain threading in email clients. An `InMemoryEmailThreadStore` ships for development; `SqliteEmailThreadStore` provides persistent thread tracking across gateway restarts for production deployments.
 
 **Loop prevention.** The `EmailLoopGuard` prevents auto-reply storms:
 - **RFC 3834 detection:** Checks `Auto-Submitted`, `X-Auto-Response-Suppress`, and `Precedence` headers

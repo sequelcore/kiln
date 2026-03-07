@@ -28,15 +28,15 @@ Bun monorepo with 6 packages:
 | verification | `core/src/verification/` | Gate runner: test, lint, type-check loop |
 | events | `core/src/events/` | EventBus (35 typed events, ring buffer), EventStore sink |
 | security | `core/src/security/` | Audit log (JSONL + hash chain), prompt injection (2-tier), AES-256-GCM secrets, Guardian, self-audit |
-| safety | `core/src/safety/` | PII scanner (2-tier, 6 types), content classifier (6 categories), 4 policy rails, pipeline orchestrator |
+| safety | `core/src/safety/` | PII scanner (2-tier, 6 types, Luhn validation), content classifier (6 categories), 4 policy rails, pipeline orchestrator, indirect injection scanning on tool results |
 | cost | `core/src/cost/` | Per-role cache-aware cost tracking |
-| knowledge | `core/src/knowledge/` | RAG: chunkers (recursive, markdown), embedding adapters (OpenAI, Ollama), vector stores (InMemory, PgVector with halfvec + HNSW + RRF hybrid search), STT adapters (OpenAI gpt-4o-transcribe, Deepgram nova-3), contextual enrichment (Anthropic pattern), retrieval pipeline, knowledge modes (auto-inject / tool), content extractors (file, URL via Jina Reader, PDF via unpdf), SourceManager (extract -> hash -> ingest lifecycle), source stores (InMemory, JSON file), ContactMemoryService (per-user fact extraction via LLM, Mem0 ADD/UPDATE/DELETE/NOOP pattern, recall at session start) |
+| knowledge | `core/src/knowledge/` | RAG: chunkers (recursive, markdown), embedding adapters (OpenAI, Ollama), vector stores (InMemory, PgVector with halfvec + HNSW + RRF hybrid search), STT adapters (OpenAI gpt-4o-transcribe, Deepgram nova-3), contextual enrichment (Anthropic pattern), retrieval pipeline (gap detection events), CohereReranker (Rerank v2, over-fetch 4x), knowledge modes (auto-inject / tool), content extractors (file, URL via Jina Reader, PDF via unpdf), SourceManager (extract -> hash -> ingest lifecycle), source stores (InMemory, JSON file), ContactMemoryService (per-user fact extraction via LLM, Mem0 ADD/UPDATE/DELETE/NOOP pattern, recall at session start) |
 | domain | `core/src/domain/` | Domain config: tech stack detection, YAML schema, DomainRegistry. Built-in kits at `core/src/domains/*.yaml` |
 | package | `core/src/package/` | Distribution: versioning, content hashing, security validation |
 | skill | `core/src/skill/` | SKILL.yaml format, SkillRegistry (3-tier discovery) |
 | eval | `core/src/eval/` | 12 scorers (6 rule + 6 LLM-as-judge), dataset loader, experiment runner, comparator |
 | observability | `core/src/observability/` | OTel span mapper + exporter (EventStore sink) |
-| gateway | `runtime/src/gateway/` | Multi-app loading, Mode B routes, budget middleware, composable auth middleware, conversation event emitter (incl. tool execution events), delegation, dev routes, safety/security middleware, audio preprocessing, knowledge pipeline wiring, STT/knowledge factories, webhook tool executor, tenant tool factory, Meta webhook foundation (shared verification + HMAC-SHA256), Instagram/Messenger/Email webhook routes, email loop guard, email thread store |
+| gateway | `runtime/src/gateway/` | Multi-app loading, Mode B routes, budget middleware, composable auth middleware (timing-safe), conversation event emitter (incl. tool execution events), delegation, dev routes, safety/security middleware, audio preprocessing, knowledge pipeline wiring, STT/knowledge factories, webhook tool executor, tenant tool factory, Meta webhook foundation (shared verification + HMAC-SHA256), WebhookDedup (Meta at-least-once protection), Instagram/Messenger/Email webhook routes, email loop guard, SqliteEmailThreadStore, WebSocket heartbeat (30s ping, 90s timeout) |
 | a2a | `runtime/src/a2a/` | A2AClient (outbound delegation only) |
 | trigger | `runtime/src/trigger/` | TriggerRegistry, webhook handler (HMAC-SHA256), event listener, cron scheduler |
 | session | `runtime/src/session/` | ModeBSession (version tracking, optimistic concurrency), ModeBOrchestrator (tool authorization, retry/fallback, result sanitization, ToolRAG, PerCallToolConfig, AI guard), SessionRegistry (pluggable SessionStore, save with concurrency check), SessionMode state machine (ai_active/queued/human_active/resolved), session serializer |
@@ -128,6 +128,7 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `agents/infrastructure/openai-stt.ts` | OpenAI STT adapter (gpt-4o-transcribe, fetch-based, withRetry) |
 | `agents/infrastructure/deepgram-stt.ts` | Deepgram STT adapter (nova-3, fetch-based, withRetry) |
 | `knowledge/contact-memory.ts` | ContactMemoryServiceImpl: per-user fact extraction (LLM), recall, forget, forgetAll (GDPR) |
+| `knowledge/infrastructure/cohere-reranker.ts` | Cohere Rerank v2 adapter (over-fetch 4x, KnowledgeRerankerConfig) |
 
 ### Runtime (`packages/runtime/src/`)
 
@@ -147,6 +148,8 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `gateway/meta-webhook-foundation.ts` | Shared Meta verification + HMAC-SHA256 |
 | `gateway/email-loop-guard.ts` | Auto-reply detection (RFC 3834), ignored senders |
 | `gateway/email-thread-store.ts` | Email thread tracking via Message-ID chain |
+| `gateway/sqlite-email-thread-store.ts` | SQLite-backed email thread store (persistent across restarts) |
+| `gateway/webhook-dedup.ts` | Meta webhook message deduplication (at-least-once delivery protection) |
 | `gateway/ws-tenant-routes.ts` | Multi-tenant WebSocket: welcome frame (greeting + FAQ suggestions), AI follow-up suggestion chips, audio preprocessing, knowledge retrieval, BUDGET_EXHAUSTED error code, conversation event emission |
 | `gateway/audio-preprocessor.ts` | Audio preprocessing: MediaDownloader (WhatsApp two-step, generic), fail-open transcription |
 | `gateway/stt-factory.ts` | Resolve SttProviderConfig to concrete SttAdapter |

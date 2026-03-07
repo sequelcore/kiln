@@ -271,10 +271,31 @@ Tool results pass through the safety pipeline before being fed back to the LLM. 
 
 1. **PII scanner** -- detects and redacts personally identifiable information (6 types).
 2. **Content classifier** -- checks for unsafe content (6 categories).
+3. **Indirect injection scanner** -- runs `PromptScanner.scanHeuristic()` on tool results to detect prompt injection attempts embedded in external data (e.g., a malicious instruction hidden in a database record or API response). Detections emit a `security_alert` event with severity `high` and category `indirect_injection`.
 
 Sanitized results are logged with `success_sanitized` status in the audit log. The original unsanitized result is never stored or forwarded.
 
 The safety pipeline is fail-open: if sanitization fails, the original result is used to avoid blocking the conversation.
+
+---
+
+## Tool Result Caching
+
+Capabilities annotated with `cacheTtl` have their results cached in the `ToolCache`. When the same tool is called with identical input within the TTL window, the cached result is returned without executing the tool. This reduces latency and cost for frequently-called read-only tools.
+
+```yaml
+capabilities:
+  - name: get_product_details
+    description: Get product details by ID
+    tags: [catalog]
+    annotations:
+      readOnly: true
+      cacheTtl: 300    # cache results for 5 minutes
+```
+
+The orchestrator checks the cache before each tool execution. On a cache hit, the cached result is returned immediately and a `tool_cache_hit` event is emitted via the EventBus. Cache misses proceed with normal tool execution, and the result is stored in the cache for future calls.
+
+Cache keys are derived from the tool name and serialized input. The cache is in-memory and scoped per-session.
 
 ---
 
@@ -285,6 +306,16 @@ When an app has more than 30 tools, embedding-based tool selection filters to th
 The existing `tool-rag.ts` implementation uses capability descriptions as the embedding corpus. At query time, it embeds the user message and selects the top-k most relevant tools via cosine similarity.
 
 ToolRAG is fail-open: if the embedding or selection fails, all tools are passed to the LLM as a fallback.
+
+---
+
+## MCP Tool Description Scanning
+
+When MCP servers are connected, the `McpClient` discovers tools from each server. As a security measure, tool descriptions are scanned for prompt injection patterns using `PromptScanner.scanHeuristic()` at discovery time. Tools with suspicious descriptions (e.g., containing hidden instructions or override attempts) are filtered out and never registered as available capabilities.
+
+This prevents a compromised or malicious MCP server from injecting prompt manipulation through tool descriptions. Filtered tools are logged as warnings but do not block the remaining tools from the same server.
+
+To enable MCP tool scanning, pass a `PromptScanner` instance via `McpClientOptions.promptScanner`.
 
 ---
 

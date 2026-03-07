@@ -731,6 +731,29 @@ knowledge:
       glob: "**/*.md"
 ```
 
+**Reranker example:**
+
+```yaml
+knowledge:
+  embedding:
+    provider: openai
+    model: text-embedding-3-small
+    apiKeyEnv: OPENAI_API_KEY
+  store:
+    backend: pgvector
+    connectionString: postgres://user:pass@localhost:5432/mydb
+  reranker:
+    provider: cohere
+    model: rerank-v3.5
+    apiKeyEnv: COHERE_API_KEY
+  chunking:
+    strategy: markdown
+    chunkSize: 512
+    overlap: 50
+```
+
+When a reranker is configured, the retrieval pipeline over-fetches 4x the requested results from the vector store, then reranks them using the Cohere Rerank v2 API to return the most relevant chunks. This significantly improves retrieval quality, especially for ambiguous queries.
+
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `mode` | `"auto" \| "tool"` | No | Knowledge retrieval mode. `auto` injects context into system prompt; `tool` registers a `knowledge_search` builtin tool. Default: `"auto"`. |
@@ -752,6 +775,9 @@ knowledge:
 | `sources[].name` | `string` | Yes | Unique name for this source. |
 | `sources[].path` | `string` | Yes | File path, directory path, or URL. |
 | `sources[].type` | `"file" \| "url" \| "pdf"` | No | Source type. `file` reads local files, `url` fetches via Jina Reader, `pdf` extracts via unpdf. Default: `"file"`. |
+| `reranker.provider` | `"cohere"` | Conditional | Reranker provider. Required when using reranking. |
+| `reranker.model` | `string` | No | Reranker model name (e.g., `rerank-v3.5`). Uses provider default if omitted. |
+| `reranker.apiKeyEnv` | `string` | Yes (when reranker configured) | Environment variable name for the reranker API key. |
 
 **Contextual enrichment example:**
 
