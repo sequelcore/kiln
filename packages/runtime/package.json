@@ -1,6 +1,6 @@
 {
   "name": "@kilnai/runtime",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Multi-app gateway server, multi-tenant management, and channel adapters for @kilnai/core",
   "type": "module",
   "exports": {
