@@ -232,6 +232,8 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
       modeBRuntime: undefined as undefined | import("./mode-b-routes.js").ModeBAppRuntime,
       tenantRuntime: undefined as undefined | import("./tenant-routes.js").TenantAppRuntime,
       whatsappWebhookConfig: undefined as undefined | import("./whatsapp-webhook-routes.js").WhatsAppWebhookConfig,
+      instagramWebhookConfig: undefined as undefined | import("./instagram-webhook-routes.js").InstagramWebhookConfig,
+      messengerWebhookConfig: undefined as undefined | import("./messenger-webhook-routes.js").MessengerWebhookConfig,
       tenantAdminConfig: undefined as undefined | import("./tenant-admin-routes.js").TenantAdminRoutesConfig,
       webChannel: hasWebChannel ? new WebChannel() : undefined,
       eventEmitter: undefined as undefined | ConversationEventEmitter,
@@ -471,6 +473,51 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
         };
       }
 
+      // Instagram webhook: find instagram channel config
+      const instagramChannel = loaded.binding.channels.find((ch) => ch.type === "instagram");
+      if (instagramChannel) {
+        // Instagram shares the same Meta App Secret as WhatsApp
+        const igAppSecretEnv = instagramChannel.appSecretEnv ?? whatsappChannel?.appSecretEnv ?? "";
+        const igVerifyTokenEnv = instagramChannel.verifyTokenEnv ?? "";
+        loaded.instagramWebhookConfig = {
+          appName: loaded.name,
+          orchestrator,
+          sessionRegistry,
+          tenantRegistry,
+          verifyToken: igVerifyTokenEnv ? process.env[igVerifyTokenEnv] ?? "" : "",
+          appSecret: igAppSecretEnv ? process.env[igAppSecretEnv] ?? undefined : undefined,
+          billing: resolved.modeBConfig.billing,
+          eventEmitter,
+          memoryBasePath: resolved.memoryBasePath,
+          sttAdapter: loaded.sttAdapter,
+          knowledgePipeline: loaded.knowledgePipeline?.pipeline,
+          knowledgeMode: resolved.app.knowledge?.mode,
+          contactMemoryService: loaded.contactMemoryService,
+        };
+      }
+
+      // Messenger webhook: find messenger channel config
+      const messengerChannel = loaded.binding.channels.find((ch) => ch.type === "messenger");
+      if (messengerChannel) {
+        const msgAppSecretEnv = messengerChannel.appSecretEnv ?? whatsappChannel?.appSecretEnv ?? "";
+        const msgVerifyTokenEnv = messengerChannel.verifyTokenEnv ?? "";
+        loaded.messengerWebhookConfig = {
+          appName: loaded.name,
+          orchestrator,
+          sessionRegistry,
+          tenantRegistry,
+          verifyToken: msgVerifyTokenEnv ? process.env[msgVerifyTokenEnv] ?? "" : "",
+          appSecret: msgAppSecretEnv ? process.env[msgAppSecretEnv] ?? undefined : undefined,
+          billing: resolved.modeBConfig.billing,
+          eventEmitter,
+          memoryBasePath: resolved.memoryBasePath,
+          sttAdapter: loaded.sttAdapter,
+          knowledgePipeline: loaded.knowledgePipeline?.pipeline,
+          knowledgeMode: resolved.app.knowledge?.mode,
+          contactMemoryService: loaded.contactMemoryService,
+        };
+      }
+
       // Admin routes
       const adminChannel = loaded.binding.channels.find((ch) => ch.adminTokenEnv);
       const adminTokenEnv = adminChannel?.adminTokenEnv ?? "";
@@ -506,6 +553,12 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
       }
       if (channel.type === "whatsapp" && !channel.appSecretEnv) {
         console.warn(`  [warn] WhatsApp channel for ${loaded.name} has no appSecretEnv -- webhook signatures will not be verified`);
+      }
+      if (channel.type === "instagram" && !channel.appSecretEnv) {
+        console.warn(`  [warn] Instagram channel for ${loaded.name} has no appSecretEnv -- webhook signatures will not be verified`);
+      }
+      if (channel.type === "messenger" && !channel.appSecretEnv) {
+        console.warn(`  [warn] Messenger channel for ${loaded.name} has no appSecretEnv -- webhook signatures will not be verified`);
       }
       if (channel.multiTenant && !channel.adminTokenEnv) {
         console.warn(`  [warn] Multi-tenant app ${loaded.name} has no adminTokenEnv -- admin routes are unauthenticated`);

@@ -69,6 +69,10 @@ export interface TenantConfig {
   readonly whatsappPhoneNumberId?: string;
   readonly whatsappAccessToken?: string;
   readonly whatsappVerifyToken?: string;
+  readonly instagramPageId?: string;
+  readonly instagramAccessToken?: string;
+  readonly messengerPageId?: string;
+  readonly messengerAccessToken?: string;
   readonly widgetId?: string;
   readonly allowedOrigins?: readonly string[];
   readonly greeting?: string;

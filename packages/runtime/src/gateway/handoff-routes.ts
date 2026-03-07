@@ -8,6 +8,8 @@ import type { TenantRegistry } from "../tenant/tenant-registry.js";
 import type { WebChannel } from "../channels/web-channel.js";
 import type { ConversationEventEmitter } from "./conversation-event-emitter.js";
 import { sendWhatsAppMessage } from "../channels/whatsapp-api.js";
+import { sendInstagramMessage } from "../channels/instagram-api.js";
+import { sendMessengerMessage } from "../channels/messenger-api.js";
 import { requireBearer } from "./auth-middleware.js";
 import { TraceContext } from "./trace-context.js";
 
@@ -38,7 +40,7 @@ interface OperatorMessageRequest {
   readonly tenantId: string;
   readonly userId: string;
   readonly message: string;
-  readonly channel: "whatsapp" | "web";
+  readonly channel: "whatsapp" | "web" | "instagram" | "messenger";
   readonly operatorId?: string;
 }
 
@@ -235,6 +237,38 @@ export function createHandoffRoutes(config: HandoffRoutesConfig): Hono {
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         return c.json({ success: false, error: `WhatsApp delivery failed: ${message}` }, 502);
+      }
+    } else if (body.channel === "instagram") {
+      const tenant = config.tenantRegistry.get(body.tenantId);
+      if (!tenant || !tenant.instagramPageId || !tenant.instagramAccessToken) {
+        return c.json({ success: false, error: "Tenant has no Instagram credentials configured" }, 422);
+      }
+
+      const accessToken = tenant.instagramAccessToken.startsWith("$")
+        ? (process.env[tenant.instagramAccessToken.slice(1)] ?? tenant.instagramAccessToken)
+        : tenant.instagramAccessToken;
+
+      try {
+        await sendInstagramMessage(tenant.instagramPageId, accessToken, body.userId, body.message);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return c.json({ success: false, error: `Instagram delivery failed: ${message}` }, 502);
+      }
+    } else if (body.channel === "messenger") {
+      const tenant = config.tenantRegistry.get(body.tenantId);
+      if (!tenant || !tenant.messengerPageId || !tenant.messengerAccessToken) {
+        return c.json({ success: false, error: "Tenant has no Messenger credentials configured" }, 422);
+      }
+
+      const accessToken = tenant.messengerAccessToken.startsWith("$")
+        ? (process.env[tenant.messengerAccessToken.slice(1)] ?? tenant.messengerAccessToken)
+        : tenant.messengerAccessToken;
+
+      try {
+        await sendMessengerMessage(accessToken, body.userId, body.message);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return c.json({ success: false, error: `Messenger delivery failed: ${message}` }, 502);
       }
     }
 

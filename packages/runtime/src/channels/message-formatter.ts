@@ -6,6 +6,12 @@ import type { MessageFormat } from "@kilnai/core";
 /** WhatsApp Cloud API enforces a 4096-character limit per text message */
 const WHATSAPP_MAX_MESSAGE_LENGTH = 4096;
 
+/** Instagram Messaging API enforces a 1000-character limit per text message */
+const INSTAGRAM_MAX_MESSAGE_LENGTH = 1000;
+
+/** Messenger Send API enforces a 2000-character limit per text message */
+const MESSENGER_MAX_MESSAGE_LENGTH = 2000;
+
 /** Adapt content for a specific channel format */
 export function formatForChannel(content: string, format: MessageFormat): string {
   switch (format) {
@@ -37,6 +43,24 @@ export function formatForChannel(content: string, format: MessageFormat): string
  */
 export function toWhatsAppFormat(text: string): string {
   return convertMarkdownToWhatsApp(text).slice(0, WHATSAPP_MAX_MESSAGE_LENGTH);
+}
+
+/**
+ * Convert content to Instagram-compatible plain text.
+ * Instagram DM API supports plain text only (no markdown, no formatting).
+ * Truncates to 1000-char API limit.
+ */
+export function toInstagramFormat(text: string): string {
+  return stripMarkdown(text).slice(0, INSTAGRAM_MAX_MESSAGE_LENGTH);
+}
+
+/**
+ * Convert content to Messenger-compatible plain text.
+ * Messenger supports plain text only (no markdown).
+ * Truncates to 2000-char API limit.
+ */
+export function toMessengerFormat(text: string): string {
+  return stripMarkdown(text).slice(0, MESSENGER_MAX_MESSAGE_LENGTH);
 }
 
 /** Strip basic markdown formatting for plain text channels */

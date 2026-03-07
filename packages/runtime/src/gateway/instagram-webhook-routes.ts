@@ -1,19 +1,18 @@
-// Gateway: WhatsApp webhook routes -- Hono sub-app for Meta webhook verification and incoming messages
-// Resolves tenant by phone number, processes messages via Mode B orchestrator, replies via Cloud API
+// Gateway: Instagram DM webhook routes -- Hono sub-app for Instagram messaging
+// Resolves tenant by Instagram Page ID, processes messages via Mode B orchestrator, replies via Instagram API
 
 import { Hono } from "hono";
 import { join } from "node:path";
 import { mkdirSync } from "node:fs";
 import type { ContentPart, ToolDefinition } from "@kilnai/core";
-import { textParts, extractText, SqliteMemoryStore } from "@kilnai/core";
-import { toWhatsAppFormat } from "../channels/message-formatter.js";
+import { extractText, SqliteMemoryStore } from "@kilnai/core";
+import { toInstagramFormat } from "../channels/message-formatter.js";
 import type { ModeBOrchestrator, PerCallToolConfig } from "../session/mode-b-orchestrator.js";
 import { buildTenantToolContext } from "./tenant-tool-factory.js";
 import type { SessionRegistry } from "../session/session-registry.js";
 import type { TenantRegistry } from "../tenant/tenant-registry.js";
 import { buildTenantSystemPrompt } from "../tenant/system-prompt-builder.js";
-import { stripSuggestionTags } from "../tenant/suggestion-parser.js";
-import { sendWhatsAppMessage, whatsappMediaUrl } from "../channels/whatsapp-api.js";
+import { sendInstagramMessage } from "../channels/instagram-api.js";
 import { checkBudget, reportUsage } from "./budget-middleware.js";
 import type { BillingConfig } from "./budget-middleware.js";
 import type { ConversationEventEmitter } from "./conversation-event-emitter.js";
@@ -21,10 +20,10 @@ import { requireWebhookSignature } from "./auth-middleware.js";
 import { verifyMetaWebhook } from "./meta-webhook-foundation.js";
 import { TraceContext } from "./trace-context.js";
 import type { SttAdapter, RetrievalPipeline, ContactMemoryService } from "@kilnai/core";
-import { preprocessAudio, createWhatsAppMediaDownloader } from "./audio-preprocessor.js";
+import { preprocessAudio, createGenericMediaDownloader } from "./audio-preprocessor.js";
 import { formatKnowledgeContext, formatContactContext, mergeContextSources } from "./context-formatter.js";
 
-export interface WhatsAppWebhookConfig {
+export interface InstagramWebhookConfig {
   readonly appName: string;
   readonly orchestrator: ModeBOrchestrator;
   readonly sessionRegistry: SessionRegistry;
@@ -33,7 +32,6 @@ export interface WhatsAppWebhookConfig {
   readonly appSecret?: string;
   readonly billing?: BillingConfig;
   readonly eventEmitter?: ConversationEventEmitter;
-  /** Base path for per-tenant data (e.g. ~/.kiln/gateway/bonitas). Memory DBs stored under <basePath>/memory/ */
   readonly memoryBasePath?: string;
   readonly sttAdapter?: SttAdapter;
   readonly knowledgePipeline?: RetrievalPipeline;
@@ -41,36 +39,28 @@ export interface WhatsAppWebhookConfig {
   readonly contactMemoryService?: ContactMemoryService;
 }
 
-interface MetaWebhookMessage {
-  from: string;
-  type: string;
-  text?: { body: string };
-  image?: { id: string; mime_type: string; caption?: string };
-  audio?: { id: string; mime_type: string };
-  document?: { id: string; mime_type: string; filename?: string; caption?: string };
+/** Instagram webhook messaging entry */
+interface InstagramMessagingEntry {
+  sender: { id: string };
+  recipient: { id: string };
+  timestamp: number;
+  message?: {
+    mid: string;
+    text?: string;
+    is_echo?: boolean;
+    attachments?: Array<{
+      type: string;
+      payload: { url?: string };
+    }>;
+  };
 }
 
-interface MetaWebhookStatus {
-  id: string;
-  status: "sent" | "delivered" | "read" | "failed";
-  timestamp: string;
-  recipient_id: string;
-  errors?: Array<{ code: number; title: string }>;
-}
-
-interface MetaWebhookPayload {
+interface InstagramWebhookPayload {
   object: string;
   entry?: Array<{
     id: string;
-    changes: Array<{
-      value: {
-        messaging_product: string;
-        metadata?: { phone_number_id?: string };
-        contacts?: Array<{ profile?: { name?: string }; wa_id: string }>;
-        messages?: MetaWebhookMessage[];
-        statuses?: MetaWebhookStatus[];
-      };
-    }>;
+    time: number;
+    messaging: InstagramMessagingEntry[];
   }>;
 }
 
@@ -110,53 +100,31 @@ const KNOWLEDGE_SEARCH_TOOL: ToolDefinition = {
   tags: new Set(["builtin"]),
 };
 
-/** Tool definition for notify_owner -- injected when tenant has escalationContact */
-const NOTIFY_OWNER_TOOL: ToolDefinition = {
-  name: "notify_owner",
-  description: "Send a WhatsApp notification to the business owner. Use this when a customer wants to schedule an appointment, needs escalation, or when the owner needs to be informed about something. Include a clear summary of what the customer needs.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      message: {
-        type: "string",
-        description: "The message to send to the owner. Include customer name (if known), requested service, date/time, and phone number.",
-      },
-    },
-    required: ["message"],
-  },
-  tags: new Set(["builtin"]),
-};
+/** Parse an Instagram messaging entry into ContentPart[] */
+function parseInstagramMessageParts(entry: InstagramMessagingEntry): readonly ContentPart[] | null {
+  const msg = entry.message;
+  if (!msg) return null;
 
-/** Parse a WhatsApp message into ContentPart[] */
-function parseWhatsAppMessageParts(msg: MetaWebhookMessage): readonly ContentPart[] | null {
-  switch (msg.type) {
-    case "text":
-      return msg.text?.body ? textParts(msg.text.body) : null;
-    case "image": {
-      if (!msg.image) return null;
-      const parts: ContentPart[] = [
-        { type: "image", mimeType: msg.image.mime_type, url: whatsappMediaUrl(msg.image.id) },
-      ];
-      if (msg.image.caption) parts.push({ type: "text", text: msg.image.caption });
-      return parts;
-    }
-    case "audio":
-      if (!msg.audio) return null;
-      return [{ type: "audio", mimeType: msg.audio.mime_type, url: whatsappMediaUrl(msg.audio.id) }];
-    case "document": {
-      if (!msg.document) return null;
-      const parts: ContentPart[] = [
-        { type: "file", mimeType: msg.document.mime_type, url: whatsappMediaUrl(msg.document.id), filename: msg.document.filename },
-      ];
-      if (msg.document.caption) parts.push({ type: "text", text: msg.document.caption });
-      return parts;
-    }
-    default:
-      return null;
+  const parts: ContentPart[] = [];
+
+  if (msg.text) {
+    parts.push({ type: "text", text: msg.text });
   }
+
+  if (msg.attachments) {
+    for (const att of msg.attachments) {
+      if (att.type === "image" && att.payload.url) {
+        parts.push({ type: "image", mimeType: "image/jpeg", url: att.payload.url });
+      } else if (att.type === "audio" && att.payload.url) {
+        parts.push({ type: "audio", mimeType: "audio/mp4", url: att.payload.url });
+      }
+    }
+  }
+
+  return parts.length > 0 ? parts : null;
 }
 
-export function createWhatsAppWebhookRoutes(config: WhatsAppWebhookConfig): Hono {
+export function createInstagramWebhookRoutes(config: InstagramWebhookConfig): Hono {
   const app = new Hono();
 
   // GET /webhook -- Meta verification handshake
@@ -167,80 +135,49 @@ export function createWhatsAppWebhookRoutes(config: WhatsAppWebhookConfig): Hono
     app.use("/webhook", requireWebhookSignature(config.appSecret, "x-hub-signature-256"));
   }
 
-  // POST /webhook -- Incoming messages from Meta
+  // POST /webhook -- Incoming messages from Instagram
   app.post("/webhook", async (c) => {
-    let payload: MetaWebhookPayload;
+    let payload: InstagramWebhookPayload;
     try {
-      payload = await c.req.json<MetaWebhookPayload>();
+      payload = await c.req.json<InstagramWebhookPayload>();
     } catch {
       return c.text("OK", 200);
     }
 
-    if (!payload.entry) {
+    if (payload.object !== "instagram" || !payload.entry) {
       return c.text("OK", 200);
     }
 
-    // Process each entry in the background
     const processPromises: Promise<void>[] = [];
 
     for (const entry of payload.entry) {
-      for (const change of entry.changes) {
-        const phoneNumberId = change.value.metadata?.phone_number_id;
-        if (!phoneNumberId) continue;
+      for (const messaging of entry.messaging) {
+        // Filter echo messages (business-sent messages echoed back)
+        if (messaging.message?.is_echo) continue;
 
-        // Resolve tenant by phone number
-        const tenant = config.tenantRegistry.resolveByPhone(phoneNumberId, config.appName);
+        const senderId = messaging.sender.id;
+        const recipientPageId = messaging.recipient.id;
+
+        // Resolve tenant by Instagram Page ID
+        const tenant = config.tenantRegistry.resolveByInstagramPageId(recipientPageId, config.appName);
         if (!tenant) {
-          const entryTrace = new TraceContext();
-          entryTrace.warn("whatsapp", "No tenant found", { phoneNumberId, appName: config.appName });
+          const trace = new TraceContext();
+          trace.warn("instagram", "No tenant found", { recipientPageId, appName: config.appName });
           continue;
         }
 
-        // Forward delivery statuses to product backend (fire-and-forget)
-        const statuses = change.value.statuses;
-        if (statuses && config.eventEmitter) {
-          for (const status of statuses) {
-            config.eventEmitter.emit({
-              eventType: "DELIVERY_STATUS",
-              tenantId: tenant.tenantId,
-              channel: "whatsapp",
-              externalUserId: status.recipient_id,
-              whatsappMessageId: status.id,
-              deliveryStatus: status.status,
-              errorCode: status.errors?.[0]?.code,
-              timestamp: new Date(Number(status.timestamp) * 1000).toISOString(),
-            });
-          }
-        }
+        const msgParts = parseInstagramMessageParts(messaging);
+        if (!msgParts) continue;
 
-        // Process incoming messages (if any -- status-only payloads have no messages)
-        const messages = change.value.messages;
-        if (!messages) continue;
-
-        const contacts = change.value.contacts ?? [];
-
-        for (const msg of messages) {
-          const msgParts = parseWhatsAppMessageParts(msg);
-          if (!msgParts) {
-            const msgTrace = new TraceContext();
-            msgTrace.warn("whatsapp", "Unsupported message type", { type: msg.type, from: msg.from });
-            continue;
-          }
-
-          // Resolve canonical reply address from contacts; fall back to msg.from
-          const contact = contacts.find((c) => c.wa_id === msg.from);
-          const replyTo = contact?.wa_id ?? msg.from;
-
-          const promise = processWhatsAppMessage(
-            config,
-            tenant.tenantId,
-            replyTo,
-            msgParts,
-            phoneNumberId,
-            tenant.whatsappAccessToken,
-          );
-          processPromises.push(promise);
-        }
+        const promise = processInstagramMessage(
+          config,
+          tenant.tenantId,
+          senderId,
+          msgParts,
+          recipientPageId,
+          tenant.instagramAccessToken,
+        );
+        processPromises.push(promise);
       }
     }
 
@@ -249,7 +186,7 @@ export function createWhatsAppWebhookRoutes(config: WhatsAppWebhookConfig): Hono
       for (const result of results) {
         if (result.status === "rejected") {
           const failTrace = new TraceContext();
-          failTrace.warn("whatsapp", "Message processing failed", { error: String(result.reason) });
+          failTrace.warn("instagram", "Message processing failed", { error: String(result.reason) });
         }
       }
     });
@@ -260,33 +197,33 @@ export function createWhatsAppWebhookRoutes(config: WhatsAppWebhookConfig): Hono
   return app;
 }
 
-async function processWhatsAppMessage(
-  config: WhatsAppWebhookConfig,
+async function processInstagramMessage(
+  config: InstagramWebhookConfig,
   tenantId: string,
-  senderPhone: string,
+  senderId: string,
   messageParts: readonly ContentPart[],
-  phoneNumberId: string,
+  pageId: string,
   accessToken?: string,
 ): Promise<void> {
   const trace = new TraceContext();
-  trace.log("whatsapp", "Processing message", { tenantId, from: senderPhone });
+  trace.log("instagram", "Processing message", { tenantId, from: senderId });
 
   const tenant = config.tenantRegistry.get(tenantId);
   if (!tenant) return;
 
-  const systemPrompt = buildTenantSystemPrompt(tenant, "whatsapp");
+  const systemPrompt = buildTenantSystemPrompt(tenant, "instagram");
   const resolvedAccessToken = accessToken
     ? (process.env[accessToken] ?? accessToken)
     : "";
 
-  // Preprocess audio parts via STT (fail-open)
+  // Preprocess audio parts via STT (fail-open) -- Instagram CDN URLs don't need auth
   let processedParts = messageParts;
   if (config.sttAdapter) {
     try {
-      const downloader = createWhatsAppMediaDownloader(resolvedAccessToken);
+      const downloader = createGenericMediaDownloader();
       processedParts = await preprocessAudio(messageParts, config.sttAdapter, downloader);
     } catch (err) {
-      trace.warn("whatsapp", "Audio preprocessing failed", { error: err instanceof Error ? err.message : String(err) });
+      trace.warn("instagram", "Audio preprocessing failed", { error: err instanceof Error ? err.message : String(err) });
     }
   }
 
@@ -295,7 +232,7 @@ async function processWhatsAppMessage(
   const session = await config.sessionRegistry.getOrCreate({
     appName: config.appName,
     tenantId,
-    userId: senderPhone,
+    userId: senderId,
     systemPrompt,
     idleTimeoutMs: tenant.idleTimeoutMs,
   });
@@ -305,10 +242,10 @@ async function processWhatsAppMessage(
   if (config.memoryBasePath) {
     try {
       const store = getMemoryStore(config.memoryBasePath, tenantId);
-      const query = `${senderPhone} ${messageText}`;
+      const query = `${senderId} ${messageText}`;
       recalledMemory = await store.recall(query, 500) || undefined;
     } catch (err) {
-      trace.warn("whatsapp", "Memory recall failed", { tenantId, error: err instanceof Error ? err.message : String(err) });
+      trace.warn("instagram", "Memory recall failed", { tenantId, error: err instanceof Error ? err.message : String(err) });
     }
   }
 
@@ -321,7 +258,7 @@ async function processWhatsAppMessage(
         const results = await config.knowledgePipeline.retrieve(messageText, { topK: 5 });
         knowledgeContext = formatKnowledgeContext(results);
       } catch (err) {
-        trace.warn("whatsapp", "Knowledge retrieval failed", { error: err instanceof Error ? err.message : String(err) });
+        trace.warn("instagram", "Knowledge retrieval failed", { error: err instanceof Error ? err.message : String(err) });
       }
     }
   }
@@ -330,33 +267,17 @@ async function processWhatsAppMessage(
   let contactContext: string | undefined;
   if (config.contactMemoryService) {
     try {
-      const facts = await config.contactMemoryService.recall(senderPhone, tenantId);
+      const facts = await config.contactMemoryService.recall(senderId, tenantId);
       contactContext = formatContactContext(facts);
     } catch (err) {
-      trace.warn("whatsapp", "Contact memory recall failed", { tenantId, error: err instanceof Error ? err.message : String(err) });
+      trace.warn("instagram", "Contact memory recall failed", { tenantId, error: err instanceof Error ? err.message : String(err) });
     }
   }
 
-  // Merge recalled memory + knowledge context + contact context
   const combinedMemory = mergeContextSources(recalledMemory, knowledgeContext, contactContext);
 
   // --- Tools: build per-call builtin tools ---
   const callTools = new Map<string, (input: Record<string, unknown>) => Promise<unknown>>();
-
-  if (tenant.escalationContact?.phone) {
-    const ownerPhone = tenant.escalationContact.phone.replace(/\+/g, "");
-    callTools.set("notify_owner", async (input: Record<string, unknown>) => {
-      const msg = String(input.message ?? "");
-      const fullMessage = `[${tenant.businessName ?? tenant.name} - Notificación automática]\n\nCliente: ${senderPhone}\n${msg}`;
-
-      await sendWhatsAppMessage(phoneNumberId, resolvedAccessToken, ownerPhone, {
-        type: "text",
-        text: { body: fullMessage },
-      });
-      trace.log("whatsapp", "Owner notified", { tenantId, ownerPhone });
-      return { success: true, message: "Owner has been notified." };
-    });
-  }
 
   // Register knowledge_search tool for "tool" mode
   if (config.knowledgePipeline && (config.knowledgeMode ?? "auto") === "tool") {
@@ -369,14 +290,6 @@ async function processWhatsAppMessage(
     const hasKnowledgeTool = config.orchestrator.tools?.some((t) => t.name === "knowledge_search");
     if (!hasKnowledgeTool) {
       config.orchestrator.registerTools([KNOWLEDGE_SEARCH_TOOL]);
-    }
-  }
-
-  // Register notify_owner tool definition on the orchestrator if not already present
-  if (callTools.has("notify_owner") && config.orchestrator.tools) {
-    const hasNotifyTool = config.orchestrator.tools.some((t) => t.name === "notify_owner");
-    if (!hasNotifyTool) {
-      config.orchestrator.registerTools([NOTIFY_OWNER_TOOL]);
     }
   }
 
@@ -404,14 +317,11 @@ async function processWhatsAppMessage(
     if (!budgetResult.allowed) {
       const overBudgetMsg = tenant.billing?.overBudgetMessage
         ?? activeBilling.overBudgetMessage ?? "Budget exhausted.";
-      trace.log("whatsapp", "Budget exhausted", { tenantId, sender: senderPhone });
+      trace.log("instagram", "Budget exhausted", { tenantId, sender: senderId });
       try {
-        await sendWhatsAppMessage(phoneNumberId, resolvedAccessToken, senderPhone, {
-          type: "text",
-          text: { body: overBudgetMsg },
-        });
+        await sendInstagramMessage(pageId, resolvedAccessToken, senderId, overBudgetMsg);
       } catch (err) {
-        trace.warn("whatsapp", "Failed to send over-budget reply", { error: err instanceof Error ? err.message : String(err) });
+        trace.warn("instagram", "Failed to send over-budget reply", { error: err instanceof Error ? err.message : String(err) });
       }
       return;
     }
@@ -422,8 +332,8 @@ async function processWhatsAppMessage(
     config.eventEmitter.emit({
       eventType: "MESSAGE_RECEIVED",
       tenantId,
-      channel: "whatsapp",
-      externalUserId: senderPhone,
+      channel: "instagram",
+      externalUserId: senderId,
       messageContent: messageText,
       messageRole: "USER",
       traceId: trace.traceId,
@@ -441,7 +351,7 @@ async function processWhatsAppMessage(
       perCallConfig,
     );
 
-    // Persist mutated session (required for non-reference stores like Redis)
+    // Persist mutated session
     await config.sessionRegistry.save(session);
 
     // Emit handoff events when message was queued
@@ -449,8 +359,8 @@ async function processWhatsAppMessage(
       config.eventEmitter.emit({
         eventType: "HANDOFF_MESSAGE_QUEUED",
         tenantId,
-        channel: "whatsapp",
-        externalUserId: senderPhone,
+        channel: "instagram",
+        externalUserId: senderId,
         sessionMode: session.sessionMode,
         traceId: trace.traceId,
         timestamp: new Date().toISOString(),
@@ -462,8 +372,8 @@ async function processWhatsAppMessage(
       config.eventEmitter.emit({
         eventType: "ESCALATION_DETECTED",
         tenantId,
-        channel: "whatsapp",
-        externalUserId: senderPhone,
+        channel: "instagram",
+        externalUserId: senderId,
         escalationReason: result.escalation.reason,
         escalationDetail: result.escalation.detail,
         summary: result.contextSummary,
@@ -473,14 +383,14 @@ async function processWhatsAppMessage(
       });
     }
 
-    // Emit TOOL_EXECUTED events for product backend visibility
+    // Emit TOOL_EXECUTED events
     if (result.toolExecutions && config.eventEmitter) {
       for (const exec of result.toolExecutions) {
         config.eventEmitter.emit({
           eventType: "TOOL_EXECUTED",
           tenantId,
-          channel: "whatsapp",
-          externalUserId: senderPhone,
+          channel: "instagram",
+          externalUserId: senderId,
           toolName: exec.toolName,
           durationMs: exec.durationMs,
           success: exec.success,
@@ -491,7 +401,7 @@ async function processWhatsAppMessage(
       }
     }
 
-    replyText = toWhatsAppFormat(stripSuggestionTags(extractText(result.parts)));
+    replyText = toInstagramFormat(extractText(result.parts));
 
     // Report usage (fire-and-forget)
     if (activeBilling) {
@@ -508,8 +418,8 @@ async function processWhatsAppMessage(
       config.eventEmitter.emit({
         eventType: "MESSAGE_SENT",
         tenantId,
-        channel: "whatsapp",
-        externalUserId: senderPhone,
+        channel: "instagram",
+        externalUserId: senderId,
         messageContent: replyText,
         messageRole: "ASSISTANT",
         traceId: trace.traceId,
@@ -517,18 +427,15 @@ async function processWhatsAppMessage(
       });
     }
   } catch (err) {
-    trace.error("whatsapp", "Orchestrator error", { tenantId, error: err instanceof Error ? err.message : String(err) });
+    trace.error("instagram", "Orchestrator error", { tenantId, error: err instanceof Error ? err.message : String(err) });
     replyText = "Something went wrong. Please try again.";
   }
 
-  // Reply via WhatsApp Cloud API
+  // Reply via Instagram API
   try {
-    await sendWhatsAppMessage(phoneNumberId, resolvedAccessToken, senderPhone, {
-      type: "text",
-      text: { body: replyText },
-    });
+    await sendInstagramMessage(pageId, resolvedAccessToken, senderId, replyText);
   } catch (err) {
-    trace.warn("whatsapp", "Failed to send reply", { phoneNumberId, recipient: senderPhone, error: err instanceof Error ? err.message : String(err) });
+    trace.warn("instagram", "Failed to send reply", { pageId, recipient: senderId, error: err instanceof Error ? err.message : String(err) });
   }
 
   // --- Memory: save what was learned from this exchange ---
@@ -537,11 +444,11 @@ async function processWhatsAppMessage(
       const store = getMemoryStore(config.memoryBasePath, tenantId);
       await store.save({
         layer: "user",
-        content: `[${senderPhone}] User: ${messageText}\nAssistant: ${replyText}`,
-        tags: [senderPhone],
+        content: `[${senderId}] User: ${messageText}\nAssistant: ${replyText}`,
+        tags: [senderId],
       });
     } catch (err) {
-      trace.warn("whatsapp", "Memory save failed", { tenantId, error: err instanceof Error ? err.message : String(err) });
+      trace.warn("instagram", "Memory save failed", { tenantId, error: err instanceof Error ? err.message : String(err) });
     }
   }
 }

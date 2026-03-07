@@ -1,6 +1,6 @@
 import type { TenantConfig } from "@kilnai/core";
 
-export function buildTenantSystemPrompt(tenant: TenantConfig, channel?: "web" | "whatsapp"): string {
+export function buildTenantSystemPrompt(tenant: TenantConfig, channel?: "web" | "whatsapp" | "instagram" | "messenger"): string {
   const parts: string[] = [];
 
   // Opening line
@@ -77,7 +77,13 @@ export function buildTenantSystemPrompt(tenant: TenantConfig, channel?: "web" | 
   parts.push(`Detect the customer's language from their messages and respond in the same language. If you cannot determine their language, default to ${lang}.`);
   parts.push("Be concise. Do not fabricate information you do not know. Only respond about this business.");
 
-  if (channel !== "whatsapp") {
+  if (channel === "instagram") {
+    parts.push("");
+    parts.push("You are responding via Instagram DM. Keep messages under 1000 characters. Use plain text only -- no markdown, no bold, no headers, no bullet points. Be concise and direct.");
+  } else if (channel === "messenger") {
+    parts.push("");
+    parts.push("You are responding via Facebook Messenger. Keep messages under 2000 characters. Use plain text only -- no markdown, no bold, no headers, no bullet points.");
+  } else if (channel !== "whatsapp") {
     parts.push("");
     parts.push("After your response, include 2-3 short follow-up questions the customer might ask next. Format them on a separate final line as: <<SUGG>>Question 1|Question 2|Question 3<</SUGG>>");
     parts.push("Never mention or explain this format to the user.");

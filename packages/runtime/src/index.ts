@@ -21,6 +21,11 @@ export { createWsTenantRoutes } from "./gateway/ws-tenant-routes.js";
 export type { WsTenantRoutesConfig } from "./gateway/ws-tenant-routes.js";
 export { createWhatsAppWebhookRoutes } from "./gateway/whatsapp-webhook-routes.js";
 export type { WhatsAppWebhookConfig } from "./gateway/whatsapp-webhook-routes.js";
+export { createInstagramWebhookRoutes } from "./gateway/instagram-webhook-routes.js";
+export type { InstagramWebhookConfig } from "./gateway/instagram-webhook-routes.js";
+export { createMessengerWebhookRoutes } from "./gateway/messenger-webhook-routes.js";
+export type { MessengerWebhookConfig } from "./gateway/messenger-webhook-routes.js";
+export { verifyMetaWebhook, validateMetaSignature } from "./gateway/meta-webhook-foundation.js";
 export { createTenantAdminRoutes } from "./gateway/tenant-admin-routes.js";
 export type { TenantAdminRoutesConfig } from "./gateway/tenant-admin-routes.js";
 export { createOutboundRoutes } from "./gateway/outbound-routes.js";
@@ -90,7 +95,7 @@ export type { TriggerExecutionContext } from "./trigger/trigger-executor.js";
 // Channels
 export { EventBridge, toEngineEvent } from "./channels/event-bridge.js";
 export { ChannelRegistry } from "./channels/channel-registry.js";
-export { formatForChannel, toWhatsAppFormat } from "./channels/message-formatter.js";
+export { formatForChannel, toWhatsAppFormat, toInstagramFormat, toMessengerFormat } from "./channels/message-formatter.js";
 export type { ChannelConfig, ChannelStatus, IdentityMapping, IdentityResolver } from "./channels/types.js";
 export { InMemoryIdentityResolver } from "./channels/types.js";
 export { CliChannel } from "./channels/cli-channel.js";
@@ -100,6 +105,10 @@ export { ChannelRouter } from "./channels/channel-router.js";
 export type { RouteResult, ChannelRouterRule } from "./channels/channel-router.js";
 export { WhatsAppChannel } from "./channels/whatsapp-channel.js";
 export type { WhatsAppConfig } from "./channels/whatsapp-channel.js";
+export { InstagramChannel } from "./channels/instagram-channel.js";
+export type { InstagramConfig } from "./channels/instagram-channel.js";
+export { MessengerChannel } from "./channels/messenger-channel.js";
+export type { MessengerConfig } from "./channels/messenger-channel.js";
 export { SlackChannel } from "./channels/slack-channel.js";
 export type { SlackConfig } from "./channels/slack-channel.js";
 export { ApiChannel } from "./channels/api-channel.js";
@@ -115,6 +124,20 @@ export type {
   WhatsAppTemplateParameter,
   WhatsAppSendResult,
 } from "./channels/whatsapp-api.js";
+export {
+  sendInstagramMessage,
+  sendInstagramMediaMessage,
+  instagramMessagesUrl,
+  INSTAGRAM_GRAPH_API_VERSION,
+} from "./channels/instagram-api.js";
+export type { InstagramSendResult } from "./channels/instagram-api.js";
+export {
+  sendMessengerMessage,
+  sendMessengerMediaMessage,
+  messengerMessagesUrl,
+  MESSENGER_GRAPH_API_VERSION,
+} from "./channels/messenger-api.js";
+export type { MessengerSendResult } from "./channels/messenger-api.js";
 
 // Auth
 export { requireApiKey, requireBearer, requireWebhookSignature, isOriginAllowed } from "./gateway/auth-middleware.js";

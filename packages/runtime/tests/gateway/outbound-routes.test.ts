@@ -192,7 +192,7 @@ describe("createOutboundRoutes", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.success).toBe(true);
-    expect(body.whatsappMessageId).toBe("wamid.test123");
+    expect(body.messageId).toBe("wamid.test123");
 
     vi.unstubAllGlobals();
   });
@@ -220,7 +220,7 @@ describe("createOutboundRoutes", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.success).toBe(true);
-    expect(body.whatsappMessageId).toBe("wamid.template456");
+    expect(body.messageId).toBe("wamid.template456");
 
     vi.unstubAllGlobals();
   });

@@ -18,6 +18,10 @@ import type { TenantAppRuntime } from "./tenant-routes.js";
 import { createTenantRoutes } from "./tenant-routes.js";
 import type { WhatsAppWebhookConfig } from "./whatsapp-webhook-routes.js";
 import { createWhatsAppWebhookRoutes } from "./whatsapp-webhook-routes.js";
+import type { InstagramWebhookConfig } from "./instagram-webhook-routes.js";
+import { createInstagramWebhookRoutes } from "./instagram-webhook-routes.js";
+import type { MessengerWebhookConfig } from "./messenger-webhook-routes.js";
+import { createMessengerWebhookRoutes } from "./messenger-webhook-routes.js";
 import type { TenantAdminRoutesConfig } from "./tenant-admin-routes.js";
 import { createTenantAdminRoutes } from "./tenant-admin-routes.js";
 import type { KnowledgeAdminRoutesConfig } from "./knowledge-admin-routes.js";
@@ -47,6 +51,8 @@ export interface LoadedApp {
   modeBRuntime?: ModeBAppRuntime;
   tenantRuntime?: TenantAppRuntime;
   whatsappWebhookConfig?: WhatsAppWebhookConfig;
+  instagramWebhookConfig?: InstagramWebhookConfig;
+  messengerWebhookConfig?: MessengerWebhookConfig;
   tenantAdminConfig?: TenantAdminRoutesConfig;
   webChannel?: WebChannel;
   eventEmitter?: ConversationEventEmitter;
@@ -166,6 +172,18 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
       if (channel.type === "whatsapp" && loadedApp.whatsappWebhookConfig) {
         const webhookApp = createWhatsAppWebhookRoutes(loadedApp.whatsappWebhookConfig);
         app.route(`/whatsapp/${loadedApp.name}`, webhookApp);
+      }
+
+      // Instagram webhook routes for multi-tenant apps
+      if (channel.type === "instagram" && loadedApp.instagramWebhookConfig) {
+        const igWebhookApp = createInstagramWebhookRoutes(loadedApp.instagramWebhookConfig);
+        app.route(`/instagram/${loadedApp.name}`, igWebhookApp);
+      }
+
+      // Messenger webhook routes for multi-tenant apps
+      if (channel.type === "messenger" && loadedApp.messengerWebhookConfig) {
+        const msgWebhookApp = createMessengerWebhookRoutes(loadedApp.messengerWebhookConfig);
+        app.route(`/messenger/${loadedApp.name}`, msgWebhookApp);
       }
 
       // WebSocket route for web channel

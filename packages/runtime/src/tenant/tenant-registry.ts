@@ -4,7 +4,7 @@ import { KilnError } from "@kilnai/core";
 import type { TenantConfig, SecretStore } from "@kilnai/core";
 import { validateTenantConfig } from "@kilnai/core";
 
-const SENSITIVE_FIELDS = ["whatsappAccessToken", "whatsappVerifyToken"] as const;
+const SENSITIVE_FIELDS = ["whatsappAccessToken", "whatsappVerifyToken", "instagramAccessToken", "messengerAccessToken"] as const;
 type SensitiveField = (typeof SENSITIVE_FIELDS)[number];
 const ENCRYPTED_PLACEHOLDER = "[encrypted]";
 
@@ -201,6 +201,32 @@ export class TenantRegistry {
     for (const tenant of this.tenants.values()) {
       if (
         tenant.widgetId === widgetId &&
+        tenant.appName === appName &&
+        tenant.enabled
+      ) {
+        return tenant;
+      }
+    }
+    return undefined;
+  }
+
+  resolveByInstagramPageId(pageId: string, appName: string): TenantConfig | undefined {
+    for (const tenant of this.tenants.values()) {
+      if (
+        tenant.instagramPageId === pageId &&
+        tenant.appName === appName &&
+        tenant.enabled
+      ) {
+        return tenant;
+      }
+    }
+    return undefined;
+  }
+
+  resolveByMessengerPageId(pageId: string, appName: string): TenantConfig | undefined {
+    for (const tenant of this.tenants.values()) {
+      if (
+        tenant.messengerPageId === pageId &&
         tenant.appName === appName &&
         tenant.enabled
       ) {
