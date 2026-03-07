@@ -26,3 +26,7 @@ export function verifyHmacSha256(secret: string, payload: string, signature: str
     return false;
   }
 }
+
+export function signHmacSha256(secret: string, payload: string): string {
+  return createHmac("sha256", secret).update(payload).digest("hex");
+}

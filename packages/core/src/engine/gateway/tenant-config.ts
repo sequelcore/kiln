@@ -37,6 +37,22 @@ export interface TenantBilling {
   readonly overBudgetMessage?: string;
 }
 
+/** Webhook tool definition for tenant-specific external integrations */
+export interface TenantWebhookTool {
+  readonly name: string;
+  readonly description?: string;
+  readonly url: string;
+  readonly secret: string;
+  readonly timeout?: number;
+  readonly inputSchema?: Record<string, unknown>;
+}
+
+/** Per-tenant tool execution configuration */
+export interface TenantToolConfig {
+  readonly maxIterationsPerSession?: number;
+  readonly rateLimits?: import("../domain/rate-limiter.js").RateLimitConfig;
+}
+
 /** Full tenant configuration for a business within a multi-tenant App */
 export interface TenantConfig {
   readonly tenantId: string;
@@ -58,6 +74,9 @@ export interface TenantConfig {
   readonly greeting?: string;
   readonly billing?: TenantBilling;
   readonly idleTimeoutMs?: number;
+  readonly tools?: readonly string[];
+  readonly toolConfig?: TenantToolConfig;
+  readonly webhookTools?: readonly TenantWebhookTool[];
   readonly enabled: boolean;
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -110,6 +129,73 @@ export function validateTenantConfig(config: TenantConfig): TenantValidationErro
         const origin = config.allowedOrigins[i];
         if (typeof origin !== "string" || (!origin.startsWith("http://") && !origin.startsWith("https://"))) {
           errors.push({ field: `allowedOrigins[${i}]`, message: "must be an HTTP or HTTPS origin" });
+        }
+      }
+    }
+  }
+
+  // tools: if present, must be array of non-empty strings
+  if (config.tools !== undefined) {
+    if (!Array.isArray(config.tools)) {
+      errors.push({ field: "tools", message: "must be an array of tool name strings" });
+    } else {
+      for (let i = 0; i < config.tools.length; i++) {
+        if (typeof config.tools[i] !== "string" || !config.tools[i]) {
+          errors.push({ field: `tools[${i}]`, message: "must be a non-empty string" });
+        }
+      }
+    }
+  }
+
+  // toolConfig: if present, validate sub-fields
+  if (config.toolConfig !== undefined) {
+    if (
+      config.toolConfig.maxIterationsPerSession !== undefined &&
+      (!Number.isInteger(config.toolConfig.maxIterationsPerSession) ||
+        config.toolConfig.maxIterationsPerSession < 1 ||
+        config.toolConfig.maxIterationsPerSession > 50)
+    ) {
+      errors.push({
+        field: "toolConfig.maxIterationsPerSession",
+        message: "must be a positive integer <= 50",
+      });
+    }
+    if (
+      config.toolConfig.rateLimits?.defaultPerMinute !== undefined &&
+      (!Number.isInteger(config.toolConfig.rateLimits.defaultPerMinute) ||
+        config.toolConfig.rateLimits.defaultPerMinute < 1)
+    ) {
+      errors.push({
+        field: "toolConfig.rateLimits.defaultPerMinute",
+        message: "must be a positive integer",
+      });
+    }
+  }
+
+  // webhookTools: if present, must be array with valid entries and unique names
+  if (config.webhookTools !== undefined) {
+    if (!Array.isArray(config.webhookTools)) {
+      errors.push({ field: "webhookTools", message: "must be an array of webhook tool definitions" });
+    } else {
+      const seenNames = new Set<string>();
+      for (let i = 0; i < config.webhookTools.length; i++) {
+        const wt = config.webhookTools[i];
+        if (typeof wt.name !== "string" || !wt.name) {
+          errors.push({ field: `webhookTools[${i}].name`, message: "must be a non-empty string" });
+        } else {
+          if (seenNames.has(wt.name)) {
+            errors.push({ field: `webhookTools[${i}].name`, message: `duplicate webhook tool name: "${wt.name}"` });
+          }
+          seenNames.add(wt.name);
+        }
+        if (
+          typeof wt.url !== "string" ||
+          (!wt.url.startsWith("http://") && !wt.url.startsWith("https://"))
+        ) {
+          errors.push({ field: `webhookTools[${i}].url`, message: "must be an HTTP or HTTPS URL" });
+        }
+        if (typeof wt.secret !== "string" || !wt.secret) {
+          errors.push({ field: `webhookTools[${i}].secret`, message: "must be a non-empty string" });
         }
       }
     }

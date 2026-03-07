@@ -6,7 +6,8 @@ import type { UpgradeWebSocket, WSContext } from "hono/ws";
 import type { WebChannel } from "../channels/web-channel.js";
 import type { ContentPart, SttAdapter, RetrievalPipeline, ContactMemoryService } from "@kilnai/core";
 import { textParts, extractText, hasModality } from "@kilnai/core";
-import type { ModeBOrchestrator } from "../session/mode-b-orchestrator.js";
+import type { ModeBOrchestrator, PerCallToolConfig } from "../session/mode-b-orchestrator.js";
+import { buildTenantToolContext } from "./tenant-tool-factory.js";
 import type { SessionRegistry } from "../session/session-registry.js";
 import type { TenantRegistry } from "../tenant/tenant-registry.js";
 import { buildTenantSystemPrompt } from "../tenant/system-prompt-builder.js";
@@ -170,7 +171,28 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
 
                 const combinedMemory = mergeContextSources(knowledgeContext, contactContext);
 
-                const result = await config.orchestrator.processMessage(session, userParts, combinedMemory);
+                // Build tenant tool context (webhook tools, allowlist, rate limiter)
+                const tenantToolCtx = buildTenantToolContext(tenant);
+
+                // Register webhook tool definitions on the orchestrator
+                if (tenantToolCtx.toolDefinitions.length > 0) {
+                  config.orchestrator.registerTools(tenantToolCtx.toolDefinitions);
+                }
+
+                const perCallConfig: PerCallToolConfig = {
+                  toolAllowlist: tenantToolCtx.toolAllowlist,
+                  rateLimiter: tenantToolCtx.rateLimiter,
+                  tenantId: tenant.tenantId,
+                  additionalTools: tenantToolCtx.toolDefinitions.length > 0 ? tenantToolCtx.toolDefinitions : undefined,
+                };
+
+                const result = await config.orchestrator.processMessage(
+                  session,
+                  userParts,
+                  combinedMemory,
+                  tenantToolCtx.callBuiltinTools.size > 0 ? tenantToolCtx.callBuiltinTools : undefined,
+                  perCallConfig,
+                );
 
                 // Persist mutated session (required for non-reference stores like Redis)
                 await config.sessionRegistry.save(session);
@@ -202,6 +224,24 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
                     traceId: trace.traceId,
                     timestamp: new Date().toISOString(),
                   });
+                }
+
+                // Emit TOOL_EXECUTED events for product backend visibility
+                if (result.toolExecutions && config.eventEmitter) {
+                  for (const exec of result.toolExecutions) {
+                    config.eventEmitter.emit({
+                      eventType: "TOOL_EXECUTED",
+                      tenantId: tenant.tenantId,
+                      channel: "web",
+                      externalUserId: userId,
+                      toolName: exec.toolName,
+                      durationMs: exec.durationMs,
+                      success: exec.success,
+                      resultSummary: exec.resultSummary,
+                      traceId: trace.traceId,
+                      timestamp: new Date().toISOString(),
+                    });
+                  }
                 }
 
                 // Report usage (fire-and-forget)

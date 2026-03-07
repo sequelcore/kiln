@@ -7,7 +7,8 @@ import { mkdirSync } from "node:fs";
 import type { ContentPart, ToolDefinition } from "@kilnai/core";
 import { textParts, extractText, SqliteMemoryStore } from "@kilnai/core";
 import { toWhatsAppFormat } from "../channels/message-formatter.js";
-import type { ModeBOrchestrator } from "../session/mode-b-orchestrator.js";
+import type { ModeBOrchestrator, PerCallToolConfig } from "../session/mode-b-orchestrator.js";
+import { buildTenantToolContext } from "./tenant-tool-factory.js";
 import type { SessionRegistry } from "../session/session-registry.js";
 import type { TenantRegistry } from "../tenant/tenant-registry.js";
 import { buildTenantSystemPrompt } from "../tenant/system-prompt-builder.js";
@@ -387,6 +388,21 @@ async function processWhatsAppMessage(
     }
   }
 
+  // Build tenant tool context (webhook tools, allowlist, rate limiter)
+  const tenantToolCtx = buildTenantToolContext(tenant, callTools);
+
+  // Register webhook tool definitions on the orchestrator
+  if (tenantToolCtx.toolDefinitions.length > 0) {
+    config.orchestrator.registerTools(tenantToolCtx.toolDefinitions);
+  }
+
+  const perCallConfig: PerCallToolConfig = {
+    toolAllowlist: tenantToolCtx.toolAllowlist,
+    rateLimiter: tenantToolCtx.rateLimiter,
+    tenantId: tenant.tenantId,
+    additionalTools: tenantToolCtx.toolDefinitions.length > 0 ? tenantToolCtx.toolDefinitions : undefined,
+  };
+
   // --- Budget check ---
   const activeBilling = tenant.billing?.budgetEndpoint
     ? (tenant.billing as unknown as BillingConfig)
@@ -429,7 +445,8 @@ async function processWhatsAppMessage(
       session,
       processedParts,
       combinedMemory,
-      callTools.size > 0 ? callTools : undefined,
+      tenantToolCtx.callBuiltinTools.size > 0 ? tenantToolCtx.callBuiltinTools : undefined,
+      perCallConfig,
     );
 
     // Persist mutated session (required for non-reference stores like Redis)
@@ -462,6 +479,24 @@ async function processWhatsAppMessage(
         traceId: trace.traceId,
         timestamp: new Date().toISOString(),
       });
+    }
+
+    // Emit TOOL_EXECUTED events for product backend visibility
+    if (result.toolExecutions && config.eventEmitter) {
+      for (const exec of result.toolExecutions) {
+        config.eventEmitter.emit({
+          eventType: "TOOL_EXECUTED",
+          tenantId,
+          channel: "whatsapp",
+          externalUserId: senderPhone,
+          toolName: exec.toolName,
+          durationMs: exec.durationMs,
+          success: exec.success,
+          resultSummary: exec.resultSummary,
+          traceId: trace.traceId,
+          timestamp: new Date().toISOString(),
+        });
+      }
     }
 
     replyText = toWhatsAppFormat(stripSuggestionTags(extractText(result.parts)));

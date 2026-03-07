@@ -1,5 +1,5 @@
 import type { ContentPart } from "@kilnai/core";
-import type { ModeBOrchestrator, OrchestrateResult } from "../session/mode-b-orchestrator.js";
+import type { ModeBOrchestrator, OrchestrateResult, PerCallToolConfig, ToolExecutionSummary } from "../session/mode-b-orchestrator.js";
 import type { SessionRegistry } from "../session/session-registry.js";
 import type { BillingConfig } from "./budget-middleware.js";
 import { checkBudget, reportUsage } from "./budget-middleware.js";
@@ -24,6 +24,7 @@ export interface InboundMessageContext {
   readonly knowledgeContext?: string;
   readonly contactContext?: string;
   readonly callBuiltinTools?: ReadonlyMap<string, (input: Record<string, unknown>) => Promise<unknown>>;
+  readonly perCallConfig?: PerCallToolConfig;
   readonly traceId?: string;
 }
 
@@ -38,6 +39,7 @@ export interface InboundMessageResult {
   readonly sessionMode: SessionMode;
   readonly escalation?: EscalationSignal;
   readonly contextSummary?: string;
+  readonly toolExecutions?: readonly ToolExecutionSummary[];
   readonly traceId: string;
 }
 
@@ -88,6 +90,7 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
     ctx.userParts,
     combinedMemory,
     ctx.callBuiltinTools,
+    ctx.perCallConfig,
   );
 
   // Persist mutated session (required for non-reference stores like Redis)
@@ -143,6 +146,24 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
         timestamp: new Date().toISOString(),
       });
     }
+
+    // Emit TOOL_EXECUTED events for product backend visibility
+    if (result.toolExecutions) {
+      for (const exec of result.toolExecutions) {
+        ctx.eventEmitter.emit({
+          eventType: "TOOL_EXECUTED",
+          tenantId: ctx.tenantId,
+          channel: ctx.channel,
+          externalUserId: ctx.userId,
+          toolName: exec.toolName,
+          durationMs: exec.durationMs,
+          success: exec.success,
+          resultSummary: exec.resultSummary,
+          traceId: trace.traceId,
+          timestamp: new Date().toISOString(),
+        });
+      }
+    }
   }
 
   trace.log("pipeline", "Message processed", { queued: result.queued, tokens: result.inputTokens + result.outputTokens });
@@ -160,6 +181,7 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
       sessionMode: session.sessionMode,
       escalation: result.escalation,
       contextSummary: result.contextSummary,
+      toolExecutions: result.toolExecutions,
       traceId: trace.traceId,
     },
   };

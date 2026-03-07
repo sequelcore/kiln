@@ -51,6 +51,20 @@ export class TenantRegistry {
         result[field] = ENCRYPTED_PLACEHOLDER;
       }
     }
+
+    // Encrypt webhook tool secrets
+    if (config.webhookTools && config.webhookTools.length > 0) {
+      const encryptedTools = config.webhookTools.map(wt => {
+        if (wt.secret && wt.secret !== ENCRYPTED_PLACEHOLDER) {
+          const secretKey = `tenant:${config.tenantId}:webhookTool:${wt.name}`;
+          this.secretStore!.set(secretKey, wt.secret);
+          return { ...wt, secret: ENCRYPTED_PLACEHOLDER };
+        }
+        return wt;
+      });
+      result.webhookTools = encryptedTools;
+    }
+
     return result as unknown as TenantConfig;
   }
 
@@ -65,13 +79,34 @@ export class TenantRegistry {
         if (decrypted !== null) result[field] = decrypted;
       }
     }
+
+    // Hydrate webhook tool secrets
+    if (config.webhookTools && config.webhookTools.length > 0) {
+      const hydratedTools = config.webhookTools.map(wt => {
+        if (wt.secret === ENCRYPTED_PLACEHOLDER) {
+          const secretKey = `tenant:${config.tenantId}:webhookTool:${wt.name}`;
+          const decrypted = this.secretStore!.get(secretKey);
+          if (decrypted) return { ...wt, secret: decrypted };
+        }
+        return wt;
+      });
+      result.webhookTools = hydratedTools;
+    }
+
     return result as unknown as TenantConfig;
   }
 
-  private deleteSecrets(tenantId: string): void {
+  private deleteSecrets(tenantId: string, config?: TenantConfig): void {
     if (!this.secretStore) return;
     for (const field of SENSITIVE_FIELDS) {
       this.secretStore.delete(`tenant:${tenantId}:${field}`);
+    }
+
+    // Delete webhook tool secrets if config is available
+    if (config?.webhookTools) {
+      for (const wt of config.webhookTools) {
+        this.secretStore.delete(`tenant:${tenantId}:webhookTool:${wt.name}`);
+      }
     }
   }
 
@@ -140,9 +175,10 @@ export class TenantRegistry {
   }
 
   remove(tenantId: string): boolean {
-    if (!this.tenants.has(tenantId)) return false;
+    const existing = this.tenants.get(tenantId);
+    if (!existing) return false;
     this.tenants.delete(tenantId);
-    this.deleteSecrets(tenantId);
+    this.deleteSecrets(tenantId, existing);
     const filePath = join(this.storageDir, `${tenantId}.json`);
     if (existsSync(filePath)) unlinkSync(filePath);
     return true;
