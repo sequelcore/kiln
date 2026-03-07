@@ -139,6 +139,8 @@ export type {
   TenantFaqEntry,
   TenantTone,
   TenantBilling,
+  TenantWebhookTool,
+  TenantToolConfig,
   TenantValidationError,
 } from "./engine/gateway/tenant-config.js";
 export { validateTenantConfig } from "./engine/gateway/tenant-config.js";
@@ -243,3 +245,21 @@ export type { EmbeddingAdapter } from "./engine/domain/embedding.js";
 
 // Chunker types re-exported for direct access by runtime
 export type { ChunkEnricher } from "./engine/domain/chunker.js";
+
+// Capability types re-exported for direct access by runtime
+export type { Capability, CapabilityAnnotations } from "./engine/domain/capability.js";
+
+// Tool execution types re-exported for direct access by runtime
+export type {
+  RetryStrategy,
+  RetryConfig,
+  AuthorizationLevel,
+  ToolAuthorizationResult,
+  ToolErrorType,
+  ToolAuthorizer,
+  ToolExecutionResult,
+} from "./engine/domain/tool-execution.js";
+
+// Rate limiter types + implementation re-exported for direct access by runtime
+export type { RateLimiter, RateLimitConfig, RateLimitResult } from "./engine/domain/rate-limiter.js";
+export { SlidingWindowRateLimiter } from "./agents/sliding-window-rate-limiter.js";

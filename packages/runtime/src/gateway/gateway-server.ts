@@ -17,7 +17,8 @@ import {
   SafetyPipeline,
   SqliteMemoryStore,
 } from "@kilnai/core";
-import type { ProviderAdapter, ProviderConfig, App, ToolDefinition, MemoryLayer, SttAdapter } from "@kilnai/core";
+import type { ProviderAdapter, ProviderConfig, App, ToolDefinition, MemoryLayer, SttAdapter, Capability } from "@kilnai/core";
+import { AnnotationAuthorizer, ToolResultSanitizer } from "@kilnai/core";
 import type { AppGraphResponse } from "./dev-routes-types.js";
 import { EventBus, McpClient, CostTracker } from "@kilnai/core";
 import { ChannelRegistry } from "../channels/channel-registry.js";
@@ -242,6 +243,15 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
     };
   });
 
+  // Initialize safety pipelines per app (before orchestrator wiring so sanitizers are available)
+  const safetyPipelines = new Map<string, SafetyPipeline>();
+  for (const loaded of loadedApps) {
+    if (loaded.app.safety) {
+      safetyPipelines.set(loaded.name, new SafetyPipeline(loaded.app.safety));
+      console.log(`  ${loaded.name}: safety pipeline enabled`);
+    }
+  }
+
   // Initialize Mode B runtimes and delegation targets in a single pass
   const sessionRegistry = new SessionRegistry();
   const delegationTargets = new Map<string, DelegationTarget>();
@@ -256,6 +266,8 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
     // Discover MCP tools if configured
     const mcpClients: McpClient[] = [];
     const tools: ToolDefinition[] = [];
+    const capabilityMap = new Map<string, Capability>();
+
     if (resolved.app.mcp?.servers) {
       for (const serverConfig of resolved.app.mcp.servers) {
         try {
@@ -268,11 +280,21 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
               inputSchema: cap.schema,
               tags: new Set(cap.tags),
             });
+            capabilityMap.set(cap.name, cap);
           }
           mcpClients.push(client);
           console.log(`  ${loaded.name}: discovered ${capabilities.length} tools from MCP server "${serverConfig.name}"`);
         } catch (err) {
           console.warn(`  ${loaded.name}: failed to connect to MCP server "${serverConfig.name}": ${err}`);
+        }
+      }
+    }
+
+    // Collect capabilities from app team definitions
+    for (const team of Object.values(resolved.app.teams)) {
+      for (const cap of team.capabilities) {
+        if (!capabilityMap.has(cap.name)) {
+          capabilityMap.set(cap.name, cap);
         }
       }
     }
@@ -363,12 +385,20 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
       }
     }
 
+    // Wire tool execution enhancements
+    const toolAuthorizer = capabilityMap.size > 0 ? new AnnotationAuthorizer() : undefined;
+    const safetyPipeline = safetyPipelines.get(loaded.name);
+    const toolResultSanitizer = safetyPipeline ? new ToolResultSanitizer(safetyPipeline) : undefined;
+
     const orchestrator = new ModeBOrchestrator({
       provider,
       model: resolved.modeBConfig.provider.model,
       tools: tools.length > 0 ? tools : undefined,
       mcpClients: mcpClients.length > 0 ? mcpClients : undefined,
       eventBus: gatewayEventBus,
+      capabilityMap: capabilityMap.size > 0 ? capabilityMap : undefined,
+      toolAuthorizer,
+      toolResultSanitizer,
     });
 
     // Register delegation target (reuse provider + systemPrompt)
@@ -536,15 +566,6 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
     if (triggers && triggers.length > 0) {
       triggerRegistry.registerApp(loaded.name, triggers);
       console.log(`  ${loaded.name}: ${triggers.length} trigger(s) registered`);
-    }
-  }
-
-  // Initialize safety pipelines per app
-  const safetyPipelines = new Map<string, SafetyPipeline>();
-  for (const loaded of loadedApps) {
-    if (loaded.app.safety) {
-      safetyPipelines.set(loaded.name, new SafetyPipeline(loaded.app.safety));
-      console.log(`  ${loaded.name}: safety pipeline enabled`);
     }
   }
 

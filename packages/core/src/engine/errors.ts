@@ -85,6 +85,14 @@ export type KilnErrorCode =
   | "SOURCE_ALREADY_EXISTS"
   // Contact memory (Phase 4d)
   | "CONTACT_MEMORY_EXTRACTION_FAILED"
+  // Tool execution (Phase 5a)
+  | "TOOL_AUTHORIZATION_DENIED"
+  | "TOOL_EXECUTION_TIMEOUT"
+  | "TOOL_RETRY_EXHAUSTED"
+  | "TOOL_RESULT_SANITIZED"
+  // Tool execution (Phase 5b)
+  | "TOOL_RATE_LIMITED"
+  | "WEBHOOK_TOOL_FAILED"
   // Safety (Phase 12)
   | "PII_DETECTED"
   | "CONTENT_POLICY_VIOLATED"

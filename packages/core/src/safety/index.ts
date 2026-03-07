@@ -26,3 +26,7 @@ export type { PolicyRail } from "./rails.js";
 // Safety Pipeline
 export { SafetyPipeline } from "./safety-pipeline.js";
 export type { SafetyPipelineOptions, SafetyMetrics } from "./safety-pipeline.js";
+
+// Tool Result Sanitizer
+export { ToolResultSanitizer } from "./tool-result-sanitizer.js";
+export type { SanitizationResult } from "./tool-result-sanitizer.js";

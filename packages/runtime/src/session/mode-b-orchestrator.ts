@@ -3,12 +3,19 @@ import type { McpClient } from "@kilnai/core";
 import type {
   EventBus,
   ToolCalledEvent,
+  ToolAuthorizedEvent,
   ToolResultEvent,
   CostUpdateEvent,
   ErrorEvent,
 } from "@kilnai/core";
 import { MODEL_PRICING, extractText } from "@kilnai/core";
 import type { ModelPricing } from "@kilnai/core";
+import type { Capability, ToolAuthorizer, ToolExecutionResult } from "@kilnai/core";
+import type { AuditLog } from "@kilnai/core";
+import type { ToolResultSanitizer } from "@kilnai/core";
+import type { ToolRAG } from "@kilnai/core";
+import type { RateLimiter } from "@kilnai/core";
+import { executeWithRetry } from "@kilnai/core";
 import type { ModeBSession } from "./mode-b-session.js";
 import type { EscalationDetector, EscalationSignal } from "./escalation-detector.js";
 import type { ContextSummarizer } from "./context-summarizer.js";
@@ -26,6 +33,19 @@ export interface OrchestratorDeps {
   readonly eventBus?: EventBus;
   readonly escalationDetector?: EscalationDetector;
   readonly contextSummarizer?: ContextSummarizer;
+  readonly capabilityMap?: ReadonlyMap<string, Capability>;
+  readonly toolAuthorizer?: ToolAuthorizer;
+  readonly toolResultSanitizer?: ToolResultSanitizer;
+  readonly budgetChecker?: () => Promise<{ allowed: boolean; message?: string }>;
+  readonly auditLog?: AuditLog;
+  readonly toolRAG?: ToolRAG;
+}
+
+export interface ToolExecutionSummary {
+  readonly toolName: string;
+  readonly durationMs: number;
+  readonly success: boolean;
+  readonly resultSummary: string;
 }
 
 export interface OrchestrateResult {
@@ -37,6 +57,14 @@ export interface OrchestrateResult {
   readonly queued: boolean;
   readonly escalation?: EscalationSignal;
   readonly contextSummary?: string;
+  readonly toolExecutions?: readonly ToolExecutionSummary[];
+}
+
+export interface PerCallToolConfig {
+  readonly toolAllowlist?: ReadonlySet<string>;
+  readonly rateLimiter?: RateLimiter;
+  readonly tenantId?: string;
+  readonly additionalTools?: readonly ToolDefinition[];
 }
 
 export class ModeBOrchestrator {
@@ -79,6 +107,7 @@ export class ModeBOrchestrator {
     userParts: readonly ContentPart[],
     recalledMemory?: string,
     callBuiltinTools?: ReadonlyMap<string, (input: Record<string, unknown>) => Promise<unknown>>,
+    perCallConfig?: PerCallToolConfig,
   ): Promise<OrchestrateResult> {
     // AI guard: skip LLM when session is not ai_active
     if (session.sessionMode !== "ai_active") {
@@ -117,20 +146,61 @@ export class ModeBOrchestrator {
     this._callBuiltinTools = callBuiltinTools;
     const hasBuiltins = (this.deps.builtinTools?.size ?? 0) + (callBuiltinTools?.size ?? 0) > 0;
     const hasMcp = (this.deps.mcpClients?.length ?? 0) > 0;
-    const hasTools = (this._tools?.length ?? 0) > 0 && (hasBuiltins || hasMcp);
+
+    // Merge per-call additional tools (webhook tools, tenant tools)
+    let baseTools = this._tools;
+    if (perCallConfig?.additionalTools && perCallConfig.additionalTools.length > 0) {
+      const existing = baseTools ?? [];
+      const existingNames = new Set(existing.map(t => t.name));
+      const additions = perCallConfig.additionalTools.filter(t => !existingNames.has(t.name));
+      baseTools = additions.length > 0 ? [...existing, ...additions] : existing;
+    }
+
+    const hasTools = (baseTools?.length ?? 0) > 0 && (hasBuiltins || hasMcp);
+
+    // ToolRAG: filter tools once per message (fail-open)
+    let effectiveTools = baseTools;
+    if (this.deps.toolRAG && this.deps.capabilityMap && effectiveTools && effectiveTools.length > 30) {
+      try {
+        const userText = extractText(userParts);
+        const allCapabilities = Array.from(this.deps.capabilityMap.values());
+        const selected = await this.deps.toolRAG.selectTools(userText, allCapabilities);
+        if (selected.length > 0) {
+          const selectedNames = new Set(selected.map((s) => s.name));
+          effectiveTools = effectiveTools.filter((t) => selectedNames.has(t.name));
+        }
+      } catch {
+        // Fail-open: use all tools if ToolRAG fails
+      }
+    }
 
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
     let totalCacheRead = 0;
     let totalCacheWrite = 0;
 
+    const toolExecutions: ToolExecutionSummary[] = [];
+
     for (let round = 0; round < this.maxToolRounds; round++) {
+      // Budget check (skip first round -- let the user's message through)
+      if (round > 0 && this.deps.budgetChecker) {
+        try {
+          const budget = await this.deps.budgetChecker();
+          if (!budget.allowed) {
+            this.emitError(session.id, budget.message ?? "Budget exhausted");
+            break;
+          }
+        } catch {
+          // Fail-open: continue if budget check fails
+        }
+      }
+
       const messages = [...session.conversationHistory];
 
       const response = await this.deps.provider.createMessage({
         system,
         messages,
-        tools: hasTools ? this._tools : undefined,
+        tools: hasTools ? effectiveTools : undefined,
         maxTokens: this.deps.maxTokens,
       });
 
@@ -169,6 +239,7 @@ export class ModeBOrchestrator {
           queued: false,
           escalation,
           contextSummary,
+          toolExecutions: toolExecutions.length > 0 ? toolExecutions : undefined,
         };
       }
 
@@ -187,29 +258,135 @@ export class ModeBOrchestrator {
       // Execute tools and build tool_result parts
       const resultParts: ContentPart[] = [];
       for (const tc of response.toolCalls) {
-        this.emitToolCalled(session.id, tc.name);
+        // Tool allowlist check
+        if (perCallConfig?.toolAllowlist && !perCallConfig.toolAllowlist.has(tc.name)) {
+          resultParts.push({
+            type: "tool_result",
+            toolUseId: tc.id,
+            content: `Tool "${tc.name}" is not available for this tenant`,
+            isError: true,
+          });
+          continue;
+        }
+
+        // Authorization check
+        const capability = this.deps.capabilityMap?.get(tc.name);
+        if (this.deps.toolAuthorizer) {
+          const authResult = this.deps.toolAuthorizer.authorize(tc.name, capability?.annotations);
+          this.emitToolAuthorized(session.id, tc.name, authResult.level, authResult.allowed, authResult.reason);
+
+          if (!authResult.allowed) {
+            resultParts.push({
+              type: "tool_result",
+              toolUseId: tc.id,
+              content: `Authorization denied: ${authResult.reason}`,
+              isError: true,
+            });
+            continue;
+          }
+        }
+
+        // Rate limit check
+        if (perCallConfig?.rateLimiter && perCallConfig?.tenantId) {
+          const rateResult = perCallConfig.rateLimiter.check(perCallConfig.tenantId, tc.name);
+          if (!rateResult.allowed) {
+            const retryAfterSec = Math.ceil((rateResult.retryAfterMs ?? 60_000) / 1000);
+            resultParts.push({
+              type: "tool_result",
+              toolUseId: tc.id,
+              content: `Rate limit exceeded for tool "${tc.name}". Try again in ${retryAfterSec} seconds.`,
+              isError: true,
+            });
+            continue;
+          }
+        }
+
+        const annotations = capability?.annotations
+          ? { readOnly: capability.annotations.readOnly, destructive: capability.annotations.destructive, idempotent: capability.annotations.idempotent }
+          : undefined;
+        this.emitToolCalled(session.id, tc.name, tc.input, annotations);
         const startMs = Date.now();
 
         try {
-          const result = await this.executeTool(tc);
+          let resultValue: unknown;
+          let retryAttempt: number | undefined;
+
+          // Use executeWithRetry if capability has retry config
+          if (capability?.retry) {
+            const executor = (name: string, input: Record<string, unknown>) =>
+              this.executeTool({ id: tc.id, name, input });
+            const fallbackExecutor = capability.retry.fallback
+              ? (name: string, input: Record<string, unknown>) => this.executeTool({ id: tc.id, name, input })
+              : undefined;
+
+            const execResult: ToolExecutionResult = await executeWithRetry(
+              tc.name,
+              tc.input,
+              executor,
+              capability.retry,
+              fallbackExecutor,
+            );
+            resultValue = execResult.result;
+            retryAttempt = execResult.attempts > 1 ? execResult.attempts : undefined;
+          } else {
+            resultValue = await this.executeTool(tc);
+          }
+
           const durationMs = Date.now() - startMs;
-          this.emitToolResult(session.id, tc.name, durationMs, true);
+          let resultString = typeof resultValue === "string" ? resultValue : JSON.stringify(resultValue);
+
+          // Result sanitization
+          let sanitized = false;
+          if (this.deps.toolResultSanitizer) {
+            const sanitizationResult = await this.deps.toolResultSanitizer.sanitize(resultString);
+            if (sanitizationResult.sanitized) {
+              resultString = sanitizationResult.content;
+              sanitized = true;
+            }
+          }
+
+          this.emitToolResult(session.id, tc.name, durationMs, true, resultString.slice(0, 200), false, retryAttempt);
+
+          toolExecutions.push({
+            toolName: tc.name,
+            durationMs,
+            success: true,
+            resultSummary: resultString.slice(0, 200),
+          });
+
+          // Audit log
+          this.appendAudit(tc.name, durationMs, sanitized ? "success_sanitized" : "success");
 
           resultParts.push({
             type: "tool_result",
             toolUseId: tc.id,
-            content: typeof result === "string" ? result : JSON.stringify(result),
+            content: resultString,
             isError: false,
           });
+
+          // Record rate limit usage after successful execution
+          if (perCallConfig?.rateLimiter && perCallConfig?.tenantId) {
+            perCallConfig.rateLimiter.record(perCallConfig.tenantId, tc.name);
+          }
         } catch (err) {
           const durationMs = Date.now() - startMs;
-          this.emitToolResult(session.id, tc.name, durationMs, false);
+          const errMsg = err instanceof Error ? err.message : String(err);
+          this.emitToolResult(session.id, tc.name, durationMs, false, errMsg.slice(0, 200), true);
+
+          toolExecutions.push({
+            toolName: tc.name,
+            durationMs,
+            success: false,
+            resultSummary: errMsg.slice(0, 200),
+          });
+
           this.emitError(session.id, `Tool "${tc.name}" failed: ${err}`);
+          this.appendAudit(tc.name, durationMs, "error");
 
           resultParts.push({
             type: "tool_result",
             toolUseId: tc.id,
-            content: `Error: ${err instanceof Error ? err.message : String(err)}`,
+            content: `Error: ${errMsg}`,
             isError: true,
           });
         }
@@ -261,6 +438,7 @@ export class ModeBOrchestrator {
       queued: false,
       escalation,
       contextSummary,
+      toolExecutions: toolExecutions.length > 0 ? toolExecutions : undefined,
     };
   }
 
@@ -286,17 +464,51 @@ export class ModeBOrchestrator {
     throw new Error(`Tool "${tc.name}" not found`);
   }
 
-  private emitToolCalled(sessionId: string, toolName: string): void {
+  private emitToolCalled(
+    sessionId: string,
+    toolName: string,
+    toolInput?: Record<string, unknown>,
+    annotations?: Record<string, unknown>,
+  ): void {
     const event: ToolCalledEvent = {
       type: "tool_called",
       toolName,
+      timestamp: new Date(),
+      sessionId,
+      ...(toolInput ? { toolInput } : {}),
+      ...(annotations ? { annotations } : {}),
+    };
+    this.deps.eventBus?.emit(event);
+  }
+
+  private emitToolAuthorized(
+    sessionId: string,
+    toolName: string,
+    level: number,
+    allowed: boolean,
+    reason: string,
+  ): void {
+    const event: ToolAuthorizedEvent = {
+      type: "tool_authorized",
+      toolName,
+      level,
+      allowed,
+      reason,
       timestamp: new Date(),
       sessionId,
     };
     this.deps.eventBus?.emit(event);
   }
 
-  private emitToolResult(sessionId: string, toolName: string, durationMs: number, success: boolean): void {
+  private emitToolResult(
+    sessionId: string,
+    toolName: string,
+    durationMs: number,
+    success: boolean,
+    resultSummary?: string,
+    isError?: boolean,
+    retryAttempt?: number,
+  ): void {
     const event: ToolResultEvent = {
       type: "tool_result",
       toolName,
@@ -304,8 +516,27 @@ export class ModeBOrchestrator {
       success,
       timestamp: new Date(),
       sessionId,
+      ...(resultSummary ? { resultSummary } : {}),
+      ...(isError !== undefined ? { isError } : {}),
+      ...(retryAttempt !== undefined ? { retryAttempt } : {}),
     };
     this.deps.eventBus?.emit(event);
+  }
+
+  private appendAudit(toolName: string, durationMs: number, outcome: "success" | "success_sanitized" | "error"): void {
+    if (!this.deps.auditLog) return;
+    try {
+      this.deps.auditLog.append({
+        timestamp: new Date(),
+        action: "tool_execution",
+        actor: "orchestrator",
+        outcome,
+        resource: toolName,
+        metadata: { durationMs },
+      });
+    } catch {
+      // Non-critical: don't fail tool execution for audit
+    }
   }
 
   private computeTotalCostUsd(

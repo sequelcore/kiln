@@ -92,3 +92,7 @@ export { OpenAISttAdapter } from "./infrastructure/openai-stt.js";
 export type { OpenAISttConfig } from "./infrastructure/openai-stt.js";
 export { DeepgramSttAdapter } from "./infrastructure/deepgram-stt.js";
 export type { DeepgramSttConfig } from "./infrastructure/deepgram-stt.js";
+export { classifyToolError } from "./tool-error-classifier.js";
+export { executeWithRetry } from "./tool-execution-engine.js";
+export type { ToolExecutor } from "./tool-execution-engine.js";
+export { SlidingWindowRateLimiter } from "./sliding-window-rate-limiter.js";

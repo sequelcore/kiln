@@ -1,5 +1,7 @@
 // Engine primitive: Capability -- an MCP tool that agents can invoke
 
+import type { RetryConfig } from "./tool-execution.js";
+
 /** Safety annotations that drive engine policies */
 export interface CapabilityAnnotations {
   readonly readOnly?: boolean;
@@ -23,4 +25,5 @@ export interface Capability {
   readonly guardrail?: string;                     // Guardrail function name or JSON Schema reference
   readonly guardrailRetries?: number;              // Max retries on guardrail failure (default: 3)
   readonly outputSchema?: Record<string, unknown>; // JSON Schema for structured output validation
+  readonly retry?: RetryConfig;                    // Retry/fallback config for tool execution errors
 }

@@ -52,7 +52,7 @@ export { TraceContext } from "./gateway/trace-context.js";
 export { ModeBSession } from "./session/mode-b-session.js";
 export type { ModeBSessionConfig, SerializedSessionData } from "./session/mode-b-session.js";
 export { ModeBOrchestrator } from "./session/mode-b-orchestrator.js";
-export type { OrchestratorDeps, OrchestrateResult } from "./session/mode-b-orchestrator.js";
+export type { OrchestratorDeps, OrchestrateResult, PerCallToolConfig, ToolExecutionSummary } from "./session/mode-b-orchestrator.js";
 export { SessionRegistry } from "./session/session-registry.js";
 export type { SessionStore } from "./session/session-store.js";
 export { InMemorySessionStore } from "./session/in-memory-session-store.js";

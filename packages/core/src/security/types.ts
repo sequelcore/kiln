@@ -22,7 +22,8 @@ export type AuditAction =
   | "self_audit_completed"
   | "pii_detected"
   | "content_classified"
-  | "policy_evaluated";
+  | "policy_evaluated"
+  | "tool_execution";
 
 /** Single audit log entry */
 export interface AuditEntry {
@@ -31,7 +32,7 @@ export interface AuditEntry {
   readonly action: AuditAction;
   readonly actor: string;
   readonly resource: string;
-  readonly outcome: "allowed" | "denied" | "error";
+  readonly outcome: "allowed" | "denied" | "error" | "success" | "success_sanitized";
   readonly metadata?: Record<string, unknown>;
   readonly tenantId?: string;
   readonly sessionId?: string;

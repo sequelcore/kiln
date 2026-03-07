@@ -13,6 +13,7 @@ import { VALID_MODALITIES } from "../domain/modality.js";
 import type { VoiceConfig, SttProviderConfig, TtsProviderConfig } from "../domain/speech-config.js";
 import { validateVoiceConfig } from "../domain/speech-config.js";
 import type { Capability } from "../domain/capability.js";
+import type { RetryConfig, RetryStrategy } from "../domain/tool-execution.js";
 import type { Workflow, Gate } from "../domain/workflow.js";
 import type { MemoryScope } from "../domain/memory.js";
 import type { Trigger, TriggerType } from "../domain/trigger.js";
@@ -84,6 +85,7 @@ interface RawCapability {
   guardrail?: unknown;
   guardrailRetries?: unknown;
   outputSchema?: unknown;
+  retry?: unknown;
 }
 
 interface RawQualityGate {
@@ -453,6 +455,41 @@ function mapCapability(raw: RawCapability, path: string): { capability: Capabili
     }
   }
 
+  // Validate retry config
+  let retryConfig: RetryConfig | undefined;
+  if (raw.retry !== undefined) {
+    if (typeof raw.retry !== "object" || raw.retry === null || Array.isArray(raw.retry)) {
+      errors.push({ field: `${path}.retry`, message: "must be an object" });
+    } else {
+      const r = raw.retry as Record<string, unknown>;
+      const validStrategies: RetryStrategy[] = ["exponential", "mutate_params"];
+
+      if (r.onValidationError !== undefined && (typeof r.onValidationError !== "string" || !validStrategies.includes(r.onValidationError as RetryStrategy))) {
+        errors.push({ field: `${path}.retry.onValidationError`, message: 'must be "exponential" or "mutate_params"' });
+      }
+      if (r.onTransientError !== undefined && (typeof r.onTransientError !== "string" || !validStrategies.includes(r.onTransientError as RetryStrategy))) {
+        errors.push({ field: `${path}.retry.onTransientError`, message: 'must be "exponential" or "mutate_params"' });
+      }
+      if (r.maxAttempts !== undefined && (typeof r.maxAttempts !== "number" || !Number.isInteger(r.maxAttempts) || r.maxAttempts < 1)) {
+        errors.push({ field: `${path}.retry.maxAttempts`, message: "must be a positive integer" });
+      }
+      if (r.timeout !== undefined && (typeof r.timeout !== "number" || r.timeout <= 0)) {
+        errors.push({ field: `${path}.retry.timeout`, message: "must be a positive number (seconds)" });
+      }
+      if (r.fallback !== undefined && typeof r.fallback !== "string") {
+        errors.push({ field: `${path}.retry.fallback`, message: "must be a string (capability name)" });
+      }
+
+      retryConfig = {
+        ...(typeof r.onValidationError === "string" ? { onValidationError: r.onValidationError as RetryStrategy } : {}),
+        ...(typeof r.onTransientError === "string" ? { onTransientError: r.onTransientError as RetryStrategy } : {}),
+        ...(typeof r.maxAttempts === "number" && Number.isInteger(r.maxAttempts) && r.maxAttempts >= 1 ? { maxAttempts: r.maxAttempts } : {}),
+        ...(typeof r.timeout === "number" && r.timeout > 0 ? { timeout: r.timeout } : {}),
+        ...(typeof r.fallback === "string" ? { fallback: r.fallback } : {}),
+      };
+    }
+  }
+
   const capability: Capability = {
     name: typeof raw.name === "string" ? raw.name : "",
     description: typeof raw.description === "string" ? raw.description : "",
@@ -472,6 +509,7 @@ function mapCapability(raw: RawCapability, path: string): { capability: Capabili
     ...(typeof raw.outputSchema === "object" && raw.outputSchema !== null && !Array.isArray(raw.outputSchema)
       ? { outputSchema: raw.outputSchema as Record<string, unknown> }
       : {}),
+    ...(retryConfig ? { retry: retryConfig } : {}),
   };
 
   if (raw.type === "delegation") {
@@ -554,6 +592,14 @@ function mapTeam(name: string, raw: RawTeam, path: string): { team: Team; errors
         capabilities.push(capability);
         errors.push(...capErrors);
       }
+    }
+  }
+
+  // Validate retry fallback references
+  const capNames = new Set(capabilities.map((c) => c.name));
+  for (const cap of capabilities) {
+    if (cap.retry?.fallback && !capNames.has(cap.retry.fallback)) {
+      errors.push({ field: `${path}.capabilities.${cap.name}.retry.fallback`, message: `references unknown capability "${cap.retry.fallback}"` });
     }
   }
 

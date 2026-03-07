@@ -17,6 +17,16 @@ export { validateVoiceConfig } from "./domain/speech-config.js";
 export { assembleAgentPrompt } from "./domain/prompt-assembler.js";
 export type { PromptContext } from "./domain/prompt-assembler.js";
 export type { Capability, CapabilityAnnotations } from "./domain/capability.js";
+export type {
+  RetryStrategy,
+  RetryConfig,
+  AuthorizationLevel,
+  ToolAuthorizationResult,
+  ToolErrorType,
+  ToolAuthorizer,
+  ToolExecutionResult,
+} from "./domain/tool-execution.js";
+export type { RateLimitConfig, RateLimitResult, RateLimiter } from "./domain/rate-limiter.js";
 export type { Workflow, Gate } from "./domain/workflow.js";
 export type { Memory, MemoryScope, MemoryEntry } from "./domain/memory.js";
 export type { Task, TaskStatus, TreeAction } from "./domain/task.js";
@@ -123,6 +133,8 @@ export type {
   TenantFaqEntry,
   TenantTone,
   TenantBilling,
+  TenantWebhookTool,
+  TenantToolConfig,
   TenantValidationError,
 } from "./gateway/tenant-config.js";
 export { validateTenantConfig } from "./gateway/tenant-config.js";

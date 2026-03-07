@@ -11,6 +11,7 @@ export const EVENT_LEVEL_MAP: Record<EventType, StreamLevel> = {
   task_started: "phase",
   task_completed: "phase",
   tool_called: "tool",
+  tool_authorized: "tool",
   tool_result: "tool",
   thinking: "token",
   verification_result: "tool",
@@ -58,6 +59,7 @@ export type EventType =
   | "task_started"
   | "task_completed"
   | "tool_called"
+  | "tool_authorized"
   | "tool_result"
   | "thinking"
   | "verification_result"
@@ -123,6 +125,18 @@ export interface ToolCalledEvent extends KilnEvent {
   readonly toolName: string;
   readonly taskId?: string;
   readonly workerIndex?: number;
+  readonly toolInput?: Record<string, unknown>;
+  readonly annotations?: Record<string, unknown>;
+  readonly authorizationLevel?: number;
+}
+
+/** Tool authorized event */
+export interface ToolAuthorizedEvent extends KilnEvent {
+  readonly type: "tool_authorized";
+  readonly toolName: string;
+  readonly level: number;
+  readonly allowed: boolean;
+  readonly reason: string;
 }
 
 /** Task started event */
@@ -148,6 +162,9 @@ export interface ToolResultEvent extends KilnEvent {
   readonly taskId?: string;
   readonly durationMs: number;
   readonly success: boolean;
+  readonly resultSummary?: string;
+  readonly isError?: boolean;
+  readonly retryAttempt?: number;
 }
 
 /** Thinking event (agent reasoning) */
@@ -376,6 +393,7 @@ export interface EventMap {
   task_started: TaskStartedEvent;
   task_completed: TaskCompletedEvent;
   tool_called: ToolCalledEvent;
+  tool_authorized: ToolAuthorizedEvent;
   tool_result: ToolResultEvent;
   thinking: ThinkingEvent;
   verification_result: VerificationResultEvent;

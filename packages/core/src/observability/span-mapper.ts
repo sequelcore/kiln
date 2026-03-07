@@ -36,6 +36,7 @@ import type {
     ContentClassifiedEvent,
     PolicyEvaluatedEvent,
     DomainEventData,
+    ToolAuthorizedEvent,
 } from "../events/index.js";
 
 // ---------------------------------------------------------------------------
@@ -91,6 +92,19 @@ function mapToolCalled(e: ToolCalledEvent): SpanOperation {
             toolName: e.toolName,
             ...(e.taskId !== undefined ? { taskId: e.taskId } : {}),
             ...(e.workerIndex !== undefined ? { workerIndex: e.workerIndex } : {}),
+        },
+    };
+}
+
+function mapToolAuthorized(e: ToolAuthorizedEvent): SpanOperation {
+    return {
+        action: "addEvent",
+        name: "tool_authorized",
+        attributes: {
+            toolName: e.toolName,
+            level: e.level,
+            allowed: e.allowed,
+            reason: e.reason,
         },
     };
 }
@@ -399,6 +413,8 @@ export function mapEventToSpan(event: KilnEvent): SpanOperation {
             return mapTaskCompleted(event as TaskCompletedEvent);
         case "tool_called":
             return mapToolCalled(event as ToolCalledEvent);
+        case "tool_authorized":
+            return mapToolAuthorized(event as ToolAuthorizedEvent);
         case "tool_result":
             return mapToolResult(event as ToolResultEvent);
         case "thinking":

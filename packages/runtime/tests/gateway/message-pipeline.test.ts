@@ -213,6 +213,7 @@ describe("processInboundMessage", () => {
       textParts("hello"),
       "Previous context here.",
       undefined,
+      undefined,
     );
   });
 
@@ -235,6 +236,7 @@ describe("processInboundMessage", () => {
       textParts("hello"),
       undefined,
       builtinTools,
+      undefined,
     );
   });
 

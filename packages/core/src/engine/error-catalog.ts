@@ -461,6 +461,60 @@ export function getErrorSuggestion(
         docUrl: docUrl(code),
       };
 
+    case "TOOL_AUTHORIZATION_DENIED": {
+      const toolName = context?.toolName;
+      let suggestion = "Tool execution was denied by the authorization policy.";
+      if (toolName) {
+        suggestion += ` Tool: "${toolName}". Check the capability's annotations (readOnly, destructive) and the authorization policy.`;
+      }
+      return { suggestion, docUrl: docUrl(code) };
+    }
+
+    case "TOOL_EXECUTION_TIMEOUT": {
+      const toolName = context?.toolName;
+      const timeoutMs = context?.timeoutMs;
+      let suggestion = "Tool execution timed out.";
+      if (toolName) suggestion += ` Tool: "${toolName}".`;
+      if (timeoutMs) suggestion += ` Timeout: ${timeoutMs}ms.`;
+      suggestion += " Increase the timeout in the capability's retry config or optimize the tool.";
+      return { suggestion, docUrl: docUrl(code) };
+    }
+
+    case "TOOL_RETRY_EXHAUSTED": {
+      const toolName = context?.toolName;
+      const attempts = context?.attempts;
+      let suggestion = "Tool execution failed after all retry attempts.";
+      if (toolName) suggestion += ` Tool: "${toolName}".`;
+      if (attempts) suggestion += ` Attempts: ${attempts}.`;
+      suggestion += " Check the tool's health and the retry config in the capability.";
+      return { suggestion, docUrl: docUrl(code) };
+    }
+
+    case "TOOL_RESULT_SANITIZED":
+      return {
+        suggestion:
+          "A tool result was sanitized or blocked by the safety pipeline. The result may contain PII or policy-violating content. Review the safety config.",
+        docUrl: docUrl(code),
+      };
+
+    case "TOOL_RATE_LIMITED": {
+      const toolName = context?.toolName;
+      let suggestion = "Tool call rate limit exceeded.";
+      if (toolName) suggestion += ` Tool: "${toolName}".`;
+      suggestion += " Wait before retrying or adjust rate limits in tenant toolConfig.";
+      return { suggestion, docUrl: docUrl(code) };
+    }
+
+    case "WEBHOOK_TOOL_FAILED": {
+      const toolName = context?.toolName;
+      const url = context?.url;
+      let suggestion = "Webhook tool execution failed.";
+      if (toolName) suggestion += ` Tool: "${toolName}".`;
+      if (url) suggestion += ` URL: ${url}.`;
+      suggestion += " Check the webhook endpoint availability and response format.";
+      return { suggestion, docUrl: docUrl(code) };
+    }
+
     case "PII_DETECTED":
       return {
         suggestion:

@@ -31,3 +31,5 @@ export type {
   SecurityAuditReport,
   SelfAuditOptions,
 } from "./self-audit.js";
+export { AnnotationAuthorizer } from "./annotation-authorizer.js";
+export type { AuthorizationPolicy } from "./annotation-authorizer.js";
