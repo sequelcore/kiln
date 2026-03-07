@@ -43,6 +43,8 @@ import type { KnowledgePipelineResult } from "./knowledge-factory.js";
 import type { KnowledgeAdminRoutesConfig } from "./knowledge-admin-routes.js";
 import type { ContactMemoryService } from "@kilnai/core";
 import { extractText } from "@kilnai/core";
+import { WebhookDedup } from "./webhook-dedup.js";
+import { SqliteEmailThreadStore } from "./sqlite-email-thread-store.js";
 
 export type { LoadedApp, GatewayServerConfig } from "./gateway-routes.js";
 export { createGatewayApp } from "./gateway-routes.js";
@@ -221,6 +223,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
   // EventBus: shared across all apps for observability and dev inspector
   const gatewayEventBus = new EventBus(100, otelExporter);
   const costTracker = new CostTracker();
+  const webhookDedup = new WebhookDedup();
 
   const loadedApps = resolvedApps.map((resolved: ResolvedApp) => {
     const hasWebChannel = resolved.binding.channels.some((ch) => ch.type === "web");
@@ -471,6 +474,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
           knowledgePipeline: loaded.knowledgePipeline?.pipeline,
           knowledgeMode: resolved.app.knowledge?.mode,
           contactMemoryService: loaded.contactMemoryService,
+          dedup: webhookDedup,
         };
       }
 
@@ -494,6 +498,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
           knowledgePipeline: loaded.knowledgePipeline?.pipeline,
           knowledgeMode: resolved.app.knowledge?.mode,
           contactMemoryService: loaded.contactMemoryService,
+          dedup: webhookDedup,
         };
       }
 
@@ -516,6 +521,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
           knowledgePipeline: loaded.knowledgePipeline?.pipeline,
           knowledgeMode: resolved.app.knowledge?.mode,
           contactMemoryService: loaded.contactMemoryService,
+          dedup: webhookDedup,
         };
       }
 
@@ -523,6 +529,9 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
       const emailChannel = loaded.binding.channels.find((ch) => ch.type === "email");
       if (emailChannel) {
         const emailWebhookSecretEnv = emailChannel.appSecretEnv ?? "";
+        const emailThreadDbPath = join(resolved.memoryBasePath, "email-threads.db");
+        const emailThreadStore = new SqliteEmailThreadStore(emailThreadDbPath);
+
         loaded.emailWebhookConfig = {
           appName: loaded.name,
           orchestrator,
@@ -535,6 +544,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
           knowledgePipeline: loaded.knowledgePipeline?.pipeline,
           knowledgeMode: resolved.app.knowledge?.mode,
           contactMemoryService: loaded.contactMemoryService,
+          threadStore: emailThreadStore,
         };
       }
 
@@ -844,6 +854,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
 
   await serveAndWait(honoApp, port, () => {
     triggerRegistry.stop();
+    webhookDedup.close();
     for (const loaded of loadedApps) {
       loaded.knowledgePipeline?.close().catch(() => {});
     }

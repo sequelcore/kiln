@@ -29,4 +29,4 @@ export type { SafetyPipelineOptions, SafetyMetrics } from "./safety-pipeline.js"
 
 // Tool Result Sanitizer
 export { ToolResultSanitizer } from "./tool-result-sanitizer.js";
-export type { SanitizationResult } from "./tool-result-sanitizer.js";
+export type { SanitizationResult, ToolResultSanitizerConfig } from "./tool-result-sanitizer.js";

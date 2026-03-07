@@ -26,10 +26,12 @@ export type { InstagramWebhookConfig } from "./gateway/instagram-webhook-routes.
 export { createMessengerWebhookRoutes } from "./gateway/messenger-webhook-routes.js";
 export type { MessengerWebhookConfig } from "./gateway/messenger-webhook-routes.js";
 export { verifyMetaWebhook, validateMetaSignature } from "./gateway/meta-webhook-foundation.js";
+export { WebhookDedup } from "./gateway/webhook-dedup.js";
 export { createEmailWebhookRoutes } from "./gateway/email-webhook-routes.js";
 export type { EmailWebhookConfig } from "./gateway/email-webhook-routes.js";
 export { shouldRejectEmail, isAutoReply, isIgnoredSender } from "./gateway/email-loop-guard.js";
 export { InMemoryEmailThreadStore } from "./gateway/email-thread-store.js";
+export { SqliteEmailThreadStore } from "./gateway/sqlite-email-thread-store.js";
 export type { EmailThread, EmailThreadStore } from "./gateway/email-thread-store.js";
 export { createTenantAdminRoutes } from "./gateway/tenant-admin-routes.js";
 export type { TenantAdminRoutesConfig } from "./gateway/tenant-admin-routes.js";
