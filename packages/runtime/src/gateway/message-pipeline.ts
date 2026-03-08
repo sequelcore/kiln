@@ -12,7 +12,7 @@ export interface InboundMessageContext {
   readonly orchestrator: ModeBOrchestrator;
   readonly sessionRegistry: SessionRegistry;
   readonly appName: string;
-  readonly tenantId?: string;
+  readonly tenantId: string;
   readonly userId: string;
   readonly systemPrompt: string;
   readonly userParts: readonly ContentPart[];
@@ -74,7 +74,7 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
 
   // Budget check
   if (ctx.billing) {
-    const budgetResult = await checkBudget(ctx.billing, ctx.tenantId ?? ctx.userId);
+    const budgetResult = await checkBudget(ctx.billing, ctx.tenantId);
     if (!budgetResult.allowed) {
       trace.log("pipeline", "Budget denied");
       return {
@@ -115,7 +115,7 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
   // Report usage (fire-and-forget)
   if (ctx.billing) {
     reportUsage(ctx.billing, {
-      tenantId: ctx.tenantId ?? ctx.userId,
+      tenantId: ctx.tenantId,
       messages: 1,
       tokens: result.inputTokens + result.outputTokens,
       model: ctx.orchestrator.model ?? "unknown",
@@ -123,7 +123,7 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
   }
 
   // Emit events (fire-and-forget)
-  if (ctx.eventEmitter && ctx.tenantId) {
+  if (ctx.eventEmitter) {
     ctx.eventEmitter.emit({
       eventType: "MESSAGE_RECEIVED",
       tenantId: ctx.tenantId,
@@ -212,7 +212,7 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
     if (ctx.isHandoff || ctx.pingPongBlocked) {
       ctx.eventEmitter.emit({
         eventType: "AGENT_HANDOFF",
-        tenantId: ctx.tenantId!,
+        tenantId: ctx.tenantId,
         channel: ctx.channel,
         externalUserId: ctx.userId,
         sessionId: session.id,
@@ -233,7 +233,7 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
     if (result.routingDecision) {
       ctx.eventEmitter.emit({
         eventType: "MODEL_ROUTED",
-        tenantId: ctx.tenantId!,
+        tenantId: ctx.tenantId,
         channel: ctx.channel,
         externalUserId: ctx.userId,
         selectedProvider: result.routingDecision.provider,

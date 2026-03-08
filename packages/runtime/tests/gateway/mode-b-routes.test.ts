@@ -86,7 +86,7 @@ describe("createModeBRoutes", () => {
         body: JSON.stringify({ message: "hello", userId: "user-1" }),
       });
 
-      const session = await runtime.sessionRegistry.get("test-app", "user-1");
+      const session = await runtime.sessionRegistry.get("test-app", "user-1", "_default");
       expect(session).toBeDefined();
     });
 
@@ -177,7 +177,7 @@ describe("createModeBRoutes", () => {
         method: "POST",
       });
       const usageBody = JSON.parse(usageCall[1].body as string);
-      expect(usageBody.tenantId).toBe("user-1");
+      expect(usageBody.tenantId).toBe("_default");
       expect(usageBody.messages).toBe(1);
       expect(usageBody.tokens).toBe(150); // 100 input + 50 output
     });
@@ -256,7 +256,7 @@ describe("createModeBRoutes", () => {
       expect(body.removed).toBe(true);
 
       // Verify session is removed
-      expect(await runtime.sessionRegistry.get("test-app", "user-1")).toBeUndefined();
+      expect(await runtime.sessionRegistry.get("test-app", "user-1", "_default")).toBeUndefined();
     });
   });
 });

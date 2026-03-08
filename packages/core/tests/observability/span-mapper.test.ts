@@ -163,13 +163,13 @@ describe("mapEventToSpan", () => {
                     outputTokens: 200,
                     cacheReadTokens: 50,
                     totalCostUsd: 0.005,
-                    byRole: {},
+                    byRoleModel: {},
                 }),
             );
             expect(result.action).toBe("setAttributes");
             if (result.action === "setAttributes") {
-                expect(result.attributes["inputTokens"]).toBe(100);
-                expect(result.attributes["totalCostUsd"]).toBe(0.005);
+                expect(result.attributes["gen_ai.usage.input_tokens"]).toBe(100);
+                expect(result.attributes["gen_ai.usage.output_tokens"]).toBe(200);
             }
         });
     });

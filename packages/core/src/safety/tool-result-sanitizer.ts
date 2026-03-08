@@ -23,15 +23,10 @@ export class ToolResultSanitizer {
   private readonly promptScanner?: PromptScanner;
   private readonly eventBus?: EventBus;
 
-  constructor(pipelineOrConfig: SafetyPipeline | ToolResultSanitizerConfig) {
-    if ("evaluate" in pipelineOrConfig) {
-      // Backward compat: plain SafetyPipeline
-      this.pipeline = pipelineOrConfig;
-    } else {
-      this.pipeline = pipelineOrConfig.pipeline;
-      this.promptScanner = pipelineOrConfig.promptScanner;
-      this.eventBus = pipelineOrConfig.eventBus;
-    }
+  constructor(config: ToolResultSanitizerConfig) {
+    this.pipeline = config.pipeline;
+    this.promptScanner = config.promptScanner;
+    this.eventBus = config.eventBus;
   }
 
   async sanitize(result: string): Promise<SanitizationResult> {

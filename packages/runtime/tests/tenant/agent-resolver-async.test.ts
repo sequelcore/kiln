@@ -26,7 +26,7 @@ function makeTenant(overrides: Partial<TenantConfig> = {}): TenantConfig {
 }
 
 function makeSession(activeAgentId?: string): ModeBSession {
-  const session = new ModeBSession({ appName: "test-app", userId: "user-1", systemPrompt: "base" });
+  const session = new ModeBSession({ appName: "test-app", tenantId: "test-tenant", userId: "user-1", systemPrompt: "base" });
   if (activeAgentId) {
     session.setActiveAgent(activeAgentId);
     // Add some history turns for the guard to check

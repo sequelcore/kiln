@@ -59,7 +59,7 @@ function makeReport(overrides: Partial<SessionReport> = {}): SessionReport {
     phaseReached: "implement",
     cost: {
       total: 0.42,
-      byRole: { architect: 0.25, worker: 0.17 },
+      byRoleModel: { "architect:claude-opus-4-6": 0.25, "worker:claude-sonnet-4-6": 0.17 },
     },
     duration: 45000,
     ...overrides,
@@ -125,8 +125,8 @@ describe("run command", () => {
       expect(output).toContain("Domain:   Python");
       expect(output).toContain("Phase:    implement");
       expect(output).toContain("Cost:     $0.42");
-      expect(output).toContain("architect: $0.25");
-      expect(output).toContain("worker: $0.17");
+      expect(output).toContain("architect:claude-opus-4-6: $0.25");
+      expect(output).toContain("worker:claude-sonnet-4-6: $0.17");
       expect(output).toContain("Duration: 45.0s");
 
       consoleSpy.mockRestore();
@@ -135,7 +135,7 @@ describe("run command", () => {
     it("prints report without cost breakdown when no roles", () => {
       const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
-      printReport(makeReport({ cost: { total: 0, byRole: {} } }), "kiln");
+      printReport(makeReport({ cost: { total: 0, byRoleModel: {} } }), "kiln");
 
       const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
       expect(output).toContain("Cost:     $0.00");

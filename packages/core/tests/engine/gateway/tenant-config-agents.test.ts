@@ -25,9 +25,9 @@ function makeAgent(overrides: Partial<TenantConfig["agents"] extends readonly (i
 }
 
 describe("TenantConfig multi-agent validation", () => {
-  // ── Backward Compatibility ──────────────────────────────────────────
+  // ── Optional Fields ────────────────────────────────────────────────
 
-  describe("backward compatibility", () => {
+  describe("optional fields", () => {
     it("passes when no agents field is present", () => {
       const config = makeTenantConfig();
       expect(validateTenantConfig(config)).toEqual([]);

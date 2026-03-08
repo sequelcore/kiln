@@ -71,11 +71,11 @@ describe("createDevRoutes", () => {
       const res = await request(app, "/cost");
       expect(res.status).toBe(200);
       const body = await res.json();
-      expect(body).toEqual({ totalCostUsd: 0, byRole: {} });
+      expect(body).toEqual({ totalCostUsd: 0, byRoleModel: {} });
     });
 
     it("returns cost summary from getCostSummary callback", async () => {
-      const summary = { totalCostUsd: 0.042, byRole: { worker: { calls: 3, costUsd: 0.042 } } };
+      const summary = { totalCostUsd: 0.042, byRoleModel: { "worker:claude-sonnet-4-6": { calls: 3, costUsd: 0.042 } } };
       const app = createDevRoutes({ getCostSummary: () => summary });
       const res = await request(app, "/cost");
       expect(res.status).toBe(200);
@@ -176,7 +176,7 @@ describe("createDevRoutes", () => {
     it("invokes all callbacks when provided", async () => {
       const getPhaseState = vi.fn(() => ({ status: "idle", phase: null }));
       const getMemorySnapshot = vi.fn(() => ({ entries: [] }));
-      const getCostSummary = vi.fn(() => ({ totalCostUsd: 0, byRole: {} }));
+      const getCostSummary = vi.fn(() => ({ totalCostUsd: 0, byRoleModel: {} }));
       const getAppNames = vi.fn(() => ["my-app"]);
 
       const app = createDevRoutes({

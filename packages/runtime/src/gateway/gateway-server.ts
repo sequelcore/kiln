@@ -416,7 +416,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
     // Wire tool execution enhancements
     const toolAuthorizer = capabilityMap.size > 0 ? new AnnotationAuthorizer() : undefined;
     const safetyPipeline = safetyPipelines.get(loaded.name);
-    const toolResultSanitizer = safetyPipeline ? new ToolResultSanitizer(safetyPipeline) : undefined;
+    const toolResultSanitizer = safetyPipeline ? new ToolResultSanitizer({ pipeline: safetyPipeline }) : undefined;
 
     const orchestrator = new ModeBOrchestrator({
       provider,

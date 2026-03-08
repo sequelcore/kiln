@@ -28,7 +28,7 @@ function buildConfig(flags: RunFlags, mode: SessionMode): WrapperConfig {
 }
 
 export function printReport(report: SessionReport, appName: string): void {
-  const costParts = Object.entries(report.cost.byRole)
+  const costParts = Object.entries(report.cost.byRoleModel)
     .map(([role, value]) => `${role}: $${value.toFixed(2)}`)
     .join(", ");
 

@@ -68,20 +68,6 @@ describe("SessionRegistry lifecycle events", () => {
         .filter(([e]: [ConversationEvent]) => e.eventType === "SESSION_STARTED");
       expect(sessionStartedCalls).toHaveLength(0);
     });
-
-    it("does not emit SESSION_STARTED when tenantId is absent", async () => {
-      const emitter = makeMockEmitter();
-      const registry = new SessionRegistry();
-      registry.eventEmitter = emitter;
-
-      await registry.getOrCreate({
-        appName: "app",
-        userId: "user-1",
-        systemPrompt: "sys",
-      });
-
-      expect(emitter.emit).not.toHaveBeenCalled();
-    });
   });
 
   describe("CONVERSATION_ABANDONED on cleanup", () => {
@@ -152,26 +138,6 @@ describe("SessionRegistry lifecycle events", () => {
       expect(expiredEvent).toBeDefined();
       expect(expiredEvent.sessionId).toBe(session.id);
       expect(expiredEvent.schemaVersion).toBe("1");
-    });
-
-    it("does not emit CONVERSATION_ABANDONED when tenantId is absent", async () => {
-      vi.useFakeTimers();
-      const emitter = makeMockEmitter();
-      const registry = new SessionRegistry(5000);
-      registry.eventEmitter = emitter;
-
-      await registry.getOrCreate({
-        appName: "app",
-        userId: "user-1",
-        systemPrompt: "sys",
-      });
-
-      (emitter.emit as ReturnType<typeof vi.fn>).mockClear();
-
-      vi.advanceTimersByTime(5001);
-      await registry.cleanup();
-
-      expect(emitter.emit).not.toHaveBeenCalled();
     });
   });
 });

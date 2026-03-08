@@ -6,6 +6,7 @@ import { serializeSession, deserializeSession } from "../../src/session/session-
 function makeSession(): ModeBSession {
   return new ModeBSession({
     appName: "test",
+    tenantId: "test-tenant",
     userId: "user1",
     systemPrompt: "Hello",
   });
@@ -13,9 +14,9 @@ function makeSession(): ModeBSession {
 
 describe("ModeBSession agent fields", () => {
   describe("initial state", () => {
-    it("activeAgentId starts undefined", () => {
+    it("activeAgentId starts null", () => {
       const session = makeSession();
-      expect(session.activeAgentId).toBeUndefined();
+      expect(session.activeAgentId).toBeNull();
     });
 
     it("agentTurnHistory starts empty", () => {
@@ -200,20 +201,6 @@ describe("ModeBSession agent fields", () => {
       expect(restored.agentTurnHistory[1]!.fromAgentId).toBe("agent-a");
     });
 
-    it("backward compat: old JSON without handoffCount/lastRouteChangeAt defaults to 0", () => {
-      const session = makeSession();
-      session.setActiveAgent("agent-a");
-
-      const json = serializeSession(session);
-      const parsed = JSON.parse(json);
-      delete parsed.handoffCount;
-      delete parsed.lastRouteChangeAt;
-
-      const restored = deserializeSession(JSON.stringify(parsed));
-      expect(restored.handoffCount).toBe(0);
-      expect(restored.lastRouteChangeAt).toBe(0);
-    });
-
     it("round-trip preserves activeAgentId", () => {
       const session = makeSession();
       session.setActiveAgent("billing-agent");
@@ -237,23 +224,6 @@ describe("ModeBSession agent fields", () => {
       expect(restored.agentTurnHistory).toHaveLength(2);
       expect(restored.agentTurnHistory[0]).toEqual({ agentId: "sales-agent", turnIndex: 1, fromAgentId: undefined });
       expect(restored.agentTurnHistory[1]).toEqual({ agentId: "billing-agent", turnIndex: 2, fromAgentId: "sales-agent" });
-    });
-
-    it("backward compat: deserialize session JSON without agent fields", () => {
-      const session = makeSession();
-      session.addUserMessage(textParts("hi"));
-
-      const json = serializeSession(session);
-      const parsed = JSON.parse(json);
-
-      // Remove agent fields to simulate old serialized data
-      delete parsed.activeAgentId;
-      delete parsed.agentTurnHistory;
-
-      const restored = deserializeSession(JSON.stringify(parsed));
-
-      expect(restored.activeAgentId).toBeUndefined();
-      expect(restored.agentTurnHistory).toEqual([]);
     });
 
     it("fromSerialized restores activeAgentId correctly", () => {

@@ -47,33 +47,6 @@ describe("CostTracker model-keying", () => {
     expect(summary.byRoleModel[key]!.calls).toBe(1);
   });
 
-  it("byRole still aggregates across models (backward compat)", () => {
-    const tracker = new CostTracker();
-
-    tracker.record("worker", "claude-sonnet-4-6", {
-      inputTokens: 1000,
-      outputTokens: 500,
-      cacheReadTokens: 0,
-      cacheWriteTokens: 0,
-    });
-
-    tracker.record("worker", "claude-haiku-4-5-20251001", {
-      inputTokens: 2000,
-      outputTokens: 1000,
-      cacheReadTokens: 100,
-      cacheWriteTokens: 0,
-    });
-
-    const summary = tracker.summary;
-    // byRole should have only 1 entry for "worker"
-    expect(Object.keys(summary.byRole)).toHaveLength(1);
-    expect(summary.byRole["worker"]).toBeDefined();
-    expect(summary.byRole["worker"]!.inputTokens).toBe(3000);
-    expect(summary.byRole["worker"]!.outputTokens).toBe(1500);
-    expect(summary.byRole["worker"]!.cacheReadTokens).toBe(100);
-    expect(summary.byRole["worker"]!.calls).toBe(2);
-  });
-
   it("costForRole works across multiple models for the same role", () => {
     const tracker = new CostTracker();
 
@@ -184,7 +157,6 @@ describe("CostTracker model-keying", () => {
     const summary = tracker.summary;
     expect(summary.totalCostUsd).toBe(0);
     expect(Object.keys(summary.byRoleModel)).toHaveLength(0);
-    expect(Object.keys(summary.byRole)).toHaveLength(0);
   });
 
   it("STT_PRICING has expected models", () => {

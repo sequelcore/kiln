@@ -7,7 +7,7 @@ import {
 import { ModeBSession } from "../../src/session/mode-b-session.js";
 
 function makeSession(): ModeBSession {
-  return new ModeBSession({ appName: "test", userId: "user-1", systemPrompt: "You are helpful." });
+  return new ModeBSession({ appName: "test", tenantId: "test-tenant", userId: "user-1", systemPrompt: "You are helpful." });
 }
 
 describe("DefaultEscalationDetector", () => {

@@ -20,7 +20,7 @@ function makeProvider(responseText = "Customer needs help with billing."): Provi
 }
 
 function makeSession(): ModeBSession {
-  return new ModeBSession({ appName: "test", userId: "user-1", systemPrompt: "You are helpful." });
+  return new ModeBSession({ appName: "test", tenantId: "test-tenant", userId: "user-1", systemPrompt: "You are helpful." });
 }
 
 describe("DefaultContextSummarizer", () => {

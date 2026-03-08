@@ -11,6 +11,7 @@ function makeSession(overrides: {
 } = {}): ModeBSession {
   return new ModeBSession({
     appName: "test-app",
+    tenantId: "test-tenant",
     userId: "user-1",
     systemPrompt: "You are a test assistant.",
     ...overrides,
@@ -106,15 +107,6 @@ describe("serializeSession / deserializeSession", () => {
 
     expect(restored.tenantId).toBe("tenant-x");
     expect(restored.id).toContain("tenant-x");
-  });
-
-  it("roundtrips a session without tenantId", () => {
-    const session = makeSession();
-
-    const json = serializeSession(session);
-    const restored = deserializeSession(json);
-
-    expect(restored.tenantId).toBeUndefined();
   });
 
   it("preserves idleTimeoutMs", () => {

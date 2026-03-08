@@ -138,7 +138,7 @@ describe("KilnMcpServer", () => {
       expect(data.totalInputTokens).toBe(0);
       expect(data.totalOutputTokens).toBe(0);
       expect(data.totalCostUsd).toBe(0);
-      expect(data.byRole).toBeDefined();
+      expect(data.byRoleModel).toBeDefined();
     });
 
     it("reflects tracked costs", async () => {
@@ -157,7 +157,7 @@ describe("KilnMcpServer", () => {
       expect(data.totalInputTokens).toBe(5000);
       expect(data.totalOutputTokens).toBe(1000);
       expect(data.totalCostUsd).toBeGreaterThan(0);
-      expect(data.byRole["worker"]).toBeDefined();
+      expect(data.byRoleModel["worker:claude-sonnet-4-6"]).toBeDefined();
     });
   });
 

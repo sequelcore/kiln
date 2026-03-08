@@ -9,7 +9,7 @@ describe("SessionRegistry", () => {
   describe("getOrCreate", () => {
     it("creates a new session when none exists", async () => {
       const registry = new SessionRegistry();
-      const session = await registry.getOrCreate({ appName: "app", userId: "u1", systemPrompt: "sys" });
+      const session = await registry.getOrCreate({ appName: "app", tenantId: "t", userId: "u1", systemPrompt: "sys" });
       expect(session).toBeDefined();
       expect(session.appName).toBe("app");
       expect(session.userId).toBe("u1");
@@ -17,32 +17,32 @@ describe("SessionRegistry", () => {
 
     it("returns existing session for same app+user", async () => {
       const registry = new SessionRegistry();
-      const s1 = await registry.getOrCreate({ appName: "app", userId: "u1", systemPrompt: "sys" });
-      const s2 = await registry.getOrCreate({ appName: "app", userId: "u1", systemPrompt: "sys" });
+      const s1 = await registry.getOrCreate({ appName: "app", tenantId: "t", userId: "u1", systemPrompt: "sys" });
+      const s2 = await registry.getOrCreate({ appName: "app", tenantId: "t", userId: "u1", systemPrompt: "sys" });
       expect(s2.id).toBe(s1.id);
     });
 
     it("creates new session after previous expires", async () => {
       vi.useFakeTimers();
       const registry = new SessionRegistry(5000);
-      const s1 = await registry.getOrCreate({ appName: "app", userId: "u1", systemPrompt: "sys" });
+      const s1 = await registry.getOrCreate({ appName: "app", tenantId: "t", userId: "u1", systemPrompt: "sys" });
       vi.advanceTimersByTime(5001);
-      const s2 = await registry.getOrCreate({ appName: "app", userId: "u1", systemPrompt: "sys" });
+      const s2 = await registry.getOrCreate({ appName: "app", tenantId: "t", userId: "u1", systemPrompt: "sys" });
       expect(s2.id).not.toBe(s1.id);
       vi.useRealTimers();
     });
 
     it("different apps get different sessions for same userId", async () => {
       const registry = new SessionRegistry();
-      const s1 = await registry.getOrCreate({ appName: "app1", userId: "u1", systemPrompt: "sys" });
-      const s2 = await registry.getOrCreate({ appName: "app2", userId: "u1", systemPrompt: "sys" });
+      const s1 = await registry.getOrCreate({ appName: "app1", tenantId: "t", userId: "u1", systemPrompt: "sys" });
+      const s2 = await registry.getOrCreate({ appName: "app2", tenantId: "t", userId: "u1", systemPrompt: "sys" });
       expect(s2.id).not.toBe(s1.id);
     });
 
     it("different users get different sessions for same app", async () => {
       const registry = new SessionRegistry();
-      const s1 = await registry.getOrCreate({ appName: "app", userId: "u1", systemPrompt: "sys" });
-      const s2 = await registry.getOrCreate({ appName: "app", userId: "u2", systemPrompt: "sys" });
+      const s1 = await registry.getOrCreate({ appName: "app", tenantId: "t", userId: "u1", systemPrompt: "sys" });
+      const s2 = await registry.getOrCreate({ appName: "app", tenantId: "t", userId: "u2", systemPrompt: "sys" });
       expect(s2.id).not.toBe(s1.id);
     });
   });
@@ -50,13 +50,13 @@ describe("SessionRegistry", () => {
   describe("get", () => {
     it("returns undefined for unknown session", async () => {
       const registry = new SessionRegistry();
-      expect(await registry.get("app", "nobody")).toBeUndefined();
+      expect(await registry.get("app", "nobody", "t")).toBeUndefined();
     });
 
     it("returns existing session", async () => {
       const registry = new SessionRegistry();
-      const created = await registry.getOrCreate({ appName: "app", userId: "u1", systemPrompt: "sys" });
-      const found = await registry.get("app", "u1");
+      const created = await registry.getOrCreate({ appName: "app", tenantId: "t", userId: "u1", systemPrompt: "sys" });
+      const found = await registry.get("app", "u1", "t");
       expect(found?.id).toBe(created.id);
     });
   });
@@ -64,14 +64,14 @@ describe("SessionRegistry", () => {
   describe("remove", () => {
     it("deletes session and returns true", async () => {
       const registry = new SessionRegistry();
-      await registry.getOrCreate({ appName: "app", userId: "u1", systemPrompt: "sys" });
-      expect(await registry.remove("app", "u1")).toBe(true);
-      expect(await registry.get("app", "u1")).toBeUndefined();
+      await registry.getOrCreate({ appName: "app", tenantId: "t", userId: "u1", systemPrompt: "sys" });
+      expect(await registry.remove("app", "u1", "t")).toBe(true);
+      expect(await registry.get("app", "u1", "t")).toBeUndefined();
     });
 
     it("returns false for unknown session", async () => {
       const registry = new SessionRegistry();
-      expect(await registry.remove("app", "nobody")).toBe(false);
+      expect(await registry.remove("app", "nobody", "t")).toBe(false);
     });
   });
 
@@ -79,8 +79,8 @@ describe("SessionRegistry", () => {
     it("counts only non-expired sessions", async () => {
       vi.useFakeTimers();
       const registry = new SessionRegistry();
-      await registry.getOrCreate({ appName: "app", userId: "u1", systemPrompt: "sys", idleTimeoutMs: 5000 });
-      await registry.getOrCreate({ appName: "app", userId: "u2", systemPrompt: "sys", idleTimeoutMs: 60000 });
+      await registry.getOrCreate({ appName: "app", tenantId: "t", userId: "u1", systemPrompt: "sys", idleTimeoutMs: 5000 });
+      await registry.getOrCreate({ appName: "app", tenantId: "t", userId: "u2", systemPrompt: "sys", idleTimeoutMs: 60000 });
 
       expect(await registry.activeCount()).toBe(2);
 
@@ -100,8 +100,8 @@ describe("SessionRegistry", () => {
     it("returns only non-expired sessions", async () => {
       vi.useFakeTimers();
       const registry = new SessionRegistry();
-      await registry.getOrCreate({ appName: "app", userId: "u1", systemPrompt: "sys", idleTimeoutMs: 5000 });
-      const s2 = await registry.getOrCreate({ appName: "app", userId: "u2", systemPrompt: "sys", idleTimeoutMs: 60000 });
+      await registry.getOrCreate({ appName: "app", tenantId: "t", userId: "u1", systemPrompt: "sys", idleTimeoutMs: 5000 });
+      const s2 = await registry.getOrCreate({ appName: "app", tenantId: "t", userId: "u2", systemPrompt: "sys", idleTimeoutMs: 60000 });
 
       vi.advanceTimersByTime(5001);
 
@@ -122,24 +122,24 @@ describe("SessionRegistry", () => {
     it("removes expired sessions and returns count", async () => {
       vi.useFakeTimers();
       const registry = new SessionRegistry();
-      await registry.getOrCreate({ appName: "app", userId: "u1", systemPrompt: "sys", idleTimeoutMs: 5000 });
-      await registry.getOrCreate({ appName: "app", userId: "u2", systemPrompt: "sys", idleTimeoutMs: 5000 });
-      await registry.getOrCreate({ appName: "app", userId: "u3", systemPrompt: "sys", idleTimeoutMs: 60000 });
+      await registry.getOrCreate({ appName: "app", tenantId: "t", userId: "u1", systemPrompt: "sys", idleTimeoutMs: 5000 });
+      await registry.getOrCreate({ appName: "app", tenantId: "t", userId: "u2", systemPrompt: "sys", idleTimeoutMs: 5000 });
+      await registry.getOrCreate({ appName: "app", tenantId: "t", userId: "u3", systemPrompt: "sys", idleTimeoutMs: 60000 });
 
       vi.advanceTimersByTime(5001);
       const removed = await registry.cleanup();
 
       expect(removed).toBe(2);
-      expect(await registry.get("app", "u1")).toBeUndefined();
-      expect(await registry.get("app", "u2")).toBeUndefined();
-      expect(await registry.get("app", "u3")).toBeDefined();
+      expect(await registry.get("app", "u1", "t")).toBeUndefined();
+      expect(await registry.get("app", "u2", "t")).toBeUndefined();
+      expect(await registry.get("app", "u3", "t")).toBeDefined();
 
       vi.useRealTimers();
     });
 
     it("returns 0 when no expired sessions", async () => {
       const registry = new SessionRegistry();
-      await registry.getOrCreate({ appName: "app", userId: "u1", systemPrompt: "sys" });
+      await registry.getOrCreate({ appName: "app", tenantId: "t", userId: "u1", systemPrompt: "sys" });
       expect(await registry.cleanup()).toBe(0);
     });
   });
@@ -164,14 +164,6 @@ describe("SessionRegistry", () => {
       expect(s2.tenantId).toBe("tenant-b");
     });
 
-    it("tenantId=undefined uses 2-segment key (backward compatible)", async () => {
-      const registry = new SessionRegistry();
-      const s1 = await registry.getOrCreate({ appName: "app", userId: "u1", systemPrompt: "sys" });
-      const found = await registry.get("app", "u1");
-      expect(found?.id).toBe(s1.id);
-      expect(found?.tenantId).toBeUndefined();
-    });
-
     it("get with tenantId finds tenant-scoped session", async () => {
       const registry = new SessionRegistry();
       const s1 = await registry.getOrCreate({
@@ -182,17 +174,6 @@ describe("SessionRegistry", () => {
       });
       const found = await registry.get("app", "u1", "tenant-a");
       expect(found?.id).toBe(s1.id);
-    });
-
-    it("get without tenantId does not find tenant-scoped session", async () => {
-      const registry = new SessionRegistry();
-      await registry.getOrCreate({
-        appName: "app",
-        tenantId: "tenant-a",
-        userId: "u1",
-        systemPrompt: "sys",
-      });
-      expect(await registry.get("app", "u1")).toBeUndefined();
     });
 
     it("remove with tenantId only removes that tenant's session", async () => {
@@ -215,7 +196,7 @@ describe("SessionRegistry", () => {
       expect(await registry.get("app", "u1", "tenant-b")).toBeDefined();
     });
 
-    it("session id includes tenantId when present", async () => {
+    it("session id includes tenantId", async () => {
       const registry = new SessionRegistry();
       const session = await registry.getOrCreate({
         appName: "app",
@@ -230,11 +211,11 @@ describe("SessionRegistry", () => {
   describe("save", () => {
     it("persists mutated session back to the store", async () => {
       const registry = new SessionRegistry();
-      const session = await registry.getOrCreate({ appName: "app", userId: "u1", systemPrompt: "sys" });
+      const session = await registry.getOrCreate({ appName: "app", tenantId: "t", userId: "u1", systemPrompt: "sys" });
       session.setSessionMode("queued");
       await registry.save(session);
 
-      const retrieved = await registry.get("app", "u1");
+      const retrieved = await registry.get("app", "u1", "t");
       expect(retrieved?.sessionMode).toBe("queued");
     });
 
@@ -280,10 +261,10 @@ describe("SessionRegistry", () => {
       };
 
       const registry = new SessionRegistry(undefined, store);
-      const session = await registry.getOrCreate({ appName: "app", userId: "u1", systemPrompt: "sys" });
+      const session = await registry.getOrCreate({ appName: "app", tenantId: "t", userId: "u1", systemPrompt: "sys" });
 
       // Simulate a concurrent modification: another request modifies the stored session
-      const concurrentSession = await registry.get("app", "u1");
+      const concurrentSession = await registry.get("app", "u1", "t");
       concurrentSession!.setSessionMode("queued");
       await registry.save(concurrentSession!);
 
@@ -327,17 +308,6 @@ describe("SessionRegistry", () => {
       expect(removed).toBe(1);
       expect(await registry.get("app1", "u1", "tenant-a")).toBeUndefined();
       expect(await registry.get("app2", "u1", "tenant-a")).toBeDefined();
-    });
-
-    it("does not affect non-tenant sessions", async () => {
-      const registry = new SessionRegistry();
-      await registry.getOrCreate({ appName: "app", userId: "u1", systemPrompt: "sys" });
-      await registry.getOrCreate({ appName: "app", tenantId: "tenant-a", userId: "u1", systemPrompt: "sys" });
-
-      const removed = await registry.invalidateByTenant("app", "tenant-a");
-
-      expect(removed).toBe(1);
-      expect(await registry.get("app", "u1")).toBeDefined();
     });
   });
 });

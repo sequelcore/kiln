@@ -153,14 +153,9 @@ function mapCostUpdate(e: CostUpdateEvent): SpanOperation {
     return {
         action: "setAttributes",
         attributes: {
-            // OTel GenAI semantic conventions
             "gen_ai.usage.input_tokens": e.inputTokens,
             "gen_ai.usage.output_tokens": e.outputTokens,
             "gen_ai.usage.cache_read_input_tokens": e.cacheReadTokens,
-            // Kiln-specific (kept for backward compat)
-            inputTokens: e.inputTokens,
-            outputTokens: e.outputTokens,
-            cacheReadTokens: e.cacheReadTokens,
             totalCostUsd: e.totalCostUsd,
             ...(e.agentId ? { agentId: e.agentId } : {}),
         },
@@ -418,8 +413,6 @@ function mapModelRouted(e: ModelRoutedEvent): SpanOperation {
         attributes: {
             "gen_ai.request.model": e.model,
             "gen_ai.system": e.provider,
-            model: e.model,
-            provider: e.provider,
             routingTier: e.routingTier,
             reason: e.reason,
             ...(e.previousModel ? { previousModel: e.previousModel } : {}),

@@ -117,7 +117,6 @@ export class CostTracker {
     let totalCacheWriteTokens = 0;
     let totalToolCalls = 0;
     let totalCostUsd = 0;
-    const byRole: Record<string, RoleUsage> = {};
     const byRoleModel: Record<string, RoleUsage> = {};
 
     for (const [key, entry] of this.usageByRoleModel) {
@@ -130,7 +129,6 @@ export class CostTracker {
       const entryCost = computeCost(entry);
       totalCostUsd += entryCost;
 
-      // byRoleModel: keyed by "role:model"
       byRoleModel[key] = {
         role: entry.role,
         model: entry.model,
@@ -140,30 +138,6 @@ export class CostTracker {
         cacheWriteTokens: entry.cacheWriteTokens,
         calls: entry.calls,
       };
-
-      // byRole: aggregate across all models for this role (backward compat)
-      const existing = byRole[entry.role];
-      if (existing) {
-        byRole[entry.role] = {
-          role: entry.role,
-          model: entry.model, // last seen model
-          inputTokens: existing.inputTokens + entry.inputTokens,
-          outputTokens: existing.outputTokens + entry.outputTokens,
-          cacheReadTokens: existing.cacheReadTokens + entry.cacheReadTokens,
-          cacheWriteTokens: existing.cacheWriteTokens + entry.cacheWriteTokens,
-          calls: existing.calls + entry.calls,
-        };
-      } else {
-        byRole[entry.role] = {
-          role: entry.role,
-          model: entry.model,
-          inputTokens: entry.inputTokens,
-          outputTokens: entry.outputTokens,
-          cacheReadTokens: entry.cacheReadTokens,
-          cacheWriteTokens: entry.cacheWriteTokens,
-          calls: entry.calls,
-        };
-      }
     }
 
     // Include embedding and STT costs in total
@@ -176,7 +150,6 @@ export class CostTracker {
       totalCacheWriteTokens,
       totalToolCalls,
       totalCostUsd,
-      byRole,
       byRoleModel,
     };
   }

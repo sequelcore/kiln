@@ -161,6 +161,7 @@ describe("resolveAgentContext", () => {
     it("previousAgentId from session", () => {
       const session = new ModeBSession({
         appName: "test-app",
+        tenantId: "test-tenant",
         userId: "user1",
         systemPrompt: "Hello",
       });

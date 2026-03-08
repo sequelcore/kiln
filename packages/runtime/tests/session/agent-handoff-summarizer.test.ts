@@ -4,7 +4,7 @@ import { ModeBSession } from "../../src/session/mode-b-session.js";
 import { DefaultAgentHandoffSummarizer } from "../../src/session/agent-handoff-summarizer.js";
 
 function makeSession(): ModeBSession {
-  return new ModeBSession({ appName: "test", userId: "user-1", systemPrompt: "test" });
+  return new ModeBSession({ appName: "test", tenantId: "test-tenant", userId: "user-1", systemPrompt: "test" });
 }
 
 function makeProvider() {

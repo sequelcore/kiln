@@ -1,6 +1,6 @@
 // Domain package adapter: parses domain YAML into DomainPackageManifest with content hashing.
 // Delegates to package/ bounded context for hashing and manifest types.
-// Backward-compatible: domain YAML does not require type/version/author fields.
+// Domain YAML does not require type/version/author fields (defaults applied).
 
 import { parse } from "yaml";
 import { readFileSync } from "node:fs";
@@ -17,7 +17,7 @@ export type { DomainPackageManifest } from "../package/types.js";
 
 /**
  * Parse domain.yaml content into a DomainPackageManifest.
- * Backward-compatible: domain YAML does not require type/version/author.
+ * Domain YAML does not require type/version/author (defaults applied).
  * Uses domain YAML validator (not package validator).
  */
 export function parseDomainPackageYaml(

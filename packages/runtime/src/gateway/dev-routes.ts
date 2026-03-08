@@ -91,7 +91,7 @@ export function createDevRoutes(config: DevRoutesConfig): Hono {
 
   // GET /cost -- cost summary
   app.get("/cost", (c) => {
-    const cost = config.getCostSummary?.() ?? { totalCostUsd: 0, byRole: {} };
+    const cost = config.getCostSummary?.() ?? { totalCostUsd: 0, byRoleModel: {} };
     return c.json(cost);
   });
 

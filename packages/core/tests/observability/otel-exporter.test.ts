@@ -185,7 +185,7 @@ describe("OTelExporter", () => {
                 baseEvent({ type: "phase_changed", phase: "impl", phaseName: "Impl", phaseDescription: "" }) as never,
             );
             await exporter.save(
-                baseEvent({ type: "cost_update", inputTokens: 10, outputTokens: 20, cacheReadTokens: 0, totalCostUsd: 0.001, byRole: {} }) as never,
+                baseEvent({ type: "cost_update", inputTokens: 10, outputTokens: 20, cacheReadTokens: 0, totalCostUsd: 0.001, byRoleModel: {} }) as never,
             );
             expect(span.setAttribute).toHaveBeenCalledWith("totalCostUsd", 0.001);
         });

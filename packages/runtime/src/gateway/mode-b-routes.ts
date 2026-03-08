@@ -40,6 +40,7 @@ interface MessageRequest {
 
 export function createModeBRoutes(runtime: ModeBAppRuntime): Hono {
   const app = new Hono();
+  const tenantId = runtime.tenant?.tenantId ?? "_default";
 
   if (runtime.apiKey) {
     app.use("*", requireApiKey(runtime.apiKey));
@@ -99,6 +100,7 @@ export function createModeBRoutes(runtime: ModeBAppRuntime): Hono {
       // Get or create session for ping-pong guard context
       const session = await runtime.sessionRegistry.getOrCreate({
         appName: runtime.appName,
+        tenantId,
         userId: body.userId,
         systemPrompt: "",
       });
@@ -126,6 +128,7 @@ export function createModeBRoutes(runtime: ModeBAppRuntime): Hono {
         orchestrator: runtime.orchestrator,
         sessionRegistry: runtime.sessionRegistry,
         appName: runtime.appName,
+        tenantId,
         userId: body.userId,
         systemPrompt,
         userParts,
@@ -174,7 +177,8 @@ export function createModeBRoutes(runtime: ModeBAppRuntime): Hono {
 
   app.delete("/sessions/:userId", async (c) => {
     const userId = c.req.param("userId");
-    const removed = await runtime.sessionRegistry.remove(runtime.appName, userId);
+    const deleteTenantId = c.req.query("tenantId") ?? tenantId;
+    const removed = await runtime.sessionRegistry.remove(runtime.appName, userId, deleteTenantId);
     return c.json({ removed });
   });
 

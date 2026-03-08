@@ -165,7 +165,7 @@ describe("Orchestrator", () => {
     expect(summary.totalOutputTokens).toBe(0);
     expect(summary.totalCostUsd).toBe(0);
     expect(summary.totalToolCalls).toBe(0);
-    expect(Object.keys(summary.byRole)).toHaveLength(0);
+    expect(Object.keys(summary.byRoleModel)).toHaveLength(0);
   });
 
   it("task getter returns the task string after start", () => {

@@ -23,10 +23,10 @@ describe("CostTracker", () => {
     expect(summary.totalInputTokens).toBe(1000);
     expect(summary.totalOutputTokens).toBe(500);
     expect(summary.totalToolCalls).toBe(1);
-    expect(summary.byRole["architect"]).toBeDefined();
-    expect(summary.byRole["architect"]!.inputTokens).toBe(1000);
-    expect(summary.byRole["architect"]!.outputTokens).toBe(500);
-    expect(summary.byRole["architect"]!.calls).toBe(1);
+    expect(summary.byRoleModel["architect:claude-opus-4-6"]).toBeDefined();
+    expect(summary.byRoleModel["architect:claude-opus-4-6"]!.inputTokens).toBe(1000);
+    expect(summary.byRoleModel["architect:claude-opus-4-6"]!.outputTokens).toBe(500);
+    expect(summary.byRoleModel["architect:claude-opus-4-6"]!.calls).toBe(1);
   });
 
   it("computes correct USD cost without cache tokens", () => {
@@ -110,7 +110,7 @@ describe("CostTracker", () => {
     expect(summary.totalOutputTokens).toBe(300);
     expect(summary.totalCacheReadTokens).toBe(50);
     expect(summary.totalToolCalls).toBe(2);
-    expect(summary.byRole["worker"]!.calls).toBe(2);
+    expect(summary.byRoleModel["worker:claude-sonnet-4-6"]!.calls).toBe(2);
   });
 
   it("tracks multiple roles independently", () => {
@@ -142,7 +142,7 @@ describe("CostTracker", () => {
     expect(summary.totalInputTokens).toBe(3500);
     expect(summary.totalOutputTokens).toBe(1600);
     expect(summary.totalToolCalls).toBe(3);
-    expect(Object.keys(summary.byRole)).toHaveLength(3);
+    expect(Object.keys(summary.byRoleModel)).toHaveLength(3);
 
     // Verify per-role costs are different due to different pricing
     const architectCost = tracker.costForRole("architect");
@@ -170,7 +170,7 @@ describe("CostTracker", () => {
     expect(summary.totalCacheWriteTokens).toBe(0);
     expect(summary.totalToolCalls).toBe(0);
     expect(summary.totalCostUsd).toBe(0);
-    expect(Object.keys(summary.byRole)).toHaveLength(0);
+    expect(Object.keys(summary.byRoleModel)).toHaveLength(0);
   });
 
   it("reset clears all accumulated usage", () => {
@@ -191,7 +191,7 @@ describe("CostTracker", () => {
     expect(summary.totalOutputTokens).toBe(0);
     expect(summary.totalToolCalls).toBe(0);
     expect(summary.totalCostUsd).toBe(0);
-    expect(Object.keys(summary.byRole)).toHaveLength(0);
+    expect(Object.keys(summary.byRoleModel)).toHaveLength(0);
     expect(tracker.costForRole("architect")).toBe(0);
   });
 

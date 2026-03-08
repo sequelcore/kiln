@@ -61,7 +61,7 @@ function pickMutableFields(body: Record<string, unknown>): Partial<TenantConfig>
 
 export interface TenantAdminRoutesConfig {
   readonly tenantRegistry: TenantRegistry;
-  readonly sessionRegistry?: SessionRegistry;
+  readonly sessionRegistry: SessionRegistry;
   readonly appName: string;
   readonly adminToken?: string;
 }
@@ -155,7 +155,7 @@ export function createTenantAdminRoutes(config: TenantAdminRoutesConfig): Hono {
     try {
       const safeUpdate = pickMutableFields(body);
       const updated = config.tenantRegistry.update(tenantId, safeUpdate);
-      await config.sessionRegistry?.invalidateByTenant(config.appName, tenantId);
+      await config.sessionRegistry.invalidateByTenant(config.appName, tenantId);
       return c.json(updated);
     } catch (err) {
       if (err instanceof TenantNotFoundError) {
@@ -176,7 +176,7 @@ export function createTenantAdminRoutes(config: TenantAdminRoutesConfig): Hono {
       return c.json({ error: "Tenant not found" }, 404);
     }
     config.tenantRegistry.remove(tenantId);
-    await config.sessionRegistry?.invalidateByTenant(config.appName, tenantId);
+    await config.sessionRegistry.invalidateByTenant(config.appName, tenantId);
     return c.json({ removed: true });
   });
 

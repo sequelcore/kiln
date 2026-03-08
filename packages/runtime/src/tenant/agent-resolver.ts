@@ -115,7 +115,7 @@ export function resolveAgentContext(
         activeAgentId: currentAgent.id,
         activeAgentName: currentAgent.name,
         routingResult,
-        previousAgentId: session.activeAgentId,
+        previousAgentId: session.activeAgentId ?? undefined,
         isHandoff: false,
         pingPongBlocked: true,
         pingPongReason: guardResult.reason,
@@ -130,7 +130,7 @@ export function resolveAgentContext(
     selectedAgent = tenant.agents.find((a) => a.isDefault) ?? tenant.agents[0]!;
   }
 
-  const previousAgentId = session?.activeAgentId;
+  const previousAgentId = session?.activeAgentId ?? undefined;
   const isHandoff = previousAgentId !== undefined && previousAgentId !== selectedAgent.id;
   const systemPrompt = buildAgentSystemPrompt(basePrompt, selectedAgent);
   const toolCtx = buildAgentToolContext(tenant, selectedAgent, existingBuiltins);
@@ -244,7 +244,7 @@ async function resolveAgentContextWithEmbedding(
       activeAgentId: currentAgent.id,
       activeAgentName: currentAgent.name,
       routingResult,
-      previousAgentId: session.activeAgentId,
+      previousAgentId: session.activeAgentId ?? undefined,
       isHandoff: false,
       pingPongBlocked: true,
       pingPongReason: guardResult.reason,
@@ -256,7 +256,7 @@ async function resolveAgentContextWithEmbedding(
     selectedAgent = agents.find((a) => a.isDefault) ?? agents[0]!;
   }
 
-  const previousAgentId = session.activeAgentId;
+  const previousAgentId = session.activeAgentId ?? undefined;
   const isHandoff = previousAgentId !== undefined && previousAgentId !== selectedAgent.id;
   const systemPrompt = buildAgentSystemPrompt(basePrompt, selectedAgent);
   const toolCtx = buildAgentToolContext(tenant, selectedAgent, existingBuiltins);

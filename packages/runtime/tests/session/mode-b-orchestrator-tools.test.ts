@@ -38,7 +38,7 @@ function makeProvider(toolCallsOnRound?: number): ProviderAdapter {
 }
 
 function makeSession(): ModeBSession {
-  return new ModeBSession({ appName: "app", userId: "user-1", systemPrompt: "Be helpful." });
+  return new ModeBSession({ appName: "app", tenantId: "test-tenant", userId: "user-1", systemPrompt: "Be helpful." });
 }
 
 function makeCapabilityMap(overrides?: Partial<Capability>): ReadonlyMap<string, Capability> {
@@ -270,8 +270,8 @@ describe("ModeBOrchestrator - Tool Execution Enhancements", () => {
     });
   });
 
-  describe("backward compatibility", () => {
-    it("works identically without new deps", async () => {
+  describe("minimal configuration", () => {
+    it("works with only provider (no optional deps)", async () => {
       const provider = makeProvider();
       const orchestrator = new ModeBOrchestrator({ provider });
       const session = makeSession();

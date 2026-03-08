@@ -66,7 +66,7 @@ describe("PrometheusCollector", () => {
         outputTokens: 50,
         cacheReadTokens: 0,
         totalCostUsd: 0.005,
-        byRole: {
+        byRoleModel: {
           assistant: { model: "claude-3-haiku", calls: 1, costUsd: 0.005 },
         },
       }),
@@ -253,7 +253,7 @@ describe("PrometheusCollector", () => {
           outputTokens: 5,
           cacheReadTokens: 0,
           totalCostUsd: 0.001,
-          byRole: {
+          byRoleModel: {
             assistant: {
               model: "claude-3-sonnet",
               calls: 1,
@@ -280,7 +280,7 @@ describe("PrometheusCollector", () => {
           outputTokens: 5,
           cacheReadTokens: 0,
           totalCostUsd: 0.001,
-          byRole: {
+          byRoleModel: {
             assistant: {
               model: "gpt-4o",
               calls: 1,
@@ -307,7 +307,7 @@ describe("PrometheusCollector", () => {
           outputTokens: 5,
           cacheReadTokens: 0,
           totalCostUsd: 0.001,
-          byRole: {
+          byRoleModel: {
             assistant: {
               model: "deepseek-chat",
               calls: 1,
@@ -334,7 +334,7 @@ describe("PrometheusCollector", () => {
           outputTokens: 5,
           cacheReadTokens: 0,
           totalCostUsd: 0,
-          byRole: {
+          byRoleModel: {
             assistant: {
               model: "llama3",
               calls: 1,

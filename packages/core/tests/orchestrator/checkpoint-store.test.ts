@@ -34,7 +34,7 @@ describe("SqliteCheckpointStore", () => {
       totalCacheWriteTokens: 0,
       totalToolCalls: 1,
       totalCostUsd: 0.001,
-      byRole: {},
+      byRoleModel: {},
     },
     timestamp: new Date("2024-01-01T00:00:00Z"),
     ...overrides,

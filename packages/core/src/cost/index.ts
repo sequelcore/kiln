@@ -37,7 +37,6 @@ export interface CostSummary {
   readonly totalCacheWriteTokens: number;
   readonly totalToolCalls: number;
   readonly totalCostUsd: number;
-  readonly byRole: Record<string, RoleUsage>;
   /** Per role:model tuple breakdown */
   readonly byRoleModel: Record<string, RoleUsage>;
 }

@@ -272,7 +272,7 @@ export class ModeBOrchestrator {
       totalCacheRead += response.cacheReadTokens;
       totalCacheWrite += response.cacheWriteTokens;
 
-      this.emitCostUpdate(session.id, totalInputTokens, totalOutputTokens, totalCacheRead, totalCacheWrite, session.activeAgentId);
+      this.emitCostUpdate(session.id, totalInputTokens, totalOutputTokens, totalCacheRead, totalCacheWrite, session.activeAgentId ?? undefined);
 
       if (!hasTools || response.toolCalls.length === 0) {
         session.addAssistantMessage(response.parts);
@@ -507,7 +507,7 @@ export class ModeBOrchestrator {
     totalCacheRead += finalResponse.cacheReadTokens;
     totalCacheWrite += finalResponse.cacheWriteTokens;
 
-    this.emitCostUpdate(session.id, totalInputTokens, totalOutputTokens, totalCacheRead, totalCacheWrite, session.activeAgentId);
+    this.emitCostUpdate(session.id, totalInputTokens, totalOutputTokens, totalCacheRead, totalCacheWrite, session.activeAgentId ?? undefined);
 
     session.addAssistantMessage(finalResponse.parts);
 
@@ -697,8 +697,8 @@ export class ModeBOrchestrator {
       outputTokens,
       cacheReadTokens,
       totalCostUsd,
-      byRole: {
-        assistant: { model, calls: 1, costUsd: totalCostUsd },
+      byRoleModel: {
+        [`assistant:${model}`]: { model, calls: 1, costUsd: totalCostUsd },
       },
       timestamp: new Date(),
       sessionId,

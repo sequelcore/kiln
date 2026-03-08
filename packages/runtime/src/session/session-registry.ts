@@ -32,7 +32,7 @@ export class SessionRegistry {
     await this.store.set(key, session);
 
     // Emit SESSION_STARTED for new sessions
-    if (this.eventEmitter && sessionConfig.tenantId) {
+    if (this.eventEmitter) {
       this.eventEmitter.emit({
         eventType: "SESSION_STARTED",
         tenantId: sessionConfig.tenantId,
@@ -47,7 +47,7 @@ export class SessionRegistry {
     return session;
   }
 
-  async get(appName: string, userId: string, tenantId?: string): Promise<ModeBSession | undefined> {
+  async get(appName: string, userId: string, tenantId: string): Promise<ModeBSession | undefined> {
     const key = this.sessionKey(appName, userId, tenantId);
     return this.store.get(key);
   }
@@ -69,7 +69,7 @@ export class SessionRegistry {
     await this.store.set(key, session);
   }
 
-  async remove(appName: string, userId: string, tenantId?: string): Promise<boolean> {
+  async remove(appName: string, userId: string, tenantId: string): Promise<boolean> {
     const key = this.sessionKey(appName, userId, tenantId);
     return this.store.delete(key);
   }
@@ -114,7 +114,7 @@ export class SessionRegistry {
         await this.store.delete(key);
         removed++;
 
-        if (this.eventEmitter && session.tenantId) {
+        if (this.eventEmitter) {
           this.eventEmitter.emit({
             eventType: "SESSION_EXPIRED",
             tenantId: session.tenantId,
@@ -142,7 +142,7 @@ export class SessionRegistry {
     return removed;
   }
 
-  private sessionKey(appName: string, userId: string, tenantId?: string): string {
-    return tenantId ? `${appName}:${tenantId}:${userId}` : `${appName}:${userId}`;
+  private sessionKey(appName: string, userId: string, tenantId: string): string {
+    return `${appName}:${tenantId}:${userId}`;
   }
 }

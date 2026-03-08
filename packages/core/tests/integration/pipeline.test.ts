@@ -281,7 +281,7 @@ describe("Pipeline Integration Tests", () => {
         outputTokens: 500,
         cacheReadTokens: 200,
         totalCostUsd: summary.totalCostUsd,
-        byRole: {},
+        byRoleModel: {},
       });
       expect(costEvents).toHaveLength(1);
 

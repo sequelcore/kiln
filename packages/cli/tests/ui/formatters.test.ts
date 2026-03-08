@@ -192,8 +192,8 @@ describe("formatCost", () => {
       totalCacheWriteTokens: 0,
       totalToolCalls: 5,
       totalCostUsd: 0.42,
-      byRole: {
-        architect: {
+      byRoleModel: {
+        "architect:claude-opus-4-6": {
           role: "architect" as const,
           model: "claude-opus-4-6",
           inputTokens: 600,
@@ -202,7 +202,7 @@ describe("formatCost", () => {
           cacheWriteTokens: 0,
           calls: 3,
         },
-        worker: {
+        "worker:claude-sonnet-4-6": {
           role: "worker" as const,
           model: "claude-sonnet-4-6",
           inputTokens: 400,
@@ -219,7 +219,7 @@ describe("formatCost", () => {
     expect(result).toContain("worker:");
   });
 
-  it("handles empty byRole", () => {
+  it("handles empty byRoleModel", () => {
     const summary = {
       totalInputTokens: 0,
       totalOutputTokens: 0,
@@ -227,7 +227,7 @@ describe("formatCost", () => {
       totalCacheWriteTokens: 0,
       totalToolCalls: 0,
       totalCostUsd: 0,
-      byRole: {},
+      byRoleModel: {},
     };
     const result = formatCost(summary);
     expect(result).toBe("Cost: $0.00");
@@ -316,7 +316,7 @@ describe("formatEvent", () => {
       outputTokens: 500,
       cacheReadTokens: 0,
       totalCostUsd: 0.42,
-      byRole: {},
+      byRoleModel: {},
     };
     expect(formatEvent(event)).toBe("[Cost] $0.42 total");
   });

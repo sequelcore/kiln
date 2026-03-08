@@ -26,8 +26,6 @@ describe("mapEventToSpan (Phase 9)", () => {
                 expect(result.name).toBe("model_routed");
                 expect(result.attributes["gen_ai.request.model"]).toBe("claude-sonnet-4-6");
                 expect(result.attributes["gen_ai.system"]).toBe("anthropic");
-                expect(result.attributes["model"]).toBe("claude-sonnet-4-6");
-                expect(result.attributes["provider"]).toBe("anthropic");
                 expect(result.attributes["routingTier"]).toBe("complexity");
                 expect(result.attributes["complexityScore"]).toBe(0.75);
                 expect(result.attributes["reason"]).toBe("High complexity detected");
@@ -136,7 +134,7 @@ describe("mapEventToSpan (Phase 9)", () => {
     });
 
     describe("cost_update gen_ai attributes", () => {
-        it("includes both gen_ai.* and legacy attributes", () => {
+        it("maps cost_update to gen_ai.* attributes", () => {
             const result = mapEventToSpan(
                 ev({
                     type: "cost_update",
@@ -144,19 +142,14 @@ describe("mapEventToSpan (Phase 9)", () => {
                     outputTokens: 800,
                     cacheReadTokens: 200,
                     totalCostUsd: 0.05,
-                    byRole: {},
+                    byRoleModel: {},
                 }),
             );
             expect(result.action).toBe("setAttributes");
             if (result.action === "setAttributes") {
-                // OTel GenAI conventions
                 expect(result.attributes["gen_ai.usage.input_tokens"]).toBe(1500);
                 expect(result.attributes["gen_ai.usage.output_tokens"]).toBe(800);
                 expect(result.attributes["gen_ai.usage.cache_read_input_tokens"]).toBe(200);
-                // Legacy Kiln attributes (backward compat)
-                expect(result.attributes["inputTokens"]).toBe(1500);
-                expect(result.attributes["outputTokens"]).toBe(800);
-                expect(result.attributes["cacheReadTokens"]).toBe(200);
                 expect(result.attributes["totalCostUsd"]).toBe(0.05);
             }
         });
@@ -169,7 +162,7 @@ describe("mapEventToSpan (Phase 9)", () => {
                     outputTokens: 50,
                     cacheReadTokens: 0,
                     totalCostUsd: 0.01,
-                    byRole: {},
+                    byRoleModel: {},
                     agentId: "sales-agent",
                 }),
             );

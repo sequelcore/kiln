@@ -131,13 +131,12 @@ export class PrometheusCollector implements EventStore {
           outputTokens: number;
           cacheReadTokens: number;
           totalCostUsd: number;
-          byRole: Record<
+          byRoleModel: Record<
             string,
             { model: string; calls: number; costUsd: number }
           >;
         };
-        // Extract provider/model from byRole entries
-        for (const [, role] of Object.entries(e.byRole)) {
+        for (const [, role] of Object.entries(e.byRoleModel)) {
           const model = role.model;
           const provider = this.inferProvider(model);
           this.counters.llm_requests?.inc({

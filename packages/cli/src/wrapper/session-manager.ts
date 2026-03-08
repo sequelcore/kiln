@@ -70,10 +70,10 @@ export class SessionManager {
       : 0;
 
     const costSummary = this.orchestrator?.costSummary;
-    const byRole: Record<string, number> = {};
+    const byRoleModel: Record<string, number> = {};
     if (costSummary) {
-      for (const [role, usage] of Object.entries(costSummary.byRole)) {
-        byRole[role] = computeRoleCostUsd(usage);
+      for (const [key, usage] of Object.entries(costSummary.byRoleModel)) {
+        byRoleModel[key] = computeRoleCostUsd(usage);
       }
     }
 
@@ -84,7 +84,7 @@ export class SessionManager {
       phaseReached: this.orchestrator?.currentPhase ?? "analyze",
       cost: {
         total: costSummary?.totalCostUsd ?? 0,
-        byRole,
+        byRoleModel,
       },
       duration,
     };

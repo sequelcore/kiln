@@ -121,7 +121,7 @@ describe("SessionManager", () => {
       expect(report.sessionId).toBe("test-session-id");
       expect(report.domain).toBeTruthy();
       expect(report.cost).toHaveProperty("total");
-      expect(report.cost).toHaveProperty("byRole");
+      expect(report.cost).toHaveProperty("byRoleModel");
       expect(report.duration).toBeGreaterThanOrEqual(0);
     });
   });

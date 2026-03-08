@@ -20,7 +20,7 @@ interface CostData {
   totalCacheReadTokens: number;
   totalCacheWriteTokens: number;
   totalToolCalls: number;
-  byRole: Record<string, RoleCost>;
+  byRoleModel: Record<string, RoleCost>;
 }
 
 function formatUsd(value: number): string {
@@ -45,7 +45,7 @@ export function CostView(): ReactNode {
     if (costEventCount > 0) void refetch();
   }, [costEventCount, refetch]);
 
-  const roles = data ? Object.values(data.byRole) : [];
+  const roles = data ? Object.values(data.byRoleModel) : [];
 
   return (
     <div>

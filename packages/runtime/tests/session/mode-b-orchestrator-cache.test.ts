@@ -5,7 +5,7 @@ import { ModeBOrchestrator } from "../../src/session/mode-b-orchestrator.js";
 import { ModeBSession } from "../../src/session/mode-b-session.js";
 
 function makeSession(): ModeBSession {
-  return new ModeBSession({ appName: "app", userId: "user-1", systemPrompt: "Be helpful." });
+  return new ModeBSession({ appName: "app", tenantId: "test-tenant", userId: "user-1", systemPrompt: "Be helpful." });
 }
 
 function makeProviderWithToolCall(): ProviderAdapter {
@@ -202,7 +202,7 @@ describe("ModeBOrchestrator - Tool Result Caching", () => {
     expect(toolCache.size).toBe(0);
   });
 
-  it("works without toolCache (backward compatible)", async () => {
+  it("works without toolCache", async () => {
     const provider = makeProviderWithToolCall();
 
     const orchestrator = new ModeBOrchestrator({

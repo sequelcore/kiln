@@ -124,7 +124,7 @@ export function formatTaskTree(nodes: readonly TaskNode[]): string[] {
  */
 export function formatCost(summary: CostSummary): string {
   const total = `$${summary.totalCostUsd.toFixed(2)}`;
-  const roles = Object.entries(summary.byRole) as [string, RoleUsage][];
+  const roles = Object.entries(summary.byRoleModel) as [string, RoleUsage][];
 
   if (roles.length === 0) return `Cost: ${total}`;
 

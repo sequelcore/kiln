@@ -30,7 +30,7 @@ export interface SessionReport {
   readonly phaseReached: string;
   readonly cost: {
     readonly total: number;
-    readonly byRole: Record<string, number>;
+    readonly byRoleModel: Record<string, number>;
   };
   readonly duration: number;
 }

@@ -468,8 +468,8 @@ export class Orchestrator {
 
       // M4: reset cost tracker before replaying checkpoint costs to avoid double-counting
       this._costTracker = new CostTracker();
-      for (const role of Object.keys(checkpoint.costSummary.byRole)) {
-        const usage = checkpoint.costSummary.byRole[role];
+      for (const key of Object.keys(checkpoint.costSummary.byRoleModel)) {
+        const usage = checkpoint.costSummary.byRoleModel[key];
         if (usage) {
           this._costTracker.record(usage.role, usage.model, {
             inputTokens: usage.inputTokens,

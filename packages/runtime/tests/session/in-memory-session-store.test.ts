@@ -5,6 +5,7 @@ import { ModeBSession } from "../../src/session/mode-b-session.js";
 function makeSession(userId: string): ModeBSession {
   return new ModeBSession({
     appName: "app",
+    tenantId: "test-tenant",
     userId,
     systemPrompt: "sys",
   });

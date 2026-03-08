@@ -26,7 +26,7 @@ describe("createTenantAdminRoutes", () => {
   beforeEach(() => {
     const storageDir = join(tmpdir(), `kiln-admin-test-${randomUUID()}`);
     tenantRegistry = new TenantRegistry(storageDir);
-    config = { tenantRegistry, appName: "test-app" };
+    config = { tenantRegistry, appName: "test-app", sessionRegistry: new SessionRegistry() };
   });
 
   describe("GET /tenants", () => {
@@ -355,23 +355,6 @@ describe("createTenantAdminRoutes", () => {
       expect(await sessionRegistry.get("test-app", "u1", "doomed")).toBeUndefined();
     });
 
-    it("works without sessionRegistry (backward compatible)", async () => {
-      const app = createTenantAdminRoutes(config); // no sessionRegistry
-
-      await app.request("/tenants", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(makeTenantBody({ tenantId: "safe", name: "Safe Salon" })),
-      });
-
-      const res = await app.request("/tenants/safe", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: "Updated" }),
-      });
-
-      expect(res.status).toBe(200);
-    });
   });
 
   describe("admin token enforcement", () => {

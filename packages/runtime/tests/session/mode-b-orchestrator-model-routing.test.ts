@@ -21,7 +21,7 @@ function makeProvider(name = "mock"): ProviderAdapter {
 }
 
 function makeSession(systemPrompt = "You are helpful."): ModeBSession {
-  return new ModeBSession({ appName: "app", userId: "user-1", systemPrompt });
+  return new ModeBSession({ appName: "app", tenantId: "test-tenant", userId: "user-1", systemPrompt });
 }
 
 function makeRouter(decision: RoutingDecision): ModelRouter {

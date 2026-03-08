@@ -12,9 +12,9 @@ const originalFetch = globalThis.fetch;
 
 function makeMockSession(): ModeBSession {
   return {
-    id: "test-app:user-1:12345",
+    id: "test-app:test-tenant:user-1:12345",
     appName: "test-app",
-    tenantId: undefined,
+    tenantId: "test-tenant",
     userId: "user-1",
     sessionMode: "ai_active",
   } as unknown as ModeBSession;
@@ -61,6 +61,7 @@ function makeBaseContext(overrides: Partial<InboundMessageContext> = {}): Inboun
     orchestrator: makeMockOrchestrator(),
     sessionRegistry: makeMockSessionRegistry(),
     appName: "test-app",
+    tenantId: "test-tenant",
     userId: "user-1",
     systemPrompt: "You are a test assistant.",
     userParts: textParts("hello"),
@@ -93,7 +94,7 @@ describe("processInboundMessage", () => {
       expect(result.result.cacheReadTokens).toBe(10);
       expect(result.result.cacheWriteTokens).toBe(5);
       expect(result.result.queued).toBe(false);
-      expect(result.result.sessionId).toBe("test-app:user-1:12345");
+      expect(result.result.sessionId).toBe("test-app:test-tenant:user-1:12345");
       expect(result.result.sessionMode).toBe("ai_active");
     }
   });
@@ -136,13 +137,13 @@ describe("processInboundMessage", () => {
     expect(usageCall[0]).toBe("https://api.example.com/users/{userId}/ai-usage");
     expect(usageCall[1]).toMatchObject({ method: "POST" });
     const usageBody = JSON.parse(usageCall[1].body as string);
-    expect(usageBody.tenantId).toBe("user-1");
+    expect(usageBody.tenantId).toBe("test-tenant");
     expect(usageBody.messages).toBe(1);
     expect(usageBody.tokens).toBe(150); // 100 input + 50 output
     expect(usageBody.model).toBe("claude-sonnet-4-20250514");
   });
 
-  it("emits MESSAGE_RECEIVED event when eventEmitter and tenantId are present", async () => {
+  it("emits MESSAGE_RECEIVED event when eventEmitter is present", async () => {
     const emitter = makeMockEventEmitter();
     const ctx = makeBaseContext({
       eventEmitter: emitter,
@@ -162,15 +163,6 @@ describe("processInboundMessage", () => {
     );
   });
 
-  it("does not emit event when no tenantId", async () => {
-    const emitter = makeMockEventEmitter();
-    const ctx = makeBaseContext({ eventEmitter: emitter });
-
-    await processInboundMessage(ctx);
-
-    expect(emitter.emit).not.toHaveBeenCalled();
-  });
-
   it("creates session via sessionRegistry.getOrCreate", async () => {
     const sessionRegistry = makeMockSessionRegistry();
     const ctx = makeBaseContext({ sessionRegistry });
@@ -179,14 +171,14 @@ describe("processInboundMessage", () => {
 
     expect(sessionRegistry.getOrCreate).toHaveBeenCalledWith({
       appName: "test-app",
-      tenantId: undefined,
+      tenantId: "test-tenant",
       userId: "user-1",
       systemPrompt: "You are a test assistant.",
       idleTimeoutMs: undefined,
     });
   });
 
-  it("passes tenantId to sessionRegistry.getOrCreate when provided", async () => {
+  it("passes tenantId to sessionRegistry.getOrCreate", async () => {
     const sessionRegistry = makeMockSessionRegistry();
     const ctx = makeBaseContext({ sessionRegistry, tenantId: "tenant-1" });
 
@@ -240,7 +232,7 @@ describe("processInboundMessage", () => {
     );
   });
 
-  it("uses tenantId for billing when tenantId is present", async () => {
+  it("uses tenantId for billing", async () => {
     const ctx = makeBaseContext({
       billing: makeBillingConfig(),
       tenantId: "tenant-1",
