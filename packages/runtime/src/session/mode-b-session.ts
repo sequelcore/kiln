@@ -6,6 +6,8 @@ import { transitionSessionMode } from "./session-mode.js";
 export interface AgentTurnEntry {
   readonly agentId: string;
   readonly turnIndex: number;
+  readonly handoffBrief?: string;
+  readonly fromAgentId?: string;
 }
 
 export interface SerializedSessionData {
@@ -22,6 +24,8 @@ export interface SerializedSessionData {
   readonly history: readonly AgentMessage[];
   readonly activeAgentId?: string;
   readonly agentTurnHistory?: readonly AgentTurnEntry[];
+  readonly handoffCount?: number;
+  readonly lastRouteChangeAt?: number;
 }
 
 export interface ModeBSessionConfig {
@@ -48,6 +52,8 @@ export class ModeBSession {
   private _loadedVersion = 0;
   private _activeAgentId: string | undefined;
   private _agentTurnHistory: AgentTurnEntry[] = [];
+  private _handoffCount = 0;
+  private _lastRouteChangeAt = 0;
 
   constructor(config: ModeBSessionConfig) {
     this.appName = config.appName;
@@ -123,6 +129,9 @@ export class ModeBSession {
     if (data.agentTurnHistory) {
       (session as unknown as { _agentTurnHistory: AgentTurnEntry[] })._agentTurnHistory = [...data.agentTurnHistory];
     }
+    // Restore handoff tracking
+    (session as unknown as { _handoffCount: number })._handoffCount = data.handoffCount ?? 0;
+    (session as unknown as { _lastRouteChangeAt: number })._lastRouteChangeAt = data.lastRouteChangeAt ?? 0;
     // Restore version and record loaded version for conflict detection
     const storedVersion = data.version ?? 0;
     (session as unknown as { _version: number })._version = storedVersion;
@@ -162,9 +171,21 @@ export class ModeBSession {
     return this._agentTurnHistory;
   }
 
-  setActiveAgent(agentId: string): void {
+  get handoffCount(): number {
+    return this._handoffCount;
+  }
+
+  get lastRouteChangeAt(): number {
+    return this._lastRouteChangeAt;
+  }
+
+  setActiveAgent(agentId: string, handoffBrief?: string): void {
+    if (this._activeAgentId === agentId) return;
+    const fromAgentId = this._activeAgentId;
     this._activeAgentId = agentId;
-    this._agentTurnHistory.push({ agentId, turnIndex: this._history.length });
+    this._agentTurnHistory.push({ agentId, turnIndex: this._history.length, handoffBrief, fromAgentId });
+    this._handoffCount++;
+    this._lastRouteChangeAt = this._history.length;
     this._version++;
   }
 

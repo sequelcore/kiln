@@ -10,7 +10,9 @@ import { toInstagramFormat } from "../channels/message-formatter.js";
 import type { ModeBOrchestrator, PerCallToolConfig } from "../session/mode-b-orchestrator.js";
 import type { SessionRegistry } from "../session/session-registry.js";
 import type { TenantRegistry } from "../tenant/tenant-registry.js";
-import { resolveAgentContext } from "../tenant/agent-resolver.js";
+import { resolveAgentContextAsync } from "../tenant/agent-resolver.js";
+import type { AgentHandoffSummarizer } from "../session/agent-handoff-summarizer.js";
+import type { EventBus } from "@kilnai/core";
 import { sendInstagramMessage } from "../channels/instagram-api.js";
 import { checkBudget, reportUsage } from "./budget-middleware.js";
 import type { BillingConfig } from "./budget-middleware.js";
@@ -38,6 +40,8 @@ export interface InstagramWebhookConfig {
   readonly knowledgeMode?: "auto" | "tool";
   readonly contactMemoryService?: ContactMemoryService;
   readonly dedup?: WebhookDedup;
+  readonly handoffSummarizer?: AgentHandoffSummarizer;
+  readonly eventBus?: EventBus;
 }
 
 /** Instagram webhook messaging entry */
@@ -291,21 +295,26 @@ async function processInstagramMessage(
     }
   }
 
-  // Resolve agent context (multi-agent routing or single-agent)
-  const agentCtx = resolveAgentContext(tenant, processedParts, "instagram", undefined, callTools);
-
+  // Get or create session first (needed for ping-pong guard)
   const session = await config.sessionRegistry.getOrCreate({
     appName: config.appName,
     tenantId,
     userId: senderId,
-    systemPrompt: agentCtx.systemPrompt,
+    systemPrompt: "",
     idleTimeoutMs: tenant.idleTimeoutMs,
   });
 
-  // Track active agent on session
-  if (agentCtx.activeAgentId && agentCtx.activeAgentId !== session.activeAgentId) {
-    session.setSystemPrompt(agentCtx.systemPrompt);
-    session.setActiveAgent(agentCtx.activeAgentId);
+  // Resolve agent context (multi-agent routing with ping-pong guard)
+  const agentCtx = await resolveAgentContextAsync(
+    tenant, processedParts, session,
+    { handoffSummarizer: config.handoffSummarizer, eventBus: config.eventBus },
+    "instagram", callTools,
+  );
+
+  // Update session with resolved prompt and agent
+  session.setSystemPrompt(agentCtx.systemPrompt);
+  if (agentCtx.activeAgentId) {
+    session.setActiveAgent(agentCtx.activeAgentId, agentCtx.handoffBrief);
   }
 
   const tenantToolCtx = agentCtx.tenantToolContext;
@@ -424,6 +433,27 @@ async function processInstagramMessage(
         externalUserId: senderId,
         activeAgentId: agentCtx.activeAgentId,
         activeAgentName: agentCtx.activeAgentName,
+        traceId: trace.traceId,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // Emit AGENT_HANDOFF when an agent switch occurred (or was blocked)
+    if ((agentCtx.isHandoff || agentCtx.pingPongBlocked) && config.eventEmitter) {
+      const fromAgent = tenant.agents?.find((a) => a.id === agentCtx.previousAgentId);
+      const toAgent = tenant.agents?.find((a) => a.id === agentCtx.activeAgentId);
+      config.eventEmitter.emit({
+        eventType: "AGENT_HANDOFF",
+        tenantId,
+        channel: "instagram",
+        externalUserId: senderId,
+        fromAgentId: agentCtx.previousAgentId,
+        fromAgentName: fromAgent?.name,
+        toAgentId: agentCtx.activeAgentId,
+        toAgentName: toAgent?.name,
+        handoffBrief: agentCtx.handoffBrief,
+        handoffBlocked: agentCtx.pingPongBlocked,
+        handoffBlockReason: agentCtx.pingPongReason,
         traceId: trace.traceId,
         timestamp: new Date().toISOString(),
       });

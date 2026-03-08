@@ -331,4 +331,100 @@ describe("TenantConfig multi-agent validation", () => {
       expect(errors.length).toBeGreaterThanOrEqual(9);
     });
   });
+
+  // ── Routing Guard Config Validation ─────────────────────────────────
+
+  describe("routing guard config validation", () => {
+    it("rerouteAfterTurns accepted in validation", () => {
+      const config = makeTenantConfig({
+        agents: [
+          makeAgent({ id: "a" }),
+          makeAgent({ id: "b", name: "B", role: "B", goal: "B" }),
+        ],
+        routing: { fallback: "a", rerouteAfterTurns: 2 },
+      });
+      expect(validateTenantConfig(config)).toEqual([]);
+    });
+
+    it("maxHandoffs accepted in validation", () => {
+      const config = makeTenantConfig({
+        agents: [
+          makeAgent({ id: "a" }),
+          makeAgent({ id: "b", name: "B", role: "B", goal: "B" }),
+        ],
+        routing: { fallback: "a", maxHandoffs: 5 },
+      });
+      expect(validateTenantConfig(config)).toEqual([]);
+    });
+
+    it("rerouteAfterTurns=0 is valid (disables cooldown)", () => {
+      const config = makeTenantConfig({
+        agents: [
+          makeAgent({ id: "a" }),
+          makeAgent({ id: "b", name: "B", role: "B", goal: "B" }),
+        ],
+        routing: { fallback: "a", rerouteAfterTurns: 0 },
+      });
+      expect(validateTenantConfig(config)).toEqual([]);
+    });
+
+    it("rerouteAfterTurns negative rejected", () => {
+      const config = makeTenantConfig({
+        agents: [
+          makeAgent({ id: "a" }),
+          makeAgent({ id: "b", name: "B", role: "B", goal: "B" }),
+        ],
+        routing: { fallback: "a", rerouteAfterTurns: -1 },
+      });
+      const errors = validateTenantConfig(config);
+      expect(errors.some((e) => e.field === "routing.rerouteAfterTurns")).toBe(true);
+    });
+
+    it("rerouteAfterTurns float rejected", () => {
+      const config = makeTenantConfig({
+        agents: [
+          makeAgent({ id: "a" }),
+          makeAgent({ id: "b", name: "B", role: "B", goal: "B" }),
+        ],
+        routing: { fallback: "a", rerouteAfterTurns: 1.5 },
+      });
+      const errors = validateTenantConfig(config);
+      expect(errors.some((e) => e.field === "routing.rerouteAfterTurns")).toBe(true);
+    });
+
+    it("maxHandoffs zero rejected", () => {
+      const config = makeTenantConfig({
+        agents: [
+          makeAgent({ id: "a" }),
+          makeAgent({ id: "b", name: "B", role: "B", goal: "B" }),
+        ],
+        routing: { fallback: "a", maxHandoffs: 0 },
+      });
+      const errors = validateTenantConfig(config);
+      expect(errors.some((e) => e.field === "routing.maxHandoffs")).toBe(true);
+    });
+
+    it("maxHandoffs negative rejected", () => {
+      const config = makeTenantConfig({
+        agents: [
+          makeAgent({ id: "a" }),
+          makeAgent({ id: "b", name: "B", role: "B", goal: "B" }),
+        ],
+        routing: { fallback: "a", maxHandoffs: -2 },
+      });
+      const errors = validateTenantConfig(config);
+      expect(errors.some((e) => e.field === "routing.maxHandoffs")).toBe(true);
+    });
+
+    it("existing config without new fields valid", () => {
+      const config = makeTenantConfig({
+        agents: [
+          makeAgent({ id: "a" }),
+          makeAgent({ id: "b", name: "B", role: "B", goal: "B" }),
+        ],
+        routing: { fallback: "a" },
+      });
+      expect(validateTenantConfig(config)).toEqual([]);
+    });
+  });
 });

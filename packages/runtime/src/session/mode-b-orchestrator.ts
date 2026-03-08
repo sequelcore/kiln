@@ -212,7 +212,7 @@ export class ModeBOrchestrator {
       totalCacheRead += response.cacheReadTokens;
       totalCacheWrite += response.cacheWriteTokens;
 
-      this.emitCostUpdate(session.id, totalInputTokens, totalOutputTokens, totalCacheRead, totalCacheWrite);
+      this.emitCostUpdate(session.id, totalInputTokens, totalOutputTokens, totalCacheRead, totalCacheWrite, session.activeAgentId);
 
       if (!hasTools || response.toolCalls.length === 0) {
         session.addAssistantMessage(response.parts);
@@ -444,7 +444,7 @@ export class ModeBOrchestrator {
     totalCacheRead += finalResponse.cacheReadTokens;
     totalCacheWrite += finalResponse.cacheWriteTokens;
 
-    this.emitCostUpdate(session.id, totalInputTokens, totalOutputTokens, totalCacheRead, totalCacheWrite);
+    this.emitCostUpdate(session.id, totalInputTokens, totalOutputTokens, totalCacheRead, totalCacheWrite, session.activeAgentId);
 
     session.addAssistantMessage(finalResponse.parts);
 
@@ -620,6 +620,7 @@ export class ModeBOrchestrator {
     outputTokens: number,
     cacheReadTokens: number,
     cacheWriteTokens: number,
+    agentId?: string,
   ): void {
     const totalCostUsd = this.computeTotalCostUsd(inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens);
     const model = this.deps.model ?? "unknown";
@@ -635,6 +636,7 @@ export class ModeBOrchestrator {
       },
       timestamp: new Date(),
       sessionId,
+      ...(agentId ? { agentId } : {}),
     };
     this.deps.eventBus?.emit(event);
   }

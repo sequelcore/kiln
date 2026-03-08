@@ -11,7 +11,9 @@ import { checkTier } from "./budget-middleware.js";
 import type { BillingConfig } from "./budget-middleware.js";
 import { requireApiKey } from "./auth-middleware.js";
 import { processInboundMessage } from "./message-pipeline.js";
-import { resolveAgentContext } from "../tenant/agent-resolver.js";
+import { resolveAgentContextAsync } from "../tenant/agent-resolver.js";
+import type { AgentHandoffSummarizer } from "../session/agent-handoff-summarizer.js";
+import type { EventBus } from "@kilnai/core";
 
 /** Runtime configuration for a Mode B App */
 export interface ModeBAppRuntime {
@@ -24,6 +26,8 @@ export interface ModeBAppRuntime {
   readonly knowledgePipeline?: RetrievalPipeline;
   readonly knowledgeMode?: "auto" | "tool";
   readonly tenant?: TenantConfig;
+  readonly handoffSummarizer?: AgentHandoffSummarizer;
+  readonly eventBus?: EventBus;
 }
 
 /** Request body for POST /message */
@@ -90,10 +94,26 @@ export function createModeBRoutes(runtime: ModeBAppRuntime): Hono {
     let activeAgentId: string | undefined;
     let activeAgentName: string | undefined;
     if (runtime.tenant) {
-      const agentCtx = resolveAgentContext(runtime.tenant, userParts);
+      // Get or create session for ping-pong guard context
+      const session = await runtime.sessionRegistry.getOrCreate({
+        appName: runtime.appName,
+        userId: body.userId,
+        systemPrompt: "",
+      });
+      const agentCtx = await resolveAgentContextAsync(
+        runtime.tenant, userParts, session,
+        { handoffSummarizer: runtime.handoffSummarizer, eventBus: runtime.eventBus },
+      );
       systemPrompt = agentCtx.systemPrompt;
       activeAgentId = agentCtx.activeAgentId;
       activeAgentName = agentCtx.activeAgentName;
+
+      // Update session with resolved prompt and agent
+      session.setSystemPrompt(agentCtx.systemPrompt);
+      if (agentCtx.activeAgentId) {
+        session.setActiveAgent(agentCtx.activeAgentId, agentCtx.handoffBrief);
+      }
+      await runtime.sessionRegistry.save(session);
     }
 
     let processResult;

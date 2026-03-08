@@ -28,6 +28,12 @@ export interface InboundMessageContext {
   readonly traceId?: string;
   readonly activeAgentId?: string;
   readonly activeAgentName?: string;
+  readonly isHandoff?: boolean;
+  readonly previousAgentId?: string;
+  readonly previousAgentName?: string;
+  readonly handoffBrief?: string;
+  readonly pingPongBlocked?: boolean;
+  readonly pingPongReason?: string;
 }
 
 export interface InboundMessageResult {
@@ -177,6 +183,25 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
         externalUserId: ctx.userId,
         activeAgentId: ctx.activeAgentId,
         activeAgentName: ctx.activeAgentName,
+        traceId: trace.traceId,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // Emit AGENT_HANDOFF when an agent switch occurred (or was blocked)
+    if (ctx.isHandoff || ctx.pingPongBlocked) {
+      ctx.eventEmitter.emit({
+        eventType: "AGENT_HANDOFF",
+        tenantId: ctx.tenantId!,
+        channel: ctx.channel,
+        externalUserId: ctx.userId,
+        fromAgentId: ctx.previousAgentId,
+        fromAgentName: ctx.previousAgentName,
+        toAgentId: ctx.activeAgentId,
+        toAgentName: ctx.activeAgentName,
+        handoffBrief: ctx.handoffBrief,
+        handoffBlocked: ctx.pingPongBlocked,
+        handoffBlockReason: ctx.pingPongReason,
         traceId: trace.traceId,
         timestamp: new Date().toISOString(),
       });

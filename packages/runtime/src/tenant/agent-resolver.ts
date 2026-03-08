@@ -1,13 +1,15 @@
 // Agent resolver: single integration point for multi-agent routing in all channel handlers.
 // Resolves which agent handles a message, builds the agent-specific system prompt and tool context.
 
-import type { ContentPart, TenantConfig, TenantAgentConfig } from "@kilnai/core";
+import type { ContentPart, TenantConfig, TenantAgentConfig, EventBus, HandoffRequestedEvent, HandoffCompletedEvent } from "@kilnai/core";
 import { buildTenantSystemPrompt } from "./system-prompt-builder.js";
 import { buildTenantToolContext } from "../gateway/tenant-tool-factory.js";
 import type { TenantToolContext } from "../gateway/tenant-tool-factory.js";
 import { DefaultTenantRouter } from "./tenant-router.js";
 import type { RoutingResult } from "./tenant-router.js";
 import type { ModeBSession } from "../session/mode-b-session.js";
+import { checkPingPong } from "./ping-pong-guard.js";
+import type { AgentHandoffSummarizer } from "../session/agent-handoff-summarizer.js";
 
 export interface ResolvedAgentContext {
   readonly systemPrompt: string;
@@ -16,6 +18,15 @@ export interface ResolvedAgentContext {
   readonly activeAgentName?: string;
   readonly routingResult?: RoutingResult;
   readonly previousAgentId?: string;
+  readonly isHandoff: boolean;
+  readonly pingPongBlocked?: boolean;
+  readonly pingPongReason?: string;
+  readonly handoffBrief?: string;
+}
+
+export interface AsyncAgentResolverDeps {
+  readonly handoffSummarizer?: AgentHandoffSummarizer;
+  readonly eventBus?: EventBus;
 }
 
 export function buildAgentSystemPrompt(basePrompt: string, agent: TenantAgentConfig): string {
@@ -53,6 +64,7 @@ export function resolveAgentContext(
     return {
       systemPrompt: basePrompt,
       tenantToolContext: buildTenantToolContext(tenant, existingBuiltins),
+      isHandoff: false,
     };
   }
 
@@ -65,6 +77,7 @@ export function resolveAgentContext(
       tenantToolContext: toolCtx,
       activeAgentId: agent.id,
       activeAgentName: agent.name,
+      isHandoff: false,
     };
   }
 
@@ -79,11 +92,35 @@ export function resolveAgentContext(
       tenantToolContext: toolCtx,
       activeAgentId: agent.id,
       activeAgentName: agent.name,
+      isHandoff: false,
     };
   }
 
   const router = new DefaultTenantRouter(tenant.routing);
   const routingResult = router.route(userParts);
+
+  // Ping-pong guard: prevent rapid agent switching loops
+  if (session && tenant.routing) {
+    const guardResult = checkPingPong(routingResult, session, tenant.routing);
+    if (guardResult.blocked) {
+      // Keep current agent
+      const currentAgent = tenant.agents.find((a) => a.id === session.activeAgentId)
+        ?? tenant.agents.find((a) => a.isDefault) ?? tenant.agents[0]!;
+      const systemPrompt = buildAgentSystemPrompt(basePrompt, currentAgent);
+      const toolCtx = buildAgentToolContext(tenant, currentAgent, existingBuiltins);
+      return {
+        systemPrompt,
+        tenantToolContext: toolCtx,
+        activeAgentId: currentAgent.id,
+        activeAgentName: currentAgent.name,
+        routingResult,
+        previousAgentId: session.activeAgentId,
+        isHandoff: false,
+        pingPongBlocked: true,
+        pingPongReason: guardResult.reason,
+      };
+    }
+  }
 
   // Find the selected agent
   let selectedAgent = tenant.agents.find((a) => a.id === routingResult.agentId);
@@ -93,6 +130,7 @@ export function resolveAgentContext(
   }
 
   const previousAgentId = session?.activeAgentId;
+  const isHandoff = previousAgentId !== undefined && previousAgentId !== selectedAgent.id;
   const systemPrompt = buildAgentSystemPrompt(basePrompt, selectedAgent);
   const toolCtx = buildAgentToolContext(tenant, selectedAgent, existingBuiltins);
 
@@ -103,6 +141,71 @@ export function resolveAgentContext(
     activeAgentName: selectedAgent.name,
     routingResult,
     previousAgentId,
+    isHandoff,
+  };
+}
+
+export async function resolveAgentContextAsync(
+  tenant: TenantConfig,
+  userParts: readonly ContentPart[],
+  session: ModeBSession,
+  deps?: AsyncAgentResolverDeps,
+  channel?: "web" | "whatsapp" | "instagram" | "messenger" | "email",
+  existingBuiltins?: ReadonlyMap<string, (input: Record<string, unknown>) => Promise<unknown>>,
+): Promise<ResolvedAgentContext> {
+  const result = resolveAgentContext(tenant, userParts, channel, session, existingBuiltins);
+
+  // No handoff or blocked by guard or no summarizer → return as-is
+  if (!result.isHandoff || result.pingPongBlocked || !deps?.handoffSummarizer) {
+    return result;
+  }
+
+  // Resolve agent names for the brief
+  const fromAgent = tenant.agents?.find((a) => a.id === result.previousAgentId);
+  const toAgent = tenant.agents?.find((a) => a.id === result.activeAgentId);
+  const fromName = fromAgent?.name ?? result.previousAgentId ?? "unknown";
+  const toName = toAgent?.name ?? result.activeAgentId ?? "unknown";
+
+  // Emit handoff_requested event
+  if (deps.eventBus) {
+    const reqEvent: HandoffRequestedEvent = {
+      type: "handoff_requested",
+      fromAgent: fromName,
+      toAgent: toName,
+      reason: "agent_routing",
+      timestamp: new Date(),
+      sessionId: session.id,
+    };
+    deps.eventBus.emit(reqEvent);
+  }
+
+  let brief: string | undefined;
+  try {
+    brief = await deps.handoffSummarizer.summarize(session, fromName, toName);
+  } catch {
+    // Fail-open: return original result without brief
+    return result;
+  }
+
+  // Emit handoff_completed event
+  if (deps.eventBus) {
+    const compEvent: HandoffCompletedEvent = {
+      type: "handoff_completed",
+      fromAgent: fromName,
+      toAgent: toName,
+      accepted: true,
+      timestamp: new Date(),
+      sessionId: session.id,
+    };
+    deps.eventBus.emit(compEvent);
+  }
+
+  const enrichedPrompt = brief ? `${result.systemPrompt}\n\n${brief}` : result.systemPrompt;
+
+  return {
+    ...result,
+    systemPrompt: enrichedPrompt,
+    handoffBrief: brief || undefined,
   };
 }
 

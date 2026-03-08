@@ -14,7 +14,8 @@ export type ConversationEventType =
   | "HANDOFF_MESSAGE_QUEUED"
   | "TOOL_CALLED"
   | "TOOL_EXECUTED"
-  | "AGENT_ROUTED";
+  | "AGENT_ROUTED"
+  | "AGENT_HANDOFF";
 
 export interface ConversationEvent {
   readonly eventType: ConversationEventType;
@@ -57,6 +58,20 @@ export interface ConversationEvent {
   readonly activeAgentId?: string;
   /** Active agent name -- present for AGENT_ROUTED events */
   readonly activeAgentName?: string;
+  /** Previous agent ID -- present for AGENT_HANDOFF events */
+  readonly fromAgentId?: string;
+  /** Previous agent name -- present for AGENT_HANDOFF events */
+  readonly fromAgentName?: string;
+  /** New agent ID -- present for AGENT_HANDOFF events */
+  readonly toAgentId?: string;
+  /** New agent name -- present for AGENT_HANDOFF events */
+  readonly toAgentName?: string;
+  /** Handoff context brief -- present for AGENT_HANDOFF events */
+  readonly handoffBrief?: string;
+  /** Whether handoff was blocked by ping-pong guard -- present for AGENT_HANDOFF events */
+  readonly handoffBlocked?: boolean;
+  /** Reason for ping-pong block -- present for AGENT_HANDOFF events */
+  readonly handoffBlockReason?: string;
 }
 
 export interface ConversationEventBatch {

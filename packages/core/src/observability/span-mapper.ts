@@ -154,6 +154,7 @@ function mapCostUpdate(e: CostUpdateEvent): SpanOperation {
             outputTokens: e.outputTokens,
             cacheReadTokens: e.cacheReadTokens,
             totalCostUsd: e.totalCostUsd,
+            ...(e.agentId ? { agentId: e.agentId } : {}),
         },
     };
 }

@@ -101,7 +101,19 @@ describe("createWsTenantRoutes", () => {
       resolveByWidgetId: vi.fn(),
     } as unknown as TenantRegistry;
 
-    mockSession = { id: "sess-1", userId: "user-1", tenantId: "salon-test" };
+    mockSession = {
+      id: "sess-1",
+      userId: "user-1",
+      tenantId: "salon-test",
+      conversationHistory: [],
+      agentTurnHistory: [],
+      handoffCount: 0,
+      lastRouteChangeAt: 0,
+      activeAgentId: undefined,
+      sessionMode: "ai_active",
+      setSystemPrompt: vi.fn(),
+      setActiveAgent: vi.fn(),
+    };
 
     mockSessionRegistry = {
       getOrCreate: vi.fn().mockResolvedValue(mockSession),
@@ -256,9 +268,11 @@ describe("createWsTenantRoutes", () => {
           appName: TEST_APP,
           tenantId: "salon-test",
           userId: "user-2",
-          systemPrompt: expect.stringContaining("Test Salon"),
+          systemPrompt: "",
         }),
       );
+      // System prompt is set after session creation via setSystemPrompt
+      expect(mockSession.setSystemPrompt).toHaveBeenCalled();
     });
 
     it("sends done frame with response after processing", async () => {

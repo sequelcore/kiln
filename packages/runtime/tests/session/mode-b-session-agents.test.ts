@@ -35,7 +35,7 @@ describe("ModeBSession agent fields", () => {
       const session = makeSession();
       session.setActiveAgent("support-agent");
       expect(session.agentTurnHistory).toHaveLength(1);
-      expect(session.agentTurnHistory[0]).toEqual({ agentId: "support-agent", turnIndex: 0 });
+      expect(session.agentTurnHistory[0]).toEqual({ agentId: "support-agent", turnIndex: 0, fromAgentId: undefined });
     });
 
     it("multiple calls accumulate in agentTurnHistory", () => {
@@ -63,7 +63,69 @@ describe("ModeBSession agent fields", () => {
       session.addAssistantMessage(textParts("hello"));
       session.setActiveAgent("agent-a");
 
-      expect(session.agentTurnHistory[0]).toEqual({ agentId: "agent-a", turnIndex: 2 });
+      expect(session.agentTurnHistory[0]).toEqual({ agentId: "agent-a", turnIndex: 2, fromAgentId: undefined });
+    });
+
+    it("same agentId is a no-op (version unchanged)", () => {
+      const session = makeSession();
+      session.setActiveAgent("agent-x");
+      const vBefore = session.version;
+      session.setActiveAgent("agent-x");
+      expect(session.version).toBe(vBefore);
+      expect(session.agentTurnHistory).toHaveLength(1);
+    });
+
+    it("no-op does not push to agentTurnHistory", () => {
+      const session = makeSession();
+      session.setActiveAgent("agent-x");
+      session.setActiveAgent("agent-x");
+      session.setActiveAgent("agent-x");
+      expect(session.agentTurnHistory).toHaveLength(1);
+    });
+
+    it("different agentId increments handoffCount", () => {
+      const session = makeSession();
+      expect(session.handoffCount).toBe(0);
+      session.setActiveAgent("agent-a");
+      expect(session.handoffCount).toBe(1);
+      session.setActiveAgent("agent-b");
+      expect(session.handoffCount).toBe(2);
+    });
+
+    it("handoffBrief stored in turn entry", () => {
+      const session = makeSession();
+      session.setActiveAgent("agent-a");
+      session.setActiveAgent("agent-b", "Customer needs billing help");
+      expect(session.agentTurnHistory[1]!.handoffBrief).toBe("Customer needs billing help");
+    });
+
+    it("fromAgentId is undefined for first agent assignment", () => {
+      const session = makeSession();
+      session.setActiveAgent("agent-a");
+      expect(session.agentTurnHistory[0]!.fromAgentId).toBeUndefined();
+    });
+
+    it("fromAgentId is previous agent on subsequent calls", () => {
+      const session = makeSession();
+      session.setActiveAgent("agent-a");
+      session.setActiveAgent("agent-b");
+      expect(session.agentTurnHistory[1]!.fromAgentId).toBe("agent-a");
+    });
+
+    it("lastRouteChangeAt reflects history length at switch time", () => {
+      const session = makeSession();
+      session.addUserMessage(textParts("hi"));
+      session.addAssistantMessage(textParts("hello"));
+      session.setActiveAgent("agent-a");
+      expect(session.lastRouteChangeAt).toBe(2);
+      session.addUserMessage(textParts("more"));
+      session.setActiveAgent("agent-b");
+      expect(session.lastRouteChangeAt).toBe(3);
+    });
+
+    it("handoffCount starts at 0", () => {
+      const session = makeSession();
+      expect(session.handoffCount).toBe(0);
     });
   });
 
@@ -94,6 +156,64 @@ describe("ModeBSession agent fields", () => {
       expect(parsed.agentTurnHistory).toEqual([{ agentId: "sales-agent", turnIndex: 0 }]);
     });
 
+    it("round-trip preserves handoffCount", () => {
+      const session = makeSession();
+      session.setActiveAgent("agent-a");
+      session.setActiveAgent("agent-b");
+
+      const json = serializeSession(session);
+      const restored = deserializeSession(json);
+
+      expect(restored.handoffCount).toBe(2);
+    });
+
+    it("round-trip preserves lastRouteChangeAt", () => {
+      const session = makeSession();
+      session.addUserMessage(textParts("hello"));
+      session.setActiveAgent("agent-a");
+
+      const json = serializeSession(session);
+      const restored = deserializeSession(json);
+
+      expect(restored.lastRouteChangeAt).toBe(1);
+    });
+
+    it("round-trip preserves handoffBrief in turn entry", () => {
+      const session = makeSession();
+      session.setActiveAgent("agent-a");
+      session.setActiveAgent("agent-b", "Customer wants refund");
+
+      const json = serializeSession(session);
+      const restored = deserializeSession(json);
+
+      expect(restored.agentTurnHistory[1]!.handoffBrief).toBe("Customer wants refund");
+    });
+
+    it("round-trip preserves fromAgentId in turn entry", () => {
+      const session = makeSession();
+      session.setActiveAgent("agent-a");
+      session.setActiveAgent("agent-b");
+
+      const json = serializeSession(session);
+      const restored = deserializeSession(json);
+
+      expect(restored.agentTurnHistory[1]!.fromAgentId).toBe("agent-a");
+    });
+
+    it("backward compat: old JSON without handoffCount/lastRouteChangeAt defaults to 0", () => {
+      const session = makeSession();
+      session.setActiveAgent("agent-a");
+
+      const json = serializeSession(session);
+      const parsed = JSON.parse(json);
+      delete parsed.handoffCount;
+      delete parsed.lastRouteChangeAt;
+
+      const restored = deserializeSession(JSON.stringify(parsed));
+      expect(restored.handoffCount).toBe(0);
+      expect(restored.lastRouteChangeAt).toBe(0);
+    });
+
     it("round-trip preserves activeAgentId", () => {
       const session = makeSession();
       session.setActiveAgent("billing-agent");
@@ -115,8 +235,8 @@ describe("ModeBSession agent fields", () => {
       const restored = deserializeSession(json);
 
       expect(restored.agentTurnHistory).toHaveLength(2);
-      expect(restored.agentTurnHistory[0]).toEqual({ agentId: "sales-agent", turnIndex: 1 });
-      expect(restored.agentTurnHistory[1]).toEqual({ agentId: "billing-agent", turnIndex: 2 });
+      expect(restored.agentTurnHistory[0]).toEqual({ agentId: "sales-agent", turnIndex: 1, fromAgentId: undefined });
+      expect(restored.agentTurnHistory[1]).toEqual({ agentId: "billing-agent", turnIndex: 2, fromAgentId: "sales-agent" });
     });
 
     it("backward compat: deserialize session JSON without agent fields", () => {

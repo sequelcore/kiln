@@ -182,7 +182,9 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `gateway/webhook-tool-executor.ts` | WebhookToolExecutor: HTTP POST + HMAC-SHA256 for external tool calls |
 | `gateway/tenant-tool-factory.ts` | buildTenantToolContext(): per-tenant tool infrastructure (webhook tools, allowlist, rate limiter) |
 | `tenant/tenant-router.ts` | DefaultTenantRouter: regex-based multi-agent routing (Tier 1 + fallback) |
-| `tenant/agent-resolver.ts` | resolveAgentContext(): single integration point for all channel handlers (routing, prompt overlay, tool scoping) |
+| `tenant/agent-resolver.ts` | resolveAgentContext() + resolveAgentContextAsync(): single integration point for all channel handlers (routing, prompt overlay, tool scoping, warm handoff brief, ping-pong guard) |
+| `tenant/ping-pong-guard.ts` | checkPingPong(): stateless guard preventing agent switching loops (maxHandoffs, cooldown, bidirectional pair) |
+| `session/agent-handoff-summarizer.ts` | AgentHandoffSummarizer: LLM-generated warm handoff brief on agent switch |
 | `gateway/message-pipeline.ts` | Shared processInboundMessage pipeline (budget, session, orchestrate, events, tool event emission) |
 | `gateway/trace-context.ts` | TraceContext: per-request trace ID + structured logging |
 | `trigger/trigger-registry.ts` | Per-app lifecycle, webhook app, event listener, scheduler |

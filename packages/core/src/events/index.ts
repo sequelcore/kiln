@@ -127,6 +127,7 @@ export interface CostUpdateEvent extends KilnEvent {
   readonly cacheReadTokens: number;
   readonly totalCostUsd: number;
   readonly byRole: Record<string, { model: string; calls: number; costUsd: number }>;
+  readonly agentId?: string;
 }
 
 /** Tool called event */

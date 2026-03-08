@@ -94,7 +94,7 @@ The WebSocket lifecycle is managed by `ws-routes.ts` using Hono's `upgradeWebSoc
 
 Invalid or missing credentials receive a `401` response before upgrade. If the dev token validator returns a `userId`, it is used as the session key.
 
-**Multi-tenant mode.** For SaaS products with `multiTenant: true`, the Gateway mounts `ws-tenant-routes.ts` instead. Clients connect with `?widgetId=UUID`, which resolves to a tenant via `TenantRegistry.resolveByWidgetId()`. The tenant's system prompt, billing, and idle timeout are applied per-session. When a tenant defines multiple `agents` with `routing` config, each message is routed to the appropriate agent via regex rules (Tier 1) or fallback. See [Concepts: Multi-Agent Routing](../concepts.md#multi-agent-routing).
+**Multi-tenant mode.** For SaaS products with `multiTenant: true`, the Gateway mounts `ws-tenant-routes.ts` instead. Clients connect with `?widgetId=UUID`, which resolves to a tenant via `TenantRegistry.resolveByWidgetId()`. The tenant's system prompt, billing, and idle timeout are applied per-session. When a tenant defines multiple `agents` with `routing` config, each message is routed to the appropriate agent via regex rules (Tier 1) or fallback. Agent switches include a warm handoff brief (LLM-generated context summary) and are subject to the ping-pong guard (`maxHandoffs`, `rerouteAfterTurns`). See [Concepts: Multi-Agent Routing](../concepts.md#multi-agent-routing).
 
 **WebSocket heartbeat.** The gateway sends a `ping` frame every 30 seconds. Clients must respond with a `pong` within 90 seconds or the connection is closed. The `@kilnai/widget` and `@kilnai/react` (useKilnWsChat) handle pong responses automatically. Custom WebSocket clients must implement pong handling to maintain the connection.
 

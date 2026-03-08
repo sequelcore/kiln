@@ -76,6 +76,8 @@ export interface TenantRoutingConfig {
   readonly rules?: readonly TenantRoutingRule[];
   readonly fallback: string;
   readonly embeddingThreshold?: number;
+  readonly rerouteAfterTurns?: number;
+  readonly maxHandoffs?: number;
 }
 
 /** Email transport provider configuration */
@@ -321,6 +323,20 @@ export function validateTenantConfig(config: TenantConfig): TenantValidationErro
             } else if (seenAgentIds.size > 0 && !seenAgentIds.has(rule.agent)) {
               errors.push({ field: `routing.rules[${i}].agent`, message: `references unknown agent: "${rule.agent}"` });
             }
+          }
+        }
+
+        // rerouteAfterTurns: non-negative integer
+        if (config.routing.rerouteAfterTurns !== undefined) {
+          if (!Number.isInteger(config.routing.rerouteAfterTurns) || config.routing.rerouteAfterTurns < 0) {
+            errors.push({ field: "routing.rerouteAfterTurns", message: "must be a non-negative integer" });
+          }
+        }
+
+        // maxHandoffs: positive integer
+        if (config.routing.maxHandoffs !== undefined) {
+          if (!Number.isInteger(config.routing.maxHandoffs) || config.routing.maxHandoffs < 1) {
+            errors.push({ field: "routing.maxHandoffs", message: "must be a positive integer" });
           }
         }
       }

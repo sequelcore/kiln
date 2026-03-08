@@ -428,11 +428,30 @@ routing:
   fallback: support
 ```
 
-**Routing tiers** (Phase 8a implements Tier 1 + fallback):
+**Routing tiers** (Tier 1 + fallback):
 - **Tier 1: Regex rules** -- Pattern matching against message text. First match wins.
 - **Fallback** -- When no rule matches, routes to the fallback agent.
 
 Each agent gets its own system prompt (base tenant prompt + agent persona overlay) and tool scope (intersection of agent tools with tenant allowlist). Sessions track `activeAgentId` and `agentTurnHistory` for continuity.
+
+**Inter-agent handoff.** When routing switches from one agent to another, the engine generates a warm handoff brief -- an LLM-generated 2-3 sentence summary of the conversation so far, injected into the new agent's system prompt. This prevents the new agent from starting cold. The brief is stored in `AgentTurnEntry.handoffBrief` for audit.
+
+**Ping-pong guard.** To prevent rapid agent switching loops, routing is subject to three guards:
+- **`maxHandoffs`** -- Maximum total agent switches per session (default: 3). Once exceeded, the current agent stays active.
+- **`rerouteAfterTurns`** -- Minimum conversation turns before re-routing is allowed (default: 1). Prevents immediate back-and-forth.
+- **Bidirectional pair block** -- If agent A handed off to agent B, agent B cannot immediately hand back to A.
+
+```yaml
+routing:
+  rules:
+    - match: "price|cost|book"
+      agent: sales
+  fallback: support
+  maxHandoffs: 5
+  rerouteAfterTurns: 2
+```
+
+An `AGENT_HANDOFF` conversation event is emitted on every agent switch (or blocked switch), providing visibility into handoff flow for product backends.
 
 When `agents` is absent or has ≤1 entry, the existing single-agent pipeline is unchanged -- zero migration required.
 
