@@ -36,7 +36,8 @@ Bun monorepo with 6 packages:
 | skill | `core/src/skill/` | SKILL.yaml format, SkillRegistry (3-tier discovery) |
 | enrichment | `core/src/enrichment/` | Post-conversation enrichment: effort score, LLM enrichment pipeline, sentiment/resolution/CSAT |
 | eval | `core/src/eval/` | 12 scorers (6 rule + 6 LLM-as-judge), dataset loader, experiment runner, comparator |
-| observability | `core/src/observability/` | OTel span mapper + exporter (EventStore sink), PrometheusCollector, CompositeEventStore |
+| observability (core) | `core/src/observability/` | OTel span mapper (exhaustive event-to-span mapping) + OTelExporter (EventStore sink) |
+| observability (runtime) | `runtime/src/observability/` | PrometheusCollector (EventStore sink, dynamic prom-client import), CompositeEventStore (fan-out to multiple sinks) |
 | gateway | `runtime/src/gateway/` | Multi-app loading, Mode B routes, budget middleware, composable auth middleware (timing-safe), conversation event emitter (incl. tool execution events), delegation, dev routes, safety/security middleware, audio preprocessing, knowledge pipeline wiring, STT/knowledge factories, webhook tool executor, tenant tool factory, Meta webhook foundation (shared verification + HMAC-SHA256), WebhookDedup (Meta at-least-once protection), Instagram/Messenger/Email webhook routes, email loop guard, SqliteEmailThreadStore, WebSocket heartbeat (30s ping, 90s timeout) |
 | a2a | `runtime/src/a2a/` | A2AClient (outbound delegation only) |
 | trigger | `runtime/src/trigger/` | TriggerRegistry, webhook handler (HMAC-SHA256), event listener, cron scheduler |
@@ -215,14 +216,4 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 
 ## Documentation
 
-See `docs/` for full documentation:
-
-| Guide | Content |
-|-------|---------|
-| [Getting Started](docs/getting-started.md) | Installation, init wizard, first app |
-| [Concepts](docs/concepts.md) | 7 primitives, 3 composites, YAML-first philosophy |
-| [App YAML](docs/configuration/app-yaml.md) | Complete app.yaml field reference |
-| [Gateway YAML](docs/configuration/gateway-yaml.md) | Gateway config, Mode A/B, billing |
-| [Tool Use](docs/guides/tool-use.md) | Agentic actions, authorization, webhook tools, rate limiting |
-| [Channels](docs/guides/channels.md) | 8 channel adapters (CLI, Web, WhatsApp, Instagram, Messenger, Slack, Email, API) |
-| [Architecture](docs/architecture.md) | Contributor internals, TypeScript interfaces |
+See [docs/README.md](docs/README.md) for the full documentation index.

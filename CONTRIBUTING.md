@@ -12,15 +12,16 @@ bun run test
 
 ## Project Structure
 
-Kiln is a Bun monorepo with five packages:
+Kiln is a Bun monorepo with six packages:
 
 | Package | npm name | Description |
 |---------|----------|-------------|
 | `packages/core` | `@kilnai/core` | Engine primitives (7), composites (3), memory, orchestrator, agents, security, safety, eval, knowledge, domain, skill, package bounded contexts. No dependency on runtime. |
-| `packages/runtime` | `@kilnai/runtime` | Gateway server, Mode B sessions, tenant management, channel adapters (CLI, Web, WhatsApp, Slack, API, Voice), trigger runtime, A2A protocol. Depends on `@kilnai/core`. |
+| `packages/runtime` | `@kilnai/runtime` | Gateway server, Mode B sessions, tenant management, 8 channel adapters (CLI, Web, WhatsApp, Instagram, Messenger, Slack, Email, API), trigger runtime, A2A protocol. Depends on `@kilnai/core`. |
 | `packages/cli` | `@kilnai/cli` | CLI commands (`init`, `run`, `dev`, `gateway`, `skill`, `domain`), init wizard, dev mode with hot-reload, MCP server. Depends on `@kilnai/core` and `@kilnai/runtime`. |
 | `packages/sdk` | `@kilnai/react` | React hooks library for frontend integration. Imports **types only** from `@kilnai/core`. Peer dependency on React 19+. |
-| `packages/studio` | `@kilnai/studio` (private) | Dev UI SPA served at `/studio` in dev mode. Not published to npm. Depends on `@kilnai/react`. The runtime serves its compiled `dist/` as static files — runtime never imports Studio code. |
+| `packages/widget` | `@kilnai/widget` | Embeddable chat widget (Shadow DOM, auto-reconnect WebSocket, zero deps, IIFE bundle). No dependency on other packages. |
+| `packages/studio` | `@kilnai/studio` (private) | Dev UI SPA served at `/studio` in dev mode. Not published to npm. Depends on `@kilnai/react`. The runtime serves its compiled `dist/` as static files -- runtime never imports Studio code. |
 
 ## Commands
 
@@ -75,7 +76,7 @@ type(scope): description
 
 **Types:** `feat`, `fix`, `refactor`, `chore`, `docs`, `test`
 
-**Scopes:** `core`, `engine`, `orchestrator`, `agents`, `domain`, `package`, `skill`, `memory`, `tree`, `events`, `cost`, `sandbox`, `verification`, `security`, `safety`, `knowledge`, `eval`, `a2a`, `runtime`, `gateway`, `trigger`, `session`, `tenant`, `channel`, `cli`, `docs`
+**Scopes:** `core`, `engine`, `orchestrator`, `agents`, `domain`, `package`, `skill`, `memory`, `tree`, `events`, `cost`, `sandbox`, `verification`, `security`, `safety`, `knowledge`, `enrichment`, `eval`, `observability`, `a2a`, `runtime`, `gateway`, `trigger`, `session`, `tenant`, `channel`, `cli`, `sdk`, `widget`, `studio`, `docs`
 
 Examples:
 ```
