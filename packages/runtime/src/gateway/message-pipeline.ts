@@ -52,6 +52,11 @@ export interface InboundMessageResult {
   readonly toolExecutions?: readonly ToolExecutionSummary[];
   readonly traceId: string;
   readonly activeAgentId?: string;
+  readonly routingDecision?: {
+    readonly provider: string;
+    readonly model: string;
+    readonly routingTier: string;
+  };
 }
 
 export interface BudgetDeniedResult {
@@ -124,6 +129,9 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
       tenantId: ctx.tenantId,
       channel: ctx.channel,
       externalUserId: ctx.userId,
+      sessionId: session.id,
+      schemaVersion: "1",
+      turnNumber: session.messageCount,
       traceId: trace.traceId,
       timestamp: new Date().toISOString(),
     });
@@ -135,6 +143,8 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
         tenantId: ctx.tenantId,
         channel: ctx.channel,
         externalUserId: ctx.userId,
+        sessionId: session.id,
+        schemaVersion: "1",
         sessionMode: session.sessionMode,
         traceId: trace.traceId,
         timestamp: new Date().toISOString(),
@@ -149,6 +159,8 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
         tenantId: ctx.tenantId,
         channel: ctx.channel,
         externalUserId: ctx.userId,
+        sessionId: session.id,
+        schemaVersion: "1",
         escalationReason: result.escalation.reason,
         escalationDetail: result.escalation.detail,
         summary: result.contextSummary,
@@ -166,6 +178,8 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
           tenantId: ctx.tenantId,
           channel: ctx.channel,
           externalUserId: ctx.userId,
+          sessionId: session.id,
+          schemaVersion: "1",
           toolName: exec.toolName,
           durationMs: exec.durationMs,
           success: exec.success,
@@ -183,6 +197,8 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
         tenantId: ctx.tenantId,
         channel: ctx.channel,
         externalUserId: ctx.userId,
+        sessionId: session.id,
+        schemaVersion: "1",
         activeAgentId: ctx.activeAgentId,
         activeAgentName: ctx.activeAgentName,
         routingTier: ctx.routingTier,
@@ -199,6 +215,8 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
         tenantId: ctx.tenantId!,
         channel: ctx.channel,
         externalUserId: ctx.userId,
+        sessionId: session.id,
+        schemaVersion: "1",
         fromAgentId: ctx.previousAgentId,
         fromAgentName: ctx.previousAgentName,
         toAgentId: ctx.activeAgentId,
@@ -206,6 +224,23 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
         handoffBrief: ctx.handoffBrief,
         handoffBlocked: ctx.pingPongBlocked,
         handoffBlockReason: ctx.pingPongReason,
+        traceId: trace.traceId,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // Emit MODEL_ROUTED when model routing occurred
+    if (result.routingDecision) {
+      ctx.eventEmitter.emit({
+        eventType: "MODEL_ROUTED",
+        tenantId: ctx.tenantId!,
+        channel: ctx.channel,
+        externalUserId: ctx.userId,
+        selectedProvider: result.routingDecision.provider,
+        selectedModel: result.routingDecision.model,
+        routingTier: result.routingDecision.routingTier,
+        sessionId: session.id,
+        schemaVersion: "1",
         traceId: trace.traceId,
         timestamp: new Date().toISOString(),
       });
@@ -230,6 +265,9 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
       toolExecutions: result.toolExecutions,
       traceId: trace.traceId,
       activeAgentId: ctx.activeAgentId,
+      routingDecision: result.routingDecision
+        ? { provider: result.routingDecision.provider, model: result.routingDecision.model, routingTier: result.routingDecision.routingTier }
+        : undefined,
     },
   };
 }

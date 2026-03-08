@@ -30,6 +30,20 @@ export class SessionRegistry {
         : config;
     const session = new ModeBSession(sessionConfig);
     await this.store.set(key, session);
+
+    // Emit SESSION_STARTED for new sessions
+    if (this.eventEmitter && sessionConfig.tenantId) {
+      this.eventEmitter.emit({
+        eventType: "SESSION_STARTED",
+        tenantId: sessionConfig.tenantId,
+        channel: "unknown",
+        externalUserId: sessionConfig.userId,
+        sessionId: session.id,
+        schemaVersion: "1",
+        timestamp: new Date().toISOString(),
+      });
+    }
+
     return session;
   }
 
@@ -106,6 +120,20 @@ export class SessionRegistry {
             tenantId: session.tenantId,
             channel: "unknown",
             externalUserId: session.userId,
+            sessionId: session.id,
+            schemaVersion: "1",
+            timestamp: new Date().toISOString(),
+          });
+
+          this.eventEmitter.emit({
+            eventType: "CONVERSATION_ABANDONED",
+            tenantId: session.tenantId,
+            channel: "unknown",
+            externalUserId: session.userId,
+            sessionId: session.id,
+            schemaVersion: "1",
+            closedBy: "session_timeout",
+            turnCount: session.messageCount,
             timestamp: new Date().toISOString(),
           });
         }

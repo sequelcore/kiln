@@ -1,6 +1,8 @@
 // Engine type: TenantConfig -- multi-tenant business configuration
 // Pure TypeScript, zero external dependencies. Follows mode-b-config.ts pattern.
 
+import type { RoutingRule } from "../domain/model-router.js";
+
 /** A service offered by the tenant business */
 export interface TenantService {
   readonly name: string;
@@ -80,6 +82,13 @@ export interface TenantRoutingConfig {
   readonly maxHandoffs?: number;
 }
 
+/** Per-tenant model routing configuration */
+export interface TenantModelConfig {
+  readonly defaultProvider?: string;
+  readonly defaultModel?: string;
+  readonly rules?: readonly RoutingRule[];
+}
+
 /** Email transport provider configuration */
 export interface EmailTransportConfig {
   readonly provider: "postmark" | "resend" | "sendgrid" | "generic";
@@ -121,6 +130,7 @@ export interface TenantConfig {
   readonly webhookTools?: readonly TenantWebhookTool[];
   readonly agents?: readonly TenantAgentConfig[];
   readonly routing?: TenantRoutingConfig;
+  readonly modelConfig?: TenantModelConfig;
   readonly enabled: boolean;
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -337,6 +347,35 @@ export function validateTenantConfig(config: TenantConfig): TenantValidationErro
         if (config.routing.maxHandoffs !== undefined) {
           if (!Number.isInteger(config.routing.maxHandoffs) || config.routing.maxHandoffs < 1) {
             errors.push({ field: "routing.maxHandoffs", message: "must be a positive integer" });
+          }
+        }
+      }
+    }
+  }
+
+  // modelConfig: if present, validate rules
+  if (config.modelConfig !== undefined) {
+    if (config.modelConfig.rules) {
+      if (!Array.isArray(config.modelConfig.rules)) {
+        errors.push({ field: "modelConfig.rules", message: "must be an array of routing rules" });
+      } else {
+        const validConditionTypes = ["has_tools", "complexity_above", "complexity_below", "budget_below_cents", "agent_tier", "agent_id", "always"];
+        for (let i = 0; i < config.modelConfig.rules.length; i++) {
+          const rule = config.modelConfig.rules[i]!;
+          if (typeof rule.name !== "string" || !rule.name) {
+            errors.push({ field: `modelConfig.rules[${i}].name`, message: "must be a non-empty string" });
+          }
+          if (typeof rule.priority !== "number" || !Number.isFinite(rule.priority)) {
+            errors.push({ field: `modelConfig.rules[${i}].priority`, message: "must be a finite number" });
+          }
+          if (!rule.condition || !validConditionTypes.includes(rule.condition.type)) {
+            errors.push({
+              field: `modelConfig.rules[${i}].condition`,
+              message: `must have a valid type (${validConditionTypes.join(", ")})`,
+            });
+          }
+          if (!rule.target || typeof rule.target.provider !== "string" || typeof rule.target.model !== "string") {
+            errors.push({ field: `modelConfig.rules[${i}].target`, message: "must have provider and model strings" });
           }
         }
       }

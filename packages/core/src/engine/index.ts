@@ -139,6 +139,7 @@ export type {
   TenantAgentConfig,
   TenantRoutingRule,
   TenantRoutingConfig,
+  TenantModelConfig,
   EmailTransportConfig,
   TenantValidationError,
 } from "./gateway/tenant-config.js";

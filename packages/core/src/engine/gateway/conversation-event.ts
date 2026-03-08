@@ -15,7 +15,12 @@ export type ConversationEventType =
   | "TOOL_CALLED"
   | "TOOL_EXECUTED"
   | "AGENT_ROUTED"
-  | "AGENT_HANDOFF";
+  | "AGENT_HANDOFF"
+  | "CONVERSATION_CLOSED"
+  | "CONVERSATION_ABANDONED"
+  | "MODEL_ROUTED"
+  | "COST_REPORT"
+  | "CONVERSATION_ENRICHED";
 
 export interface ConversationEvent {
   readonly eventType: ConversationEventType;
@@ -72,10 +77,34 @@ export interface ConversationEvent {
   readonly handoffBlocked?: boolean;
   /** Reason for ping-pong block -- present for AGENT_HANDOFF events */
   readonly handoffBlockReason?: string;
-  /** Routing tier used -- present for AGENT_ROUTED events */
-  readonly routingTier?: "rule" | "embedding" | "fallback";
+  /** Routing tier used -- present for AGENT_ROUTED and MODEL_ROUTED events */
+  readonly routingTier?: string;
   /** Routing confidence score -- present for AGENT_ROUTED events with embedding tier */
   readonly routingConfidence?: number;
+  /** Session identifier -- present on all Phase 9+ events */
+  readonly sessionId?: string;
+  /** Schema version for event format evolution */
+  readonly schemaVersion?: "1";
+  /** Turn number -- present for MESSAGE_RECEIVED, MESSAGE_SENT, and per-turn events */
+  readonly turnNumber?: number;
+  /** How conversation was closed -- present for CONVERSATION_CLOSED */
+  readonly closedBy?: "user" | "operator" | "session_timeout" | "resolved";
+  /** Conversation duration in seconds -- present for CONVERSATION_CLOSED */
+  readonly durationSeconds?: number;
+  /** Total turn count -- present for CONVERSATION_CLOSED */
+  readonly turnCount?: number;
+  /** Customer effort score (0-10) -- present for CONVERSATION_CLOSED */
+  readonly effortScore?: number;
+  /** Model routing provider -- present for MODEL_ROUTED */
+  readonly selectedProvider?: string;
+  /** Model routing model -- present for MODEL_ROUTED */
+  readonly selectedModel?: string;
+  /** Model routing complexity score -- present for MODEL_ROUTED */
+  readonly complexityScore?: number;
+  /** Estimated cost in USD -- present for MODEL_ROUTED and COST_REPORT */
+  readonly estimatedCostUsd?: number;
+  /** Total cost for the session -- present for COST_REPORT */
+  readonly totalCostUsd?: number;
 }
 
 export interface ConversationEventBatch {

@@ -46,6 +46,10 @@ export const EVENT_LEVEL_MAP: Record<EventType, StreamLevel> = {
   knowledge_gap: "state",
   // Routing (Phase 8)
   agent_routed: "phase",
+  // Intelligence (Phase 9)
+  model_routed: "phase",
+  conversation_closed: "state",
+  conversation_enriched: "state",
   // Domain apps
   domain_event: "tool",
 };
@@ -101,6 +105,10 @@ export type EventType =
   | "knowledge_gap"
   // Routing (Phase 8)
   | "agent_routed"
+  // Intelligence (Phase 9)
+  | "model_routed"
+  | "conversation_closed"
+  | "conversation_enriched"
   // Domain apps
   | "domain_event";
 
@@ -109,6 +117,7 @@ export interface KilnEvent {
   readonly type: EventType;
   readonly timestamp: Date;
   readonly sessionId: string;
+  readonly tenantId?: string;
 }
 
 /** Phase transition event */
@@ -418,6 +427,32 @@ export interface AgentRoutedEvent extends KilnEvent {
   readonly confidence?: number;
 }
 
+/** Model routing decision event */
+export interface ModelRoutedEvent extends KilnEvent {
+  readonly type: "model_routed";
+  readonly model: string;
+  readonly provider: string;
+  readonly previousModel?: string;
+  readonly routingTier: "rule" | "complexity" | "cascade" | "default";
+  readonly complexityScore?: number;
+  readonly reason: string;
+}
+
+/** Conversation closed event (session ended normally) */
+export interface ConversationClosedInternalEvent extends KilnEvent {
+  readonly type: "conversation_closed";
+  readonly closedBy: "user" | "operator" | "session_timeout" | "resolved";
+  readonly turnCount: number;
+  readonly durationMs: number;
+  readonly effortScore?: number;
+}
+
+/** Conversation enriched event (post-conversation enrichment completed) */
+export interface ConversationEnrichedEvent extends KilnEvent {
+  readonly type: "conversation_enriched";
+  readonly enrichmentId: string;
+}
+
 /** Custom domain event for app-specific event types */
 export interface DomainEventData extends KilnEvent {
   readonly type: "domain_event";
@@ -468,6 +503,10 @@ export interface EventMap {
   knowledge_gap: KnowledgeGapEvent;
   // Routing (Phase 8)
   agent_routed: AgentRoutedEvent;
+  // Intelligence (Phase 9)
+  model_routed: ModelRoutedEvent;
+  conversation_closed: ConversationClosedInternalEvent;
+  conversation_enriched: ConversationEnrichedEvent;
   // Domain apps
   domain_event: DomainEventData;
 }

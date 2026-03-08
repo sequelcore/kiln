@@ -60,6 +60,11 @@ export type {
 // Trace
 export { TraceContext } from "./gateway/trace-context.js";
 
+// Observability
+export { CompositeEventStore } from "./observability/composite-event-store.js";
+export { PrometheusCollector } from "./observability/prometheus-collector.js";
+export type { PrometheusCollectorConfig } from "./observability/prometheus-collector.js";
+
 // Session
 export { ModeBSession } from "./session/mode-b-session.js";
 export type { ModeBSessionConfig, SerializedSessionData, AgentTurnEntry } from "./session/mode-b-session.js";
@@ -161,6 +166,13 @@ export { createEmailTransport } from "./channels/email-api.js";
 export type { EmailTransport, OutboundEmail, EmailSendResult } from "./channels/email-api.js";
 export { renderEmailHtml, renderEmailPlainText } from "./channels/email-template.js";
 export type { EmailBranding } from "./channels/email-template.js";
+
+// Enrichment
+export { SqliteEnrichmentStore } from "./enrichment/sqlite-enrichment-store.js";
+export { EnrichmentRunner } from "./enrichment/enrichment-runner.js";
+export type { EnrichmentRunnerConfig } from "./enrichment/enrichment-runner.js";
+export { createEnrichmentAdminRoutes } from "./gateway/enrichment-admin-routes.js";
+export type { EnrichmentAdminRoutesConfig } from "./gateway/enrichment-admin-routes.js";
 
 // Auth
 export { requireApiKey, requireBearer, requireWebhookSignature, isOriginAllowed } from "./gateway/auth-middleware.js";

@@ -12,6 +12,7 @@ export * from "./observability/index.js";
 export * from "./knowledge/index.js";
 export * from "./eval/index.js";
 export * from "./safety/index.js";
+export * from "./enrichment/index.js";
 export * as engine from "./engine/index.js";
 
 // Re-export streaming types for runtime
@@ -144,6 +145,7 @@ export type {
   TenantAgentConfig,
   TenantRoutingRule,
   TenantRoutingConfig,
+  TenantModelConfig,
   EmailTransportConfig,
   TenantValidationError,
 } from "./engine/gateway/tenant-config.js";
@@ -272,3 +274,16 @@ export { SlidingWindowRateLimiter } from "./agents/sliding-window-rate-limiter.j
 // Routing templates re-exported for direct access by runtime
 export type { RoutingTemplate } from "./domains/routing-templates.js";
 export { getRoutingTemplate, listRoutingTemplates } from "./domains/routing-templates.js";
+
+// Model routing types re-exported for direct access by runtime
+export type {
+  ModelRouter,
+  ModelCapabilityProfile,
+  RoutingRequest,
+  RoutingDecision,
+  RoutingTier,
+  RoutingRule,
+  RoutingCondition,
+  ComplexityScore,
+  ComplexityClass,
+} from "./engine/domain/model-router.js";

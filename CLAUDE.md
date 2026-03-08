@@ -21,26 +21,27 @@ Bun monorepo with 6 packages:
 |---------|----------|---------|
 | engine | `core/src/engine/` | 7 primitives + 3 composites + YAML loader + gateway config + cron parser. Zero external deps except `yaml`. |
 | orchestrator | `core/src/orchestrator/` | Phase machine, checkpoint/resume, strategies (sequential, supervisor, swarm) |
-| agents | `core/src/agents/` | Provider adapters (Anthropic, OpenAI, DeepSeek, Ollama), tool cache, MCP client (Streamable HTTP, official SDK), circuit breaker, Tool RAG, sliding window rate limiter |
+| agents | `core/src/agents/` | Provider adapters (Anthropic, OpenAI, DeepSeek, Ollama), tool cache, MCP client (Streamable HTTP, official SDK), circuit breaker, Tool RAG, model capability registry, complexity scorer, rules router, sliding window rate limiter |
 | memory | `core/src/memory/` | Scoped storage (user, agent, team, project, org), SQLite + FTS5, git sync, decay, compaction |
 | tree | `core/src/tree/` | Task tree (scoring, deepen/branch/prune), batch executor |
 | sandbox | `core/src/sandbox/` | Per-agent filesystem + network isolation |
 | verification | `core/src/verification/` | Gate runner: test, lint, type-check loop |
-| events | `core/src/events/` | EventBus (35 typed events, ring buffer), EventStore sink |
+| events | `core/src/events/` | EventBus (38 typed events, ring buffer), EventStore sink |
 | security | `core/src/security/` | Audit log (JSONL + hash chain), prompt injection (2-tier), AES-256-GCM secrets, Guardian, self-audit |
 | safety | `core/src/safety/` | PII scanner (2-tier, 6 types, Luhn validation), content classifier (6 categories), 4 policy rails, pipeline orchestrator, indirect injection scanning on tool results |
-| cost | `core/src/cost/` | Per-role cache-aware cost tracking |
+| cost | `core/src/cost/` | Per-role:model cache-aware cost tracking, STT + embedding cost tracking |
 | knowledge | `core/src/knowledge/` | RAG: chunkers (recursive, markdown), embedding adapters (OpenAI, Ollama), vector stores (InMemory, PgVector with halfvec + HNSW + RRF hybrid search), STT adapters (OpenAI gpt-4o-transcribe, Deepgram nova-3), contextual enrichment (Anthropic pattern), retrieval pipeline (gap detection events), CohereReranker (Rerank v2, over-fetch 4x), knowledge modes (auto-inject / tool), content extractors (file, URL via Jina Reader, PDF via unpdf), SourceManager (extract -> hash -> ingest lifecycle), source stores (InMemory, JSON file), ContactMemoryService (per-user fact extraction via LLM, Mem0 ADD/UPDATE/DELETE/NOOP pattern, recall at session start) |
 | domain | `core/src/domain/` | Domain config: tech stack detection, YAML schema, DomainRegistry. Built-in kits at `core/src/domains/*.yaml` |
 | package | `core/src/package/` | Distribution: versioning, content hashing, security validation |
 | skill | `core/src/skill/` | SKILL.yaml format, SkillRegistry (3-tier discovery) |
+| enrichment | `core/src/enrichment/` | Post-conversation enrichment: effort score, LLM enrichment pipeline, sentiment/resolution/CSAT |
 | eval | `core/src/eval/` | 12 scorers (6 rule + 6 LLM-as-judge), dataset loader, experiment runner, comparator |
-| observability | `core/src/observability/` | OTel span mapper + exporter (EventStore sink) |
+| observability | `core/src/observability/` | OTel span mapper + exporter (EventStore sink), PrometheusCollector, CompositeEventStore |
 | gateway | `runtime/src/gateway/` | Multi-app loading, Mode B routes, budget middleware, composable auth middleware (timing-safe), conversation event emitter (incl. tool execution events), delegation, dev routes, safety/security middleware, audio preprocessing, knowledge pipeline wiring, STT/knowledge factories, webhook tool executor, tenant tool factory, Meta webhook foundation (shared verification + HMAC-SHA256), WebhookDedup (Meta at-least-once protection), Instagram/Messenger/Email webhook routes, email loop guard, SqliteEmailThreadStore, WebSocket heartbeat (30s ping, 90s timeout) |
 | a2a | `runtime/src/a2a/` | A2AClient (outbound delegation only) |
 | trigger | `runtime/src/trigger/` | TriggerRegistry, webhook handler (HMAC-SHA256), event listener, cron scheduler |
-| session | `runtime/src/session/` | ModeBSession (version tracking, optimistic concurrency), ModeBOrchestrator (tool authorization, retry/fallback, result sanitization, ToolRAG, PerCallToolConfig, AI guard), SessionRegistry (pluggable SessionStore, save with concurrency check), SessionMode state machine (ai_active/queued/human_active/resolved), session serializer |
-| tenant | `runtime/src/tenant/` | TenantRegistry (JSON persistence, resolveByWidgetId, resolveByInstagramPageId, resolveByMessengerPageId, resolveByEmailAddress, webhook tool secret encryption), system prompt builder (businessName + name identity), suggestion parser, multi-agent routing (DefaultTenantRouter, resolveAgentContext) |
+| session | `runtime/src/session/` | ModeBSession (version tracking, optimistic concurrency), ModeBOrchestrator (tool authorization, retry/fallback, result sanitization, ToolRAG, PerCallToolConfig, AI guard, model routing via ModelRouter + providerPool), SessionRegistry (pluggable SessionStore, save with concurrency check), SessionMode state machine (ai_active/queued/human_active/resolved), session serializer |
+| tenant | `runtime/src/tenant/` | TenantRegistry (JSON persistence, resolveByWidgetId, resolveByInstagramPageId, resolveByMessengerPageId, resolveByEmailAddress, webhook tool secret encryption), system prompt builder (businessName + name identity), suggestion parser, multi-agent routing (DefaultTenantRouter, resolveAgentContext), model routing config |
 | handoff | `runtime/src/gateway/handoff-routes.ts` + `runtime/src/session/escalation-detector.ts` + `runtime/src/session/context-summarizer.ts` | Human handoff: session mode state machine, escalation detection, operator messaging, AI guard |
 | channels | `runtime/src/channels/` | 8 adapters (CLI, Web, WhatsApp, Instagram, Messenger, Slack, Email, API), ChannelRouter, formatForChannel |
 | sdk | `sdk/src/` | React hooks (useKilnChat, useKilnWsChat, useKilnEvents, useKilnMemory, useKilnState, useApproval), ApiClient, SseClient. Types-only import from core. |
@@ -83,7 +84,7 @@ type(scope): description
 
 Types: `feat`, `fix`, `refactor`, `chore`, `docs`, `test`
 
-Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree, events, cost, sandbox, verification, security, safety, observability, knowledge, eval, a2a, runtime, gateway, trigger, session, tenant, channel, cli, sdk, widget, studio, docs
+Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree, events, cost, sandbox, verification, security, safety, observability, knowledge, enrichment, eval, a2a, runtime, gateway, trigger, session, tenant, channel, cli, sdk, widget, studio, docs
 
 ## Key Entry Points
 
@@ -131,6 +132,13 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `knowledge/contact-memory.ts` | ContactMemoryServiceImpl: per-user fact extraction (LLM), recall, forget, forgetAll (GDPR) |
 | `knowledge/infrastructure/cohere-reranker.ts` | Cohere Rerank v2 adapter (over-fetch 4x, KnowledgeRerankerConfig) |
 | `domains/routing-templates.ts` | 3 built-in routing templates (service-business, ecommerce, customer-support) |
+| `engine/domain/model-router.ts` | ModelRouter, ModelCapabilityProfile, RoutingRequest, RoutingDecision, RoutingRule interfaces |
+| `agents/model-capability-registry.ts` | Built-in model capability profiles (10 models), eligible() filtering |
+| `agents/complexity-scorer.ts` | Stateless complexity scoring (5 signals, <1ms) |
+| `agents/rules-router.ts` | Rules-based model routing (Tier 1, priority-ordered) |
+| `enrichment/types.ts` | ConversationEnrichment, CompletedSession, EnrichmentStore, ConversationEnricher interfaces |
+| `enrichment/effort-score.ts` | Customer Effort Score (rule-based, 0-10 scale, zero LLM) |
+| `enrichment/enrichment-pipeline.ts` | LlmConversationEnricher (single-call, structured JSON, PII guard) |
 
 ### Runtime (`packages/runtime/src/`)
 
@@ -186,11 +194,16 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `tenant/tenant-router.ts` | DefaultTenantRouter (regex Tier 1), EmbeddingTenantRouter (Tier 2 via AgentRAG, async routeAsync) |
 | `tenant/agent-resolver.ts` | resolveAgentContext() + resolveAgentContextAsync(): single integration point for all channel handlers (routing, prompt overlay, tool scoping, warm handoff brief, ping-pong guard, Tier 2 embedding) |
 | `gateway/routing-test-routes.ts` | POST /tenants/:id/routing/test (dry-run routing), GET /routing/templates |
+| `gateway/enrichment-admin-routes.ts` | Enrichment CRUD: /enrichment (list, get, delete -- GDPR) |
 | `tenant/ping-pong-guard.ts` | checkPingPong(): stateless guard preventing agent switching loops (maxHandoffs, cooldown, bidirectional pair) |
 | `session/agent-handoff-summarizer.ts` | AgentHandoffSummarizer: LLM-generated warm handoff brief on agent switch |
 | `gateway/message-pipeline.ts` | Shared processInboundMessage pipeline (budget, session, orchestrate, events, tool event emission) |
 | `gateway/trace-context.ts` | TraceContext: per-request trace ID + structured logging |
 | `trigger/trigger-registry.ts` | Per-app lifecycle, webhook app, event listener, scheduler |
+| `enrichment/sqlite-enrichment-store.ts` | SQLite-backed EnrichmentStore (WAL, cursor pagination) |
+| `enrichment/enrichment-runner.ts` | Fire-and-forget post-conversation enrichment runner |
+| `observability/prometheus-collector.ts` | PrometheusCollector EventStore (counters, histograms, /metrics) |
+| `observability/composite-event-store.ts` | Fan-out to multiple EventStore sinks |
 
 ### CLI (`packages/cli/src/`)
 

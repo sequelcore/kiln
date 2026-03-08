@@ -891,6 +891,43 @@ toolSelection:
 
 ---
 
+## modelRouting
+
+Configures multi-model routing for Mode B apps. When present, the orchestrator selects which LLM handles each request based on complexity scoring and priority-ordered rules.
+
+```yaml
+modelRouting:
+  rules:
+    - condition: { maxComplexity: 0.3 }
+      model: claude-haiku-4-5
+      provider: anthropic
+      priority: 10
+    - condition: { minComplexity: 0.7, requiresToolUse: true }
+      model: claude-sonnet-4-5-20250514
+      provider: anthropic
+      priority: 5
+  default:
+    model: claude-haiku-4-5
+    provider: anthropic
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `rules` | `RoutingRule[]` | No | Priority-ordered rules. First match wins. |
+| `rules[].condition.maxComplexity` | `number` | No | Route when complexity score <= this value (0-1). |
+| `rules[].condition.minComplexity` | `number` | No | Route when complexity score >= this value (0-1). |
+| `rules[].condition.requiresToolUse` | `boolean` | No | Route when the message context requires tool use. |
+| `rules[].condition.messagePattern` | `string` | No | Regex pattern to match against message text. |
+| `rules[].model` | `string` | Yes | Model identifier (e.g., `claude-haiku-4-5`). |
+| `rules[].provider` | `string` | Yes | Provider name (e.g., `anthropic`, `openai`). |
+| `rules[].priority` | `number` | No | Higher priority rules are evaluated first. Default: 0. |
+| `default.model` | `string` | Yes | Fallback model when no rule matches. |
+| `default.provider` | `string` | Yes | Fallback provider. |
+
+The `ComplexityScorer` evaluates 5 signals in <1ms: message length, tool count, conversation depth, structured output requirement, and modality. No LLM calls are made for routing decisions.
+
+---
+
 ## Loading an App in TypeScript
 
 ```typescript

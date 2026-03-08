@@ -221,11 +221,12 @@ Budget enforcement runs on all channels: REST API (`/message`), WebSocket, and W
 
 All routes are served from the single Gateway process on the configured port.
 
-### Health
+### Health & Observability
 
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/health` | Returns status of all loaded Apps and their channel types. |
+| `GET` | `/metrics` | Prometheus text exposition format. Counters (messages, tool calls, errors, routing decisions) and histograms (latency, tokens). Available when `PrometheusCollector` is configured as an EventStore sink. |
 
 ```json
 {
@@ -262,6 +263,14 @@ When budget is exhausted, `POST /message` returns `{ content: "...", budgetExhau
 | `GET` | `/api/memory/:scope` | Memory entries for a scope. Accepts `q` and `tags` query params. |
 | `POST` | `/api/memory` | Create a memory entry. Returns `{ id }`. |
 | `DELETE` | `/api/memory/:id` | Delete a memory entry by ID. |
+
+### Enrichment Routes
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/{path}/enrichment` | List enrichments with cursor pagination. Query params: `cursor`, `limit`. |
+| `GET` | `/{path}/enrichment/:sessionId` | Get enrichment by session ID. |
+| `DELETE` | `/{path}/enrichment/:sessionId` | Delete enrichment record (GDPR). |
 
 ### Dev Routes (devMode only)
 

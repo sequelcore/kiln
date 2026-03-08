@@ -45,6 +45,9 @@ import type { ContactMemoryService } from "@kilnai/core";
 import { extractText } from "@kilnai/core";
 import { WebhookDedup } from "./webhook-dedup.js";
 import { SqliteEmailThreadStore } from "./sqlite-email-thread-store.js";
+import { SqliteEnrichmentStore } from "../enrichment/sqlite-enrichment-store.js";
+import { CompositeEventStore } from "../observability/composite-event-store.js";
+import { PrometheusCollector } from "../observability/prometheus-collector.js";
 
 export type { LoadedApp, GatewayServerConfig } from "./gateway-routes.js";
 export { createGatewayApp } from "./gateway-routes.js";
@@ -189,18 +192,18 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
         const sdkBase = await import(sdkModuleName) as {
           BasicTracerProvider: new () => { addSpanProcessor(p: unknown): void; register(): void };
           ConsoleSpanExporter: new () => unknown;
-          SimpleSpanProcessor: new (e: unknown) => unknown;
+          BatchSpanProcessor: new (e: unknown, opts?: { maxQueueSize?: number; scheduledDelayMillis?: number; exportTimeoutMillis?: number; maxExportBatchSize?: number }) => unknown;
         };
         const p = new sdkBase.BasicTracerProvider();
 
         if (obsConfig.exporter === "console") {
-          p.addSpanProcessor(new sdkBase.SimpleSpanProcessor(new sdkBase.ConsoleSpanExporter()));
+          p.addSpanProcessor(new sdkBase.BatchSpanProcessor(new sdkBase.ConsoleSpanExporter(), { maxQueueSize: 2048, scheduledDelayMillis: 5000, exportTimeoutMillis: 30000, maxExportBatchSize: 512 }));
         } else {
           const otlpModuleName = "@opentelemetry/exporter-trace-otlp-http";
           const otlpMod = await import(otlpModuleName) as {
             OTLPTraceExporter: new (opts: { url?: string }) => unknown;
           };
-          p.addSpanProcessor(new sdkBase.SimpleSpanProcessor(new otlpMod.OTLPTraceExporter({ url: obsConfig.endpoint })));
+          p.addSpanProcessor(new sdkBase.BatchSpanProcessor(new otlpMod.OTLPTraceExporter({ url: obsConfig.endpoint }), { maxQueueSize: 2048, scheduledDelayMillis: 5000, exportTimeoutMillis: 30000, maxExportBatchSize: 512 }));
         }
 
         p.register();
@@ -221,7 +224,11 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
   }
 
   // EventBus: shared across all apps for observability and dev inspector
-  const gatewayEventBus = new EventBus(100, otelExporter);
+  const prometheusCollector = new PrometheusCollector();
+  const compositeStore = new CompositeEventStore(
+    otelExporter ? [otelExporter, prometheusCollector] : [prometheusCollector],
+  );
+  const gatewayEventBus = new EventBus(100, compositeStore);
   const costTracker = new CostTracker();
   const webhookDedup = new WebhookDedup();
 
@@ -246,6 +253,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
       knowledgeAdminConfig: undefined as undefined | KnowledgeAdminRoutesConfig,
       contactMemoryService: undefined as undefined | ContactMemoryService,
       contactMemoryAdminConfig: undefined as undefined | import("./contact-memory-admin-routes.js").ContactMemoryAdminRoutesConfig,
+      enrichmentAdminConfig: undefined as undefined | import("./enrichment-admin-routes.js").EnrichmentAdminRoutesConfig,
     };
   });
 
@@ -389,6 +397,20 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
       } catch (err) {
         console.warn(`  ${loaded.name}: knowledge pipeline initialization failed: ${err instanceof Error ? err.message : String(err)}`);
       }
+    }
+
+    // Wire enrichment admin routes (always available for multi-tenant apps)
+    if (loaded.binding.channels.some((ch) => ch.multiTenant === true)) {
+      const enrichmentDbPath = join(resolved.memoryBasePath, "enrichments.db");
+      const enrichmentStore = new SqliteEnrichmentStore(enrichmentDbPath);
+      const adminChannel = loaded.binding.channels.find((ch) => ch.adminTokenEnv);
+      const enrichmentAdminTokenEnv = adminChannel?.adminTokenEnv ?? "";
+      loaded.enrichmentAdminConfig = {
+        enrichmentStore,
+        appName: loaded.name,
+        adminToken: enrichmentAdminTokenEnv ? process.env[enrichmentAdminTokenEnv] ?? undefined : undefined,
+      };
+      console.log(`  ${loaded.name}: enrichment admin routes enabled`);
     }
 
     // Wire tool execution enhancements
@@ -843,6 +865,16 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
   if (studioDistPath) {
     mountStudio(honoApp, studioDistPath);
   }
+
+  // Prometheus metrics endpoint (unauthenticated, before per-app routes)
+  honoApp.get("/metrics", async (c) => {
+    const registry = await prometheusCollector.getRegistry();
+    if (!registry) {
+      return c.text("Prometheus metrics not available (prom-client not installed)", 503);
+    }
+    const metrics = await registry.metrics();
+    return c.text(metrics, 200, { "Content-Type": registry.contentType });
+  });
 
   triggerRegistry.start();
 

@@ -20,7 +20,7 @@ This document is for contributors. For user documentation, see the [guides](guid
 |---------|---------|----------|---------|
 | `engine` | `@kilnai/core` | `packages/core/src/engine/` | 7 primitives + 3 composites + YAML loader + gateway config types + cron parser. Zero external dependencies. |
 | `orchestrator` | `@kilnai/core` | `packages/core/src/orchestrator/` | Phase machine, orchestrator, checkpoint/resume/fork, configurable phase sequence and gate enforcement. |
-| `agents` | `@kilnai/core` | `packages/core/src/agents/` | Provider adapter interface and implementations (Anthropic, OpenAI, DeepSeek, Ollama). MCP client (Streamable HTTP transport via official SDK, circuit breaker, tool description scanning for prompt injection). Tool RAG (embedding-based tool selection). Agent RAG (embedding-based agent routing). Sliding window rate limiter. |
+| `agents` | `@kilnai/core` | `packages/core/src/agents/` | Provider adapter interface and implementations (Anthropic, OpenAI, DeepSeek, Ollama). MCP client (Streamable HTTP transport via official SDK, circuit breaker, tool description scanning for prompt injection). Tool RAG (embedding-based tool selection). Agent RAG (embedding-based agent routing). Model capability registry, complexity scorer, rules router. Sliding window rate limiter. |
 | `memory` | `@kilnai/core` | `packages/core/src/memory/` | SQLite + FTS5 store (decay + compaction), gzipped JSONL store, git sync. |
 | `tree` | `@kilnai/core` | `packages/core/src/tree/` | Task tree: scoring, batch selection, deepen/branch/prune. |
 | `domain` | `@kilnai/core` | `packages/core/src/domain/` | Domain registry, YAML schema, 5 built-in domain kits, domain package adapter. |
@@ -29,18 +29,19 @@ This document is for contributors. For user documentation, see the [guides](guid
 | `eval` | `@kilnai/core` | `packages/core/src/eval/` | Evaluation: 12 scorer types, dataset JSONL loader, experiment runner with per-scorer error isolation, comparator. |
 | `sandbox` | `@kilnai/core` | `packages/core/src/sandbox/` | Per-agent filesystem allowlists and network proxy policies. |
 | `verification` | `@kilnai/core` | `packages/core/src/verification/` | Gate runner and verification loop (test, lint, type-check). |
-| `events` | `@kilnai/core` | `packages/core/src/events/` | EventBus: synchronous emit with typed subscriber dispatch (32 event types), multi-level streaming, ring buffer. |
-| `cost` | `@kilnai/core` | `packages/core/src/cost/` | Per-role, cache-aware cost tracking. |
+| `events` | `@kilnai/core` | `packages/core/src/events/` | EventBus: synchronous emit with typed subscriber dispatch (38 event types), multi-level streaming, ring buffer. |
+| `cost` | `@kilnai/core` | `packages/core/src/cost/` | Per-role:model cache-aware cost tracking, STT + embedding cost tracking. |
 | `security` | `@kilnai/core` | `packages/core/src/security/` | Audit logging (JSONL + hash chaining), prompt injection (2-tier), encrypted secrets (AES-256-GCM), Guardian review, self-audit. |
 | `safety` | `@kilnai/core` | `packages/core/src/safety/` | Enterprise safety: PII scanner (2-tier, 6 types, Luhn validation for credit cards), content classifier (6 categories), 4 policy rails, indirect injection scanning on tool results. |
-| `observability` | `@kilnai/core` | `packages/core/src/observability/` | OTel integration: SpanMapper (maps 32 event types to spans), OTelExporter (implements EventStore, accepts TracerProvider). |
+| `observability` | `@kilnai/core` | `packages/core/src/observability/` | OTel integration: SpanMapper (maps 38 event types to spans), OTelExporter (implements EventStore, accepts TracerProvider), PrometheusCollector (counters + histograms, /metrics endpoint), CompositeEventStore (fan-out to multiple sinks), BatchSpanProcessor. |
+| `enrichment` | `@kilnai/core` | `packages/core/src/enrichment/` | Post-conversation enrichment: effort score (rule-based, 0-10), LLM enrichment pipeline (sentiment, resolution, CSAT via single structured call). |
 | `knowledge` | `@kilnai/core` | `packages/core/src/knowledge/` | RAG pipeline: chunkers (recursive, markdown), embedding adapters (OpenAI, Ollama), vector stores (InMemoryVectorStore, PgVectorStore with halfvec + HNSW + RRF hybrid search), STT adapters (OpenAI gpt-4o-transcribe, Deepgram nova-3), contextual enrichment (Anthropic pattern -- LLM-generated chunk prefixes, -49% failed retrievals), RetrievalPipeline (gap detection events), CohereReranker (Rerank v2, over-fetch 4x), knowledge modes (auto-inject context / tool-based search), content extractors (FileExtractor, UrlExtractor via Jina Reader, PdfExtractor via unpdf), SourceManager (extract -> hash -> ingest lifecycle with SHA-256 dedup), source stores (InMemorySourceStore, JsonSourceStore), ContactMemoryService (per-user fact extraction via LLM with Mem0 ADD/UPDATE/DELETE/NOOP pattern, recall at session start, GDPR forgetAll). |
 | `channels` | `@kilnai/runtime` | `packages/runtime/src/channels/` | 8 channel adapters (CLI, Web, WhatsApp, Instagram, Messenger, Slack, Email, API), EventBridge, ChannelRegistry, ChannelRouter, formatForChannel. |
-| `gateway` | `@kilnai/runtime` | `packages/runtime/src/gateway/` | Gateway runtime: multi-App loading, per-App isolation, Mode B routes, budget middleware, composable auth middleware (timing-safe comparisons, API key, Bearer, HMAC-SHA256, origin validation), cross-app delegation, trigger webhook mounting, dev-mode API routes (SSE, memory, cost, safety, token, orchestrator), WebSocket chat (heartbeat: 30s ping, 90s timeout), Studio static file serving, audio preprocessing (WhatsApp voice notes), knowledge pipeline wiring (auto/tool modes), STT + knowledge factories, knowledge admin CRUD routes (source management), lightweight dev server (`startDevServer`), webhook tool executor, tenant tool factory, conversation event emission for tool execution, Meta webhook foundation (shared verification + HMAC-SHA256), WebhookDedup (at-least-once delivery protection for Meta channels), Instagram/Messenger/Email webhook routes, email loop guard, SqliteEmailThreadStore (persistent email threads). |
+| `gateway` | `@kilnai/runtime` | `packages/runtime/src/gateway/` | Gateway runtime: multi-App loading, per-App isolation, Mode B routes, budget middleware, composable auth middleware (timing-safe comparisons, API key, Bearer, HMAC-SHA256, origin validation), cross-app delegation, trigger webhook mounting, dev-mode API routes (SSE, memory, cost, safety, token, orchestrator), WebSocket chat (heartbeat: 30s ping, 90s timeout), Studio static file serving, audio preprocessing (WhatsApp voice notes), knowledge pipeline wiring (auto/tool modes), STT + knowledge factories, knowledge admin CRUD routes (source management), enrichment admin CRUD routes (list, get, delete -- GDPR), lightweight dev server (`startDevServer`), webhook tool executor, tenant tool factory, conversation event emission for tool execution, Meta webhook foundation (shared verification + HMAC-SHA256), WebhookDedup (at-least-once delivery protection for Meta channels), Instagram/Messenger/Email webhook routes, email loop guard, SqliteEmailThreadStore (persistent email threads). |
 | `a2a` | `@kilnai/runtime` | `packages/runtime/src/a2a/` | A2A protocol: A2AClient (outbound delegation only). |
 | `trigger` | `@kilnai/runtime` | `packages/runtime/src/trigger/` | TriggerRegistry, webhook handler (HMAC-SHA256), event listener, cron scheduler, trigger executor. |
-| `session` | `@kilnai/runtime` | `packages/runtime/src/session/` | Mode B session management: ModeBSession (version tracking, optimistic concurrency, handoffCount, lastRouteChangeAt, enriched AgentTurnEntry with fromAgentId/handoffBrief), ModeBOrchestrator (AI guard, auto-reopen resolved, tool authorization, retry/fallback, result sanitization, tool result caching via cacheTtl annotation, indirect injection scanning on tool results, ToolRAG, PerCallToolConfig, per-agent cost attribution), SessionRegistry (pluggable SessionStore, save with concurrency check), SessionMode state machine (ai_active/queued/human_active/resolved), session serializer, AgentHandoffSummarizer (LLM-based warm handoff brief). |
-| `tenant` | `@kilnai/runtime` | `packages/runtime/src/tenant/` | Multi-tenant management: TenantRegistry (webhook tool secret encryption, resolveByWidgetId, resolveByInstagramPageId, resolveByMessengerPageId, resolveByEmailAddress), system prompt builder, multi-agent routing (DefaultTenantRouter regex Tier 1, EmbeddingTenantRouter Tier 2 via AgentRAG, AgentResolver, ping-pong guard, warm handoff brief via AgentHandoffSummarizer), routing test endpoint, routing rule templates, multi-channel tenant resolution. |
+| `session` | `@kilnai/runtime` | `packages/runtime/src/session/` | Mode B session management: ModeBSession (version tracking, optimistic concurrency, handoffCount, lastRouteChangeAt, enriched AgentTurnEntry with fromAgentId/handoffBrief), ModeBOrchestrator (AI guard, auto-reopen resolved, tool authorization, retry/fallback, result sanitization, tool result caching via cacheTtl annotation, indirect injection scanning on tool results, ToolRAG, PerCallToolConfig, per-agent cost attribution, model routing via ModelRouter + providerPool), SessionRegistry (pluggable SessionStore, save with concurrency check), SessionMode state machine (ai_active/queued/human_active/resolved), session serializer, AgentHandoffSummarizer (LLM-based warm handoff brief). |
+| `tenant` | `@kilnai/runtime` | `packages/runtime/src/tenant/` | Multi-tenant management: TenantRegistry (webhook tool secret encryption, resolveByWidgetId, resolveByInstagramPageId, resolveByMessengerPageId, resolveByEmailAddress), system prompt builder, multi-agent routing (DefaultTenantRouter regex Tier 1, EmbeddingTenantRouter Tier 2 via AgentRAG, AgentResolver, ping-pong guard, warm handoff brief via AgentHandoffSummarizer), routing test endpoint, routing rule templates, multi-channel tenant resolution, model routing config. |
 | `cli` | `@kilnai/cli` | `packages/cli/` | CLI commands (init, run, dev, gateway, skill, domain), formatters, MCP server. |
 | `sdk` | `@kilnai/react` | `packages/sdk/` | React hooks library: KilnProvider, useKilnChat, useKilnWsChat, useKilnEvents, useKilnMemory, useKilnState, useApproval, ApiClient, SseClient. Types-only import from core. |
 | `studio` | `@kilnai/studio` | `packages/studio/` | Dev UI SPA (private): React 19 + Vite + TanStack Query + @xyflow/react. 7 views (Graph, Playground, Timeline, Memory, Eval, Cost, Safety). Served at `/studio` in dev mode. |
@@ -240,7 +241,7 @@ export class KilnError extends Error {
 
 ## Event System
 
-32 event types are emitted by the engine and broadcast to all connected channels. Source: `packages/core/src/events/event-bus.ts`.
+38 event types are emitted by the engine and broadcast to all connected channels. Source: `packages/core/src/events/event-bus.ts`.
 
 ### Core Events
 
@@ -310,6 +311,44 @@ export class KilnError extends Error {
 | `token` | All events including thinking |
 
 `EventBus.onLevel(level, callback)` subscribes to all events at or above the specified level.
+
+## Multi-Model Routing
+
+Model routing selects which LLM handles each request based on message complexity, budget, and operator-defined rules. The architecture separates interfaces (core) from orchestration (runtime).
+
+**ModelRouter interface** (`packages/core/src/engine/domain/model-router.ts`): defines `RoutingRequest`, `RoutingDecision`, `RoutingRule`, and `ModelCapabilityProfile`. The `ModelRouter.route(request)` method returns a `RoutingDecision` with the selected model, provider, and reasoning.
+
+**ModelCapabilityRegistry** (`packages/core/src/agents/model-capability-registry.ts`): ships 10 built-in model profiles with capability flags (reasoning, tool use, structured output, vision, speed, cost). The `eligible(request)` method filters profiles by required capabilities.
+
+**ComplexityScorer** (`packages/core/src/agents/complexity-scorer.ts`): stateless scorer that evaluates 5 signals (message length, tool count, conversation depth, structured output requirement, modality) to produce a 0-1 complexity score in <1ms. No LLM calls.
+
+**RulesRouter** (`packages/core/src/agents/rules-router.ts`): Tier 1 rules-based model routing. Evaluates priority-ordered `RoutingRule` entries (complexity thresholds, message patterns, tool requirements) and returns the first match. Falls back to the app's default model when no rule matches.
+
+**ModeBOrchestrator integration**: accepts an optional `ModelRouter` and `providerPool` (map of provider name to adapter). When configured, each `processMessage()` call routes through the ModelRouter before selecting the provider adapter. The selected model is recorded on the response for cost tracking and observability.
+
+## Conversation Enrichment
+
+Post-conversation enrichment extracts analytics from completed sessions. The bounded context lives in `packages/core/src/enrichment/` (interfaces + rule-based scorers) and `packages/runtime/src/enrichment/` (persistence + runner).
+
+**ConversationEnrichment** (`enrichment/types.ts`): the enrichment record type containing effort score, sentiment, resolution status, CSAT prediction, topic tags, and metadata.
+
+**Customer Effort Score** (`enrichment/effort-score.ts`): rule-based scorer (0-10 scale) that analyzes conversation signals -- turn count, escalation events, agent handoffs, repeat questions. Zero LLM cost, runs synchronously.
+
+**LlmConversationEnricher** (`enrichment/enrichment-pipeline.ts`): single LLM call with structured JSON output to extract sentiment, resolution, CSAT, and topic tags. PII guard strips sensitive data before sending to the LLM.
+
+**SqliteEnrichmentStore** (`runtime/src/enrichment/sqlite-enrichment-store.ts`): SQLite-backed persistence with WAL mode and cursor-based pagination.
+
+**EnrichmentRunner** (`runtime/src/enrichment/enrichment-runner.ts`): fire-and-forget runner triggered on session close. Calls effort scorer + LLM enricher, persists results, emits `conversation_enriched` event.
+
+**Admin API** (`runtime/src/gateway/enrichment-admin-routes.ts`): CRUD routes at `/enrichment` (list with cursor pagination, get by session ID, delete for GDPR compliance).
+
+## Observability Infrastructure
+
+**PrometheusCollector** (`runtime/src/observability/prometheus-collector.ts`): implements the `EventStore` interface to collect metrics from engine events. Tracks counters (messages processed, tool calls, errors, routing decisions) and histograms (response latency, token usage). Exposes a `/metrics` endpoint in Prometheus text exposition format.
+
+**CompositeEventStore** (`runtime/src/observability/composite-event-store.ts`): fan-out adapter that forwards events to multiple `EventStore` sinks (e.g., OTelExporter + PrometheusCollector simultaneously).
+
+**Lifecycle events**: three new event types support enrichment and observability -- `CONVERSATION_CLOSED` (emitted on session resolve/expire), `CONVERSATION_ABANDONED` (emitted on session expire without resolution), `SESSION_STARTED` (wired to existing session creation).
 
 ## Security Architecture
 

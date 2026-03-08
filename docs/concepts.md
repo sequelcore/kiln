@@ -488,7 +488,7 @@ Text-only messages are represented as `[{ type: "text", text: "..." }]`. Helper 
 
 ## Event System
 
-The engine emits 32 typed events across all operations. Events are available via SSE at `GET /dev/events` in dev mode and via the `useKilnEvents()` React hook.
+The engine emits 38 typed events across all operations. Events are available via SSE at `GET /dev/events` in dev mode and via the `useKilnEvents()` React hook.
 
 | Level | Events | Use |
 |-------|--------|-----|
@@ -500,3 +500,52 @@ The engine emits 32 typed events across all operations. Events are available via
 Additional event categories: security (5 events), trigger (4 events), safety (3 events), memory, cost, eval, A2A.
 
 The `EventBus` uses a ring buffer for in-process delivery. An optional `EventStore` sink enables persistence (the OTel exporter implements this interface to map events to OpenTelemetry spans).
+
+---
+
+## Model Routing
+
+Model routing selects which LLM handles each request based on message complexity and operator-defined rules. This enables cost optimization (route simple queries to cheaper models) and capability matching (route tool-heavy requests to models with strong tool use).
+
+**Rules-based routing (Tier 1).** Priority-ordered rules match on complexity score, message patterns, or tool requirements. The `ComplexityScorer` evaluates 5 signals (message length, tool count, conversation depth, structured output, modality) in <1ms with zero LLM cost. First matching rule wins.
+
+```yaml
+# In TenantConfig or app.yaml provider block
+modelRouting:
+  rules:
+    - condition: { maxComplexity: 0.3 }
+      model: claude-haiku-4-5
+      provider: anthropic
+    - condition: { minComplexity: 0.7 }
+      model: claude-sonnet-4-5-20250514
+      provider: anthropic
+  default:
+    model: claude-haiku-4-5
+    provider: anthropic
+```
+
+The `ModelCapabilityRegistry` ships 10 built-in model profiles with capability flags (reasoning, tool use, structured output, vision, speed, cost). The router filters eligible models by required capabilities before applying rules.
+
+---
+
+## Conversation Enrichment
+
+After a conversation ends (session resolved or expired), the enrichment pipeline extracts analytics for reporting and quality improvement.
+
+**Customer Effort Score.** A rule-based scorer (0-10 scale) analyzes conversation signals -- turn count, escalation events, agent handoffs, repeat questions. Runs synchronously with zero LLM cost. Lower scores indicate easier customer experiences.
+
+**LLM Enrichment.** A single structured LLM call extracts sentiment (positive/neutral/negative), resolution status (resolved/unresolved/partial), predicted CSAT (1-5), and topic tags. PII is stripped before the call.
+
+Enrichment results are persisted in SQLite and accessible via admin API routes at `/enrichment` (list, get, delete). A `conversation_enriched` event is emitted for downstream consumption.
+
+---
+
+## Observability
+
+The engine emits events that feed into pluggable observability sinks via the `EventStore` interface.
+
+**Prometheus metrics.** The `PrometheusCollector` implements `EventStore` to track counters (messages processed, tool calls, errors, routing decisions) and histograms (response latency, token usage). Metrics are exposed at `GET /metrics` in Prometheus text exposition format, ready for scraping by Prometheus, Grafana Agent, or any compatible collector.
+
+**Composite sinks.** The `CompositeEventStore` fans out events to multiple sinks simultaneously -- e.g., OTel spans + Prometheus metrics from the same event stream.
+
+**Lifecycle events.** Three event types support enrichment and observability: `CONVERSATION_CLOSED`, `CONVERSATION_ABANDONED`, and `SESSION_STARTED`.

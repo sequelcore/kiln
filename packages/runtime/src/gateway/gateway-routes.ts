@@ -30,6 +30,8 @@ import type { KnowledgeAdminRoutesConfig } from "./knowledge-admin-routes.js";
 import { createKnowledgeAdminRoutes } from "./knowledge-admin-routes.js";
 import type { ContactMemoryAdminRoutesConfig } from "./contact-memory-admin-routes.js";
 import { createContactMemoryAdminRoutes } from "./contact-memory-admin-routes.js";
+import type { EnrichmentAdminRoutesConfig } from "./enrichment-admin-routes.js";
+import { createEnrichmentAdminRoutes } from "./enrichment-admin-routes.js";
 import { createOutboundRoutes } from "./outbound-routes.js";
 import { createHandoffRoutes } from "./handoff-routes.js";
 import { HealthRegistry } from "./health-registry.js";
@@ -64,6 +66,7 @@ export interface LoadedApp {
   knowledgeAdminConfig?: KnowledgeAdminRoutesConfig;
   contactMemoryService?: ContactMemoryService;
   contactMemoryAdminConfig?: ContactMemoryAdminRoutesConfig;
+  enrichmentAdminConfig?: EnrichmentAdminRoutesConfig;
 }
 
 export interface GatewayServerConfig {
@@ -274,6 +277,12 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
     if (loadedApp.contactMemoryAdminConfig) {
       const contactMemoryAdminApp = createContactMemoryAdminRoutes(loadedApp.contactMemoryAdminConfig);
       app.route(`/admin/${loadedApp.name}/contact-memory`, contactMemoryAdminApp);
+    }
+
+    // Enrichment admin routes (GDPR: get, list, delete)
+    if (loadedApp.enrichmentAdminConfig) {
+      const enrichmentAdminApp = createEnrichmentAdminRoutes(loadedApp.enrichmentAdminConfig);
+      app.route(`/admin/${loadedApp.name}/enrichment`, enrichmentAdminApp);
     }
   }
 

@@ -8,6 +8,7 @@ import type {
   ToolCacheHitEvent,
   CostUpdateEvent,
   ErrorEvent,
+  ModelRoutedEvent,
 } from "@kilnai/core";
 import { MODEL_PRICING, extractText } from "@kilnai/core";
 import type { ModelPricing } from "@kilnai/core";
@@ -17,7 +18,8 @@ import type { ToolResultSanitizer } from "@kilnai/core";
 import type { ToolRAG } from "@kilnai/core";
 import type { RateLimiter } from "@kilnai/core";
 import type { ToolCache } from "@kilnai/core";
-import { executeWithRetry } from "@kilnai/core";
+import type { ModelRouter, RoutingDecision } from "@kilnai/core";
+import { executeWithRetry, scoreComplexity } from "@kilnai/core";
 import type { ModeBSession } from "./mode-b-session.js";
 import type { EscalationDetector, EscalationSignal } from "./escalation-detector.js";
 import type { ContextSummarizer } from "./context-summarizer.js";
@@ -42,6 +44,8 @@ export interface OrchestratorDeps {
   readonly auditLog?: AuditLog;
   readonly toolRAG?: ToolRAG;
   readonly toolCache?: ToolCache;
+  readonly modelRouter?: ModelRouter;
+  readonly providerPool?: ReadonlyMap<string, ProviderAdapter>;
 }
 
 export interface ToolExecutionSummary {
@@ -61,6 +65,12 @@ export interface OrchestrateResult {
   readonly escalation?: EscalationSignal;
   readonly contextSummary?: string;
   readonly toolExecutions?: readonly ToolExecutionSummary[];
+  readonly routingDecision?: {
+    readonly provider: string;
+    readonly model: string;
+    readonly routingTier: string;
+    readonly reasoning: string;
+  };
 }
 
 export interface PerCallToolConfig {
@@ -68,6 +78,7 @@ export interface PerCallToolConfig {
   readonly rateLimiter?: RateLimiter;
   readonly tenantId?: string;
   readonly additionalTools?: readonly ToolDefinition[];
+  readonly modelOverride?: { readonly provider: string; readonly model: string };
 }
 
 export class ModeBOrchestrator {
@@ -177,6 +188,55 @@ export class ModeBOrchestrator {
       }
     }
 
+    // Model routing: select provider per-request
+    let effectiveProvider: ProviderAdapter = this.deps.provider;
+    let routingDecisionResult: RoutingDecision | undefined;
+
+    if (perCallConfig?.modelOverride) {
+      // Explicit override takes precedence
+      const override = perCallConfig.modelOverride;
+      const poolProvider = this.deps.providerPool?.get(override.provider);
+      if (poolProvider) {
+        effectiveProvider = poolProvider;
+      }
+      routingDecisionResult = {
+        provider: override.provider,
+        model: override.model,
+        reasoning: "Explicit model override",
+        confidence: 1.0,
+        routingTier: "rule",
+      };
+    } else if (this.deps.modelRouter) {
+      try {
+        const userText = extractText(userParts);
+        const complexity = scoreComplexity({
+          messageText: userText,
+          toolCount: effectiveTools?.length ?? 0,
+          turnDepth: session.messageCount,
+        });
+        const routingRequest = {
+          tenantId: perCallConfig?.tenantId ?? "default",
+          complexity,
+          hasTools,
+          toolCount: effectiveTools?.length ?? 0,
+          requiresStreaming: false,
+        };
+        const decision = this.deps.modelRouter.route(routingRequest);
+        routingDecisionResult = decision;
+
+        // Look up provider from pool
+        const poolProvider = this.deps.providerPool?.get(decision.provider);
+        if (poolProvider) {
+          effectiveProvider = poolProvider;
+        }
+
+        // Emit model_routed event
+        this.emitModelRouted(session.id, decision);
+      } catch {
+        // Fail-open: use default provider if routing fails
+      }
+    }
+
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
     let totalCacheRead = 0;
@@ -200,7 +260,7 @@ export class ModeBOrchestrator {
 
       const messages = [...session.conversationHistory];
 
-      const response = await this.deps.provider.createMessage({
+      const response = await effectiveProvider.createMessage({
         system,
         messages,
         tools: hasTools ? effectiveTools : undefined,
@@ -243,6 +303,9 @@ export class ModeBOrchestrator {
           escalation,
           contextSummary,
           toolExecutions: toolExecutions.length > 0 ? toolExecutions : undefined,
+          routingDecision: routingDecisionResult
+            ? { provider: routingDecisionResult.provider, model: routingDecisionResult.model, routingTier: routingDecisionResult.routingTier, reasoning: routingDecisionResult.reasoning }
+            : undefined,
         };
       }
 
@@ -433,7 +496,7 @@ export class ModeBOrchestrator {
     this.emitError(session.id, `Max tool rounds (${this.maxToolRounds}) exceeded`);
 
     const finalMessages = [...session.conversationHistory];
-    const finalResponse = await this.deps.provider.createMessage({
+    const finalResponse = await effectiveProvider.createMessage({
       system,
       messages: finalMessages,
       maxTokens: this.deps.maxTokens,
@@ -474,6 +537,9 @@ export class ModeBOrchestrator {
       escalation,
       contextSummary,
       toolExecutions: toolExecutions.length > 0 ? toolExecutions : undefined,
+      routingDecision: routingDecisionResult
+        ? { provider: routingDecisionResult.provider, model: routingDecisionResult.model, routingTier: routingDecisionResult.routingTier, reasoning: routingDecisionResult.reasoning }
+        : undefined,
     };
   }
 
@@ -637,6 +703,19 @@ export class ModeBOrchestrator {
       timestamp: new Date(),
       sessionId,
       ...(agentId ? { agentId } : {}),
+    };
+    this.deps.eventBus?.emit(event);
+  }
+
+  private emitModelRouted(sessionId: string, decision: RoutingDecision): void {
+    const event: ModelRoutedEvent = {
+      type: "model_routed",
+      model: decision.model,
+      provider: decision.provider,
+      routingTier: decision.routingTier,
+      reason: decision.reasoning,
+      timestamp: new Date(),
+      sessionId,
     };
     this.deps.eventBus?.emit(event);
   }

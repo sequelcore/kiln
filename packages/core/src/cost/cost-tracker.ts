@@ -1,5 +1,5 @@
 import type { AgentRole } from "../agents/index.js";
-import type { RoleUsage, ModelPricing, CostSummary } from "./index.js";
+import type { RoleUsage, ModelPricing, CostSummary, SttPricing, EmbeddingPricing } from "./index.js";
 import { MODEL_CATALOG } from "../agents/model-pricing.js";
 
 /** Anthropic cache multipliers (other providers don't expose cache-aware pricing) */
@@ -17,6 +17,18 @@ export const MODEL_PRICING: ReadonlyMap<string, ModelPricing> = new Map(
     },
   ]),
 );
+
+/** STT pricing: rate per minute of audio */
+export const STT_PRICING: ReadonlyMap<string, SttPricing> = new Map([
+  ["gpt-4o-transcribe", { ratePerMinute: 0.006 }],
+  ["nova-3", { ratePerMinute: 0.0043 }],
+]);
+
+/** Embedding pricing: rate per million tokens */
+export const EMBEDDING_PRICING: ReadonlyMap<string, EmbeddingPricing> = new Map([
+  ["text-embedding-3-small", { ratePerMToken: 0.02 }],
+  ["text-embedding-3-large", { ratePerMToken: 0.13 }],
+]);
 
 interface TokenUsage {
   readonly inputTokens: number;
@@ -41,7 +53,9 @@ interface MutableRoleUsage {
  * Subscribes to EventBus cost_update events for automatic tracking.
  */
 export class CostTracker {
-  private readonly usageByRole = new Map<AgentRole, MutableRoleUsage>();
+  private readonly usageByRoleModel = new Map<string, MutableRoleUsage>();
+  private embeddingCostUsd = 0;
+  private sttCostUsd = 0;
 
   /** Record token usage for a specific role and model */
   record(
@@ -49,7 +63,8 @@ export class CostTracker {
     model: string,
     usage: TokenUsage,
   ): void {
-    let entry = this.usageByRole.get(role);
+    const key = `${role}:${model}`;
+    let entry = this.usageByRoleModel.get(key);
     if (!entry) {
       entry = {
         role,
@@ -60,9 +75,8 @@ export class CostTracker {
         cacheWriteTokens: 0,
         calls: 0,
       };
-      this.usageByRole.set(role, entry);
+      this.usageByRoleModel.set(key, entry);
     }
-    entry.model = model;
     entry.inputTokens += usage.inputTokens;
     entry.outputTokens += usage.outputTokens;
     entry.cacheReadTokens += usage.cacheReadTokens;
@@ -70,11 +84,29 @@ export class CostTracker {
     entry.calls += 1;
   }
 
+  /** Record embedding cost for a specific model */
+  recordEmbedding(model: string, tokens: number): void {
+    const pricing = EMBEDDING_PRICING.get(model);
+    if (!pricing) return;
+    this.embeddingCostUsd += (tokens * pricing.ratePerMToken) / 1_000_000;
+  }
+
+  /** Record STT cost for a specific model */
+  recordStt(model: string, durationSeconds: number): void {
+    const pricing = STT_PRICING.get(model);
+    if (!pricing) return;
+    this.sttCostUsd += (durationSeconds / 60) * pricing.ratePerMinute;
+  }
+
   /** Compute USD cost for a specific role */
   costForRole(role: AgentRole): number {
-    const entry = this.usageByRole.get(role);
-    if (!entry) return 0;
-    return computeCost(entry);
+    let total = 0;
+    for (const [key, entry] of this.usageByRoleModel) {
+      if (key.startsWith(`${role}:`)) {
+        total += computeCost(entry);
+      }
+    }
+    return total;
   }
 
   /** Get full cost summary with totals and per-role breakdown */
@@ -86,18 +118,20 @@ export class CostTracker {
     let totalToolCalls = 0;
     let totalCostUsd = 0;
     const byRole: Record<string, RoleUsage> = {};
+    const byRoleModel: Record<string, RoleUsage> = {};
 
-    for (const [role, entry] of this.usageByRole) {
+    for (const [key, entry] of this.usageByRoleModel) {
       totalInputTokens += entry.inputTokens;
       totalOutputTokens += entry.outputTokens;
       totalCacheReadTokens += entry.cacheReadTokens;
       totalCacheWriteTokens += entry.cacheWriteTokens;
       totalToolCalls += entry.calls;
 
-      const roleCost = computeCost(entry);
-      totalCostUsd += roleCost;
+      const entryCost = computeCost(entry);
+      totalCostUsd += entryCost;
 
-      byRole[role] = {
+      // byRoleModel: keyed by "role:model"
+      byRoleModel[key] = {
         role: entry.role,
         model: entry.model,
         inputTokens: entry.inputTokens,
@@ -106,7 +140,34 @@ export class CostTracker {
         cacheWriteTokens: entry.cacheWriteTokens,
         calls: entry.calls,
       };
+
+      // byRole: aggregate across all models for this role (backward compat)
+      const existing = byRole[entry.role];
+      if (existing) {
+        byRole[entry.role] = {
+          role: entry.role,
+          model: entry.model, // last seen model
+          inputTokens: existing.inputTokens + entry.inputTokens,
+          outputTokens: existing.outputTokens + entry.outputTokens,
+          cacheReadTokens: existing.cacheReadTokens + entry.cacheReadTokens,
+          cacheWriteTokens: existing.cacheWriteTokens + entry.cacheWriteTokens,
+          calls: existing.calls + entry.calls,
+        };
+      } else {
+        byRole[entry.role] = {
+          role: entry.role,
+          model: entry.model,
+          inputTokens: entry.inputTokens,
+          outputTokens: entry.outputTokens,
+          cacheReadTokens: entry.cacheReadTokens,
+          cacheWriteTokens: entry.cacheWriteTokens,
+          calls: entry.calls,
+        };
+      }
     }
+
+    // Include embedding and STT costs in total
+    totalCostUsd += this.embeddingCostUsd + this.sttCostUsd;
 
     return {
       totalInputTokens,
@@ -116,12 +177,15 @@ export class CostTracker {
       totalToolCalls,
       totalCostUsd,
       byRole,
+      byRoleModel,
     };
   }
 
   /** Clear all accumulated usage */
   reset(): void {
-    this.usageByRole.clear();
+    this.usageByRoleModel.clear();
+    this.embeddingCostUsd = 0;
+    this.sttCostUsd = 0;
   }
 }
 

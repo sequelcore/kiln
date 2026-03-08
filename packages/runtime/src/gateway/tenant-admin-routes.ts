@@ -45,6 +45,7 @@ const MUTABLE_TENANT_FIELDS = [
   "emailFromAddress",
   "emailFromName",
   "emailTransportConfig",
+  "modelConfig",
 ] as const satisfies readonly (keyof TenantConfig)[];
 
 /** Pick only safe mutable fields from an untrusted body */

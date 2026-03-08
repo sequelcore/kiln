@@ -40,6 +40,9 @@ import type {
     ToolCacheHitEvent,
     KnowledgeGapEvent,
     AgentRoutedEvent,
+    ModelRoutedEvent,
+    ConversationClosedInternalEvent,
+    ConversationEnrichedEvent,
 } from "../events/index.js";
 
 // ---------------------------------------------------------------------------
@@ -150,6 +153,11 @@ function mapCostUpdate(e: CostUpdateEvent): SpanOperation {
     return {
         action: "setAttributes",
         attributes: {
+            // OTel GenAI semantic conventions
+            "gen_ai.usage.input_tokens": e.inputTokens,
+            "gen_ai.usage.output_tokens": e.outputTokens,
+            "gen_ai.usage.cache_read_input_tokens": e.cacheReadTokens,
+            // Kiln-specific (kept for backward compat)
             inputTokens: e.inputTokens,
             outputTokens: e.outputTokens,
             cacheReadTokens: e.cacheReadTokens,
@@ -403,6 +411,46 @@ function mapAgentRouted(e: AgentRoutedEvent): SpanOperation {
     };
 }
 
+function mapModelRouted(e: ModelRoutedEvent): SpanOperation {
+    return {
+        action: "addEvent",
+        name: "model_routed",
+        attributes: {
+            "gen_ai.request.model": e.model,
+            "gen_ai.system": e.provider,
+            model: e.model,
+            provider: e.provider,
+            routingTier: e.routingTier,
+            reason: e.reason,
+            ...(e.previousModel ? { previousModel: e.previousModel } : {}),
+            ...(e.complexityScore !== undefined ? { complexityScore: e.complexityScore } : {}),
+        },
+    };
+}
+
+function mapConversationClosed(e: ConversationClosedInternalEvent): SpanOperation {
+    return {
+        action: "endSpan",
+        status: "ok",
+        attributes: {
+            closedBy: e.closedBy,
+            turnCount: e.turnCount,
+            durationMs: e.durationMs,
+            ...(e.effortScore !== undefined ? { effortScore: e.effortScore } : {}),
+        },
+    };
+}
+
+function mapConversationEnriched(e: ConversationEnrichedEvent): SpanOperation {
+    return {
+        action: "addEvent",
+        name: "conversation_enriched",
+        attributes: {
+            enrichmentId: e.enrichmentId,
+        },
+    };
+}
+
 function mapDomainEvent(e: DomainEventData): SpanOperation {
     return {
         action: "addEvent",
@@ -519,6 +567,12 @@ export function mapEventToSpan(event: KilnEvent): SpanOperation {
             return mapKnowledgeGap(event as KnowledgeGapEvent);
         case "agent_routed":
             return mapAgentRouted(event as AgentRoutedEvent);
+        case "model_routed":
+            return mapModelRouted(event as ModelRoutedEvent);
+        case "conversation_closed":
+            return mapConversationClosed(event as ConversationClosedInternalEvent);
+        case "conversation_enriched":
+            return mapConversationEnriched(event as ConversationEnrichedEvent);
         case "domain_event":
             return mapDomainEvent(event as DomainEventData);
         default: {

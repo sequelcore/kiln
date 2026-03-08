@@ -98,3 +98,7 @@ export { classifyToolError } from "./tool-error-classifier.js";
 export { executeWithRetry } from "./tool-execution-engine.js";
 export type { ToolExecutor } from "./tool-execution-engine.js";
 export { SlidingWindowRateLimiter } from "./sliding-window-rate-limiter.js";
+export { ModelCapabilityRegistry } from "./model-capability-registry.js";
+export { scoreComplexity } from "./complexity-scorer.js";
+export type { ComplexityScorerInput } from "./complexity-scorer.js";
+export { RulesRouter } from "./rules-router.js";
