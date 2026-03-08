@@ -20,7 +20,7 @@ This document is for contributors. For user documentation, see the [guides](guid
 |---------|---------|----------|---------|
 | `engine` | `@kilnai/core` | `packages/core/src/engine/` | 7 primitives + 3 composites + YAML loader + gateway config types + cron parser. Zero external dependencies. |
 | `orchestrator` | `@kilnai/core` | `packages/core/src/orchestrator/` | Phase machine, orchestrator, checkpoint/resume/fork, configurable phase sequence and gate enforcement. |
-| `agents` | `@kilnai/core` | `packages/core/src/agents/` | Provider adapter interface and implementations (Anthropic, OpenAI, DeepSeek, Ollama). MCP client (Streamable HTTP transport via official SDK, circuit breaker, tool description scanning for prompt injection). Tool RAG (embedding-based tool selection). Sliding window rate limiter. |
+| `agents` | `@kilnai/core` | `packages/core/src/agents/` | Provider adapter interface and implementations (Anthropic, OpenAI, DeepSeek, Ollama). MCP client (Streamable HTTP transport via official SDK, circuit breaker, tool description scanning for prompt injection). Tool RAG (embedding-based tool selection). Agent RAG (embedding-based agent routing). Sliding window rate limiter. |
 | `memory` | `@kilnai/core` | `packages/core/src/memory/` | SQLite + FTS5 store (decay + compaction), gzipped JSONL store, git sync. |
 | `tree` | `@kilnai/core` | `packages/core/src/tree/` | Task tree: scoring, batch selection, deepen/branch/prune. |
 | `domain` | `@kilnai/core` | `packages/core/src/domain/` | Domain registry, YAML schema, 5 built-in domain kits, domain package adapter. |
@@ -40,7 +40,7 @@ This document is for contributors. For user documentation, see the [guides](guid
 | `a2a` | `@kilnai/runtime` | `packages/runtime/src/a2a/` | A2A protocol: A2AClient (outbound delegation only). |
 | `trigger` | `@kilnai/runtime` | `packages/runtime/src/trigger/` | TriggerRegistry, webhook handler (HMAC-SHA256), event listener, cron scheduler, trigger executor. |
 | `session` | `@kilnai/runtime` | `packages/runtime/src/session/` | Mode B session management: ModeBSession (version tracking, optimistic concurrency, handoffCount, lastRouteChangeAt, enriched AgentTurnEntry with fromAgentId/handoffBrief), ModeBOrchestrator (AI guard, auto-reopen resolved, tool authorization, retry/fallback, result sanitization, tool result caching via cacheTtl annotation, indirect injection scanning on tool results, ToolRAG, PerCallToolConfig, per-agent cost attribution), SessionRegistry (pluggable SessionStore, save with concurrency check), SessionMode state machine (ai_active/queued/human_active/resolved), session serializer, AgentHandoffSummarizer (LLM-based warm handoff brief). |
-| `tenant` | `@kilnai/runtime` | `packages/runtime/src/tenant/` | Multi-tenant management: TenantRegistry (webhook tool secret encryption, resolveByWidgetId, resolveByInstagramPageId, resolveByMessengerPageId, resolveByEmailAddress), system prompt builder, multi-agent routing (TenantRouter, AgentResolver, ping-pong guard, warm handoff brief via AgentHandoffSummarizer), multi-channel tenant resolution. |
+| `tenant` | `@kilnai/runtime` | `packages/runtime/src/tenant/` | Multi-tenant management: TenantRegistry (webhook tool secret encryption, resolveByWidgetId, resolveByInstagramPageId, resolveByMessengerPageId, resolveByEmailAddress), system prompt builder, multi-agent routing (DefaultTenantRouter regex Tier 1, EmbeddingTenantRouter Tier 2 via AgentRAG, AgentResolver, ping-pong guard, warm handoff brief via AgentHandoffSummarizer), routing test endpoint, routing rule templates, multi-channel tenant resolution. |
 | `cli` | `@kilnai/cli` | `packages/cli/` | CLI commands (init, run, dev, gateway, skill, domain), formatters, MCP server. |
 | `sdk` | `@kilnai/react` | `packages/sdk/` | React hooks library: KilnProvider, useKilnChat, useKilnWsChat, useKilnEvents, useKilnMemory, useKilnState, useApproval, ApiClient, SseClient. Types-only import from core. |
 | `studio` | `@kilnai/studio` | `packages/studio/` | Dev UI SPA (private): React 19 + Vite + TanStack Query + @xyflow/react. 7 views (Graph, Playground, Timeline, Memory, Eval, Cost, Safety). Served at `/studio` in dev mode. |
@@ -280,7 +280,7 @@ export class KilnError extends Error {
 | `guardian_reviewed` | `approved`, `capabilityName`, `agentName`, `riskLevel` |
 | `audit_entry` | `action`, `actor`, `outcome`, `resource` |
 | `tenant_isolation_violation` | `tenantId`, `attemptedResource`, `blockedBy` |
-| `agent_routed` | `agentId`, `agentName`, `previousAgentId`, `routingTier`, `matchedPattern` |
+| `agent_routed` | `agentId`, `agentName`, `previousAgentId`, `routingTier`, `matchedPattern`, `confidence` |
 | `security_alert` | `severity`, `category`, `message` |
 
 ### Trigger Events

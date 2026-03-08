@@ -34,6 +34,8 @@ export interface InboundMessageContext {
   readonly handoffBrief?: string;
   readonly pingPongBlocked?: boolean;
   readonly pingPongReason?: string;
+  readonly routingTier?: "rule" | "embedding" | "fallback";
+  readonly routingConfidence?: number;
 }
 
 export interface InboundMessageResult {
@@ -183,6 +185,8 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
         externalUserId: ctx.userId,
         activeAgentId: ctx.activeAgentId,
         activeAgentName: ctx.activeAgentName,
+        routingTier: ctx.routingTier,
+        routingConfidence: ctx.routingConfidence,
         traceId: trace.traceId,
         timestamp: new Date().toISOString(),
       });

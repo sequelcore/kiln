@@ -113,6 +113,7 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `agents/infrastructure/ollama.ts` | Ollama adapter (local models) |
 | `agents/mcp-client.ts` | MCP client (Streamable HTTP via official SDK, circuit breaker) |
 | `agents/tool-rag.ts` | Embedding-based tool selection |
+| `agents/agent-rag.ts` | Embedding-based agent routing (Tier 2) |
 | `agents/sliding-window-rate-limiter.ts` | In-memory sliding window rate limiter (per-tool, per-tenant) |
 | `engine/domain/rate-limiter.ts` | RateLimiter, RateLimitConfig, RateLimitResult interfaces |
 | `engine/domain/tool-execution.ts` | RetryStrategy, ToolAuthorizer, ToolExecutionResult interfaces |
@@ -129,6 +130,7 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `agents/infrastructure/deepgram-stt.ts` | Deepgram STT adapter (nova-3, fetch-based, withRetry) |
 | `knowledge/contact-memory.ts` | ContactMemoryServiceImpl: per-user fact extraction (LLM), recall, forget, forgetAll (GDPR) |
 | `knowledge/infrastructure/cohere-reranker.ts` | Cohere Rerank v2 adapter (over-fetch 4x, KnowledgeRerankerConfig) |
+| `domains/routing-templates.ts` | 3 built-in routing templates (service-business, ecommerce, customer-support) |
 
 ### Runtime (`packages/runtime/src/`)
 
@@ -181,8 +183,9 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `gateway/handoff-routes.ts` | Handoff API: /handoff, /release, /operator-message, /session-history |
 | `gateway/webhook-tool-executor.ts` | WebhookToolExecutor: HTTP POST + HMAC-SHA256 for external tool calls |
 | `gateway/tenant-tool-factory.ts` | buildTenantToolContext(): per-tenant tool infrastructure (webhook tools, allowlist, rate limiter) |
-| `tenant/tenant-router.ts` | DefaultTenantRouter: regex-based multi-agent routing (Tier 1 + fallback) |
-| `tenant/agent-resolver.ts` | resolveAgentContext() + resolveAgentContextAsync(): single integration point for all channel handlers (routing, prompt overlay, tool scoping, warm handoff brief, ping-pong guard) |
+| `tenant/tenant-router.ts` | DefaultTenantRouter (regex Tier 1), EmbeddingTenantRouter (Tier 2 via AgentRAG, async routeAsync) |
+| `tenant/agent-resolver.ts` | resolveAgentContext() + resolveAgentContextAsync(): single integration point for all channel handlers (routing, prompt overlay, tool scoping, warm handoff brief, ping-pong guard, Tier 2 embedding) |
+| `gateway/routing-test-routes.ts` | POST /tenants/:id/routing/test (dry-run routing), GET /routing/templates |
 | `tenant/ping-pong-guard.ts` | checkPingPong(): stateless guard preventing agent switching loops (maxHandoffs, cooldown, bidirectional pair) |
 | `session/agent-handoff-summarizer.ts` | AgentHandoffSummarizer: LLM-generated warm handoff brief on agent switch |
 | `gateway/message-pipeline.ts` | Shared processInboundMessage pipeline (budget, session, orchestrate, events, tool event emission) |

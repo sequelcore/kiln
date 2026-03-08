@@ -431,6 +431,8 @@ async function processMessengerMessage(
         externalUserId: senderId,
         activeAgentId: agentCtx.activeAgentId,
         activeAgentName: agentCtx.activeAgentName,
+        routingTier: agentCtx.routingResult?.tier,
+        routingConfidence: agentCtx.routingResult?.confidence,
         traceId: trace.traceId,
         timestamp: new Date().toISOString(),
       });

@@ -87,7 +87,7 @@ export { TenantRegistry, TenantNotFoundError, TenantValidationFailedError } from
 export { buildTenantSystemPrompt } from "./tenant/system-prompt-builder.js";
 export { extractSuggestions, stripSuggestionTags } from "./tenant/suggestion-parser.js";
 export type { ParsedResponse } from "./tenant/suggestion-parser.js";
-export { DefaultTenantRouter } from "./tenant/tenant-router.js";
+export { DefaultTenantRouter, EmbeddingTenantRouter } from "./tenant/tenant-router.js";
 export type { TenantRouter, RoutingResult } from "./tenant/tenant-router.js";
 export { resolveAgentContext, resolveAgentContextAsync, buildAgentSystemPrompt } from "./tenant/agent-resolver.js";
 export type { ResolvedAgentContext, AsyncAgentResolverDeps } from "./tenant/agent-resolver.js";
@@ -95,6 +95,8 @@ export { checkPingPong } from "./tenant/ping-pong-guard.js";
 export type { PingPongCheckResult } from "./tenant/ping-pong-guard.js";
 export { DefaultAgentHandoffSummarizer } from "./session/agent-handoff-summarizer.js";
 export type { AgentHandoffSummarizer } from "./session/agent-handoff-summarizer.js";
+export { createRoutingTestRoutes } from "./gateway/routing-test-routes.js";
+export type { RoutingTestRoutesConfig } from "./gateway/routing-test-routes.js";
 
 // Triggers
 export { TriggerRegistry } from "./trigger/trigger-registry.js";

@@ -268,3 +268,7 @@ export type {
 // Rate limiter types + implementation re-exported for direct access by runtime
 export type { RateLimiter, RateLimitConfig, RateLimitResult } from "./engine/domain/rate-limiter.js";
 export { SlidingWindowRateLimiter } from "./agents/sliding-window-rate-limiter.js";
+
+// Routing templates re-exported for direct access by runtime
+export type { RoutingTemplate } from "./domains/routing-templates.js";
+export { getRoutingTemplate, listRoutingTemplates } from "./domains/routing-templates.js";

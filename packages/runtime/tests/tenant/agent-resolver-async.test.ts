@@ -243,4 +243,121 @@ describe("resolveAgentContextAsync", () => {
     expect(event.accepted).toBe(true);
     expect(event.sessionId).toBe(session.id);
   });
+
+  describe("Tier 2 embedding routing", () => {
+    function makeAgentRag(result?: { agentId: string; score: number }) {
+      return {
+        selectAgent: vi.fn().mockResolvedValue(result ?? undefined),
+        ingestAgents: vi.fn().mockResolvedValue(undefined),
+      };
+    }
+
+    it("agentRag provided - embedding tier used when regex misses", async () => {
+      const tenant = makeTenant();
+      const session = makeSession();
+      const agentRag = makeAgentRag({ agentId: "agent-a", score: 0.92 });
+
+      const result = await resolveAgentContextAsync(
+        tenant,
+        textParts("I need assistance with my account"),
+        session,
+        { agentRag: agentRag as never, eventBus: mockEventBus },
+      );
+
+      // Regex rules don't match "I need assistance with my account", so embedding tier kicks in
+      expect(agentRag.selectAgent).toHaveBeenCalledOnce();
+      expect(result.routingResult?.tier).toBe("embedding");
+      expect(result.activeAgentId).toBe("agent-a");
+    });
+
+    it("agentRag provided - regex tier still preferred when regex matches", async () => {
+      const tenant = makeTenant();
+      const session = makeSession();
+      const agentRag = makeAgentRag({ agentId: "agent-b", score: 0.99 });
+
+      const result = await resolveAgentContextAsync(
+        tenant,
+        textParts("I want to buy something"),
+        session,
+        { agentRag: agentRag as never, eventBus: mockEventBus },
+      );
+
+      // "buy" matches the regex rule for agent-a, so regex tier is preferred
+      expect(agentRag.selectAgent).not.toHaveBeenCalled();
+      expect(result.routingResult?.tier).toBe("rule");
+      expect(result.activeAgentId).toBe("agent-a");
+    });
+
+    it("agentRag not provided - regex + fallback only", async () => {
+      const tenant = makeTenant();
+      const session = makeSession();
+
+      const result = await resolveAgentContextAsync(
+        tenant,
+        textParts("I need assistance with my account"),
+        session,
+        { eventBus: mockEventBus },
+      );
+
+      // No agentRag → sync path, regex misses → fallback
+      expect(result.routingResult?.tier).toBe("fallback");
+      expect(result.activeAgentId).toBe("agent-b");
+    });
+
+    it("agentRag failure - fail-open to fallback", async () => {
+      const tenant = makeTenant();
+      const session = makeSession();
+      const agentRag = {
+        selectAgent: vi.fn().mockRejectedValue(new Error("Embedding service unavailable")),
+        ingestAgents: vi.fn().mockResolvedValue(undefined),
+      };
+
+      const result = await resolveAgentContextAsync(
+        tenant,
+        textParts("I need assistance with my account"),
+        session,
+        { agentRag: agentRag as never, eventBus: mockEventBus },
+      );
+
+      // agentRag throws → fail-open to regex fallback
+      expect(agentRag.selectAgent).toHaveBeenCalledOnce();
+      expect(result.routingResult?.tier).toBe("fallback");
+      expect(result.activeAgentId).toBe("agent-b");
+    });
+
+    it("embedding result triggers handoff when different agent", async () => {
+      const tenant = makeTenant();
+      // Session currently on agent-b, embedding routes to agent-a
+      const session = makeSession("agent-b");
+      const agentRag = makeAgentRag({ agentId: "agent-a", score: 0.88 });
+
+      const result = await resolveAgentContextAsync(
+        tenant,
+        textParts("I need assistance with my account"),
+        session,
+        { agentRag: agentRag as never, eventBus: mockEventBus },
+      );
+
+      expect(result.isHandoff).toBe(true);
+      expect(result.previousAgentId).toBe("agent-b");
+      expect(result.activeAgentId).toBe("agent-a");
+      expect(result.routingResult?.tier).toBe("embedding");
+    });
+
+    it("embedding confidence propagated to ResolvedAgentContext", async () => {
+      const tenant = makeTenant();
+      const session = makeSession();
+      const agentRag = makeAgentRag({ agentId: "agent-a", score: 0.85 });
+
+      const result = await resolveAgentContextAsync(
+        tenant,
+        textParts("I need assistance with my account"),
+        session,
+        { agentRag: agentRag as never, eventBus: mockEventBus },
+      );
+
+      expect(result.routingResult?.tier).toBe("embedding");
+      expect(result.routingResult?.confidence).toBe(0.85);
+    });
+  });
 });

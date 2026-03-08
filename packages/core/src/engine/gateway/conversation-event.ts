@@ -72,6 +72,10 @@ export interface ConversationEvent {
   readonly handoffBlocked?: boolean;
   /** Reason for ping-pong block -- present for AGENT_HANDOFF events */
   readonly handoffBlockReason?: string;
+  /** Routing tier used -- present for AGENT_ROUTED events */
+  readonly routingTier?: "rule" | "embedding" | "fallback";
+  /** Routing confidence score -- present for AGENT_ROUTED events with embedding tier */
+  readonly routingConfidence?: number;
 }
 
 export interface ConversationEventBatch {

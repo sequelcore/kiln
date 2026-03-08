@@ -93,6 +93,8 @@ export function createModeBRoutes(runtime: ModeBAppRuntime): Hono {
     let systemPrompt = runtime.systemPrompt;
     let activeAgentId: string | undefined;
     let activeAgentName: string | undefined;
+    let routingTier: "rule" | "embedding" | "fallback" | undefined;
+    let routingConfidence: number | undefined;
     if (runtime.tenant) {
       // Get or create session for ping-pong guard context
       const session = await runtime.sessionRegistry.getOrCreate({
@@ -107,6 +109,8 @@ export function createModeBRoutes(runtime: ModeBAppRuntime): Hono {
       systemPrompt = agentCtx.systemPrompt;
       activeAgentId = agentCtx.activeAgentId;
       activeAgentName = agentCtx.activeAgentName;
+      routingTier = agentCtx.routingResult?.tier;
+      routingConfidence = agentCtx.routingResult?.confidence;
 
       // Update session with resolved prompt and agent
       session.setSystemPrompt(agentCtx.systemPrompt);
@@ -130,6 +134,8 @@ export function createModeBRoutes(runtime: ModeBAppRuntime): Hono {
         knowledgeContext,
         activeAgentId,
         activeAgentName,
+        routingTier,
+        routingConfidence,
       });
     } catch (err) {
       console.error(`[${runtime.appName}] processMessage error:`, err);

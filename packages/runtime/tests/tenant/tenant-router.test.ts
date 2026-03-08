@@ -1,6 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { textParts } from "@kilnai/core";
-import { DefaultTenantRouter } from "../../src/tenant/tenant-router.js";
+import type { AgentRAG, TenantAgentConfig } from "@kilnai/core";
+import { DefaultTenantRouter, EmbeddingTenantRouter } from "../../src/tenant/tenant-router.js";
 
 describe("DefaultTenantRouter", () => {
   describe("regex rule matching", () => {
@@ -203,5 +204,171 @@ describe("DefaultTenantRouter", () => {
       const result = router.route(textParts("hello"));
       expect(result.matchedPattern).toBeUndefined();
     });
+  });
+});
+
+describe("EmbeddingTenantRouter", () => {
+  const agents: TenantAgentConfig[] = [
+    { id: "sales", name: "Sales", role: "seller", goal: "sell" },
+    { id: "support", name: "Support", role: "helper", goal: "help", isDefault: true },
+  ];
+
+  function createRouter(
+    overrides: {
+      rules?: { match: string; agent: string }[];
+      fallback?: string;
+      embeddingThreshold?: number;
+    } = {},
+    agentRag?: AgentRAG,
+  ) {
+    const mockRag = agentRag ?? ({ selectAgent: vi.fn() } as unknown as AgentRAG);
+    const config = {
+      rules: overrides.rules ?? [],
+      fallback: overrides.fallback ?? "support",
+      embeddingThreshold: overrides.embeddingThreshold,
+    };
+    return { router: new EmbeddingTenantRouter(config, mockRag, agents), mockRag };
+  }
+
+  it("Tier 1 regex match skips embedding", async () => {
+    const mockAgentRag = { selectAgent: vi.fn() } as unknown as AgentRAG;
+    const { router } = createRouter(
+      { rules: [{ match: "sales", agent: "sales" }] },
+      mockAgentRag,
+    );
+
+    const result = await router.routeAsync(textParts("I want sales"));
+
+    expect(result.agentId).toBe("sales");
+    expect(result.tier).toBe("rule");
+    expect(mockAgentRag.selectAgent).not.toHaveBeenCalled();
+  });
+
+  it("Tier 2 embedding match when regex misses", async () => {
+    const mockAgentRag = {
+      selectAgent: vi.fn().mockResolvedValue({ agentId: "sales", score: 0.9 }),
+    } as unknown as AgentRAG;
+    const { router } = createRouter(
+      { rules: [{ match: "billing", agent: "billing" }] },
+      mockAgentRag,
+    );
+
+    const result = await router.routeAsync(textParts("I want to buy something"));
+
+    expect(result.agentId).toBe("sales");
+    expect(result.tier).toBe("embedding");
+    expect(result.confidence).toBe(0.9);
+    expect(mockAgentRag.selectAgent).toHaveBeenCalledOnce();
+  });
+
+  it("Tier 2 below threshold falls to fallback", async () => {
+    const mockAgentRag = {
+      selectAgent: vi.fn().mockResolvedValue({ agentId: "sales", score: 0.5 }),
+    } as unknown as AgentRAG;
+    const { router } = createRouter({}, mockAgentRag);
+
+    const result = await router.routeAsync(textParts("something random"));
+
+    expect(result.agentId).toBe("support");
+    expect(result.tier).toBe("fallback");
+    expect(result.confidence).toBeUndefined();
+  });
+
+  it("embeddingThreshold defaults to 0.75", async () => {
+    const mockAgentRag = {
+      selectAgent: vi.fn().mockResolvedValue({ agentId: "sales", score: 0.74 }),
+    } as unknown as AgentRAG;
+    const { router } = createRouter({}, mockAgentRag);
+
+    const result = await router.routeAsync(textParts("test"));
+
+    expect(result.tier).toBe("fallback");
+
+    // Score exactly at 0.75 should pass
+    mockAgentRag.selectAgent = vi.fn().mockResolvedValue({ agentId: "sales", score: 0.75 });
+    const result2 = await router.routeAsync(textParts("test2"));
+
+    expect(result2.tier).toBe("embedding");
+    expect(result2.agentId).toBe("sales");
+  });
+
+  it("custom embeddingThreshold respected", async () => {
+    const mockAgentRag = {
+      selectAgent: vi.fn().mockResolvedValue({ agentId: "sales", score: 0.55 }),
+    } as unknown as AgentRAG;
+    const { router } = createRouter({ embeddingThreshold: 0.5 }, mockAgentRag);
+
+    const result = await router.routeAsync(textParts("something"));
+
+    expect(result.tier).toBe("embedding");
+    expect(result.agentId).toBe("sales");
+    expect(result.confidence).toBe(0.55);
+  });
+
+  it("agentRag failure falls to fallback (fail-open)", async () => {
+    const mockAgentRag = {
+      selectAgent: vi.fn().mockRejectedValue(new Error("embedding service down")),
+    } as unknown as AgentRAG;
+    const { router } = createRouter({}, mockAgentRag);
+
+    const result = await router.routeAsync(textParts("help me please"));
+
+    expect(result.agentId).toBe("support");
+    expect(result.tier).toBe("fallback");
+  });
+
+  it("sync route() uses regex only", () => {
+    const mockAgentRag = { selectAgent: vi.fn() } as unknown as AgentRAG;
+    const { router } = createRouter(
+      { rules: [{ match: "sales", agent: "sales" }] },
+      mockAgentRag,
+    );
+
+    const result = router.route(textParts("something unrelated"));
+
+    expect(result.agentId).toBe("support");
+    expect(result.tier).toBe("fallback");
+    expect(mockAgentRag.selectAgent).not.toHaveBeenCalled();
+  });
+
+  it("routeAsync with no rules returns fallback when below threshold", async () => {
+    const mockAgentRag = {
+      selectAgent: vi.fn().mockResolvedValue({ agentId: "sales", score: 0.3 }),
+    } as unknown as AgentRAG;
+    const { router } = createRouter({ rules: [] }, mockAgentRag);
+
+    const result = await router.routeAsync(textParts("hello"));
+
+    expect(result.agentId).toBe("support");
+    expect(result.tier).toBe("fallback");
+    expect(mockAgentRag.selectAgent).toHaveBeenCalledOnce();
+  });
+
+  it("Tier 2 result includes confidence score", async () => {
+    const mockAgentRag = {
+      selectAgent: vi.fn().mockResolvedValue({ agentId: "sales", score: 0.88 }),
+    } as unknown as AgentRAG;
+    const { router } = createRouter({}, mockAgentRag);
+
+    const result = await router.routeAsync(textParts("pricing info"));
+
+    expect(result).toEqual({
+      agentId: "sales",
+      tier: "embedding",
+      confidence: 0.88,
+    });
+  });
+
+  it("routeAsync with empty message", async () => {
+    const mockAgentRag = {
+      selectAgent: vi.fn().mockResolvedValue({ agentId: "sales", score: 0.4 }),
+    } as unknown as AgentRAG;
+    const { router } = createRouter({}, mockAgentRag);
+
+    const result = await router.routeAsync(textParts(""));
+
+    expect(result.agentId).toBe("support");
+    expect(result.tier).toBe("fallback");
+    expect(mockAgentRag.selectAgent).toHaveBeenCalledWith("", agents);
   });
 });

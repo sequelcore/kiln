@@ -408,6 +408,320 @@ describe("createTenantAdminRoutes", () => {
       expect(res.status).toBe(200);
     });
   });
+
+  describe("agent and routing mutation", () => {
+    const sampleAgents = [
+      { id: "sales", name: "Sales Agent", role: "salesperson", goal: "Close deals", isDefault: true },
+      { id: "support", name: "Support Agent", role: "support rep", goal: "Resolve issues" },
+    ];
+    const sampleRouting = {
+      rules: [{ match: "refund|complaint", agent: "support" }],
+      fallback: "sales",
+    };
+
+    it("POST /tenants with agents and routing creates tenant", async () => {
+      const app = createTenantAdminRoutes(config);
+
+      const res = await app.request("/tenants", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(makeTenantBody({
+          tenantId: "multi-agent",
+          name: "Multi Agent Salon",
+          agents: sampleAgents,
+          routing: sampleRouting,
+        })),
+      });
+
+      expect(res.status).toBe(201);
+      const body = (await res.json()) as TenantConfig;
+      expect(body.agents).toHaveLength(2);
+      expect(body.agents![0]!.id).toBe("sales");
+      expect(body.agents![1]!.id).toBe("support");
+      expect(body.routing!.fallback).toBe("sales");
+      expect(body.routing!.rules).toHaveLength(1);
+    });
+
+    it("PATCH /tenants/:id with agents array persists", async () => {
+      const app = createTenantAdminRoutes(config);
+
+      await app.request("/tenants", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(makeTenantBody({ tenantId: "patch-agents", name: "Patch Agents" })),
+      });
+
+      const res = await app.request("/tenants/patch-agents", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agents: [{ id: "solo", name: "Solo Agent", role: "generalist", goal: "Handle everything" }],
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as TenantConfig;
+      expect(body.agents).toHaveLength(1);
+      expect(body.agents![0]!.id).toBe("solo");
+    });
+
+    it("PATCH /tenants/:id with routing config persists", async () => {
+      const app = createTenantAdminRoutes(config);
+
+      await app.request("/tenants", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(makeTenantBody({
+          tenantId: "patch-routing",
+          name: "Patch Routing",
+          agents: sampleAgents,
+          routing: sampleRouting,
+        })),
+      });
+
+      const res = await app.request("/tenants/patch-routing", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          routing: { ...sampleRouting, maxHandoffs: 5 },
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as TenantConfig;
+      expect(body.routing!.maxHandoffs).toBe(5);
+      expect(body.routing!.fallback).toBe("sales");
+    });
+
+    it("PATCH with invalid agent returns 422", async () => {
+      const app = createTenantAdminRoutes(config);
+
+      await app.request("/tenants", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(makeTenantBody({ tenantId: "bad-agent", name: "Bad Agent" })),
+      });
+
+      const res = await app.request("/tenants/bad-agent", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agents: [{ id: "", name: "", role: "", goal: "" }],
+        }),
+      });
+
+      expect(res.status).toBe(422);
+      const body = (await res.json()) as { error: string; details: unknown[] };
+      expect(body.error).toBe("Validation failed");
+      expect(body.details.length).toBeGreaterThan(0);
+    });
+
+    it("PATCH with invalid routing returns 422", async () => {
+      const app = createTenantAdminRoutes(config);
+
+      await app.request("/tenants", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(makeTenantBody({
+          tenantId: "bad-routing",
+          name: "Bad Routing",
+          agents: sampleAgents,
+          routing: sampleRouting,
+        })),
+      });
+
+      const res = await app.request("/tenants/bad-routing", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          routing: { fallback: "nonexistent-agent" },
+        }),
+      });
+
+      expect(res.status).toBe(422);
+      const body = (await res.json()) as { error: string; details: unknown[] };
+      expect(body.error).toBe("Validation failed");
+      expect(body.details.length).toBeGreaterThan(0);
+    });
+
+    it("GET /tenants/:id returns agents and routing", async () => {
+      const app = createTenantAdminRoutes(config);
+
+      await app.request("/tenants", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(makeTenantBody({
+          tenantId: "get-agents",
+          name: "Get Agents",
+          agents: sampleAgents,
+          routing: sampleRouting,
+        })),
+      });
+
+      const res = await app.request("/tenants/get-agents");
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as TenantConfig;
+      expect(body.agents).toHaveLength(2);
+      expect(body.agents![0]!.id).toBe("sales");
+      expect(body.agents![1]!.id).toBe("support");
+      expect(body.routing!.fallback).toBe("sales");
+      expect(body.routing!.rules).toHaveLength(1);
+      expect(body.routing!.rules![0]!.match).toBe("refund|complaint");
+    });
+
+    it("PATCH agents triggers session invalidation", async () => {
+      const sessionRegistry = new SessionRegistry();
+      const configWithSessions: TenantAdminRoutesConfig = { ...config, sessionRegistry };
+      const app = createTenantAdminRoutes(configWithSessions);
+
+      await app.request("/tenants", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(makeTenantBody({ tenantId: "agent-sessions", name: "Agent Sessions" })),
+      });
+      await sessionRegistry.getOrCreate({ appName: "test-app", tenantId: "agent-sessions", userId: "u1", systemPrompt: "old" });
+
+      const res = await app.request("/tenants/agent-sessions", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agents: [{ id: "new-agent", name: "New Agent", role: "helper", goal: "Help" }],
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(await sessionRegistry.get("test-app", "u1", "agent-sessions")).toBeUndefined();
+    });
+
+    it("PATCH routing only without agents persists", async () => {
+      const app = createTenantAdminRoutes(config);
+
+      await app.request("/tenants", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(makeTenantBody({
+          tenantId: "routing-only",
+          name: "Routing Only",
+          agents: sampleAgents,
+          routing: sampleRouting,
+        })),
+      });
+
+      const res = await app.request("/tenants/routing-only", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          routing: { ...sampleRouting, rerouteAfterTurns: 3 },
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as TenantConfig;
+      expect(body.routing!.rerouteAfterTurns).toBe(3);
+      expect(body.agents).toHaveLength(2);
+    });
+
+    it("PATCH agents only without routing for single agent persists", async () => {
+      const app = createTenantAdminRoutes(config);
+
+      await app.request("/tenants", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(makeTenantBody({ tenantId: "single-agent", name: "Single Agent" })),
+      });
+
+      const res = await app.request("/tenants/single-agent", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agents: [{ id: "only", name: "Only Agent", role: "assistant", goal: "Assist" }],
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as TenantConfig;
+      expect(body.agents).toHaveLength(1);
+      expect(body.agents![0]!.id).toBe("only");
+      expect(body.routing).toBeUndefined();
+    });
+
+    it("POST with agents creates tenant with routing", async () => {
+      const app = createTenantAdminRoutes(config);
+
+      const res = await app.request("/tenants", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(makeTenantBody({
+          tenantId: "full-create",
+          name: "Full Create",
+          agents: [
+            { id: "booking", name: "Booking Agent", role: "scheduler", goal: "Schedule appointments", isDefault: true },
+            { id: "faq", name: "FAQ Agent", role: "informer", goal: "Answer questions" },
+          ],
+          routing: {
+            rules: [{ match: "appointment|book|schedule", agent: "booking" }],
+            fallback: "booking",
+            maxHandoffs: 3,
+          },
+        })),
+      });
+
+      expect(res.status).toBe(201);
+      const body = (await res.json()) as TenantConfig;
+      expect(body.agents).toHaveLength(2);
+      expect(body.routing!.fallback).toBe("booking");
+      expect(body.routing!.maxHandoffs).toBe(3);
+    });
+
+    it("PATCH with empty agents array clears agents", async () => {
+      const app = createTenantAdminRoutes(config);
+
+      await app.request("/tenants", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(makeTenantBody({
+          tenantId: "clear-agents",
+          name: "Clear Agents",
+          agents: [{ id: "temp", name: "Temp", role: "temp", goal: "Temporary" }],
+        })),
+      });
+
+      const res = await app.request("/tenants/clear-agents", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agents: [] }),
+      });
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as TenantConfig;
+      expect(body.agents).toEqual([]);
+    });
+
+    it("agents and routing not stripped by pickMutableFields", async () => {
+      const app = createTenantAdminRoutes(config);
+
+      const res = await app.request("/tenants", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tenantId: "fields-check",
+          name: "Fields Check",
+          agents: sampleAgents,
+          routing: sampleRouting,
+          tenantId_hack: "ignored",
+          appName: "ignored",
+          createdAt: "ignored",
+        }),
+      });
+
+      expect(res.status).toBe(201);
+      const body = (await res.json()) as TenantConfig;
+      expect(body.tenantId).toBe("fields-check");
+      expect(body.appName).toBe("test-app");
+      expect(body.agents).toHaveLength(2);
+      expect(body.routing!.fallback).toBe("sales");
+    });
+  });
 });
 
 describe("generateTenantId", () => {

@@ -35,6 +35,16 @@ const MUTABLE_TENANT_FIELDS = [
   "tools",
   "toolConfig",
   "webhookTools",
+  "agents",
+  "routing",
+  "instagramPageId",
+  "instagramAccessToken",
+  "messengerPageId",
+  "messengerAccessToken",
+  "emailAddress",
+  "emailFromAddress",
+  "emailFromName",
+  "emailTransportConfig",
 ] as const satisfies readonly (keyof TenantConfig)[];
 
 /** Pick only safe mutable fields from an untrusted body */

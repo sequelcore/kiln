@@ -101,6 +101,7 @@ export type KilnErrorCode =
   // Routing (Phase 8)
   | "ROUTING_FAILED"
   | "ROUTING_AGENT_NOT_FOUND"
+  | "AGENT_RAG_FAILED"
   // Generic
   | "INTERNAL_ERROR";
 

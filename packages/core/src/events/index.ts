@@ -413,8 +413,9 @@ export interface AgentRoutedEvent extends KilnEvent {
   readonly agentId: string;
   readonly agentName: string;
   readonly previousAgentId?: string;
-  readonly routingTier: "rule" | "fallback";
+  readonly routingTier: "rule" | "embedding" | "fallback";
   readonly matchedPattern?: string;
+  readonly confidence?: number;
 }
 
 /** Custom domain event for app-specific event types */

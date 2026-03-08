@@ -571,6 +571,13 @@ export function getErrorSuggestion(
         docUrl: docUrl(code),
       };
 
+    case "AGENT_RAG_FAILED":
+      return {
+        suggestion:
+          "Agent retrieval failed. Check the embedding adapter configuration and vector store availability.",
+        docUrl: docUrl(code),
+      };
+
     case "INTERNAL_ERROR":
       return {
         suggestion:

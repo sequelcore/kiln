@@ -428,9 +428,19 @@ routing:
   fallback: support
 ```
 
-**Routing tiers** (Tier 1 + fallback):
+**Routing tiers** (3-tier cascade):
 - **Tier 1: Regex rules** -- Pattern matching against message text. First match wins.
-- **Fallback** -- When no rule matches, routes to the fallback agent.
+- **Tier 2: Embedding similarity** -- When no regex matches, the engine uses `AgentRAG` to compare the message against agent descriptions via vector similarity. Routes to the best-matching agent if score >= `embeddingThreshold` (default: 0.75). Async-only (`resolveAgentContextAsync`).
+- **Fallback** -- When neither tier matches, routes to the fallback agent.
+
+```yaml
+routing:
+  rules:
+    - match: "price|cost|book"
+      agent: sales
+  fallback: support
+  embeddingThreshold: 0.75  # Tier 2 confidence threshold
+```
 
 Each agent gets its own system prompt (base tenant prompt + agent persona overlay) and tool scope (intersection of agent tools with tenant allowlist). Sessions track `activeAgentId` and `agentTurnHistory` for continuity.
 
@@ -452,6 +462,10 @@ routing:
 ```
 
 An `AGENT_HANDOFF` conversation event is emitted on every agent switch (or blocked switch), providing visibility into handoff flow for product backends.
+
+**Routing templates.** Three built-in templates provide pre-configured agent + routing setups for common use cases: `service-business` (Booking + GeneralInquiry + Support), `ecommerce` (Sales + OrderSupport + Returns), and `customer-support` (Triage + Technical + Billing). Available via `listRoutingTemplates()` and the `GET /routing/templates` admin endpoint.
+
+**Routing test endpoint.** `POST /tenants/:tenantId/routing/test` with `{ "message": "..." }` performs a dry-run routing evaluation, returning the selected agent, tier, confidence score, and a diagnostic `allRules` array showing which rules matched.
 
 When `agents` is absent or has ≤1 entry, the existing single-agent pipeline is unchanged -- zero migration required.
 
