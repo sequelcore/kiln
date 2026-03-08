@@ -1,0 +1,178 @@
+# Observability
+
+## Overview
+
+Kiln provides three observability subsystems that work together through the `EventStore` interface:
+
+1. **OpenTelemetry** -- distributed tracing with `gen_ai.*` semantic conventions
+2. **Prometheus** -- counters and histograms exposed at `GET /metrics`
+3. **EventStore** -- the internal event persistence layer that all sinks implement
+
+All three integrate via `CompositeEventStore`, which fans out every event to all registered sinks. This means adding a new observability backend requires implementing a single `EventStore` interface with one write method.
+
+## OpenTelemetry Integration
+
+### Architecture
+
+The OTel integration has two layers:
+
+- **SpanMapper** (`core/observability/span-mapper.ts`) -- a pure, stateless function that maps every `KilnEvent` type to a `SpanOperation` descriptor. Zero external dependencies. The switch is exhaustive: adding a new event type without a corresponding case produces a compile error via a `never` guard.
+- **OTelExporter** (`core/observability/otel-exporter.ts`) -- an `EventStore` implementation that receives `SpanOperation` descriptors and dispatches them to an OpenTelemetry `TracerProvider`. Write-only; retrieval is delegated to the OTel backend (Jaeger, Datadog, Grafana Tempo, etc.).
+
+### Span Operations
+
+The mapper produces 4 operation types:
+
+| Operation | Used For |
+|-----------|----------|
+| `startSpan` | Phase transitions, task starts, tool calls, worker assignments, webhook triggers |
+| `endSpan` | Task completions, tool results, errors, trigger failures, conversation close |
+| `addEvent` | Thinking blocks, verification results, memory ops, approvals, security events, safety events, routing decisions, enrichment |
+| `setAttributes` | Cost updates (token counts, USD totals) |
+
+### gen_ai.* Semantic Conventions
+
+Cost update events set OTel attributes following the emerging `gen_ai` semantic conventions:
+
+| Attribute | Source |
+|-----------|--------|
+| `gen_ai.usage.input_tokens` | Token count from provider response |
+| `gen_ai.usage.output_tokens` | Token count from provider response |
+| `gen_ai.usage.cache_read_input_tokens` | Anthropic cache read tokens |
+| `gen_ai.request.model` | Selected model (on `model_routed` events) |
+| `gen_ai.system` | Provider name (on `model_routed` events) |
+
+### Span Lifecycle
+
+Active spans are tracked per-session in an internal Map. Span keys are derived from event fields (`toolName:taskId`, `worker:index`, `task:id`, `trigger:name`, `phase:name`). Spans are cleaned up on `endSpan` operations, and empty session maps are removed to prevent memory leaks. On gateway shutdown, `OTelExporter.shutdown()` ends any leaked spans and flushes the tracer provider.
+
+### Configuration
+
+`@opentelemetry/api` is a peer dependency of `@kilnai/runtime`, not a direct dependency of `@kilnai/core`. The `TracerProvider` is created and injected by the gateway server. To enable OTel:
+
+```typescript
+import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
+import { BatchSpanProcessor } from "@opentelemetry/sdk-trace-base";
+import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
+
+const provider = new NodeTracerProvider();
+provider.addSpanProcessor(
+  new BatchSpanProcessor(new OTLPTraceExporter({ url: "http://jaeger:4318/v1/traces" }))
+);
+provider.register();
+
+const otelExporter = new OTelExporter(provider, { serviceName: "kiln-gateway" });
+```
+
+Use `BatchSpanProcessor` (not `SimpleSpanProcessor`) in production to avoid blocking the event loop on every span export.
+
+## Prometheus Metrics
+
+The `PrometheusCollector` implements `EventStore` and translates events into Prometheus counters and histograms. It dynamically imports `prom-client` as an optional peer dependency -- if the package is not installed, metrics are silently disabled.
+
+### Counters
+
+| Metric | Labels | Source Event |
+|--------|--------|--------------|
+| `kiln_llm_requests_total` | `provider`, `model`, `status` | `cost_update` |
+| `kiln_llm_tokens_total` | `direction`, `provider`, `model` | `cost_update` |
+| `kiln_cost_usd_total` | `provider`, `model` | `cost_update` |
+| `kiln_tool_calls_total` | `tool_name`, `success` | `tool_result` |
+| `kiln_tool_cache_hits_total` | `tool_name` | `tool_cache_hit` |
+| `kiln_errors_total` | `code` | `error` |
+| `kiln_agent_routings_total` | `agent_name`, `routing_tier` | `agent_routed` |
+| `kiln_model_routings_total` | `provider`, `model`, `routing_tier` | `model_routed` |
+
+### Histograms
+
+| Metric | Labels | Buckets |
+|--------|--------|---------|
+| `kiln_llm_request_duration_seconds` | `provider`, `model` | 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0 |
+
+### Cardinality Protection
+
+`tenant_id` is intentionally excluded from all metric labels. In a multi-tenant gateway with hundreds of tenants, including tenant ID as a label would cause cardinality explosion in Prometheus. Per-tenant analytics should use the enrichment pipeline or the conversation event webhook instead.
+
+### /metrics Endpoint
+
+The gateway exposes `GET /metrics` which returns Prometheus text format from the collector's registry. The endpoint returns 404 if `prom-client` is not installed.
+
+### Configuration
+
+```typescript
+const prometheus = new PrometheusCollector({ prefix: "kiln" });
+```
+
+The `prefix` option (default: `"kiln"`) is prepended to all metric names.
+
+## CompositeEventStore
+
+`CompositeEventStore` fans out every `save()` call to all registered sinks using `Promise.allSettled()`. This ensures that a failure in one sink (e.g., OTel backend is down) does not prevent other sinks from receiving the event.
+
+For read operations (`getBySession`, `getAfter`), it delegates to the first store that does not reject. This allows combining a write-only sink (OTel, Prometheus) with a readable sink (in-memory EventStore) in the same composite.
+
+```typescript
+const composite = new CompositeEventStore([
+  eventStore,        // readable, in-memory or SQLite
+  otelExporter,      // write-only, traces
+  prometheus,        // write-only, metrics
+]);
+```
+
+## Cost Tracking
+
+The `CostTracker` accumulates token usage keyed by `role:model` tuple. This ensures accurate cost attribution when a role switches models mid-session (e.g., via model routing).
+
+### LLM Cost
+
+Costs are computed using `MODEL_PRICING`, which derives rates from the same `MODEL_CATALOG` used by the capability registry. Anthropic models receive cache-aware pricing (cache read at 10% of input rate, cache write at 125%).
+
+### Embedding and STT Cost
+
+| Method | Pricing Source |
+|--------|---------------|
+| `recordEmbedding(model, tokens)` | `text-embedding-3-small`: $0.02/1M tokens, `text-embedding-3-large`: $0.13/1M tokens |
+| `recordStt(model, durationSeconds)` | `gpt-4o-transcribe`: $0.006/min, `nova-3`: $0.0043/min |
+
+### Cost Summary
+
+`CostTracker.summary` returns a `CostSummary` with:
+
+- `totalInputTokens`, `totalOutputTokens`, `totalCacheReadTokens`, `totalCacheWriteTokens`
+- `totalCostUsd` (includes LLM + embedding + STT)
+- `byRole` -- aggregated across all models per role (backward compatibility)
+- `byRoleModel` -- keyed by `"role:model"` for precise attribution
+
+## Event Reference
+
+### Internal EventBus Events (Observability-Relevant)
+
+| Event | Category | Description |
+|-------|----------|-------------|
+| `cost_update` | state | Token usage and cost after each LLM call |
+| `model_routed` | phase | Model routing decision with provider, model, tier, reason |
+| `agent_routed` | state | Agent routing decision with agent ID, tier, confidence |
+| `conversation_closed` | state | Session end with closedBy, turnCount, durationMs, effortScore |
+| `conversation_enriched` | state | Enrichment complete with enrichmentId |
+| `tool_called` | tool | Tool invocation start |
+| `tool_result` | tool | Tool invocation end with success/failure and duration |
+| `tool_cache_hit` | tool | Tool result served from cache |
+| `error` | error | Engine error with code and message |
+
+### External Conversation Events
+
+| Event | Emitted By | Description |
+|-------|-----------|-------------|
+| `SESSION_STARTED` | SessionRegistry | New session created |
+| `CONVERSATION_ABANDONED` | SessionRegistry | Session expired via cleanup |
+| `MODEL_ROUTED` | Message pipeline | Model routing metadata for analytics |
+| `CONVERSATION_ENRICHED` | EnrichmentRunner | Enrichment data available for fetch |
+
+All conversation events are delivered via `ConversationEventEmitter` to configured product webhooks with exponential backoff retry (3 attempts, 1s/2s/4s, 5xx only).
+
+## Related
+
+- [Model Routing](model-routing.md) -- per-request model selection and routing rules
+- [Enrichment](enrichment.md) -- post-conversation analysis pipeline
+- [Multi-Tenant](multi-tenant.md) -- tenant configuration and billing
+- [Gateway Configuration](../configuration/gateway-yaml.md) -- gateway setup and deployment

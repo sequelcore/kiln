@@ -403,71 +403,9 @@ See [Gateway YAML Reference](configuration/gateway-yaml.md#session--handoff) for
 
 ### Multi-Agent Routing
 
-Mode B tenants can define multiple agents with distinct personas, tool scopes, and system prompts. The routing layer selects which agent handles each message:
+Mode B tenants can define multiple agents with distinct personas, tool scopes, and system prompts. A 3-tier routing cascade (regex rules, embedding similarity, fallback) selects which agent handles each message. Features include warm handoff briefs (LLM-generated context on agent switch), ping-pong guard (prevents rapid switching loops), and 3 built-in routing templates.
 
-```yaml
-# TenantConfig
-agents:
-  - id: sales
-    name: "Sales Agent"
-    role: "Sales specialist"
-    goal: "Convert inquiries into bookings"
-    tools: [check_availability, create_booking]
-  - id: support
-    name: "Support Agent"
-    role: "Customer support"
-    goal: "Resolve customer issues"
-    tools: [lookup_order, refund]
-
-routing:
-  rules:
-    - match: "price|cost|book|appointment|reserv"
-      agent: sales
-    - match: "refund|cancel|order|problem|issue"
-      agent: support
-  fallback: support
-```
-
-**Routing tiers** (3-tier cascade):
-- **Tier 1: Regex rules** -- Pattern matching against message text. First match wins.
-- **Tier 2: Embedding similarity** -- When no regex matches, the engine uses `AgentRAG` to compare the message against agent descriptions via vector similarity. Routes to the best-matching agent if score >= `embeddingThreshold` (default: 0.75). Async-only (`resolveAgentContextAsync`).
-- **Fallback** -- When neither tier matches, routes to the fallback agent.
-
-```yaml
-routing:
-  rules:
-    - match: "price|cost|book"
-      agent: sales
-  fallback: support
-  embeddingThreshold: 0.75  # Tier 2 confidence threshold
-```
-
-Each agent gets its own system prompt (base tenant prompt + agent persona overlay) and tool scope (intersection of agent tools with tenant allowlist). Sessions track `activeAgentId` and `agentTurnHistory` for continuity.
-
-**Inter-agent handoff.** When routing switches from one agent to another, the engine generates a warm handoff brief -- an LLM-generated 2-3 sentence summary of the conversation so far, injected into the new agent's system prompt. This prevents the new agent from starting cold. The brief is stored in `AgentTurnEntry.handoffBrief` for audit.
-
-**Ping-pong guard.** To prevent rapid agent switching loops, routing is subject to three guards:
-- **`maxHandoffs`** -- Maximum total agent switches per session (default: 3). Once exceeded, the current agent stays active.
-- **`rerouteAfterTurns`** -- Minimum conversation turns before re-routing is allowed (default: 1). Prevents immediate back-and-forth.
-- **Bidirectional pair block** -- If agent A handed off to agent B, agent B cannot immediately hand back to A.
-
-```yaml
-routing:
-  rules:
-    - match: "price|cost|book"
-      agent: sales
-  fallback: support
-  maxHandoffs: 5
-  rerouteAfterTurns: 2
-```
-
-An `AGENT_HANDOFF` conversation event is emitted on every agent switch (or blocked switch), providing visibility into handoff flow for product backends.
-
-**Routing templates.** Three built-in templates provide pre-configured agent + routing setups for common use cases: `service-business` (Booking + GeneralInquiry + Support), `ecommerce` (Sales + OrderSupport + Returns), and `customer-support` (Triage + Technical + Billing). Available via `listRoutingTemplates()` and the `GET /routing/templates` admin endpoint.
-
-**Routing test endpoint.** `POST /tenants/:tenantId/routing/test` with `{ "message": "..." }` performs a dry-run routing evaluation, returning the selected agent, tier, confidence score, and a diagnostic `allRules` array showing which rules matched.
-
-When `agents` is absent or has ≤1 entry, the existing single-agent pipeline is unchanged -- zero migration required.
+See [Multi-Agent Routing](guides/multi-agent.md) for configuration and details.
 
 ---
 
@@ -505,47 +443,22 @@ The `EventBus` uses a ring buffer for in-process delivery. An optional `EventSto
 
 ## Model Routing
 
-Model routing selects which LLM handles each request based on message complexity and operator-defined rules. This enables cost optimization (route simple queries to cheaper models) and capability matching (route tool-heavy requests to models with strong tool use).
+Model routing selects which LLM handles each request based on message complexity and tenant-defined rules. The `ComplexityScorer` evaluates 5 signals in under 1ms. The `RulesRouter` matches 7 condition types in priority order. 10 built-in model profiles provide capability flags for eligibility filtering. Fail-open by design.
 
-**Rules-based routing (Tier 1).** Priority-ordered rules match on complexity score, message patterns, or tool requirements. The `ComplexityScorer` evaluates 5 signals (message length, tool count, conversation depth, structured output, modality) in <1ms with zero LLM cost. First matching rule wins.
-
-```yaml
-# In TenantConfig or app.yaml provider block
-modelRouting:
-  rules:
-    - condition: { maxComplexity: 0.3 }
-      model: claude-haiku-4-5
-      provider: anthropic
-    - condition: { minComplexity: 0.7 }
-      model: claude-sonnet-4-5-20250514
-      provider: anthropic
-  default:
-    model: claude-haiku-4-5
-    provider: anthropic
-```
-
-The `ModelCapabilityRegistry` ships 10 built-in model profiles with capability flags (reasoning, tool use, structured output, vision, speed, cost). The router filters eligible models by required capabilities before applying rules.
+See [Model Routing](guides/model-routing.md) for configuration and condition types.
 
 ---
 
 ## Conversation Enrichment
 
-After a conversation ends (session resolved or expired), the enrichment pipeline extracts analytics for reporting and quality improvement.
+After a conversation ends, the enrichment pipeline extracts analytics: a rule-based Customer Effort Score (0-10, zero LLM cost) and an optional LLM call for sentiment, resolution, CSAT, and topics. Results persist in SQLite with admin API access and GDPR deletion.
 
-**Customer Effort Score.** A rule-based scorer (0-10 scale) analyzes conversation signals -- turn count, escalation events, agent handoffs, repeat questions. Runs synchronously with zero LLM cost. Lower scores indicate easier customer experiences.
-
-**LLM Enrichment.** A single structured LLM call extracts sentiment (positive/neutral/negative), resolution status (resolved/unresolved/partial), predicted CSAT (1-5), and topic tags. PII is stripped before the call.
-
-Enrichment results are persisted in SQLite and accessible via admin API routes at `/enrichment` (list, get, delete). A `conversation_enriched` event is emitted for downstream consumption.
+See [Enrichment](guides/enrichment.md) for the full pipeline.
 
 ---
 
 ## Observability
 
-The engine emits events that feed into pluggable observability sinks via the `EventStore` interface.
+The engine emits events into pluggable `EventStore` sinks. `PrometheusCollector` exposes counters and histograms at `GET /metrics`. `CompositeEventStore` fans out to multiple sinks (e.g., OTel + Prometheus simultaneously). `CostTracker` records per-model token usage, embedding, and STT costs.
 
-**Prometheus metrics.** The `PrometheusCollector` implements `EventStore` to track counters (messages processed, tool calls, errors, routing decisions) and histograms (response latency, token usage). Metrics are exposed at `GET /metrics` in Prometheus text exposition format, ready for scraping by Prometheus, Grafana Agent, or any compatible collector.
-
-**Composite sinks.** The `CompositeEventStore` fans out events to multiple sinks simultaneously -- e.g., OTel spans + Prometheus metrics from the same event stream.
-
-**Lifecycle events.** Three event types support enrichment and observability: `CONVERSATION_CLOSED`, `CONVERSATION_ABANDONED`, and `SESSION_STARTED`.
+See [Observability](guides/observability.md) for setup and metrics reference.

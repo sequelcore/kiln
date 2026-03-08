@@ -27,7 +27,7 @@ bunx kiln dev
 - **3 team modes** -- sequential, supervisor (manager delegates by name), swarm (agents hand off to each other)
 - **Phase-gated workflows** -- configurable phases, quality gates (test, lint, typecheck), checkpoint/resume, human-in-the-loop
 - **5 memory scopes** -- user, agent, team, project, org; SQLite + FTS5 with decay curves and auto-compaction
-- **5 channel adapters** -- CLI, Web (WebSocket), WhatsApp, Slack, REST/SSE
+- **8 channel adapters** -- CLI, Web (WebSocket), WhatsApp, Instagram, Messenger, Slack, Email, REST/SSE
 - **Multi-tenant gateway** -- multiple apps in one Bun/Hono process, each isolated by memory, sessions, and routes
 - **Triggers** -- webhooks (HMAC-SHA256), event listeners, cron scheduler with `{{payload.field}}` interpolation
 - **Enterprise safety** -- PII detection (6 types), content classification (6 categories), 4 policy rails
@@ -36,7 +36,7 @@ bunx kiln dev
 - **Eval framework** -- 12 scorer types (rule-based + LLM-as-judge), YAML-configured experiments, comparator
 - **React SDK** -- `@kilnai/react` hooks for frontend integration
 - **Studio** -- graph view, playground, timeline, memory inspector, eval dashboard at `/studio` in dev mode
-- **55 error codes** with context-aware suggestions and doc links
+- **73 error codes** with context-aware suggestions and doc links
 
 ## Examples
 
@@ -75,8 +75,13 @@ bunx kiln dev
 | [Eval](docs/guides/eval.md) | Scorers, datasets, experiments |
 | [React SDK](docs/sdk/react-hooks.md) | `@kilnai/react` hooks reference |
 | [Studio](docs/sdk/studio.md) | Dev UI: graph, playground, timeline, memory, eval |
+| [Multi-Agent Routing](docs/guides/multi-agent.md) | Multiple agents per tenant, routing tiers, handoff briefs |
+| [Model Routing](docs/guides/model-routing.md) | Per-request model selection, complexity scoring |
+| [Enrichment](docs/guides/enrichment.md) | Post-conversation analytics (effort score, sentiment, CSAT) |
+| [Observability](docs/guides/observability.md) | OTel spans, Prometheus metrics, cost tracking |
 | [FAQ](docs/faq.md) | Common questions |
 | [Architecture](docs/architecture.md) | Internal design reference for contributors |
+| [Changelog](docs/changelog.md) | Version history |
 
 ## Development
 

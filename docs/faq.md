@@ -78,6 +78,30 @@ Mode B sessions have a `sessionMode` state machine with four states: `ai_active`
 
 ---
 
+**How does model routing work?**
+
+Model routing selects which LLM handles each request based on message complexity and tenant-defined rules. The `ComplexityScorer` evaluates 5 signals (message length, tool count, conversation depth, structured output, modality) in under 1ms. The `RulesRouter` matches 7 condition types (keyword, regex, cost/latency thresholds, capability requirements, model preference, fallback) in priority order. When no rule matches, the tenant's `defaultModel` is used. The system is fail-open: if routing fails, the default model handles the request. See [Model Routing](guides/model-routing.md) for configuration.
+
+---
+
+**What is conversation enrichment?**
+
+After a conversation ends (session resolved or expired), the enrichment pipeline extracts analytics. A rule-based `computeEffortScore()` (0-10 scale, zero LLM cost) evaluates turn count, escalations, handoffs, and repeat questions. An optional LLM call extracts sentiment, resolution status, predicted CSAT, and topic tags (PII is stripped first). Results are stored in SQLite and accessible via admin API at `/enrichment`. Conversations under 3 user turns skip LLM enrichment. See [Enrichment](guides/enrichment.md) for details.
+
+---
+
+**How do I expose Prometheus metrics?**
+
+Add a `PrometheusCollector` to your gateway's `EventStore` sinks. The collector tracks counters (messages, tool calls, errors, routing decisions) and histograms (latency, token usage). Metrics are served at `GET /metrics` in Prometheus text exposition format. Tenant IDs are excluded from labels to prevent cardinality explosion. Requires `prom-client` as an optional peer dependency (dynamically imported). See [Observability](guides/observability.md) for setup.
+
+---
+
+**How does cost tracking work?**
+
+The `CostTracker` records token usage keyed by `role:model` tuple (e.g., `assistant:claude-haiku-4-5`). It tracks input tokens, output tokens, and cache reads/writes per model. Embedding costs (`recordEmbedding()`) and STT costs (`recordStt()`) are tracked separately. A `COST_REPORT` event is emitted per session with the full `CostSummary` including `byRoleModel` breakdown.
+
+---
+
 **How does memory decay work?**
 
 Agent-scoped memory stores (`agent:{role}`) apply a decay function that reduces the relevance score of entries over time, so older memories are ranked lower in recall results but not deleted. Three curve types are supported: `exponential` (fast drop-off, good for ephemeral patterns), `linear` (steady reduction), and `step` (full relevance until a hard cutoff). When a store exceeds a configured size threshold, `MemoryCompactor` summarizes older entries into compressed form and archives the originals. Configure decay and compaction thresholds in the memory backend options. See [Memory](guides/memory.md) for configuration details.

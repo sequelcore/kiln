@@ -31,6 +31,30 @@ Sources: `packages/runtime/src/channels/`, `packages/core/src/engine/domain/chan
 
 ---
 
+## Character Limits
+
+| Channel | Max Characters | Behavior on Overflow |
+|---------|---------------|---------------------|
+| WhatsApp | 4,096 | Truncated |
+| Messenger | 2,000 | Truncated |
+| Instagram | 1,000 | Truncated |
+| Email | Unlimited | No truncation |
+| CLI / Web / Slack / API | Unlimited | No truncation |
+
+---
+
+## Meta Webhook Foundation
+
+WhatsApp, Instagram, and Messenger share a common Meta webhook infrastructure layer (`meta-webhook-foundation.ts`). The shared layer provides:
+
+- **Verification handshake:** `verifyMetaWebhook()` handles the one-time GET challenge for all three channels.
+- **HMAC-SHA256 signature validation:** `validateMetaSignature()` verifies `X-Hub-Signature-256` on incoming POSTs using the App Secret.
+- **Webhook deduplication:** A single `WebhookDedup` instance (shared across all three channels) tracks recently processed message IDs in a time-windowed set and silently drops duplicates. This protects against Meta's at-least-once delivery semantics without external state.
+
+The channels diverge in payload structure: WhatsApp uses `entry[].changes[].value.messages[]`, while Instagram and Messenger use `entry[].messaging[]`. Each channel adapter parses its own payload format behind the shared foundation.
+
+---
+
 ## Per-Channel Setup
 
 ### CLI

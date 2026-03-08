@@ -55,6 +55,16 @@ knowledge:
 | `url` | `UrlExtractor` | Fetches via Jina Reader, falls back to raw fetch |
 | `pdf` | `PdfExtractor` | Uses `unpdf` (optional dependency, dynamic import) |
 
+### Source Lifecycle
+
+The `SourceManager` handles a three-phase lifecycle for each source:
+
+1. **Extract** -- content is pulled from the source (file, URL, or PDF) via the appropriate extractor.
+2. **Hash** -- a SHA-256 digest of the raw content is computed and stored on the source record (`contentHash`). On re-index, the hash is compared first -- unchanged sources are skipped entirely.
+3. **Ingest** -- content is chunked, optionally enriched, embedded, and stored in the vector store. Re-ingestion cascade-deletes existing chunks before inserting new ones for atomic replacement.
+
+This deduplication ensures that re-indexing is idempotent and avoids redundant embedding API calls for unchanged content.
+
 ### Source Admin API
 
 The Gateway exposes CRUD routes for managing sources at runtime:
@@ -125,9 +135,9 @@ knowledge:
 ```
 
 PgVector features:
-- **halfvec storage** -- 4x compression vs full float vectors
-- **HNSW index** -- fast approximate nearest neighbor search
-- **Hybrid search** -- combines vector similarity with BM25 text search via Reciprocal Rank Fusion (RRF, k=60)
+- **halfvec storage** -- 4x compression vs full float32 vectors (1536d float16 = ~3KB per vector vs ~6KB for float32), with minimal accuracy loss
+- **HNSW index** -- fast approximate nearest neighbor search (15.5x better QPS than IVFFlat at 0.998 recall)
+- **Hybrid search** -- combines vector similarity with BM25 text search via Reciprocal Rank Fusion (RRF, k=60). The k=60 constant balances emphasis between high-ranked and mid-ranked results, yielding +22% retrieval precision over vector-only search. Uses native PostgreSQL tsvector -- no extra infrastructure.
 - **Metadata filtering** -- JSONB `@>` containment queries
 
 The `postgres` package (Porsager) is a peer dependency. Install with `bun add postgres`.
@@ -160,6 +170,22 @@ The Gateway exposes admin routes for data deletion:
 | `GET` | `/admin/{app}/contact-memory/facts` | List facts for a user |
 | `DELETE` | `/admin/{app}/contact-memory/facts/:factId` | Delete a single fact |
 | `DELETE` | `/admin/{app}/contact-memory/facts` | Delete all facts for a user (GDPR forgetAll) |
+
+---
+
+## Reranking
+
+When enabled, the `CohereReranker` (Cohere Rerank API v2) re-scores retrieved chunks using a cross-encoder model for higher-quality ordering. The reranker uses a 4x over-fetch strategy: it retrieves 4 times the requested `topK` from the vector store, reranks all candidates, and returns only the top results.
+
+```yaml
+knowledge:
+  reranker:
+    provider: cohere
+    apiKeyEnv: COHERE_API_KEY
+    topK: 5          # final results returned
+```
+
+Reranking adds 200-500ms of latency per query. It is most valuable when precision matters more than speed, or when the corpus is large enough that vector similarity alone produces noisy results.
 
 ---
 

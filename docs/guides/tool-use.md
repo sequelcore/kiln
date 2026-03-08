@@ -225,6 +225,30 @@ The `toolConfig` object controls execution limits and rate limiting:
 
 ---
 
+## Per-Call Tool Configuration
+
+The orchestrator is shared across tenants. Rather than mutating orchestrator-level state, per-tenant tool infrastructure is passed as the 5th parameter to `processMessage()`. This includes the tool allowlist, rate limiter instance, and any additional tools (e.g., webhook tools) scoped to the tenant.
+
+```typescript
+const result = await orchestrator.processMessage(
+  session,
+  message,
+  systemPrompt,
+  tools,
+  {
+    allowedTools: ["search_products", "get_faq"],
+    rateLimiter: tenantRateLimiter,
+    additionalTools: webhookToolDefinitions,
+  }
+);
+```
+
+`additionalTools` are merged locally for the duration of the call -- they are not registered on the orchestrator and do not persist across invocations. This avoids tool accumulation when the same orchestrator serves many tenants.
+
+The `TenantToolFactory.buildTenantToolContext()` constructs this configuration from `TenantConfig`, handling webhook tool instantiation, allowlist intersection, and rate limiter setup.
+
+---
+
 ## Rate Limiting
 
 The `SlidingWindowRateLimiter` enforces per-tool, per-tenant rate limits using an in-memory sliding window (60-second window).
