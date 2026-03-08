@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.9.1 (2026-03-08) -- Cleanup
+
+- **Removed 6 backward compatibility hacks**: ToolResultSanitizer dual-accept, CostTracker `byRole`, 2-segment session keys, session deserialization defaults, span mapper legacy OTel attributes, optional `sessionRegistry`.
+- **Documentation consolidation**: Research docs absorbed into formal guides, doc references updated.
+- 58 files changed, 419 lines of dead code removed.
+
 ## v0.9.0 (2026-03-07) -- Intelligence Layer
 
 - **Multi-model routing**: Per-request model selection via `ModelCapabilityRegistry` (10 models), `ComplexityScorer` (5 signals), and `RulesRouter` (7 condition types). Configurable per-tenant via `TenantModelConfig`.
