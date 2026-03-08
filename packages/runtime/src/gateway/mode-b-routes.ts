@@ -2,7 +2,7 @@
 // Handles message processing, session listing, and session removal
 
 import { Hono } from "hono";
-import type { ContentPart, RetrievalPipeline } from "@kilnai/core";
+import type { ContentPart, TenantConfig, RetrievalPipeline } from "@kilnai/core";
 import { textParts, extractText } from "@kilnai/core";
 import { formatKnowledgeContext } from "./context-formatter.js";
 import type { ModeBOrchestrator } from "../session/mode-b-orchestrator.js";
@@ -11,6 +11,7 @@ import { checkTier } from "./budget-middleware.js";
 import type { BillingConfig } from "./budget-middleware.js";
 import { requireApiKey } from "./auth-middleware.js";
 import { processInboundMessage } from "./message-pipeline.js";
+import { resolveAgentContext } from "../tenant/agent-resolver.js";
 
 /** Runtime configuration for a Mode B App */
 export interface ModeBAppRuntime {
@@ -22,6 +23,7 @@ export interface ModeBAppRuntime {
   readonly apiKey?: string;
   readonly knowledgePipeline?: RetrievalPipeline;
   readonly knowledgeMode?: "auto" | "tool";
+  readonly tenant?: TenantConfig;
 }
 
 /** Request body for POST /message */
@@ -83,6 +85,17 @@ export function createModeBRoutes(runtime: ModeBAppRuntime): Hono {
       }
     }
 
+    // Resolve agent context if tenant has multi-agent config
+    let systemPrompt = runtime.systemPrompt;
+    let activeAgentId: string | undefined;
+    let activeAgentName: string | undefined;
+    if (runtime.tenant) {
+      const agentCtx = resolveAgentContext(runtime.tenant, userParts);
+      systemPrompt = agentCtx.systemPrompt;
+      activeAgentId = agentCtx.activeAgentId;
+      activeAgentName = agentCtx.activeAgentName;
+    }
+
     let processResult;
     try {
       processResult = await processInboundMessage({
@@ -90,11 +103,13 @@ export function createModeBRoutes(runtime: ModeBAppRuntime): Hono {
         sessionRegistry: runtime.sessionRegistry,
         appName: runtime.appName,
         userId: body.userId,
-        systemPrompt: runtime.systemPrompt,
+        systemPrompt,
         userParts,
         billing: runtime.billing,
         channel: "api",
         knowledgeContext,
+        activeAgentId,
+        activeAgentName,
       });
     } catch (err) {
       console.error(`[${runtime.appName}] processMessage error:`, err);

@@ -40,7 +40,7 @@ Bun monorepo with 6 packages:
 | a2a | `runtime/src/a2a/` | A2AClient (outbound delegation only) |
 | trigger | `runtime/src/trigger/` | TriggerRegistry, webhook handler (HMAC-SHA256), event listener, cron scheduler |
 | session | `runtime/src/session/` | ModeBSession (version tracking, optimistic concurrency), ModeBOrchestrator (tool authorization, retry/fallback, result sanitization, ToolRAG, PerCallToolConfig, AI guard), SessionRegistry (pluggable SessionStore, save with concurrency check), SessionMode state machine (ai_active/queued/human_active/resolved), session serializer |
-| tenant | `runtime/src/tenant/` | TenantRegistry (JSON persistence, resolveByWidgetId, resolveByInstagramPageId, resolveByMessengerPageId, resolveByEmailAddress, webhook tool secret encryption), system prompt builder (businessName + name identity), suggestion parser |
+| tenant | `runtime/src/tenant/` | TenantRegistry (JSON persistence, resolveByWidgetId, resolveByInstagramPageId, resolveByMessengerPageId, resolveByEmailAddress, webhook tool secret encryption), system prompt builder (businessName + name identity), suggestion parser, multi-agent routing (DefaultTenantRouter, resolveAgentContext) |
 | handoff | `runtime/src/gateway/handoff-routes.ts` + `runtime/src/session/escalation-detector.ts` + `runtime/src/session/context-summarizer.ts` | Human handoff: session mode state machine, escalation detection, operator messaging, AI guard |
 | channels | `runtime/src/channels/` | 8 adapters (CLI, Web, WhatsApp, Instagram, Messenger, Slack, Email, API), ChannelRouter, formatForChannel |
 | sdk | `sdk/src/` | React hooks (useKilnChat, useKilnWsChat, useKilnEvents, useKilnMemory, useKilnState, useApproval), ApiClient, SseClient. Types-only import from core. |
@@ -181,6 +181,8 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `gateway/handoff-routes.ts` | Handoff API: /handoff, /release, /operator-message, /session-history |
 | `gateway/webhook-tool-executor.ts` | WebhookToolExecutor: HTTP POST + HMAC-SHA256 for external tool calls |
 | `gateway/tenant-tool-factory.ts` | buildTenantToolContext(): per-tenant tool infrastructure (webhook tools, allowlist, rate limiter) |
+| `tenant/tenant-router.ts` | DefaultTenantRouter: regex-based multi-agent routing (Tier 1 + fallback) |
+| `tenant/agent-resolver.ts` | resolveAgentContext(): single integration point for all channel handlers (routing, prompt overlay, tool scoping) |
 | `gateway/message-pipeline.ts` | Shared processInboundMessage pipeline (budget, session, orchestrate, events, tool event emission) |
 | `gateway/trace-context.ts` | TraceContext: per-request trace ID + structured logging |
 | `trigger/trigger-registry.ts` | Per-app lifecycle, webhook app, event listener, scheduler |

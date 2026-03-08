@@ -3,6 +3,11 @@ import { extractText } from "@kilnai/core";
 import type { SessionMode } from "./session-mode.js";
 import { transitionSessionMode } from "./session-mode.js";
 
+export interface AgentTurnEntry {
+  readonly agentId: string;
+  readonly turnIndex: number;
+}
+
 export interface SerializedSessionData {
   readonly id: string;
   readonly appName: string;
@@ -15,6 +20,8 @@ export interface SerializedSessionData {
   readonly createdAt: string;
   readonly lastActivityAt: string;
   readonly history: readonly AgentMessage[];
+  readonly activeAgentId?: string;
+  readonly agentTurnHistory?: readonly AgentTurnEntry[];
 }
 
 export interface ModeBSessionConfig {
@@ -33,12 +40,14 @@ export class ModeBSession {
   readonly createdAt: Date;
 
   private _lastActivityAt: Date;
-  private readonly _systemPrompt: string;
+  private _systemPrompt: string;
   private readonly _idleTimeoutMs: number;
   private readonly _history: AgentMessage[] = [];
   private _sessionMode: SessionMode = "ai_active";
   private _version = 0;
   private _loadedVersion = 0;
+  private _activeAgentId: string | undefined;
+  private _agentTurnHistory: AgentTurnEntry[] = [];
 
   constructor(config: ModeBSessionConfig) {
     this.appName = config.appName;
@@ -107,6 +116,13 @@ export class ModeBSession {
     }
     // Re-set lastActivityAt since addMessage calls touch()
     (session as unknown as { _lastActivityAt: Date })._lastActivityAt = new Date(data.lastActivityAt);
+    // Restore agent routing state
+    if (data.activeAgentId) {
+      (session as unknown as { _activeAgentId: string | undefined })._activeAgentId = data.activeAgentId;
+    }
+    if (data.agentTurnHistory) {
+      (session as unknown as { _agentTurnHistory: AgentTurnEntry[] })._agentTurnHistory = [...data.agentTurnHistory];
+    }
     // Restore version and record loaded version for conflict detection
     const storedVersion = data.version ?? 0;
     (session as unknown as { _version: number })._version = storedVersion;
@@ -135,6 +151,25 @@ export class ModeBSession {
 
   setSessionMode(mode: SessionMode): void {
     this._sessionMode = transitionSessionMode(this._sessionMode, mode);
+    this._version++;
+  }
+
+  get activeAgentId(): string | undefined {
+    return this._activeAgentId;
+  }
+
+  get agentTurnHistory(): readonly AgentTurnEntry[] {
+    return this._agentTurnHistory;
+  }
+
+  setActiveAgent(agentId: string): void {
+    this._activeAgentId = agentId;
+    this._agentTurnHistory.push({ agentId, turnIndex: this._history.length });
+    this._version++;
+  }
+
+  setSystemPrompt(prompt: string): void {
+    this._systemPrompt = prompt;
     this._version++;
   }
 

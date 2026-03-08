@@ -62,7 +62,7 @@ export { TraceContext } from "./gateway/trace-context.js";
 
 // Session
 export { ModeBSession } from "./session/mode-b-session.js";
-export type { ModeBSessionConfig, SerializedSessionData } from "./session/mode-b-session.js";
+export type { ModeBSessionConfig, SerializedSessionData, AgentTurnEntry } from "./session/mode-b-session.js";
 export { ModeBOrchestrator } from "./session/mode-b-orchestrator.js";
 export type { OrchestratorDeps, OrchestrateResult, PerCallToolConfig, ToolExecutionSummary } from "./session/mode-b-orchestrator.js";
 export { SessionRegistry } from "./session/session-registry.js";
@@ -87,6 +87,10 @@ export { TenantRegistry, TenantNotFoundError, TenantValidationFailedError } from
 export { buildTenantSystemPrompt } from "./tenant/system-prompt-builder.js";
 export { extractSuggestions, stripSuggestionTags } from "./tenant/suggestion-parser.js";
 export type { ParsedResponse } from "./tenant/suggestion-parser.js";
+export { DefaultTenantRouter } from "./tenant/tenant-router.js";
+export type { TenantRouter, RoutingResult } from "./tenant/tenant-router.js";
+export { resolveAgentContext, buildAgentSystemPrompt } from "./tenant/agent-resolver.js";
+export type { ResolvedAgentContext } from "./tenant/agent-resolver.js";
 
 // Triggers
 export { TriggerRegistry } from "./trigger/trigger-registry.js";

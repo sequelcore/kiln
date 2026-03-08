@@ -136,6 +136,9 @@ export type {
   TenantBilling,
   TenantWebhookTool,
   TenantToolConfig,
+  TenantAgentConfig,
+  TenantRoutingRule,
+  TenantRoutingConfig,
   EmailTransportConfig,
   TenantValidationError,
 } from "./gateway/tenant-config.js";

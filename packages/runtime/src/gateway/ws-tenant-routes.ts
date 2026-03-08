@@ -7,10 +7,9 @@ import type { WebChannel } from "../channels/web-channel.js";
 import type { ContentPart, SttAdapter, RetrievalPipeline, ContactMemoryService } from "@kilnai/core";
 import { textParts, extractText, hasModality } from "@kilnai/core";
 import type { ModeBOrchestrator, PerCallToolConfig } from "../session/mode-b-orchestrator.js";
-import { buildTenantToolContext } from "./tenant-tool-factory.js";
 import type { SessionRegistry } from "../session/session-registry.js";
 import type { TenantRegistry } from "../tenant/tenant-registry.js";
-import { buildTenantSystemPrompt } from "../tenant/system-prompt-builder.js";
+import { resolveAgentContext } from "../tenant/agent-resolver.js";
 import { extractSuggestions } from "../tenant/suggestion-parser.js";
 import { checkBudget, reportUsage } from "./budget-middleware.js";
 import type { BillingConfig } from "./budget-middleware.js";
@@ -71,7 +70,6 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
       const tenant = config.tenantRegistry.resolveByWidgetId(widgetId, config.appName)!;
 
       const userId = c.req.query("userId") ?? crypto.randomUUID();
-      const systemPrompt = buildTenantSystemPrompt(tenant, "web");
 
       return {
         onOpen(_event: Event, ws: WSContext) {
@@ -174,13 +172,22 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
                   }
                 }
 
+                // Resolve agent context (multi-agent routing or single-agent)
+                const agentCtx = resolveAgentContext(tenant, userParts, "web");
+
                 const session = await config.sessionRegistry.getOrCreate({
                   appName: config.appName,
                   tenantId: tenant.tenantId,
                   userId,
-                  systemPrompt,
+                  systemPrompt: agentCtx.systemPrompt,
                   idleTimeoutMs: tenant.idleTimeoutMs,
                 });
+
+                // Track active agent on session
+                if (agentCtx.activeAgentId && agentCtx.activeAgentId !== session.activeAgentId) {
+                  session.setSystemPrompt(agentCtx.systemPrompt);
+                  session.setActiveAgent(agentCtx.activeAgentId);
+                }
 
                 // Knowledge retrieval (auto mode)
                 let knowledgeContext: string | undefined;
@@ -209,8 +216,7 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
 
                 const combinedMemory = mergeContextSources(knowledgeContext, contactContext);
 
-                // Build tenant tool context (webhook tools, allowlist, rate limiter)
-                const tenantToolCtx = buildTenantToolContext(tenant);
+                const tenantToolCtx = agentCtx.tenantToolContext;
 
                 // Register webhook tool definitions on the orchestrator
                 if (tenantToolCtx.toolDefinitions.length > 0) {
@@ -280,6 +286,20 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
                       timestamp: new Date().toISOString(),
                     });
                   }
+                }
+
+                // Emit AGENT_ROUTED when multi-agent routing is active
+                if (agentCtx.activeAgentId && config.eventEmitter) {
+                  config.eventEmitter.emit({
+                    eventType: "AGENT_ROUTED",
+                    tenantId: tenant.tenantId,
+                    channel: "web",
+                    externalUserId: userId,
+                    activeAgentId: agentCtx.activeAgentId,
+                    activeAgentName: agentCtx.activeAgentName,
+                    traceId: trace.traceId,
+                    timestamp: new Date().toISOString(),
+                  });
                 }
 
                 // Report usage (fire-and-forget)

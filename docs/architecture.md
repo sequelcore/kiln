@@ -40,7 +40,7 @@ This document is for contributors. For user documentation, see the [guides](guid
 | `a2a` | `@kilnai/runtime` | `packages/runtime/src/a2a/` | A2A protocol: A2AClient (outbound delegation only). |
 | `trigger` | `@kilnai/runtime` | `packages/runtime/src/trigger/` | TriggerRegistry, webhook handler (HMAC-SHA256), event listener, cron scheduler, trigger executor. |
 | `session` | `@kilnai/runtime` | `packages/runtime/src/session/` | Mode B session management: ModeBSession (version tracking, optimistic concurrency), ModeBOrchestrator (AI guard, auto-reopen resolved, tool authorization, retry/fallback, result sanitization, tool result caching via cacheTtl annotation, indirect injection scanning on tool results, ToolRAG, PerCallToolConfig), SessionRegistry (pluggable SessionStore, save with concurrency check), SessionMode state machine (ai_active/queued/human_active/resolved), session serializer. |
-| `tenant` | `@kilnai/runtime` | `packages/runtime/src/tenant/` | Multi-tenant management: TenantRegistry (webhook tool secret encryption, resolveByWidgetId, resolveByInstagramPageId, resolveByMessengerPageId, resolveByEmailAddress), system prompt builder, multi-channel tenant resolution. |
+| `tenant` | `@kilnai/runtime` | `packages/runtime/src/tenant/` | Multi-tenant management: TenantRegistry (webhook tool secret encryption, resolveByWidgetId, resolveByInstagramPageId, resolveByMessengerPageId, resolveByEmailAddress), system prompt builder, multi-agent routing (TenantRouter, AgentResolver), multi-channel tenant resolution. |
 | `cli` | `@kilnai/cli` | `packages/cli/` | CLI commands (init, run, dev, gateway, skill, domain), formatters, MCP server. |
 | `sdk` | `@kilnai/react` | `packages/sdk/` | React hooks library: KilnProvider, useKilnChat, useKilnWsChat, useKilnEvents, useKilnMemory, useKilnState, useApproval, ApiClient, SseClient. Types-only import from core. |
 | `studio` | `@kilnai/studio` | `packages/studio/` | Dev UI SPA (private): React 19 + Vite + TanStack Query + @xyflow/react. 7 views (Graph, Playground, Timeline, Memory, Eval, Cost, Safety). Served at `/studio` in dev mode. |
@@ -226,6 +226,7 @@ export class KilnError extends Error {
 | engine | `INVALID_YAML`, `MISSING_FIELD`, `UNKNOWN_TEAM`, `CIRCULAR_REFERENCE` |
 | domain | `DOMAIN_NOT_FOUND`, `INVALID_DOMAIN_YAML`, `DOMAIN_ALREADY_REGISTERED` |
 | tenant | `TENANT_NOT_FOUND`, `TENANT_ISOLATION_VIOLATION`, `DUPLICATE_TENANT` |
+| routing | `ROUTING_FAILED`, `ROUTING_AGENT_NOT_FOUND` |
 | provider | `PROVIDER_NOT_FOUND`, `API_KEY_MISSING`, `RATE_LIMITED`, `CONTEXT_LENGTH_EXCEEDED` |
 | budget | `BUDGET_EXHAUSTED`, `TIER_RESTRICTED`, `BILLING_ENDPOINT_UNREACHABLE` |
 | config | `INVALID_GATEWAY_CONFIG`, `PORT_IN_USE`, `APP_LOAD_FAILED` |
@@ -279,6 +280,7 @@ export class KilnError extends Error {
 | `guardian_reviewed` | `approved`, `capabilityName`, `agentName`, `riskLevel` |
 | `audit_entry` | `action`, `actor`, `outcome`, `resource` |
 | `tenant_isolation_violation` | `tenantId`, `attemptedResource`, `blockedBy` |
+| `agent_routed` | `agentId`, `agentName`, `previousAgentId`, `routingTier`, `matchedPattern` |
 | `security_alert` | `severity`, `category`, `message` |
 
 ### Trigger Events

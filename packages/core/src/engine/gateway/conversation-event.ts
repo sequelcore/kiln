@@ -13,7 +13,8 @@ export type ConversationEventType =
   | "OPERATOR_MESSAGE_SENT"
   | "HANDOFF_MESSAGE_QUEUED"
   | "TOOL_CALLED"
-  | "TOOL_EXECUTED";
+  | "TOOL_EXECUTED"
+  | "AGENT_ROUTED";
 
 export interface ConversationEvent {
   readonly eventType: ConversationEventType;
@@ -52,6 +53,10 @@ export interface ConversationEvent {
   readonly success?: boolean;
   /** Brief result summary (truncated to 200 chars) -- present for TOOL_EXECUTED events */
   readonly resultSummary?: string;
+  /** Active agent ID -- present for AGENT_ROUTED events */
+  readonly activeAgentId?: string;
+  /** Active agent name -- present for AGENT_ROUTED events */
+  readonly activeAgentName?: string;
 }
 
 export interface ConversationEventBatch {

@@ -401,6 +401,41 @@ ai_active ──→ queued ──→ human_active ──→ ai_active
 
 See [Gateway YAML Reference](configuration/gateway-yaml.md#session--handoff) for handoff API routes and configuration.
 
+### Multi-Agent Routing
+
+Mode B tenants can define multiple agents with distinct personas, tool scopes, and system prompts. The routing layer selects which agent handles each message:
+
+```yaml
+# TenantConfig
+agents:
+  - id: sales
+    name: "Sales Agent"
+    role: "Sales specialist"
+    goal: "Convert inquiries into bookings"
+    tools: [check_availability, create_booking]
+  - id: support
+    name: "Support Agent"
+    role: "Customer support"
+    goal: "Resolve customer issues"
+    tools: [lookup_order, refund]
+
+routing:
+  rules:
+    - match: "price|cost|book|appointment|reserv"
+      agent: sales
+    - match: "refund|cancel|order|problem|issue"
+      agent: support
+  fallback: support
+```
+
+**Routing tiers** (Phase 8a implements Tier 1 + fallback):
+- **Tier 1: Regex rules** -- Pattern matching against message text. First match wins.
+- **Fallback** -- When no rule matches, routes to the fallback agent.
+
+Each agent gets its own system prompt (base tenant prompt + agent persona overlay) and tool scope (intersection of agent tools with tenant allowlist). Sessions track `activeAgentId` and `agentTurnHistory` for continuity.
+
+When `agents` is absent or has ≤1 entry, the existing single-agent pipeline is unchanged -- zero migration required.
+
 ---
 
 ## Content Model

@@ -44,6 +44,8 @@ export const EVENT_LEVEL_MAP: Record<EventType, StreamLevel> = {
   policy_evaluated: "phase",
   // Knowledge (Phase 14)
   knowledge_gap: "state",
+  // Routing (Phase 8)
+  agent_routed: "phase",
   // Domain apps
   domain_event: "tool",
 };
@@ -97,6 +99,8 @@ export type EventType =
   | "policy_evaluated"
   // Knowledge (Phase 14)
   | "knowledge_gap"
+  // Routing (Phase 8)
+  | "agent_routed"
   // Domain apps
   | "domain_event";
 
@@ -402,6 +406,16 @@ export interface KnowledgeGapEvent extends KilnEvent {
   readonly retrievedCount: number;
 }
 
+/** Agent routed event (multi-agent routing) */
+export interface AgentRoutedEvent extends KilnEvent {
+  readonly type: "agent_routed";
+  readonly agentId: string;
+  readonly agentName: string;
+  readonly previousAgentId?: string;
+  readonly routingTier: "rule" | "fallback";
+  readonly matchedPattern?: string;
+}
+
 /** Custom domain event for app-specific event types */
 export interface DomainEventData extends KilnEvent {
   readonly type: "domain_event";
@@ -450,6 +464,8 @@ export interface EventMap {
   policy_evaluated: PolicyEvaluatedEvent;
   // Knowledge (Phase 14)
   knowledge_gap: KnowledgeGapEvent;
+  // Routing (Phase 8)
+  agent_routed: AgentRoutedEvent;
   // Domain apps
   domain_event: DomainEventData;
 }

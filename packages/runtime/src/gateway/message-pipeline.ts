@@ -26,6 +26,8 @@ export interface InboundMessageContext {
   readonly callBuiltinTools?: ReadonlyMap<string, (input: Record<string, unknown>) => Promise<unknown>>;
   readonly perCallConfig?: PerCallToolConfig;
   readonly traceId?: string;
+  readonly activeAgentId?: string;
+  readonly activeAgentName?: string;
 }
 
 export interface InboundMessageResult {
@@ -41,6 +43,7 @@ export interface InboundMessageResult {
   readonly contextSummary?: string;
   readonly toolExecutions?: readonly ToolExecutionSummary[];
   readonly traceId: string;
+  readonly activeAgentId?: string;
 }
 
 export interface BudgetDeniedResult {
@@ -164,6 +167,20 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
         });
       }
     }
+
+    // Emit AGENT_ROUTED when multi-agent routing is active
+    if (ctx.activeAgentId) {
+      ctx.eventEmitter.emit({
+        eventType: "AGENT_ROUTED",
+        tenantId: ctx.tenantId,
+        channel: ctx.channel,
+        externalUserId: ctx.userId,
+        activeAgentId: ctx.activeAgentId,
+        activeAgentName: ctx.activeAgentName,
+        traceId: trace.traceId,
+        timestamp: new Date().toISOString(),
+      });
+    }
   }
 
   trace.log("pipeline", "Message processed", { queued: result.queued, tokens: result.inputTokens + result.outputTokens });
@@ -183,6 +200,7 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
       contextSummary: result.contextSummary,
       toolExecutions: result.toolExecutions,
       traceId: trace.traceId,
+      activeAgentId: ctx.activeAgentId,
     },
   };
 }

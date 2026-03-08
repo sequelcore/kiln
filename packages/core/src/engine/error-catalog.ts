@@ -557,6 +557,20 @@ export function getErrorSuggestion(
         docUrl: docUrl(code),
       };
 
+    case "ROUTING_FAILED":
+      return {
+        suggestion:
+          "Multi-agent routing failed. Verify routing rules and fallback agent ID in tenant config.",
+        docUrl: docUrl(code),
+      };
+
+    case "ROUTING_AGENT_NOT_FOUND":
+      return {
+        suggestion:
+          "Routing resolved to an agent ID that doesn't exist. Verify agents[] and routing config.",
+        docUrl: docUrl(code),
+      };
+
     case "INTERNAL_ERROR":
       return {
         suggestion:

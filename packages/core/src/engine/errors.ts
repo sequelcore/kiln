@@ -98,6 +98,9 @@ export type KilnErrorCode =
   | "CONTENT_POLICY_VIOLATED"
   | "SAFETY_RAIL_BLOCKED"
   | "SAFETY_SCAN_FAILED"
+  // Routing (Phase 8)
+  | "ROUTING_FAILED"
+  | "ROUTING_AGENT_NOT_FOUND"
   // Generic
   | "INTERNAL_ERROR";
 

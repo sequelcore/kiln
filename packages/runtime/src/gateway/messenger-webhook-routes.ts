@@ -8,10 +8,9 @@ import type { ContentPart, ToolDefinition } from "@kilnai/core";
 import { extractText, SqliteMemoryStore } from "@kilnai/core";
 import { toMessengerFormat } from "../channels/message-formatter.js";
 import type { ModeBOrchestrator, PerCallToolConfig } from "../session/mode-b-orchestrator.js";
-import { buildTenantToolContext } from "./tenant-tool-factory.js";
 import type { SessionRegistry } from "../session/session-registry.js";
 import type { TenantRegistry } from "../tenant/tenant-registry.js";
-import { buildTenantSystemPrompt } from "../tenant/system-prompt-builder.js";
+import { resolveAgentContext } from "../tenant/agent-resolver.js";
 import { sendMessengerMessage } from "../channels/messenger-api.js";
 import { checkBudget, reportUsage } from "./budget-middleware.js";
 import type { BillingConfig } from "./budget-middleware.js";
@@ -217,7 +216,6 @@ async function processMessengerMessage(
   const tenant = config.tenantRegistry.get(tenantId);
   if (!tenant) return;
 
-  const systemPrompt = buildTenantSystemPrompt(tenant, "messenger");
   const resolvedAccessToken = accessToken
     ? (process.env[accessToken] ?? accessToken)
     : "";
@@ -234,14 +232,6 @@ async function processMessengerMessage(
   }
 
   const messageText = extractText(processedParts);
-
-  const session = await config.sessionRegistry.getOrCreate({
-    appName: config.appName,
-    tenantId,
-    userId: senderId,
-    systemPrompt,
-    idleTimeoutMs: tenant.idleTimeoutMs,
-  });
 
   // --- Memory: recall past context about this user ---
   let recalledMemory: string | undefined;
@@ -299,8 +289,24 @@ async function processMessengerMessage(
     }
   }
 
-  // Build tenant tool context (webhook tools, allowlist, rate limiter)
-  const tenantToolCtx = buildTenantToolContext(tenant, callTools);
+  // Resolve agent context (multi-agent routing or single-agent)
+  const agentCtx = resolveAgentContext(tenant, processedParts, "messenger", undefined, callTools);
+
+  const session = await config.sessionRegistry.getOrCreate({
+    appName: config.appName,
+    tenantId,
+    userId: senderId,
+    systemPrompt: agentCtx.systemPrompt,
+    idleTimeoutMs: tenant.idleTimeoutMs,
+  });
+
+  // Track active agent on session
+  if (agentCtx.activeAgentId && agentCtx.activeAgentId !== session.activeAgentId) {
+    session.setSystemPrompt(agentCtx.systemPrompt);
+    session.setActiveAgent(agentCtx.activeAgentId);
+  }
+
+  const tenantToolCtx = agentCtx.tenantToolContext;
 
   // Register webhook tool definitions on the orchestrator
   if (tenantToolCtx.toolDefinitions.length > 0) {
@@ -405,6 +411,20 @@ async function processMessengerMessage(
           timestamp: new Date().toISOString(),
         });
       }
+    }
+
+    // Emit AGENT_ROUTED when multi-agent routing is active
+    if (agentCtx.activeAgentId && config.eventEmitter) {
+      config.eventEmitter.emit({
+        eventType: "AGENT_ROUTED",
+        tenantId,
+        channel: "messenger",
+        externalUserId: senderId,
+        activeAgentId: agentCtx.activeAgentId,
+        activeAgentName: agentCtx.activeAgentName,
+        traceId: trace.traceId,
+        timestamp: new Date().toISOString(),
+      });
     }
 
     replyText = toMessengerFormat(extractText(result.parts));

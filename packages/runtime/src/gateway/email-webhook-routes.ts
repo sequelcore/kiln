@@ -7,10 +7,9 @@ import { mkdirSync } from "node:fs";
 import type { ContentPart, ToolDefinition } from "@kilnai/core";
 import { extractText, SqliteMemoryStore } from "@kilnai/core";
 import type { ModeBOrchestrator, PerCallToolConfig } from "../session/mode-b-orchestrator.js";
-import { buildTenantToolContext } from "./tenant-tool-factory.js";
 import type { SessionRegistry } from "../session/session-registry.js";
 import type { TenantRegistry } from "../tenant/tenant-registry.js";
-import { buildTenantSystemPrompt } from "../tenant/system-prompt-builder.js";
+import { resolveAgentContext } from "../tenant/agent-resolver.js";
 import { checkBudget, reportUsage } from "./budget-middleware.js";
 import type { BillingConfig } from "./budget-middleware.js";
 import type { ConversationEventEmitter } from "./conversation-event-emitter.js";
@@ -180,8 +179,6 @@ async function processEmailMessage(
   const tenant = config.tenantRegistry.get(tenantId);
   if (!tenant) return;
 
-  const systemPrompt = buildTenantSystemPrompt(tenant, "email");
-
   // Extract text content (prefer plain text over HTML)
   const messageText = (payload.textBody ?? "").trim();
   if (!messageText) return;
@@ -221,14 +218,6 @@ async function processEmailMessage(
   }
 
   const userId = `email:${senderEmail}`;
-
-  const session = await config.sessionRegistry.getOrCreate({
-    appName: config.appName,
-    tenantId,
-    userId,
-    systemPrompt,
-    idleTimeoutMs: tenant.idleTimeoutMs,
-  });
 
   // --- Memory: recall past context about this user ---
   let recalledMemory: string | undefined;
@@ -286,8 +275,24 @@ async function processEmailMessage(
     }
   }
 
-  // Build tenant tool context (webhook tools, allowlist, rate limiter)
-  const tenantToolCtx = buildTenantToolContext(tenant, callTools);
+  // Resolve agent context (multi-agent routing or single-agent)
+  const agentCtx = resolveAgentContext(tenant, messageParts, "email", undefined, callTools);
+
+  const session = await config.sessionRegistry.getOrCreate({
+    appName: config.appName,
+    tenantId,
+    userId,
+    systemPrompt: agentCtx.systemPrompt,
+    idleTimeoutMs: tenant.idleTimeoutMs,
+  });
+
+  // Track active agent on session
+  if (agentCtx.activeAgentId && agentCtx.activeAgentId !== session.activeAgentId) {
+    session.setSystemPrompt(agentCtx.systemPrompt);
+    session.setActiveAgent(agentCtx.activeAgentId);
+  }
+
+  const tenantToolCtx = agentCtx.tenantToolContext;
 
   // Register webhook tool definitions on the orchestrator
   if (tenantToolCtx.toolDefinitions.length > 0) {
@@ -386,6 +391,20 @@ async function processEmailMessage(
           timestamp: new Date().toISOString(),
         });
       }
+    }
+
+    // Emit AGENT_ROUTED when multi-agent routing is active
+    if (agentCtx.activeAgentId && config.eventEmitter) {
+      config.eventEmitter.emit({
+        eventType: "AGENT_ROUTED",
+        tenantId,
+        channel: "email",
+        externalUserId: senderEmail,
+        activeAgentId: agentCtx.activeAgentId,
+        activeAgentName: agentCtx.activeAgentName,
+        traceId: trace.traceId,
+        timestamp: new Date().toISOString(),
+      });
     }
 
     replyText = extractText(result.parts);

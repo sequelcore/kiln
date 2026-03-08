@@ -53,6 +53,31 @@ export interface TenantToolConfig {
   readonly rateLimits?: import("../domain/rate-limiter.js").RateLimitConfig;
 }
 
+/** Agent definition for multi-agent tenants */
+export interface TenantAgentConfig {
+  readonly id: string;
+  readonly name: string;
+  readonly role: string;
+  readonly goal: string;
+  readonly backstory?: string;
+  readonly instructions?: string;
+  readonly tools?: readonly string[];
+  readonly isDefault?: boolean;
+}
+
+/** Regex-based routing rule */
+export interface TenantRoutingRule {
+  readonly match: string;
+  readonly agent: string;
+}
+
+/** Multi-agent routing configuration */
+export interface TenantRoutingConfig {
+  readonly rules?: readonly TenantRoutingRule[];
+  readonly fallback: string;
+  readonly embeddingThreshold?: number;
+}
+
 /** Email transport provider configuration */
 export interface EmailTransportConfig {
   readonly provider: "postmark" | "resend" | "sendgrid" | "generic";
@@ -92,6 +117,8 @@ export interface TenantConfig {
   readonly tools?: readonly string[];
   readonly toolConfig?: TenantToolConfig;
   readonly webhookTools?: readonly TenantWebhookTool[];
+  readonly agents?: readonly TenantAgentConfig[];
+  readonly routing?: TenantRoutingConfig;
   readonly enabled: boolean;
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -211,6 +238,90 @@ export function validateTenantConfig(config: TenantConfig): TenantValidationErro
         }
         if (typeof wt.secret !== "string" || !wt.secret) {
           errors.push({ field: `webhookTools[${i}].secret`, message: "must be a non-empty string" });
+        }
+      }
+    }
+  }
+
+  // agents: if present, validate each agent and cross-references
+  if (config.agents !== undefined) {
+    if (!Array.isArray(config.agents)) {
+      errors.push({ field: "agents", message: "must be an array of agent configurations" });
+    } else {
+      const seenAgentIds = new Set<string>();
+      const allToolNames = new Set<string>([
+        ...(config.tools ?? []),
+        ...(config.webhookTools ?? []).map((wt) => wt.name),
+      ]);
+
+      for (let i = 0; i < config.agents.length; i++) {
+        const agent = config.agents[i]!;
+
+        if (typeof agent.id !== "string" || !agent.id) {
+          errors.push({ field: `agents[${i}].id`, message: "must be a non-empty string" });
+        } else {
+          if (seenAgentIds.has(agent.id)) {
+            errors.push({ field: `agents[${i}].id`, message: `duplicate agent ID: "${agent.id}"` });
+          }
+          seenAgentIds.add(agent.id);
+        }
+
+        if (typeof agent.name !== "string" || !agent.name) {
+          errors.push({ field: `agents[${i}].name`, message: "must be a non-empty string" });
+        }
+        if (typeof agent.role !== "string" || !agent.role) {
+          errors.push({ field: `agents[${i}].role`, message: "must be a non-empty string" });
+        }
+        if (typeof agent.goal !== "string" || !agent.goal) {
+          errors.push({ field: `agents[${i}].goal`, message: "must be a non-empty string" });
+        }
+
+        // Agent tools must be subset of tenant tools + webhookTools
+        if (agent.tools && allToolNames.size > 0) {
+          for (let j = 0; j < agent.tools.length; j++) {
+            if (!allToolNames.has(agent.tools[j]!)) {
+              errors.push({
+                field: `agents[${i}].tools[${j}]`,
+                message: `tool "${agent.tools[j]}" is not in tenant tools or webhookTools`,
+              });
+            }
+          }
+        }
+      }
+
+      // Multi-agent requires routing
+      if (config.agents.length > 1) {
+        if (!config.routing) {
+          errors.push({ field: "routing", message: "required when agents.length > 1" });
+        }
+      }
+
+      // Validate routing
+      if (config.routing) {
+        if (typeof config.routing.fallback !== "string" || !config.routing.fallback) {
+          errors.push({ field: "routing.fallback", message: "must be a non-empty string" });
+        } else if (seenAgentIds.size > 0 && !seenAgentIds.has(config.routing.fallback)) {
+          errors.push({ field: "routing.fallback", message: `references unknown agent: "${config.routing.fallback}"` });
+        }
+
+        if (config.routing.rules) {
+          for (let i = 0; i < config.routing.rules.length; i++) {
+            const rule = config.routing.rules[i]!;
+
+            // Validate regex
+            try {
+              new RegExp(rule.match, "i");
+            } catch {
+              errors.push({ field: `routing.rules[${i}].match`, message: `invalid regex: "${rule.match}"` });
+            }
+
+            // Validate agent ref
+            if (typeof rule.agent !== "string" || !rule.agent) {
+              errors.push({ field: `routing.rules[${i}].agent`, message: "must be a non-empty string" });
+            } else if (seenAgentIds.size > 0 && !seenAgentIds.has(rule.agent)) {
+              errors.push({ field: `routing.rules[${i}].agent`, message: `references unknown agent: "${rule.agent}"` });
+            }
+          }
         }
       }
     }

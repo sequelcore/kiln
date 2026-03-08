@@ -39,6 +39,7 @@ import type {
     ToolAuthorizedEvent,
     ToolCacheHitEvent,
     KnowledgeGapEvent,
+    AgentRoutedEvent,
 } from "../events/index.js";
 
 // ---------------------------------------------------------------------------
@@ -387,6 +388,20 @@ function mapPolicyEvaluated(e: PolicyEvaluatedEvent): SpanOperation {
     };
 }
 
+function mapAgentRouted(e: AgentRoutedEvent): SpanOperation {
+    return {
+        action: "addEvent",
+        name: "agent_routed",
+        attributes: {
+            agentId: e.agentId,
+            agentName: e.agentName,
+            routingTier: e.routingTier,
+            ...(e.previousAgentId ? { previousAgentId: e.previousAgentId } : {}),
+            ...(e.matchedPattern ? { matchedPattern: e.matchedPattern } : {}),
+        },
+    };
+}
+
 function mapDomainEvent(e: DomainEventData): SpanOperation {
     return {
         action: "addEvent",
@@ -501,6 +516,8 @@ export function mapEventToSpan(event: KilnEvent): SpanOperation {
             return mapPolicyEvaluated(event as PolicyEvaluatedEvent);
         case "knowledge_gap":
             return mapKnowledgeGap(event as KnowledgeGapEvent);
+        case "agent_routed":
+            return mapAgentRouted(event as AgentRoutedEvent);
         case "domain_event":
             return mapDomainEvent(event as DomainEventData);
         default: {
