@@ -140,8 +140,7 @@ Costs are computed using `MODEL_PRICING`, which derives rates from the same `MOD
 
 - `totalInputTokens`, `totalOutputTokens`, `totalCacheReadTokens`, `totalCacheWriteTokens`
 - `totalCostUsd` (includes LLM + embedding + STT)
-- `byRole` -- aggregated across all models per role (backward compatibility)
-- `byRoleModel` -- keyed by `"role:model"` for precise attribution
+- `byRoleModel` -- keyed by `"role:model"` for precise per-model attribution
 
 ## Event Reference
 
