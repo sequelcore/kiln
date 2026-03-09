@@ -87,4 +87,54 @@ describe("UrlExtractor", () => {
       expect((err as KilnError).code).toBe("SOURCE_EXTRACTION_FAILED");
     }
   });
+
+  it("passes custom headers to Jina fetch", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      text: () => Promise.resolve("# Content"),
+    }) as unknown as typeof fetch;
+
+    await extractor.extract("https://example.com", "url", {
+      headers: { Authorization: "Bearer tok-123" },
+    });
+
+    const call = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]!;
+    expect(call[1].headers).toEqual(
+      expect.objectContaining({ Authorization: "Bearer tok-123", Accept: "text/markdown" }),
+    );
+  });
+
+  it("passes custom headers to fallback fetch", async () => {
+    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+      if ((url as string).includes("r.jina.ai")) {
+        return Promise.resolve({ ok: false, status: 403, text: () => Promise.resolve("") });
+      }
+      return Promise.resolve({
+        ok: true,
+        text: () => Promise.resolve("<html><body><p>OK</p></body></html>"),
+      });
+    }) as unknown as typeof fetch;
+
+    await extractor.extract("https://example.com", "url", {
+      headers: { "X-Custom": "value" },
+    });
+
+    const fallbackCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[1]!;
+    expect(fallbackCall[1].headers).toEqual(
+      expect.objectContaining({ "X-Custom": "value" }),
+    );
+  });
+
+  it("works without options (backward compat)", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      text: () => Promise.resolve("# No Headers"),
+    }) as unknown as typeof fetch;
+
+    const result = await extractor.extract("https://example.com", "url");
+
+    expect(result.content).toBe("# No Headers");
+    const call = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]!;
+    expect(call[1].headers).toEqual({ Accept: "text/markdown" });
+  });
 });

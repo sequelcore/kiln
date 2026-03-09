@@ -1,7 +1,7 @@
 // CompositeExtractor -- routes extraction to the correct extractor by source type
 
 import { KilnError } from "../../engine/errors.js";
-import type { ContentExtractor, ExtractedContent, KnowledgeSourceType } from "../../engine/domain/knowledge-source.js";
+import type { ContentExtractor, ExtractedContent, KnowledgeSourceType, ExtractionOptions } from "../../engine/domain/knowledge-source.js";
 
 export class CompositeExtractor implements ContentExtractor {
   readonly supportedTypes: readonly KnowledgeSourceType[];
@@ -18,13 +18,13 @@ export class CompositeExtractor implements ContentExtractor {
     this.supportedTypes = [...map.keys()];
   }
 
-  async extract(uri: string, type: KnowledgeSourceType): Promise<ExtractedContent> {
+  async extract(uri: string, type: KnowledgeSourceType, options?: ExtractionOptions): Promise<ExtractedContent> {
     const extractor = this.extractors.get(type);
     if (!extractor) {
       throw new KilnError("SOURCE_EXTRACTION_FAILED", `No extractor available for source type: ${type}`, {
         context: { uri, type },
       });
     }
-    return extractor.extract(uri, type);
+    return extractor.extract(uri, type, options);
   }
 }

@@ -1,5 +1,6 @@
 import { WsClient } from "./ws-client.js";
 import { getStyles } from "./styles.js";
+import { renderMarkdown } from "./markdown.js";
 import type { WidgetConfig, ChatMessage, WsInboundFrame, ConnectionStatus, VisitorInfo, PreChatFormFrame } from "./types.js";
 
 const CHAT_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`;
@@ -7,48 +8,6 @@ const CLOSE_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 
 const SEND_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>`;
 
 const VISITOR_STORAGE_PREFIX = "kiln_visitor_";
-
-/**
- * Converts simple markdown patterns to safe DOM nodes for assistant messages.
- * Bold, inline code, and line breaks only. No innerHTML for user-content.
- */
-function renderMarkdown(text: string): DocumentFragment {
-  const fragment = document.createDocumentFragment();
-
-  // Split on bold (**text**), inline code (`text`), and newlines
-  const pattern = /(\*\*[^*]+\*\*|`[^`]+`|\n)/g;
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-
-  while ((match = pattern.exec(text)) !== null) {
-    // Plain text before this match
-    if (match.index > lastIndex) {
-      fragment.appendChild(document.createTextNode(text.slice(lastIndex, match.index)));
-    }
-
-    const token = match[0];
-    if (token === "\n") {
-      fragment.appendChild(document.createElement("br"));
-    } else if (token.startsWith("**")) {
-      const strong = document.createElement("strong");
-      strong.textContent = token.slice(2, -2);
-      fragment.appendChild(strong);
-    } else if (token.startsWith("`")) {
-      const code = document.createElement("code");
-      code.textContent = token.slice(1, -1);
-      fragment.appendChild(code);
-    }
-
-    lastIndex = match.index + token.length;
-  }
-
-  // Remaining plain text
-  if (lastIndex < text.length) {
-    fragment.appendChild(document.createTextNode(text.slice(lastIndex)));
-  }
-
-  return fragment;
-}
 
 function loadStoredVisitor(widgetId: string): VisitorInfo | null {
   try {

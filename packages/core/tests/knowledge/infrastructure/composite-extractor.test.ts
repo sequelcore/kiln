@@ -18,11 +18,11 @@ describe("CompositeExtractor", () => {
 
     const result = await composite.extract("/tmp/test.txt", "file");
     expect(result.content).toBe("file content");
-    expect(fileExtractor.extract).toHaveBeenCalledWith("/tmp/test.txt", "file");
+    expect(fileExtractor.extract).toHaveBeenCalledWith("/tmp/test.txt", "file", undefined);
 
     const urlResult = await composite.extract("https://example.com", "url");
     expect(urlResult.content).toBe("url content");
-    expect(urlExtractor.extract).toHaveBeenCalledWith("https://example.com", "url");
+    expect(urlExtractor.extract).toHaveBeenCalledWith("https://example.com", "url", undefined);
   });
 
   it("aggregates supportedTypes from all extractors", () => {
@@ -58,5 +58,15 @@ describe("CompositeExtractor", () => {
     composite.extract("/tmp/test.txt", "file");
     expect(second.extract).toHaveBeenCalled();
     expect(first.extract).not.toHaveBeenCalled();
+  });
+
+  it("threads options through to child extractor", async () => {
+    const urlExtractor = mockExtractor(["url"], "url content");
+    const composite = new CompositeExtractor([urlExtractor]);
+    const options = { headers: { Authorization: "Bearer secret" } };
+
+    await composite.extract("https://example.com", "url", options);
+
+    expect(urlExtractor.extract).toHaveBeenCalledWith("https://example.com", "url", options);
   });
 });

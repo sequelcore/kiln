@@ -291,6 +291,55 @@ export function getStyles(theme: string): string {
       background: rgba(255, 255, 255, 0.15);
     }
 
+    .kiln-bubble pre {
+      background: rgba(0, 0, 0, 0.06);
+      border-radius: 6px;
+      padding: 10px 12px;
+      margin: 6px 0;
+      overflow-x: auto;
+      font-size: 13px;
+    }
+
+    .kiln-msg.user .kiln-bubble pre {
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .kiln-bubble pre code {
+      background: none;
+      padding: 0;
+      font-size: inherit;
+      white-space: pre;
+    }
+
+    .kiln-bubble strong {
+      font-weight: 600;
+    }
+
+    .kiln-bubble em {
+      font-style: italic;
+    }
+
+    .kiln-bubble ul,
+    .kiln-bubble ol {
+      margin: 4px 0;
+      padding-left: 20px;
+    }
+
+    .kiln-bubble li {
+      margin: 2px 0;
+      line-height: 1.5;
+    }
+
+    .kiln-bubble a {
+      color: inherit;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+
+    .kiln-bubble a:hover {
+      opacity: 0.8;
+    }
+
     /* Error message */
     .kiln-msg.error .kiln-bubble {
       background: #fee2e2;

@@ -32,6 +32,7 @@ export class SourceManager {
     name: string;
     type: KnowledgeSourceType;
     uri: string;
+    headers?: Readonly<Record<string, string>>;
   }): Promise<KnowledgeSource> {
     // Check for duplicate name
     const existing = this.sourceStore.list(params.appName);
@@ -52,6 +53,7 @@ export class SourceManager {
       chunkCount: 0,
       createdAt: now,
       updatedAt: now,
+      headers: params.headers,
     };
 
     this.sourceStore.save(source);
@@ -78,7 +80,9 @@ export class SourceManager {
 
     try {
       // Extract content
-      const extracted = await this.extractor.extract(source.uri, source.type);
+      const extracted = await this.extractor.extract(source.uri, source.type, {
+        headers: source.headers,
+      });
 
       // Compute content hash
       const contentHash = computeContentHash(extracted.content);
@@ -144,6 +148,62 @@ export class SourceManager {
     // Force reindex by clearing content hash
     const cleared: KnowledgeSource = { ...source, contentHash: undefined };
     return this.ingest(cleared);
+  }
+
+  async ingestContent(appName: string, sourceId: string, content: string): Promise<KnowledgeSource> {
+    const source = this.sourceStore.get(appName, sourceId);
+    if (!source) {
+      throw new KilnError("SOURCE_NOT_FOUND", `Source not found: ${sourceId}`, {
+        context: { appName, sourceId },
+      });
+    }
+
+    let updated: KnowledgeSource = {
+      ...source,
+      status: "indexing",
+      updatedAt: new Date().toISOString(),
+    };
+    this.sourceStore.save(updated);
+
+    try {
+      const contentHash = computeContentHash(content);
+
+      if (source.contentHash === contentHash) {
+        updated = { ...updated, status: "indexed", updatedAt: new Date().toISOString() };
+        this.sourceStore.save(updated);
+        return updated;
+      }
+
+      await this.vectorStore.deleteByMetadata({ source: source.sourceId });
+
+      const chunkCount = await this.pipeline.ingest([{
+        content,
+        metadata: { source: source.sourceId },
+      }]);
+
+      const now = new Date().toISOString();
+      updated = {
+        ...updated,
+        status: "indexed",
+        contentHash,
+        chunkCount,
+        lastIndexedAt: now,
+        updatedAt: now,
+        error: undefined,
+      };
+      this.sourceStore.save(updated);
+      return updated;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      updated = {
+        ...updated,
+        status: "failed",
+        error: errorMessage,
+        updatedAt: new Date().toISOString(),
+      };
+      this.sourceStore.save(updated);
+      return updated;
+    }
   }
 
   list(appName: string): readonly KnowledgeSource[] {

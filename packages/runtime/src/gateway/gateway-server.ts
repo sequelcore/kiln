@@ -330,9 +330,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
         console.log(`  ${loaded.name}: knowledge pipeline initialized (mode: ${resolved.app.knowledge.mode ?? "auto"})`);
 
         // Initialize source manager for knowledge admin
-        const storageDir = resolved.app.knowledge.store.backend === "pgvector"
-          ? undefined
-          : join(resolved.memoryBasePath, "knowledge-sources");
+        const storageDir = join(resolved.memoryBasePath, "knowledge-sources");
         const { sourceManager } = createSourceManager(
           loaded.knowledgePipeline.pipeline,
           loaded.knowledgePipeline.store,
@@ -387,9 +385,22 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
         // Fire-and-forget startup ingestion
         sourceManager.ingestAll(loaded.name).then((results) => {
           const indexed = results.filter((r) => r.status === "indexed").length;
-          const failed = results.filter((r) => r.status === "failed").length;
-          if (indexed > 0 || failed > 0) {
-            console.log(`  ${loaded.name}: knowledge sources ingested (${indexed} indexed, ${failed} failed)`);
+          const failedSources = results.filter((r) => r.status === "failed");
+          if (indexed > 0 || failedSources.length > 0) {
+            console.log(`  ${loaded.name}: knowledge sources ingested (${indexed} indexed, ${failedSources.length} failed)`);
+          }
+          for (const source of failedSources) {
+            const evt: import("@kilnai/core").KnowledgeSourceFailedEvent = {
+              type: "knowledge_source_failed",
+              timestamp: new Date(),
+              sessionId: "",
+              sourceId: source.sourceId,
+              sourceName: source.name,
+              sourceType: source.type,
+              error: source.error ?? "Unknown error",
+              appName: loaded.name,
+            };
+            gatewayEventBus.emit(evt);
           }
         }).catch((err) => {
           console.warn(`  ${loaded.name}: knowledge ingestion failed: ${err instanceof Error ? err.message : String(err)}`);

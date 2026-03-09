@@ -363,6 +363,32 @@ describe("EventBus", () => {
     });
   });
 
+  describe("knowledge_source_failed event", () => {
+    it("has state-level mapping in EVENT_LEVEL_MAP", () => {
+      expect(EVENT_LEVEL_MAP["knowledge_source_failed"]).toBe("state");
+    });
+
+    it("emits and receives knowledge_source_failed event", () => {
+      const bus = new EventBus();
+      const handler = vi.fn();
+      bus.on("knowledge_source_failed", handler);
+
+      const event = makeEvent({
+        type: "knowledge_source_failed" as const,
+        sourceId: "src-1",
+        sourceName: "FAQ",
+        sourceType: "url",
+        error: "connection refused",
+        timestamp: new Date(),
+        sessionId: "test-session",
+      });
+      bus.emit(event);
+
+      expect(handler).toHaveBeenCalledOnce();
+      expect(handler).toHaveBeenCalledWith(event);
+    });
+  });
+
   describe("EventStore sink", () => {
     it("calls store.save() on every emit", async () => {
       const saved: KilnEvent[] = [];

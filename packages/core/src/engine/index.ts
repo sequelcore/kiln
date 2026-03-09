@@ -121,6 +121,7 @@ export type {
   KnowledgeSourceType,
   KnowledgeSourceStatus,
   ExtractedContent,
+  ExtractionOptions,
   ContentExtractor,
   SourceStore,
 } from "./domain/knowledge-source.js";

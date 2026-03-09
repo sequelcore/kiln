@@ -16,6 +16,7 @@ export interface KnowledgeSource {
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly lastIndexedAt?: string;
+  readonly headers?: Readonly<Record<string, string>>;
 }
 
 export interface ExtractedContent {
@@ -23,9 +24,13 @@ export interface ExtractedContent {
   readonly metadata: Record<string, unknown>;
 }
 
+export interface ExtractionOptions {
+  readonly headers?: Readonly<Record<string, string>>;
+}
+
 export interface ContentExtractor {
   readonly supportedTypes: readonly KnowledgeSourceType[];
-  extract(uri: string, type: KnowledgeSourceType): Promise<ExtractedContent>;
+  extract(uri: string, type: KnowledgeSourceType, options?: ExtractionOptions): Promise<ExtractedContent>;
 }
 
 export interface SourceStore {

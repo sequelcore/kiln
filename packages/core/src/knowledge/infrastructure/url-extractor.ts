@@ -2,7 +2,7 @@
 
 import { KilnError } from "../../engine/errors.js";
 import { withRetry } from "../../agents/infrastructure/retry.js";
-import type { ContentExtractor, ExtractedContent, KnowledgeSourceType } from "../../engine/domain/knowledge-source.js";
+import type { ContentExtractor, ExtractedContent, KnowledgeSourceType, ExtractionOptions } from "../../engine/domain/knowledge-source.js";
 
 function isRetryableStatus(status: number): boolean {
   return status === 429 || status >= 500;
@@ -20,14 +20,14 @@ function stripHtmlTags(html: string): string {
 export class UrlExtractor implements ContentExtractor {
   readonly supportedTypes: readonly KnowledgeSourceType[] = ["url"];
 
-  async extract(uri: string): Promise<ExtractedContent> {
+  async extract(uri: string, _type: KnowledgeSourceType, options?: ExtractionOptions): Promise<ExtractedContent> {
     const extractedAt = new Date().toISOString();
 
     try {
       const content = await withRetry(
         async () => {
           const res = await fetch(`https://r.jina.ai/${uri}`, {
-            headers: { Accept: "text/markdown" },
+            headers: { Accept: "text/markdown", ...options?.headers },
           });
           if (!res.ok) {
             const err = new Error(`Jina Reader returned ${res.status}`);
@@ -52,7 +52,9 @@ export class UrlExtractor implements ContentExtractor {
       try {
         const content = await withRetry(
           async () => {
-            const res = await fetch(uri);
+            const res = await fetch(uri, {
+              headers: options?.headers ? { ...options.headers } : undefined,
+            });
             if (!res.ok) {
               const err = new Error(`Fetch returned ${res.status}`);
               (err as unknown as Record<string, unknown>)["status"] = res.status;

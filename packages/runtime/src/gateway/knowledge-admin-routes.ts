@@ -57,11 +57,14 @@ export function createKnowledgeAdminRoutes(config: KnowledgeAdminRoutesConfig): 
     }
 
     try {
+      const headers = body.headers as Record<string, string> | undefined;
+
       const source = await config.sourceManager.addSource({
         appName: config.appName,
         name,
         type: type as "file" | "url" | "pdf",
         uri,
+        headers,
       });
       return c.json(source, 201);
     } catch (err) {
@@ -77,6 +80,42 @@ export function createKnowledgeAdminRoutes(config: KnowledgeAdminRoutesConfig): 
     const sourceId = c.req.param("sourceId");
     try {
       const source = await config.sourceManager.reindex(config.appName, sourceId);
+      return c.json(source);
+    } catch (err) {
+      if (err instanceof KilnError && err.code === "SOURCE_NOT_FOUND") {
+        return c.json({ error: "Source not found" }, 404);
+      }
+      throw err;
+    }
+  });
+
+  // POST /sources/:sourceId/content -- push content directly (bypasses extraction)
+  app.post("/sources/:sourceId/content", async (c) => {
+    const sourceId = c.req.param("sourceId");
+    const contentType = c.req.header("content-type") ?? "";
+
+    let content: string;
+    if (contentType.includes("application/json")) {
+      let body: Record<string, unknown>;
+      try {
+        body = await c.req.json();
+      } catch {
+        return c.json({ error: "Invalid JSON body" }, 400);
+      }
+      content = body.content as string;
+      if (!content || typeof content !== "string") {
+        return c.json({ error: "Missing required field: content" }, 400);
+      }
+    } else {
+      content = await c.req.text();
+    }
+
+    if (!content) {
+      return c.json({ error: "Empty content" }, 400);
+    }
+
+    try {
+      const source = await config.sourceManager.ingestContent(config.appName, sourceId, content);
       return c.json(source);
     } catch (err) {
       if (err instanceof KilnError && err.code === "SOURCE_NOT_FOUND") {

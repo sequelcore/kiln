@@ -39,6 +39,7 @@ import type {
     ToolAuthorizedEvent,
     ToolCacheHitEvent,
     KnowledgeGapEvent,
+    KnowledgeSourceFailedEvent,
     AgentRoutedEvent,
     ModelRoutedEvent,
     ConversationClosedInternalEvent,
@@ -478,6 +479,20 @@ function mapKnowledgeGap(e: KnowledgeGapEvent): SpanOperation {
     };
 }
 
+function mapKnowledgeSourceFailed(e: KnowledgeSourceFailedEvent): SpanOperation {
+    return {
+        action: "addEvent",
+        name: "knowledge_source_failed",
+        attributes: {
+            sourceId: e.sourceId,
+            sourceName: e.sourceName,
+            sourceType: e.sourceType,
+            error: e.error,
+            appName: e.appName,
+        },
+    };
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -558,6 +573,8 @@ export function mapEventToSpan(event: KilnEvent): SpanOperation {
             return mapPolicyEvaluated(event as PolicyEvaluatedEvent);
         case "knowledge_gap":
             return mapKnowledgeGap(event as KnowledgeGapEvent);
+        case "knowledge_source_failed":
+            return mapKnowledgeSourceFailed(event as KnowledgeSourceFailedEvent);
         case "agent_routed":
             return mapAgentRouted(event as AgentRoutedEvent);
         case "model_routed":

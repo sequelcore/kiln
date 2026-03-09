@@ -2,12 +2,12 @@
 
 import { readFile } from "node:fs/promises";
 import { KilnError } from "../../engine/errors.js";
-import type { ContentExtractor, ExtractedContent, KnowledgeSourceType } from "../../engine/domain/knowledge-source.js";
+import type { ContentExtractor, ExtractedContent, KnowledgeSourceType, ExtractionOptions } from "../../engine/domain/knowledge-source.js";
 
 export class PdfExtractor implements ContentExtractor {
   readonly supportedTypes: readonly KnowledgeSourceType[] = ["pdf"];
 
-  async extract(uri: string): Promise<ExtractedContent> {
+  async extract(uri: string, _type?: KnowledgeSourceType, options?: ExtractionOptions): Promise<ExtractedContent> {
     let extractText: (data: ArrayBuffer) => Promise<{ text: string; totalPages: number }>;
     try {
       const mod = (await import("unpdf")) as { extractText: typeof extractText };
@@ -21,7 +21,9 @@ export class PdfExtractor implements ContentExtractor {
     try {
       let buffer: ArrayBuffer;
       if (uri.startsWith("http://") || uri.startsWith("https://")) {
-        const res = await fetch(uri);
+        const res = await fetch(uri, {
+          headers: options?.headers ? { ...options.headers } : undefined,
+        });
         if (!res.ok) {
           throw new Error(`Fetch returned ${res.status}`);
         }

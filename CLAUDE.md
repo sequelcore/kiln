@@ -26,11 +26,11 @@ Bun monorepo with 6 packages:
 | tree | `core/src/tree/` | Task tree (scoring, deepen/branch/prune), batch executor |
 | sandbox | `core/src/sandbox/` | Per-agent filesystem + network isolation |
 | verification | `core/src/verification/` | Gate runner: test, lint, type-check loop |
-| events | `core/src/events/` | EventBus (38 typed events, ring buffer), EventStore sink |
+| events | `core/src/events/` | EventBus (39 typed events, ring buffer), EventStore sink |
 | security | `core/src/security/` | Audit log (JSONL + hash chain), prompt injection (2-tier), AES-256-GCM secrets, Guardian, self-audit |
 | safety | `core/src/safety/` | PII scanner (2-tier, 6 types, Luhn validation), content classifier (6 categories), 4 policy rails, pipeline orchestrator, indirect injection scanning on tool results |
 | cost | `core/src/cost/` | Per-role:model cache-aware cost tracking, STT + embedding cost tracking |
-| knowledge | `core/src/knowledge/` | RAG: chunkers (recursive, markdown), embedding adapters (OpenAI, Ollama), vector stores (InMemory, PgVector with halfvec + HNSW + RRF hybrid search), STT adapters (OpenAI gpt-4o-transcribe, Deepgram nova-3), contextual enrichment (Anthropic pattern), retrieval pipeline (gap detection events), CohereReranker (Rerank v2, over-fetch 4x), knowledge modes (auto-inject / tool), content extractors (file, URL via Jina Reader, PDF via unpdf), SourceManager (extract -> hash -> ingest lifecycle), source stores (InMemory, JSON file), ContactMemoryService (per-user fact extraction via LLM, Mem0 ADD/UPDATE/DELETE/NOOP pattern, recall at session start) |
+| knowledge | `core/src/knowledge/` | RAG: chunkers (recursive, markdown), embedding adapters (OpenAI, Ollama), vector stores (InMemory, PgVector with halfvec + HNSW + RRF hybrid search), STT adapters (OpenAI gpt-4o-transcribe, Deepgram nova-3), contextual enrichment (Anthropic pattern), retrieval pipeline (gap detection events), CohereReranker (Rerank v2, over-fetch 4x), knowledge modes (auto-inject / tool), content extractors (file, URL via Jina Reader, PDF via unpdf) with ExtractionOptions (auth headers), SourceManager (extract -> hash -> ingest lifecycle, content push), source stores (InMemory, JSON file), ContactMemoryService (per-user fact extraction via LLM, Mem0 ADD/UPDATE/DELETE/NOOP pattern, recall at session start) |
 | domain | `core/src/domain/` | Domain config: tech stack detection, YAML schema, DomainRegistry. Built-in kits at `core/src/domains/*.yaml` |
 | package | `core/src/package/` | Distribution: versioning, content hashing, security validation |
 | skill | `core/src/skill/` | SKILL.md format (markdown + YAML frontmatter), SkillRegistry (3-tier discovery, progressive disclosure), runtime injection via PerCallToolConfig.skillInstructions |
@@ -46,7 +46,7 @@ Bun monorepo with 6 packages:
 | handoff | `runtime/src/gateway/handoff-routes.ts` + `runtime/src/session/escalation-detector.ts` + `runtime/src/session/context-summarizer.ts` | Human handoff: session mode state machine, escalation detection, operator messaging, AI guard |
 | channels | `runtime/src/channels/` | 8 adapters (CLI, Web, WhatsApp, Instagram, Messenger, Slack, Email, API), ChannelRouter, formatForChannel |
 | sdk | `sdk/src/` | React hooks (useKilnChat, useKilnWsChat, useKilnEvents, useKilnMemory, useKilnState, useApproval), ApiClient, SseClient. Types-only import from core. |
-| widget | `widget/src/` | Embeddable chat widget: WsClient (auto-reconnect, localStorage persistence, identify frame), KilnWidget (Shadow DOM, pre-chat form), auto-loader (script tag data-* attrs). Welcome frame, suggestion chips, info bubbles. Zero deps, IIFE bundle. |
+| widget | `widget/src/` | Embeddable chat widget: WsClient (auto-reconnect, localStorage persistence, identify frame), KilnWidget (Shadow DOM, pre-chat form, markdown renderer), auto-loader (script tag data-* attrs). Welcome frame, suggestion chips, info bubbles. Zero deps, IIFE bundle. |
 | studio | `studio/src/` | React 19 + Vite + TanStack Query + @xyflow/react. 7 views (Graph, Playground, Timeline, Memory, Eval, Cost, Safety). |
 
 ### Dependency Rules (STRICT)
@@ -124,7 +124,7 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `eval/experiment-runner.ts` | Generate outputs, score with error isolation |
 | `eval/consistency-runner.ts` | tau-bench pass^k metric: run experiment k times, measure consistency |
 | `knowledge/retrieval-pipeline.ts` | Ingest (chunk -> embed -> store) + retrieve (embed -> search -> rerank) |
-| `knowledge/source-manager.ts` | Source lifecycle: extract -> hash -> ingest, content dedup via SHA-256 |
+| `knowledge/source-manager.ts` | Source lifecycle: extract -> hash -> ingest, content dedup via SHA-256, content push (ingestContent) |
 | `knowledge/infrastructure/pgvector-store.ts` | PgVectorStore: PostgreSQL + pgvector (halfvec, HNSW, RRF hybrid search) |
 | `knowledge/infrastructure/file-extractor.ts` | Local file content extraction (text, markdown) |
 | `knowledge/infrastructure/url-extractor.ts` | URL extraction via Jina Reader + raw fetch fallback |
@@ -168,7 +168,7 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `gateway/stt-factory.ts` | Resolve SttProviderConfig to concrete SttAdapter |
 | `gateway/knowledge-factory.ts` | Resolve KnowledgeConfig to RetrievalPipeline + VectorStore + close(), createSourceManager() |
 | `gateway/context-formatter.ts` | formatKnowledgeContext, formatContactContext, mergeContextSources -- shared by WS tenant, WhatsApp, Mode B |
-| `gateway/knowledge-admin-routes.ts` | Knowledge source CRUD: /sources (list, create, get, reindex, delete) |
+| `gateway/knowledge-admin-routes.ts` | Knowledge source CRUD: /sources (list, create with auth headers, get, reindex, delete), content push (/sources/:id/content) |
 | `gateway/contact-memory-admin-routes.ts` | Contact memory CRUD: /facts (list, forget, forgetAll -- GDPR) |
 | `gateway/memory-routes.ts` | Production memory routes: /api/memory (all modes) |
 | `gateway/dev-routes.ts` | Dev-mode: /dev/state, /dev/events (SSE), /dev/memory, /dev/cost, /dev/safety, /dev/token, /dev/run |
@@ -220,6 +220,35 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 
 ### ~~Abuse Protection Hardening~~ — DONE (v0.11.0)
 Implemented: `TenantConfig.sessionLimits` (maxTokens, maxTurns), `detectRepetitiveAbuse()`, `SESSION_LIMIT_REACHED` event. All channels auto-escalate to `human_active` on limit breach.
+
+### RAG Grounding (Hallucination Prevention)
+
+**Problem:** When knowledge mode is `auto`, RAG context is appended to the system prompt as `--- Recalled Memory ---` but there is no directive telling the model to stay grounded. If the query falls outside indexed content, the model fabricates answers from training data. This is dangerous for compliance-heavy use cases (legal, regulatory, financial).
+
+**Tier 1 — System Prompt Grounding Directive (low cost, high impact)**
+
+Add `groundingMode` to `TenantConfig` (`off` | `strict`). When `strict`, the message pipeline injects a grounding directive after the knowledge context:
+
+```
+--- Grounding Rules ---
+Answer ONLY from the knowledge context, configured services, and FAQs provided above.
+If the answer is not in your provided context, say you don't have that information
+and offer to connect the user with the human team.
+Never fabricate specific data (regulations, prices, dates, legal references).
+```
+
+Implementation: `runtime/src/gateway/message-pipeline.ts` or `runtime/src/session/mode-b-orchestrator.ts` where `Recalled Memory` is appended. Zero cost — just a system prompt addition.
+
+**Tier 2 — Post-Generation Grounding Rail (expensive, bulletproof)**
+
+Add a `grounding` rail to the safety pipeline. After the model responds, a lightweight model (Haiku) checks whether the response is supported by the retrieved chunks. If not, flag or rewrite.
+
+Adds ~200ms latency + 1 LLM call per message. Suitable as a premium feature for regulated industries.
+
+**Priority:** Tier 1 first — covers ~95% of hallucination cases with zero added cost.
+
+### ~~Widget Markdown Rendering~~ — DONE (v0.13.0)
+Implemented: Custom zero-dep markdown renderer in `widget/src/markdown.ts`. Supports bold, italic, inline code, fenced code blocks, ordered/unordered lists, links. Pure DOM API, no innerHTML. 20 dedicated tests.
 
 ## Documentation
 

@@ -44,6 +44,7 @@ export const EVENT_LEVEL_MAP: Record<EventType, StreamLevel> = {
   policy_evaluated: "phase",
   // Knowledge (Phase 14)
   knowledge_gap: "state",
+  knowledge_source_failed: "state",
   // Routing (Phase 8)
   agent_routed: "phase",
   // Intelligence (Phase 9)
@@ -103,6 +104,7 @@ export type EventType =
   | "policy_evaluated"
   // Knowledge (Phase 14)
   | "knowledge_gap"
+  | "knowledge_source_failed"
   // Routing (Phase 8)
   | "agent_routed"
   // Intelligence (Phase 9)
@@ -416,6 +418,16 @@ export interface KnowledgeGapEvent extends KilnEvent {
   readonly retrievedCount: number;
 }
 
+/** Knowledge source ingestion failed event */
+export interface KnowledgeSourceFailedEvent extends KilnEvent {
+  readonly type: "knowledge_source_failed";
+  readonly sourceId: string;
+  readonly sourceName: string;
+  readonly sourceType: string;
+  readonly error: string;
+  readonly appName: string;
+}
+
 /** Agent routed event (multi-agent routing) */
 export interface AgentRoutedEvent extends KilnEvent {
   readonly type: "agent_routed";
@@ -501,6 +513,7 @@ export interface EventMap {
   policy_evaluated: PolicyEvaluatedEvent;
   // Knowledge (Phase 14)
   knowledge_gap: KnowledgeGapEvent;
+  knowledge_source_failed: KnowledgeSourceFailedEvent;
   // Routing (Phase 8)
   agent_routed: AgentRoutedEvent;
   // Intelligence (Phase 9)

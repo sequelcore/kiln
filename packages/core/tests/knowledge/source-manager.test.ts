@@ -102,7 +102,7 @@ describe("SourceManager", () => {
       expect(result.contentHash).toBeDefined();
       expect(result.chunkCount).toBe(5);
       expect(result.lastIndexedAt).toBeDefined();
-      expect(extractor.extract).toHaveBeenCalledWith("/tmp/test.txt", "file");
+      expect(extractor.extract).toHaveBeenCalledWith("/tmp/test.txt", "file", { headers: undefined });
       expect(pipeline.ingest).toHaveBeenCalled();
     });
 
@@ -216,6 +216,104 @@ describe("SourceManager", () => {
 
     it("returns false for nonexistent source", async () => {
       expect(await manager.removeSource("test-app", "nonexistent")).toBe(false);
+    });
+  });
+
+  describe("addSource with headers", () => {
+    it("persists headers on the created source", async () => {
+      const source = await manager.addSource({
+        appName: "test-app",
+        name: "Authed Source",
+        type: "url",
+        uri: "https://example.com/api",
+        headers: { Authorization: "Bearer tok-123" },
+      });
+
+      expect(source.headers).toEqual({ Authorization: "Bearer tok-123" });
+      const retrieved = manager.get("test-app", source.sourceId);
+      expect(retrieved?.headers).toEqual({ Authorization: "Bearer tok-123" });
+    });
+  });
+
+  describe("ingest with headers", () => {
+    it("passes source.headers to extractor", async () => {
+      const source = await manager.addSource({
+        appName: "test-app",
+        name: "Header Ingest",
+        type: "url",
+        uri: "https://example.com",
+        headers: { "X-API-Key": "key-456" },
+      });
+
+      await manager.ingest(source);
+
+      expect(extractor.extract).toHaveBeenCalledWith("https://example.com", "url", {
+        headers: { "X-API-Key": "key-456" },
+      });
+    });
+  });
+
+  describe("ingestContent", () => {
+    it("indexes provided content directly", async () => {
+      const source = await manager.addSource({
+        appName: "test-app",
+        name: "Direct Content",
+        type: "file",
+        uri: "/tmp/test.txt",
+      });
+
+      const result = await manager.ingestContent("test-app", source.sourceId, "direct content here");
+
+      expect(result.status).toBe("indexed");
+      expect(result.contentHash).toBeDefined();
+      expect(result.chunkCount).toBe(5);
+      expect(result.lastIndexedAt).toBeDefined();
+      expect(pipeline.ingest).toHaveBeenCalled();
+      // Should NOT call extractor -- content is provided directly
+      expect(extractor.extract).not.toHaveBeenCalled();
+    });
+
+    it("skips re-ingestion when content hash matches", async () => {
+      const source = await manager.addSource({
+        appName: "test-app",
+        name: "Hash Skip",
+        type: "file",
+        uri: "/tmp/test.txt",
+      });
+
+      const first = await manager.ingestContent("test-app", source.sourceId, "same content");
+      const second = await manager.ingestContent("test-app", first.sourceId, "same content");
+
+      expect(second.status).toBe("indexed");
+      expect(pipeline.ingest).toHaveBeenCalledTimes(1);
+    });
+
+    it("sets status to failed on pipeline error", async () => {
+      (pipeline.ingest as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("pipeline boom"));
+
+      const source = await manager.addSource({
+        appName: "test-app",
+        name: "Fail Content",
+        type: "file",
+        uri: "/tmp/test.txt",
+      });
+
+      const result = await manager.ingestContent("test-app", source.sourceId, "some content");
+
+      expect(result.status).toBe("failed");
+      expect(result.error).toBe("pipeline boom");
+    });
+
+    it("throws SOURCE_NOT_FOUND for unknown source", async () => {
+      await expect(
+        manager.ingestContent("test-app", "nonexistent", "content"),
+      ).rejects.toThrow(KilnError);
+
+      try {
+        await manager.ingestContent("test-app", "nonexistent", "content");
+      } catch (err) {
+        expect((err as KilnError).code).toBe("SOURCE_NOT_FOUND");
+      }
     });
   });
 

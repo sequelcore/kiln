@@ -44,6 +44,11 @@ function mockSourceManager() {
     }),
     ingest: vi.fn(),
     ingestAll: vi.fn(),
+    ingestContent: vi.fn(async (_appName: string, sourceId: string, _content: string) => {
+      const source = sources.get(sourceId);
+      if (!source) throw new KilnError("SOURCE_NOT_FOUND", `Source not found: ${sourceId}`);
+      return { ...source, status: "indexed" as const, lastIndexedAt: new Date().toISOString() };
+    }),
   };
 }
 
@@ -215,6 +220,104 @@ describe("createKnowledgeAdminRoutes", () => {
       const app = createKnowledgeAdminRoutes(config);
 
       const res = await app.request("/sources/nonexistent", { method: "DELETE" });
+      expect(res.status).toBe(404);
+    });
+  });
+
+  describe("POST /sources with headers", () => {
+    it("passes headers to addSource", async () => {
+      const app = createKnowledgeAdminRoutes(config);
+
+      const res = await app.request("/sources", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "Authed",
+          type: "url",
+          uri: "https://example.com/api",
+          headers: { Authorization: "Bearer tok-123" },
+        }),
+      });
+
+      expect(res.status).toBe(201);
+      expect(manager.addSource).toHaveBeenCalledWith(
+        expect.objectContaining({
+          headers: { Authorization: "Bearer tok-123" },
+        }),
+      );
+    });
+  });
+
+  describe("POST /sources/:sourceId/content", () => {
+    it("ingests JSON content body", async () => {
+      const app = createKnowledgeAdminRoutes(config);
+
+      // Create a source first
+      const createRes = await app.request("/sources", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Content Test", type: "file", uri: "/tmp/test.txt" }),
+      });
+      const created = (await createRes.json()) as { sourceId: string };
+
+      const res = await app.request(`/sources/${created.sourceId}/content`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: "Hello World" }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(manager.ingestContent).toHaveBeenCalledWith("test-app", created.sourceId, "Hello World");
+    });
+
+    it("ingests raw text body", async () => {
+      const app = createKnowledgeAdminRoutes(config);
+
+      const createRes = await app.request("/sources", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Raw Test", type: "file", uri: "/tmp/test.txt" }),
+      });
+      const created = (await createRes.json()) as { sourceId: string };
+
+      const res = await app.request(`/sources/${created.sourceId}/content`, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain" },
+        body: "Raw text content here",
+      });
+
+      expect(res.status).toBe(200);
+      expect(manager.ingestContent).toHaveBeenCalledWith("test-app", created.sourceId, "Raw text content here");
+    });
+
+    it("returns 400 for missing content in JSON body", async () => {
+      const app = createKnowledgeAdminRoutes(config);
+
+      const createRes = await app.request("/sources", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Empty", type: "file", uri: "/tmp/test.txt" }),
+      });
+      const created = (await createRes.json()) as { sourceId: string };
+
+      const res = await app.request(`/sources/${created.sourceId}/content`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notContent: true }),
+      });
+
+      expect(res.status).toBe(400);
+    });
+
+    it("returns 404 for unknown source", async () => {
+      const app = createKnowledgeAdminRoutes(config);
+
+      const res = await app.request("/sources/nonexistent/content", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: "Hello" }),
+      });
+
       expect(res.status).toBe(404);
     });
   });

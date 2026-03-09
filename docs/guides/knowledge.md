@@ -52,7 +52,7 @@ knowledge:
 | Type | Extractor | Notes |
 |------|-----------|-------|
 | `file` | `FileExtractor` | Local text/markdown files |
-| `url` | `UrlExtractor` | Fetches via Jina Reader, falls back to raw fetch |
+| `url` | `UrlExtractor` | Fetches via Jina Reader, falls back to raw fetch. Supports auth headers via `ExtractionOptions`. |
 | `pdf` | `PdfExtractor` | Uses `unpdf` (optional dependency, dynamic import) |
 
 ### Source Lifecycle
@@ -65,6 +65,37 @@ The `SourceManager` handles a three-phase lifecycle for each source:
 
 This deduplication ensures that re-indexing is idempotent and avoids redundant embedding API calls for unchanged content.
 
+### Authenticated Sources
+
+URL and PDF extractors support custom HTTP headers for fetching from authenticated endpoints. Pass headers when creating a source via the admin API:
+
+```json
+POST /admin/{app}/knowledge/sources
+{
+  "name": "internal-docs",
+  "type": "url",
+  "uri": "https://api.example.com/docs",
+  "headers": {
+    "Authorization": "Bearer sk-..."
+  }
+}
+```
+
+Headers are persisted with the source record and used on every extraction (including re-index).
+
+### Content Push
+
+For internal APIs where Kiln cannot fetch content directly, push content to a source instead of having Kiln extract it:
+
+```
+POST /admin/{app}/knowledge/sources/:sourceId/content
+Content-Type: application/json
+
+{ "content": "The full text content to ingest..." }
+```
+
+Accepts JSON body (`{ "content": "..." }`) or raw text. Content is hashed, chunked, embedded, and stored -- same pipeline as extracted content. Skips re-ingestion if the content hash is unchanged.
+
 ### Source Admin API
 
 The Gateway exposes CRUD routes for managing sources at runtime:
@@ -72,10 +103,11 @@ The Gateway exposes CRUD routes for managing sources at runtime:
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/admin/{app}/knowledge/sources` | List all sources |
-| `POST` | `/admin/{app}/knowledge/sources` | Create and ingest a source |
-| `GET` | `/admin/{app}/knowledge/sources/:name` | Get source details |
-| `POST` | `/admin/{app}/knowledge/sources/:name/reindex` | Re-extract and re-ingest |
-| `DELETE` | `/admin/{app}/knowledge/sources/:name` | Delete source and its chunks |
+| `POST` | `/admin/{app}/knowledge/sources` | Create a source (optional `headers` for auth) |
+| `GET` | `/admin/{app}/knowledge/sources/:sourceId` | Get source details (includes `error` on failure) |
+| `POST` | `/admin/{app}/knowledge/sources/:sourceId/reindex` | Re-extract and re-ingest |
+| `POST` | `/admin/{app}/knowledge/sources/:sourceId/content` | Push content directly (bypasses extraction) |
+| `DELETE` | `/admin/{app}/knowledge/sources/:sourceId` | Delete source and its chunks |
 
 ---
 
@@ -133,6 +165,8 @@ knowledge:
     model: text-embedding-3-small
     apiKeyEnv: OPENAI_API_KEY
 ```
+
+> **OpenAI API Key Permissions:** The key referenced by `apiKeyEnv` must have the `model.request` scope. If using a restricted key, set the parent **"Model capabilities"** dropdown to **Request** (not just the Embeddings sub-item). As of March 2026, OpenAI has a known bug where restricted keys with only sub-item permissions fail with `Missing scopes: model.request`. The safest option is to use a key with **All** permissions.
 
 PgVector features:
 - **halfvec storage** -- 4x compression vs full float32 vectors (1536d float16 = ~3KB per vector vs ~6KB for float32), with minimal accuracy loss
