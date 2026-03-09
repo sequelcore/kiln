@@ -10,6 +10,7 @@ export interface KnowledgeEmbeddingConfig {
 export interface KnowledgeStoreConfig {
   readonly backend: "memory" | "pgvector";
   readonly connectionString?: string;
+  readonly connectionStringEnv?: string;
 }
 
 export interface ContextualConfig {
@@ -85,8 +86,8 @@ export function validateKnowledgeConfig(config: KnowledgeConfig): KnowledgeValid
     errors.push({ field: "store.backend", message: "must be 'memory' or 'pgvector'" });
   }
 
-  if (config.store.backend === "pgvector" && !config.store.connectionString) {
-    errors.push({ field: "store.connectionString", message: `required when backend is '${config.store.backend}'` });
+  if (config.store.backend === "pgvector" && !config.store.connectionString && !config.store.connectionStringEnv) {
+    errors.push({ field: "store.connectionString", message: `required when backend is '${config.store.backend}' (use connectionString or connectionStringEnv)` });
   }
 
   if (!config.chunking || !config.chunking.strategy) {

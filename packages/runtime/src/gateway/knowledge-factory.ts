@@ -60,12 +60,14 @@ export async function createKnowledgePipeline(config: KnowledgeConfig): Promise<
   let closeFn: () => Promise<void> = async () => {};
 
   if (config.store.backend === "pgvector") {
-    if (!config.store.connectionString) {
-      throw new KilnError("CONFIG_INVALID", "pgvector backend requires connectionString", {
+    const connectionString = config.store.connectionString
+      ?? (config.store.connectionStringEnv ? process.env[config.store.connectionStringEnv] ?? "" : "");
+    if (!connectionString) {
+      throw new KilnError("CONFIG_INVALID", "pgvector backend requires connectionString or connectionStringEnv", {
         context: { backend: "pgvector" },
       });
     }
-    const pgStore = await createPgVectorStore({ connectionString: config.store.connectionString });
+    const pgStore = await createPgVectorStore({ connectionString });
     await pgStore.initialize();
     store = pgStore;
     closeFn = () => pgStore.close();

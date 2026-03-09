@@ -147,6 +147,7 @@ interface RawKnowledgeEmbedding {
 interface RawKnowledgeStore {
   backend?: unknown;
   connectionString?: unknown;
+  connectionStringEnv?: unknown;
 }
 
 interface RawKnowledgeChunking {
@@ -827,6 +828,7 @@ function mapKnowledge(raw: RawKnowledge): { knowledge: KnowledgeConfig | undefin
   const store: KnowledgeStoreConfig = {
     backend: (typeof rawStore?.backend === "string" ? rawStore.backend : "") as KnowledgeStoreConfig["backend"],
     connectionString: typeof rawStore?.connectionString === "string" ? rawStore.connectionString : undefined,
+    connectionStringEnv: typeof rawStore?.connectionStringEnv === "string" ? rawStore.connectionStringEnv : undefined,
   };
 
   const chunking: KnowledgeChunkingConfig = {
