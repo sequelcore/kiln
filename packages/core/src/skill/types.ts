@@ -6,13 +6,18 @@ export interface SkillTrigger {
   readonly filter?: Record<string, unknown>;
 }
 
-/** Skill configuration (runtime form) */
-export interface SkillConfig {
+/** Lightweight index entry — loaded at discovery time (progressive disclosure) */
+export interface SkillIndex {
   readonly name: string;
   readonly description: string;
   readonly tools: readonly string[];
   readonly triggers: readonly SkillTrigger[];
   readonly tags: readonly string[];
+  readonly handler?: string;
+  readonly filePath: string;
+}
+
+/** Full skill config — loaded on activation. Body is the markdown instructions. */
+export interface SkillConfig extends SkillIndex {
   readonly instructions: string;
-  readonly handler?: string; // optional TS handler file path
 }

@@ -25,7 +25,7 @@ This document is for contributors. For user documentation, see the [guides](guid
 | `tree` | `@kilnai/core` | `packages/core/src/tree/` | Task tree: scoring, batch selection, deepen/branch/prune. |
 | `domain` | `@kilnai/core` | `packages/core/src/domain/` | Domain registry, YAML schema, 5 built-in domain kits, domain package adapter. |
 | `package` | `@kilnai/core` | `packages/core/src/package/` | Package distribution: versioning, content hashing, security validation. |
-| `skill` | `@kilnai/core` | `packages/core/src/skill/` | Skill system: SKILL.yaml format, SkillRegistry with 3-tier discovery. |
+| `skill` | `@kilnai/core` | `packages/core/src/skill/` | Skill system: SKILL.md format (markdown + YAML frontmatter), SkillRegistry with 3-tier progressive disclosure, runtime injection via PerCallToolConfig. |
 | `eval` | `@kilnai/core` | `packages/core/src/eval/` | Evaluation: 12 scorer types, dataset JSONL loader, experiment runner with per-scorer error isolation, comparator. |
 | `sandbox` | `@kilnai/core` | `packages/core/src/sandbox/` | Per-agent filesystem allowlists and network proxy policies. |
 | `verification` | `@kilnai/core` | `packages/core/src/verification/` | Gate runner and verification loop (test, lint, type-check). |
@@ -394,7 +394,7 @@ kiln/
 │   │       ├── domain/                   # domain-registry.ts, yaml-schema.ts, domain-package-adapter.ts
 │   │       ├── domains/                  # react-ts.yaml, python.yaml, docs.yaml, support.yaml, data-pipeline.yaml
 │   │       ├── package/                  # types.ts, security.ts, yaml-schema.ts, yaml-parser.ts
-│   │       ├── skill/                    # skill-registry.ts, yaml-schema.ts, yaml-parser.ts
+│   │       ├── skill/                    # skill-registry.ts, md-parser.ts, types.ts
 │   │       ├── eval/                     # scorers/, dataset-loader.ts, experiment-runner.ts, comparator.ts
 │   │       ├── knowledge/                # chunkers, embedding adapters, vector store, retrieval pipeline
 │   │       ├── security/                 # audit-log.ts, prompt-scanner.ts, secret-store.ts, guardian.ts

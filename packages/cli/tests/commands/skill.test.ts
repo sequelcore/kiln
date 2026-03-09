@@ -18,14 +18,18 @@ const TEST_CONFIG: KilnAppConfig = {
   mcpServerName: "kiln",
 };
 
-const VALID_SKILL_YAML = `
+const VALID_SKILL_MD = `---
 name: test-skill
 description: A test skill
-instructions: Follow best practices
 tools:
   - read_file
 tags:
   - testing
+---
+
+# Test Skill
+
+Follow best practices when reviewing code.
 `;
 
 describe("skillCommand", () => {
@@ -55,9 +59,8 @@ describe("skillCommand", () => {
     });
 
     it("lists installed skills by name", async () => {
-      // Install a skill first so list has something to show
-      const skillPath = join(tmpDir, "my-skill.yaml");
-      writeFileSync(skillPath, VALID_SKILL_YAML, "utf-8");
+      const skillPath = join(tmpDir, "my-skill.md");
+      writeFileSync(skillPath, VALID_SKILL_MD, "utf-8");
 
       const { skillCommand } = await import("../../src/commands/skill.js");
       const installSpy = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -73,15 +76,15 @@ describe("skillCommand", () => {
   });
 
   describe("install subcommand", () => {
-    it("installs a valid skill file", async () => {
-      const skillPath = join(tmpDir, "test-skill.yaml");
-      writeFileSync(skillPath, VALID_SKILL_YAML, "utf-8");
+    it("installs a valid SKILL.md file", async () => {
+      const skillPath = join(tmpDir, "test-skill.md");
+      writeFileSync(skillPath, VALID_SKILL_MD, "utf-8");
 
       const { skillCommand } = await import("../../src/commands/skill.js");
       const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
       await skillCommand(TEST_CONFIG, "install", [skillPath]);
 
-      const installed = join(tmpDir, ".kiln", "skills", "test-skill.yaml");
+      const installed = join(tmpDir, ".kiln", "skills", "test-skill.md");
       expect(existsSync(installed)).toBe(true);
       consoleSpy.mockRestore();
     });
@@ -93,11 +96,22 @@ describe("skillCommand", () => {
       expect(mockExit).toHaveBeenCalledWith(1);
       consoleSpy.mockRestore();
     });
+
+    it("errors on non-.md file", async () => {
+      const yamlPath = join(tmpDir, "old.yaml");
+      writeFileSync(yamlPath, "name: test", "utf-8");
+
+      const { skillCommand } = await import("../../src/commands/skill.js");
+      const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      await skillCommand(TEST_CONFIG, "install", [yamlPath]);
+      expect(mockExit).toHaveBeenCalledWith(1);
+      consoleSpy.mockRestore();
+    });
   });
 
   describe("publish subcommand", () => {
-    it("validates SKILL.yaml in current directory", async () => {
-      writeFileSync(join(tmpDir, "SKILL.yaml"), VALID_SKILL_YAML, "utf-8");
+    it("validates SKILL.md in current directory", async () => {
+      writeFileSync(join(tmpDir, "SKILL.md"), VALID_SKILL_MD, "utf-8");
 
       const { skillCommand } = await import("../../src/commands/skill.js");
       const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -107,7 +121,7 @@ describe("skillCommand", () => {
       consoleSpy.mockRestore();
     });
 
-    it("errors when no SKILL.yaml found", async () => {
+    it("errors when no SKILL.md found", async () => {
       const { skillCommand } = await import("../../src/commands/skill.js");
       const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
       await skillCommand(TEST_CONFIG, "publish", []);

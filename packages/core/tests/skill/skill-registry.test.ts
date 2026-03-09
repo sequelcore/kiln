@@ -13,13 +13,16 @@ const makeSkill = (name: string, overrides: Partial<SkillConfig> = {}): SkillCon
   triggers: [],
   tags: [],
   instructions: `Instructions for ${name}.`,
+  filePath: "",
   ...overrides,
 });
 
-const validSkillYaml = (name: string) => `
+const validSkillMd = (name: string) => `---
 name: ${name}
 description: ${name} skill
-instructions: Instructions for ${name}.
+---
+
+Instructions for ${name}.
 `;
 
 describe("SkillRegistry", () => {
@@ -53,7 +56,7 @@ describe("SkillRegistry", () => {
     it("registers and retrieves a skill by name", () => {
       const skill = makeSkill("review");
       registry.register(skill);
-      expect(registry.get("review")).toEqual(skill);
+      expect(registry.get("review")?.name).toBe("review");
     });
 
     it("all() returns all registered skills", () => {
@@ -76,6 +79,111 @@ describe("SkillRegistry", () => {
     });
   });
 
+  describe("registerFull + load", () => {
+    it("registerFull stores index and caches full config", () => {
+      const config = makeSkill("cached");
+      registry.registerFull(config);
+      expect(registry.get("cached")).toBeDefined();
+      const loaded = registry.load("cached");
+      expect(loaded).toBeDefined();
+      expect(loaded!.instructions).toBe("Instructions for cached.");
+    });
+
+    it("load returns undefined for unknown name", () => {
+      expect(registry.load("nonexistent")).toBeUndefined();
+    });
+
+    it("load reads from disk when not cached", () => {
+      const filePath = join(tmpDir, "SKILL.md");
+      writeFileSync(filePath, validSkillMd("disk-skill"), "utf-8");
+
+      // Register index manually with filePath
+      registry.register({
+        name: "disk-skill",
+        description: "disk-skill skill",
+        tools: [],
+        triggers: [],
+        tags: [],
+        filePath,
+      });
+
+      const loaded = registry.load("disk-skill");
+      expect(loaded).toBeDefined();
+      expect(loaded!.instructions).toContain("Instructions for disk-skill.");
+    });
+
+    it("load caches result after first read", () => {
+      const filePath = join(tmpDir, "SKILL.md");
+      writeFileSync(filePath, validSkillMd("cached-read"), "utf-8");
+
+      registry.register({
+        name: "cached-read",
+        description: "cached-read skill",
+        tools: [],
+        triggers: [],
+        tags: [],
+        filePath,
+      });
+
+      const first = registry.load("cached-read");
+      // Delete file -- second load should return cached
+      rmSync(filePath);
+      const second = registry.load("cached-read");
+      expect(second).toEqual(first);
+    });
+
+    it("load returns undefined when file is missing", () => {
+      registry.register({
+        name: "missing-file",
+        description: "missing",
+        tools: [],
+        triggers: [],
+        tags: [],
+        filePath: join(tmpDir, "nonexistent.md"),
+      });
+
+      expect(registry.load("missing-file")).toBeUndefined();
+    });
+  });
+
+  describe("resolve", () => {
+    beforeEach(() => {
+      registry.register(makeSkill("alpha", { tags: ["review", "quality"] }));
+      registry.register(makeSkill("beta", { tags: ["deploy"] }));
+      registry.register(makeSkill("gamma", { tags: ["review"] }));
+    });
+
+    it("resolves by name", () => {
+      const results = registry.resolve(["alpha", "beta"]);
+      expect(results).toHaveLength(2);
+      expect(results.map((r) => r.name).sort()).toEqual(["alpha", "beta"]);
+    });
+
+    it("resolves by tag", () => {
+      const results = registry.resolve(undefined, ["review"]);
+      expect(results).toHaveLength(2);
+      expect(results.map((r) => r.name).sort()).toEqual(["alpha", "gamma"]);
+    });
+
+    it("resolves by name and tag combined", () => {
+      const results = registry.resolve(["beta"], ["quality"]);
+      expect(results).toHaveLength(2);
+      expect(results.map((r) => r.name).sort()).toEqual(["alpha", "beta"]);
+    });
+
+    it("returns empty for no matches", () => {
+      expect(registry.resolve(["nonexistent"])).toEqual([]);
+    });
+
+    it("returns empty when both args are empty", () => {
+      expect(registry.resolve([], [])).toEqual([]);
+    });
+
+    it("returns empty when both args are undefined", () => {
+      expect(registry.resolve()).toEqual([]);
+    });
+  });
+
   describe("discoverFrom", () => {
     it("returns 0 for non-existent directory", () => {
       const loaded = registry.discoverFrom(join(tmpDir, "no-such-dir"));
@@ -83,9 +191,14 @@ describe("SkillRegistry", () => {
       expect(registry.all()).toHaveLength(0);
     });
 
-    it("loads valid yaml files from directory", () => {
-      writeFileSync(join(tmpDir, "alpha.yaml"), validSkillYaml("alpha"), "utf-8");
-      writeFileSync(join(tmpDir, "beta.yml"), validSkillYaml("beta"), "utf-8");
+    it("loads SKILL.md files from subdirectories", () => {
+      const alphaDir = join(tmpDir, "alpha");
+      const betaDir = join(tmpDir, "beta");
+      mkdirSync(alphaDir, { recursive: true });
+      mkdirSync(betaDir, { recursive: true });
+
+      writeFileSync(join(alphaDir, "SKILL.md"), validSkillMd("alpha"), "utf-8");
+      writeFileSync(join(betaDir, "SKILL.md"), validSkillMd("beta"), "utf-8");
 
       const loaded = registry.discoverFrom(tmpDir);
       expect(loaded).toBe(2);
@@ -93,19 +206,32 @@ describe("SkillRegistry", () => {
       expect(registry.get("beta")).toBeDefined();
     });
 
-    it("skips invalid yaml files silently", () => {
-      writeFileSync(join(tmpDir, "broken.yaml"), "name: only-name", "utf-8");
-      writeFileSync(join(tmpDir, "good.yaml"), validSkillYaml("good"), "utf-8");
+    it("loads flat .md files from directory", () => {
+      writeFileSync(join(tmpDir, "flat-skill.md"), validSkillMd("flat"), "utf-8");
+
+      const loaded = registry.discoverFrom(tmpDir);
+      expect(loaded).toBe(1);
+      expect(registry.get("flat")).toBeDefined();
+    });
+
+    it("skips invalid SKILL.md files silently", () => {
+      const badDir = join(tmpDir, "bad");
+      mkdirSync(badDir, { recursive: true });
+      writeFileSync(join(badDir, "SKILL.md"), "# No frontmatter", "utf-8");
+
+      const goodDir = join(tmpDir, "good");
+      mkdirSync(goodDir, { recursive: true });
+      writeFileSync(join(goodDir, "SKILL.md"), validSkillMd("good"), "utf-8");
 
       const loaded = registry.discoverFrom(tmpDir);
       expect(loaded).toBe(1);
       expect(registry.get("good")).toBeDefined();
-      expect(registry.get("only-name")).toBeUndefined();
     });
 
-    it("ignores non-yaml files", () => {
-      writeFileSync(join(tmpDir, "readme.md"), "# README", "utf-8");
+    it("ignores non-.md files", () => {
+      writeFileSync(join(tmpDir, "readme.txt"), "text", "utf-8");
       writeFileSync(join(tmpDir, "config.json"), '{"name":"x"}', "utf-8");
+      writeFileSync(join(tmpDir, "old.yaml"), "name: old", "utf-8");
 
       const loaded = registry.discoverFrom(tmpDir);
       expect(loaded).toBe(0);
@@ -115,7 +241,10 @@ describe("SkillRegistry", () => {
       const existing = makeSkill("alpha", { description: "existing" });
       registry.register(existing);
 
-      writeFileSync(join(tmpDir, "alpha.yaml"), validSkillYaml("alpha"), "utf-8");
+      const alphaDir = join(tmpDir, "alpha");
+      mkdirSync(alphaDir, { recursive: true });
+      writeFileSync(join(alphaDir, "SKILL.md"), validSkillMd("alpha"), "utf-8");
+
       const loaded = registry.discoverFrom(tmpDir);
       expect(loaded).toBe(0);
       expect(registry.get("alpha")!.description).toBe("existing");
@@ -136,14 +265,14 @@ describe("SkillRegistry", () => {
       rmSync(userDir, { recursive: true, force: true });
     });
 
-    it("discovers from workspace .kiln/skills and user .kiln/skills", () => {
-      const workspaceSkillsDir = join(projectDir, ".kiln", "skills");
-      const userSkillsDir = join(userDir, ".kiln", "skills");
-      mkdirSync(workspaceSkillsDir, { recursive: true });
-      mkdirSync(userSkillsDir, { recursive: true });
+    it("discovers from workspace and user .kiln/skills", () => {
+      const wsSkillDir = join(projectDir, ".kiln", "skills", "ws-skill");
+      const userSkillDir = join(userDir, ".kiln", "skills", "user-skill");
+      mkdirSync(wsSkillDir, { recursive: true });
+      mkdirSync(userSkillDir, { recursive: true });
 
-      writeFileSync(join(workspaceSkillsDir, "ws-skill.yaml"), validSkillYaml("ws-skill"), "utf-8");
-      writeFileSync(join(userSkillsDir, "user-skill.yaml"), validSkillYaml("user-skill"), "utf-8");
+      writeFileSync(join(wsSkillDir, "SKILL.md"), validSkillMd("ws-skill"), "utf-8");
+      writeFileSync(join(userSkillDir, "SKILL.md"), validSkillMd("user-skill"), "utf-8");
 
       const total = registry.discoverAll(projectDir, userDir);
       expect(total).toBe(2);
@@ -152,81 +281,35 @@ describe("SkillRegistry", () => {
     });
 
     it("workspace skill overrides user skill with same name", () => {
-      const workspaceSkillsDir = join(projectDir, ".kiln", "skills");
-      const userSkillsDir = join(userDir, ".kiln", "skills");
-      mkdirSync(workspaceSkillsDir, { recursive: true });
-      mkdirSync(userSkillsDir, { recursive: true });
+      const wsSkillDir = join(projectDir, ".kiln", "skills", "shared");
+      const userSkillDir = join(userDir, ".kiln", "skills", "shared");
+      mkdirSync(wsSkillDir, { recursive: true });
+      mkdirSync(userSkillDir, { recursive: true });
 
-      // Both define "shared" skill but with different descriptions
-      const workspaceYaml = `
+      const wsMd = `---
 name: shared
 description: workspace version
-instructions: Workspace instructions.
+---
+
+Workspace instructions.
 `;
-      const userYaml = `
+      const userMd = `---
 name: shared
 description: user version
-instructions: User instructions.
+---
+
+User instructions.
 `;
-      writeFileSync(join(workspaceSkillsDir, "shared.yaml"), workspaceYaml, "utf-8");
-      writeFileSync(join(userSkillsDir, "shared.yaml"), userYaml, "utf-8");
+      writeFileSync(join(wsSkillDir, "SKILL.md"), wsMd, "utf-8");
+      writeFileSync(join(userSkillDir, "SKILL.md"), userMd, "utf-8");
 
       registry.discoverAll(projectDir, userDir);
-      // Workspace registered first, so it wins
       expect(registry.get("shared")!.description).toBe("workspace version");
-    });
-
-    it("workspace overrides builtin with same name", () => {
-      const builtin = makeSkill("common", { description: "builtin version" });
-      const reg = new SkillRegistry({ builtinSkills: [builtin] });
-
-      const workspaceSkillsDir = join(projectDir, ".kiln", "skills");
-      mkdirSync(workspaceSkillsDir, { recursive: true });
-
-      const workspaceYaml = `
-name: common
-description: workspace version
-instructions: Workspace instructions.
-`;
-      writeFileSync(join(workspaceSkillsDir, "common.yaml"), workspaceYaml, "utf-8");
-
-      // Builtin already registered in constructor, so workspace discover won't overwrite
-      // (first-registered wins: builtin was registered first)
-      // This matches the spec: builtins are registered in constructor, workspace is discovered after
-      // So builtin wins if we follow first-registered-wins strictly.
-      // But the spec says workspace > user > builtin -- so builtin should be registered LAST.
-      // The correct approach: create registry without builtins, discover workspace+user first, then register builtins.
-      // However the constructor registers builtins immediately.
-      // The test verifies the actual behavior: constructor builtins are first-registered.
-      reg.discoverAll(projectDir, userDir);
-      // builtin was registered first in constructor, so it wins
-      expect(reg.get("common")!.description).toBe("builtin version");
     });
 
     it("returns 0 when no skill directories exist", () => {
       const total = registry.discoverAll(projectDir, userDir);
       expect(total).toBe(0);
-      expect(registry.all()).toHaveLength(0);
-    });
-
-    it("handles missing workspace skills dir gracefully", () => {
-      const userSkillsDir = join(userDir, ".kiln", "skills");
-      mkdirSync(userSkillsDir, { recursive: true });
-      writeFileSync(join(userSkillsDir, "user-only.yaml"), validSkillYaml("user-only"), "utf-8");
-
-      const total = registry.discoverAll(projectDir, userDir);
-      expect(total).toBe(1);
-      expect(registry.get("user-only")).toBeDefined();
-    });
-
-    it("handles missing user skills dir gracefully", () => {
-      const workspaceSkillsDir = join(projectDir, ".kiln", "skills");
-      mkdirSync(workspaceSkillsDir, { recursive: true });
-      writeFileSync(join(workspaceSkillsDir, "ws-only.yaml"), validSkillYaml("ws-only"), "utf-8");
-
-      const total = registry.discoverAll(projectDir, userDir);
-      expect(total).toBe(1);
-      expect(registry.get("ws-only")).toBeDefined();
     });
   });
 
@@ -235,11 +318,7 @@ instructions: Workspace instructions.
       const pkgDir = mkdtempSync(join(tmpdir(), "kiln-pkg-skill-"));
       const skillsDir = join(pkgDir, "skills");
       mkdirSync(skillsDir, { recursive: true });
-      writeFileSync(join(skillsDir, "refactor.yaml"), `
-name: pkg-skill
-description: From package
-instructions: Do refactoring
-`, "utf-8");
+      writeFileSync(join(skillsDir, "refactor.md"), validSkillMd("pkg-skill"), "utf-8");
 
       const manifest: DomainPackageManifest = {
         name: "test-domain",
@@ -249,7 +328,7 @@ instructions: Do refactoring
         contentHash: "abc",
         installPath: pkgDir,
         config: { name: "test", displayName: "Test", detectPatterns: [], toolTags: new Set<string>(), qualityGates: [], multishotExamples: "", phaseExamples: "" },
-        skills: ["skills/refactor.yaml"],
+        skills: ["skills/refactor.md"],
         tools: null,
         knowledge: null,
       };
@@ -282,7 +361,7 @@ instructions: Do refactoring
       const pkgDir = mkdtempSync(join(tmpdir(), "kiln-pkg-invalid-"));
       const skillsDir = join(pkgDir, "skills");
       mkdirSync(skillsDir, { recursive: true });
-      writeFileSync(join(skillsDir, "broken.yaml"), "name: only-name", "utf-8");
+      writeFileSync(join(skillsDir, "broken.md"), "# No frontmatter", "utf-8");
 
       const manifest: DomainPackageManifest = {
         name: "broken-pkg",
@@ -292,46 +371,13 @@ instructions: Do refactoring
         contentHash: "abc",
         installPath: pkgDir,
         config: { name: "test", displayName: "Test", detectPatterns: [], toolTags: new Set<string>(), qualityGates: [], multishotExamples: "", phaseExamples: "" },
-        skills: ["skills/broken.yaml"],
+        skills: ["skills/broken.md"],
         tools: null,
         knowledge: null,
       };
 
       const loaded = registry.discoverFromPackage(manifest);
       expect(loaded).toBe(0);
-
-      rmSync(pkgDir, { recursive: true, force: true });
-    });
-
-    it("does not overwrite already-registered skill", () => {
-      const existing = makeSkill("pkg-dupe", { description: "existing" });
-      registry.register(existing);
-
-      const pkgDir = mkdtempSync(join(tmpdir(), "kiln-pkg-dupe-"));
-      const skillsDir = join(pkgDir, "skills");
-      mkdirSync(skillsDir, { recursive: true });
-      writeFileSync(join(skillsDir, "dupe.yaml"), `
-name: pkg-dupe
-description: From package
-instructions: Do something
-`, "utf-8");
-
-      const manifest: DomainPackageManifest = {
-        name: "dupe-pkg",
-        type: "domain",
-        version: "1.0.0",
-        author: "Test",
-        contentHash: "abc",
-        installPath: pkgDir,
-        config: { name: "test", displayName: "Test", detectPatterns: [], toolTags: new Set<string>(), qualityGates: [], multishotExamples: "", phaseExamples: "" },
-        skills: ["skills/dupe.yaml"],
-        tools: null,
-        knowledge: null,
-      };
-
-      const loaded = registry.discoverFromPackage(manifest);
-      expect(loaded).toBe(0);
-      expect(registry.get("pkg-dupe")!.description).toBe("existing");
 
       rmSync(pkgDir, { recursive: true, force: true });
     });

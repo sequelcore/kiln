@@ -12,7 +12,7 @@ import type {
 } from "@kilnai/core";
 import { KilnError, getErrorSuggestion } from "@kilnai/core";
 import type { DomainConfig } from "@kilnai/core";
-import type { SkillConfig } from "@kilnai/core";
+import type { SkillIndex } from "@kilnai/core";
 
 /** Ordered list of orchestrator phases */
 export const PHASES: Phase[] = [
@@ -247,8 +247,8 @@ export function formatDomainList(domains: readonly DomainConfig[]): string {
   return domains.map((d, i) => `  ${i + 1}. ${d.displayName} (${d.name})`).join("\n");
 }
 
-/** Format a list of skill configs for CLI display */
-export function formatSkillList(skills: readonly SkillConfig[]): string {
+/** Format a list of skill indexes for CLI display */
+export function formatSkillList(skills: readonly SkillIndex[]): string {
   if (skills.length === 0) return "No skills available.";
   return skills.map((s, i) => `  ${i + 1}. ${s.name} -- ${s.description}`).join("\n");
 }

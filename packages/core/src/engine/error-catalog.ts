@@ -251,10 +251,10 @@ export function getErrorSuggestion(
         docUrl: docUrl(code),
       };
 
-    case "SKILL_YAML_INVALID":
+    case "SKILL_MD_INVALID":
       return {
         suggestion:
-          "The skill YAML file is invalid. Ensure it follows the skill schema with required fields: name, description, steps.",
+          "Invalid skill file (SKILL.md). Use YAML frontmatter (---) with required fields: name, description. The markdown body provides instructions.",
         docUrl: docUrl(code),
       };
 

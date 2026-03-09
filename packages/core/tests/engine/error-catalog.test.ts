@@ -35,7 +35,7 @@ const ALL_CODES: KilnErrorCode[] = [
   "UNAUTHORIZED",
   "FORBIDDEN",
   "RATE_LIMIT_EXCEEDED",
-  "SKILL_YAML_INVALID",
+  "SKILL_MD_INVALID",
   "SKILL_NOT_FOUND",
   "UNSUPPORTED_MODALITY",
   "CONTENT_PART_INVALID",
@@ -191,8 +191,8 @@ describe("getErrorSuggestion", () => {
       expect(result.suggestion).toContain("retry");
     });
 
-    it("SKILL_YAML_INVALID mentions skill schema", () => {
-      const result = getErrorSuggestion("SKILL_YAML_INVALID");
+    it("SKILL_MD_INVALID mentions skill schema", () => {
+      const result = getErrorSuggestion("SKILL_MD_INVALID");
       expect(result.suggestion).toContain("skill");
     });
 

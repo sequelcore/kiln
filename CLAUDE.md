@@ -33,7 +33,7 @@ Bun monorepo with 6 packages:
 | knowledge | `core/src/knowledge/` | RAG: chunkers (recursive, markdown), embedding adapters (OpenAI, Ollama), vector stores (InMemory, PgVector with halfvec + HNSW + RRF hybrid search), STT adapters (OpenAI gpt-4o-transcribe, Deepgram nova-3), contextual enrichment (Anthropic pattern), retrieval pipeline (gap detection events), CohereReranker (Rerank v2, over-fetch 4x), knowledge modes (auto-inject / tool), content extractors (file, URL via Jina Reader, PDF via unpdf), SourceManager (extract -> hash -> ingest lifecycle), source stores (InMemory, JSON file), ContactMemoryService (per-user fact extraction via LLM, Mem0 ADD/UPDATE/DELETE/NOOP pattern, recall at session start) |
 | domain | `core/src/domain/` | Domain config: tech stack detection, YAML schema, DomainRegistry. Built-in kits at `core/src/domains/*.yaml` |
 | package | `core/src/package/` | Distribution: versioning, content hashing, security validation |
-| skill | `core/src/skill/` | SKILL.yaml format, SkillRegistry (3-tier discovery) |
+| skill | `core/src/skill/` | SKILL.md format (markdown + YAML frontmatter), SkillRegistry (3-tier discovery, progressive disclosure), runtime injection via PerCallToolConfig.skillInstructions |
 | enrichment | `core/src/enrichment/` | Post-conversation enrichment: effort score, LLM enrichment pipeline, sentiment/resolution/CSAT |
 | eval | `core/src/eval/` | 23 scorers (11 rule + 12 LLM-as-judge), dataset loader, experiment runner, comparator, consistency runner (pass^k) |
 | observability (core) | `core/src/observability/` | OTel span mapper (exhaustive event-to-span mapping) + OTelExporter (EventStore sink) |

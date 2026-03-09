@@ -1,7 +1,7 @@
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import type { SkillConfig } from "./types.js";
-import { loadSkillYaml } from "./yaml-parser.js";
+import type { SkillIndex, SkillConfig } from "./types.js";
+import { loadSkillMdIndex, loadSkillMd } from "./md-parser.js";
 import type { DomainPackageManifest } from "../package/types.js";
 
 export interface SkillRegistryOptions {
@@ -9,51 +9,97 @@ export interface SkillRegistryOptions {
 }
 
 export class SkillRegistry {
-  private readonly skills = new Map<string, SkillConfig>();
+  private readonly indexes = new Map<string, SkillIndex>();
+  private readonly fullCache = new Map<string, SkillConfig>();
 
   constructor(options?: SkillRegistryOptions) {
     if (options?.builtinSkills) {
       for (const skill of options.builtinSkills) {
-        this.register(skill);
+        this.registerFull(skill);
       }
     }
   }
 
-  /** Register a skill. First-registered wins -- no overwrite. */
-  register(skill: SkillConfig): void {
-    if (!this.skills.has(skill.name)) {
-      this.skills.set(skill.name, skill);
+  /** Register a skill index. First-registered wins. */
+  register(index: SkillIndex): void {
+    if (!this.indexes.has(index.name)) {
+      this.indexes.set(index.name, index);
     }
   }
 
-  get(name: string): SkillConfig | undefined {
-    return this.skills.get(name);
+  /** Register a full SkillConfig (for builtins or programmatic use). Stores index + caches full config. */
+  registerFull(config: SkillConfig): void {
+    if (!this.indexes.has(config.name)) {
+      this.indexes.set(config.name, config);
+      this.fullCache.set(config.name, config);
+    }
   }
 
-  all(): SkillConfig[] {
-    return [...this.skills.values()];
+  get(name: string): SkillIndex | undefined {
+    return this.indexes.get(name);
   }
 
-  /** Discover skills from a directory path. Returns number of skills loaded. */
+  all(): SkillIndex[] {
+    return [...this.indexes.values()];
+  }
+
+  /** Load full SkillConfig on demand. Reads file from disk if not already cached. */
+  load(name: string): SkillConfig | undefined {
+    const cached = this.fullCache.get(name);
+    if (cached) return cached;
+
+    const index = this.indexes.get(name);
+    if (!index?.filePath) return undefined;
+
+    try {
+      const config = loadSkillMd(index.filePath);
+      this.fullCache.set(name, config);
+      return config;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** Resolve skills matching any of the given names or tags. */
+  resolve(names?: readonly string[], tags?: readonly string[]): SkillIndex[] {
+    if (!names?.length && !tags?.length) return [];
+
+    const nameSet = names ? new Set(names) : undefined;
+    const tagSet = tags ? new Set(tags) : undefined;
+    const results: SkillIndex[] = [];
+
+    for (const index of this.indexes.values()) {
+      if (nameSet?.has(index.name)) {
+        results.push(index);
+        continue;
+      }
+      if (tagSet && index.tags.some((t) => tagSet.has(t))) {
+        results.push(index);
+      }
+    }
+
+    return results;
+  }
+
+  /** Discover SKILL.md files from a directory. Returns number of skills loaded. */
   discoverFrom(dirPath: string): number {
     if (!existsSync(dirPath)) return 0;
 
-    const files = readdirSync(dirPath).filter(
-      (f) => f.endsWith(".yaml") || f.endsWith(".yml"),
-    );
-
+    const entries = readdirSync(dirPath, { withFileTypes: true });
     let loaded = 0;
-    for (const file of files) {
-      try {
-        const skill = loadSkillYaml(join(dirPath, file));
-        if (!this.skills.has(skill.name)) {
-          this.skills.set(skill.name, skill);
-          loaded++;
+
+    for (const entry of entries) {
+      // Convention: each skill is a directory containing SKILL.md, or a flat SKILL.md file
+      if (entry.isDirectory()) {
+        const skillMdPath = join(dirPath, entry.name, "SKILL.md");
+        if (existsSync(skillMdPath)) {
+          loaded += this.tryLoadIndex(skillMdPath);
         }
-      } catch {
-        // Skip invalid files silently
+      } else if (entry.name.endsWith(".md")) {
+        loaded += this.tryLoadIndex(join(dirPath, entry.name));
       }
     }
+
     return loaded;
   }
 
@@ -64,15 +110,7 @@ export class SkillRegistry {
     let loaded = 0;
     for (const skillPath of manifest.skills) {
       const fullPath = join(manifest.installPath, skillPath);
-      try {
-        const skill = loadSkillYaml(fullPath);
-        if (!this.skills.has(skill.name)) {
-          this.skills.set(skill.name, skill);
-          loaded++;
-        }
-      } catch {
-        // Skip invalid skill files silently
-      }
+      loaded += this.tryLoadIndex(fullPath);
     }
     return loaded;
   }
@@ -82,7 +120,7 @@ export class SkillRegistry {
    * 1. workspace: projectPath/.kiln/skills/
    * 2. user: userHome/.kiln/skills/
    * 3. builtin (passed via constructor)
-   * Earlier tiers override later (workspace wins over user wins over builtin).
+   * Earlier tiers win (workspace > user > builtin).
    */
   discoverAll(projectPath: string, userHome: string): number {
     const workspaceDir = join(projectPath, ".kiln", "skills");
@@ -92,5 +130,18 @@ export class SkillRegistry {
     total += this.discoverFrom(workspaceDir);
     total += this.discoverFrom(userDir);
     return total;
+  }
+
+  private tryLoadIndex(filePath: string): number {
+    try {
+      const index = loadSkillMdIndex(filePath);
+      if (!this.indexes.has(index.name)) {
+        this.indexes.set(index.name, index);
+        return 1;
+      }
+    } catch {
+      // Skip invalid files silently
+    }
+    return 0;
   }
 }

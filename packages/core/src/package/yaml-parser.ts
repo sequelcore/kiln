@@ -112,6 +112,7 @@ export function parseSkillPackageYaml(
     })),
     tags: (yaml.tags as string[]) ?? [],
     instructions: yaml.instructions ?? "",
+    filePath: filePath ?? "",
     ...(yaml.handler !== undefined ? { handler: yaml.handler } : {}),
   };
 

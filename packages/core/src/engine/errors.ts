@@ -44,8 +44,8 @@ export type KilnErrorCode =
   | "UNAUTHORIZED"
   | "FORBIDDEN"
   | "RATE_LIMIT_EXCEEDED"
-  // Skill (Phase 4)
-  | "SKILL_YAML_INVALID"
+  // Skill
+  | "SKILL_MD_INVALID"
   | "SKILL_NOT_FOUND"
   // Package (Phase 5)
   | "PACKAGE_YAML_INVALID"

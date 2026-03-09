@@ -79,6 +79,7 @@ export interface PerCallToolConfig {
   readonly tenantId?: string;
   readonly additionalTools?: readonly ToolDefinition[];
   readonly modelOverride?: { readonly provider: string; readonly model: string };
+  readonly skillInstructions?: string;
 }
 
 export class ModeBOrchestrator {
@@ -154,6 +155,9 @@ export class ModeBOrchestrator {
     let system = session.systemPrompt;
     if (recalledMemory) {
       system += "\n\n--- Recalled Memory ---\n" + recalledMemory;
+    }
+    if (perCallConfig?.skillInstructions) {
+      system += "\n\n--- Active Skills ---\n" + perCallConfig.skillInstructions;
     }
 
     // Merge dep-level and per-call builtin tools

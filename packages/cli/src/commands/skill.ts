@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, cpSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { KilnAppConfig } from "../config.js";
-import { DomainRegistry, SkillRegistry, loadSkillYaml } from "@kilnai/core";
+import { DomainRegistry, SkillRegistry, loadSkillMdIndex, loadSkillMd } from "@kilnai/core";
 import { formatSkillList } from "../formatters.js";
 
 export async function skillCommand(
@@ -21,8 +21,8 @@ export async function skillCommand(
       console.log("");
       console.log("Subcommands:");
       console.log("  list                 List all available skills");
-      console.log("  install <package>    Install a skill package");
-      console.log("  publish              Validate and prepare skill for publishing");
+      console.log("  install <path>       Install a SKILL.md file");
+      console.log("  publish              Validate SKILL.md for publishing");
   }
 }
 
@@ -45,7 +45,7 @@ function listSkills(_config: KilnAppConfig): void {
 
 async function installSkill(config: KilnAppConfig, packagePath: string | undefined): Promise<void> {
   if (!packagePath) {
-    console.error("Usage: " + config.appName + " skill install <path-or-package>");
+    console.error("Usage: " + config.appName + " skill install <path-to-SKILL.md>");
     process.exit(1);
     return;
   }
@@ -53,7 +53,6 @@ async function installSkill(config: KilnAppConfig, packagePath: string | undefin
   const cwd = process.cwd();
   const skillsDir = join(cwd, ".kiln", "skills");
 
-  // Resolve the source path
   const sourcePath = resolve(packagePath);
   if (!existsSync(sourcePath)) {
     console.error(`Not found: ${sourcePath}`);
@@ -61,11 +60,17 @@ async function installSkill(config: KilnAppConfig, packagePath: string | undefin
     return;
   }
 
-  // Validate the skill YAML
+  if (!sourcePath.endsWith(".md")) {
+    console.error("Skill files must be .md files (SKILL.md format with YAML frontmatter).");
+    process.exit(1);
+    return;
+  }
+
+  // Validate the SKILL.md
   try {
-    loadSkillYaml(sourcePath);
+    loadSkillMdIndex(sourcePath);
   } catch (err) {
-    console.error(`Invalid skill file: ${err instanceof Error ? err.message : String(err)}`);
+    console.error(`Invalid SKILL.md: ${err instanceof Error ? err.message : String(err)}`);
     process.exit(1);
     return;
   }
@@ -75,7 +80,6 @@ async function installSkill(config: KilnAppConfig, packagePath: string | undefin
     mkdirSync(skillsDir, { recursive: true });
   }
 
-  // Copy the skill file
   const fileName = sourcePath.split(/[\\/]/).pop()!;
   const destPath = join(skillsDir, fileName);
   cpSync(sourcePath, destPath);
@@ -85,35 +89,26 @@ async function installSkill(config: KilnAppConfig, packagePath: string | undefin
 
 function publishSkill(_config: KilnAppConfig): void {
   const cwd = process.cwd();
+  const filePath = join(cwd, "SKILL.md");
 
-  // Look for SKILL.yaml in current directory
-  const skillYamlPath = join(cwd, "SKILL.yaml");
-  const skillYmlPath = join(cwd, "SKILL.yml");
-  const filePath = existsSync(skillYamlPath) ? skillYamlPath : existsSync(skillYmlPath) ? skillYmlPath : null;
-
-  if (!filePath) {
-    console.error("No SKILL.yaml found in current directory.");
-    console.error("Create a SKILL.yaml with name, description, and instructions fields.");
+  if (!existsSync(filePath)) {
+    console.error("No SKILL.md found in current directory.");
+    console.error("Create a SKILL.md with YAML frontmatter (name, description) and markdown body.");
     process.exit(1);
     return;
   }
 
-  // Validate
   try {
-    const skill = loadSkillYaml(filePath);
+    const skill = loadSkillMd(filePath);
     console.log(`Skill "${skill.name}" validated successfully.`);
     console.log("");
-    console.log("To publish, create a kiln-package.yaml:");
-    console.log("");
-    console.log("  type: skill");
-    console.log(`  version: "0.1.0"`);
-    console.log(`  author: "Your Name"`);
-    console.log(`  name: ${skill.name}`);
-    console.log(`  description: ${skill.description}`);
-    console.log(`  instructions: |`);
-    console.log(`    ${skill.instructions.split("\n").join("\n    ")}`);
+    console.log("Ready for publishing. Skill details:");
+    console.log(`  Name: ${skill.name}`);
+    console.log(`  Description: ${skill.description}`);
+    if (skill.tools.length > 0) console.log(`  Tools: ${skill.tools.join(", ")}`);
+    if (skill.tags.length > 0) console.log(`  Tags: ${skill.tags.join(", ")}`);
   } catch (err) {
-    console.error(`Invalid SKILL.yaml: ${err instanceof Error ? err.message : String(err)}`);
+    console.error(`Invalid SKILL.md: ${err instanceof Error ? err.message : String(err)}`);
     process.exit(1);
   }
 }

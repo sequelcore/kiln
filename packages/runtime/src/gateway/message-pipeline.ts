@@ -1,4 +1,4 @@
-import type { ContentPart, SessionLimitsConfig } from "@kilnai/core";
+import type { ContentPart, SessionLimitsConfig, SkillRegistry } from "@kilnai/core";
 import { extractText } from "@kilnai/core";
 import type { AbuseDetectionConfig } from "../session/repetitive-abuse-detector.js";
 import { detectRepetitiveAbuse } from "../session/repetitive-abuse-detector.js";
@@ -41,6 +41,9 @@ export interface InboundMessageContext {
   readonly routingConfidence?: number;
   readonly sessionLimits?: SessionLimitsConfig;
   readonly abuseDetection?: AbuseDetectionConfig;
+  readonly skillRegistry?: SkillRegistry;
+  readonly activeSkills?: readonly string[];
+  readonly activeSkillTags?: readonly string[];
 }
 
 export interface InboundMessageResult {
@@ -211,13 +214,26 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
   // Merge recalled memory + knowledge context + contact context
   const combinedMemory = [ctx.recalledMemory, ctx.knowledgeContext, ctx.contactContext].filter(Boolean).join("\n\n") || undefined;
 
+  // Resolve active skills
+  let perCallConfig = ctx.perCallConfig;
+  if (ctx.skillRegistry && (ctx.activeSkills?.length || ctx.activeSkillTags?.length)) {
+    const resolved = ctx.skillRegistry.resolve(ctx.activeSkills, ctx.activeSkillTags);
+    if (resolved.length > 0) {
+      const loaded = resolved.map((s) => ctx.skillRegistry!.load(s.name)).filter(Boolean);
+      if (loaded.length > 0) {
+        const skillInstructions = loaded.map((s) => s!.instructions).join("\n\n---\n\n");
+        perCallConfig = { ...perCallConfig, skillInstructions };
+      }
+    }
+  }
+
   // Process message
   const result: OrchestrateResult = await ctx.orchestrator.processMessage(
     session,
     ctx.userParts,
     combinedMemory,
     ctx.callBuiltinTools,
-    ctx.perCallConfig,
+    perCallConfig,
   );
 
   // Accumulate session tokens for limit tracking
