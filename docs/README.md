@@ -28,6 +28,7 @@
 | [Triggers](guides/triggers.md) | Webhooks, event listeners, cron scheduler |
 | [Domains](guides/domains.md) | Domain kits, detection patterns, quality gates |
 | [Eval](guides/eval.md) | Scorers, datasets, experiments, comparator |
+| [Eval Benchmarking](guides/eval-benchmarking.md) | Scorer-to-research mapping, predictive metrics, industry standards |
 | [Delegation](guides/delegation.md) | Cross-app delegation, A2A protocol |
 
 ## SDK

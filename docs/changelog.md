@@ -2,7 +2,7 @@
 
 ## v0.11.0 (2026-03-09) -- Eval Benchmarking & Abuse Protection
 
-### Eval Framework (17 scorers + ConsistencyRunner)
+### Eval Framework (23 scorers + ConsistencyRunner)
 - **ConsistencyRunner (pass^k)**: tau-bench pass^k metric. Runs same experiment k times, measures fraction of items passing ALL runs.
 - **PolicyAdherenceScorer**: LLM-as-judge for business policy compliance. Config: `policies: string[]`.
 - **ContextRelevanceScorer**: LLM-as-judge for RAG retrieval quality (context chunks vs query).
@@ -10,6 +10,12 @@
 - **EffortScorer**: Rule-based, bridges enrichment pipeline's Customer Effort Score into eval. Reads `metadata.effortComponents`.
 - **ResolutionScorer**: Rule-based, maps resolution status to score. Reads `metadata.resolution`.
 - **EvalInput.metadata**: New optional field forwarded from `DatasetItem.metadata` through `ExperimentRunner`.
+- **ToolCallingAccuracyScorer**: Rule-based BFCL-style tool calling accuracy. Compares `metadata.toolCalls` vs `metadata.expectedToolCalls` using F1 (precision + recall).
+- **MultiTurnConsistencyScorer**: LLM-as-judge for context retention across conversation turns. Reads `metadata.conversationHistory`.
+- **SafetyPreservationScorer**: AgentDojo-inspired dual scorer (safety + utility under adversarial attack). Reads optional `metadata.attackType`.
+- **RoutingAccuracyScorer**: Rule-based, compares `metadata.activeAgentId` vs `metadata.expectedAgentId`.
+- **HandoffQualityScorer**: LLM-as-judge for context preservation across agent handoffs. Reads `metadata.handoffHistory`.
+- **MilestoneScorer**: Rule-based, tracks intermediate checkpoint completion from `metadata.milestones`.
 - **Safety adversarial dataset**: 145 test cases covering PII, content, prompt injection, policy rails, and benign controls at `packages/core/evals/safety-adversarial.jsonl`.
 
 ### Abuse Protection

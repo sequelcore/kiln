@@ -37,6 +37,9 @@ Datasets are JSONL files where each line is a JSON object with the following fie
 | `cost` | 0 or 1 | `maxCostUsd` | Cost per call is within the declared limit. |
 | `effort` | 0–1 | — | Customer Effort Score from `metadata.effortComponents`. Uses the enrichment pipeline's deterministic formula, normalized from 0-10 to 0-1. |
 | `resolution` | 0–1 | — | Resolution quality from `metadata.resolution`. Maps status (resolved=1.0, partial=0.5, ambiguous=0.25, unresolved=0.0), weighted by confidence. |
+| `tool-calling-accuracy` | 0–1 | — | BFCL-style deterministic tool calling accuracy. Compares `metadata.toolCalls` against `metadata.expectedToolCalls` using F1 score (precision + recall). Checks function name and parameter correctness. |
+| `routing-accuracy` | 0 or 1 | — | Compares `metadata.activeAgentId` against `metadata.expectedAgentId`. Exact match. |
+| `milestone` | 0–1 | — | Fraction of milestones completed. Reads `metadata.milestones` (array of `{name, completed}`). Reports missed milestones. |
 
 ### LLM-as-Judge Scorers
 
@@ -53,6 +56,9 @@ All LLM-as-judge scorers return a continuous score from 0.0 to 1.0 with a `reaso
 | `policy-adherence` | `policies: string[]` | Output complies with declared business policy rules. Enumerates policies in the prompt and evaluates adherence. |
 | `context-relevance` | — | Retrieved `context` chunks are relevant to the `input` query. Measures retrieval quality, not answer quality. |
 | `tool-trajectory` | — | Tool-use sequence (from `metadata.toolCalls`) is efficient and appropriate. Evaluates tool selection, ordering, and redundancy. |
+| `multi-turn-consistency` | — | Context retention across conversation turns. Reads `metadata.conversationHistory` (array of `{role, content}`). Detects contradictions, forgotten facts, and unnecessary repetition. |
+| `safety-preservation` | — | AgentDojo-inspired dual scorer: evaluates safety (attack resistance) AND utility (helpfulness) under adversarial input. Combined score = (safety + utility) / 2. Reads optional `metadata.attackType`. |
+| `handoff-quality` | — | Context preservation across agent handoffs. Reads `metadata.handoffHistory` (array of `{fromAgent, toAgent, summary?, reason?}`). Evaluates handoff reason, context summary, and seamless pickup. |
 
 ### Composite Scorer
 

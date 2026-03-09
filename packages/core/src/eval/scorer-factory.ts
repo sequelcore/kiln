@@ -21,6 +21,12 @@ import { ContextRelevanceScorer } from "./scorers/context-relevance-scorer.js";
 import { ToolTrajectoryScorer } from "./scorers/tool-trajectory-scorer.js";
 import { EffortScorer } from "./scorers/effort-scorer.js";
 import { ResolutionScorer } from "./scorers/resolution-scorer.js";
+import { ToolCallingAccuracyScorer } from "./scorers/tool-calling-accuracy-scorer.js";
+import { MultiTurnConsistencyScorer } from "./scorers/multi-turn-consistency-scorer.js";
+import { SafetyPreservationScorer } from "./scorers/safety-preservation-scorer.js";
+import { RoutingAccuracyScorer } from "./scorers/routing-accuracy-scorer.js";
+import { HandoffQualityScorer } from "./scorers/handoff-quality-scorer.js";
+import { MilestoneScorer } from "./scorers/milestone-scorer.js";
 
 export function createScorer(config: EvalScorerConfig, llm?: ScorerLLM): Scorer {
   switch (config.type) {
@@ -40,6 +46,12 @@ export function createScorer(config: EvalScorerConfig, llm?: ScorerLLM): Scorer 
       return new EffortScorer();
     case "resolution":
       return new ResolutionScorer();
+    case "tool-calling-accuracy":
+      return new ToolCallingAccuracyScorer();
+    case "routing-accuracy":
+      return new RoutingAccuracyScorer();
+    case "milestone":
+      return new MilestoneScorer();
     case "composite": {
       const subScorers = (config.scorers ?? []).map((s) => createScorer(s, llm));
       return new CompositeScorer(config.name, subScorers);
@@ -53,6 +65,9 @@ export function createScorer(config: EvalScorerConfig, llm?: ScorerLLM): Scorer 
     case "policy-adherence":
     case "context-relevance":
     case "tool-trajectory":
+    case "multi-turn-consistency":
+    case "safety-preservation":
+    case "handoff-quality":
       return createLLMScorer(config, llm);
     default:
       throw new KilnError("EVAL_SCORER_FAILED", `Unknown scorer type: ${config.type}`, {
@@ -78,6 +93,9 @@ function createLLMScorer(config: EvalScorerConfig, llm?: ScorerLLM): Scorer {
     case "policy-adherence": return new PolicyAdherenceScorer(llm, config.policies ?? []);
     case "context-relevance": return new ContextRelevanceScorer(llm);
     case "tool-trajectory": return new ToolTrajectoryScorer(llm);
+    case "multi-turn-consistency": return new MultiTurnConsistencyScorer(llm);
+    case "safety-preservation": return new SafetyPreservationScorer(llm);
+    case "handoff-quality": return new HandoffQualityScorer(llm);
     default:
       throw new KilnError("EVAL_SCORER_FAILED", `Unknown LLM scorer type: ${config.type}`, {
         context: { type: config.type, name: config.name },

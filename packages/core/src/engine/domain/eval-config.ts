@@ -18,7 +18,13 @@ export type EvalScorerType =
   | "context-relevance"
   | "effort"
   | "resolution"
-  | "tool-trajectory";
+  | "tool-trajectory"
+  | "tool-calling-accuracy"
+  | "multi-turn-consistency"
+  | "safety-preservation"
+  | "routing-accuracy"
+  | "handoff-quality"
+  | "milestone";
 
 export interface EvalScorerConfig {
   readonly name: string;
@@ -65,6 +71,8 @@ const VALID_SCORER_TYPES: readonly string[] = [
   "custom-prompt", "composite",
   "effort", "resolution",
   "policy-adherence", "context-relevance", "tool-trajectory",
+  "tool-calling-accuracy", "multi-turn-consistency", "safety-preservation",
+  "routing-accuracy", "handoff-quality", "milestone",
 ];
 
 export function validateEvalConfig(config: EvalConfig): EvalValidationError[] {
