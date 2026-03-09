@@ -20,6 +20,8 @@ import { isOriginAllowed } from "./auth-middleware.js";
 import { TraceContext } from "./trace-context.js";
 import { preprocessAudio, createGenericMediaDownloader } from "./audio-preprocessor.js";
 import { formatKnowledgeContext, formatContactContext, mergeContextSources } from "./context-formatter.js";
+import { sanitizeVisitorInfo, formatVisitorContext } from "./visitor-sanitizer.js";
+import type { SanitizedVisitorInfo } from "./visitor-sanitizer.js";
 
 export interface WsTenantRoutesConfig {
   readonly webChannel: WebChannel;
@@ -51,6 +53,7 @@ const HEARTBEAT_TIMEOUT_MS = 90_000;
 export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
   const app = new Hono();
   const heartbeats = new Map<WSContext, HeartbeatEntry>();
+  const visitors = new Map<WSContext, SanitizedVisitorInfo>();
 
   app.get(
     "/ws",
@@ -96,11 +99,13 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
           heartbeats.set(ws, entry);
 
           const suggestions = tenant.faqEntries?.map((f) => f.q) ?? [];
-          if (tenant.greeting || suggestions.length > 0) {
+          const hasWelcomeData = tenant.greeting || suggestions.length > 0 || tenant.preChatForm?.enabled;
+          if (hasWelcomeData) {
             ws.send(JSON.stringify({
               type: "welcome",
               ...(tenant.greeting && { greeting: tenant.greeting }),
               ...(suggestions.length > 0 && { suggestions }),
+              ...(tenant.preChatForm?.enabled && { preChatForm: tenant.preChatForm }),
             }));
           }
         },
@@ -110,6 +115,7 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
             clearInterval(hb.interval);
             heartbeats.delete(ws);
           }
+          visitors.delete(ws);
           config.webChannel.removeClient(ws);
         },
         async onMessage(event: MessageEvent, ws: WSContext) {
@@ -125,9 +131,18 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
             // Pong is a heartbeat reply -- no further processing needed
             if (parsed.type === "pong") return;
 
+            // Identify frame: store sanitized visitor info for this connection
+            if (parsed.type === "identify" && parsed.visitor && typeof parsed.visitor === "object") {
+              visitors.set(ws, sanitizeVisitorInfo(parsed.visitor as Record<string, unknown>));
+              return;
+            }
+
             if (parsed.type === "message") {
               const trace = new TraceContext();
               trace.log("ws", "Message received", { tenantId: tenant.tenantId, userId });
+
+              const visitor = visitors.get(ws);
+              const displayName = visitor?.displayName;
 
               let userParts: readonly ContentPart[] = Array.isArray(parsed.parts)
                 ? (parsed.parts as ContentPart[])
@@ -154,6 +169,7 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
                   tenantId: tenant.tenantId,
                   channel: "web",
                   externalUserId: userId,
+                  displayName,
                   messageContent: extractText(userParts),
                   messageRole: "USER",
                   traceId: trace.traceId,
@@ -223,7 +239,8 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
                   }
                 }
 
-                const combinedMemory = mergeContextSources(knowledgeContext, contactContext);
+                const visitorContext = visitor ? formatVisitorContext(visitor) : undefined;
+                const combinedMemory = mergeContextSources(knowledgeContext, contactContext, visitorContext);
 
                 const tenantToolCtx = agentCtx.tenantToolContext;
 
@@ -257,6 +274,7 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
                     tenantId: tenant.tenantId,
                     channel: "web",
                     externalUserId: userId,
+                    displayName,
                     sessionMode: session.sessionMode,
                     traceId: trace.traceId,
                     timestamp: new Date().toISOString(),
@@ -270,6 +288,7 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
                     tenantId: tenant.tenantId,
                     channel: "web",
                     externalUserId: userId,
+                    displayName,
                     escalationReason: result.escalation.reason,
                     escalationDetail: result.escalation.detail,
                     summary: result.contextSummary,
@@ -287,6 +306,7 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
                       tenantId: tenant.tenantId,
                       channel: "web",
                       externalUserId: userId,
+                      displayName,
                       toolName: exec.toolName,
                       durationMs: exec.durationMs,
                       success: exec.success,
@@ -304,6 +324,7 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
                     tenantId: tenant.tenantId,
                     channel: "web",
                     externalUserId: userId,
+                    displayName,
                     activeAgentId: agentCtx.activeAgentId,
                     activeAgentName: agentCtx.activeAgentName,
                     routingTier: agentCtx.routingResult?.tier,
@@ -322,6 +343,7 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
                     tenantId: tenant.tenantId,
                     channel: "web",
                     externalUserId: userId,
+                    displayName,
                     fromAgentId: agentCtx.previousAgentId,
                     fromAgentName: fromAgent?.name,
                     toAgentId: agentCtx.activeAgentId,
@@ -369,6 +391,7 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
                     tenantId: tenant.tenantId,
                     channel: "web",
                     externalUserId: userId,
+                    displayName,
                     messageContent: responseContent,
                     messageRole: "ASSISTANT",
                     traceId: trace.traceId,

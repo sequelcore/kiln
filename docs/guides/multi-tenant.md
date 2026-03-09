@@ -142,6 +142,7 @@ These fields can be updated via `PATCH /admin/{appName}/tenants/:tenantId`:
 | `emailFromAddress` | string | Outbound sender email address |
 | `emailFromName` | string | Outbound sender display name |
 | `emailTransportConfig` | object | Email transport provider config (Postmark, Resend, or generic) |
+| `preChatForm` | object | Pre-chat form config for web widget (see [Channels: Pre-Chat Form](channels.md#pre-chat-form)) |
 
 Session invalidation: when a tenant config is updated via PATCH, `SessionRegistry.invalidateByTenant()` clears all active sessions for that tenant so the next message picks up fresh config.
 

@@ -9,17 +9,39 @@ export interface WidgetConfig {
   readonly placeholder?: string;
 }
 
-/** Outbound frame: client -> server */
-export interface WsOutboundFrame {
-  readonly type: "message";
-  readonly content: string;
+/** Visitor identity submitted via the identify frame */
+export interface VisitorInfo {
+  readonly name?: string;
+  readonly email?: string;
+  readonly phone?: string;
+  readonly custom?: Readonly<Record<string, string>>;
 }
+
+/** Pre-chat form field descriptor received from the gateway */
+export interface PreChatFieldConfig {
+  readonly key: string;
+  readonly label: string;
+  readonly type: "text" | "email" | "phone";
+  readonly required: boolean;
+}
+
+/** Pre-chat form config received via welcome frame */
+export interface PreChatFormFrame {
+  readonly enabled: boolean;
+  readonly fields: readonly PreChatFieldConfig[];
+  readonly submitLabel?: string;
+}
+
+/** Outbound frame: client -> server */
+export type WsOutboundFrame =
+  | { readonly type: "message"; readonly content: string }
+  | { readonly type: "identify"; readonly visitor: VisitorInfo };
 
 /** Inbound frame: server -> client */
 export type WsInboundFrame =
   | { readonly type: "done"; readonly content: string; readonly inputTokens: number; readonly outputTokens: number }
   | { readonly type: "error"; readonly message: string; readonly code?: string }
-  | { readonly type: "welcome"; readonly greeting?: string; readonly suggestions?: readonly string[] }
+  | { readonly type: "welcome"; readonly greeting?: string; readonly suggestions?: readonly string[]; readonly preChatForm?: PreChatFormFrame }
   | { readonly type: "suggestions"; readonly items: readonly string[] };
 
 /** Chat message for UI rendering */

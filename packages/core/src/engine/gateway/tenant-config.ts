@@ -89,6 +89,24 @@ export interface TenantModelConfig {
   readonly rules?: readonly RoutingRule[];
 }
 
+/** Pre-chat form field type */
+export type PreChatFieldType = "text" | "email" | "phone";
+
+/** A single field in a pre-chat form */
+export interface PreChatField {
+  readonly key: string;
+  readonly label: string;
+  readonly type: PreChatFieldType;
+  readonly required: boolean;
+}
+
+/** Pre-chat form configuration for web widget */
+export interface PreChatFormConfig {
+  readonly enabled: boolean;
+  readonly fields: readonly PreChatField[];
+  readonly submitLabel?: string;
+}
+
 /** Email transport provider configuration */
 export interface EmailTransportConfig {
   readonly provider: "postmark" | "resend" | "sendgrid" | "generic";
@@ -131,6 +149,7 @@ export interface TenantConfig {
   readonly agents?: readonly TenantAgentConfig[];
   readonly routing?: TenantRoutingConfig;
   readonly modelConfig?: TenantModelConfig;
+  readonly preChatForm?: PreChatFormConfig;
   readonly enabled: boolean;
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -377,6 +396,45 @@ export function validateTenantConfig(config: TenantConfig): TenantValidationErro
           if (!rule.target || typeof rule.target.provider !== "string" || typeof rule.target.model !== "string") {
             errors.push({ field: `modelConfig.rules[${i}].target`, message: "must have provider and model strings" });
           }
+        }
+      }
+    }
+  }
+
+  // preChatForm: if present, validate fields
+  if (config.preChatForm !== undefined) {
+    if (typeof config.preChatForm.enabled !== "boolean") {
+      errors.push({ field: "preChatForm.enabled", message: "must be a boolean" });
+    }
+    if (!Array.isArray(config.preChatForm.fields)) {
+      errors.push({ field: "preChatForm.fields", message: "must be an array of field definitions" });
+    } else {
+      if (config.preChatForm.enabled && config.preChatForm.fields.length === 0) {
+        errors.push({ field: "preChatForm.fields", message: "must have at least one field when enabled" });
+      }
+      if (config.preChatForm.fields.length > 10) {
+        errors.push({ field: "preChatForm.fields", message: "must not exceed 10 fields" });
+      }
+      const validFieldTypes: readonly PreChatFieldType[] = ["text", "email", "phone"];
+      const seenKeys = new Set<string>();
+      for (let i = 0; i < config.preChatForm.fields.length; i++) {
+        const field = config.preChatForm.fields[i]!;
+        if (typeof field.key !== "string" || !field.key) {
+          errors.push({ field: `preChatForm.fields[${i}].key`, message: "must be a non-empty string" });
+        } else {
+          if (seenKeys.has(field.key)) {
+            errors.push({ field: `preChatForm.fields[${i}].key`, message: `duplicate field key: "${field.key}"` });
+          }
+          seenKeys.add(field.key);
+        }
+        if (typeof field.label !== "string" || !field.label) {
+          errors.push({ field: `preChatForm.fields[${i}].label`, message: "must be a non-empty string" });
+        }
+        if (!validFieldTypes.includes(field.type as PreChatFieldType)) {
+          errors.push({ field: `preChatForm.fields[${i}].type`, message: `must be one of: ${validFieldTypes.join(", ")}` });
+        }
+        if (typeof field.required !== "boolean") {
+          errors.push({ field: `preChatForm.fields[${i}].required`, message: "must be a boolean" });
         }
       }
     }

@@ -46,7 +46,7 @@ Bun monorepo with 6 packages:
 | handoff | `runtime/src/gateway/handoff-routes.ts` + `runtime/src/session/escalation-detector.ts` + `runtime/src/session/context-summarizer.ts` | Human handoff: session mode state machine, escalation detection, operator messaging, AI guard |
 | channels | `runtime/src/channels/` | 8 adapters (CLI, Web, WhatsApp, Instagram, Messenger, Slack, Email, API), ChannelRouter, formatForChannel |
 | sdk | `sdk/src/` | React hooks (useKilnChat, useKilnWsChat, useKilnEvents, useKilnMemory, useKilnState, useApproval), ApiClient, SseClient. Types-only import from core. |
-| widget | `widget/src/` | Embeddable chat widget: WsClient (auto-reconnect), KilnWidget (Shadow DOM), auto-loader (script tag data-* attrs). Welcome frame, suggestion chips, info bubbles. Zero deps, IIFE bundle. |
+| widget | `widget/src/` | Embeddable chat widget: WsClient (auto-reconnect, localStorage persistence, identify frame), KilnWidget (Shadow DOM, pre-chat form), auto-loader (script tag data-* attrs). Welcome frame, suggestion chips, info bubbles. Zero deps, IIFE bundle. |
 | studio | `studio/src/` | React 19 + Vite + TanStack Query + @xyflow/react. 7 views (Graph, Playground, Timeline, Memory, Eval, Cost, Safety). |
 
 ### Dependency Rules (STRICT)
@@ -161,7 +161,8 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `gateway/email-thread-store.ts` | Email thread tracking via Message-ID chain |
 | `gateway/sqlite-email-thread-store.ts` | SQLite-backed email thread store (persistent across restarts) |
 | `gateway/webhook-dedup.ts` | Meta webhook message deduplication (at-least-once delivery protection) |
-| `gateway/ws-tenant-routes.ts` | Multi-tenant WebSocket: welcome frame (greeting + FAQ suggestions), AI follow-up suggestion chips, audio preprocessing, knowledge retrieval, BUDGET_EXHAUSTED error code, conversation event emission |
+| `gateway/ws-tenant-routes.ts` | Multi-tenant WebSocket: welcome frame (greeting + FAQ suggestions + preChatForm), identify frame handling (visitor sanitization, displayName passthrough), AI follow-up suggestion chips, audio preprocessing, knowledge retrieval, BUDGET_EXHAUSTED error code, conversation event emission |
+| `gateway/visitor-sanitizer.ts` | Visitor input sanitization: length limits, format validation (email/phone), zero-width char removal, system prompt formatting |
 | `gateway/audio-preprocessor.ts` | Audio preprocessing: MediaDownloader (WhatsApp two-step, generic), fail-open transcription |
 | `gateway/stt-factory.ts` | Resolve SttProviderConfig to concrete SttAdapter |
 | `gateway/knowledge-factory.ts` | Resolve KnowledgeConfig to RetrievalPipeline + VectorStore + close(), createSourceManager() |
@@ -213,6 +214,17 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `index.ts` | Command dispatch (init, run, dev, domain, gateway, skill, memory, config, status) |
 | `commands/init.ts` | Interactive wizard: generates app.yaml + gateway.yaml |
 | `commands/dev.ts` | Dev mode with YAML hot-reload |
+
+## Backlog (Next Version)
+
+### Abuse Protection Hardening
+Current protections (budget middleware, 4096 max_tokens, prompt scanner, rate limiter) stop most attacks, but a single abusive user can burn through a customer's entire monthly token quota in one session. Add:
+
+1. **Per-session token cap** — configurable max tokens per session (e.g., 50K), auto-escalate to human when exceeded
+2. **Per-session turn limit** — max N turns per session before requiring human review or session reset
+3. **Repetitive abuse detection** — detect patterns like repeated "continue", sequential counting requests, or loop-inducing prompts and auto-block or escalate
+
+These are runtime session concerns (`ModeBSession` / `ModeBOrchestrator`), configurable via `app.yaml` or tenant admin API.
 
 ## Documentation
 

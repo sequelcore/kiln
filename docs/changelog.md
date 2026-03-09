@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.10.0 (2026-03-09) -- Visitor Identity & Pre-Chat Form
+
+- **localStorage persistence**: Widget userId now persists across browser sessions via `localStorage` (was `sessionStorage`). Returning visitors get their contact memory recalled automatically.
+- **Identify frame**: New `identify` WebSocket frame type enables structured visitor metadata (name, email, phone, custom fields). Gateway sanitizes input (length limits, format validation, zero-width char removal) before use.
+- **Pre-chat form**: Tenant-configurable pre-chat form (`TenantConfig.preChatForm`) with up to 10 fields, 3 types (text/email/phone), required/optional per field. Form config delivered via welcome frame. Returning visitors skip the form.
+- **displayName on ConversationEvent**: All web channel conversation events now include `displayName` from visitor identity, enabling product backends to associate conversations with named visitors.
+- **SDK identify()**: `useKilnWsChat` hook now returns `identify(visitor)` for programmatic visitor identification in React apps.
+- **Visitor context injection**: Sanitized visitor info injected into system prompt alongside knowledge and contact memory context.
+
 ## v0.9.1 (2026-03-08) -- Cleanup
 
 - **Removed 6 backward compatibility hacks**: ToolResultSanitizer dual-accept, CostTracker `byRole`, 2-segment session keys, session deserialization defaults, span mapper legacy OTel attributes, optional `sessionRegistry`.

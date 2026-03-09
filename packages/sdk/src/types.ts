@@ -21,9 +21,19 @@ export interface ChatOptions {
   readonly sessionId?: string;
 }
 
+/** Visitor identity for the identify frame */
+export interface VisitorInfo {
+  readonly name?: string;
+  readonly email?: string;
+  readonly phone?: string;
+  readonly custom?: Readonly<Record<string, string>>;
+}
+
 export interface UseChatReturn {
   readonly messages: readonly ChatMessage[];
   send(content: string | ContentPart[]): Promise<void>;
+  /** Send visitor identity to the gateway (WebSocket only, no-op for REST) */
+  identify?(visitor: VisitorInfo): void;
   readonly isLoading: boolean;
   readonly error: Error | null;
   clearMessages(): void;

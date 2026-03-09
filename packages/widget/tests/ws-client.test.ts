@@ -46,18 +46,18 @@ class MockWebSocket {
   }
 }
 
-// --- Mock sessionStorage ---
-const sessionStorageData: Record<string, string> = {};
-const mockSessionStorage = {
-  getItem: vi.fn((key: string) => sessionStorageData[key] ?? null),
-  setItem: vi.fn((key: string, value: string) => { sessionStorageData[key] = value; }),
-  removeItem: vi.fn((key: string) => { delete sessionStorageData[key]; }),
-  clear: vi.fn(() => { Object.keys(sessionStorageData).forEach((k) => delete sessionStorageData[k]); }),
+// --- Mock localStorage ---
+const localStorageData: Record<string, string> = {};
+const mockLocalStorage = {
+  getItem: vi.fn((key: string) => localStorageData[key] ?? null),
+  setItem: vi.fn((key: string, value: string) => { localStorageData[key] = value; }),
+  removeItem: vi.fn((key: string) => { delete localStorageData[key]; }),
+  clear: vi.fn(() => { Object.keys(localStorageData).forEach((k) => delete localStorageData[k]); }),
 };
 
 // Apply globals
 vi.stubGlobal("WebSocket", MockWebSocket);
-vi.stubGlobal("sessionStorage", mockSessionStorage);
+vi.stubGlobal("localStorage", mockLocalStorage);
 vi.stubGlobal("crypto", { randomUUID: vi.fn(() => "test-uuid-1234") });
 
 // Import after stubs
@@ -66,7 +66,7 @@ const { WsClient } = await import("../src/ws-client.js");
 describe("WsClient", () => {
   beforeEach(() => {
     MockWebSocket.instances = [];
-    mockSessionStorage.clear();
+    mockLocalStorage.clear();
     vi.clearAllMocks();
     (crypto.randomUUID as ReturnType<typeof vi.fn>).mockReturnValue("test-uuid-1234");
   });
@@ -90,13 +90,13 @@ describe("WsClient", () => {
       expect(ws?.url).toBe("ws://localhost:3000/apps/myapp/ws?widgetId=widget-abc&userId=test-uuid-1234");
     });
 
-    it("persists userId in sessionStorage", () => {
+    it("persists userId in localStorage", () => {
       new WsClient("https://gw.kilvo.app", "myapp", "widget-abc");
-      expect(mockSessionStorage.setItem).toHaveBeenCalledWith("kiln_widget_widget-abc", "test-uuid-1234");
+      expect(mockLocalStorage.setItem).toHaveBeenCalledWith("kiln_uid_widget-abc", "test-uuid-1234");
     });
 
-    it("reuses existing userId from sessionStorage", () => {
-      sessionStorageData["kiln_widget_widget-abc"] = "existing-user-id";
+    it("reuses existing userId from localStorage", () => {
+      localStorageData["kiln_uid_widget-abc"] = "existing-user-id";
       const client = new WsClient("https://gw.kilvo.app", "myapp", "widget-abc");
       client.connect();
       const ws = MockWebSocket.instances[0];
@@ -294,6 +294,35 @@ describe("WsClient", () => {
       const client = new WsClient("https://gw.kilvo.app", "myapp", "wid");
       client.connect();
       expect(client.connected).toBe(false);
+    });
+  });
+
+  describe("identify()", () => {
+    it("sends identify frame when connected", () => {
+      const client = new WsClient("https://gw.kilvo.app", "myapp", "wid");
+      client.connect();
+      const ws = MockWebSocket.instances[0]!;
+      ws.simulateOpen();
+      client.identify({ name: "Alice", email: "alice@test.com" });
+      expect(ws.send).toHaveBeenCalledWith(JSON.stringify({
+        type: "identify",
+        visitor: { name: "Alice", email: "alice@test.com" },
+      }));
+    });
+
+    it("does not send identify when not connected", () => {
+      const client = new WsClient("https://gw.kilvo.app", "myapp", "wid");
+      client.connect();
+      const ws = MockWebSocket.instances[0]!;
+      client.identify({ name: "Alice" });
+      expect(ws.send).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("userId property", () => {
+    it("exposes the userId", () => {
+      const client = new WsClient("https://gw.kilvo.app", "myapp", "wid");
+      expect(client.userId).toBe("test-uuid-1234");
     });
   });
 });

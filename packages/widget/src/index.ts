@@ -31,4 +31,4 @@ import type { WidgetConfig } from "./types.js";
 })();
 
 export { KilnWidget } from "./widget.js";
-export type { WidgetConfig, ChatMessage, ConnectionStatus } from "./types.js";
+export type { WidgetConfig, VisitorInfo, PreChatFieldConfig, PreChatFormFrame, ChatMessage, ConnectionStatus } from "./types.js";

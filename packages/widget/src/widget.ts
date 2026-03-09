@@ -1,10 +1,12 @@
 import { WsClient } from "./ws-client.js";
 import { getStyles } from "./styles.js";
-import type { WidgetConfig, ChatMessage, WsInboundFrame, ConnectionStatus } from "./types.js";
+import type { WidgetConfig, ChatMessage, WsInboundFrame, ConnectionStatus, VisitorInfo, PreChatFormFrame } from "./types.js";
 
 const CHAT_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`;
 const CLOSE_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
 const SEND_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>`;
+
+const VISITOR_STORAGE_PREFIX = "kiln_visitor_";
 
 /**
  * Converts simple markdown patterns to safe DOM nodes for assistant messages.
@@ -48,6 +50,23 @@ function renderMarkdown(text: string): DocumentFragment {
   return fragment;
 }
 
+function loadStoredVisitor(widgetId: string): VisitorInfo | null {
+  try {
+    const raw = localStorage.getItem(`${VISITOR_STORAGE_PREFIX}${widgetId}`);
+    return raw ? (JSON.parse(raw) as VisitorInfo) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveVisitor(widgetId: string, visitor: VisitorInfo): void {
+  try {
+    localStorage.setItem(`${VISITOR_STORAGE_PREFIX}${widgetId}`, JSON.stringify(visitor));
+  } catch {
+    // Storage full or unavailable -- non-critical
+  }
+}
+
 export class KilnWidget {
   private readonly config: WidgetConfig;
   private readonly client: WsClient;
@@ -58,6 +77,7 @@ export class KilnWidget {
   private isLoading = false;
   private idCounter = 0;
   private greetingShown = false;
+  private identified = false;
 
   // Cached DOM refs set during render()
   private panelEl!: HTMLDivElement;
@@ -67,10 +87,16 @@ export class KilnWidget {
   private sendEl!: HTMLButtonElement;
   private statusDotEl!: HTMLSpanElement;
   private launcherEl!: HTMLButtonElement;
+  private formEl: HTMLDivElement | null = null;
+  private chatAreaEl!: HTMLDivElement;
 
   constructor(config: WidgetConfig) {
     this.config = config;
     this.client = new WsClient(config.gatewayUrl, config.appName, config.widgetId);
+
+    // Check if visitor already identified (returning visitor skips form)
+    const stored = loadStoredVisitor(config.widgetId);
+    if (stored) this.identified = true;
 
     this.container = document.createElement("div");
     this.container.id = "kiln-widget-root";
@@ -95,6 +121,17 @@ export class KilnWidget {
         timestamp: Date.now(),
       });
       this.greetingShown = true;
+    }
+
+    // Re-identify on reconnect if we have stored visitor data
+    if (stored) {
+      this.client.onStatusChange((status) => {
+        if (status === "connected" && this.identified) {
+          const visitor = loadStoredVisitor(config.widgetId);
+          if (visitor) this.client.identify(visitor);
+        }
+        this.updateStatus(status);
+      });
     }
   }
 
@@ -148,6 +185,11 @@ export class KilnWidget {
     header.appendChild(title);
     header.appendChild(closeBtn);
 
+    // Chat area wrapper (messages + input)
+    const chatArea = document.createElement("div");
+    chatArea.id = "kiln-chat-area";
+    this.chatAreaEl = chatArea;
+
     // Messages area
     const messagesDiv = document.createElement("div");
     messagesDiv.id = "kiln-messages";
@@ -193,14 +235,119 @@ export class KilnWidget {
     inputArea.appendChild(textarea);
     inputArea.appendChild(sendBtn);
 
+    chatArea.appendChild(messagesDiv);
+    chatArea.appendChild(inputArea);
+
     panel.appendChild(header);
-    panel.appendChild(messagesDiv);
-    panel.appendChild(inputArea);
+    panel.appendChild(chatArea);
 
     this.panelEl = panel;
 
     this.shadow.appendChild(launcher);
     this.shadow.appendChild(panel);
+  }
+
+  private renderPreChatForm(formConfig: PreChatFormFrame): void {
+    if (this.formEl) return; // Already rendered
+
+    const form = document.createElement("div");
+    form.id = "kiln-prechat-form";
+
+    const formTitle = document.createElement("p");
+    formTitle.className = "kiln-form-title";
+    formTitle.textContent = "Before we start, tell us a bit about yourself";
+    form.appendChild(formTitle);
+
+    const inputs: Array<{ key: string; input: HTMLInputElement; required: boolean }> = [];
+
+    for (const field of formConfig.fields) {
+      const group = document.createElement("div");
+      group.className = "kiln-form-group";
+
+      const label = document.createElement("label");
+      label.className = "kiln-form-label";
+      label.textContent = field.label;
+      if (field.required) {
+        const req = document.createElement("span");
+        req.className = "kiln-form-required";
+        req.textContent = " *";
+        label.appendChild(req);
+      }
+
+      const input = document.createElement("input");
+      input.className = "kiln-form-input";
+      input.type = field.type === "phone" ? "tel" : field.type;
+      input.name = field.key;
+      input.required = field.required;
+      input.setAttribute("aria-label", field.label);
+
+      inputs.push({ key: field.key, input, required: field.required });
+
+      group.appendChild(label);
+      group.appendChild(input);
+      form.appendChild(group);
+    }
+
+    const submitBtn = document.createElement("button");
+    submitBtn.className = "kiln-form-submit";
+    submitBtn.textContent = formConfig.submitLabel ?? "Start Chat";
+    submitBtn.addEventListener("click", () => this.submitPreChatForm(inputs));
+    form.appendChild(submitBtn);
+
+    // Allow Enter to submit
+    form.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        this.submitPreChatForm(inputs);
+      }
+    });
+
+    this.formEl = form;
+
+    // Hide chat area, show form
+    this.chatAreaEl.classList.add("hidden");
+    this.panelEl.insertBefore(form, this.chatAreaEl);
+  }
+
+  private submitPreChatForm(inputs: Array<{ key: string; input: HTMLInputElement; required: boolean }>): void {
+    // Validate required fields
+    for (const { input, required } of inputs) {
+      if (required && !input.value.trim()) {
+        input.classList.add("kiln-form-error");
+        input.focus();
+        return;
+      }
+      input.classList.remove("kiln-form-error");
+    }
+
+    // Build visitor info from form data
+    const visitor: Record<string, string | Record<string, string>> = {};
+    const custom: Record<string, string> = {};
+
+    for (const { key, input } of inputs) {
+      const value = input.value.trim();
+      if (!value) continue;
+
+      if (key === "name" || key === "email" || key === "phone") {
+        visitor[key] = value;
+      } else {
+        custom[key] = value;
+      }
+    }
+    if (Object.keys(custom).length > 0) visitor["custom"] = custom;
+
+    const visitorInfo = visitor as unknown as VisitorInfo;
+
+    // Persist and send
+    saveVisitor(this.config.widgetId, visitorInfo);
+    this.identified = true;
+    this.client.identify(visitorInfo);
+
+    // Transition to chat
+    this.formEl?.remove();
+    this.formEl = null;
+    this.chatAreaEl.classList.remove("hidden");
+    this.inputEl.focus();
   }
 
   private autoResizeTextarea(): void {
@@ -212,7 +359,7 @@ export class KilnWidget {
     this.isOpen = true;
     this.panelEl.classList.remove("hidden");
     this.launcherEl.setAttribute("aria-expanded", "true");
-    this.inputEl.focus();
+    if (!this.formEl) this.inputEl.focus();
     this.scrollToBottom();
   }
 
@@ -336,6 +483,15 @@ export class KilnWidget {
       }
       if (frame.suggestions && frame.suggestions.length > 0) {
         this.renderSuggestions([...frame.suggestions]);
+      }
+      // Show pre-chat form if configured and visitor not yet identified
+      if (frame.preChatForm?.enabled && !this.identified) {
+        this.renderPreChatForm(frame.preChatForm);
+      }
+      // Re-identify returning visitors so gateway has displayName
+      if (this.identified) {
+        const stored = loadStoredVisitor(this.config.widgetId);
+        if (stored) this.client.identify(stored);
       }
     } else if (frame.type === "suggestions") {
       this.renderSuggestions([...frame.items]);

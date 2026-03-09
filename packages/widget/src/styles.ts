@@ -450,5 +450,91 @@ export function getStyles(theme: string): string {
       width: 18px;
       height: 18px;
     }
+
+    /* Chat area wrapper */
+    #kiln-chat-area {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      min-height: 0;
+    }
+
+    #kiln-chat-area.hidden {
+      display: none;
+    }
+
+    /* Pre-chat form */
+    #kiln-prechat-form {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      padding: 24px 20px;
+      overflow-y: auto;
+    }
+
+    .kiln-form-title {
+      font-size: 14px;
+      color: var(--kiln-text-secondary);
+      line-height: 1.5;
+    }
+
+    .kiln-form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .kiln-form-label {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--kiln-text);
+    }
+
+    .kiln-form-required {
+      color: var(--kiln-status-error);
+    }
+
+    .kiln-form-input {
+      padding: 9px 12px;
+      border: 1px solid var(--kiln-border);
+      border-radius: 8px;
+      background: var(--kiln-bg);
+      color: var(--kiln-text);
+      font-family: var(--kiln-font);
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.15s ease;
+    }
+
+    .kiln-form-input:focus {
+      border-color: var(--kiln-accent);
+    }
+
+    .kiln-form-input.kiln-form-error {
+      border-color: var(--kiln-status-error);
+    }
+
+    .kiln-form-submit {
+      margin-top: auto;
+      padding: 10px 16px;
+      background: var(--kiln-accent);
+      color: var(--kiln-accent-text);
+      border: none;
+      border-radius: 10px;
+      font-family: var(--kiln-font);
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: opacity 0.15s ease;
+    }
+
+    .kiln-form-submit:hover {
+      opacity: 0.88;
+    }
+
+    .kiln-form-submit:active {
+      transform: scale(0.98);
+    }
   `;
 }

@@ -26,6 +26,7 @@ export type {
   MemoryEntry,
   CreateMemoryInput,
   KilnEventData,
+  VisitorInfo,
   WsChatRequest,
   WsChatFrame,
 } from "./types.js";

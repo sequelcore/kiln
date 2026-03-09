@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ContentPart } from "@kilnai/core";
 import { useKilnContext } from "./provider.js";
 import { buildUserMessage } from "./build-user-message.js";
-import type { ChatMessage, ChatOptions, UseChatReturn, WsChatFrame } from "./types.js";
+import type { ChatMessage, ChatOptions, UseChatReturn, VisitorInfo, WsChatFrame } from "./types.js";
 
 export function useKilnWsChat(options?: ChatOptions): UseChatReturn {
   const { config } = useKilnContext();
@@ -85,10 +85,16 @@ export function useKilnWsChat(options?: ChatOptions): UseChatReturn {
     [],
   );
 
+  const identify = useCallback((visitor: VisitorInfo) => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type: "identify", visitor }));
+  }, []);
+
   const clearMessages = useCallback(() => {
     setMessages([]);
     setError(null);
   }, []);
 
-  return { messages, send, isLoading, error, clearMessages };
+  return { messages, send, identify, isLoading, error, clearMessages };
 }

@@ -46,6 +46,7 @@ const MUTABLE_TENANT_FIELDS = [
   "emailFromName",
   "emailTransportConfig",
   "modelConfig",
+  "preChatForm",
 ] as const satisfies readonly (keyof TenantConfig)[];
 
 /** Pick only safe mutable fields from an untrusted body */

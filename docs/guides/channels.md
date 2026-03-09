@@ -133,6 +133,36 @@ channels:
       - https://myapp.com
 ```
 
+**Visitor Identity & Persistence.** The widget persists visitor identity across sessions using `localStorage`. A randomly generated `userId` is stored under `kiln_uid_{widgetId}` and reused on subsequent visits. This enables contact memory recall for returning visitors.
+
+The widget supports an `identify` WebSocket frame for sending structured visitor metadata (name, email, phone, custom fields). Identity can be sent at any point during a conversation. The gateway sanitizes all visitor input (length limits, format validation, zero-width character removal) before injecting it into the system prompt or conversation events.
+
+```typescript
+// Programmatic identity (from your app's auth)
+const widget = new KilnWidget(config);
+// Identity is sent automatically if stored, or via pre-chat form
+```
+
+**Pre-Chat Form.** Tenants can configure an optional pre-chat form that collects visitor information before the conversation starts. The form configuration is delivered via the WebSocket welcome frame and rendered in the widget. Returning visitors with stored identity data skip the form automatically.
+
+Configure via `TenantConfig.preChatForm`:
+
+```json
+{
+  "preChatForm": {
+    "enabled": true,
+    "fields": [
+      { "key": "name", "label": "Your name", "type": "text", "required": true },
+      { "key": "email", "label": "Email", "type": "email", "required": false },
+      { "key": "phone", "label": "Phone", "type": "phone", "required": false }
+    ],
+    "submitLabel": "Start Chat"
+  }
+}
+```
+
+Field types: `text`, `email`, `phone`. Maximum 10 fields per form. Field keys must be unique. When the visitor submits the form, the widget sends an `identify` frame and transitions to the chat view. The gateway passes `displayName` (from `visitor.name`) in all subsequent `ConversationEvent` emissions for the web channel.
+
 **Embeddable Widget.** The `@kilnai/widget` package provides a ready-made chat UI for embedding on any website. It connects to the gateway WebSocket, manages reconnection, and renders inside a Shadow DOM for style isolation.
 
 ```html

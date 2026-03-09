@@ -146,6 +146,9 @@ export type {
   TenantRoutingRule,
   TenantRoutingConfig,
   TenantModelConfig,
+  PreChatFieldType,
+  PreChatField,
+  PreChatFormConfig,
   EmailTransportConfig,
   TenantValidationError,
 } from "./engine/gateway/tenant-config.js";

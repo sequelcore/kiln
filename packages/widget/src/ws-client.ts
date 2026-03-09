@@ -1,4 +1,4 @@
-import type { WsInboundFrame, WsOutboundFrame, ConnectionStatus } from "./types.js";
+import type { WsInboundFrame, WsOutboundFrame, VisitorInfo, ConnectionStatus } from "./types.js";
 
 export class WsClient {
   private ws: WebSocket | null = null;
@@ -9,15 +9,15 @@ export class WsClient {
   private messageHandler: ((frame: WsInboundFrame) => void) | null = null;
   private statusHandler: ((status: ConnectionStatus) => void) | null = null;
   private readonly url: string;
-  private readonly userId: string;
+  readonly userId: string;
 
   constructor(gatewayUrl: string, appName: string, widgetId: string) {
     const protocol = gatewayUrl.startsWith("https") ? "wss" : "ws";
     const host = gatewayUrl.replace(/^https?:\/\//, "").replace(/^wss?:\/\//, "");
 
-    const storageKey = `kiln_widget_${widgetId}`;
-    this.userId = sessionStorage.getItem(storageKey) ?? crypto.randomUUID();
-    sessionStorage.setItem(storageKey, this.userId);
+    const storageKey = `kiln_uid_${widgetId}`;
+    this.userId = localStorage.getItem(storageKey) ?? crypto.randomUUID();
+    localStorage.setItem(storageKey, this.userId);
 
     this.url = `${protocol}://${host}/apps/${appName}/ws?widgetId=${widgetId}&userId=${encodeURIComponent(this.userId)}`;
   }
@@ -62,6 +62,12 @@ export class WsClient {
   send(content: string): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
     const frame: WsOutboundFrame = { type: "message", content };
+    this.ws.send(JSON.stringify(frame));
+  }
+
+  identify(visitor: VisitorInfo): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    const frame: WsOutboundFrame = { type: "identify", visitor };
     this.ws.send(JSON.stringify(frame));
   }
 
