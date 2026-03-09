@@ -35,7 +35,7 @@ Bun monorepo with 6 packages:
 | package | `core/src/package/` | Distribution: versioning, content hashing, security validation |
 | skill | `core/src/skill/` | SKILL.yaml format, SkillRegistry (3-tier discovery) |
 | enrichment | `core/src/enrichment/` | Post-conversation enrichment: effort score, LLM enrichment pipeline, sentiment/resolution/CSAT |
-| eval | `core/src/eval/` | 12 scorers (6 rule + 6 LLM-as-judge), dataset loader, experiment runner, comparator |
+| eval | `core/src/eval/` | 15 scorers (6 rule + 9 LLM-as-judge), dataset loader, experiment runner, comparator, consistency runner (pass^k) |
 | observability (core) | `core/src/observability/` | OTel span mapper (exhaustive event-to-span mapping) + OTelExporter (EventStore sink) |
 | observability (runtime) | `runtime/src/observability/` | PrometheusCollector (EventStore sink, dynamic prom-client import), CompositeEventStore (fan-out to multiple sinks) |
 | gateway | `runtime/src/gateway/` | Multi-app loading, Mode B routes, budget middleware, composable auth middleware (timing-safe), conversation event emitter (incl. tool execution events), delegation, dev routes, safety/security middleware, audio preprocessing, knowledge pipeline wiring, STT/knowledge factories, webhook tool executor, tenant tool factory, Meta webhook foundation (shared verification + HMAC-SHA256), WebhookDedup (Meta at-least-once protection), Instagram/Messenger/Email webhook routes, email loop guard, SqliteEmailThreadStore, WebSocket heartbeat (30s ping, 90s timeout) |
@@ -122,6 +122,7 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `memory/sqlite-store.ts` | SQLite + FTS5 memory (decay, compaction, tenant namespacing) |
 | `safety/safety-pipeline.ts` | PII -> content -> rails pipeline (fail-open) |
 | `eval/experiment-runner.ts` | Generate outputs, score with error isolation |
+| `eval/consistency-runner.ts` | tau-bench pass^k metric: run experiment k times, measure consistency |
 | `knowledge/retrieval-pipeline.ts` | Ingest (chunk -> embed -> store) + retrieve (embed -> search -> rerank) |
 | `knowledge/source-manager.ts` | Source lifecycle: extract -> hash -> ingest, content dedup via SHA-256 |
 | `knowledge/infrastructure/pgvector-store.ts` | PgVectorStore: PostgreSQL + pgvector (halfvec, HNSW, RRF hybrid search) |

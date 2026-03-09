@@ -48,6 +48,9 @@ All LLM-as-judge scorers return a continuous score from 0.0 to 1.0 with a `reaso
 | `hallucination` | — | Output contains factual claims absent from `context` (inverse of faithfulness). |
 | `toxicity` | — | Output does not contain harmful, offensive, or inappropriate content. |
 | `custom-prompt` | `prompt: string` | Custom LLM evaluation. The `prompt` receives `{input}`, `{output}`, `{expected}`, and `{context}` template variables. |
+| `policy-adherence` | `policies: string[]` | Output complies with declared business policy rules. Enumerates policies in the prompt and evaluates adherence. |
+| `context-relevance` | — | Retrieved `context` chunks are relevant to the `input` query. Measures retrieval quality, not answer quality. |
+| `tool-trajectory` | — | Tool-use sequence (from `metadata.toolCalls`) is efficient and appropriate. Evaluates tool selection, ordering, and redundancy. |
 
 ### Composite Scorer
 
@@ -153,6 +156,39 @@ experiments:
 
 The Eval Dashboard in Kiln Studio displays the comparison as a score table with delta indicators. See [studio](../sdk/studio.md).
 
+## Consistency Runner (pass^k)
+
+The `ConsistencyRunner` implements the tau-bench pass^k metric for measuring production readiness. It runs the same experiment `k` times and computes what fraction of dataset items pass ALL runs consistently.
+
+```typescript
+import { ConsistencyRunner, ExperimentRunner } from "@kilnai/core";
+
+const runner = new ExperimentRunner({ /* ... */ });
+const cr = new ConsistencyRunner({ runner, k: 5, passThreshold: 0.8 });
+const result = await cr.run();
+
+// result.passAtK -- fraction of items passing ALL 5 runs (0.0 to 1.0)
+// result.itemResults -- per-item breakdown (passCount, allPassed)
+```
+
+**Why this matters:** An agent scoring 85% on a single run may only score 25% on pass^5. The gap between pass^1 and pass^k is the most revealing metric for production reliability (from Sierra Research's tau-bench).
+
+- `k`: Number of independent runs (must be >= 1)
+- `passThreshold`: Minimum score for a "pass" (default: 1.0)
+- Runs are sequential to avoid rate limit storms from multiplied LLM calls
+
+## Metadata in Eval
+
+`EvalInput.metadata` carries arbitrary structured data from dataset items to scorers. This enables scorers like `tool-trajectory` that need domain-specific data beyond input/output/context.
+
+Dataset items with metadata:
+
+```jsonl
+{"id": "t1", "input": "Look up order #123", "expected": "Order shipped", "metadata": {"toolCalls": [{"name": "lookup_order", "args": {"orderId": "123"}, "result": "shipped"}]}}
+```
+
+The `ExperimentRunner` automatically forwards `DatasetItem.metadata` to `EvalInput.metadata`.
+
 ## Validation Rules
 
 `validateEvalConfig()` enforces:
@@ -163,6 +199,7 @@ The Eval Dashboard in Kiln Studio displays the comparison as a score table with 
 - `composite` scorers must have a non-empty `scorers` sub-array.
 - `custom-prompt` scorers must have a non-empty `prompt` string.
 - `contains` scorers must have a non-empty `substrings` array.
+- `policy-adherence` scorers must have a non-empty `policies` array.
 - `length.minLength` must be less than `length.maxLength`.
 - `latency.maxLatencyMs` and `cost.maxCostUsd` must be greater than 0.
 - Each experiment's `dataset` must reference an existing dataset name.

@@ -16,6 +16,9 @@ import { CoherenceScorer } from "./scorers/coherence-scorer.js";
 import { HallucinationScorer } from "./scorers/hallucination-scorer.js";
 import { ToxicityScorer } from "./scorers/toxicity-scorer.js";
 import { CustomPromptScorer } from "./scorers/custom-prompt-scorer.js";
+import { PolicyAdherenceScorer } from "./scorers/policy-adherence-scorer.js";
+import { ContextRelevanceScorer } from "./scorers/context-relevance-scorer.js";
+import { ToolTrajectoryScorer } from "./scorers/tool-trajectory-scorer.js";
 
 export function createScorer(config: EvalScorerConfig, llm?: ScorerLLM): Scorer {
   switch (config.type) {
@@ -41,6 +44,9 @@ export function createScorer(config: EvalScorerConfig, llm?: ScorerLLM): Scorer 
     case "hallucination":
     case "toxicity":
     case "custom-prompt":
+    case "policy-adherence":
+    case "context-relevance":
+    case "tool-trajectory":
       return createLLMScorer(config, llm);
     default:
       throw new KilnError("EVAL_SCORER_FAILED", `Unknown scorer type: ${config.type}`, {
@@ -63,6 +69,9 @@ function createLLMScorer(config: EvalScorerConfig, llm?: ScorerLLM): Scorer {
     case "hallucination": return new HallucinationScorer(llm);
     case "toxicity": return new ToxicityScorer(llm);
     case "custom-prompt": return new CustomPromptScorer(config.name, config.prompt ?? "", llm);
+    case "policy-adherence": return new PolicyAdherenceScorer(llm, config.policies ?? []);
+    case "context-relevance": return new ContextRelevanceScorer(llm);
+    case "tool-trajectory": return new ToolTrajectoryScorer(llm);
     default:
       throw new KilnError("EVAL_SCORER_FAILED", `Unknown LLM scorer type: ${config.type}`, {
         context: { type: config.type, name: config.name },

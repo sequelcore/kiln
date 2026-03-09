@@ -35,6 +35,7 @@ export class ExperimentRunner {
         context: item.context,
         durationMs: generated.durationMs,
         costUsd: generated.costUsd,
+        metadata: item.metadata,
       };
 
       const scores = await Promise.all(

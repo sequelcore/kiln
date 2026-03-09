@@ -7,6 +7,7 @@ export interface EvalInput {
   readonly context?: readonly string[];
   readonly durationMs?: number;
   readonly costUsd?: number;
+  readonly metadata?: Record<string, unknown>;
 }
 
 export interface EvalScore {

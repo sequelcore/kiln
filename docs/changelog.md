@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.11.0 (2026-03-09) -- Eval Benchmarking
+
+- **ConsistencyRunner (pass^k)**: New utility implementing tau-bench's pass^k metric. Runs the same experiment k times and measures what fraction of dataset items pass ALL runs consistently. The gap between pass^1 and pass^k is the most predictive metric for production readiness.
+- **PolicyAdherenceScorer**: LLM-as-judge scorer that evaluates output compliance against configurable business policy rules. Config: `policies: string[]`.
+- **ContextRelevanceScorer**: LLM-as-judge scorer that evaluates whether retrieved context chunks are relevant to the input query. Measures retrieval quality (complements existing `faithfulness` which measures answer quality).
+- **ToolTrajectoryScorer**: LLM-as-judge scorer that evaluates tool-use sequence efficiency and correctness. Reads tool calls from `EvalInput.metadata.toolCalls`.
+- **EvalInput.metadata**: New optional field forwarded from `DatasetItem.metadata` through `ExperimentRunner`, enabling scorers to access domain-specific data.
+- **Benchmarking research**: Comprehensive survey of 15+ benchmarks, academic papers, and industry frameworks documented in `docs/eval-benchmarking-research.md`.
+
 ## v0.10.0 (2026-03-09) -- Visitor Identity & Pre-Chat Form
 
 - **localStorage persistence**: Widget userId now persists across browser sessions via `localStorage` (was `sessionStorage`). Returning visitors get their contact memory recalled automatically.

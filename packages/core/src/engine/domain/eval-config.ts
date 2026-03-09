@@ -13,7 +13,10 @@ export type EvalScorerType =
   | "hallucination"
   | "toxicity"
   | "custom-prompt"
-  | "composite";
+  | "composite"
+  | "policy-adherence"
+  | "context-relevance"
+  | "tool-trajectory";
 
 export interface EvalScorerConfig {
   readonly name: string;
@@ -26,6 +29,7 @@ export interface EvalScorerConfig {
   readonly maxLatencyMs?: number;
   readonly maxCostUsd?: number;
   readonly substrings?: readonly string[];
+  readonly policies?: readonly string[];
 }
 
 export interface EvalDatasetConfig {
@@ -57,6 +61,7 @@ const VALID_SCORER_TYPES: readonly string[] = [
   "exact-match", "contains", "json-validity", "length", "latency", "cost",
   "faithfulness", "relevance", "coherence", "hallucination", "toxicity",
   "custom-prompt", "composite",
+  "policy-adherence", "context-relevance", "tool-trajectory",
 ];
 
 export function validateEvalConfig(config: EvalConfig): EvalValidationError[] {
@@ -107,6 +112,11 @@ export function validateEvalConfig(config: EvalConfig): EvalValidationError[] {
       if (sc.type === "custom-prompt") {
         if (!sc.prompt || typeof sc.prompt !== "string") {
           errors.push({ field: `scorers[${i}].prompt`, message: "custom-prompt scorer must have a non-empty prompt string" });
+        }
+      }
+      if (sc.type === "policy-adherence") {
+        if (!sc.policies || !Array.isArray(sc.policies) || sc.policies.length === 0) {
+          errors.push({ field: `scorers[${i}].policies`, message: "policy-adherence scorer must have a non-empty policies array" });
         }
       }
       if (sc.type === "contains") {
