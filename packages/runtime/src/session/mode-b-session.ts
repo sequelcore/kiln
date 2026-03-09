@@ -26,6 +26,8 @@ export interface SerializedSessionData {
   readonly agentTurnHistory: readonly AgentTurnEntry[];
   readonly handoffCount: number;
   readonly lastRouteChangeAt: number;
+  readonly totalTokens?: number;
+  readonly userTurnCount?: number;
 }
 
 export interface ModeBSessionConfig {
@@ -54,6 +56,8 @@ export class ModeBSession {
   private _agentTurnHistory: AgentTurnEntry[] = [];
   private _handoffCount = 0;
   private _lastRouteChangeAt = 0;
+  private _totalTokens = 0;
+  private _userTurnCount = 0;
 
   constructor(config: ModeBSessionConfig) {
     this.appName = config.appName;
@@ -125,6 +129,11 @@ export class ModeBSession {
     (session as unknown as { _agentTurnHistory: AgentTurnEntry[] })._agentTurnHistory = [...data.agentTurnHistory];
     (session as unknown as { _handoffCount: number })._handoffCount = data.handoffCount;
     (session as unknown as { _lastRouteChangeAt: number })._lastRouteChangeAt = data.lastRouteChangeAt;
+    // Restore token/turn counters (userTurnCount was incremented during history replay -- override with stored value)
+    (session as unknown as { _totalTokens: number })._totalTokens = data.totalTokens ?? 0;
+    if (data.userTurnCount !== undefined) {
+      (session as unknown as { _userTurnCount: number })._userTurnCount = data.userTurnCount;
+    }
     // Restore version and record loaded version for conflict detection
     const storedVersion = data.version;
     (session as unknown as { _version: number })._version = storedVersion;
@@ -134,6 +143,7 @@ export class ModeBSession {
 
   addUserMessage(parts: readonly ContentPart[]): void {
     this._history.push({ role: "user", parts });
+    this._userTurnCount++;
     this.touch();
   }
 
@@ -170,6 +180,18 @@ export class ModeBSession {
 
   get lastRouteChangeAt(): number {
     return this._lastRouteChangeAt;
+  }
+
+  get totalTokens(): number {
+    return this._totalTokens;
+  }
+
+  get userTurnCount(): number {
+    return this._userTurnCount;
+  }
+
+  accumulateTokens(count: number): void {
+    this._totalTokens += count;
   }
 
   setActiveAgent(agentId: string, handoffBrief?: string): void {

@@ -7,6 +7,8 @@ export { JsonValidityScorer } from "./scorers/json-validity-scorer.js";
 export { LengthScorer } from "./scorers/length-scorer.js";
 export { LatencyScorer } from "./scorers/latency-scorer.js";
 export { CostScorer } from "./scorers/cost-scorer.js";
+export { EffortScorer } from "./scorers/effort-scorer.js";
+export { ResolutionScorer } from "./scorers/resolution-scorer.js";
 export { CompositeScorer } from "./scorers/composite-scorer.js";
 export { FaithfulnessScorer } from "./scorers/faithfulness-scorer.js";
 export { RelevanceScorer } from "./scorers/relevance-scorer.js";

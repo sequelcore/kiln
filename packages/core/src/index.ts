@@ -149,6 +149,7 @@ export type {
   PreChatFieldType,
   PreChatField,
   PreChatFormConfig,
+  SessionLimitsConfig,
   EmailTransportConfig,
   TenantValidationError,
 } from "./engine/gateway/tenant-config.js";

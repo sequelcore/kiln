@@ -19,6 +19,8 @@ import { CustomPromptScorer } from "./scorers/custom-prompt-scorer.js";
 import { PolicyAdherenceScorer } from "./scorers/policy-adherence-scorer.js";
 import { ContextRelevanceScorer } from "./scorers/context-relevance-scorer.js";
 import { ToolTrajectoryScorer } from "./scorers/tool-trajectory-scorer.js";
+import { EffortScorer } from "./scorers/effort-scorer.js";
+import { ResolutionScorer } from "./scorers/resolution-scorer.js";
 
 export function createScorer(config: EvalScorerConfig, llm?: ScorerLLM): Scorer {
   switch (config.type) {
@@ -34,6 +36,10 @@ export function createScorer(config: EvalScorerConfig, llm?: ScorerLLM): Scorer 
       return new LatencyScorer(config.maxLatencyMs ?? 5000);
     case "cost":
       return new CostScorer(config.maxCostUsd ?? 1.0);
+    case "effort":
+      return new EffortScorer();
+    case "resolution":
+      return new ResolutionScorer();
     case "composite": {
       const subScorers = (config.scorers ?? []).map((s) => createScorer(s, llm));
       return new CompositeScorer(config.name, subScorers);

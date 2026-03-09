@@ -16,6 +16,8 @@ export type EvalScorerType =
   | "composite"
   | "policy-adherence"
   | "context-relevance"
+  | "effort"
+  | "resolution"
   | "tool-trajectory";
 
 export interface EvalScorerConfig {
@@ -61,6 +63,7 @@ const VALID_SCORER_TYPES: readonly string[] = [
   "exact-match", "contains", "json-validity", "length", "latency", "cost",
   "faithfulness", "relevance", "coherence", "hallucination", "toxicity",
   "custom-prompt", "composite",
+  "effort", "resolution",
   "policy-adherence", "context-relevance", "tool-trajectory",
 ];
 

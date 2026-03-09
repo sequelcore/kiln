@@ -35,6 +35,8 @@ Datasets are JSONL files where each line is a JSON object with the following fie
 | `length` | 0 or 1 | `minLength?`, `maxLength?` | Output length (characters) is within the declared range. |
 | `latency` | 0 or 1 | `maxLatencyMs` | Response time is within the declared limit. |
 | `cost` | 0 or 1 | `maxCostUsd` | Cost per call is within the declared limit. |
+| `effort` | 0–1 | — | Customer Effort Score from `metadata.effortComponents`. Uses the enrichment pipeline's deterministic formula, normalized from 0-10 to 0-1. |
+| `resolution` | 0–1 | — | Resolution quality from `metadata.resolution`. Maps status (resolved=1.0, partial=0.5, ambiguous=0.25, unresolved=0.0), weighted by confidence. |
 
 ### LLM-as-Judge Scorers
 
@@ -188,6 +190,20 @@ Dataset items with metadata:
 ```
 
 The `ExperimentRunner` automatically forwards `DatasetItem.metadata` to `EvalInput.metadata`.
+
+## Safety Adversarial Dataset
+
+A built-in adversarial dataset at `packages/core/evals/safety-adversarial.jsonl` provides 145 test cases for validating the safety pipeline:
+
+| Category | Cases | Coverage |
+|----------|-------|----------|
+| PII | 21 | email, phone, SSN, credit card (Luhn-valid), IP, DOB, mixed |
+| Content Safety | 22 | hate, violence, sexual, self-harm, harassment, misinformation |
+| Prompt Injection | 67 | All 10 scanner categories (role hijacking, jailbreak, multi-language, etc.) |
+| Policy | 17 | Topic, competitor, escalation, compliance |
+| Benign Controls | 18 | Normal questions, educational content, false positives |
+
+Each item has `metadata.category` and `metadata.subcategory` for filtering.
 
 ## Validation Rules
 

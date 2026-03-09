@@ -107,6 +107,12 @@ export interface PreChatFormConfig {
   readonly submitLabel?: string;
 }
 
+/** Per-session abuse protection configuration */
+export interface SessionLimitsConfig {
+  readonly maxTokens?: number;
+  readonly maxTurns?: number;
+}
+
 /** Email transport provider configuration */
 export interface EmailTransportConfig {
   readonly provider: "postmark" | "resend" | "sendgrid" | "generic";
@@ -150,6 +156,7 @@ export interface TenantConfig {
   readonly routing?: TenantRoutingConfig;
   readonly modelConfig?: TenantModelConfig;
   readonly preChatForm?: PreChatFormConfig;
+  readonly sessionLimits?: SessionLimitsConfig;
   readonly enabled: boolean;
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -437,6 +444,18 @@ export function validateTenantConfig(config: TenantConfig): TenantValidationErro
           errors.push({ field: `preChatForm.fields[${i}].required`, message: "must be a boolean" });
         }
       }
+    }
+  }
+
+  // sessionLimits: if present, validate sub-fields
+  if (config.sessionLimits !== undefined) {
+    if (config.sessionLimits.maxTokens !== undefined &&
+      (!Number.isInteger(config.sessionLimits.maxTokens) || config.sessionLimits.maxTokens < 1)) {
+      errors.push({ field: "sessionLimits.maxTokens", message: "must be a positive integer" });
+    }
+    if (config.sessionLimits.maxTurns !== undefined &&
+      (!Number.isInteger(config.sessionLimits.maxTurns) || config.sessionLimits.maxTurns < 1)) {
+      errors.push({ field: "sessionLimits.maxTurns", message: "must be a positive integer" });
     }
   }
 

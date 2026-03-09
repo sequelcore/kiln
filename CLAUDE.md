@@ -35,13 +35,13 @@ Bun monorepo with 6 packages:
 | package | `core/src/package/` | Distribution: versioning, content hashing, security validation |
 | skill | `core/src/skill/` | SKILL.yaml format, SkillRegistry (3-tier discovery) |
 | enrichment | `core/src/enrichment/` | Post-conversation enrichment: effort score, LLM enrichment pipeline, sentiment/resolution/CSAT |
-| eval | `core/src/eval/` | 15 scorers (6 rule + 9 LLM-as-judge), dataset loader, experiment runner, comparator, consistency runner (pass^k) |
+| eval | `core/src/eval/` | 17 scorers (8 rule + 9 LLM-as-judge), dataset loader, experiment runner, comparator, consistency runner (pass^k) |
 | observability (core) | `core/src/observability/` | OTel span mapper (exhaustive event-to-span mapping) + OTelExporter (EventStore sink) |
 | observability (runtime) | `runtime/src/observability/` | PrometheusCollector (EventStore sink, dynamic prom-client import), CompositeEventStore (fan-out to multiple sinks) |
 | gateway | `runtime/src/gateway/` | Multi-app loading, Mode B routes, budget middleware, composable auth middleware (timing-safe), conversation event emitter (incl. tool execution events), delegation, dev routes, safety/security middleware, audio preprocessing, knowledge pipeline wiring, STT/knowledge factories, webhook tool executor, tenant tool factory, Meta webhook foundation (shared verification + HMAC-SHA256), WebhookDedup (Meta at-least-once protection), Instagram/Messenger/Email webhook routes, email loop guard, SqliteEmailThreadStore, WebSocket heartbeat (30s ping, 90s timeout) |
 | a2a | `runtime/src/a2a/` | A2AClient (outbound delegation only) |
 | trigger | `runtime/src/trigger/` | TriggerRegistry, webhook handler (HMAC-SHA256), event listener, cron scheduler |
-| session | `runtime/src/session/` | ModeBSession (version tracking, optimistic concurrency), ModeBOrchestrator (tool authorization, retry/fallback, result sanitization, ToolRAG, PerCallToolConfig, AI guard, model routing via ModelRouter + providerPool), SessionRegistry (pluggable SessionStore, save with concurrency check), SessionMode state machine (ai_active/queued/human_active/resolved), session serializer |
+| session | `runtime/src/session/` | ModeBSession (version tracking, optimistic concurrency, token/turn tracking), ModeBOrchestrator (tool authorization, retry/fallback, result sanitization, ToolRAG, PerCallToolConfig, AI guard, model routing via ModelRouter + providerPool), SessionRegistry (pluggable SessionStore, save with concurrency check), SessionMode state machine (ai_active/queued/human_active/resolved), session serializer, repetitive abuse detector |
 | tenant | `runtime/src/tenant/` | TenantRegistry (JSON persistence, resolveByWidgetId, resolveByInstagramPageId, resolveByMessengerPageId, resolveByEmailAddress, webhook tool secret encryption), system prompt builder (businessName + name identity), suggestion parser, multi-agent routing (DefaultTenantRouter, resolveAgentContext), model routing config |
 | handoff | `runtime/src/gateway/handoff-routes.ts` + `runtime/src/session/escalation-detector.ts` + `runtime/src/session/context-summarizer.ts` | Human handoff: session mode state machine, escalation detection, operator messaging, AI guard |
 | channels | `runtime/src/channels/` | 8 adapters (CLI, Web, WhatsApp, Instagram, Messenger, Slack, Email, API), ChannelRouter, formatForChannel |
@@ -218,14 +218,8 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 
 ## Backlog (Next Version)
 
-### Abuse Protection Hardening
-Current protections (budget middleware, 4096 max_tokens, prompt scanner, rate limiter) stop most attacks, but a single abusive user can burn through a customer's entire monthly token quota in one session. Add:
-
-1. **Per-session token cap** — configurable max tokens per session (e.g., 50K), auto-escalate to human when exceeded
-2. **Per-session turn limit** — max N turns per session before requiring human review or session reset
-3. **Repetitive abuse detection** — detect patterns like repeated "continue", sequential counting requests, or loop-inducing prompts and auto-block or escalate
-
-These are runtime session concerns (`ModeBSession` / `ModeBOrchestrator`), configurable via `app.yaml` or tenant admin API.
+### ~~Abuse Protection Hardening~~ — DONE (v0.11.0)
+Implemented: `TenantConfig.sessionLimits` (maxTokens, maxTurns), `detectRepetitiveAbuse()`, `SESSION_LIMIT_REACHED` event. All channels auto-escalate to `human_active` on limit breach.
 
 ## Documentation
 

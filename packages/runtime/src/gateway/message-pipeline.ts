@@ -1,4 +1,7 @@
-import type { ContentPart } from "@kilnai/core";
+import type { ContentPart, SessionLimitsConfig } from "@kilnai/core";
+import { extractText } from "@kilnai/core";
+import type { AbuseDetectionConfig } from "../session/repetitive-abuse-detector.js";
+import { detectRepetitiveAbuse } from "../session/repetitive-abuse-detector.js";
 import type { ModeBOrchestrator, OrchestrateResult, PerCallToolConfig, ToolExecutionSummary } from "../session/mode-b-orchestrator.js";
 import type { SessionRegistry } from "../session/session-registry.js";
 import type { BillingConfig } from "./budget-middleware.js";
@@ -36,6 +39,8 @@ export interface InboundMessageContext {
   readonly pingPongReason?: string;
   readonly routingTier?: "rule" | "embedding" | "fallback";
   readonly routingConfidence?: number;
+  readonly sessionLimits?: SessionLimitsConfig;
+  readonly abuseDetection?: AbuseDetectionConfig;
 }
 
 export interface InboundMessageResult {
@@ -57,6 +62,7 @@ export interface InboundMessageResult {
     readonly model: string;
     readonly routingTier: string;
   };
+  readonly limitReached?: { type: "tokens" | "turns" | "abuse"; value: number; max?: number };
 }
 
 export interface BudgetDeniedResult {
@@ -97,6 +103,111 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
   });
   trace.log("pipeline", "Session ready", { sessionId: session.id, sessionMode: session.sessionMode });
 
+  // Session turn limit check
+  if (ctx.sessionLimits?.maxTurns && session.userTurnCount >= ctx.sessionLimits.maxTurns) {
+    trace.warn("pipeline", "Session turn limit reached", { turns: session.userTurnCount, max: ctx.sessionLimits.maxTurns });
+    if (ctx.eventEmitter) {
+      ctx.eventEmitter.emit({
+        eventType: "SESSION_LIMIT_REACHED",
+        tenantId: ctx.tenantId,
+        channel: ctx.channel,
+        externalUserId: ctx.userId,
+        sessionId: session.id,
+        schemaVersion: "1",
+        limitType: "turns",
+        limitValue: session.userTurnCount,
+        limitMax: ctx.sessionLimits.maxTurns,
+        traceId: trace.traceId,
+        timestamp: new Date().toISOString(),
+      });
+    }
+    session.setSessionMode("human_active");
+    await ctx.sessionRegistry.save(session);
+    return {
+      ok: true,
+      result: {
+        parts: [],
+        inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
+        queued: true,
+        sessionId: session.id,
+        sessionMode: session.sessionMode,
+        traceId: trace.traceId,
+        limitReached: { type: "turns", value: session.userTurnCount, max: ctx.sessionLimits.maxTurns },
+      },
+    };
+  }
+
+  // Session token limit check
+  if (ctx.sessionLimits?.maxTokens && session.totalTokens >= ctx.sessionLimits.maxTokens) {
+    trace.warn("pipeline", "Session token limit reached", { tokens: session.totalTokens, max: ctx.sessionLimits.maxTokens });
+    if (ctx.eventEmitter) {
+      ctx.eventEmitter.emit({
+        eventType: "SESSION_LIMIT_REACHED",
+        tenantId: ctx.tenantId,
+        channel: ctx.channel,
+        externalUserId: ctx.userId,
+        sessionId: session.id,
+        schemaVersion: "1",
+        limitType: "tokens",
+        limitValue: session.totalTokens,
+        limitMax: ctx.sessionLimits.maxTokens,
+        traceId: trace.traceId,
+        timestamp: new Date().toISOString(),
+      });
+    }
+    session.setSessionMode("human_active");
+    await ctx.sessionRegistry.save(session);
+    return {
+      ok: true,
+      result: {
+        parts: [],
+        inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
+        queued: true,
+        sessionId: session.id,
+        sessionMode: session.sessionMode,
+        traceId: trace.traceId,
+        limitReached: { type: "tokens", value: session.totalTokens, max: ctx.sessionLimits.maxTokens },
+      },
+    };
+  }
+
+  // Repetitive abuse detection
+  if (ctx.abuseDetection) {
+    const userText = extractText(ctx.userParts);
+    const abuse = detectRepetitiveAbuse(userText, session.conversationHistory, ctx.abuseDetection);
+    if (abuse) {
+      trace.warn("pipeline", "Abuse detected", { type: abuse.type, confidence: abuse.confidence });
+      if (ctx.eventEmitter) {
+        ctx.eventEmitter.emit({
+          eventType: "SESSION_LIMIT_REACHED",
+          tenantId: ctx.tenantId,
+          channel: ctx.channel,
+          externalUserId: ctx.userId,
+          sessionId: session.id,
+          schemaVersion: "1",
+          limitType: "abuse",
+          limitValue: abuse.confidence,
+          traceId: trace.traceId,
+          timestamp: new Date().toISOString(),
+        });
+      }
+      session.setSessionMode("human_active");
+      await ctx.sessionRegistry.save(session);
+      return {
+        ok: true,
+        result: {
+          parts: [],
+          inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
+          queued: true,
+          sessionId: session.id,
+          sessionMode: session.sessionMode,
+          traceId: trace.traceId,
+          limitReached: { type: "abuse", value: abuse.confidence },
+        },
+      };
+    }
+  }
+
   // Merge recalled memory + knowledge context + contact context
   const combinedMemory = [ctx.recalledMemory, ctx.knowledgeContext, ctx.contactContext].filter(Boolean).join("\n\n") || undefined;
 
@@ -108,6 +219,9 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
     ctx.callBuiltinTools,
     ctx.perCallConfig,
   );
+
+  // Accumulate session tokens for limit tracking
+  session.accumulateTokens(result.inputTokens + result.outputTokens);
 
   // Persist mutated session (required for non-reference stores like Redis)
   await ctx.sessionRegistry.save(session);

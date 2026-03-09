@@ -19,6 +19,8 @@ export function serializeSession(session: ModeBSession): string {
     agentTurnHistory: session.agentTurnHistory,
     handoffCount: session.handoffCount,
     lastRouteChangeAt: session.lastRouteChangeAt,
+    totalTokens: session.totalTokens,
+    userTurnCount: session.userTurnCount,
   };
   return JSON.stringify(data);
 }

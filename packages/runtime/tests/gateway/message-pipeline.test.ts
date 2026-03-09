@@ -17,6 +17,10 @@ function makeMockSession(): ModeBSession {
     tenantId: "test-tenant",
     userId: "user-1",
     sessionMode: "ai_active",
+    totalTokens: 0,
+    userTurnCount: 0,
+    conversationHistory: [],
+    accumulateTokens: vi.fn(),
   } as unknown as ModeBSession;
 }
 

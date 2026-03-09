@@ -1,13 +1,24 @@
 # Changelog
 
-## v0.11.0 (2026-03-09) -- Eval Benchmarking
+## v0.11.0 (2026-03-09) -- Eval Benchmarking & Abuse Protection
 
-- **ConsistencyRunner (pass^k)**: New utility implementing tau-bench's pass^k metric. Runs the same experiment k times and measures what fraction of dataset items pass ALL runs consistently. The gap between pass^1 and pass^k is the most predictive metric for production readiness.
-- **PolicyAdherenceScorer**: LLM-as-judge scorer that evaluates output compliance against configurable business policy rules. Config: `policies: string[]`.
-- **ContextRelevanceScorer**: LLM-as-judge scorer that evaluates whether retrieved context chunks are relevant to the input query. Measures retrieval quality (complements existing `faithfulness` which measures answer quality).
-- **ToolTrajectoryScorer**: LLM-as-judge scorer that evaluates tool-use sequence efficiency and correctness. Reads tool calls from `EvalInput.metadata.toolCalls`.
-- **EvalInput.metadata**: New optional field forwarded from `DatasetItem.metadata` through `ExperimentRunner`, enabling scorers to access domain-specific data.
-- **Benchmarking research**: Comprehensive survey of 15+ benchmarks, academic papers, and industry frameworks documented in `docs/eval-benchmarking-research.md`.
+### Eval Framework (17 scorers + ConsistencyRunner)
+- **ConsistencyRunner (pass^k)**: tau-bench pass^k metric. Runs same experiment k times, measures fraction of items passing ALL runs.
+- **PolicyAdherenceScorer**: LLM-as-judge for business policy compliance. Config: `policies: string[]`.
+- **ContextRelevanceScorer**: LLM-as-judge for RAG retrieval quality (context chunks vs query).
+- **ToolTrajectoryScorer**: LLM-as-judge for tool-use sequence efficiency. Reads `metadata.toolCalls`.
+- **EffortScorer**: Rule-based, bridges enrichment pipeline's Customer Effort Score into eval. Reads `metadata.effortComponents`.
+- **ResolutionScorer**: Rule-based, maps resolution status to score. Reads `metadata.resolution`.
+- **EvalInput.metadata**: New optional field forwarded from `DatasetItem.metadata` through `ExperimentRunner`.
+- **Safety adversarial dataset**: 145 test cases covering PII, content, prompt injection, policy rails, and benign controls at `packages/core/evals/safety-adversarial.jsonl`.
+
+### Abuse Protection
+- **Per-session token cap**: `TenantConfig.sessionLimits.maxTokens` enforces cumulative token limit per session. Sessions auto-escalate to `human_active` when exceeded.
+- **Per-session turn limit**: `TenantConfig.sessionLimits.maxTurns` enforces max user turns per session.
+- **Repetitive abuse detection**: `detectRepetitiveAbuse()` catches exact repetition, keyword spam ("continue" loops), and sequential counting attacks. Configurable window size and threshold.
+- **SESSION_LIMIT_REACHED event**: New conversation event type with `limitType` (tokens/turns/abuse), `limitValue`, and `limitMax`.
+- **Session token tracking**: `ModeBSession.totalTokens` and `ModeBSession.userTurnCount` persisted across session serialization.
+- All protections integrated in `processInboundMessage()` pipeline -- applies to all 6 channels automatically.
 
 ## v0.10.0 (2026-03-09) -- Visitor Identity & Pre-Chat Form
 

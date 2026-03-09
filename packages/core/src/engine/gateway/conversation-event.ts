@@ -20,7 +20,8 @@ export type ConversationEventType =
   | "CONVERSATION_ABANDONED"
   | "MODEL_ROUTED"
   | "COST_REPORT"
-  | "CONVERSATION_ENRICHED";
+  | "CONVERSATION_ENRICHED"
+  | "SESSION_LIMIT_REACHED";
 
 export interface ConversationEvent {
   readonly eventType: ConversationEventType;
@@ -105,6 +106,12 @@ export interface ConversationEvent {
   readonly estimatedCostUsd?: number;
   /** Total cost for the session -- present for COST_REPORT */
   readonly totalCostUsd?: number;
+  /** Limit type -- present for SESSION_LIMIT_REACHED events */
+  readonly limitType?: "tokens" | "turns" | "abuse";
+  /** Limit value reached -- present for SESSION_LIMIT_REACHED events */
+  readonly limitValue?: number;
+  /** Configured maximum -- present for SESSION_LIMIT_REACHED events */
+  readonly limitMax?: number;
 }
 
 export interface ConversationEventBatch {
