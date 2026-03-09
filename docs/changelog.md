@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.12.0 (2026-03-09) -- WhatsApp Coexistence Auto-Handoff
+
+### Coexistence Support
+- **smb_message_echoes handling**: When a business owner responds from the WhatsApp Business App (coexistence mode), Kiln auto-transitions the session to `human_active` so the AI agent stops responding.
+- **Lazy auto-release**: Configurable `autoReleaseMs` on `TenantConfig.whatsappCoexistence`. When the human has been idle past the timeout and the customer sends a new message, the session auto-transitions back to `ai_active`.
+- **HUMAN_TAKEOVER event**: New conversation event type with `handoffSource: "whatsapp_coexistence"` for observability. `HANDOFF_RELEASED` is emitted on auto-release.
+- **Session context preservation**: Business messages from the app are injected into session history so the AI has full context when it resumes.
+- **WhatsAppCoexistenceConfig**: New `TenantConfig` field (`enabled`, `autoReleaseMs`). Admin API supports `whatsappCoexistence` as mutable field.
+- **ModeBSession.lastHumanMessageAt**: New timestamp for tracking human activity, persisted across session serialization.
+- Zero breaking changes. All new fields are optional. Existing tenants see no behavioral change.
+
 ## v0.11.0 (2026-03-09) -- Eval Benchmarking & Abuse Protection
 
 ### Eval Framework (23 scorers + ConsistencyRunner)

@@ -48,6 +48,7 @@ const MUTABLE_TENANT_FIELDS = [
   "modelConfig",
   "preChatForm",
   "sessionLimits",
+  "whatsappCoexistence",
 ] as const satisfies readonly (keyof TenantConfig)[];
 
 /** Pick only safe mutable fields from an untrusted body */

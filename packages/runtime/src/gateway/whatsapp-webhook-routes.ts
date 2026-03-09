@@ -49,6 +49,8 @@ export interface WhatsAppWebhookConfig {
 interface MetaWebhookMessage {
   id: string;
   from: string;
+  /** Recipient phone -- present in smb_message_echoes (coexistence) payloads */
+  to?: string;
   type: string;
   text?: { body: string };
   image?: { id: string; mime_type: string; caption?: string };
@@ -69,6 +71,8 @@ interface MetaWebhookPayload {
   entry?: Array<{
     id: string;
     changes: Array<{
+      /** Webhook field type -- "messages" for normal, "smb_message_echoes" for coexistence */
+      field?: string;
       value: {
         messaging_product: string;
         metadata?: { phone_number_id?: string };
@@ -199,6 +203,20 @@ export function createWhatsAppWebhookRoutes(config: WhatsAppWebhookConfig): Hono
         if (!tenant) {
           const entryTrace = new TraceContext();
           entryTrace.warn("whatsapp", "No tenant found", { phoneNumberId, appName: config.appName });
+          continue;
+        }
+
+        // Handle coexistence echoes (business sent message from WhatsApp Business App)
+        if (change.field === "smb_message_echoes") {
+          const echoMessages = change.value.messages;
+          if (echoMessages) {
+            for (const msg of echoMessages) {
+              if (!msg.to) continue;
+              if (config.dedup?.isDuplicate(msg.id)) continue;
+              const promise = processCoexistenceEcho(config, tenant, msg);
+              processPromises.push(promise);
+            }
+          }
           continue;
         }
 
@@ -391,6 +409,29 @@ async function processWhatsAppMessage(
     systemPrompt: "",
     idleTimeoutMs: tenant.idleTimeoutMs,
   });
+
+  // Coexistence auto-release: if human has been idle past the timeout, transition back to AI
+  if (session.sessionMode === "human_active" && tenant.whatsappCoexistence?.autoReleaseMs) {
+    const lastHuman = session.lastHumanMessageAt;
+    if (lastHuman && Date.now() - lastHuman >= tenant.whatsappCoexistence.autoReleaseMs) {
+      session.setSessionMode("ai_active");
+      trace.log("whatsapp", "Coexistence: auto-released to AI", { tenantId, sender: senderPhone });
+      if (config.eventEmitter) {
+        config.eventEmitter.emit({
+          eventType: "HANDOFF_RELEASED",
+          tenantId,
+          channel: "whatsapp",
+          externalUserId: senderPhone,
+          sessionId: session.id,
+          sessionMode: "ai_active",
+          handoffSource: "whatsapp_coexistence",
+          schemaVersion: "1",
+          traceId: trace.traceId,
+          timestamp: new Date().toISOString(),
+        });
+      }
+    }
+  }
 
   // Resolve agent context (multi-agent routing with ping-pong guard)
   const agentCtx = await resolveAgentContextAsync(
@@ -605,4 +646,60 @@ async function processWhatsAppMessage(
       trace.warn("whatsapp", "Memory save failed", { tenantId, error: err instanceof Error ? err.message : String(err) });
     }
   }
+}
+
+/** Handle smb_message_echoes webhook -- business sent a message from the WhatsApp Business App */
+async function processCoexistenceEcho(
+  config: WhatsAppWebhookConfig,
+  tenant: import("@kilnai/core").TenantConfig,
+  msg: MetaWebhookMessage,
+): Promise<void> {
+  const trace = new TraceContext();
+  const customerPhone = msg.to!;
+  const tenantId = tenant.tenantId;
+
+  if (!tenant.whatsappCoexistence?.enabled) return;
+
+  const session = await config.sessionRegistry.get(config.appName, customerPhone, tenantId);
+  if (!session) {
+    trace.log("whatsapp", "Coexistence echo: no session for customer", { tenantId, customerPhone });
+    return;
+  }
+
+  // If already human_active or resolved, just update the timestamp
+  if (session.sessionMode !== "ai_active" && session.sessionMode !== "queued") {
+    session.recordHumanMessage();
+    await config.sessionRegistry.save(session);
+    return;
+  }
+
+  // Transition to human_active -- human is already actively responding
+  session.setSessionMode("human_active");
+  session.recordHumanMessage();
+
+  // Inject the business message into session history so AI has context when it resumes
+  const echoText = msg.text?.body;
+  if (echoText) {
+    session.injectOperatorMessage(textParts(echoText));
+  }
+
+  await config.sessionRegistry.save(session);
+
+  if (config.eventEmitter) {
+    config.eventEmitter.emit({
+      eventType: "HUMAN_TAKEOVER",
+      tenantId,
+      channel: "whatsapp",
+      externalUserId: customerPhone,
+      sessionId: session.id,
+      sessionMode: "human_active",
+      handoffSource: "whatsapp_coexistence",
+      messageContent: echoText,
+      schemaVersion: "1",
+      traceId: trace.traceId,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  trace.log("whatsapp", "Coexistence: human takeover", { tenantId, customerPhone, sessionId: session.id });
 }

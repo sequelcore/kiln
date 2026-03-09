@@ -21,6 +21,7 @@ export function serializeSession(session: ModeBSession): string {
     lastRouteChangeAt: session.lastRouteChangeAt,
     totalTokens: session.totalTokens,
     userTurnCount: session.userTurnCount,
+    lastHumanMessageAt: session.lastHumanMessageAt,
   };
   return JSON.stringify(data);
 }

@@ -28,6 +28,7 @@ export interface SerializedSessionData {
   readonly lastRouteChangeAt: number;
   readonly totalTokens?: number;
   readonly userTurnCount?: number;
+  readonly lastHumanMessageAt?: number | null;
 }
 
 export interface ModeBSessionConfig {
@@ -58,6 +59,7 @@ export class ModeBSession {
   private _lastRouteChangeAt = 0;
   private _totalTokens = 0;
   private _userTurnCount = 0;
+  private _lastHumanMessageAt: number | null = null;
 
   constructor(config: ModeBSessionConfig) {
     this.appName = config.appName;
@@ -134,6 +136,10 @@ export class ModeBSession {
     if (data.userTurnCount !== undefined) {
       (session as unknown as { _userTurnCount: number })._userTurnCount = data.userTurnCount;
     }
+    // Restore coexistence timestamp
+    if (data.lastHumanMessageAt != null) {
+      (session as unknown as { _lastHumanMessageAt: number | null })._lastHumanMessageAt = data.lastHumanMessageAt;
+    }
     // Restore version and record loaded version for conflict detection
     const storedVersion = data.version;
     (session as unknown as { _version: number })._version = storedVersion;
@@ -188,6 +194,15 @@ export class ModeBSession {
 
   get userTurnCount(): number {
     return this._userTurnCount;
+  }
+
+  get lastHumanMessageAt(): number | null {
+    return this._lastHumanMessageAt;
+  }
+
+  recordHumanMessage(): void {
+    this._lastHumanMessageAt = Date.now();
+    this._version++;
   }
 
   accumulateTokens(count: number): void {

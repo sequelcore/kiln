@@ -302,4 +302,61 @@ describe("ModeBSession", () => {
       expect(restored.loadedVersion).toBe(2);
     });
   });
+
+  describe("coexistence: recordHumanMessage", () => {
+    it("lastHumanMessageAt is null by default", () => {
+      const session = new ModeBSession({
+        appName: "app",
+        tenantId: "t1",
+        userId: "u1",
+        systemPrompt: "test",
+      });
+      expect(session.lastHumanMessageAt).toBeNull();
+    });
+
+    it("recordHumanMessage sets timestamp and increments version", () => {
+      const session = new ModeBSession({
+        appName: "app",
+        tenantId: "t1",
+        userId: "u1",
+        systemPrompt: "test",
+      });
+      const versionBefore = session.version;
+      session.recordHumanMessage();
+      expect(session.lastHumanMessageAt).toBeTypeOf("number");
+      expect(session.version).toBe(versionBefore + 1);
+    });
+
+    it("fromSerialized restores lastHumanMessageAt", () => {
+      const session = new ModeBSession({
+        appName: "app",
+        tenantId: "t1",
+        userId: "u1",
+        systemPrompt: "test",
+      });
+      session.recordHumanMessage();
+      const timestamp = session.lastHumanMessageAt;
+
+      const restored = ModeBSession.fromSerialized({
+        id: session.id,
+        appName: "app",
+        tenantId: "t1",
+        userId: "u1",
+        systemPrompt: "test",
+        idleTimeoutMs: 1800000,
+        sessionMode: "human_active",
+        version: session.version,
+        createdAt: session.createdAt.toISOString(),
+        lastActivityAt: session.lastActivityAt.toISOString(),
+        history: [],
+        activeAgentId: null,
+        agentTurnHistory: [],
+        handoffCount: 0,
+        lastRouteChangeAt: 0,
+        lastHumanMessageAt: timestamp,
+      });
+
+      expect(restored.lastHumanMessageAt).toBe(timestamp);
+    });
+  });
 });

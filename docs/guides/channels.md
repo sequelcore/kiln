@@ -254,6 +254,29 @@ The `phoneNumber` in `gateway.yaml` must be unique across all Apps.
 
 **Multi-tenant mode.** For SaaS products serving multiple businesses through one WhatsApp number, use `multiTenant: true` with `verifyTokenEnv`. This enables tenant resolution by `phone_number_id`, persistent per-tenant memory (SQLite + FTS5), and builtin `notify_owner` tool for real-time escalation to the business owner. See [`examples/whatsapp-bot/`](../../examples/whatsapp-bot/) for a complete working example.
 
+**Coexistence mode.** When a tenant uses the same phone number on both the WhatsApp Business App and the Cloud API (Meta's coexistence feature), Kiln can detect when the business owner responds from the app and automatically pause the AI agent.
+
+Enable via `TenantConfig.whatsappCoexistence`:
+
+```json
+{
+  "whatsappCoexistence": {
+    "enabled": true,
+    "autoReleaseMs": 300000
+  }
+}
+```
+
+When enabled, Kiln subscribes to Meta's `smb_message_echoes` webhook field. When the business sends a message from the WhatsApp Business App:
+
+1. The session transitions to `human_active` -- AI stops responding
+2. The business message is injected into session history (preserves context)
+3. A `HUMAN_TAKEOVER` conversation event is emitted with `handoffSource: "whatsapp_coexistence"`
+
+**Auto-release.** When `autoReleaseMs` is set (e.g., 300000 = 5 minutes), the AI automatically resumes on the next customer message after the human has been idle for that duration. A `HANDOFF_RELEASED` event is emitted. Set to `0` (default) for manual release only via the `/release` admin API.
+
+**Limitations.** Coexistence mode is subject to Meta's restrictions: broadcast lists are disabled, throughput is limited to 20 msg/s, and it is not available in the EU, UK, Australia, Japan, and some other countries. Official Business Account (blue badge) is not supported for coexistence accounts. See [Meta: Onboarding WhatsApp Business App users](https://developers.facebook.com/documentation/business-messaging/whatsapp/embedded-signup/onboarding-business-app-users/) for the full list of restrictions.
+
 ---
 
 ### Instagram DM

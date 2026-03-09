@@ -310,4 +310,289 @@ describe("createWhatsAppWebhookRoutes", () => {
       expect(await res.text()).toBe("OK");
     });
   });
+
+  describe("smb_message_echoes (coexistence)", () => {
+    function makeCoexistencePayload(phoneNumberId: string, toCustomer: string, text: string, msgId = "wamid.echo1") {
+      return {
+        object: "whatsapp_business_account",
+        entry: [
+          {
+            id: "entry-1",
+            changes: [
+              {
+                field: "smb_message_echoes",
+                value: {
+                  messaging_product: "whatsapp",
+                  metadata: { phone_number_id: phoneNumberId },
+                  messages: [
+                    { id: msgId, from: phoneNumberId, to: toCustomer, type: "text", text: { body: text } },
+                  ],
+                },
+              },
+            ],
+          },
+        ],
+      };
+    }
+
+    it("ignores smb_message_echoes when coexistence is disabled", async () => {
+      const config = makeConfig();
+      const tenant = makeTenantConfig(); // no whatsappCoexistence
+      config.tenantRegistry.create(tenant);
+
+      const app = createWhatsAppWebhookRoutes(config);
+      const payload = makeCoexistencePayload("phone-123", "521234567890", "I'll handle this");
+
+      const res = await app.request("/webhook", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      expect(res.status).toBe(200);
+    });
+
+    it("transitions session to human_active on smb_message_echoes", async () => {
+      const config = makeConfig();
+      const tenant = makeTenantConfig({ whatsappCoexistence: { enabled: true } });
+      config.tenantRegistry.create(tenant);
+
+      // Pre-create a session for the customer
+      const session = await config.sessionRegistry.getOrCreate({
+        appName: "test-app",
+        tenantId: "test-tenant",
+        userId: "521234567890",
+        systemPrompt: "You are a test assistant.",
+      });
+      expect(session.sessionMode).toBe("ai_active");
+
+      const app = createWhatsAppWebhookRoutes(config);
+      const payload = makeCoexistencePayload("phone-123", "521234567890", "I'll handle this personally");
+
+      await app.request("/webhook", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      // Wait for async processing
+      await new Promise((r) => setTimeout(r, 50));
+
+      const updatedSession = await config.sessionRegistry.get("test-app", "521234567890", "test-tenant");
+      expect(updatedSession?.sessionMode).toBe("human_active");
+      expect(updatedSession?.lastHumanMessageAt).toBeTypeOf("number");
+    });
+
+    it("injects operator message into session history", async () => {
+      const config = makeConfig();
+      const tenant = makeTenantConfig({ whatsappCoexistence: { enabled: true } });
+      config.tenantRegistry.create(tenant);
+
+      const session = await config.sessionRegistry.getOrCreate({
+        appName: "test-app",
+        tenantId: "test-tenant",
+        userId: "521234567890",
+        systemPrompt: "You are a test assistant.",
+      });
+
+      const app = createWhatsAppWebhookRoutes(config);
+      const payload = makeCoexistencePayload("phone-123", "521234567890", "Let me check on that");
+
+      await app.request("/webhook", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      await new Promise((r) => setTimeout(r, 50));
+
+      const updatedSession = await config.sessionRegistry.get("test-app", "521234567890", "test-tenant");
+      const lastMsg = updatedSession?.conversationHistory[updatedSession.conversationHistory.length - 1];
+      expect(lastMsg?.role).toBe("assistant");
+    });
+
+    it("emits HUMAN_TAKEOVER event", async () => {
+      const emitFn = vi.fn();
+      const config = makeConfig({ eventEmitter: { emit: emitFn } as any });
+      const tenant = makeTenantConfig({ whatsappCoexistence: { enabled: true } });
+      config.tenantRegistry.create(tenant);
+
+      await config.sessionRegistry.getOrCreate({
+        appName: "test-app",
+        tenantId: "test-tenant",
+        userId: "521234567890",
+        systemPrompt: "You are a test assistant.",
+      });
+
+      const app = createWhatsAppWebhookRoutes(config);
+      const payload = makeCoexistencePayload("phone-123", "521234567890", "Taking over");
+
+      await app.request("/webhook", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      await new Promise((r) => setTimeout(r, 50));
+
+      const takeoverEvent = emitFn.mock.calls.find((c: any) => c[0]?.eventType === "HUMAN_TAKEOVER");
+      expect(takeoverEvent).toBeDefined();
+      expect(takeoverEvent![0].handoffSource).toBe("whatsapp_coexistence");
+      expect(takeoverEvent![0].sessionMode).toBe("human_active");
+      expect(takeoverEvent![0].channel).toBe("whatsapp");
+    });
+
+    it("does not transition when no session exists", async () => {
+      const config = makeConfig();
+      const tenant = makeTenantConfig({ whatsappCoexistence: { enabled: true } });
+      config.tenantRegistry.create(tenant);
+
+      const app = createWhatsAppWebhookRoutes(config);
+      const payload = makeCoexistencePayload("phone-123", "999999999", "Hello");
+
+      const res = await app.request("/webhook", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      expect(res.status).toBe(200);
+    });
+
+    it("updates timestamp when already human_active", async () => {
+      const config = makeConfig();
+      const tenant = makeTenantConfig({ whatsappCoexistence: { enabled: true } });
+      config.tenantRegistry.create(tenant);
+
+      const session = await config.sessionRegistry.getOrCreate({
+        appName: "test-app",
+        tenantId: "test-tenant",
+        userId: "521234567890",
+        systemPrompt: "You are a test assistant.",
+      });
+      session.setSessionMode("human_active");
+      session.recordHumanMessage();
+      const firstTimestamp = session.lastHumanMessageAt;
+      await config.sessionRegistry.save(session);
+
+      // Small delay to ensure different timestamp
+      await new Promise((r) => setTimeout(r, 10));
+
+      const app = createWhatsAppWebhookRoutes(config);
+      const payload = makeCoexistencePayload("phone-123", "521234567890", "Follow up");
+
+      await app.request("/webhook", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      await new Promise((r) => setTimeout(r, 50));
+
+      const updatedSession = await config.sessionRegistry.get("test-app", "521234567890", "test-tenant");
+      expect(updatedSession?.lastHumanMessageAt).toBeGreaterThan(firstTimestamp!);
+    });
+
+    it("auto-releases to ai_active after idle timeout", async () => {
+      const config = makeConfig();
+      const tenant = makeTenantConfig({
+        whatsappCoexistence: { enabled: true, autoReleaseMs: 1 }, // 1ms for testing
+      });
+      config.tenantRegistry.create(tenant);
+
+      // Create session and simulate human takeover
+      const session = await config.sessionRegistry.getOrCreate({
+        appName: "test-app",
+        tenantId: "test-tenant",
+        userId: "521234567890",
+        systemPrompt: "You are a test assistant.",
+      });
+      session.setSessionMode("human_active");
+      (session as any)._lastHumanMessageAt = Date.now() - 100; // 100ms ago
+      await config.sessionRegistry.save(session);
+
+      const app = createWhatsAppWebhookRoutes(config);
+
+      // Customer sends a new message -- should trigger auto-release
+      const payload = makeWebhookPayload("phone-123", "521234567890", "Are you still there?");
+      await app.request("/webhook", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      await new Promise((r) => setTimeout(r, 100));
+
+      const updatedSession = await config.sessionRegistry.get("test-app", "521234567890", "test-tenant");
+      expect(updatedSession?.sessionMode).toBe("ai_active");
+    });
+
+    it("stays human_active when idle timeout not yet reached", async () => {
+      const config = makeConfig();
+      const tenant = makeTenantConfig({
+        whatsappCoexistence: { enabled: true, autoReleaseMs: 999_999 }, // very long
+      });
+      config.tenantRegistry.create(tenant);
+
+      const session = await config.sessionRegistry.getOrCreate({
+        appName: "test-app",
+        tenantId: "test-tenant",
+        userId: "521234567890",
+        systemPrompt: "You are a test assistant.",
+      });
+      session.setSessionMode("human_active");
+      session.recordHumanMessage(); // just now
+      await config.sessionRegistry.save(session);
+
+      const app = createWhatsAppWebhookRoutes(config);
+      const payload = makeWebhookPayload("phone-123", "521234567890", "Hello?");
+
+      await app.request("/webhook", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Session should still be human_active -- message gets queued
+      const updatedSession = await config.sessionRegistry.get("test-app", "521234567890", "test-tenant");
+      expect(updatedSession?.sessionMode).toBe("human_active");
+    });
+
+    it("emits HANDOFF_RELEASED on auto-release", async () => {
+      const emitFn = vi.fn();
+      const config = makeConfig({ eventEmitter: { emit: emitFn } as any });
+      const tenant = makeTenantConfig({
+        whatsappCoexistence: { enabled: true, autoReleaseMs: 1 },
+      });
+      config.tenantRegistry.create(tenant);
+
+      const session = await config.sessionRegistry.getOrCreate({
+        appName: "test-app",
+        tenantId: "test-tenant",
+        userId: "521234567890",
+        systemPrompt: "You are a test assistant.",
+      });
+      session.setSessionMode("human_active");
+      (session as any)._lastHumanMessageAt = Date.now() - 100;
+      await config.sessionRegistry.save(session);
+
+      const app = createWhatsAppWebhookRoutes(config);
+      const payload = makeWebhookPayload("phone-123", "521234567890", "Back again");
+
+      await app.request("/webhook", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      await new Promise((r) => setTimeout(r, 100));
+
+      const releaseEvent = emitFn.mock.calls.find((c: any) => c[0]?.eventType === "HANDOFF_RELEASED");
+      expect(releaseEvent).toBeDefined();
+      expect(releaseEvent![0].handoffSource).toBe("whatsapp_coexistence");
+      expect(releaseEvent![0].sessionMode).toBe("ai_active");
+    });
+  });
 });

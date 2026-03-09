@@ -153,4 +153,44 @@ describe("TenantConfig", () => {
       expect(validateTenantConfig(config)).toEqual([]);
     });
   });
+
+  describe("whatsappCoexistence validation", () => {
+    it("accepts valid coexistence config", () => {
+      const config = makeTenantConfig({
+        whatsappCoexistence: { enabled: true, autoReleaseMs: 300_000 },
+      });
+      expect(validateTenantConfig(config)).toEqual([]);
+    });
+
+    it("accepts coexistence with autoReleaseMs = 0 (manual release)", () => {
+      const config = makeTenantConfig({
+        whatsappCoexistence: { enabled: false, autoReleaseMs: 0 },
+      });
+      expect(validateTenantConfig(config)).toEqual([]);
+    });
+
+    it("rejects non-boolean enabled", () => {
+      const config = makeTenantConfig({
+        whatsappCoexistence: { enabled: "yes" as any },
+      });
+      const errors = validateTenantConfig(config);
+      expect(errors).toContainEqual({ field: "whatsappCoexistence.enabled", message: "must be a boolean" });
+    });
+
+    it("rejects negative autoReleaseMs", () => {
+      const config = makeTenantConfig({
+        whatsappCoexistence: { enabled: true, autoReleaseMs: -1 },
+      });
+      const errors = validateTenantConfig(config);
+      expect(errors).toContainEqual({ field: "whatsappCoexistence.autoReleaseMs", message: "must be a non-negative integer" });
+    });
+
+    it("rejects non-integer autoReleaseMs", () => {
+      const config = makeTenantConfig({
+        whatsappCoexistence: { enabled: true, autoReleaseMs: 1.5 },
+      });
+      const errors = validateTenantConfig(config);
+      expect(errors).toContainEqual({ field: "whatsappCoexistence.autoReleaseMs", message: "must be a non-negative integer" });
+    });
+  });
 });

@@ -113,6 +113,14 @@ export interface SessionLimitsConfig {
   readonly maxTurns?: number;
 }
 
+/** WhatsApp coexistence configuration (smb_message_echoes auto-handoff) */
+export interface WhatsAppCoexistenceConfig {
+  /** Enable processing of smb_message_echoes webhook events */
+  readonly enabled: boolean;
+  /** Idle timeout in ms before auto-releasing back to AI. 0 = manual release only. */
+  readonly autoReleaseMs?: number;
+}
+
 /** Email transport provider configuration */
 export interface EmailTransportConfig {
   readonly provider: "postmark" | "resend" | "sendgrid" | "generic";
@@ -157,6 +165,7 @@ export interface TenantConfig {
   readonly modelConfig?: TenantModelConfig;
   readonly preChatForm?: PreChatFormConfig;
   readonly sessionLimits?: SessionLimitsConfig;
+  readonly whatsappCoexistence?: WhatsAppCoexistenceConfig;
   readonly enabled: boolean;
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -456,6 +465,18 @@ export function validateTenantConfig(config: TenantConfig): TenantValidationErro
     if (config.sessionLimits.maxTurns !== undefined &&
       (!Number.isInteger(config.sessionLimits.maxTurns) || config.sessionLimits.maxTurns < 1)) {
       errors.push({ field: "sessionLimits.maxTurns", message: "must be a positive integer" });
+    }
+  }
+
+  // whatsappCoexistence: if present, validate sub-fields
+  if (config.whatsappCoexistence !== undefined) {
+    if (typeof config.whatsappCoexistence.enabled !== "boolean") {
+      errors.push({ field: "whatsappCoexistence.enabled", message: "must be a boolean" });
+    }
+    if (config.whatsappCoexistence.autoReleaseMs !== undefined) {
+      if (!Number.isInteger(config.whatsappCoexistence.autoReleaseMs) || config.whatsappCoexistence.autoReleaseMs < 0) {
+        errors.push({ field: "whatsappCoexistence.autoReleaseMs", message: "must be a non-negative integer" });
+      }
     }
   }
 

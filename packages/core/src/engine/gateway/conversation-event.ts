@@ -21,7 +21,8 @@ export type ConversationEventType =
   | "MODEL_ROUTED"
   | "COST_REPORT"
   | "CONVERSATION_ENRICHED"
-  | "SESSION_LIMIT_REACHED";
+  | "SESSION_LIMIT_REACHED"
+  | "HUMAN_TAKEOVER";
 
 export interface ConversationEvent {
   readonly eventType: ConversationEventType;
@@ -112,6 +113,8 @@ export interface ConversationEvent {
   readonly limitValue?: number;
   /** Configured maximum -- present for SESSION_LIMIT_REACHED events */
   readonly limitMax?: number;
+  /** Source of human takeover -- present for HUMAN_TAKEOVER events */
+  readonly handoffSource?: "whatsapp_coexistence" | "api" | "escalation";
 }
 
 export interface ConversationEventBatch {

@@ -150,6 +150,7 @@ export type {
   PreChatField,
   PreChatFormConfig,
   SessionLimitsConfig,
+  WhatsAppCoexistenceConfig,
   EmailTransportConfig,
   TenantValidationError,
 } from "./engine/gateway/tenant-config.js";
