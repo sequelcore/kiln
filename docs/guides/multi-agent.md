@@ -45,7 +45,7 @@ routing:
 | `goal` | Yes | Primary objective |
 | `backstory` | No | Additional persona context |
 | `instructions` | No | Operating instructions appended to the system prompt |
-| `tools` | No | Tool allowlist for this agent; empty = inherit all tenant tools |
+| `tools` | No | Tool allowlist for this agent (zero-trust: omitted/empty = no tools, `["*"]` = all, explicit list = only those) |
 | `isDefault` | No | Fallback agent when routing result references an unknown ID |
 
 ### Routing Fields
@@ -108,7 +108,15 @@ When neither regex nor embedding produces a match, the `fallback` agent handles 
 
 ## Agent Tool Scoping
 
-Each agent can declare a `tools` array restricting which tools it can invoke. The effective tool set is the **intersection** of the agent's `tools` list with the tenant-level tool allowlist (from `TenantConfig.tools` and `webhookTools`).
+Each agent can declare a `tools` array controlling which tools it can invoke. Agent tool access uses **zero-trust semantics**:
+
+| `tools` value | Behavior |
+|---------------|----------|
+| Omitted or `[]` | Agent gets **no tools** |
+| `["*"]` | Agent gets all available tenant tools |
+| `["check_availability", ...]` | Agent gets only listed tools (intersected with tenant allowlist) |
+
+When an explicit list is provided, the effective tool set is the **intersection** of the agent's `tools` list with the tenant-level tool allowlist (from `TenantConfig.tools`, `webhookTools`, and `integrations`).
 
 ```yaml
 # Tenant-level tools
@@ -126,13 +134,17 @@ agents:
     name: "Support Agent"
     role: "Customer support"
     goal: "Resolve issues"
-    tools: [lookup_order, refund, notify_owner]
-    # Effective tools: lookup_order, refund, notify_owner
+    tools: ["*"]
+    # Effective tools: all tenant tools (check_availability, create_booking, lookup_order, refund, notify_owner)
+
+  - id: readonly
+    name: "Info Agent"
+    role: "Information only"
+    goal: "Answer questions without taking actions"
+    # tools omitted → no tools available
 ```
 
-If an agent declares no `tools` (or an empty array), it inherits the full tenant tool allowlist. This means agents are permissive by default and restrictive by explicit declaration.
-
-Webhook tools, rate limiters, and built-in tools (e.g., `notify_owner`) are inherited from the tenant context regardless of agent scoping.
+Webhook tools, integration tools, rate limiters, and built-in tools (e.g., `notify_owner`) are inherited from the tenant context. The zero-trust model ensures agents with side-effect-capable tools (e.g., integration adapters for Google Calendar, Stripe) must explicitly opt in.
 
 ## Warm Handoff Briefs
 

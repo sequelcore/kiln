@@ -143,6 +143,11 @@ These fields can be updated via `PATCH /admin/{appName}/tenants/:tenantId`:
 | `emailFromName` | string | Outbound sender display name |
 | `emailTransportConfig` | object | Email transport provider config (Postmark, Resend, or generic) |
 | `preChatForm` | object | Pre-chat form config for web widget (see [Channels: Pre-Chat Form](channels.md#pre-chat-form)) |
+| `agents` | array | Multi-agent config: each agent has id, name, role, goal, tools (see [Multi-Agent Routing](multi-agent.md)) |
+| `routing` | object | Agent routing config: rules, fallback, maxHandoffs, embeddingThreshold (see [Multi-Agent Routing](multi-agent.md)) |
+| `integrations` | array | Integration adapters: provider, credentialKey, operations filter, config (see [Tool Use: Integration Tools](tool-use.md#integration-tools)) |
+| `sessionLimits` | object | Abuse protection: `maxTokens`, `maxTurns` per session (auto-escalates to `human_active`) |
+| `whatsappCoexistence` | object | WhatsApp coexistence: `enabled`, `autoReleaseMs` for business app auto-handoff |
 
 Session invalidation: when a tenant config is updated via PATCH, `SessionRegistry.invalidateByTenant()` clears all active sessions for that tenant so the next message picks up fresh config.
 

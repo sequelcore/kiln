@@ -210,7 +210,7 @@ TenantConfig.integrations[]
                     ↓ at request time
 
 IntegrationExecutor
-    ├── CredentialResolver.resolve(tenantId, credentialKey)
+    ├── CredentialResolver.resolve(tenantId, provider)
     │       → ResolvedCredential { type, value, headers?, expiresAt? }
     └── IntegrationAdapter.execute(operation, credential, input, options)
             → IntegrationResult { data }
@@ -266,8 +266,8 @@ The `CredentialResolver` interface resolves encrypted credential references at e
 
 ```typescript
 interface CredentialResolver {
-  resolve(tenantId: string, credentialKey: string): Promise<ResolvedCredential>;
-  invalidate(tenantId: string, credentialKey: string): void;
+  resolve(tenantId: string, provider: string): Promise<ResolvedCredential>;
+  invalidate(tenantId: string, provider: string): void;
 }
 
 interface ResolvedCredential {
