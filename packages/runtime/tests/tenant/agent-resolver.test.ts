@@ -212,7 +212,7 @@ describe("resolveAgentContext", () => {
       expect(allowlist!.has("create_ticket")).toBe(false);
     });
 
-    it("agent without tools inherits tenant allowlist", () => {
+    it("agent without tools gets empty allowlist (zero-trust)", () => {
       const tenant = makeTenant({
         agents: [salesAgent],
         tools: ["check_inventory", "get_pricing"],
@@ -220,8 +220,27 @@ describe("resolveAgentContext", () => {
       const result = resolveAgentContext(tenant, textParts("hello"));
       const allowlist = result.tenantToolContext.toolAllowlist;
       expect(allowlist).toBeDefined();
+      expect(allowlist!.size).toBe(0);
+    });
+
+    it("agent with wildcard tools inherits full tenant allowlist", () => {
+      const tenant = makeTenant({
+        agents: [{ ...salesAgent, tools: ["*"] }],
+        tools: ["check_inventory", "get_pricing"],
+      });
+      const result = resolveAgentContext(tenant, textParts("hello"));
+      const allowlist = result.tenantToolContext.toolAllowlist;
+      expect(allowlist).toBeDefined();
       expect(allowlist!.has("check_inventory")).toBe(true);
       expect(allowlist!.has("get_pricing")).toBe(true);
+    });
+
+    it("agent with wildcard and no tenant tools gets no allowlist restriction", () => {
+      const tenant = makeTenant({
+        agents: [{ ...salesAgent, tools: ["*"] }],
+      });
+      const result = resolveAgentContext(tenant, textParts("hello"));
+      expect(result.tenantToolContext.toolAllowlist).toBeUndefined();
     });
 
     it("agent with tools but no tenant tools uses agent tools directly", () => {
@@ -239,7 +258,7 @@ describe("resolveAgentContext", () => {
       const builtins = new Map<string, (input: Record<string, unknown>) => Promise<unknown>>();
       builtins.set("notify_owner", async () => ({ ok: true }));
 
-      const tenant = makeTenant({ agents: [salesAgent] });
+      const tenant = makeTenant({ agents: [{ ...salesAgent, tools: ["*"] }] });
       const result = resolveAgentContext(tenant, textParts("hello"), undefined, undefined, builtins);
       expect(result.tenantToolContext.callBuiltinTools.has("notify_owner")).toBe(true);
     });

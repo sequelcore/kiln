@@ -280,12 +280,24 @@ function buildAgentToolContext(
   // Build full tenant tool context first
   const fullCtx = buildTenantToolContext(tenant, existingBuiltins);
 
-  // If agent has no tool restriction, inherit full tenant allowlist
+  // Zero-trust: agent with no tools or empty tools gets NO tools
+  // Use tools: ["*"] for explicit all-tools access
   if (!agent.tools || agent.tools.length === 0) {
+    return {
+      callBuiltinTools: fullCtx.callBuiltinTools,
+      toolDefinitions: fullCtx.toolDefinitions,
+      toolAllowlist: new Set<string>(),
+      rateLimiter: fullCtx.rateLimiter,
+      maxToolRounds: fullCtx.maxToolRounds,
+    };
+  }
+
+  // Wildcard: agent explicitly requests all available tools
+  if (agent.tools.includes("*")) {
     return fullCtx;
   }
 
-  // Intersect agent tools with tenant allowlist
+  // Explicit list: intersect agent tools with tenant allowlist
   const agentToolSet = new Set(agent.tools);
   let intersectedAllowlist: Set<string>;
 

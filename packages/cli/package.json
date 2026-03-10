@@ -1,6 +1,6 @@
 {
   "name": "@kilnai/cli",
-  "version": "0.15.2",
+  "version": "0.16.0",
   "description": "CLI and MCP server for Kiln AI orchestration engine",
   "type": "module",
   "bin": {

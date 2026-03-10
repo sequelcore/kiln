@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.16.0 (2026-03-10) -- Zero-Trust Agent Tool Access
+
+### Agent Tool Scoping: Explicit Opt-In
+- **BREAKING:** `TenantAgentConfig.tools` now uses zero-trust semantics:
+  - `tools` omitted or `tools: []` → agent gets **no tools** (previously: all tools)
+  - `tools: ["*"]` → agent gets all available tools (new wildcard)
+  - `tools: ["google_calendar_create_event", ...]` → agent gets only listed tools (unchanged)
+- Affects `buildAgentToolContext()` in `runtime/src/tenant/agent-resolver.ts`. The no-agents path (single-agent without `TenantAgentConfig`) is unchanged — tenant-level `tools` field still controls the allowlist.
+- **Migration:** Tenants with agents that had `tools: []` (meaning "all") must update to `tools: ["*"]`.
+
 ## v0.15.2 (2026-03-10) -- Integration Credential Resolution Fix
 
 ### Integration Runtime: Credential Key Mismatch
