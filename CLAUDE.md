@@ -137,7 +137,7 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `knowledge/infrastructure/cohere-reranker.ts` | Cohere Rerank v2 adapter (over-fetch 4x, KnowledgeRerankerConfig) |
 | `domains/routing-templates.ts` | 3 built-in routing templates (service-business, ecommerce, customer-support) |
 | `engine/domain/model-router.ts` | ModelRouter, ModelCapabilityProfile, RoutingRequest, RoutingDecision, RoutingRule interfaces |
-| `agents/model-capability-registry.ts` | Built-in model capability profiles (10 models), eligible() filtering |
+| `agents/model-capability-registry.ts` | Built-in model capability profiles (17 models across 5 providers), eligible() filtering |
 | `agents/complexity-scorer.ts` | Stateless complexity scoring (5 signals, <1ms) |
 | `agents/rules-router.ts` | Rules-based model routing (Tier 1, priority-ordered) |
 | `enrichment/types.ts` | ConversationEnrichment, CompletedSession, EnrichmentStore, ConversationEnricher interfaces |
@@ -221,118 +221,23 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `commands/init.ts` | Interactive wizard: generates app.yaml + gateway.yaml |
 | `commands/dev.ts` | Dev mode with YAML hot-reload |
 
-## Backlog (Next Version)
-
-### ~~Abuse Protection Hardening~~ — DONE (v0.11.0)
-Implemented: `TenantConfig.sessionLimits` (maxTokens, maxTurns), `detectRepetitiveAbuse()`, `SESSION_LIMIT_REACHED` event. All channels auto-escalate to `human_active` on limit breach.
-
-### ~~RAG Grounding Tier 1~~ — DONE (v0.17.0)
-Implemented: `TenantConfig.groundingMode` (`"off"` | `"strict"`). When `strict` and knowledge context exists, `appendGroundingDirective()` appends `--- Grounding Rules ---` after recalled memory. Wired across all 6 channels + shared pipeline. Zero cost, zero latency.
+## Backlog
 
 ### RAG Grounding Tier 2 (Post-Generation Rail)
 
-Add a `grounding` rail to the safety pipeline. After the model responds, a lightweight model (Haiku) checks whether the response is supported by the retrieved chunks. If not, flag or rewrite.
+Post-generation `grounding` rail in the safety pipeline. Haiku verifies response is supported by retrieved chunks. ~200ms + 1 LLM call per message. Premium feature for regulated industries.
 
-Adds ~200ms latency + 1 LLM call per message. Suitable as a premium feature for regulated industries.
+### Integration Runtime Phase 4 (MCP Surface)
 
-### ~~Widget Markdown Rendering~~ — DONE (v0.13.0)
-Implemented: Custom zero-dep markdown renderer in `widget/src/markdown.ts`. Supports bold, italic, inline code, fenced code blocks, ordered/unordered lists, links. Pure DOM API, no innerHTML. 20 dedicated tests.
+Expose integration adapters as MCP tools (same implementation, two surfaces). Phases 1-3 complete.
 
-### MCP-First Orchestration Layer (CLI Agent Ecosystem)
+### MCP-First Orchestration Layer
 
-**Context:** The industry has converged on CLI-based AI agents (Claude Code, Codex CLI, Gemini CLI, Goose, Aider). All speak MCP. None have persistent memory, multi-agent coordination, cost control, safety pipelines, or domain awareness built in.
-
-**Strategic position:** Kiln is NOT another CLI agent — it's the production runtime that any CLI agent plugs into via MCP. The agent handles the user loop; Kiln handles everything the agent can't do alone. This respects DDD: orchestration is a bounded context, the CLI agent is a separate one. Connect via protocol (MCP), don't merge them.
-
-**What Kiln already exposes via MCP:** 7 tools (phase management, memory CRUD, cost tracking). Orchestrator with checkpoint/resume. 39 typed events. Safety pipeline. Multi-model routing.
-
-**Research areas:**
-- Expand MCP tool surface: expose knowledge retrieval, safety scanning, multi-agent routing, eval, enrichment as MCP tools
-- MCP server mode for gateway (Streamable HTTP, not just stdio) so remote agents can connect
-- Agent-agnostic session persistence: any CLI agent can resume a Kiln session
-- Swarm/supervisor orchestration exposed as MCP primitives (spawn agent, delegate task, collect results)
-- Cost budget enforcement across agent sessions (shared budget pool)
-- Cross-agent memory sharing (agent A's findings available to agent B via Kiln memory)
-
-**Not building:** REPL, built-in shell/file/git tools, streaming terminal UI — that's the CLI agent's job.
-
-**Research doc:** TBD — needs competitive analysis of MCP server ecosystems and gap analysis of what CLI agents lack.
-
-### Integration Runtime (Third-Party Tool Execution) — Phase 1 DONE (v0.14.0)
-
-**Context:** Kilvo needs AI agents to take real actions (book appointments, process payments, log data) without requiring business owners to set up webhook endpoints. This blocks the primary audience: non-technical SMBs. Beyond Kilvo, OpenKiln and the broader ecosystem need the same capability.
-
-**Strategic position:** Don't build integrations into Kiln. Build an integration runtime. Each integration is a separate bounded context — Google Calendar is not Kiln's domain. Kiln provides the executor, registry, and credential injection. Adapters are external packages.
-
-**Phase 1 — Core Interfaces + Runtime Wiring (DONE):**
-- `IntegrationAdapter` interface in `core/src/engine/domain/integration.ts` (provider, operations, execute, CredentialResolver, ResolvedCredential)
-- `IntegrationRegistry` in `runtime/src/gateway/integration-registry.ts` — adapter registry with tool definition generation
-- `IntegrationExecutor` in `runtime/src/gateway/integration-executor.ts` — per-tenant execution with credential resolution (30s timeout)
-- `LocalCredentialResolver` in `runtime/src/gateway/local-credential-resolver.ts` — SecretStore-backed credential resolution
-- `TenantConfig.integrations[]` — provider + encrypted credentials + operation subset filter
-- Wired through `buildTenantToolContext()` via module-level `configureIntegrationDeps()`/`clearIntegrationDeps()`
-- Zero changes to existing channel handlers, orchestrator, or message pipeline — integration tools are regular builtin tools
-- 3 new error codes: `INTEGRATION_TOOL_FAILED`, `INTEGRATION_ADAPTER_NOT_FOUND`, `CREDENTIAL_RESOLVE_FAILED`
-- Credential encryption/hydration in TenantRegistry (key: `tenant:${id}:integration:${provider}`)
-- `integrations` added to MUTABLE_TENANT_FIELDS in tenant admin routes
-
-**Three executor types (operational):**
-```
-WebhookToolExecutor  → tenant HTTP endpoints (developer required)
-McpClient            → external MCP servers (technical setup)
-IntegrationExecutor  → adapter registry (zero code, credentials only)
-```
-
-**What Kiln owns:** executor, registry, credential injection, tool definition generation, rate limiting, event emission, cost tracking. **What Kiln does NOT own:** OAuth flows, credential storage/refresh, API client code (that's in the adapter package), marketplace UI.
-
-**~~Phase 2 — First-Party Adapters~~ — DONE (v0.1.0, separate repo `sequelcore/kiln-integrations`):**
-1. `@kilnai/integration-google-calendar` — check availability, create/cancel/reschedule events
-2. `@kilnai/integration-stripe` — generate payment links
-3. `@kilnai/integration-google-sheets` — append rows, read ranges
-
-**~~Phase 3 — CapabilityAnnotations~~ — DONE (v0.17.0):** `IntegrationRegistry.getCapabilities()` surfaces `annotations` from `IntegrationOperation` as `Capability` objects. `TenantToolContext.capabilities` + `PerCallToolConfig.perCallCapabilities` pipe them to the orchestrator's `resolveCapability()` (dep-level first, per-call fallback). Tool authorization, caching, retry, and audit logging now apply to integration tools.
-
-**Phase 4 — MCP surface (TODO):** Adapters exposable as MCP tools (same implementation, two surfaces).
-
-**Research doc:** `docs/archive/integration-runtime-research.md` — 10-platform competitive analysis, credential management architecture, full Kiln integration map, implementation plan (4 phases).
-
-### ~~OpenRouter Provider Adapter (Free-Tier Model Access)~~ — DONE (v0.18.0)
-
-`OpenRouterAdapter` extends `OpenAICompatAdapter` with `HTTP-Referer` and `X-Title` attribution headers via `buildHeaders()` override. 7 free models in catalog (Nemotron 3 Nano, Step 3.5 Flash, Trinity Large, Llama 3.3 70B, Gemma 3 27B, Qwen3 Coder, Mistral Small 3.1). Default: `nvidia/nemotron-3-nano-30b-a3b:free`. Gateway wiring reads `OPENROUTER_APP_URL` and `OPENROUTER_APP_NAME` env vars.
-
-**Research doc:** `docs/archive/openrouter-adapter-research.md`
+Kiln as production runtime for CLI agents (Claude Code, Codex CLI, Goose) via MCP. Expand tool surface (knowledge, safety, routing, eval, enrichment). MCP server mode for gateway (Streamable HTTP). Cross-agent memory, swarm primitives, budget enforcement. Research needed.
 
 ### OpenKiln (Personal AI Agent)
 
-**Context:** OpenClaw (234K GitHub stars, acquired by OpenAI Feb 2026) proved the market: people want a personal AI agent that lives in their messaging apps, runs tools, has memory, and works across platforms. OpenClaw's architecture mirrors Kiln's — gateway, channel adapters, SKILL.md, multi-LLM, memory. But OpenClaw is single-user local-first; Kiln is multi-tenant server-side.
-
-**Strategic position:** OpenKiln is an open-source personal AI agent powered by Kiln's engine. Not a fork — a product layer on top of `@kilnai/core` + `@kilnai/runtime`. Kiln's engine is more mature than OpenClaw's internals (multi-agent, safety, RAG, eval, observability). The gap is consumer packaging: "install it, text it, it works."
-
-**What Kiln already has that OpenClaw doesn't:**
-- Multi-agent routing (swarm/supervisor strategies)
-- Safety pipeline (PII, content classification, prompt injection)
-- Knowledge/RAG (vector search, reranking, PDF/URL extraction)
-- Cost tracking (per-model, per-role)
-- Eval framework (23 scorers)
-- Enterprise security (audit log, AES-256 secrets)
-
-**What OpenKiln needs on top of Kiln:**
-- Single-user mode: simplified gateway config, no tenant admin API overhead
-- Local-first storage: SQLite for everything (sessions, memory, knowledge) — Kiln already uses SQLite
-- Quick-start CLI: `npx openkiln init` → pick channels, pick LLM provider, provide API key, done
-- Heartbeat/cron agent: proactive check-ins (OpenClaw's HEARTBEAT.md pattern) — Kiln already has TriggerRegistry with cron
-- Integration adapters: "it actually does things" — same `IntegrationAdapter` registry from the item above
-- Channel focus: WhatsApp + Telegram + Discord + Signal (OpenClaw's proven channels). Kiln has WhatsApp, needs Telegram/Discord/Signal adapters.
-
-**What NOT to build:**
-- No separate engine — reuse `@kilnai/core` and `@kilnai/runtime` directly
-- No custom memory — Kiln's 3-layer SQLite memory with FTS5 is already superior
-- No custom safety — Kiln's pipeline applies as-is
-- No marketplace (yet) — ship with bundled first-party adapters, marketplace is growth-stage
-
-**DDD boundaries:** OpenKiln is a product bounded context (packaging, CLI wizard, channel defaults). Kiln engine is the infrastructure bounded context. They communicate via published interfaces, not internal imports.
-
-**Research doc:** TBD — needs competitive analysis (OpenClaw post-acquisition, Goose, alternatives), channel gap analysis (Telegram/Discord/Signal adapters), single-user mode design, distribution strategy (npm, Docker, Homebrew).
+Product layer on `@kilnai/core` + `@kilnai/runtime`. Single-user mode, local-first SQLite, quick-start CLI (`npx openkiln init`), new channel adapters (Telegram, Discord, Signal). Separate bounded context — packaging and channel defaults, not a fork. Research needed.
 
 ## Documentation
 

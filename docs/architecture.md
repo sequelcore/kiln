@@ -318,7 +318,7 @@ Model routing selects which LLM handles each request based on message complexity
 
 **ModelRouter interface** (`packages/core/src/engine/domain/model-router.ts`): defines `RoutingRequest`, `RoutingDecision`, `RoutingRule`, and `ModelCapabilityProfile`. The `ModelRouter.route(request)` method returns a `RoutingDecision` with the selected model, provider, and reasoning.
 
-**ModelCapabilityRegistry** (`packages/core/src/agents/model-capability-registry.ts`): ships 10 built-in model profiles with capability flags (reasoning, tool use, structured output, vision, speed, cost). The `eligible(request)` method filters profiles by required capabilities.
+**ModelCapabilityRegistry** (`packages/core/src/agents/model-capability-registry.ts`): ships 17 built-in model profiles across 5 providers with capability flags (reasoning, tool use, structured output, vision, speed, cost). The `eligible(request)` method filters profiles by required capabilities.
 
 **ComplexityScorer** (`packages/core/src/agents/complexity-scorer.ts`): stateless scorer that evaluates 5 signals (message length, tool count, conversation depth, structured output requirement, modality) to produce a 0-1 complexity score in <1ms. No LLM calls.
 

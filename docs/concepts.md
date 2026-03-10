@@ -443,7 +443,7 @@ The `EventBus` uses a ring buffer for in-process delivery. An optional `EventSto
 
 ## Model Routing
 
-Model routing selects which LLM handles each request based on message complexity and tenant-defined rules. The `ComplexityScorer` evaluates 5 signals in under 1ms. The `RulesRouter` matches 7 condition types in priority order. 10 built-in model profiles provide capability flags for eligibility filtering. Fail-open by design.
+Model routing selects which LLM handles each request based on message complexity and tenant-defined rules. The `ComplexityScorer` evaluates 5 signals in under 1ms. The `RulesRouter` matches 7 condition types in priority order. 17 built-in model profiles across 5 providers provide capability flags for eligibility filtering. Fail-open by design.
 
 See [Model Routing](guides/model-routing.md) for configuration and condition types.
 
