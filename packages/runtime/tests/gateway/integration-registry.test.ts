@@ -92,4 +92,66 @@ describe("IntegrationRegistry", () => {
       expect(registry.getToolDefinitions("nonexistent")).toEqual([]);
     });
   });
+
+  describe("getCapabilities()", () => {
+    it("returns capabilities for operations with annotations", () => {
+      const registry = new IntegrationRegistry();
+      const adapter: IntegrationAdapter = {
+        provider: "stripe",
+        version: "1.0.0",
+        operations: [
+          {
+            name: "create_link",
+            description: "Create payment link",
+            inputSchema: { type: "object" },
+            annotations: { readOnly: false, destructive: false, idempotent: true },
+          },
+          {
+            name: "list_payments",
+            description: "List payments",
+            inputSchema: { type: "object" },
+            annotations: { readOnly: true },
+          },
+        ],
+        execute: async () => ({ data: {} }),
+      };
+      registry.register(adapter);
+
+      const caps = registry.getCapabilities("stripe");
+      expect(caps.size).toBe(2);
+      expect(caps.get("stripe_create_link")!.annotations).toEqual({ readOnly: false, destructive: false, idempotent: true });
+      expect(caps.get("stripe_list_payments")!.annotations).toEqual({ readOnly: true });
+      expect(caps.get("stripe_create_link")!.tags).toEqual(["integration", "stripe"]);
+    });
+
+    it("skips operations without annotations", () => {
+      const registry = new IntegrationRegistry();
+      registry.register(makeAdapter("cal", ["op_a"]));
+      const caps = registry.getCapabilities("cal");
+      expect(caps.size).toBe(0);
+    });
+
+    it("respects operation filter", () => {
+      const registry = new IntegrationRegistry();
+      const adapter: IntegrationAdapter = {
+        provider: "cal",
+        version: "1.0.0",
+        operations: [
+          { name: "read", description: "Read", inputSchema: {}, annotations: { readOnly: true } },
+          { name: "write", description: "Write", inputSchema: {}, annotations: { destructive: true } },
+        ],
+        execute: async () => ({ data: {} }),
+      };
+      registry.register(adapter);
+
+      const caps = registry.getCapabilities("cal", ["read"]);
+      expect(caps.size).toBe(1);
+      expect(caps.has("cal_read")).toBe(true);
+    });
+
+    it("returns empty for unknown provider", () => {
+      const registry = new IntegrationRegistry();
+      expect(registry.getCapabilities("nope").size).toBe(0);
+    });
+  });
 });

@@ -317,15 +317,13 @@ KilnErrors from adapters or resolvers are re-thrown without wrapping to preserve
 
 Integration tools are wired through `buildTenantToolContext()` — the same function that handles webhook tools. They appear as regular builtin tools to the orchestrator. This means:
 
-- **Authorization** works automatically (annotation-based 4-level model).
+- **Authorization** works automatically — adapter operations declare `annotations` (readOnly, destructive, idempotent) on `IntegrationOperation`, surfaced via `IntegrationRegistry.getCapabilities()` and piped through `PerCallToolConfig.perCallCapabilities` to the orchestrator's annotation-based 4-level authorization model.
 - **Rate limiting** applies per-tool via `SlidingWindowRateLimiter`.
 - **Result sanitization** passes through the safety pipeline.
 - **ToolRAG** includes integration tools in embedding-based selection.
-- **Caching** works with `cacheTtl` annotations.
+- **Caching** works with `cacheTtl` annotations on adapter operations.
 - **Events** emit `tool_called`, `tool_authorized`, `tool_result`, and `TOOL_EXECUTED` conversation events.
-- **Audit logging** records all integration tool executions.
-
-No changes to channel handlers, orchestrator, or message pipeline were required.
+- **Audit logging** records all integration tool executions with annotation metadata.
 
 ---
 

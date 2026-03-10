@@ -284,12 +284,12 @@ IntegrationExecutor  → adapter registry (zero code, credentials only)
 
 **What Kiln owns:** executor, registry, credential injection, tool definition generation, rate limiting, event emission, cost tracking. **What Kiln does NOT own:** OAuth flows, credential storage/refresh, API client code (that's in the adapter package), marketplace UI.
 
-**Phase 2 — First-Party Adapters (TODO, separate npm packages):**
+**~~Phase 2 — First-Party Adapters~~ — DONE (v0.1.0, separate repo `sequelcore/kiln-integrations`):**
 1. `@kilnai/integration-google-calendar` — check availability, create/cancel/reschedule events
 2. `@kilnai/integration-stripe` — generate payment links
 3. `@kilnai/integration-google-sheets` — append rows, read ranges
 
-**Phase 3 — CapabilityAnnotations on adapters (TODO):** adapter operations should declare readOnly, destructive, idempotent so existing tool authorization, safety pipeline, and audit logging apply.
+**~~Phase 3 — CapabilityAnnotations~~ — DONE (v0.17.0):** `IntegrationRegistry.getCapabilities()` surfaces `annotations` from `IntegrationOperation` as `Capability` objects. `TenantToolContext.capabilities` + `PerCallToolConfig.perCallCapabilities` pipe them to the orchestrator's `resolveCapability()` (dep-level first, per-call fallback). Tool authorization, caching, retry, and audit logging now apply to integration tools.
 
 **Phase 4 — MCP surface (TODO):** Adapters exposable as MCP tools (same implementation, two surfaces).
 

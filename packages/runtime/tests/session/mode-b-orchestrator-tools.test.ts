@@ -468,5 +468,78 @@ describe("ModeBOrchestrator - Tool Execution Enhancements", () => {
       expect(orchestrator.tools).toHaveLength(1);
       expect(orchestrator.tools![0]!.name).toBe("get_data");
     });
+
+    it("resolves capabilities from perCallCapabilities when not in dep-level capabilityMap", async () => {
+      const provider = makeProvider(1);
+
+      const authorizer: ToolAuthorizer = {
+        authorize: vi.fn().mockReturnValue({
+          level: 1,
+          allowed: true,
+          requiresApproval: false,
+          reason: "Read-only, auto-execute",
+        }),
+      };
+
+      const orchestrator = new ModeBOrchestrator({
+        provider,
+        tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
+        builtinTools: new Map([["get_data", vi.fn().mockResolvedValue("result")]]),
+        toolAuthorizer: authorizer,
+        // No dep-level capabilityMap
+      });
+
+      const perCallConfig: PerCallToolConfig = {
+        perCallCapabilities: new Map([
+          ["get_data", {
+            name: "get_data",
+            description: "Gets data",
+            schema: {},
+            tags: ["integration", "stripe"],
+            annotations: { readOnly: true, destructive: false },
+          }],
+        ]),
+      };
+
+      await orchestrator.processMessage(makeSession(), textParts("fetch data"), undefined, undefined, perCallConfig);
+
+      // Authorizer should receive annotations from perCallCapabilities
+      expect(authorizer.authorize).toHaveBeenCalledWith("get_data", { readOnly: true, destructive: false });
+    });
+
+    it("dep-level capabilityMap takes precedence over perCallCapabilities", async () => {
+      const provider = makeProvider(1);
+
+      const authorizer: ToolAuthorizer = {
+        authorize: vi.fn().mockReturnValue({ level: 1, allowed: true, requiresApproval: false, reason: "ok" }),
+      };
+
+      const depCapability: Capability = {
+        name: "get_data",
+        description: "Gets data",
+        schema: {},
+        tags: [],
+        annotations: { readOnly: true },
+      };
+
+      const orchestrator = new ModeBOrchestrator({
+        provider,
+        tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
+        builtinTools: new Map([["get_data", vi.fn().mockResolvedValue("result")]]),
+        toolAuthorizer: authorizer,
+        capabilityMap: new Map([["get_data", depCapability]]),
+      });
+
+      const perCallConfig: PerCallToolConfig = {
+        perCallCapabilities: new Map([
+          ["get_data", { ...depCapability, annotations: { destructive: true } }],
+        ]),
+      };
+
+      await orchestrator.processMessage(makeSession(), textParts("fetch data"), undefined, undefined, perCallConfig);
+
+      // Dep-level should win
+      expect(authorizer.authorize).toHaveBeenCalledWith("get_data", { readOnly: true });
+    });
   });
 });

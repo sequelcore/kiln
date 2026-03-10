@@ -286,6 +286,7 @@ function buildAgentToolContext(
     return {
       callBuiltinTools: fullCtx.callBuiltinTools,
       toolDefinitions: fullCtx.toolDefinitions,
+      capabilities: fullCtx.capabilities,
       toolAllowlist: new Set<string>(),
       rateLimiter: fullCtx.rateLimiter,
       maxToolRounds: fullCtx.maxToolRounds,
@@ -315,6 +316,7 @@ function buildAgentToolContext(
   return {
     callBuiltinTools: fullCtx.callBuiltinTools,
     toolDefinitions: fullCtx.toolDefinitions,
+    capabilities: fullCtx.capabilities,
     toolAllowlist: intersectedAllowlist,
     rateLimiter: fullCtx.rateLimiter,
     maxToolRounds: fullCtx.maxToolRounds,

@@ -78,6 +78,7 @@ export interface PerCallToolConfig {
   readonly rateLimiter?: RateLimiter;
   readonly tenantId?: string;
   readonly additionalTools?: readonly ToolDefinition[];
+  readonly perCallCapabilities?: ReadonlyMap<string, Capability>;
   readonly modelOverride?: { readonly provider: string; readonly model: string };
   readonly skillInstructions?: string;
 }
@@ -340,7 +341,7 @@ export class ModeBOrchestrator {
         }
 
         // Authorization check
-        const capability = this.deps.capabilityMap?.get(tc.name);
+        const capability = this.resolveCapability(tc.name, perCallConfig);
         if (this.deps.toolAuthorizer) {
           const authResult = this.deps.toolAuthorizer.authorize(tc.name, capability?.annotations);
           this.emitToolAuthorized(session.id, tc.name, authResult.level, authResult.allowed, authResult.reason);
@@ -545,6 +546,10 @@ export class ModeBOrchestrator {
         ? { provider: routingDecisionResult.provider, model: routingDecisionResult.model, routingTier: routingDecisionResult.routingTier, reasoning: routingDecisionResult.reasoning }
         : undefined,
     };
+  }
+
+  private resolveCapability(name: string, perCallConfig?: PerCallToolConfig): Capability | undefined {
+    return this.deps.capabilityMap?.get(name) ?? perCallConfig?.perCallCapabilities?.get(name);
   }
 
   private async executeTool(tc: ToolCall): Promise<unknown> {

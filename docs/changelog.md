@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.17.0 (2026-03-10) -- RAG Grounding Tier 1
+## v0.17.0 (2026-03-10) -- RAG Grounding Tier 1 + Integration CapabilityAnnotations
 
 ### Hallucination Prevention: System Prompt Grounding Directive
 - **`groundingMode`** field on `TenantConfig`: `"off"` (default) or `"strict"`.
@@ -8,6 +8,13 @@
 - Wired across all 6 channel handlers: WebSocket, WhatsApp, Instagram, Messenger, Email, and the shared message pipeline (Mode B REST + tenant routes).
 - `groundingMode` added to `MUTABLE_TENANT_FIELDS` for admin API updates.
 - Zero cost, zero latency — pure system prompt addition.
+
+### Integration CapabilityAnnotations (Phase 3)
+- `IntegrationRegistry.getCapabilities()`: surfaces `CapabilityAnnotations` (readOnly, destructive, idempotent, cacheTtl) from adapter operations as `Capability` objects.
+- `TenantToolContext.capabilities`: populated from integration operations with annotations in `buildTenantToolContext()`.
+- `PerCallToolConfig.perCallCapabilities`: new field carries per-tenant capabilities to the orchestrator.
+- `ModeBOrchestrator.resolveCapability()`: merges dep-level (MCP/app) and per-call (integration) capabilities. Dep-level takes precedence.
+- Integration tools now participate in tool authorization, cache TTL, retry/fallback, and audit logging — same as MCP and app-defined tools.
 
 ## v0.16.0 (2026-03-10) -- Zero-Trust Agent Tool Access
 

@@ -1,7 +1,7 @@
 // Builds per-request tool infrastructure from a TenantConfig.
 // Called once per inbound message in channel handlers.
 
-import type { TenantConfig, ToolDefinition, RateLimiter, CredentialResolver } from "@kilnai/core";
+import type { TenantConfig, ToolDefinition, RateLimiter, CredentialResolver, Capability } from "@kilnai/core";
 import { SlidingWindowRateLimiter } from "@kilnai/core";
 import { WebhookToolExecutor } from "./webhook-tool-executor.js";
 import type { WebhookToolConfig } from "./webhook-tool-executor.js";
@@ -11,6 +11,7 @@ import { IntegrationExecutor } from "./integration-executor.js";
 export interface TenantToolContext {
   readonly callBuiltinTools: ReadonlyMap<string, (input: Record<string, unknown>) => Promise<unknown>>;
   readonly toolDefinitions: readonly ToolDefinition[];
+  readonly capabilities: ReadonlyMap<string, Capability>;
   readonly toolAllowlist?: ReadonlySet<string>;
   readonly rateLimiter?: RateLimiter;
   readonly maxToolRounds?: number;
@@ -41,6 +42,7 @@ export function buildTenantToolContext(
 ): TenantToolContext {
   const callBuiltinTools = new Map<string, (input: Record<string, unknown>) => Promise<unknown>>();
   const toolDefinitions: ToolDefinition[] = [];
+  const capabilities = new Map<string, Capability>();
 
   // 1. Build webhook tools
   if (tenant.webhookTools && tenant.webhookTools.length > 0) {
@@ -77,6 +79,12 @@ export function buildTenantToolContext(
         callBuiltinTools.set(def.name, (input) => executor.execute(opName, input));
       }
       toolDefinitions.push(...defs);
+
+      // Collect capabilities with annotations for tool authorization/caching
+      const caps = registry.getCapabilities(integration.provider, integration.operations);
+      for (const [name, cap] of caps) {
+        capabilities.set(name, cap);
+      }
     }
   }
 
@@ -118,6 +126,7 @@ export function buildTenantToolContext(
   return {
     callBuiltinTools,
     toolDefinitions,
+    capabilities,
     toolAllowlist,
     rateLimiter,
     maxToolRounds,

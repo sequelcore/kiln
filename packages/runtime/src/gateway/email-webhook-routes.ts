@@ -316,6 +316,7 @@ async function processEmailMessage(
     rateLimiter: tenantToolCtx.rateLimiter,
     tenantId: tenant.tenantId,
     additionalTools: tenantToolCtx.toolDefinitions.length > 0 ? tenantToolCtx.toolDefinitions : undefined,
+    perCallCapabilities: tenantToolCtx.capabilities.size > 0 ? tenantToolCtx.capabilities : undefined,
   };
 
   // --- Budget check ---
