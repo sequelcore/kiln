@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.15.0 (2026-03-09) -- Gateway Integration Wiring
+
+### StartGatewayOptions: Integration & Secret Store Support
+- **`integrations` option**: Pass `IntegrationAdapter[]` to `startGateway()` — adapters are registered in an `IntegrationRegistry` and wired into `buildTenantToolContext()` via `configureIntegrationDeps()`.
+- **`secretKeyEnv` option**: Env var name for AES-256-GCM master key. Creates `AesSecretStore` and passes it to all `TenantRegistry` instances — enables encrypted credential storage for channel tokens, webhook secrets, and integration credentials.
+- **TenantRegistry now receives SecretStore**: Multi-tenant apps automatically encrypt/hydrate sensitive fields (WhatsApp tokens, integration credentials, webhook secrets) when a secret key is configured.
+- Zero breaking changes. Both options are optional. Existing gateways without `secretKeyEnv` behave identically to before.
+
 ## v0.14.0 (2026-03-09) -- Integration Runtime
 
 ### Integration Runtime (Phase 1: Core Interfaces + Runtime Wiring)

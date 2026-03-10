@@ -16,8 +16,9 @@ import {
   OTelExporter,
   SafetyPipeline,
   SqliteMemoryStore,
+  AesSecretStore,
 } from "@kilnai/core";
-import type { ProviderAdapter, ProviderConfig, App, ToolDefinition, MemoryLayer, SttAdapter, Capability } from "@kilnai/core";
+import type { ProviderAdapter, ProviderConfig, App, ToolDefinition, MemoryLayer, SttAdapter, Capability, IntegrationAdapter } from "@kilnai/core";
 import { AnnotationAuthorizer, ToolResultSanitizer } from "@kilnai/core";
 import type { AppGraphResponse } from "./dev-routes-types.js";
 import { EventBus, McpClient, CostTracker } from "@kilnai/core";
@@ -44,6 +45,9 @@ import type { KnowledgeAdminRoutesConfig } from "./knowledge-admin-routes.js";
 import type { ContactMemoryService } from "@kilnai/core";
 import { extractText } from "@kilnai/core";
 import { WebhookDedup } from "./webhook-dedup.js";
+import { IntegrationRegistry } from "./integration-registry.js";
+import { LocalCredentialResolver } from "./local-credential-resolver.js";
+import { configureIntegrationDeps } from "./tenant-tool-factory.js";
 import { SqliteEmailThreadStore } from "./sqlite-email-thread-store.js";
 import { SqliteEnrichmentStore } from "../enrichment/sqlite-enrichment-store.js";
 import { CompositeEventStore } from "../observability/composite-event-store.js";
@@ -66,6 +70,10 @@ export interface StartGatewayOptions {
   readonly port?: number;
   readonly devMode?: boolean;
   readonly studioDistPath?: string;
+  /** Integration adapters to register at gateway startup. */
+  readonly integrations?: readonly IntegrationAdapter[];
+  /** Env var name containing the master key for AES-256-GCM secret encryption. */
+  readonly secretKeyEnv?: string;
 }
 
 export interface DevServerOptions {
@@ -231,6 +239,26 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
   const gatewayEventBus = new EventBus(100, compositeStore);
   const costTracker = new CostTracker();
   const webhookDedup = new WebhookDedup();
+
+  // Secret store: AES-256-GCM encryption for tenant credentials (channel tokens, integration keys)
+  const secretKeyEnv = options?.secretKeyEnv;
+  const secretMasterKey = secretKeyEnv ? process.env[secretKeyEnv] : undefined;
+  const secretStore = secretMasterKey
+    ? new AesSecretStore(join(dirname(configPath), ".kiln", "secrets.json"), secretMasterKey)
+    : undefined;
+
+  // Integration runtime: register adapters and configure credential resolution
+  if (options?.integrations && options.integrations.length > 0) {
+    const registry = new IntegrationRegistry();
+    for (const adapter of options.integrations) {
+      registry.register(adapter);
+    }
+    if (secretStore) {
+      configureIntegrationDeps({ registry, credentialResolver: new LocalCredentialResolver(secretStore) });
+    } else {
+      console.warn("Integrations: adapters registered but no secretKeyEnv configured — credential resolution disabled");
+    }
+  }
 
   const loadedApps = resolvedApps.map((resolved: ResolvedApp) => {
     const hasWebChannel = resolved.binding.channels.some((ch) => ch.type === "web");
@@ -476,7 +504,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
     if (isMultiTenant) {
       // Multi-tenant: use TenantRegistry + tenant routes
       const tenantStorageDir = join(resolved.memoryBasePath, "tenants");
-      const tenantRegistry = new TenantRegistry(tenantStorageDir);
+      const tenantRegistry = new TenantRegistry(tenantStorageDir, secretStore);
       tenantRegistry.load();
 
       loaded.tenantRuntime = {

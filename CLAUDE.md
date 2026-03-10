@@ -147,7 +147,7 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 
 | File | Purpose |
 |------|---------|
-| `gateway/gateway-server.ts` | startGateway() + startDevServer(): Bun.serve, multi-app, Mode B, triggers, dev mode, lightweight Mode A dashboard |
+| `gateway/gateway-server.ts` | startGateway() + startDevServer(): Bun.serve, multi-app, Mode B, triggers, dev mode, lightweight Mode A dashboard, integration adapter wiring (StartGatewayOptions.integrations + secretKeyEnv) |
 | `gateway/gateway-routes.ts` | Hono app factory: health + per-App routes + A2A + webhooks |
 | `gateway/auth-middleware.ts` | Composable auth: requireApiKey, requireBearer, requireWebhookSignature, isOriginAllowed |
 | `gateway/mode-b-routes.ts` | POST /message, GET/DELETE /sessions |
