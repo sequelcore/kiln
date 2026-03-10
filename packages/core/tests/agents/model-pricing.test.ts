@@ -7,11 +7,12 @@ describe("MODEL_CATALOG", () => {
     expect(providers).toContain("anthropic");
     expect(providers).toContain("openai");
     expect(providers).toContain("deepseek");
+    expect(providers).toContain("openrouter");
     expect(providers).toContain("ollama");
   });
 
-  it("has 10 total entries", () => {
-    expect(MODEL_CATALOG).toHaveLength(10);
+  it("has 17 total entries", () => {
+    expect(MODEL_CATALOG).toHaveLength(17);
   });
 
   it("ollama is free", () => {
@@ -19,5 +20,15 @@ describe("MODEL_CATALOG", () => {
     expect(ollama).toBeDefined();
     expect(ollama!.inputPer1M).toBe(0);
     expect(ollama!.outputPer1M).toBe(0);
+  });
+
+  it("openrouter free models are zero cost", () => {
+    const openrouter = MODEL_CATALOG.filter((m) => m.provider === "openrouter");
+    expect(openrouter.length).toBe(7);
+    for (const model of openrouter) {
+      expect(model.inputPer1M).toBe(0);
+      expect(model.outputPer1M).toBe(0);
+      expect(model.qualityTier).toBe("medium");
+    }
   });
 });

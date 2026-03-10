@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.18.0 (2026-03-10) -- OpenRouter Provider Adapter
+
+### OpenRouter Free-Tier Model Access
+- **`OpenRouterAdapter`**: extends `OpenAICompatAdapter` for OpenRouter's OpenAI-compatible API (`https://openrouter.ai/api/v1`).
+- **`buildHeaders()` extension point**: new `protected` method on `OpenAICompatAdapter` for provider-specific headers. OpenRouter overrides to add `HTTP-Referer` and `X-Title` attribution headers.
+- **7 free models** in `MODEL_CATALOG` and `ModelCapabilityRegistry`: Nemotron 3 Nano 30B (default), Step 3.5 Flash, Trinity Large Preview, Llama 3.3 70B, Gemma 3 27B, Qwen3 Coder 480B, Mistral Small 3.1 24B.
+- **Gateway wiring**: `case "openrouter"` in `createProviderFromConfig()`. Reads `OPENROUTER_APP_URL` and `OPENROUTER_APP_NAME` env vars for attribution.
+- Zero new dependencies — uses raw `fetch` via inherited `OpenAICompatAdapter`.
+- All free models support tool calling and streaming. Gemma 3 27B also supports vision.
+
 ## v0.17.0 (2026-03-10) -- RAG Grounding Tier 1 + Integration CapabilityAnnotations
 
 ### Hallucination Prevention: System Prompt Grounding Directive
@@ -191,7 +201,7 @@
 - Engine primitives (Agent, Capability, Workflow, Memory, Task, Channel, Trigger) and composites (Team, Router, App).
 - YAML loader with full validation and error catalog (73 error codes).
 - Orchestrator with phase machine, checkpoint/resume, 3 team modes (sequential, supervisor, swarm).
-- 4 provider adapters (Anthropic, OpenAI, DeepSeek, Ollama).
+- 5 provider adapters (Anthropic, OpenAI, DeepSeek, OpenRouter, Ollama).
 - MCP client (Streamable HTTP, circuit breaker).
 - Memory (SQLite + FTS5, 5 scopes, decay, compaction, git sync).
 - Safety pipeline (PII scanner, content classifier, policy rails).

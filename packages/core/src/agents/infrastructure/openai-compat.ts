@@ -124,10 +124,7 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
     const response = await withRetry(
       () => fetch(`${this.baseUrl}/chat/completions`, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${this.apiKey}`,
-          "Content-Type": "application/json",
-        },
+        headers: this.buildHeaders(),
         body: JSON.stringify(body),
       }),
       this.retryOptions(),
@@ -300,13 +297,18 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
     return body;
   }
 
+  /** HTTP headers for API requests. Override in subclasses to add provider-specific headers. */
+  protected buildHeaders(): Record<string, string> {
+    return {
+      Authorization: `Bearer ${this.apiKey}`,
+      "Content-Type": "application/json",
+    };
+  }
+
   private async sendRequest(body: OpenAIRequestBody): Promise<OpenAIChatResponse> {
     const response = await fetch(`${this.baseUrl}/chat/completions`, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${this.apiKey}`,
-        "Content-Type": "application/json",
-      },
+      headers: this.buildHeaders(),
       body: JSON.stringify(body),
     });
 

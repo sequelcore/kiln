@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - **Bun 1.1+** -- runtime and package manager (`curl -fsSL https://bun.sh/install | bash`)
-- **API key** -- Anthropic recommended (`ANTHROPIC_API_KEY`). Alternatively: OpenAI, DeepSeek, or Ollama (local, no key)
+- **API key** -- Anthropic recommended (`ANTHROPIC_API_KEY`). Alternatively: OpenAI, DeepSeek, OpenRouter (free models available), or Ollama (local, no key)
 - **Node.js 20+** -- required only if using MCP tools that depend on the Node.js runtime
 
 ## Installation
@@ -25,7 +25,7 @@ The wizard asks:
 | Question | What it configures |
 |----------|--------------------|
 | App name | Top-level `name` field in `app.yaml` |
-| Provider | Which LLM provider (`anthropic`, `openai`, `deepseek`, `ollama`) and which API key env var |
+| Provider | Which LLM provider (`anthropic`, `openai`, `deepseek`, `openrouter`, `ollama`) and which API key env var |
 | Domain | Auto-detects your tech stack (react-ts, python, docs, support, data-pipeline) or lets you skip |
 | Channels | Which channel adapters to activate (`cli`, `web`, `api`, `whatsapp`, `instagram`, `messenger`, `slack`, `email`) |
 | Team mode | How agents collaborate: `sequential`, `supervisor`, or `swarm` |

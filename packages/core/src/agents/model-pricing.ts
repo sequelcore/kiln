@@ -19,6 +19,14 @@ export const MODEL_CATALOG: readonly CatalogPricing[] = [
   // DeepSeek
   { model: "deepseek-chat", provider: "deepseek", inputPer1M: 0.27, outputPer1M: 1.10, qualityTier: "medium" },
   { model: "deepseek-reasoner", provider: "deepseek", inputPer1M: 0.55, outputPer1M: 2.19, qualityTier: "medium" },
+  // OpenRouter (free tier)
+  { model: "nvidia/nemotron-3-nano-30b-a3b:free", provider: "openrouter", inputPer1M: 0, outputPer1M: 0, qualityTier: "medium" },
+  { model: "stepfun/step-3.5-flash:free", provider: "openrouter", inputPer1M: 0, outputPer1M: 0, qualityTier: "medium" },
+  { model: "arcee-ai/trinity-large-preview:free", provider: "openrouter", inputPer1M: 0, outputPer1M: 0, qualityTier: "medium" },
+  { model: "meta-llama/llama-3.3-70b-instruct:free", provider: "openrouter", inputPer1M: 0, outputPer1M: 0, qualityTier: "medium" },
+  { model: "google/gemma-3-27b-it:free", provider: "openrouter", inputPer1M: 0, outputPer1M: 0, qualityTier: "medium" },
+  { model: "qwen/qwen3-coder-480b-a35b-instruct:free", provider: "openrouter", inputPer1M: 0, outputPer1M: 0, qualityTier: "medium" },
+  { model: "mistralai/mistral-small-3.1-24b:free", provider: "openrouter", inputPer1M: 0, outputPer1M: 0, qualityTier: "medium" },
   // Local
   { model: "ollama-local", provider: "ollama", inputPer1M: 0, outputPer1M: 0, qualityTier: "low" },
 ];

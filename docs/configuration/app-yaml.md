@@ -766,7 +766,7 @@ When a reranker is configured, the retrieval pipeline over-fetches 4x the reques
 | `chunking.chunkSize` | `number` | No | Maximum chunk size in tokens. Default: 512. |
 | `chunking.overlap` | `number` | No | Token overlap between adjacent chunks. Default: 50. |
 | `chunking.contextual.enabled` | `boolean` | No | Enable contextual retrieval enrichment (Anthropic pattern). When enabled, each chunk is enriched with a LLM-generated context prefix before embedding, reducing failed retrievals by ~49%. Default: `false`. |
-| `chunking.contextual.provider` | `"anthropic" \| "openai" \| "deepseek" \| "ollama"` | Conditional | LLM provider for enrichment. Required when `contextual.enabled` is `true`. Anthropic recommended (supports prompt caching for ~90% cost reduction). |
+| `chunking.contextual.provider` | `"anthropic" \| "openai" \| "deepseek" \| "openrouter" \| "ollama"` | Conditional | LLM provider for enrichment. Required when `contextual.enabled` is `true`. Anthropic recommended (supports prompt caching for ~90% cost reduction). |
 | `chunking.contextual.model` | `string` | No | Model override for enrichment (e.g., `claude-haiku-4-5-20251001` for cost savings). |
 | `chunking.contextual.apiKeyEnv` | `string` | Conditional | Environment variable for API key. Required for non-Ollama providers. |
 | `chunking.contextual.baseUrl` | `string` | No | Base URL for Ollama or self-hosted providers. |
@@ -812,7 +812,7 @@ knowledge:
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `contactMemory.enabled` | `boolean` | No | Enable per-user contact memory. Default: `false`. |
-| `contactMemory.provider` | `"anthropic" \| "openai" \| "deepseek" \| "ollama"` | Yes (when enabled) | LLM provider for fact extraction. |
+| `contactMemory.provider` | `"anthropic" \| "openai" \| "deepseek" \| "openrouter" \| "ollama"` | Yes (when enabled) | LLM provider for fact extraction. |
 | `contactMemory.model` | `string` | No | Model name. Uses provider default if omitted. |
 | `contactMemory.apiKeyEnv` | `string` | Yes (non-ollama) | Environment variable name for the API key. |
 | `contactMemory.baseUrl` | `string` | No | Base URL for Ollama or self-hosted providers. |

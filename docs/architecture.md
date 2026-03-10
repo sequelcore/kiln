@@ -20,7 +20,7 @@ This document is for contributors. For user documentation, see the [guides](guid
 |---------|---------|----------|---------|
 | `engine` | `@kilnai/core` | `packages/core/src/engine/` | 7 primitives + 3 composites + YAML loader + gateway config types + cron parser. Zero external dependencies. |
 | `orchestrator` | `@kilnai/core` | `packages/core/src/orchestrator/` | Phase machine, orchestrator, checkpoint/resume/fork, configurable phase sequence and gate enforcement. |
-| `agents` | `@kilnai/core` | `packages/core/src/agents/` | Provider adapter interface and implementations (Anthropic, OpenAI, DeepSeek, Ollama). MCP client (Streamable HTTP transport via official SDK, circuit breaker, tool description scanning for prompt injection). Tool RAG (embedding-based tool selection). Agent RAG (embedding-based agent routing). Model capability registry, complexity scorer, rules router. Sliding window rate limiter. |
+| `agents` | `@kilnai/core` | `packages/core/src/agents/` | Provider adapter interface and implementations (Anthropic, OpenAI, DeepSeek, OpenRouter, Ollama). MCP client (Streamable HTTP transport via official SDK, circuit breaker, tool description scanning for prompt injection). Tool RAG (embedding-based tool selection). Agent RAG (embedding-based agent routing). Model capability registry, complexity scorer, rules router. Sliding window rate limiter. |
 | `memory` | `@kilnai/core` | `packages/core/src/memory/` | SQLite + FTS5 store (decay + compaction), gzipped JSONL store, git sync. |
 | `tree` | `@kilnai/core` | `packages/core/src/tree/` | Task tree: scoring, batch selection, deepen/branch/prune. |
 | `domain` | `@kilnai/core` | `packages/core/src/domain/` | Domain registry, YAML schema, 5 built-in domain kits, domain package adapter. |

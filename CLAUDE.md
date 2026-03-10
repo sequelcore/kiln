@@ -21,7 +21,7 @@ Bun monorepo with 6 packages:
 |---------|----------|---------|
 | engine | `core/src/engine/` | 7 primitives + 3 composites + YAML loader + gateway config + cron parser. Zero external deps except `yaml`. |
 | orchestrator | `core/src/orchestrator/` | Phase machine, checkpoint/resume, strategies (sequential, supervisor, swarm) |
-| agents | `core/src/agents/` | Provider adapters (Anthropic, OpenAI, DeepSeek, Ollama), tool cache, MCP client (Streamable HTTP, official SDK), circuit breaker, Tool RAG, model capability registry, complexity scorer, rules router, sliding window rate limiter |
+| agents | `core/src/agents/` | Provider adapters (Anthropic, OpenAI, DeepSeek, OpenRouter, Ollama), tool cache, MCP client (Streamable HTTP, official SDK), circuit breaker, Tool RAG, model capability registry, complexity scorer, rules router, sliding window rate limiter |
 | memory | `core/src/memory/` | Scoped storage (user, agent, team, project, org), SQLite + FTS5, git sync, decay, compaction |
 | tree | `core/src/tree/` | Task tree (scoring, deepen/branch/prune), batch executor |
 | sandbox | `core/src/sandbox/` | Per-agent filesystem + network isolation |
@@ -112,6 +112,7 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `agents/infrastructure/anthropic.ts` | Anthropic SDK adapter (retry, streaming, structured outputs) |
 | `agents/infrastructure/openai.ts` | OpenAI adapter |
 | `agents/infrastructure/deepseek.ts` | DeepSeek adapter |
+| `agents/infrastructure/openrouter.ts` | OpenRouter adapter (free-tier models via OpenAI-compat API) |
 | `agents/infrastructure/ollama.ts` | Ollama adapter (local models) |
 | `agents/mcp-client.ts` | MCP client (Streamable HTTP via official SDK, circuit breaker) |
 | `agents/tool-rag.ts` | Embedding-based tool selection |
@@ -295,24 +296,11 @@ IntegrationExecutor  → adapter registry (zero code, credentials only)
 
 **Research doc:** `docs/archive/integration-runtime-research.md` — 10-platform competitive analysis, credential management architecture, full Kiln integration map, implementation plan (4 phases).
 
-### OpenRouter Provider Adapter (Free-Tier Model Access)
+### ~~OpenRouter Provider Adapter (Free-Tier Model Access)~~ — DONE (v0.18.0)
 
-**Context:** OpenClaw (280K+ GitHub stars) runs primarily on free models via OpenRouter — consuming 59.2B tokens/month from NVIDIA Nemotron 3 Nano 30B alone ($0/M input, $0/M output). OpenRouter provides a unified OpenAI-compatible API with access to hundreds of models (free and paid), automatic provider fallback, and multi-provider resilience.
+`OpenRouterAdapter` extends `OpenAICompatAdapter` with `HTTP-Referer` and `X-Title` attribution headers via `buildHeaders()` override. 7 free models in catalog (Nemotron 3 Nano, Step 3.5 Flash, Trinity Large, Llama 3.3 70B, Gemma 3 27B, Qwen3 Coder, Mistral Small 3.1). Default: `nvidia/nemotron-3-nano-30b-a3b:free`. Gateway wiring reads `OPENROUTER_APP_URL` and `OPENROUTER_APP_NAME` env vars.
 
-**Strategic position:** An OpenRouter adapter unlocks two things simultaneously:
-1. **OpenKiln** — personal AI agent running on 100% free models, zero cost for the end user
-2. **Kilvo** — viable free tier for SMB acquisition funnel + cost optimization on paid tiers (route simple messages to free models, complex to paid)
-
-**Implementation scope:** Minimal — OpenRouter uses the OpenAI-compatible API (`https://openrouter.ai/api/v1`). The existing OpenAI adapter can be extended or wrapped with OpenRouter-specific headers (`HTTP-Referer`, `X-Title`) and model ID format (`provider/model-name`). Kiln's model routing (complexity scoring + rules engine) would select between free and paid models per request.
-
-**Free models available via OpenRouter (as of March 2026):**
-- NVIDIA Nemotron 3 Nano 30B A3B (256K context, MoE)
-- Llama 4 Scout (512K context)
-- DeepSeek V3 (128K context)
-- Gemma 3 (128K context)
-- Qwen 2.5 (131K context, strong multilingual/Spanish)
-
-**Research doc:** TBD — needs adapter design, OpenRouter rate limits analysis, model routing configuration patterns for free/paid tiering.
+**Research doc:** `docs/archive/openrouter-adapter-research.md`
 
 ### OpenKiln (Personal AI Agent)
 

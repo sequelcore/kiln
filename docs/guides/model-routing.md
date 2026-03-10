@@ -8,7 +8,7 @@ Model routing runs inside `ModeBOrchestrator.processMessage()` before the LLM ca
 
 ## Model Capability Registry
 
-The `ModelCapabilityRegistry` maintains static capability profiles for 10 built-in models across 4 providers:
+The `ModelCapabilityRegistry` maintains static capability profiles for 17 built-in models across 5 providers:
 
 | Model | Provider | Quality | Tools | Streaming | Vision | Context |
 |-------|----------|---------|-------|-----------|--------|---------|
@@ -21,6 +21,13 @@ The `ModelCapabilityRegistry` maintains static capability profiles for 10 built-
 | `o3-mini` | OpenAI | medium | yes | no | yes | 200K |
 | `deepseek-chat` | DeepSeek | medium | yes | yes | no | 64K |
 | `deepseek-reasoner` | DeepSeek | medium | no | yes | no | 64K |
+| `nvidia/nemotron-3-nano-30b-a3b:free` | OpenRouter | medium | yes | yes | no | 256K |
+| `stepfun/step-3.5-flash:free` | OpenRouter | medium | yes | yes | no | 256K |
+| `arcee-ai/trinity-large-preview:free` | OpenRouter | medium | yes | yes | no | 131K |
+| `meta-llama/llama-3.3-70b-instruct:free` | OpenRouter | medium | yes | yes | no | 128K |
+| `google/gemma-3-27b-it:free` | OpenRouter | medium | yes | yes | yes | 131K |
+| `qwen/qwen3-coder-480b-a35b-instruct:free` | OpenRouter | medium | yes | yes | no | 262K |
+| `mistralai/mistral-small-3.1-24b:free` | OpenRouter | medium | yes | yes | no | 128K |
 | `ollama-local` | Ollama | low | no | yes | no | 128K |
 
 The registry exposes two methods:

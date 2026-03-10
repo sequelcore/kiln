@@ -8,7 +8,7 @@ Mode A runs phase-gated agentic workflows via a Claude Code subprocess -- it has
 
 **How do I add a new LLM provider?**
 
-Implement the `ProviderAdapter` interface in `packages/core/src/agents/infrastructure/` following the pattern of the existing adapters (Anthropic, OpenAI, DeepSeek, Ollama). Register it in the `ProviderRegistry`. Four adapters ship by default; for Mode B apps, set `provider.name` in `app.yaml` to the registered name and set `provider.apiKeyEnv` to the env var holding the key.
+Implement the `ProviderAdapter` interface in `packages/core/src/agents/infrastructure/` following the pattern of the existing adapters (Anthropic, OpenAI, DeepSeek, OpenRouter, Ollama). Register it in the `ProviderRegistry`. Five adapters ship by default; for Mode B apps, set `provider.name` in `app.yaml` to the registered name and set `provider.apiKeyEnv` to the env var holding the key.
 
 ---
 

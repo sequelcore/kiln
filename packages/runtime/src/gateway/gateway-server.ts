@@ -12,6 +12,7 @@ import {
   OpenAIAdapter,
   DeepSeekAdapter,
   OllamaAdapter,
+  OpenRouterAdapter,
   KilnError,
   OTelExporter,
   SafetyPipeline,
@@ -948,6 +949,13 @@ function createProviderFromConfig(config: ProviderConfig): ProviderAdapter {
       return new DeepSeekAdapter({ apiKey, defaultModel: model });
     case "ollama":
       return new OllamaAdapter({ defaultModel: model });
+    case "openrouter":
+      return new OpenRouterAdapter({
+        apiKey,
+        defaultModel: model,
+        appUrl: process.env.OPENROUTER_APP_URL,
+        appName: process.env.OPENROUTER_APP_NAME,
+      });
     default:
       throw new KilnError("CONFIG_INVALID", `Unknown provider: ${config.name}`, {
         context: { provider: config.name },

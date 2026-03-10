@@ -174,7 +174,7 @@ billing:
       agents: [fast, coding, reasoning]
 ```
 
-Supported providers: `anthropic`, `openai`, `deepseek`, `ollama`. The `apiKeyEnv` field names the environment variable holding the key. Ollama requires no key.
+Supported providers: `anthropic`, `openai`, `deepseek`, `openrouter`, `ollama`. The `apiKeyEnv` field names the environment variable holding the key. Ollama requires no key. OpenRouter also reads `OPENROUTER_APP_URL` and `OPENROUTER_APP_NAME` for attribution headers.
 
 ---
 

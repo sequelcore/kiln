@@ -80,6 +80,16 @@ export { ProviderRegistry } from "./provider-registry.js";
 export { OpenAIAdapter, GPT4O, GPT4O_MINI, O3, O3_MINI } from "./infrastructure/openai.js";
 export { DeepSeekAdapter, DEEPSEEK_CHAT, DEEPSEEK_REASONER } from "./infrastructure/deepseek.js";
 export { OllamaAdapter, LLAMA3, CODELLAMA, DEEPSEEK_CODER } from "./infrastructure/ollama.js";
+export {
+  OpenRouterAdapter,
+  NEMOTRON_NANO_FREE,
+  STEP_FLASH_FREE,
+  TRINITY_LARGE_FREE,
+  LLAMA_33_70B_FREE,
+  GEMMA_3_27B_FREE,
+  QWEN3_CODER_FREE,
+  MISTRAL_SMALL_FREE,
+} from "./infrastructure/openrouter.js";
 export { type CatalogPricing, MODEL_CATALOG } from "./model-pricing.js";
 export { CircuitBreaker } from "./circuit-breaker.js";
 export type { CircuitBreakerConfig, CircuitState } from "./circuit-breaker.js";
