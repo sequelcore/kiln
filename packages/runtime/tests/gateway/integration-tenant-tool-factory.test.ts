@@ -79,7 +79,7 @@ describe("buildTenantToolContext — integrations", () => {
 
     const result = await ctx.callBuiltinTools.get("cal_book")!({ date: "2026-03-10" });
     expect(result).toEqual({ ok: true });
-    expect(resolver.resolve).toHaveBeenCalledWith("t1", "gc-tok");
+    expect(resolver.resolve).toHaveBeenCalledWith("t1", "cal");
     expect(adapter.execute).toHaveBeenCalledWith(
       "book",
       { type: "bearer", value: "tok" },

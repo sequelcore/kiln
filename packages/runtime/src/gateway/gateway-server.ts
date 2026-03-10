@@ -255,6 +255,8 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
     }
     if (secretStore) {
       configureIntegrationDeps({ registry, credentialResolver: new LocalCredentialResolver(secretStore) });
+      const providers = options.integrations.map((a) => a.provider).join(", ");
+      console.log(`Integrations: ${options.integrations.length} adapter(s) registered (${providers})`);
     } else {
       console.warn("Integrations: adapters registered but no secretKeyEnv configured — credential resolution disabled");
     }

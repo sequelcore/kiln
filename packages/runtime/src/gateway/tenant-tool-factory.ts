@@ -69,7 +69,7 @@ export function buildTenantToolContext(
       const adapter = registry.get(integration.provider);
       if (!adapter) continue; // Skip unregistered providers silently
 
-      const executor = new IntegrationExecutor(adapter, credentialResolver, tenant.tenantId, integration.credentialKey);
+      const executor = new IntegrationExecutor(adapter, credentialResolver, tenant.tenantId, integration.provider);
       const defs = registry.getToolDefinitions(integration.provider, integration.operations);
 
       for (const def of defs) {

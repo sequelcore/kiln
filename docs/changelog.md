@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.15.2 (2026-03-10) -- Integration Credential Resolution Fix
+
+### Integration Runtime: Credential Key Mismatch
+- **Fix:** `buildTenantToolContext()` now passes `integration.provider` (not `integration.credentialKey`) to `IntegrationExecutor`. Previously, after `TenantRegistry.hydrateSecrets()` replaced `[encrypted]` with the raw token, the executor would use the token as a SecretStore lookup key — which never matched. Now the credential resolver correctly looks up `tenant:{id}:integration:{provider}`.
+- **Startup logging:** Gateway logs registered adapter count and provider names on startup (e.g., `Integrations: 3 adapter(s) registered (google_calendar, stripe, google_sheets)`).
+
 ## v0.15.1 (2026-03-10) -- AesSecretStore Bug Fixes
 
 ### AesSecretStore: Directory Creation + Atomic Writes
