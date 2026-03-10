@@ -1,10 +1,12 @@
 // Builds per-request tool infrastructure from a TenantConfig.
 // Called once per inbound message in channel handlers.
 
-import type { TenantConfig, ToolDefinition, RateLimiter } from "@kilnai/core";
+import type { TenantConfig, ToolDefinition, RateLimiter, CredentialResolver } from "@kilnai/core";
 import { SlidingWindowRateLimiter } from "@kilnai/core";
 import { WebhookToolExecutor } from "./webhook-tool-executor.js";
 import type { WebhookToolConfig } from "./webhook-tool-executor.js";
+import type { IntegrationRegistry } from "./integration-registry.js";
+import { IntegrationExecutor } from "./integration-executor.js";
 
 export interface TenantToolContext {
   readonly callBuiltinTools: ReadonlyMap<string, (input: Record<string, unknown>) => Promise<unknown>>;
@@ -12,6 +14,23 @@ export interface TenantToolContext {
   readonly toolAllowlist?: ReadonlySet<string>;
   readonly rateLimiter?: RateLimiter;
   readonly maxToolRounds?: number;
+}
+
+export interface IntegrationDeps {
+  readonly registry: IntegrationRegistry;
+  readonly credentialResolver: CredentialResolver;
+}
+
+let _integrationDeps: IntegrationDeps | undefined;
+
+/** Configure integration dependencies once at gateway startup. */
+export function configureIntegrationDeps(deps: IntegrationDeps): void {
+  _integrationDeps = deps;
+}
+
+/** Clear integration deps (for testing). */
+export function clearIntegrationDeps(): void {
+  _integrationDeps = undefined;
 }
 
 const DEFAULT_WEBHOOK_TIMEOUT_MS = 30_000;
@@ -43,14 +62,32 @@ export function buildTenantToolContext(
     toolDefinitions.push(...executor.getToolDefinitions());
   }
 
-  // 2. Merge existing builtins (existing take precedence on collision)
+  // 2. Build integration tools
+  if (_integrationDeps && tenant.integrations && tenant.integrations.length > 0) {
+    const { registry, credentialResolver } = _integrationDeps;
+    for (const integration of tenant.integrations) {
+      const adapter = registry.get(integration.provider);
+      if (!adapter) continue; // Skip unregistered providers silently
+
+      const executor = new IntegrationExecutor(adapter, credentialResolver, tenant.tenantId, integration.credentialKey);
+      const defs = registry.getToolDefinitions(integration.provider, integration.operations);
+
+      for (const def of defs) {
+        const opName = def.name.slice(integration.provider.length + 1);
+        callBuiltinTools.set(def.name, (input) => executor.execute(opName, input));
+      }
+      toolDefinitions.push(...defs);
+    }
+  }
+
+  // 3. Merge existing builtins (existing take precedence on collision)
   if (existingBuiltins) {
     for (const [name, fn] of existingBuiltins) {
       callBuiltinTools.set(name, fn);
     }
   }
 
-  // 3. Build allowlist
+  // 4. Build allowlist
   let toolAllowlist: Set<string> | undefined;
   if (tenant.tools) {
     toolAllowlist = new Set(tenant.tools);
@@ -58,15 +95,24 @@ export function buildTenantToolContext(
     for (const wt of tenant.webhookTools ?? []) {
       toolAllowlist.add(wt.name);
     }
+    // Also add integration tool names to the allowlist
+    if (_integrationDeps && tenant.integrations) {
+      for (const intg of tenant.integrations) {
+        const defs = _integrationDeps.registry.getToolDefinitions(intg.provider, intg.operations);
+        for (const def of defs) {
+          toolAllowlist.add(def.name);
+        }
+      }
+    }
   }
 
-  // 4. Build rate limiter
+  // 5. Build rate limiter
   let rateLimiter: RateLimiter | undefined;
   if (tenant.toolConfig?.rateLimits) {
     rateLimiter = new SlidingWindowRateLimiter(tenant.toolConfig.rateLimits);
   }
 
-  // 5. Max tool rounds
+  // 6. Max tool rounds
   const maxToolRounds = tenant.toolConfig?.maxIterationsPerSession;
 
   return {

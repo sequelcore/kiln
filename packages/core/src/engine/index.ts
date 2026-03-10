@@ -26,6 +26,15 @@ export type {
   ToolAuthorizer,
   ToolExecutionResult,
 } from "./domain/tool-execution.js";
+export type {
+  IntegrationAdapter,
+  IntegrationOperation,
+  IntegrationResult,
+  IntegrationResultMetadata,
+  ExecutionOptions,
+  CredentialResolver,
+  ResolvedCredential,
+} from "./domain/integration.js";
 export type { RateLimitConfig, RateLimitResult, RateLimiter } from "./domain/rate-limiter.js";
 export type { Workflow, Gate } from "./domain/workflow.js";
 export type { Memory, MemoryScope, MemoryEntry } from "./domain/memory.js";
@@ -136,6 +145,7 @@ export type {
   TenantTone,
   TenantBilling,
   TenantWebhookTool,
+  TenantIntegration,
   TenantToolConfig,
   TenantAgentConfig,
   TenantRoutingRule,

@@ -72,6 +72,19 @@ export class TenantRegistry {
       result.webhookTools = encryptedTools;
     }
 
+    // Encrypt integration credential keys
+    if (config.integrations && config.integrations.length > 0) {
+      const encryptedIntegrations = config.integrations.map(intg => {
+        if (intg.credentialKey && intg.credentialKey !== ENCRYPTED_PLACEHOLDER) {
+          const secretKey = `tenant:${config.tenantId}:integration:${intg.provider}`;
+          this.secretStore!.set(secretKey, intg.credentialKey);
+          return { ...intg, credentialKey: ENCRYPTED_PLACEHOLDER };
+        }
+        return intg;
+      });
+      result.integrations = encryptedIntegrations;
+    }
+
     return result as unknown as TenantConfig;
   }
 
@@ -109,6 +122,19 @@ export class TenantRegistry {
       result.webhookTools = hydratedTools;
     }
 
+    // Hydrate integration credential keys
+    if (config.integrations && config.integrations.length > 0) {
+      const hydratedIntegrations = config.integrations.map(intg => {
+        if (intg.credentialKey === ENCRYPTED_PLACEHOLDER) {
+          const secretKey = `tenant:${config.tenantId}:integration:${intg.provider}`;
+          const decrypted = this.secretStore!.get(secretKey);
+          if (decrypted) return { ...intg, credentialKey: decrypted };
+        }
+        return intg;
+      });
+      result.integrations = hydratedIntegrations;
+    }
+
     return result as unknown as TenantConfig;
   }
 
@@ -125,6 +151,13 @@ export class TenantRegistry {
     if (config?.webhookTools) {
       for (const wt of config.webhookTools) {
         this.secretStore.delete(`tenant:${tenantId}:webhookTool:${wt.name}`);
+      }
+    }
+
+    // Delete integration credential secrets
+    if (config?.integrations) {
+      for (const intg of config.integrations) {
+        this.secretStore.delete(`tenant:${tenantId}:integration:${intg.provider}`);
       }
     }
   }

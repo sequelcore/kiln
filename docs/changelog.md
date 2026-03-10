@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.14.0 (2026-03-09) -- Integration Runtime
+
+### Integration Runtime (Phase 1: Core Interfaces + Runtime Wiring)
+- **IntegrationAdapter interface**: Domain interface in `core/engine/domain/integration.ts` — provider, version, operations, execute(). CredentialResolver and ResolvedCredential for credential delegation.
+- **IntegrationRegistry**: Adapter registry with `register()`, `get()`, `has()`, `resolveOperation()`, `getToolDefinitions()`. Tool naming: `{provider}_{operation}` with `["integration", provider]` tags.
+- **IntegrationExecutor**: Per-tenant adapter execution with credential resolution via CredentialResolver, 30s timeout via AbortSignal, KilnError wrapping for adapter/credential failures.
+- **LocalCredentialResolver**: SecretStore-backed credential resolution. JSON-structured credentials (type, value, headers) or plain string as bearer token. Key pattern: `tenant:{tenantId}:integration:{credentialKey}`.
+- **TenantConfig.integrations[]**: Per-tenant integration config (provider, credentialKey, operations filter, config). Validation: unique providers, non-empty fields, operations sub-array.
+- **Wired via buildTenantToolContext()**: Module-level `configureIntegrationDeps()`/`clearIntegrationDeps()` — zero changes to channel handlers, orchestrator, or message pipeline.
+- **Credential encryption**: TenantRegistry encrypts/hydrates/deletes integration credentials alongside webhook tool secrets.
+- **Admin API**: `integrations` added to MUTABLE_TENANT_FIELDS.
+- **3 new error codes**: `INTEGRATION_TOOL_FAILED`, `INTEGRATION_ADAPTER_NOT_FOUND`, `CREDENTIAL_RESOLVE_FAILED` with context-aware suggestions in error catalog.
+- Three tool executor types now operational: WebhookToolExecutor (HTTP POST + HMAC), IntegrationExecutor (adapter registry + credentials), McpClient (external MCP servers).
+
+## v0.13.0 (2026-03-09) -- Widget Markdown Rendering
+
+- **Custom markdown renderer**: Zero-dep markdown renderer in `widget/src/markdown.ts`. Supports bold, italic, inline code, fenced code blocks, ordered/unordered lists, links. Pure DOM API, no innerHTML. 20 dedicated tests.
+
 ## v0.12.0 (2026-03-09) -- WhatsApp Coexistence Auto-Handoff
 
 ### Coexistence Support

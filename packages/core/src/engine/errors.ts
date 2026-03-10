@@ -93,6 +93,10 @@ export type KilnErrorCode =
   // Tool execution (Phase 5b)
   | "TOOL_RATE_LIMITED"
   | "WEBHOOK_TOOL_FAILED"
+  // Integration tools
+  | "INTEGRATION_TOOL_FAILED"
+  | "INTEGRATION_ADAPTER_NOT_FOUND"
+  | "CREDENTIAL_RESOLVE_FAILED"
   // Safety (Phase 12)
   | "PII_DETECTED"
   | "CONTENT_POLICY_VIOLATED"

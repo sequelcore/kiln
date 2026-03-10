@@ -174,6 +174,14 @@ export type { EnrichmentRunnerConfig } from "./enrichment/enrichment-runner.js";
 export { createEnrichmentAdminRoutes } from "./gateway/enrichment-admin-routes.js";
 export type { EnrichmentAdminRoutesConfig } from "./gateway/enrichment-admin-routes.js";
 
+// Integration Runtime
+export { IntegrationRegistry } from "./gateway/integration-registry.js";
+export type { ResolvedOperation } from "./gateway/integration-registry.js";
+export { IntegrationExecutor } from "./gateway/integration-executor.js";
+export { LocalCredentialResolver } from "./gateway/local-credential-resolver.js";
+export { configureIntegrationDeps, clearIntegrationDeps } from "./gateway/tenant-tool-factory.js";
+export type { IntegrationDeps } from "./gateway/tenant-tool-factory.js";
+
 // Auth
 export { requireApiKey, requireBearer, requireWebhookSignature, isOriginAllowed } from "./gateway/auth-middleware.js";
 

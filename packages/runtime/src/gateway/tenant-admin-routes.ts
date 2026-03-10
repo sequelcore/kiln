@@ -35,6 +35,7 @@ const MUTABLE_TENANT_FIELDS = [
   "tools",
   "toolConfig",
   "webhookTools",
+  "integrations",
   "agents",
   "routing",
   "instagramPageId",

@@ -141,6 +141,7 @@ export type {
   TenantTone,
   TenantBilling,
   TenantWebhookTool,
+  TenantIntegration,
   TenantToolConfig,
   TenantAgentConfig,
   TenantRoutingRule,
@@ -272,6 +273,17 @@ export type {
   ToolAuthorizer,
   ToolExecutionResult,
 } from "./engine/domain/tool-execution.js";
+
+// Integration adapter types re-exported for direct access by runtime
+export type {
+  IntegrationAdapter,
+  IntegrationOperation,
+  IntegrationResult,
+  IntegrationResultMetadata,
+  ExecutionOptions,
+  CredentialResolver,
+  ResolvedCredential,
+} from "./engine/domain/integration.js";
 
 // Rate limiter types + implementation re-exported for direct access by runtime
 export type { RateLimiter, RateLimitConfig, RateLimitResult } from "./engine/domain/rate-limiter.js";

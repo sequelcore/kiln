@@ -515,6 +515,28 @@ export function getErrorSuggestion(
       return { suggestion, docUrl: docUrl(code) };
     }
 
+    case "INTEGRATION_TOOL_FAILED": {
+      const provider = context?.provider;
+      const operation = context?.operation;
+      let suggestion = "Integration tool execution failed.";
+      if (provider) suggestion += ` Provider: "${provider}".`;
+      if (operation) suggestion += ` Operation: "${operation}".`;
+      suggestion += " Check the provider API status and verify credentials are valid.";
+      return { suggestion, docUrl: docUrl(code) };
+    }
+
+    case "INTEGRATION_ADAPTER_NOT_FOUND": {
+      const provider = context?.provider;
+      const suggestion = `No adapter registered for provider "${provider ?? "unknown"}". Install the adapter package and register it with IntegrationRegistry.`;
+      return { suggestion, docUrl: docUrl(code) };
+    }
+
+    case "CREDENTIAL_RESOLVE_FAILED": {
+      const credentialKey = context?.credentialKey;
+      const suggestion = `Failed to resolve credentials for "${credentialKey ?? "unknown"}". Verify the credential key is valid and the resolver is configured.`;
+      return { suggestion, docUrl: docUrl(code) };
+    }
+
     case "PII_DETECTED":
       return {
         suggestion:

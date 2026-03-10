@@ -49,6 +49,14 @@ export interface TenantWebhookTool {
   readonly inputSchema?: Record<string, unknown>;
 }
 
+/** Integration adapter binding for a tenant */
+export interface TenantIntegration {
+  readonly provider: string;
+  readonly credentialKey: string;
+  readonly operations?: readonly string[];
+  readonly config?: Readonly<Record<string, unknown>>;
+}
+
 /** Per-tenant tool execution configuration */
 export interface TenantToolConfig {
   readonly maxIterationsPerSession?: number;
@@ -160,6 +168,7 @@ export interface TenantConfig {
   readonly tools?: readonly string[];
   readonly toolConfig?: TenantToolConfig;
   readonly webhookTools?: readonly TenantWebhookTool[];
+  readonly integrations?: readonly TenantIntegration[];
   readonly agents?: readonly TenantAgentConfig[];
   readonly routing?: TenantRoutingConfig;
   readonly modelConfig?: TenantModelConfig;
@@ -285,6 +294,40 @@ export function validateTenantConfig(config: TenantConfig): TenantValidationErro
         }
         if (typeof wt.secret !== "string" || !wt.secret) {
           errors.push({ field: `webhookTools[${i}].secret`, message: "must be a non-empty string" });
+        }
+      }
+    }
+  }
+
+  // integrations: if present, must be array with valid entries and unique providers
+  if (config.integrations !== undefined) {
+    if (!Array.isArray(config.integrations)) {
+      errors.push({ field: "integrations", message: "must be an array of integration definitions" });
+    } else {
+      const seenProviders = new Set<string>();
+      for (let i = 0; i < config.integrations.length; i++) {
+        const intg = config.integrations[i]!;
+        if (typeof intg.provider !== "string" || !intg.provider) {
+          errors.push({ field: `integrations[${i}].provider`, message: "must be a non-empty string" });
+        } else {
+          if (seenProviders.has(intg.provider)) {
+            errors.push({ field: `integrations[${i}].provider`, message: `duplicate integration provider: "${intg.provider}"` });
+          }
+          seenProviders.add(intg.provider);
+        }
+        if (typeof intg.credentialKey !== "string" || !intg.credentialKey) {
+          errors.push({ field: `integrations[${i}].credentialKey`, message: "must be a non-empty string" });
+        }
+        if (intg.operations !== undefined) {
+          if (!Array.isArray(intg.operations)) {
+            errors.push({ field: `integrations[${i}].operations`, message: "must be an array of operation name strings" });
+          } else {
+            for (let j = 0; j < intg.operations.length; j++) {
+              if (typeof intg.operations[j] !== "string" || !intg.operations[j]) {
+                errors.push({ field: `integrations[${i}].operations[${j}]`, message: "must be a non-empty string" });
+              }
+            }
+          }
         }
       }
     }
