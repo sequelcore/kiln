@@ -77,7 +77,37 @@ bun run test                   # Vitest all packages
 - Tests: `bun run test` -- all pass
 - No `@temper` references: `grep -r "@temper" packages/` -- zero results
 
-## Commit Format
+## Git Workflow
+
+### Branching
+
+| Branch | Purpose | Merges to |
+|--------|---------|-----------|
+| `main` | Production-ready. Always green. Tagged releases. | -- |
+| `feat/<scope>/<short-name>` | New features | `main` via PR |
+| `fix/<scope>/<short-name>` | Bug fixes | `main` via PR |
+| `refactor/<scope>/<short-name>` | Code improvements | `main` via PR |
+| `chore/<short-name>` | Deps, CI, tooling | `main` via PR |
+
+Examples: `feat/agents/openrouter-adapter`, `fix/gateway/credential-resolution`, `refactor/session/cleanup`
+
+### Pull Requests
+
+- Every change goes through a PR -- no direct pushes to `main`
+- PR title follows commit format: `type(scope): description`
+- Squash merge to `main` (single clean commit per feature)
+- All quality gates must pass before merge (typecheck, tests, no `@temper` refs)
+- PR body: `## Summary` (1-3 bullets) + `## Test plan` (checklist)
+
+### Releases
+
+- Tag `main` after merging: `git tag vX.Y.Z`
+- Semver: `feat` = minor bump, `fix` = patch bump, breaking = major bump
+- All 5 packages share the same version (monorepo lockstep)
+- Bump versions in all `package.json` files before tagging
+- Changelog entry in `docs/changelog.md` required for every version
+
+### Commit Format
 
 ```
 type(scope): description
