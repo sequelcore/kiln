@@ -154,6 +154,7 @@ export type {
   WhatsAppCoexistenceConfig,
   EmailTransportConfig,
   TenantValidationError,
+  GroundingMode,
 } from "./engine/gateway/tenant-config.js";
 export { validateTenantConfig } from "./engine/gateway/tenant-config.js";
 

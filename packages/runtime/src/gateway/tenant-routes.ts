@@ -88,6 +88,7 @@ export function createTenantRoutes(runtime: TenantAppRuntime): Hono {
       billing: billingConfig,
       channel: "api",
       idleTimeoutMs: tenant.idleTimeoutMs,
+      groundingMode: tenant.groundingMode,
     });
 
     if (!processResult.ok) {

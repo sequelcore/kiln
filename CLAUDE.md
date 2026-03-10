@@ -225,31 +225,14 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 ### ~~Abuse Protection Hardening~~ — DONE (v0.11.0)
 Implemented: `TenantConfig.sessionLimits` (maxTokens, maxTurns), `detectRepetitiveAbuse()`, `SESSION_LIMIT_REACHED` event. All channels auto-escalate to `human_active` on limit breach.
 
-### RAG Grounding (Hallucination Prevention)
+### ~~RAG Grounding Tier 1~~ — DONE (v0.17.0)
+Implemented: `TenantConfig.groundingMode` (`"off"` | `"strict"`). When `strict` and knowledge context exists, `appendGroundingDirective()` appends `--- Grounding Rules ---` after recalled memory. Wired across all 6 channels + shared pipeline. Zero cost, zero latency.
 
-**Problem:** When knowledge mode is `auto`, RAG context is appended to the system prompt as `--- Recalled Memory ---` but there is no directive telling the model to stay grounded. If the query falls outside indexed content, the model fabricates answers from training data. This is dangerous for compliance-heavy use cases (legal, regulatory, financial).
-
-**Tier 1 — System Prompt Grounding Directive (low cost, high impact)**
-
-Add `groundingMode` to `TenantConfig` (`off` | `strict`). When `strict`, the message pipeline injects a grounding directive after the knowledge context:
-
-```
---- Grounding Rules ---
-Answer ONLY from the knowledge context, configured services, and FAQs provided above.
-If the answer is not in your provided context, say you don't have that information
-and offer to connect the user with the human team.
-Never fabricate specific data (regulations, prices, dates, legal references).
-```
-
-Implementation: `runtime/src/gateway/message-pipeline.ts` or `runtime/src/session/mode-b-orchestrator.ts` where `Recalled Memory` is appended. Zero cost — just a system prompt addition.
-
-**Tier 2 — Post-Generation Grounding Rail (expensive, bulletproof)**
+### RAG Grounding Tier 2 (Post-Generation Rail)
 
 Add a `grounding` rail to the safety pipeline. After the model responds, a lightweight model (Haiku) checks whether the response is supported by the retrieved chunks. If not, flag or rewrite.
 
 Adds ~200ms latency + 1 LLM call per message. Suitable as a premium feature for regulated industries.
-
-**Priority:** Tier 1 first — covers ~95% of hallucination cases with zero added cost.
 
 ### ~~Widget Markdown Rendering~~ — DONE (v0.13.0)
 Implemented: Custom zero-dep markdown renderer in `widget/src/markdown.ts`. Supports bold, italic, inline code, fenced code blocks, ordered/unordered lists, links. Pure DOM API, no innerHTML. 20 dedicated tests.
@@ -311,6 +294,25 @@ IntegrationExecutor  → adapter registry (zero code, credentials only)
 **Phase 4 — MCP surface (TODO):** Adapters exposable as MCP tools (same implementation, two surfaces).
 
 **Research doc:** `docs/archive/integration-runtime-research.md` — 10-platform competitive analysis, credential management architecture, full Kiln integration map, implementation plan (4 phases).
+
+### OpenRouter Provider Adapter (Free-Tier Model Access)
+
+**Context:** OpenClaw (280K+ GitHub stars) runs primarily on free models via OpenRouter — consuming 59.2B tokens/month from NVIDIA Nemotron 3 Nano 30B alone ($0/M input, $0/M output). OpenRouter provides a unified OpenAI-compatible API with access to hundreds of models (free and paid), automatic provider fallback, and multi-provider resilience.
+
+**Strategic position:** An OpenRouter adapter unlocks two things simultaneously:
+1. **OpenKiln** — personal AI agent running on 100% free models, zero cost for the end user
+2. **Kilvo** — viable free tier for SMB acquisition funnel + cost optimization on paid tiers (route simple messages to free models, complex to paid)
+
+**Implementation scope:** Minimal — OpenRouter uses the OpenAI-compatible API (`https://openrouter.ai/api/v1`). The existing OpenAI adapter can be extended or wrapped with OpenRouter-specific headers (`HTTP-Referer`, `X-Title`) and model ID format (`provider/model-name`). Kiln's model routing (complexity scoring + rules engine) would select between free and paid models per request.
+
+**Free models available via OpenRouter (as of March 2026):**
+- NVIDIA Nemotron 3 Nano 30B A3B (256K context, MoE)
+- Llama 4 Scout (512K context)
+- DeepSeek V3 (128K context)
+- Gemma 3 (128K context)
+- Qwen 2.5 (131K context, strong multilingual/Spanish)
+
+**Research doc:** TBD — needs adapter design, OpenRouter rate limits analysis, model routing configuration patterns for free/paid tiering.
 
 ### OpenKiln (Personal AI Agent)
 

@@ -153,6 +153,7 @@ export type {
   TenantModelConfig,
   EmailTransportConfig,
   TenantValidationError,
+  GroundingMode,
 } from "./gateway/tenant-config.js";
 export { validateTenantConfig } from "./gateway/tenant-config.js";
 

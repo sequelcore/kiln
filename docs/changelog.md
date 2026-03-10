@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.17.0 (2026-03-10) -- RAG Grounding Tier 1
+
+### Hallucination Prevention: System Prompt Grounding Directive
+- **`groundingMode`** field on `TenantConfig`: `"off"` (default) or `"strict"`.
+- When `strict` and knowledge context exists, a grounding directive is appended after the recalled memory section, instructing the model to answer only from provided context, never fabricate data, and offer human escalation when the answer is not in context.
+- Wired across all 6 channel handlers: WebSocket, WhatsApp, Instagram, Messenger, Email, and the shared message pipeline (Mode B REST + tenant routes).
+- `groundingMode` added to `MUTABLE_TENANT_FIELDS` for admin API updates.
+- Zero cost, zero latency — pure system prompt addition.
+
 ## v0.16.0 (2026-03-10) -- Zero-Trust Agent Tool Access
 
 ### Agent Tool Scoping: Explicit Opt-In

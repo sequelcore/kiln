@@ -146,6 +146,7 @@ These fields can be updated via `PATCH /admin/{appName}/tenants/:tenantId`:
 | `agents` | array | Multi-agent config: each agent has id, name, role, goal, tools (see [Multi-Agent Routing](multi-agent.md)) |
 | `routing` | object | Agent routing config: rules, fallback, maxHandoffs, embeddingThreshold (see [Multi-Agent Routing](multi-agent.md)) |
 | `integrations` | array | Integration adapters: provider, credentialKey, operations filter, config (see [Tool Use: Integration Tools](tool-use.md#integration-tools)) |
+| `groundingMode` | string | RAG grounding: `"off"` (default) or `"strict"`. When strict, appends grounding directive after knowledge context to prevent hallucination |
 | `sessionLimits` | object | Abuse protection: `maxTokens`, `maxTurns` per session (auto-escalates to `human_active`) |
 | `whatsappCoexistence` | object | WhatsApp coexistence: `enabled`, `autoReleaseMs` for business app auto-handoff |
 

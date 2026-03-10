@@ -1,4 +1,4 @@
-import type { ContentPart, SessionLimitsConfig, SkillRegistry } from "@kilnai/core";
+import type { ContentPart, SessionLimitsConfig, SkillRegistry, GroundingMode } from "@kilnai/core";
 import { extractText } from "@kilnai/core";
 import type { AbuseDetectionConfig } from "../session/repetitive-abuse-detector.js";
 import { detectRepetitiveAbuse } from "../session/repetitive-abuse-detector.js";
@@ -10,6 +10,7 @@ import type { ConversationEventEmitter } from "./conversation-event-emitter.js";
 import type { SessionMode } from "../session/session-mode.js";
 import type { EscalationSignal } from "../session/escalation-detector.js";
 import { TraceContext } from "./trace-context.js";
+import { appendGroundingDirective } from "./context-formatter.js";
 
 export interface InboundMessageContext {
   readonly orchestrator: ModeBOrchestrator;
@@ -44,6 +45,7 @@ export interface InboundMessageContext {
   readonly skillRegistry?: SkillRegistry;
   readonly activeSkills?: readonly string[];
   readonly activeSkillTags?: readonly string[];
+  readonly groundingMode?: GroundingMode;
 }
 
 export interface InboundMessageResult {
@@ -212,7 +214,8 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
   }
 
   // Merge recalled memory + knowledge context + contact context
-  const combinedMemory = [ctx.recalledMemory, ctx.knowledgeContext, ctx.contactContext].filter(Boolean).join("\n\n") || undefined;
+  const mergedMemory = [ctx.recalledMemory, ctx.knowledgeContext, ctx.contactContext].filter(Boolean).join("\n\n") || undefined;
+  const combinedMemory = appendGroundingDirective(mergedMemory, ctx.groundingMode);
 
   // Resolve active skills
   let perCallConfig = ctx.perCallConfig;

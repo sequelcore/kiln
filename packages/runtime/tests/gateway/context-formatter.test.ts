@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatKnowledgeContext, formatContactContext, mergeContextSources } from "../../src/gateway/context-formatter.js";
+import { formatKnowledgeContext, formatContactContext, mergeContextSources, appendGroundingDirective } from "../../src/gateway/context-formatter.js";
 import type { VectorResult, ContactFact } from "@kilnai/core";
 
 describe("formatKnowledgeContext", () => {
@@ -52,5 +52,31 @@ describe("mergeContextSources", () => {
 
   it("skips undefined sources", () => {
     expect(mergeContextSources("a", undefined, "b")).toBe("a\n\nb");
+  });
+});
+
+describe("appendGroundingDirective", () => {
+  it("returns undefined when context is undefined", () => {
+    expect(appendGroundingDirective(undefined, "strict")).toBeUndefined();
+  });
+
+  it("returns context unchanged when groundingMode is undefined", () => {
+    expect(appendGroundingDirective("some context", undefined)).toBe("some context");
+  });
+
+  it("returns context unchanged when groundingMode is off", () => {
+    expect(appendGroundingDirective("some context", "off")).toBe("some context");
+  });
+
+  it("appends grounding directive when groundingMode is strict", () => {
+    const result = appendGroundingDirective("[Knowledge context]:\nchunk A", "strict");
+    expect(result).toContain("[Knowledge context]:\nchunk A");
+    expect(result).toContain("--- Grounding Rules ---");
+    expect(result).toContain("Answer ONLY from the knowledge context");
+    expect(result).toContain("Never fabricate specific data");
+  });
+
+  it("returns undefined when context is undefined even with strict mode", () => {
+    expect(appendGroundingDirective(undefined, "strict")).toBeUndefined();
   });
 });

@@ -135,6 +135,7 @@ export function createModeBRoutes(runtime: ModeBAppRuntime): Hono {
         billing: runtime.billing,
         channel: "api",
         knowledgeContext,
+        groundingMode: runtime.tenant?.groundingMode,
         activeAgentId,
         activeAgentName,
         routingTier,

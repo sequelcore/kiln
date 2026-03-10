@@ -23,7 +23,7 @@ import { TraceContext } from "./trace-context.js";
 import type { WebhookDedup } from "./webhook-dedup.js";
 import type { SttAdapter, RetrievalPipeline, ContactMemoryService } from "@kilnai/core";
 import { preprocessAudio, createGenericMediaDownloader } from "./audio-preprocessor.js";
-import { formatKnowledgeContext, formatContactContext, mergeContextSources } from "./context-formatter.js";
+import { formatKnowledgeContext, formatContactContext, mergeContextSources, appendGroundingDirective } from "./context-formatter.js";
 
 export interface InstagramWebhookConfig {
   readonly appName: string;
@@ -276,7 +276,10 @@ async function processInstagramMessage(
     }
   }
 
-  const combinedMemory = mergeContextSources(recalledMemory, knowledgeContext, contactContext);
+  const combinedMemory = appendGroundingDirective(
+    mergeContextSources(recalledMemory, knowledgeContext, contactContext),
+    tenant.groundingMode,
+  );
 
   // --- Tools: build per-call builtin tools ---
   const callTools = new Map<string, (input: Record<string, unknown>) => Promise<unknown>>();

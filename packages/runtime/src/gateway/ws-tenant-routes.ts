@@ -19,7 +19,7 @@ import type { ConversationEventEmitter } from "./conversation-event-emitter.js";
 import { isOriginAllowed } from "./auth-middleware.js";
 import { TraceContext } from "./trace-context.js";
 import { preprocessAudio, createGenericMediaDownloader } from "./audio-preprocessor.js";
-import { formatKnowledgeContext, formatContactContext, mergeContextSources } from "./context-formatter.js";
+import { formatKnowledgeContext, formatContactContext, mergeContextSources, appendGroundingDirective } from "./context-formatter.js";
 import { sanitizeVisitorInfo, formatVisitorContext } from "./visitor-sanitizer.js";
 import type { SanitizedVisitorInfo } from "./visitor-sanitizer.js";
 
@@ -240,7 +240,10 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
                 }
 
                 const visitorContext = visitor ? formatVisitorContext(visitor) : undefined;
-                const combinedMemory = mergeContextSources(knowledgeContext, contactContext, visitorContext);
+                const combinedMemory = appendGroundingDirective(
+                  mergeContextSources(knowledgeContext, contactContext, visitorContext),
+                  tenant.groundingMode,
+                );
 
                 const tenantToolCtx = agentCtx.tenantToolContext;
 

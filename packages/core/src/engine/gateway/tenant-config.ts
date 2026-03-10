@@ -32,6 +32,9 @@ export interface TenantFaqEntry {
 /** Tone of the AI assistant's responses */
 export type TenantTone = "formal" | "friendly" | "casual";
 
+/** Grounding mode for RAG responses */
+export type GroundingMode = "off" | "strict";
+
 /** Per-tenant billing configuration (overrides App-level billing) */
 export interface TenantBilling {
   readonly budgetEndpoint?: string;
@@ -173,6 +176,7 @@ export interface TenantConfig {
   readonly routing?: TenantRoutingConfig;
   readonly modelConfig?: TenantModelConfig;
   readonly preChatForm?: PreChatFormConfig;
+  readonly groundingMode?: GroundingMode;
   readonly sessionLimits?: SessionLimitsConfig;
   readonly whatsappCoexistence?: WhatsAppCoexistenceConfig;
   readonly enabled: boolean;
@@ -188,6 +192,7 @@ export interface TenantValidationError {
 
 const TENANT_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}[a-z0-9]$/;
 const VALID_TONES: readonly TenantTone[] = ["formal", "friendly", "casual"];
+const VALID_GROUNDING_MODES: readonly GroundingMode[] = ["off", "strict"];
 
 /** Validate a TenantConfig. Returns array of errors; empty means valid. */
 export function validateTenantConfig(config: TenantConfig): TenantValidationError[] {
@@ -216,6 +221,11 @@ export function validateTenantConfig(config: TenantConfig): TenantValidationErro
   // tone: if present, must be valid
   if (config.tone !== undefined && !VALID_TONES.includes(config.tone as TenantTone)) {
     errors.push({ field: "tone", message: `must be one of: ${VALID_TONES.join(", ")}` });
+  }
+
+  // groundingMode: if present, must be valid
+  if (config.groundingMode !== undefined && !VALID_GROUNDING_MODES.includes(config.groundingMode as GroundingMode)) {
+    errors.push({ field: "groundingMode", message: `must be one of: ${VALID_GROUNDING_MODES.join(", ")}` });
   }
 
   // allowedOrigins: if present, must be array of valid origin strings
