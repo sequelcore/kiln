@@ -17,7 +17,7 @@
 |-------|-------|
 | [Channels](guides/channels.md) | 8 channel adapters (CLI, Web, WhatsApp, Instagram, Messenger, Slack, Email, API) |
 | [Knowledge](guides/knowledge.md) | RAG pipeline, vector stores, STT, contact memory |
-| [Tool Use](guides/tool-use.md) | Tool execution, authorization, webhook tools, rate limiting |
+| [Tool Use](guides/tool-use.md) | Tool execution, authorization, webhook tools, integration tools, rate limiting |
 | [Multi-Agent Routing](guides/multi-agent.md) | Multiple agents per tenant, 3-tier routing, handoff briefs |
 | [Model Routing](guides/model-routing.md) | Per-request model selection, complexity scoring, rules |
 | [Enrichment](guides/enrichment.md) | Post-conversation analytics (effort score, sentiment, CSAT) |

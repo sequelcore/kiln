@@ -184,6 +184,151 @@ The endpoint must return a JSON response. The parsed JSON is returned as the too
 
 ---
 
+## Integration Tools
+
+Integration tools let AI agents call third-party APIs (Google Calendar, Stripe, Google Sheets, etc.) without requiring the tenant to set up webhook endpoints. Each integration is backed by an `IntegrationAdapter` — a separate npm package that handles API communication. Kiln provides the runtime: adapter registry, credential resolution, tool definition generation, and execution.
+
+Sources: `packages/core/src/engine/domain/integration.ts`, `packages/runtime/src/gateway/integration-registry.ts`, `packages/runtime/src/gateway/integration-executor.ts`, `packages/runtime/src/gateway/local-credential-resolver.ts`
+
+### Three Tool Executor Types
+
+| Executor | Input | Use Case |
+|----------|-------|----------|
+| **WebhookToolExecutor** | HTTP POST + HMAC-SHA256 | Developer-built endpoints |
+| **IntegrationExecutor** | Adapter registry + credential resolution | Zero-code, credentials only |
+| **McpClient** | External MCP servers | Technical setup |
+
+### Architecture
+
+```
+TenantConfig.integrations[]
+    ├── provider: "google_calendar"
+    ├── credentialKey: "gc-cred-123"     (encrypted in SecretStore)
+    ├── operations?: ["check_availability"]  (optional subset filter)
+    └── config?: { calendarId: "..." }   (optional adapter-specific config)
+
+                    ↓ at request time
+
+IntegrationExecutor
+    ├── CredentialResolver.resolve(tenantId, credentialKey)
+    │       → ResolvedCredential { type, value, headers?, expiresAt? }
+    └── IntegrationAdapter.execute(operation, credential, input, options)
+            → IntegrationResult { data }
+```
+
+### Tenant Configuration
+
+Integrations are configured on `TenantConfig.integrations[]` via the tenant admin API:
+
+```json
+{
+  "integrations": [
+    {
+      "provider": "google_calendar",
+      "credentialKey": "gc-cred-123"
+    },
+    {
+      "provider": "stripe",
+      "credentialKey": "stripe-cred-456",
+      "operations": ["create_payment_link"]
+    },
+    {
+      "provider": "google_sheets",
+      "credentialKey": "sheets-cred",
+      "config": { "spreadsheetId": "abc123" }
+    }
+  ]
+}
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `provider` | Yes | Adapter provider name (must match a registered adapter). Must be unique per tenant. |
+| `credentialKey` | Yes | Reference to the encrypted credential in the SecretStore. |
+| `operations` | No | Subset of adapter operations to expose. When omitted, all operations are available. |
+| `config` | No | Adapter-specific configuration (passed through as-is). |
+
+Credentials are encrypted at rest using the same AES-256-GCM mechanism as webhook tool secrets. Key pattern: `tenant:{tenantId}:integration:{provider}`.
+
+### Tool Naming
+
+Integration tools follow the naming convention `{provider}_{operation}`:
+
+- `google_calendar_check_availability`
+- `stripe_create_payment_link`
+- `google_sheets_append_row`
+
+Each tool is tagged with `["integration", "{provider}"]` for ToolRAG and filtering.
+
+### Credential Resolution
+
+The `CredentialResolver` interface resolves encrypted credential references at execution time:
+
+```typescript
+interface CredentialResolver {
+  resolve(tenantId: string, credentialKey: string): Promise<ResolvedCredential>;
+  invalidate(tenantId: string, credentialKey: string): void;
+}
+
+interface ResolvedCredential {
+  type: "bearer" | "api_key" | "basic" | "custom";
+  value: string;
+  headers?: Record<string, string>;
+  expiresAt?: Date;
+}
+```
+
+**LocalCredentialResolver** (self-hosted): reads from the Kiln SecretStore. Supports two formats:
+
+1. **JSON structured** — full credential object: `{"type": "api_key", "value": "sk_test", "headers": {"X-Api-Key": "sk_test"}}`
+2. **Plain string** — interpreted as bearer token: `"ya29.some-token"` → `{type: "bearer", value: "ya29.some-token"}`
+
+### IntegrationAdapter Interface
+
+Each adapter is a separate npm package implementing:
+
+```typescript
+interface IntegrationAdapter {
+  readonly provider: string;
+  readonly version: string;
+  readonly operations: readonly IntegrationOperation[];
+  execute(
+    operation: string,
+    credentials: ResolvedCredential,
+    input: Record<string, unknown>,
+    options?: ExecutionOptions,
+  ): Promise<IntegrationResult>;
+}
+```
+
+Adapters are registered at gateway startup via `IntegrationRegistry.register()`. The registry discovers adapters and generates tool definitions for `buildTenantToolContext()`.
+
+### Error Handling
+
+| Error Code | When | Retryable |
+|------------|------|-----------|
+| `INTEGRATION_TOOL_FAILED` | Adapter execution fails or unknown operation | Depends (adapter errors retryable, unknown operation not) |
+| `CREDENTIAL_RESOLVE_FAILED` | Credential not found or resolver error | Depends (resolver error retryable, not found not) |
+| `INTEGRATION_ADAPTER_NOT_FOUND` | Provider not registered in registry | No |
+
+KilnErrors from adapters or resolvers are re-thrown without wrapping to preserve error codes.
+
+### Zero-Change Integration
+
+Integration tools are wired through `buildTenantToolContext()` — the same function that handles webhook tools. They appear as regular builtin tools to the orchestrator. This means:
+
+- **Authorization** works automatically (annotation-based 4-level model).
+- **Rate limiting** applies per-tool via `SlidingWindowRateLimiter`.
+- **Result sanitization** passes through the safety pipeline.
+- **ToolRAG** includes integration tools in embedding-based selection.
+- **Caching** works with `cacheTtl` annotations.
+- **Events** emit `tool_called`, `tool_authorized`, `tool_result`, and `TOOL_EXECUTED` conversation events.
+- **Audit logging** records all integration tool executions.
+
+No changes to channel handlers, orchestrator, or message pipeline were required.
+
+---
+
 ## Per-Tenant Tool Config
 
 Tenants can have custom tool configurations managed via the tenant admin API (`PATCH /admin/{appName}/tenants/:id`).
@@ -245,7 +390,7 @@ const result = await orchestrator.processMessage(
 
 `additionalTools` are merged locally for the duration of the call -- they are not registered on the orchestrator and do not persist across invocations. This avoids tool accumulation when the same orchestrator serves many tenants.
 
-The `TenantToolFactory.buildTenantToolContext()` constructs this configuration from `TenantConfig`, handling webhook tool instantiation, allowlist intersection, and rate limiter setup.
+The `TenantToolFactory.buildTenantToolContext()` constructs this configuration from `TenantConfig`, handling webhook tool instantiation, integration tool wiring, allowlist intersection, and rate limiter setup.
 
 ---
 
