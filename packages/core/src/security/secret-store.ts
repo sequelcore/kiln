@@ -1,5 +1,6 @@
 import { createCipheriv, createDecipheriv, pbkdf2Sync, randomBytes } from "node:crypto";
-import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { KilnError } from "../engine/errors.js";
 import type { SecretStore } from "./types.js";
 
@@ -64,6 +65,7 @@ export class AesSecretStore implements SecretStore {
   constructor(storePath: string, masterKey: string) {
     this.storePath = storePath;
     this.masterKey = masterKey;
+    mkdirSync(dirname(storePath), { recursive: true });
     this.loadFromDisk();
   }
 
@@ -88,7 +90,9 @@ export class AesSecretStore implements SecretStore {
       salt: this.salt!.toString("base64"),
       secrets: this.store,
     };
-    writeFileSync(this.storePath, JSON.stringify(file, null, 2), "utf-8");
+    const tmpPath = `${this.storePath}.tmp`;
+    writeFileSync(tmpPath, JSON.stringify(file, null, 2), "utf-8");
+    renameSync(tmpPath, this.storePath);
   }
 
   set(key: string, value: string): void {
@@ -135,15 +139,6 @@ export class AesSecretStore implements SecretStore {
       reEncrypted[k] = encrypt(v, newKey);
     }
     this.store = reEncrypted;
-
-    // Atomic write: tmp -> rename
-    const tmpPath = `${this.storePath}.tmp`;
-    const file: StoreFile = {
-      version: FILE_VERSION,
-      salt: this.salt.toString("base64"),
-      secrets: this.store,
-    };
-    writeFileSync(tmpPath, JSON.stringify(file, null, 2), "utf-8");
-    renameSync(tmpPath, this.storePath);
+    this.persist();
   }
 }

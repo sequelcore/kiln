@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.15.1 (2026-03-10) -- AesSecretStore Bug Fixes
+
+### AesSecretStore: Directory Creation + Atomic Writes
+- **`mkdirSync` in constructor**: Creates parent directories on initialization. Fixes ENOENT crash in Docker containers where `.kiln/` doesn't exist on first tenant credential write.
+- **Atomic `persist()`**: All writes (`set()`, `delete()`) now use tmp+rename pattern (same as `rotateKey()` already did). Prevents corrupted store file if process crashes mid-write.
+- **`rotateKey()` deduplicated**: Now delegates to `persist()` instead of duplicating the atomic write logic.
+
 ## v0.15.0 (2026-03-09) -- Gateway Integration Wiring
 
 ### StartGatewayOptions: Integration & Secret Store Support

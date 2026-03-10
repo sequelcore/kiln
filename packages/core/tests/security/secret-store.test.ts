@@ -158,4 +158,21 @@ describe("AesSecretStore", () => {
     const raw = readFileSync(storePath, "utf-8");
     expect(raw).not.toContain("plaintext-value");
   });
+
+  it("creates parent directories if they do not exist", () => {
+    const nestedPath = join(tmpDir, "deep", "nested", "dir", "secrets.json");
+    const store = new AesSecretStore(nestedPath, "master-password");
+    store.set("key", "value");
+    expect(store.get("key")).toBe("value");
+    expect(existsSync(nestedPath)).toBe(true);
+  });
+
+  it("persists atomically via tmp+rename (no partial writes)", () => {
+    const store = new AesSecretStore(storePath, "master-password");
+    store.set("key", "value");
+
+    // The store file should exist but no .tmp file should remain
+    expect(existsSync(storePath)).toBe(true);
+    expect(existsSync(`${storePath}.tmp`)).toBe(false);
+  });
 });
