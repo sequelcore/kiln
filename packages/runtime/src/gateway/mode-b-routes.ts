@@ -28,6 +28,7 @@ export interface ModeBAppRuntime {
   readonly tenant?: TenantConfig;
   readonly handoffSummarizer?: AgentHandoffSummarizer;
   readonly eventBus?: EventBus;
+  readonly groundingDeps?: import("./message-pipeline.js").InboundMessageContext["groundingDeps"];
 }
 
 /** Request body for POST /message */
@@ -136,6 +137,7 @@ export function createModeBRoutes(runtime: ModeBAppRuntime): Hono {
         channel: "api",
         knowledgeContext,
         groundingMode: runtime.tenant?.groundingMode,
+        groundingDeps: runtime.groundingDeps,
         activeAgentId,
         activeAgentName,
         routingTier,

@@ -28,6 +28,6 @@ export function appendGroundingDirective(
   context: string | undefined,
   groundingMode: GroundingMode | undefined,
 ): string | undefined {
-  if (!context || groundingMode !== "strict") return context;
+  if (!context || (groundingMode !== "strict" && groundingMode !== "verified")) return context;
   return context + "\n\n" + GROUNDING_DIRECTIVE;
 }

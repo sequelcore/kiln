@@ -26,9 +26,9 @@ Bun monorepo with 6 packages:
 | tree | `core/src/tree/` | Task tree (scoring, deepen/branch/prune), batch executor |
 | sandbox | `core/src/sandbox/` | Per-agent filesystem + network isolation |
 | verification | `core/src/verification/` | Gate runner: test, lint, type-check loop |
-| events | `core/src/events/` | EventBus (39 typed events, ring buffer), EventStore sink |
+| events | `core/src/events/` | EventBus (40 typed events, ring buffer), EventStore sink |
 | security | `core/src/security/` | Audit log (JSONL + hash chain), prompt injection (2-tier), AES-256-GCM secrets, Guardian, self-audit |
-| safety | `core/src/safety/` | PII scanner (2-tier, 6 types, Luhn validation), content classifier (6 categories), 4 policy rails, pipeline orchestrator, indirect injection scanning on tool results |
+| safety | `core/src/safety/` | PII scanner (2-tier, 6 types, Luhn validation), content classifier (6 categories), 4 policy rails, grounding rail (post-generation LLM judge, model-routed, fail-open), pipeline orchestrator, indirect injection scanning on tool results |
 | cost | `core/src/cost/` | Per-role:model cache-aware cost tracking, STT + embedding cost tracking |
 | knowledge | `core/src/knowledge/` | RAG: chunkers (recursive, markdown), embedding adapters (OpenAI, Ollama), vector stores (InMemory, PgVector with halfvec + HNSW + RRF hybrid search), STT adapters (OpenAI gpt-4o-transcribe, Deepgram nova-3), contextual enrichment (Anthropic pattern), retrieval pipeline (gap detection events), CohereReranker (Rerank v2, over-fetch 4x), knowledge modes (auto-inject / tool), content extractors (file, URL via Jina Reader, PDF via unpdf) with ExtractionOptions (auth headers), SourceManager (extract -> hash -> ingest lifecycle, content push), source stores (InMemory, JSON file), ContactMemoryService (per-user fact extraction via LLM, Mem0 ADD/UPDATE/DELETE/NOOP pattern, recall at session start) |
 | domain | `core/src/domain/` | Domain config: tech stack detection, YAML schema, DomainRegistry. Built-in kits at `core/src/domains/*.yaml` |
@@ -252,10 +252,6 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `commands/dev.ts` | Dev mode with YAML hot-reload |
 
 ## Backlog
-
-### RAG Grounding Tier 2 (Post-Generation Rail)
-
-Post-generation `grounding` rail in the safety pipeline. Haiku verifies response is supported by retrieved chunks. ~200ms + 1 LLM call per message. Premium feature for regulated industries.
 
 ### Integration Runtime Phase 4 (MCP Surface)
 

@@ -1,5 +1,5 @@
-import type { ContentPart, SessionLimitsConfig, SkillRegistry, GroundingMode } from "@kilnai/core";
-import { extractText } from "@kilnai/core";
+import type { ContentPart, SessionLimitsConfig, SkillRegistry, GroundingMode, GroundingResult, ProviderAdapter, ModelCapabilityRegistry, EventBus } from "@kilnai/core";
+import { extractText, textParts, GroundingRail } from "@kilnai/core";
 import type { AbuseDetectionConfig } from "../session/repetitive-abuse-detector.js";
 import { detectRepetitiveAbuse } from "../session/repetitive-abuse-detector.js";
 import type { ModeBOrchestrator, OrchestrateResult, PerCallToolConfig, ToolExecutionSummary } from "../session/mode-b-orchestrator.js";
@@ -46,6 +46,12 @@ export interface InboundMessageContext {
   readonly activeSkills?: readonly string[];
   readonly activeSkillTags?: readonly string[];
   readonly groundingMode?: GroundingMode;
+  readonly groundingDeps?: {
+    readonly rail: GroundingRail;
+    readonly providerPool: ReadonlyMap<string, ProviderAdapter>;
+    readonly modelRegistry: ModelCapabilityRegistry;
+    readonly eventBus?: EventBus;
+  };
 }
 
 export interface InboundMessageResult {
@@ -68,6 +74,7 @@ export interface InboundMessageResult {
     readonly routingTier: string;
   };
   readonly limitReached?: { type: "tokens" | "turns" | "abuse"; value: number; max?: number };
+  readonly groundingResult?: GroundingResult;
 }
 
 export interface BudgetDeniedResult {
@@ -239,6 +246,58 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
     perCallConfig,
   );
 
+  // Post-generation grounding verification (Tier 2)
+  let groundingResult: GroundingResult | undefined;
+  let resultParts = result.parts;
+  if (
+    ctx.groundingMode === "verified" &&
+    ctx.groundingDeps &&
+    ctx.knowledgeContext &&
+    !result.queued &&
+    extractText(result.parts)
+  ) {
+    const chunks = ctx.knowledgeContext.split("\n---\n").filter(Boolean);
+    const responseText = extractText(result.parts);
+    try {
+      // Select cheapest model with structured output support
+      const eligible = ctx.groundingDeps.modelRegistry
+        .eligible({ hasTools: false, requiresStreaming: false })
+        .filter((p) => p.supportsStructuredOutput)
+        .sort((a, b) => a.inputPer1M - b.inputPer1M);
+      const judge = eligible[0];
+      const provider = judge ? ctx.groundingDeps.providerPool.get(judge.provider) : undefined;
+      if (provider && judge) {
+        groundingResult = await ctx.groundingDeps.rail.evaluate(responseText, chunks, provider, judge.model);
+        // Emit internal event
+        if (ctx.groundingDeps.eventBus) {
+          const evt: import("@kilnai/core").GroundingEvaluatedEvent = {
+            type: "grounding_evaluated",
+            timestamp: new Date(),
+            sessionId: session.id,
+            tenantId: ctx.tenantId,
+            grounded: groundingResult.grounded,
+            confidence: groundingResult.confidence,
+            ungroundedClaims: groundingResult.ungroundedClaims,
+            durationMs: groundingResult.durationMs,
+            model: groundingResult.model,
+          };
+          ctx.groundingDeps.eventBus.emit(evt);
+        }
+        // Replace response if ungrounded
+        if (!groundingResult.grounded) {
+          trace.warn("pipeline", "Grounding check failed", {
+            confidence: groundingResult.confidence,
+            claims: groundingResult.ungroundedClaims.length,
+          });
+          resultParts = textParts("I don't have enough verified information to answer that accurately. Let me connect you with our team for a precise answer.");
+        }
+      }
+    } catch (err) {
+      // Fail-open: grounding check error does not block the response
+      trace.warn("pipeline", "Grounding check error (fail-open)", { error: String(err) });
+    }
+  }
+
   // Accumulate session tokens for limit tracking
   session.accumulateTokens(result.inputTokens + result.outputTokens);
 
@@ -380,12 +439,29 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
     }
   }
 
+  // Emit GROUNDING_BLOCKED when response was replaced
+  if (groundingResult && !groundingResult.grounded && ctx.eventEmitter) {
+    ctx.eventEmitter.emit({
+      eventType: "GROUNDING_BLOCKED",
+      tenantId: ctx.tenantId,
+      channel: ctx.channel,
+      externalUserId: ctx.userId,
+      sessionId: session.id,
+      schemaVersion: "1",
+      confidence: groundingResult.confidence,
+      ungroundedClaims: groundingResult.ungroundedClaims,
+      model: groundingResult.model,
+      traceId: trace.traceId,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
   trace.log("pipeline", "Message processed", { queued: result.queued, tokens: result.inputTokens + result.outputTokens });
 
   return {
     ok: true,
     result: {
-      parts: result.parts,
+      parts: resultParts,
       inputTokens: result.inputTokens,
       outputTokens: result.outputTokens,
       cacheReadTokens: result.cacheReadTokens,
@@ -401,6 +477,7 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
       routingDecision: result.routingDecision
         ? { provider: result.routingDecision.provider, model: result.routingDecision.model, routingTier: result.routingDecision.routingTier }
         : undefined,
+      groundingResult,
     },
   };
 }

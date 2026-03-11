@@ -18,6 +18,8 @@ import {
   SafetyPipeline,
   SqliteMemoryStore,
   AesSecretStore,
+  GroundingRail,
+  ModelCapabilityRegistry,
 } from "@kilnai/core";
 import type { ProviderAdapter, ProviderConfig, App, ToolDefinition, MemoryLayer, SttAdapter, Capability, IntegrationAdapter } from "@kilnai/core";
 import { AnnotationAuthorizer, ToolResultSanitizer } from "@kilnai/core";
@@ -471,6 +473,17 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
       toolResultSanitizer,
     });
 
+    // Build grounding deps (shared by all routes for this app)
+    const groundingRail = new GroundingRail();
+    const modelRegistry = new ModelCapabilityRegistry();
+    const groundingProviderPool = new Map<string, ProviderAdapter>([[provider.name, provider]]);
+    const groundingDeps = {
+      rail: groundingRail,
+      providerPool: groundingProviderPool as ReadonlyMap<string, ProviderAdapter>,
+      modelRegistry,
+      eventBus: gatewayEventBus,
+    };
+
     // Register delegation target (reuse provider + systemPrompt)
     delegationTargets.set(loaded.name, { appName: loaded.name, provider, systemPrompt });
 
@@ -517,6 +530,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
         tenantRegistry,
         billing: resolved.modeBConfig.billing,
         apiKey: resolvedApiKey,
+        groundingDeps,
       };
 
       // WhatsApp webhook: find whatsapp channel with verifyTokenEnv
@@ -635,6 +649,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
         apiKey: resolvedApiKey,
         knowledgePipeline: loaded.knowledgePipeline?.pipeline,
         knowledgeMode: resolved.app.knowledge?.mode,
+        groundingDeps,
       };
     }
   }

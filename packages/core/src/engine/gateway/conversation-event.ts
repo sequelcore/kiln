@@ -22,7 +22,8 @@ export type ConversationEventType =
   | "COST_REPORT"
   | "CONVERSATION_ENRICHED"
   | "SESSION_LIMIT_REACHED"
-  | "HUMAN_TAKEOVER";
+  | "HUMAN_TAKEOVER"
+  | "GROUNDING_BLOCKED";
 
 export interface ConversationEvent {
   readonly eventType: ConversationEventType;
@@ -115,6 +116,12 @@ export interface ConversationEvent {
   readonly limitMax?: number;
   /** Source of human takeover -- present for HUMAN_TAKEOVER events */
   readonly handoffSource?: "whatsapp_coexistence" | "api" | "escalation";
+  /** Grounding confidence score -- present for GROUNDING_BLOCKED events */
+  readonly confidence?: number;
+  /** Ungrounded claims identified by the judge -- present for GROUNDING_BLOCKED events */
+  readonly ungroundedClaims?: readonly string[];
+  /** Judge model used -- present for GROUNDING_BLOCKED events */
+  readonly model?: string;
 }
 
 export interface ConversationEventBatch {

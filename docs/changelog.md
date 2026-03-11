@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.19.0 (2026-03-11) -- RAG Grounding Tier 2 (Post-Generation Rail)
+
+### Hallucination Prevention: Post-Generation LLM Judge
+
+- **`GroundingRail`**: Stateless post-generation judge in `core/src/safety/grounding-rail.ts`. Accepts the agent response and retrieved knowledge chunks, calls an LLM judge that returns `{ grounded, confidence, ungroundedClaims }` as structured JSON output.
+- **`groundingMode: "verified"`**: New third mode extending `"off" | "strict" | "verified"`. When set, the pipeline runs the grounding rail after agent response generation. Ungrounded responses are replaced with a safe fallback message; grounded responses are passed through unchanged.
+- **Model selection via `ModelCapabilityRegistry`**: The judge uses the cheapest available model with `supportsStructuredOutput`. No hardcoded provider — uses the same registry infrastructure as model routing.
+- **Fail-open design**: Network errors, LLM timeouts, or JSON parse failures do not block the response. The original response is passed through with a trace warning.
+- **`grounding_evaluated` event**: New `GroundingEvaluatedEvent` emitted to `EventBus` on every judge call with `grounded`, `confidence`, `ungroundedClaims`, `durationMs`, and `model`.
+- **`GROUNDING_BLOCKED` conversation event**: Emitted to the product webhook when a response is replaced. Includes `confidence`, `ungroundedClaims`, and `model`.
+- **Pipeline wiring**: `processInboundMessage()` in `message-pipeline.ts` accepts `groundingDeps` (rail, providerPool, modelRegistry, eventBus). `InboundMessageResult` now includes `groundingResult?: GroundingResult`.
+- **`MUTABLE_TENANT_FIELDS`**: `groundingMode` was already mutable (added in v0.17.0). No admin API changes needed.
+- Covered by `core/tests/safety/grounding-rail.test.ts` (unit) and `runtime/tests/gateway/message-pipeline-grounding.test.ts` (pipeline integration).
+
 ## v0.18.0 (2026-03-10) -- OpenRouter Provider Adapter
 
 ### OpenRouter Free-Tier Model Access

@@ -44,6 +44,7 @@ import type {
     ModelRoutedEvent,
     ConversationClosedInternalEvent,
     ConversationEnrichedEvent,
+    GroundingEvaluatedEvent,
 } from "../events/index.js";
 
 // ---------------------------------------------------------------------------
@@ -393,6 +394,20 @@ function mapPolicyEvaluated(e: PolicyEvaluatedEvent): SpanOperation {
     };
 }
 
+function mapGroundingEvaluated(e: GroundingEvaluatedEvent): SpanOperation {
+    return {
+        action: "addEvent",
+        name: "safety.grounding_evaluated",
+        attributes: {
+            grounded: e.grounded,
+            confidence: e.confidence,
+            ungroundedClaimsCount: e.ungroundedClaims.length,
+            durationMs: e.durationMs,
+            model: e.model,
+        },
+    };
+}
+
 function mapAgentRouted(e: AgentRoutedEvent): SpanOperation {
     return {
         action: "addEvent",
@@ -571,6 +586,8 @@ export function mapEventToSpan(event: KilnEvent): SpanOperation {
             return mapContentClassified(event as ContentClassifiedEvent);
         case "policy_evaluated":
             return mapPolicyEvaluated(event as PolicyEvaluatedEvent);
+        case "grounding_evaluated":
+            return mapGroundingEvaluated(event as GroundingEvaluatedEvent);
         case "knowledge_gap":
             return mapKnowledgeGap(event as KnowledgeGapEvent);
         case "knowledge_source_failed":

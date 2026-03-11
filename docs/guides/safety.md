@@ -2,20 +2,24 @@
 
 The safety pipeline enforces enterprise content policies on every message passing through the Gateway. It runs on both incoming (user input) and outgoing (agent output) messages.
 
-Sources: `packages/core/src/safety/`, `packages/runtime/src/gateway/safety-middleware.ts`
+Sources: `packages/core/src/safety/`, `packages/runtime/src/gateway/safety-middleware.ts`, `packages/runtime/src/gateway/message-pipeline.ts`
 
 ---
 
 ## Overview
 
-The pipeline runs three stages in sequence:
+The pipeline runs four stages in sequence:
 
 ```
-Input / Output message
+Input message
   -> PII Detection
   -> Content Classification
   -> Policy Rails
   -> Allowed / Blocked
+
+Agent response (when groundingMode: verified)
+  -> Grounding Rail (post-generation LLM judge)
+  -> Grounded / Replaced
 ```
 
 **Short-circuit on block.** If PII detection blocks a message, the content classification and rails stages are skipped entirely. The first stage to block terminates the pipeline.
@@ -217,14 +221,76 @@ Place the `safety` block at the top level of `app.yaml`. See the [App YAML Refer
 
 ---
 
+## Grounding Rail (Tier 2)
+
+The **Grounding Rail** is a post-generation safety stage that verifies an agent response is factually supported by the retrieved knowledge chunks. It is designed for regulated industries (finance, healthcare, legal) where hallucinations must be caught and suppressed, not just discouraged.
+
+This stage runs only when:
+1. `groundingMode` is set to `"verified"` on the tenant config.
+2. A knowledge context was retrieved for the request (i.e., knowledge is configured).
+3. The response is not queued (session is `ai_active`).
+
+### How It Works
+
+```
+Agent generates response
+  -> GroundingRail.evaluate(response, chunks, provider, model)
+  -> LLM judge outputs { grounded, confidence, ungroundedClaims }
+  -> if !grounded: replace response with safe fallback message
+  -> emit grounding_evaluated event (always)
+  -> emit GROUNDING_BLOCKED event (if blocked)
+```
+
+The LLM judge uses a strict system prompt to compare the response against the retrieved reference chunks. It identifies specific factual claims not supported by the chunks. Conversational filler and hedging phrases (`"I think"`, `"based on the information"`) are not flagged as claims.
+
+**Model selection:** The pipeline automatically selects the cheapest model available in the provider pool that supports structured output. This uses the same `ModelCapabilityRegistry` infrastructure as model routing — no hardcoded provider.
+
+**Fail-open design:** If the grounding check fails (network error, LLM timeout, parse error), the original response is passed through unchanged. A warning is traced but the message is never blocked silently.
+
+### Grounding Modes
+
+| `groundingMode` | Behavior |
+|-----------------|----------|
+| `off` (default) | No grounding enforcement. |
+| `strict` | System prompt directive added when knowledge context is present: instructs the model to answer only from context, never fabricate, and offer escalation when the answer is not in context. Zero cost, zero latency. |
+| `verified` | `strict` directive **plus** post-generation LLM judge. If judge marks response ungrounded, response is replaced with a generic safe fallback and `GROUNDING_BLOCKED` is emitted. ~200ms + 1 LLM call per message. |
+
+### YAML Configuration
+
+```yaml
+gateway:
+  tenants:
+    - id: my-tenant
+      groundingMode: verified  # off | strict | verified
+```
+
+`groundingMode` is a mutable tenant field — it can be updated via the tenant admin API without restarting the gateway.
+
+### Grounding Result
+
+The pipeline returns a `GroundingResult` in `InboundMessageResult.groundingResult`:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `grounded` | `boolean` | Whether the response is supported by retrieved chunks. |
+| `confidence` | `number` (0–1) | Judge's confidence in the grounding verdict. |
+| `ungroundedClaims` | `string[]` | Specific claims not found in the reference chunks. |
+| `durationMs` | `number` | Time taken by the judge LLM call. |
+| `model` | `string` | Model used for the grounding check. |
+
+---
+
 ## Events Emitted
 
-The safety pipeline emits three event types to the EventBus on every scan:
+The safety pipeline emits four event types to the EventBus:
 
 | Event | Key Payload Fields | When |
 |-------|--------------------|------|
 | `pii_detected` | `direction`, `piiTypes`, `action`, `count`, `tier` | One or more PII matches found |
 | `content_classified` | `direction`, `categories`, `blocked`, `tier` | Classification completes (regardless of outcome) |
 | `policy_evaluated` | `railType`, `allowed`, `reason`, `direction` | Each rail evaluates a message |
+| `grounding_evaluated` | `grounded`, `confidence`, `ungroundedClaims`, `durationMs`, `model` | Grounding check completes (only when `groundingMode: verified`) |
 
-`direction` is either `"input"` (user message) or `"output"` (agent response). Subscribe to these events via the `useKilnEvents` hook in the SDK or via `GET /dev/events` in dev mode.
+`direction` is either `"input"` (user message) or `"output"` (agent response). In addition, a `GROUNDING_BLOCKED` conversation event is emitted to the product webhook when a response is replaced.
+
+Subscribe to these events via the `useKilnEvents` hook in the SDK or via `GET /dev/events` in dev mode.

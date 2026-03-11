@@ -20,6 +20,7 @@ export interface TenantAppRuntime {
   readonly tenantRegistry: TenantRegistry;
   readonly billing?: BillingConfig;
   readonly apiKey?: string;
+  readonly groundingDeps?: import("./message-pipeline.js").InboundMessageContext["groundingDeps"];
 }
 
 /** Request body for POST /message */
@@ -89,6 +90,7 @@ export function createTenantRoutes(runtime: TenantAppRuntime): Hono {
       channel: "api",
       idleTimeoutMs: tenant.idleTimeoutMs,
       groundingMode: tenant.groundingMode,
+      groundingDeps: runtime.groundingDeps,
     });
 
     if (!processResult.ok) {

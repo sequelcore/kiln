@@ -33,7 +33,7 @@ export interface TenantFaqEntry {
 export type TenantTone = "formal" | "friendly" | "casual";
 
 /** Grounding mode for RAG responses */
-export type GroundingMode = "off" | "strict";
+export type GroundingMode = "off" | "strict" | "verified";
 
 /** Per-tenant billing configuration (overrides App-level billing) */
 export interface TenantBilling {
@@ -192,7 +192,7 @@ export interface TenantValidationError {
 
 const TENANT_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}[a-z0-9]$/;
 const VALID_TONES: readonly TenantTone[] = ["formal", "friendly", "casual"];
-const VALID_GROUNDING_MODES: readonly GroundingMode[] = ["off", "strict"];
+const VALID_GROUNDING_MODES: readonly GroundingMode[] = ["off", "strict", "verified"];
 
 /** Validate a TenantConfig. Returns array of errors; empty means valid. */
 export function validateTenantConfig(config: TenantConfig): TenantValidationError[] {

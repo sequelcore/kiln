@@ -42,6 +42,7 @@ export const EVENT_LEVEL_MAP: Record<EventType, StreamLevel> = {
   pii_detected: "phase",
   content_classified: "phase",
   policy_evaluated: "phase",
+  grounding_evaluated: "phase",
   // Knowledge (Phase 14)
   knowledge_gap: "state",
   knowledge_source_failed: "state",
@@ -102,6 +103,7 @@ export type EventType =
   | "pii_detected"
   | "content_classified"
   | "policy_evaluated"
+  | "grounding_evaluated"
   // Knowledge (Phase 14)
   | "knowledge_gap"
   | "knowledge_source_failed"
@@ -409,6 +411,16 @@ export interface PolicyEvaluatedEvent extends KilnEvent {
   readonly direction: "input" | "output";
 }
 
+/** Grounding verification event (safety) */
+export interface GroundingEvaluatedEvent extends KilnEvent {
+  readonly type: "grounding_evaluated";
+  readonly grounded: boolean;
+  readonly confidence: number;
+  readonly ungroundedClaims: readonly string[];
+  readonly durationMs: number;
+  readonly model: string;
+}
+
 /** Knowledge gap detected event -- query had low or no results */
 export interface KnowledgeGapEvent extends KilnEvent {
   readonly type: "knowledge_gap";
@@ -511,6 +523,7 @@ export interface EventMap {
   pii_detected: PiiDetectedEvent;
   content_classified: ContentClassifiedEvent;
   policy_evaluated: PolicyEvaluatedEvent;
+  grounding_evaluated: GroundingEvaluatedEvent;
   // Knowledge (Phase 14)
   knowledge_gap: KnowledgeGapEvent;
   knowledge_source_failed: KnowledgeSourceFailedEvent;
