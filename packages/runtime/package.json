@@ -39,7 +39,8 @@
     "access": "public"
   },
   "dependencies": {
-    "hono": "^4.7.0"
+    "hono": "^4.7.0",
+    "jose": "^5.0.0"
   },
   "peerDependencies": {
     "@kilnai/core": "workspace:*",

@@ -657,7 +657,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
   // Auth warnings: notify when channels lack auth configuration
   for (const loaded of loadedApps) {
     for (const channel of loaded.binding.channels) {
-      if (channel.type === "api" && channel.path && !channel.apiKeyEnv) {
+      if (channel.type === "api" && channel.path && !channel.apiKeyEnv && !gatewayConfig.auth) {
         console.warn(`  [warn] API channel at ${channel.path} has no apiKeyEnv -- endpoints are unauthenticated`);
       }
       if (channel.type === "whatsapp" && !channel.appSecretEnv) {
@@ -757,6 +757,25 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
 
   const tokenStore = options?.devMode ? new DevTokenStore() : undefined;
 
+  // JWT verifier: built once at startup when auth block is present in gateway.yaml
+  let jwtVerifier: import("./jwt-verifier.js").JwtVerifyFn | undefined;
+  if (gatewayConfig.auth) {
+    try {
+      const { buildJwtVerifier } = await import("./jwt-verifier.js");
+      jwtVerifier = await buildJwtVerifier(gatewayConfig.auth);
+      const mode =
+        gatewayConfig.auth.algorithm === "RS256"
+          ? `RS256 JWKS (${gatewayConfig.auth.jwksUri})`
+          : `HS256 (${gatewayConfig.auth.secretEnv})`;
+      console.log(`Auth: JWT verification enabled -- ${mode}`);
+    } catch (err) {
+      throw new KilnError("CONFIG_INVALID", `Failed to initialize JWT verifier: ${err instanceof Error ? err.message : String(err)}`, {
+        context: { algorithm: gatewayConfig.auth.algorithm },
+        retryable: false,
+      });
+    }
+  }
+
   const { upgradeWebSocket, websocket: bunWebsocket } = createBunWebSocket();
 
   const honoApp = createGatewayApp({
@@ -769,6 +788,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
     safetyPipelines,
     upgradeWebSocket,
     validateToken: tokenStore ? (token) => tokenStore.validate(token) : undefined,
+    jwtVerifier,
     devMode: options?.devMode,
     studioDistPath,
     devRoutesConfig: options?.devMode

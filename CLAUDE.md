@@ -38,7 +38,7 @@ Bun monorepo with 6 packages:
 | eval | `core/src/eval/` | 23 scorers (11 rule + 12 LLM-as-judge), dataset loader, experiment runner, comparator, consistency runner (pass^k) |
 | observability (core) | `core/src/observability/` | OTel span mapper (exhaustive event-to-span mapping) + OTelExporter (EventStore sink) |
 | observability (runtime) | `runtime/src/observability/` | PrometheusCollector (EventStore sink, dynamic prom-client import), CompositeEventStore (fan-out to multiple sinks) |
-| gateway | `runtime/src/gateway/` | Multi-app loading, Mode B routes, budget middleware, composable auth middleware (timing-safe), conversation event emitter (incl. tool execution events), delegation, dev routes, safety/security middleware, audio preprocessing, knowledge pipeline wiring, STT/knowledge factories, webhook tool executor, integration runtime (IntegrationRegistry + IntegrationExecutor + LocalCredentialResolver), tenant tool factory, Meta webhook foundation (shared verification + HMAC-SHA256), WebhookDedup (Meta at-least-once protection), Instagram/Messenger/Email webhook routes, email loop guard, SqliteEmailThreadStore, WebSocket heartbeat (30s ping, 90s timeout), WhatsApp coexistence auto-handoff (smb_message_echoes) |
+| gateway | `runtime/src/gateway/` | Multi-app loading, Mode B routes, budget middleware, composable auth middleware (timing-safe, API key + JWT RS256/HS256 via JWKS), conversation event emitter (incl. tool execution events), delegation, dev routes, safety/security middleware, audio preprocessing, knowledge pipeline wiring, STT/knowledge factories, webhook tool executor, integration runtime (IntegrationRegistry + IntegrationExecutor + LocalCredentialResolver), tenant tool factory, Meta webhook foundation (shared verification + HMAC-SHA256), WebhookDedup (Meta at-least-once protection), Instagram/Messenger/Email webhook routes, email loop guard, SqliteEmailThreadStore, WebSocket heartbeat (30s ping, 90s timeout), WhatsApp coexistence auto-handoff (smb_message_echoes) |
 | a2a | `runtime/src/a2a/` | A2AClient (outbound delegation only) |
 | trigger | `runtime/src/trigger/` | TriggerRegistry, webhook handler (HMAC-SHA256), event listener, cron scheduler |
 | session | `runtime/src/session/` | ModeBSession (version tracking, optimistic concurrency, token/turn tracking), ModeBOrchestrator (tool authorization, retry/fallback, result sanitization, ToolRAG, PerCallToolConfig, AI guard, model routing via ModelRouter + providerPool), SessionRegistry (pluggable SessionStore, save with concurrency check), SessionMode state machine (ai_active/queued/human_active/resolved), session serializer, repetitive abuse detector |
@@ -180,7 +180,8 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 |------|---------|
 | `gateway/gateway-server.ts` | startGateway() + startDevServer(): Bun.serve, multi-app, Mode B, triggers, dev mode, lightweight Mode A dashboard, integration adapter wiring (StartGatewayOptions.integrations + secretKeyEnv) |
 | `gateway/gateway-routes.ts` | Hono app factory: health + per-App routes + A2A + webhooks |
-| `gateway/auth-middleware.ts` | Composable auth: requireApiKey, requireBearer, requireWebhookSignature, isOriginAllowed |
+| `gateway/auth-middleware.ts` | Composable auth: requireApiKey, requireBearer, requireWebhookSignature, requireJwt, isOriginAllowed |
+| `gateway/jwt-verifier.ts` | JWT verification: buildJwtVerifier() -- RS256 via JWKS (jose createRemoteJWKSet) or HS256 via shared secret |
 | `gateway/mode-b-routes.ts` | POST /message, GET/DELETE /sessions |
 | `gateway/delegation-handler.ts` | DelegationRegistry, executeDelegation() (Kiln-native + A2A) |
 | `gateway/budget-middleware.ts` | checkBudget(), reportUsage() -- fail-open |
@@ -264,6 +265,10 @@ Kiln as production runtime for CLI agents (Claude Code, Codex CLI, Goose) via MC
 ### OpenKiln (Personal AI Agent)
 
 Product layer on `@kilnai/core` + `@kilnai/runtime`. Single-user mode, local-first SQLite, quick-start CLI (`npx openkiln init`), new channel adapters (Telegram, Discord, Signal). Separate bounded context — packaging and channel defaults, not a fork. Research needed.
+
+### Widget Customization
+
+Theming API for `@kilnai/widget`: custom CSS variables, brand colors, fonts, logo slot. Current widget uses hardcoded Kiln palette. Admit Console integration chose native SDK rebuild over widget due to lack of customization. Unblock widget adoption for themed integrations.
 
 ## Documentation
 

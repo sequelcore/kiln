@@ -275,3 +275,65 @@ observability:
   });
 });
 
+describe("parseGatewayYaml -- auth block", () => {
+  const BASE = `
+port: 4800
+apps:
+  - name: my-app
+    config: app.yaml
+    channels:
+      - type: api
+        path: /api/v1
+`;
+
+  it("omits auth when auth block is absent (backward compat)", () => {
+    const config = parseGatewayYaml(BASE);
+    expect(config.auth).toBeUndefined();
+  });
+
+  it("parses valid RS256 auth block", () => {
+    const yaml = BASE + `auth:\n  algorithm: RS256\n  jwksUri: "https://auth.example.com/.well-known/jwks.json"\n`;
+    const config = parseGatewayYaml(yaml);
+    expect(config.auth).toBeDefined();
+    expect(config.auth!.algorithm).toBe("RS256");
+    expect(config.auth!.jwksUri).toBe("https://auth.example.com/.well-known/jwks.json");
+    expect(config.auth!.secretEnv).toBeUndefined();
+  });
+
+  it("parses valid HS256 auth block", () => {
+    const yaml = BASE + `auth:\n  algorithm: HS256\n  secretEnv: JWT_SECRET\n`;
+    const config = parseGatewayYaml(yaml);
+    expect(config.auth!.algorithm).toBe("HS256");
+    expect(config.auth!.secretEnv).toBe("JWT_SECRET");
+  });
+
+  it("parses optional issuer and audience", () => {
+    const yaml =
+      BASE +
+      `auth:\n  algorithm: RS256\n  jwksUri: "https://auth.example.com/.well-known/jwks.json"\n  issuer: "https://auth.example.com"\n  audience: my-api\n`;
+    const config = parseGatewayYaml(yaml);
+    expect(config.auth!.issuer).toBe("https://auth.example.com");
+    expect(config.auth!.audience).toBe("my-api");
+  });
+
+  it("throws GatewayLoaderError when auth is not an object", () => {
+    const yaml = BASE + `auth: "not-an-object"\n`;
+    expect(() => parseGatewayYaml(yaml)).toThrow(GatewayLoaderError);
+  });
+
+  it("throws GatewayLoaderError when RS256 is missing jwksUri", () => {
+    const yaml = BASE + `auth:\n  algorithm: RS256\n`;
+    expect(() => parseGatewayYaml(yaml)).toThrow(GatewayLoaderError);
+  });
+
+  it("throws GatewayLoaderError when HS256 is missing secretEnv", () => {
+    const yaml = BASE + `auth:\n  algorithm: HS256\n`;
+    expect(() => parseGatewayYaml(yaml)).toThrow(GatewayLoaderError);
+  });
+
+  it("throws GatewayLoaderError on unknown algorithm", () => {
+    const yaml = BASE + `auth:\n  algorithm: ES256\n`;
+    expect(() => parseGatewayYaml(yaml)).toThrow(GatewayLoaderError);
+  });
+});
+

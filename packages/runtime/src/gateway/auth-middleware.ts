@@ -4,6 +4,7 @@
 import type { Context, Next } from "hono";
 import { timingSafeEqual } from "node:crypto";
 import { verifyHmacSha256 } from "../utils/hmac.js";
+import type { JwtVerifyFn, JwtPayload } from "./jwt-verifier.js";
 
 /** Timing-safe string comparison. Returns false immediately for different lengths (safe — no content leak). */
 function safeEqual(a: string, b: string): boolean {
@@ -60,6 +61,30 @@ export function requireWebhookSignature(
     }
 
     return next();
+  };
+}
+
+/**
+ * Require a valid JWT via Authorization: Bearer <token>.
+ * Verifies using the provided JwtVerifyFn (JWKS or HS256).
+ * Attaches the decoded payload to the Hono context under key "jwtPayload" for downstream use.
+ * Returns 401 if the header is missing, malformed, or the token is invalid/expired.
+ * No error details are leaked in the response body.
+ */
+export function requireJwt(verify: JwtVerifyFn): (c: Context, next: Next) => Promise<Response | void> {
+  return async (c: Context, next: Next): Promise<Response | void> => {
+    const auth = c.req.header("authorization");
+    if (!auth || !auth.startsWith("Bearer ")) {
+      return c.json({ error: "unauthorized", message: "Missing or malformed Authorization header" }, 401);
+    }
+    const token = auth.slice(7);
+    try {
+      const payload: JwtPayload = await verify(token);
+      c.set("jwtPayload", payload);
+      return next();
+    } catch {
+      return c.json({ error: "unauthorized", message: "Invalid or expired JWT" }, 401);
+    }
   };
 }
 

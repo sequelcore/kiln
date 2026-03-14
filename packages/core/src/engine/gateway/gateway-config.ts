@@ -2,6 +2,7 @@
 // Declares which Apps to host and how they bind to channels
 
 import type { ObservabilityConfig } from "./observability-config.js";
+import type { GatewayAuthConfig } from "./auth-config.js";
 
 /** Channel binding for a specific platform adapter */
 export interface GatewayChannelBinding {
@@ -26,11 +27,12 @@ export interface GatewayAppBinding {
   readonly channels: readonly GatewayChannelBinding[];
 }
 
-/** Top-level gateway configuration: port + multiple app bindings + optional observability */
+/** Top-level gateway configuration: port + multiple app bindings + optional observability + optional auth */
 export interface GatewayConfig {
   readonly port: number;
   readonly apps: readonly GatewayAppBinding[];
   readonly observability?: ObservabilityConfig;
+  readonly auth?: GatewayAuthConfig;
 }
 
 /** Validation error for gateway configuration */
