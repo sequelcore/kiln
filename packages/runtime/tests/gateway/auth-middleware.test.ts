@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { Hono } from "hono";
-import { requireApiKey, requireBearer, requireWebhookSignature, isOriginAllowed } from "../../src/gateway/auth-middleware.js";
+import { requireApiKey, requireBearer, requireWebhookSignature, requireJwt, isOriginAllowed } from "../../src/gateway/auth-middleware.js";
 import { createHmac } from "node:crypto";
+import type { JwtVerifyFn, JwtPayload } from "../../src/gateway/jwt-verifier.js";
 
 function makeApp(middleware: Parameters<Hono["use"]>[1]): Hono {
   const app = new Hono();
@@ -211,5 +212,77 @@ describe("isOriginAllowed", () => {
 
   it("exact match: protocol matters", () => {
     expect(isOriginAllowed("http://example.com", ["https://example.com"])).toBe(false);
+  });
+});
+
+describe("requireJwt", () => {
+  const validPayload: JwtPayload = { sub: "user-123", iss: "https://auth.example.com" };
+
+  const successVerifier: JwtVerifyFn = async () => validPayload;
+  const failVerifier: JwtVerifyFn = async () => {
+    throw new Error("JWTExpired");
+  };
+
+  function makeApp(verifier: JwtVerifyFn): Hono {
+    const app = new Hono();
+    app.use("*", requireJwt(verifier));
+    app.get("/test", (c) => c.json({ ok: true, payload: c.get("jwtPayload") }));
+    return app;
+  }
+
+  it("allows request with valid JWT Bearer token", async () => {
+    const app = makeApp(successVerifier);
+    const res = await app.request("/test", {
+      headers: { Authorization: "Bearer valid.jwt.token" },
+    });
+    expect(res.status).toBe(200);
+  });
+
+  it("attaches decoded payload to context on success", async () => {
+    const app = makeApp(successVerifier);
+    const res = await app.request("/test", {
+      headers: { Authorization: "Bearer valid.jwt.token" },
+    });
+    const body = (await res.json()) as { payload: JwtPayload };
+    expect(body.payload.sub).toBe("user-123");
+  });
+
+  it("rejects request with missing Authorization header", async () => {
+    const app = makeApp(successVerifier);
+    const res = await app.request("/test");
+    expect(res.status).toBe(401);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe("unauthorized");
+  });
+
+  it("rejects request with non-Bearer Authorization scheme", async () => {
+    const app = makeApp(successVerifier);
+    const res = await app.request("/test", {
+      headers: { Authorization: "Basic dXNlcjpwYXNz" },
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("rejects request when verifier throws (expired or invalid token)", async () => {
+    const app = makeApp(failVerifier);
+    const res = await app.request("/test", {
+      headers: { Authorization: "Bearer expired.jwt.token" },
+    });
+    expect(res.status).toBe(401);
+    const body = (await res.json()) as { error: string; message: string };
+    expect(body.error).toBe("unauthorized");
+  });
+
+  it("does not leak internal error details in 401 response", async () => {
+    const leakyVerifier: JwtVerifyFn = async () => {
+      throw new Error("Internal crypto error with sensitive info");
+    };
+    const app = makeApp(leakyVerifier);
+    const res = await app.request("/test", {
+      headers: { Authorization: "Bearer any.token" },
+    });
+    const body = await res.text();
+    expect(body).not.toContain("sensitive info");
+    expect(body).not.toContain("crypto error");
   });
 });

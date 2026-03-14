@@ -1,5 +1,34 @@
 # Changelog
 
+## v0.20.0 (2026-03-14) -- Gateway JWT Auth (RS256 + HS256)
+
+### Zero-Trust Inter-Service Authentication
+
+- **`GatewayAuthConfig`** (`core/src/engine/gateway/auth-config.ts`): New domain type for gateway-level JWT authentication. Supports `algorithm: RS256` (JWKS) or `HS256` (shared secret). Optional `issuer` and `audience` claim validation. Exported from `@kilnai/core`.
+- **`auth` block in `gateway.yaml`**: Top-level optional config. RS256 requires `jwksUri`; HS256 requires `secretEnv` (env var name). Parsed and validated by `parseGatewayYaml` with the same error accumulation pattern as `observability`.
+- **`buildJwtVerifier()`** (`runtime/src/gateway/jwt-verifier.ts`): Builds a `JwtVerifyFn` from `GatewayAuthConfig`. RS256 uses `jose createRemoteJWKSet` (cached, auto-refreshing on key rotation). HS256 resolves the secret from `process.env` once at startup — fails fast if the env var is missing. Dynamic `import("jose")` so the library is only loaded when JWT auth is configured.
+- **`requireJwt(verify)`** (`runtime/src/gateway/auth-middleware.ts`): New composable middleware. Extracts Bearer token from `Authorization` header, verifies via `JwtVerifyFn`, attaches decoded payload to `c.set("jwtPayload", payload)`. Returns 401 with no error detail leakage on failure.
+- **`GatewayServerConfig.jwtVerifier`**: New optional field. When set, `createGatewayApp` applies `requireJwt` to all API channels (`/path/*`), admin routes (`/admin/:name/*`), outbound routes (`/outbound/:name/*`), handoff routes (`/handoff/:name/*`), and memory routes (`/api/memory/*`). Webhook channels (WhatsApp, Instagram, Messenger, Email) retain their HMAC-SHA256 auth unchanged. Health endpoint is always public.
+- **`startGateway` wiring**: JWT verifier built once at startup after `parseGatewayYaml`. Startup log confirms the active mode. Auth warning suppressed for API channels when gateway-level JWT is configured.
+- **Backward compatible**: No `auth` block → zero behavior change. Existing `apiKeyEnv` deployments continue working exactly as before.
+- **`jose` dependency**: Added to `@kilnai/runtime` dependencies.
+
+**Config examples:**
+
+```yaml
+# RS256 -- verify tokens issued by any Vigil-based service (e.g. SHRAD)
+auth:
+  algorithm: RS256
+  jwksUri: "https://auth.myapp.com/.well-known/jwks.json"
+  issuer: "https://auth.myapp.com"
+  audience: "kiln-gateway"
+
+# HS256 -- shared secret (same as Vigil HS256 mode)
+auth:
+  algorithm: HS256
+  secretEnv: GATEWAY_JWT_SECRET
+```
+
 ## v0.19.0 (2026-03-11) -- RAG Grounding Tier 2 (Post-Generation Rail)
 
 ### Hallucination Prevention: Post-Generation LLM Judge

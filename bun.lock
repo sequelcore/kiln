@@ -15,7 +15,7 @@
     },
     "packages/cli": {
       "name": "@kilnai/cli",
-      "version": "0.3.0",
+      "version": "0.19.0",
       "bin": {
         "kiln": "./dist/index.js",
       },
@@ -33,7 +33,7 @@
     },
     "packages/core": {
       "name": "@kilnai/core",
-      "version": "0.4.0",
+      "version": "0.19.0",
       "dependencies": {
         "@anthropic-ai/sdk": "^0.74.0",
         "@modelcontextprotocol/sdk": "^1.26.0",
@@ -55,9 +55,10 @@
     },
     "packages/runtime": {
       "name": "@kilnai/runtime",
-      "version": "0.4.0",
+      "version": "0.19.0",
       "dependencies": {
         "hono": "^4.7.0",
+        "jose": "^5.0.0",
       },
       "peerDependencies": {
         "@kilnai/core": "workspace:*",
@@ -71,7 +72,7 @@
     },
     "packages/sdk": {
       "name": "@kilnai/react",
-      "version": "0.3.0",
+      "version": "0.19.0",
       "devDependencies": {
         "@testing-library/react": "^16.1.0",
         "@types/react": "^19.0.0",
@@ -87,7 +88,7 @@
     },
     "packages/studio": {
       "name": "@kilnai/studio",
-      "version": "0.1.0",
+      "version": "0.10.0",
       "devDependencies": {
         "@kilnai/react": "workspace:*",
         "@tanstack/react-query": "^5.64.0",
@@ -103,7 +104,7 @@
     },
     "packages/widget": {
       "name": "@kilnai/widget",
-      "version": "0.3.0",
+      "version": "0.19.0",
       "devDependencies": {
         "jsdom": "^25.0.0",
         "vitest": "^4.0.18",
@@ -635,7 +636,7 @@
 
     "jiti": ["jiti@2.6.1", "", { "bin": { "jiti": "lib/jiti-cli.mjs" } }, "sha512-ekilCSN1jwRvIbgeg/57YFh8qQDNbwDb9xT/qu2DAHbFFZUicIl4ygVaAvzveMhMVr3LnpSKTNnwt8PoOfmKhQ=="],
 
-    "jose": ["jose@6.1.3", "", {}, "sha512-0TpaTfihd4QMNwrz/ob2Bp7X04yuxJkjRGi4aKmOqwhov54i6u79oCv7T+C7lo70MKH6BesI3vscD1yb/yzKXQ=="],
+    "jose": ["jose@5.10.0", "", {}, "sha512-s+3Al/p9g32Iq+oqXxkW//7jk2Vig6FF1CFqzVXoTUXt2qz89YWbL+OwS17NFYEvxC35n0FKeGO2LGYSxeM2Gg=="],
 
     "js-tokens": ["js-tokens@10.0.0", "", {}, "sha512-lM/UBzQmfJRo9ABXbPWemivdCW8V2G8FHaHdypQaIy523snUjog0W71ayWXTjiR+ixeMyVHN2XcpnTd/liPg/Q=="],
 
@@ -910,6 +911,8 @@
     "@babel/code-frame/js-tokens": ["js-tokens@4.0.0", "", {}, "sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ=="],
 
     "@babel/helper-compilation-targets/lru-cache": ["lru-cache@5.1.1", "", { "dependencies": { "yallist": "^3.0.2" } }, "sha512-KpNARQA3Iwv+jTA0utUVVbrh+Jlrr1Fv0e56GGzAFOXN7dk/FviaDW8LHmK52DlcH4WP2n6gI8vN1aesBFgo9w=="],
+
+    "@modelcontextprotocol/sdk/jose": ["jose@6.1.3", "", {}, "sha512-0TpaTfihd4QMNwrz/ob2Bp7X04yuxJkjRGi4aKmOqwhov54i6u79oCv7T+C7lo70MKH6BesI3vscD1yb/yzKXQ=="],
 
     "cssstyle/rrweb-cssom": ["rrweb-cssom@0.8.0", "", {}, "sha512-guoltQEx+9aMf2gDZ0s62EcV8lsXR+0w8915TC3ITdn2YueuNjdAYh/levpU9nFaoChh9RUS5ZdQMrKfVEN9tw=="],
 

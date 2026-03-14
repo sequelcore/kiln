@@ -7,6 +7,8 @@ import type { GatewayConfig, GatewayAppBinding, GatewayChannelBinding, GatewayVa
 import { validateGatewayConfig } from "./gateway-config.js";
 import type { ObservabilityConfig } from "./observability-config.js";
 import { validateObservabilityConfig } from "./observability-config.js";
+import type { GatewayAuthConfig } from "./auth-config.js";
+import { validateGatewayAuthConfig } from "./auth-config.js";
 
 /** Error class for gateway YAML loader failures, aggregating all validation errors */
 export class GatewayLoaderError extends KilnError {
@@ -46,6 +48,7 @@ interface RawGateway {
   port?: unknown;
   apps?: unknown;
   observability?: unknown;
+  auth?: unknown;
 }
 
 // ---------------------------------------------------------------------------
@@ -179,9 +182,33 @@ export function parseGatewayYaml(content: string): GatewayConfig {
     }
   }
 
+  // Parse optional auth block
+  let auth: GatewayAuthConfig | undefined;
+  if (raw.auth !== undefined) {
+    if (typeof raw.auth !== "object" || Array.isArray(raw.auth) || raw.auth === null) {
+      errors.push({ field: "auth", message: "must be an object" });
+    } else {
+      const rawAuth = raw.auth as Record<string, unknown>;
+      const str = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
+      const parsed: GatewayAuthConfig = {
+        algorithm: (str(rawAuth["algorithm"]) ?? "") as GatewayAuthConfig["algorithm"],
+        ...(str(rawAuth["jwksUri"]) ? { jwksUri: str(rawAuth["jwksUri"]) } : {}),
+        ...(str(rawAuth["secretEnv"]) ? { secretEnv: str(rawAuth["secretEnv"]) } : {}),
+        ...(str(rawAuth["issuer"]) ? { issuer: str(rawAuth["issuer"]) } : {}),
+        ...(str(rawAuth["audience"]) ? { audience: str(rawAuth["audience"]) } : {}),
+      };
+      const authErrors = validateGatewayAuthConfig(parsed);
+      if (authErrors.length > 0) {
+        errors.push(...authErrors);
+      } else {
+        auth = parsed;
+      }
+    }
+  }
+
   if (errors.length > 0) throw new GatewayLoaderError(errors);
 
-  const config: GatewayConfig = { port, apps, ...(observability ? { observability } : {}) };
+  const config: GatewayConfig = { port, apps, ...(observability ? { observability } : {}), ...(auth ? { auth } : {}) };
 
   const validationErrors = validateGatewayConfig(config);
   if (validationErrors.length > 0) throw new GatewayLoaderError(validationErrors);

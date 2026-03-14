@@ -46,6 +46,8 @@ import { createMemoryRoutes } from "./memory-routes.js";
 import type { TriggerRegistry } from "../trigger/trigger-registry.js";
 import type { ConversationEventEmitter } from "./conversation-event-emitter.js";
 import type { KnowledgePipelineResult } from "./knowledge-factory.js";
+import type { JwtVerifyFn } from "./jwt-verifier.js";
+import { requireJwt } from "./auth-middleware.js";
 
 export interface LoadedApp {
   readonly name: string;
@@ -85,6 +87,8 @@ export interface GatewayServerConfig {
   readonly studioDistPath?: string;
   readonly upgradeWebSocket?: WsRoutesConfig["upgradeWebSocket"];
   readonly validateToken?: WsRoutesConfig["validateToken"];
+  /** Gateway-level JWT verifier. When set, applied to all API and admin routes. */
+  readonly jwtVerifier?: JwtVerifyFn;
 }
 
 export function createGatewayApp(config: GatewayServerConfig): Hono {
@@ -95,6 +99,9 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
     const scanner = new PromptScanner(config.securityConfig.promptInjection);
     app.use("*", securityMiddleware(scanner, config.auditLog, config.securityConfig.promptInjection));
   }
+
+  // JWT middleware factory -- created once, reused for all protected route groups
+  const jwtMiddleware = config.jwtVerifier ? requireJwt(config.jwtVerifier) : undefined;
 
   // Health endpoint
   app.get("/health", async (c) => {
@@ -139,12 +146,27 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
 
   // Production memory routes (available in all modes)
   if (config.memoryRoutesConfig) {
+    if (jwtMiddleware) {
+      app.use("/api/memory/*", jwtMiddleware);
+    }
     const memoryRoutes = createMemoryRoutes(config.memoryRoutesConfig);
     app.route("/api", memoryRoutes);
   }
 
   // Per-app routes
   for (const loadedApp of config.apps) {
+    // JWT auth: applied to API/admin/outbound/handoff routes when gateway-level JWT is configured
+    if (jwtMiddleware) {
+      for (const channel of loadedApp.binding.channels) {
+        if (channel.type === "api" && channel.path) {
+          app.use(`${channel.path}/*`, jwtMiddleware);
+        }
+      }
+      app.use(`/admin/${loadedApp.name}/*`, jwtMiddleware);
+      app.use(`/outbound/${loadedApp.name}/*`, jwtMiddleware);
+      app.use(`/handoff/${loadedApp.name}/*`, jwtMiddleware);
+    }
+
     // Safety middleware per app (scans both input and output)
     const safetyPipeline = config.safetyPipelines?.get(loadedApp.name);
     if (safetyPipeline) {
