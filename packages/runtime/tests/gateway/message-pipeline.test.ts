@@ -11,7 +11,8 @@ import type { BillingConfig } from "../../src/gateway/budget-middleware.js";
 const originalFetch = globalThis.fetch;
 
 function makeMockSession(): ModeBSession {
-  return {
+  let _userContext: Record<string, string> | undefined;
+  const session = {
     id: "test-app:test-tenant:user-1:12345",
     appName: "test-app",
     tenantId: "test-tenant",
@@ -21,7 +22,12 @@ function makeMockSession(): ModeBSession {
     userTurnCount: 0,
     conversationHistory: [],
     accumulateTokens: vi.fn(),
+    get userContext() { return _userContext; },
+    updateUserContext(ctx: Record<string, string>) {
+      _userContext = { ..._userContext, ...ctx };
+    },
   } as unknown as ModeBSession;
+  return session;
 }
 
 function makeMockOrchestrator(): ModeBOrchestrator {
@@ -234,6 +240,41 @@ describe("processInboundMessage", () => {
       builtinTools,
       undefined,
     );
+  });
+
+  it("prepends [User Context] block first in mergedMemory when userContext is present", async () => {
+    const orchestrator = makeMockOrchestrator();
+    const sessionRegistry = makeMockSessionRegistry();
+    const ctx = makeBaseContext({
+      orchestrator,
+      sessionRegistry,
+      userContext: { role: "admin" },
+      recalledMemory: "Previous context here.",
+    });
+
+    await processInboundMessage(ctx);
+
+    const callArgs = (orchestrator.processMessage as ReturnType<typeof vi.fn>).mock.calls[0];
+    const mergedMemoryArg: string | undefined = callArgs[2];
+    expect(mergedMemoryArg).toBeDefined();
+    expect(mergedMemoryArg!.startsWith("[User Context]:")).toBe(true);
+    expect(mergedMemoryArg).toContain("Previous context here.");
+  });
+
+  it("omits [User Context] block from mergedMemory when userContext is absent", async () => {
+    const orchestrator = makeMockOrchestrator();
+    const sessionRegistry = makeMockSessionRegistry();
+    const ctx = makeBaseContext({
+      orchestrator,
+      sessionRegistry,
+      recalledMemory: "Previous context here.",
+    });
+
+    await processInboundMessage(ctx);
+
+    const callArgs = (orchestrator.processMessage as ReturnType<typeof vi.fn>).mock.calls[0];
+    const mergedMemoryArg: string | undefined = callArgs[2];
+    expect(mergedMemoryArg).not.toContain("[User Context]");
   });
 
   it("uses tenantId for billing", async () => {

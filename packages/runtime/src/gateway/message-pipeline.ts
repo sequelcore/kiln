@@ -10,7 +10,7 @@ import type { ConversationEventEmitter } from "./conversation-event-emitter.js";
 import type { SessionMode } from "../session/session-mode.js";
 import type { EscalationSignal } from "../session/escalation-detector.js";
 import { TraceContext } from "./trace-context.js";
-import { appendGroundingDirective } from "./context-formatter.js";
+import { appendGroundingDirective, formatUserContext } from "./context-formatter.js";
 
 export interface InboundMessageContext {
   readonly orchestrator: ModeBOrchestrator;
@@ -45,6 +45,7 @@ export interface InboundMessageContext {
   readonly skillRegistry?: SkillRegistry;
   readonly activeSkills?: readonly string[];
   readonly activeSkillTags?: readonly string[];
+  readonly userContext?: Record<string, string>;
   readonly groundingMode?: GroundingMode;
   readonly groundingDeps?: {
     readonly rail: GroundingRail;
@@ -114,6 +115,11 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
     idleTimeoutMs: ctx.idleTimeoutMs,
   });
   trace.log("pipeline", "Session ready", { sessionId: session.id, sessionMode: session.sessionMode });
+
+  // Merge incoming user context into session (merge semantics: keys accumulate)
+  if (ctx.userContext && Object.keys(ctx.userContext).length > 0) {
+    session.updateUserContext(ctx.userContext);
+  }
 
   // Session turn limit check
   if (ctx.sessionLimits?.maxTurns && session.userTurnCount >= ctx.sessionLimits.maxTurns) {
@@ -220,8 +226,9 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
     }
   }
 
-  // Merge recalled memory + knowledge context + contact context
-  const mergedMemory = [ctx.recalledMemory, ctx.knowledgeContext, ctx.contactContext].filter(Boolean).join("\n\n") || undefined;
+  // Merge recalled memory + knowledge context + contact context (user context goes first)
+  const userCtxBlock = formatUserContext(session.userContext);
+  const mergedMemory = [userCtxBlock, ctx.recalledMemory, ctx.knowledgeContext, ctx.contactContext].filter(Boolean).join("\n\n") || undefined;
   const combinedMemory = appendGroundingDirective(mergedMemory, ctx.groundingMode);
 
   // Resolve active skills

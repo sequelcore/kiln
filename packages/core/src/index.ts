@@ -1,3 +1,4 @@
+export type { UserContext } from "./engine/domain/user-context.js";
 export * from "./orchestrator/index.js";
 export * from "./agents/index.js";
 export * from "./domain/index.js";

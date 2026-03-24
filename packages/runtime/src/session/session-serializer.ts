@@ -22,6 +22,7 @@ export function serializeSession(session: ModeBSession): string {
     totalTokens: session.totalTokens,
     userTurnCount: session.userTurnCount,
     lastHumanMessageAt: session.lastHumanMessageAt,
+    userContext: session.userContext,
   };
   return JSON.stringify(data);
 }

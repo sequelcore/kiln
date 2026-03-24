@@ -303,6 +303,39 @@ describe("ModeBSession", () => {
     });
   });
 
+  describe("updateUserContext", () => {
+    it("stores context and increments version", () => {
+      const session = new ModeBSession({ appName: "app", tenantId: "t1", userId: "u1", systemPrompt: "sys" });
+      const versionBefore = session.version;
+      session.updateUserContext({ role: "admin" });
+      expect(session.userContext).toEqual({ role: "admin" });
+      expect(session.version).toBe(versionBefore + 1);
+    });
+
+    it("merges new keys into existing context", () => {
+      const session = new ModeBSession({ appName: "app", tenantId: "t1", userId: "u1", systemPrompt: "sys" });
+      session.updateUserContext({ role: "admin" });
+      session.updateUserContext({ locale: "es" });
+      expect(session.userContext).toEqual({ role: "admin", locale: "es" });
+    });
+
+    it("leaves existing context unchanged when called with empty object", () => {
+      const session = new ModeBSession({ appName: "app", tenantId: "t1", userId: "u1", systemPrompt: "sys" });
+      session.updateUserContext({ role: "admin" });
+      const versionBefore = session.version;
+      session.updateUserContext({});
+      expect(session.userContext).toEqual({ role: "admin" });
+      expect(session.version).toBe(versionBefore);
+    });
+
+    it("setUserContext(undefined) clears context and getter returns undefined", () => {
+      const session = new ModeBSession({ appName: "app", tenantId: "t1", userId: "u1", systemPrompt: "sys" });
+      session.updateUserContext({ role: "admin" });
+      session.setUserContext(undefined);
+      expect(session.userContext).toBeUndefined();
+    });
+  });
+
   describe("coexistence: recordHumanMessage", () => {
     it("lastHumanMessageAt is null by default", () => {
       const session = new ModeBSession({

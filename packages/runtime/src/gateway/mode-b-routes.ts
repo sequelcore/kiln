@@ -37,6 +37,7 @@ interface MessageRequest {
   readonly parts?: readonly ContentPart[];
   readonly userId: string;
   readonly plan?: string;
+  readonly context?: Record<string, string>;
 }
 
 export function createModeBRoutes(runtime: ModeBAppRuntime): Hono {
@@ -65,6 +66,19 @@ export function createModeBRoutes(runtime: ModeBAppRuntime): Hono {
     if (!body.userId || typeof body.userId !== "string") {
       return c.json({ error: "userId is required" }, 400);
     }
+
+    // Validate optional context: must be a plain non-array object with string values
+    if (body.context !== undefined) {
+      if (typeof body.context !== "object" || Array.isArray(body.context) || body.context === null) {
+        return c.json({ error: "context must be a plain object" }, 400);
+      }
+      for (const val of Object.values(body.context)) {
+        if (typeof val !== "string") {
+          return c.json({ error: "context values must be strings" }, 400);
+        }
+      }
+    }
+    const userContext = body.context;
 
     // Tier enforcement (Mode B specific -- not in the pipeline)
     if (runtime.billing?.tiers && body.plan) {
@@ -105,9 +119,14 @@ export function createModeBRoutes(runtime: ModeBAppRuntime): Hono {
         userId: body.userId,
         systemPrompt: "",
       });
+      // Apply user context before agent resolution so persona interpolation uses current context
+      if (userContext && Object.keys(userContext).length > 0) {
+        session.updateUserContext(userContext);
+      }
       const agentCtx = await resolveAgentContextAsync(
         runtime.tenant, userParts, session,
         { handoffSummarizer: runtime.handoffSummarizer, eventBus: runtime.eventBus },
+        undefined, undefined, session.userContext,
       );
       systemPrompt = agentCtx.systemPrompt;
       activeAgentId = agentCtx.activeAgentId;
@@ -136,6 +155,7 @@ export function createModeBRoutes(runtime: ModeBAppRuntime): Hono {
         billing: runtime.billing,
         channel: "api",
         knowledgeContext,
+        userContext,
         groundingMode: runtime.tenant?.groundingMode,
         groundingDeps: runtime.groundingDeps,
         activeAgentId,

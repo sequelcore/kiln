@@ -127,4 +127,23 @@ describe("serializeSession / deserializeSession", () => {
     // Default is 30 * 60 * 1000 = 1800000
     expect(restored.idleTimeoutMs).toBe(1800000);
   });
+
+  it("roundtrips a session with userContext", () => {
+    const session = makeSession();
+    session.updateUserContext({ role: "admin", locale: "es" });
+
+    const json = serializeSession(session);
+    const restored = deserializeSession(json);
+
+    expect(restored.userContext).toEqual({ role: "admin", locale: "es" });
+  });
+
+  it("roundtrips a session without userContext — backward compat", () => {
+    const session = makeSession();
+
+    const json = serializeSession(session);
+    const restored = deserializeSession(json);
+
+    expect(restored.userContext).toBeUndefined();
+  });
 });

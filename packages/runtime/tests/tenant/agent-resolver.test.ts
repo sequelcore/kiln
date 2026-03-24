@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { TenantConfig } from "@kilnai/core";
+import type { TenantConfig, UserContext } from "@kilnai/core";
 import { textParts } from "@kilnai/core";
 import { resolveAgentContext, buildAgentSystemPrompt } from "../../src/tenant/agent-resolver.js";
 import { ModeBSession } from "../../src/session/mode-b-session.js";
@@ -55,6 +55,46 @@ describe("buildAgentSystemPrompt", () => {
   it("omits instructions section when not present", () => {
     const prompt = buildAgentSystemPrompt("Base.", salesAgent);
     expect(prompt).not.toContain("## Operating Instructions");
+  });
+});
+
+describe("buildAgentSystemPrompt — user token interpolation", () => {
+  it("replaces {{user.role}} in agent role field", () => {
+    const agent = { ...salesAgent, role: "{{user.role}} specialist" };
+    const userContext: UserContext = { role: "admin" };
+    const prompt = buildAgentSystemPrompt("Base.", agent, userContext);
+    expect(prompt).toContain("admin specialist");
+    expect(prompt).not.toContain("{{user.role}}");
+  });
+
+  it("replaces {{user.name}} in agent backstory", () => {
+    const agent = { ...salesAgent, backstory: "Serving {{user.name}} since 2020." };
+    const userContext: UserContext = { name: "John" };
+    const prompt = buildAgentSystemPrompt("Base.", agent, userContext);
+    expect(prompt).toContain("Serving John since 2020.");
+    expect(prompt).not.toContain("{{user.name}}");
+  });
+
+  it("replaces {{user.locale}} in agent instructions", () => {
+    const agent = { ...salesAgent, instructions: "Respond in {{user.locale}}." };
+    const userContext: UserContext = { locale: "es" };
+    const prompt = buildAgentSystemPrompt("Base.", agent, userContext);
+    expect(prompt).toContain("Respond in es.");
+    expect(prompt).not.toContain("{{user.locale}}");
+  });
+
+  it("resolves unknown token to empty string", () => {
+    const agent = { ...salesAgent, role: "{{user.unknown}} role" };
+    const userContext: UserContext = { role: "admin" };
+    const prompt = buildAgentSystemPrompt("Base.", agent, userContext);
+    expect(prompt).toContain(" role");
+    expect(prompt).not.toContain("{{user.unknown}}");
+  });
+
+  it("leaves {{user.role}} untouched when userContext is undefined", () => {
+    const agent = { ...salesAgent, role: "{{user.role}} specialist" };
+    const prompt = buildAgentSystemPrompt("Base.", agent, undefined);
+    expect(prompt).toContain("{{user.role}}");
   });
 });
 
