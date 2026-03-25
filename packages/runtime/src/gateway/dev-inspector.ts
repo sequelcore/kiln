@@ -163,9 +163,9 @@ pre.json{font-size:12px;color:#a1a1aa;white-space:pre-wrap;word-break:break-all}
       var label=sp.name||sp.spanId||(sp.spanKind+" span");
       var attrs=JSON.stringify(sp,null,2);
       html+='<div class="tl-row" style="'+indent+'">';
-      html+='<div class="tl-label" title="'+label+'" onclick="toggleSpanDetail(\''+sp.spanId+'\')">'+label+'</div>';
+      html+='<div class="tl-label" title="'+label+'" onclick="toggleSpanDetail(\\''+sp.spanId+'\\')">'+label+'</div>';
       html+='<div class="tl-ruler"><div class="tl-bar '+cls+'" style="left:'+left+'%;width:'+width+'%"';
-      html+=' title="'+label+' ('+Math.round(et2-st2)+'ms)'+'" onclick="toggleSpanDetail(\''+sp.spanId+'\')"';
+      html+=' title="'+label+' ('+Math.round(et2-st2)+'ms)'+'" onclick="toggleSpanDetail(\\''+sp.spanId+'\\')"';
       html+='></div></div>';
       html+='</div>';
       html+='<div class="tl-detail'+(isSelected?' tl-detail-visible':'')+'" id="detail-'+sp.spanId+'">'+attrs.replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</div>';

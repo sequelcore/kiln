@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.21.1 (2026-03-25) -- Dev Inspector Fix
+
+### Bug Fix
+
+- **Dev Inspector**: Fix `SyntaxError: Unexpected string` at line 162 in the inline dev inspector (`/dev/`). The `onclick` handlers for timeline span detail toggle had broken quote escaping inside the template literal — `\'` was rendered as bare `'` in the HTML, breaking the JavaScript. Fixed by using `\\'` in the template literal so the served HTML contains proper `\'` escapes. (`runtime/src/gateway/dev-inspector.ts:166-168`)
+
 ## v0.21.0 (2026-03-24) -- Gateway MCP Server
 
 ### MCP Tool Surface for External Agents
