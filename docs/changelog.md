@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.22.0 (2026-03-24) -- Gateway MCP Server
+## v0.21.0 (2026-03-24) -- Gateway MCP Server
 
 ### MCP Tool Surface for External Agents
 
