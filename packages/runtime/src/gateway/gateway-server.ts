@@ -1182,7 +1182,8 @@ async function serveAndWait(app: Hono, port: number, onShutdown?: () => void, we
 
   let server: ReturnType<typeof Bun.serve>;
   try {
-    server = Bun.serve({ port, fetch: app.fetch, websocket });
+    // idleTimeout: 255s is the uWebSockets max (uint8). Prevents Bun from killing SSE streams.
+    server = Bun.serve({ port, fetch: app.fetch, websocket, idleTimeout: 255 });
   } catch (err: unknown) {
     if (err instanceof Error && "code" in err && err.code === "EADDRINUSE") {
       console.error(`Error: Port ${port} is already in use.`);

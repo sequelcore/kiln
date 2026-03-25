@@ -38,6 +38,7 @@ export function createDevRoutes(config: DevRoutesConfig): Hono {
     const eventBus = config.getEventBus?.();
 
     let liveHandler: ((event: KilnEvent) => void) | undefined;
+    let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
 
     return c.newResponse(
       new ReadableStream({
@@ -50,6 +51,15 @@ export function createDevRoutes(config: DevRoutesConfig): Hono {
             const data = JSON.stringify(serializeEvent(event));
             controller.enqueue(encoder.encode(`event: ${event.type}\ndata: ${data}\n\n`));
           }
+
+          // SSE keepalive: send comment every 30s to prevent idle timeout
+          heartbeatTimer = setInterval(() => {
+            try {
+              controller.enqueue(encoder.encode(":keepalive\n\n"));
+            } catch {
+              // Client disconnected
+            }
+          }, 30_000);
 
           if (!eventBus) return;
 
@@ -67,6 +77,10 @@ export function createDevRoutes(config: DevRoutesConfig): Hono {
           eventBus.onAny(handler);
         },
         cancel() {
+          if (heartbeatTimer) {
+            clearInterval(heartbeatTimer);
+            heartbeatTimer = undefined;
+          }
           if (liveHandler) {
             eventBus?.offAny(liveHandler);
             liveHandler = undefined;
