@@ -72,6 +72,8 @@ apps:
 |-------|------|----------|-------------|
 | `port` | `number` | No | TCP port (1–65535). Defaults to `4800`. |
 | `apps` | `GatewayAppBinding[]` | Yes | List of Apps to host. At least one required. |
+| `auth` | `GatewayAuthConfig` | No | Gateway-level JWT authentication for API and admin routes. |
+| `mcp` | `GatewayMcpConfig` | No | Gateway-level MCP server configuration. |
 
 ### GatewayAppBinding
 
@@ -133,6 +135,30 @@ Each channel type has one natural authentication mechanism configured via YAML. 
 - Multi-tenant app without `adminTokenEnv` — admin routes are unauthenticated
 
 **Graceful degradation.** All auth fields are optional. When omitted, the channel runs unauthenticated. This allows incremental adoption and frictionless local development.
+
+---
+
+## Gateway-Level JWT Auth
+
+Use the top-level `auth` block to require JWTs on gateway API and admin routes.
+
+```yaml
+auth:
+  algorithm: RS256
+  jwksUri: $GATEWAY_JWKS_URI
+  issuer: https://auth.myapp.com
+  audience: kiln-gateway
+```
+
+`jwksUri` accepts either a literal URL or a value starting with `$`, which is resolved from the environment at startup. If the referenced env var is missing or empty, gateway validation fails before startup completes.
+
+For HS256, use `secretEnv` instead:
+
+```yaml
+auth:
+  algorithm: HS256
+  secretEnv: GATEWAY_JWT_SECRET
+```
 
 ---
 
@@ -569,7 +595,7 @@ The following conversation events are emitted during handoff workflows (delivere
 **Startup order:**
 1. Parse and validate `gateway.yaml`. Throw `GatewayLoaderError` on invalid config.
 2. Load all App YAML files via `resolveApps()`. Assign memory paths (`~/.kiln/gateway/{appName}/`).
-3. Resolve auth environment variables (`apiKeyEnv`, `appSecretEnv`, `adminTokenEnv`, `accessTokenEnv`) from channel bindings.
+3. Resolve auth environment variables from config (`auth.jwksUri` when prefixed with `$`, plus channel fields such as `apiKeyEnv`, `appSecretEnv`, `adminTokenEnv`, and `accessTokenEnv`).
 4. Instantiate `ChannelRegistry` per App.
 5. Initialize `ModeBOrchestrator` for each Mode B App. The `model` field from each App's provider config is passed to `OrchestratorDeps` for accurate cost tracking. If `model` is omitted, a warning is logged and costs default to $0.
 6. Build `DelegationRegistry` from all Mode B Apps.

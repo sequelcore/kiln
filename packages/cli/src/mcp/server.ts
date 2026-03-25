@@ -23,7 +23,7 @@ export interface McpServerInfo {
 }
 
 /**
- * MCP server exposing 7 Kiln tools via stdio or SSE transport.
+ * MCP server exposing the Kiln tool set via stdio or SSE transport.
  * Bridges the MCP protocol to the Orchestrator.
  */
 export class KilnMcpServer {

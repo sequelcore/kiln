@@ -39,7 +39,8 @@ export function createSSETransport(port: number = 3001): SSETransportResult {
   let serverFactory: (() => McpServer) | null = null;
 
   const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
-    const url = new URL(req.url ?? "/", `http://localhost:${port}`);
+    const baseUrl = getRequestBaseUrl(req, httpServer);
+    const url = new URL(req.url ?? "/", baseUrl);
 
     if (req.method === "GET" && url.pathname === "/sse") {
       if (!serverFactory) {
@@ -125,6 +126,20 @@ export function createSSETransport(port: number = 3001): SSETransportResult {
       serverFactory = factory;
     },
   };
+}
+
+function getRequestBaseUrl(req: IncomingMessage, server: Server): string {
+  const hostHeader = req.headers.host;
+  if (hostHeader) {
+    return `http://${hostHeader}`;
+  }
+
+  const address = server.address();
+  if (address && typeof address === "object") {
+    return `http://127.0.0.1:${address.port}`;
+  }
+
+  return "http://127.0.0.1";
 }
 
 function readBody(req: IncomingMessage): Promise<string> {
