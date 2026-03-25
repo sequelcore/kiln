@@ -40,6 +40,27 @@ interface McpTransport {
   close?(): Promise<void>;
 }
 
+let sdkModulesPromise: Promise<SdkModules> | undefined;
+
+function loadSdkModules(): Promise<SdkModules> {
+  return Promise.all([
+    import("@modelcontextprotocol/sdk/server/index.js"),
+    import("@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js"),
+    import("@modelcontextprotocol/sdk/types.js"),
+  ]).then(([serverModule, transportModule, typesModule]) => ({
+    Server: serverModule.Server as unknown as SdkModules["Server"],
+    WebStandardStreamableHTTPServerTransport:
+      transportModule.WebStandardStreamableHTTPServerTransport as unknown as SdkModules["WebStandardStreamableHTTPServerTransport"],
+    ListToolsRequestSchema: typesModule.ListToolsRequestSchema,
+    CallToolRequestSchema: typesModule.CallToolRequestSchema,
+  }));
+}
+
+// Warm the optional MCP SDK imports as soon as this module is loaded so the
+// first request path does not pay the full dynamic-import cost under test/workspace load.
+const sdkWarmupPromise = loadSdkModules();
+void sdkWarmupPromise.catch(() => undefined);
+
 /**
  * MCP server that exposes gateway capabilities (memory, knowledge, cost, safety)
  * as tools for external agents via Streamable HTTP transport.
@@ -61,19 +82,9 @@ export class GatewayMcpServer {
 
   /** Load SDK modules. Must be called before handleRequest(). */
   async initialize(): Promise<void> {
-    const { Server } = await import("@modelcontextprotocol/sdk/server/index.js");
-    const { WebStandardStreamableHTTPServerTransport } = await import(
-      "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js"
-    );
-    const { ListToolsRequestSchema, CallToolRequestSchema } = await import("@modelcontextprotocol/sdk/types.js");
+    sdkModulesPromise ??= sdkWarmupPromise;
 
-    this.sdk = {
-      Server: Server as unknown as SdkModules["Server"],
-      WebStandardStreamableHTTPServerTransport:
-        WebStandardStreamableHTTPServerTransport as unknown as SdkModules["WebStandardStreamableHTTPServerTransport"],
-      ListToolsRequestSchema,
-      CallToolRequestSchema,
-    };
+    this.sdk = await sdkModulesPromise;
   }
 
   /** Route an incoming HTTP request to a per-request MCP server. */
@@ -163,6 +174,26 @@ export class GatewayMcpServer {
           return this.handleCostSummary();
         case "safety_metrics":
           return this.handleSafetyMetrics();
+        case "integration_list":
+          return this.handleIntegrationList();
+        case "integration_execute":
+          return await this.handleIntegrationExecute(args);
+        case "routing_test":
+          return await this.handleRoutingTest(args);
+        case "eval_score":
+          return await this.handleEvalScore(args);
+        case "enrichment_get":
+          return await this.handleEnrichmentGet(args);
+        case "enrichment_list":
+          return await this.handleEnrichmentList(args);
+        case "cross_agent_memory_recall":
+          return await this.handleCrossAgentMemoryRecall(args);
+        case "cross_agent_memory_store":
+          return await this.handleCrossAgentMemoryStore(args);
+        case "budget_check":
+          return await this.handleBudgetCheck(args);
+        case "budget_report":
+          return await this.handleBudgetReport(args);
         default:
           return this.errorResult(`Unknown tool: ${toolName}`);
       }
@@ -235,6 +266,126 @@ export class GatewayMcpServer {
   private handleSafetyMetrics(): { content: { type: "text"; text: string }[] } {
     if (!this.deps.getSafetyMetrics) return this.errorResult("Safety metrics not available");
     return this.jsonResult(this.deps.getSafetyMetrics());
+  }
+
+  // -- Integration Runtime Phase 4 -----------------------------------------------
+
+  private handleIntegrationList(): { content: { type: "text"; text: string }[] } {
+    if (!this.deps.listIntegrations) return this.errorResult("Integration list not available");
+    return this.jsonResult(this.deps.listIntegrations());
+  }
+
+  private async handleIntegrationExecute(
+    args: Record<string, unknown>,
+  ): Promise<{ content: { type: "text"; text: string }[]; isError?: boolean }> {
+    if (!this.deps.executeIntegration) return this.errorResult("Integration execute not available");
+    const result = await this.deps.executeIntegration(
+      args["provider"] as string,
+      args["operation"] as string,
+      args["tenantId"] as string,
+      (args["input"] as Record<string, unknown>) ?? {},
+    );
+    return this.jsonResult(result);
+  }
+
+  // -- MCP-First Orchestration Phase 2 -------------------------------------------
+
+  private async handleRoutingTest(
+    args: Record<string, unknown>,
+  ): Promise<{ content: { type: "text"; text: string }[]; isError?: boolean }> {
+    if (!this.deps.testRouting) return this.errorResult("Routing test not available");
+    const result = await this.deps.testRouting(
+      args["tenantId"] as string,
+      args["message"] as string,
+    );
+    return this.jsonResult(result);
+  }
+
+  private async handleEvalScore(
+    args: Record<string, unknown>,
+  ): Promise<{ content: { type: "text"; text: string }[]; isError?: boolean }> {
+    if (!this.deps.evalScore) return this.errorResult("Eval scoring not available");
+    const scorers = Array.isArray(args["scorers"])
+      ? (args["scorers"] as string[])
+      : undefined;
+    const scores = await this.deps.evalScore(
+      args["input"] as string,
+      args["output"] as string,
+      args["expected"] as string | undefined,
+      scorers,
+    );
+    return this.jsonResult({ scores });
+  }
+
+  private async handleEnrichmentGet(
+    args: Record<string, unknown>,
+  ): Promise<{ content: { type: "text"; text: string }[]; isError?: boolean }> {
+    if (!this.deps.getEnrichment) return this.errorResult("Enrichment get not available");
+    const result = await this.deps.getEnrichment(args["sessionId"] as string);
+    if (!result) return this.errorResult(`No enrichment found for session: ${args["sessionId"] as string}`);
+    return this.jsonResult(result);
+  }
+
+  private async handleEnrichmentList(
+    args: Record<string, unknown>,
+  ): Promise<{ content: { type: "text"; text: string }[]; isError?: boolean }> {
+    if (!this.deps.listEnrichments) return this.errorResult("Enrichment list not available");
+    const result = await this.deps.listEnrichments(
+      args["tenantId"] as string,
+      args["limit"] as number | undefined,
+      args["cursor"] as string | undefined,
+    );
+    return this.jsonResult(result);
+  }
+
+  private async handleCrossAgentMemoryRecall(
+    args: Record<string, unknown>,
+  ): Promise<{ content: { type: "text"; text: string }[]; isError?: boolean }> {
+    if (!this.deps.getMemoryByScope) return this.errorResult("Cross-agent memory not available");
+    const entries = await this.deps.getMemoryByScope(
+      "team",
+      args["query"] as string | undefined,
+      args["key"] ? `key:${args["key"] as string}` : undefined,
+    );
+    return this.jsonResult(entries);
+  }
+
+  private async handleCrossAgentMemoryStore(
+    args: Record<string, unknown>,
+  ): Promise<{ content: { type: "text"; text: string }[]; isError?: boolean }> {
+    if (!this.deps.createMemoryEntry) return this.errorResult("Cross-agent memory not available");
+    const result = await this.deps.createMemoryEntry({
+      scope: "team",
+      key: args["key"],
+      content: args["content"],
+      ...(args["tags"] ? { tags: args["tags"] } : {}),
+    });
+    return this.jsonResult(result);
+  }
+
+  private async handleBudgetCheck(
+    args: Record<string, unknown>,
+  ): Promise<{ content: { type: "text"; text: string }[]; isError?: boolean }> {
+    if (!this.deps.checkBudget) return this.errorResult("Budget check not available");
+    const result = await this.deps.checkBudget(
+      args["tenantId"] as string,
+      args["appName"] as string,
+    );
+    return this.jsonResult(result);
+  }
+
+  private async handleBudgetReport(
+    args: Record<string, unknown>,
+  ): Promise<{ content: { type: "text"; text: string }[]; isError?: boolean }> {
+    if (!this.deps.reportUsage) return this.errorResult("Budget reporting not available");
+    await this.deps.reportUsage(
+      args["tenantId"] as string,
+      args["appName"] as string,
+      args["messages"] as number,
+      args["tokens"] as number,
+      args["model"] as string,
+    );
+    return this.jsonResult({ ok: true });
   }
 
   // ---------------------------------------------------------------------------

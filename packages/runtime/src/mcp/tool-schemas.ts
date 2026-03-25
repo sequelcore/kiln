@@ -1,4 +1,4 @@
-// MCP server: tool input schemas for the 7 gateway MCP tools
+// MCP server: tool input schemas for the gateway MCP tools
 // JSON Schema objects used by @modelcontextprotocol/sdk CallToolRequest validation
 
 export const MEMORY_RECALL_SCHEMA = {
@@ -96,6 +96,105 @@ export const SAFETY_METRICS_SCHEMA = {
   required: [] as string[],
 };
 
+export const INTEGRATION_LIST_SCHEMA = {
+  type: "object" as const,
+  properties: {},
+  required: [] as string[],
+};
+
+export const INTEGRATION_EXECUTE_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    provider: { type: "string", description: "Integration provider name (e.g. 'stripe')" },
+    operation: { type: "string", description: "Operation name within the provider (e.g. 'create_link')" },
+    tenantId: { type: "string", description: "Tenant ID whose credentials will be used" },
+    input: { type: "object", description: "Input parameters for the operation (provider-defined schema)" },
+  },
+  required: ["provider", "operation", "tenantId", "input"],
+};
+
+export const ROUTING_TEST_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    tenantId: { type: "string", description: "Tenant ID to test routing for" },
+    message: { type: "string", description: "Message text to route (dry-run, not sent to LLM)" },
+  },
+  required: ["tenantId", "message"],
+};
+
+export const EVAL_SCORE_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    input: { type: "string", description: "The user input or prompt" },
+    output: { type: "string", description: "The LLM output to evaluate" },
+    expected: { type: "string", description: "Optional expected/reference output" },
+    scorers: {
+      type: "array",
+      items: { type: "string" },
+      description: "Scorer names to apply. If omitted, all configured scorers are used.",
+    },
+  },
+  required: ["input", "output"],
+};
+
+export const ENRICHMENT_GET_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    sessionId: { type: "string", description: "Session ID of the completed conversation" },
+  },
+  required: ["sessionId"],
+};
+
+export const ENRICHMENT_LIST_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    tenantId: { type: "string", description: "Tenant ID to list enrichments for" },
+    limit: { type: "number", description: "Maximum number of results (default: 20)" },
+    cursor: { type: "string", description: "Pagination cursor (enrichedAt timestamp from prior response)" },
+  },
+  required: ["tenantId"],
+};
+
+export const CROSS_AGENT_MEMORY_RECALL_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    key: { type: "string", description: "Memory key for exact tag-based lookup" },
+    query: { type: "string", description: "FTS5 search query when exact key is unknown" },
+  },
+  required: [] as string[],
+};
+
+export const CROSS_AGENT_MEMORY_STORE_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    key: { type: "string", description: "Unique key for the shared memory entry" },
+    content: { type: "string", description: "Content to store as shared context" },
+    tags: { type: "string", description: "Optional comma-separated tags" },
+  },
+  required: ["key", "content"],
+};
+
+export const BUDGET_CHECK_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    tenantId: { type: "string", description: "Tenant ID to check budget for" },
+    appName: { type: "string", description: "App name (locates the billing config)" },
+  },
+  required: ["tenantId", "appName"],
+};
+
+export const BUDGET_REPORT_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    tenantId: { type: "string", description: "Tenant ID to report usage for" },
+    appName: { type: "string", description: "App name (locates the billing config)" },
+    messages: { type: "number", description: "Number of messages to report" },
+    tokens: { type: "number", description: "Number of tokens to report" },
+    model: { type: "string", description: "Model identifier (e.g. 'claude-sonnet-4-5')" },
+  },
+  required: ["tenantId", "appName", "messages", "tokens", "model"],
+};
+
 /** All tool definitions for the gateway MCP server */
 export const GATEWAY_MCP_TOOLS = [
   {
@@ -132,6 +231,56 @@ export const GATEWAY_MCP_TOOLS = [
     name: "safety_metrics",
     description: "Get safety pipeline metrics including PII detections, content classifications, and rail triggers",
     inputSchema: SAFETY_METRICS_SCHEMA,
+  },
+  {
+    name: "integration_list",
+    description: "List all registered integration adapters and their available operations",
+    inputSchema: INTEGRATION_LIST_SCHEMA,
+  },
+  {
+    name: "integration_execute",
+    description: "Execute an integration operation for a tenant using their stored credentials",
+    inputSchema: INTEGRATION_EXECUTE_SCHEMA,
+  },
+  {
+    name: "routing_test",
+    description: "Dry-run tenant message routing: returns agentId, tier, matched pattern, and per-rule diagnostics",
+    inputSchema: ROUTING_TEST_SCHEMA,
+  },
+  {
+    name: "eval_score",
+    description: "Score a single input/output pair using the gateway's configured eval scorers",
+    inputSchema: EVAL_SCORE_SCHEMA,
+  },
+  {
+    name: "enrichment_get",
+    description: "Retrieve enrichment data for a completed conversation session",
+    inputSchema: ENRICHMENT_GET_SCHEMA,
+  },
+  {
+    name: "enrichment_list",
+    description: "List enrichment records for a tenant with cursor-based pagination",
+    inputSchema: ENRICHMENT_LIST_SCHEMA,
+  },
+  {
+    name: "cross_agent_memory_recall",
+    description: "Recall shared memory entries from the team scope, accessible by all agents",
+    inputSchema: CROSS_AGENT_MEMORY_RECALL_SCHEMA,
+  },
+  {
+    name: "cross_agent_memory_store",
+    description: "Store a shared memory entry in the team scope so all agents can access it",
+    inputSchema: CROSS_AGENT_MEMORY_STORE_SCHEMA,
+  },
+  {
+    name: "budget_check",
+    description: "Check remaining budget for a tenant against the app's billing endpoint",
+    inputSchema: BUDGET_CHECK_SCHEMA,
+  },
+  {
+    name: "budget_report",
+    description: "Report token usage for a tenant to the app's billing endpoint",
+    inputSchema: BUDGET_REPORT_SCHEMA,
   },
 ] as const;
 
