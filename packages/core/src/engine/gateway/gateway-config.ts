@@ -3,6 +3,7 @@
 
 import type { ObservabilityConfig } from "./observability-config.js";
 import type { GatewayAuthConfig } from "./auth-config.js";
+import type { GatewayMcpConfig } from "./mcp-config.js";
 
 /** Channel binding for a specific platform adapter */
 export interface GatewayChannelBinding {
@@ -33,6 +34,7 @@ export interface GatewayConfig {
   readonly apps: readonly GatewayAppBinding[];
   readonly observability?: ObservabilityConfig;
   readonly auth?: GatewayAuthConfig;
+  readonly mcp?: GatewayMcpConfig;
 }
 
 /** Validation error for gateway configuration */

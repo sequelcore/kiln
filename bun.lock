@@ -15,7 +15,7 @@
     },
     "packages/cli": {
       "name": "@kilnai/cli",
-      "version": "0.19.0",
+      "version": "0.20.0",
       "bin": {
         "kiln": "./dist/index.js",
       },
@@ -33,7 +33,7 @@
     },
     "packages/core": {
       "name": "@kilnai/core",
-      "version": "0.19.0",
+      "version": "0.20.0",
       "dependencies": {
         "@anthropic-ai/sdk": "^0.74.0",
         "@modelcontextprotocol/sdk": "^1.26.0",
@@ -55,24 +55,26 @@
     },
     "packages/runtime": {
       "name": "@kilnai/runtime",
-      "version": "0.19.0",
+      "version": "0.20.0",
       "dependencies": {
         "hono": "^4.7.0",
         "jose": "^5.0.0",
       },
       "peerDependencies": {
         "@kilnai/core": "workspace:*",
+        "@modelcontextprotocol/sdk": "^1.12.0",
         "@opentelemetry/api": "^1.9.0",
         "ioredis": ">=5.0.0",
       },
       "optionalPeers": [
+        "@modelcontextprotocol/sdk",
         "@opentelemetry/api",
         "ioredis",
       ],
     },
     "packages/sdk": {
       "name": "@kilnai/react",
-      "version": "0.19.0",
+      "version": "0.20.0",
       "devDependencies": {
         "@testing-library/react": "^16.1.0",
         "@types/react": "^19.0.0",
@@ -104,7 +106,7 @@
     },
     "packages/widget": {
       "name": "@kilnai/widget",
-      "version": "0.19.0",
+      "version": "0.20.0",
       "devDependencies": {
         "jsdom": "^25.0.0",
         "vitest": "^4.0.18",
