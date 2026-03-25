@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.22.0 (2026-03-24) -- Gateway MCP Server
+
+### MCP Tool Surface for External Agents
+
+- **`GatewayMcpConfig`** (`core/src/engine/gateway/mcp-config.ts`): New domain type for gateway-level MCP server configuration. Fields: `enabled`, optional `path` (default `/mcp`), optional `auth` (`api-key` with `keyEnv`, or `none`). Exported from `@kilnai/core`.
+- **`mcp` block in `gateway.yaml`**: Top-level optional config. Parsed and validated by `parseGatewayYaml` with the same error accumulation pattern as `auth` and `observability`.
+- **`GatewayMcpServer`** (`runtime/src/mcp/gateway-mcp-server.ts`): MCP server exposing 7 gateway tools via Streamable HTTP. Uses the low-level `Server` class with raw JSON Schema (no Zod dependency). Stateless per-request: fresh Server+Transport pair per request (MCP Streamable HTTP spec). `enableJsonResponse: true` for direct JSON responses. Dynamic `import("@modelcontextprotocol/sdk")` — optional peer dep, fail-open at startup.
+- **7 MCP tools**: `memory_recall` (FTS search by scope), `memory_store`, `memory_delete`, `knowledge_search` (RAG retrieval), `knowledge_sources` (list), `cost_summary` (token counts + USD), `safety_metrics` (PII/content/rail metrics).
+- **`GatewayMcpDeps`** (`runtime/src/mcp/gateway-mcp-types.ts`): Dependency injection interface decoupling tool handlers from concrete gateway wiring.
+- **Gateway wiring**: `startGateway()` initializes `GatewayMcpServer` when `mcp.enabled: true`. Mounts on configurable path via `honoApp.all()`. Resolves API key from env var. Cleanup on shutdown.
+- **`@modelcontextprotocol/sdk`**: Added as optional peer dependency to `@kilnai/runtime` (`^1.12.0`).
+
+**Config example:**
+
+```yaml
+mcp:
+  enabled: true
+  path: /mcp
+  auth:
+    type: api-key
+    keyEnv: MCP_API_KEY
+```
+
 ## v0.20.0 (2026-03-14) -- Gateway JWT Auth (RS256 + HS256)
 
 ### Zero-Trust Inter-Service Authentication

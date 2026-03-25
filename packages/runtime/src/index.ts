@@ -182,6 +182,10 @@ export { LocalCredentialResolver } from "./gateway/local-credential-resolver.js"
 export { configureIntegrationDeps, clearIntegrationDeps } from "./gateway/tenant-tool-factory.js";
 export type { IntegrationDeps } from "./gateway/tenant-tool-factory.js";
 
+// MCP Server
+export { GatewayMcpServer, GATEWAY_MCP_TOOLS } from "./mcp/index.js";
+export type { GatewayMcpServerOptions, GatewayMcpDeps, GatewayMcpToolName } from "./mcp/index.js";
+
 // Auth
 export { requireApiKey, requireBearer, requireWebhookSignature, isOriginAllowed } from "./gateway/auth-middleware.js";
 
