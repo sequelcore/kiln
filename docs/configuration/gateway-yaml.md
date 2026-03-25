@@ -162,6 +162,34 @@ auth:
 
 ---
 
+## Gateway MCP Server
+
+Use the top-level `mcp` block to expose gateway capabilities as MCP tools over Streamable HTTP.
+
+```yaml
+mcp:
+  enabled: true
+  path: /mcp
+  auth:
+    type: api-key
+    keyEnv: MCP_API_KEY
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `enabled` | `boolean` | Yes | Enables the MCP endpoint when `true`. |
+| `path` | `string` | No | HTTP path for MCP endpoint. Defaults to `/mcp`. Must start with `/`. |
+| `auth.type` | `"api-key" \| "none"` | No | MCP auth mode. |
+| `auth.keyEnv` | `string` | Conditionally | Required when `auth.type: api-key`. Environment variable containing MCP bearer key. |
+
+Authentication and protocol notes:
+
+- When `auth.type: api-key`, clients must send `Authorization: Bearer <MCP_API_KEY>`.
+- Streamable HTTP clients must send `Accept: application/json, text/event-stream`.
+- MCP auth is independent of gateway-level JWT `auth`.
+
+---
+
 ## Mode A vs Mode B
 
 Both modes can coexist in the same Gateway process on different Apps.
