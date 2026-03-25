@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import { parseGatewayYaml, GatewayLoaderError } from "../../../src/engine/gateway/gateway-loader.js";
 
 const VALID_YAML = `
@@ -286,6 +286,10 @@ apps:
         path: /api/v1
 `;
 
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("omits auth when auth block is absent (backward compat)", () => {
     const config = parseGatewayYaml(BASE);
     expect(config.auth).toBeUndefined();
@@ -298,6 +302,14 @@ apps:
     expect(config.auth!.algorithm).toBe("RS256");
     expect(config.auth!.jwksUri).toBe("https://auth.example.com/.well-known/jwks.json");
     expect(config.auth!.secretEnv).toBeUndefined();
+  });
+
+  it("resolves RS256 jwksUri from environment when prefixed with $", () => {
+    vi.stubEnv("JWT_JWKS_URI", "https://auth.example.com/.well-known/jwks.json");
+    const yaml = BASE + `auth:\n  algorithm: RS256\n  jwksUri: $JWT_JWKS_URI\n`;
+    const config = parseGatewayYaml(yaml);
+    expect(config.auth).toBeDefined();
+    expect(config.auth!.jwksUri).toBe("https://auth.example.com/.well-known/jwks.json");
   });
 
   it("parses valid HS256 auth block", () => {
@@ -323,6 +335,12 @@ apps:
 
   it("throws GatewayLoaderError when RS256 is missing jwksUri", () => {
     const yaml = BASE + `auth:\n  algorithm: RS256\n`;
+    expect(() => parseGatewayYaml(yaml)).toThrow(GatewayLoaderError);
+  });
+
+  it("throws GatewayLoaderError when RS256 jwksUri env var is missing", () => {
+    vi.stubEnv("JWT_JWKS_URI", "");
+    const yaml = BASE + `auth:\n  algorithm: RS256\n  jwksUri: $JWT_JWKS_URI\n`;
     expect(() => parseGatewayYaml(yaml)).toThrow(GatewayLoaderError);
   });
 

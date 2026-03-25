@@ -111,6 +111,11 @@ function mapAppBinding(raw: RawAppBinding, path: string): { binding: GatewayAppB
   return { binding, errors };
 }
 
+function resolveEnvValue(value: string): string {
+  if (!value.startsWith("$")) return value;
+  return process.env[value.slice(1)] ?? "";
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -193,9 +198,10 @@ export function parseGatewayYaml(content: string): GatewayConfig {
     } else {
       const rawAuth = raw.auth as Record<string, unknown>;
       const str = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
+      const jwksUri = str(rawAuth["jwksUri"]);
       const parsed: GatewayAuthConfig = {
         algorithm: (str(rawAuth["algorithm"]) ?? "") as GatewayAuthConfig["algorithm"],
-        ...(str(rawAuth["jwksUri"]) ? { jwksUri: str(rawAuth["jwksUri"]) } : {}),
+        ...(jwksUri ? { jwksUri: resolveEnvValue(jwksUri) } : {}),
         ...(str(rawAuth["secretEnv"]) ? { secretEnv: str(rawAuth["secretEnv"]) } : {}),
         ...(str(rawAuth["issuer"]) ? { issuer: str(rawAuth["issuer"]) } : {}),
         ...(str(rawAuth["audience"]) ? { audience: str(rawAuth["audience"]) } : {}),
