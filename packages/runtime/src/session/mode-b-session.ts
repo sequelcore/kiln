@@ -29,6 +29,7 @@ export interface SerializedSessionData {
   readonly totalTokens?: number;
   readonly userTurnCount?: number;
   readonly lastHumanMessageAt?: number | null;
+  readonly userContext?: Record<string, string>;
 }
 
 export interface ModeBSessionConfig {
@@ -60,6 +61,7 @@ export class ModeBSession {
   private _totalTokens = 0;
   private _userTurnCount = 0;
   private _lastHumanMessageAt: number | null = null;
+  private _userContext: Record<string, string> | undefined = undefined;
 
   constructor(config: ModeBSessionConfig) {
     this.appName = config.appName;
@@ -139,6 +141,10 @@ export class ModeBSession {
     // Restore coexistence timestamp
     if (data.lastHumanMessageAt != null) {
       (session as unknown as { _lastHumanMessageAt: number | null })._lastHumanMessageAt = data.lastHumanMessageAt;
+    }
+    // Restore user context
+    if (data.userContext) {
+      (session as unknown as { _userContext: Record<string, string> })._userContext = data.userContext;
     }
     // Restore version and record loaded version for conflict detection
     const storedVersion = data.version;
@@ -237,5 +243,22 @@ export class ModeBSession {
   injectOperatorMessage(parts: readonly ContentPart[]): void {
     this._history.push({ role: "assistant", parts });
     this.touch();
+  }
+
+  get userContext(): Record<string, string> | undefined {
+    return this._userContext;
+  }
+
+  /** Merges keys from ctx into the stored user context. Empty object is a no-op. */
+  updateUserContext(ctx: Record<string, string>): void {
+    if (Object.keys(ctx).length === 0) return;
+    this._userContext = { ...this._userContext, ...ctx };
+    this._version++;
+  }
+
+  /** Replaces user context entirely. Pass undefined to clear. */
+  setUserContext(ctx: Record<string, string> | undefined): void {
+    this._userContext = ctx;
+    this._version++;
   }
 }

@@ -74,6 +74,15 @@ export type {
 export { validateGatewayConfig } from "./gateway/gateway-config.js";
 export { GatewayLoaderError, parseGatewayYaml } from "./gateway/gateway-loader.js";
 
+// MCP server config (Phase 28)
+export type {
+  GatewayMcpConfig,
+  GatewayMcpAuthConfig,
+  GatewayMcpValidationError,
+  McpAuthType,
+} from "./gateway/mcp-config.js";
+export { validateGatewayMcpConfig } from "./gateway/mcp-config.js";
+
 // Mode B -- provider-adapter runtime config (Phase 23)
 export type {
   RuntimeMode,

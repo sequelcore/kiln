@@ -842,8 +842,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
         getTriggers: () => triggerRegistry.listAll(),
         getMemoryByScope: async (scope: string, q?: string, tags?: string) => {
           if (!devMemoryStores) return [];
-          const validLayers: MemoryLayer[] = ["user", "agent", "project"];
-          const layer = validLayers.includes(scope as MemoryLayer) ? (scope as MemoryLayer) : "project";
+          const layer = resolveMemoryLayer(scope);
           const store = devMemoryStores.get(layer);
           if (!store) return [];
 
@@ -875,10 +874,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
         },
         createMemoryEntry: async (entry: Record<string, unknown>) => {
           if (!devMemoryStores) return { id: "" };
-          const validLayers: MemoryLayer[] = ["user", "agent", "project"];
-          const layer = validLayers.includes(entry["layer"] as MemoryLayer)
-            ? (entry["layer"] as MemoryLayer)
-            : "project";
+          const layer = resolveMemoryLayer(entry["layer"]);
           const store = devMemoryStores.get(layer);
           if (!store) return { id: "" };
 
@@ -953,6 +949,96 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
     return c.text(metrics, 200, { "Content-Type": registry.contentType });
   });
 
+  // MCP server: expose gateway capabilities as MCP tools for external agents
+  let mcpServerInstance: { close(): Promise<void> } | undefined;
+  if (gatewayConfig.mcp?.enabled) {
+    try {
+      const { GatewayMcpServer } = await import("../mcp/gateway-mcp-server.js");
+      const mcpPath = gatewayConfig.mcp.path ?? "/mcp";
+      const mcpApiKey =
+        gatewayConfig.mcp.auth?.type === "api-key" && gatewayConfig.mcp.auth.keyEnv
+          ? process.env[gatewayConfig.mcp.auth.keyEnv]
+          : undefined;
+
+      const mcpServer = new GatewayMcpServer({
+        deps: {
+          getMemoryByScope: devMemoryStores
+            ? async (scope: string, q?: string, tags?: string) => {
+                const layer = resolveMemoryLayer(scope);
+                const store = devMemoryStores!.get(layer);
+                if (!store) return [];
+                if (q) {
+                  const results = await store.search(q, 100);
+                  return results.map((r) => ({
+                    id: r.entry.id, layer: r.entry.layer, content: r.entry.content,
+                    tags: r.entry.tags, score: r.score, snippet: r.snippet,
+                  }));
+                }
+                return store.listEntries({ tags }).map((e) => ({
+                  id: e.id, layer: e.layer, content: e.content, tags: e.tags,
+                }));
+              }
+            : undefined,
+          createMemoryEntry: devMemoryStores
+            ? async (entry: Record<string, unknown>) => {
+                const layer = resolveMemoryLayer(entry["scope"]);
+                const store = devMemoryStores!.get(layer);
+                if (!store) return { id: "" };
+                const content = typeof entry["content"] === "string" ? entry["content"] : String(entry["content"] ?? "");
+                const rawTags = typeof entry["tags"] === "string" ? entry["tags"].split(",").map((t) => t.trim()) : [];
+                const id = await store.save({ layer, content, tags: rawTags });
+                return { id };
+              }
+            : undefined,
+          deleteMemoryEntry: devMemoryStores
+            ? async (id: string) => {
+                for (const store of devMemoryStores!.values()) {
+                  if (store.hasEntry(id)) { await store.forget(id); return true; }
+                }
+                return false;
+              }
+            : undefined,
+          searchKnowledge: async (appName: string, query: string, limit?: number) => {
+            const loaded = loadedApps.find((a) => a.name === appName);
+            if (!loaded?.knowledgePipeline) return { results: [] };
+            const results = await loaded.knowledgePipeline.pipeline.retrieve(query, { topK: limit });
+            return {
+              results: results.map((r) => ({
+                content: r.content,
+                score: r.score,
+                source: r.metadata?.source as string | undefined,
+              })),
+            };
+          },
+          listKnowledgeSources: (appName: string) => {
+            const loaded = loadedApps.find((a) => a.name === appName);
+            if (!loaded?.knowledgeAdminConfig) return { sources: [] };
+            const sources = loaded.knowledgeAdminConfig.sourceManager.list(appName);
+            return { sources: sources.map((s) => ({ ...s })) };
+          },
+          getCostSummary: () => costTracker.summary,
+          getSafetyMetrics: () => {
+            if (safetyPipelines.size === 0) return { enabled: false };
+            const apps: Record<string, unknown> = {};
+            for (const [appName, pipeline] of safetyPipelines) apps[appName] = pipeline.metrics;
+            return { enabled: true, apps };
+          },
+        },
+        apiKey: mcpApiKey,
+      });
+
+      await mcpServer.initialize();
+      mcpServerInstance = mcpServer;
+
+      honoApp.all(`${mcpPath}`, async (c) => mcpServer.handleRequest(c.req.raw));
+      honoApp.all(`${mcpPath}/*`, async (c) => mcpServer.handleRequest(c.req.raw));
+
+      console.log(`MCP server: listening on ${mcpPath}${mcpApiKey ? " (api-key auth)" : " (no auth)"}`);
+    } catch (err) {
+      console.warn(`MCP server: failed to initialize -- ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   triggerRegistry.start();
 
   const appNames = loadedApps.map((a) => a.name).join(", ");
@@ -964,10 +1050,17 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
   await serveAndWait(honoApp, port, () => {
     triggerRegistry.stop();
     webhookDedup.close();
+    mcpServerInstance?.close().catch(() => {});
     for (const loaded of loadedApps) {
       loaded.knowledgePipeline?.close().catch(() => {});
     }
   }, bunWebsocket);
+}
+
+const VALID_MEMORY_LAYERS: MemoryLayer[] = ["user", "agent", "project"];
+
+function resolveMemoryLayer(scope: unknown): MemoryLayer {
+  return VALID_MEMORY_LAYERS.includes(scope as MemoryLayer) ? (scope as MemoryLayer) : "project";
 }
 
 /** Create a ProviderAdapter from a Mode B provider config */

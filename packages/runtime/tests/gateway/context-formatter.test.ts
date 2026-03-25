@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatKnowledgeContext, formatContactContext, mergeContextSources, appendGroundingDirective } from "../../src/gateway/context-formatter.js";
+import { formatKnowledgeContext, formatContactContext, mergeContextSources, appendGroundingDirective, formatUserContext } from "../../src/gateway/context-formatter.js";
 import type { VectorResult, ContactFact } from "@kilnai/core";
 
 describe("formatKnowledgeContext", () => {
@@ -52,6 +52,26 @@ describe("mergeContextSources", () => {
 
   it("skips undefined sources", () => {
     expect(mergeContextSources("a", undefined, "b")).toBe("a\n\nb");
+  });
+});
+
+describe("formatUserContext", () => {
+  it("formats populated context as key-value lines under [User Context] header", () => {
+    const result = formatUserContext({ role: "admin", name: "John" });
+    expect(result).toBe("[User Context]:\nrole: admin\nname: John");
+  });
+
+  it("returns undefined for empty object", () => {
+    expect(formatUserContext({})).toBeUndefined();
+  });
+
+  it("returns undefined for undefined input", () => {
+    expect(formatUserContext(undefined)).toBeUndefined();
+  });
+
+  it("preserves multi-key insertion order", () => {
+    const result = formatUserContext({ locale: "es", plan: "pro", company: "Acme" });
+    expect(result).toBe("[User Context]:\nlocale: es\nplan: pro\ncompany: Acme");
   });
 });
 

@@ -19,6 +19,11 @@ export function formatContactContext(facts: readonly ContactFact[]): string | un
   return "--- Customer Context ---\n" + facts.map((f) => f.content).join("\n") + "\n---";
 }
 
+export function formatUserContext(ctx: Record<string, string> | undefined): string | undefined {
+  if (!ctx || Object.keys(ctx).length === 0) return undefined;
+  return "[User Context]:\n" + Object.entries(ctx).map(([k, v]) => `${k}: ${v}`).join("\n");
+}
+
 export function mergeContextSources(...sources: (string | undefined)[]): string | undefined {
   const filtered = sources.filter(Boolean);
   return filtered.length > 0 ? filtered.join("\n\n") : undefined;

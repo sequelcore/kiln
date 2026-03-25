@@ -196,6 +196,68 @@ describe("createModeBRoutes", () => {
       expect(globalThis.fetch).not.toHaveBeenCalled();
     });
 
+    it("accepts context object and returns 200", async () => {
+      const runtime = makeRuntime();
+      const app = createModeBRoutes(runtime);
+
+      const res = await app.request("/message", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: "hello", userId: "user-1", context: { role: "admin" } }),
+      });
+
+      expect(res.status).toBe(200);
+    });
+
+    it("returns 400 when context is a number", async () => {
+      const runtime = makeRuntime();
+      const app = createModeBRoutes(runtime);
+
+      const res = await app.request("/message", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: "hello", userId: "user-1", context: 123 }),
+      });
+
+      expect(res.status).toBe(400);
+    });
+
+    it("returns 400 when context is an array", async () => {
+      const runtime = makeRuntime();
+      const app = createModeBRoutes(runtime);
+
+      const res = await app.request("/message", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: "hello", userId: "user-1", context: [1, 2, 3] }),
+      });
+
+      expect(res.status).toBe(400);
+    });
+
+    it("retains context from first turn when second POST omits context", async () => {
+      const runtime = makeRuntime();
+      const app = createModeBRoutes(runtime);
+
+      // First turn sets context
+      await app.request("/message", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: "hello", userId: "user-ctx-persist", context: { role: "admin" } }),
+      });
+
+      // Second turn omits context — session must still have it
+      await app.request("/message", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: "follow up", userId: "user-ctx-persist" }),
+      });
+
+      const session = await runtime.sessionRegistry.get("test-app", "user-ctx-persist", "_default");
+      expect(session).toBeDefined();
+      expect(session!.userContext).toEqual({ role: "admin" });
+    });
+
     it("rejects disallowed tier", async () => {
       const billing = {
         ...makeBillingConfig(),

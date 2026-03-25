@@ -9,6 +9,8 @@ import type { ObservabilityConfig } from "./observability-config.js";
 import { validateObservabilityConfig } from "./observability-config.js";
 import type { GatewayAuthConfig } from "./auth-config.js";
 import { validateGatewayAuthConfig } from "./auth-config.js";
+import type { GatewayMcpConfig } from "./mcp-config.js";
+import { validateGatewayMcpConfig } from "./mcp-config.js";
 
 /** Error class for gateway YAML loader failures, aggregating all validation errors */
 export class GatewayLoaderError extends KilnError {
@@ -49,6 +51,7 @@ interface RawGateway {
   apps?: unknown;
   observability?: unknown;
   auth?: unknown;
+  mcp?: unknown;
 }
 
 // ---------------------------------------------------------------------------
@@ -206,9 +209,39 @@ export function parseGatewayYaml(content: string): GatewayConfig {
     }
   }
 
+  // Parse optional mcp block
+  let mcp: GatewayMcpConfig | undefined;
+  if (raw.mcp !== undefined) {
+    if (typeof raw.mcp !== "object" || Array.isArray(raw.mcp) || raw.mcp === null) {
+      errors.push({ field: "mcp", message: "must be an object" });
+    } else {
+      const rawMcp = raw.mcp as Record<string, unknown>;
+      const str = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
+      let mcpAuth: GatewayMcpConfig["auth"] | undefined;
+      if (rawMcp["auth"] && typeof rawMcp["auth"] === "object" && !Array.isArray(rawMcp["auth"])) {
+        const rawMcpAuth = rawMcp["auth"] as Record<string, unknown>;
+        mcpAuth = {
+          type: (str(rawMcpAuth["type"]) ?? "") as "api-key" | "none",
+          ...(str(rawMcpAuth["keyEnv"]) ? { keyEnv: str(rawMcpAuth["keyEnv"]) } : {}),
+        };
+      }
+      const parsed: GatewayMcpConfig = {
+        enabled: typeof rawMcp["enabled"] === "boolean" ? rawMcp["enabled"] : false,
+        ...(typeof rawMcp["path"] === "string" ? { path: rawMcp["path"] } : {}),
+        ...(mcpAuth ? { auth: mcpAuth } : {}),
+      };
+      const mcpErrors = validateGatewayMcpConfig(parsed);
+      if (mcpErrors.length > 0) {
+        errors.push(...mcpErrors);
+      } else {
+        mcp = parsed;
+      }
+    }
+  }
+
   if (errors.length > 0) throw new GatewayLoaderError(errors);
 
-  const config: GatewayConfig = { port, apps, ...(observability ? { observability } : {}), ...(auth ? { auth } : {}) };
+  const config: GatewayConfig = { port, apps, ...(observability ? { observability } : {}), ...(auth ? { auth } : {}), ...(mcp ? { mcp } : {}) };
 
   const validationErrors = validateGatewayConfig(config);
   if (validationErrors.length > 0) throw new GatewayLoaderError(validationErrors);
