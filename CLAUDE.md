@@ -264,7 +264,7 @@ Expose integration adapters as MCP tools (same implementation, two surfaces). Ph
 
 ### MCP-First Orchestration Layer
 
-Kiln as production runtime for CLI agents (Claude Code, Codex CLI, Goose) via MCP. Phase 1 (gateway MCP server, 17 tool schemas) complete. Phase 2 (full wiring of all 17 tools) complete in v0.22.0. Remaining: cross-agent memory persistence, swarm primitives, LLM-based eval scorers via MCP.
+Kiln as production runtime for CLI agents (Claude Code, Codex CLI, Goose) via MCP. Phase 1 (gateway MCP server, 17 tool schemas) complete. Phase 2 (full wiring of all 17 tools) complete in v0.22.0. Phase 3 complete in v0.23.0: cross-agent memory with teamId scoping, 6 swarm primitives (join/leave/status/broadcast/claim/release), LLM-based eval scorers via ProviderScorerLlmBridge. 25 tools total.
 
 ### OpenKiln (Personal AI Agent)
 
