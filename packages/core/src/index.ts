@@ -86,6 +86,8 @@ export type { ObservabilityConfig, ObservabilityExporter } from "./engine/gatewa
 export { validateObservabilityConfig } from "./engine/gateway/observability-config.js";
 export type { GatewayAuthConfig, JwtAlgorithm, GatewayAuthValidationError } from "./engine/gateway/auth-config.js";
 export { validateGatewayAuthConfig } from "./engine/gateway/auth-config.js";
+export type { GatewayMcpConfig, GatewayMcpAuthConfig, GatewayMcpEvalConfig, GatewayMcpValidationError } from "./engine/gateway/mcp-config.js";
+export { validateGatewayMcpConfig } from "./engine/gateway/mcp-config.js";
 
 // App loader re-exported for direct access by runtime gateway
 export type { App, MemoryConfig, AppValidationError } from "./engine/composites/app.js";

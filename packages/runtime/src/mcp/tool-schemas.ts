@@ -133,6 +133,15 @@ export const EVAL_SCORE_SCHEMA = {
       items: { type: "string" },
       description: "Scorer names to apply. If omitted, all configured scorers are used.",
     },
+    context: {
+      type: "array",
+      items: { type: "string" },
+      description: "Context passages for faithfulness/context-relevance scorers",
+    },
+    scorerOptions: {
+      type: "object",
+      description: "Scorer-specific options (e.g. { policies: string[] } for policy-adherence, { prompt: string } for custom-prompt)",
+    },
   },
   required: ["input", "output"],
 };
@@ -158,20 +167,42 @@ export const ENRICHMENT_LIST_SCHEMA = {
 export const CROSS_AGENT_MEMORY_RECALL_SCHEMA = {
   type: "object" as const,
   properties: {
-    key: { type: "string", description: "Memory key for exact tag-based lookup" },
+    teamId: { type: "string", description: "Team ID scoping this memory (injected as _team:<teamId> tag)" },
+    key: { type: "string", description: "Exact key for tag-based lookup" },
     query: { type: "string", description: "FTS5 search query when exact key is unknown" },
+    tags: { type: "string", description: "Optional additional tag filter" },
   },
-  required: [] as string[],
+  required: ["teamId"],
 };
 
 export const CROSS_AGENT_MEMORY_STORE_SCHEMA = {
   type: "object" as const,
   properties: {
-    key: { type: "string", description: "Unique key for the shared memory entry" },
-    content: { type: "string", description: "Content to store as shared context" },
+    teamId: { type: "string", description: "Team ID scoping this memory" },
+    key: { type: "string", description: "Unique key for the memory entry" },
+    content: { type: "string", description: "Content to store" },
     tags: { type: "string", description: "Optional comma-separated tags" },
   },
-  required: ["key", "content"],
+  required: ["teamId", "key", "content"],
+};
+
+export const CROSS_AGENT_MEMORY_LIST_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    teamId: { type: "string", description: "Team ID to list memory entries for" },
+    tags: { type: "string", description: "Optional comma-separated tag filter" },
+    limit: { type: "number", description: "Maximum entries to return (default: 50)" },
+  },
+  required: ["teamId"],
+};
+
+export const CROSS_AGENT_MEMORY_DELETE_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    teamId: { type: "string", description: "Team ID owning this entry (validates ownership)" },
+    id: { type: "string", description: "ID of the memory entry to delete" },
+  },
+  required: ["teamId", "id"],
 };
 
 export const BUDGET_CHECK_SCHEMA = {
@@ -193,6 +224,64 @@ export const BUDGET_REPORT_SCHEMA = {
     model: { type: "string", description: "Model identifier (e.g. 'claude-sonnet-4-5')" },
   },
   required: ["tenantId", "appName", "messages", "tokens", "model"],
+};
+
+export const SWARM_JOIN_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    swarmId: { type: "string", description: "Swarm identifier" },
+    agentId: { type: "string", description: "Joining agent identifier" },
+    description: { type: "string", description: "Optional agent description for swarm status" },
+    ttlSeconds: { type: "number", description: "Optional membership TTL in seconds" },
+  },
+  required: ["swarmId", "agentId"],
+};
+
+export const SWARM_LEAVE_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    swarmId: { type: "string", description: "Swarm identifier" },
+    agentId: { type: "string", description: "Leaving agent identifier" },
+  },
+  required: ["swarmId", "agentId"],
+};
+
+export const SWARM_STATUS_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    swarmId: { type: "string", description: "Swarm identifier" },
+  },
+  required: ["swarmId"],
+};
+
+export const SWARM_BROADCAST_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    swarmId: { type: "string", description: "Swarm identifier" },
+    agentId: { type: "string", description: "Sending agent identifier" },
+    message: { type: "string", description: "Broadcast message body" },
+  },
+  required: ["swarmId", "agentId", "message"],
+};
+
+export const SWARM_CLAIM_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    swarmId: { type: "string", description: "Swarm identifier" },
+    agentId: { type: "string", description: "Claiming agent identifier" },
+    resourceId: { type: "string", description: "Resource identifier to claim" },
+  },
+  required: ["swarmId", "agentId", "resourceId"],
+};
+
+export const SWARM_RELEASE_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    swarmId: { type: "string", description: "Swarm identifier" },
+    agentId: { type: "string", description: "Releasing agent identifier" },
+    resourceId: { type: "string", description: "Resource identifier to release" },
+  },
+  required: ["swarmId", "agentId", "resourceId"],
 };
 
 /** All tool definitions for the gateway MCP server */
@@ -273,6 +362,16 @@ export const GATEWAY_MCP_TOOLS = [
     inputSchema: CROSS_AGENT_MEMORY_STORE_SCHEMA,
   },
   {
+    name: "cross_agent_memory_list",
+    description: "List all shared memory entries for a team",
+    inputSchema: CROSS_AGENT_MEMORY_LIST_SCHEMA,
+  },
+  {
+    name: "cross_agent_memory_delete",
+    description: "Delete a shared memory entry by ID (validates team ownership)",
+    inputSchema: CROSS_AGENT_MEMORY_DELETE_SCHEMA,
+  },
+  {
     name: "budget_check",
     description: "Check remaining budget for a tenant against the app's billing endpoint",
     inputSchema: BUDGET_CHECK_SCHEMA,
@@ -281,6 +380,36 @@ export const GATEWAY_MCP_TOOLS = [
     name: "budget_report",
     description: "Report token usage for a tenant to the app's billing endpoint",
     inputSchema: BUDGET_REPORT_SCHEMA,
+  },
+  {
+    name: "swarm_join",
+    description: "Join a named agent swarm and get current membership list",
+    inputSchema: SWARM_JOIN_SCHEMA,
+  },
+  {
+    name: "swarm_leave",
+    description: "Leave a swarm and release all held claims",
+    inputSchema: SWARM_LEAVE_SCHEMA,
+  },
+  {
+    name: "swarm_status",
+    description: "Get current swarm members and active resource claims",
+    inputSchema: SWARM_STATUS_SCHEMA,
+  },
+  {
+    name: "swarm_broadcast",
+    description: "Broadcast a message to all agents in a swarm",
+    inputSchema: SWARM_BROADCAST_SCHEMA,
+  },
+  {
+    name: "swarm_claim",
+    description: "Claim exclusive ownership of a resource (optimistic lock)",
+    inputSchema: SWARM_CLAIM_SCHEMA,
+  },
+  {
+    name: "swarm_release",
+    description: "Release a previously claimed resource",
+    inputSchema: SWARM_RELEASE_SCHEMA,
   },
 ] as const;
 

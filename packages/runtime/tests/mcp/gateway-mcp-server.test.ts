@@ -58,6 +58,7 @@ function makeDeps(overrides?: Partial<GatewayMcpDeps>): GatewayMcpDeps {
       allRules: [{ pattern: "help|support", agent: "support", matched: true }],
     })),
     evalScore: vi.fn(async () => [{ name: "exact_match", score: 1.0, reasoning: "Exact match" }]),
+    evalScoreLlm: vi.fn(async () => [{ name: "faithfulness", score: 0.9, reasoning: "Grounded in context" }]),
     getEnrichment: vi.fn(async () => ({
       sessionId: "sess-1", tenantId: "t-1", summary: "User asked about billing", effortScore: 3,
     })),
@@ -65,8 +66,21 @@ function makeDeps(overrides?: Partial<GatewayMcpDeps>): GatewayMcpDeps {
       enrichments: [{ sessionId: "sess-1", tenantId: "t-1", summary: "Billing question" }],
       nextCursor: undefined,
     })),
+    getCrossAgentMemory: vi.fn(async () => [{ id: "cam-1", content: "shared context", tags: ["_team:team-1"] }]),
+    setCrossAgentMemory: vi.fn(async () => ({ id: "cam-new-1" })),
+    deleteCrossAgentMemory: vi.fn(async () => true),
+    listCrossAgentMemory: vi.fn(async () => [{ id: "cam-1", content: "shared context", tags: ["_team:team-1"] }]),
     checkBudget: vi.fn(async () => ({ allowed: true, remaining: 500, unit: "tokens" })),
     reportUsage: vi.fn(async () => undefined),
+    swarmJoin: vi.fn(async () => ({ members: ["agent-1", "agent-2"] })),
+    swarmLeave: vi.fn(async () => undefined),
+    swarmStatus: vi.fn(async () => ({
+      members: [{ agentId: "agent-1", joinedAt: "2026-03-26T00:00:00.000Z" }],
+      claims: [{ resourceId: "file.ts", agentId: "agent-1", claimedAt: "2026-03-26T00:00:00.000Z" }],
+    })),
+    swarmBroadcast: vi.fn(async () => ({ id: "broadcast-1" })),
+    swarmClaim: vi.fn(async () => ({ claimed: true })),
+    swarmRelease: vi.fn(async () => undefined),
     ...overrides,
   };
 }
@@ -135,8 +149,8 @@ describe("GatewayMcpServer", () => {
   });
 
   describe("tool schemas", () => {
-    it("defines 17 tools", () => {
-      expect(GATEWAY_MCP_TOOLS).toHaveLength(17);
+    it("defines 25 tools", () => {
+      expect(GATEWAY_MCP_TOOLS).toHaveLength(25);
     });
 
     it("all tools have name, description, and inputSchema", () => {
@@ -155,11 +169,11 @@ describe("GatewayMcpServer", () => {
   });
 
   describe("tools/list", () => {
-    it("returns all 17 tools", async () => {
+    it("returns all 25 tools", async () => {
       const server = new GatewayMcpServer({ deps: makeDeps() });
       await server.initialize();
       const response = await listTools(server);
-      expect(response.result.tools).toHaveLength(17);
+      expect(response.result.tools).toHaveLength(25);
       const names = response.result.tools.map((t) => t.name);
       expect(names).toContain("memory_recall");
       expect(names).toContain("memory_store");
@@ -176,8 +190,16 @@ describe("GatewayMcpServer", () => {
       expect(names).toContain("enrichment_list");
       expect(names).toContain("cross_agent_memory_recall");
       expect(names).toContain("cross_agent_memory_store");
+      expect(names).toContain("cross_agent_memory_list");
+      expect(names).toContain("cross_agent_memory_delete");
       expect(names).toContain("budget_check");
       expect(names).toContain("budget_report");
+      expect(names).toContain("swarm_join");
+      expect(names).toContain("swarm_leave");
+      expect(names).toContain("swarm_status");
+      expect(names).toContain("swarm_broadcast");
+      expect(names).toContain("swarm_claim");
+      expect(names).toContain("swarm_release");
     });
   });
 
@@ -278,18 +300,55 @@ describe("GatewayMcpServer", () => {
       expect(parsed.tier).toBe("rule");
     });
 
-    it("eval_score calls evalScore with correct args", async () => {
+    it("eval_score with rule-based scorer calls evalScore, not evalScoreLlm", async () => {
       const response = await callTool(server, "eval_score", {
         input: "What is 2+2?", output: "4", expected: "4", scorers: ["exact_match"],
       });
       expect(deps.evalScore).toHaveBeenCalledWith("What is 2+2?", "4", "4", ["exact_match"]);
+      expect(deps.evalScoreLlm).not.toHaveBeenCalled();
       const parsed = JSON.parse(response.result.content[0]!.text);
       expect(parsed.scores[0].score).toBe(1.0);
     });
 
-    it("eval_score omits scorers when not provided", async () => {
+    it("eval_score with LLM scorer calls evalScoreLlm, not evalScore", async () => {
+      const response = await callTool(server, "eval_score", {
+        input: "Question", output: "Answer", scorers: ["faithfulness"],
+      });
+      expect(deps.evalScore).not.toHaveBeenCalled();
+      expect(deps.evalScoreLlm).toHaveBeenCalledWith("Question", "Answer", undefined, undefined, ["faithfulness"], undefined);
+      const parsed = JSON.parse(response.result.content[0]!.text);
+      expect(parsed.scores[0].name).toBe("faithfulness");
+    });
+
+    it("eval_score without scorers only calls evalScore (not evalScoreLlm)", async () => {
       await callTool(server, "eval_score", { input: "q", output: "a" });
       expect(deps.evalScore).toHaveBeenCalledWith("q", "a", undefined, undefined);
+      expect(deps.evalScoreLlm).not.toHaveBeenCalled();
+    });
+
+    it("eval_score passes context to evalScoreLlm", async () => {
+      await callTool(server, "eval_score", {
+        input: "q",
+        output: "a",
+        scorers: ["faithfulness"],
+        context: ["chunk 1", "chunk 2"],
+      });
+      expect(deps.evalScoreLlm).toHaveBeenCalledWith("q", "a", undefined, ["chunk 1", "chunk 2"], ["faithfulness"], undefined);
+    });
+
+    it("eval_score returns error when LLM scorer requested but evalScoreLlm dep is missing", async () => {
+      const depsWithoutLlm = makeDeps({ evalScoreLlm: undefined });
+      const serverWithoutLlm = new GatewayMcpServer({ deps: depsWithoutLlm });
+      await serverWithoutLlm.initialize();
+
+      const response = await callTool(serverWithoutLlm, "eval_score", {
+        input: "q",
+        output: "a",
+        scorers: ["faithfulness"],
+      });
+
+      expect(response.result.isError).toBe(true);
+      expect(response.result.content[0]!.text).toBe("LLM eval scoring not available");
     });
 
     it("enrichment_get returns enrichment data", async () => {
@@ -319,23 +378,39 @@ describe("GatewayMcpServer", () => {
       expect(parsed.enrichments).toHaveLength(1);
     });
 
-    it("cross_agent_memory_recall uses scope=team", async () => {
-      await callTool(server, "cross_agent_memory_recall", { query: "shared context" });
-      expect(deps.getMemoryByScope).toHaveBeenCalledWith("team", "shared context", undefined);
+    it("cross_agent_memory_recall uses getCrossAgentMemory with teamId", async () => {
+      await callTool(server, "cross_agent_memory_recall", { teamId: "team-1", query: "shared context" });
+      expect(deps.getCrossAgentMemory).toHaveBeenCalledWith("team-1", "shared context", undefined);
     });
 
     it("cross_agent_memory_recall uses key filter when key provided", async () => {
-      await callTool(server, "cross_agent_memory_recall", { key: "plan-v2" });
-      expect(deps.getMemoryByScope).toHaveBeenCalledWith("team", undefined, "key:plan-v2");
+      await callTool(server, "cross_agent_memory_recall", { teamId: "team-1", key: "plan-v2" });
+      expect(deps.getCrossAgentMemory).toHaveBeenCalledWith("team-1", undefined, "key:plan-v2");
     });
 
-    it("cross_agent_memory_store uses scope=team", async () => {
+    it("cross_agent_memory_store uses setCrossAgentMemory", async () => {
       await callTool(server, "cross_agent_memory_store", {
-        key: "shared-goal", content: "ship by friday", tags: "priority",
+        teamId: "team-1", key: "shared-goal", content: "ship by friday", tags: "priority",
       });
-      expect(deps.createMemoryEntry).toHaveBeenCalledWith({
-        scope: "team", key: "shared-goal", content: "ship by friday", tags: "priority",
+      expect(deps.setCrossAgentMemory).toHaveBeenCalledWith("team-1", "shared-goal", "ship by friday", "priority");
+    });
+
+    it("cross_agent_memory_list uses listCrossAgentMemory", async () => {
+      const response = await callTool(server, "cross_agent_memory_list", {
+        teamId: "team-1", tags: "priority", limit: 25,
       });
+      expect(deps.listCrossAgentMemory).toHaveBeenCalledWith("team-1", "priority", 25);
+      const parsed = JSON.parse(response.result.content[0]!.text);
+      expect(parsed).toHaveLength(1);
+    });
+
+    it("cross_agent_memory_delete uses deleteCrossAgentMemory", async () => {
+      const response = await callTool(server, "cross_agent_memory_delete", {
+        teamId: "team-1", id: "cam-1",
+      });
+      expect(deps.deleteCrossAgentMemory).toHaveBeenCalledWith("team-1", "cam-1");
+      const parsed = JSON.parse(response.result.content[0]!.text);
+      expect(parsed.deleted).toBe(true);
     });
 
     it("budget_check calls checkBudget with correct args", async () => {
@@ -353,6 +428,59 @@ describe("GatewayMcpServer", () => {
       expect(deps.reportUsage).toHaveBeenCalledWith("t-1", "my-app", 1, 200, "claude-sonnet-4-5");
       const parsed = JSON.parse(response.result.content[0]!.text);
       expect(parsed.ok).toBe(true);
+    });
+
+    it("swarm_join calls swarmJoin with correct args", async () => {
+      const response = await callTool(server, "swarm_join", {
+        swarmId: "swarm-1", agentId: "agent-1", description: "planner",
+      });
+      expect(deps.swarmJoin).toHaveBeenCalledWith("swarm-1", "agent-1", "planner");
+      const parsed = JSON.parse(response.result.content[0]!.text);
+      expect(parsed).toEqual({ joined: true, members: ["agent-1", "agent-2"] });
+    });
+
+    it("swarm_leave calls swarmLeave with correct args", async () => {
+      const response = await callTool(server, "swarm_leave", {
+        swarmId: "swarm-1", agentId: "agent-1",
+      });
+      expect(deps.swarmLeave).toHaveBeenCalledWith("swarm-1", "agent-1");
+      const parsed = JSON.parse(response.result.content[0]!.text);
+      expect(parsed).toEqual({ ok: true });
+    });
+
+    it("swarm_status calls swarmStatus and returns members and claims", async () => {
+      const response = await callTool(server, "swarm_status", { swarmId: "swarm-1" });
+      expect(deps.swarmStatus).toHaveBeenCalledWith("swarm-1");
+      const parsed = JSON.parse(response.result.content[0]!.text);
+      expect(parsed.members[0].agentId).toBe("agent-1");
+      expect(parsed.claims[0].resourceId).toBe("file.ts");
+    });
+
+    it("swarm_broadcast calls swarmBroadcast and returns id", async () => {
+      const response = await callTool(server, "swarm_broadcast", {
+        swarmId: "swarm-1", agentId: "agent-1", message: "hello swarm",
+      });
+      expect(deps.swarmBroadcast).toHaveBeenCalledWith("swarm-1", "agent-1", "hello swarm");
+      const parsed = JSON.parse(response.result.content[0]!.text);
+      expect(parsed).toEqual({ ok: true, id: "broadcast-1" });
+    });
+
+    it("swarm_claim calls swarmClaim and returns result", async () => {
+      const response = await callTool(server, "swarm_claim", {
+        swarmId: "swarm-1", agentId: "agent-1", resourceId: "file.ts",
+      });
+      expect(deps.swarmClaim).toHaveBeenCalledWith("swarm-1", "agent-1", "file.ts");
+      const parsed = JSON.parse(response.result.content[0]!.text);
+      expect(parsed).toEqual({ claimed: true });
+    });
+
+    it("swarm_release calls swarmRelease and returns ok", async () => {
+      const response = await callTool(server, "swarm_release", {
+        swarmId: "swarm-1", agentId: "agent-1", resourceId: "file.ts",
+      });
+      expect(deps.swarmRelease).toHaveBeenCalledWith("swarm-1", "agent-1", "file.ts");
+      const parsed = JSON.parse(response.result.content[0]!.text);
+      expect(parsed).toEqual({ ok: true });
     });
   });
 
@@ -445,13 +573,25 @@ describe("GatewayMcpServer", () => {
     });
 
     it("cross_agent_memory_recall returns error when dep missing", async () => {
-      const response = await callTool(server, "cross_agent_memory_recall", { query: "q" });
+      const response = await callTool(server, "cross_agent_memory_recall", { teamId: "team-1", query: "q" });
       expect(response.result.isError).toBe(true);
       expect(response.result.content[0]!.text).toBe("Cross-agent memory not available");
     });
 
     it("cross_agent_memory_store returns error when dep missing", async () => {
-      const response = await callTool(server, "cross_agent_memory_store", { key: "k", content: "c" });
+      const response = await callTool(server, "cross_agent_memory_store", { teamId: "team-1", key: "k", content: "c" });
+      expect(response.result.isError).toBe(true);
+      expect(response.result.content[0]!.text).toBe("Cross-agent memory not available");
+    });
+
+    it("cross_agent_memory_list returns error when dep missing", async () => {
+      const response = await callTool(server, "cross_agent_memory_list", { teamId: "team-1" });
+      expect(response.result.isError).toBe(true);
+      expect(response.result.content[0]!.text).toBe("Cross-agent memory not available");
+    });
+
+    it("cross_agent_memory_delete returns error when dep missing", async () => {
+      const response = await callTool(server, "cross_agent_memory_delete", { teamId: "team-1", id: "cam-1" });
       expect(response.result.isError).toBe(true);
       expect(response.result.content[0]!.text).toBe("Cross-agent memory not available");
     });
@@ -468,6 +608,42 @@ describe("GatewayMcpServer", () => {
       });
       expect(response.result.isError).toBe(true);
       expect(response.result.content[0]!.text).toBe("Budget reporting not available");
+    });
+
+    it("swarm_join returns error when dep missing", async () => {
+      const response = await callTool(server, "swarm_join", { swarmId: "s1", agentId: "a1" });
+      expect(response.result.isError).toBe(true);
+      expect(response.result.content[0]!.text).toBe("Swarm not available");
+    });
+
+    it("swarm_leave returns error when dep missing", async () => {
+      const response = await callTool(server, "swarm_leave", { swarmId: "s1", agentId: "a1" });
+      expect(response.result.isError).toBe(true);
+      expect(response.result.content[0]!.text).toBe("Swarm not available");
+    });
+
+    it("swarm_status returns error when dep missing", async () => {
+      const response = await callTool(server, "swarm_status", { swarmId: "s1" });
+      expect(response.result.isError).toBe(true);
+      expect(response.result.content[0]!.text).toBe("Swarm not available");
+    });
+
+    it("swarm_broadcast returns error when dep missing", async () => {
+      const response = await callTool(server, "swarm_broadcast", { swarmId: "s1", agentId: "a1", message: "hi" });
+      expect(response.result.isError).toBe(true);
+      expect(response.result.content[0]!.text).toBe("Swarm not available");
+    });
+
+    it("swarm_claim returns error when dep missing", async () => {
+      const response = await callTool(server, "swarm_claim", { swarmId: "s1", agentId: "a1", resourceId: "f.ts" });
+      expect(response.result.isError).toBe(true);
+      expect(response.result.content[0]!.text).toBe("Swarm not available");
+    });
+
+    it("swarm_release returns error when dep missing", async () => {
+      const response = await callTool(server, "swarm_release", { swarmId: "s1", agentId: "a1", resourceId: "f.ts" });
+      expect(response.result.isError).toBe(true);
+      expect(response.result.content[0]!.text).toBe("Swarm not available");
     });
   });
 

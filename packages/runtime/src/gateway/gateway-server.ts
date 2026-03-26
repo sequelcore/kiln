@@ -46,7 +46,7 @@ import { createKnowledgePipeline, createSourceManager, createContactMemoryServic
 import type { KnowledgePipelineResult } from "./knowledge-factory.js";
 import type { KnowledgeAdminRoutesConfig } from "./knowledge-admin-routes.js";
 import type { ContactMemoryService } from "@kilnai/core";
-import { extractText, textParts } from "@kilnai/core";
+import { extractText, textPart, textParts } from "@kilnai/core";
 import { WebhookDedup } from "./webhook-dedup.js";
 import { IntegrationRegistry } from "./integration-registry.js";
 import { LocalCredentialResolver } from "./local-credential-resolver.js";
@@ -131,6 +131,22 @@ function resolveStudioDist(): string | undefined {
   } catch {
     console.warn("Studio: @kilnai/studio not installed. Using inline dev inspector. Install it for the full Studio UI.");
     return undefined;
+  }
+}
+
+class ProviderScorerLlmBridge {
+  constructor(
+    private readonly adapter: ProviderAdapter,
+    private readonly model: string,
+  ) {}
+
+  async evaluate(prompt: string): Promise<string> {
+    const response = await this.adapter.createMessage({
+      system: `You are an evaluation judge running as model ${this.model}.`,
+      messages: [{ role: "user", parts: [textPart(prompt)] }],
+      maxTokens: 512,
+    });
+    return extractText(response.parts);
   }
 }
 
@@ -959,6 +975,18 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
         gatewayConfig.mcp.auth?.type === "api-key" && gatewayConfig.mcp.auth.keyEnv
           ? process.env[gatewayConfig.mcp.auth.keyEnv]
           : undefined;
+      const evalProvider = gatewayConfig.mcp.eval
+        ? createProviderFromConfig({
+            name: gatewayConfig.mcp.eval.provider,
+            model: gatewayConfig.mcp.eval.model,
+            apiKeyEnv: gatewayConfig.mcp.eval.apiKeyEnv,
+          })
+        : undefined;
+      const evalBridge = evalProvider && gatewayConfig.mcp.eval
+        ? new ProviderScorerLlmBridge(evalProvider, gatewayConfig.mcp.eval.model ?? "claude-haiku-4-5-20251001")
+        : undefined;
+      const { SwarmStore } = await import("../mcp/swarm-store.js");
+      const swarmStore = devMemoryStores ? new SwarmStore(devMemoryStores.get("project" as MemoryLayer)!) : undefined;
 
       const mcpServer = new GatewayMcpServer({
         deps: {
@@ -997,6 +1025,101 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
                 }
                 return false;
               }
+            : undefined,
+          getCrossAgentMemory: devMemoryStores
+            ? async (teamId: string, q?: string, tags?: string, limit?: number) => {
+                const store = devMemoryStores!.get("project");
+                if (!store) return [];
+                const teamTag = `_team:${teamId}`;
+                const requiredTags = [teamTag, ...parseCommaTags(tags)];
+                const maxResults = limit ?? 50;
+                if (q) {
+                  const results = await store.search(q, maxResults);
+                  return results
+                    .filter((r) => hasAllTags(r.entry.tags, requiredTags))
+                    .slice(0, maxResults)
+                    .map((r) => ({
+                      id: r.entry.id,
+                      layer: r.entry.layer,
+                      content: r.entry.content,
+                      tags: r.entry.tags,
+                      score: r.score,
+                      snippet: r.snippet,
+                    }));
+                }
+                return store
+                  .listEntries({ tags: requiredTags.join(","), limit: maxResults })
+                  .slice(0, maxResults)
+                  .map((e) => ({
+                    id: e.id,
+                    layer: e.layer,
+                    content: e.content,
+                    tags: e.tags,
+                  }));
+              }
+            : undefined,
+          setCrossAgentMemory: devMemoryStores
+            ? async (teamId: string, key: string, content: string, tags?: string) => {
+                const store = devMemoryStores!.get("project");
+                if (!store) return { id: "" };
+                const teamTag = `_team:${teamId}`;
+                const mergedTags = uniqueTags([teamTag, `key:${key}`, ...parseCommaTags(tags)]);
+                const id = await store.save({ layer: "project", content, tags: mergedTags });
+                return { id };
+              }
+            : undefined,
+          deleteCrossAgentMemory: devMemoryStores
+            ? async (teamId: string, id: string) => {
+                const store = devMemoryStores!.get("project");
+                if (!store) return false;
+                const teamTag = `_team:${teamId}`;
+                const entry = store.listEntries({ limit: 1000000 }).find((e) => e.id === id);
+                if (!entry || !entry.tags.includes(teamTag)) return false;
+                await store.forget(id);
+                return true;
+              }
+            : undefined,
+          listCrossAgentMemory: devMemoryStores
+            ? async (teamId: string, tags?: string, limit?: number) => {
+                const store = devMemoryStores!.get("project");
+                if (!store) return [];
+                const teamTag = `_team:${teamId}`;
+                const tagFilter = uniqueTags([teamTag, ...parseCommaTags(tags)]).join(",");
+                const maxResults = limit ?? 50;
+                return store
+                  .listEntries({ tags: tagFilter, limit: maxResults })
+                  .slice(0, maxResults)
+                  .map((e) => ({
+                    id: e.id,
+                    layer: e.layer,
+                    content: e.content,
+                    tags: e.tags,
+                  }));
+              }
+            : undefined,
+          swarmJoin: swarmStore
+            ? (swarmId: string, agentId: string, description?: string) =>
+                swarmStore.join(swarmId, agentId, description)
+            : undefined,
+          swarmLeave: swarmStore
+            ? (swarmId: string, agentId: string) =>
+                swarmStore.leave(swarmId, agentId)
+            : undefined,
+          swarmStatus: swarmStore
+            ? (swarmId: string) =>
+                swarmStore.status(swarmId)
+            : undefined,
+          swarmBroadcast: swarmStore
+            ? (swarmId: string, agentId: string, message: string) =>
+                swarmStore.broadcast(swarmId, agentId, message)
+            : undefined,
+          swarmClaim: swarmStore
+            ? (swarmId: string, agentId: string, resourceId: string) =>
+                swarmStore.claim(swarmId, agentId, resourceId)
+            : undefined,
+          swarmRelease: swarmStore
+            ? (swarmId: string, agentId: string, resourceId: string) =>
+                swarmStore.release(swarmId, agentId, resourceId)
             : undefined,
           searchKnowledge: async (appName: string, query: string, limit?: number) => {
             const loaded = loadedApps.find((a) => a.name === appName);
@@ -1097,6 +1220,92 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
             const results = await Promise.all(scorers.map((s) => s.score({ input, output, expected })));
             return results;
           },
+          evalScoreLlm: gatewayConfig.mcp?.eval
+            ? async (
+                input: string,
+                output: string,
+                expected?: string,
+                context?: readonly string[],
+                scorerNames?: readonly string[],
+                scorerOptions?: Record<string, unknown>,
+              ) => {
+                if (!evalBridge) return [];
+
+                const {
+                  FaithfulnessScorer,
+                  RelevanceScorer,
+                  CoherenceScorer,
+                  HallucinationScorer,
+                  ToxicityScorer,
+                  PolicyAdherenceScorer,
+                  ContextRelevanceScorer,
+                  ToolTrajectoryScorer,
+                  MultiTurnConsistencyScorer,
+                  SafetyPreservationScorer,
+                  HandoffQualityScorer,
+                  CustomPromptScorer,
+                } = await import("@kilnai/core");
+
+                type EvalLikeScorer = {
+                  readonly name: string;
+                  score(input: {
+                    input: string;
+                    output: string;
+                    expected?: string;
+                    context?: readonly string[];
+                    metadata?: Record<string, unknown>;
+                  }): Promise<{ name: string; score: number; reasoning?: string }>;
+                };
+
+                const isRecord = (v: unknown): v is Record<string, unknown> =>
+                  typeof v === "object" && v !== null && !Array.isArray(v);
+                const options = isRecord(scorerOptions) ? scorerOptions : {};
+                const policies =
+                  Array.isArray(options["policies"]) && (options["policies"] as unknown[]).every((p) => typeof p === "string")
+                    ? (options["policies"] as string[])
+                    : [];
+                const customPrompt =
+                  typeof options["prompt"] === "string" && options["prompt"].trim()
+                    ? options["prompt"]
+                    : `Evaluate this output quality.
+
+Input: {{input}}
+Output: {{output}}
+Expected: {{expected}}
+Context: {{context}}
+
+Respond EXACTLY in this format:
+SCORE: <number from 0.0 to 1.0>
+REASONING: <one sentence explanation>`;
+
+                const metadata: Record<string, unknown> = {};
+                if (isRecord(options["metadata"])) Object.assign(metadata, options["metadata"]);
+                for (const key of ["toolCalls", "conversationHistory", "handoffHistory", "attackType"]) {
+                  if (key in options) metadata[key] = options[key];
+                }
+
+                const allScorers: EvalLikeScorer[] = [
+                  new FaithfulnessScorer(evalBridge),
+                  new RelevanceScorer(evalBridge),
+                  new CoherenceScorer(evalBridge),
+                  new HallucinationScorer(evalBridge),
+                  new ToxicityScorer(evalBridge),
+                  new PolicyAdherenceScorer(evalBridge, policies),
+                  new ContextRelevanceScorer(evalBridge),
+                  new ToolTrajectoryScorer(evalBridge),
+                  new MultiTurnConsistencyScorer(evalBridge),
+                  new SafetyPreservationScorer(evalBridge),
+                  new HandoffQualityScorer(evalBridge),
+                  new CustomPromptScorer("custom-prompt", customPrompt, evalBridge),
+                ];
+
+                const scorers = scorerNames?.length
+                  ? allScorers.filter((s) => scorerNames.includes(s.name))
+                  : allScorers;
+
+                return Promise.all(scorers.map((s) => s.score({ input, output, expected, context, metadata })));
+              }
+            : undefined,
 
           // Enrichment access
           getEnrichment: async (sessionId: string) => {
@@ -1174,6 +1383,19 @@ const VALID_MEMORY_LAYERS: MemoryLayer[] = ["user", "agent", "project"];
 
 function resolveMemoryLayer(scope: unknown): MemoryLayer {
   return VALID_MEMORY_LAYERS.includes(scope as MemoryLayer) ? (scope as MemoryLayer) : "project";
+}
+
+function parseCommaTags(tags?: string): string[] {
+  if (!tags) return [];
+  return tags.split(",").map((t) => t.trim()).filter(Boolean);
+}
+
+function uniqueTags(tags: readonly string[]): string[] {
+  return [...new Set(tags.filter(Boolean))];
+}
+
+function hasAllTags(entryTags: readonly string[], requiredTags: readonly string[]): boolean {
+  return requiredTags.every((tag) => entryTags.includes(tag));
 }
 
 /** Create a ProviderAdapter from a Mode B provider config */

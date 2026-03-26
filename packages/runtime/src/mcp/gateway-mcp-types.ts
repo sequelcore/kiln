@@ -70,6 +70,15 @@ export interface GatewayMcpDeps {
     scorerNames?: readonly string[],
   ) => Promise<readonly { name: string; score: number; reasoning?: string }[]>;
 
+  readonly evalScoreLlm?: (
+    input: string,
+    output: string,
+    expected?: string,
+    context?: readonly string[],
+    scorerNames?: readonly string[],
+    scorerOptions?: Record<string, unknown>,
+  ) => Promise<readonly { name: string; score: number; reasoning?: string }[]>;
+
   readonly getEnrichment?: (
     sessionId: string,
   ) => Promise<Record<string, unknown> | undefined>;
@@ -82,6 +91,67 @@ export interface GatewayMcpDeps {
     enrichments: readonly Record<string, unknown>[];
     nextCursor?: string;
   }>;
+
+  readonly getCrossAgentMemory?: (
+    teamId: string,
+    query?: string,
+    tags?: string,
+    limit?: number,
+  ) => Record<string, unknown>[] | Promise<Record<string, unknown>[]>;
+
+  readonly setCrossAgentMemory?: (
+    teamId: string,
+    key: string,
+    content: string,
+    tags?: string,
+  ) => { id: string } | Promise<{ id: string }>;
+
+  readonly deleteCrossAgentMemory?: (
+    teamId: string,
+    id: string,
+  ) => boolean | Promise<boolean>;
+
+  readonly listCrossAgentMemory?: (
+    teamId: string,
+    tags?: string,
+    limit?: number,
+  ) => Record<string, unknown>[] | Promise<Record<string, unknown>[]>;
+
+  readonly swarmJoin?: (
+    swarmId: string,
+    agentId: string,
+    description?: string,
+  ) => Promise<{ members: string[] }>;
+
+  readonly swarmLeave?: (
+    swarmId: string,
+    agentId: string,
+  ) => Promise<void>;
+
+  readonly swarmStatus?: (
+    swarmId: string,
+  ) => Promise<{
+    members: { agentId: string; description?: string; joinedAt: string }[];
+    claims: { resourceId: string; agentId: string; claimedAt: string }[];
+  }>;
+
+  readonly swarmBroadcast?: (
+    swarmId: string,
+    agentId: string,
+    message: string,
+  ) => Promise<{ id: string }>;
+
+  readonly swarmClaim?: (
+    swarmId: string,
+    agentId: string,
+    resourceId: string,
+  ) => Promise<{ claimed: boolean; claimedBy?: string }>;
+
+  readonly swarmRelease?: (
+    swarmId: string,
+    agentId: string,
+    resourceId: string,
+  ) => Promise<void>;
 
   readonly checkBudget?: (
     tenantId: string,

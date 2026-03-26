@@ -8,6 +8,11 @@ import type { GatewayMcpToolName } from "./tool-schemas.js";
 
 const SERVER_NAME = "kilnai-gateway";
 const SERVER_VERSION = "0.1.0";
+const LLM_SCORER_NAMES = new Set([
+  "faithfulness", "relevance", "coherence", "hallucination", "toxicity",
+  "policy-adherence", "context-relevance", "tool-trajectory",
+  "multi-turn-consistency", "safety-preservation", "handoff-quality", "custom-prompt",
+]);
 
 export interface GatewayMcpServerOptions {
   readonly deps: GatewayMcpDeps;
@@ -190,10 +195,26 @@ export class GatewayMcpServer {
           return await this.handleCrossAgentMemoryRecall(args);
         case "cross_agent_memory_store":
           return await this.handleCrossAgentMemoryStore(args);
+        case "cross_agent_memory_list":
+          return await this.handleCrossAgentMemoryList(args);
+        case "cross_agent_memory_delete":
+          return await this.handleCrossAgentMemoryDelete(args);
         case "budget_check":
           return await this.handleBudgetCheck(args);
         case "budget_report":
           return await this.handleBudgetReport(args);
+        case "swarm_join":
+          return await this.handleSwarmJoin(args);
+        case "swarm_leave":
+          return await this.handleSwarmLeave(args);
+        case "swarm_status":
+          return await this.handleSwarmStatus(args);
+        case "swarm_broadcast":
+          return await this.handleSwarmBroadcast(args);
+        case "swarm_claim":
+          return await this.handleSwarmClaim(args);
+        case "swarm_release":
+          return await this.handleSwarmRelease(args);
         default:
           return this.errorResult(`Unknown tool: ${toolName}`);
       }
@@ -304,17 +325,60 @@ export class GatewayMcpServer {
   private async handleEvalScore(
     args: Record<string, unknown>,
   ): Promise<{ content: { type: "text"; text: string }[]; isError?: boolean }> {
-    if (!this.deps.evalScore) return this.errorResult("Eval scoring not available");
     const scorers = Array.isArray(args["scorers"])
       ? (args["scorers"] as string[])
       : undefined;
-    const scores = await this.deps.evalScore(
-      args["input"] as string,
-      args["output"] as string,
-      args["expected"] as string | undefined,
-      scorers,
-    );
-    return this.jsonResult({ scores });
+    const context = Array.isArray(args["context"])
+      ? (args["context"] as string[])
+      : undefined;
+    const scorerOptions =
+      typeof args["scorerOptions"] === "object" &&
+      args["scorerOptions"] !== null &&
+      !Array.isArray(args["scorerOptions"])
+        ? (args["scorerOptions"] as Record<string, unknown>)
+        : undefined;
+
+    const llmNames = scorers?.filter((name) => LLM_SCORER_NAMES.has(name)) ?? [];
+    const ruleNames = scorers?.filter((name) => !LLM_SCORER_NAMES.has(name));
+    const allScores: { name: string; score: number; reasoning?: string }[] = [];
+
+    if (!scorers) {
+      if (!this.deps.evalScore) return this.errorResult("Eval scoring not available");
+      const ruleScores = await this.deps.evalScore(
+        args["input"] as string,
+        args["output"] as string,
+        args["expected"] as string | undefined,
+        undefined,
+      );
+      allScores.push(...ruleScores);
+      return this.jsonResult({ scores: allScores });
+    }
+
+    if (ruleNames && ruleNames.length > 0) {
+      if (!this.deps.evalScore) return this.errorResult("Eval scoring not available");
+      const ruleScores = await this.deps.evalScore(
+        args["input"] as string,
+        args["output"] as string,
+        args["expected"] as string | undefined,
+        ruleNames,
+      );
+      allScores.push(...ruleScores);
+    }
+
+    if (llmNames.length > 0) {
+      if (!this.deps.evalScoreLlm) return this.errorResult("LLM eval scoring not available");
+      const llmScores = await this.deps.evalScoreLlm(
+        args["input"] as string,
+        args["output"] as string,
+        args["expected"] as string | undefined,
+        context,
+        llmNames,
+        scorerOptions,
+      );
+      allScores.push(...llmScores);
+    }
+
+    return this.jsonResult({ scores: allScores });
   }
 
   private async handleEnrichmentGet(
@@ -341,11 +405,15 @@ export class GatewayMcpServer {
   private async handleCrossAgentMemoryRecall(
     args: Record<string, unknown>,
   ): Promise<{ content: { type: "text"; text: string }[]; isError?: boolean }> {
-    if (!this.deps.getMemoryByScope) return this.errorResult("Cross-agent memory not available");
-    const entries = await this.deps.getMemoryByScope(
-      "team",
+    if (!this.deps.getCrossAgentMemory) return this.errorResult("Cross-agent memory not available");
+    const teamId = args["teamId"] as string;
+    const key = args["key"] as string | undefined;
+    const tags = args["tags"] as string | undefined;
+    const mergedTags = key ? (tags ? `key:${key},${tags}` : `key:${key}`) : tags;
+    const entries = await this.deps.getCrossAgentMemory(
+      teamId,
       args["query"] as string | undefined,
-      args["key"] ? `key:${args["key"] as string}` : undefined,
+      mergedTags,
     );
     return this.jsonResult(entries);
   }
@@ -353,14 +421,37 @@ export class GatewayMcpServer {
   private async handleCrossAgentMemoryStore(
     args: Record<string, unknown>,
   ): Promise<{ content: { type: "text"; text: string }[]; isError?: boolean }> {
-    if (!this.deps.createMemoryEntry) return this.errorResult("Cross-agent memory not available");
-    const result = await this.deps.createMemoryEntry({
-      scope: "team",
-      key: args["key"],
-      content: args["content"],
-      ...(args["tags"] ? { tags: args["tags"] } : {}),
-    });
+    if (!this.deps.setCrossAgentMemory) return this.errorResult("Cross-agent memory not available");
+    const result = await this.deps.setCrossAgentMemory(
+      args["teamId"] as string,
+      args["key"] as string,
+      args["content"] as string,
+      args["tags"] as string | undefined,
+    );
     return this.jsonResult(result);
+  }
+
+  private async handleCrossAgentMemoryList(
+    args: Record<string, unknown>,
+  ): Promise<{ content: { type: "text"; text: string }[]; isError?: boolean }> {
+    if (!this.deps.listCrossAgentMemory) return this.errorResult("Cross-agent memory not available");
+    const entries = await this.deps.listCrossAgentMemory(
+      args["teamId"] as string,
+      args["tags"] as string | undefined,
+      args["limit"] as number | undefined,
+    );
+    return this.jsonResult(entries);
+  }
+
+  private async handleCrossAgentMemoryDelete(
+    args: Record<string, unknown>,
+  ): Promise<{ content: { type: "text"; text: string }[]; isError?: boolean }> {
+    if (!this.deps.deleteCrossAgentMemory) return this.errorResult("Cross-agent memory not available");
+    const deleted = await this.deps.deleteCrossAgentMemory(
+      args["teamId"] as string,
+      args["id"] as string,
+    );
+    return this.jsonResult({ deleted });
   }
 
   private async handleBudgetCheck(
@@ -384,6 +475,73 @@ export class GatewayMcpServer {
       args["messages"] as number,
       args["tokens"] as number,
       args["model"] as string,
+    );
+    return this.jsonResult({ ok: true });
+  }
+
+  private async handleSwarmJoin(
+    args: Record<string, unknown>,
+  ): Promise<{ content: { type: "text"; text: string }[]; isError?: boolean }> {
+    if (!this.deps.swarmJoin) return this.errorResult("Swarm not available");
+    const result = await this.deps.swarmJoin(
+      args["swarmId"] as string,
+      args["agentId"] as string,
+      args["description"] as string | undefined,
+    );
+    return this.jsonResult({ joined: true, members: result.members });
+  }
+
+  private async handleSwarmLeave(
+    args: Record<string, unknown>,
+  ): Promise<{ content: { type: "text"; text: string }[]; isError?: boolean }> {
+    if (!this.deps.swarmLeave) return this.errorResult("Swarm not available");
+    await this.deps.swarmLeave(
+      args["swarmId"] as string,
+      args["agentId"] as string,
+    );
+    return this.jsonResult({ ok: true });
+  }
+
+  private async handleSwarmStatus(
+    args: Record<string, unknown>,
+  ): Promise<{ content: { type: "text"; text: string }[]; isError?: boolean }> {
+    if (!this.deps.swarmStatus) return this.errorResult("Swarm not available");
+    const result = await this.deps.swarmStatus(args["swarmId"] as string);
+    return this.jsonResult(result);
+  }
+
+  private async handleSwarmBroadcast(
+    args: Record<string, unknown>,
+  ): Promise<{ content: { type: "text"; text: string }[]; isError?: boolean }> {
+    if (!this.deps.swarmBroadcast) return this.errorResult("Swarm not available");
+    const result = await this.deps.swarmBroadcast(
+      args["swarmId"] as string,
+      args["agentId"] as string,
+      args["message"] as string,
+    );
+    return this.jsonResult({ ok: true, id: result.id });
+  }
+
+  private async handleSwarmClaim(
+    args: Record<string, unknown>,
+  ): Promise<{ content: { type: "text"; text: string }[]; isError?: boolean }> {
+    if (!this.deps.swarmClaim) return this.errorResult("Swarm not available");
+    const result = await this.deps.swarmClaim(
+      args["swarmId"] as string,
+      args["agentId"] as string,
+      args["resourceId"] as string,
+    );
+    return this.jsonResult(result);
+  }
+
+  private async handleSwarmRelease(
+    args: Record<string, unknown>,
+  ): Promise<{ content: { type: "text"; text: string }[]; isError?: boolean }> {
+    if (!this.deps.swarmRelease) return this.errorResult("Swarm not available");
+    await this.deps.swarmRelease(
+      args["swarmId"] as string,
+      args["agentId"] as string,
+      args["resourceId"] as string,
     );
     return this.jsonResult({ ok: true });
   }
