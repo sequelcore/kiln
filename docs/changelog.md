@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.23.2 (2026-03-26) -- MCP OAuth Discovery: Add authorization_endpoint
+
+### Bug Fix
+
+- **`authorization_endpoint` added to OAuth metadata**: Claude Code validates the `/.well-known/oauth-authorization-server` response against RFC 8414 schema and requires `authorization_endpoint`. Also added `code_challenge_methods_supported: ["S256"]` (PKCE) and `"code"` to `response_types_supported` — foundation for future PKCE flow. (`runtime/src/gateway/gateway-routes.ts`)
+
 ## v0.23.1 (2026-03-26) -- MCP OAuth Discovery Fix
 
 ### Bug Fix
