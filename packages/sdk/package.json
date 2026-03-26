@@ -1,6 +1,6 @@
 {
   "name": "@kilnai/react",
-  "version": "0.23.0",
+  "version": "0.23.1",
   "description": "React hooks SDK for building apps on @kilnai/core",
   "type": "module",
   "exports": {

@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.23.1 (2026-03-26) -- MCP OAuth Discovery Fix
+
+### Bug Fix
+
+- **OAuth discovery endpoints**: Added `GET /.well-known/oauth-authorization-server` (RFC 8414) and `GET /.well-known/oauth-protected-resource` (RFC 9728) to the gateway routes. Claude Code and other MCP HTTP clients unconditionally hit these endpoints before connecting — without them, the gateway returned 404 which crashed the client's JSON parser with "HTTP 404: Invalid OAuth error response". Both endpoints are registered only when `mcp.enabled: true` and return valid metadata JSON derived from the request origin. No OAuth token issuance — metadata only. (`runtime/src/gateway/gateway-routes.ts`)
+
 ## v0.23.0 (2026-03-26) -- MCP Phase 3: Cross-Agent Memory, Swarm Primitives, LLM Eval Scorers
 
 ### MCP Phase 3: 25 Tools Total (8 new)
