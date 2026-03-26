@@ -3,7 +3,7 @@
 
 import { Hono } from "hono";
 import type { App, SttAdapter, ContactMemoryService } from "@kilnai/core";
-import type { GatewayAppBinding, SecurityConfig, AuditLog } from "@kilnai/core";
+import type { GatewayAppBinding, SecurityConfig, AuditLog, GatewayMcpConfig } from "@kilnai/core";
 import { PromptScanner } from "@kilnai/core";
 import type { ChannelRegistry } from "../channels/channel-registry.js";
 import type { WebChannel } from "../channels/web-channel.js";
@@ -74,6 +74,7 @@ export interface LoadedApp {
 export interface GatewayServerConfig {
   readonly port: number;
   readonly apps: readonly LoadedApp[];
+  readonly mcp?: GatewayMcpConfig;
   readonly delegationRegistry?: DelegationRegistry;
   readonly healthRegistry?: HealthRegistry;
   readonly startTime?: number;
@@ -131,6 +132,29 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
       subsystems,
     });
   });
+
+  if (config.mcp?.enabled) {
+    app.get("/.well-known/oauth-authorization-server", (c) => {
+      const baseUrl = new URL(c.req.url).origin;
+      return c.json({
+        issuer: baseUrl,
+        token_endpoint: `${baseUrl}/oauth/token`,
+        response_types_supported: ["token"],
+        grant_types_supported: ["urn:ietf:params:oauth:grant-type:token-exchange"],
+        token_endpoint_auth_methods_supported: ["none", "client_secret_basic"],
+      });
+    });
+
+    app.get("/.well-known/oauth-protected-resource", (c) => {
+      const baseUrl = new URL(c.req.url).origin;
+      return c.json({
+        resource: baseUrl,
+        authorization_servers: [baseUrl],
+        bearer_methods_supported: ["header"],
+        resource_documentation: `${baseUrl}/mcp`,
+      });
+    });
+  }
 
   // Dev mode routes (local development only -- no auth)
   if (config.devMode) {

@@ -797,6 +797,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
   const honoApp = createGatewayApp({
     port,
     apps: loadedApps,
+    mcp: gatewayConfig.mcp,
     delegationRegistry,
     healthRegistry,
     startTime,

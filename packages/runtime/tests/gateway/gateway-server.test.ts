@@ -151,6 +151,54 @@ describe("createGatewayApp", () => {
     const body = (await healthRes.json()) as { apps: { name: string; channels: string[] }[] };
     expect(body.apps[0]!.channels).toEqual(["web"]);
   });
+
+  it("serves OAuth discovery metadata when MCP is enabled", async () => {
+    const app = createGatewayApp({ ...makeConfig([]), mcp: { enabled: true } });
+
+    const authRes = await app.request("http://localhost:3800/.well-known/oauth-authorization-server");
+    expect(authRes.status).toBe(200);
+    expect(authRes.headers.get("content-type")).toContain("application/json");
+    const authBody = await authRes.json() as {
+      issuer: string;
+      token_endpoint: string;
+      response_types_supported: string[];
+      grant_types_supported: string[];
+      token_endpoint_auth_methods_supported: string[];
+    };
+    expect(authBody).toEqual({
+      issuer: "http://localhost:3800",
+      token_endpoint: "http://localhost:3800/oauth/token",
+      response_types_supported: ["token"],
+      grant_types_supported: ["urn:ietf:params:oauth:grant-type:token-exchange"],
+      token_endpoint_auth_methods_supported: ["none", "client_secret_basic"],
+    });
+
+    const resourceRes = await app.request("http://localhost:3800/.well-known/oauth-protected-resource");
+    expect(resourceRes.status).toBe(200);
+    expect(resourceRes.headers.get("content-type")).toContain("application/json");
+    const resourceBody = await resourceRes.json() as {
+      resource: string;
+      authorization_servers: string[];
+      bearer_methods_supported: string[];
+      resource_documentation: string;
+    };
+    expect(resourceBody).toEqual({
+      resource: "http://localhost:3800",
+      authorization_servers: ["http://localhost:3800"],
+      bearer_methods_supported: ["header"],
+      resource_documentation: "http://localhost:3800/mcp",
+    });
+  });
+
+  it("does not serve OAuth discovery metadata when MCP is disabled", async () => {
+    const app = createGatewayApp(makeConfig([]));
+
+    const authRes = await app.request("/.well-known/oauth-authorization-server");
+    const resourceRes = await app.request("/.well-known/oauth-protected-resource");
+
+    expect(authRes.status).toBe(404);
+    expect(resourceRes.status).toBe(404);
+  });
 });
 
 describe("createGatewayApp multi-tenant wiring", () => {
