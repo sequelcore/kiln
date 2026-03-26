@@ -1,5 +1,33 @@
 # Changelog
 
+## v0.23.0 (2026-03-26) -- MCP Phase 3: Cross-Agent Memory, Swarm Primitives, LLM Eval Scorers
+
+### MCP Phase 3: 25 Tools Total (8 new)
+
+Three workstreams extending the MCP tool surface for external CLI agent orchestration:
+
+**WS1 — Cross-Agent Memory (4 tools, extended)**
+- `cross_agent_memory_recall` / `cross_agent_memory_store`: now require `teamId` for proper namespace scoping. Memory stored on `"project"` layer with `_team:<teamId>` tag injection.
+- `cross_agent_memory_list`: new tool — list all entries for a team with optional key prefix filter.
+- `cross_agent_memory_delete`: new tool — delete a specific key from a team's shared memory (ownership-checked).
+
+**WS2 — Swarm Primitives (6 new tools)**
+- `swarm_join`: Join a named agent swarm, returns current membership list.
+- `swarm_leave`: Leave a swarm and release all held claims.
+- `swarm_status`: Get current members and active resource claims for a swarm.
+- `swarm_broadcast`: Broadcast a message to all agents in a swarm (stored, not pushed).
+- `swarm_claim`: Optimistic lock on a named resource within a swarm.
+- `swarm_release`: Release a previously claimed resource (ownership-checked).
+- **`SwarmStore`** (`runtime/src/mcp/swarm-store.ts`): `SqliteMemoryStore`-backed swarm state using tag conventions `_swarm:<swarmId>`, `_member:<agentId>`, `_claim:<resourceId>`, `_broadcast`.
+
+**WS3 — LLM-Based Eval Scorers**
+- `eval_score` extended: now accepts `context` (passages for faithfulness/context-relevance) and `scorerOptions` (per-scorer config).
+- `evalScoreLlm` dep: routes 12 LLM-as-judge scorer names through `ProviderScorerLlmBridge` inline class.
+- `LLM_SCORER_NAMES` set splits scorer requests between rule-based and LLM paths. If no scorers specified, only rule-based runs (avoids unexpected LLM costs).
+- `GatewayMcpEvalConfig` (`core/src/engine/gateway/mcp-config.ts`): new type for judge LLM config (`provider`, `model?`, `apiKeyEnv?`). Parsed from `gateway.yaml` `mcp.eval` block.
+
+**Test coverage:** 80 MCP tests (70 gateway-mcp-server + 10 swarm-store), all passing.
+
 ## v0.22.0 (2026-03-25) -- Full MCP Tool Wiring
 
 ### MCP Phase 2: All 17 Tools Now Wired
