@@ -260,11 +260,11 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 
 ### Integration Runtime Phase 4 (MCP Surface)
 
-Expose integration adapters as MCP tools (same implementation, two surfaces). Phases 1-3 complete.
+Expose integration adapters as MCP tools (same implementation, two surfaces). Phases 1-3 complete. Phase 4 MCP wiring complete (v0.22.0): `integration_list` and `integration_execute` wired.
 
 ### MCP-First Orchestration Layer
 
-Kiln as production runtime for CLI agents (Claude Code, Codex CLI, Goose) via MCP. Phase 1 (gateway MCP server with 7 tools) complete. Remaining: expand tool surface (routing, eval, enrichment), cross-agent memory, swarm primitives, budget enforcement.
+Kiln as production runtime for CLI agents (Claude Code, Codex CLI, Goose) via MCP. Phase 1 (gateway MCP server, 17 tool schemas) complete. Phase 2 (full wiring of all 17 tools) complete in v0.22.0. Remaining: cross-agent memory persistence, swarm primitives, LLM-based eval scorers via MCP.
 
 ### OpenKiln (Personal AI Agent)
 

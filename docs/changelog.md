@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.22.0 (2026-03-25) -- Full MCP Tool Wiring
+
+### MCP Phase 2: All 17 Tools Now Wired
+
+The gateway MCP server (introduced in v0.21.0) exposed 17 tool schemas but only 7 were wired to concrete gateway infrastructure. This release wires the remaining 8 dep callbacks:
+
+- **`integration_list`**: Lists all registered integration adapters via `IntegrationRegistry.all()`.
+- **`integration_execute`**: Per-tenant credential resolution + adapter execution via `IntegrationExecutor`.
+- **`routing_test`**: Dry-run tenant message routing with per-rule regex diagnostics via `DefaultTenantRouter`.
+- **`eval_score`**: Score input/output pairs using 5 rule-based scorers (ExactMatch, JsonValidity, Effort, RoutingAccuracy, ToolCallingAccuracy). No LLM dependency.
+- **`enrichment_get`**: Retrieve enrichment data for a completed session from `SqliteEnrichmentStore`.
+- **`enrichment_list`**: Paginated enrichment listing by tenant via `SqliteEnrichmentStore.listByTenant()`.
+- **`budget_check`**: Fail-open budget verification via `checkBudget()` from budget middleware.
+- **`budget_report`**: Fire-and-forget usage reporting via `reportUsage()` from budget middleware.
+
+**Infrastructure changes:**
+- `tenant-tool-factory.ts`: Added `getIntegrationDeps()` read-only accessor for MCP server wiring.
+- `gateway-server.ts`: Wired all 8 dep closures over `loadedApps`, `IntegrationRegistry`, `SqliteEnrichmentStore`, and `budget-middleware`. Added `textParts` static import.
+
 ## v0.21.2 (2026-03-25) -- Dev Inspector + SSE Keepalive
 
 ### Bug Fixes

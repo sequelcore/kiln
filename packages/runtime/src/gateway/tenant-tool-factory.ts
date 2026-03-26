@@ -34,6 +34,11 @@ export function clearIntegrationDeps(): void {
   _integrationDeps = undefined;
 }
 
+/** Read-only access to integration deps (for MCP server wiring). */
+export function getIntegrationDeps(): IntegrationDeps | undefined {
+  return _integrationDeps;
+}
+
 const DEFAULT_WEBHOOK_TIMEOUT_MS = 30_000;
 
 export function buildTenantToolContext(

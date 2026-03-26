@@ -46,11 +46,11 @@ import { createKnowledgePipeline, createSourceManager, createContactMemoryServic
 import type { KnowledgePipelineResult } from "./knowledge-factory.js";
 import type { KnowledgeAdminRoutesConfig } from "./knowledge-admin-routes.js";
 import type { ContactMemoryService } from "@kilnai/core";
-import { extractText } from "@kilnai/core";
+import { extractText, textParts } from "@kilnai/core";
 import { WebhookDedup } from "./webhook-dedup.js";
 import { IntegrationRegistry } from "./integration-registry.js";
 import { LocalCredentialResolver } from "./local-credential-resolver.js";
-import { configureIntegrationDeps } from "./tenant-tool-factory.js";
+import { configureIntegrationDeps, getIntegrationDeps } from "./tenant-tool-factory.js";
 import { SqliteEmailThreadStore } from "./sqlite-email-thread-store.js";
 import { SqliteEnrichmentStore } from "../enrichment/sqlite-enrichment-store.js";
 import { CompositeEventStore } from "../observability/composite-event-store.js";
@@ -1022,6 +1022,119 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
             const apps: Record<string, unknown> = {};
             for (const [appName, pipeline] of safetyPipelines) apps[appName] = pipeline.metrics;
             return { enabled: true, apps };
+          },
+
+          // Integration Runtime (Phase 4)
+          listIntegrations: () => {
+            const deps = getIntegrationDeps();
+            if (!deps) return [];
+            return deps.registry.all().map((a) => ({
+              provider: a.provider,
+              version: a.version,
+              operations: a.operations.map((op) => ({ name: op.name, description: op.description })),
+            }));
+          },
+          executeIntegration: async (provider: string, operation: string, tenantId: string, input: Record<string, unknown>) => {
+            const deps = getIntegrationDeps();
+            if (!deps) throw new KilnError("CONFIG_INVALID", "Integration runtime not configured");
+            const adapter = deps.registry.get(provider);
+            if (!adapter) throw new KilnError("CONFIG_INVALID", `Integration provider "${provider}" not registered`);
+            const { IntegrationExecutor } = await import("./integration-executor.js");
+            const executor = new IntegrationExecutor(adapter, deps.credentialResolver, tenantId, provider);
+            return executor.execute(operation, input);
+          },
+
+          // Routing diagnostics
+          testRouting: async (tenantId: string, message: string) => {
+            for (const loaded of loadedApps) {
+              const tr = loaded.tenantRuntime;
+              if (!tr) continue;
+              const tenant = tr.tenantRegistry.get(tenantId);
+              if (!tenant || !tenant.routing || !tenant.agents?.length) continue;
+
+              const { DefaultTenantRouter } = await import("../tenant/tenant-router.js");
+              const userParts = textParts(message);
+              const text = extractText(userParts);
+
+              const allRules: { pattern: string; agent: string; matched: boolean }[] = [];
+              for (const rule of tenant.routing.rules ?? []) {
+                try {
+                  allRules.push({ pattern: rule.match, agent: rule.agent, matched: new RegExp(rule.match, "i").test(text) });
+                } catch {
+                  allRules.push({ pattern: rule.match, agent: rule.agent, matched: false });
+                }
+              }
+
+              const router = new DefaultTenantRouter(tenant.routing);
+              const result = router.route(userParts);
+              const agent = tenant.agents.find((a) => a.id === result.agentId);
+
+              return {
+                agentId: result.agentId,
+                agentName: agent?.name ?? result.agentId,
+                tier: result.tier,
+                matchedPattern: result.matchedPattern ?? null,
+                confidence: result.confidence ?? null,
+                allRules,
+              };
+            }
+            throw new KilnError("CONFIG_INVALID", `Tenant "${tenantId}" not found or has no routing configured`);
+          },
+
+          // Eval scoring (rule-based scorers only — no LLM dependency)
+          evalScore: async (input: string, output: string, expected?: string, scorerNames?: readonly string[]) => {
+            const { ExactMatchScorer, JsonValidityScorer, EffortScorer, RoutingAccuracyScorer, ToolCallingAccuracyScorer } = await import("@kilnai/core");
+            const allScorers = [
+              new ExactMatchScorer(),
+              new JsonValidityScorer(),
+              new EffortScorer(),
+              new RoutingAccuracyScorer(),
+              new ToolCallingAccuracyScorer(),
+            ];
+            const scorers = scorerNames?.length
+              ? allScorers.filter((s) => scorerNames.includes(s.name))
+              : allScorers;
+            const results = await Promise.all(scorers.map((s) => s.score({ input, output, expected })));
+            return results;
+          },
+
+          // Enrichment access
+          getEnrichment: async (sessionId: string) => {
+            for (const loaded of loadedApps) {
+              const store = loaded.enrichmentAdminConfig?.enrichmentStore;
+              if (!store) continue;
+              const enrichment = await store.get(sessionId);
+              if (enrichment) return enrichment as unknown as Record<string, unknown>;
+            }
+            return undefined;
+          },
+          listEnrichments: async (tenantId: string, limit?: number, cursor?: string) => {
+            for (const loaded of loadedApps) {
+              const store = loaded.enrichmentAdminConfig?.enrichmentStore;
+              if (!store) continue;
+              const result = await store.listByTenant(tenantId, limit ?? 20, cursor);
+              return {
+                enrichments: result.enrichments as unknown as readonly Record<string, unknown>[],
+                nextCursor: result.nextCursor,
+              };
+            }
+            return { enrichments: [] };
+          },
+
+          // Budget enforcement
+          checkBudget: async (tenantId: string, appName: string) => {
+            const loaded = loadedApps.find((a) => a.name === appName);
+            const billing = loaded?.tenantRuntime?.billing;
+            if (!billing) return { allowed: true, remaining: -1, unit: "unknown" };
+            const { checkBudget: check } = await import("./budget-middleware.js");
+            return check(billing, tenantId);
+          },
+          reportUsage: async (tenantId: string, appName: string, messages: number, tokens: number, model: string) => {
+            const loaded = loadedApps.find((a) => a.name === appName);
+            const billing = loaded?.tenantRuntime?.billing;
+            if (!billing) return;
+            const { reportUsage: report } = await import("./budget-middleware.js");
+            await report(billing, { tenantId, messages, tokens, model });
           },
         },
         apiKey: mcpApiKey,
