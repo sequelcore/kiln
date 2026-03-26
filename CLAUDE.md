@@ -38,7 +38,7 @@ Bun monorepo with 6 packages:
 | eval | `core/src/eval/` | 23 scorers (11 rule + 12 LLM-as-judge), dataset loader, experiment runner, comparator, consistency runner (pass^k) |
 | observability (core) | `core/src/observability/` | OTel span mapper (exhaustive event-to-span mapping) + OTelExporter (EventStore sink) |
 | observability (runtime) | `runtime/src/observability/` | PrometheusCollector (EventStore sink, dynamic prom-client import), CompositeEventStore (fan-out to multiple sinks) |
-| mcp (runtime) | `runtime/src/mcp/` | GatewayMcpServer (Streamable HTTP, stateless per-request, 7 tools: memory CRUD, knowledge search/sources, cost summary, safety metrics), GatewayMcpDeps, tool schemas, dynamic SDK import |
+| mcp (runtime) | `runtime/src/mcp/` | GatewayMcpServer (Streamable HTTP, stateless per-request, 25 tools: memory CRUD, knowledge, cost, safety, integrations, routing, eval, enrichment, cross-agent memory, swarm primitives), GatewayMcpDeps, SwarmStore, tool schemas, dynamic SDK import |
 | gateway | `runtime/src/gateway/` | Multi-app loading, Mode B routes, budget middleware, composable auth middleware (timing-safe, API key + JWT RS256/HS256 via JWKS), conversation event emitter (incl. tool execution events), delegation, dev routes, safety/security middleware, audio preprocessing, knowledge pipeline wiring, STT/knowledge factories, webhook tool executor, integration runtime (IntegrationRegistry + IntegrationExecutor + LocalCredentialResolver), tenant tool factory, Meta webhook foundation (shared verification + HMAC-SHA256), WebhookDedup (Meta at-least-once protection), Instagram/Messenger/Email webhook routes, email loop guard, SqliteEmailThreadStore, WebSocket heartbeat (30s ping, 90s timeout), WhatsApp coexistence auto-handoff (smb_message_echoes) |
 | a2a | `runtime/src/a2a/` | A2AClient (outbound delegation only) |
 | trigger | `runtime/src/trigger/` | TriggerRegistry, webhook handler (HMAC-SHA256), event listener, cron scheduler |
@@ -244,9 +244,10 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `enrichment/enrichment-runner.ts` | Fire-and-forget post-conversation enrichment runner |
 | `observability/prometheus-collector.ts` | PrometheusCollector EventStore (counters, histograms, /metrics) |
 | `observability/composite-event-store.ts` | Fan-out to multiple EventStore sinks |
-| `mcp/gateway-mcp-server.ts` | GatewayMcpServer: MCP Streamable HTTP server exposing 7 gateway tools (stateless per-request, dynamic SDK import, optional api-key auth) |
-| `mcp/gateway-mcp-types.ts` | GatewayMcpDeps: dependency injection interface for gateway capabilities |
-| `mcp/tool-schemas.ts` | JSON Schema definitions for 7 MCP tools (memory CRUD, knowledge search/sources, cost, safety) |
+| `mcp/gateway-mcp-server.ts` | GatewayMcpServer: MCP Streamable HTTP server exposing 25 gateway tools (stateless per-request, dynamic SDK import, optional api-key auth) |
+| `mcp/gateway-mcp-types.ts` | GatewayMcpDeps: dependency injection interface for all 25 gateway capabilities |
+| `mcp/tool-schemas.ts` | JSON Schema definitions for 25 MCP tools (memory, knowledge, cost, safety, integrations, routing, eval, enrichment, cross-agent memory, swarm primitives) |
+| `mcp/swarm-store.ts` | SwarmStore: SqliteMemoryStore-backed swarm state (join/leave/status/broadcast/claim/release) with _swarm:/_member:/_claim: tag conventions |
 
 ### CLI (`packages/cli/src/`)
 
