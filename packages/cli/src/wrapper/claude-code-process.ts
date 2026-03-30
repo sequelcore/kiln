@@ -1,21 +1,22 @@
 /**
- * Claude Code session using the official Agent SDK.
+ * ClaudeSession using the official Agent SDK.
+ * Implements IKilnSession — async generator returning SessionEvent.
  *
- * Replaces the previous subprocess approach that failed due to
- * Claude Code requiring a TTY. The SDK handles subprocess lifecycle
- * internally via its `query()` function.
- *
- * See: https://github.com/anthropics/claude-code/issues/771
+ * Replaces the previous callback-based (start/onMessage/onExit) API.
+ * See: https://github.com/anthropic-ai/claude-code/issues/771
  */
 
-type SDKMessage = import("@anthropic-ai/claude-agent-sdk").SDKMessage;
+import { randomUUID } from "node:crypto";
+import type {
+  SessionEvent,
+  SessionCapabilities,
+  SessionRunOptions,
+  IKilnSession,
+} from "./session.js";
+
 type Options = import("@anthropic-ai/claude-agent-sdk").Options;
 type Query = import("@anthropic-ai/claude-agent-sdk").Query;
 
-type MessageHandler = (message: SDKMessage) => void;
-type ExitHandler = (exitCode: number, costUsd: number) => void;
-
-/** Configuration for a Claude Code SDK session. */
 export interface ClaudeSessionConfig {
   readonly task: string;
   readonly systemPrompt: string;
@@ -26,111 +27,149 @@ export interface ClaudeSessionConfig {
   readonly allowDangerouslySkipPermissions?: boolean;
 }
 
-/**
- * Wraps the Claude Agent SDK `query()` function with an event-based API.
- *
- * Usage:
- *   const session = new ClaudeSession(config);
- *   session.onMessage((msg) => { ... });
- *   session.onExit((code, cost) => { ... });
- *   await session.start();
- */
-export class ClaudeSession {
-  private queryInstance: Query | null = null;
+interface MutableCapabilities {
+  supportedTools: readonly string[];
+}
+
+export class ClaudeSession implements IKilnSession {
+  readonly sessionId: string;
+
+  private readonly _capabilities: MutableCapabilities & Omit<SessionCapabilities, "supportedTools">;
   private abortController: AbortController | null = null;
-  private readonly messageHandlers: MessageHandler[] = [];
-  private readonly exitHandlers: ExitHandler[] = [];
-  private _isRunning = false;
 
-  constructor(private readonly config: ClaudeSessionConfig) {}
+  constructor(private readonly config: ClaudeSessionConfig) {
+    this.sessionId = randomUUID();
+    this._capabilities = {
+      mcp: true,
+      streaming: true,
+      resume: false,
+      costTrackingMode: "native",
+      supportedTools: [],
+      maxContextTokens: null,
+      priority: 1,
+      fallbackTo: null,
+    };
+  }
 
-  /** Start the SDK query. Resolves when the session ends. */
-  async start(): Promise<void> {
+  get capabilities(): SessionCapabilities {
+    return this._capabilities;
+  }
+
+  async *run(options: SessionRunOptions): AsyncIterable<SessionEvent> {
     const { query } = await import("@anthropic-ai/claude-agent-sdk");
 
-    this._isRunning = true;
-    this.abortController = new AbortController();
+    const abortController = new AbortController();
+    this.abortController = abortController;
 
-    const env: Record<string, string | undefined> = { ...process.env };
-    if (this.config.env) {
-      Object.assign(env, this.config.env);
+    if (options.abortSignal) {
+      if (options.abortSignal.aborted) {
+        abortController.abort();
+      } else {
+        options.abortSignal.addEventListener("abort", () => abortController.abort(), { once: true });
+      }
     }
 
-    const options: Options = {
-      abortController: this.abortController,
+    const env: Record<string, string | undefined> = { ...process.env };
+    if (this.config.env) Object.assign(env, this.config.env);
+    if (options.env) Object.assign(env, options.env);
+
+    const sdkOptions: Options = {
+      abortController,
       systemPrompt: {
         type: "preset",
         preset: "claude_code",
         append: this.config.systemPrompt,
       },
       mcpServers: this.config.mcpServers,
-      cwd: this.config.cwd,
+      cwd: options.cwd ?? this.config.cwd,
       env,
       includePartialMessages: false,
       permissionMode: this.config.permissionMode ?? "default",
-      allowDangerouslySkipPermissions: this.config.allowDangerouslySkipPermissions,
+      allowDangerouslySkipPermissions: this.config.allowDangerouslySkipPermissions ?? false,
       settingSources: ["project"],
       stderr: (data: string) => {
-        console.error(`[claude:stderr] ${data.trimEnd()}`);
+        process.stderr.write(data);
       },
     };
 
-    const queryInstance = query({
-      prompt: this.config.task,
-      options,
+    const queryInstance: Query = query({
+      prompt: options.prompt,
+      options: sdkOptions,
     });
-    this.queryInstance = queryInstance;
 
+    let initReceived = false;
     let totalCostUsd = 0;
+    const startTime = Date.now();
+
     try {
       for await (const message of queryInstance) {
-        for (const handler of this.messageHandlers) {
-          try {
-            handler(message);
-          } catch (err) {
-            console.error("[claude:session] handler error:", err);
+        if (message.type === "system" && message.subtype === "init") {
+          initReceived = true;
+          const initMsg = message as { tools?: Array<{ name: string }> };
+          if (initMsg.tools && Array.isArray(initMsg.tools)) {
+            this._capabilities.supportedTools = initMsg.tools.map((t) => t.name);
           }
+          continue;
         }
+
+        if (message.type === "assistant") {
+          const assMsg = message as {
+            message?: {
+              content?: Array<{
+                type: string;
+                text?: string;
+                name?: string;
+                input?: unknown;
+              }>;
+            };
+          };
+          const blocks = assMsg.message?.content ?? [];
+          for (const block of blocks) {
+            if (block.type === "text" && block.text !== undefined) {
+              yield { type: "text_delta", content: block.text };
+            } else if (block.type === "tool_use" && block.name) {
+              yield { type: "tool_use", toolName: block.name, input: block.input };
+            }
+          }
+          continue;
+        }
+
         if (message.type === "result") {
-          totalCostUsd = message.total_cost_usd;
+          const resultMsg = message as {
+            total_cost_usd?: number;
+            is_error?: boolean;
+          };
+          totalCostUsd = resultMsg.total_cost_usd ?? 0;
+          yield {
+            type: "cost_update",
+            usd: totalCostUsd,
+            mode: "native",
+          };
+          yield {
+            type: "completed",
+            totalUsd: totalCostUsd,
+            durationMs: Date.now() - startTime,
+            isError: resultMsg.is_error ?? false,
+            isPreflightCrash: !initReceived && totalCostUsd === 0,
+          };
         }
-      }
-      this._isRunning = false;
-      for (const handler of this.exitHandlers) {
-        handler(0, totalCostUsd);
       }
     } catch (err) {
-      this._isRunning = false;
-      console.error("[claude:session] error:", err);
-      for (const handler of this.exitHandlers) {
-        handler(1, totalCostUsd);
-      }
+      yield {
+        type: "error",
+        code: "SDK_ERROR",
+        message: err instanceof Error ? err.message : String(err),
+        isRetryable: false,
+      };
+    } finally {
+      this.abortController = null;
     }
   }
 
-  /** Stop the session by aborting and closing the SDK query. */
-  stop(): void {
+  async dispose(): Promise<void> {
     if (this.abortController) {
       this.abortController.abort();
       this.abortController = null;
     }
-    if (this.queryInstance) {
-      this.queryInstance.close();
-      this.queryInstance = null;
-    }
-  }
-
-  get isRunning(): boolean {
-    return this._isRunning;
-  }
-
-  /** Register callback for each SDK message. */
-  onMessage(handler: MessageHandler): void {
-    this.messageHandlers.push(handler);
-  }
-
-  /** Register callback for when the session ends. */
-  onExit(handler: ExitHandler): void {
-    this.exitHandlers.push(handler);
   }
 }

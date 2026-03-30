@@ -63,8 +63,10 @@ export class SessionManager {
 
   /**
    * Post-session cleanup: build report.
+   * @param totalCostUsd Cost reported directly from the session (ClaudeSession.total_cost_usd).
+   *                       Falls back to Orchestrator costSummary when session cost is unavailable.
    */
-  cleanup(sessionId: string): SessionReport {
+  cleanup(sessionId: string, totalCostUsd?: number): SessionReport {
     const duration = this.sessionStartTime
       ? Date.now() - this.sessionStartTime
       : 0;
@@ -83,7 +85,7 @@ export class SessionManager {
       domain: this.domain?.displayName ?? "Unknown",
       phaseReached: this.orchestrator?.currentPhase ?? "analyze",
       cost: {
-        total: costSummary?.totalCostUsd ?? 0,
+        total: totalCostUsd ?? costSummary?.totalCostUsd ?? 0,
         byRoleModel,
       },
       duration,

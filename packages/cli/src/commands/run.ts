@@ -1,11 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { Orchestrator } from "@kilnai/core";
-import type { KilnEvent } from "@kilnai/core";
 import { SessionManager } from "../wrapper/session-manager.js";
 import { ClaudeSession } from "../wrapper/claude-code-process.js";
 import type { SessionMode, SessionReport, WrapperConfig } from "../wrapper/index.js";
 import type { KilnAppConfig } from "../config.js";
-import { formatEvent } from "../formatters.js";
 
 export interface RunFlags {
   readonly apiKey?: string;
@@ -72,19 +69,12 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     process.exit(1);
   }
 
-  const orchestrator = new Orchestrator();
-
   const appLabel = appConfig.appName.charAt(0).toUpperCase() + appConfig.appName.slice(1);
   console.log(`${appLabel} session starting...`);
   console.log(`Domain:  ${context.domain.displayName}`);
   console.log(`Mode:    ${mode}`);
   console.log("");
 
-  orchestrator.eventBus.onAny((event: KilnEvent) => {
-    console.log(formatEvent(event));
-  });
-
-  // Build env
   const env: Record<string, string> = {};
   if (config.mode === "api-key" && config.apiKey) {
     env.ANTHROPIC_API_KEY = config.apiKey;
@@ -108,64 +98,59 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     allowDangerouslySkipPermissions: config.dangerouslySkipPermissions,
   });
 
-  // Print SDK messages to console
-  session.onMessage((msg) => {
-    switch (msg.type) {
-      case "system": {
-        const subtype = (msg as { subtype?: string }).subtype;
-        if (subtype === "init") {
-          const sysMsg = msg as { model?: string };
-          if (sysMsg.model) console.log(`Model: ${sysMsg.model}`);
-        }
-        break;
-      }
-      case "assistant": {
-        const assMsg = msg as {
-          message?: {
-            content?: Array<{ type: string; text?: string; name?: string }>;
-          };
-        };
-        if (assMsg.message?.content) {
-          for (const block of assMsg.message.content) {
-            if (block.type === "text" && block.text) {
-              process.stdout.write(block.text + "\n");
-            } else if (block.type === "tool_use" && block.name) {
-              console.log(`[tool] ${block.name}`);
-            }
-          }
-        }
-        break;
-      }
-      case "result": {
-        const resultMsg = msg as { subtype?: string; result?: string };
-        if (resultMsg.subtype === "success" && resultMsg.result) {
-          console.log("\n--- Result ---");
-          console.log(resultMsg.result);
-        }
-        break;
-      }
-    }
-  });
+  let finalCostUsd = 0;
 
   const shutdown = (): void => {
-    session.stop();
+    session.dispose();
   };
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
 
   try {
-    await session.start();
-  } catch {
-    console.error(
-      "Error: Could not launch Claude Code. Make sure it is installed and available on your PATH.\n" +
-      "Install: npm install -g @anthropic-ai/claude-code",
-    );
-    process.exit(1);
+    for await (const event of session.run({
+      prompt: task,
+      cwd: process.cwd(),
+      env,
+    })) {
+      switch (event.type) {
+        case "text_delta": {
+          process.stdout.write(event.content);
+          break;
+        }
+        case "tool_use": {
+          console.log(`[tool] ${event.toolName}`);
+          break;
+        }
+        case "cost_update": {
+          finalCostUsd = event.usd;
+          break;
+        }
+        case "completed": {
+          if (event.isPreflightCrash) {
+            console.error(
+              "\nSession crashed before starting. Check Claude Code installation.",
+            );
+            process.exit(1);
+          }
+          if (event.isError) {
+            console.error("\nSession ended with error.");
+            process.exit(1);
+          }
+          break;
+        }
+        case "error": {
+          console.error(`Error: ${event.message}`);
+          if (!event.isRetryable) process.exit(1);
+          break;
+        }
+      }
+    }
+  } finally {
+    await session.dispose();
+    process.off("SIGINT", shutdown);
+    process.off("SIGTERM", shutdown);
   }
 
-  process.off("SIGINT", shutdown);
-  process.off("SIGTERM", shutdown);
-
-  const report = manager.cleanup(sessionId);
+  const report = manager.cleanup(sessionId, finalCostUsd);
   printReport(report, appConfig.appName);
 }

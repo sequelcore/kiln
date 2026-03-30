@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { ClaudeSession } from "../../src/wrapper/claude-code-process.js";
 import type { ClaudeSessionConfig } from "../../src/wrapper/claude-code-process.js";
+import type { IKilnSession } from "../../src/wrapper/session.js";
 
 function baseConfig(overrides: Partial<ClaudeSessionConfig> = {}): ClaudeSessionConfig {
   return {
@@ -11,87 +12,67 @@ function baseConfig(overrides: Partial<ClaudeSessionConfig> = {}): ClaudeSession
   };
 }
 
-describe("ClaudeSession", () => {
-  it("isRunning returns false before start", () => {
+describe("ClaudeSession implements IKilnSession", () => {
+  it("declares implements IKilnSession", () => {
+    const session: IKilnSession = new ClaudeSession(baseConfig());
+    expect(session).toBeDefined();
+  });
+
+  it("sessionId is a non-empty UUID string", () => {
     const session = new ClaudeSession(baseConfig());
-    expect(session.isRunning).toBe(false);
+    expect(session.sessionId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
   });
 
-  it("stop does not throw before start", () => {
+  it("sessionId is stable across multiple reads", () => {
     const session = new ClaudeSession(baseConfig());
-    expect(() => session.stop()).not.toThrow();
+    const id1 = session.sessionId;
+    const id2 = session.sessionId;
+    expect(id1).toBe(id2);
   });
 
-  it("stop can be called multiple times without error", () => {
+  it("capabilities.mcp is true", () => {
     const session = new ClaudeSession(baseConfig());
-    expect(() => {
-      session.stop();
-      session.stop();
-      session.stop();
-    }).not.toThrow();
+    expect(session.capabilities.mcp).toBe(true);
   });
 
-  it("isRunning remains false after stop without start", () => {
+  it("capabilities.streaming is true", () => {
     const session = new ClaudeSession(baseConfig());
-    session.stop();
-    expect(session.isRunning).toBe(false);
+    expect(session.capabilities.streaming).toBe(true);
   });
 
-  it("accepts message handlers before start without error", () => {
+  it("capabilities.resume is false", () => {
     const session = new ClaudeSession(baseConfig());
-    const handler = () => {};
-    expect(() => session.onMessage(handler)).not.toThrow();
+    expect(session.capabilities.resume).toBe(false);
   });
 
-  it("accepts exit handlers before start without error", () => {
+  it("capabilities.costTrackingMode is native", () => {
     const session = new ClaudeSession(baseConfig());
-    const handler = () => {};
-    expect(() => session.onExit(handler)).not.toThrow();
+    expect(session.capabilities.costTrackingMode).toBe("native");
   });
 
-  it("accepts multiple message handlers", () => {
+  it("capabilities.maxContextTokens is null", () => {
     const session = new ClaudeSession(baseConfig());
-    expect(() => {
-      session.onMessage(() => {});
-      session.onMessage(() => {});
-    }).not.toThrow();
-    // Session still not running -- handlers are queued for when start() is called
-    expect(session.isRunning).toBe(false);
+    expect(session.capabilities.maxContextTokens).toBeNull();
   });
 
-  it("accepts MCP server config without affecting pre-start state", () => {
-    const session = new ClaudeSession(
-      baseConfig({
-        mcpServers: {
-          kiln: {
-            command: "bun",
-            args: ["run", "/path/to/mcp.ts"],
-          },
-        },
-      }),
-    );
-    expect(session.isRunning).toBe(false);
-    expect(() => session.stop()).not.toThrow();
+  it("capabilities.priority is 1", () => {
+    const session = new ClaudeSession(baseConfig());
+    expect(session.capabilities.priority).toBe(1);
   });
 
-  it("accepts permission mode config without affecting pre-start state", () => {
-    const session = new ClaudeSession(
-      baseConfig({
-        permissionMode: "bypassPermissions",
-        allowDangerouslySkipPermissions: true,
-      }),
-    );
-    expect(session.isRunning).toBe(false);
-    expect(() => session.stop()).not.toThrow();
+  it("capabilities.fallbackTo is null", () => {
+    const session = new ClaudeSession(baseConfig());
+    expect(session.capabilities.fallbackTo).toBeNull();
   });
 
-  it("accepts env config without affecting pre-start state", () => {
-    const session = new ClaudeSession(
-      baseConfig({
-        env: { ANTHROPIC_API_KEY: "sk-test" },
-      }),
-    );
-    expect(session.isRunning).toBe(false);
-    expect(() => session.stop()).not.toThrow();
+  it("dispose resolves without error", async () => {
+    const session = new ClaudeSession(baseConfig());
+    await expect(session.dispose()).resolves.toBeUndefined();
+  });
+
+  it("dispose can be called multiple times without error", async () => {
+    const session = new ClaudeSession(baseConfig());
+    await session.dispose();
+    await expect(session.dispose()).resolves.toBeUndefined();
   });
 });
