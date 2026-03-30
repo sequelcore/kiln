@@ -253,9 +253,13 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 
 | File | Purpose |
 |------|---------|
-| `index.ts` | Command dispatch (init, run, dev, domain, gateway, skill, memory, config, status) |
+| `index.ts` | Command dispatch (init, run, dev, domain, gateway, skill, memory, config, status, cron) |
 | `commands/init.ts` | Interactive wizard: generates app.yaml + gateway.yaml |
 | `commands/dev.ts` | Dev mode with YAML hot-reload |
+| `commands/cron.ts` | `kiln cron` command: list, add, remove, run subcommands for schedule triggers. Dynamic import of `@kilnai/runtime` for Scheduler + EventBus. |
+| `wrapper/session.ts` | IKilnSession: canonical session contract (CostTrackingMode, SessionEvent discriminated union, SessionCapabilities, IKilnSession interface) for multi-CLI orchestration |
+| `wrapper/claude-code-process.ts` | ClaudeSession implementing IKilnSession: async generator `run()`, `dispose()`, `sessionId`, `capabilities`. Replaces old callback API (start/onMessage/onExit). Yields `SessionEvent` variants: text_delta, tool_use, cost_update, completed, error. |
+| `commands/run.ts` | `kiln run` command: consumes `AsyncIterable<SessionEvent>` from ClaudeSession, wires `cost_update` to report, handles `isPreflightCrash` / `isError` / `error` events. Ghost Orchestrator removed. |
 
 ## Backlog
 
@@ -269,7 +273,11 @@ Kiln as production runtime for CLI agents (Claude Code, Codex CLI, Goose) via MC
 
 ### OpenKiln (Personal AI Agent)
 
-Product layer on `@kilnai/core` + `@kilnai/runtime`. Single-user mode, local-first SQLite, quick-start CLI (`npx openkiln init`), new channel adapters (Telegram, Discord, Signal). Separate bounded context — packaging and channel defaults, not a fork. Research needed.
+OpenKiln: See STRATEGY.md Phase 5 for full plan.
+
+### kiln run v2 (cross-CLI)
+
+kiln run v2 (cross-CLI): See STRATEGY.md Phase 1 — active next sprint.
 
 ### Widget Customization
 

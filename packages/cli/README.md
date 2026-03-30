@@ -109,6 +109,17 @@ Show current session status:
 kiln status
 ```
 
+### `kiln cron`
+
+Manage schedule triggers:
+
+```bash
+kiln cron list                    # List all schedules
+kiln cron add <name> <cron> <task> [--timezone <tz>]
+kiln cron remove <name>
+kiln cron run <name>              # Fire immediately without resetting schedule
+```
+
 ## MCP Server
 
 The CLI includes a built-in MCP server for Claude Code integration:

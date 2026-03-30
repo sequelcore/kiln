@@ -68,7 +68,7 @@ bunx kiln dev
 |---------|-------------|
 | [`@kilnai/core`](packages/core) | Engine primitives, YAML loader, provider adapters, memory, orchestrator, knowledge, safety, security, eval, enrichment, observability |
 | [`@kilnai/runtime`](packages/runtime) | Multi-app gateway, 8 channel adapters, tenant management, session registry, triggers, budget middleware, handoff, A2A |
-| [`@kilnai/cli`](packages/cli) | CLI commands (init, dev, run, gateway, skill, domain), interactive wizard, YAML hot-reload |
+| [`@kilnai/cli`](packages/cli) | CLI commands (init, dev, run, gateway, skill, domain, cron), interactive wizard, YAML hot-reload |
 | [`@kilnai/react`](packages/sdk) | React hooks (KilnProvider, useKilnChat, useKilnWsChat, useKilnEvents, useKilnMemory, useKilnState, useApproval) |
 | [`@kilnai/widget`](packages/widget) | Embeddable chat widget -- Shadow DOM, auto-reconnect WebSocket, zero runtime deps, single IIFE bundle |
 | [`@kilnai/studio`](packages/studio) | Dev UI -- graph view, playground, timeline, memory, eval, cost, safety (private, served at `/studio`) |
