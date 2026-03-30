@@ -286,6 +286,7 @@ When Kiln becomes a product for others:
 **Planned work:**
 - IKilnSession interface contract (packages/cli/src/wrapper/session.ts) — formalizes 6 event variants + capabilities + run/dispose contract; forces ClaudeSession refactor when implemented
   - ✅ ClaudeSession implements IKilnSession (2026-03-30): async generator `run()`, `dispose()`, `sessionId`, `capabilities`; cost flows via `cost_update` → `completed` events; old callback API (start/onMessage/onExit) removed; ghost Orchestrator removed from run.ts
+  - ✅ OpenCodeSession implements IKilnSession (2026-03-30): spawns `opencode serve`, connects via `@opencode-ai/sdk` (HTTP), maps ACP SSE events (message.part.delta, message.part.updated, sessionUpdate, session.status) to `SessionEvent` variants; `serveProcess` public for testability; `baseUrl` config escape hatch; 19 tests pass
 - CodexSession: spawn codex exec --json --output-schema, parse JSONL events, handle resume
 - OpenCodeSession: spawn opencode run --attach --format json, manage opencode serve daemon lifecycle
 - run.ts: --provider auto → calls routing_test → decides CLI

@@ -259,6 +259,7 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `commands/cron.ts` | `kiln cron` command: list, add, remove, run subcommands for schedule triggers. Dynamic import of `@kilnai/runtime` for Scheduler + EventBus. |
 | `wrapper/session.ts` | IKilnSession: canonical session contract (CostTrackingMode, SessionEvent discriminated union, SessionCapabilities, IKilnSession interface) for multi-CLI orchestration |
 | `wrapper/claude-code-process.ts` | ClaudeSession implementing IKilnSession: async generator `run()`, `dispose()`, `sessionId`, `capabilities`. Replaces old callback API (start/onMessage/onExit). Yields `SessionEvent` variants: text_delta, tool_use, cost_update, completed, error. |
+| `wrapper/opencode-session.ts` | OpenCodeSession implementing IKilnSession: spawns `opencode serve`, connects via SDK (HTTP), maps ACP SSE events to `SessionEvent`. Requires opencode >= v1.3.6 (token double-counting fix). |
 | `commands/run.ts` | `kiln run` command: consumes `AsyncIterable<SessionEvent>` from ClaudeSession, wires `cost_update` to report, handles `isPreflightCrash` / `isError` / `error` events. Ghost Orchestrator removed. |
 
 ## Backlog
