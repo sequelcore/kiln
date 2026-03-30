@@ -27,6 +27,7 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     gateway: "Start persistent Gateway (multi-app hosting)",
     dev: "Start development mode with hot-reload and event streaming (--playground)",
     skill: "Manage skills (list, install, publish)",
+    cron: "Manage scheduled jobs (list, add, remove, run)",
   };
 
   function printHelp(): void {
@@ -143,6 +144,12 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
   if (command === "skill") {
     const { skillCommand } = await import("./commands/skill.js");
     await skillCommand(config, args[1] ?? "", args.slice(2));
+    return;
+  }
+
+  if (command === "cron") {
+    const { cronCommand } = await import("./commands/cron.js");
+    await cronCommand(config, undefined, args.slice(1));
     return;
   }
 }
