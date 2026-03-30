@@ -47,3 +47,10 @@ export { ClaudeSession } from "./claude-code-process.js";
 export type { ClaudeSessionConfig } from "./claude-code-process.js";
 export { SessionManager } from "./session-manager.js";
 export type { KilnAppConfig, SystemPromptOptions } from "../config.js";
+export type {
+  CostTrackingMode,
+  SessionEvent,
+  SessionCapabilities,
+  SessionRunOptions,
+  IKilnSession,
+} from "./session.js";
