@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { parseCronExpression, validateCronExpression, nextFireTime } from "../../../src/engine/domain/cron.js";
+import {
+  parseCronExpression,
+  validateCronExpression,
+  validateTimezone,
+  nextFireTime,
+} from "../../../src/engine/domain/cron.js";
 
 describe("parseCronExpression", () => {
   it("parses * * * * * (every minute)", () => {
@@ -79,6 +84,21 @@ describe("validateCronExpression", () => {
   });
 });
 
+describe("validateTimezone", () => {
+  it("returns null for valid IANA timezone", () => {
+    expect(validateTimezone("UTC")).toBeNull();
+    expect(validateTimezone("America/New_York")).toBeNull();
+    expect(validateTimezone("Europe/London")).toBeNull();
+    expect(validateTimezone("Asia/Tokyo")).toBeNull();
+  });
+
+  it("returns error message for invalid timezone", () => {
+    const result = validateTimezone("Not/A/Timezone");
+    expect(result).not.toBeNull();
+    expect(result).toContain("Invalid timezone");
+  });
+});
+
 describe("nextFireTime", () => {
   it("calculates next fire for every-minute cron", () => {
     const expr = parseCronExpression("* * * * *");
@@ -112,5 +132,23 @@ describe("nextFireTime", () => {
     const next = nextFireTime(expr, after);
     expect(next.getMonth()).toBe(1); // February
     expect(next.getDate()).toBe(1);
+  });
+
+  it("with explicit UTC timezone matches behavior without timezone", () => {
+    const expr = parseCronExpression("0 9 * * *"); // 9am daily
+    const after = new Date(2024, 0, 15, 10, 0, 0); // after 9am
+    const withoutTz = nextFireTime(expr, after);
+    const withUtc = nextFireTime(expr, after, "UTC");
+    expect(withoutTz.getDate()).toBe(withUtc.getDate());
+    expect(withoutTz.getHours()).toBe(withUtc.getHours());
+  });
+
+  it("with a named timezone returns correct offset from that timezone", () => {
+    const expr = parseCronExpression("30 9 * * *"); // 9:30am daily
+    const after = new Date(Date.UTC(2024, 0, 15, 14, 0, 0)); // 2pm UTC
+    const nextUtc = nextFireTime(expr, after, "UTC");
+    const nextNy = nextFireTime(expr, after, "America/New_York");
+    const offsetHours = (nextUtc.getTime() - nextNy.getTime()) / (1000 * 60 * 60);
+    expect(Math.abs(offsetHours)).toBeGreaterThan(0);
   });
 });

@@ -112,7 +112,12 @@ export { isDelegationCapability, validateDelegation } from "./gateway/delegation
 export type { Trigger, TriggerType, WebhookTrigger, EventTrigger, ScheduleTrigger, TriggerValidationError } from "./domain/trigger.js";
 export { validateTrigger } from "./domain/trigger.js";
 export type { CronExpression } from "./domain/cron.js";
-export { parseCronExpression, validateCronExpression, nextFireTime } from "./domain/cron.js";
+export {
+  parseCronExpression,
+  validateCronExpression,
+  validateTimezone,
+  nextFireTime,
+} from "./domain/cron.js";
 
 // Knowledge primitives (Phase 8)
 export type { EmbeddingAdapter } from "./domain/embedding.js";

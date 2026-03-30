@@ -95,37 +95,84 @@ export function validateCronExpression(expression: string): string | null {
   }
 }
 
+/** Validate an IANA timezone string. Returns null if valid, error message if invalid. */
+export function validateTimezone(tz: string): string | null {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: tz }).format(new Date());
+    return null;
+  } catch {
+    return `Invalid timezone: "${tz}". Use an IANA timezone identifier (e.g., "America/New_York", "Europe/London", "UTC").`;
+  }
+}
+
 /** Calculate the next fire time after the given date */
-export function nextFireTime(expression: CronExpression, after: Date): Date {
+export function nextFireTime(
+  expression: CronExpression,
+  after: Date,
+  timezone?: string,
+): Date {
+  let tzOffset = 0;
+  if (timezone && timezone !== "UTC") {
+    try {
+      const formatter = new Intl.DateTimeFormat("en-US", {
+        timeZone: timezone,
+        year: "numeric",
+        month: "numeric",
+        day: "numeric",
+        hour: "numeric",
+        minute: "numeric",
+        second: "numeric",
+        hour12: false,
+      });
+      const parts = formatter.formatToParts(after);
+      const get = (type: string) => Number(parts.find((p) => p.type === type)!.value);
+      const localTzDate = new Date(
+        Date.UTC(
+          get("year"),
+          get("month") - 1,
+          get("day"),
+          get("hour"),
+          get("minute"),
+          get("second"),
+        ),
+      );
+      tzOffset = localTzDate.getTime() - after.getTime();
+    } catch {
+      // Invalid timezone — fall back to local time
+    }
+  }
+
   const d = new Date(after.getTime());
   d.setSeconds(0, 0);
-  d.setMinutes(d.getMinutes() + 1); // Start from next minute
+  d.setMinutes(d.getMinutes() + 1);
 
-  // Search up to 4 years ahead to avoid infinite loops
   const limit = new Date(after.getTime() + 4 * 365 * 24 * 60 * 60 * 1000);
 
   while (d < limit) {
-    if (!expression.months.includes(d.getMonth() + 1)) {
-      // Skip to next month
+    const targetMs = d.getTime() + tzOffset;
+    const targetDate = new Date(targetMs);
+
+    if (!expression.months.includes(targetDate.getMonth() + 1)) {
       d.setMonth(d.getMonth() + 1, 1);
       d.setHours(0, 0, 0, 0);
       continue;
     }
 
-    if (!expression.daysOfMonth.includes(d.getDate()) || !expression.daysOfWeek.includes(d.getDay())) {
-      // Skip to next day
+    if (
+      !expression.daysOfMonth.includes(targetDate.getDate()) ||
+      !expression.daysOfWeek.includes(targetDate.getDay())
+    ) {
       d.setDate(d.getDate() + 1);
       d.setHours(0, 0, 0, 0);
       continue;
     }
 
-    if (!expression.hours.includes(d.getHours())) {
-      // Skip to next hour
+    if (!expression.hours.includes(targetDate.getHours())) {
       d.setHours(d.getHours() + 1, 0, 0, 0);
       continue;
     }
 
-    if (!expression.minutes.includes(d.getMinutes())) {
+    if (!expression.minutes.includes(targetDate.getMinutes())) {
       d.setMinutes(d.getMinutes() + 1);
       continue;
     }

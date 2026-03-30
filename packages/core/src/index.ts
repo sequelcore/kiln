@@ -134,7 +134,12 @@ export type {
 } from "./engine/domain/trigger.js";
 export { validateTrigger } from "./engine/domain/trigger.js";
 export type { CronExpression } from "./engine/domain/cron.js";
-export { parseCronExpression, validateCronExpression, nextFireTime } from "./engine/domain/cron.js";
+export {
+  parseCronExpression,
+  validateCronExpression,
+  validateTimezone,
+  nextFireTime,
+} from "./engine/domain/cron.js";
 
 // Tenant types re-exported for direct access by runtime tenant module
 export type {
