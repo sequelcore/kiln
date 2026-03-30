@@ -6,8 +6,9 @@ import { parseCronExpression, nextFireTime } from "@kilnai/core";
 import { executeTrigger } from "./trigger-executor.js";
 import type { TriggerExecutionContext } from "./trigger-executor.js";
 
-interface ScheduleEntry {
+export interface ScheduleEntry {
   readonly trigger: ScheduleTrigger;
+  nextFireAt: Date;
   timer: ReturnType<typeof setTimeout> | null;
 }
 
@@ -24,7 +25,10 @@ export class Scheduler {
   /** Register a schedule trigger */
   register(trigger: ScheduleTrigger): void {
     if (trigger.enabled === false) return;
-    this.entries.push({ trigger, timer: null });
+    const cron = parseCronExpression(trigger.cron);
+    const now = new Date();
+    const next = nextFireTime(cron, now, trigger.timezone);
+    this.entries.push({ trigger, nextFireAt: next, timer: null });
   }
 
   /** Start all schedule timers */
@@ -52,11 +56,12 @@ export class Scheduler {
   private scheduleNext(entry: ScheduleEntry): void {
     const cron = parseCronExpression(entry.trigger.cron);
     const now = new Date();
-    const next = nextFireTime(cron, now);
+    const next = nextFireTime(cron, now, entry.trigger.timezone);
+    entry.nextFireAt = next;
     const delay = next.getTime() - now.getTime();
 
     entry.timer = setTimeout(() => {
-      this.fire(entry);
+      this.fireEntry(entry);
       if (this.started) {
         this.scheduleNext(entry);
       }
@@ -64,10 +69,9 @@ export class Scheduler {
   }
 
   /** Fire a schedule trigger */
-  private fire(entry: ScheduleEntry): void {
+  private fireEntry(entry: ScheduleEntry): void {
     const { trigger } = entry;
 
-    // Emit schedule_fired event
     const firedEvent: ScheduleFiredEvent = {
       type: "schedule_fired",
       timestamp: new Date(),
@@ -89,5 +93,36 @@ export class Scheduler {
     } catch {
       // Error already emitted by executeTrigger
     }
+  }
+
+  /** List all registered schedule entries with projected next fire times */
+  list(): ScheduleEntry[] {
+    const now = new Date();
+    return this.entries.map((entry) => {
+      const cron = parseCronExpression(entry.trigger.cron);
+      const next = nextFireTime(cron, now, entry.trigger.timezone);
+      return { ...entry, nextFireAt: next };
+    });
+  }
+
+  /** Remove a schedule by name. Clears its timer and returns true if found. */
+  remove(name: string): boolean {
+    const idx = this.entries.findIndex((e) => e.trigger.name === name);
+    if (idx === -1) return false;
+    const entry = this.entries[idx]!;
+    if (entry.timer) {
+      clearTimeout(entry.timer);
+      entry.timer = null;
+    }
+    this.entries.splice(idx, 1);
+    return true;
+  }
+
+  /** Manually fire a schedule by name. Does not reset the scheduled timer. */
+  async fire(name: string): Promise<boolean> {
+    const entry = this.entries.find((e) => e.trigger.name === name);
+    if (!entry) return false;
+    this.fireEntry(entry);
+    return true;
   }
 }

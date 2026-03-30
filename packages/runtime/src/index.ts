@@ -111,6 +111,7 @@ export type { WebhookHandlerConfig } from "./trigger/webhook-handler.js";
 export { EventListener, matchesFilter } from "./trigger/event-listener.js";
 export type { EventListenerConfig } from "./trigger/event-listener.js";
 export { Scheduler } from "./trigger/scheduler.js";
+export type { ScheduleEntry } from "./trigger/scheduler.js";
 export { executeTrigger, interpolateTemplate } from "./trigger/trigger-executor.js";
 export type { TriggerExecutionContext } from "./trigger/trigger-executor.js";
 
