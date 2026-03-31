@@ -1,7 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { SessionManager } from "../wrapper/session-manager.js";
-import { ClaudeSession } from "../wrapper/claude-code-process.js";
-import type { SessionMode, SessionReport, WrapperConfig } from "../wrapper/index.js";
+import { createDefaultRegistry } from "../wrapper/session-registry.js";
+import type {
+  ProviderId,
+  SessionRequirements,
+  SessionReport,
+} from "../wrapper/index.js";
+import type { SessionMode, WrapperConfig } from "../wrapper/index.js";
 import type { KilnAppConfig } from "../config.js";
 
 export interface RunFlags {
@@ -83,7 +88,23 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     env[`${config.provider.toUpperCase()}_API_KEY`] = config.apiKey;
   }
 
-  const session = new ClaudeSession({
+  const requirements: SessionRequirements = {
+    preferredProvider: config.provider as ProviderId | undefined,
+    requiresMcp: true,
+  };
+
+  const registry = createDefaultRegistry();
+  const selection = registry.selectBest(requirements);
+  const candidates: ProviderId[] = [
+    selection.primary,
+    ...selection.orderedFallbacks,
+  ];
+
+  let finalCostUsd = 0;
+  let sessionSucceeded = false;
+  let lastError: string | null = null;
+
+  const sessionConfig = {
     task,
     systemPrompt: context.systemPrompt,
     mcpServers: {
@@ -94,62 +115,89 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     },
     cwd: process.cwd(),
     env,
-    permissionMode: config.dangerouslySkipPermissions ? "bypassPermissions" : "default",
-    allowDangerouslySkipPermissions: config.dangerouslySkipPermissions,
-  });
-
-  let finalCostUsd = 0;
+    dangerouslySkipPermissions: config.dangerouslySkipPermissions,
+  };
 
   const shutdown = (): void => {
-    session.dispose();
+    for (const id of candidates) {
+      try {
+        const s = registry.createSession(id, sessionConfig);
+        s.dispose();
+      } catch {
+        // ignore
+      }
+    }
   };
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
 
-  try {
-    for await (const event of session.run({
-      prompt: task,
-      cwd: process.cwd(),
-      env,
-    })) {
-      switch (event.type) {
-        case "text_delta": {
-          process.stdout.write(event.content);
-          break;
-        }
-        case "tool_use": {
-          console.log(`[tool] ${event.toolName}`);
-          break;
-        }
-        case "cost_update": {
-          finalCostUsd = event.usd;
-          break;
-        }
-        case "completed": {
-          if (event.isPreflightCrash) {
-            console.error(
-              "\nSession crashed before starting. Check Claude Code installation.",
-            );
-            process.exit(1);
+  for (const providerId of candidates) {
+    let isPreflightCrash = false;
+
+    const session = registry.createSession(providerId, sessionConfig);
+
+    try {
+      for await (const event of session.run({
+        prompt: task,
+        cwd: process.cwd(),
+        env,
+      })) {
+        switch (event.type) {
+          case "text_delta": {
+            process.stdout.write(event.content);
+            break;
           }
-          if (event.isError) {
-            console.error("\nSession ended with error.");
-            process.exit(1);
+          case "tool_use": {
+            console.log(`[tool] ${event.toolName}`);
+            break;
           }
-          break;
-        }
-        case "error": {
-          console.error(`Error: ${event.message}`);
-          if (!event.isRetryable) process.exit(1);
-          break;
+          case "cost_update": {
+            finalCostUsd = event.usd;
+            break;
+          }
+          case "completed": {
+            isPreflightCrash = event.isPreflightCrash;
+            if (event.isPreflightCrash) {
+              lastError = `Provider ${providerId} crashed before starting`;
+              registry.reportFailure(providerId, true);
+              break;
+            }
+            if (event.isError) {
+              lastError = `Provider ${providerId} ended with error`;
+              registry.reportFailure(providerId, false);
+              break;
+            }
+            sessionSucceeded = true;
+            registry.reportSuccess(providerId);
+            break;
+          }
+          case "error": {
+            lastError = event.message;
+            if (!event.isRetryable) {
+              registry.reportFailure(providerId, false);
+            }
+            break;
+          }
         }
       }
+    } finally {
+      await session.dispose();
     }
-  } finally {
-    await session.dispose();
-    process.off("SIGINT", shutdown);
-    process.off("SIGTERM", shutdown);
+
+    if (sessionSucceeded) break;
+
+    if (!isPreflightCrash && !sessionSucceeded) {
+      console.error(`[kiln] Provider ${providerId} failed, trying next...`);
+    }
   }
+
+  if (!sessionSucceeded && lastError) {
+    console.error(`[kiln] All providers failed. Last error: ${lastError}`);
+    process.exit(1);
+  }
+
+  process.off("SIGINT", shutdown);
+  process.off("SIGTERM", shutdown);
 
   const report = manager.cleanup(sessionId, finalCostUsd);
   printReport(report, appConfig.appName);
