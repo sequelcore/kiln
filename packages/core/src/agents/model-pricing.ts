@@ -4,6 +4,7 @@ export interface CatalogPricing {
   readonly inputPer1M: number;
   readonly outputPer1M: number;
   readonly qualityTier: "high" | "medium" | "low";
+  readonly cachedInputRatePer1M?: number;
 }
 
 export const MODEL_CATALOG: readonly CatalogPricing[] = [
@@ -29,4 +30,10 @@ export const MODEL_CATALOG: readonly CatalogPricing[] = [
   { model: "mistralai/mistral-small-3.1-24b:free", provider: "openrouter", inputPer1M: 0, outputPer1M: 0, qualityTier: "medium" },
   // Local
   { model: "ollama-local", provider: "ollama", inputPer1M: 0, outputPer1M: 0, qualityTier: "low" },
+  // OpenAI Codex
+  { model: "gpt-5.4", provider: "openai", inputPer1M: 2.50, outputPer1M: 15.00, qualityTier: "high", cachedInputRatePer1M: 0.25 },
+  { model: "gpt-5.3-codex", provider: "openai", inputPer1M: 1.75, outputPer1M: 14.00, qualityTier: "high", cachedInputRatePer1M: 0.175 },
+  { model: "gpt-5.3-codex-spark", provider: "openai", inputPer1M: 1.75, outputPer1M: 14.00, qualityTier: "high", cachedInputRatePer1M: 0.175 },
 ];
+
+export const CODEX_DEFAULT_MODEL = "gpt-5.4";
