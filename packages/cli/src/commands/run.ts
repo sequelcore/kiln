@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { join } from "node:path";
 import { SessionManager } from "../wrapper/session-manager.js";
 import { createDefaultRegistry } from "../wrapper/session-registry.js";
 import { buildPreamble } from "../wrapper/preamble-builder.js";
@@ -11,6 +12,7 @@ import type {
   KilnPermissionPolicy,
 } from "../wrapper/index.js";
 import type { KilnAppConfig } from "../config.js";
+import { SkillGenerator, AnthropicAdapter } from "@kilnai/core";
 
 export interface RunFlags {
   readonly apiKey?: string;
@@ -109,6 +111,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
   let finalCostUsd = 0;
   let sessionSucceeded = false;
   let lastError: string | null = null;
+  let accumulatedText = "";
 
   const sessionConfig = {
     task,
@@ -146,6 +149,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
         switch (event.type) {
           case "text_delta": {
             process.stdout.write(event.content);
+            accumulatedText += event.content;
             break;
           }
           case "tool_use": {
@@ -170,6 +174,21 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
             }
             sessionSucceeded = true;
             registry.reportSuccess(providerId);
+            {
+              const sg = appConfig.kilnYaml?.skillGeneration;
+              if (sg?.enabled !== false && config.apiKey) {
+                try {
+                  const skillsDir = join(process.cwd(), ".kiln", "skills");
+                  const generator = new SkillGenerator({
+                    provider: new AnthropicAdapter({ apiKey: config.apiKey }),
+                    registry: new (await import("@kilnai/core")).SkillRegistry(),
+                    skillsDir,
+                    complexityThreshold: sg?.complexityThreshold,
+                  });
+                  void generator.maybeGenerate(task, accumulatedText, 0, 0);
+                } catch { /* fail-open */ }
+              }
+            }
             break;
           }
           case "error": {

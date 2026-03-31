@@ -33,6 +33,12 @@ export interface KilnYamlProvider {
   apiKeyEnv?: string;
 }
 
+export interface KilnYamlSkillGeneration {
+  readonly enabled?: boolean;
+  readonly model?: string;
+  readonly complexityThreshold?: number;
+}
+
 export interface KilnYaml {
   readonly version: "1";
   readonly domain?: string;
@@ -47,4 +53,5 @@ export interface KilnYaml {
   readonly model?: KilnYamlModel;
   readonly permissions?: KilnYamlPermissions;
   readonly providers?: Record<string, KilnYamlProvider>;
+  readonly skillGeneration?: KilnYamlSkillGeneration;
 }

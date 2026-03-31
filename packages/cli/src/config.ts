@@ -1,4 +1,5 @@
 import type { DomainConfig, DomainRegistry } from "@kilnai/core";
+import type { KilnYaml } from "./kiln-yaml.js";
 
 /** Options passed to the system prompt builder */
 export interface SystemPromptOptions {
@@ -37,6 +38,7 @@ export interface KilnAppConfig {
   readonly buildSystemPrompt?: (opts: SystemPromptOptions) => string;
   readonly mcpServerName: string;        // "kiln", etc.
   readonly studioDistPath?: string;      // path to @kilnai/studio dist/ (auto-resolved in monorepo)
+  readonly kilnYaml?: KilnYaml;          // pre-loaded kiln.yaml (optional; run.ts reads from disk if absent)
 }
 
 export { defaultBuildSystemPrompt };
