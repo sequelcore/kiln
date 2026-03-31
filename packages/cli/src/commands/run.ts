@@ -112,12 +112,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
   const sessionConfig = {
     task,
     systemPrompt: context.systemPrompt,
-    mcpServers: {
-      [appConfig.mcpServerName]: {
-        command: "bun",
-        args: ["run", context.mcpServerEntryPath],
-      },
-    },
+    mcpServerEntryPath: context.mcpServerEntryPath,
     cwd: process.cwd(),
     env,
     permissionPolicy: config.permissionPolicy,

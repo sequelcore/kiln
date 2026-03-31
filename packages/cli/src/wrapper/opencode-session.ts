@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import type {
   SessionEvent,
   SessionCapabilities,
@@ -51,6 +52,7 @@ interface OpencodeClientShape {
           bash?: "ask" | "allow" | "deny";
           webfetch?: "ask" | "allow" | "deny";
         };
+        mcp?: Record<string, unknown>;
       };
       query?: { directory?: string };
     }): Promise<unknown>;
@@ -83,6 +85,7 @@ export interface OpenCodeSessionConfig {
   readonly cwd: string;
   readonly env?: Record<string, string>;
   readonly mcpServers?: McpServer[];
+  readonly mcpServerEntryPath?: string;
   readonly model?: string;
   readonly port?: number;
   readonly baseUrl?: string;
@@ -194,6 +197,27 @@ export class OpenCodeSession implements IKilnSession {
               `[opencode] config.update failed: ${err instanceof Error ? err.message : String(err)}`,
             );
           });
+      }
+
+      const mcpEntryPath = this._config.mcpServerEntryPath;
+      if (mcpEntryPath && existsSync(mcpEntryPath)) {
+        const mcpEntry: Record<string, unknown> = {
+          type: "local",
+          command: ["node", mcpEntryPath],
+          enabled: true,
+        };
+        await client.config
+          .update({
+            body: { mcp: { kiln: mcpEntry } },
+            query: { directory: cwd },
+          })
+          .catch((err: unknown) => {
+            console.debug(
+              `[opencode] MCP config.update failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          });
+      } else if (mcpEntryPath) {
+        debug(`MCP server entry not found at ${mcpEntryPath}, skipping runtime MCP registration`);
       }
 
       const createResult = await client.session.create(
