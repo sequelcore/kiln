@@ -70,13 +70,13 @@ describe("SessionRegistry", () => {
 
   describe("registry construction", () => {
     it("createDefaultRegistry returns a SessionRegistry", () => {
-      const reg = createDefaultRegistry();
-      expect(reg).toBeInstanceOf(SessionRegistry);
+      const { registry } = createDefaultRegistry();
+      expect(registry).toBeInstanceOf(SessionRegistry);
     });
 
     it("list() returns 3 providers with health healthy", () => {
-      const reg = createDefaultRegistry();
-      const providers = reg.list();
+      const { registry } = createDefaultRegistry();
+      const providers = registry.list();
       expect(providers).toHaveLength(3);
       const ids = providers.map((p) => p.id).sort();
       expect(ids).toEqual(["claude", "codex", "opencode"]);
@@ -86,8 +86,8 @@ describe("SessionRegistry", () => {
     });
 
     it("list() includes costTier and capabilities", () => {
-      const reg = createDefaultRegistry();
-      const providers = reg.list();
+      const { registry } = createDefaultRegistry();
+      const providers = registry.list();
       for (const p of providers) {
         expect(p.costTier).toBeTruthy();
         expect(p.capabilities).toBeTruthy();
@@ -329,44 +329,44 @@ describe("SessionRegistry", () => {
 
   describe("createDefaultRegistry", () => {
     it("returns registry with all 3 providers", () => {
-      const reg = createDefaultRegistry();
-      const providers = reg.list();
+      const { registry } = createDefaultRegistry();
+      const providers = registry.list();
       expect(providers).toHaveLength(3);
     });
 
     it("claude provider has costTier high and priority 1", () => {
-      const reg = createDefaultRegistry();
-      const claude = reg.list().find((p) => p.id === "claude")!;
+      const { registry } = createDefaultRegistry();
+      const claude = registry.list().find((p) => p.id === "claude")!;
       expect(claude.costTier).toBe("high");
       expect(claude.capabilities.priority).toBe(1);
       expect(claude.capabilities.mcp).toBe(true);
     });
 
     it("codex provider has costTier low and priority 3", () => {
-      const reg = createDefaultRegistry();
-      const codex = reg.list().find((p) => p.id === "codex")!;
+      const { registry } = createDefaultRegistry();
+      const codex = registry.list().find((p) => p.id === "codex")!;
       expect(codex.costTier).toBe("low");
       expect(codex.capabilities.priority).toBe(3);
       expect(codex.capabilities.mcp).toBe(false);
     });
 
     it("opencode provider has costTier medium and priority 2", () => {
-      const reg = createDefaultRegistry();
-      const opencode = reg.list().find((p) => p.id === "opencode")!;
+      const { registry } = createDefaultRegistry();
+      const opencode = registry.list().find((p) => p.id === "opencode")!;
       expect(opencode.costTier).toBe("medium");
       expect(opencode.capabilities.priority).toBe(2);
       expect(opencode.capabilities.mcp).toBe(true);
     });
 
     it("codex has costTrackingMode computed", () => {
-      const reg = createDefaultRegistry();
-      const codex = reg.list().find((p) => p.id === "codex")!;
+      const { registry } = createDefaultRegistry();
+      const codex = registry.list().find((p) => p.id === "codex")!;
       expect(codex.capabilities.costTrackingMode).toBe("computed");
     });
 
     it("all providers have permissionPolicy in capabilities", () => {
-      const reg = createDefaultRegistry();
-      for (const p of reg.list()) {
+      const { registry } = createDefaultRegistry();
+      for (const p of registry.list()) {
         expect(p.capabilities.permissionPolicy).toBeDefined();
         expect(p.capabilities.permissionPolicy.approval).toBeDefined();
         expect(p.capabilities.permissionPolicy.sandbox).toBeDefined();

@@ -6,6 +6,7 @@ import type {
 import { ClaudeSession } from "./claude-code-process.js";
 import { CodexSession } from "./codex-session.js";
 import { OpenCodeSession } from "./opencode-session.js";
+import { WorktreeManager } from "./worktree-manager.js";
 
 export type ProviderId = "claude" | "codex" | "opencode";
 
@@ -352,7 +353,15 @@ export class SessionRegistry {
 
 const DEFAULT_POLICY: KilnPermissionPolicy = { approval: "ask", sandbox: "none" };
 
-export function createDefaultRegistry(): SessionRegistry {
+export function createDefaultRegistry(): {
+  registry: SessionRegistry;
+  worktreeManager: WorktreeManager;
+} {
+  const worktreeManager = new WorktreeManager(process.cwd());
+  worktreeManager.pruneStale().catch((err: unknown) => {
+    console.debug("[worktree] pruneStale error:", err instanceof Error ? err.message : String(err));
+  });
+
   const providers: SessionProviderDescriptor[] = [
     {
       id: "claude",
@@ -442,5 +451,6 @@ export function createDefaultRegistry(): SessionRegistry {
     },
   ];
 
-  return new SessionRegistry(providers);
+  const registry = new SessionRegistry(providers);
+  return { registry, worktreeManager };
 }

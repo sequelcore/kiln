@@ -294,7 +294,7 @@ When Kiln becomes a product for others:
   - preamble builder: generates <kiln_subprocess_context> XML with session_id, budget_remaining_pct, constraints, output_spec
   - ✅ preamble builder (2026-03-31): `buildPreamble()` in `packages/cli/src/wrapper/preamble-builder.ts` — pure function; assembles `<kiln-preamble>` XML with `<role>`, `<task>`, `<domain>`, `<constraints>`, `<memory>` (200-line cap with truncation), `<instructions>`; sections omitted when empty; XML-escaped content; `KilnAppConfig.buildSystemPrompt` now optional with `defaultBuildSystemPrompt` as sensible default; `SessionContext` gains `memorySnapshot?: string` field; `run.ts` calls `buildPreamble()` before `session.run()`; full unit test coverage (13 cases)
   - session_registry: maps task_id → session_id per provider, enables --resume/--continue between calls
-- worktree_manager: creates isolated git worktree per parallel task, destroys on completion
+  - ✅ worktree_manager (2026-03-31): creates isolated git worktree per parallel task, destroys on completion; porcelain parser uses newline format; `isolate?: boolean` on `prepare()` for worktree isolation (default false); 16 tests pass
 - bypassPermissions sandbox: dedicated directory + scoped settings.json generated before each subprocess invocation
 
 **Sub-phases:**
@@ -302,7 +302,7 @@ When Kiln becomes a product for others:
 1b. run.ts --provider auto + routing_test integration
 1c. preamble builder ✅ (2026-03-31)
 1d. session_registry
-1e. worktree_manager
+1e. worktree_manager ✅ (2026-03-31)
 1f. bypassPermissions sandbox manager ✅ (2026-03-31): `KilnPermissionPolicy` — unified `{approval: ApprovalMode, sandbox: SandboxMode}` contract replaces `dangerouslySkipPermissions: boolean`; pure `translatePermission()` maps 9 policy combinations to per-backend config for all 3 providers; `permissionPolicy` on `RunFlags`, `WrapperConfig`, `ProviderCreateConfig`; Codex spawn arg hardcode fixed (`--ask-for-approval never` → wired via config); OpenCode `PATCH /config` via `client.config.update()` after server ready; full unit-test coverage for `translatePermission` (15 cases)
 
 ---

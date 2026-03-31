@@ -69,11 +69,12 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
   const mode = resolveMode(flags);
   const config = buildConfig(flags, mode);
   const sessionId = randomUUID();
-  const manager = new SessionManager(config, appConfig);
+  const { registry, worktreeManager } = createDefaultRegistry();
+  const manager = new SessionManager(config, appConfig, worktreeManager);
 
   let context;
   try {
-    context = manager.prepare(task, process.cwd());
+    context = await manager.prepare(task, process.cwd());
   } catch (err) {
     console.error("Error: Failed to prepare session.", err instanceof Error ? err.message : err);
     process.exit(1);
@@ -98,7 +99,6 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     requiresMcp: true,
   };
 
-  const registry = createDefaultRegistry();
   const selection = registry.selectBest(requirements);
   const candidates: ProviderId[] = [
     selection.primary,
@@ -206,4 +206,6 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
 
   const report = manager.cleanup(sessionId, finalCostUsd);
   printReport(report, appConfig.appName);
+
+  await manager.cleanupWorktree(context);
 }

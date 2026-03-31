@@ -6,6 +6,7 @@ import { MODEL_PRICING } from "@kilnai/core";
 import type { WrapperConfig, SessionContext, SessionReport } from "./index.js";
 import type { KilnAppConfig } from "../config.js";
 import { defaultBuildSystemPrompt } from "../config.js";
+import type { WorktreeManager } from "./worktree-manager.js";
 
 /**
  * Manages the full session lifecycle: prepare -> cleanup.
@@ -16,20 +17,32 @@ import { defaultBuildSystemPrompt } from "../config.js";
 export class SessionManager {
   private readonly wrapperConfig: WrapperConfig;
   private readonly appConfig: KilnAppConfig;
+  private readonly worktreeManager?: WorktreeManager;
   private orchestrator: Orchestrator | null = null;
   private domain: DomainConfig | null = null;
   private sessionStartTime: number | null = null;
+  private activeSessionId: string | null = null;
 
-  constructor(wrapperConfig: WrapperConfig, appConfig: KilnAppConfig) {
+  constructor(
+    wrapperConfig: WrapperConfig,
+    appConfig: KilnAppConfig,
+    worktreeManager?: WorktreeManager,
+  ) {
     this.wrapperConfig = wrapperConfig;
     this.appConfig = appConfig;
+    this.worktreeManager = worktreeManager;
   }
 
   /**
    * Pre-session setup: detect domain, build system prompt, resolve MCP entry path.
    * Returns a SessionContext with all fields populated.
    */
-  prepare(task: string, projectPath: string, memorySnapshot?: string): SessionContext {
+  async prepare(
+    task: string,
+    projectPath: string,
+    memorySnapshot?: string,
+    isolate?: boolean,
+  ): Promise<SessionContext> {
     const registry = this.appConfig.createRegistry();
     registry.loadInstalledDomains(projectPath);
     this.domain = registry.detectAndMerge(projectPath);
@@ -41,9 +54,6 @@ export class SessionManager {
       projectPath,
     });
 
-    // Resolve the MCP server entry script path (for SDK stdio transport).
-    // Uses .js extension so the path is valid in both dev (bun runs .js) and
-    // published npm packages (only .js exists in dist/).
     const mcpServerEntryPath = join(
       dirname(fileURLToPath(import.meta.url)),
       "..", "mcp", "index.js",
@@ -52,14 +62,26 @@ export class SessionManager {
     this.orchestrator = new Orchestrator();
     this.sessionStartTime = Date.now();
 
+    let workingDirectory = projectPath;
+    let worktreePath: string | undefined;
+
+    if (isolate && this.worktreeManager) {
+      const sessionId = crypto.randomUUID();
+      const handle = await this.worktreeManager.allocate(sessionId);
+      workingDirectory = handle.path;
+      worktreePath = handle.path;
+      this.activeSessionId = sessionId;
+    }
+
     return {
       mode: this.wrapperConfig.mode,
       domain: this.domain,
       systemPrompt,
       memorySnapshot,
       mcpServerEntryPath,
-      workingDirectory: projectPath,
+      workingDirectory,
       task,
+      worktreePath,
     };
   }
 
@@ -92,6 +114,13 @@ export class SessionManager {
       },
       duration,
     };
+  }
+
+  async cleanupWorktree(context: SessionContext): Promise<void> {
+    if (context.worktreePath && this.worktreeManager && this.activeSessionId) {
+      await this.worktreeManager.release(this.activeSessionId);
+      this.activeSessionId = null;
+    }
   }
 }
 

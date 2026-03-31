@@ -46,7 +46,7 @@ const MOCK_APP_CONFIG: KilnAppConfig = {
 function makeConfig(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
   return {
     mode: "api-key",
-    dangerouslySkipPermissions: false,
+    permissionPolicy: { approval: "ask", sandbox: "none" },
     ...overrides,
   };
 }
@@ -77,33 +77,33 @@ describe("run command", () => {
   });
 
   describe("session mode resolution", () => {
-    it("determines api-key mode with --api-key", () => {
+    it("determines api-key mode with --api-key", async () => {
       const config = makeConfig({ mode: "api-key", apiKey: "sk-ant-test" });
       const manager = new SessionManager(config, MOCK_APP_CONFIG);
-      const ctx = manager.prepare("Fix bug", "/project");
+      const ctx = await manager.prepare("Fix bug", "/project");
 
       expect(ctx.mode).toBe("api-key");
     });
 
-    it("determines byok mode with --api-key + --provider", () => {
+    it("determines byok mode with --api-key + --provider", async () => {
       const config = makeConfig({
         mode: "byok",
         apiKey: "sk-test",
         provider: "openai",
       });
       const manager = new SessionManager(config, MOCK_APP_CONFIG);
-      const ctx = manager.prepare("Fix bug", "/project");
+      const ctx = await manager.prepare("Fix bug", "/project");
 
       expect(ctx.mode).toBe("byok");
     });
   });
 
   describe("session lifecycle", () => {
-    it("calls prepare -> cleanup in order", () => {
+    it("calls prepare -> cleanup in order", async () => {
       const config = makeConfig();
       const manager = new SessionManager(config, MOCK_APP_CONFIG);
 
-      const ctx = manager.prepare("Add tests", "/project");
+      const ctx = await manager.prepare("Add tests", "/project");
       expect(ctx.task).toBe("Add tests");
       expect(ctx.domain).toBeTruthy();
       expect(ctx.mcpServerEntryPath).toBeTruthy();
@@ -157,11 +157,11 @@ describe("run command", () => {
   });
 
   describe("error handling", () => {
-    it("handles missing task string", () => {
+    it("handles missing task string", async () => {
       const config = makeConfig();
       const manager = new SessionManager(config, MOCK_APP_CONFIG);
 
-      const ctx = manager.prepare("", "/project");
+      const ctx = await manager.prepare("", "/project");
       expect(ctx.task).toBe("");
     });
   });

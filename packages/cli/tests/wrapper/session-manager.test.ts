@@ -29,7 +29,7 @@ vi.mock("node:fs", async () => {
 
 const MOCK_CONFIG: WrapperConfig = {
   mode: "api-key",
-  dangerouslySkipPermissions: false,
+  permissionPolicy: { approval: "ask", sandbox: "none" },
 };
 
 const MOCK_APP_CONFIG: KilnAppConfig = {
@@ -59,9 +59,9 @@ describe("SessionManager", () => {
   });
 
   describe("prepare()", () => {
-    it("returns a valid SessionContext", () => {
+    it("returns a valid SessionContext", async () => {
       const manager = new SessionManager(MOCK_CONFIG, MOCK_APP_CONFIG);
-      const ctx = manager.prepare("Fix the bug", "/home/user/project");
+      const ctx = await manager.prepare("Fix the bug", "/home/user/project");
 
       expect(ctx.mode).toBe("api-key");
       expect(ctx.task).toBe("Fix the bug");
@@ -71,38 +71,38 @@ describe("SessionManager", () => {
       expect(ctx.domain).toBeTruthy();
     });
 
-    it("resolves MCP server entry path", () => {
+    it("resolves MCP server entry path", async () => {
       const manager = new SessionManager(MOCK_CONFIG, MOCK_APP_CONFIG);
-      const ctx = manager.prepare("task", "/home/user/project");
+      const ctx = await manager.prepare("task", "/home/user/project");
 
       expect(ctx.mcpServerEntryPath).toContain("mcp");
       expect(ctx.mcpServerEntryPath).toContain("index.js");
     });
 
-    it("detects domain via DomainRegistry", () => {
+    it("detects domain via DomainRegistry", async () => {
       vi.mocked(existsSync).mockImplementation((p) => {
         return typeof p === "string" && p.includes("pyproject.toml");
       });
 
       const manager = new SessionManager(MOCK_CONFIG, MOCK_APP_CONFIG);
-      const ctx = manager.prepare("Add tests", "/home/user/python-project");
+      const ctx = await manager.prepare("Add tests", "/home/user/python-project");
 
       expect(ctx.domain.name).toBe("python");
       expect(ctx.domain.displayName).toBe("Python");
     });
 
-    it("falls back to generic domain when nothing detected", () => {
+    it("falls back to generic domain when nothing detected", async () => {
       vi.mocked(existsSync).mockReturnValue(false);
 
       const manager = new SessionManager(MOCK_CONFIG, MOCK_APP_CONFIG);
-      const ctx = manager.prepare("Do something", "/home/user/unknown");
+      const ctx = await manager.prepare("Do something", "/home/user/unknown");
 
       expect(ctx.domain.name).toBe("generic");
     });
 
-    it("includes memory snapshot in system prompt when provided", () => {
+    it("includes memory snapshot in system prompt when provided", async () => {
       const manager = new SessionManager(MOCK_CONFIG, MOCK_APP_CONFIG);
-      const ctx = manager.prepare(
+      const ctx = await manager.prepare(
         "task",
         "/home/user/project",
         "Remember: use strict mode",
@@ -113,9 +113,9 @@ describe("SessionManager", () => {
   });
 
   describe("cleanup()", () => {
-    it("returns a SessionReport", () => {
+    it("returns a SessionReport", async () => {
       const manager = new SessionManager(MOCK_CONFIG, MOCK_APP_CONFIG);
-      manager.prepare("Fix the login bug", "/home/user/project");
+      await manager.prepare("Fix the login bug", "/home/user/project");
       const report = manager.cleanup("test-session-id");
 
       expect(report.sessionId).toBe("test-session-id");
