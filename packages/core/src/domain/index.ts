@@ -3,6 +3,7 @@
 
 // Re-export QualityGate from engine (single source of truth)
 export type { QualityGate } from "../engine/composites/team.js";
+export type { Agent, AgentTier } from "../engine/domain/agent.js";
 
 import type { QualityGate } from "../engine/composites/team.js";
 

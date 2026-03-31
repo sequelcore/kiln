@@ -5,6 +5,7 @@ import type { DomainConfig, RoleUsage } from "@kilnai/core";
 import { MODEL_PRICING } from "@kilnai/core";
 import type { WrapperConfig, SessionContext, SessionReport } from "./index.js";
 import type { KilnAppConfig } from "../config.js";
+import { defaultBuildSystemPrompt } from "../config.js";
 
 /**
  * Manages the full session lifecycle: prepare -> cleanup.
@@ -33,7 +34,7 @@ export class SessionManager {
     registry.loadInstalledDomains(projectPath);
     this.domain = registry.detectAndMerge(projectPath);
 
-    const systemPrompt = this.appConfig.buildSystemPrompt({
+    const systemPrompt = (this.appConfig.buildSystemPrompt ?? defaultBuildSystemPrompt)({
       task,
       domain: this.domain,
       memorySnapshot,
@@ -55,6 +56,7 @@ export class SessionManager {
       mode: this.wrapperConfig.mode,
       domain: this.domain,
       systemPrompt,
+      memorySnapshot,
       mcpServerEntryPath,
       workingDirectory: projectPath,
       task,

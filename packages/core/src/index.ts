@@ -274,6 +274,9 @@ export type { ChunkEnricher } from "./engine/domain/chunker.js";
 // Capability types re-exported for direct access by runtime
 export type { Capability, CapabilityAnnotations } from "./engine/domain/capability.js";
 
+// Agent type re-exported for CLI preamble builder
+export type { Agent, AgentTier } from "./engine/domain/agent.js";
+
 // Tool execution types re-exported for direct access by runtime
 export type {
   RetryStrategy,

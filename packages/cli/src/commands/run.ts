@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { SessionManager } from "../wrapper/session-manager.js";
 import { createDefaultRegistry } from "../wrapper/session-registry.js";
+import { buildPreamble } from "../wrapper/preamble-builder.js";
 import type {
   ProviderId,
   SessionRequirements,
@@ -142,7 +143,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
 
     try {
       for await (const event of session.run({
-        prompt: task,
+        prompt: buildPreamble(context, config.permissionPolicy, undefined),
         cwd: process.cwd(),
         env,
       })) {

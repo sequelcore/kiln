@@ -228,7 +228,7 @@ arbitrage, no Windows native, multi-agent still in development.
 
 **Limitation 5 — Model unaware of subprocess context**
 - Status: Confirmed. Mode flag not passed to model.
-- Kiln solution: <kiln_subprocess_context> XML preamble on every prompt. Most important instruction: "Do not ask clarifying questions." Budget remaining changes model verbosity. JSON Schema as output spec.
+- Kiln solution: `<kiln-preamble>` XML on every prompt via `buildPreamble()`. Sections: `<role>` (name, role, goal, backstory), `<task>`, `<domain>` (project type, tool tags, quality gates), `<constraints>` (approval mode, sandbox), `<memory>` (200-line cap with truncation), `<instructions>`. Sections omitted when empty. XML-escaped content.
 
 ### 3.3 Per-User Architecture for OpenKiln (Future)
 
@@ -292,6 +292,7 @@ When Kiln becomes a product for others:
     - ✅ run.ts: --provider flag drives `preferredProvider` in SessionRequirements; registry selects best + ordered fallbacks; cycles through candidates on preflight crash or error.
   - OpenCodeSession: spawn opencode run --attach --format json, manage opencode serve daemon lifecycle
   - preamble builder: generates <kiln_subprocess_context> XML with session_id, budget_remaining_pct, constraints, output_spec
+  - ✅ preamble builder (2026-03-31): `buildPreamble()` in `packages/cli/src/wrapper/preamble-builder.ts` — pure function; assembles `<kiln-preamble>` XML with `<role>`, `<task>`, `<domain>`, `<constraints>`, `<memory>` (200-line cap with truncation), `<instructions>`; sections omitted when empty; XML-escaped content; `KilnAppConfig.buildSystemPrompt` now optional with `defaultBuildSystemPrompt` as sensible default; `SessionContext` gains `memorySnapshot?: string` field; `run.ts` calls `buildPreamble()` before `session.run()`; full unit test coverage (13 cases)
   - session_registry: maps task_id → session_id per provider, enables --resume/--continue between calls
 - worktree_manager: creates isolated git worktree per parallel task, destroys on completion
 - bypassPermissions sandbox: dedicated directory + scoped settings.json generated before each subprocess invocation
@@ -299,7 +300,7 @@ When Kiln becomes a product for others:
 **Sub-phases:**
 1a. CodexSession + OpenCodeSession (new, most work)
 1b. run.ts --provider auto + routing_test integration
-1c. preamble builder
+1c. preamble builder ✅ (2026-03-31)
 1d. session_registry
 1e. worktree_manager
 1f. bypassPermissions sandbox manager ✅ (2026-03-31): `KilnPermissionPolicy` — unified `{approval: ApprovalMode, sandbox: SandboxMode}` contract replaces `dangerouslySkipPermissions: boolean`; pure `translatePermission()` maps 9 policy combinations to per-backend config for all 3 providers; `permissionPolicy` on `RunFlags`, `WrapperConfig`, `ProviderCreateConfig`; Codex spawn arg hardcode fixed (`--ask-for-approval never` → wired via config); OpenCode `PATCH /config` via `client.config.update()` after server ready; full unit-test coverage for `translatePermission` (15 cases)

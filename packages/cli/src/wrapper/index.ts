@@ -18,6 +18,7 @@ export interface SessionContext {
   readonly mode: SessionMode;
   readonly domain: DomainConfig;
   readonly systemPrompt: string;
+  readonly memorySnapshot?: string;
   readonly mcpServerEntryPath: string;
   readonly workingDirectory: string;
   readonly task: string;
@@ -44,6 +45,7 @@ export interface WrapperConfig {
   readonly permissionPolicy: KilnPermissionPolicy;
 }
 
+export { buildPreamble } from "./preamble-builder.js";
 export { ClaudeSession } from "./claude-code-process.js";
 export type { ClaudeSessionConfig } from "./claude-code-process.js";
 export { OpenCodeSession } from "./opencode-session.js";
