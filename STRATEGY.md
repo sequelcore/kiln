@@ -337,6 +337,32 @@ When Kiln becomes a product for others:
 
 ---
 
+## Sprint 0 — Fix Broken Promises
+
+**Status:** IMMEDIATE (before Phase 3 closes)
+These are bugs and broken promises — wiring that exists but was never connected.
+No new architecture. Just fix what's already there.
+
+### Broken Wiring
+- fix(cli): wire `isolate: true` in run.ts → WorktreeManager.allocate() — 1 line missing
+- fix(runtime): budget-middleware.ts fail-closed by default (currently fail-open)
+- fix(core): homoglyph/Unicode bypass in prompt injection scanner (Cyrillic, documented in adversarial tests)
+
+### CodexSession Missing Event Handlers
+- fix(cli): handle `item.started` events (currently ignored — in-progress tools invisible)
+- fix(cli): handle `item.type === "file_change"` (file changes invisible to Kiln)
+- fix(cli): handle `item.type === "collab_tool_call"` (multi-agent tool calls invisible)
+- fix(cli): handle `item.type === "web_search"` (web searches invisible)
+- fix(cli): handle `item.type === "todo_list"` (plan/todo updates invisible)
+- fix(cli): `isRetryable: true` for Stream/Timeout/ConnectionFailed errors (all currently false)
+
+### OpenCodeSession Missing Events
+- fix(cli): subscribe to `session.compacted` event (context compaction invisible)
+- fix(cli): subscribe to `question.asked` event (user queries invisible)
+- fix(cli): subscribe to `mcp.tools.changed` event (MCP updates invisible)
+
+---
+
 ### Phase 3 — Activate Existing Capabilities
 
 **Goal:** Wire what already exists in the codebase to daily workflow.
@@ -358,6 +384,20 @@ When Kiln becomes a product for others:
   - Eval scorers: surface per-task quality score in status command
   - Per-role cost breakdown: surface in cost_summary MCP tool
 
+**Additional Phase 3 scope (from competitive intelligence):**
+- feat(cli): PreambleBuilder static/dynamic cache boundary — split static sections
+  (globally cached) from dynamic sections (session-specific) using
+  __KILN_PROMPT_DYNAMIC_BOUNDARY__ marker. Saves tokens on every request.
+- feat(cli): fork-boilerplate directive in PreambleBuilder for worker/subagent roles —
+  adopting Claude Code's battle-tested pattern for focused subagent execution
+- feat(cli): CleanupRegistry + graceful SIGINT/SIGTERM shutdown —
+  global Set<() => Promise<void>> with signal handlers and failsafe timer
+- feat(core): memory taxonomy XML structure — add <type>, <scope>,
+  <when_to_save>, <how_to_use> to memory tool schemas
+- feat(core): graph-based memory retrieval pattern (HippoRAG-inspired) —
+  replace flat vector store with knowledge graph + associative retrieval
+  for multi-hop reasoning across memory entries
+
 **Sub-phases:**
 3a. memory_search tool #26
 3b. skill_generate via SkillTrigger
@@ -365,6 +405,53 @@ When Kiln becomes a product for others:
 3d. OpenCodeSession --attach (backlog, blocked on upstream)
 3e. Verification gates integration
 3f. Eval scorers in status
+
+---
+
+## Phase 3.5 — Session Power & Observability
+
+**Status:** PENDING
+**Priority:** HIGH — addresses #1, #2, #3 universal pain points from market research
+(permissions opacity, cost blindness, compaction unpredictability)
+**Source:** Claude Code scout + Codex scout + OpenCode scout + user research
+
+### Multi-Turn Session Resume
+- feat(cli): ClaudeSession resume via reuseEnvironmentId pattern
+- feat(cli): OpenCodeSession resume via SQLite session_id persistence
+- feat(cli): CodexSession thread_id capture for future resume support
+
+### Cost & Quota Observability
+- feat(cli): per-turn cost breakdown surfaced in session report
+- feat(cli): per-tool cost attribution
+- feat(runtime): cost dashboard MCP tool (surface existing per-role data)
+- feat(core): models.dev API integration for live pricing catalog updates
+- feat(cli): quota tracking — 5h window + weekly resets display
+
+### Compaction — Transparent & Controllable
+- feat(core): configurable compaction threshold (not hardcoded at ~75%)
+- feat(core): compaction preview — show summary before applying
+- feat(core): compaction hooks — pre/post events (PreCompact, PostCompact)
+- feat(cli): OpenCodeSession POST /session/:id/summarize integration
+- feat(core): ACON-inspired compaction policy — treat as learnable system,
+  not fixed prompt (optimize from compaction failure examples)
+
+### Hook Event System
+- feat(cli): PreToolUse, PostToolUse hook events
+- feat(cli): UserPromptSubmit, SessionEnd hook events
+- feat(cli): SubagentStart, SubagentStop hook events
+- feat(cli): hook execution modes: Command | Prompt | Agent (from Codex pattern)
+
+### Token Budget Intelligence
+- feat(core): token budget diminishing returns detection —
+  3+ continuations + delta < 500 tokens = stop signal
+- feat(cli): denial tracking — 3 consecutive denials or 20 total → escalate
+
+### OpenCode Power Unlocks
+- feat(cli): OpenCodeSession GET /session/:id/diff for file change tracking
+- feat(cli): OpenCodeSession experimental.batch_tool enablement
+  (up to 25 parallel tool calls)
+- feat(cli): OpenCodeSession POST /session/:id/fork for session branching
+- feat(cli): runtime PATCH /config for model switching mid-session
 
 ---
 
@@ -384,10 +471,52 @@ When Kiln becomes a product for others:
 - agent_context MCP tool (#27): dynamic parts only (budget_remaining, active_swarm, model_override, session_id) → called at agent start, returns 3-4 fields max → not 15 lines of text — just what changes per session
 - Remove kiln clause from all 22 agent MD/TOML files after SKILL.md is confirmed working
 
+**Additional Phase 4 scope (from competitive intelligence):**
+- feat(core): AGENTS.md support + CLAUDE.md↔AGENTS.md bridge —
+  cross-tool instruction standard (top request in Claude Code community)
+- feat(cli): CodexSession --sandbox flag passthrough (enforce, not ignore)
+- feat(cli): CodexSession --local-provider ollama/lmstudio support
+  (local model routing via Codex backend)
+- feat(cli): CodexSession --profile support for named config sets
+- feat(cli): OpenCodeSession sandbox mode actually enforced
+  (currently silently ignored)
+
 **Sub-phases:**
 4a. kiln-context SKILL.md (static parts)
 4b. agent_context tool #27 (dynamic parts)
 4c. Migration: remove clause from 22 files one by one with testing
+
+---
+
+## Phase 4.5 — Permission & Safety
+
+**Status:** PENDING
+**Priority:** HIGH — #1 universal pain point: "no middle ground between approve-all and yolo"
+**Source:** User research across all 3 tools + Claude Code permission model scout
+
+### Granular Permission Policy
+- feat(core): per-tool permission rules (allowlist by tool name/pattern)
+- feat(core): per-command permission rules (allowlist by bash pattern)
+- feat(core): per-agent permission scoping (subagent gets subset of tools)
+- feat(core): non-blocking permission UX — pattern-based auto-approve
+  with audit log (eliminates constant approval prompts)
+- feat(core): scoped MCP tools per subagent — least privilege model
+  (top Claude Code community request)
+
+### Data Governance
+- feat(core): data firewall — policy per destination
+  (prevent accidental exfiltration via small models, logging, CI)
+- feat(core): sensitive file governance — .env, secrets, keys,
+  credentials excluded from agent context by default
+- feat(runtime): CI/PR safety — no env variable leaks in GitHub Actions
+- feat(cli): --safe-defaults flag — privacy-first configuration preset
+
+### Safety Pipeline Improvements
+- fix(core): close homoglyph/Unicode prompt injection bypasses
+  (Cyrillic + German patterns — documented TODOs in adversarial tests)
+- feat(core): CROSS_PLATFORM_CODE_EXEC dangerous pattern expansion
+  (align with Claude Code's extended list: python, node, npx, ssh, etc.)
+- feat(core): denial tracking propagation to safety pipeline
 
 ---
 
@@ -410,6 +539,15 @@ When Kiln becomes a product for others:
 - Local-first SQLite as default (no cloud required)
 - Per-user architecture: each user runs their own CLIs locally, OpenKiln orchestrates them
 - Legal constraint: each user uses their own subscriptions, Kiln never touches OAuth tokens
+
+**Additional Phase 5 scope:**
+- feat(runtime): session state export — checkpoints, progress artifacts,
+  resumable session snapshots
+- feat(runtime): OpenTelemetry tracing opt-in (OpenCode experimental pattern)
+- feat(runtime): Prometheus metrics — circuit breaker health, cost/turn,
+  latency/backend, error rates
+- feat(cli): hook execution pipeline — wire PreToolUse/PostToolUse
+  through all channel adapters
 
 **Sub-phases:**
 5a. Channel adapter audit (what exists in runtime today)
@@ -517,6 +655,42 @@ Persistent conversational interface showing:
 
 ---
 
+## Phase 7.5 — Agent Teams
+
+**Status:** PENDING
+**Priority:** MEDIUM-HIGH — top request across all 3 tools, Kiln already has primitives
+**Source:** Market research + swarm scout + academic findings (Workforce, Conductor)
+
+### Swarm Activation
+- feat(cli): activate swarm primitives end-to-end (join/leave/broadcast/claim/release)
+- feat(cli): activate worktree isolation for parallel agents
+  (code exists, isolate flag never wired)
+- feat(core): parallel agent coordination with write serialization
+  (prevent concurrent file conflicts)
+
+### Plan Mode
+- feat(cli): kiln plan — separate planning phase from execution
+- feat(core): Agentic Plan Caching (APC) — reuse plan templates
+  for similar tasks (reduce re-planning cost)
+- feat(cli): plan → review → approve → execute flow
+- feat(cli): PlanExitTool equivalent (read-only planning agent)
+
+### Coordination Intelligence
+- feat(core): Conductor-inspired coordination policy —
+  learned task-to-agent assignment (not just priority scoring)
+- feat(core): Workforce hierarchical model —
+  Planner / Coordinator / Worker separation
+- feat(core): EvoMAC-inspired team adaptation —
+  adjust agent composition based on task domain
+
+### Benchmarking
+- feat(runtime): per-harness benchmark runner —
+  measure scaffold decisions (compaction/permissions/tools) independently
+  from model performance (fills gap identified in market research)
+- feat(core): SWE-bench integration for coding task evaluation
+
+---
+
 ## 6. What Was Considered and Discarded
 
 ### claude-better
@@ -586,6 +760,38 @@ Target also: @SlackHookHQ whose "infra maturity" framing is the exact Kiln pitch
 - **Phase 5:** Channel adapter audit — scout before planning
 - **Phase 5:** Legal review of multi-user orchestration pattern
 - **All phases:** Monitor Claude Code issues #35718, #36192, #37181 (bypassPermissions bugs — version-dependent behavior)
+
+---
+
+## Intelligence Sources
+
+**Last updated:** 2026-03-31
+
+This roadmap was enriched with intelligence from:
+
+### Codebase Scouts (2026-03-31)
+- Claude Code — full source reconnaissance (leaked NPM source map)
+- OpenCode (anomalyco/opencode) — full source reconnaissance
+- Codex CLI (openai/codex) — full source reconnaissance
+- Kiln v0.23.2 — full self-reconnaissance
+
+### Market & User Research (2026-03-31)
+- GitHub Issues: claude-code, opencode, codex (top reactions)
+- Reddit: r/ClaudeAI, r/LocalLLaMA, r/ChatGPT
+- Hacker News: Claude Code, OpenCode, Codex discussions
+- Academic: ACON, HippoRAG, GraphRAG, A-MEM, SYNAPSE,
+  Workforce (NeurIPS 2025), Conductor (2026), CodeSim (NAACL 2025),
+  APC, KVFlow (NeurIPS 2025), SWE-EVO (2025)
+
+### Key Findings That Shaped This Roadmap
+1. No tool has a middle ground between approve-all and yolo permissions
+2. Cost/quota opacity is universal — users find out too late
+3. Compaction is feared as "lobotomy" — needs transparency + control
+4. Community is building meta-harnesses manually (Gigacode, Sandbox Agent)
+5. AGENTS.md is converging as cross-tool standard
+6. MCP is converging as universal tool/context bus
+7. Graph-based memory outperforms flat vector store for multi-hop reasoning
+8. Scaffold quality (not just model) drives SWE-bench performance significantly
 
 ---
 

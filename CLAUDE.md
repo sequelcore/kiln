@@ -277,6 +277,23 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 
 ## Backlog
 
+**Phase status (as of 2026-03-31):**
+| Phase | Status | Notes |
+|-------|--------|-------|
+| Phase 1 | COMPLETE | kiln run v2, IKilnSession, all 3 session types |
+| Phase 2 | COMPLETE | kiln sync, kiln mcp-config --client all |
+| Sprint 0 | IMMEDIATE | Fix broken wiring (isolate, budget fail-closed, homoglyphs, missing event handlers) |
+| Phase 3 | IN PROGRESS | memory_search #26, skill_generate + enrichments |
+| Phase 3.5 | PENDING | Session Power & Observability (NEW) |
+| Phase 4 | PENDING | Config sync for agents + enrichments |
+| Phase 4.5 | PENDING | Permission & Safety (NEW) |
+| Phase 5 | PENDING | OpenKiln + enrichments |
+| Phase 6 | PENDING | Cloud deploy |
+| Phase 7 | PENDING | Kiln TUI |
+| Phase 7.5 | PENDING | Agent Teams (NEW) |
+
+See STRATEGY.md for full phase details and Intelligence Sources.
+
 ### Integration Runtime Phase 4 (MCP Surface)
 
 Expose integration adapters as MCP tools (same implementation, two surfaces). Phases 1-3 complete. Phase 4 MCP wiring complete (v0.22.0): `integration_list` and `integration_execute` wired.
@@ -306,3 +323,41 @@ Theming API for `@kilnai/widget`: custom CSS variables, brand colors, fonts, log
 ## Documentation
 
 See [docs/README.md](docs/README.md) for the full documentation index.
+
+## Competitive Intelligence (2026-03-31)
+
+Full source scouts completed for all three backends + market research.
+See STRATEGY.md → Intelligence Sources for full details.
+
+Key architectural decisions informed by scouts:
+
+**ClaudeSession:**
+- Prompt caching: split PreambleBuilder into static (cached) + dynamic sections
+- Fork-boilerplate: add `<kiln-fork-boilerplate>` for worker agents
+- Resume: reuseEnvironmentId pattern for session continuity
+
+**OpenCodeSession:**
+- Missing events: session.compacted, question.asked, mcp.tools.changed
+- Unused endpoints: /diff, /fork, /summarize, POST /mcp
+- Power unlock: experimental.batch_tool (25 parallel tool calls)
+- Sandbox: currently silently ignored — needs actual enforcement
+
+**CodexSession:**
+- Missing handlers: file_change, collab_tool_call, item.started, web_search
+- MCP: fully implemented in Codex — Kiln can enable it (mcp: false is wrong)
+- Streaming: println! buffering is architectural — pipe through cat workaround
+- Local models: --local-provider ollama/lmstudio available
+
+**Universal gaps (all 3 tools lack, Kiln can own):**
+- Unified permission policy across backends
+- Cost/quota observability per-turn
+- Transparent + controllable compaction
+- Graph-based persistent memory
+- Hook event system
+- Session resume
+
+## Research Protocol
+
+For cross-backend features: RESEARCH phase should include reviewing
+`C:\Proyectos\Sequel\opencode` and `C:\Proyectos\Sequel\codex`
+for how each backend handles the feature before designing the Kiln implementation.
