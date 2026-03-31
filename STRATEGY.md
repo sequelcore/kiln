@@ -416,6 +416,17 @@ When Kiln becomes a product for others:
 5e. Local-first SQLite config
 5f. Legal review of multi-user pattern
 
+#### Phase 5b — LocalSession / TurboQuant (Future Backend)
+
+- **Status:** backlog — revisit when llama.cpp mainline PR stabilizes (~Q3 2026)
+- **What:** fourth IKilnSession backend that spawns llama-server from TheTom/llama-cpp-turboquant fork with --cache-type-v turbo3
+- **Why:** zero API cost, offline, ~4.6x KV cache compression vs fp16, enables 35B+ models with extended context on consumer hardware (validated: Qwen 3.5 35B-A3B on M5 Max via Metal)
+- **Integration:** fits IKilnSession exactly — one new file, no registry refactor
+- **Context for PreambleBuilder:** local session can advertise larger maxContextTokens in SessionCapabilities; PreambleBuilder can fill aggressively with repo context and memory snapshots
+- **Does NOT help Claude Code, Codex, or OpenCode backends** — TurboQuant only applies to inference processes Kiln owns
+- **Blocked on:** llama.cpp mainline merge (issue #20977), turbo3 Metal quality regression resolution (issue #6)
+- **Reference:** arxiv.org/abs/2504.19874 (Google paper, ICLR 2026), github.com/TheTom/turboquant_plus (indie implementation), github.com/TheTom/llama-cpp-turboquant (llama.cpp fork)
+
 ---
 
 ### Phase 6 — Cloud Deployment
