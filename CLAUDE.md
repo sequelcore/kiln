@@ -253,7 +253,8 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 
 | File | Purpose |
 |------|---------|
-| `index.ts` | Command dispatch (init, run, dev, domain, gateway, skill, memory, config, status, cron) |
+| `index.ts` | Command dispatch (init, run, dev, domain, gateway, skill, memory, config, status, cron, sync) |
+| `commands/mcp-config.ts` | `kiln mcp-config` command: `--client claude-code|codex|opencode|all` (default: claude-code); `--name`, `--command`, `--args` overrides; async, writes to disk. |
 | `commands/init.ts` | Interactive wizard: generates app.yaml + gateway.yaml |
 | `commands/dev.ts` | Dev mode with YAML hot-reload |
 | `commands/cron.ts` | `kiln cron` command: list, add, remove, run subcommands for schedule triggers. Dynamic import of `@kilnai/runtime` for Scheduler + EventBus. |
@@ -263,12 +264,16 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `config.ts` | `KilnAppConfig`: `buildSystemPrompt` now optional with `defaultBuildSystemPrompt` as sensible default (calls `buildPreamble`). `SystemPromptOptions` with `task`, `domain`, `memorySnapshot?`, `projectPath`. |
 | `wrapper/session-registry.ts` | `translatePermission()` pure function (15-entry table mapping `KilnPermissionPolicy` → per-backend config), `BackendConfig` discriminated union (`ClaudeBackendConfig`\|`CodexBackendConfig`\|`OpenCodeBackendConfig`), `ProviderCreateConfig` with `permissionPolicy`, `DEFAULT_POLICY`, SessionRegistry + circuit breaker: priority-ordered selection, capability filtering, 30s suppression, half-open probing |
 | `wrapper/claude-code-process.ts` | ClaudeSession implementing IKilnSession: async generator `run()`, `dispose()`, `sessionId`, `capabilities`; `permissionPolicy` field on config; `derivePermissionPolicy()` helper computing `permissionPolicy` from SDK-level flags (`permissionMode`, `allowDangerouslySkipPermissions`); yields `SessionEvent` variants: text_delta, tool_use, cost_update, completed, error |
-| `wrapper/opencode-session.ts` | OpenCodeSession implementing IKilnSession: spawns `opencode serve`, connects via SDK (HTTP), maps ACP SSE events to `SessionEvent`; `sandboxMode` + `permissionPolicy` on config; applies permissions via `PATCH /config` (sdk `client.config.update()`) after server is ready; requires opencode >= v1.3.6 |
+| `wrapper/opencode-session.ts` | OpenCodeSession implementing IKilnSession: spawns `opencode serve`, connects via SDK (HTTP), maps ACP SSE events to `SessionEvent`; `sandboxMode` + `permissionPolicy` on config; applies permissions and MCP server (Phase 2e) via `PATCH /config` after server is ready; requires opencode >= v1.3.6 |
 | `wrapper/codex-session.ts` | CodexSession implementing IKilnSession: spawns `codex exec --json`, parses JSONL events, maps to `SessionEvent` variants; `sandboxMode` + `permissionPolicy` on config; `derivePermissionPolicy()` helper; `approvalMode` correctly wired to spawn args (was previously hardcoded to "never"); `costTrackingMode: "computed"`; requires codex >= v0.117.0 |
 | `wrapper/worktree-manager.ts` | WorktreeManager: git worktree lifecycle (allocate, release, pruneStale, list); porcelain parser uses newline format (not null-byte); `WorktreeHandle` with path, branch, sessionId; `WorktreeError` with stdout/stderr; `GitRunner` interface for testability. |
 | `wrapper/local-session.ts` | LocalSession (planned, Phase 5): llama-server + TurboQuant KV cache compression — see STRATEGY.md for details and blockers. |
 | `wrapper/index.ts` | Re-exports `ApprovalMode`, `SandboxMode`, `KilnPermissionPolicy`, `translatePermission`, `buildPreamble`, all `BackendConfig` types; `WrapperConfig.permissionPolicy: KilnPermissionPolicy` replaces `dangerouslySkipPermissions` |
 | `commands/run.ts` | `kiln run` command: `permissionPolicy?: KilnPermissionPolicy` on `RunFlags` (replaces `dangerouslySkipPermissions`); `buildConfig()` uses `flags.permissionPolicy ?? DEFAULT_POLICY`; registry-driven session selection with circuit breaker fallback. Cycles through candidates on preflight crash or error. Wires `cost_update` to report. Calls `buildPreamble(context, config.permissionPolicy)` to assemble structured prompt. |
+| `mcp/config-generator.ts` | `McpClient = "claude-code" \| "codex" \| "opencode" \| "all"`; `McpServerDef` interface; `generateMcpConfig(client, serverDef, projectPath)` async dispatcher; `generateClaudeCodeMcp`: writes `{projectPath}/.mcp.json`, merges `mcpServers.<name>` only; `generateCodexMcp`: reads/writes `~/.codex/config.toml` via smol-toml, merges `mcp_servers.<name>` only; `generateOpenCodeMcp`: reads/writes `~/.config/opencode/opencode.json` (JSONC-safe), merges `mcp.<name>` only. `generateConfig()` retained for backward compat (stdout JSON). |
+| `sync/security-sync.ts` | `syncPermissions(kilnYaml, projectPath)` — reads `permissions` from kiln.yaml, calls `translatePermission()` for each backend, writes native permission format to each backend's config file. Claude Code: `.claude/settings.json` permissions allow/deny rules; Codex: `~/.codex/config.toml` approval_policy + sandbox_mode; OpenCode: `~/.config/opencode/opencode.json` permission.default. Merge-only semantics, errors collected per-backend. |
+| `sync/hook-sync.ts` | `syncHooks(projectPath, kilnDir)` — copies `autoformat.sh` from `.kiln/hooks/` to `.claude/hooks/` and `.codex/hooks/` (non-Windows only). Creates default hook if source doesn't exist. Registers hook in `.claude/settings.json` hooks section. |
+| `commands/sync.ts` | `kiln sync [--permissions] [--hooks] [--all]` — reads kiln.yaml from project, calls `syncPermissions()` and/or `syncHooks()`, prints per-backend result table. Exit 0 on partial success, exit 1 only if all backends fail. |
 
 ## Backlog
 
@@ -288,7 +293,13 @@ OpenKiln: See STRATEGY.md Phase 5 for full plan.
 
 kiln run v2 (cross-CLI): See STRATEGY.md Phase 1 — COMPLETE (v0.23.2). Server reuse via `--attach` deferred to Phase 3 (blocked on OpenCode upstream session persistence).
 
-### Widget Customization
+### kiln mcp-config (Phase 2b + 2e)
+
+`kiln mcp-config` (Phase 2b): writes MCP config for all 3 backends from a single command. Targets: `{project}/.mcp.json` (Claude Code), `~/.codex/config.toml` (Codex, smol-toml), `~/.config/opencode/opencode.json` (OpenCode, JSONC-safe). Merge-only semantics — existing keys are preserved. `McpClient = "claude-code" | "codex" | "opencode" | "all"`.
+
+OpenCode runtime MCP (Phase 2e): `OpenCodeSession` calls `client.config.update({ body: { mcp: { kiln: { type: "local", command: ["node", mcpServerEntryPath], enabled: true } } } })` after the permissions PATCH, using `mcpServerEntryPath` from `SessionContext`. Fail-open on both permission and MCP config PATCH. `mcpServerEntryPath` passed from `SessionManager.prepare()` via `run.ts` session config.
+
+## Documentation
 
 Theming API for `@kilnai/widget`: custom CSS variables, brand colors, fonts, logo slot. Current widget uses hardcoded Kiln palette. Admit Console integration chose native SDK rebuild over widget due to lack of customization. Unblock widget adoption for themed integrations.
 

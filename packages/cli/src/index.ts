@@ -1,5 +1,7 @@
 #!/usr/bin/env bun
 
+import { join } from "node:path";
+import { migrateConfigJson } from "./kiln-yaml.js";
 import type { KilnAppConfig } from "./config.js";
 
 // Re-export types and config
@@ -28,6 +30,7 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     dev: "Start development mode with hot-reload and event streaming (--playground)",
     skill: "Manage skills (list, install, publish)",
     cron: "Manage scheduled jobs (list, add, remove, run)",
+    sync: "Sync permissions and hooks to Claude Code, Codex, and OpenCode (--permissions, --hooks, --all)",
   };
 
   function printHelp(): void {
@@ -95,6 +98,11 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
 
   if (command === "status") {
     const { statusCommand } = await import("./commands/status.js");
+    const root = process.cwd();
+    const kilnDir = join(root, config.dirName);
+    if (migrateConfigJson(kilnDir)) {
+      console.log("Migrated .kiln/config.json → kiln.yaml");
+    }
     statusCommand(config);
     return;
   }
@@ -107,16 +115,18 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
 
   if (command === "config") {
     const { configCommand } = await import("./commands/config.js");
+    const root = process.cwd();
+    const kilnDir = join(root, config.dirName);
+    if (migrateConfigJson(kilnDir)) {
+      console.log("Migrated .kiln/config.json → kiln.yaml");
+    }
     configCommand(config, args[1] ?? "", args.slice(2));
     return;
   }
 
   if (command === "mcp-config") {
     const { mcpConfigCommand } = await import("./commands/mcp-config.js");
-    const client = args[1];
-    const transport = args.find(a => a.startsWith("--transport="))?.split("=")[1];
-    const port = args.find(a => a.startsWith("--port="))?.split("=")[1];
-    mcpConfigCommand(config, client, transport, port ? parseInt(port, 10) : undefined);
+    await mcpConfigCommand(config, parseMcpConfigFlags(args.slice(1)));
     return;
   }
 
@@ -150,6 +160,12 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
   if (command === "cron") {
     const { cronCommand } = await import("./commands/cron.js");
     await cronCommand(config, undefined, args.slice(1));
+    return;
+  }
+
+  if (command === "sync") {
+    const { syncCommand } = await import("./commands/sync.js");
+    await syncCommand(config, undefined, args.slice(1));
     return;
   }
 }
@@ -191,4 +207,43 @@ function parseRunArgs(rawArgs: readonly string[]): { task: string; flags: { apiK
     }
   }
   return { task: taskParts.join(" "), flags };
+}
+
+function parseMcpConfigFlags(rawArgs: readonly string[]): { client?: string; name?: string; command?: string; args?: string } {
+  const flags: { client?: string; name?: string; command?: string; args?: string } = {};
+  let i = 0;
+  while (i < rawArgs.length) {
+    const arg = rawArgs[i]!;
+    if (arg === "--client" && i + 1 < rawArgs.length) {
+      flags.client = rawArgs[i + 1];
+      i += 2;
+    } else if (arg.startsWith("--client=")) {
+      flags.client = arg.split("=")[1];
+      i += 1;
+    } else if (arg === "--name" && i + 1 < rawArgs.length) {
+      flags.name = rawArgs[i + 1];
+      i += 2;
+    } else if (arg.startsWith("--name=")) {
+      flags.name = arg.split("=")[1];
+      i += 1;
+    } else if (arg === "--command" && i + 1 < rawArgs.length) {
+      flags.command = rawArgs[i + 1];
+      i += 2;
+    } else if (arg.startsWith("--command=")) {
+      flags.command = arg.split("=")[1];
+      i += 1;
+    } else if (arg === "--args" && i + 1 < rawArgs.length) {
+      flags.args = rawArgs[i + 1];
+      i += 2;
+    } else if (arg.startsWith("--args=")) {
+      flags.args = arg.split("=")[1];
+      i += 1;
+    } else if (!arg.startsWith("--")) {
+      flags.client = arg;
+      i += 1;
+    } else {
+      i += 1;
+    }
+  }
+  return flags;
 }

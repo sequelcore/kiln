@@ -26,7 +26,7 @@ Kiln is a domain-agnostic AI orchestration engine built as a Bun monorepo with 6
 
 **CLI Commands (today):**
 - `kiln run` — Spawns Claude Code subprocess, supports `--apiKey`, `--provider`, `--permissionPolicy`
-- `kiln mcp-config` — Generates MCP config for clients (claude-code, stdio/sse)
+- `kiln mcp-config` — Generates MCP config for all backends (`--client claude-code|codex|opencode|all`); writes to `.mcp.json` (Claude Code), `~/.codex/config.toml` (Codex), `~/.config/opencode/opencode.json` (OpenCode); supports `--name`, `--command`, `--args` overrides
 - `kiln skill list|install|publish` — Skill management (3-tier discovery)
 - `kiln init` — Interactive wizard for app.yaml + gateway.yaml
 - `kiln dev` — Dev mode with YAML hot-reload
@@ -266,7 +266,7 @@ When Kiln becomes a product for others:
 
 - **Permissions:** `KilnPermissionPolicy` (unified `{approval, sandbox}` contract) translated per-backend via `translatePermission()` — settings.json (Claude) + config.toml:75-173 (Codex) + opencode.json:6-48 (OpenCode) — single source of truth, 3 formats generated
 - **autoformat.sh:** lives in .codex/hooks/ — should be in .claude/hooks/ with symlink (currently inverted)
-- **MCP config:** Claude (.mcp.json) + Codex (config.toml:51-73) + OpenCode (none — not connected to kiln-gateway yet)
+- **MCP config:** Claude (.mcp.json) + Codex (config.toml:51-73) + OpenCode (opencode.json via `kiln mcp-config --client all`) ✅
 - **Hooks:** Codex hooks.json + Claude settings.json — both active, partially overlapping
 
 ## 5. Phased Roadmap
@@ -328,10 +328,12 @@ When Kiln becomes a product for others:
 
 **Sub-phases:**
 2a. kiln.yaml schema design
-2b. mcp-config --client codex + opencode + all
-2c. security sync generator
-2d. autoformat.sh symlink fix
-2e. OpenCode MCP connection
+2b. mcp-config --client codex + opencode + all ✅ (2026-03-31)
+2c. security sync generator ✅ (2026-03-31)
+2d. autoformat.sh copy fix ✅ (2026-03-31) — copies, not symlinks; Windows Codex hooks skipped
+2e. OpenCode MCP connection ✅ (2026-03-31)
+
+**Phase 2 COMPLETE** — `kiln sync [--permissions] [--hooks] [--all]` synchronizes permissions and hooks from kiln.yaml to all 3 backends. Merge-only semantics, partial success valid.
 
 ---
 
@@ -578,6 +580,8 @@ Target also: @SlackHookHQ whose "infra maturity" framing is the exact Kiln pitch
 - **Phase 1:** OpenCodeSession --attach lifecycle — **deferred to Phase 3** (blocked on OpenCode built-in session persistence: github.com/anomalyco/opencode-sdk-js/issues/26; partial path available: `opencode run --attach` works while server is alive, no restart safety)
 - **Phase 1f:** `KilnPermissionPolicy` design — **resolved** (`packages/cli/src/wrapper/session-registry.ts` defines `translatePermission()`, `packages/cli/src/wrapper/session.ts` defines types)
 - **Phase 2:** MCPorter imports compatibility — evaluate before building
+- **Phase 2b:** `kiln mcp-config --client all` — **resolved** (packages/cli/src/mcp/config-generator.ts + packages/cli/src/commands/mcp-config.ts; smol-toml for Codex TOML; JSONC comment stripping for OpenCode; all 3 configs generated with merge-only semantics)
+- **Phase 2e:** OpenCode runtime MCP — **resolved** (packages/cli/src/wrapper/opencode-session.ts: PATCH /config after permissions with mcpServerEntryPath from SessionContext; fail-open on both permission and MCP config PATCH)
 - **Phase 3:** SkillTrigger complexity filter design — design doc needed
 - **Phase 5:** Channel adapter audit — scout before planning
 - **Phase 5:** Legal review of multi-user orchestration pattern
