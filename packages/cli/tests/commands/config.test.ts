@@ -2,8 +2,9 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { parse as parseYaml } from "yaml";
 import { configCommand } from "../../src/commands/config.js";
-import type { ProjectConfig } from "../../src/commands/init.js";
+import type { KilnYaml } from "../../src/kiln-yaml-types.js";
 import type { KilnAppConfig } from "../../src/config.js";
 import { DomainRegistry } from "@kilnai/core";
 
@@ -17,17 +18,21 @@ const MOCK_APP_CONFIG: KilnAppConfig = {
   mcpServerName: "kiln",
 };
 
-function writeConfig(dir: string, config: ProjectConfig): void {
+function writeKiln(dir: string, config: KilnYaml): void {
   mkdirSync(join(dir, ".kiln"), { recursive: true });
-  writeFileSync(join(dir, ".kiln", "config.json"), JSON.stringify(config, null, 2) + "\n");
+  writeFileSync(join(dir, ".kiln", "kiln.yaml"), `version: "1"\n${Object.entries(config)
+    .filter(([k]) => k !== "version")
+    .map(([k, v]) => `${k}: ${JSON.stringify(v)}`)
+    .join("\n")}\n`);
 }
 
-function readConfig(dir: string): ProjectConfig {
-  return JSON.parse(readFileSync(join(dir, ".kiln", "config.json"), "utf-8")) as ProjectConfig;
+function readKiln(dir: string): KilnYaml {
+  return parseYaml(readFileSync(join(dir, ".kiln", "kiln.yaml"), "utf-8")) as KilnYaml;
 }
 
-const DEFAULT_CONFIG: ProjectConfig = {
-  domain: "python",
+const DEFAULT_KILN: KilnYaml = {
+  version: "1",
+  domain: "generic",
   channels: ["cli", "web"],
   teamMode: "sequential",
   requireApproval: true,
@@ -35,6 +40,7 @@ const DEFAULT_CONFIG: ProjectConfig = {
   parallelWorkers: 2,
   provider: "claude",
   mode: "api-key",
+  permissions: { approval: "ask", sandbox: "none" },
 };
 
 describe("configCommand", () => {
@@ -52,40 +58,40 @@ describe("configCommand", () => {
   });
 
   it("show prints current config", () => {
-    writeConfig(tempDir, DEFAULT_CONFIG);
+    writeKiln(tempDir, DEFAULT_KILN);
 
     configCommand(MOCK_APP_CONFIG, "show", [], tempDir);
 
     const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
-    expect(output).toContain('"domain": "python"');
+    expect(output).toContain('"domain": "generic"');
     expect(output).toContain('"requireApproval": true');
     expect(output).toContain('"maxDepth": 3');
   });
 
   it("set updates a config value", () => {
-    writeConfig(tempDir, DEFAULT_CONFIG);
+    writeKiln(tempDir, DEFAULT_KILN);
 
     configCommand(MOCK_APP_CONFIG, "set", ["provider", "openai"], tempDir);
 
-    const config = readConfig(tempDir);
+    const config = readKiln(tempDir);
     expect(config.provider).toBe("openai");
   });
 
   it("set handles boolean values", () => {
-    writeConfig(tempDir, DEFAULT_CONFIG);
+    writeKiln(tempDir, DEFAULT_KILN);
 
     configCommand(MOCK_APP_CONFIG, "set", ["requireApproval", "false"], tempDir);
 
-    const config = readConfig(tempDir);
+    const config = readKiln(tempDir);
     expect(config.requireApproval).toBe(false);
   });
 
   it("set handles numeric values", () => {
-    writeConfig(tempDir, DEFAULT_CONFIG);
+    writeKiln(tempDir, DEFAULT_KILN);
 
     configCommand(MOCK_APP_CONFIG, "set", ["maxDepth", "5"], tempDir);
 
-    const config = readConfig(tempDir);
+    const config = readKiln(tempDir);
     expect(config.maxDepth).toBe(5);
   });
 
@@ -94,5 +100,34 @@ describe("configCommand", () => {
 
     const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
     expect(output).toContain("Not initialized");
+  });
+
+  it("set updates permissions.approval", () => {
+    writeKiln(tempDir, DEFAULT_KILN);
+
+    configCommand(MOCK_APP_CONFIG, "set", ["permissions.approval", "auto-approve"], tempDir);
+
+    const config = readKiln(tempDir);
+    expect(config.permissions?.approval).toBe("auto-approve");
+  });
+
+  it("set updates permissions.sandbox", () => {
+    writeKiln(tempDir, DEFAULT_KILN);
+
+    configCommand(MOCK_APP_CONFIG, "set", ["permissions.sandbox", "full"], tempDir);
+
+    const config = readKiln(tempDir);
+    expect(config.permissions?.sandbox).toBe("full");
+  });
+
+  it("reset writes default kiln.yaml", () => {
+    writeKiln(tempDir, DEFAULT_KILN);
+
+    configCommand(MOCK_APP_CONFIG, "reset", [], tempDir);
+
+    const config = readKiln(tempDir);
+    expect(config.domain).toBe("generic");
+    expect(config.provider).toBe("claude");
+    expect(config.permissions?.approval).toBe("ask");
   });
 });

@@ -1,18 +1,35 @@
-import { existsSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import type { ProjectConfig } from "./init.js";
-import { initCommand } from "./init.js";
+import {
+  readKilnYaml,
+  writeKilnYaml,
+  defaultKilnYaml,
+  type KilnYaml,
+} from "../kiln-yaml.js";
 import type { KilnAppConfig } from "../config.js";
 
-const VALID_KEYS: ReadonlySet<keyof ProjectConfig> = new Set([
+type KilnYamlKey =
+  | "domain"
+  | "provider"
+  | "channels"
+  | "teamMode"
+  | "requireApproval"
+  | "maxDepth"
+  | "parallelWorkers"
+  | "mode"
+  | "permissions.approval"
+  | "permissions.sandbox";
+
+const VALID_KEYS: ReadonlySet<KilnYamlKey> = new Set([
   "domain",
+  "provider",
+  "channels",
+  "teamMode",
   "requireApproval",
   "maxDepth",
   "parallelWorkers",
-  "provider",
   "mode",
-  "channels",
-  "teamMode",
+  "permissions.approval",
+  "permissions.sandbox",
 ]);
 
 export function configCommand(
@@ -22,22 +39,28 @@ export function configCommand(
   projectPath?: string,
 ): void {
   const root = projectPath ?? process.cwd();
-  const configPath = join(root, appConfig.dirName, "config.json");
+  const kilnDir = join(root, appConfig.dirName);
 
   if (!subcommand) {
     printConfigHelp(appConfig);
     return;
   }
 
-  if (subcommand !== "reset" && !existsSync(configPath)) {
-    console.log(`Not initialized. Run '${appConfig.appName} init' first.`);
-    return;
+  if (subcommand !== "reset") {
+    const config = readKilnYaml(kilnDir);
+    if (!config) {
+      console.log(`Not initialized. Run '${appConfig.appName} init' first.`);
+      return;
+    }
   }
 
   switch (subcommand) {
     case "show": {
-      const raw = readFileSync(configPath, "utf-8");
-      const config = JSON.parse(raw) as ProjectConfig;
+      const config = readKilnYaml(kilnDir);
+      if (!config) {
+        console.log(`Not initialized. Run '${appConfig.appName} init' first.`);
+        return;
+      }
       console.log(JSON.stringify(config, null, 2));
       break;
     }
@@ -51,26 +74,29 @@ export function configCommand(
         return;
       }
 
-      if (!VALID_KEYS.has(key as keyof ProjectConfig)) {
+      if (!VALID_KEYS.has(key as KilnYamlKey)) {
         console.log(`Unknown config key: ${key}`);
         console.log(`Valid keys: ${[...VALID_KEYS].join(", ")}`);
         return;
       }
 
-      const raw = readFileSync(configPath, "utf-8");
-      const config = JSON.parse(raw) as Record<string, unknown>;
+      const config = readKilnYaml(kilnDir);
+      if (!config) {
+        console.log(`Not initialized. Run '${appConfig.appName} init' first.`);
+        return;
+      }
 
-      config[key] = parseValue(value, key);
-      writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
-      console.log(`Set ${key} = ${String(config[key])}`);
+      const updated = setNestedKey(config, key as KilnYamlKey, value);
+      writeKilnYaml(kilnDir, updated);
+
+      const displayVal = getNestedKey(updated, key as KilnYamlKey);
+      console.log(`Set ${key} = ${String(displayVal)}`);
       break;
     }
 
     case "reset": {
-      if (existsSync(configPath)) {
-        rmSync(configPath);
-      }
-      initCommand(appConfig, root, { force: true });
+      writeKilnYaml(kilnDir, defaultKilnYaml("generic"));
+      console.log("Config reset to defaults.");
       break;
     }
 
@@ -80,7 +106,54 @@ export function configCommand(
   }
 }
 
-function parseValue(value: string, key: string): string | number | boolean | string[] {
+function setNestedKey(config: KilnYaml, key: KilnYamlKey, rawValue: string): KilnYaml {
+  if (key === "permissions.approval") {
+    const val = rawValue as "auto-approve" | "ask" | "deny";
+    if (val !== "auto-approve" && val !== "ask" && val !== "deny") {
+      console.error(`Invalid approval value: ${rawValue}. Must be auto-approve, ask, or deny.`);
+      process.exit(1);
+    }
+    return {
+      ...config,
+      permissions: { ...(config.permissions ?? { sandbox: "none" }), approval: val },
+    };
+  }
+
+  if (key === "permissions.sandbox") {
+    const val = rawValue as "none" | "workspace-write" | "full";
+    if (val !== "none" && val !== "workspace-write" && val !== "full") {
+      console.error(`Invalid sandbox value: ${rawValue}. Must be none, workspace-write, or full.`);
+      process.exit(1);
+    }
+    return {
+      ...config,
+      permissions: { ...(config.permissions ?? { approval: "ask" }), sandbox: val },
+    };
+  }
+
+  return {
+    ...config,
+    [key]: parseScalar(rawValue, key),
+  };
+}
+
+function getNestedKey(config: KilnYaml, key: KilnYamlKey): unknown {
+  if (key === "permissions.approval") return config.permissions?.approval;
+  if (key === "permissions.sandbox") return config.permissions?.sandbox;
+  switch (key) {
+    case "domain": return config.domain;
+    case "provider": return config.provider;
+    case "channels": return config.channels;
+    case "teamMode": return config.teamMode;
+    case "requireApproval": return config.requireApproval;
+    case "maxDepth": return config.maxDepth;
+    case "parallelWorkers": return config.parallelWorkers;
+    case "mode": return config.mode;
+    default: return undefined;
+  }
+}
+
+function parseScalar(value: string, key: KilnYamlKey): string | number | boolean | string[] {
   if (value === "true") return true;
   if (value === "false") return false;
 

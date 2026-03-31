@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { statusCommand } from "../../src/commands/status.js";
-import type { ProjectConfig } from "../../src/commands/init.js";
+import { writeKilnYaml, defaultKilnYaml } from "../../src/kiln-yaml.js";
 import type { KilnAppConfig } from "../../src/config.js";
 
 const MOCK_APP_CONFIG: KilnAppConfig = {
@@ -41,19 +41,9 @@ describe("statusCommand", () => {
   });
 
   it("prints domain when initialized", () => {
-    const config: ProjectConfig = {
-      domain: "python",
-      channels: ["cli", "web"],
-      teamMode: "sequential",
-      requireApproval: true,
-      maxDepth: 3,
-      parallelWorkers: 2,
-      provider: "claude",
-      mode: "api-key",
-    };
-
-    mkdirSync(join(tempDir, ".kiln"), { recursive: true });
-    writeFileSync(join(tempDir, ".kiln", "config.json"), JSON.stringify(config));
+    const kilnDir = join(tempDir, ".kiln");
+    mkdirSync(kilnDir, { recursive: true });
+    writeKilnYaml(kilnDir, defaultKilnYaml("python"));
 
     statusCommand(MOCK_APP_CONFIG, tempDir);
 
@@ -62,7 +52,10 @@ describe("statusCommand", () => {
   });
 
   it("shows all config values", () => {
-    const config: ProjectConfig = {
+    const kilnDir = join(tempDir, ".kiln");
+    mkdirSync(kilnDir, { recursive: true });
+    writeKilnYaml(kilnDir, {
+      version: "1",
       domain: "react-typescript",
       channels: ["cli", "web"],
       teamMode: "sequential",
@@ -71,10 +64,7 @@ describe("statusCommand", () => {
       parallelWorkers: 4,
       provider: "openai",
       mode: "api-key",
-    };
-
-    mkdirSync(join(tempDir, ".kiln"), { recursive: true });
-    writeFileSync(join(tempDir, ".kiln", "config.json"), JSON.stringify(config));
+    });
 
     statusCommand(MOCK_APP_CONFIG, tempDir);
 
@@ -88,21 +78,11 @@ describe("statusCommand", () => {
   });
 
   it("shows memory file count", () => {
-    const config: ProjectConfig = {
-      domain: "python",
-      channels: ["cli", "web"],
-      teamMode: "sequential",
-      requireApproval: true,
-      maxDepth: 3,
-      parallelWorkers: 2,
-      provider: "claude",
-      mode: "api-key",
-    };
-
-    mkdirSync(join(tempDir, ".kiln", "memory"), { recursive: true });
-    writeFileSync(join(tempDir, ".kiln", "config.json"), JSON.stringify(config));
-    writeFileSync(join(tempDir, ".kiln", "memory", "chunk1.jsonl"), "{}");
-    writeFileSync(join(tempDir, ".kiln", "memory", "chunk2.jsonl"), "{}");
+    const kilnDir = join(tempDir, ".kiln");
+    mkdirSync(join(kilnDir, "memory"), { recursive: true });
+    writeKilnYaml(kilnDir, { ...defaultKilnYaml("python") });
+    writeFileSync(join(kilnDir, "memory", "chunk1.jsonl"), "{}");
+    writeFileSync(join(kilnDir, "memory", "chunk2.jsonl"), "{}");
 
     statusCommand(MOCK_APP_CONFIG, tempDir);
 

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { parse as parseYaml } from "yaml";
 import { initCommand } from "../../src/commands/init.js";
-import type { ProjectConfig } from "../../src/commands/init.js";
+import type { KilnYaml } from "../../src/kiln-yaml-types.js";
 import type { KilnAppConfig } from "../../src/config.js";
 import { DomainRegistry } from "@kilnai/core";
 
@@ -18,7 +18,6 @@ const MOCK_APP_CONFIG: KilnAppConfig = {
   mcpServerName: "kiln",
 };
 
-// Non-interactive flags to avoid TTY prompts in tests
 const NON_INTERACTIVE = { interactive: false };
 
 describe("initCommand", () => {
@@ -37,21 +36,24 @@ describe("initCommand", () => {
     expect(existsSync(join(tempDir, ".kiln"))).toBe(true);
   });
 
-  it("creates config.json with detected domain", async () => {
+  it("creates kiln.yaml with correct fields", async () => {
     const config = await initCommand(MOCK_APP_CONFIG, tempDir, NON_INTERACTIVE);
 
     expect(config).not.toBeNull();
-    expect(config!.domain).toBeTruthy();
+    expect(config!.version).toBe("1");
     expect(config!.requireApproval).toBe(true);
     expect(config!.maxDepth).toBe(3);
     expect(config!.parallelWorkers).toBe(2);
     expect(config!.provider).toBe("anthropic");
     expect(config!.mode).toBe("api-key");
+    expect(config!.permissions?.approval).toBe("ask");
+    expect(config!.permissions?.sandbox).toBe("none");
 
-    const onDisk = JSON.parse(
-      readFileSync(join(tempDir, ".kiln", "config.json"), "utf-8"),
-    ) as ProjectConfig;
-    expect(onDisk.domain).toBe(config!.domain);
+    const onDisk = parseYaml(
+      readFileSync(join(tempDir, ".kiln", "kiln.yaml"), "utf-8"),
+    ) as KilnYaml;
+    expect(onDisk.version).toBe("1");
+    expect(onDisk.requireApproval).toBe(true);
   });
 
   it("creates memory/ subdirectory", async () => {
@@ -73,7 +75,7 @@ describe("initCommand", () => {
 
     const second = await initCommand(MOCK_APP_CONFIG, tempDir, { force: true, interactive: false });
     expect(second).not.toBeNull();
-    expect(second!.domain).toBeTruthy();
+    expect(second!.version).toBe("1");
   });
 
   it("appends to .gitignore", async () => {
@@ -152,10 +154,7 @@ describe("initCommand", () => {
   });
 
   it("TTY detection: interactive is false when process.stdin.isTTY is undefined", async () => {
-    // In test environments, isTTY is undefined (not a TTY)
-    // initCommand should not hang waiting for input when non-interactive
     const config = await initCommand(MOCK_APP_CONFIG, tempDir, { force: false });
-    // Should complete without prompting (isTTY is falsy in test env)
     expect(config).not.toBeNull();
   });
 });

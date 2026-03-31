@@ -1,21 +1,12 @@
-import { existsSync, mkdirSync, writeFileSync, readFileSync, appendFileSync } from "node:fs";
+import { existsSync, readFileSync, appendFileSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { DomainRegistry } from "@kilnai/core";
 import type { KilnAppConfig } from "../config.js";
 import { generateAppYaml, generateGatewayYaml } from "./init-templates.js";
 import type { InitOptions } from "./init-templates.js";
-
-export interface ProjectConfig {
-  domain: string;
-  provider: string;
-  channels: string[];
-  teamMode: string;
-  requireApproval: boolean;
-  maxDepth: number;
-  parallelWorkers: number;
-  mode: string;
-}
+import { defaultKilnYaml, writeKilnYaml } from "../kiln-yaml.js";
+import type { KilnYaml } from "../kiln-yaml-types.js";
 
 export interface InitFlags {
   force?: boolean;
@@ -41,7 +32,7 @@ export async function initCommand(
   appConfig: KilnAppConfig,
   projectPath?: string,
   flags?: InitFlags,
-): Promise<ProjectConfig | null> {
+): Promise<KilnYaml | null> {
   const root = projectPath ?? process.cwd();
   const appDir = join(root, appConfig.dirName);
 
@@ -50,11 +41,9 @@ export async function initCommand(
     return null;
   }
 
-  // Determine whether to run interactively
   const isInteractive =
     flags?.interactive !== false && process.stdin.isTTY === true;
 
-  // Load built-in domain kits + installed domains
   const builtins = DomainRegistry.loadBuiltinDomains();
   const registry = appConfig.createRegistry();
   for (const d of builtins) {
@@ -72,7 +61,6 @@ export async function initCommand(
   let chosenTeamMode: string;
 
   if (isInteractive) {
-    // Step 1: domain selection
     if (detectedDomain) {
       console.log(`\nDetected domain: ${detectedDomain.displayName} (${detectedDomain.name})`);
       const confirm = await prompt("Use detected domain? (y/n)", "y");
@@ -105,28 +93,24 @@ export async function initCommand(
       chosenDomainName = "generic";
     }
 
-    // Step 2: provider
     const providerAnswer = await prompt(
       "Provider (anthropic/openai/deepseek/ollama)",
       "anthropic",
     );
     chosenProvider = providerAnswer || "anthropic";
 
-    // Step 3: channels
     const channelsAnswer = await prompt("Channels (comma-separated: cli,web,api)", "cli,web");
     chosenChannels = (channelsAnswer || "cli,web")
       .split(",")
       .map((c) => c.trim())
       .filter(Boolean);
 
-    // Step 4: team mode
     const teamModeAnswer = await prompt(
       "Team mode (sequential/supervisor/swarm)",
       "sequential",
     );
     chosenTeamMode = teamModeAnswer || "sequential";
   } else {
-    // Non-interactive: use flags or defaults
     if (flags?.domain) {
       chosenDomainName = flags.domain;
     } else if (detectedDomain) {
@@ -142,18 +126,13 @@ export async function initCommand(
     chosenTeamMode = flags?.teamMode ?? "sequential";
   }
 
-  // Resolve the chosen domain config for quality gates
   const chosenDomainConfig =
     registry.get(chosenDomainName) ??
     (detectedDomain?.name === chosenDomainName ? detectedDomain : null);
   const qualityGates = chosenDomainConfig?.qualityGates ?? [];
 
-  // Create directories
-  mkdirSync(appDir, { recursive: true });
-  mkdirSync(join(appDir, "memory"), { recursive: true });
-
-  const config: ProjectConfig = {
-    domain: chosenDomainName,
+  const kilnYaml: KilnYaml = {
+    ...defaultKilnYaml(chosenDomainName),
     provider: chosenProvider,
     channels: chosenChannels,
     teamMode: chosenTeamMode,
@@ -177,11 +156,12 @@ export async function initCommand(
     })),
   };
 
-  writeFileSync(join(appDir, "config.json"), JSON.stringify(config, null, 2) + "\n");
-  writeFileSync(join(appDir, "app.yaml"), generateAppYaml(initOptions));
-  writeFileSync(join(appDir, "gateway.yaml"), generateGatewayYaml(initOptions));
+  writeKilnYaml(appDir, kilnYaml);
+  const { writeFileSync: wfs, mkdirSync: mks } = await import("node:fs");
+  mks(join(appDir, "memory"), { recursive: true });
+  wfs(join(appDir, "app.yaml"), generateAppYaml(initOptions));
+  wfs(join(appDir, "gateway.yaml"), generateGatewayYaml(initOptions));
 
-  // Update .gitignore
   const gitignorePath = join(root, ".gitignore");
   let existing = "";
   if (existsSync(gitignorePath)) {
@@ -201,7 +181,6 @@ export async function initCommand(
     appendFileSync(gitignorePath, suffix + toAppend.join("\n") + "\n");
   }
 
-  // Print summary
   console.log(`Domain:   ${chosenDomainConfig?.displayName ?? chosenDomainName}`);
   if (qualityGates.length > 0) {
     console.log("Gates:    " + qualityGates.map((g) => g.name).join(", "));
@@ -211,5 +190,5 @@ export async function initCommand(
   const appLabel = appConfig.appName.charAt(0).toUpperCase() + appConfig.appName.slice(1);
   console.log(`${appLabel} initialized.`);
 
-  return config;
+  return kilnYaml;
 }
