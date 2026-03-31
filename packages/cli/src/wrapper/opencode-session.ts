@@ -8,6 +8,7 @@ import type {
   KilnPermissionPolicy,
   SandboxMode,
 } from "./session.js";
+import { debug } from "./debug.js";
 
 interface OpencodeClientShape {
   session: {
@@ -139,7 +140,7 @@ export class OpenCodeSession implements IKilnSession {
       ),
     };
     if (config.sandboxMode && config.sandboxMode !== "none") {
-      console.debug(`[opencode] sandboxMode=${config.sandboxMode} — not supported, silently ignored`);
+      debug(`sandboxMode=${config.sandboxMode} not supported, silently ignored`);
     }
   }
 

@@ -173,8 +173,8 @@ function parsePort(args: readonly string[]): number {
   return 4800;
 }
 
-function parseRunArgs(rawArgs: readonly string[]): { task: string; flags: { apiKey?: string; provider?: string; dangerouslySkipPermissions?: boolean } } {
-  const flags: { apiKey?: string; provider?: string; dangerouslySkipPermissions?: boolean } = {};
+function parseRunArgs(rawArgs: readonly string[]): { task: string; flags: { apiKey?: string; provider?: string } } {
+  const flags: { apiKey?: string; provider?: string } = {};
   const taskParts: string[] = [];
   let i = 0;
   while (i < rawArgs.length) {
@@ -185,9 +185,6 @@ function parseRunArgs(rawArgs: readonly string[]): { task: string; flags: { apiK
     } else if (arg === "--provider" && i + 1 < rawArgs.length) {
       flags.provider = rawArgs[i + 1];
       i += 2;
-    } else if (arg === "--dangerously-skip-permissions") {
-      flags.dangerouslySkipPermissions = true;
-      i += 1;
     } else {
       taskParts.push(arg);
       i += 1;

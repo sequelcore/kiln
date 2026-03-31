@@ -48,14 +48,10 @@ export interface WrapperConfig {
 
 export { buildPreamble } from "./preamble-builder.js";
 export { WorktreeManager } from "./worktree-manager.js";
-export type { WorktreeHandle, GitRunner } from "./worktree-manager.js";
-export { WorktreeError } from "./worktree-manager.js";
 export { ClaudeSession } from "./claude-code-process.js";
 export type { ClaudeSessionConfig } from "./claude-code-process.js";
 export { OpenCodeSession } from "./opencode-session.js";
-export type { OpenCodeSessionConfig } from "./opencode-session.js";
 export { CodexSession } from "./codex-session.js";
-export type { CodexSessionConfig } from "./codex-session.js";
 export { SessionManager } from "./session-manager.js";
 export type { KilnAppConfig, SystemPromptOptions } from "../config.js";
 export type {
@@ -71,18 +67,9 @@ export type {
 export {
   SessionRegistry,
   createDefaultRegistry,
-  SessionUnavailableError,
   translatePermission,
 } from "./session-registry.js";
 export type {
   ProviderId,
   SessionRequirements,
-  SessionProviderDescriptor,
-  ProviderCreateConfig,
-  SelectionResult,
-  CandidateScore,
-  ClaudeBackendConfig,
-  CodexBackendConfig,
-  OpenCodeBackendConfig,
-  BackendConfig,
 } from "./session-registry.js";

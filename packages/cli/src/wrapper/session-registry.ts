@@ -3,6 +3,7 @@ import type {
   IKilnSession,
   KilnPermissionPolicy,
 } from "./session.js";
+import { debug } from "./debug.js";
 import { ClaudeSession } from "./claude-code-process.js";
 import { CodexSession } from "./codex-session.js";
 import { OpenCodeSession } from "./opencode-session.js";
@@ -359,7 +360,7 @@ export function createDefaultRegistry(): {
 } {
   const worktreeManager = new WorktreeManager(process.cwd());
   worktreeManager.pruneStale().catch((err: unknown) => {
-    console.debug("[worktree] pruneStale error:", err instanceof Error ? err.message : String(err));
+    debug("pruneStale error:", err instanceof Error ? err.message : String(err));
   });
 
   const providers: SessionProviderDescriptor[] = [
