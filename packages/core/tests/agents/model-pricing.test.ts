@@ -11,8 +11,8 @@ describe("MODEL_CATALOG", () => {
     expect(providers).toContain("ollama");
   });
 
-  it("has 17 total entries", () => {
-    expect(MODEL_CATALOG).toHaveLength(17);
+  it("has 20 total entries", () => {
+    expect(MODEL_CATALOG).toHaveLength(20);
   });
 
   it("ollama is free", () => {

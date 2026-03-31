@@ -15,13 +15,15 @@
     },
     "packages/cli": {
       "name": "@kilnai/cli",
-      "version": "0.20.0",
+      "version": "0.23.2",
       "bin": {
         "kiln": "./dist/index.js",
       },
       "dependencies": {
         "@anthropic-ai/claude-agent-sdk": "^0.2.45",
         "@modelcontextprotocol/sdk": "^1.26.0",
+        "@opencode-ai/sdk": "^1.3.7",
+        "yaml": "^2.8.2",
       },
       "devDependencies": {
         "yaml": "^2.8.2",
@@ -33,7 +35,7 @@
     },
     "packages/core": {
       "name": "@kilnai/core",
-      "version": "0.20.0",
+      "version": "0.23.2",
       "dependencies": {
         "@anthropic-ai/sdk": "^0.74.0",
         "@modelcontextprotocol/sdk": "^1.26.0",
@@ -55,7 +57,7 @@
     },
     "packages/runtime": {
       "name": "@kilnai/runtime",
-      "version": "0.20.0",
+      "version": "0.23.2",
       "dependencies": {
         "hono": "^4.7.0",
         "jose": "^5.0.0",
@@ -74,7 +76,7 @@
     },
     "packages/sdk": {
       "name": "@kilnai/react",
-      "version": "0.20.0",
+      "version": "0.23.2",
       "devDependencies": {
         "@testing-library/react": "^16.1.0",
         "@types/react": "^19.0.0",
@@ -106,7 +108,7 @@
     },
     "packages/widget": {
       "name": "@kilnai/widget",
-      "version": "0.20.0",
+      "version": "0.23.2",
       "devDependencies": {
         "jsdom": "^25.0.0",
         "vitest": "^4.0.18",
@@ -281,6 +283,8 @@
     "@kilnai/widget": ["@kilnai/widget@workspace:packages/widget"],
 
     "@modelcontextprotocol/sdk": ["@modelcontextprotocol/sdk@1.26.0", "", { "dependencies": { "@hono/node-server": "^1.19.9", "ajv": "^8.17.1", "ajv-formats": "^3.0.1", "content-type": "^1.0.5", "cors": "^2.8.5", "cross-spawn": "^7.0.5", "eventsource": "^3.0.2", "eventsource-parser": "^3.0.0", "express": "^5.2.1", "express-rate-limit": "^8.2.1", "hono": "^4.11.4", "jose": "^6.1.3", "json-schema-typed": "^8.0.2", "pkce-challenge": "^5.0.0", "raw-body": "^3.0.0", "zod": "^3.25 || ^4.0", "zod-to-json-schema": "^3.25.1" }, "peerDependencies": { "@cfworker/json-schema": "^4.1.1" }, "optionalPeers": ["@cfworker/json-schema"] }, "sha512-Y5RmPncpiDtTXDbLKswIJzTqu2hyBKxTNsgKqKclDbhIgg1wgtf1fRuvxgTnRfcnxtvvgbIEcqUOzZrJ6iSReg=="],
+
+    "@opencode-ai/sdk": ["@opencode-ai/sdk@1.3.7", "", {}, "sha512-ugkta0v0dMZchN15QGmqHb9zf35k+K1VM9wt3x4ZRJ6GxKAs0XlCmQPQJflgV9YSedNxjkgTud0GCCIWUSiUOg=="],
 
     "@opentelemetry/api": ["@opentelemetry/api@1.9.0", "", {}, "sha512-3giAOQvZiH5F9bMlMiv8+GSPMeqg0dbaeo58/0SlA9sxSqZhnUtxzX9/2FzyhS9sWQf5S0GJE0AKBrFqjpeYcg=="],
 

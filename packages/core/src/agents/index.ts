@@ -90,7 +90,7 @@ export {
   QWEN3_CODER_FREE,
   MISTRAL_SMALL_FREE,
 } from "./infrastructure/openrouter.js";
-export { type CatalogPricing, MODEL_CATALOG } from "./model-pricing.js";
+export { type CatalogPricing, MODEL_CATALOG, CODEX_DEFAULT_MODEL } from "./model-pricing.js";
 export { CircuitBreaker } from "./circuit-breaker.js";
 export type { CircuitBreakerConfig, CircuitState } from "./circuit-breaker.js";
 export { ToolCache } from "./tool-cache.js";

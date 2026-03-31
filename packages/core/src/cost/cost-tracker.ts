@@ -3,8 +3,6 @@ import type { RoleUsage, ModelPricing, CostSummary, SttPricing, EmbeddingPricing
 import { MODEL_CATALOG } from "../agents/model-pricing.js";
 
 /** Anthropic cache multipliers (other providers don't expose cache-aware pricing) */
-const ANTHROPIC_CACHE = { cacheReadMultiplier: 0.1, cacheWriteMultiplier: 1.25 } as const;
-const NO_CACHE = { cacheReadMultiplier: 0, cacheWriteMultiplier: 0 } as const;
 
 /** Unified pricing derived from MODEL_CATALOG (single source of truth) */
 export const MODEL_PRICING: ReadonlyMap<string, ModelPricing> = new Map(
@@ -13,7 +11,12 @@ export const MODEL_PRICING: ReadonlyMap<string, ModelPricing> = new Map(
     {
       inputRate: entry.inputPer1M,
       outputRate: entry.outputPer1M,
-      ...(entry.provider === "anthropic" ? ANTHROPIC_CACHE : NO_CACHE),
+      cacheReadMultiplier: entry.provider === "anthropic"
+        ? 0.1
+        : entry.cachedInputRatePer1M !== undefined
+          ? entry.cachedInputRatePer1M / entry.inputPer1M
+          : 1,
+      cacheWriteMultiplier: entry.provider === "anthropic" ? 1.25 : 0,
     },
   ]),
 );
