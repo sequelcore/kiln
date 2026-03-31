@@ -260,6 +260,7 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `wrapper/session.ts` | IKilnSession: canonical session contract (CostTrackingMode, SessionEvent discriminated union, SessionCapabilities, IKilnSession interface) for multi-CLI orchestration |
 | `wrapper/claude-code-process.ts` | ClaudeSession implementing IKilnSession: async generator `run()`, `dispose()`, `sessionId`, `capabilities`. Replaces old callback API (start/onMessage/onExit). Yields `SessionEvent` variants: text_delta, tool_use, cost_update, completed, error. |
 | `wrapper/opencode-session.ts` | OpenCodeSession implementing IKilnSession: spawns `opencode serve`, connects via SDK (HTTP), maps ACP SSE events to `SessionEvent`. Requires opencode >= v1.3.6 (token double-counting fix). |
+| `wrapper/codex-session.ts` | CodexSession implementing IKilnSession: spawns `codex exec --json`, parses JSONL events, maps to `SessionEvent` variants; `costTrackingMode: "computed"` (token × rate formula); requires codex >= v0.117.0 |
 | `commands/run.ts` | `kiln run` command: consumes `AsyncIterable<SessionEvent>` from ClaudeSession, wires `cost_update` to report, handles `isPreflightCrash` / `isError` / `error` events. Ghost Orchestrator removed. |
 
 ## Backlog

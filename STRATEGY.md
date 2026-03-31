@@ -287,7 +287,7 @@ When Kiln becomes a product for others:
 - IKilnSession interface contract (packages/cli/src/wrapper/session.ts) — formalizes 6 event variants + capabilities + run/dispose contract; forces ClaudeSession refactor when implemented
   - ✅ ClaudeSession implements IKilnSession (2026-03-30): async generator `run()`, `dispose()`, `sessionId`, `capabilities`; cost flows via `cost_update` → `completed` events; old callback API (start/onMessage/onExit) removed; ghost Orchestrator removed from run.ts
   - ✅ OpenCodeSession implements IKilnSession (2026-03-30): spawns `opencode serve`, connects via `@opencode-ai/sdk` (HTTP), maps ACP SSE events (message.part.delta, message.part.updated, sessionUpdate, session.status) to `SessionEvent` variants; `serveProcess` public for testability; `baseUrl` config escape hatch; 19 tests pass
-- CodexSession: spawn codex exec --json --output-schema, parse JSONL events, handle resume
+  - ✅ CodexSession (2026-03-30): spawns `codex exec --json --full-auto`, parses JSONL events (thread.started, turn.started, item.started, item.completed, turn.completed, error, turn.failed), maps to `SessionEvent` variants; `costTrackingMode: "computed"` (token × rate formula); 33 tests pass; end-to-end validation pending (usage credits needed)
 - OpenCodeSession: spawn opencode run --attach --format json, manage opencode serve daemon lifecycle
 - run.ts: --provider auto → calls routing_test → decides CLI
 - preamble builder: generates <kiln_subprocess_context> XML with session_id, budget_remaining_pct, constraints, output_spec
