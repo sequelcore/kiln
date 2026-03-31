@@ -54,6 +54,25 @@ export const MEMORY_DELETE_SCHEMA = {
   required: ["id"],
 };
 
+export const MEMORY_SEARCH_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    query: {
+      type: "string",
+      description: "BM25 search query — type indicates what to save (user: feedback, agent: insight/pattern, project: decision/reference)",
+    },
+    scope: {
+      type: "string",
+      description: "Scope filter — user, agent:{role}, team:{name}, project:{id}, or org (omit for all scopes)",
+    },
+    limit: {
+      type: "number",
+      description: "Max results to return (default: 10)",
+    },
+  },
+  required: ["query"],
+};
+
 export const KNOWLEDGE_SEARCH_SCHEMA = {
   type: "object" as const,
   properties: {
@@ -288,18 +307,26 @@ export const SWARM_RELEASE_SCHEMA = {
 export const GATEWAY_MCP_TOOLS = [
   {
     name: "memory_recall",
-    description: "Recall memory entries by scope with optional FTS search query and tag filter",
+    description:
+      "Recall memory entries by scope. Type: user (feedback/preferences), agent (insights/patterns), team (shared decisions), project (references/architecture). Scope: user/agent:{role}/team:{name}/project:{id}/org. Returns content within token budget.",
     inputSchema: MEMORY_RECALL_SCHEMA,
   },
   {
     name: "memory_store",
-    description: "Store a new memory entry with scope, key, content, and optional tags",
+    description:
+      "Store a memory entry. Type (via scope): user (feedback, preferences), agent:{role} (insights, patterns, decisions), team:{name} (shared context), project:{id} (architecture, references). How to use: call after completing a task or making a decision worth remembering.",
     inputSchema: MEMORY_STORE_SCHEMA,
   },
   {
     name: "memory_delete",
     description: "Delete a memory entry by its ID",
     inputSchema: MEMORY_DELETE_SCHEMA,
+  },
+  {
+    name: "memory_search",
+    description:
+      "Full-text search across memory using BM25 ranking. Type guidance: user (feedback, preferences), agent (patterns, decisions), project (architecture, references). Scope filters results to a specific layer (omit for all). Returns key, content, score, snippet, and tags.",
+    inputSchema: MEMORY_SEARCH_SCHEMA,
   },
   {
     name: "knowledge_search",

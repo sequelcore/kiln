@@ -1,7 +1,7 @@
 // MCP server: dependency injection interface for gateway capabilities
 // Decouples tool handlers from concrete gateway wiring
 
-import type { CostSummary } from "@kilnai/core";
+import type { CostSummary, MemorySearchResult } from "@kilnai/core";
 
 /** Dependencies injected into the MCP server from the gateway */
 export interface GatewayMcpDeps {
@@ -19,6 +19,13 @@ export interface GatewayMcpDeps {
 
   /** Delete a memory entry by ID; returns true if found and deleted */
   readonly deleteMemoryEntry?: (id: string) => boolean | Promise<boolean>;
+
+  /** Full-text search across memory entries using BM25 ranking */
+  readonly memorySearch?: (
+    query: string,
+    scope?: string,
+    limit?: number,
+  ) => Promise<readonly MemorySearchResult[]>;
 
   /** Search the knowledge base via the retrieval pipeline */
   readonly searchKnowledge?: (

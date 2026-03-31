@@ -171,6 +171,8 @@ export class GatewayMcpServer {
           return await this.handleMemoryStore(args);
         case "memory_delete":
           return await this.handleMemoryDelete(args);
+        case "memory_search":
+          return await this.handleMemorySearch(args);
         case "knowledge_search":
           return await this.handleKnowledgeSearch(args);
         case "knowledge_sources":
@@ -257,6 +259,18 @@ export class GatewayMcpServer {
     if (!this.deps.deleteMemoryEntry) return this.errorResult("Memory delete not available");
     const deleted = await this.deps.deleteMemoryEntry(args["id"] as string);
     return this.jsonResult({ deleted });
+  }
+
+  private async handleMemorySearch(
+    args: Record<string, unknown>,
+  ): Promise<{ content: { type: "text"; text: string }[] }> {
+    if (!this.deps.memorySearch) return this.errorResult("Memory search not available");
+    const results = await this.deps.memorySearch(
+      args["query"] as string,
+      args["scope"] as string | undefined,
+      args["limit"] as number | undefined,
+    );
+    return this.jsonResult(results);
   }
 
   private async handleKnowledgeSearch(
