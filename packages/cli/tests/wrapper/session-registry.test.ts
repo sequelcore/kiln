@@ -3,6 +3,7 @@ import {
   SessionRegistry,
   createDefaultRegistry,
   SessionUnavailableError,
+  translatePermission,
 } from "../../src/wrapper/session-registry.js";
 import type { SessionCapabilities, IKilnSession } from "../../src/wrapper/session.js";
 
@@ -17,6 +18,7 @@ const makeMockSession = (id: string): IKilnSession => ({
     maxContextTokens: null,
     priority: 1,
     fallbackTo: null,
+    permissionPolicy: { approval: "ask", sandbox: "none" },
   },
   run: async function* () {
     yield { type: "completed", totalUsd: 0, durationMs: 0, isError: false, isPreflightCrash: false };
@@ -33,6 +35,7 @@ const MOCK_CAPA: SessionCapabilities = {
   maxContextTokens: null,
   priority: 1,
   fallbackTo: null,
+  permissionPolicy: { approval: "ask", sandbox: "none" },
 };
 
 const MOCK_CAPA_CODEX: SessionCapabilities = {
@@ -294,9 +297,11 @@ describe("SessionRegistry", () => {
   });
 
   describe("session creation", () => {
+    const policy = { approval: "ask" as const, sandbox: "none" as const };
+
     it("createSession(claude) returns an IKilnSession", () => {
       const reg = makeRegistry();
-      const session = reg.createSession("claude", { task: "test" });
+      const session = reg.createSession("claude", { task: "test", permissionPolicy: policy });
       expect(typeof session.run).toBe("function");
       expect(typeof session.dispose).toBe("function");
       expect(typeof session.sessionId).toBe("string");
@@ -304,21 +309,21 @@ describe("SessionRegistry", () => {
 
     it("createSession(codex) returns an IKilnSession", () => {
       const reg = makeRegistry();
-      const session = reg.createSession("codex", { task: "test" });
+      const session = reg.createSession("codex", { task: "test", permissionPolicy: policy });
       expect(typeof session.run).toBe("function");
       expect(typeof session.dispose).toBe("function");
     });
 
     it("createSession(opencode) returns an IKilnSession", () => {
       const reg = makeRegistry();
-      const session = reg.createSession("opencode", { task: "test" });
+      const session = reg.createSession("opencode", { task: "test", permissionPolicy: policy });
       expect(typeof session.run).toBe("function");
       expect(typeof session.dispose).toBe("function");
     });
 
     it("createSession with unknown id throws Error", () => {
       const reg = makeRegistry();
-      expect(() => reg.createSession("unknown" as never, { task: "test" })).toThrow("Unknown provider");
+      expect(() => reg.createSession("unknown" as never, { task: "test", permissionPolicy: policy })).toThrow("Unknown provider");
     });
   });
 
@@ -357,6 +362,136 @@ describe("SessionRegistry", () => {
       const reg = createDefaultRegistry();
       const codex = reg.list().find((p) => p.id === "codex")!;
       expect(codex.capabilities.costTrackingMode).toBe("computed");
+    });
+
+    it("all providers have permissionPolicy in capabilities", () => {
+      const reg = createDefaultRegistry();
+      for (const p of reg.list()) {
+        expect(p.capabilities.permissionPolicy).toBeDefined();
+        expect(p.capabilities.permissionPolicy.approval).toBeDefined();
+        expect(p.capabilities.permissionPolicy.sandbox).toBeDefined();
+      }
+    });
+  });
+
+  describe("translatePermission — claude backend", () => {
+    it("auto-approve + none → acceptEdits, skip false", () => {
+      const result = translatePermission({ approval: "auto-approve", sandbox: "none" }, "claude");
+      expect(result.backend).toBe("claude");
+      const cfg = result.config as { permissionMode: string; allowDangerouslySkipPermissions: boolean };
+      expect(cfg.permissionMode).toBe("acceptEdits");
+      expect(cfg.allowDangerouslySkipPermissions).toBe(false);
+    });
+
+    it("auto-approve + workspace-write → bypassPermissions, skip true", () => {
+      const result = translatePermission({ approval: "auto-approve", sandbox: "workspace-write" }, "claude");
+      const cfg = result.config as { permissionMode: string; allowDangerouslySkipPermissions: boolean };
+      expect(cfg.permissionMode).toBe("bypassPermissions");
+      expect(cfg.allowDangerouslySkipPermissions).toBe(true);
+    });
+
+    it("auto-approve + full → bypassPermissions, skip true", () => {
+      const result = translatePermission({ approval: "auto-approve", sandbox: "full" }, "claude");
+      const cfg = result.config as { permissionMode: string; allowDangerouslySkipPermissions: boolean };
+      expect(cfg.permissionMode).toBe("bypassPermissions");
+      expect(cfg.allowDangerouslySkipPermissions).toBe(true);
+    });
+
+    it("ask + any → default, skip false", () => {
+      for (const sandbox of ["none", "workspace-write", "full"] as const) {
+        const result = translatePermission({ approval: "ask", sandbox }, "claude");
+        const cfg = result.config as { permissionMode: string; allowDangerouslySkipPermissions: boolean };
+        expect(cfg.permissionMode).toBe("default");
+        expect(cfg.allowDangerouslySkipPermissions).toBe(false);
+      }
+    });
+
+    it("deny + any → plan, skip false", () => {
+      for (const sandbox of ["none", "workspace-write", "full"] as const) {
+        const result = translatePermission({ approval: "deny", sandbox }, "claude");
+        const cfg = result.config as { permissionMode: string; allowDangerouslySkipPermissions: boolean };
+        expect(cfg.permissionMode).toBe("plan");
+        expect(cfg.allowDangerouslySkipPermissions).toBe(false);
+      }
+    });
+  });
+
+  describe("translatePermission — codex backend", () => {
+    it("auto-approve + none → on-request, workspace-write", () => {
+      const result = translatePermission({ approval: "auto-approve", sandbox: "none" }, "codex");
+      expect(result.backend).toBe("codex");
+      const cfg = result.config as { approvalMode: string; sandboxMode: string };
+      expect(cfg.approvalMode).toBe("on-request");
+      expect(cfg.sandboxMode).toBe("workspace-write");
+    });
+
+    it("auto-approve + workspace-write → never, workspace-write", () => {
+      const result = translatePermission({ approval: "auto-approve", sandbox: "workspace-write" }, "codex");
+      const cfg = result.config as { approvalMode: string; sandboxMode: string };
+      expect(cfg.approvalMode).toBe("never");
+      expect(cfg.sandboxMode).toBe("workspace-write");
+    });
+
+    it("auto-approve + full → never, danger-full-access", () => {
+      const result = translatePermission({ approval: "auto-approve", sandbox: "full" }, "codex");
+      const cfg = result.config as { approvalMode: string; sandboxMode: string };
+      expect(cfg.approvalMode).toBe("never");
+      expect(cfg.sandboxMode).toBe("danger-full-access");
+    });
+
+    it("ask + any → on-request, workspace-write", () => {
+      for (const sandbox of ["none", "workspace-write", "full"] as const) {
+        const result = translatePermission({ approval: "ask", sandbox }, "codex");
+        const cfg = result.config as { approvalMode: string; sandboxMode: string };
+        expect(cfg.approvalMode).toBe("on-request");
+        expect(cfg.sandboxMode).toBe("workspace-write");
+      }
+    });
+
+    it("deny + any → untrusted, workspace-write", () => {
+      for (const sandbox of ["none", "workspace-write", "full"] as const) {
+        const result = translatePermission({ approval: "deny", sandbox }, "codex");
+        const cfg = result.config as { approvalMode: string; sandboxMode: string };
+        expect(cfg.approvalMode).toBe("untrusted");
+        expect(cfg.sandboxMode).toBe("workspace-write");
+      }
+    });
+  });
+
+  describe("translatePermission — opencode backend", () => {
+    it("auto-approve + none → ask", () => {
+      const result = translatePermission({ approval: "auto-approve", sandbox: "none" }, "opencode");
+      expect(result.backend).toBe("opencode");
+      const cfg = result.config as { permissionDefault: string };
+      expect(cfg.permissionDefault).toBe("ask");
+    });
+
+    it("auto-approve + workspace-write → allow", () => {
+      const result = translatePermission({ approval: "auto-approve", sandbox: "workspace-write" }, "opencode");
+      const cfg = result.config as { permissionDefault: string };
+      expect(cfg.permissionDefault).toBe("allow");
+    });
+
+    it("auto-approve + full → allow", () => {
+      const result = translatePermission({ approval: "auto-approve", sandbox: "full" }, "opencode");
+      const cfg = result.config as { permissionDefault: string };
+      expect(cfg.permissionDefault).toBe("allow");
+    });
+
+    it("ask + any → ask", () => {
+      for (const sandbox of ["none", "workspace-write", "full"] as const) {
+        const result = translatePermission({ approval: "ask", sandbox }, "opencode");
+        const cfg = result.config as { permissionDefault: string };
+        expect(cfg.permissionDefault).toBe("ask");
+      }
+    });
+
+    it("deny + any → deny", () => {
+      for (const sandbox of ["none", "workspace-write", "full"] as const) {
+        const result = translatePermission({ approval: "deny", sandbox }, "opencode");
+        const cfg = result.config as { permissionDefault: string };
+        expect(cfg.permissionDefault).toBe("deny");
+      }
     });
   });
 });

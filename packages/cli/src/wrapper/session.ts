@@ -16,6 +16,14 @@ export type CostTrackingMode =
   | "computed"
   | "none";
 
+export type ApprovalMode = "auto-approve" | "ask" | "deny";
+export type SandboxMode = "none" | "workspace-write" | "full";
+
+export interface KilnPermissionPolicy {
+  readonly approval: ApprovalMode;
+  readonly sandbox: SandboxMode;
+}
+
 export type SessionEvent =
   | { type: "text_delta"; content: string }
   | { type: "tool_use"; toolName: string; input: unknown }
@@ -39,6 +47,7 @@ export interface SessionCapabilities {
   readonly maxContextTokens: number | null;
   readonly priority: number;
   readonly fallbackTo: string | null;
+  readonly permissionPolicy: KilnPermissionPolicy;
 }
 
 export interface SessionRunOptions {

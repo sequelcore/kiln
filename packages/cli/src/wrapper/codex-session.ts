@@ -6,6 +6,7 @@ import type {
   SessionCapabilities,
   SessionRunOptions,
   IKilnSession,
+  KilnPermissionPolicy,
 } from "./session.js";
 
 export interface CodexSessionConfig {
@@ -13,7 +14,26 @@ export interface CodexSessionConfig {
   readonly model?: string;
   readonly cwd?: string;
   readonly env?: Record<string, string>;
-  readonly approvalMode?: "never" | "on-request";
+  readonly approvalMode?: "never" | "on-request" | "untrusted";
+  readonly sandboxMode?: "workspace-write" | "danger-full-access";
+  readonly permissionPolicy?: KilnPermissionPolicy;
+}
+
+function derivePermissionPolicy(
+  approvalMode?: string,
+  sandboxMode?: string,
+  fallback?: KilnPermissionPolicy,
+): KilnPermissionPolicy {
+  if (approvalMode === "never") {
+    return { approval: "auto-approve", sandbox: sandboxMode === "danger-full-access" ? "full" : "workspace-write" };
+  }
+  if (approvalMode === "on-request") {
+    return { approval: "ask", sandbox: sandboxMode === "workspace-write" || sandboxMode === "danger-full-access" ? "workspace-write" : "none" };
+  }
+  if (approvalMode === "untrusted") {
+    return { approval: "deny", sandbox: "none" };
+  }
+  return fallback ?? { approval: "ask", sandbox: "none" };
 }
 
 interface MutableCapabilities {
@@ -63,6 +83,7 @@ export class CodexSession implements IKilnSession {
       maxContextTokens: null,
       priority: 3,
       fallbackTo: null,
+      permissionPolicy: derivePermissionPolicy(config.approvalMode, config.sandboxMode, config.permissionPolicy),
     };
   }
 
@@ -95,7 +116,7 @@ export class CodexSession implements IKilnSession {
       "--json",
       "--full-auto",
       "--ask-for-approval",
-      this.config.approvalMode ?? "never",
+      this.config.approvalMode ?? "on-request",
       "--cd",
       cwd,
       options.prompt,

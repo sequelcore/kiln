@@ -110,6 +110,9 @@ describe("OpenCodeSession.run() integration", () => {
       global: {
         event: vi.fn().mockResolvedValue({ stream: makeStream(...events).stream }),
       },
+      config: {
+        update: vi.fn().mockResolvedValue({ data: undefined }),
+      },
     };
   }
 
@@ -250,6 +253,9 @@ describe("OpenCodeSession.run() integration", () => {
       },
       global: {
         event: vi.fn().mockResolvedValue({ stream: (function* () {})() }),
+      },
+      config: {
+        update: vi.fn().mockResolvedValue({ data: undefined }),
       },
     } as any);
 

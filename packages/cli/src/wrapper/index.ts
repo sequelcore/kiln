@@ -6,6 +6,7 @@
  */
 
 import type { DomainConfig } from "@kilnai/core";
+import type { KilnPermissionPolicy } from "./session.js";
 
 /** Session mode determines how Claude Code is launched */
 export type SessionMode =
@@ -40,7 +41,7 @@ export interface WrapperConfig {
   readonly mode: SessionMode;
   readonly apiKey?: string;
   readonly provider?: string;
-  readonly dangerouslySkipPermissions: boolean;
+  readonly permissionPolicy: KilnPermissionPolicy;
 }
 
 export { ClaudeSession } from "./claude-code-process.js";
@@ -57,11 +58,15 @@ export type {
   SessionCapabilities,
   SessionRunOptions,
   IKilnSession,
+  ApprovalMode,
+  SandboxMode,
+  KilnPermissionPolicy,
 } from "./session.js";
 export {
   SessionRegistry,
   createDefaultRegistry,
   SessionUnavailableError,
+  translatePermission,
 } from "./session-registry.js";
 export type {
   ProviderId,
@@ -70,4 +75,8 @@ export type {
   ProviderCreateConfig,
   SelectionResult,
   CandidateScore,
+  ClaudeBackendConfig,
+  CodexBackendConfig,
+  OpenCodeBackendConfig,
+  BackendConfig,
 } from "./session-registry.js";

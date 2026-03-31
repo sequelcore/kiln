@@ -25,7 +25,7 @@ Kiln is a domain-agnostic AI orchestration engine built as a Bun monorepo with 6
 | `packages/studio` | `@kilnai/studio` | Dev UI SPA |
 
 **CLI Commands (today):**
-- `kiln run` — Spawns Claude Code subprocess, supports `--apiKey`, `--provider`, `--dangerouslySkipPermissions`
+- `kiln run` — Spawns Claude Code subprocess, supports `--apiKey`, `--provider`, `--permissionPolicy`
 - `kiln mcp-config` — Generates MCP config for clients (claude-code, stdio/sse)
 - `kiln skill list|install|publish` — Skill management (3-tier discovery)
 - `kiln init` — Interactive wizard for app.yaml + gateway.yaml
@@ -264,7 +264,7 @@ When Kiln becomes a product for others:
 
 ### 4.3 Configuration Redundancy (The Problem to Solve)
 
-- **Permissions:** settings.json (Claude) + config.toml:75-173 (Codex) + opencode.json:6-48 (OpenCode) — same deny/prompt rules, 3 formats
+- **Permissions:** `KilnPermissionPolicy` (unified `{approval, sandbox}` contract) translated per-backend via `translatePermission()` — settings.json (Claude) + config.toml:75-173 (Codex) + opencode.json:6-48 (OpenCode) — single source of truth, 3 formats generated
 - **autoformat.sh:** lives in .codex/hooks/ — should be in .claude/hooks/ with symlink (currently inverted)
 - **MCP config:** Claude (.mcp.json) + Codex (config.toml:51-73) + OpenCode (none — not connected to kiln-gateway yet)
 - **Hooks:** Codex hooks.json + Claude settings.json — both active, partially overlapping
@@ -302,7 +302,7 @@ When Kiln becomes a product for others:
 1c. preamble builder
 1d. session_registry
 1e. worktree_manager
-1f. bypassPermissions sandbox manager
+1f. bypassPermissions sandbox manager ✅ (2026-03-31): `KilnPermissionPolicy` — unified `{approval: ApprovalMode, sandbox: SandboxMode}` contract replaces `dangerouslySkipPermissions: boolean`; pure `translatePermission()` maps 9 policy combinations to per-backend config for all 3 providers; `permissionPolicy` on `RunFlags`, `WrapperConfig`, `ProviderCreateConfig`; Codex spawn arg hardcode fixed (`--ask-for-approval never` → wired via config); OpenCode `PATCH /config` via `client.config.update()` after server ready; full unit-test coverage for `translatePermission` (15 cases)
 
 ---
 
@@ -562,6 +562,7 @@ Target also: @SlackHookHQ whose "infra maturity" framing is the exact Kiln pitch
 
 - **Phase 1:** IKilnSession interface contract — **resolved** (packages/cli/src/wrapper/session.ts defines CostTrackingMode, SessionEvent discriminated union, SessionCapabilities, IKilnSession)
 - **Phase 1:** bypassPermissions sandbox behavior on Windows — test first
+- **Phase 1f:** `KilnPermissionPolicy` design — **resolved** (`packages/cli/src/wrapper/session-registry.ts` defines `translatePermission()`, `packages/cli/src/wrapper/session.ts` defines types)
 - **Phase 2:** MCPorter imports compatibility — evaluate before building
 - **Phase 3:** SkillTrigger complexity filter design — design doc needed
 - **Phase 5:** Channel adapter audit — scout before planning

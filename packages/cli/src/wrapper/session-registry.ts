@@ -1,6 +1,7 @@
 import type {
   SessionCapabilities,
   IKilnSession,
+  KilnPermissionPolicy,
 } from "./session.js";
 import { ClaudeSession } from "./claude-code-process.js";
 import { CodexSession } from "./codex-session.js";
@@ -29,8 +30,94 @@ export interface ProviderCreateConfig {
   readonly cwd?: string;
   readonly env?: Record<string, string>;
   readonly mcpServers?: Record<string, { command: string; args: string[] }>;
-  readonly dangerouslySkipPermissions?: boolean;
+  readonly permissionPolicy: KilnPermissionPolicy;
   readonly model?: string;
+}
+
+export interface ClaudeBackendConfig {
+  readonly permissionMode: "default" | "acceptEdits" | "bypassPermissions" | "plan";
+  readonly allowDangerouslySkipPermissions: boolean;
+}
+
+export interface CodexBackendConfig {
+  readonly approvalMode: "never" | "on-request" | "untrusted";
+  readonly sandboxMode: "workspace-write" | "danger-full-access";
+}
+
+export interface OpenCodeBackendConfig {
+  readonly permissionDefault: "ask" | "allow" | "deny";
+}
+
+export type BackendConfig =
+  | { backend: "claude"; config: ClaudeBackendConfig }
+  | { backend: "codex"; config: CodexBackendConfig }
+  | { backend: "opencode"; config: OpenCodeBackendConfig };
+
+export function translatePermission(
+  policy: KilnPermissionPolicy,
+  backend: "claude" | "codex" | "opencode",
+): BackendConfig {
+  const { approval, sandbox } = policy;
+
+  if (approval === "auto-approve") {
+    if (sandbox === "none") {
+      if (backend === "claude") {
+        return { backend: "claude", config: { permissionMode: "acceptEdits", allowDangerouslySkipPermissions: false } };
+      }
+      if (backend === "codex") {
+        return { backend: "codex", config: { approvalMode: "on-request", sandboxMode: "workspace-write" } };
+      }
+      return { backend: "opencode", config: { permissionDefault: "ask" } };
+    }
+
+    if (sandbox === "workspace-write") {
+      if (backend === "claude") {
+        return { backend: "claude", config: { permissionMode: "bypassPermissions", allowDangerouslySkipPermissions: true } };
+      }
+      if (backend === "codex") {
+        return { backend: "codex", config: { approvalMode: "never", sandboxMode: "workspace-write" } };
+      }
+      return { backend: "opencode", config: { permissionDefault: "allow" } };
+    }
+
+    if (sandbox === "full") {
+      if (backend === "claude") {
+        return { backend: "claude", config: { permissionMode: "bypassPermissions", allowDangerouslySkipPermissions: true } };
+      }
+      if (backend === "codex") {
+        return { backend: "codex", config: { approvalMode: "never", sandboxMode: "danger-full-access" } };
+      }
+      return { backend: "opencode", config: { permissionDefault: "allow" } };
+    }
+  }
+
+  if (approval === "ask") {
+    if (backend === "claude") {
+      return { backend: "claude", config: { permissionMode: "default", allowDangerouslySkipPermissions: false } };
+    }
+    if (backend === "codex") {
+      return { backend: "codex", config: { approvalMode: "on-request", sandboxMode: "workspace-write" } };
+    }
+    return { backend: "opencode", config: { permissionDefault: "ask" } };
+  }
+
+  if (approval === "deny") {
+    if (backend === "claude") {
+      return { backend: "claude", config: { permissionMode: "plan", allowDangerouslySkipPermissions: false } };
+    }
+    if (backend === "codex") {
+      return { backend: "codex", config: { approvalMode: "untrusted", sandboxMode: "workspace-write" } };
+    }
+    return { backend: "opencode", config: { permissionDefault: "deny" } };
+  }
+
+  if (backend === "claude") {
+    return { backend: "claude", config: { permissionMode: "default", allowDangerouslySkipPermissions: false } };
+  }
+  if (backend === "codex") {
+    return { backend: "codex", config: { approvalMode: "on-request", sandboxMode: "workspace-write" } };
+  }
+  return { backend: "opencode", config: { permissionDefault: "ask" } };
 }
 
 interface CircuitBreakerState {
@@ -263,6 +350,8 @@ export class SessionRegistry {
   }
 }
 
+const DEFAULT_POLICY: KilnPermissionPolicy = { approval: "ask", sandbox: "none" };
+
 export function createDefaultRegistry(): SessionRegistry {
   const providers: SessionProviderDescriptor[] = [
     {
@@ -277,20 +366,21 @@ export function createDefaultRegistry(): SessionRegistry {
         maxContextTokens: null,
         priority: 1,
         fallbackTo: null,
+        permissionPolicy: DEFAULT_POLICY,
       },
-      create: (config) =>
-        new ClaudeSession({
+      create: (config) => {
+        const translated = translatePermission(config.permissionPolicy, "claude");
+        const cfg = translated.config as ClaudeBackendConfig;
+        return new ClaudeSession({
           task: config.task,
           systemPrompt: config.systemPrompt ?? "",
           mcpServers: config.mcpServers,
           cwd: config.cwd ?? process.cwd(),
           env: config.env,
-          permissionMode: config.dangerouslySkipPermissions
-            ? "bypassPermissions"
-            : "default",
-          allowDangerouslySkipPermissions:
-            config.dangerouslySkipPermissions ?? false,
-        }),
+          permissionMode: cfg.permissionMode,
+          allowDangerouslySkipPermissions: cfg.allowDangerouslySkipPermissions,
+        });
+      },
     },
     {
       id: "codex",
@@ -304,15 +394,20 @@ export function createDefaultRegistry(): SessionRegistry {
         maxContextTokens: null,
         priority: 3,
         fallbackTo: null,
+        permissionPolicy: DEFAULT_POLICY,
       },
-      create: (config) =>
-        new CodexSession({
+      create: (config) => {
+        const translated = translatePermission(config.permissionPolicy, "codex");
+        const cfg = translated.config as CodexBackendConfig;
+        return new CodexSession({
           task: config.task,
           model: config.model,
           cwd: config.cwd,
           env: config.env,
-          approvalMode: "never",
-        }),
+          approvalMode: cfg.approvalMode,
+          sandboxMode: cfg.sandboxMode,
+        });
+      },
     },
     {
       id: "opencode",
@@ -326,9 +421,12 @@ export function createDefaultRegistry(): SessionRegistry {
         maxContextTokens: null,
         priority: 2,
         fallbackTo: null,
+        permissionPolicy: DEFAULT_POLICY,
       },
-      create: (config) =>
-        new OpenCodeSession({
+      create: (config) => {
+        const translated = translatePermission(config.permissionPolicy, "opencode");
+        const cfg = translated.config as OpenCodeBackendConfig;
+        return new OpenCodeSession({
           cwd: config.cwd ?? process.cwd(),
           env: config.env,
           mcpServers: config.mcpServers
@@ -337,7 +435,10 @@ export function createDefaultRegistry(): SessionRegistry {
                 url: v.command,
               }))
             : [],
-        }),
+          permissionDefault: cfg.permissionDefault,
+          sandboxMode: config.permissionPolicy.sandbox,
+        });
+      },
     },
   ];
 

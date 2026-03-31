@@ -5,9 +5,11 @@ import type {
   SessionCapabilities,
   SessionRunOptions,
   IKilnSession,
+  KilnPermissionPolicy,
+  SandboxMode,
 } from "./session.js";
 
-interface OpencodeClient {
+interface OpencodeClientShape {
   session: {
     create(
       params: { directory?: string },
@@ -40,20 +42,35 @@ interface OpencodeClient {
       }>;
     }>;
   };
+  config: {
+    update(options?: {
+      body?: {
+        permission?: {
+          edit?: "ask" | "allow" | "deny";
+          bash?: "ask" | "allow" | "deny";
+          webfetch?: "ask" | "allow" | "deny";
+        };
+      };
+      query?: { directory?: string };
+    }): Promise<unknown>;
+  };
 }
 
-function asOpencodeClient(value: unknown): OpencodeClient {
+function asOpencodeClient(value: unknown): OpencodeClientShape {
   if (value === null || value === undefined) {
     throw new Error("SDK client is null or undefined");
   }
-  const v = value as { session?: { create?: unknown }; global?: { event?: unknown } };
+  const v = value as { session?: { create?: unknown }; global?: { event?: unknown }; config?: { update?: unknown } };
   if (typeof v.session?.create !== "function") {
     throw new Error("SDK client missing session.create");
   }
   if (typeof v.global?.event !== "function") {
     throw new Error("SDK client missing global.event");
   }
-  return value as OpencodeClient;
+  if (typeof v.config?.update !== "function") {
+    throw new Error("SDK client missing config.update");
+  }
+  return value as OpencodeClientShape;
 }
 
 interface McpServer {
@@ -68,6 +85,23 @@ export interface OpenCodeSessionConfig {
   readonly model?: string;
   readonly port?: number;
   readonly baseUrl?: string;
+  readonly permissionDefault?: "ask" | "allow" | "deny";
+  readonly sandboxMode?: SandboxMode;
+  readonly permissionPolicy?: KilnPermissionPolicy;
+}
+
+function derivePermissionPolicy(
+  permissionDefault?: string,
+  sandboxMode?: SandboxMode,
+  fallback?: KilnPermissionPolicy,
+): KilnPermissionPolicy {
+  if (permissionDefault === "allow") {
+    return { approval: "auto-approve", sandbox: sandboxMode ?? "none" };
+  }
+  if (permissionDefault === "deny") {
+    return { approval: "deny", sandbox: "none" };
+  }
+  return fallback ?? { approval: "ask", sandbox: "none" };
 }
 
 interface MutableCapabilities {
@@ -98,7 +132,15 @@ export class OpenCodeSession implements IKilnSession {
       maxContextTokens: null,
       priority: 2,
       fallbackTo: null,
+      permissionPolicy: derivePermissionPolicy(
+        config.permissionDefault,
+        config.sandboxMode,
+        config.permissionPolicy,
+      ),
     };
+    if (config.sandboxMode && config.sandboxMode !== "none") {
+      console.debug(`[opencode] sandboxMode=${config.sandboxMode} — not supported, silently ignored`);
+    }
   }
 
   get capabilities(): SessionCapabilities {
@@ -139,6 +181,19 @@ export class OpenCodeSession implements IKilnSession {
 
       const { createOpencodeClient } = await import("@opencode-ai/sdk/v2");
       const client = asOpencodeClient(createOpencodeClient({ baseUrl }));
+
+      if (this._config.permissionDefault) {
+        await client.config
+          .update({
+            body: { permission: { edit: this._config.permissionDefault } },
+            query: { directory: cwd },
+          })
+          .catch((err: unknown) => {
+            console.debug(
+              `[opencode] config.update failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          });
+      }
 
       const createResult = await client.session.create(
         { directory: cwd },

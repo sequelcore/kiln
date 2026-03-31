@@ -5,14 +5,16 @@ import type {
   ProviderId,
   SessionRequirements,
   SessionReport,
+  SessionMode,
+  WrapperConfig,
+  KilnPermissionPolicy,
 } from "../wrapper/index.js";
-import type { SessionMode, WrapperConfig } from "../wrapper/index.js";
 import type { KilnAppConfig } from "../config.js";
 
 export interface RunFlags {
   readonly apiKey?: string;
   readonly provider?: string;
-  readonly dangerouslySkipPermissions?: boolean;
+  readonly permissionPolicy?: KilnPermissionPolicy;
 }
 
 function resolveMode(flags: RunFlags): SessionMode {
@@ -20,12 +22,14 @@ function resolveMode(flags: RunFlags): SessionMode {
   return "api-key";
 }
 
+const DEFAULT_POLICY: KilnPermissionPolicy = { approval: "ask", sandbox: "none" };
+
 function buildConfig(flags: RunFlags, mode: SessionMode): WrapperConfig {
   return {
     mode,
     apiKey: flags.apiKey,
     provider: flags.provider,
-    dangerouslySkipPermissions: flags.dangerouslySkipPermissions ?? false,
+    permissionPolicy: flags.permissionPolicy ?? DEFAULT_POLICY,
   };
 }
 
@@ -115,7 +119,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     },
     cwd: process.cwd(),
     env,
-    dangerouslySkipPermissions: config.dangerouslySkipPermissions,
+    permissionPolicy: config.permissionPolicy,
   };
 
   const shutdown = (): void => {

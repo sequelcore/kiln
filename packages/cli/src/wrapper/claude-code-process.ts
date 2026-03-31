@@ -12,6 +12,7 @@ import type {
   SessionCapabilities,
   SessionRunOptions,
   IKilnSession,
+  KilnPermissionPolicy,
 } from "./session.js";
 
 type Options = import("@anthropic-ai/claude-agent-sdk").Options;
@@ -23,8 +24,26 @@ export interface ClaudeSessionConfig {
   readonly mcpServers?: Options["mcpServers"];
   readonly cwd: string;
   readonly env?: Record<string, string>;
-  readonly permissionMode?: "default" | "acceptEdits" | "bypassPermissions";
+  readonly permissionMode?: "default" | "acceptEdits" | "bypassPermissions" | "plan";
   readonly allowDangerouslySkipPermissions?: boolean;
+  readonly permissionPolicy?: KilnPermissionPolicy;
+}
+
+function derivePermissionPolicy(
+  permissionMode?: string,
+  allowDangerouslySkip?: boolean,
+  fallback?: KilnPermissionPolicy,
+): KilnPermissionPolicy {
+  if (permissionMode === "bypassPermissions") {
+    return { approval: "auto-approve", sandbox: allowDangerouslySkip ? "full" : "workspace-write" };
+  }
+  if (permissionMode === "acceptEdits") {
+    return { approval: "auto-approve", sandbox: "none" };
+  }
+  if (permissionMode === "plan") {
+    return { approval: "deny", sandbox: "none" };
+  }
+  return fallback ?? { approval: "ask", sandbox: "none" };
 }
 
 interface MutableCapabilities {
@@ -48,6 +67,11 @@ export class ClaudeSession implements IKilnSession {
       maxContextTokens: null,
       priority: 1,
       fallbackTo: null,
+      permissionPolicy: derivePermissionPolicy(
+        config.permissionMode,
+        config.allowDangerouslySkipPermissions,
+        config.permissionPolicy,
+      ),
     };
   }
 
