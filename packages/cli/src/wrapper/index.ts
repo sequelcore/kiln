@@ -47,6 +47,8 @@ export { ClaudeSession } from "./claude-code-process.js";
 export type { ClaudeSessionConfig } from "./claude-code-process.js";
 export { OpenCodeSession } from "./opencode-session.js";
 export type { OpenCodeSessionConfig } from "./opencode-session.js";
+export { CodexSession } from "./codex-session.js";
+export type { CodexSessionConfig } from "./codex-session.js";
 export { SessionManager } from "./session-manager.js";
 export type { KilnAppConfig, SystemPromptOptions } from "../config.js";
 export type {
