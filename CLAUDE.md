@@ -286,7 +286,7 @@ OpenKiln: See STRATEGY.md Phase 5 for full plan.
 
 ### kiln run v2 (cross-CLI)
 
-kiln run v2 (cross-CLI): See STRATEGY.md Phase 1 — active next sprint.
+kiln run v2 (cross-CLI): See STRATEGY.md Phase 1 — COMPLETE (v0.23.2). Server reuse via `--attach` deferred to Phase 3 (blocked on OpenCode upstream session persistence).
 
 ### Widget Customization
 

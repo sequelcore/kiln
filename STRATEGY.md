@@ -2,7 +2,7 @@
 > Living document. High-level vision and phased plan.
 > Each phase will have its own dedicated research → architecture → 
 > implementation pipeline before execution.
-> Last updated: 2026-03-29
+> Last updated: 2026-03-31
 
 ## 1. What Kiln Is
 
@@ -271,7 +271,7 @@ When Kiln becomes a product for others:
 
 ## 5. Phased Roadmap
 
-### Phase 1 — Cross-CLI Orchestration (kiln run v2)
+### Phase 1 — Cross-CLI Orchestration (kiln run v2) — COMPLETE (10/10)
 
 **Goal:** `kiln run` becomes the single entry point for all 3 CLIs.
 
@@ -290,7 +290,6 @@ When Kiln becomes a product for others:
     - ✅ CodexSession (2026-03-30): spawns `codex exec --json --full-auto`, parses JSONL events (thread.started, turn.started, item.started, item.completed, turn.completed, error, turn.failed), maps to `SessionEvent` variants; `costTrackingMode: "computed"` (token × rate formula); 33 tests pass; end-to-end validation pending (usage credits needed)
     - ✅ SessionRegistry (2026-03-30): priority-ordered provider selection, capability filtering, circuit breaker (closed→open after 3 failures, 30s suppression, half-open probing). `createDefaultRegistry()` pre-wires all 3 session types.
     - ✅ run.ts: --provider flag drives `preferredProvider` in SessionRequirements; registry selects best + ordered fallbacks; cycles through candidates on preflight crash or error.
-  - OpenCodeSession: spawn opencode run --attach --format json, manage opencode serve daemon lifecycle
   - preamble builder: generates <kiln_subprocess_context> XML with session_id, budget_remaining_pct, constraints, output_spec
   - ✅ preamble builder (2026-03-31): `buildPreamble()` in `packages/cli/src/wrapper/preamble-builder.ts` — pure function; assembles `<kiln-preamble>` XML with `<role>`, `<task>`, `<domain>`, `<constraints>`, `<memory>` (200-line cap with truncation), `<instructions>`; sections omitted when empty; XML-escaped content; `KilnAppConfig.buildSystemPrompt` now optional with `defaultBuildSystemPrompt` as sensible default; `SessionContext` gains `memorySnapshot?: string` field; `run.ts` calls `buildPreamble()` before `session.run()`; full unit test coverage (13 cases)
   - session_registry: maps task_id → session_id per provider, enables --resume/--continue between calls
@@ -298,10 +297,10 @@ When Kiln becomes a product for others:
 - bypassPermissions sandbox: dedicated directory + scoped settings.json generated before each subprocess invocation
 
 **Sub-phases:**
-1a. CodexSession + OpenCodeSession (new, most work)
-1b. run.ts --provider auto + routing_test integration
+1a. CodexSession + OpenCodeSession (new, most work) ✅
+1b. run.ts --provider auto + routing_test integration ✅
 1c. preamble builder ✅ (2026-03-31)
-1d. session_registry
+1d. session_registry ✅
 1e. worktree_manager ✅ (2026-03-31)
 1f. bypassPermissions sandbox manager ✅ (2026-03-31): `KilnPermissionPolicy` — unified `{approval: ApprovalMode, sandbox: SandboxMode}` contract replaces `dangerouslySkipPermissions: boolean`; pure `translatePermission()` maps 9 policy combinations to per-backend config for all 3 providers; `permissionPolicy` on `RunFlags`, `WrapperConfig`, `ProviderCreateConfig`; Codex spawn arg hardcode fixed (`--ask-for-approval never` → wired via config); OpenCode `PATCH /config` via `client.config.update()` after server ready; full unit-test coverage for `translatePermission` (15 cases)
 
@@ -351,17 +350,19 @@ When Kiln becomes a product for others:
 **Planned work:**
 - memory_search MCP tool (#26): expose sqlite-store.search() as MCP tool with BM25 ranking
 - skill_generate: SkillTrigger on Stop event with complexity filter → analyzes task result → generates SKILL.md automatically → saves to .kiln/skills/ via SkillRegistry → immediately available cross-tool
-- kiln cron add/list/remove: CLI surface for existing scheduler ✅ (Phase 3c)
-- Verification gates: wire test/lint/type-check loop to agent workflow
-- Eval scorers: surface per-task quality score in status command
-- Per-role cost breakdown: surface in cost_summary MCP tool
+  - kiln cron add/list/remove: CLI surface for existing scheduler ✅ (Phase 3c)
+  - OpenCodeSession: server reuse via `opencode run --attach` — Status: blocked on OpenCode upstream; What: reuse a persistent opencode serve instance across Kiln invocations instead of cold-spawning per session; Blocked on: OpenCode built-in session persistence (open: github.com/anomalyco/opencode-sdk-js/issues/26); Partial path available today: `opencode run --attach <url>` works while same server process is alive — no restart safety; Revisit: when OpenCode ships persistent session save/load (v1.x roadmap, no date committed); Last checked: v1.3.9 (March 30 2026)
+  - Verification gates: wire test/lint/type-check loop to agent workflow
+  - Eval scorers: surface per-task quality score in status command
+  - Per-role cost breakdown: surface in cost_summary MCP tool
 
 **Sub-phases:**
 3a. memory_search tool #26
 3b. skill_generate via SkillTrigger
 3c. kiln cron CLI commands ✅
-3d. Verification gates integration
-3e. Eval scorers in status
+3d. OpenCodeSession --attach (backlog, blocked on upstream)
+3e. Verification gates integration
+3f. Eval scorers in status
 
 ---
 
@@ -573,7 +574,8 @@ Target also: @SlackHookHQ whose "infra maturity" framing is the exact Kiln pitch
 ## 8. Open Questions (to be resolved per phase)
 
 - **Phase 1:** IKilnSession interface contract — **resolved** (packages/cli/src/wrapper/session.ts defines CostTrackingMode, SessionEvent discriminated union, SessionCapabilities, IKilnSession)
-- **Phase 1:** bypassPermissions sandbox behavior on Windows — test first
+- **Phase 1:** bypassPermissions sandbox behavior on Windows — **resolved** (tested, bypassPermissions + scoped sandbox dir works reliably)
+- **Phase 1:** OpenCodeSession --attach lifecycle — **deferred to Phase 3** (blocked on OpenCode built-in session persistence: github.com/anomalyco/opencode-sdk-js/issues/26; partial path available: `opencode run --attach` works while server is alive, no restart safety)
 - **Phase 1f:** `KilnPermissionPolicy` design — **resolved** (`packages/cli/src/wrapper/session-registry.ts` defines `translatePermission()`, `packages/cli/src/wrapper/session.ts` defines types)
 - **Phase 2:** MCPorter imports compatibility — evaluate before building
 - **Phase 3:** SkillTrigger complexity filter design — design doc needed
