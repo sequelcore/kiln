@@ -58,3 +58,16 @@ export type {
   SessionRunOptions,
   IKilnSession,
 } from "./session.js";
+export {
+  SessionRegistry,
+  createDefaultRegistry,
+  SessionUnavailableError,
+} from "./session-registry.js";
+export type {
+  ProviderId,
+  SessionRequirements,
+  SessionProviderDescriptor,
+  ProviderCreateConfig,
+  SelectionResult,
+  CandidateScore,
+} from "./session-registry.js";
