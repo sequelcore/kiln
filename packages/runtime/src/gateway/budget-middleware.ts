@@ -1,14 +1,13 @@
 // Budget enforcement middleware for Mode B apps
 // Checks remaining budget before LLM calls and reports usage after
 //
-// DESIGN RATIONALE (Fail-Open):
-// This middleware intentionally fails OPEN (allows requests when budget API is unavailable).
-// This prevents billing infrastructure issues from blocking user access to the service.
-// If the budget API is down, users can continue using the service - revenue/budget
-// tracking may be temporarily affected but service availability is preserved.
+// DESIGN RATIONALE (Fail-Closed):
+// This middleware intentionally fails CLOSED (blocks requests when budget API is unavailable).
+// Strict budget enforcement: billing infrastructure issues block user access to prevent
+// runaway costs. If the budget API is down, requests are rejected until it recovers.
 //
-// Use case: Multi-tenant SaaS where service availability is prioritized over
-// strict budget enforcement. For strict budget enforcement, use a different pattern.
+// Use case: Strict budget enforcement where cost control is prioritized over service
+// availability. For availability-first, use a different pattern.
 
 import { CircuitBreaker } from "@kilnai/core";
 
@@ -74,15 +73,14 @@ function buildHeaders(billing: BillingConfig, contentType?: string): Record<stri
 /**
  * Check if the tenant has remaining budget.
  * Interpolates {userId} in the budget endpoint URL.
- * Fail-open: returns allowed=true on any fetch error or when circuit is open.
+ * Fail-closed: returns allowed=false on any fetch error or when circuit is open.
  */
 export async function checkBudget(
   billing: BillingConfig,
   tenantId: string,
 ): Promise<BudgetCheckResult> {
-  // If circuit is open, fail open immediately (consistent with current behavior)
   if (budgetCircuitBreaker.currentState === "open") {
-    return { allowed: true, remaining: -1, unit: "unknown" };
+    return { allowed: false, remaining: -1, unit: "unknown" };
   }
 
   try {
@@ -90,8 +88,8 @@ export async function checkBudget(
       const url = billing.budgetEndpoint.replace("{userId}", tenantId);
       const res = await fetch(url, { headers: buildHeaders(billing) });
       if (!res.ok) {
-        console.warn(`[billing] checkBudget failed: ${res.status} ${res.statusText} (tenant=${tenantId})`);
-        return { allowed: true, remaining: -1, unit: "unknown" };
+        console.error(`[billing] checkBudget failed: ${res.status} ${res.statusText} (tenant=${tenantId})`);
+        return { allowed: false, remaining: -1, unit: "unknown" };
       }
       const data = (await res.json()) as BudgetResponse;
       if (data.allowed === false) {
@@ -105,8 +103,7 @@ export async function checkBudget(
       return { allowed: true, remaining: data.remaining ?? -1, unit: data.unit ?? "tokens" };
     });
   } catch {
-    // Fail-open on network/fetch errors or circuit open
-    return { allowed: true, remaining: -1, unit: "unknown" };
+    return { allowed: false, remaining: -1, unit: "unknown" };
   }
 }
 

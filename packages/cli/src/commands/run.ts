@@ -16,6 +16,7 @@ export interface RunFlags {
   readonly apiKey?: string;
   readonly provider?: string;
   readonly permissionPolicy?: KilnPermissionPolicy;
+  readonly isolate?: boolean;
 }
 
 function resolveMode(flags: RunFlags): SessionMode {
@@ -74,7 +75,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
 
   let context;
   try {
-    context = await manager.prepare(task, process.cwd());
+    context = await manager.prepare(task, process.cwd(), undefined, flags.isolate);
   } catch (err) {
     console.error("Error: Failed to prepare session.", err instanceof Error ? err.message : err);
     process.exit(1);

@@ -189,8 +189,8 @@ function parsePort(args: readonly string[]): number {
   return 4800;
 }
 
-function parseRunArgs(rawArgs: readonly string[]): { task: string; flags: { apiKey?: string; provider?: string } } {
-  const flags: { apiKey?: string; provider?: string } = {};
+function parseRunArgs(rawArgs: readonly string[]): { task: string; flags: { apiKey?: string; provider?: string; isolate?: boolean } } {
+  const flags: { apiKey?: string; provider?: string; isolate?: boolean } = {};
   const taskParts: string[] = [];
   let i = 0;
   while (i < rawArgs.length) {
@@ -201,6 +201,9 @@ function parseRunArgs(rawArgs: readonly string[]): { task: string; flags: { apiK
     } else if (arg === "--provider" && i + 1 < rawArgs.length) {
       flags.provider = rawArgs[i + 1];
       i += 2;
+    } else if (arg === "--isolate") {
+      flags.isolate = true;
+      i += 1;
     } else {
       taskParts.push(arg);
       i += 1;

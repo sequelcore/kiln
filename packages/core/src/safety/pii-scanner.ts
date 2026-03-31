@@ -48,17 +48,17 @@ export class PiiScanner {
 
   /** Tier 1: regex-based scanning, filtered to config.detect types */
   scanHeuristic(input: string): PiiScanResult {
+    const normalized = input.normalize("NFKC");
     const matches: PiiMatch[] = [];
     const allowlist = new Set(this.config.allowlist ?? []);
 
     for (const pattern of PII_PATTERNS) {
       if (!this.config.detect.includes(pattern.type)) continue;
 
-      // Reset regex lastIndex for global patterns
       const regex = new RegExp(pattern.regex.source, pattern.regex.flags);
       let match: RegExpExecArray | null;
 
-      while ((match = regex.exec(input)) !== null) {
+      while ((match = regex.exec(normalized)) !== null) {
         const value = match[0];
         if (allowlist.has(value)) continue;
         if (pattern.type === "credit_card" && !luhnCheck(value.replace(/\D/g, ""))) continue;
@@ -77,24 +77,24 @@ export class PiiScanner {
 
   /** Tier 2: LLM-based deep scan for named entities (fail-open) */
   async scanDeep(input: string, provider: PiiDeepScanProvider): Promise<PiiScanResult> {
+    const normalized = input.normalize("NFKC");
     try {
-      const matches = await provider.scan(input);
+      const matches = await provider.scan(normalized);
       const allowlist = new Set(this.config.allowlist ?? []);
       const filtered = matches.filter((m) => !allowlist.has(m.value));
       return { matches: filtered, tier: "deep", scannedAt: new Date() };
     } catch {
-      // Fail-open: return empty on error
       return { matches: [], tier: "deep", scannedAt: new Date() };
     }
   }
 
   /** Combined scan: always Tier 1, Tier 2 if config.deepScan is true */
   async scan(input: string, provider?: PiiDeepScanProvider): Promise<PiiScanResult> {
-    const heuristic = this.scanHeuristic(input);
+    const normalized = input.normalize("NFKC");
+    const heuristic = this.scanHeuristic(normalized);
 
     if (this.config.deepScan && provider) {
-      const deep = await this.scanDeep(input, provider);
-      // Merge: heuristic matches + deep matches, deduplicated by position
+      const deep = await this.scanDeep(normalized, provider);
       const allMatches = [...heuristic.matches];
       for (const dm of deep.matches) {
         const exists = allMatches.some(
@@ -112,7 +112,6 @@ export class PiiScanner {
   redact(input: string, matches: readonly PiiMatch[]): string {
     if (matches.length === 0) return input;
 
-    // Sort by startIndex descending to preserve earlier indices
     const sorted = [...matches].sort((a, b) => b.startIndex - a.startIndex);
     let result = input;
 

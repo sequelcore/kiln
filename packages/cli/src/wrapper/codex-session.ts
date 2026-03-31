@@ -54,6 +54,10 @@ interface CodexJsonlLine {
     title?: string;
     arguments?: Record<string, unknown>;
     message?: string;
+    query?: string;
+    todos?: unknown[];
+    path?: string;
+    change_type?: string;
   };
   usage?: {
     input_tokens?: number;
@@ -61,7 +65,7 @@ interface CodexJsonlLine {
     output_tokens?: number;
   };
   message?: string;
-  error?: { message?: string };
+  error?: { message?: string; type?: string };
 }
 
 export class CodexSession implements IKilnSession {
@@ -210,8 +214,17 @@ export class CodexSession implements IKilnSession {
           initReceived = true;
           break;
 
-        case "item.started":
+        case "item.started": {
+          const item = line.item;
+          if (item?.type) {
+            yield {
+              type: "tool_use",
+              toolName: item.type,
+              input: item.arguments ?? {},
+            };
+          }
           break;
+        }
 
         case "item.completed": {
           const item = line.item;
@@ -262,6 +275,38 @@ export class CodexSession implements IKilnSession {
               };
               break;
 
+            case "file_change":
+              yield {
+                type: "tool_result",
+                toolName: "file_change",
+                output: `File ${item.path ?? "unknown"}: ${item.change_type ?? "modified"}`,
+              };
+              break;
+
+            case "collab_tool_call":
+              yield {
+                type: "tool_use",
+                toolName: "collab_tool_call",
+                input: item.arguments ?? {},
+              };
+              break;
+
+            case "web_search":
+              yield {
+                type: "tool_use",
+                toolName: "web_search",
+                input: { query: item.query ?? item.message ?? "" },
+              };
+              break;
+
+            case "todo_list":
+              yield {
+                type: "tool_result",
+                toolName: "todo_list",
+                output: JSON.stringify(item.todos ?? []),
+              };
+              break;
+
             default:
               break;
           }
@@ -290,23 +335,30 @@ export class CodexSession implements IKilnSession {
           break;
         }
 
-        case "error":
+        case "error": {
+          const errorType = line.error?.type;
+          const isRetryable =
+            errorType === "Stream" || errorType === "Timeout" || errorType === "ConnectionFailed";
           lastError = line.message ?? "Unknown error";
           yield {
             type: "error",
             code: "CODEX_TURN_ERROR",
             message: lastError,
-            isRetryable: false,
+            isRetryable,
           };
           break;
+        }
 
-        case "turn.failed":
+        case "turn.failed": {
+          const errorType = line.error?.type;
+          const isRetryable =
+            errorType === "Stream" || errorType === "Timeout" || errorType === "ConnectionFailed";
           lastError = line.error?.message ?? "Turn failed";
           yield {
             type: "error",
             code: "CODEX_TURN_FAILED",
             message: lastError,
-            isRetryable: false,
+            isRetryable,
           };
           if (!turnCompleted) {
             yield {
@@ -318,6 +370,7 @@ export class CodexSession implements IKilnSession {
             };
           }
           break;
+        }
       }
       }
     } catch {

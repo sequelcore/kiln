@@ -82,17 +82,17 @@ describe("checkBudget", () => {
     expect(calledUrl).toBe("https://api.example.com/budget?tenantId=kilvo-tenant1");
   });
 
-  it("returns allowed on fetch error (fail-open)", async () => {
+  it("returns blocked on fetch error (fail-closed)", async () => {
     mockFetch.mockRejectedValueOnce(new Error("Network error"));
 
     const result = await checkBudget(makeBillingConfig(), "kilvo-abc123");
 
-    expect(result.allowed).toBe(true);
+    expect(result.allowed).toBe(false);
     expect(result.remaining).toBe(-1);
     expect(result.unit).toBe("unknown");
   });
 
-  it("returns allowed on non-OK response (fail-open)", async () => {
+  it("returns blocked on non-OK response (fail-closed)", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: false,
       status: 500,
@@ -100,7 +100,7 @@ describe("checkBudget", () => {
 
     const result = await checkBudget(makeBillingConfig(), "kilvo-abc123");
 
-    expect(result.allowed).toBe(true);
+    expect(result.allowed).toBe(false);
     expect(result.remaining).toBe(-1);
     expect(result.unit).toBe("unknown");
   });

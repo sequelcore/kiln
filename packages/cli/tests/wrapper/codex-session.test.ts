@@ -232,7 +232,7 @@ describe("CodexSession.run() JSONL parsing", () => {
     expect(events).not.toContainEqual(expect.objectContaining({ type: "text_delta", content: "Let me think..." }));
   });
 
-  it("run() skips item.started events silently", async () => {
+  it("run() emits tool_use for item.started events", async () => {
     const { proc, emitLine, resolveExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
     vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
@@ -247,7 +247,9 @@ describe("CodexSession.run() JSONL parsing", () => {
     resolveExit(0);
 
     const events = await collectPromise;
-    expect(events).toHaveLength(2);
+    const toolUse = events.find((e) => e.type === "tool_use");
+    expect(toolUse).toBeDefined();
+    expect((toolUse as { toolName: string }).toolName).toBe("command_execution");
   });
 
   it("run() yields error event for item.type error", async () => {

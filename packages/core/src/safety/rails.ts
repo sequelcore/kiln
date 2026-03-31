@@ -17,7 +17,8 @@ export class TopicRail implements PolicyRail {
   }
 
   evaluate(text: string, _direction: SafetyDirection): PolicyResult {
-    const lower = text.toLowerCase();
+    const normalized = text.normalize("NFKC");
+    const lower = normalized.toLowerCase();
 
     // Check blocked topics
     if (this.config.block) {
@@ -59,7 +60,8 @@ export class CompetitorRail implements PolicyRail {
   }
 
   evaluate(text: string, _direction: SafetyDirection): PolicyResult {
-    const lower = text.toLowerCase();
+    const normalized = text.normalize("NFKC");
+    const lower = normalized.toLowerCase();
 
     for (const competitor of this.config.competitors) {
       if (lower.includes(competitor.toLowerCase())) {
@@ -85,7 +87,8 @@ export class EscalationRail implements PolicyRail {
   }
 
   evaluate(text: string, _direction: SafetyDirection): PolicyResult {
-    const lower = text.toLowerCase();
+    const normalized = text.normalize("NFKC");
+    const lower = normalized.toLowerCase();
 
     for (const trigger of this.config.triggers) {
       if (lower.includes(trigger.toLowerCase())) {
@@ -116,9 +119,11 @@ export class ComplianceRail implements PolicyRail {
       return { allowed: true, railType: "compliance" };
     }
 
+    const normalized = text.normalize("NFKC");
+
     // Check forbidden phrases
     if (this.config.forbid) {
-      const lower = text.toLowerCase();
+      const lower = normalized.toLowerCase();
       for (const phrase of this.config.forbid) {
         if (lower.includes(phrase.toLowerCase())) {
           return {
@@ -132,7 +137,7 @@ export class ComplianceRail implements PolicyRail {
 
     // Check required phrases
     if (this.config.required) {
-      const lower = text.toLowerCase();
+      const lower = normalized.toLowerCase();
       for (const phrase of this.config.required) {
         if (!lower.includes(phrase.toLowerCase())) {
           return {

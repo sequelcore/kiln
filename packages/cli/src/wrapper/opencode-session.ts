@@ -386,6 +386,42 @@ export class OpenCodeSession implements IKilnSession {
             break;
           }
         }
+
+        if (event.payload.type === "session.compacted") {
+          const props = event.payload.properties as {
+            sessionID?: string;
+            tokens?: number;
+          } | undefined;
+          if (props?.sessionID !== this._remoteSessionId) continue;
+          const output = props?.tokens !== undefined
+            ? `Context compacted to approximately ${props.tokens} tokens`
+            : "Context compacted";
+          yield { type: "tool_result", toolName: "session.compacted", output };
+          continue;
+        }
+
+        if (event.payload.type === "question.asked") {
+          const props = event.payload.properties as {
+            sessionID?: string;
+            question?: string;
+          } | undefined;
+          if (props?.sessionID !== this._remoteSessionId) continue;
+          if (props?.question) {
+            yield { type: "text_delta", content: `[Question] ${props.question}` };
+          }
+          continue;
+        }
+
+        if (event.payload.type === "mcp.tools.changed") {
+          const props = event.payload.properties as {
+            sessionID?: string;
+            tools?: Array<{ name: string }>;
+          } | undefined;
+          if (props?.sessionID !== this._remoteSessionId) continue;
+          const toolList = props?.tools?.map((t) => t.name).join(", ") ?? "";
+          yield { type: "tool_result", toolName: "mcp.tools.changed", output: toolList };
+          continue;
+        }
       }
 
       const stopReason = promptResult?.data?.info?.stopReason;
