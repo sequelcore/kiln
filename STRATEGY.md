@@ -284,14 +284,15 @@ When Kiln becomes a product for others:
 - opencode serve + --attach lifecycle management
 
 **Planned work:**
-- IKilnSession interface contract (packages/cli/src/wrapper/session.ts) — formalizes 6 event variants + capabilities + run/dispose contract; forces ClaudeSession refactor when implemented
-  - ✅ ClaudeSession implements IKilnSession (2026-03-30): async generator `run()`, `dispose()`, `sessionId`, `capabilities`; cost flows via `cost_update` → `completed` events; old callback API (start/onMessage/onExit) removed; ghost Orchestrator removed from run.ts
-  - ✅ OpenCodeSession implements IKilnSession (2026-03-30): spawns `opencode serve`, connects via `@opencode-ai/sdk` (HTTP), maps ACP SSE events (message.part.delta, message.part.updated, sessionUpdate, session.status) to `SessionEvent` variants; `serveProcess` public for testability; `baseUrl` config escape hatch; 19 tests pass
-  - ✅ CodexSession (2026-03-30): spawns `codex exec --json --full-auto`, parses JSONL events (thread.started, turn.started, item.started, item.completed, turn.completed, error, turn.failed), maps to `SessionEvent` variants; `costTrackingMode: "computed"` (token × rate formula); 33 tests pass; end-to-end validation pending (usage credits needed)
-- OpenCodeSession: spawn opencode run --attach --format json, manage opencode serve daemon lifecycle
-- run.ts: --provider auto → calls routing_test → decides CLI
-- preamble builder: generates <kiln_subprocess_context> XML with session_id, budget_remaining_pct, constraints, output_spec
-- session_registry: maps task_id → session_id per provider, enables --resume/--continue between calls
+  - IKilnSession interface contract (packages/cli/src/wrapper/session.ts) — formalizes 6 event variants + capabilities + run/dispose contract; forces ClaudeSession refactor when implemented
+    - ✅ ClaudeSession implements IKilnSession (2026-03-30): async generator `run()`, `dispose()`, `sessionId`, `capabilities`; cost flows via `cost_update` → `completed` events; old callback API (start/onMessage/onExit) removed; ghost Orchestrator removed from run.ts
+    - ✅ OpenCodeSession implements IKilnSession (2026-03-30): spawns `opencode serve`, connects via `@opencode-ai/sdk` (HTTP), maps ACP SSE events (message.part.delta, message.part.updated, sessionUpdate, session.status) to `SessionEvent` variants; `serveProcess` public for testability; `baseUrl` config escape hatch; 19 tests pass
+    - ✅ CodexSession (2026-03-30): spawns `codex exec --json --full-auto`, parses JSONL events (thread.started, turn.started, item.started, item.completed, turn.completed, error, turn.failed), maps to `SessionEvent` variants; `costTrackingMode: "computed"` (token × rate formula); 33 tests pass; end-to-end validation pending (usage credits needed)
+    - ✅ SessionRegistry (2026-03-30): priority-ordered provider selection, capability filtering, circuit breaker (closed→open after 3 failures, 30s suppression, half-open probing). `createDefaultRegistry()` pre-wires all 3 session types.
+    - ✅ run.ts: --provider flag drives `preferredProvider` in SessionRequirements; registry selects best + ordered fallbacks; cycles through candidates on preflight crash or error.
+  - OpenCodeSession: spawn opencode run --attach --format json, manage opencode serve daemon lifecycle
+  - preamble builder: generates <kiln_subprocess_context> XML with session_id, budget_remaining_pct, constraints, output_spec
+  - session_registry: maps task_id → session_id per provider, enables --resume/--continue between calls
 - worktree_manager: creates isolated git worktree per parallel task, destroys on completion
 - bypassPermissions sandbox: dedicated directory + scoped settings.json generated before each subprocess invocation
 

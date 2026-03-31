@@ -258,10 +258,12 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `commands/dev.ts` | Dev mode with YAML hot-reload |
 | `commands/cron.ts` | `kiln cron` command: list, add, remove, run subcommands for schedule triggers. Dynamic import of `@kilnai/runtime` for Scheduler + EventBus. |
 | `wrapper/session.ts` | IKilnSession: canonical session contract (CostTrackingMode, SessionEvent discriminated union, SessionCapabilities, IKilnSession interface) for multi-CLI orchestration |
+| `wrapper/session-manager.ts` | SessionManager: pre-session setup (domain detection, system prompt, MCP path) + post-session report (duration, cost aggregation) |
+| `wrapper/session-registry.ts` | SessionRegistry + circuit breaker: priority-ordered provider selection, capability filtering, 30s suppression window, half-open probing. `createDefaultRegistry()` pre-wires all 3 session types. |
 | `wrapper/claude-code-process.ts` | ClaudeSession implementing IKilnSession: async generator `run()`, `dispose()`, `sessionId`, `capabilities`. Replaces old callback API (start/onMessage/onExit). Yields `SessionEvent` variants: text_delta, tool_use, cost_update, completed, error. |
 | `wrapper/opencode-session.ts` | OpenCodeSession implementing IKilnSession: spawns `opencode serve`, connects via SDK (HTTP), maps ACP SSE events to `SessionEvent`. Requires opencode >= v1.3.6 (token double-counting fix). |
 | `wrapper/codex-session.ts` | CodexSession implementing IKilnSession: spawns `codex exec --json`, parses JSONL events, maps to `SessionEvent` variants; `costTrackingMode: "computed"` (token × rate formula); requires codex >= v0.117.0 |
-| `commands/run.ts` | `kiln run` command: consumes `AsyncIterable<SessionEvent>` from ClaudeSession, wires `cost_update` to report, handles `isPreflightCrash` / `isError` / `error` events. Ghost Orchestrator removed. |
+| `commands/run.ts` | `kiln run` command: registry-driven session selection with circuit breaker fallback. `createDefaultRegistry()` + `selectBest()` replaces hardcoded ClaudeSession. Cycles through candidates on preflight crash or error. Wires `cost_update` to report. |
 
 ## Backlog
 
