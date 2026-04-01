@@ -336,6 +336,17 @@ See changelog: docs/changelog.md
 - ✅ feat(cli): experimental.batch_tool:true PATCH (up to 25 parallel tool calls)
 - Deferred: GET /diff file change tracking, POST /fork session branching, mid-session model switch
 
+### CLI Bootstrap Fix ✅ (feat/phase-3-5)
+- ✅ fix(cli): import.meta.main guard — kiln binary now self-invokes without consumer calling createCli()
+- ✅ fix(cli): cli-wrapper mode — kiln run works without --api-key, routes to installed CLIs
+- ✅ refactor(cli): remove dead KilnAppConfig identity fields (appName/dirName/version/description/mcpServerName)
+
+### Session Report Backlog (Phase 3.6+)
+- feat(cli): surface provider name + model in session report footer
+  (`Provider: opencode (claude-haiku-4-5)` line after Mode)
+- feat(cli): KilnAppConfig white-label — evaluate removing identity fields or keeping for open-source
+  (see deferred decision in STRATEGY.md research section)
+
 ### kiln skill capture (interactive, Phase 3.5f — PENDING)
 - feat(cli): `kiln skill capture "description"` — manual interactive skill capture command
 - **Why deferred to Phase 3.5:** requires full session transcript + structured session memory
