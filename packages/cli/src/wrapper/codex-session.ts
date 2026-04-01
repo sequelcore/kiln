@@ -8,6 +8,7 @@ import type {
   IKilnSession,
   KilnPermissionPolicy,
 } from "./session.js";
+import { SessionStore } from "./session-store.js";
 
 export interface CodexSessionConfig {
   readonly task: string;
@@ -17,6 +18,7 @@ export interface CodexSessionConfig {
   readonly approvalMode?: "never" | "on-request" | "untrusted";
   readonly sandboxMode?: "workspace-write" | "danger-full-access";
   readonly permissionPolicy?: KilnPermissionPolicy;
+  readonly resumeSessionId?: string;
 }
 
 function derivePermissionPolicy(
@@ -75,13 +77,15 @@ export class CodexSession implements IKilnSession {
   private _process: import("node:child_process").ChildProcess | null = null;
   private _abortListener: (() => void) | null = null;
   private _disposed = false;
+  private _threadId: string | null = null;
 
   constructor(private readonly config: CodexSessionConfig) {
     this.sessionId = randomUUID();
     this._capabilities = {
       mcp: false,
       streaming: true,
-      resume: false,
+      resumable: config.resumeSessionId !== undefined,
+      resume: config.resumeSessionId !== undefined,
       costTrackingMode: "computed",
       supportedTools: [],
       maxContextTokens: null,
@@ -115,16 +119,31 @@ export class CodexSession implements IKilnSession {
     }
 
     const cwd = options.cwd ?? this.config.cwd ?? process.cwd();
+
+    let resumeThreadId: string | undefined;
+    if (this.config.resumeSessionId !== undefined) {
+      try {
+        const store = new SessionStore(cwd);
+        const record = await store.find(this.config.resumeSessionId);
+        if (record?.threadId) {
+          resumeThreadId = record.threadId;
+        }
+      } catch {
+        console.error("[SessionStore] Resume lookup failed, continuing without resume");
+      }
+    }
+
     const args = [
       "exec",
       "--json",
       "--full-auto",
       "--ask-for-approval",
       this.config.approvalMode ?? "on-request",
-      "--cd",
-      cwd,
-      options.prompt,
     ];
+    if (resumeThreadId) {
+      args.push("--resume", resumeThreadId);
+    }
+    args.push("--cd", cwd, options.prompt);
 
     if (options.abortSignal?.aborted) {
       yield {
@@ -208,6 +227,7 @@ export class CodexSession implements IKilnSession {
 
       switch (line.type) {
         case "thread.started":
+          this._threadId = line.thread_id ?? null;
           break;
 
         case "turn.started":
@@ -332,6 +352,21 @@ export class CodexSession implements IKilnSession {
             isError: lastError !== null,
             isPreflightCrash: !initReceived && computedUsd === 0,
           };
+          try {
+            const store = new SessionStore(cwd);
+            const completedAt = new Date().toISOString();
+            await store.append({
+              sessionId: this._threadId ?? this.sessionId,
+              provider: "codex",
+              task: this.config.task,
+              completedAt,
+              cost: computedUsd,
+              projectPath: cwd,
+              threadId: this._threadId ?? undefined,
+            });
+          } catch (err) {
+            console.error("[SessionStore] Failed to append session record:", err instanceof Error ? err.message : String(err));
+          }
           break;
         }
 
@@ -368,6 +403,21 @@ export class CodexSession implements IKilnSession {
               isError: true,
               isPreflightCrash: !initReceived,
             };
+            try {
+              const store = new SessionStore(cwd);
+              const completedAt = new Date().toISOString();
+              await store.append({
+                sessionId: this._threadId ?? this.sessionId,
+                provider: "codex",
+                task: this.config.task,
+                completedAt,
+                cost: 0,
+                projectPath: cwd,
+                threadId: this._threadId ?? undefined,
+              });
+            } catch (err) {
+              console.error("[SessionStore] Failed to append session record:", err instanceof Error ? err.message : String(err));
+            }
           }
           break;
         }
@@ -393,6 +443,21 @@ export class CodexSession implements IKilnSession {
           isError: true,
           isPreflightCrash: !initReceived,
         };
+        try {
+          const store = new SessionStore(cwd);
+          const completedAt = new Date().toISOString();
+          await store.append({
+            sessionId: this._threadId ?? this.sessionId,
+            provider: "codex",
+            task: this.config.task,
+            completedAt,
+            cost: 0,
+            projectPath: cwd,
+            threadId: this._threadId ?? undefined,
+          });
+        } catch (err) {
+          console.error("[SessionStore] Failed to append session record:", err instanceof Error ? err.message : String(err));
+        }
       }
     }
   }

@@ -14,6 +14,7 @@ import type {
   IKilnSession,
   KilnPermissionPolicy,
 } from "./session.js";
+import { SessionStore } from "./session-store.js";
 
 type Options = import("@anthropic-ai/claude-agent-sdk").Options;
 type Query = import("@anthropic-ai/claude-agent-sdk").Query;
@@ -27,6 +28,7 @@ export interface ClaudeSessionConfig {
   readonly permissionMode?: "default" | "acceptEdits" | "bypassPermissions" | "plan";
   readonly allowDangerouslySkipPermissions?: boolean;
   readonly permissionPolicy?: KilnPermissionPolicy;
+  readonly resumeSessionId?: string;
 }
 
 function derivePermissionPolicy(
@@ -61,7 +63,8 @@ export class ClaudeSession implements IKilnSession {
     this._capabilities = {
       mcp: true,
       streaming: true,
-      resume: false,
+      resumable: config.resumeSessionId !== undefined,
+      resume: config.resumeSessionId !== undefined,
       costTrackingMode: "native",
       supportedTools: [],
       maxContextTokens: null,
@@ -115,6 +118,21 @@ export class ClaudeSession implements IKilnSession {
         process.stderr.write(data);
       },
     };
+
+    let resumeSessionId: string | undefined;
+    if (this.config.resumeSessionId !== undefined) {
+      try {
+        const store = new SessionStore(this.config.cwd);
+        const record = await store.find(this.config.resumeSessionId);
+        if (record) {
+          resumeSessionId = record.sessionId;
+          const resumeOptions: Options = { ...sdkOptions, sessionId: resumeSessionId };
+          Object.assign(sdkOptions, resumeOptions);
+        }
+      } catch {
+        console.error("[SessionStore] Resume lookup failed, continuing without resume");
+      }
+    }
 
     const queryInstance: Query = query({
       prompt: options.prompt,
@@ -176,6 +194,20 @@ export class ClaudeSession implements IKilnSession {
             isError: resultMsg.is_error ?? false,
             isPreflightCrash: !initReceived && totalCostUsd === 0,
           };
+          try {
+            const store = new SessionStore(this.config.cwd);
+            const completedAt = new Date().toISOString();
+            await store.append({
+              sessionId: resumeSessionId ?? this.sessionId,
+              provider: "claude-code",
+              task: this.config.task,
+              completedAt,
+              cost: totalCostUsd,
+              projectPath: this.config.cwd,
+            });
+          } catch (err) {
+            console.error("[SessionStore] Failed to append session record:", err instanceof Error ? err.message : String(err));
+          }
         }
       }
     } catch (err) {

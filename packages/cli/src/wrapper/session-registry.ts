@@ -34,6 +34,7 @@ export interface ProviderCreateConfig {
   readonly mcpServers?: Record<string, { command: string; args: string[] }>;
   readonly permissionPolicy: KilnPermissionPolicy;
   readonly model?: string;
+  readonly resumeSessionId?: string;
 }
 
 export interface ClaudeBackendConfig {
@@ -370,6 +371,7 @@ export function createDefaultRegistry(): {
       capabilities: {
         mcp: true,
         streaming: true,
+        resumable: false,
         resume: false,
         costTrackingMode: "native",
         supportedTools: [],
@@ -389,6 +391,7 @@ export function createDefaultRegistry(): {
           env: config.env,
           permissionMode: cfg.permissionMode,
           allowDangerouslySkipPermissions: cfg.allowDangerouslySkipPermissions,
+          resumeSessionId: config.resumeSessionId,
         });
       },
     },
@@ -398,6 +401,7 @@ export function createDefaultRegistry(): {
       capabilities: {
         mcp: false,
         streaming: true,
+        resumable: false,
         resume: false,
         costTrackingMode: "computed",
         supportedTools: [],
@@ -416,6 +420,7 @@ export function createDefaultRegistry(): {
           env: config.env,
           approvalMode: cfg.approvalMode,
           sandboxMode: cfg.sandboxMode,
+          resumeSessionId: config.resumeSessionId,
         });
       },
     },
@@ -425,6 +430,7 @@ export function createDefaultRegistry(): {
       capabilities: {
         mcp: true,
         streaming: true,
+        resumable: false,
         resume: false,
         costTrackingMode: "native",
         supportedTools: [],
@@ -437,6 +443,7 @@ export function createDefaultRegistry(): {
         const translated = translatePermission(config.permissionPolicy, "opencode");
         const cfg = translated.config as OpenCodeBackendConfig;
         return new OpenCodeSession({
+          task: config.task,
           cwd: config.cwd ?? process.cwd(),
           env: config.env,
           mcpServers: config.mcpServers
@@ -447,6 +454,7 @@ export function createDefaultRegistry(): {
             : [],
           permissionDefault: cfg.permissionDefault,
           sandboxMode: config.permissionPolicy.sandbox,
+          resumeSessionId: (config as { resumeSessionId?: string }).resumeSessionId,
         });
       },
     },

@@ -41,6 +41,7 @@ export type SessionEvent =
 export interface SessionCapabilities {
   readonly mcp: boolean;
   readonly streaming: boolean;
+  readonly resumable: boolean;
   readonly resume: boolean;
   readonly costTrackingMode: CostTrackingMode;
   readonly supportedTools: readonly string[];

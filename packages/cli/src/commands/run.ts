@@ -4,7 +4,7 @@ import { SessionManager } from "../wrapper/session-manager.js";
 import { createDefaultRegistry } from "../wrapper/session-registry.js";
 import { buildPreamble } from "../wrapper/preamble-builder.js";
 import { cleanupRegistry } from "../wrapper/cleanup-registry.js";
-import { HookRegistry, HookExecutor } from "../wrapper/index.js";
+import { HookRegistry, HookExecutor, SessionStore } from "../wrapper/index.js";
 import type {
   ProviderId,
   SessionRequirements,
@@ -21,6 +21,7 @@ export interface RunFlags {
   readonly provider?: string;
   readonly permissionPolicy?: KilnPermissionPolicy;
   readonly isolate?: boolean;
+  readonly resume?: boolean;
 }
 
 function resolveMode(flags: RunFlags): SessionMode {
@@ -105,6 +106,9 @@ export function printReport(report: SessionReport, appName: string): void {
   console.log(`Phase:    ${report.phaseReached}`);
   console.log(`Cost:     $${report.cost.total.toFixed(2)}${costParts ? ` (${costParts})` : ""}`);
   console.log(`Duration: ${durationSec}s`);
+  if ((report as { resumedFrom?: string }).resumedFrom) {
+    console.log(`Resumed:  from session ${(report as { resumedFrom: string }).resumedFrom}`);
+  }
   if (report.verificationResult) {
     const v = report.verificationResult;
     console.log(`Gates:    ${v.passed ? "all passed" : "FAILED"}`);
@@ -151,6 +155,20 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     process.exit(1);
   }
 
+  const preferredProvider = config.provider as ProviderId | undefined;
+  let resumeSessionId: string | undefined;
+  if (flags.resume && preferredProvider) {
+    try {
+      const store = new SessionStore(process.cwd());
+      const lastRecord = await store.last(preferredProvider);
+      if (lastRecord) {
+        resumeSessionId = lastRecord.sessionId;
+      }
+    } catch {
+      console.error("[SessionStore] Failed to look up last session for resume");
+    }
+  }
+
   const appLabel = appConfig.appName.charAt(0).toUpperCase() + appConfig.appName.slice(1);
   console.log(`${appLabel} session starting...`);
   console.log(`Domain:  ${context.domain.displayName}`);
@@ -189,6 +207,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     cwd: process.cwd(),
     env,
     permissionPolicy: config.permissionPolicy,
+    resumeSessionId,
   };
 
   const hookRegistry = new HookRegistry(appConfig.kilnYaml?.hooks ?? {});
@@ -347,7 +366,8 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
   })();
 
   const report = manager.cleanup(sessionId, finalCostUsd, verificationResult, evalScore);
-  printReport(report, appConfig.appName);
+  const finalReport = resumeSessionId ? { ...report, resumedFrom: resumeSessionId } : report;
+  printReport(finalReport, appConfig.appName);
 
   if (verificationResult && !verificationResult.passed) {
     process.exit(1);

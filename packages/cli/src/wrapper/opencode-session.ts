@@ -10,6 +10,7 @@ import type {
   SandboxMode,
 } from "./session.js";
 import { debug } from "./debug.js";
+import { SessionStore } from "./session-store.js";
 
 interface OpencodeClientShape {
   session: {
@@ -82,6 +83,7 @@ interface McpServer {
 }
 
 export interface OpenCodeSessionConfig {
+  readonly task: string;
   readonly cwd: string;
   readonly env?: Record<string, string>;
   readonly mcpServers?: McpServer[];
@@ -92,6 +94,7 @@ export interface OpenCodeSessionConfig {
   readonly permissionDefault?: "ask" | "allow" | "deny";
   readonly sandboxMode?: SandboxMode;
   readonly permissionPolicy?: KilnPermissionPolicy;
+  readonly resumeSessionId?: string;
 }
 
 function derivePermissionPolicy(
@@ -130,7 +133,8 @@ export class OpenCodeSession implements IKilnSession {
     this._capabilities = {
       mcp: true,
       streaming: true,
-      resume: false,
+      resumable: config.resumeSessionId !== undefined,
+      resume: config.resumeSessionId !== undefined,
       costTrackingMode: "native",
       supportedTools: [],
       maxContextTokens: null,
@@ -175,11 +179,23 @@ export class OpenCodeSession implements IKilnSession {
 
     try {
       let baseUrl: string;
+      let attachSession = false;
+      if (this._config.resumeSessionId !== undefined) {
+        try {
+          const store = new SessionStore(this._config.cwd);
+          const record = await store.find(this._config.resumeSessionId);
+          if (record?.remoteSessionId) {
+            attachSession = true;
+          }
+        } catch {
+          console.error("[SessionStore] Resume lookup failed, continuing without resume");
+        }
+      }
       if (this._config.baseUrl) {
         baseUrl = this._config.baseUrl;
       } else {
         const port = this._config.port ?? 0;
-        const actualPort = await this.spawnAndWaitForServe(port, cwd, this._config.env);
+        const actualPort = await this.spawnAndWaitForServe(port, cwd, this._config.env, attachSession);
         baseUrl = `http://127.0.0.1:${actualPort}`;
       }
 
@@ -433,6 +449,21 @@ export class OpenCodeSession implements IKilnSession {
         isError,
         isPreflightCrash: false,
       };
+      try {
+        const store = new SessionStore(this._config.cwd);
+        const completedAt = new Date().toISOString();
+        await store.append({
+          sessionId: this._remoteSessionId ?? this.sessionId,
+          provider: "opencode",
+          task: this._config.task,
+          completedAt,
+          cost: this._lastCostUsd,
+          projectPath: this._config.cwd,
+          remoteSessionId: this._remoteSessionId ?? undefined,
+        });
+      } catch (err) {
+        console.error("[SessionStore] Failed to append session record:", err instanceof Error ? err.message : String(err));
+      }
     } catch (err) {
       yield {
         type: "error",
@@ -451,9 +482,11 @@ export class OpenCodeSession implements IKilnSession {
     port: number,
     cwd: string,
     env?: Record<string, string>,
+    attach?: boolean,
   ): Promise<number> {
     const opencodePath = await this._findOpencodePath();
     const args = ["serve", "--port", String(port), "--cwd", cwd];
+    if (attach) args.push("--attach");
     const spawnEnv = { ...process.env, ...env };
 
     const proc = spawn(opencodePath, args, {
