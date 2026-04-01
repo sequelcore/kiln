@@ -1,13 +1,17 @@
 import type {
   SessionCapabilities,
   IKilnSession,
+  KilnCommandPermissionRule,
+  KilnFileGovernancePolicy,
   KilnPermissionPolicy,
+  KilnToolPermissionRule,
 } from "./session.js";
 import { debug } from "./debug.js";
 import { ClaudeSession } from "./claude-code-process.js";
 import { CodexSession } from "./codex-session.js";
 import { OpenCodeSession } from "./opencode-session.js";
 import { WorktreeManager } from "./worktree-manager.js";
+import { normalizePermissionPolicy } from "./permission-normalizer.js";
 
 export type ProviderId = "claude" | "codex" | "opencode";
 
@@ -51,87 +55,462 @@ export interface OpenCodeBackendConfig {
   readonly permissionDefault: "ask" | "allow" | "deny";
 }
 
+export type PermissionTranslationCategory =
+  | "tool"
+  | "command"
+  | "file-governance"
+  | "data-firewall"
+  | "agent-scope";
+
+export interface PermissionTranslationRule {
+  readonly category: PermissionTranslationCategory;
+  readonly selector: string;
+  readonly action: string;
+  readonly reason?: string;
+}
+
+export interface ClaudeNativeRules {
+  readonly allow: readonly string[];
+  readonly deny: readonly string[];
+  readonly ask: readonly string[];
+}
+
+export interface CodexNativeRules {
+  readonly coarseOnly: true;
+}
+
+export interface OpenCodeNativeRules {
+  readonly tools: readonly Pick<KilnToolPermissionRule, "tool" | "action">[];
+  readonly commands: readonly Pick<KilnCommandPermissionRule, "pattern" | "shell" | "action">[];
+  readonly fileGovernance: Required<Pick<KilnFileGovernancePolicy, "denyGlobs" | "askGlobs" | "allowGlobs">>;
+}
+
+interface BackendTranslationEnvelope<
+  TBackend extends ProviderId,
+  TConfig,
+  TNativeRules,
+> {
+  readonly backend: TBackend;
+  readonly config: TConfig;
+  readonly nativeRules: TNativeRules;
+  readonly representableRules: readonly PermissionTranslationRule[];
+  readonly unsupportedRules: readonly PermissionTranslationRule[];
+  readonly constraintInstructions: readonly string[];
+  readonly warnings: readonly string[];
+}
+
 export type BackendConfig =
-  | { backend: "claude"; config: ClaudeBackendConfig }
-  | { backend: "codex"; config: CodexBackendConfig }
-  | { backend: "opencode"; config: OpenCodeBackendConfig };
+  | BackendTranslationEnvelope<"claude", ClaudeBackendConfig, ClaudeNativeRules>
+  | BackendTranslationEnvelope<"codex", CodexBackendConfig, CodexNativeRules>
+  | BackendTranslationEnvelope<"opencode", OpenCodeBackendConfig, OpenCodeNativeRules>;
+
+type ClaudeTranslationEnvelope = Extract<BackendConfig, { backend: "claude" }>;
+type CodexTranslationEnvelope = Extract<BackendConfig, { backend: "codex" }>;
+type OpenCodeTranslationEnvelope = Extract<BackendConfig, { backend: "opencode" }>;
 
 export function translatePermission(
   policy: KilnPermissionPolicy,
   backend: "claude" | "codex" | "opencode",
 ): BackendConfig {
-  const approval = policy.approval ?? "on-request";
-  const sandbox = policy.sandbox ?? "read-only";
+  const normalized = normalizePermissionPolicy(policy);
+  const approval = normalized.approval ?? "on-request";
+  const sandbox = normalized.sandbox ?? "read-only";
+  const granularRules = collectTranslationRules(normalized);
+  const representableRules = granularRules.filter((rule) => isRepresentableByBackend(rule, backend));
+  const unsupportedRules = granularRules.filter((rule) => !isRepresentableByBackend(rule, backend));
+  const constraintInstructions = buildConstraintInstructions(backend, unsupportedRules);
+  const warnings = unsupportedRules.length > 0
+    ? [
+        `${unsupportedRules.length} granular permission rule(s) are not natively supported by ${backend} and require Kiln-side constraints`,
+      ]
+    : [];
 
   if (approval === "never") {
     if (sandbox === "read-only") {
       if (backend === "claude") {
-        return { backend: "claude", config: { permissionMode: "acceptEdits", allowDangerouslySkipPermissions: false } };
+        return {
+          backend: "claude",
+          config: { permissionMode: "acceptEdits", allowDangerouslySkipPermissions: false },
+          nativeRules: buildClaudeNativeRules(representableRules),
+          representableRules,
+          unsupportedRules,
+          constraintInstructions,
+          warnings,
+        };
       }
       if (backend === "codex") {
-        return { backend: "codex", config: { approvalMode: "on-request", sandboxMode: "workspace-write" } };
+        return {
+          backend: "codex",
+          config: { approvalMode: "on-request", sandboxMode: "workspace-write" },
+          nativeRules: { coarseOnly: true },
+          representableRules,
+          unsupportedRules,
+          constraintInstructions,
+          warnings,
+        };
       }
-      return { backend: "opencode", config: { permissionDefault: "ask" } };
+      return {
+        backend: "opencode",
+        config: { permissionDefault: "ask" },
+        nativeRules: buildOpenCodeNativeRules(normalized),
+        representableRules,
+        unsupportedRules,
+        constraintInstructions,
+        warnings,
+      };
     }
 
     if (sandbox === "workspace-write") {
       if (backend === "claude") {
-        return { backend: "claude", config: { permissionMode: "bypassPermissions", allowDangerouslySkipPermissions: true } };
+        return {
+          backend: "claude",
+          config: { permissionMode: "bypassPermissions", allowDangerouslySkipPermissions: true },
+          nativeRules: buildClaudeNativeRules(representableRules),
+          representableRules,
+          unsupportedRules,
+          constraintInstructions,
+          warnings,
+        };
       }
       if (backend === "codex") {
-        return { backend: "codex", config: { approvalMode: "never", sandboxMode: "workspace-write" } };
+        return {
+          backend: "codex",
+          config: { approvalMode: "never", sandboxMode: "workspace-write" },
+          nativeRules: { coarseOnly: true },
+          representableRules,
+          unsupportedRules,
+          constraintInstructions,
+          warnings,
+        };
       }
-      return { backend: "opencode", config: { permissionDefault: "allow" } };
+      return {
+        backend: "opencode",
+        config: { permissionDefault: "allow" },
+        nativeRules: buildOpenCodeNativeRules(normalized),
+        representableRules,
+        unsupportedRules,
+        constraintInstructions,
+        warnings,
+      };
     }
 
     if (sandbox === "danger-full-access") {
       if (backend === "claude") {
-        return { backend: "claude", config: { permissionMode: "bypassPermissions", allowDangerouslySkipPermissions: true } };
+        return {
+          backend: "claude",
+          config: { permissionMode: "bypassPermissions", allowDangerouslySkipPermissions: true },
+          nativeRules: buildClaudeNativeRules(representableRules),
+          representableRules,
+          unsupportedRules,
+          constraintInstructions,
+          warnings,
+        };
       }
       if (backend === "codex") {
-        return { backend: "codex", config: { approvalMode: "never", sandboxMode: "danger-full-access" } };
+        return {
+          backend: "codex",
+          config: { approvalMode: "never", sandboxMode: "danger-full-access" },
+          nativeRules: { coarseOnly: true },
+          representableRules,
+          unsupportedRules,
+          constraintInstructions,
+          warnings,
+        };
       }
-      return { backend: "opencode", config: { permissionDefault: "allow" } };
+      return {
+        backend: "opencode",
+        config: { permissionDefault: "allow" },
+        nativeRules: buildOpenCodeNativeRules(normalized),
+        representableRules,
+        unsupportedRules,
+        constraintInstructions,
+        warnings,
+      };
     }
   }
 
   if (approval === "on-request") {
     if (backend === "claude") {
-      return { backend: "claude", config: { permissionMode: "default", allowDangerouslySkipPermissions: false } };
+      return {
+        backend: "claude",
+        config: { permissionMode: "default", allowDangerouslySkipPermissions: false },
+        nativeRules: buildClaudeNativeRules(representableRules),
+        representableRules,
+        unsupportedRules,
+        constraintInstructions,
+        warnings,
+      };
     }
     if (backend === "codex") {
-      return { backend: "codex", config: { approvalMode: "on-request", sandboxMode: "workspace-write" } };
+      return {
+        backend: "codex",
+        config: { approvalMode: "on-request", sandboxMode: "workspace-write" },
+        nativeRules: { coarseOnly: true },
+        representableRules,
+        unsupportedRules,
+        constraintInstructions,
+        warnings,
+      };
     }
-    return { backend: "opencode", config: { permissionDefault: "ask" } };
+    return {
+      backend: "opencode",
+      config: { permissionDefault: "ask" },
+      nativeRules: buildOpenCodeNativeRules(normalized),
+      representableRules,
+      unsupportedRules,
+      constraintInstructions,
+      warnings,
+    };
   }
 
   if (approval === "on-failure") {
     if (backend === "claude") {
-      return { backend: "claude", config: { permissionMode: "default", allowDangerouslySkipPermissions: false } };
+      return {
+        backend: "claude",
+        config: { permissionMode: "default", allowDangerouslySkipPermissions: false },
+        nativeRules: buildClaudeNativeRules(representableRules),
+        representableRules,
+        unsupportedRules,
+        constraintInstructions,
+        warnings,
+      };
     }
     if (backend === "codex") {
-      return { backend: "codex", config: { approvalMode: "on-failure", sandboxMode: "workspace-write" } };
+      return {
+        backend: "codex",
+        config: { approvalMode: "on-failure", sandboxMode: "workspace-write" },
+        nativeRules: { coarseOnly: true },
+        representableRules,
+        unsupportedRules,
+        constraintInstructions,
+        warnings,
+      };
     }
-    return { backend: "opencode", config: { permissionDefault: "ask" } };
+    return {
+      backend: "opencode",
+      config: { permissionDefault: "ask" },
+      nativeRules: buildOpenCodeNativeRules(normalized),
+      representableRules,
+      unsupportedRules,
+      constraintInstructions,
+      warnings,
+    };
   }
 
   if (approval === "untrusted") {
     if (backend === "claude") {
-      return { backend: "claude", config: { permissionMode: "plan", allowDangerouslySkipPermissions: false } };
+      return {
+        backend: "claude",
+        config: { permissionMode: "plan", allowDangerouslySkipPermissions: false },
+        nativeRules: buildClaudeNativeRules(representableRules),
+        representableRules,
+        unsupportedRules,
+        constraintInstructions,
+        warnings,
+      };
     }
     if (backend === "codex") {
-      return { backend: "codex", config: { approvalMode: "untrusted", sandboxMode: "workspace-write" } };
+      return {
+        backend: "codex",
+        config: { approvalMode: "untrusted", sandboxMode: "workspace-write" },
+        nativeRules: { coarseOnly: true },
+        representableRules,
+        unsupportedRules,
+        constraintInstructions,
+        warnings,
+      };
     }
-    return { backend: "opencode", config: { permissionDefault: "deny" } };
+    return {
+      backend: "opencode",
+      config: { permissionDefault: "deny" },
+      nativeRules: buildOpenCodeNativeRules(normalized),
+      representableRules,
+      unsupportedRules,
+      constraintInstructions,
+      warnings,
+    };
   }
 
   if (backend === "claude") {
-    return { backend: "claude", config: { permissionMode: "default", allowDangerouslySkipPermissions: false } };
+    return {
+      backend: "claude",
+      config: { permissionMode: "default", allowDangerouslySkipPermissions: false },
+      nativeRules: buildClaudeNativeRules(representableRules),
+      representableRules,
+      unsupportedRules,
+      constraintInstructions,
+      warnings,
+    };
   }
   if (backend === "codex") {
-    return { backend: "codex", config: { approvalMode: "on-request", sandboxMode: "workspace-write" } };
+    return {
+      backend: "codex",
+      config: { approvalMode: "on-request", sandboxMode: "workspace-write" },
+      nativeRules: { coarseOnly: true },
+      representableRules,
+      unsupportedRules,
+      constraintInstructions,
+      warnings,
+    };
   }
-  return { backend: "opencode", config: { permissionDefault: "ask" } };
+  return {
+    backend: "opencode",
+    config: { permissionDefault: "ask" },
+    nativeRules: buildOpenCodeNativeRules(normalized),
+    representableRules,
+    unsupportedRules,
+    constraintInstructions,
+    warnings,
+  };
+}
+
+function collectTranslationRules(
+  policy: ReturnType<typeof normalizePermissionPolicy>,
+): PermissionTranslationRule[] {
+  const rules: PermissionTranslationRule[] = [];
+
+  for (const toolRule of policy.tools) {
+    rules.push({
+      category: "tool",
+      selector: toolRule.tool,
+      action: toolRule.action,
+      reason: toolRule.reason,
+    });
+  }
+
+  for (const commandRule of policy.commands) {
+    const shell = commandRule.shell ?? "any";
+    rules.push({
+      category: "command",
+      selector: `${shell}:${commandRule.pattern}`,
+      action: commandRule.action,
+      reason: commandRule.reason,
+    });
+  }
+
+  for (const glob of policy.fileGovernance.denyGlobs ?? []) {
+    rules.push({
+      category: "file-governance",
+      selector: `deny:${glob}`,
+      action: "deny",
+    });
+  }
+
+  for (const glob of policy.fileGovernance.askGlobs ?? []) {
+    rules.push({
+      category: "file-governance",
+      selector: `ask:${glob}`,
+      action: "ask",
+    });
+  }
+
+  for (const glob of policy.fileGovernance.allowGlobs ?? []) {
+    rules.push({
+      category: "file-governance",
+      selector: `allow:${glob}`,
+      action: "allow",
+    });
+  }
+
+  for (const dataFirewallRule of policy.dataFirewall) {
+    const classes = dataFirewallRule.classifications?.length
+      ? `[${dataFirewallRule.classifications.join(",")}]`
+      : "";
+    rules.push({
+      category: "data-firewall",
+      selector: `${dataFirewallRule.destination}${classes}`,
+      action: dataFirewallRule.action,
+      reason: dataFirewallRule.reason,
+    });
+  }
+
+  for (const agentScope of policy.agentScopes) {
+    const mode = agentScope.inherit === false ? "replace" : "inherit";
+    rules.push({
+      category: "agent-scope",
+      selector: `${agentScope.agent}:${mode}`,
+      action: mode,
+    });
+  }
+
+  return rules;
+}
+
+function isRepresentableByBackend(
+  rule: PermissionTranslationRule,
+  backend: ProviderId,
+): boolean {
+  if (backend === "codex") return false;
+  if (backend === "claude") {
+    return rule.category === "tool" || rule.category === "command";
+  }
+  return rule.category === "tool"
+    || rule.category === "command"
+    || rule.category === "file-governance";
+}
+
+function buildConstraintInstructions(
+  backend: ProviderId,
+  unsupportedRules: readonly PermissionTranslationRule[],
+): string[] {
+  if (unsupportedRules.length === 0) return [];
+  const lines: string[] = [`Kiln policy constraints for ${backend}:`];
+  for (const rule of unsupportedRules) {
+    lines.push(
+      `[${rule.category}] ${rule.action.toUpperCase()} ${rule.selector}${rule.reason ? ` -- ${rule.reason}` : ""}`,
+    );
+  }
+  return lines;
+}
+
+function buildClaudeNativeRules(
+  representableRules: readonly PermissionTranslationRule[],
+): ClaudeNativeRules {
+  const allow: string[] = [];
+  const deny: string[] = [];
+  const ask: string[] = [];
+
+  for (const rule of representableRules) {
+    const target = rule.category === "command"
+      ? `Bash(${rule.selector})`
+      : rule.selector;
+    if (rule.action === "allow") {
+      allow.push(target);
+      continue;
+    }
+    if (rule.action === "deny") {
+      deny.push(target);
+      continue;
+    }
+    ask.push(target);
+  }
+
+  return { allow, deny, ask };
+}
+
+function buildOpenCodeNativeRules(
+  policy: ReturnType<typeof normalizePermissionPolicy>,
+): OpenCodeNativeRules {
+  const tools = policy.tools.map((rule) => ({
+    tool: rule.tool,
+    action: rule.action,
+  }));
+
+  const commands = policy.commands.map((rule) => ({
+    pattern: rule.pattern,
+    shell: rule.shell ?? "any",
+    action: rule.action,
+  }));
+
+  return {
+    tools,
+    commands,
+    fileGovernance: {
+      denyGlobs: [...(policy.fileGovernance.denyGlobs ?? [])],
+      askGlobs: [...(policy.fileGovernance.askGlobs ?? [])],
+      allowGlobs: [...(policy.fileGovernance.allowGlobs ?? [])],
+    },
+  };
 }
 
 interface CircuitBreakerState {
@@ -392,8 +771,8 @@ export function createDefaultRegistry(): {
         permissionPolicy: DEFAULT_POLICY,
       },
       create: (config) => {
-        const translated = translatePermission(config.permissionPolicy, "claude");
-        const cfg = translated.config as ClaudeBackendConfig;
+        const translated = translatePermission(config.permissionPolicy, "claude") as ClaudeTranslationEnvelope;
+        const cfg = translated.config;
         return new ClaudeSession({
           task: config.task,
           systemPrompt: config.systemPrompt ?? "",
@@ -402,6 +781,11 @@ export function createDefaultRegistry(): {
           env: config.env,
           permissionMode: cfg.permissionMode,
           allowDangerouslySkipPermissions: cfg.allowDangerouslySkipPermissions,
+          nativeRules: translated.nativeRules,
+          representableRules: translated.representableRules,
+          unsupportedRules: translated.unsupportedRules,
+          constraintInstructions: translated.constraintInstructions,
+          translationWarnings: translated.warnings,
           resumeSessionId: config.resumeSessionId,
         });
       },
@@ -422,8 +806,8 @@ export function createDefaultRegistry(): {
         permissionPolicy: DEFAULT_POLICY,
       },
       create: (config) => {
-        const translated = translatePermission(config.permissionPolicy, "codex");
-        const cfg = translated.config as CodexBackendConfig;
+        const translated = translatePermission(config.permissionPolicy, "codex") as CodexTranslationEnvelope;
+        const cfg = translated.config;
         return new CodexSession({
           task: config.task,
           model: config.model,
@@ -431,6 +815,11 @@ export function createDefaultRegistry(): {
           env: config.env,
           approvalMode: cfg.approvalMode,
           sandboxMode: cfg.sandboxMode,
+          nativeRules: translated.nativeRules,
+          representableRules: translated.representableRules,
+          unsupportedRules: translated.unsupportedRules,
+          constraintInstructions: translated.constraintInstructions,
+          translationWarnings: translated.warnings,
           resumeSessionId: config.resumeSessionId,
         });
       },
@@ -451,8 +840,8 @@ export function createDefaultRegistry(): {
         permissionPolicy: DEFAULT_POLICY,
       },
       create: (config) => {
-        const translated = translatePermission(config.permissionPolicy, "opencode");
-        const cfg = translated.config as OpenCodeBackendConfig;
+        const translated = translatePermission(config.permissionPolicy, "opencode") as OpenCodeTranslationEnvelope;
+        const cfg = translated.config;
         return new OpenCodeSession({
           task: config.task,
           cwd: config.cwd ?? process.cwd(),
@@ -465,6 +854,11 @@ export function createDefaultRegistry(): {
             : [],
           permissionDefault: cfg.permissionDefault,
           sandboxMode: config.permissionPolicy.sandbox,
+          nativeRules: translated.nativeRules,
+          representableRules: translated.representableRules,
+          unsupportedRules: translated.unsupportedRules,
+          constraintInstructions: translated.constraintInstructions,
+          translationWarnings: translated.warnings,
           resumeSessionId: (config as { resumeSessionId?: string }).resumeSessionId,
         });
       },

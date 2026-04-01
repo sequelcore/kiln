@@ -19,6 +19,19 @@ import { SessionStore } from "./session-store.js";
 type Options = import("@anthropic-ai/claude-agent-sdk").Options;
 type Query = import("@anthropic-ai/claude-agent-sdk").Query;
 
+interface TranslationRuleMetadata {
+  readonly category: string;
+  readonly selector: string;
+  readonly action: string;
+  readonly reason?: string;
+}
+
+interface ClaudeNativeRuleMetadata {
+  readonly allow: readonly string[];
+  readonly deny: readonly string[];
+  readonly ask: readonly string[];
+}
+
 export interface ClaudeSessionConfig {
   readonly task: string;
   readonly systemPrompt: string;
@@ -27,6 +40,11 @@ export interface ClaudeSessionConfig {
   readonly env?: Record<string, string>;
   readonly permissionMode?: "default" | "acceptEdits" | "bypassPermissions" | "plan";
   readonly allowDangerouslySkipPermissions?: boolean;
+  readonly nativeRules?: ClaudeNativeRuleMetadata;
+  readonly representableRules?: readonly TranslationRuleMetadata[];
+  readonly unsupportedRules?: readonly TranslationRuleMetadata[];
+  readonly constraintInstructions?: readonly string[];
+  readonly translationWarnings?: readonly string[];
   readonly permissionPolicy?: KilnPermissionPolicy;
   readonly resumeSessionId?: string;
 }
@@ -46,6 +64,30 @@ function derivePermissionPolicy(
     return { approval: "untrusted", sandbox: "read-only" };
   }
   return fallback ?? { approval: "on-request", sandbox: "read-only" };
+}
+
+function appendConstraintMetadataToSystemPrompt(
+  systemPrompt: string,
+  nativeRules?: ClaudeNativeRuleMetadata,
+  constraintInstructions?: readonly string[],
+): string {
+  const sections: string[] = [systemPrompt];
+
+  if (nativeRules) {
+    const nativeLines: string[] = [];
+    if (nativeRules.allow.length > 0) nativeLines.push(`ALLOW: ${nativeRules.allow.join(", ")}`);
+    if (nativeRules.ask.length > 0) nativeLines.push(`ASK: ${nativeRules.ask.join(", ")}`);
+    if (nativeRules.deny.length > 0) nativeLines.push(`DENY: ${nativeRules.deny.join(", ")}`);
+    if (nativeLines.length > 0) {
+      sections.push(`Kiln translated native permissions:\n${nativeLines.map((line) => `- ${line}`).join("\n")}`);
+    }
+  }
+
+  if (constraintInstructions && constraintInstructions.length > 0) {
+    sections.push(constraintInstructions.join("\n"));
+  }
+
+  return sections.filter((section) => section.trim().length > 0).join("\n\n");
 }
 
 interface MutableCapabilities {
@@ -105,7 +147,11 @@ export class ClaudeSession implements IKilnSession {
       systemPrompt: {
         type: "preset",
         preset: "claude_code",
-        append: this.config.systemPrompt,
+        append: appendConstraintMetadataToSystemPrompt(
+          this.config.systemPrompt,
+          this.config.nativeRules,
+          this.config.constraintInstructions,
+        ),
       },
       mcpServers: this.config.mcpServers,
       cwd: options.cwd ?? this.config.cwd,

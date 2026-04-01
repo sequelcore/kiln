@@ -116,6 +116,85 @@ describe("OpenCodeSession.run() integration", () => {
     };
   }
 
+  it("run() shapes config.update permission payload from translated native tool/command rules", async () => {
+    const mock = makeMockClient("ses_perm", [
+      {
+        directory: "/tmp",
+        payload: { type: "session.status", properties: { sessionID: "ses_perm", status: { type: "idle" } } },
+      },
+    ], 0.001);
+    vi.mocked(createOpencodeClient).mockReturnValueOnce(mock as any);
+
+    const session = new OpenCodeSession(baseConfig({
+      permissionDefault: "ask",
+      nativeRules: {
+        tools: [
+          { tool: "Edit", action: "deny" },
+          { tool: "WebFetch", action: "allow" },
+        ],
+        commands: [{ pattern: "*", shell: "any", action: "allow" }],
+        fileGovernance: { denyGlobs: [], askGlobs: [], allowGlobs: [] },
+      },
+    }));
+
+    for await (const _event of await session.run({ prompt: "test" })) {
+      // consume
+    }
+
+    const firstUpdateCall = mock.config.update.mock.calls[0]?.[0] as {
+      body?: {
+        permission?: { edit?: string; bash?: string; webfetch?: string };
+      };
+    } | undefined;
+    expect(firstUpdateCall?.body?.permission).toEqual({
+      edit: "deny",
+      bash: "allow",
+      webfetch: "allow",
+    });
+  });
+
+  it("run() appends deterministic translated constraint instructions into prompt payload", async () => {
+    const mock = makeMockClient("ses_prompt", [
+      {
+        directory: "/tmp",
+        payload: { type: "session.status", properties: { sessionID: "ses_prompt", status: { type: "idle" } } },
+      },
+    ], 0.001);
+    vi.mocked(createOpencodeClient).mockReturnValueOnce(mock as any);
+
+    const session = new OpenCodeSession(baseConfig({
+      constraintInstructions: [
+        "Kiln policy constraints for opencode:",
+        "[data-firewall] DENY logs",
+      ],
+      nativeRules: {
+        tools: [],
+        commands: [],
+        fileGovernance: {
+          denyGlobs: ["**/.env"],
+          askGlobs: ["**/*.pem"],
+          allowGlobs: ["src/**"],
+        },
+      },
+    }));
+
+    for await (const _event of await session.run({ prompt: "run task" })) {
+      // consume
+    }
+
+    const promptCall = mock.session.prompt.mock.calls[0]?.[0] as {
+      parts?: Array<{ type: string; text?: string }>;
+    } | undefined;
+    const promptText = promptCall?.parts?.[0]?.text;
+    expect(promptText).toContain("run task");
+    expect(promptText).toContain("Kiln policy constraints for opencode:");
+    expect(promptText).toContain("[data-firewall] DENY logs");
+    expect(promptText).toContain("Kiln file governance constraints for opencode:");
+    expect(promptText).toContain("[file-governance] DENY **/.env");
+    expect(promptText).toContain("[file-governance] ASK **/*.pem");
+    expect(promptText).toContain("[file-governance] ALLOW src/**");
+  });
+
   it("run() yields text_delta for message.part.delta via SSE", async () => {
     const mock = makeMockClient("ses_123", [
       {

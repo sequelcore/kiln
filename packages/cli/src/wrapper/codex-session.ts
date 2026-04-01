@@ -10,6 +10,13 @@ import type {
 } from "./session.js";
 import { SessionStore } from "./session-store.js";
 
+interface TranslationRuleMetadata {
+  readonly category: string;
+  readonly selector: string;
+  readonly action: string;
+  readonly reason?: string;
+}
+
 export interface CodexSessionConfig {
   readonly task: string;
   readonly model?: string;
@@ -17,6 +24,11 @@ export interface CodexSessionConfig {
   readonly env?: Record<string, string>;
   readonly approvalMode?: "never" | "on-request" | "on-failure" | "untrusted";
   readonly sandboxMode?: "workspace-write" | "danger-full-access";
+  readonly nativeRules?: { readonly coarseOnly: true };
+  readonly representableRules?: readonly TranslationRuleMetadata[];
+  readonly unsupportedRules?: readonly TranslationRuleMetadata[];
+  readonly constraintInstructions?: readonly string[];
+  readonly translationWarnings?: readonly string[];
   readonly permissionPolicy?: KilnPermissionPolicy;
   readonly resumeSessionId?: string;
 }
@@ -39,6 +51,34 @@ function derivePermissionPolicy(
     return { approval: "untrusted", sandbox: "read-only" };
   }
   return fallback ?? { approval: "on-request", sandbox: "read-only" };
+}
+
+function buildFallbackConstraintInstructions(
+  unsupportedRules?: readonly TranslationRuleMetadata[],
+): string[] {
+  if (!unsupportedRules || unsupportedRules.length === 0) return [];
+  const lines: string[] = ["Kiln policy constraints for codex:"];
+  for (const rule of unsupportedRules) {
+    lines.push(
+      `[${rule.category}] ${rule.action.toUpperCase()} ${rule.selector}${rule.reason ? ` -- ${rule.reason}` : ""}`,
+    );
+  }
+  return lines;
+}
+
+function resolveConstraintInstructions(config: CodexSessionConfig): string[] {
+  if (config.constraintInstructions && config.constraintInstructions.length > 0) {
+    return [...config.constraintInstructions];
+  }
+  return buildFallbackConstraintInstructions(config.unsupportedRules);
+}
+
+function appendConstraintInstructions(
+  prompt: string,
+  constraintInstructions: readonly string[],
+): string {
+  if (constraintInstructions.length === 0) return prompt;
+  return `${prompt}\n\n${constraintInstructions.join("\n")}`;
 }
 
 interface MutableCapabilities {
@@ -81,9 +121,11 @@ export class CodexSession implements IKilnSession {
   private _abortListener: (() => void) | null = null;
   private _disposed = false;
   private _threadId: string | null = null;
+  private readonly _constraintInstructions: readonly string[];
 
   constructor(private readonly config: CodexSessionConfig) {
     this.sessionId = randomUUID();
+    this._constraintInstructions = resolveConstraintInstructions(config);
     this._capabilities = {
       mcp: false,
       streaming: true,
@@ -146,7 +188,11 @@ export class CodexSession implements IKilnSession {
     if (resumeThreadId) {
       args.push("--resume", resumeThreadId);
     }
-    args.push("--cd", cwd, options.prompt);
+    const promptWithConstraints = appendConstraintInstructions(
+      options.prompt,
+      this._constraintInstructions,
+    );
+    args.push("--cd", cwd, promptWithConstraints);
 
     if (options.abortSignal?.aborted) {
       yield {

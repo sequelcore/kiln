@@ -47,6 +47,16 @@ const MOCK_CAPA_CODEX: SessionCapabilities = {
   priority: 3,
 };
 
+const GRANULAR_POLICY = {
+  approval: "on-request" as const,
+  sandbox: "workspace-write" as const,
+  tools: [{ tool: "Edit", action: "deny" as const }],
+  commands: [{ pattern: "*", action: "allow" as const }],
+  fileGovernance: { denyGlobs: ["**/.env"] },
+  dataFirewall: [{ destination: "logs", action: "redact" as const }],
+  agentScopes: [{ agent: "planner", inherit: false }],
+};
+
 describe("SessionRegistry", () => {
   const makeRegistry = (): SessionRegistry =>
     new SessionRegistry([
@@ -374,6 +384,67 @@ describe("SessionRegistry", () => {
         expect(p.capabilities.permissionPolicy.sandbox).toBeDefined();
       }
     });
+
+    it("passes richer translated metadata into codex adapter config", () => {
+      const { registry } = createDefaultRegistry();
+      const session = registry.createSession("codex", {
+        task: "test",
+        permissionPolicy: GRANULAR_POLICY,
+      });
+      const internal = session as unknown as {
+        config?: {
+          constraintInstructions?: readonly string[];
+          unsupportedRules?: readonly { category: string }[];
+        };
+      };
+
+      expect(internal.config?.constraintInstructions?.length).toBeGreaterThan(0);
+      expect(internal.config?.unsupportedRules?.length).toBeGreaterThan(0);
+    });
+
+    it("passes richer translated metadata into claude adapter config", () => {
+      const { registry } = createDefaultRegistry();
+      const session = registry.createSession("claude", {
+        task: "test",
+        permissionPolicy: GRANULAR_POLICY,
+      });
+      const internal = session as unknown as {
+        config?: {
+          nativeRules?: {
+            allow: readonly string[];
+            deny: readonly string[];
+            ask: readonly string[];
+          };
+          constraintInstructions?: readonly string[];
+        };
+      };
+
+      expect(internal.config?.nativeRules?.deny).toContain("Edit");
+      expect(internal.config?.constraintInstructions?.length).toBeGreaterThan(0);
+    });
+
+    it("passes richer translated metadata into opencode adapter config", () => {
+      const { registry } = createDefaultRegistry();
+      const session = registry.createSession("opencode", {
+        task: "test",
+        permissionPolicy: GRANULAR_POLICY,
+      });
+      const internal = session as unknown as {
+        _config?: {
+          nativeRules?: {
+            commands: readonly { pattern: string; action: string }[];
+            fileGovernance: { denyGlobs: readonly string[] };
+          };
+        };
+      };
+
+      expect(internal._config?.nativeRules?.commands).toContainEqual({
+        pattern: "*",
+        shell: "any",
+        action: "allow",
+      });
+      expect(internal._config?.nativeRules?.fileGovernance.denyGlobs).toContain("**/.env");
+    });
   });
 
   describe("translatePermission — claude backend", () => {
@@ -501,6 +572,67 @@ describe("SessionRegistry", () => {
         const cfg = result.config as { permissionDefault: string };
         expect(cfg.permissionDefault).toBe("deny");
       }
+    });
+  });
+
+  describe("translatePermission — richer translation contract", () => {
+    const granularPolicy = {
+      ...GRANULAR_POLICY,
+      tools: [{ tool: "Read", action: "allow" as const }],
+      commands: [{ pattern: "git status*", action: "allow" as const }],
+    };
+
+    it("codex keeps coarse config and surfaces deterministic unsupported constraints", () => {
+      const result = translatePermission(granularPolicy, "codex");
+      const cfg = result.config as { approvalMode: string; sandboxMode: string };
+      expect(cfg.approvalMode).toBe("on-request");
+      expect(cfg.sandboxMode).toBe("workspace-write");
+      expect(result.representableRules).toHaveLength(0);
+      expect(result.unsupportedRules.length).toBeGreaterThan(0);
+      expect(result.constraintInstructions.length).toBeGreaterThan(1);
+      expect(result.constraintInstructions[0]).toContain("codex");
+      expect(result.warnings.length).toBeGreaterThan(0);
+    });
+
+    it("claude surfaces representable and unsupported granular rule metadata", () => {
+      const result = translatePermission(granularPolicy, "claude");
+      const categories = result.representableRules.map((rule) => rule.category);
+      expect(categories).toContain("tool");
+      expect(categories).toContain("command");
+      expect(result.unsupportedRules.map((rule) => rule.category)).toContain("file-governance");
+      expect(result.unsupportedRules.map((rule) => rule.category)).toContain("data-firewall");
+      expect(result.unsupportedRules.map((rule) => rule.category)).toContain("agent-scope");
+      expect(result.nativeRules).toBeDefined();
+    });
+
+    it("opencode surfaces richer native metadata for granular rules", () => {
+      const result = translatePermission(granularPolicy, "opencode");
+      const categories = result.representableRules.map((rule) => rule.category);
+      expect(categories).toContain("tool");
+      expect(categories).toContain("command");
+      expect(categories).toContain("file-governance");
+      expect(result.unsupportedRules.map((rule) => rule.category)).toContain("data-firewall");
+      expect(result.unsupportedRules.map((rule) => rule.category)).toContain("agent-scope");
+
+      const native = result.nativeRules as {
+        tools: readonly unknown[];
+        commands: readonly unknown[];
+        fileGovernance: { denyGlobs: readonly string[] };
+      };
+      expect(native.tools.length).toBeGreaterThan(0);
+      expect(native.commands.length).toBeGreaterThan(0);
+      expect(native.fileGovernance.denyGlobs).toContain("**/.env");
+    });
+
+    it("does not silently drop granular rules from translation output", () => {
+      const expectedRules = 5;
+      const codex = translatePermission(granularPolicy, "codex");
+      const claude = translatePermission(granularPolicy, "claude");
+      const opencode = translatePermission(granularPolicy, "opencode");
+
+      expect(codex.representableRules.length + codex.unsupportedRules.length).toBe(expectedRules);
+      expect(claude.representableRules.length + claude.unsupportedRules.length).toBe(expectedRules);
+      expect(opencode.representableRules.length + opencode.unsupportedRules.length).toBe(expectedRules);
     });
   });
 });

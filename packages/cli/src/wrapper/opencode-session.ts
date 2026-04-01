@@ -6,6 +6,7 @@ import type {
   SessionCapabilities,
   SessionRunOptions,
   IKilnSession,
+  KilnPermissionAction,
   KilnPermissionPolicy,
   KilnSandboxMode,
 } from "./session.js";
@@ -83,6 +84,30 @@ interface McpServer {
   url: string;
 }
 
+interface TranslationRuleMetadata {
+  readonly category: string;
+  readonly selector: string;
+  readonly action: string;
+  readonly reason?: string;
+}
+
+interface OpenCodeNativeRuleMetadata {
+  readonly tools: readonly {
+    readonly tool: string;
+    readonly action: KilnPermissionAction;
+  }[];
+  readonly commands: readonly {
+    readonly pattern: string;
+    readonly shell?: "bash" | "sh" | "zsh" | "any";
+    readonly action: KilnPermissionAction;
+  }[];
+  readonly fileGovernance: {
+    readonly denyGlobs: readonly string[];
+    readonly askGlobs: readonly string[];
+    readonly allowGlobs: readonly string[];
+  };
+}
+
 export interface OpenCodeSessionConfig {
   readonly task: string;
   readonly cwd: string;
@@ -94,6 +119,11 @@ export interface OpenCodeSessionConfig {
   readonly baseUrl?: string;
   readonly permissionDefault?: "ask" | "allow" | "deny";
   readonly sandboxMode?: KilnSandboxMode;
+  readonly nativeRules?: OpenCodeNativeRuleMetadata;
+  readonly representableRules?: readonly TranslationRuleMetadata[];
+  readonly unsupportedRules?: readonly TranslationRuleMetadata[];
+  readonly constraintInstructions?: readonly string[];
+  readonly translationWarnings?: readonly string[];
   readonly permissionPolicy?: KilnPermissionPolicy;
   readonly resumeSessionId?: string;
 }
@@ -110,6 +140,97 @@ function derivePermissionPolicy(
     return { approval: "untrusted", sandbox: "read-only" };
   }
   return fallback ?? { approval: "on-request", sandbox: "read-only" };
+}
+
+type OpenCodePermissionValue = "ask" | "allow" | "deny";
+
+interface OpenCodePermissionPayload {
+  edit: OpenCodePermissionValue;
+  bash: OpenCodePermissionValue;
+  webfetch: OpenCodePermissionValue;
+}
+
+function toOpenCodePermissionValue(action: KilnPermissionAction): OpenCodePermissionValue {
+  return action;
+}
+
+function mapToolToPermissionKey(tool: string): keyof OpenCodePermissionPayload | null {
+  const normalized = tool.trim().toLowerCase();
+  if (normalized === "edit" || normalized === "write" || normalized === "multiedit" || normalized === "notebookedit") {
+    return "edit";
+  }
+  if (normalized === "bash" || normalized === "command_execution" || normalized === "command") {
+    return "bash";
+  }
+  if (normalized === "webfetch" || normalized === "web_fetch" || normalized === "fetch") {
+    return "webfetch";
+  }
+  return null;
+}
+
+function isGlobalCommandRule(pattern: string): boolean {
+  const normalized = pattern.trim();
+  return normalized === "*" || normalized === "**" || normalized === "*:*";
+}
+
+function applyGranularPermissionOverrides(
+  base: OpenCodePermissionPayload,
+  nativeRules?: OpenCodeNativeRuleMetadata,
+): OpenCodePermissionPayload {
+  const next: OpenCodePermissionPayload = { ...base };
+  if (!nativeRules) return next;
+
+  for (const rule of nativeRules.tools) {
+    const permissionKey = mapToolToPermissionKey(rule.tool);
+    if (permissionKey !== null) {
+      next[permissionKey] = toOpenCodePermissionValue(rule.action);
+    }
+  }
+
+  for (const rule of nativeRules.commands) {
+    if (
+      isGlobalCommandRule(rule.pattern)
+      && (rule.shell === undefined || rule.shell === "any" || rule.shell === "bash")
+    ) {
+      next.bash = toOpenCodePermissionValue(rule.action);
+    }
+  }
+
+  return next;
+}
+
+function buildFileGovernanceInstructions(
+  nativeRules?: OpenCodeNativeRuleMetadata,
+): string[] {
+  if (!nativeRules) return [];
+  const lines: string[] = [];
+  for (const glob of nativeRules.fileGovernance.denyGlobs) {
+    lines.push(`[file-governance] DENY ${glob}`);
+  }
+  for (const glob of nativeRules.fileGovernance.askGlobs) {
+    lines.push(`[file-governance] ASK ${glob}`);
+  }
+  for (const glob of nativeRules.fileGovernance.allowGlobs) {
+    lines.push(`[file-governance] ALLOW ${glob}`);
+  }
+  if (lines.length === 0) return [];
+  return ["Kiln file governance constraints for opencode:", ...lines];
+}
+
+function appendConstraintInstructions(
+  prompt: string,
+  constraintInstructions?: readonly string[],
+  nativeRules?: OpenCodeNativeRuleMetadata,
+): string {
+  const sections: string[] = [prompt];
+  if (constraintInstructions && constraintInstructions.length > 0) {
+    sections.push(constraintInstructions.join("\n"));
+  }
+  const fileGovernanceInstructions = buildFileGovernanceInstructions(nativeRules);
+  if (fileGovernanceInstructions.length > 0) {
+    sections.push(fileGovernanceInstructions.join("\n"));
+  }
+  return sections.filter((section) => section.trim().length > 0).join("\n\n");
 }
 
 interface MutableCapabilities {
@@ -204,10 +325,19 @@ export class OpenCodeSession implements IKilnSession {
       const client = asOpencodeClient(createOpencodeClient({ baseUrl }));
 
       const approval = this._capabilities.permissionPolicy.approval;
-      const permValue = approval === "never" ? "allow" : approval === "untrusted" ? "deny" : "ask";
+      const permValue: OpenCodePermissionValue =
+        approval === "never" ? "allow" : approval === "untrusted" ? "deny" : "ask";
+      const permissionPayload = applyGranularPermissionOverrides(
+        {
+          edit: permValue,
+          bash: permValue,
+          webfetch: permValue,
+        },
+        this._config.nativeRules,
+      );
       await client.config
         .update({
-          body: { permission: { edit: permValue, bash: permValue } },
+          body: { permission: permissionPayload },
           query: { directory: cwd },
         })
         .catch((err: unknown) => {
@@ -312,7 +442,14 @@ export class OpenCodeSession implements IKilnSession {
         .prompt(
           {
             sessionID: this._remoteSessionId,
-            parts: [{ type: "text", text: options.prompt }],
+            parts: [{
+              type: "text",
+              text: appendConstraintInstructions(
+                options.prompt,
+                this._config.constraintInstructions,
+                this._config.nativeRules,
+              ),
+            }],
             directory: cwd,
           },
           { throwOnError: false },

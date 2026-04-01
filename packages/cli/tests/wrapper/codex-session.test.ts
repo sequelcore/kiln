@@ -159,6 +159,34 @@ describe("CodexSession.run() JSONL parsing", () => {
     mockExecSync.mockReset();
   });
 
+  it("run() deterministically appends constraintInstructions to the prompt sent to codex", async () => {
+    const { proc, emitLine, resolveExit } = makeMockProc();
+    vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
+    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
+
+    const session = new CodexSession(baseConfig({
+      constraintInstructions: [
+        "Kiln policy constraints for codex:",
+        "[data-firewall] DENY logs",
+      ],
+    }));
+    const collectPromise = collectEvents(session.run({ prompt: "Implement feature X" }));
+
+    emitLine({ type: "thread.started", thread_id: "t1" });
+    emitLine({ type: "turn.started" });
+    emitLine({ type: "turn.completed", usage: { input_tokens: 10, cached_input_tokens: 0, output_tokens: 5 } });
+    resolveExit(0);
+
+    await collectPromise;
+
+    const spawnCall = vi.mocked(mockSpawn).mock.calls[0];
+    const spawnArgs = spawnCall?.[1] as string[] | undefined;
+    expect(spawnArgs).toBeDefined();
+    expect(spawnArgs?.[spawnArgs.length - 1]).toBe(
+      "Implement feature X\n\nKiln policy constraints for codex:\n[data-firewall] DENY logs",
+    );
+  });
+
   it("run() yields text_delta for agent_message item", async () => {
     const { proc, emitLine, resolveExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
