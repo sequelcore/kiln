@@ -398,6 +398,58 @@ See changelog: docs/changelog.md
 
 ---
 
+## Research: CLI Integration Philosophy (codex-plugin-cc scout, 2026-04-01)
+
+**Source:** codex-plugin-cc architecture scout + comparative analysis
+
+### Three integration approaches
+
+**1. Plugin/slash command (codex-plugin-cc model)**
+Claude Code is the host. Other tools are subprocesses invoked from within Claude's session.
+Communication is one-directional — Claude calls out, gets a result back. State lives in flat files.
+Zero coordination between tools; they don't know each other exist.
+
+**2. Direct API calls**
+Each tool talks to provider APIs independently. No shared state, session handoff, or cost aggregation.
+Works for single-tool workflows. Breaks down when you need cross-CLI handoff or unified budgets.
+
+**3. Meta-orchestrator (Kiln's model)**
+Kiln owns the session lifecycle above all CLIs. Routes tasks by capability and quota, tracks cost
+across providers, handles mid-task handoff. CLIs become interchangeable workers, not fixed hosts.
+
+### Where Kiln wins
+- Cross-CLI session resume (threadId → reuseEnvironmentId handoff)
+- Unified cost budget enforced across Claude + Codex + OpenCode
+- Circuit breaking — quota exhausted on one backend, falls to another automatically
+- EventBus observability across all backends from one stream
+- Provider-agnostic: adversarial review, job tracking, rescue all work regardless of which CLI runs
+
+### Where plugin wins
+- Zero setup friction for Claude Code users — install plugin, done
+- Stop hook is deeply integrated into the host process lifecycle
+- Slash commands feel native inside Claude Code
+
+### The genuine gap
+The Stop hook is the one thing Kiln cannot replicate natively. It requires being *inside* the
+Claude Code process. Everything else — job tracking, adversarial review, rescue — Kiln can do
+natively and better because it's provider-agnostic.
+
+### Verdict
+**Plugin: LATER.** Build native CLI primitives first. Plugin becomes a thin UX wrapper for Claude
+Code users once native Kiln is stable. Kiln's differentiation is cross-CLI unification — a plugin
+re-locks users into Claude Code-only UX.
+
+### Steal list (native Kiln implementation)
+
+| Pattern | What plugin does | Kiln approach | Owner | Effort | Phase |
+|---------|-----------------|---------------|-------|--------|-------|
+| Adversarial review | prompts/adversarial-review.md → structured skepticism, JSON findings | `kiln review --adversarial`, prompt in core/src/review/ | cli + core | medium | 4+ |
+| In-flight job tracking | state.json + per-job files, kiln status/cancel | Extend session-store.ts: add status/phase/pid fields; add `kiln status`, `kiln cancel` commands | cli | large | 4+ |
+| EventBus phase emission | None (plugin doesn't emit events) | Emit CodexPhase events from codex-session.ts as JSONL arrives — small delta from current | cli | small | next Codex commit |
+| Stop gate (review gate) | Stop hook blocks Claude from finishing, runs Codex review | opt-in via kiln.yaml hooks:, SessionEnd event | cli + runtime | large | 4+ (opt-in only) |
+
+---
+
 ## Phase 3.6 — Memory Quality (Post-3.5)
 
 **Status:** BACKLOG
