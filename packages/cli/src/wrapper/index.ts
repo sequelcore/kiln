@@ -108,6 +108,16 @@ export type {
 
 export { SessionStore } from "./session-store.js";
 export type { SessionRecord } from "./session-store.js";
+export { createPermissionEvaluator, resolveEffectivePermissionPolicy } from "./permission-evaluator.js";
+export type {
+  PermissionEvaluator,
+  PermissionEvaluationRequest,
+  PermissionDecision,
+  PermissionDecisionSource,
+  PermissionDecisionMatch,
+  PermissionScopeInfo,
+  EffectivePermissionPolicyResult,
+} from "./permission-evaluator.js";
 
 export { HookRegistry } from "./hook-registry.js";
 export { HookExecutor } from "./hook-executor.js";

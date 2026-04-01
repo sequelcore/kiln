@@ -33,4 +33,34 @@ describe("normalizePermissionPolicy", () => {
     const r = normalizePermissionPolicy({ safeDefaults: true, auditLog: false });
     expect(r.auditLog).toBe(false);
   });
+
+  it("preserves command rules that share pattern but differ by shell", () => {
+    const r = normalizePermissionPolicy({
+      commands: [
+        { pattern: "npm test*", shell: "bash", action: "allow" },
+        { pattern: "npm test*", shell: "zsh", action: "deny" },
+      ],
+    });
+
+    expect(r.commands).toHaveLength(2);
+    expect(
+      r.commands.find((rule) => rule.pattern === "npm test*" && rule.shell === "bash")?.action,
+    ).toBe("allow");
+    expect(
+      r.commands.find((rule) => rule.pattern === "npm test*" && rule.shell === "zsh")?.action,
+    ).toBe("deny");
+  });
+
+  it("keeps last-match-wins for duplicate command pattern + shell pairs", () => {
+    const r = normalizePermissionPolicy({
+      commands: [
+        { pattern: "npm test*", shell: "bash", action: "deny" },
+        { pattern: "npm test*", shell: "bash", action: "allow" },
+      ],
+    });
+
+    expect(r.commands).toHaveLength(1);
+    expect(r.commands[0]?.action).toBe("allow");
+    expect(r.commands[0]?.shell).toBe("bash");
+  });
 });

@@ -73,7 +73,10 @@ export function normalizePermissionPolicy(policy: KilnPermissionPolicy): KilnPer
   const baseDataFirewall = safeDefaults ? [...SAFE_DEFAULTS_DATA_FIREWALL] : [];
 
   const tools = deduplicateByKey([...baseTools, ...(policy.tools ?? [])], (r) => r.tool);
-  const commands = deduplicateByKey([...baseCommands, ...(policy.commands ?? [])], (r) => r.pattern);
+  const commands = deduplicateByKey(
+    [...baseCommands, ...(policy.commands ?? [])],
+    (r) => `${r.pattern}::${r.shell ?? "any"}`,
+  );
   const fileGovernance = mergeFileGovernance(baseFileGovernance, policy.fileGovernance);
   const dataFirewall = [...baseDataFirewall, ...(policy.dataFirewall ?? [])];
 
