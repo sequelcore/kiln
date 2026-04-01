@@ -54,6 +54,7 @@ interface OpencodeClientShape {
           webfetch?: "ask" | "allow" | "deny";
         };
         mcp?: Record<string, unknown>;
+        experimental?: Record<string, unknown>;
       };
       query?: { directory?: string };
     }): Promise<unknown>;
@@ -202,18 +203,18 @@ export class OpenCodeSession implements IKilnSession {
       const { createOpencodeClient } = await import("@opencode-ai/sdk/v2");
       const client = asOpencodeClient(createOpencodeClient({ baseUrl }));
 
-      if (this._config.permissionDefault) {
-        await client.config
-          .update({
-            body: { permission: { edit: this._config.permissionDefault } },
-            query: { directory: cwd },
-          })
-          .catch((err: unknown) => {
-            console.debug(
-              `[opencode] config.update failed: ${err instanceof Error ? err.message : String(err)}`,
-            );
-          });
-      }
+      const approval = this._capabilities.permissionPolicy.approval;
+      const permValue = approval === "auto-approve" ? "allow" : approval === "deny" ? "deny" : "ask";
+      await client.config
+        .update({
+          body: { permission: { edit: permValue, bash: permValue } },
+          query: { directory: cwd },
+        })
+        .catch((err: unknown) => {
+          console.debug(
+            `[opencode] config.update failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        });
 
       const mcpEntryPath = this._config.mcpServerEntryPath;
       if (mcpEntryPath && existsSync(mcpEntryPath)) {
@@ -235,6 +236,17 @@ export class OpenCodeSession implements IKilnSession {
       } else if (mcpEntryPath) {
         debug(`MCP server entry not found at ${mcpEntryPath}, skipping runtime MCP registration`);
       }
+
+      await client.config
+        .update({
+          body: { experimental: { batch_tool: true } },
+          query: { directory: cwd },
+        })
+        .catch((err: unknown) => {
+          console.debug(
+            `[opencode] batch_tool config.update failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        });
 
       const createResult = await client.session.create(
         { directory: cwd },
