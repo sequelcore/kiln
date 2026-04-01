@@ -108,6 +108,51 @@ describe("buildPreamble", () => {
     expect(result).not.toContain("<memory>");
   });
 
+  it("omits <memory> when excludeFromContext is true even if memorySnapshot exists", () => {
+    const ctx: SessionContext = { ...MINIMAL_CONTEXT, memorySnapshot: "Sensitive memory context" };
+    const result = buildPreamble(
+      ctx,
+      {
+        approval: "on-request",
+        sandbox: "read-only",
+        fileGovernance: { excludeFromContext: true },
+      },
+      undefined,
+    );
+    expect(result).not.toContain("<memory>");
+    expect(result).not.toContain("Sensitive memory context");
+  });
+
+  it("includes <memory> when excludeFromContext is false", () => {
+    const ctx: SessionContext = { ...MINIMAL_CONTEXT, memorySnapshot: "Normal memory context" };
+    const result = buildPreamble(
+      ctx,
+      {
+        approval: "on-request",
+        sandbox: "read-only",
+        fileGovernance: { excludeFromContext: false },
+      },
+      undefined,
+    );
+    expect(result).toContain("<memory>");
+    expect(result).toContain("Normal memory context");
+  });
+
+  it("includes <memory> when excludeFromContext is undefined", () => {
+    const ctx: SessionContext = { ...MINIMAL_CONTEXT, memorySnapshot: "Default memory context" };
+    const result = buildPreamble(
+      ctx,
+      {
+        approval: "on-request",
+        sandbox: "read-only",
+        fileGovernance: {},
+      },
+      undefined,
+    );
+    expect(result).toContain("<memory>");
+    expect(result).toContain("Default memory context");
+  });
+
   it("truncates memorySnapshot at 200 lines", () => {
     const lines: string[] = [];
     for (let i = 1; i <= 250; i++) {

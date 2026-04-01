@@ -99,6 +99,15 @@ This is the cleanest first slice because:
 Enforce `fileGovernance.excludeFromContext` and related context filtering before
 backend exposure.
 
+**Current progress**
+
+- first narrow slice landed in
+  [preamble-builder.ts](/C:/Proyectos/Sequel/kiln/packages/cli/src/wrapper/preamble-builder.ts):
+  when `excludeFromContext === true`, memory snapshot is omitted from the
+  generated preamble before backend handoff
+- tests landed in
+  [preamble-builder.test.ts](/C:/Proyectos/Sequel/kiln/packages/cli/tests/wrapper/preamble-builder.test.ts)
+
 **Primary files**
 
 - `packages/cli/src/application/run-session.ts`

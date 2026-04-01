@@ -170,9 +170,11 @@ Missing enforcement pieces:
 
 - [plan-phase-4-5c.md](/C:/Proyectos/Sequel/kiln/docs/plan-phase-4-5c.md)
 
-**Current slice in progress:**
+**Current slices in progress / landed:**
 
 - `4.5c.a` approval-memory persistence foundation in CLI wrapper layer
+- `4.5c.b` first context-governance enforcement slice:
+  `excludeFromContext` now suppresses memory snapshot injection in preamble
 
 **Primary files (expected):**
 

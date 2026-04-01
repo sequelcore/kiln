@@ -86,6 +86,10 @@ export function buildPreamble(
   policy: KilnPermissionPolicy,
   agent?: Agent,
 ): string {
+  const memorySnapshot = policy.fileGovernance?.excludeFromContext === true
+    ? undefined
+    : ctx.memorySnapshot;
+
   const staticSections: (string | null)[] = [
     agent ? buildRoleSection(agent) : null,
     buildDomainSection(ctx.domain),
@@ -95,7 +99,7 @@ export function buildPreamble(
 
   const dynamicSections: (string | null)[] = [
     buildTaskSection(ctx.task),
-    buildMemorySection(ctx.memorySnapshot),
+    buildMemorySection(memorySnapshot),
     buildInstructionsSection(agent?.instructions),
   ];
 
