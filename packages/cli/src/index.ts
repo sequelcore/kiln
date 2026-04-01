@@ -250,3 +250,16 @@ function parseMcpConfigFlags(rawArgs: readonly string[]): { client?: string; nam
   }
   return flags;
 }
+
+if (import.meta.main) {
+  const { DomainRegistry } = await import("@kilnai/core");
+  const pkg = await import("../package.json");
+  void createCli({
+    appName: "kiln",
+    dirName: ".kiln",
+    version: pkg.default.version as string,
+    description: "Domain-agnostic AI orchestration engine",
+    mcpServerName: "kiln",
+    createRegistry: () => new DomainRegistry(),
+  });
+}
