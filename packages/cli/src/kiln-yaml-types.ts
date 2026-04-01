@@ -114,6 +114,11 @@ export interface KilnHooksConfig {
   readonly SubagentStop?: readonly HookRule[];
 }
 
+export interface KilnCompactionConfig {
+  threshold?: number;
+  previewBeforeApply?: boolean;
+}
+
 export interface KilnYaml {
   readonly version: "1";
   readonly domain?: string;
@@ -131,4 +136,5 @@ export interface KilnYaml {
   readonly skillGeneration?: KilnYamlSkillGeneration;
   readonly qualityGates?: readonly KilnYamlQualityGate[];
   readonly hooks?: KilnHooksConfig;
+  readonly compaction?: KilnCompactionConfig;
 }

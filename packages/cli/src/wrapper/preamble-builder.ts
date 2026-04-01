@@ -77,6 +77,10 @@ function buildInstructionsSection(instructions: string | undefined): string | nu
   return tag("instructions", escapeXml(instructions));
 }
 
+function buildCompactionRecoverySection(): string {
+  return `<kiln-compaction-recovery>After any context compaction: 1) save a session summary using format Goal/Instructions/Discoveries/Accomplished/Next Steps/Relevant Files, 2) recall your memory context, then continue.</kiln-compaction-recovery>`;
+}
+
 export function buildPreamble(
   ctx: SessionContext,
   policy: KilnPermissionPolicy,
@@ -86,6 +90,7 @@ export function buildPreamble(
     agent ? buildRoleSection(agent) : null,
     buildDomainSection(ctx.domain),
     buildConstraintsSection(policy),
+    buildCompactionRecoverySection(),
   ];
 
   const dynamicSections: (string | null)[] = [

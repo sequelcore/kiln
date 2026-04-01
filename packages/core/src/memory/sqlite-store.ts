@@ -5,6 +5,7 @@ import { applyDecayCurve, DEFAULT_DECAY_CONFIG } from "./decay-curves.js";
 import { MemoryCompactor } from "./compactor.js";
 import type { CompactionConfig, CompactionResult, CompactableStore, CompactableEntry } from "./compactor.js";
 import { KilnError } from "../engine/errors.js";
+import type { EventBus } from "../events/index.js";
 
 /** Rough heuristic: ~4 characters per token for English text */
 const CHARS_PER_TOKEN_ESTIMATE = 4;
@@ -17,6 +18,8 @@ export interface SqliteMemoryStoreOptions {
   readonly compaction?: CompactionConfig;
   /** When set, enforces tenant namespace isolation: saves are tagged, searches/forgets are scoped. */
   readonly tenantId?: string;
+  readonly compactionThreshold?: number;
+  readonly eventBus?: EventBus;
 }
 
 interface MemoryRow {
@@ -43,6 +46,8 @@ export class SqliteMemoryStore implements MemoryStore {
   private readonly decayConfig: DecayConfig;
   private readonly compactor: MemoryCompactor | null;
   private readonly tenantId: string | undefined;
+  private readonly compactionThreshold: number;
+  private readonly eventBus: EventBus | undefined;
 
   constructor(options: SqliteMemoryStoreOptions) {
     this.layer = options.layer;
@@ -50,6 +55,8 @@ export class SqliteMemoryStore implements MemoryStore {
     this.decayConfig = options.decay ?? DEFAULT_DECAY_CONFIG;
     this.compactor = options.compaction ? new MemoryCompactor(options.compaction) : null;
     this.tenantId = options.tenantId;
+    this.compactionThreshold = options.compactionThreshold ?? 1000;
+    this.eventBus = options.eventBus;
     if (this.tenantId && /[%_]/.test(this.tenantId)) {
       throw new KilnError('CONFIG_INVALID', 'tenantId must not contain SQL wildcard characters (% or _)', {
         context: { tenantId: this.tenantId },
@@ -117,6 +124,10 @@ export class SqliteMemoryStore implements MemoryStore {
     this.db.prepare(`
       INSERT INTO memories_fts (id, content, tags) VALUES (?, ?, ?)
     `).run(id, entry.content, tagsJson);
+
+    if (this.count > this.compactionThreshold) {
+      this.runCompaction();
+    }
 
     return id;
   }
@@ -245,8 +256,34 @@ export class SqliteMemoryStore implements MemoryStore {
   /** Run compaction if configured and threshold exceeded. Returns null if compaction is not configured. */
   runCompaction(): CompactionResult | null {
     if (!this.compactor) return null;
-    if (!this.compactor.shouldCompact(this.asCompactable())) return null;
-    return this.compactor.compact(this.asCompactable());
+    const compactable = this.asCompactable();
+    const entryCount = compactable.entryCount();
+    if (!this.compactor.shouldCompact(compactable)) return null;
+
+    const start = Date.now();
+    const thresholdHit = entryCount - this.compactionThreshold;
+    this.eventBus?.emit({
+      type: "precompact",
+      timestamp: new Date(),
+      sessionId: "",
+      scope: this.layer,
+      entryCount,
+      thresholdHit,
+    } as import("../events/index.js").KilnEvent);
+
+    const result = this.compactor.compact(compactable);
+
+    this.eventBus?.emit({
+      type: "postcompact",
+      timestamp: new Date(),
+      sessionId: "",
+      scope: this.layer,
+      removedCount: result.entriesRemoved,
+      remainingCount: entryCount - result.entriesRemoved,
+      durationMs: Date.now() - start,
+    } as import("../events/index.js").KilnEvent);
+
+    return result;
   }
 
   private asCompactable(): CompactableStore {

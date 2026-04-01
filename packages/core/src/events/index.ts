@@ -46,6 +46,8 @@ export const EVENT_LEVEL_MAP: Record<EventType, StreamLevel> = {
   // Knowledge (Phase 14)
   knowledge_gap: "state",
   knowledge_source_failed: "state",
+  precompact: "state",
+  postcompact: "state",
   // Routing (Phase 8)
   agent_routed: "phase",
   // Intelligence (Phase 9)
@@ -107,6 +109,8 @@ export type EventType =
   // Knowledge (Phase 14)
   | "knowledge_gap"
   | "knowledge_source_failed"
+  | "precompact"
+  | "postcompact"
   // Routing (Phase 8)
   | "agent_routed"
   // Intelligence (Phase 9)
@@ -235,6 +239,23 @@ export interface MemorySyncEvent extends KilnEvent {
   readonly imported: number;
   readonly entries: number;
   readonly developers: number;
+}
+
+/** Pre-compact event (memory compaction about to run) */
+export interface PrecompactEvent extends KilnEvent {
+  readonly type: "precompact";
+  readonly scope: string;
+  readonly entryCount: number;
+  readonly thresholdHit: number;
+}
+
+/** Post-compact event (memory compaction completed) */
+export interface PostcompactEvent extends KilnEvent {
+  readonly type: "postcompact";
+  readonly scope: string;
+  readonly removedCount: number;
+  readonly remainingCount: number;
+  readonly durationMs: number;
 }
 
 /** Approval requested event */
@@ -499,6 +520,8 @@ export interface EventMap {
   memory_saved: MemorySavedEvent;
   memory_recalled: MemoryRecalledEvent;
   memory_sync: MemorySyncEvent;
+  precompact: PrecompactEvent;
+  postcompact: PostcompactEvent;
   approval_requested: ApprovalRequestedEvent;
   approval_received: ApprovalReceivedEvent;
   worker_assigned: WorkerAssignedEvent;

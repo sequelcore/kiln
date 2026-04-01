@@ -45,6 +45,8 @@ import type {
     ConversationClosedInternalEvent,
     ConversationEnrichedEvent,
     GroundingEvaluatedEvent,
+    PrecompactEvent,
+    PostcompactEvent,
 } from "../events/index.js";
 
 // ---------------------------------------------------------------------------
@@ -185,6 +187,22 @@ function mapMemorySync(e: MemorySyncEvent): SpanOperation {
         action: "addEvent",
         name: "memory.sync",
         attributes: { imported: e.imported, entries: e.entries, developers: e.developers },
+    };
+}
+
+function mapPrecompact(e: PrecompactEvent): SpanOperation {
+    return {
+        action: "addEvent",
+        name: "memory.precompact",
+        attributes: { scope: e.scope, entryCount: e.entryCount, thresholdHit: e.thresholdHit },
+    };
+}
+
+function mapPostcompact(e: PostcompactEvent): SpanOperation {
+    return {
+        action: "addEvent",
+        name: "memory.postcompact",
+        attributes: { scope: e.scope, removedCount: e.removedCount, remainingCount: e.remainingCount, durationMs: e.durationMs },
     };
 }
 
@@ -544,6 +562,10 @@ export function mapEventToSpan(event: KilnEvent): SpanOperation {
             return mapMemoryRecalled(event as MemoryRecalledEvent);
         case "memory_sync":
             return mapMemorySync(event as MemorySyncEvent);
+        case "precompact":
+            return mapPrecompact(event as PrecompactEvent);
+        case "postcompact":
+            return mapPostcompact(event as PostcompactEvent);
         case "approval_requested":
             return mapApprovalRequested(event as ApprovalRequestedEvent);
         case "approval_received":
