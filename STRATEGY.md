@@ -586,6 +586,14 @@ package boundary, and `packages/cli/src/commands/run.ts` has begun extraction
 into reusable CLI application services (`session-report`, `session-resume`,
 `session-hooks`, `run-session`). No real terminal UI has been built yet.
 
+**Documentation decision:**
+When Phase 7 starts real implementation beyond foundation work, completed-phase
+technical detail should begin moving into structured docs under `/docs`
+(`docs/phases`, `docs/packages`, `docs/adr`, `docs/plans`) instead of
+continuing to accumulate primarily inside `STRATEGY.md`. `STRATEGY.md` should
+remain the strategic roadmap and status document; `/docs` should become the
+technical source of truth for completed phase implementation details.
+
 **Goal:** Replace claude TUI as the primary entry point.
 Kiln TUI is the conversational interface that orchestrates
 Claude Code, Codex, and OpenCode transparently underneath.
