@@ -39,6 +39,13 @@ export interface KilnYamlSkillGeneration {
   readonly complexityThreshold?: number;
 }
 
+export interface KilnYamlQualityGate {
+  readonly name: string;
+  readonly command: string;
+  readonly required?: boolean;
+  readonly coverageThreshold?: number;
+}
+
 export interface KilnYaml {
   readonly version: "1";
   readonly domain?: string;
@@ -54,4 +61,5 @@ export interface KilnYaml {
   readonly permissions?: KilnYamlPermissions;
   readonly providers?: Record<string, KilnYamlProvider>;
   readonly skillGeneration?: KilnYamlSkillGeneration;
+  readonly qualityGates?: readonly KilnYamlQualityGate[];
 }

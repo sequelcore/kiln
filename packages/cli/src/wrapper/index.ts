@@ -36,6 +36,15 @@ export interface SessionReport {
     readonly byRoleModel: Record<string, number>;
   };
   readonly duration: number;
+  readonly verificationResult?: {
+    readonly passed: boolean;
+    readonly checks: readonly {
+      readonly name: string;
+      readonly passed: boolean;
+      readonly output: string;
+      readonly duration: number;
+    }[];
+  };
 }
 
 /** Wrapper configuration */

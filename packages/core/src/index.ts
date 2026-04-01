@@ -7,6 +7,7 @@ export * from "./skill/index.js";
 export * from "./memory/index.js";
 export * from "./tree/index.js";
 export * from "./events/index.js";
+export * from "./verification/index.js";
 export * from "./cost/index.js";
 export * from "./security/index.js";
 export * from "./observability/index.js";

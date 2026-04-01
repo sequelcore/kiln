@@ -12,7 +12,7 @@ import type {
   KilnPermissionPolicy,
 } from "../wrapper/index.js";
 import type { KilnAppConfig } from "../config.js";
-import { SkillGenerator, AnthropicAdapter } from "@kilnai/core";
+import { SkillGenerator, AnthropicAdapter, VerificationResult } from "@kilnai/core";
 
 export interface RunFlags {
   readonly apiKey?: string;
@@ -51,6 +51,17 @@ export function printReport(report: SessionReport, appName: string): void {
   console.log(`Phase:    ${report.phaseReached}`);
   console.log(`Cost:     $${report.cost.total.toFixed(2)}${costParts ? ` (${costParts})` : ""}`);
   console.log(`Duration: ${durationSec}s`);
+  if (report.verificationResult) {
+    const v = report.verificationResult;
+    console.log(`Gates:    ${v.passed ? "all passed" : "FAILED"}`);
+    for (const check of v.checks) {
+      const icon = check.passed ? "✓" : "✗";
+      console.log(`  ${icon} ${check.name} (${check.duration}ms)`);
+      if (!check.passed) {
+        console.log(`    ${check.output.slice(0, 300)}`);
+      }
+    }
+  }
   console.log("");
 }
 
@@ -219,8 +230,24 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
   process.off("SIGINT", shutdown);
   process.off("SIGTERM", shutdown);
 
-  const report = manager.cleanup(sessionId, finalCostUsd);
+  let verificationResult: VerificationResult | undefined;
+  const gates = appConfig.kilnYaml?.qualityGates;
+  if (gates?.length) {
+    const mappedGates = gates.map((g) => ({
+      name: g.name,
+      command: g.command,
+      description: g.name,
+      required: g.required ?? true,
+    }));
+    verificationResult = await manager.runVerification(mappedGates, process.cwd());
+  }
+
+  const report = manager.cleanup(sessionId, finalCostUsd, verificationResult);
   printReport(report, appConfig.appName);
+
+  if (verificationResult && !verificationResult.passed) {
+    process.exit(1);
+  }
 
   await manager.cleanupWorktree(context);
 }

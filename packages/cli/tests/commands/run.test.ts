@@ -154,6 +154,56 @@ describe("run command", () => {
 
       consoleSpy.mockRestore();
     });
+
+    it("prints verification gates when present and passed", () => {
+      const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      printReport(
+        makeReport({
+          verificationResult: {
+            passed: true,
+            checks: [
+              { name: "lint", passed: true, output: "no issues", duration: 120 },
+            ],
+          },
+        }),
+        "kiln",
+      );
+
+      const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
+      expect(output).toContain("Gates:    all passed");
+      expect(output).toContain("✓ lint (120ms)");
+
+      consoleSpy.mockRestore();
+    });
+
+    it("prints failed gate output truncated to 300 chars", () => {
+      const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      printReport(
+        makeReport({
+          verificationResult: {
+            passed: false,
+            checks: [
+              {
+                name: "lint",
+                passed: false,
+                output: "E501 line too long (100 chars, 80 expected)\n".repeat(10),
+                duration: 85,
+              },
+            ],
+          },
+        }),
+        "kiln",
+      );
+
+      const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
+      expect(output).toContain("Gates:    FAILED");
+      expect(output).toContain("✗ lint (85ms)");
+      expect(output).toContain("E501 line too long");
+
+      consoleSpy.mockRestore();
+    });
   });
 
   describe("error handling", () => {

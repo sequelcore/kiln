@@ -1,7 +1,7 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Orchestrator } from "@kilnai/core";
-import type { DomainConfig, RoleUsage } from "@kilnai/core";
+import { Orchestrator, GateRunner, VerificationLoop, EventBus } from "@kilnai/core";
+import type { DomainConfig, RoleUsage, QualityGate, VerificationResult } from "@kilnai/core";
 import { MODEL_PRICING } from "@kilnai/core";
 import type { WrapperConfig, SessionContext, SessionReport } from "./index.js";
 import type { KilnAppConfig } from "../config.js";
@@ -90,7 +90,11 @@ export class SessionManager {
    * @param totalCostUsd Cost reported directly from the session (ClaudeSession.total_cost_usd).
    *                       Falls back to Orchestrator costSummary when session cost is unavailable.
    */
-  cleanup(sessionId: string, totalCostUsd?: number): SessionReport {
+  cleanup(
+    sessionId: string,
+    totalCostUsd?: number,
+    verificationResult?: VerificationResult,
+  ): SessionReport {
     const duration = this.sessionStartTime
       ? Date.now() - this.sessionStartTime
       : 0;
@@ -113,6 +117,9 @@ export class SessionManager {
         byRoleModel,
       },
       duration,
+      verificationResult: verificationResult
+        ? { passed: verificationResult.passed, checks: verificationResult.checks }
+        : undefined,
     };
   }
 
@@ -121,6 +128,22 @@ export class SessionManager {
       await this.worktreeManager.release(this.activeSessionId);
       this.activeSessionId = null;
     }
+  }
+
+  async runVerification(
+    gates: readonly QualityGate[],
+    cwd: string,
+  ): Promise<VerificationResult> {
+    const eventBus = new EventBus();
+    const gateRunner = new GateRunner({ cwd, timeoutMs: 60_000 });
+    const loop = new VerificationLoop({
+      gateRunner,
+      eventBus,
+      config: { maxIterations: 1, coverageThreshold: 0 },
+      gates,
+      sessionId: this.activeSessionId ?? "",
+    });
+    return loop.run();
   }
 }
 
