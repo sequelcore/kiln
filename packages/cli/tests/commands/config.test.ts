@@ -40,7 +40,7 @@ const DEFAULT_KILN: KilnYaml = {
   parallelWorkers: 2,
   provider: "claude",
   mode: "api-key",
-  permissions: { approval: "ask", sandbox: "none" },
+  permissions: { approval: "on-request", sandbox: "read-only" },
 };
 
 describe("configCommand", () => {
@@ -105,19 +105,19 @@ describe("configCommand", () => {
   it("set updates permissions.approval", () => {
     writeKiln(tempDir, DEFAULT_KILN);
 
-    configCommand(MOCK_APP_CONFIG, "set", ["permissions.approval", "auto-approve"], tempDir);
+    configCommand(MOCK_APP_CONFIG, "set", ["permissions.approval", "never"], tempDir);
 
     const config = readKiln(tempDir);
-    expect(config.permissions?.approval).toBe("auto-approve");
+    expect(config.permissions?.approval).toBe("never");
   });
 
   it("set updates permissions.sandbox", () => {
     writeKiln(tempDir, DEFAULT_KILN);
 
-    configCommand(MOCK_APP_CONFIG, "set", ["permissions.sandbox", "full"], tempDir);
+    configCommand(MOCK_APP_CONFIG, "set", ["permissions.sandbox", "danger-full-access"], tempDir);
 
     const config = readKiln(tempDir);
-    expect(config.permissions?.sandbox).toBe("full");
+    expect(config.permissions?.sandbox).toBe("danger-full-access");
   });
 
   it("reset writes default kiln.yaml", () => {
@@ -128,6 +128,6 @@ describe("configCommand", () => {
     const config = readKiln(tempDir);
     expect(config.domain).toBe("generic");
     expect(config.provider).toBe("claude");
-    expect(config.permissions?.approval).toBe("ask");
+    expect(config.permissions?.approval).toBe("on-request");
   });
 });

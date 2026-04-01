@@ -85,8 +85,15 @@ export type {
   SessionCapabilities,
   SessionRunOptions,
   IKilnSession,
-  ApprovalMode,
-  SandboxMode,
+  KilnPermissionAction,
+  KilnPermissionApproval,
+  KilnSandboxMode,
+  KilnToolPermissionRule,
+  KilnCommandPermissionRule,
+  KilnFileGovernancePolicy,
+  KilnDataDestination,
+  KilnDataFirewallRule,
+  KilnAgentPermissionScope,
   KilnPermissionPolicy,
 } from "./session.js";
 export {

@@ -6,7 +6,7 @@ import { translatePermission } from "../wrapper/session-registry.js";
 import type { KilnPermissionPolicy } from "../wrapper/session.js";
 import type { KilnYaml } from "../kiln-yaml-types.js";
 
-const DEFAULT_POLICY: KilnPermissionPolicy = { approval: "ask", sandbox: "none" };
+const DEFAULT_POLICY: KilnPermissionPolicy = { approval: "on-request", sandbox: "read-only" };
 
 function stripJsonComments(text: string): string {
   const lines = text.split("\n");

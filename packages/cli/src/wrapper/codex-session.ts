@@ -15,27 +15,30 @@ export interface CodexSessionConfig {
   readonly model?: string;
   readonly cwd?: string;
   readonly env?: Record<string, string>;
-  readonly approvalMode?: "never" | "on-request" | "untrusted";
+  readonly approvalMode?: "never" | "on-request" | "on-failure" | "untrusted";
   readonly sandboxMode?: "workspace-write" | "danger-full-access";
   readonly permissionPolicy?: KilnPermissionPolicy;
   readonly resumeSessionId?: string;
 }
 
 function derivePermissionPolicy(
-  approvalMode?: string,
-  sandboxMode?: string,
+  approvalMode?: CodexSessionConfig["approvalMode"],
+  sandboxMode?: CodexSessionConfig["sandboxMode"],
   fallback?: KilnPermissionPolicy,
 ): KilnPermissionPolicy {
   if (approvalMode === "never") {
-    return { approval: "auto-approve", sandbox: sandboxMode === "danger-full-access" ? "full" : "workspace-write" };
+    return { approval: "never", sandbox: sandboxMode === "danger-full-access" ? "danger-full-access" : "workspace-write" };
   }
   if (approvalMode === "on-request") {
-    return { approval: "ask", sandbox: sandboxMode === "workspace-write" || sandboxMode === "danger-full-access" ? "workspace-write" : "none" };
+    return { approval: "on-request", sandbox: sandboxMode === "danger-full-access" ? "danger-full-access" : sandboxMode ?? "read-only" };
+  }
+  if (approvalMode === "on-failure") {
+    return { approval: "on-failure", sandbox: sandboxMode === "danger-full-access" ? "danger-full-access" : sandboxMode ?? "read-only" };
   }
   if (approvalMode === "untrusted") {
-    return { approval: "deny", sandbox: "none" };
+    return { approval: "untrusted", sandbox: "read-only" };
   }
-  return fallback ?? { approval: "ask", sandbox: "none" };
+  return fallback ?? { approval: "on-request", sandbox: "read-only" };
 }
 
 interface MutableCapabilities {

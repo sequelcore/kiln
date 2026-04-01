@@ -15,6 +15,11 @@ export type {
   KilnYamlMcpServer,
   KilnYamlModel,
   KilnYamlPermissions,
+  KilnYamlToolRule,
+  KilnYamlCommandRule,
+  KilnYamlFileGovernance,
+  KilnYamlDataFirewallRule,
+  KilnYamlAgentScope,
   KilnYamlProvider,
   KilnYamlSkillGeneration,
   KilnHooksConfig,
@@ -117,8 +122,8 @@ export function migrateConfigJson(kilnDir: string): boolean {
     parallelWorkers: config.parallelWorkers,
     mode: config.mode,
     permissions: {
-      approval: config.requireApproval ? "ask" : "auto-approve",
-      sandbox: "none",
+      approval: config.requireApproval ? "on-request" : "never",
+      sandbox: "read-only",
     },
   };
   writeKilnYaml(kilnDir, kilnYaml);
@@ -133,8 +138,8 @@ export function defaultKilnYaml(domain: string): KilnYaml {
     provider: "claude",
     mode: "api-key",
     permissions: {
-      approval: "ask",
-      sandbox: "none",
+      approval: "on-request",
+      sandbox: "read-only",
     },
   };
 }

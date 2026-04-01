@@ -46,8 +46,8 @@ describe("initCommand", () => {
     expect(config!.parallelWorkers).toBe(2);
     expect(config!.provider).toBe("anthropic");
     expect(config!.mode).toBe("api-key");
-    expect(config!.permissions?.approval).toBe("ask");
-    expect(config!.permissions?.sandbox).toBe("none");
+    expect(config!.permissions?.approval).toBe("on-request");
+    expect(config!.permissions?.sandbox).toBe("read-only");
 
     const onDisk = parseYaml(
       readFileSync(join(tempDir, ".kiln", "kiln.yaml"), "utf-8"),

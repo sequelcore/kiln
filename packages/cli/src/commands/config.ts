@@ -17,7 +17,14 @@ type KilnYamlKey =
   | "parallelWorkers"
   | "mode"
   | "permissions.approval"
-  | "permissions.sandbox";
+  | "permissions.sandbox"
+  | "permissions.safeDefaults"
+  | "permissions.auditLog"
+  | "permissions.tools"
+  | "permissions.commands"
+  | "permissions.fileGovernance"
+  | "permissions.dataFirewall"
+  | "permissions.agentScopes";
 
 const VALID_KEYS: ReadonlySet<KilnYamlKey> = new Set([
   "domain",
@@ -30,6 +37,13 @@ const VALID_KEYS: ReadonlySet<KilnYamlKey> = new Set([
   "mode",
   "permissions.approval",
   "permissions.sandbox",
+  "permissions.safeDefaults",
+  "permissions.auditLog",
+  "permissions.tools",
+  "permissions.commands",
+  "permissions.fileGovernance",
+  "permissions.dataFirewall",
+  "permissions.agentScopes",
 ]);
 
 export function configCommand(
@@ -108,26 +122,52 @@ export function configCommand(
 
 function setNestedKey(config: KilnYaml, key: KilnYamlKey, rawValue: string): KilnYaml {
   if (key === "permissions.approval") {
-    const val = rawValue as "auto-approve" | "ask" | "deny";
-    if (val !== "auto-approve" && val !== "ask" && val !== "deny") {
-      console.error(`Invalid approval value: ${rawValue}. Must be auto-approve, ask, or deny.`);
+    const val = rawValue as "never" | "on-request" | "on-failure" | "untrusted";
+    if (val !== "never" && val !== "on-request" && val !== "on-failure" && val !== "untrusted") {
+      console.error(`Invalid approval value: ${rawValue}. Must be never, on-request, on-failure, or untrusted.`);
       process.exit(1);
     }
     return {
       ...config,
-      permissions: { ...(config.permissions ?? { sandbox: "none" }), approval: val },
+      permissions: { ...(config.permissions ?? { sandbox: "read-only" }), approval: val },
     };
   }
 
   if (key === "permissions.sandbox") {
-    const val = rawValue as "none" | "workspace-write" | "full";
-    if (val !== "none" && val !== "workspace-write" && val !== "full") {
-      console.error(`Invalid sandbox value: ${rawValue}. Must be none, workspace-write, or full.`);
+    const val = rawValue as "read-only" | "workspace-write" | "danger-full-access";
+    if (val !== "read-only" && val !== "workspace-write" && val !== "danger-full-access") {
+      console.error(`Invalid sandbox value: ${rawValue}. Must be read-only, workspace-write, or danger-full-access.`);
       process.exit(1);
     }
     return {
       ...config,
-      permissions: { ...(config.permissions ?? { approval: "ask" }), sandbox: val },
+      permissions: { ...(config.permissions ?? { approval: "on-request" }), sandbox: val },
+    };
+  }
+
+  if (key === "permissions.safeDefaults" || key === "permissions.auditLog") {
+    return {
+      ...config,
+      permissions: {
+        ...(config.permissions ?? {}),
+        [key === "permissions.safeDefaults" ? "safeDefaults" : "auditLog"]: parseBoolean(rawValue, key),
+      },
+    };
+  }
+
+  if (
+    key === "permissions.tools" ||
+    key === "permissions.commands" ||
+    key === "permissions.fileGovernance" ||
+    key === "permissions.dataFirewall" ||
+    key === "permissions.agentScopes"
+  ) {
+    return {
+      ...config,
+      permissions: {
+        ...(config.permissions ?? {}),
+        [key.slice("permissions.".length)]: parseJson(rawValue, key),
+      },
     };
   }
 
@@ -140,6 +180,13 @@ function setNestedKey(config: KilnYaml, key: KilnYamlKey, rawValue: string): Kil
 function getNestedKey(config: KilnYaml, key: KilnYamlKey): unknown {
   if (key === "permissions.approval") return config.permissions?.approval;
   if (key === "permissions.sandbox") return config.permissions?.sandbox;
+  if (key === "permissions.safeDefaults") return config.permissions?.safeDefaults;
+  if (key === "permissions.auditLog") return config.permissions?.auditLog;
+  if (key === "permissions.tools") return config.permissions?.tools;
+  if (key === "permissions.commands") return config.permissions?.commands;
+  if (key === "permissions.fileGovernance") return config.permissions?.fileGovernance;
+  if (key === "permissions.dataFirewall") return config.permissions?.dataFirewall;
+  if (key === "permissions.agentScopes") return config.permissions?.agentScopes;
   switch (key) {
     case "domain": return config.domain;
     case "provider": return config.provider;
@@ -167,6 +214,24 @@ function parseScalar(value: string, key: KilnYamlKey): string | number | boolean
   }
 
   return value;
+}
+
+function parseBoolean(value: string, key: string): boolean {
+  if (value === "true") return true;
+  if (value === "false") return false;
+  console.error(`Invalid boolean value for ${key}: ${value}. Must be true or false.`);
+  process.exit(1);
+}
+
+function parseJson(value: string, key: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    console.error(
+      `Invalid JSON value for ${key}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    process.exit(1);
+  }
 }
 
 function printConfigHelp(): void {

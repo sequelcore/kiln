@@ -9,7 +9,7 @@ export interface SystemPromptOptions {
   readonly projectPath: string;
 }
 
-const DEFAULT_POLICY = { approval: "ask" as const, sandbox: "none" as const };
+const DEFAULT_POLICY = { approval: "on-request" as const, sandbox: "read-only" as const };
 
 function defaultBuildSystemPrompt(opts: SystemPromptOptions): string {
   const { buildPreamble } = require("./wrapper/preamble-builder.js");

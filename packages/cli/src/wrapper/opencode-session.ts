@@ -7,7 +7,7 @@ import type {
   SessionRunOptions,
   IKilnSession,
   KilnPermissionPolicy,
-  SandboxMode,
+  KilnSandboxMode,
 } from "./session.js";
 import { debug } from "./debug.js";
 import { SessionStore } from "./session-store.js";
@@ -93,23 +93,23 @@ export interface OpenCodeSessionConfig {
   readonly port?: number;
   readonly baseUrl?: string;
   readonly permissionDefault?: "ask" | "allow" | "deny";
-  readonly sandboxMode?: SandboxMode;
+  readonly sandboxMode?: KilnSandboxMode;
   readonly permissionPolicy?: KilnPermissionPolicy;
   readonly resumeSessionId?: string;
 }
 
 function derivePermissionPolicy(
   permissionDefault?: string,
-  sandboxMode?: SandboxMode,
+  sandboxMode?: KilnSandboxMode,
   fallback?: KilnPermissionPolicy,
 ): KilnPermissionPolicy {
   if (permissionDefault === "allow") {
-    return { approval: "auto-approve", sandbox: sandboxMode ?? "none" };
+    return { approval: "never", sandbox: sandboxMode ?? "read-only" };
   }
   if (permissionDefault === "deny") {
-    return { approval: "deny", sandbox: "none" };
+    return { approval: "untrusted", sandbox: "read-only" };
   }
-  return fallback ?? { approval: "ask", sandbox: "none" };
+  return fallback ?? { approval: "on-request", sandbox: "read-only" };
 }
 
 interface MutableCapabilities {
@@ -147,7 +147,7 @@ export class OpenCodeSession implements IKilnSession {
         config.permissionPolicy,
       ),
     };
-    if (config.sandboxMode && config.sandboxMode !== "none") {
+    if (config.sandboxMode && config.sandboxMode !== "read-only") {
       debug(`sandboxMode=${config.sandboxMode} not supported, silently ignored`);
     }
   }
@@ -204,7 +204,7 @@ export class OpenCodeSession implements IKilnSession {
       const client = asOpencodeClient(createOpencodeClient({ baseUrl }));
 
       const approval = this._capabilities.permissionPolicy.approval;
-      const permValue = approval === "auto-approve" ? "allow" : approval === "deny" ? "deny" : "ask";
+      const permValue = approval === "never" ? "allow" : approval === "untrusted" ? "deny" : "ask";
       await client.config
         .update({
           body: { permission: { edit: permValue, bash: permValue } },

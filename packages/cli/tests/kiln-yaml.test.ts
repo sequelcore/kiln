@@ -95,12 +95,12 @@ describe("writeKilnYaml", () => {
   it("writes nested permissions object", () => {
     const config: KilnYaml = {
       version: "1",
-      permissions: { approval: "ask", sandbox: "none" },
+      permissions: { approval: "on-request", sandbox: "read-only" },
     };
     writeKilnYaml(tempDir, config);
     const parsed = parseYaml(readFileSync(join(tempDir, "kiln.yaml"), "utf-8")) as KilnYaml;
-    expect(parsed.permissions?.approval).toBe("ask");
-    expect(parsed.permissions?.sandbox).toBe("none");
+    expect(parsed.permissions?.approval).toBe("on-request");
+    expect(parsed.permissions?.sandbox).toBe("read-only");
   });
 });
 
@@ -211,7 +211,7 @@ describe("migrateConfigJson", () => {
     expect(parsed.requireApproval).toBe(true);
     expect(parsed.maxDepth).toBe(5);
     expect(parsed.parallelWorkers).toBe(4);
-    expect(parsed.permissions?.approval).toBe("ask");
+    expect(parsed.permissions?.approval).toBe("on-request");
   });
 
   it("deletes config.json after migration", () => {
@@ -223,7 +223,7 @@ describe("migrateConfigJson", () => {
     expect(existsSync(join(tempDir, ".kiln", "config.json"))).toBe(false);
   });
 
-  it("maps requireApproval false to auto-approve", () => {
+  it("maps requireApproval false to never", () => {
     writeFileSync(
       join(tempDir, ".kiln", "config.json"),
       JSON.stringify({ requireApproval: false }),
@@ -232,7 +232,7 @@ describe("migrateConfigJson", () => {
     const parsed = parseYaml(
       readFileSync(join(tempDir, ".kiln", "kiln.yaml"), "utf-8"),
     ) as KilnYaml;
-    expect(parsed.permissions?.approval).toBe("auto-approve");
+    expect(parsed.permissions?.approval).toBe("never");
   });
 });
 
@@ -243,7 +243,7 @@ describe("defaultKilnYaml", () => {
     expect(result.domain).toBe("python");
     expect(result.provider).toBe("claude");
     expect(result.mode).toBe("api-key");
-    expect(result.permissions?.approval).toBe("ask");
-    expect(result.permissions?.sandbox).toBe("none");
+    expect(result.permissions?.approval).toBe("on-request");
+    expect(result.permissions?.sandbox).toBe("read-only");
   });
 });

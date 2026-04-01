@@ -29,7 +29,7 @@ vi.mock("node:fs", async () => {
 
 const MOCK_CONFIG: WrapperConfig = {
   mode: "api-key",
-  permissionPolicy: { approval: "ask", sandbox: "none" },
+  permissionPolicy: { approval: "on-request", sandbox: "read-only" },
 };
 
 const MOCK_APP_CONFIG: KilnAppConfig = {

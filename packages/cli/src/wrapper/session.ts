@@ -16,12 +16,73 @@ export type CostTrackingMode =
   | "computed"
   | "none";
 
-export type ApprovalMode = "auto-approve" | "ask" | "deny";
-export type SandboxMode = "none" | "workspace-write" | "full";
+export type KilnPermissionAction = "allow" | "ask" | "deny";
+
+export type KilnPermissionApproval =
+  | "never"
+  | "on-request"
+  | "on-failure"
+  | "untrusted";
+
+export type KilnSandboxMode =
+  | "read-only"
+  | "workspace-write"
+  | "danger-full-access";
+
+export interface KilnToolPermissionRule {
+  readonly tool: string;
+  readonly action: KilnPermissionAction;
+  readonly reason?: string;
+}
+
+export interface KilnCommandPermissionRule {
+  readonly pattern: string;
+  readonly action: KilnPermissionAction;
+  readonly shell?: "bash" | "sh" | "zsh" | "any";
+  readonly reason?: string;
+}
+
+export interface KilnFileGovernancePolicy {
+  readonly denyGlobs?: readonly string[];
+  readonly askGlobs?: readonly string[];
+  readonly allowGlobs?: readonly string[];
+  readonly excludeFromContext?: boolean;
+}
+
+export type KilnDataDestination =
+  | "small-model"
+  | "logs"
+  | "ci"
+  | "github-actions"
+  | "external-mcp"
+  | "webhook";
+
+export interface KilnDataFirewallRule {
+  readonly destination: KilnDataDestination | string;
+  readonly action: "allow" | "redact" | "deny";
+  readonly classifications?: readonly string[];
+  readonly reason?: string;
+}
+
+export interface KilnAgentPermissionScope {
+  readonly agent: string;
+  readonly inherit?: boolean;
+  readonly tools?: readonly KilnToolPermissionRule[];
+  readonly commands?: readonly KilnCommandPermissionRule[];
+  readonly fileGovernance?: KilnFileGovernancePolicy;
+  readonly mcpTools?: readonly string[];
+}
 
 export interface KilnPermissionPolicy {
-  readonly approval: ApprovalMode;
-  readonly sandbox: SandboxMode;
+  readonly approval?: KilnPermissionApproval;
+  readonly sandbox?: KilnSandboxMode;
+  readonly safeDefaults?: boolean;
+  readonly auditLog?: boolean;
+  readonly tools?: readonly KilnToolPermissionRule[];
+  readonly commands?: readonly KilnCommandPermissionRule[];
+  readonly fileGovernance?: KilnFileGovernancePolicy;
+  readonly dataFirewall?: readonly KilnDataFirewallRule[];
+  readonly agentScopes?: readonly KilnAgentPermissionScope[];
 }
 
 export type SessionEvent =

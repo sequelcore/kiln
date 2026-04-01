@@ -43,7 +43,7 @@ export interface ClaudeBackendConfig {
 }
 
 export interface CodexBackendConfig {
-  readonly approvalMode: "never" | "on-request" | "untrusted";
+  readonly approvalMode: "never" | "on-request" | "on-failure" | "untrusted";
   readonly sandboxMode: "workspace-write" | "danger-full-access";
 }
 
@@ -60,10 +60,11 @@ export function translatePermission(
   policy: KilnPermissionPolicy,
   backend: "claude" | "codex" | "opencode",
 ): BackendConfig {
-  const { approval, sandbox } = policy;
+  const approval = policy.approval ?? "on-request";
+  const sandbox = policy.sandbox ?? "read-only";
 
-  if (approval === "auto-approve") {
-    if (sandbox === "none") {
+  if (approval === "never") {
+    if (sandbox === "read-only") {
       if (backend === "claude") {
         return { backend: "claude", config: { permissionMode: "acceptEdits", allowDangerouslySkipPermissions: false } };
       }
@@ -83,7 +84,7 @@ export function translatePermission(
       return { backend: "opencode", config: { permissionDefault: "allow" } };
     }
 
-    if (sandbox === "full") {
+    if (sandbox === "danger-full-access") {
       if (backend === "claude") {
         return { backend: "claude", config: { permissionMode: "bypassPermissions", allowDangerouslySkipPermissions: true } };
       }
@@ -94,7 +95,7 @@ export function translatePermission(
     }
   }
 
-  if (approval === "ask") {
+  if (approval === "on-request") {
     if (backend === "claude") {
       return { backend: "claude", config: { permissionMode: "default", allowDangerouslySkipPermissions: false } };
     }
@@ -104,7 +105,17 @@ export function translatePermission(
     return { backend: "opencode", config: { permissionDefault: "ask" } };
   }
 
-  if (approval === "deny") {
+  if (approval === "on-failure") {
+    if (backend === "claude") {
+      return { backend: "claude", config: { permissionMode: "default", allowDangerouslySkipPermissions: false } };
+    }
+    if (backend === "codex") {
+      return { backend: "codex", config: { approvalMode: "on-failure", sandboxMode: "workspace-write" } };
+    }
+    return { backend: "opencode", config: { permissionDefault: "ask" } };
+  }
+
+  if (approval === "untrusted") {
     if (backend === "claude") {
       return { backend: "claude", config: { permissionMode: "plan", allowDangerouslySkipPermissions: false } };
     }
@@ -353,7 +364,7 @@ export class SessionRegistry {
   }
 }
 
-const DEFAULT_POLICY: KilnPermissionPolicy = { approval: "ask", sandbox: "none" };
+const DEFAULT_POLICY: KilnPermissionPolicy = { approval: "on-request", sandbox: "read-only" };
 
 export function createDefaultRegistry(): {
   registry: SessionRegistry;

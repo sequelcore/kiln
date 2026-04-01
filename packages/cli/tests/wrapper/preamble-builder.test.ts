@@ -52,7 +52,7 @@ describe("buildPreamble", () => {
       domain: FULL_DOMAIN,
       memorySnapshot: "Remember: use strict mode for new files",
     };
-    const result = buildPreamble(ctx, { approval: "auto-approve", sandbox: "full" }, FULL_AGENT);
+    const result = buildPreamble(ctx, { approval: "never", sandbox: "danger-full-access" }, FULL_AGENT);
 
     expect(result).toContain("<kiln-preamble>");
     expect(result).toContain("<role>");
@@ -64,8 +64,8 @@ describe("buildPreamble", () => {
     expect(result).toContain("Tool tags: python, testing, linting");
     expect(result).toContain("Quality gates: ruff, pytest");
     expect(result).toContain("<constraints>");
-    expect(result).toContain("Approval mode: auto-approve");
-    expect(result).toContain("Sandbox: full");
+    expect(result).toContain("Approval mode: never");
+    expect(result).toContain("Sandbox: danger-full-access");
     expect(result).toContain("<memory>");
     expect(result).toContain("Remember: use strict mode");
     expect(result).toContain("<instructions>");
@@ -74,7 +74,7 @@ describe("buildPreamble", () => {
   });
 
   it("omits <role> when agent is undefined", () => {
-    const result = buildPreamble(MINIMAL_CONTEXT, { approval: "ask", sandbox: "none" }, undefined);
+    const result = buildPreamble(MINIMAL_CONTEXT, { approval: "on-request", sandbox: "read-only" }, undefined);
     expect(result).not.toContain("<role>");
     expect(result).toContain("<task>Fix the login bug</task>");
     expect(result).toContain("<constraints>");
@@ -90,7 +90,7 @@ describe("buildPreamble", () => {
     };
     const result = buildPreamble(
       MINIMAL_CONTEXT,
-      { approval: "ask", sandbox: "none" },
+      { approval: "on-request", sandbox: "read-only" },
       agentWithoutInstructions,
     );
     expect(result).toContain("<role>");
@@ -98,13 +98,13 @@ describe("buildPreamble", () => {
   });
 
   it("omits <memory> when memorySnapshot is undefined", () => {
-    const result = buildPreamble(MINIMAL_CONTEXT, { approval: "ask", sandbox: "none" }, undefined);
+    const result = buildPreamble(MINIMAL_CONTEXT, { approval: "on-request", sandbox: "read-only" }, undefined);
     expect(result).not.toContain("<memory>");
   });
 
   it("omits <memory> when memorySnapshot is empty string", () => {
     const ctx: SessionContext = { ...MINIMAL_CONTEXT, memorySnapshot: "  " };
-    const result = buildPreamble(ctx, { approval: "ask", sandbox: "none" }, undefined);
+    const result = buildPreamble(ctx, { approval: "on-request", sandbox: "read-only" }, undefined);
     expect(result).not.toContain("<memory>");
   });
 
@@ -114,7 +114,7 @@ describe("buildPreamble", () => {
       lines.push(`Line ${i}: context from prior session`);
     }
     const ctx: SessionContext = { ...MINIMAL_CONTEXT, memorySnapshot: lines.join("\n") };
-    const result = buildPreamble(ctx, { approval: "ask", sandbox: "none" }, undefined);
+    const result = buildPreamble(ctx, { approval: "on-request", sandbox: "read-only" }, undefined);
 
     expect(result).toContain("[memory truncated — 50 lines omitted]");
     expect(result).not.toContain("Line 201");
@@ -127,7 +127,7 @@ describe("buildPreamble", () => {
       lines.push(`Line ${i}`);
     }
     const ctx: SessionContext = { ...MINIMAL_CONTEXT, memorySnapshot: lines.join("\n") };
-    const result = buildPreamble(ctx, { approval: "ask", sandbox: "none" }, undefined);
+    const result = buildPreamble(ctx, { approval: "on-request", sandbox: "read-only" }, undefined);
 
     expect(result).not.toContain("truncated");
     expect(result).toContain("Line 200");
@@ -135,7 +135,7 @@ describe("buildPreamble", () => {
 
   it("escapes XML special characters in task", () => {
     const ctx: SessionContext = { ...MINIMAL_CONTEXT, task: "Fix <bug> & fix 'error'" };
-    const result = buildPreamble(ctx, { approval: "ask", sandbox: "none" }, undefined);
+    const result = buildPreamble(ctx, { approval: "on-request", sandbox: "read-only" }, undefined);
     expect(result).toContain("&lt;bug&gt;");
     expect(result).toContain("&amp;");
     expect(result).toContain("&apos;");
@@ -143,7 +143,7 @@ describe("buildPreamble", () => {
 
   it("escapes XML special characters in memory", () => {
     const ctx: SessionContext = { ...MINIMAL_CONTEXT, memorySnapshot: "Use <b>bold</b> tags & wrap" };
-    const result = buildPreamble(ctx, { approval: "ask", sandbox: "none" }, undefined);
+    const result = buildPreamble(ctx, { approval: "on-request", sandbox: "read-only" }, undefined);
     expect(result).toContain("&lt;b&gt;");
     expect(result).toContain("&amp;");
   });
@@ -153,20 +153,20 @@ describe("buildPreamble", () => {
       ...MINIMAL_CONTEXT,
       domain: { ...MINIMAL_CONTEXT.domain, toolTags: new Set(), qualityGates: [] },
     };
-    const result = buildPreamble(ctx, { approval: "ask", sandbox: "none" }, undefined);
+    const result = buildPreamble(ctx, { approval: "on-request", sandbox: "read-only" }, undefined);
     expect(result).not.toContain("<domain>");
   });
 
   it("always includes <task> even with minimal context", () => {
-    const result = buildPreamble(MINIMAL_CONTEXT, { approval: "ask", sandbox: "none" }, undefined);
+    const result = buildPreamble(MINIMAL_CONTEXT, { approval: "on-request", sandbox: "read-only" }, undefined);
     expect(result).toMatch(/<task>Fix the login bug<\/task>/);
   });
 
   it("always includes <constraints> with policy fields", () => {
-    const result = buildPreamble(MINIMAL_CONTEXT, { approval: "deny", sandbox: "full" }, undefined);
+    const result = buildPreamble(MINIMAL_CONTEXT, { approval: "untrusted", sandbox: "danger-full-access" }, undefined);
     expect(result).toContain("<constraints>");
-    expect(result).toContain("Approval mode: deny");
-    expect(result).toContain("Sandbox: full");
+    expect(result).toContain("Approval mode: untrusted");
+    expect(result).toContain("Sandbox: danger-full-access");
   });
 
   it("uses safe defaults when agent has minimal fields", () => {
@@ -177,7 +177,7 @@ describe("buildPreamble", () => {
       tier: "fast",
       tools: [],
     };
-    const result = buildPreamble(MINIMAL_CONTEXT, { approval: "ask", sandbox: "none" }, minimalAgent);
+    const result = buildPreamble(MINIMAL_CONTEXT, { approval: "on-request", sandbox: "read-only" }, minimalAgent);
     expect(result).toContain("You are Bot, Assistant. Goal: Help");
     expect(result).not.toContain("undefined");
     expect(result).not.toContain("null");

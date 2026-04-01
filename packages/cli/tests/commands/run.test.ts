@@ -46,7 +46,7 @@ const MOCK_APP_CONFIG: KilnAppConfig = {
 function makeConfig(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
   return {
     mode: "api-key",
-    permissionPolicy: { approval: "ask", sandbox: "none" },
+    permissionPolicy: { approval: "on-request", sandbox: "read-only" },
     ...overrides,
   };
 }

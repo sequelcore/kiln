@@ -24,9 +24,52 @@ export interface KilnYamlModel {
   fallback?: string[];
 }
 
+export interface KilnYamlToolRule {
+  tool: string;
+  action: "allow" | "ask" | "deny";
+  reason?: string;
+}
+
+export interface KilnYamlCommandRule {
+  pattern: string;
+  action: "allow" | "ask" | "deny";
+  shell?: "bash" | "sh" | "zsh" | "any";
+  reason?: string;
+}
+
+export interface KilnYamlFileGovernance {
+  excludeFromContext?: boolean;
+  denyGlobs?: string[];
+  askGlobs?: string[];
+  allowGlobs?: string[];
+}
+
+export interface KilnYamlDataFirewallRule {
+  destination: string;
+  action: "allow" | "redact" | "deny";
+  classifications?: string[];
+  reason?: string;
+}
+
+export interface KilnYamlAgentScope {
+  agent: string;
+  inherit?: boolean;
+  tools?: KilnYamlToolRule[];
+  commands?: KilnYamlCommandRule[];
+  fileGovernance?: KilnYamlFileGovernance;
+  mcpTools?: string[];
+}
+
 export interface KilnYamlPermissions {
-  approval: "auto-approve" | "ask" | "deny";
-  sandbox: "none" | "workspace-write" | "full";
+  approval?: "never" | "on-request" | "on-failure" | "untrusted";
+  sandbox?: "read-only" | "workspace-write" | "danger-full-access";
+  safeDefaults?: boolean;
+  auditLog?: boolean;
+  tools?: KilnYamlToolRule[];
+  commands?: KilnYamlCommandRule[];
+  fileGovernance?: KilnYamlFileGovernance;
+  dataFirewall?: KilnYamlDataFirewallRule[];
+  agentScopes?: KilnYamlAgentScope[];
 }
 
 export interface KilnYamlProvider {

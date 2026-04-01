@@ -37,15 +37,15 @@ function derivePermissionPolicy(
   fallback?: KilnPermissionPolicy,
 ): KilnPermissionPolicy {
   if (permissionMode === "bypassPermissions") {
-    return { approval: "auto-approve", sandbox: allowDangerouslySkip ? "full" : "workspace-write" };
+    return { approval: "never", sandbox: allowDangerouslySkip ? "danger-full-access" : "workspace-write" };
   }
   if (permissionMode === "acceptEdits") {
-    return { approval: "auto-approve", sandbox: "none" };
+    return { approval: "never", sandbox: "read-only" };
   }
   if (permissionMode === "plan") {
-    return { approval: "deny", sandbox: "none" };
+    return { approval: "untrusted", sandbox: "read-only" };
   }
-  return fallback ?? { approval: "ask", sandbox: "none" };
+  return fallback ?? { approval: "on-request", sandbox: "read-only" };
 }
 
 interface MutableCapabilities {
