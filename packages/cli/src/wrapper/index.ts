@@ -108,6 +108,14 @@ export type {
 
 export { SessionStore } from "./session-store.js";
 export type { SessionRecord } from "./session-store.js";
+export { ApprovalMemoryStore } from "./approval-memory-store.js";
+export type {
+  ApprovalScope,
+  ApprovalSurface,
+  ApprovalMemoryRecord,
+  ApprovalGrantInput,
+  ApprovalMatchQuery,
+} from "./approval-memory-store.js";
 export { createPermissionEvaluator, resolveEffectivePermissionPolicy } from "./permission-evaluator.js";
 export type {
   PermissionEvaluator,

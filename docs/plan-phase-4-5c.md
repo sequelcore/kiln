@@ -1,0 +1,164 @@
+# Phase 4.5c Implementation Plan: Enforcement Integration
+
+> Updated: 2026-04-01. Sources: local scout of current Kiln CLI/runtime code and prior competitor research.
+
+## Objective
+
+Phase 4.5c is the point where permission policy stops being only:
+
+- schema
+- normalization
+- evaluation
+- translation metadata
+
+and starts becoming real runtime behavior.
+
+The goal is to enforce policy at the correct architectural boundaries without
+duplicating policy logic across CLI adapters, runtime gateways, and core.
+
+---
+
+## Scout Summary
+
+Current reality:
+
+- `4.5a` exists: canonical evaluator in
+  [permission-evaluator.ts](/C:/Proyectos/Sequel/kiln/packages/cli/src/wrapper/permission-evaluator.ts)
+- `4.5b` exists: backend translation + sync persistence
+- approval state is still ephemeral in
+  [approval-registry.ts](/C:/Proyectos/Sequel/kiln/packages/runtime/src/gateway/approval-registry.ts)
+- session persistence exists in
+  [session-store.ts](/C:/Proyectos/Sequel/kiln/packages/cli/src/wrapper/session-store.ts)
+- prompt/context assembly is still coarse in
+  [preamble-builder.ts](/C:/Proyectos/Sequel/kiln/packages/cli/src/wrapper/preamble-builder.ts)
+- outbound runtime sends are still policy-blind in
+  [outbound-routes.ts](/C:/Proyectos/Sequel/kiln/packages/runtime/src/gateway/outbound-routes.ts)
+
+Main gaps:
+
+- no `once / session / project` approval memory
+- no real file-governance filtering before backend exposure
+- no execution-time enforcement of agent scopes
+- no destination-aware data-firewall enforcement in outbound runtime paths
+
+---
+
+## Architectural Position
+
+Phase 4.5c must preserve this split:
+
+- `packages/cli/src/application`
+  owns enforcement orchestration
+- `packages/cli/src/wrapper`
+  owns persistence adapters and policy utilities
+- `packages/runtime/src/gateway`
+  owns outbound/channel enforcement
+- `packages/core`
+  may own shared low-level helpers only if reuse is proven
+
+Forbidden:
+
+- duplicating permission decision logic outside the evaluator
+- moving product policy ownership into `core`
+- hiding backend capability gaps by pretending translation equals enforcement
+
+---
+
+## Sub-Phase Sequence
+
+### 4.5c.a — Approval Memory Foundation
+
+**Purpose**
+
+Add durable approval-memory primitives that can support:
+
+- `once`
+- `session`
+- `project`
+
+without changing runtime approval transport semantics yet.
+
+**Primary files**
+
+- new: `packages/cli/src/wrapper/approval-memory-store.ts`
+- new tests in `packages/cli/tests/wrapper/`
+- minimal application plumbing only if needed
+
+**Notes**
+
+This is the cleanest first slice because:
+
+- it fits existing `.kiln` persistence
+- it does not force premature runtime/UI behavior
+- it creates a real foundation for later enforcement
+
+### 4.5c.b — Context Governance Enforcement
+
+**Purpose**
+
+Enforce `fileGovernance.excludeFromContext` and related context filtering before
+backend exposure.
+
+**Primary files**
+
+- `packages/cli/src/application/run-session.ts`
+- `packages/cli/src/wrapper/preamble-builder.ts`
+- backend wrappers only where native restrictions can be applied safely
+
+### 4.5c.c — Agent Scope Execution Enforcement
+
+**Purpose**
+
+Enforce scoped tool/command/MCP restrictions in the CLI application run flow,
+not only in evaluation or prompt text.
+
+**Primary files**
+
+- `packages/cli/src/application/run-session.ts`
+- supporting application services as needed
+
+### 4.5c.d — Runtime Data Firewall Enforcement
+
+**Purpose**
+
+Enforce destination-aware policy for outbound sends and runtime egress paths.
+
+**Primary files**
+
+- `packages/runtime/src/gateway/outbound-routes.ts`
+- `packages/runtime/src/gateway/message-pipeline.ts`
+- `packages/runtime/src/gateway/safety-middleware.ts` only where it can remain
+  a middleware, not become policy owner
+
+---
+
+## Decision: Start With 4.5c.a
+
+Although file governance is the highest-value behavior gap, the cleanest first
+implementation slice is approval-memory persistence.
+
+Why:
+
+- it is independent
+- it respects current package boundaries
+- it avoids forcing fake enforcement into backends before the persistence and
+  decision flow exist
+- it is testable without changing terminal UX yet
+
+That makes `4.5c.a` the correct start of the phase, followed by real
+context/execution enforcement.
+
+---
+
+## Done Criteria For 4.5c.a
+
+- approval memory store exists under `.kiln`
+- supports `once`, `session`, and `project` scopes
+- stores enough metadata to audit what was granted:
+  - surface
+  - selector / match key
+  - action
+  - scope
+  - timestamps
+- tests cover read/write/expiry or session-clearing semantics as applicable
+- no runtime gateway logic is polluted with persistence concerns

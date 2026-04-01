@@ -157,12 +157,22 @@ Missing enforcement pieces:
 
 ### 4.5c — Enforcement Integration (Governance + Approval Memory)
 
+**Status:** STARTED
+
 **Scope:**
 
 - Enforce file governance in context/prompt and file-touch flows
 - Enforce data-firewall decisions at outbound destinations
 - Add approval memory levels (`once`, `session`, `project`) and audit trail
 - Apply agent-scope restrictions at subagent launch boundaries
+
+**Planning doc:**
+
+- [plan-phase-4-5c.md](/C:/Proyectos/Sequel/kiln/docs/plan-phase-4-5c.md)
+
+**Current slice in progress:**
+
+- `4.5c.a` approval-memory persistence foundation in CLI wrapper layer
 
 **Primary files (expected):**
 

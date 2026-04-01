@@ -513,7 +513,9 @@ re-locks users into Claude Code-only UX.
 - `4.5b` complete: richer backend translation contract, adapter consumption,
   and sync-writer persistence landed with explicit Kiln-managed metadata for
   translated-vs-enforced backend rules
-- later sub-phases still pending: enforcement integration and core safety
+- `4.5c` started: approval-memory and enforcement integration planning is in
+  place, with the first persistence slice underway
+- later sub-phases still pending: full enforcement integration and core safety
   hardening
 
 ### Granular Permission Policy
