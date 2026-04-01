@@ -1,0 +1,44 @@
+{
+  "name": "@kilnai/tui",
+  "version": "0.23.2",
+  "description": "Terminal interface adapter foundation for Kiln",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "echo 'No tests yet'"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sequelcore/kiln.git",
+    "directory": "packages/tui"
+  },
+  "homepage": "https://github.com/sequelcore/kiln/tree/main/packages/tui",
+  "keywords": [
+    "ai",
+    "tui",
+    "terminal",
+    "orchestration"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "@kilnai/core": "workspace:*",
+    "@kilnai/runtime": "workspace:*",
+    "@kilnai/react": "workspace:*",
+    "react": "^19.0.0"
+  }
+}

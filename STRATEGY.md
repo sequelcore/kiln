@@ -2,7 +2,7 @@
 > Living document. High-level vision and phased plan.
 > Each phase will have its own dedicated research → architecture → 
 > implementation pipeline before execution.
-> Last updated: 2026-03-31
+> Last updated: 2026-04-01
 
 ## 1. What Kiln Is
 
@@ -598,10 +598,35 @@ See: `C:\Proyectos\Sequel\kiln-gateway\CLAUDE.md` and
 
 ### Phase 7 — Kiln TUI (The Final Destination)
 
+**Status:** STARTED
+**Current state:** `7a` foundation is in place. `@kilnai/tui` exists as a
+package boundary, and `packages/cli/src/commands/run.ts` has begun extraction
+into reusable CLI application services (`session-report`, `session-resume`,
+`session-hooks`, `run-session`). No real terminal UI has been built yet.
+
 **Goal:** Replace claude TUI as the primary entry point.
 Kiln TUI is the conversational interface that orchestrates
 Claude Code, Codex, and OpenCode transparently underneath.
 The user talks to Kiln. Kiln decides which CLI handles what.
+
+**Product goal (decision locked):**
+Kiln TUI is not "a prettier kiln run". It is the primary operator surface for
+the engine. The TUI must beat competitor terminal products on orchestration
+quality, observability, and approval UX, not just match their chat loop.
+Specifically, the TUI must make the following visible in one shell:
+- Conversation + current phase
+- Backend routing decision and fallback reason
+- Approval queue with scoped allow/deny controls
+- Changed files and diff summary for the current turn
+- Budget/cost state across providers
+- Session continuity: resume context, last actions, and handoff status
+
+**Success criteria:**
+- A user can understand what Kiln is doing without opening a second terminal
+- A user can approve or deny risky actions without leaving the conversation flow
+- A user can see which backend is active and why
+- A user can resume work without losing tool history or change context
+- Kiln feels like one terminal product even when multiple CLIs are running underneath
 
 **Why this is the end goal:**
 Today the developer uses claude TUI as the entry point,
@@ -635,6 +660,9 @@ Rezi → when richer widgets needed (split panes, charts, modals)
 **TUI layout vision:**
 Persistent conversational interface showing:
 - Conversation panel: user ↔ Kiln dialogue
+- Approval queue: pending risky actions with scoped decisions
+- Diff/change panel: files touched this turn + risk markers
+- Routing panel: active backend, next fallback, and rationale
 - Swarm status: which agents are active + progress
 - Budget panel: per-provider spend in real time
 - Last tasks: recent completions with cost + duration
@@ -650,7 +678,7 @@ Persistent conversational interface showing:
 - SSH session compatibility for remote use
 
 **Sub-phases:**
-7a. @kilnai/tui package scaffold (Ink + @kilnai/react)
+7a. @kilnai/tui package scaffold (Ink + @kilnai/react) — foundation started
 7b. Conversation component (input + message history)
 7c. Swarm status panel (real-time via EventBus)
 7d. Budget panel (per-provider, updates on cost events)
@@ -693,6 +721,34 @@ Persistent conversational interface showing:
   measure scaffold decisions (compaction/permissions/tools) independently
   from model performance (fills gap identified in market research)
 - feat(core): SWE-bench integration for coding task evaluation
+
+---
+
+## Phase 8 — External Validation
+
+**Status:** PLANNED
+**Timing:** After all remaining product phases are stable enough to represent the
+real Kiln experience. Do not optimize the roadmap around benchmark chasing.
+
+### Terminal-Bench Submission
+
+- Submit Kiln to Terminal-Bench only after the remaining phases are complete
+  enough that the benchmark reflects the real product, not a benchmark harness
+- Use Terminal-Bench as external validation for terminal task execution quality,
+  not as the primary definition of success
+- Keep internal evaluation broader than Terminal-Bench: orchestration quality,
+  approval UX, observability, session continuity, and multi-backend routing are
+  core Kiln differentiators that Terminal-Bench does not fully measure today
+- If feasible, contribute benchmark scenarios to future Terminal-Bench versions
+  that better capture orchestration, approvals, resumability, and multi-agent
+  coordination
+
+### Readiness Gate Before Submission
+
+- Phase 4 / 4.5 / 5 / 7 / 7.5 implemented to a stable standard
+- Kiln TUI is the real primary interface, not a prototype shell
+- Resume, approvals, routing visibility, and diff visibility are production-ready
+- Internal benchmark and regression suites are already green
 
 ---
 
