@@ -325,12 +325,22 @@ See changelog: docs/changelog.md
 - feat(cli): OpenCodeSession POST /session/:id/summarize integration
 - feat(core): ACON-inspired compaction policy — treat as learnable system,
   not fixed prompt (optimize from compaction failure examples)
+- feat(cli): mandatory session summary protocol on compaction — structured format:
+  Goal / Instructions / Discoveries / Accomplished / Next Steps / Relevant Files
+  (adopted from Engram scout — same format as kiln skill capture prerequisite)
+- feat(cli): 3-layer compaction resilience (adopted from Engram):
+  1. preamble-builder.ts — static instruction block in every session
+  2. PreCompact event hook — injects session summary + context recovery instruction
+  3. agent config — "after compaction, call mem_context" reminder in agent instructions
 
 ### Hook Event System
 - feat(cli): PreToolUse, PostToolUse hook events
 - feat(cli): UserPromptSubmit, SessionEnd hook events
 - feat(cli): SubagentStart, SubagentStop hook events
 - feat(cli): hook execution modes: Command | Prompt | Agent (from Codex pattern)
+- feat(runtime): eager vs deferred MCP tool split — core tools (memory CRUD, cost, safety)
+  always loaded; admin/enrichment/routing tools deferred via mcp.WithDeferLoading pattern
+  (adopted from Engram scout — ~20 lines in gateway-mcp-server.ts)
 
 ### kiln skill capture (interactive, Phase 3.5 prerequisite)
 - feat(cli): `kiln skill capture "description"` — manual interactive skill capture command
@@ -391,6 +401,23 @@ See changelog: docs/changelog.md
 4a. kiln-context SKILL.md (static parts)
 4b. agent_context tool #27 (dynamic parts)
 4c. Migration: remove clause from 22 files one by one with testing
+
+---
+
+## Phase 3.6 — Memory Quality (Post-3.5)
+
+**Status:** BACKLOG
+**Source:** Engram scout (2026-04-01)
+
+- feat(core): topic key upserts — `topic_key` field on memory observations; if provided on
+  `mem_save`, UPDATE increments `revision_count` + `last_seen_at` instead of creating new entry.
+  Family/segment key format (e.g. `architecture/auth-model`). Direct topic_key lookup bypasses
+  FTS5 when query contains `/` — deterministic retrieval for known keys.
+- feat(core): `revision_count` + `last_seen_at` columns on `Observation` schema (SQLite migration)
+- feat(core): What/Why/Where/Learned structured save format — enforce in `mem_save` schema
+  validation (currently partial)
+
+**Blocked on:** SQLite schema migration — coordinate with any Phase 3.5 schema changes first.
 
 ---
 
