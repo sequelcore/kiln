@@ -11,7 +11,8 @@ import type { KilnPermissionPolicy } from "./session.js";
 /** Session mode determines how Claude Code is launched */
 export type SessionMode =
   | "api-key"       // Uses Anthropic API key directly (default)
-  | "byok";         // Bring your own key (any provider)
+  | "byok"          // Bring your own key (any provider)
+  | "cli-wrapper";  // Use an installed CLI session wrapper without API keys
 
 /** Pre-session context built by the wrapper */
 export interface SessionContext {
