@@ -505,22 +505,14 @@ See changelog: docs/changelog.md
 
 ### Phase 6 — Cloud Deployment
 
-**Goal:** Kiln gateway accessible from any device, not just localhost.
+**Status: COMPLETE ✅ (pre-existing, kiln-gateway repo)**
 
-**Why last:** All phases must be stable before exposing externally.
+Gateway is live at `gw.kilvo.app` on Coolify (sequel-core-01, SFO3, DigitalOcean).
+Serving: Kilvo (WhatsApp + Instagram + Messenger + Email + Web Widget), Artu, Admit.
+Dockerfile (Bun Alpine) + Doppler secrets + RS256 JWT auth all in production.
 
-**Research needed before execution:**
-- Railway vs Fly.io for Kiln runtime
-- JWT auth for remote MCP access
-- Cost of always-on cloud deployment
-- Mobile access patterns
-
-**Planned work:**
-- Deploy @kilnai/runtime to Railway or Fly.io
-- Update .mcp.json + config.toml with remote URL via mcp-config
-- JWT auth layer (already implemented: RS256 via JWKS, HS256)
-- Update CLAUDE.md and agent configs with cloud URL
-- OpenCode MCP pointing to cloud gateway
+See: `C:\Proyectos\Sequel\kiln-gateway\CLAUDE.md` and
+`C:\Proyectos\Sequel\infra\docs\projects\kiln\kiln-gateway.md`
 
 ---
 
@@ -547,7 +539,7 @@ All previous phases are prerequisites:
 - Phase 3: capabilities activated (kiln TUI surfaces them)
 - Phase 4: agent context dynamic (kiln TUI orchestrates)
 - Phase 5: OpenKiln channels (kiln TUI + Telegram/Discord)
-- Phase 6: cloud (kiln TUI connects to remote gateway)
+- Phase 6: cloud (kiln TUI connects to remote gateway) ✅ already live
 
 **Tech stack (confirmed):**
 - Ink + @inkjs/ui — React for terminal (same model as @kilnai/react)
