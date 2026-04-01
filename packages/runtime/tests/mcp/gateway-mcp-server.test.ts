@@ -149,8 +149,8 @@ describe("GatewayMcpServer", () => {
   });
 
   describe("tool schemas", () => {
-    it("defines 26 tools", () => {
-      expect(GATEWAY_MCP_TOOLS).toHaveLength(26);
+    it("defines 30 tools (26 original + 4 extensions)", () => {
+      expect(GATEWAY_MCP_TOOLS).toHaveLength(30);
     });
 
     it("all tools have name, description, and inputSchema", () => {
@@ -169,20 +169,24 @@ describe("GatewayMcpServer", () => {
   });
 
   describe("tools/list", () => {
-    it("returns all 26 tools", async () => {
+    it("returns all 30 tools", async () => {
       const server = new GatewayMcpServer({ deps: makeDeps() });
       await server.initialize();
       const response = await listTools(server);
-      expect(response.result.tools).toHaveLength(26);
+      expect(response.result.tools).toHaveLength(30);
       const names = response.result.tools.map((t) => t.name);
       expect(names).toContain("memory_recall");
       expect(names).toContain("memory_store");
       expect(names).toContain("memory_delete");
       expect(names).toContain("memory_search");
+      expect(names).toContain("memory_list");
+      expect(names).toContain("memory_forget");
       expect(names).toContain("knowledge_search");
       expect(names).toContain("knowledge_sources");
+      expect(names).toContain("knowledge_ingest");
       expect(names).toContain("cost_summary");
       expect(names).toContain("safety_metrics");
+      expect(names).toContain("safety_check");
       expect(names).toContain("integration_list");
       expect(names).toContain("integration_execute");
       expect(names).toContain("routing_test");

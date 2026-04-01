@@ -73,6 +73,36 @@ export const MEMORY_SEARCH_SCHEMA = {
   required: ["query"],
 };
 
+export const MEMORY_LIST_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    scope: {
+      type: "string",
+      description: "Memory scope to list (user, agent:{role}, team:{name}, project:{id}, org)",
+    },
+    tags: {
+      type: "string",
+      description: "Optional comma-separated tag filter",
+    },
+    limit: {
+      type: "number",
+      description: "Maximum entries to return (default: 50)",
+    },
+  },
+  required: ["scope"],
+};
+
+export const MEMORY_FORGET_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    id: {
+      type: "string",
+      description: "ID of the memory entry to delete",
+    },
+  },
+  required: ["id"],
+};
+
 export const KNOWLEDGE_SEARCH_SCHEMA = {
   type: "object" as const,
   properties: {
@@ -98,6 +128,29 @@ export const KNOWLEDGE_SOURCES_SCHEMA = {
     appName: {
       type: "string",
       description: "Name of the app whose knowledge sources to list",
+    },
+  },
+  required: ["appName"],
+};
+
+export const KNOWLEDGE_INGEST_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    appName: {
+      type: "string",
+      description: "Name of the app to ingest content into",
+    },
+    source: {
+      type: "string",
+      description: "URL or file path to ingest",
+    },
+    content: {
+      type: "string",
+      description: "Raw text content to ingest (use source for URLs/files)",
+    },
+    tags: {
+      type: "string",
+      description: "Optional comma-separated tags for this content",
     },
   },
   required: ["appName"],
@@ -329,6 +382,17 @@ export const GATEWAY_MCP_TOOLS = [
     inputSchema: MEMORY_SEARCH_SCHEMA,
   },
   {
+    name: "memory_list",
+    description:
+      "List memory entries by scope. Returns all entries for the given scope with their keys, content, and tags.",
+    inputSchema: MEMORY_LIST_SCHEMA,
+  },
+  {
+    name: "memory_forget",
+    description: "Delete a memory entry by its ID (alias for memory_delete)",
+    inputSchema: MEMORY_FORGET_SCHEMA,
+  },
+  {
     name: "knowledge_search",
     description: "Search the knowledge base using natural language. Returns ranked results with content and relevance scores.",
     inputSchema: KNOWLEDGE_SEARCH_SCHEMA,
@@ -339,6 +403,11 @@ export const GATEWAY_MCP_TOOLS = [
     inputSchema: KNOWLEDGE_SOURCES_SCHEMA,
   },
   {
+    name: "knowledge_ingest",
+    description: "Ingest content into a knowledge base. Use source (URL/file) or content (raw text). Content is chunked, embedded, and stored.",
+    inputSchema: KNOWLEDGE_INGEST_SCHEMA,
+  },
+  {
     name: "cost_summary",
     description: "Get the current cost summary including total tokens, cost in USD, and per-role:model breakdown",
     inputSchema: COST_SUMMARY_SCHEMA,
@@ -346,6 +415,11 @@ export const GATEWAY_MCP_TOOLS = [
   {
     name: "safety_metrics",
     description: "Get safety pipeline metrics including PII detections, content classifications, and rail triggers",
+    inputSchema: SAFETY_METRICS_SCHEMA,
+  },
+  {
+    name: "safety_check",
+    description: "Get safety pipeline metrics including PII detections, content classifications, and rail triggers (alias for safety_metrics)",
     inputSchema: SAFETY_METRICS_SCHEMA,
   },
   {
