@@ -45,6 +45,11 @@ export interface SessionReport {
       readonly duration: number;
     }[];
   };
+  readonly evalScore?: {
+    readonly score: number;
+    readonly label: "excellent" | "good" | "fair" | "poor";
+    readonly signals: readonly string[];
+  };
 }
 
 /** Wrapper configuration */

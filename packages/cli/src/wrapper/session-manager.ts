@@ -23,6 +23,10 @@ export class SessionManager {
   private sessionStartTime: number | null = null;
   private activeSessionId: string | null = null;
 
+  get sessionStartTimeMs(): number | null {
+    return this.sessionStartTime;
+  }
+
   constructor(
     wrapperConfig: WrapperConfig,
     appConfig: KilnAppConfig,
@@ -94,6 +98,7 @@ export class SessionManager {
     sessionId: string,
     totalCostUsd?: number,
     verificationResult?: VerificationResult,
+    evalScore?: SessionReport["evalScore"],
   ): SessionReport {
     const duration = this.sessionStartTime
       ? Date.now() - this.sessionStartTime
@@ -120,6 +125,7 @@ export class SessionManager {
       verificationResult: verificationResult
         ? { passed: verificationResult.passed, checks: verificationResult.checks }
         : undefined,
+      evalScore,
     };
   }
 

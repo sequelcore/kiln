@@ -13,7 +13,7 @@ vi.mock("node:fs", async () => {
   };
 });
 
-import { printReport } from "../../src/commands/run.js";
+import { printReport, computeEvalScore } from "../../src/commands/run.js";
 import { SessionManager } from "../../src/wrapper/session-manager.js";
 import type { WrapperConfig, SessionReport } from "../../src/wrapper/index.js";
 import { DomainRegistry } from "@kilnai/core";
@@ -213,6 +213,62 @@ describe("run command", () => {
 
       const ctx = await manager.prepare("", "/project");
       expect(ctx.task).toBe("");
+    });
+  });
+
+  describe("computeEvalScore()", () => {
+    it('returns "excellent" for succeeded + gates passed + cheap + fast', () => {
+      const result = computeEvalScore({
+        succeeded: true,
+        durationMs: 30_000,
+        costUsd: 0.1,
+        verificationPassed: true,
+        toolCallCount: 5,
+      });
+      expect(result.label).toBe("excellent");
+      expect(result.score).toBeCloseTo(0.9);
+      expect(result.signals).toContain("session succeeded");
+      expect(result.signals).toContain("gates passed");
+      expect(result.signals).toContain("agent used tools");
+    });
+
+    it('returns "poor" for failed + expensive + slow', () => {
+      const result = computeEvalScore({
+        succeeded: false,
+        durationMs: 200_000,
+        costUsd: 1.5,
+        verificationPassed: false,
+        toolCallCount: 1,
+      });
+      expect(result.label).toBe("poor");
+      expect(result.score).toBeLessThan(0.4);
+      expect(result.signals).toContain("gates failed");
+      expect(result.signals).toContain("high cost");
+      expect(result.signals).toContain("slow session");
+    });
+
+    it("clamps score to [0, 1]", () => {
+      const result = computeEvalScore({
+        succeeded: true,
+        durationMs: 30_000,
+        costUsd: 0.1,
+        verificationPassed: true,
+        toolCallCount: 5,
+      });
+      expect(result.score).toBeGreaterThanOrEqual(0);
+      expect(result.score).toBeLessThanOrEqual(1);
+      expect(result.label).toBe("excellent");
+    });
+
+    it("prints eval score in report when present", () => {
+      const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      printReport(makeReport({ evalScore: { score: 0.85, label: "excellent", signals: ["session succeeded"] } }), "kiln");
+
+      const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
+      expect(output).toContain("Score:    excellent (85%)");
+
+      consoleSpy.mockRestore();
     });
   });
 });
