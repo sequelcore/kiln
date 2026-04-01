@@ -8,6 +8,7 @@ import type {
   KilnYamlMcpServer,
 } from "./kiln-yaml-types.js";
 export { KilnYamlError } from "./kiln-yaml-types.js";
+export { validateKilnHooks } from "./kiln-yaml-types.js";
 export type {
   KilnYaml,
   KilnYamlMcp,
@@ -16,6 +17,7 @@ export type {
   KilnYamlPermissions,
   KilnYamlProvider,
   KilnYamlSkillGeneration,
+  KilnHooksConfig,
 } from "./kiln-yaml-types.js";
 
 export function readKilnYaml(kilnDir: string): KilnYaml | null {
@@ -63,6 +65,7 @@ export function mergeKilnYaml(base: KilnYaml, override: Partial<KilnYaml>): Kiln
     model: override.model ?? base.model,
     permissions: override.permissions ?? base.permissions,
     providers: override.providers ?? base.providers,
+    hooks: override.hooks ?? base.hooks,
   };
 }
 

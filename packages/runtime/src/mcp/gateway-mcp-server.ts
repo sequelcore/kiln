@@ -24,7 +24,7 @@ export interface GatewayMcpServerOptions {
 interface SdkModules {
   Server: new (
     info: { name: string; version: string },
-    opts: { capabilities: Record<string, unknown> },
+    opts: { capabilities: Record<string, unknown>; instructionsText?: string },
   ) => McpServerInstance;
   WebStandardStreamableHTTPServerTransport: new (opts: {
     sessionIdGenerator?: (() => string) | undefined;
@@ -32,6 +32,43 @@ interface SdkModules {
   }) => McpTransport;
   ListToolsRequestSchema: unknown;
   CallToolRequestSchema: unknown;
+}
+
+const EAGER_TOOL_NAMES = new Set([
+  "memory_recall", "memory_store", "memory_search", "memory_list",
+  "memory_forget", "cost_summary", "safety_check", "cross_agent_memory_recall",
+] as const);
+
+function buildInstructionsText(
+  allTools: ReadonlyArray<{ name: string; description: string }>,
+): string {
+  const eagerTools = allTools.filter((t) => EAGER_TOOL_NAMES.has(t.name as never));
+
+  const formatTool = (t: { name: string; description: string }) =>
+    `  - ${t.name}: ${t.description.split("\n")[0]}`;
+
+  return [
+    "## Kiln Gateway MCP Tools",
+    "",
+    "### Always Available (Eager)",
+    "",
+    ...eagerTools.map(formatTool),
+    "",
+    "### Admin / Management Tools (Deferred — use when needed)",
+    "",
+    "The following additional admin tools are available but not listed here to save context:",
+    "knowledge (sources, search, ingest), integrations (list, execute), routing_test,",
+    "eval_score, enrichment (get, list), cross_agent_memory (store, delete),",
+    "budget (check, report), swarm (join, leave, status, broadcast, claim, release).",
+    "18 tools total — call listTools to see all schemas.",
+    "",
+    "## Usage Notes",
+    "- memory_* tools operate on scoped memory: user, agent:{role}, team:{name}, project:{id}, org",
+    "- cross_agent_memory_* tools scope by teamId for shared team memory",
+    "- swarm_* tools enable multi-agent coordination with optimistic locking",
+    "- budget_check/budget_report handle per-tenant billing",
+    "- All tools return JSON; isError=true indicates a failure",
+  ].join("\n");
 }
 
 interface McpServerInstance {
@@ -137,7 +174,11 @@ export class GatewayMcpServer {
 
   private createServer(): McpServerInstance {
     const { Server, ListToolsRequestSchema, CallToolRequestSchema } = this.sdk!;
-    const server = new Server({ name: SERVER_NAME, version: SERVER_VERSION }, { capabilities: { tools: {} } });
+    const instructions = buildInstructionsText(GATEWAY_MCP_TOOLS);
+    const server = new Server(
+      { name: SERVER_NAME, version: SERVER_VERSION },
+      { capabilities: { tools: {} }, instructionsText: instructions },
+    );
 
     server.setRequestHandler(ListToolsRequestSchema, async () => ({
       tools: GATEWAY_MCP_TOOLS.map((t) => ({
@@ -173,13 +214,20 @@ export class GatewayMcpServer {
           return await this.handleMemoryDelete(args);
         case "memory_search":
           return await this.handleMemorySearch(args);
+        case "memory_list":
+          return await this.handleMemoryList(args);
+        case "memory_forget":
+          return await this.handleMemoryForget(args);
         case "knowledge_search":
           return await this.handleKnowledgeSearch(args);
         case "knowledge_sources":
           return await this.handleKnowledgeSources(args);
+        case "knowledge_ingest":
+          return await this.handleKnowledgeIngest(args);
         case "cost_summary":
           return this.handleCostSummary();
         case "safety_metrics":
+        case "safety_check":
           return this.handleSafetyMetrics();
         case "integration_list":
           return this.handleIntegrationList();
@@ -273,6 +321,26 @@ export class GatewayMcpServer {
     return this.jsonResult(results);
   }
 
+  private async handleMemoryList(
+    args: Record<string, unknown>,
+  ): Promise<{ content: { type: "text"; text: string }[] }> {
+    if (!this.deps.getMemoryByScope) return this.errorResult("Memory list not available");
+    const entries = await this.deps.getMemoryByScope(
+      args["scope"] as string,
+      undefined,
+      args["tags"] as string | undefined,
+    );
+    return this.jsonResult(entries);
+  }
+
+  private async handleMemoryForget(
+    args: Record<string, unknown>,
+  ): Promise<{ content: { type: "text"; text: string }[] }> {
+    if (!this.deps.deleteMemoryEntry) return this.errorResult("Memory forget not available");
+    const deleted = await this.deps.deleteMemoryEntry(args["id"] as string);
+    return this.jsonResult({ deleted });
+  }
+
   private async handleKnowledgeSearch(
     args: Record<string, unknown>,
   ): Promise<{ content: { type: "text"; text: string }[] }> {
@@ -291,6 +359,15 @@ export class GatewayMcpServer {
     if (!this.deps.listKnowledgeSources) return this.errorResult("Knowledge sources not available");
     const result = this.deps.listKnowledgeSources(args["appName"] as string);
     return this.jsonResult(result);
+  }
+
+  private async handleKnowledgeIngest(
+    _args: Record<string, unknown>,
+  ): Promise<{ content: { type: "text"; text: string }[]; isError?: boolean }> {
+    return this.errorResult(
+      "knowledge_ingest requires the knowledge pipeline to be configured. " +
+      "Use knowledge_sources to list available sources, or configure a SourceManager with ingestContent support.",
+    );
   }
 
   private handleCostSummary(): { content: { type: "text"; text: string }[] } {

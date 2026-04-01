@@ -4,6 +4,7 @@ import { SessionManager } from "../wrapper/session-manager.js";
 import { createDefaultRegistry } from "../wrapper/session-registry.js";
 import { buildPreamble } from "../wrapper/preamble-builder.js";
 import { cleanupRegistry } from "../wrapper/cleanup-registry.js";
+import { HookRegistry, HookExecutor } from "../wrapper/index.js";
 import type {
   ProviderId,
   SessionRequirements,
@@ -190,11 +191,35 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     permissionPolicy: config.permissionPolicy,
   };
 
+  const hookRegistry = new HookRegistry(appConfig.kilnYaml?.hooks ?? {});
+  const hookExecutor = new HookExecutor();
+  let isFirstDeltaOfTurn = false;
+  let lastToolName: string | undefined;
+  const hookCwd = context.workingDirectory;
+
   const shutdown = (): void => {
     void cleanupRegistry.runAll();
   };
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
+
+  function fireHook(event: "PreToolUse" | "PostToolUse" | "UserPromptSubmit" | "SessionStart" | "SessionEnd", extra?: { toolName?: string }): void {
+    const handlers = hookRegistry.getRules(event, extra?.toolName);
+    if (handlers.length === 0) return;
+    hookExecutor
+      .run(handlers, { event, toolName: extra?.toolName, sessionId, workingDirectory: hookCwd })
+      .then((results) => {
+        for (const result of results) {
+          if (result.exitCode !== 0) {
+            console.error(`[hook:${event}] non-zero exit ${result.exitCode} from: ${result.handler.command}`);
+            if (result.stderr) console.error(`[hook:${event}] stderr: ${result.stderr.trim()}`);
+          }
+        }
+      })
+      .catch((err: unknown) => console.error(`[hook:${event}] hook execution failed: ${err instanceof Error ? err.message : String(err)}`));
+  }
+
+  fireHook("SessionStart");
 
   for (const providerId of candidates) {
     let isPreflightCrash = false;
@@ -210,6 +235,10 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
       })) {
         switch (event.type) {
           case "text_delta": {
+            if (isFirstDeltaOfTurn) {
+              isFirstDeltaOfTurn = false;
+              fireHook("UserPromptSubmit");
+            }
             process.stdout.write(event.content);
             accumulatedText += event.content;
             break;
@@ -217,6 +246,15 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
           case "tool_use": {
             console.log(`[tool] ${event.toolName}`);
             toolCallCount++;
+            lastToolName = event.toolName;
+            fireHook("PreToolUse", { toolName: event.toolName });
+            break;
+          }
+          case "tool_result": {
+            isFirstDeltaOfTurn = true;
+            if (lastToolName) {
+              fireHook("PostToolUse", { toolName: lastToolName });
+            }
             break;
           }
           case "cost_update": {
@@ -274,6 +312,8 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
       console.error(`[kiln] Provider ${providerId} failed, trying next...`);
     }
   }
+
+  fireHook("SessionEnd");
 
   if (!sessionSucceeded && lastError) {
     console.error(`[kiln] All providers failed. Last error: ${lastError}`);

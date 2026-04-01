@@ -88,3 +88,13 @@ export type {
   ProviderId,
   SessionRequirements,
 } from "./session-registry.js";
+
+export { HookRegistry } from "./hook-registry.js";
+export { HookExecutor } from "./hook-executor.js";
+export type { HookContext, HookResult } from "./hook-executor.js";
+export type {
+  HookEvent,
+  HookHandler,
+  HookRule,
+  KilnHooksConfig,
+} from "../kiln-yaml-types.js";
