@@ -2,6 +2,8 @@ import type { Agent, DomainConfig } from "@kilnai/core";
 import type { KilnPermissionPolicy } from "./session.js";
 import type { SessionContext } from "./index.js";
 
+export const PREAMBLE_CACHE_BOUNDARY = "__KILN_PROMPT_DYNAMIC_BOUNDARY__";
+
 const MEMORY_LINE_LIMIT = 200;
 
 function trimMemory(memory: string): string {
@@ -80,15 +82,29 @@ export function buildPreamble(
   policy: KilnPermissionPolicy,
   agent?: Agent,
 ): string {
-  const sections: (string | null)[] = [
+  const staticSections: (string | null)[] = [
     agent ? buildRoleSection(agent) : null,
-    buildTaskSection(ctx.task),
     buildDomainSection(ctx.domain),
     buildConstraintsSection(policy),
+  ];
+
+  const dynamicSections: (string | null)[] = [
+    buildTaskSection(ctx.task),
     buildMemorySection(ctx.memorySnapshot),
     buildInstructionsSection(agent?.instructions),
   ];
 
-  const active = sections.filter((s): s is string => s !== null);
-  return tag("kiln-preamble", active.join("\n"));
+  const parts: string[] = [
+    ...staticSections.filter((s): s is string => s !== null),
+    PREAMBLE_CACHE_BOUNDARY,
+    ...dynamicSections.filter((s): s is string => s !== null),
+  ];
+
+  if (ctx.isWorker) {
+    parts.push(
+      `<kiln-fork-boilerplate>\nYou are a focused subagent. Complete the task above, emit your result, then stop. Do not ask for clarification. Do not loop. Output structured results as requested.\n</kiln-fork-boilerplate>`,
+    );
+  }
+
+  return tag("kiln-preamble", parts.join("\n"));
 }

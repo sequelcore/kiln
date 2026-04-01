@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { SessionManager } from "../wrapper/session-manager.js";
 import { createDefaultRegistry } from "../wrapper/session-registry.js";
 import { buildPreamble } from "../wrapper/preamble-builder.js";
+import { cleanupRegistry } from "../wrapper/cleanup-registry.js";
 import type {
   ProviderId,
   SessionRequirements,
@@ -190,14 +191,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
   };
 
   const shutdown = (): void => {
-    for (const id of candidates) {
-      try {
-        const s = registry.createSession(id, sessionConfig);
-        s.dispose();
-      } catch {
-        // ignore
-      }
-    }
+    void cleanupRegistry.runAll();
   };
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
@@ -206,6 +200,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     let isPreflightCrash = false;
 
     const session = registry.createSession(providerId, sessionConfig);
+    cleanupRegistry.register(async () => session.dispose());
 
     try {
       for await (const event of session.run({
@@ -269,6 +264,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
         }
       }
     } finally {
+      cleanupRegistry.register(async () => session.dispose());
       await session.dispose();
     }
 
@@ -283,9 +279,6 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     console.error(`[kiln] All providers failed. Last error: ${lastError}`);
     process.exit(1);
   }
-
-  process.off("SIGINT", shutdown);
-  process.off("SIGTERM", shutdown);
 
   let verificationResult: VerificationResult | undefined;
   const gates = appConfig.kilnYaml?.qualityGates;
