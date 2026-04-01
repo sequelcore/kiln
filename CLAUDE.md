@@ -26,7 +26,7 @@ Bun monorepo with 6 packages:
 | tree | `core/src/tree/` | Task tree (scoring, deepen/branch/prune), batch executor |
 | sandbox | `core/src/sandbox/` | Per-agent filesystem + network isolation |
 | verification | `core/src/verification/` | Gate runner: test, lint, type-check loop |
-| events | `core/src/events/` | EventBus (40 typed events, ring buffer), EventStore sink |
+| events | `core/src/events/` | EventBus (43 typed events, ring buffer), EventStore sink |
 | security | `core/src/security/` | Audit log (JSONL + hash chain), prompt injection (2-tier), AES-256-GCM secrets, Guardian, self-audit |
 | safety | `core/src/safety/` | PII scanner (2-tier, 6 types, Luhn validation), content classifier (6 categories), 4 policy rails, grounding rail (post-generation LLM judge, model-routed, fail-open), pipeline orchestrator, indirect injection scanning on tool results |
 | cost | `core/src/cost/` | Per-role:model cache-aware cost tracking, STT + embedding cost tracking |
@@ -277,22 +277,7 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 
 ## Backlog
 
-**Phase status (as of 2026-03-31):**
-| Phase | Status | Notes |
-|-------|--------|-------|
-| Phase 1 | COMPLETE | kiln run v2, IKilnSession, all 3 session types |
-| Phase 2 | COMPLETE | kiln sync, kiln mcp-config --client all |
-| Sprint 0 | COMPLETE ✅ | Fix broken wiring (isolate, budget fail-closed, homoglyphs, missing event handlers) |
-| Phase 3 | COMPLETE ✅ | 3a memory_search ✅, 3b skill_generate ✅, 3c ✅, 3d backlog, 3e gates ✅, 3f eval ✅, 3g preamble+cleanup ✅ |
-| Phase 3.5 | PENDING | Session Power & Observability |
-| Phase 4 | PENDING | kiln-context SKILL.md + agent_context MCP tool |
-| Phase 4.5 | PENDING | Permission & Safety |
-| Phase 5 | PENDING | OpenKiln channels + local-first |
-| Phase 6 | PENDING | Cloud deploy |
-| Phase 7 | PENDING | Kiln TUI |
-| Phase 7.5 | PENDING | Agent Teams |
-
-See STRATEGY.md for full phase details and Intelligence Sources.
+See [STRATEGY.md](STRATEGY.md) for roadmap and phase status.
 
 ### Integration Runtime Phase 4 (MCP Surface)
 
@@ -319,7 +304,7 @@ OpenCode runtime MCP (Phase 2e): `OpenCodeSession` calls `client.config.update({
 ### Hook System Architecture (Phase 3 decision, 2026-03-31)
 
 Kiln owns the hook system. Providers feed into it — not the reverse.
-- `SessionEvent` + `EventBus` (40 typed events) are Kiln's canonical event system
+- `SessionEvent` + `EventBus` (43 typed events) are Kiln's canonical event system
 - Provider hook events (Stop, PostToolUse) translate INTO Kiln SessionEvents at the session adapter layer
 - `kiln sync --hooks` distributes Kiln-native hook definitions to each provider's native config format
 - This is the same pattern as permissions (Phase 2c) and MCP config (Phase 2b)
@@ -332,38 +317,6 @@ Theming API for `@kilnai/widget`: custom CSS variables, brand colors, fonts, log
 ## Documentation
 
 See [docs/README.md](docs/README.md) for the full documentation index.
-
-## Competitive Intelligence (2026-03-31)
-
-Full source scouts completed for all three backends + market research.
-See STRATEGY.md → Intelligence Sources for full details.
-
-Key architectural decisions informed by scouts:
-
-**ClaudeSession:**
-- Prompt caching: split PreambleBuilder into static (cached) + dynamic sections
-- Fork-boilerplate: add `<kiln-fork-boilerplate>` for worker agents
-- Resume: reuseEnvironmentId pattern for session continuity
-
-**OpenCodeSession:**
-- Missing events: session.compacted, question.asked, mcp.tools.changed
-- Unused endpoints: /diff, /fork, /summarize, POST /mcp
-- Power unlock: experimental.batch_tool (25 parallel tool calls)
-- Sandbox: currently silently ignored — needs actual enforcement
-
-**CodexSession:**
-- Missing handlers: file_change, collab_tool_call, item.started, web_search
-- MCP: fully implemented in Codex — Kiln can enable it (mcp: false is wrong)
-- Streaming: println! buffering is architectural — pipe through cat workaround
-- Local models: --local-provider ollama/lmstudio available
-
-**Universal gaps (all 3 tools lack, Kiln can own):**
-- Unified permission policy across backends
-- Cost/quota observability per-turn
-- Transparent + controllable compaction
-- Graph-based persistent memory
-- Hook event system
-- Session resume
 
 ## Research Protocol
 

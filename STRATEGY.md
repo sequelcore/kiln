@@ -271,229 +271,31 @@ When Kiln becomes a product for others:
 
 ## 5. Phased Roadmap
 
-### Phase 1 — Cross-CLI Orchestration (kiln run v2) — COMPLETE (10/10)
+### Phase 1 — Cross-CLI Orchestration (kiln run v2)
 
-**Goal:** `kiln run` becomes the single entry point for all 3 CLIs.
-
-**Why first:** Everything else (learning loop, config sync, scheduler) depends on having reliable subprocess orchestration.
-
-**Research needed before execution:**
-- IKilnSession interface contract already defined at packages/cli/src/wrapper/session.ts
-- How CodexSession and OpenCodeSession should mirror it
-- bypassPermissions sandbox directory behavior on Windows
-- opencode serve + --attach lifecycle management
-
-**Planned work:**
-  - IKilnSession interface contract (packages/cli/src/wrapper/session.ts) — formalizes 6 event variants + capabilities + run/dispose contract; forces ClaudeSession refactor when implemented
-    - ✅ ClaudeSession implements IKilnSession (2026-03-30): async generator `run()`, `dispose()`, `sessionId`, `capabilities`; cost flows via `cost_update` → `completed` events; old callback API (start/onMessage/onExit) removed; ghost Orchestrator removed from run.ts
-    - ✅ OpenCodeSession implements IKilnSession (2026-03-30): spawns `opencode serve`, connects via `@opencode-ai/sdk` (HTTP), maps ACP SSE events (message.part.delta, message.part.updated, sessionUpdate, session.status) to `SessionEvent` variants; `serveProcess` public for testability; `baseUrl` config escape hatch; 19 tests pass
-    - ✅ CodexSession (2026-03-30): spawns `codex exec --json --full-auto`, parses JSONL events (thread.started, turn.started, item.started, item.completed, turn.completed, error, turn.failed), maps to `SessionEvent` variants; `costTrackingMode: "computed"` (token × rate formula); 33 tests pass; end-to-end validation pending (usage credits needed)
-    - ✅ SessionRegistry (2026-03-30): priority-ordered provider selection, capability filtering, circuit breaker (closed→open after 3 failures, 30s suppression, half-open probing). `createDefaultRegistry()` pre-wires all 3 session types.
-    - ✅ run.ts: --provider flag drives `preferredProvider` in SessionRequirements; registry selects best + ordered fallbacks; cycles through candidates on preflight crash or error.
-  - preamble builder: generates <kiln_subprocess_context> XML with session_id, budget_remaining_pct, constraints, output_spec
-  - ✅ preamble builder (2026-03-31): `buildPreamble()` in `packages/cli/src/wrapper/preamble-builder.ts` — pure function; assembles `<kiln-preamble>` XML with `<role>`, `<task>`, `<domain>`, `<constraints>`, `<memory>` (200-line cap with truncation), `<instructions>`; sections omitted when empty; XML-escaped content; `KilnAppConfig.buildSystemPrompt` now optional with `defaultBuildSystemPrompt` as sensible default; `SessionContext` gains `memorySnapshot?: string` field; `run.ts` calls `buildPreamble()` before `session.run()`; full unit test coverage (13 cases)
-  - session_registry: maps task_id → session_id per provider, enables --resume/--continue between calls
-  - ✅ worktree_manager (2026-03-31): creates isolated git worktree per parallel task, destroys on completion; porcelain parser uses newline format; `isolate?: boolean` on `prepare()` for worktree isolation (default false); 16 tests pass
-- bypassPermissions sandbox: dedicated directory + scoped settings.json generated before each subprocess invocation
-
-**Sub-phases:**
-1a. CodexSession + OpenCodeSession (new, most work) ✅
-1b. run.ts --provider auto + routing_test integration ✅
-1c. preamble builder ✅ (2026-03-31)
-1d. session_registry ✅
-1e. worktree_manager ✅ (2026-03-31)
-1f. bypassPermissions sandbox manager ✅ (2026-03-31): `KilnPermissionPolicy` — unified `{approval: ApprovalMode, sandbox: SandboxMode}` contract replaces `dangerouslySkipPermissions: boolean`; pure `translatePermission()` maps 9 policy combinations to per-backend config for all 3 providers; `permissionPolicy` on `RunFlags`, `WrapperConfig`, `ProviderCreateConfig`; Codex spawn arg hardcode fixed (`--ask-for-approval never` → wired via config); OpenCode `PATCH /config` via `client.config.update()` after server ready; full unit-test coverage for `translatePermission` (15 cases)
+**Phase 1 — COMPLETE (v0.23.2, 2026-03-31)**
+See changelog: docs/changelog.md
 
 ---
 
 ### Phase 2 — Config Sync (kiln config sync)
 
-**Goal:** Single source of truth for permissions, hooks, MCP config across Claude Code, Codex, OpenCode. Zero manual duplication.
-
-**Why second:** Depends on understanding all 3 CLIs from Phase 1.
-
-**Research needed before execution:**
-- Exact format of codex config.toml MCP section
-- Exact format of opencode.json MCP section
-- MCPorter imports compatibility with mcp-config output
-- Symlink behavior on Windows for hooks
-
-**Planned work:**
-- kiln.yaml: canonical source for security rules + MCP endpoints
-- mcp-config.ts: add --client codex, --client opencode, --client all
-- security sync: generates permissions for all 3 tools from kiln.yaml
-- autoformat.sh: move to .claude/hooks/, symlink from .codex/hooks/
-- MCP for OpenCode: mcp-config --client opencode writes opencode.json
-- Optional MCPorter integration evaluation
-
-**Sub-phases:**
-2a. kiln.yaml schema design
-2b. mcp-config --client codex + opencode + all ✅ (2026-03-31)
-2c. security sync generator ✅ (2026-03-31)
-2d. autoformat.sh copy fix ✅ (2026-03-31) — copies, not symlinks; Windows Codex hooks skipped
-2e. OpenCode MCP connection ✅ (2026-03-31)
-
-**Phase 2 COMPLETE** — `kiln sync [--permissions] [--hooks] [--all]` synchronizes permissions and hooks from kiln.yaml to all 3 backends. Merge-only semantics, partial success valid.
+**Phase 2 — COMPLETE (v0.23.2, 2026-03-31)**
+See changelog: docs/changelog.md
 
 ---
 
 ## Sprint 0 — Fix Broken Promises
 
-**Status:** IMMEDIATE (before Phase 3 closes)
-These are bugs and broken promises — wiring that exists but was never connected.
-No new architecture. Just fix what's already there.
-
-### Broken Wiring
-- fix(cli): wire `isolate: true` in run.ts → `manager.prepare(task, cwd, undefined, flags.isolate)` — 1 line missing at run.ts:39
-- fix(runtime): budget-middleware.ts fail-closed by default (currently fail-open)
-- fix(core): homoglyph/Unicode bypass in prompt injection scanner — add `text.normalize('NFKC')` before all scan patterns in pii-scanner.ts and rails.ts
-
-### CodexSession Missing Event Handlers
-- fix(cli): handle `item.started` events (currently ignored — in-progress tools invisible)
-- fix(cli): handle `item.type === "file_change"` (file changes invisible to Kiln)
-- fix(cli): handle `item.type === "collab_tool_call"` (multi-agent tool calls invisible)
-- fix(cli): handle `item.type === "web_search"` (web searches invisible)
-- fix(cli): handle `item.type === "todo_list"` (plan/todo updates invisible)
-- fix(cli): `isRetryable: true` for Stream/Timeout/ConnectionFailed errors (all currently false)
-
-### OpenCodeSession Missing Events
-- fix(cli): subscribe to `session.compacted` event (context compaction invisible)
-- fix(cli): subscribe to `question.asked` event (user queries invisible)
-- fix(cli): subscribe to `mcp.tools.changed` event (MCP updates invisible)
+**Sprint 0 — COMPLETE (v0.23.2, 2026-03-31)**
+See changelog: docs/changelog.md
 
 ---
 
 ### Phase 3 — Activate Existing Capabilities
 
-**Goal:** Wire what already exists in the codebase to daily workflow. No new architecture.
-
-**Why third:** Infrastructure is mature. This phase makes it usable.
-
-**Phase 3 status (as of 2026-04-01): COMPLETE ✅**
-| Sub-phase | Status | Notes |
-|-----------|--------|-------|
-| 3a | COMPLETE ✅ | memory_search MCP tool — gateway (26 tools) + CLI surface |
-| 3b | COMPLETE ✅ | SkillGenerator — auto-generate SKILL.md, complexity threshold 0.6, direct API |
-| 3c | COMPLETE ✅ | kiln cron CLI: list/add/remove/run |
-| 3d | BACKLOG | OpenCodeSession --attach, blocked on upstream |
-| 3e | COMPLETE ✅ | Verification gates wired to kiln run, QualityGate typed, exit 1 on required failure |
-| 3f | COMPLETE ✅ | Eval score rule-based in session report (excellent/good/fair/poor) |
-| 3g | COMPLETE ✅ | Cache boundary + fork-boilerplate + CleanupRegistry |
-
-### Architecture Decision: Hook System Ownership
-
-**Decision (2026-03-31):** Kiln owns the hook system. Providers feed into it.
-
-Rationale:
-- Kiln's value prop is single source of truth across all CLI backends
-- A hook configured per-provider only fires on that provider — breaks fallback semantics
-- `SessionEvent` (completed, tool_use, tool_result) + `EventBus` (40 typed events) already IS Kiln's event system
-- `kiln sync --hooks` distributes Kiln-native hook definitions to each provider's native format
-- Provider hook events (Stop, PostToolUse) are translated INTO Kiln SessionEvents by each session adapter
-
-User workflow:
-```
-kiln.yaml
-  hooks:
-    - event: session.stop
-      command: bun run typecheck
-      blocking: true
-
-kiln sync --hooks → generates native hook config for each provider
-```
-
-This pattern is already proven for permissions (Phase 2c) and MCP config (Phase 2b).
-
-### Sub-phase 3a — memory_search MCP tool
-
-**What:** Expose `SqliteMemoryStore.search()` (BM25 + FTS5, already implemented) as an MCP tool on both surfaces.
-
-**Gateway surface** (`runtime/src/mcp/`):
-- `tool-schemas.ts` — add `memory_search` schema: `{ query: string, scope?: string, limit?: number }`
-- Result: `{ results: Array<{ key, content, score, snippet, tags }> }`
-- `gateway-mcp-server.ts` — add dispatch case, call `deps.memoryStore.search()`
-- `GatewayMcpDeps` — add `memoryStore` dep if not already present
-
-**CLI surface** (`cli/src/mcp/`):
-- `index.ts` — wire `kiln_memory_search` stub to real `SqliteMemoryStore.search()`
-- Parameters: `{ query: string, limit?: number }`
-
-**Memory taxonomy update:** Update `memory_store`/`memory_recall`/`memory_search` tool schemas to include `type`, `scope`, `when_to_save`, `how_to_use` fields for richer agent guidance.
-
-### Sub-phase 3b — skill_generate via SkillTrigger
-
-**What:** Automatically generate SKILL.md files from completed sessions. Hermes does this manually; Kiln does it automatically.
-
-**New files required:**
-- `core/src/skill/skill-trigger-runner.ts` — subscribes to EventBus, matches events against `SkillIndex.triggers`, calls registered handlers
-- `core/src/skill/skill-generator.ts` — fires on `completed` event where `isError === false` and complexity score ≥ 0.6; calls provider API directly (same pattern as `ContactMemoryService.extractFacts()`); generates SKILL.md; saves to `.kiln/skills/<name>/SKILL.md` via `SkillRegistry`
-
-**Complexity threshold:** 0.6 on the 0–1 scale from `complexityScorer.scoreComplexity()`. Tasks below this are too simple to warrant a persistent skill. Configurable in `kiln.yaml` under `skillGeneration.complexityThreshold`.
-
-**Model selection:** Direct API call via configured provider adapter. Default model: `claude-haiku-4-5-20251001` (fast, cheap for short generation). Configurable in `kiln.yaml` under `skillGeneration.model`. Does NOT spawn a CLI subprocess (would be recursive and wasteful).
-
-**Wire in `run.ts`:** After session `completed` + before `manager.cleanup()`, call `skillTriggerRunner.check(event, context)`.
-
-### Sub-phase 3c — kiln cron CLI ✅ COMPLETE
-
-`list`, `add`, `remove`, `run` implemented. YAML persistence. See `packages/cli/src/commands/cron.ts`.
-
-### Sub-phase 3d — OpenCodeSession --attach
-
-**Status:** BACKLOG. Blocked on upstream OpenCode session persistence (no committed date). Revisit when OpenCode ships persistent session save/load. Last checked: v1.3.9 (2026-03-30).
-
-### Sub-phase 3e — Verification Gates
-
-**What:** Post-session quality gate runner. First-class `qualityGates` in `kiln.yaml` — not a generic hook, but a typed contract with pass/fail semantics.
-
-**Why better than competitors:** Codex and the major CLI tools have generic Stop hooks where users wire tests manually. Kiln exposes `qualityGates` as a typed first-class concept with `VerificationLoop` (already built in `core/src/verification/`), coverage threshold support, and structured pass/fail reporting.
-
-**kiln.yaml schema addition:**
-```yaml
-qualityGates:
-  - name: typecheck
-    command: bun run typecheck
-    required: true
-  - name: tests
-    command: bun run test
-    required: true
-    coverageThreshold: 80
-```
-
-**Wiring:**
-- `kiln-yaml-types.ts` — add `qualityGates?: QualityGate[]` to `KilnYaml`
-- `session-manager.ts` — add `runVerification(gates, cwd): Promise<VerificationResult>` using `GateRunner` + `VerificationLoop`
-- `run.ts` — after `completed` event, call `runVerification` if gates configured; include result in `SessionReport`
-- `SessionReport` type — add `verificationResult?: VerificationResult`
-- `printReport()` — surface gate pass/fail + coverage % per gate
-
-**Post-session only:** Gates run after session completes, not mid-session. Blocking semantics: if a required gate fails, exit code 1. Informational gates log but don't fail.
-
-### Sub-phase 3f — Eval Scorers in Status
-
-**What:** Surface per-session quality score in `printReport()` output using existing 23 scorers.
-
-**Scope:** Lightweight — run rule-based scorers only (no LLM cost) by default. LLM-as-judge scorers opt-in via `kiln.yaml`. Add to `SessionReport`. Display in `printReport()`.
-
-### Additional Phase 3 Scope
-
-**feat(cli): PreambleBuilder static/dynamic cache boundary**
-Split `buildPreamble()` output at `__KILN_PROMPT_DYNAMIC_BOUNDARY__` marker. Static sections (role, domain, constraints) go before marker — eligible for prompt caching. Dynamic sections (memory, task) go after. Saves tokens on every session.
-
-**feat(cli): fork-boilerplate directive**
-Add `<kiln-fork-boilerplate>` section to preamble for worker/subagent roles. Opt-in via `SessionContext.isWorker`. Signals to the backend that this is a focused subagent execution.
-
-**feat(cli): CleanupRegistry + graceful shutdown**
-`cli/src/wrapper/cleanup-registry.ts` — global `Set<() => Promise<void>>`, `register(fn)`, `runAll()`. Replace ad-hoc `shutdown` closure in `run.ts` with registry pattern. Wire SIGINT/SIGTERM.
-
-**Sub-phases:**
-3a. memory_search tool — both gateway + CLI surfaces
-3b. skill_generate via SkillTriggerRunner + SkillGenerator
-3c. kiln cron CLI commands ✅ COMPLETE
-3d. OpenCodeSession --attach (backlog, blocked on upstream)
-3e. Verification gates — qualityGates in kiln.yaml, post-session
-3f. Eval scorers in session report
-3g. PreambleBuilder cache boundary + fork-boilerplate + CleanupRegistry
+**Phase 3 — COMPLETE (v0.23.2, 2026-03-31)**
+See changelog: docs/changelog.md
 
 ---
 
@@ -723,7 +525,7 @@ All previous phases are prerequisites:
 **Tech stack (confirmed):**
 - Ink + @inkjs/ui — React for terminal (same model as @kilnai/react)
 - @kilnai/react hooks — useKilnChat, useKilnState, useKilnEvents
-- EventBus 40 typed events — feeds real-time TUI updates
+- EventBus 43 typed events — feeds real-time TUI updates
 - New package: @kilnai/tui in the monorepo
 - Upgrade path: Rezi (C-backed engine, 50+ widgets) if Ink hits limits
 

@@ -15,6 +15,7 @@ export type {
   KilnYamlModel,
   KilnYamlPermissions,
   KilnYamlProvider,
+  KilnYamlSkillGeneration,
 } from "./kiln-yaml-types.js";
 
 export function readKilnYaml(kilnDir: string): KilnYaml | null {

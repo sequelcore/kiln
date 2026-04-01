@@ -29,11 +29,11 @@ This document is for contributors. For user documentation, see the [guides](guid
 | `eval` | `@kilnai/core` | `packages/core/src/eval/` | Evaluation: 12 scorer types, dataset JSONL loader, experiment runner with per-scorer error isolation, comparator. |
 | `sandbox` | `@kilnai/core` | `packages/core/src/sandbox/` | Per-agent filesystem allowlists and network proxy policies. |
 | `verification` | `@kilnai/core` | `packages/core/src/verification/` | Gate runner and verification loop (test, lint, type-check). |
-| `events` | `@kilnai/core` | `packages/core/src/events/` | EventBus: synchronous emit with typed subscriber dispatch (38 event types), multi-level streaming, ring buffer. |
+| `events` | `@kilnai/core` | `packages/core/src/events/` | EventBus: synchronous emit with typed subscriber dispatch (43 typed events), multi-level streaming, ring buffer. |
 | `cost` | `@kilnai/core` | `packages/core/src/cost/` | Per-role:model cache-aware cost tracking, STT + embedding cost tracking. |
 | `security` | `@kilnai/core` | `packages/core/src/security/` | Audit logging (JSONL + hash chaining), prompt injection (2-tier), encrypted secrets (AES-256-GCM), Guardian review, self-audit. |
 | `safety` | `@kilnai/core` | `packages/core/src/safety/` | Enterprise safety: PII scanner (2-tier, 6 types, Luhn validation for credit cards), content classifier (6 categories), 4 policy rails, indirect injection scanning on tool results. |
-| `observability` | `@kilnai/core` | `packages/core/src/observability/` | OTel integration: SpanMapper (maps 38 event types to spans), OTelExporter (implements EventStore, accepts TracerProvider), PrometheusCollector (counters + histograms, /metrics endpoint), CompositeEventStore (fan-out to multiple sinks), BatchSpanProcessor. |
+| `observability` | `@kilnai/core` | `packages/core/src/observability/` | OTel integration: SpanMapper (maps 43 typed events to spans), OTelExporter (implements EventStore, accepts TracerProvider), PrometheusCollector (counters + histograms, /metrics endpoint), CompositeEventStore (fan-out to multiple sinks), BatchSpanProcessor. |
 | `enrichment` | `@kilnai/core` | `packages/core/src/enrichment/` | Post-conversation enrichment: effort score (rule-based, 0-10), LLM enrichment pipeline (sentiment, resolution, CSAT via single structured call). |
 | `knowledge` | `@kilnai/core` | `packages/core/src/knowledge/` | RAG pipeline: chunkers (recursive, markdown), embedding adapters (OpenAI, Ollama), vector stores (InMemoryVectorStore, PgVectorStore with halfvec + HNSW + RRF hybrid search), STT adapters (OpenAI gpt-4o-transcribe, Deepgram nova-3), contextual enrichment (Anthropic pattern -- LLM-generated chunk prefixes, -49% failed retrievals), RetrievalPipeline (gap detection events), CohereReranker (Rerank v2, over-fetch 4x), knowledge modes (auto-inject context / tool-based search), content extractors (FileExtractor, UrlExtractor via Jina Reader, PdfExtractor via unpdf), SourceManager (extract -> hash -> ingest lifecycle with SHA-256 dedup), source stores (InMemorySourceStore, JsonSourceStore), ContactMemoryService (per-user fact extraction via LLM with Mem0 ADD/UPDATE/DELETE/NOOP pattern, recall at session start, GDPR forgetAll). |
 | `channels` | `@kilnai/runtime` | `packages/runtime/src/channels/` | 8 channel adapters (CLI, Web, WhatsApp, Instagram, Messenger, Slack, Email, API), EventBridge, ChannelRegistry, ChannelRouter, formatForChannel. |
@@ -241,7 +241,7 @@ export class KilnError extends Error {
 
 ## Event System
 
-38 event types are emitted by the engine and broadcast to all connected channels. Source: `packages/core/src/events/event-bus.ts`.
+43 typed events are emitted by the engine and broadcast to all connected channels. Source: `packages/core/src/events/event-bus.ts`.
 
 ### Core Events
 
