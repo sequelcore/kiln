@@ -301,19 +301,6 @@ kiln run v2 (cross-CLI): See STRATEGY.md Phase 1 — COMPLETE (v0.23.2). Server 
 
 OpenCode runtime MCP (Phase 2e): `OpenCodeSession` calls `client.config.update({ body: { mcp: { kiln: { type: "local", command: ["node", mcpServerEntryPath], enabled: true } } } })` after the permissions PATCH, using `mcpServerEntryPath` from `SessionContext`. Fail-open on both permission and MCP config PATCH. `mcpServerEntryPath` passed from `SessionManager.prepare()` via `run.ts` session config.
 
-### Hook System Architecture (Phase 3 decision, 2026-03-31)
-
-Kiln owns the hook system. Providers feed into it — not the reverse.
-- `SessionEvent` + `EventBus` (43 typed events) are Kiln's canonical event system
-- Provider hook events (Stop, PostToolUse) translate INTO Kiln SessionEvents at the session adapter layer
-- `kiln sync --hooks` distributes Kiln-native hook definitions to each provider's native config format
-- This is the same pattern as permissions (Phase 2c) and MCP config (Phase 2b)
-- `qualityGates` in `kiln.yaml` is the first concrete application of this pattern (Phase 3e)
-
-## Documentation
-
-Theming API for `@kilnai/widget`: custom CSS variables, brand colors, fonts, logo slot. Current widget uses hardcoded Kiln palette. Admit Console integration chose native SDK rebuild over widget due to lack of customization. Unblock widget adoption for themed integrations.
-
 ## Documentation
 
 See [docs/README.md](docs/README.md) for the full documentation index.
