@@ -398,6 +398,34 @@ See changelog: docs/changelog.md
 
 ---
 
+## Deferred Decision: KilnAppConfig white-label fields (2026-04-01)
+
+**Context:** `KilnAppConfig` has `appName`, `description`, `dirName`, `mcpServerName`, `version` —
+all configurable, all hardcoded to `"kiln"` in every consumer (tests + mcp-entry). Zero real
+white-label consumers exist today.
+
+**Immediate fix applied:** Added `import.meta.main` guard to `packages/cli/src/index.ts` so the
+binary self-invokes. Uses hardcoded defaults inline. Binary now works standalone.
+
+**Deferred question:** Should `appName`/`description`/`dirName`/`mcpServerName`/`version` be removed
+from `KilnAppConfig` and hardcoded inside `createCli`?
+
+**Arguments for removing:**
+- No real consumers — violates "3 uses before abstracting"
+- All competing CLIs (Claude Code, Codex, OpenCode) hardcode their identity
+- Removes ~15 `config.appName` references replaced with `"kiln"` literals
+- Eliminates dead fields from a public interface
+
+**Arguments for keeping:**
+- Cost is nearly zero — they're strings, no runtime complexity
+- Open source: future contributors may want white-label use case
+- Removing them is a minor breaking change for any external consumers
+
+**Decision needed:** Remove or keep. Revisit when starting Phase 4 cleanup.
+**Owner:** Ricardo. **Effort if removing:** small (4 field removals + ~15 call sites).
+
+---
+
 ## Research: CLI Integration Philosophy (codex-plugin-cc scout, 2026-04-01)
 
 **Source:** codex-plugin-cc architecture scout + comparative analysis
