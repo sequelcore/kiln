@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { SessionManager } from "../wrapper/session-manager.js";
 import { createDefaultRegistry } from "../wrapper/session-registry.js";
@@ -14,7 +15,13 @@ import type {
   KilnPermissionPolicy,
 } from "../wrapper/index.js";
 import type { KilnAppConfig } from "../config.js";
-import { SkillGenerator, AnthropicAdapter, VerificationResult } from "@kilnai/core";
+import {
+  SkillGenerator,
+  AnthropicAdapter,
+  VerificationResult,
+  scoreComplexity,
+} from "@kilnai/core";
+import type { PersistedTranscriptEvent } from "@kilnai/core";
 
 export interface RunFlags {
   readonly apiKey?: string;
@@ -190,6 +197,11 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
   let lastError: string | null = null;
   let accumulatedText = "";
   let toolCallCount = 0;
+  let turnDepth = 0;
+  let successfulProviderId: ProviderId | undefined;
+  const transcript: PersistedTranscriptEvent[] = [];
+  let transcriptSeq = 0;
+  const startedAt = new Date().toISOString();
 
   const sessionConfig = {
     task,
@@ -204,6 +216,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
   const hookRegistry = new HookRegistry(appConfig.kilnYaml?.hooks ?? {});
   const hookExecutor = new HookExecutor();
   let isFirstDeltaOfTurn = false;
+  let awaitingTurnStart = true;
   let lastToolName: string | undefined;
   const hookCwd = context.workingDirectory;
 
@@ -245,6 +258,15 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
       })) {
         switch (event.type) {
           case "text_delta": {
+            transcript.push({
+              seq: ++transcriptSeq,
+              ts: new Date().toISOString(),
+              event: { type: "text_delta", content: event.content },
+            });
+            if (awaitingTurnStart) {
+              turnDepth++;
+              awaitingTurnStart = false;
+            }
             if (isFirstDeltaOfTurn) {
               isFirstDeltaOfTurn = false;
               fireHook("UserPromptSubmit");
@@ -254,6 +276,11 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
             break;
           }
           case "tool_use": {
+            transcript.push({
+              seq: ++transcriptSeq,
+              ts: new Date().toISOString(),
+              event: { type: "tool_use", toolName: event.toolName },
+            });
             console.log(`[tool] ${event.toolName}`);
             toolCallCount++;
             lastToolName = event.toolName;
@@ -261,7 +288,13 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
             break;
           }
           case "tool_result": {
+            transcript.push({
+              seq: ++transcriptSeq,
+              ts: new Date().toISOString(),
+              event: { type: "tool_result" },
+            });
             isFirstDeltaOfTurn = true;
+            awaitingTurnStart = true;
             if (lastToolName) {
               fireHook("PostToolUse", { toolName: lastToolName });
             }
@@ -290,22 +323,8 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
               break;
             }
             sessionSucceeded = true;
+            successfulProviderId = providerId;
             registry.reportSuccess(providerId);
-            {
-              const sg = appConfig.kilnYaml?.skillGeneration;
-              if (sg?.enabled !== false && config.apiKey) {
-                try {
-                  const skillsDir = join(process.cwd(), ".kiln", "skills");
-                  const generator = new SkillGenerator({
-                    provider: new AnthropicAdapter({ apiKey: config.apiKey }),
-                    registry: new (await import("@kilnai/core")).SkillRegistry(),
-                    skillsDir,
-                    complexityThreshold: sg?.complexityThreshold,
-                  });
-                  void generator.maybeGenerate(task, accumulatedText, 0, 0);
-                } catch { /* fail-open */ }
-              }
-            }
             break;
           }
           case "error": {
@@ -334,6 +353,63 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
   if (!sessionSucceeded && lastError) {
     console.error(`[kiln] All providers failed. Last error: ${lastError}`);
     process.exit(1);
+  }
+
+  if (sessionSucceeded) {
+    const completedAt = new Date().toISOString();
+    const sessionDir = join(process.cwd(), ".kiln", "sessions", sessionId);
+    const meta = {
+      kilnSessionId: sessionId,
+      provider: successfulProviderId,
+      task,
+      startedAt,
+      completedAt,
+      costUsd: finalCostUsd,
+      toolCount: toolCallCount,
+      turnDepth,
+    };
+
+    try {
+      await mkdir(sessionDir, { recursive: true });
+      await writeFile(
+        join(sessionDir, "meta.json"),
+        JSON.stringify(meta, null, 2),
+        "utf-8",
+      );
+      await writeFile(
+        join(sessionDir, "transcript.jsonl"),
+        transcript.map((entry) => JSON.stringify(entry)).join("\n"),
+        "utf-8",
+      );
+    } catch {
+      // fail-open
+    }
+
+    const sg = appConfig.kilnYaml?.skillGeneration;
+    const threshold = sg?.complexityThreshold ?? 0.6;
+    const shouldAttemptSkillGeneration = sg?.enabled !== false
+      && scoreComplexity({ messageText: task, toolCount: toolCallCount, turnDepth }).score >= threshold;
+
+    if (shouldAttemptSkillGeneration && config.apiKey) {
+      try {
+        const skillsDir = join(process.cwd(), ".kiln", "skills");
+        const generator = new SkillGenerator({
+          provider: new AnthropicAdapter({ apiKey: config.apiKey }),
+          registry: new (await import("@kilnai/core")).SkillRegistry(),
+          skillsDir,
+          complexityThreshold: sg?.complexityThreshold,
+        });
+        void generator.maybeGenerate(task, accumulatedText, toolCallCount, turnDepth, transcript);
+      } catch {
+        // fail-open
+      }
+    } else if (
+      shouldAttemptSkillGeneration
+      && config.mode === "cli-wrapper"
+      && !config.apiKey
+    ) {
+      console.log('[kiln] Tip: run "kiln skill capture --last" after configuring ANTHROPIC_API_KEY to capture this session as a skill.');
+    }
   }
 
   let verificationResult: VerificationResult | undefined;

@@ -5,6 +5,8 @@ import { textParts, extractText } from "../engine/domain/content.js";
 import { scoreComplexity } from "../agents/complexity-scorer.js";
 import { parseSkillMd } from "./md-parser.js";
 import type { SkillRegistry } from "./skill-registry.js";
+import { SkillCaptureService } from "./skill-capture.js";
+import type { PersistedTranscriptEvent } from "./skill-capture.js";
 
 const DEFAULT_THRESHOLD = 0.6;
 const MAX_NAME_LENGTH = 40;
@@ -24,12 +26,17 @@ export class SkillGenerator {
   private readonly registry: SkillRegistry;
   private readonly skillsDir: string;
   private readonly threshold: number;
+  private readonly captureService: SkillCaptureService;
 
   constructor(config: SkillGeneratorConfig) {
     this.provider = config.provider;
     this.registry = config.registry;
     this.skillsDir = config.skillsDir;
     this.threshold = config.complexityThreshold ?? DEFAULT_THRESHOLD;
+    this.captureService = new SkillCaptureService({
+      provider: config.provider,
+      complexityThreshold: config.complexityThreshold,
+    });
   }
 
   async maybeGenerate(
@@ -37,10 +44,30 @@ export class SkillGenerator {
     sessionOutput: string,
     toolCount: number,
     turnDepth: number,
+    transcript?: readonly PersistedTranscriptEvent[],
   ): Promise<boolean> {
     const complexity = scoreComplexity({ messageText: task, toolCount, turnDepth });
     if (complexity.score < this.threshold) {
       return false;
+    }
+
+    if (transcript && transcript.length > 0) {
+      const summary = await this.captureService.extractSummary({
+        task,
+        transcript,
+        toolCount,
+        turnDepth,
+      });
+      if (!summary) {
+        return false;
+      }
+
+      const draft = await this.captureService.generateSkill(summary);
+      if (!draft) {
+        return false;
+      }
+
+      return this.writeAndRegister(draft.name, draft.content);
     }
 
     const messages: readonly AgentMessage[] = [
@@ -74,10 +101,17 @@ export class SkillGenerator {
     }
 
     const sanitized = sanitizeName(nameMatch[1]!);
+    if (!sanitized) {
+      return false;
+    }
 
-    const skillPath = `${this.skillsDir}/${sanitized}/SKILL.md`;
+    return this.writeAndRegister(sanitized, rawContent);
+  }
+
+  private async writeAndRegister(skillName: string, rawContent: string): Promise<boolean> {
+    const skillPath = `${this.skillsDir}/${skillName}/SKILL.md`;
     try {
-      await mkdir(`${this.skillsDir}/${sanitized}`, { recursive: true });
+      await mkdir(`${this.skillsDir}/${skillName}`, { recursive: true });
       await writeFile(skillPath, rawContent, "utf-8");
     } catch {
       return false;
@@ -99,6 +133,7 @@ function sanitizeName(name: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9\s-]/g, "")
     .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
     .slice(0, MAX_NAME_LENGTH)
     .replace(/^-+|-+$/g, "");
 }

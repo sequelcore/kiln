@@ -3,6 +3,7 @@ import { join, resolve } from "node:path";
 import type { KilnAppConfig } from "../config.js";
 import { DomainRegistry, SkillRegistry, loadSkillMdIndex, loadSkillMd } from "@kilnai/core";
 import { formatSkillList } from "../formatters.js";
+import { skillCaptureCommand, parseSkillCaptureFlags } from "./skill-capture.js";
 
 export async function skillCommand(
   config: KilnAppConfig,
@@ -16,13 +17,16 @@ export async function skillCommand(
       return installSkill(config, args[0]);
     case "publish":
       return publishSkill(config);
+    case "capture":
+      return skillCaptureCommand(config, args[0], parseSkillCaptureFlags(args.slice(1)));
     default:
-      console.log(`Usage: kiln skill <list|install|publish>`);
+      console.log(`Usage: kiln skill <list|install|publish|capture>`);
       console.log("");
       console.log("Subcommands:");
       console.log("  list                 List all available skills");
       console.log("  install <path>       Install a SKILL.md file");
       console.log("  publish              Validate SKILL.md for publishing");
+      console.log("  capture [sessionId]  Capture session output as a reusable skill (--last, --scope, --yes, --dry-run)");
   }
 }
 

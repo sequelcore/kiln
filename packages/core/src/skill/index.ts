@@ -4,3 +4,10 @@ export { SkillRegistry } from "./skill-registry.js";
 export type { SkillRegistryOptions } from "./skill-registry.js";
 export { SkillGenerator } from "./skill-generator.js";
 export type { SkillGeneratorConfig } from "./skill-generator.js";
+export { SkillCaptureService } from "./skill-capture.js";
+export type {
+  SkillCaptureSummary,
+  SkillDraft,
+  SkillCaptureInput,
+  PersistedTranscriptEvent,
+} from "./skill-capture.js";
