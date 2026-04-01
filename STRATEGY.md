@@ -301,7 +301,7 @@ See changelog: docs/changelog.md
 
 ## Phase 3.5 — Session Power & Observability
 
-**Status:** IN PROGRESS (3.5a ✅ 3.5b ✅ 3.5c ✅ 3.5d ✅ 3.5e ✅ — 3.5f pending)
+**Status:** COMPLETE ✅ (3.5a ✅ 3.5b ✅ 3.5c ✅ 3.5d ✅ 3.5e ✅ 3.5f ✅ — main, 2026-04-01)
 **Priority:** HIGH — addresses #1, #2, #3 universal pain points from market research
 (permissions opacity, cost blindness, compaction unpredictability)
 **Source:** Claude Code scout + Codex scout + OpenCode scout + user research
@@ -347,20 +347,15 @@ See changelog: docs/changelog.md
 - feat(cli): KilnAppConfig white-label — evaluate removing identity fields or keeping for open-source
   (see deferred decision in STRATEGY.md research section)
 
-### kiln skill capture (interactive, Phase 3.5f — PENDING)
-- feat(cli): `kiln skill capture "description"` — manual interactive skill capture command
-- **Why deferred to Phase 3.5:** requires full session transcript + structured session memory
-  to feed the multi-round extraction process. Phase 3b (auto-generate) only has accumulated
-  text output — sufficient for silent generation, insufficient for guided interactive capture.
-- **What it does:** reads persisted session transcript → 3-round interactive prompt
-  (name/goal confirmation → arguments + save location → step-by-step breakdown) →
-  generates SKILL.md with richer context than auto-generate → saves to repo or user home
-- **Prerequisite:** session state persistence from Phase 3.5 (session transcript stored to
-  SQLite or JSONL after each run, readable by subsequent commands)
-- **Skill improvement loop:** after Phase 3f (eval scorers), detect if sessions using a
-  captured skill score higher → surface to user → option to refine or discard
-- **Research needed before execution:** scout interactive skill capture patterns across
-  competing orchestrators for UX benchmarks
+### kiln skill capture ✅ (Phase 3.5f, main, 2026-04-01)
+- ✅ feat(core): SkillCaptureService — two-phase pipeline: extractSummary (Phase 1, JSON) → generateSkill (Phase 2, SKILL.md)
+- ✅ feat(core): PersistedTranscriptEvent type; SkillGenerator uses two-phase when transcript provided, single-pass fallback
+- ✅ feat(cli): TranscriptStore — persists .kiln/sessions/{id}/meta.json + transcript.jsonl per session (fail-open)
+- ✅ feat(cli): run.ts real turnDepth + toolCount tracking (were hardcoded 0); transcript written on session success
+- ✅ feat(cli): `kiln skill capture [sessionId] --last --scope project|user --yes --dry-run` — interactive review before write
+- ✅ feat(cli): cli-wrapper sessions without API key print capture hint: `kiln skill capture --last` after setting key
+- Research basis: Codex two-phase memory pipeline, OpenCode lazy skill discovery, Reflexion/ExpeL/Voyager academic patterns
+- Deferred: skill improvement loop (eval-scored promotion), citation tracking, automatic consolidation (Phase 3.6+)
 
 ### Token Budget Intelligence
 - feat(core): token budget diminishing returns detection —
