@@ -12,10 +12,10 @@ export interface DevFlags {
 
 export async function devCommand(appConfig: KilnAppConfig, flags?: DevFlags): Promise<void> {
   const root = process.cwd();
-  const appDir = join(root, appConfig.dirName);
+  const appDir = join(root, ".kiln");
 
   if (!existsSync(appDir)) {
-    console.error(`Not initialized. Run '${appConfig.appName} init' first.`);
+    console.error(`Not initialized. Run 'kiln init' first.`);
     process.exit(1);
   }
 

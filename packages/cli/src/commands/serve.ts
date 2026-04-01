@@ -3,7 +3,7 @@ import { KilnMcpServer } from "../mcp/server.js";
 import type { TransportType, TransportConfig } from "../mcp/transports.js";
 import type { KilnAppConfig } from "../config.js";
 
-export async function serveCommand(appConfig: KilnAppConfig, opts?: {
+export async function serveCommand(_appConfig: KilnAppConfig, opts?: {
   transport?: TransportType;
   port?: number;
 }): Promise<void> {
@@ -18,9 +18,9 @@ export async function serveCommand(appConfig: KilnAppConfig, opts?: {
   await server.start(config);
 
   if (config.type === "sse") {
-    console.error(`${appConfig.appName} MCP server running (SSE on port ${config.port ?? 3001})`);
+    console.error(`kiln MCP server running (SSE on port ${config.port ?? 3001})`);
   } else {
-    console.error(`${appConfig.appName} MCP server running (stdio)`);
+    console.error(`kiln MCP server running (stdio)`);
   }
 
   const shutdown = async (): Promise<void> => {

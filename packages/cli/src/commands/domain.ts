@@ -51,12 +51,12 @@ export async function domainCommand(
       await removeDomain(appConfig, args[0], root);
       break;
     default:
-      printDomainHelp(appConfig);
+      printDomainHelp();
   }
 }
 
-function printDomainHelp(appConfig: KilnAppConfig): void {
-  console.log(`\nUsage: ${appConfig.appName} domain <subcommand>\n`);
+function printDomainHelp(): void {
+  console.log(`\nUsage: kiln domain <subcommand>\n`);
   console.log("Subcommands:");
   console.log("  install <package>   Install a domain package");
   console.log("  list                List installed domains");
@@ -71,9 +71,9 @@ function isValidPackageName(name: string): boolean {
   return /^@[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*$/.test(name);
 }
 
-async function installDomain(appConfig: KilnAppConfig, pkg: string | undefined, root: string): Promise<void> {
+async function installDomain(_appConfig: KilnAppConfig, pkg: string | undefined, root: string): Promise<void> {
   if (!pkg) {
-    console.log(`Usage: ${appConfig.appName} domain install <package>`);
+    console.log(`Usage: kiln domain install <package>`);
     return;
   }
 
@@ -123,8 +123,8 @@ async function installDomain(appConfig: KilnAppConfig, pkg: string | undefined, 
     console.log(`Warning: ${warn}`);
   }
 
-  // Copy to <dirName>/domains/
-  const domainsDir = join(root, appConfig.dirName, "domains");
+  // Copy to .kiln/domains/
+  const domainsDir = join(root, ".kiln", "domains");
   mkdirSync(domainsDir, { recursive: true });
   const destPath = join(domainsDir, `${manifest.config.name}.yaml`);
   copyFileSync(yamlPath, destPath);
@@ -132,8 +132,8 @@ async function installDomain(appConfig: KilnAppConfig, pkg: string | undefined, 
   console.log(`Installed ${manifest.config.displayName} v${manifest.version}`);
 }
 
-function listDomains(appConfig: KilnAppConfig, root: string): void {
-  const domainsDir = join(root, appConfig.dirName, "domains");
+function listDomains(_appConfig: KilnAppConfig, root: string): void {
+  const domainsDir = join(root, ".kiln", "domains");
   if (!existsSync(domainsDir)) {
     console.log("No domains installed.");
     return;
@@ -214,14 +214,14 @@ async function searchDomains(query: string | undefined): Promise<void> {
   console.log("");
 }
 
-function infoDomain(appConfig: KilnAppConfig, pkg: string | undefined, root: string): void {
+function infoDomain(_appConfig: KilnAppConfig, pkg: string | undefined, root: string): void {
   if (!pkg) {
-    console.log(`Usage: ${appConfig.appName} domain info <package>`);
+    console.log(`Usage: kiln domain info <package>`);
     return;
   }
 
-  // Try <dirName>/domains/ first (by name field match)
-  const domainsDir = join(root, appConfig.dirName, "domains");
+  // Try .kiln/domains/ first (by name field match)
+  const domainsDir = join(root, ".kiln", "domains");
   if (existsSync(domainsDir)) {
     const files = readdirSync(domainsDir).filter((f) => f.endsWith(".yaml") || f.endsWith(".yml"));
     for (const file of files) {
@@ -274,14 +274,14 @@ function printManifestInfo(manifest: ReturnType<typeof parseDomainPackageYaml>):
   console.log("");
 }
 
-async function removeDomain(appConfig: KilnAppConfig, pkg: string | undefined, root: string): Promise<void> {
+async function removeDomain(_appConfig: KilnAppConfig, pkg: string | undefined, root: string): Promise<void> {
   if (!pkg) {
-    console.log(`Usage: ${appConfig.appName} domain remove <package>`);
+    console.log(`Usage: kiln domain remove <package>`);
     return;
   }
 
-  // Find matching domain in <dirName>/domains/
-  const domainsDir = join(root, appConfig.dirName, "domains");
+  // Find matching domain in .kiln/domains/
+  const domainsDir = join(root, ".kiln", "domains");
   let removedName: string | null = null;
 
   if (existsSync(domainsDir)) {

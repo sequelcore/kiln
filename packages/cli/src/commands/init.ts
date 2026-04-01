@@ -34,7 +34,7 @@ export async function initCommand(
   flags?: InitFlags,
 ): Promise<KilnYaml | null> {
   const root = projectPath ?? process.cwd();
-  const appDir = join(root, appConfig.dirName);
+  const appDir = join(root, ".kiln");
 
   if (existsSync(appDir) && !flags?.force) {
     console.log("Already initialized.");
@@ -143,7 +143,7 @@ export async function initCommand(
   };
 
   const initOptions: InitOptions = {
-    appName: appConfig.appName,
+    appName: "kiln",
     domain: chosenDomainName,
     domainDisplayName: chosenDomainConfig?.displayName ?? chosenDomainName,
     provider: chosenProvider,
@@ -168,7 +168,7 @@ export async function initCommand(
     existing = readFileSync(gitignorePath, "utf-8");
   }
 
-  const gitignoreEntries = [`${appConfig.dirName}/memory.db`, `${appConfig.dirName}/agents/`] as const;
+  const gitignoreEntries = [`.kiln/memory.db`, `.kiln/agents/`] as const;
   const toAppend: string[] = [];
   for (const entry of gitignoreEntries) {
     if (!existing.includes(entry)) {
@@ -187,8 +187,7 @@ export async function initCommand(
   }
   console.log(`Provider: ${chosenProvider}`);
   console.log(`Channels: ${chosenChannels.join(", ")}`);
-  const appLabel = appConfig.appName.charAt(0).toUpperCase() + appConfig.appName.slice(1);
-  console.log(`${appLabel} initialized.`);
+  console.log("Kiln initialized.");
 
   return kilnYaml;
 }

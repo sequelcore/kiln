@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import { join } from "node:path";
+import pkg from "../package.json" with { type: "json" };
 import { migrateConfigJson } from "./kiln-yaml.js";
 import type { KilnAppConfig } from "./config.js";
 
@@ -17,13 +18,18 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
   const args = process.argv.slice(2);
   const command = args[0];
 
+  const APP_NAME = "kiln";
+  const DIR_NAME = ".kiln";
+  const VERSION = pkg.version as string;
+  const DESCRIPTION = "Domain-agnostic AI orchestration engine";
+
   const COMMANDS: Record<string, string> = {
-    init: `Initialize ${config.appName} in the current project (--force, --non-interactive, --domain, --provider, --channels, --team-mode)`,
+    init: `Initialize ${APP_NAME} in the current project (--force, --non-interactive, --domain, --provider, --channels, --team-mode)`,
     run: "Start a CLI-only coding session with Claude Code",
     status: "Show current phase, tasks, and costs",
     memory: "Browse and search memory layers",
     config: "Edit domain config and provider settings",
-    serve: `Start ${config.appName} MCP server (used by Claude Code)`,
+    serve: `Start ${APP_NAME} MCP server (used by Claude Code)`,
     "mcp-config": "Generate MCP client configuration JSON",
     domain: "Manage domain packages (install, list, search, info, remove)",
     gateway: "Start persistent Gateway (multi-app hosting)",
@@ -34,8 +40,8 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
   };
 
   function printHelp(): void {
-    console.log(`\n${capitalize(config.appName)} -- ${config.description}\n`);
-    console.log(`Usage: ${config.appName} [command] [options]\n`);
+    console.log(`\n${capitalize(APP_NAME)} -- ${DESCRIPTION}\n`);
+    console.log(`Usage: ${APP_NAME} [command] [options]\n`);
     console.log("Commands:");
     for (const [cmd, desc] of Object.entries(COMMANDS)) {
       console.log(`  ${cmd.padEnd(12)} ${desc}`);
@@ -45,7 +51,7 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     console.log("  --provider   LLM provider (claude, openai, deepseek)");
     console.log("  --port       Port override (dev/gateway)");
     console.log("  --playground Open Studio in browser (dev mode)");
-    console.log(`\nRun '${config.appName} <command> --help' for command-specific help.\n`);
+    console.log(`\nRun '${APP_NAME} <command> --help' for command-specific help.\n`);
   }
 
   if (!command) {
@@ -60,7 +66,7 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
   }
 
   if (command === "--version" || command === "-v") {
-    console.log(`${config.appName} ${config.version}`);
+    console.log(`${APP_NAME} ${VERSION}`);
     process.exit(0);
   }
 
@@ -99,7 +105,7 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
   if (command === "status") {
     const { statusCommand } = await import("./commands/status.js");
     const root = process.cwd();
-    const kilnDir = join(root, config.dirName);
+    const kilnDir = join(root, DIR_NAME);
     if (migrateConfigJson(kilnDir)) {
       console.log("Migrated .kiln/config.json → kiln.yaml");
     }
@@ -116,7 +122,7 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
   if (command === "config") {
     const { configCommand } = await import("./commands/config.js");
     const root = process.cwd();
-    const kilnDir = join(root, config.dirName);
+    const kilnDir = join(root, DIR_NAME);
     if (migrateConfigJson(kilnDir)) {
       console.log("Migrated .kiln/config.json → kiln.yaml");
     }
@@ -253,13 +259,7 @@ function parseMcpConfigFlags(rawArgs: readonly string[]): { client?: string; nam
 
 if (import.meta.main) {
   const { DomainRegistry } = await import("@kilnai/core");
-  const pkg = await import("../package.json");
   void createCli({
-    appName: "kiln",
-    dirName: ".kiln",
-    version: pkg.default.version as string,
-    description: "Domain-agnostic AI orchestration engine",
-    mcpServerName: "kiln",
     createRegistry: () => new DomainRegistry(),
   });
 }

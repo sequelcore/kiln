@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { KilnAppConfig } from "../config.js";
 
 export function memoryCommand(
-  appConfig: KilnAppConfig,
+  _appConfig: KilnAppConfig,
   subcommand: string,
   _args: string[],
   projectPath?: string,
@@ -11,34 +11,34 @@ export function memoryCommand(
   const root = projectPath ?? process.cwd();
 
   if (!subcommand) {
-    printMemoryHelp(appConfig);
+    printMemoryHelp();
     return;
   }
 
   switch (subcommand) {
     case "stats": {
-      printMemoryStats(appConfig, root);
+      printMemoryStats(root);
       break;
     }
 
     default:
       console.log(`Unknown memory subcommand: ${subcommand}`);
-      printMemoryHelp(appConfig);
+      printMemoryHelp();
   }
 }
 
-function printMemoryHelp(appConfig: KilnAppConfig): void {
-  console.log(`\nUsage: ${appConfig.appName} memory <subcommand>\n`);
+function printMemoryHelp(): void {
+  console.log(`\nUsage: kiln memory <subcommand>\n`);
   console.log("Subcommands:");
   console.log("  stats            Show memory file counts and sizes");
   console.log("");
 }
 
-function printMemoryStats(appConfig: KilnAppConfig, root: string): void {
-  const memoryDir = join(root, appConfig.dirName, "memory");
+function printMemoryStats(root: string): void {
+  const memoryDir = join(root, ".kiln", "memory");
 
   if (!existsSync(memoryDir)) {
-    console.log(`No memory directory found. Run '${appConfig.appName} init' first.`);
+    console.log(`No memory directory found. Run 'kiln init' first.`);
     return;
   }
 
@@ -51,7 +51,7 @@ function printMemoryStats(appConfig: KilnAppConfig, root: string): void {
   }
 
   console.log("\nMemory Stats\n");
-  console.log(`  Directory: ${appConfig.dirName}/memory/`);
+  console.log(`  Directory: .kiln/memory/`);
   console.log(`  Files:     ${files.length}`);
   console.log(`  Size:      ${formatBytes(totalSize)}`);
   console.log("");

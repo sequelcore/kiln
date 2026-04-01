@@ -11,11 +11,11 @@ export interface McpConfigFlags {
 }
 
 export async function mcpConfigCommand(
-  appConfig: KilnAppConfig,
+  _appConfig: KilnAppConfig,
   flags: McpConfigFlags,
 ): Promise<void> {
   const client = (flags.client ?? "claude-code") as McpClient;
-  const name = flags.name ?? appConfig.mcpServerName;
+  const name = flags.name ?? "kiln";
   const command = flags.command ?? "node";
   const args = flags.args
     ? flags.args.split(" ").filter(Boolean)

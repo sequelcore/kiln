@@ -33,23 +33,23 @@ const VALID_KEYS: ReadonlySet<KilnYamlKey> = new Set([
 ]);
 
 export function configCommand(
-  appConfig: KilnAppConfig,
+  _appConfig: KilnAppConfig,
   subcommand: string,
   args: string[],
   projectPath?: string,
 ): void {
   const root = projectPath ?? process.cwd();
-  const kilnDir = join(root, appConfig.dirName);
+  const kilnDir = join(root, ".kiln");
 
   if (!subcommand) {
-    printConfigHelp(appConfig);
+    printConfigHelp();
     return;
   }
 
   if (subcommand !== "reset") {
     const config = readKilnYaml(kilnDir);
     if (!config) {
-      console.log(`Not initialized. Run '${appConfig.appName} init' first.`);
+      console.log(`Not initialized. Run 'kiln init' first.`);
       return;
     }
   }
@@ -58,7 +58,7 @@ export function configCommand(
     case "show": {
       const config = readKilnYaml(kilnDir);
       if (!config) {
-        console.log(`Not initialized. Run '${appConfig.appName} init' first.`);
+        console.log(`Not initialized. Run 'kiln init' first.`);
         return;
       }
       console.log(JSON.stringify(config, null, 2));
@@ -70,7 +70,7 @@ export function configCommand(
       const value = args[1];
 
       if (!key || value === undefined) {
-        console.log(`Usage: ${appConfig.appName} config set <key> <value>`);
+        console.log(`Usage: kiln config set <key> <value>`);
         return;
       }
 
@@ -82,7 +82,7 @@ export function configCommand(
 
       const config = readKilnYaml(kilnDir);
       if (!config) {
-        console.log(`Not initialized. Run '${appConfig.appName} init' first.`);
+        console.log(`Not initialized. Run 'kiln init' first.`);
         return;
       }
 
@@ -102,7 +102,7 @@ export function configCommand(
 
     default:
       console.log(`Unknown config subcommand: ${subcommand}`);
-      printConfigHelp(appConfig);
+      printConfigHelp();
   }
 }
 
@@ -169,8 +169,8 @@ function parseScalar(value: string, key: KilnYamlKey): string | number | boolean
   return value;
 }
 
-function printConfigHelp(appConfig: KilnAppConfig): void {
-  console.log(`\nUsage: ${appConfig.appName} config <subcommand>\n`);
+function printConfigHelp(): void {
+  console.log(`\nUsage: kiln config <subcommand>\n`);
   console.log("Subcommands:");
   console.log("  show              Print current config");
   console.log("  set <key> <value> Update a config value");

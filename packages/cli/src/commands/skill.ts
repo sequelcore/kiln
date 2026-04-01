@@ -17,7 +17,7 @@ export async function skillCommand(
     case "publish":
       return publishSkill(config);
     default:
-      console.log(`Usage: ${config.appName} skill <list|install|publish>`);
+      console.log(`Usage: kiln skill <list|install|publish>`);
       console.log("");
       console.log("Subcommands:");
       console.log("  list                 List all available skills");
@@ -43,9 +43,9 @@ function listSkills(_config: KilnAppConfig): void {
   console.log(formatSkillList(skills));
 }
 
-async function installSkill(config: KilnAppConfig, packagePath: string | undefined): Promise<void> {
+async function installSkill(_config: KilnAppConfig, packagePath: string | undefined): Promise<void> {
   if (!packagePath) {
-    console.error("Usage: " + config.appName + " skill install <path-to-SKILL.md>");
+    console.error("Usage: kiln skill install <path-to-SKILL.md>");
     process.exit(1);
     return;
   }
