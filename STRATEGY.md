@@ -533,44 +533,26 @@ re-locks users into Claude Code-only UX.
 
 ---
 
-### Phase 5 — OpenKiln (Personal Product Layer)
+### Downstream Consumer — OpenKiln (Separate Product)
 
-**Goal:** OpenKiln as personal agent product on top of Kiln engine. Single-user, local-first, channel-connected.
+OpenKiln is not a Kiln engine phase. It is a separate product/application that
+consumes Kiln as its engine.
 
-**Why fifth:** Requires all previous phases stable. This is packaging + channel defaults, not a fork.
+Kiln may still do enabling work that benefits a downstream OpenKiln app, but
+that work should be tracked here only when it is engine-native, for example:
 
-**Research needed before execution:**
-- Channel adapter status: Telegram, Discord, Signal in runtime
-- npx openkiln init UX design
-- SQLite local-first vs cloud sync decision
-- Legal review of per-user CLI orchestration pattern
-
-**Planned work:**
-- Separate bounded context: packaging + channel defaults
-- npx openkiln init: quick-start wizard
-- Telegram + Discord + Signal adapters (may already exist in runtime)
-- Local-first SQLite as default (no cloud required)
-- Per-user architecture: each user runs their own CLIs locally, OpenKiln orchestrates them
-- Legal constraint: each user uses their own subscriptions, Kiln never touches OAuth tokens
-
-**Additional Phase 5 scope:**
-- feat(runtime): session state export — checkpoints, progress artifacts,
+- `feat(runtime)`: session state export — checkpoints, progress artifacts,
   resumable session snapshots
-- feat(runtime): OpenTelemetry tracing opt-in (OpenCode experimental pattern)
-- feat(runtime): Prometheus metrics — circuit breaker health, cost/turn,
+- `feat(runtime)`: OpenTelemetry tracing opt-in
+- `feat(runtime)`: Prometheus metrics — circuit breaker health, cost/turn,
   latency/backend, error rates
-- feat(cli): hook execution pipeline — wire PreToolUse/PostToolUse
-  through all channel adapters
+- `feat(cli)`: hook execution pipeline — wire PreToolUse/PostToolUse through
+  all channel adapters
 
-**Sub-phases:**
-5a. Channel adapter audit (what exists in runtime today)
-5b. npx openkiln init wizard
-5c. Telegram adapter activation
-5d. Discord + Signal adapters
-5e. Local-first SQLite config
-5f. Legal review of multi-user pattern
+OpenKiln-specific product work belongs in its own roadmap/repo, not as a core
+Kiln implementation phase.
 
-#### Phase 5b — LocalSession / TurboQuant (Future Backend)
+#### Downstream Note — LocalSession / TurboQuant (Future Backend)
 
 - **Status:** backlog — revisit when llama.cpp mainline PR stabilizes (~Q3 2026)
 - **What:** fourth IKilnSession backend that spawns llama-server from TheTom/llama-cpp-turboquant fork with --cache-type-v turbo3
