@@ -344,7 +344,14 @@ export class CodexSession implements IKilnSession {
               (usage.output_tokens ?? 0) * catalogEntry.outputPer1M) /
             1_000_000;
 
-          yield { type: "cost_update", usd: computedUsd, mode: "computed" as const };
+          yield {
+            type: "cost_update",
+            usd: computedUsd,
+            mode: "computed" as const,
+            inputTokens: usage.input_tokens,
+            outputTokens: usage.output_tokens,
+            cacheReadTokens: usage.cached_input_tokens,
+          };
           yield {
             type: "completed",
             totalUsd: computedUsd,

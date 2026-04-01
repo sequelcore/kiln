@@ -180,12 +180,20 @@ export class ClaudeSession implements IKilnSession {
           const resultMsg = message as {
             total_cost_usd?: number;
             is_error?: boolean;
+            usage?: {
+              input_tokens?: number;
+              output_tokens?: number;
+              cache_read_input_tokens?: number;
+            };
           };
           totalCostUsd = resultMsg.total_cost_usd ?? 0;
           yield {
             type: "cost_update",
             usd: totalCostUsd,
             mode: "native",
+            inputTokens: resultMsg.usage?.input_tokens,
+            outputTokens: resultMsg.usage?.output_tokens,
+            cacheReadTokens: resultMsg.usage?.cache_read_input_tokens,
           };
           yield {
             type: "completed",

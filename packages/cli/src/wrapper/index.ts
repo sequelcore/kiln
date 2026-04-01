@@ -36,6 +36,13 @@ export interface SessionReport {
   readonly cost: {
     readonly total: number;
     readonly byRoleModel: Record<string, number>;
+    readonly breakdown?: Array<{
+      readonly turn: number;
+      readonly inputTokens: number;
+      readonly outputTokens: number;
+      readonly cacheReadTokens: number;
+      readonly costUsd: number;
+    }>;
   };
   readonly duration: number;
   readonly verificationResult?: {

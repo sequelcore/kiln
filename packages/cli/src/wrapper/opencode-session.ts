@@ -317,12 +317,19 @@ export class OpenCodeSession implements IKilnSession {
           const props = event.payload.properties as {
             sessionID?: string;
             type?: string;
-            cost?: { amount: number };
+            cost?: { amount: number; inputTokens?: number; outputTokens?: number; cacheReadTokens?: number };
           } | undefined;
           if (props?.sessionID !== this._remoteSessionId) continue;
           if (props?.type === "usage_update" && props?.cost?.amount !== undefined) {
             this._lastCostUsd = props.cost.amount;
-            yield { type: "cost_update", usd: props.cost.amount, mode: "native" as const };
+            yield {
+              type: "cost_update",
+              usd: props.cost.amount,
+              mode: "native" as const,
+              inputTokens: props.cost.inputTokens,
+              outputTokens: props.cost.outputTokens,
+              cacheReadTokens: props.cost.cacheReadTokens,
+            };
           }
           continue;
         }

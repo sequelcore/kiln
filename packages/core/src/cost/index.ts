@@ -42,3 +42,5 @@ export interface CostSummary {
 }
 
 export { CostTracker, MODEL_PRICING, STT_PRICING, EMBEDDING_PRICING } from "./cost-tracker.js";
+export { ModelDevClient, createModelDevClient } from "./models-dev-client.js";
+export type { ModelDevPricing } from "./models-dev-client.js";

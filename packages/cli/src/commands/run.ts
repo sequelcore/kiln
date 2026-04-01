@@ -278,6 +278,12 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
           }
           case "cost_update": {
             finalCostUsd = event.usd;
+            manager.trackCostUpdate(
+              event.inputTokens ?? 0,
+              event.outputTokens ?? 0,
+              event.cacheReadTokens ?? 0,
+              event.usd,
+            );
             break;
           }
           case "completed": {

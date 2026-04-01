@@ -28,7 +28,14 @@ export type SessionEvent =
   | { type: "text_delta"; content: string }
   | { type: "tool_use"; toolName: string; input: unknown }
   | { type: "tool_result"; toolName: string; output: string }
-  | { type: "cost_update"; usd: number; mode: CostTrackingMode }
+  | {
+      type: "cost_update";
+      usd: number;
+      mode: CostTrackingMode;
+      inputTokens?: number;
+      outputTokens?: number;
+      cacheReadTokens?: number;
+    }
   | {
       type: "completed";
       totalUsd: number;

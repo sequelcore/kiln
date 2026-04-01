@@ -22,6 +22,15 @@ export class SessionManager {
   private domain: DomainConfig | null = null;
   private sessionStartTime: number | null = null;
   private activeSessionId: string | null = null;
+  private costTurns: Array<{
+    turn: number;
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    costUsd: number;
+  }> = [];
+  private lastThreeOutputs: number[] = [];
+  private turnIndex = 0;
 
   get sessionStartTimeMs(): number | null {
     return this.sessionStartTime;
@@ -120,6 +129,7 @@ export class SessionManager {
       cost: {
         total: totalCostUsd ?? costSummary?.totalCostUsd ?? 0,
         byRoleModel,
+        breakdown: this.costTurns,
       },
       duration,
       verificationResult: verificationResult
@@ -134,6 +144,38 @@ export class SessionManager {
       await this.worktreeManager.release(this.activeSessionId);
       this.activeSessionId = null;
     }
+  }
+
+  trackCostUpdate(
+    inputTokens: number,
+    outputTokens: number,
+    cacheReadTokens: number,
+    costUsd: number,
+  ): void {
+    this.costTurns.push({
+      turn: this.turnIndex++,
+      inputTokens,
+      outputTokens,
+      cacheReadTokens,
+      costUsd,
+    });
+
+    this.lastThreeOutputs.push(outputTokens);
+    if (this.lastThreeOutputs.length > 3) {
+      this.lastThreeOutputs.shift();
+    }
+
+    if (this.lastThreeOutputs.length === 3) {
+      if (this.lastThreeOutputs.every((v) => v < 500)) {
+        console.error("[kiln] warning: token budget diminishing returns detected");
+      }
+    }
+  }
+
+  resetCostTracking(): void {
+    this.costTurns = [];
+    this.lastThreeOutputs = [];
+    this.turnIndex = 0;
   }
 
   async runVerification(
