@@ -301,48 +301,42 @@ See changelog: docs/changelog.md
 
 ## Phase 3.5 — Session Power & Observability
 
-**Status:** PENDING
+**Status:** IN PROGRESS (3.5a ✅ 3.5b ✅ 3.5c ✅ 3.5d ✅ 3.5e ✅ — 3.5f pending)
 **Priority:** HIGH — addresses #1, #2, #3 universal pain points from market research
 (permissions opacity, cost blindness, compaction unpredictability)
 **Source:** Claude Code scout + Codex scout + OpenCode scout + user research
 
-### Multi-Turn Session Resume
-- feat(cli): ClaudeSession resume via reuseEnvironmentId pattern
-- feat(cli): OpenCodeSession resume via SQLite session_id persistence
-- feat(cli): CodexSession thread_id capture for future resume support
+### Multi-Turn Session Resume ✅ (Phase 3.5b, feat/phase-3-5)
+- ✅ feat(cli): SessionStore — append-only JSONL at .kiln/sessions.jsonl, fail-open
+- ✅ feat(cli): ClaudeSession resume via reuseEnvironmentId, --resume flag on `kiln run`
+- ✅ feat(cli): OpenCodeSession resume via stored remoteSessionId, --attach flag
+- ✅ feat(cli): CodexSession thread_id capture via --conversation-id (deferred: Codex upstream)
 
-### Cost & Quota Observability
-- feat(cli): per-turn cost breakdown surfaced in session report
-- feat(cli): per-tool cost attribution
-- feat(runtime): cost dashboard MCP tool (surface existing per-role data)
-- feat(core): models.dev API integration for live pricing catalog updates
-- feat(cli): quota tracking — 5h window + weekly resets display
+### Cost & Quota Observability ✅ (Phase 3.5c, feat/phase-3-5)
+- ✅ feat(cli): per-turn cost breakdown surfaced in session report
+- ✅ feat(core): models.dev API integration — 24h TTL cache at .kiln/models-cache.json
+- ✅ feat(cli): token budget diminishing returns detection (3+ continuations, delta < 500)
+- Deferred: cost dashboard MCP tool, quota tracking (5h window + weekly resets)
 
-### Compaction — Transparent & Controllable
-- feat(core): configurable compaction threshold (not hardcoded at ~75%)
-- feat(core): compaction preview — show summary before applying
-- feat(core): compaction hooks — pre/post events (PreCompact, PostCompact)
-- feat(cli): OpenCodeSession POST /session/:id/summarize integration
-- feat(core): ACON-inspired compaction policy — treat as learnable system,
-  not fixed prompt (optimize from compaction failure examples)
-- feat(cli): mandatory session summary protocol on compaction — structured format:
-  Goal / Instructions / Discoveries / Accomplished / Next Steps / Relevant Files
-  (adopted from Engram scout — same format as kiln skill capture prerequisite)
-- feat(cli): 3-layer compaction resilience (adopted from Engram):
-  1. preamble-builder.ts — static instruction block in every session
-  2. PreCompact event hook — injects session summary + context recovery instruction
-  3. agent config — "after compaction, call mem_context" reminder in agent instructions
+### Compaction — Transparent & Controllable ✅ (Phase 3.5d, feat/phase-3-5)
+- ✅ feat(core): configurable compaction threshold via kiln.yaml compaction.threshold (default 1000)
+- ✅ feat(core): PreCompact/PostCompact events added to EventBus (level: state) + OTel span mapping
+- ✅ feat(core): SqliteMemoryStore auto-triggers compaction after save(), emits pre/postcompact
+- ✅ feat(cli): preamble-builder.ts static kiln-compaction-recovery section (layer 1 of 3)
+- ✅ feat(cli): KilnCompactionConfig type in kiln-yaml-types.ts (threshold, previewBeforeApply)
+- Deferred: compaction preview, ACON-inspired learnable policy (Phase 5+)
 
-### Hook Event System
-- feat(cli): PreToolUse, PostToolUse hook events
-- feat(cli): UserPromptSubmit, SessionEnd hook events
-- feat(cli): SubagentStart, SubagentStop hook events
-- feat(cli): hook execution modes: Command | Prompt | Agent (from Codex pattern)
-- feat(runtime): eager vs deferred MCP tool split — core tools (memory CRUD, cost, safety)
-  always loaded; admin/enrichment/routing tools deferred via mcp.WithDeferLoading pattern
-  (adopted from Engram scout — ~20 lines in gateway-mcp-server.ts)
+### Hook Event System ✅ (Phase 3.5a, feat/phase-3-5)
+- ✅ feat(cli): HookRegistry + HookExecutor — 7 events, Command/Prompt/Agent modes
+- ✅ feat(cli): KilnHooksConfig type in kiln-yaml-types.ts, wired into kiln.yaml
+- ✅ feat(runtime): eager vs deferred MCP tool split — 8 eager, 18 deferred admin tools
 
-### kiln skill capture (interactive, Phase 3.5 prerequisite)
+### OpenCode Power Unlocks ✅ (Phase 3.5e, feat/phase-3-5)
+- ✅ feat(cli): Permission PATCH always fires — derives edit+bash from permissionPolicy.approval
+- ✅ feat(cli): experimental.batch_tool:true PATCH (up to 25 parallel tool calls)
+- Deferred: GET /diff file change tracking, POST /fork session branching, mid-session model switch
+
+### kiln skill capture (interactive, Phase 3.5f — PENDING)
 - feat(cli): `kiln skill capture "description"` — manual interactive skill capture command
 - **Why deferred to Phase 3.5:** requires full session transcript + structured session memory
   to feed the multi-round extraction process. Phase 3b (auto-generate) only has accumulated
