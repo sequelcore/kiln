@@ -107,6 +107,13 @@ backend exposure.
   generated preamble before backend handoff
 - tests landed in
   [preamble-builder.test.ts](/C:/Proyectos/Sequel/kiln/packages/cli/tests/wrapper/preamble-builder.test.ts)
+- second narrow slice landed in
+  [context-governance.ts](/C:/Proyectos/Sequel/kiln/packages/cli/src/application/context-governance.ts)
+  and [run-session.ts](/C:/Proyectos/Sequel/kiln/packages/cli/src/application/run-session.ts):
+  governed session context is now produced in the application layer before
+  prompt construction
+- tests landed in
+  [context-governance.test.ts](/C:/Proyectos/Sequel/kiln/packages/cli/tests/application/context-governance.test.ts)
 
 **Primary files**
 

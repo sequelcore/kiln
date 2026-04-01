@@ -12,6 +12,7 @@ import type { CleanupRegistry } from "../wrapper/cleanup-registry.js";
 import type { SessionManager } from "../wrapper/session-manager.js";
 import type { SessionContext } from "../wrapper/index.js";
 import { SessionHooks } from "./session-hooks.js";
+import { governSessionContext } from "./context-governance.js";
 
 export interface RunSessionOptions {
   readonly registry: SessionRegistry;
@@ -37,6 +38,7 @@ export interface RunSessionResult {
 }
 
 export async function runSession(options: RunSessionOptions): Promise<RunSessionResult> {
+  const governedContext = governSessionContext(options.context, options.permissionPolicy);
   const selection = options.registry.selectBest(options.requirements);
   const candidates: ProviderId[] = [
     selection.primary,
@@ -64,7 +66,7 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
 
     try {
       for await (const event of session.run({
-        prompt: buildPreamble(options.context, options.permissionPolicy, undefined),
+        prompt: buildPreamble(governedContext, options.permissionPolicy, undefined),
         cwd: process.cwd(),
         env: options.env,
       })) {

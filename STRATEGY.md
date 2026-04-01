@@ -514,8 +514,8 @@ re-locks users into Claude Code-only UX.
   and sync-writer persistence landed with explicit Kiln-managed metadata for
   translated-vs-enforced backend rules
 - `4.5c` started: approval-memory and enforcement integration planning is in
-  place, with approval-memory persistence and the first context-governance
-  enforcement slice underway
+  place, with approval-memory persistence and the first application-backed
+  context-governance enforcement slices underway
 - later sub-phases still pending: full enforcement integration and core safety
   hardening
 

@@ -175,6 +175,8 @@ Missing enforcement pieces:
 - `4.5c.a` approval-memory persistence foundation in CLI wrapper layer
 - `4.5c.b` first context-governance enforcement slice:
   `excludeFromContext` now suppresses memory snapshot injection in preamble
+- `4.5c.b` second context-governance slice:
+  CLI application flow now governs session context before prompt construction
 
 **Primary files (expected):**
 
