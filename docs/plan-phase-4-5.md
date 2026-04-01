@@ -121,7 +121,7 @@ Missing enforcement pieces:
 
 ### 4.5b — Backend Translation & Sync Refinement
 
-**Status:** IN PROGRESS
+**Status:** COMPLETE
 
 **Scope:**
 
@@ -139,12 +139,14 @@ Missing enforcement pieces:
   - [codex-session.ts](/C:/Proyectos/Sequel/kiln/packages/cli/src/wrapper/codex-session.ts)
   - [opencode-session.ts](/C:/Proyectos/Sequel/kiln/packages/cli/src/wrapper/opencode-session.ts)
 
-**Still pending in 4.5b:**
+**Completed in this slice:**
 
 - sync-writer refinement in
   [security-sync.ts](/C:/Proyectos/Sequel/kiln/packages/cli/src/sync/security-sync.ts)
-- backend-safe persistence of richer native mappings
-- sync tests for backend file outputs and merge behavior
+- backend-safe persistence of richer native mappings under Kiln-managed
+  metadata namespaces, separate from coarse backend-native config
+- sync tests for backend file outputs and merge behavior in
+  [security-sync.test.ts](/C:/Proyectos/Sequel/kiln/packages/cli/tests/sync/security-sync.test.ts)
 
 **Primary files:**
 

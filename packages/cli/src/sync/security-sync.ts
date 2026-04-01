@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import os from "node:os";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 import { translatePermission } from "../wrapper/session-registry.js";
+import type { BackendConfig } from "../wrapper/session-registry.js";
 import type { KilnPermissionPolicy } from "../wrapper/session.js";
 import type { KilnYaml } from "../kiln-yaml-types.js";
 
@@ -44,6 +45,33 @@ function ensureDir(filePath: string): void {
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return {};
+}
+
+interface PermissionSyncMetadata {
+  backend: string;
+  representableRules: readonly unknown[];
+  unsupportedRules: readonly unknown[];
+  constraintInstructions: readonly string[];
+  warnings: readonly string[];
+  nativeRules: unknown;
+}
+
+function toPermissionSyncMetadata(translated: BackendConfig): PermissionSyncMetadata {
+  return {
+    backend: translated.backend,
+    representableRules: translated.representableRules.map((rule) => ({ ...rule })),
+    unsupportedRules: translated.unsupportedRules.map((rule) => ({ ...rule })),
+    constraintInstructions: [...translated.constraintInstructions],
+    warnings: [...translated.warnings],
+    nativeRules: translated.nativeRules,
+  };
 }
 
 export async function syncPermissions(
@@ -106,8 +134,12 @@ async function syncClaudePermissions(
   }
 
   const permissions = { allow, deny };
+  const kiln = {
+    ...asRecord(existing.kiln),
+    permissionSync: toPermissionSyncMetadata(translated),
+  };
 
-  const merged: Record<string, unknown> = { ...existing, permissions };
+  const merged: Record<string, unknown> = { ...existing, permissions, kiln };
   ensureDir(dirname(target));
   writeFileSync(target, JSON.stringify(merged, null, 2) + "\n", "utf-8");
   return true;
@@ -135,6 +167,10 @@ async function syncCodexPermissions(policy: KilnPermissionPolicy): Promise<boole
     ...doc,
     approval_policy: approvalPolicy,
     sandbox_mode: sandboxMode,
+    kiln: {
+      ...asRecord(doc.kiln),
+      permission_sync: toPermissionSyncMetadata(translated),
+    },
   };
 
   ensureDir(dirname(target));
@@ -159,8 +195,12 @@ async function syncOpenCodePermissions(policy: KilnPermissionPolicy): Promise<bo
   const cfg = translated.config as { permissionDefault: string };
 
   const permission = { default: cfg.permissionDefault };
+  const kiln = {
+    ...asRecord(existing.kiln),
+    permissionSync: toPermissionSyncMetadata(translated),
+  };
 
-  const merged: Record<string, unknown> = { ...existing, permission };
+  const merged: Record<string, unknown> = { ...existing, permission, kiln };
   ensureDir(dirname(target));
   writeFileSync(target, JSON.stringify(merged, null, 2) + "\n", "utf-8");
   return true;

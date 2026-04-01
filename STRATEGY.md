@@ -503,15 +503,16 @@ re-locks users into Claude Code-only UX.
 
 ## Phase 4.5 — Permission & Safety
 
-**Status:** STARTED (`4.5a` complete, `4.5b` in progress)
+**Status:** STARTED (`4.5a` complete, `4.5b` complete)
 **Priority:** HIGH — #1 universal pain point: "no middle ground between approve-all and yolo"
 **Source:** User research across all 3 tools + Claude Code permission model scout
 
 ### Current state
 
 - `4.5a` complete: canonical permission decision engine landed in CLI wrapper
-- `4.5b` in progress: richer backend translation contract and partial adapter
-  consumption landed; sync-writer refinement still pending
+- `4.5b` complete: richer backend translation contract, adapter consumption,
+  and sync-writer persistence landed with explicit Kiln-managed metadata for
+  translated-vs-enforced backend rules
 - later sub-phases still pending: enforcement integration and core safety
   hardening
 
