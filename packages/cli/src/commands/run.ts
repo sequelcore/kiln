@@ -26,7 +26,8 @@ export interface RunFlags {
 
 function resolveMode(flags: RunFlags): SessionMode {
   if (flags.apiKey && flags.provider) return "byok";
-  return "api-key";
+  if (flags.apiKey) return "api-key";
+  return "cli-wrapper";
 }
 
 const DEFAULT_POLICY: KilnPermissionPolicy = { approval: "ask", sandbox: "none" };
@@ -129,15 +130,6 @@ export function printReport(report: SessionReport, appName: string): void {
 export async function runCommand(appConfig: KilnAppConfig, task: string, flags: RunFlags): Promise<void> {
   if (!task.trim()) {
     console.error(`Error: No task provided. Usage: kiln run "your task here"`);
-    process.exit(1);
-  }
-
-  if (!flags.apiKey) {
-    console.error(
-      "Error: An API key is required. Anthropic's ToS prohibits OAuth/subscription credentials in third-party tools.\n" +
-      `Usage: kiln run --api-key sk-ant-... "your task here"\n` +
-      `  or:  kiln run --provider openai --api-key sk-... "your task here"`,
-    );
     process.exit(1);
   }
 
