@@ -22,7 +22,7 @@ Harden Kiln safety controls where bypass risk is highest:
 
 ## Current Slice Status
 
-**Status:** STARTED (`4.5d.a`, `4.5d.b`, `4.5d.c`, and `4.5d.d` landed, currently uncommitted)
+**Status:** STARTED (`4.5d.a`, `4.5d.b`, `4.5d.c`, `4.5d.d`, and `4.5d.e` landed, currently uncommitted)
 
 First slice landed in core prompt scanning:
 
@@ -73,6 +73,20 @@ Verification status for this slice:
 
 - targeted runtime compile passed
 - focused `mode-b-orchestrator-tools` cache-hit sanitization test passed
+
+Fifth slice landed in runtime gateway sanitizer wiring:
+
+- runtime now wires prompt-injection scanning into `ToolResultSanitizer`
+  construction through `tool-result-sanitizer-factory`
+- sanitizer wiring honors runtime `securityConfig.promptInjection`
+- regression coverage exists for enabled, disabled, and custom
+  `allowedPatterns` behavior through the runtime tool-result reinjection path
+
+Verification status for this slice:
+
+- targeted runtime compile passed
+- focused gateway sanitizer regression coverage exists for
+  enabled/disabled/custom-allowlist cases
 
 ## Next Slices
 

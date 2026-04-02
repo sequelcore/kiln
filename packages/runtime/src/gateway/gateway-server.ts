@@ -22,8 +22,8 @@ import {
   ModelCapabilityRegistry,
   DeterministicDangerousCommandDetector,
 } from "@kilnai/core";
-import type { ProviderAdapter, ProviderConfig, App, ToolDefinition, MemoryLayer, SttAdapter, Capability, IntegrationAdapter } from "@kilnai/core";
-import { AnnotationAuthorizer, ToolResultSanitizer } from "@kilnai/core";
+import type { ProviderAdapter, ProviderConfig, App, ToolDefinition, MemoryLayer, SttAdapter, Capability, IntegrationAdapter, SecurityConfig } from "@kilnai/core";
+import { AnnotationAuthorizer } from "@kilnai/core";
 import type { AppGraphResponse } from "./dev-routes-types.js";
 import { EventBus, McpClient, CostTracker } from "@kilnai/core";
 import { ChannelRegistry } from "../channels/channel-registry.js";
@@ -56,6 +56,7 @@ import { SqliteEmailThreadStore } from "./sqlite-email-thread-store.js";
 import { SqliteEnrichmentStore } from "../enrichment/sqlite-enrichment-store.js";
 import { CompositeEventStore } from "../observability/composite-event-store.js";
 import { PrometheusCollector } from "../observability/prometheus-collector.js";
+import { createRuntimeToolResultSanitizer } from "./tool-result-sanitizer-factory.js";
 
 export type { LoadedApp, GatewayServerConfig } from "./gateway-routes.js";
 export { createGatewayApp } from "./gateway-routes.js";
@@ -74,6 +75,8 @@ export interface StartGatewayOptions {
   readonly port?: number;
   readonly devMode?: boolean;
   readonly studioDistPath?: string;
+  /** Optional gateway security config (shared with HTTP middleware and runtime sanitizer wiring). */
+  readonly securityConfig?: SecurityConfig;
   /** Integration adapters to register at gateway startup. */
   readonly integrations?: readonly IntegrationAdapter[];
   /** Env var name containing the master key for AES-256-GCM secret encryption. */
@@ -477,7 +480,11 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
     // Wire tool execution enhancements
     const toolAuthorizer = capabilityMap.size > 0 ? new AnnotationAuthorizer() : undefined;
     const safetyPipeline = safetyPipelines.get(loaded.name);
-    const toolResultSanitizer = safetyPipeline ? new ToolResultSanitizer({ pipeline: safetyPipeline }) : undefined;
+    const toolResultSanitizer = createRuntimeToolResultSanitizer({
+      safetyPipeline,
+      eventBus: gatewayEventBus,
+      promptInjectionConfig: options?.securityConfig?.promptInjection,
+    });
     const dangerousCommandDetector = new DeterministicDangerousCommandDetector();
 
     const orchestrator = new ModeBOrchestrator({
@@ -806,6 +813,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
     startTime,
     triggerRegistry,
     safetyPipelines,
+    securityConfig: options?.securityConfig,
     upgradeWebSocket,
     validateToken: tokenStore ? (token) => tokenStore.validate(token) : undefined,
     jwtVerifier,

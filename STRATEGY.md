@@ -375,7 +375,7 @@ See [ADR-003: Meta-Orchestrator Model](docs/adr/ADR-003-meta-orchestrator-model.
 
 ## Phase 4.5 — Permission & Safety
 
-**Status:** STARTED (`4.5a` complete, `4.5b` complete, `4.5c` in progress, `4.5d` scout complete + first slice landed uncommitted)
+**Status:** STARTED (`4.5a` complete, `4.5b` complete, `4.5c` in progress, `4.5d` in progress with multiple landed slices)
 **Priority:** HIGH — #1 universal pain point: "no middle ground between approve-all and yolo"
 **Source:** User research across all 3 tools + Claude Code permission/safety scouts
 
@@ -405,7 +405,10 @@ See [ADR-003: Meta-Orchestrator Model](docs/adr/ADR-003-meta-orchestrator-model.
   for `deny`/`ask`, detector-error handling, and empty-command blocking;
   cached tool results now also pass through `ToolResultSanitizer` before
   reinjection in `ModeBOrchestrator`, and sanitizer failure on cache hit no
-  longer re-executes tools
+  longer re-executes tools; runtime gateway sanitizer wiring now threads
+  `securityConfig.promptInjection` into `ToolResultSanitizer` construction so
+  indirect reinjection scanning honors runtime prompt-injection configuration
+  and allowlist behavior
 - later sub-phases still pending: full enforcement integration and remaining
   safety hardening slices
 
@@ -437,6 +440,12 @@ See [ADR-003: Meta-Orchestrator Model](docs/adr/ADR-003-meta-orchestrator-model.
 - feat(runtime): cache-hit tool-result sanitization before reinjection in
   `ModeBOrchestrator`; sanitizer failure keeps cache-hit flow and does not
   re-execute tools
+- feat(runtime): runtime now wires prompt-injection scanning into
+  `ToolResultSanitizer` construction through a gateway factory
+- feat(runtime): runtime sanitizer now honors
+  `securityConfig.promptInjection` during reinjection
+- test(runtime): regression coverage exists for enabled, disabled, and custom
+  `allowedPatterns` behavior through the runtime tool-result reinjection path
 - feat(core): reuse tool-result scanning patterns as safety sink controls
   across prompt and tool-output surfaces
 - feat(core): CROSS_PLATFORM_CODE_EXEC dangerous pattern expansion

@@ -212,7 +212,7 @@ Missing enforcement pieces:
 
 ### 4.5d — Core Safety Hardening
 
-**Status:** STARTED (`4.5d` scout complete, prompt-scanning slice landed uncommitted, dangerous-command core slice landed uncommitted, dangerous-command runtime slice landed uncommitted, cache-hit tool-result sanitization slice landed uncommitted)
+**Status:** STARTED (`4.5d` scout complete, prompt-scanning slice landed, dangerous-command core slice landed, dangerous-command runtime slice landed, cache-hit tool-result sanitization slice landed, runtime prompt-scanner wiring slice landed)
 
 **Scope:**
 
@@ -265,6 +265,14 @@ Missing enforcement pieces:
 - sanitizer failure during cache-hit handling no longer falls through to tool
   re-execution; cache-hit flow remains safe and controlled
 
+**Fifth landed slice (currently uncommitted):**
+
+- runtime now wires prompt-injection scanning into
+  `ToolResultSanitizer` construction through `tool-result-sanitizer-factory`
+- sanitizer wiring honors runtime `securityConfig.promptInjection`
+- regression coverage exists for enabled, disabled, and custom
+  `allowedPatterns` behavior through the runtime tool-result reinjection path
+
 **Verification note:**
 
 - targeted core compile passed
@@ -273,6 +281,9 @@ Missing enforcement pieces:
 - targeted runtime compile passed
 - focused runtime tests are implemented for the enforcement path
 - focused `mode-b-orchestrator-tools` cache-hit sanitization test passed
+- targeted runtime compile passed for gateway sanitizer wiring slice
+- focused gateway sanitizer test coverage exists for
+  enabled/disabled/custom-allowlist reinjection behavior
 
 **Primary files:**
 
