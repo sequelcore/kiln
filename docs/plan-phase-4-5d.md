@@ -22,7 +22,7 @@ Harden Kiln safety controls where bypass risk is highest:
 
 ## Current Slice Status
 
-**Status:** STARTED (`4.5d.a` landed, currently uncommitted)
+**Status:** STARTED (`4.5d.a` and `4.5d.b` landed, currently uncommitted)
 
 First slice landed in core prompt scanning:
 
@@ -36,11 +36,25 @@ Primary files touched by this slice:
 - `packages/core/src/security/prompt-scanner.ts`
 - `packages/core/tests/security/prompt-scanner-adversarial.test.ts`
 
+Second slice landed in dangerous-command detection:
+
+- new detector contract in `engine/domain`
+- deterministic implementation in `security`
+- shell-aware `allow | ask | deny` decisions
+- coverage for Unix destructive, Windows destructive, download-and-exec, and
+  ambiguous ask boundaries
+
+Verification status for this slice:
+
+- targeted core compile passed
+- focused test execution remains blocked in the current environment
+
 ## Next Slices
 
-1. Expand dangerous command/code execution pattern coverage in security scanning.
-2. Reuse tool-result scanning patterns as explicit sink controls where tool
+1. Reuse tool-result scanning patterns as explicit sink controls where tool
    outputs re-enter prompts or external channels.
+2. Expand dangerous command/code execution coverage beyond the first detector
+   slice where additional shells/pattern families warrant it.
 3. Wire denial propagation into safety metrics/events with deterministic
    fail-closed semantics for governed surfaces.
 4. Add regression tests for new bypass classes before enabling broader defaults.

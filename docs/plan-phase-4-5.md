@@ -212,7 +212,7 @@ Missing enforcement pieces:
 
 ### 4.5d — Core Safety Hardening
 
-**Status:** STARTED (`4.5d` scout complete, first prompt-scanning slice landed uncommitted)
+**Status:** STARTED (`4.5d` scout complete, prompt-scanning slice landed uncommitted, dangerous-command slice landed uncommitted)
 
 **Scope:**
 
@@ -240,6 +240,20 @@ Missing enforcement pieces:
   input for audit trails
 - adversarial tests expanded for homoglyph/invisible-char bypass attempts and
   fenced-code downgrade behavior
+
+**Second landed slice (currently uncommitted):**
+
+- new dangerous-command detector contract added in engine/domain
+- deterministic core implementation added in security
+- shell-aware `allow | ask | deny` style decisions now cover:
+  Unix destructive commands, Windows destructive commands,
+  download-and-exec patterns, and explicit ambiguous ask boundaries
+
+**Verification note:**
+
+- targeted core compile passed
+- focused test execution for this slice remains blocked in the current
+  environment
 
 **Primary files:**
 

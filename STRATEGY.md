@@ -521,11 +521,13 @@ re-locks users into Claude Code-only UX.
   Codex, Claude, and OpenCode wrapper paths to support honest scoped
   enforcement, and scoped MCP matching now uses canonical selectors instead of
   raw backend-emitted tool names
-- `4.5d` started: safety-hardening scout complete and first core prompt-scanner
-  slice landed (currently uncommitted): detection-time normalization for
+- `4.5d` started: safety-hardening scout complete and two core slices landed
+  (currently uncommitted): prompt-scanner detection-time normalization for
   Unicode/homoglyph and invisible-character variants while preserving the
-  original input for audit; adversarial coverage added for homoglyph/invisible
-  bypasses and fenced-code downgrade behavior
+  original input for audit, plus a new dangerous-command detector contract in
+  engine/domain with deterministic core security implementation and
+  shell-aware `allow | ask | deny` decisions covering Unix destructive,
+  Windows destructive, download-and-exec, and ambiguous ask boundaries
 - later sub-phases still pending: full enforcement integration and remaining
   safety hardening slices
 
@@ -549,12 +551,16 @@ re-locks users into Claude Code-only UX.
 ### Safety Pipeline Improvements
 - fix(core): Unicode/homoglyph-safe detection pipeline in prompt scanning
   (normalization at detection-time, original input retained for audit)
+- feat(core): dangerous-command detector in core security with shell-aware
+  `allow | ask | deny` decisions and explicit ambiguous-boundary asks
 - feat(core): reuse tool-result scanning patterns as safety sink controls
   across prompt and tool-output surfaces
 - feat(core): CROSS_PLATFORM_CODE_EXEC dangerous pattern expansion
   (align with Claude Code's broader dangerous command/code coverage)
 - feat(core): denial propagation and metrics wiring into safety events
   (fail-closed approval semantics + observable denial counters)
+- verification: targeted core compile passed; focused test execution for this
+  slice remains blocked in the current environment
 
 ---
 

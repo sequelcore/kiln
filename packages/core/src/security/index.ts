@@ -33,3 +33,4 @@ export type {
 } from "./self-audit.js";
 export { AnnotationAuthorizer } from "./annotation-authorizer.js";
 export type { AuthorizationPolicy } from "./annotation-authorizer.js";
+export { DeterministicDangerousCommandDetector } from "./dangerous-command-detector.js";

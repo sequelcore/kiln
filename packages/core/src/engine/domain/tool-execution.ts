@@ -38,3 +38,38 @@ export interface ToolExecutionResult {
   readonly durationMs: number;
   readonly fallbackUsed: boolean;
 }
+
+/** Shell family for command-execution safety checks */
+export type CommandShell = "bash" | "sh" | "zsh" | "powershell" | "cmd" | "any";
+
+/** Dangerous command decision action */
+export type DangerousCommandAction = "allow" | "ask" | "deny";
+
+/** Stable reason code for dangerous-command decisions */
+export type DangerousCommandReasonCode =
+  | "empty_command"
+  | "safe_read_only"
+  | "destructive_unix"
+  | "destructive_windows"
+  | "download_execute"
+  | "ambiguous_expansion"
+  | "ambiguous_chaining"
+  | "unknown_command";
+
+/** Request shape for deterministic dangerous-command evaluation */
+export interface DangerousCommandRequest {
+  readonly command: string;
+  readonly shell?: CommandShell;
+}
+
+/** Result of dangerous-command evaluation */
+export interface DangerousCommandDecision {
+  readonly action: DangerousCommandAction;
+  readonly reasonCode: DangerousCommandReasonCode;
+  readonly reason: string;
+}
+
+/** Deterministic detector for command/code execution risk */
+export interface DangerousCommandDetector {
+  evaluate(request: DangerousCommandRequest): DangerousCommandDecision;
+}
