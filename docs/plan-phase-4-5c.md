@@ -152,6 +152,16 @@ Enforce destination-aware policy for outbound sends and runtime egress paths.
   - template sends + `redact`: blocked safely, not mutated
 - tests landed in
   [outbound-routes.test.ts](/C:/Proyectos/Sequel/kiln/packages/runtime/tests/gateway/outbound-routes.test.ts)
+- second narrow slice landed in
+  [message-pipeline.ts](/C:/Proyectos/Sequel/kiln/packages/runtime/src/gateway/message-pipeline.ts):
+  covered runtime egress surfaces now consult an optional permission hook before
+  returning or emitting text-bearing content
+- covered surfaces in this slice:
+  - assistant response parts
+  - escalation summaries
+  - tool result summaries
+- tests landed in
+  [message-pipeline.test.ts](/C:/Proyectos/Sequel/kiln/packages/runtime/tests/gateway/message-pipeline.test.ts)
 
 **Primary files**
 

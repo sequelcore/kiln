@@ -515,7 +515,7 @@ re-locks users into Claude Code-only UX.
   translated-vs-enforced backend rules
 - `4.5c` started: approval-memory and enforcement integration planning is in
   place, with approval-memory persistence, application-backed context
-  governance, and the first outbound data-firewall slice underway
+  governance, and the first runtime data-firewall slices underway
 - later sub-phases still pending: full enforcement integration and core safety
   hardening
 

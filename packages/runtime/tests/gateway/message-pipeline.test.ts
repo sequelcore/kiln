@@ -289,4 +289,112 @@ describe("processInboundMessage", () => {
     const budgetCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(budgetCall[0]).toBe("https://api.example.com/users/tenant-1/ai-budget");
   });
+
+  it("allow egress decision keeps assistant response unchanged", async () => {
+    const ctx = makeBaseContext({
+      orchestrator: {
+        processMessage: vi.fn().mockResolvedValue({
+          parts: textParts("original assistant response"),
+          inputTokens: 10,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          queued: false,
+        } satisfies OrchestrateResult),
+        model: "claude-sonnet-4-20250514",
+      } as unknown as ModeBOrchestrator,
+      evaluateEgressPermission: vi.fn().mockResolvedValue("allow"),
+    });
+
+    const result = await processInboundMessage(ctx);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.result.parts).toEqual(textParts("original assistant response"));
+    }
+  });
+
+  it("deny egress decision replaces returned assistant text with safe fallback", async () => {
+    const emitter = makeMockEventEmitter();
+    const ctx = makeBaseContext({
+      eventEmitter: emitter,
+      orchestrator: {
+        processMessage: vi.fn().mockResolvedValue({
+          parts: textParts("sensitive assistant response"),
+          inputTokens: 10,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          queued: false,
+          escalation: { reason: "custom", confidence: 0.9, detail: "policy escalation" },
+          contextSummary: "sensitive escalation summary",
+          toolExecutions: [{
+            toolName: "lookup_customer",
+            durationMs: 12,
+            success: true,
+            resultSummary: "sensitive tool result",
+          }],
+        } satisfies OrchestrateResult),
+        model: "claude-sonnet-4-20250514",
+      } as unknown as ModeBOrchestrator,
+      evaluateEgressPermission: vi.fn().mockResolvedValue("deny"),
+    });
+
+    const result = await processInboundMessage(ctx);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.result.parts).toEqual(textParts("I cannot share that response."));
+      expect(result.result.contextSummary).toBeUndefined();
+      expect(result.result.toolExecutions?.[0]?.resultSummary).toBe("");
+    }
+
+    const emitted = (emitter.emit as ReturnType<typeof vi.fn>).mock.calls.map((call) => call[0]);
+    const escalationEvent = emitted.find((event) => event.eventType === "ESCALATION_DETECTED");
+    expect(escalationEvent?.summary).toBeUndefined();
+    const toolEvent = emitted.find((event) => event.eventType === "TOOL_EXECUTED");
+    expect(toolEvent?.resultSummary).toBeUndefined();
+  });
+
+  it("redact egress decision redacts returned assistant text and text-bearing event summaries", async () => {
+    const emitter = makeMockEventEmitter();
+    const ctx = makeBaseContext({
+      eventEmitter: emitter,
+      orchestrator: {
+        processMessage: vi.fn().mockResolvedValue({
+          parts: textParts("sensitive assistant response"),
+          inputTokens: 10,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          queued: false,
+          escalation: { reason: "custom", confidence: 0.9, detail: "policy escalation" },
+          contextSummary: "sensitive escalation summary",
+          toolExecutions: [{
+            toolName: "lookup_customer",
+            durationMs: 12,
+            success: true,
+            resultSummary: "sensitive tool result",
+          }],
+        } satisfies OrchestrateResult),
+        model: "claude-sonnet-4-20250514",
+      } as unknown as ModeBOrchestrator,
+      evaluateEgressPermission: vi.fn().mockResolvedValue("redact"),
+    });
+
+    const result = await processInboundMessage(ctx);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.result.parts).toEqual(textParts("[REDACTED]"));
+      expect(result.result.contextSummary).toBe("[REDACTED]");
+      expect(result.result.toolExecutions?.[0]?.resultSummary).toBe("[REDACTED]");
+    }
+
+    const emitted = (emitter.emit as ReturnType<typeof vi.fn>).mock.calls.map((call) => call[0]);
+    const escalationEvent = emitted.find((event) => event.eventType === "ESCALATION_DETECTED");
+    expect(escalationEvent?.summary).toBe("[REDACTED]");
+    const toolEvent = emitted.find((event) => event.eventType === "TOOL_EXECUTED");
+    expect(toolEvent?.resultSummary).toBe("[REDACTED]");
+  });
 });

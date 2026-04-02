@@ -12,6 +12,19 @@ import type { EscalationSignal } from "../session/escalation-detector.js";
 import { TraceContext } from "./trace-context.js";
 import { appendGroundingDirective, formatUserContext } from "./context-formatter.js";
 
+type EgressDestination = "webhook";
+type EgressPermissionDecision = "allow" | "deny" | "redact";
+type EgressPayloadType = "assistant-response" | "context-summary" | "tool-result-summary";
+
+interface EgressPermissionRequest {
+  readonly tenantId: string;
+  readonly channel: string;
+  readonly destination: EgressDestination;
+  readonly payloadType: EgressPayloadType;
+  readonly text: string;
+  readonly sessionId: string;
+}
+
 export interface InboundMessageContext {
   readonly orchestrator: ModeBOrchestrator;
   readonly sessionRegistry: SessionRegistry;
@@ -53,6 +66,9 @@ export interface InboundMessageContext {
     readonly modelRegistry: ModelCapabilityRegistry;
     readonly eventBus?: EventBus;
   };
+  readonly evaluateEgressPermission?: (
+    request: EgressPermissionRequest,
+  ) => EgressPermissionDecision | Promise<EgressPermissionDecision>;
 }
 
 export interface InboundMessageResult {
@@ -86,6 +102,48 @@ export interface BudgetDeniedResult {
 export type ProcessResult =
   | { ok: true; result: InboundMessageResult }
   | { ok: false; budgetDenied: BudgetDeniedResult };
+
+const EGRESS_DENIED_FALLBACK_TEXT = "I cannot share that response.";
+const EGRESS_REDACTED_TEXT = "[REDACTED]";
+
+function mapChannelToEgressDestination(_channel: string): EgressDestination {
+  // Gateway egress in this pipeline exits runtime over external integrations.
+  // For this slice, model all channels as webhook-class destinations.
+  return "webhook";
+}
+
+async function resolveEgressDecision(
+  ctx: InboundMessageContext,
+  sessionId: string,
+  payloadType: EgressPayloadType,
+  text: string | undefined,
+): Promise<EgressPermissionDecision> {
+  if (!ctx.evaluateEgressPermission) return "allow";
+  if (!text || text.trim() === "") return "allow";
+  try {
+    return await ctx.evaluateEgressPermission({
+      tenantId: ctx.tenantId,
+      channel: ctx.channel,
+      destination: mapChannelToEgressDestination(ctx.channel),
+      payloadType,
+      text,
+      sessionId,
+    });
+  } catch {
+    // Fail-open for this foundation slice.
+    return "allow";
+  }
+}
+
+function redactAssistantParts(parts: readonly ContentPart[]): readonly ContentPart[] {
+  let changed = false;
+  const redacted = parts.map((part) => {
+    if (part.type !== "text") return part;
+    changed = true;
+    return { type: "text", text: EGRESS_REDACTED_TEXT } as const;
+  });
+  return changed ? redacted : parts;
+}
 
 export async function processInboundMessage(ctx: InboundMessageContext): Promise<ProcessResult> {
   const trace = new TraceContext(ctx.traceId);
@@ -322,6 +380,67 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
   }
 
   // Emit events (fire-and-forget)
+  const assistantDecision = await resolveEgressDecision(
+    ctx,
+    session.id,
+    "assistant-response",
+    extractText(resultParts),
+  );
+
+  if (assistantDecision === "deny") {
+    resultParts = textParts(EGRESS_DENIED_FALLBACK_TEXT);
+  } else if (assistantDecision === "redact") {
+    resultParts = redactAssistantParts(resultParts);
+  }
+
+  let egressContextSummary = result.contextSummary;
+  if (assistantDecision === "deny") {
+    egressContextSummary = undefined;
+  } else if (assistantDecision === "redact" && egressContextSummary !== undefined) {
+    egressContextSummary = EGRESS_REDACTED_TEXT;
+  } else {
+    const summaryDecision = await resolveEgressDecision(
+      ctx,
+      session.id,
+      "context-summary",
+      result.contextSummary,
+    );
+    if (summaryDecision === "deny") {
+      egressContextSummary = undefined;
+    } else if (summaryDecision === "redact" && egressContextSummary !== undefined) {
+      egressContextSummary = EGRESS_REDACTED_TEXT;
+    }
+  }
+
+  let egressToolExecutions = result.toolExecutions;
+  if (egressToolExecutions && egressToolExecutions.length > 0) {
+    const mapped: ToolExecutionSummary[] = [];
+    for (const exec of egressToolExecutions) {
+      let summaryDecision: EgressPermissionDecision;
+      if (assistantDecision === "deny") {
+        summaryDecision = "deny";
+      } else if (assistantDecision === "redact") {
+        summaryDecision = "redact";
+      } else {
+        summaryDecision = await resolveEgressDecision(
+          ctx,
+          session.id,
+          "tool-result-summary",
+          exec.resultSummary,
+        );
+      }
+
+      if (summaryDecision === "deny") {
+        mapped.push({ ...exec, resultSummary: "" });
+      } else if (summaryDecision === "redact") {
+        mapped.push({ ...exec, resultSummary: EGRESS_REDACTED_TEXT });
+      } else {
+        mapped.push(exec);
+      }
+    }
+    egressToolExecutions = mapped;
+  }
+
   if (ctx.eventEmitter) {
     ctx.eventEmitter.emit({
       eventType: "MESSAGE_RECEIVED",
@@ -362,7 +481,7 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
         schemaVersion: "1",
         escalationReason: result.escalation.reason,
         escalationDetail: result.escalation.detail,
-        summary: result.contextSummary,
+        summary: egressContextSummary,
         sessionMode: session.sessionMode,
         traceId: trace.traceId,
         timestamp: new Date().toISOString(),
@@ -370,8 +489,8 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
     }
 
     // Emit TOOL_EXECUTED events for product backend visibility
-    if (result.toolExecutions) {
-      for (const exec of result.toolExecutions) {
+    if (egressToolExecutions) {
+      for (const exec of egressToolExecutions) {
         ctx.eventEmitter.emit({
           eventType: "TOOL_EXECUTED",
           tenantId: ctx.tenantId,
@@ -382,7 +501,7 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
           toolName: exec.toolName,
           durationMs: exec.durationMs,
           success: exec.success,
-          resultSummary: exec.resultSummary,
+          resultSummary: exec.resultSummary || undefined,
           traceId: trace.traceId,
           timestamp: new Date().toISOString(),
         });
@@ -477,8 +596,8 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
       sessionId: session.id,
       sessionMode: session.sessionMode,
       escalation: result.escalation,
-      contextSummary: result.contextSummary,
-      toolExecutions: result.toolExecutions,
+      contextSummary: egressContextSummary,
+      toolExecutions: egressToolExecutions,
       traceId: trace.traceId,
       activeAgentId: ctx.activeAgentId,
       routingDecision: result.routingDecision

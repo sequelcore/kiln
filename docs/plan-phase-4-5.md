@@ -180,6 +180,9 @@ Missing enforcement pieces:
 - `4.5c.d.a` first runtime data-firewall slice:
   outbound channel sends now support destination-aware allow/deny/redact
   evaluation before provider calls
+- `4.5c.d.b` second runtime data-firewall slice:
+  message pipeline now governs assistant response and summary egress on covered
+  runtime surfaces
 
 **Primary files (expected):**
 
