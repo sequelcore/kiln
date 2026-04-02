@@ -210,25 +210,7 @@ arbitrage, no Windows native, multi-agent still in development.
 
 ### 3.2 Subprocess Limitations (Research-Confirmed)
 
-**Limitation 1 — Stateless between calls**
-- Status: Partially confirmed. Claude Code has --resume/--session-id. Codex has resume. OpenCode has --session/--continue.
-- Kiln solution: hybrid — --session-id for intra-CLI chains, kiln-context.md for cross-CLI handoffs, cross_agent_memory_* only at CLI boundaries.
-
-**Limitation 2 — Startup latency vs hook/skill loss with --bare**
-- Status: Confirmed. --bare skips hooks, skills, plugins, auto-memory. CLAUDE.md still loads even with --bare.
-- Kiln solution: --bare always for subprocess calls. KilnHookProxy reimplements PreToolUse (security) and Stop (completion). Skills injected as XML block in prompt (max 2000 tokens). OpenCode: opencode serve + --attach eliminates cold boot entirely.
-
-**Limitation 3 — Permission prompts in non-interactive mode**
-- Status: Confirmed with active bugs (#35718, #36192, #37181). stdout parsing is fragile and fails with stream-json output.
-- Kiln solution: bypassPermissions + dedicated sandbox directory with pre-configured settings.json scoped to Kiln working directory. --allowedTools pre-filtered. Memory dirs outside ~/.claude/. Do NOT rely on CLI flags alone — bugs are version-dependent.
-
-**Limitation 4 — Auto mode aborts on classifier block**
-- Status: Confirmed. 3 consecutive / 20 total blocks → abort in -p mode. Task decomposition does NOT reliably avoid this — classifier evaluates subagents at spawn, during execution, AND on return independently.
-- Kiln solution: bypassPermissions makes this a non-issue. If auto mode needed: detect exit code → max 2 retries → escalate to interactive.
-
-**Limitation 5 — Model unaware of subprocess context**
-- Status: Confirmed. Mode flag not passed to model.
-- Kiln solution: `<kiln-preamble>` XML on every prompt via `buildPreamble()`. Sections: `<role>` (name, role, goal, backstory), `<task>`, `<domain>` (project type, tool tags, quality gates), `<constraints>` (approval mode, sandbox), `<memory>` (200-line cap with truncation), `<instructions>`. Sections omitted when empty. XML-escaped content.
+See [ADR-002: Subprocess Integration](docs/adr/ADR-002-subprocess-integration.md) for 5 confirmed limitations and Kiln's architectural solutions.
 
 ### 3.3 Per-User Architecture for OpenKiln (Future)
 
@@ -241,26 +223,20 @@ When Kiln becomes a product for others:
 
 ## 4. What Already Exists in Kiln (Reality Check)
 
-### 4.1 Activated in Daily Workflow
+### 4.1 Capability Status
 
-- 25 MCP tools via kiln-gateway at localhost:3800
-- cost_summary, budget_check in all 15 agents
-- cross_agent_memory_* for handoff protocol
-- routing_test (available, underused)
-- swarm_* (available, not used for coding tasks)
-- knowledge_search (available, not configured)
-
-### 4.2 Exists in Codebase But Not Activated
-
-- SQLite + FTS5 memory search (BM25 ranking, decay, compaction) → not exposed as MCP tool yet
-- Cron scheduler (drift-free setTimeout chains) → ✅ kiln cron CLI: list/add/remove/run (Phase 3c complete)
-- SkillRegistry + SkillTrigger (3-tier discovery, event-based) → no auto-generation from task completion yet
-- 8 channel adapters (WhatsApp, Instagram, Slack, Messenger, Email, API) → not configured for personal use yet
-- Verification gates (test/lint/type-check loop) → not wired to agent workflow yet
-- Eval scorers (23 scorers: 11 rule + 12 LLM-as-judge) → not used in daily tasks yet
-- Per-role:model cost tracking → cost_summary used but per-role breakdown not surfaced
-- Safety rails (PII scanner, 4 policy rails, grounding rail) → running but not visible in workflow
-- Circuit breaker in agent adapters → active but not surfaced as metric
+| Capability | Status | Surface |
+|------------|--------|---------|
+| 25 MCP tools | Active | kiln-gateway localhost:3800 |
+| Cross-agent memory | Active | handoff protocol in all agents |
+| Cost/budget tracking | Active | cost_summary, budget_check |
+| SQLite + FTS5 memory | Built, not MCP-exposed | core |
+| Cron scheduler | Active | kiln cron CLI |
+| Skill registry | Active | kiln skill CLI |
+| 8 channel adapters | Built, not configured for personal use | runtime |
+| Safety rails | Running, not visible in workflow | core |
+| Eval scorers (23) | Built, not used in daily tasks | core |
+| Circuit breaker | Active, not surfaced as metric | agents |
 
 ### 4.3 Configuration Redundancy (The Problem to Solve)
 
@@ -273,101 +249,43 @@ When Kiln becomes a product for others:
 
 ### Phase 1 — Cross-CLI Orchestration (kiln run v2)
 
-**Phase 1 — COMPLETE (v0.23.2, 2026-03-31)**
-See changelog: docs/changelog.md
+**Phase 1 — COMPLETE (v0.23.2)**
+See [CLI Wrapper](docs/guides/cli-wrapper.md) and [Changelog](docs/changelog.md).
 
 ---
 
 ### Phase 2 — Config Sync (kiln config sync)
 
-**Phase 2 — COMPLETE (v0.23.2, 2026-03-31)**
-See changelog: docs/changelog.md
+**Phase 2 — COMPLETE (v0.23.2)**
+See [CLI Wrapper](docs/guides/cli-wrapper.md) and [Changelog](docs/changelog.md).
 
 ---
 
 ## Sprint 0 — Fix Broken Promises
 
-**Sprint 0 — COMPLETE (v0.23.2, 2026-03-31)**
-See changelog: docs/changelog.md
+**Sprint 0 — COMPLETE (v0.23.2)**
+See [Changelog](docs/changelog.md).
 
 ---
 
 ### Phase 3 — Activate Existing Capabilities
 
-**Phase 3 — COMPLETE (v0.23.2, 2026-03-31)**
-See changelog: docs/changelog.md
+**Phase 3 — COMPLETE (v0.23.2)**
+See [Changelog](docs/changelog.md).
 
 ---
 
 ## Phase 3.5 — Session Power & Observability
 
-**Status:** COMPLETE ✅ (3.5a ✅ 3.5b ✅ 3.5c ✅ 3.5d ✅ 3.5e ✅ 3.5f ✅ — main, 2026-04-01)
-**Priority:** HIGH — addresses #1, #2, #3 universal pain points from market research
-(permissions opacity, cost blindness, compaction unpredictability)
-**Source:** Claude Code scout + Codex scout + OpenCode scout + user research
+**Phase 3.5 — COMPLETE (v0.23.2)**
+See [CLI Wrapper](docs/guides/cli-wrapper.md), [Hooks](docs/guides/hooks.md), [Skills](docs/guides/skills.md), [Observability](docs/guides/observability.md), and [Changelog](docs/changelog.md).
 
-### Multi-Turn Session Resume ✅ (Phase 3.5b, feat/phase-3-5)
-- ✅ feat(cli): SessionStore — append-only JSONL at .kiln/sessions.jsonl, fail-open
-- ✅ feat(cli): ClaudeSession resume via reuseEnvironmentId, --resume flag on `kiln run`
-- ✅ feat(cli): OpenCodeSession resume via stored remoteSessionId, --attach flag
-- ✅ feat(cli): CodexSession thread_id capture via --conversation-id (deferred: Codex upstream)
-
-### Cost & Quota Observability ✅ (Phase 3.5c, feat/phase-3-5)
-- ✅ feat(cli): per-turn cost breakdown surfaced in session report
-- ✅ feat(core): models.dev API integration — 24h TTL cache at .kiln/models-cache.json
-- ✅ feat(cli): token budget diminishing returns detection (3+ continuations, delta < 500)
-- Deferred: cost dashboard MCP tool, quota tracking (5h window + weekly resets)
-
-### Compaction — Transparent & Controllable ✅ (Phase 3.5d, feat/phase-3-5)
-- ✅ feat(core): configurable compaction threshold via kiln.yaml compaction.threshold (default 1000)
-- ✅ feat(core): PreCompact/PostCompact events added to EventBus (level: state) + OTel span mapping
-- ✅ feat(core): SqliteMemoryStore auto-triggers compaction after save(), emits pre/postcompact
-- ✅ feat(cli): preamble-builder.ts static kiln-compaction-recovery section (layer 1 of 3)
-- ✅ feat(cli): KilnCompactionConfig type in kiln-yaml-types.ts (threshold, previewBeforeApply)
-- Deferred: compaction preview, ACON-inspired learnable policy (Phase 5+)
-
-### Hook Event System ✅ (Phase 3.5a, feat/phase-3-5)
-- ✅ feat(cli): HookRegistry + HookExecutor — 7 events, Command/Prompt/Agent modes
-- ✅ feat(cli): KilnHooksConfig type in kiln-yaml-types.ts, wired into kiln.yaml
-- ✅ feat(runtime): eager vs deferred MCP tool split — 8 eager, 18 deferred admin tools
-
-### OpenCode Power Unlocks ✅ (Phase 3.5e, feat/phase-3-5)
-- ✅ feat(cli): Permission PATCH always fires — derives edit+bash from permissionPolicy.approval
-- ✅ feat(cli): experimental.batch_tool:true PATCH (up to 25 parallel tool calls)
-- Deferred: GET /diff file change tracking, POST /fork session branching, mid-session model switch
-
-### CLI Bootstrap Fix ✅ (feat/phase-3-5)
-- ✅ fix(cli): import.meta.main guard — kiln binary now self-invokes without consumer calling createCli()
-- ✅ fix(cli): cli-wrapper mode — kiln run works without --api-key, routes to installed CLIs
-- ✅ refactor(cli): remove dead KilnAppConfig identity fields (appName/dirName/version/description/mcpServerName)
-
-### Session Report Backlog (Phase 3.6+)
-- feat(cli): surface provider name + model in session report footer
-  (`Provider: opencode (claude-haiku-4-5)` line after Mode)
-- feat(cli): KilnAppConfig white-label — evaluate removing identity fields or keeping for open-source
-  (see deferred decision in STRATEGY.md research section)
-
-### kiln skill capture ✅ (Phase 3.5f, main, 2026-04-01)
-- ✅ feat(core): SkillCaptureService — two-phase pipeline: extractSummary (Phase 1, JSON) → generateSkill (Phase 2, SKILL.md)
-- ✅ feat(core): PersistedTranscriptEvent type; SkillGenerator uses two-phase when transcript provided, single-pass fallback
-- ✅ feat(cli): TranscriptStore — persists .kiln/sessions/{id}/meta.json + transcript.jsonl per session (fail-open)
-- ✅ feat(cli): run.ts real turnDepth + toolCount tracking (were hardcoded 0); transcript written on session success
-- ✅ feat(cli): `kiln skill capture [sessionId] --last --scope project|user --yes --dry-run` — interactive review before write
-- ✅ feat(cli): cli-wrapper sessions without API key print capture hint: `kiln skill capture --last` after setting key
-- Research basis: Codex two-phase memory pipeline, OpenCode lazy skill discovery, Reflexion/ExpeL/Voyager academic patterns
-- Deferred: skill improvement loop (eval-scored promotion), citation tracking, automatic consolidation (Phase 3.6+)
-
-### Token Budget Intelligence
-- feat(core): token budget diminishing returns detection —
-  3+ continuations + delta < 500 tokens = stop signal
-- feat(cli): denial tracking — 3 consecutive denials or 20 total → escalate
-
-### OpenCode Power Unlocks
-- feat(cli): OpenCodeSession GET /session/:id/diff for file change tracking
-- feat(cli): OpenCodeSession experimental.batch_tool enablement
-  (up to 25 parallel tool calls)
-- feat(cli): OpenCodeSession POST /session/:id/fork for session branching
-- feat(cli): runtime PATCH /config for model switching mid-session
+Deferred items:
+- Cost dashboard MCP tool, quota tracking (5h window + weekly resets)
+- Compaction preview, ACON-inspired learnable policy (Phase 5+)
+- GET /diff file change tracking, POST /fork session branching, mid-session model switch
+- Skill improvement loop (eval-scored promotion), citation tracking, automatic consolidation
+- Surface provider name + model in session report footer
 
 ---
 
@@ -432,55 +350,9 @@ from `KilnAppConfig` and hardcoded inside `createCli`?
 
 ---
 
-## Research: CLI Integration Philosophy (codex-plugin-cc scout, 2026-04-01)
+## Research: CLI Integration Philosophy
 
-**Source:** codex-plugin-cc architecture scout + comparative analysis
-
-### Three integration approaches
-
-**1. Plugin/slash command (codex-plugin-cc model)**
-Claude Code is the host. Other tools are subprocesses invoked from within Claude's session.
-Communication is one-directional — Claude calls out, gets a result back. State lives in flat files.
-Zero coordination between tools; they don't know each other exist.
-
-**2. Direct API calls**
-Each tool talks to provider APIs independently. No shared state, session handoff, or cost aggregation.
-Works for single-tool workflows. Breaks down when you need cross-CLI handoff or unified budgets.
-
-**3. Meta-orchestrator (Kiln's model)**
-Kiln owns the session lifecycle above all CLIs. Routes tasks by capability and quota, tracks cost
-across providers, handles mid-task handoff. CLIs become interchangeable workers, not fixed hosts.
-
-### Where Kiln wins
-- Cross-CLI session resume (threadId → reuseEnvironmentId handoff)
-- Unified cost budget enforced across Claude + Codex + OpenCode
-- Circuit breaking — quota exhausted on one backend, falls to another automatically
-- EventBus observability across all backends from one stream
-- Provider-agnostic: adversarial review, job tracking, rescue all work regardless of which CLI runs
-
-### Where plugin wins
-- Zero setup friction for Claude Code users — install plugin, done
-- Stop hook is deeply integrated into the host process lifecycle
-- Slash commands feel native inside Claude Code
-
-### The genuine gap
-The Stop hook is the one thing Kiln cannot replicate natively. It requires being *inside* the
-Claude Code process. Everything else — job tracking, adversarial review, rescue — Kiln can do
-natively and better because it's provider-agnostic.
-
-### Verdict
-**Plugin: LATER.** Build native CLI primitives first. Plugin becomes a thin UX wrapper for Claude
-Code users once native Kiln is stable. Kiln's differentiation is cross-CLI unification — a plugin
-re-locks users into Claude Code-only UX.
-
-### Steal list (native Kiln implementation)
-
-| Pattern | What plugin does | Kiln approach | Owner | Effort | Phase |
-|---------|-----------------|---------------|-------|--------|-------|
-| Adversarial review | prompts/adversarial-review.md → structured skepticism, JSON findings | `kiln review --adversarial`, prompt in core/src/review/ | cli + core | medium | 4+ |
-| In-flight job tracking | state.json + per-job files, kiln status/cancel | Extend session-store.ts: add status/phase/pid fields; add `kiln status`, `kiln cancel` commands | cli | large | 4+ |
-| EventBus phase emission | None (plugin doesn't emit events) | Emit CodexPhase events from codex-session.ts as JSONL arrives — small delta from current | cli | small | next Codex commit |
-| Stop gate (review gate) | Stop hook blocks Claude from finishing, runs Codex review | opt-in via kiln.yaml hooks:, SessionEnd event | cli + runtime | large | 4+ (opt-in only) |
+See [ADR-003: Meta-Orchestrator Model](docs/adr/ADR-003-meta-orchestrator-model.md) for the analysis of plugin vs direct API vs meta-orchestrator approaches.
 
 ---
 
@@ -606,14 +478,8 @@ Kiln implementation phase.
 
 ### Phase 6 — Cloud Deployment
 
-**Status: COMPLETE ✅ (pre-existing, kiln-gateway repo)**
-
-Gateway is live at `gw.kilvo.app` on Coolify (sequel-core-01, SFO3, DigitalOcean).
-Serving: Kilvo (WhatsApp + Instagram + Messenger + Email + Web Widget), Artu, Admit.
-Dockerfile (Bun Alpine) + Doppler secrets + RS256 JWT auth all in production.
-
-See: `C:\Proyectos\Sequel\kiln-gateway\CLAUDE.md` and
-`C:\Proyectos\Sequel\infra\docs\projects\kiln\kiln-gateway.md`
+**Phase 6 — COMPLETE (pre-existing)**
+Gateway live at gw.kilvo.app on Coolify. See [Gateway YAML](docs/configuration/gateway-yaml.md).
 
 ---
 
@@ -624,14 +490,6 @@ See: `C:\Proyectos\Sequel\kiln-gateway\CLAUDE.md` and
 package boundary, and `packages/cli/src/commands/run.ts` has begun extraction
 into reusable CLI application services (`session-report`, `session-resume`,
 `session-hooks`, `run-session`). No real terminal UI has been built yet.
-
-**Documentation decision:**
-When Phase 7 starts real implementation beyond foundation work, completed-phase
-technical detail should begin moving into structured docs under `/docs`
-(`docs/phases`, `docs/packages`, `docs/adr`, `docs/plans`) instead of
-continuing to accumulate primarily inside `STRATEGY.md`. `STRATEGY.md` should
-remain the strategic roadmap and status document; `/docs` should become the
-technical source of truth for completed phase implementation details.
 
 **Goal:** Replace claude TUI as the primary entry point.
 Kiln TUI is the conversational interface that orchestrates

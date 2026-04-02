@@ -169,6 +169,36 @@ Costs are computed using `MODEL_PRICING`, which derives rates from the same `MOD
 
 All conversation events are delivered via `ConversationEventEmitter` to configured product webhooks with exponential backoff retry (3 attempts, 1s/2s/4s, 5xx only).
 
+## CLI Cost Tracking
+
+When Kiln wraps CLI backends via kiln run, per-turn cost is tracked and surfaced in the session report.
+
+### Cost Tracking Modes
+
+Each backend reports cost differently:
+
+| Backend | Mode | Mechanism |
+|---------|------|-----------|
+| Claude Code | native | SDK reports cost_update events with USD amounts |
+| Codex CLI | computed | Token counts from JSONL events, priced via models.dev cache |
+| OpenCode | none | No cost reporting available from SDK |
+
+### models.dev Price Cache
+
+For backends using computed cost tracking, Kiln fetches model pricing from the models.dev API and caches it locally:
+
+- Cache location: .kiln/models-cache.json
+- TTL: 24 hours
+- Fallback: if fetch fails, uses last cached data (fail-open)
+
+### Diminishing Returns Detection
+
+Kiln monitors token output across continuations to detect when a session is producing diminishing value:
+
+- Triggers after 3+ continuations where each delta is less than 500 tokens
+- Signals the orchestrator to stop rather than burn budget on low-yield turns
+- Surfaced in the session report as a stop reason
+
 ## Related
 
 - [Model Routing](model-routing.md) -- per-request model selection and routing rules

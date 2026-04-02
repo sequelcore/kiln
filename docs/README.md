@@ -30,11 +30,22 @@
 | [Eval](guides/eval.md) | Scorers, datasets, experiments, comparator |
 | [Eval Benchmarking](guides/eval-benchmarking.md) | Scorer-to-research mapping, predictive metrics, industry standards |
 | [Delegation](guides/delegation.md) | Cross-app delegation, A2A protocol |
+| [CLI Wrapper](guides/cli-wrapper.md) | IKilnSession, 3 backends, permission policy, session resume, config sync |
+| [Hooks](guides/hooks.md) | HookRegistry, lifecycle events, modes, kiln.yaml config |
+| [Skills](guides/skills.md) | SKILL.md format, registry, capture pipeline, CLI commands |
 
 ## SDK
 
 - [React Hooks](sdk/react-hooks.md) -- `@kilnai/react` hooks reference
 - [Studio](sdk/studio.md) -- Dev UI: graph, playground, timeline, memory, eval
+
+## Architecture Decision Records
+
+| ADR | Status | Topic |
+|-----|--------|-------|
+| [ADR-001](adr/ADR-001-neural-field-orchestration.md) | Deferred | Neural Field Orchestration — FieldStore as coordination primitive |
+| [ADR-002](adr/ADR-002-subprocess-integration.md) | Accepted | Subprocess Integration -- 5 limitations and architectural solutions |
+| [ADR-003](adr/ADR-003-meta-orchestrator-model.md) | Accepted | Meta-Orchestrator Model -- why Kiln orchestrates CLIs, not plugins |
 
 ## Contributing
 
