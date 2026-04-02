@@ -155,10 +155,21 @@ not only in evaluation or prompt text.
   [opencode-session.ts](/C:/Proyectos/Sequel/kiln/packages/cli/src/wrapper/opencode-session.ts):
   OpenCode now tracks MCP-backed tool names from `mcp.tools.changed` and marks
   matching `tool_use` events as `source: "mcp"`
+- canonical MCP selector tightening landed across
+  [mcp-selector.ts](/C:/Proyectos/Sequel/kiln/packages/cli/src/wrapper/mcp-selector.ts),
+  [session.ts](/C:/Proyectos/Sequel/kiln/packages/cli/src/wrapper/session.ts),
+  [codex-session.ts](/C:/Proyectos/Sequel/kiln/packages/cli/src/wrapper/codex-session.ts),
+  [claude-code-process.ts](/C:/Proyectos/Sequel/kiln/packages/cli/src/wrapper/claude-code-process.ts),
+  [opencode-session.ts](/C:/Proyectos/Sequel/kiln/packages/cli/src/wrapper/opencode-session.ts),
+  and [run-session.ts](/C:/Proyectos/Sequel/kiln/packages/cli/src/application/run-session.ts):
+  MCP-origin tool events now carry canonical selectors, and scoped `mcpTools`
+  enforcement compares normalized selectors rather than raw backend-specific
+  tool names
 - tests landed in
   [run-session-permissions.test.ts](/C:/Proyectos/Sequel/kiln/packages/cli/tests/application/run-session-permissions.test.ts)
   and [claude-code-process.test.ts](/C:/Proyectos/Sequel/kiln/packages/cli/tests/wrapper/claude-code-process.test.ts)
   and [opencode-session.test.ts](/C:/Proyectos/Sequel/kiln/packages/cli/tests/wrapper/opencode-session.test.ts)
+  and [codex-session.test.ts](/C:/Proyectos/Sequel/kiln/packages/cli/tests/wrapper/codex-session.test.ts)
 
 **Primary files**
 

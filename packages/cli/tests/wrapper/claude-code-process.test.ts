@@ -111,6 +111,7 @@ describe("ClaudeSession implements IKilnSession", () => {
       toolName: "memory_store",
       input: { key: "k", value: "v" },
       source: "mcp",
+      mcpSelector: "memory_store",
     });
   });
 });

@@ -87,7 +87,7 @@ export interface KilnPermissionPolicy {
 
 export type SessionEvent =
   | { type: "text_delta"; content: string }
-  | { type: "tool_use"; toolName: string; input: unknown; source?: "native" | "mcp" }
+  | { type: "tool_use"; toolName: string; input: unknown; source?: "native" | "mcp"; mcpSelector?: string }
   | { type: "tool_result"; toolName: string; output: string }
   | {
       type: "cost_update";

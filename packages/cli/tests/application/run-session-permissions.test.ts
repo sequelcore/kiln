@@ -378,12 +378,18 @@ describe("runSession tool permission gating", () => {
     expect(preToolUse).not.toHaveBeenCalled();
   });
 
-  it("disallowed MCP tool is denied when scoped mcpTools allowlist is defined", async () => {
+  it("denies MCP tool when canonical selector is not in scoped mcpTools allowlist", async () => {
     const reportFailure = vi.fn();
     const preToolUse = vi.fn();
 
     const session = createSessionFromEvents([
-      { type: "tool_use", toolName: "secrets_fetch", input: {}, source: "mcp" },
+      {
+        type: "tool_use",
+        toolName: "memory_store",
+        input: {},
+        source: "mcp",
+        mcpSelector: "secrets/fetch",
+      },
       { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
     ]);
 
@@ -403,13 +409,13 @@ describe("runSession tool permission gating", () => {
         permissionPolicy: {
           approval: "on-request",
           sandbox: "read-only",
-          agentScopes: [{ agent: "agent-alpha", inherit: true, mcpTools: ["memory_store"] }],
+          agentScopes: [{ agent: "agent-alpha", inherit: true, mcpTools: ["  MEMORY_STORE  "] }],
         },
       },
       permissionPolicy: {
         approval: "on-request",
         sandbox: "read-only",
-        agentScopes: [{ agent: "agent-alpha", inherit: true, mcpTools: ["memory_store"] }],
+        agentScopes: [{ agent: "agent-alpha", inherit: true, mcpTools: ["  MEMORY_STORE  "] }],
       },
       permissionAgent: "agent-alpha",
       env: {},
@@ -421,24 +427,30 @@ describe("runSession tool permission gating", () => {
     });
 
     expect(result.sessionSucceeded).toBe(false);
-    expect(result.lastError).toContain('denied MCP tool "secrets_fetch"');
+    expect(result.lastError).toContain('denied MCP tool "memory_store"');
     expect(reportFailure).toHaveBeenCalledWith("claude", false);
     expect(preToolUse).not.toHaveBeenCalled();
     expect(result.transcript).toContainEqual(
       expect.objectContaining({
-        event: { type: "tool_use", toolName: "secrets_fetch [DENIED]" },
+        event: { type: "tool_use", toolName: "memory_store [DENIED]" },
       }),
     );
   });
 
-  it("allowed MCP tool passes when included in scoped mcpTools allowlist", async () => {
+  it("allows MCP tool when canonical selector matches normalized scoped mcpTools entries", async () => {
     const reportFailure = vi.fn();
     const reportSuccess = vi.fn();
     const preToolUse = vi.fn();
     const postToolUse = vi.fn();
 
     const session = createSessionFromEvents([
-      { type: "tool_use", toolName: "memory_store", input: { key: "a", value: "b" }, source: "mcp" },
+      {
+        type: "tool_use",
+        toolName: "memory_store",
+        input: { key: "a", value: "b" },
+        source: "mcp",
+        mcpSelector: "  MeMoRy_Store ",
+      },
       { type: "tool_result", toolName: "memory_store", output: "ok" },
       { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
     ]);
@@ -459,13 +471,13 @@ describe("runSession tool permission gating", () => {
         permissionPolicy: {
           approval: "on-request",
           sandbox: "read-only",
-          agentScopes: [{ agent: "agent-alpha", inherit: true, mcpTools: ["memory_store"] }],
+          agentScopes: [{ agent: "agent-alpha", inherit: true, mcpTools: ["  MEMORY_STORE  "] }],
         },
       },
       permissionPolicy: {
         approval: "on-request",
         sandbox: "read-only",
-        agentScopes: [{ agent: "agent-alpha", inherit: true, mcpTools: ["memory_store"] }],
+        agentScopes: [{ agent: "agent-alpha", inherit: true, mcpTools: ["  MEMORY_STORE  "] }],
       },
       permissionAgent: "agent-alpha",
       env: {},
@@ -479,6 +491,63 @@ describe("runSession tool permission gating", () => {
     expect(result.sessionSucceeded).toBe(true);
     expect(preToolUse).toHaveBeenCalledWith("memory_store");
     expect(postToolUse).toHaveBeenCalledWith("memory_store");
+    expect(reportSuccess).toHaveBeenCalledWith("claude");
+    expect(reportFailure).not.toHaveBeenCalled();
+  });
+
+  it("falls back to normalized toolName when MCP event selector is absent", async () => {
+    const reportFailure = vi.fn();
+    const reportSuccess = vi.fn();
+    const preToolUse = vi.fn();
+    const postToolUse = vi.fn();
+
+    const session = createSessionFromEvents([
+      {
+        type: "tool_use",
+        toolName: "Memory_Store",
+        input: { key: "a", value: "b" },
+        source: "mcp",
+      },
+      { type: "tool_result", toolName: "Memory_Store", output: "ok" },
+      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+    ]);
+
+    const result = await runSession({
+      registry: {
+        selectBest: () => ({ primary: "claude", orderedFallbacks: [], scores: [] }),
+        createSession: () => session as any,
+        reportFailure,
+        reportSuccess,
+      } as any,
+      cleanupRegistry: { register: () => {} } as any,
+      manager: { trackCostUpdate: () => {} } as any,
+      context: makeContext(),
+      requirements: {},
+      sessionConfig: {
+        task: "test",
+        permissionPolicy: {
+          approval: "on-request",
+          sandbox: "read-only",
+          agentScopes: [{ agent: "agent-alpha", inherit: true, mcpTools: [" memory_store "] }],
+        },
+      },
+      permissionPolicy: {
+        approval: "on-request",
+        sandbox: "read-only",
+        agentScopes: [{ agent: "agent-alpha", inherit: true, mcpTools: [" memory_store "] }],
+      },
+      permissionAgent: "agent-alpha",
+      env: {},
+      sessionHooks: {
+        userPromptSubmit: () => {},
+        preToolUse,
+        postToolUse,
+      } as any,
+    });
+
+    expect(result.sessionSucceeded).toBe(true);
+    expect(preToolUse).toHaveBeenCalledWith("Memory_Store");
+    expect(postToolUse).toHaveBeenCalledWith("Memory_Store");
     expect(reportSuccess).toHaveBeenCalledWith("claude");
     expect(reportFailure).not.toHaveBeenCalled();
   });

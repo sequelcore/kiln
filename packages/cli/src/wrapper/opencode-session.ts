@@ -10,6 +10,7 @@ import type {
   KilnPermissionPolicy,
   KilnSandboxMode,
 } from "./session.js";
+import { normalizeMcpSelector } from "./mcp-selector.js";
 import { debug } from "./debug.js";
 import { SessionStore } from "./session-store.js";
 
@@ -521,12 +522,14 @@ export class OpenCodeSession implements IKilnSession {
           if (part.type === "tool") {
             if (part.state?.status === "pending" || part.state?.status === "running") {
               const toolName = part.tool ?? "unknown";
-              const source = knownMcpToolNames.has(toolName) ? "mcp" : undefined;
+              const isMcpTool = knownMcpToolNames.has(toolName);
               yield {
                 type: "tool_use",
                 toolName,
                 input: part.state?.input ?? {},
-                ...(source ? { source } : {}),
+                ...(isMcpTool
+                  ? { source: "mcp" as const, mcpSelector: normalizeMcpSelector(toolName) }
+                  : {}),
               };
             } else if (part.state?.status === "completed") {
               const output = part.state?.output;

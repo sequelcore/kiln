@@ -192,6 +192,9 @@ Missing enforcement pieces:
 - `4.5c.c` OpenCode metadata slice:
   OpenCode wrapper now derives MCP-origin tool-use from `mcp.tools.changed`
   registry updates and marks matching tool events as MCP-backed
+- `4.5c.c` canonical selector tightening:
+  wrapper-emitted MCP tool events now carry normalized selectors, and run-loop
+  enforcement matches scoped `mcpTools` against those canonical selectors
 - `4.5c.d.a` first runtime data-firewall slice:
   outbound channel sends now support destination-aware allow/deny/redact
   evaluation before provider calls

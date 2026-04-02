@@ -8,6 +8,7 @@ import type {
   IKilnSession,
   KilnPermissionPolicy,
 } from "./session.js";
+import { normalizeMcpSelector } from "./mcp-selector.js";
 import { SessionStore } from "./session-store.js";
 
 interface TranslationRuleMetadata {
@@ -326,14 +327,17 @@ export class CodexSession implements IKilnSession {
               }
               break;
 
-            case "mcp_tool_call":
+            case "mcp_tool_call": {
+              const mcpToolName = item.tool ?? item.title ?? "mcp_tool";
               yield {
                 type: "tool_use",
-                toolName: item.tool ?? item.title ?? "mcp_tool",
+                toolName: mcpToolName,
                 input: item.arguments ?? {},
                 source: "mcp",
+                mcpSelector: normalizeMcpSelector(mcpToolName),
               };
               break;
+            }
 
             case "error":
               lastError = item.message ?? "Unknown item error";

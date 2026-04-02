@@ -317,6 +317,7 @@ describe("OpenCodeSession.run() integration", () => {
       toolName: "memory_store",
       input: { key: "k", value: "v" },
       source: "mcp",
+      mcpSelector: "memory_store",
     });
   });
 
@@ -381,6 +382,13 @@ describe("OpenCodeSession.run() integration", () => {
         type: "tool_use",
         toolName: "bash",
         source: "mcp",
+      }),
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({
+        type: "tool_use",
+        toolName: "bash",
+        mcpSelector: expect.any(String),
       }),
     );
   });

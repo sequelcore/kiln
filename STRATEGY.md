@@ -519,7 +519,8 @@ re-locks users into Claude Code-only UX.
   execution-time tool-scope, bash-command, and scoped MCP-tool enforcement
   slices landed in the CLI run loop; MCP-origin event metadata now exists in
   Codex, Claude, and OpenCode wrapper paths to support honest scoped
-  enforcement
+  enforcement, and scoped MCP matching now uses canonical selectors instead of
+  raw backend-emitted tool names
 - later sub-phases still pending: full enforcement integration and core safety
   hardening
 

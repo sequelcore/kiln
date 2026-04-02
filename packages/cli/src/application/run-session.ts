@@ -13,6 +13,7 @@ import type {
 import type { CleanupRegistry } from "../wrapper/cleanup-registry.js";
 import type { SessionManager } from "../wrapper/session-manager.js";
 import type { SessionContext } from "../wrapper/index.js";
+import { normalizeMcpSelector } from "../wrapper/mcp-selector.js";
 import { SessionHooks } from "./session-hooks.js";
 import { governSessionContext } from "./context-governance.js";
 
@@ -116,16 +117,20 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
               event.source === "mcp"
               && permissionEvaluator.scope.matchedScope
               && scopedMcpTools !== undefined;
-            if (hasScopedMcpRestriction && !scopedMcpTools.includes(event.toolName)) {
-              transcript.push({
-                seq: ++transcriptSeq,
-                ts: new Date().toISOString(),
-                event: { type: "tool_use", toolName: `${event.toolName} [DENIED]` },
-              });
-              lastError = `Provider ${providerId} denied MCP tool "${event.toolName}" by policy`;
-              options.registry.reportFailure(providerId, false);
-              providerDeniedByPolicy = true;
-              break;
+            if (hasScopedMcpRestriction) {
+              const normalizedScopedMcpTools = new Set(scopedMcpTools.map((selector) => normalizeMcpSelector(selector)));
+              const eventSelector = normalizeMcpSelector(event.mcpSelector ?? event.toolName);
+              if (!normalizedScopedMcpTools.has(eventSelector)) {
+                transcript.push({
+                  seq: ++transcriptSeq,
+                  ts: new Date().toISOString(),
+                  event: { type: "tool_use", toolName: `${event.toolName} [DENIED]` },
+                });
+                lastError = `Provider ${providerId} denied MCP tool "${event.toolName}" by policy`;
+                options.registry.reportFailure(providerId, false);
+                providerDeniedByPolicy = true;
+                break;
+              }
             }
 
             const isBashLikeTool = event.toolName === "Bash" || event.toolName === "bash";

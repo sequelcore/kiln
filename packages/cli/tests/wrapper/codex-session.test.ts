@@ -244,6 +244,7 @@ describe("CodexSession.run() JSONL parsing", () => {
       toolName: "memory_store",
       input: { key: "test", value: "42" },
       source: "mcp",
+      mcpSelector: "memory_store",
     });
   });
 

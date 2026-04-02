@@ -14,6 +14,7 @@ import type {
   IKilnSession,
   KilnPermissionPolicy,
 } from "./session.js";
+import { normalizeMcpSelector } from "./mcp-selector.js";
 import { SessionStore } from "./session-store.js";
 
 type Options = import("@anthropic-ai/claude-agent-sdk").Options;
@@ -217,7 +218,13 @@ export class ClaudeSession implements IKilnSession {
               yield { type: "text_delta", content: block.text };
             } else if ((block.type === "tool_use" || block.type === "mcp_tool_use") && block.name) {
               if (block.type === "mcp_tool_use") {
-                yield { type: "tool_use", toolName: block.name, input: block.input, source: "mcp" };
+                yield {
+                  type: "tool_use",
+                  toolName: block.name,
+                  input: block.input,
+                  source: "mcp",
+                  mcpSelector: normalizeMcpSelector(block.name),
+                };
               } else {
                 yield { type: "tool_use", toolName: block.name, input: block.input };
               }
