@@ -121,6 +121,13 @@ export class PrometheusCollector implements EventStore {
         registers: [registry],
       });
 
+      this.counters.pii_detections = new prom.Counter({
+        name: `${prefix}_pii_detections_total`,
+        help: "Total PII detections",
+        labelNames: ["direction", "action", "tier"],
+        registers: [registry],
+      });
+
       // Histograms
       this.histograms.llm_duration = new prom.Histogram({
         name: `${prefix}_llm_request_duration_seconds`,
@@ -247,7 +254,20 @@ export class PrometheusCollector implements EventStore {
         this.counters.policy_evaluations?.inc({
           rail_type: this.resolvePolicyRailTypeLabel(e.railType),
           allowed: this.resolvePolicyAllowedLabel(e.allowed),
-          direction: this.resolvePolicyDirectionLabel(e.direction),
+          direction: this.resolveDirectionLabel(e.direction),
+        });
+        break;
+      }
+      case "pii_detected": {
+        const e = event as KilnEvent & {
+          direction?: string;
+          action?: string;
+          tier?: string;
+        };
+        this.counters.pii_detections?.inc({
+          direction: this.resolveDirectionLabel(e.direction),
+          action: this.resolvePiiActionLabel(e.action),
+          tier: this.resolvePiiTierLabel(e.tier),
         });
         break;
       }
@@ -309,8 +329,18 @@ export class PrometheusCollector implements EventStore {
     return "unknown";
   }
 
-  private resolvePolicyDirectionLabel(direction: unknown): string {
+  private resolveDirectionLabel(direction: unknown): string {
     if (direction === "input" || direction === "output") return direction;
+    return "unknown";
+  }
+
+  private resolvePiiActionLabel(action: unknown): string {
+    if (action === "detect" || action === "block") return action;
+    return "unknown";
+  }
+
+  private resolvePiiTierLabel(tier: unknown): string {
+    if (tier === "heuristic" || tier === "deep") return tier;
     return "unknown";
   }
 }

@@ -230,7 +230,7 @@ Missing enforcement pieces:
 
 ### 4.5d — Core Safety Hardening
 
-**Status:** STARTED (`4.5d` scout complete, prompt-scanning slice landed, dangerous-command core slice landed, dangerous-command runtime slice landed, cache-hit tool-result sanitization slice landed, runtime prompt-scanner wiring slice landed, runtime security-alert metrics slice landed, runtime policy-evaluated metrics slice landed)
+**Status:** STARTED (`4.5d` scout complete, prompt-scanning slice landed, dangerous-command core slice landed, dangerous-command runtime slice landed, cache-hit tool-result sanitization slice landed, runtime prompt-scanner wiring slice landed, runtime security-alert metrics slice landed, runtime policy-evaluated metrics slice landed, runtime pii-detected metrics slice landed)
 
 **Scope:**
 
@@ -312,6 +312,16 @@ Missing enforcement pieces:
 - focused unit coverage added for expected-label increment and fallback-label
   behavior
 
+**Eighth landed slice (currently uncommitted):**
+
+- runtime observability now propagates `pii_detected` events into Prometheus via
+  explicit `pii_detections_total` counter wiring in `PrometheusCollector`
+- labels are stable and minimal (`direction`, `action`, `tier`) with
+  deterministic `unknown` fallbacks for malformed/missing values to keep
+  save-path fail-closed without crashing
+- focused unit coverage added for expected-label increment and fallback-label
+  behavior
+
 **Verification note:**
 
 - targeted core compile passed
@@ -323,6 +333,8 @@ Missing enforcement pieces:
 - targeted runtime compile passed for gateway sanitizer wiring slice
 - focused gateway sanitizer test coverage exists for
   enabled/disabled/custom-allowlist reinjection behavior
+- focused `prometheus-collector` tests cover pii-detected metric increment and
+  deterministic fallback-label behavior
 - focused `prometheus-collector` tests cover security-alert metric increment and
   deterministic fallback-label behavior
 - focused `prometheus-collector` tests cover policy-evaluated metric increment

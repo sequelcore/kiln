@@ -318,6 +318,56 @@ describe("PrometheusCollector", () => {
     );
   });
 
+  it("increments pii detections counter with expected labels", async () => {
+    const collector = new PrometheusCollector();
+    await collector.getRegistry();
+
+    await collector.save(
+      makeEvent("pii_detected", {
+        direction: "input",
+        action: "detect",
+        tier: "heuristic",
+        piiTypes: ["email"],
+        count: 1,
+      }),
+    );
+
+    expect(mockInc).toHaveBeenCalledWith(
+      "kiln_pii_detections_total",
+      { direction: "input", action: "detect", tier: "heuristic" },
+      undefined,
+    );
+  });
+
+  it("uses deterministic fallback labels for malformed or missing pii detections", async () => {
+    const collector = new PrometheusCollector();
+    await collector.getRegistry();
+
+    await collector.save(
+      makeEvent("pii_detected", {
+        direction: "inbound",
+        action: "redact",
+        tier: "experimental",
+      }),
+    );
+
+    expect(mockInc).toHaveBeenCalledWith(
+      "kiln_pii_detections_total",
+      { direction: "unknown", action: "unknown", tier: "unknown" },
+      undefined,
+    );
+
+    mockInc.mockClear();
+
+    await collector.save(makeEvent("pii_detected"));
+
+    expect(mockInc).toHaveBeenCalledWith(
+      "kiln_pii_detections_total",
+      { direction: "unknown", action: "unknown", tier: "unknown" },
+      undefined,
+    );
+  });
+
   it("does nothing for unknown event types", async () => {
     const collector = new PrometheusCollector();
     await collector.getRegistry();

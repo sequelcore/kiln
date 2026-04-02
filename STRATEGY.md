@@ -375,7 +375,7 @@ See [ADR-003: Meta-Orchestrator Model](docs/adr/ADR-003-meta-orchestrator-model.
 
 ## Phase 4.5 — Permission & Safety
 
-**Status:** STARTED (`4.5a` complete, `4.5b` complete, `4.5c` effectively complete/closable, `4.5d` in progress with multiple landed slices, including runtime security-alert and policy-evaluated Prometheus propagation)
+**Status:** STARTED (`4.5a` complete, `4.5b` complete, `4.5c` effectively complete/closable, `4.5d` in progress with multiple landed slices, including runtime pii-detected, security-alert, and policy-evaluated Prometheus propagation)
 **Priority:** HIGH — #1 universal pain point: "no middle ground between approve-all and yolo"
 **Source:** User research across all 3 tools + Claude Code permission/safety scouts
 
@@ -416,9 +416,8 @@ See [ADR-003: Meta-Orchestrator Model](docs/adr/ADR-003-meta-orchestrator-model.
   `securityConfig.promptInjection` into `ToolResultSanitizer` construction so
   indirect reinjection scanning honors runtime prompt-injection configuration
   and allowlist behavior; runtime observability now also propagates
-  `security_alert` events into Prometheus via a dedicated
-  `security_alerts_total` counter labeled by severity/category with deterministic
-  fallback labels
+  `pii_detected`, `security_alert`, and `policy_evaluated` events into
+  Prometheus via dedicated counters with deterministic fallback labels
 - later sub-phases still pending: full enforcement integration and remaining
   safety hardening slices
 
@@ -456,6 +455,9 @@ See [ADR-003: Meta-Orchestrator Model](docs/adr/ADR-003-meta-orchestrator-model.
   `securityConfig.promptInjection` during reinjection
 - test(runtime): regression coverage exists for enabled, disabled, and custom
   `allowedPatterns` behavior through the runtime tool-result reinjection path
+- feat(runtime): Prometheus collector now emits `pii_detections_total` for
+  `pii_detected` events with stable `direction`, `action`, and `tier` labels
+  plus deterministic `unknown` fallbacks for malformed or missing values
 - feat(runtime): Prometheus collector now emits `security_alerts_total` for
   `security_alert` events with stable `severity` and `category` labels plus
   deterministic `unknown` fallbacks for malformed/unsupported category values
