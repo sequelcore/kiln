@@ -147,8 +147,13 @@ not only in evaluation or prompt text.
   explicitly marked MCP-origin tool events now honor scoped `mcpTools`
   allowlists with exact-match semantics when the active agent scope defines
   them
+- wrapper metadata expansion landed in
+  [claude-code-process.ts](/C:/Proyectos/Sequel/kiln/packages/cli/src/wrapper/claude-code-process.ts):
+  Claude MCP-origin tool blocks are now preserved as `tool_use` events with
+  `source: "mcp"` instead of collapsing into generic tool calls
 - tests landed in
   [run-session-permissions.test.ts](/C:/Proyectos/Sequel/kiln/packages/cli/tests/application/run-session-permissions.test.ts)
+  and [claude-code-process.test.ts](/C:/Proyectos/Sequel/kiln/packages/cli/tests/wrapper/claude-code-process.test.ts)
 
 **Primary files**
 

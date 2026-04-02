@@ -1,7 +1,12 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
+  query: vi.fn(),
+}));
+
+import { query as mockedQuery } from "@anthropic-ai/claude-agent-sdk";
 import { ClaudeSession } from "../../src/wrapper/claude-code-process.js";
 import type { ClaudeSessionConfig } from "../../src/wrapper/claude-code-process.js";
-import type { IKilnSession } from "../../src/wrapper/session.js";
+import type { IKilnSession, SessionEvent } from "../../src/wrapper/session.js";
 
 function baseConfig(overrides: Partial<ClaudeSessionConfig> = {}): ClaudeSessionConfig {
   return {
@@ -10,6 +15,12 @@ function baseConfig(overrides: Partial<ClaudeSessionConfig> = {}): ClaudeSession
     cwd: process.cwd(),
     ...overrides,
   };
+}
+
+async function collectEvents(iter: AsyncIterable<SessionEvent>): Promise<SessionEvent[]> {
+  const events: SessionEvent[] = [];
+  for await (const event of iter) events.push(event);
+  return events;
 }
 
 describe("ClaudeSession implements IKilnSession", () => {
@@ -74,5 +85,32 @@ describe("ClaudeSession implements IKilnSession", () => {
     const session = new ClaudeSession(baseConfig());
     await session.dispose();
     await expect(session.dispose()).resolves.toBeUndefined();
+  });
+
+  it("run() emits MCP-origin tool_use events with source mcp", async () => {
+    (mockedQuery as unknown as { mockReturnValueOnce: (value: unknown) => void }).mockReturnValueOnce((async function* () {
+      yield {
+        type: "assistant",
+        message: {
+          content: [
+            {
+              type: "mcp_tool_use",
+              name: "memory_store",
+              input: { key: "k", value: "v" },
+            },
+          ],
+        },
+      };
+    })());
+
+    const session = new ClaudeSession(baseConfig());
+    const events = await collectEvents(session.run({ prompt: "test prompt", cwd: process.cwd() }));
+
+    expect(events).toContainEqual({
+      type: "tool_use",
+      toolName: "memory_store",
+      input: { key: "k", value: "v" },
+      source: "mcp",
+    });
   });
 });

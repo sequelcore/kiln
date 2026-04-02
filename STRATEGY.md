@@ -517,7 +517,8 @@ re-locks users into Claude Code-only UX.
   place, with approval-memory persistence, application-backed context
   governance, first runtime data-firewall slices underway, and the first
   execution-time tool-scope, bash-command, and scoped MCP-tool enforcement
-  slices landed in the CLI run loop
+  slices landed in the CLI run loop; MCP-origin event metadata now exists in
+  Codex and Claude wrapper paths to support honest scoped enforcement
 - later sub-phases still pending: full enforcement integration and core safety
   hardening
 

@@ -215,8 +215,12 @@ export class ClaudeSession implements IKilnSession {
           for (const block of blocks) {
             if (block.type === "text" && block.text !== undefined) {
               yield { type: "text_delta", content: block.text };
-            } else if (block.type === "tool_use" && block.name) {
-              yield { type: "tool_use", toolName: block.name, input: block.input };
+            } else if ((block.type === "tool_use" || block.type === "mcp_tool_use") && block.name) {
+              if (block.type === "mcp_tool_use") {
+                yield { type: "tool_use", toolName: block.name, input: block.input, source: "mcp" };
+              } else {
+                yield { type: "tool_use", toolName: block.name, input: block.input };
+              }
             }
           }
           continue;

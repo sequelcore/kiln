@@ -186,6 +186,9 @@ Missing enforcement pieces:
 - `4.5c.c` third execution-time enforcement slice:
   scoped `mcpTools` allowlists now gate explicitly marked MCP-origin tool
   events in the CLI application run loop
+- `4.5c.c` metadata expansion slice:
+  Claude wrapper now preserves MCP-origin tool-use events instead of collapsing
+  them into generic tool calls, matching the existing Codex metadata path
 - `4.5c.d.a` first runtime data-firewall slice:
   outbound channel sends now support destination-aware allow/deny/redact
   evaluation before provider calls
