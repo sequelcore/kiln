@@ -22,7 +22,7 @@ Harden Kiln safety controls where bypass risk is highest:
 
 ## Current Slice Status
 
-**Status:** STARTED (`4.5d.a`, `4.5d.b`, `4.5d.c`, `4.5d.d`, `4.5d.e`, and `4.5d.f` landed, currently uncommitted)
+**Status:** STARTED (`4.5d.a`, `4.5d.b`, `4.5d.c`, `4.5d.d`, `4.5d.e`, `4.5d.f`, and `4.5d.g` landed, currently uncommitted)
 
 First slice landed in core prompt scanning:
 
@@ -94,6 +94,17 @@ Sixth slice landed in runtime observability denial propagation:
   `security_alerts_total` counter updates
 - labels are stable/minimal (`severity`, `category`) and avoid unbounded
   message-cardinality coupling
+- malformed/missing/unsupported values now use deterministic `unknown`
+  fallback labels so `save()` remains fail-closed and non-throwing
+- focused runtime observability tests validate both expected and fallback-label
+  behavior
+
+Seventh slice landed in runtime observability policy propagation:
+
+- `PrometheusCollector` now propagates `policy_evaluated` events into explicit
+  `policy_evaluations_total` counter updates
+- labels are stable/minimal (`rail_type`, `allowed`, `direction`) and avoid
+  unbounded-cardinality coupling
 - malformed/missing/unsupported values now use deterministic `unknown`
   fallback labels so `save()` remains fail-closed and non-throwing
 - focused runtime observability tests validate both expected and fallback-label

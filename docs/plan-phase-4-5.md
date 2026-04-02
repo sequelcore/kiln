@@ -230,7 +230,7 @@ Missing enforcement pieces:
 
 ### 4.5d — Core Safety Hardening
 
-**Status:** STARTED (`4.5d` scout complete, prompt-scanning slice landed, dangerous-command core slice landed, dangerous-command runtime slice landed, cache-hit tool-result sanitization slice landed, runtime prompt-scanner wiring slice landed, runtime security-alert metrics slice landed)
+**Status:** STARTED (`4.5d` scout complete, prompt-scanning slice landed, dangerous-command core slice landed, dangerous-command runtime slice landed, cache-hit tool-result sanitization slice landed, runtime prompt-scanner wiring slice landed, runtime security-alert metrics slice landed, runtime policy-evaluated metrics slice landed)
 
 **Scope:**
 
@@ -301,6 +301,17 @@ Missing enforcement pieces:
 - focused unit coverage added for expected-label increment and fallback-label
   behavior
 
+**Seventh landed slice (currently uncommitted):**
+
+- runtime observability now propagates `policy_evaluated` events into
+  Prometheus via explicit `policy_evaluations_total` counter wiring in
+  `PrometheusCollector`
+- labels are stable and minimal (`rail_type`, `allowed`, `direction`) with
+  deterministic `unknown` fallbacks for malformed/missing/unsupported values
+  to keep save-path fail-closed without crashing
+- focused unit coverage added for expected-label increment and fallback-label
+  behavior
+
 **Verification note:**
 
 - targeted core compile passed
@@ -314,6 +325,8 @@ Missing enforcement pieces:
   enabled/disabled/custom-allowlist reinjection behavior
 - focused `prometheus-collector` tests cover security-alert metric increment and
   deterministic fallback-label behavior
+- focused `prometheus-collector` tests cover policy-evaluated metric increment
+  and deterministic fallback-label behavior
 
 **Primary files:**
 

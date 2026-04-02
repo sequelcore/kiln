@@ -4,6 +4,12 @@ const SECURITY_ALERT_CATEGORY_ALLOWLIST = new Set<string>([
   "indirect_injection",
   "injection",
 ]);
+const POLICY_RAIL_TYPE_ALLOWLIST = new Set<string>([
+  "topic",
+  "competitor",
+  "escalation",
+  "compliance",
+]);
 
 /** Prometheus registry handle (prom-client type) */
 interface PromRegistry {
@@ -105,6 +111,13 @@ export class PrometheusCollector implements EventStore {
         name: `${prefix}_security_alerts_total`,
         help: "Total security alerts",
         labelNames: ["severity", "category"],
+        registers: [registry],
+      });
+
+      this.counters.policy_evaluations = new prom.Counter({
+        name: `${prefix}_policy_evaluations_total`,
+        help: "Total policy evaluations",
+        labelNames: ["rail_type", "allowed", "direction"],
         registers: [registry],
       });
 
@@ -225,6 +238,19 @@ export class PrometheusCollector implements EventStore {
         });
         break;
       }
+      case "policy_evaluated": {
+        const e = event as KilnEvent & {
+          railType?: string;
+          allowed?: boolean;
+          direction?: string;
+        };
+        this.counters.policy_evaluations?.inc({
+          rail_type: this.resolvePolicyRailTypeLabel(e.railType),
+          allowed: this.resolvePolicyAllowedLabel(e.allowed),
+          direction: this.resolvePolicyDirectionLabel(e.direction),
+        });
+        break;
+      }
       // Other event types: no metrics to collect
     }
   }
@@ -268,5 +294,23 @@ export class PrometheusCollector implements EventStore {
     return SECURITY_ALERT_CATEGORY_ALLOWLIST.has(normalized)
       ? normalized
       : "unknown";
+  }
+
+  private resolvePolicyRailTypeLabel(railType: unknown): string {
+    if (typeof railType !== "string") return "unknown";
+    const normalized = railType.trim().toLowerCase();
+    if (normalized.length === 0) return "unknown";
+    return POLICY_RAIL_TYPE_ALLOWLIST.has(normalized) ? normalized : "unknown";
+  }
+
+  private resolvePolicyAllowedLabel(allowed: unknown): string {
+    if (allowed === true) return "true";
+    if (allowed === false) return "false";
+    return "unknown";
+  }
+
+  private resolvePolicyDirectionLabel(direction: unknown): string {
+    if (direction === "input" || direction === "output") return direction;
+    return "unknown";
   }
 }

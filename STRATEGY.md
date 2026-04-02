@@ -375,7 +375,7 @@ See [ADR-003: Meta-Orchestrator Model](docs/adr/ADR-003-meta-orchestrator-model.
 
 ## Phase 4.5 — Permission & Safety
 
-**Status:** STARTED (`4.5a` complete, `4.5b` complete, `4.5c` effectively complete/closable, `4.5d` in progress with multiple landed slices, including runtime security-alert Prometheus propagation)
+**Status:** STARTED (`4.5a` complete, `4.5b` complete, `4.5c` effectively complete/closable, `4.5d` in progress with multiple landed slices, including runtime security-alert and policy-evaluated Prometheus propagation)
 **Priority:** HIGH — #1 universal pain point: "no middle ground between approve-all and yolo"
 **Source:** User research across all 3 tools + Claude Code permission/safety scouts
 
@@ -459,6 +459,10 @@ See [ADR-003: Meta-Orchestrator Model](docs/adr/ADR-003-meta-orchestrator-model.
 - feat(runtime): Prometheus collector now emits `security_alerts_total` for
   `security_alert` events with stable `severity` and `category` labels plus
   deterministic `unknown` fallbacks for malformed/unsupported category values
+- feat(runtime): Prometheus collector now emits `policy_evaluations_total` for
+  `policy_evaluated` events with stable `rail_type`, `allowed`, and
+  `direction` labels plus deterministic `unknown` fallbacks for malformed or
+  missing values
 - feat(core): reuse tool-result scanning patterns as safety sink controls
   across prompt and tool-output surfaces
 - feat(core): CROSS_PLATFORM_CODE_EXEC dangerous pattern expansion

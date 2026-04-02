@@ -270,6 +270,54 @@ describe("PrometheusCollector", () => {
     ]);
   });
 
+  it("increments policy evaluation counter with expected labels", async () => {
+    const collector = new PrometheusCollector();
+    await collector.getRegistry();
+
+    await collector.save(
+      makeEvent("policy_evaluated", {
+        railType: "compliance",
+        allowed: false,
+        direction: "output",
+      }),
+    );
+
+    expect(mockInc).toHaveBeenCalledWith(
+      "kiln_policy_evaluations_total",
+      { rail_type: "compliance", allowed: "false", direction: "output" },
+      undefined,
+    );
+  });
+
+  it("uses deterministic fallback labels for malformed or missing policy evaluations", async () => {
+    const collector = new PrometheusCollector();
+    await collector.getRegistry();
+
+    await collector.save(
+      makeEvent("policy_evaluated", {
+        railType: "custom_future_rail",
+        allowed: "yes",
+        direction: "inbound",
+      }),
+    );
+
+    expect(mockInc).toHaveBeenCalledWith(
+      "kiln_policy_evaluations_total",
+      { rail_type: "unknown", allowed: "unknown", direction: "unknown" },
+      undefined,
+    );
+
+    mockInc.mockClear();
+
+    await collector.save(makeEvent("policy_evaluated"));
+
+    expect(mockInc).toHaveBeenCalledWith(
+      "kiln_policy_evaluations_total",
+      { rail_type: "unknown", allowed: "unknown", direction: "unknown" },
+      undefined,
+    );
+  });
+
   it("does nothing for unknown event types", async () => {
     const collector = new PrometheusCollector();
     await collector.getRegistry();
