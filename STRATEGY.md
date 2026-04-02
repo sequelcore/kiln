@@ -503,7 +503,7 @@ re-locks users into Claude Code-only UX.
 
 ## Phase 4.5 — Permission & Safety
 
-**Status:** STARTED (`4.5a` complete, `4.5b` complete)
+**Status:** STARTED (`4.5a` complete, `4.5b` complete, `4.5c` in progress)
 **Priority:** HIGH — #1 universal pain point: "no middle ground between approve-all and yolo"
 **Source:** User research across all 3 tools + Claude Code permission model scout
 
@@ -515,7 +515,8 @@ re-locks users into Claude Code-only UX.
   translated-vs-enforced backend rules
 - `4.5c` started: approval-memory and enforcement integration planning is in
   place, with approval-memory persistence, application-backed context
-  governance, and the first runtime data-firewall slices underway
+  governance, first runtime data-firewall slices underway, and the first
+  execution-time tool-scope enforcement slice landed in the CLI run loop
 - later sub-phases still pending: full enforcement integration and core safety
   hardening
 

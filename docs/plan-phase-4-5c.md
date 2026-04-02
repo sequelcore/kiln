@@ -128,6 +128,18 @@ backend exposure.
 Enforce scoped tool/command/MCP restrictions in the CLI application run flow,
 not only in evaluation or prompt text.
 
+**Current progress**
+
+- first narrow slice landed in
+  [run-session.ts](/C:/Proyectos/Sequel/kiln/packages/cli/src/application/run-session.ts):
+  denied `tool_use` events now stop the active provider attempt before
+  `preToolUse` executes, record a denied transcript event, and surface a
+  policy-derived provider failure
+- agent-specific overlays are honored when `permissionAgent` is supplied to the
+  application run flow
+- tests landed in
+  [run-session-permissions.test.ts](/C:/Proyectos/Sequel/kiln/packages/cli/tests/application/run-session-permissions.test.ts)
+
 **Primary files**
 
 - `packages/cli/src/application/run-session.ts`

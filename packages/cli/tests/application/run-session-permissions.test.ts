@@ -1,0 +1,211 @@
+import { describe, expect, it, vi } from "vitest";
+import type { DomainConfig } from "@kilnai/core";
+import { runSession } from "../../src/application/run-session.js";
+import type { SessionContext } from "../../src/wrapper/index.js";
+
+const DOMAIN: DomainConfig = {
+  name: "generic",
+  displayName: "Generic",
+  detectPatterns: [],
+  toolTags: new Set(),
+  qualityGates: [],
+  multishotExamples: "",
+  phaseExamples: "",
+};
+
+function makeContext(): SessionContext {
+  return {
+    mode: "api-key",
+    domain: DOMAIN,
+    systemPrompt: "",
+    memorySnapshot: undefined,
+    mcpServerEntryPath: "",
+    workingDirectory: process.cwd(),
+    task: "Test permission gating",
+  };
+}
+
+function createSessionFromEvents(
+  events: readonly unknown[],
+): {
+  sessionId: string;
+  capabilities: Record<string, unknown>;
+  run: () => AsyncGenerator<unknown, void, unknown>;
+  dispose: () => Promise<void>;
+} {
+  return {
+    sessionId: "session-1",
+    capabilities: {},
+    run: async function* () {
+      for (const event of events) {
+        yield event;
+      }
+    },
+    dispose: async () => {},
+  };
+}
+
+describe("runSession tool permission gating", () => {
+  it("denied tool_use causes provider attempt failure", async () => {
+    const reportFailure = vi.fn();
+    const reportSuccess = vi.fn();
+    const preToolUse = vi.fn();
+
+    const session = createSessionFromEvents([
+      { type: "tool_use", toolName: "Bash", input: { command: "ls" } },
+      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+    ]);
+
+    const result = await runSession({
+      registry: {
+        selectBest: () => ({ primary: "claude", orderedFallbacks: [], scores: [] }),
+        createSession: () => session as any,
+        reportFailure,
+        reportSuccess,
+      } as any,
+      cleanupRegistry: { register: () => {} } as any,
+      manager: { trackCostUpdate: () => {} } as any,
+      context: makeContext(),
+      requirements: {},
+      sessionConfig: {
+        task: "test",
+        permissionPolicy: {
+          approval: "on-request",
+          sandbox: "read-only",
+          tools: [{ tool: "Bash", action: "deny" }],
+        },
+      },
+      permissionPolicy: {
+        approval: "on-request",
+        sandbox: "read-only",
+        tools: [{ tool: "Bash", action: "deny" }],
+      },
+      env: {},
+      sessionHooks: {
+        userPromptSubmit: () => {},
+        preToolUse,
+        postToolUse: () => {},
+      } as any,
+    });
+
+    expect(result.sessionSucceeded).toBe(false);
+    expect(result.lastError).toContain('denied tool "Bash"');
+    expect(reportFailure).toHaveBeenCalledWith("claude", false);
+    expect(reportSuccess).not.toHaveBeenCalled();
+    expect(preToolUse).not.toHaveBeenCalled();
+    expect(result.transcript).toContainEqual(
+      expect.objectContaining({
+        event: { type: "tool_use", toolName: "Bash [DENIED]" },
+      }),
+    );
+  });
+
+  it("allowed tool_use keeps current behavior", async () => {
+    const reportFailure = vi.fn();
+    const reportSuccess = vi.fn();
+    const preToolUse = vi.fn();
+    const postToolUse = vi.fn();
+
+    const session = createSessionFromEvents([
+      { type: "tool_use", toolName: "Bash", input: { command: "ls" } },
+      { type: "tool_result", toolName: "Bash", output: "ok" },
+      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+    ]);
+
+    const result = await runSession({
+      registry: {
+        selectBest: () => ({ primary: "claude", orderedFallbacks: [], scores: [] }),
+        createSession: () => session as any,
+        reportFailure,
+        reportSuccess,
+      } as any,
+      cleanupRegistry: { register: () => {} } as any,
+      manager: { trackCostUpdate: () => {} } as any,
+      context: makeContext(),
+      requirements: {},
+      sessionConfig: {
+        task: "test",
+        permissionPolicy: {
+          approval: "on-request",
+          sandbox: "read-only",
+          tools: [{ tool: "Bash", action: "allow" }],
+        },
+      },
+      permissionPolicy: {
+        approval: "on-request",
+        sandbox: "read-only",
+        tools: [{ tool: "Bash", action: "allow" }],
+      },
+      env: {},
+      sessionHooks: {
+        userPromptSubmit: () => {},
+        preToolUse,
+        postToolUse,
+      } as any,
+    });
+
+    expect(result.sessionSucceeded).toBe(true);
+    expect(preToolUse).toHaveBeenCalledWith("Bash");
+    expect(postToolUse).toHaveBeenCalledWith("Bash");
+    expect(reportSuccess).toHaveBeenCalledWith("claude");
+    expect(reportFailure).not.toHaveBeenCalled();
+  });
+
+  it("agent-scoped deny overrides root allow when agent is supplied", async () => {
+    const reportFailure = vi.fn();
+    const preToolUse = vi.fn();
+
+    const session = createSessionFromEvents([
+      { type: "tool_use", toolName: "Read", input: { filePath: "README.md" } },
+      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+    ]);
+
+    const result = await runSession({
+      registry: {
+        selectBest: () => ({ primary: "claude", orderedFallbacks: [], scores: [] }),
+        createSession: () => session as any,
+        reportFailure,
+        reportSuccess: () => {},
+      } as any,
+      cleanupRegistry: { register: () => {} } as any,
+      manager: { trackCostUpdate: () => {} } as any,
+      context: makeContext(),
+      requirements: {},
+      sessionConfig: {
+        task: "test",
+        permissionPolicy: {
+          approval: "on-request",
+          sandbox: "read-only",
+          tools: [{ tool: "Read", action: "allow" }],
+          agentScopes: [{
+            agent: "agent-alpha",
+            inherit: true,
+            tools: [{ tool: "Read", action: "deny" }],
+          }],
+        },
+      },
+      permissionPolicy: {
+        approval: "on-request",
+        sandbox: "read-only",
+        tools: [{ tool: "Read", action: "allow" }],
+        agentScopes: [{
+          agent: "agent-alpha",
+          inherit: true,
+          tools: [{ tool: "Read", action: "deny" }],
+        }],
+      },
+      permissionAgent: "agent-alpha",
+      env: {},
+      sessionHooks: {
+        userPromptSubmit: () => {},
+        preToolUse,
+        postToolUse: () => {},
+      } as any,
+    });
+
+    expect(result.sessionSucceeded).toBe(false);
+    expect(result.lastError).toContain('denied tool "Read"');
+    expect(reportFailure).toHaveBeenCalledWith("claude", false);
+    expect(preToolUse).not.toHaveBeenCalled();
+  });
+});

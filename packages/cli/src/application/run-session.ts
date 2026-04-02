@@ -3,7 +3,9 @@ import { buildPreamble } from "../wrapper/preamble-builder.js";
 import type {
   ProviderId,
   SessionRequirements,
+  PermissionEvaluator,
 } from "../wrapper/index.js";
+import { createPermissionEvaluator } from "../wrapper/index.js";
 import type {
   ProviderCreateConfig,
   SessionRegistry,
@@ -22,6 +24,7 @@ export interface RunSessionOptions {
   readonly requirements: SessionRequirements;
   readonly sessionConfig: ProviderCreateConfig;
   readonly permissionPolicy: ProviderCreateConfig["permissionPolicy"];
+  readonly permissionAgent?: string;
   readonly env: Record<string, string>;
   readonly sessionHooks: SessionHooks;
 }
@@ -39,6 +42,10 @@ export interface RunSessionResult {
 
 export async function runSession(options: RunSessionOptions): Promise<RunSessionResult> {
   const governedContext = governSessionContext(options.context, options.permissionPolicy);
+  const permissionEvaluator: PermissionEvaluator = createPermissionEvaluator(
+    options.permissionPolicy,
+    { agent: options.permissionAgent },
+  );
   const selection = options.registry.selectBest(options.requirements);
   const candidates: ProviderId[] = [
     selection.primary,
@@ -60,6 +67,7 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
 
   for (const providerId of candidates) {
     let isPreflightCrash = false;
+    let providerDeniedByPolicy = false;
 
     const session = options.registry.createSession(providerId, options.sessionConfig);
     options.cleanupRegistry.register(async () => session.dispose());
@@ -90,6 +98,19 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
             break;
           }
           case "tool_use": {
+            const decision = permissionEvaluator.evaluateTool(event.toolName);
+            if (decision.action === "deny") {
+              transcript.push({
+                seq: ++transcriptSeq,
+                ts: new Date().toISOString(),
+                event: { type: "tool_use", toolName: `${event.toolName} [DENIED]` },
+              });
+              lastError = `Provider ${providerId} denied tool "${event.toolName}" by policy`;
+              options.registry.reportFailure(providerId, false);
+              providerDeniedByPolicy = true;
+              break;
+            }
+
             transcript.push({
               seq: ++transcriptSeq,
               ts: new Date().toISOString(),
@@ -148,6 +169,10 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
             }
             break;
           }
+        }
+
+        if (providerDeniedByPolicy) {
+          break;
         }
       }
     } finally {
