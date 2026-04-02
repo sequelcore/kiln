@@ -40,11 +40,8 @@ export interface SyncResult {
   errors: string[];
 }
 
-function ensureDir(filePath: string): void {
-  const dir = dirname(filePath);
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
-  }
+function ensureDir(dirPath: string): void {
+  mkdirSync(dirPath, { recursive: true });
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

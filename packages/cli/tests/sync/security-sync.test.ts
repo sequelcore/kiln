@@ -1,9 +1,24 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { parse as parseToml } from "smol-toml";
 import * as fs from "node:fs";
-import * as os from "node:os";
 import { join } from "node:path";
 import type { KilnYaml } from "../../src/kiln-yaml-types.js";
+
+let _mockedHomedir: string = "";
+
+vi.mock("node:os", async () => {
+  const actual = await vi.importActual<typeof import("node:os")>("node:os");
+  const mockedOs = {
+    ...actual,
+    homedir: () => _mockedHomedir || actual.homedir(),
+  };
+  return {
+    ...mockedOs,
+    default: mockedOs,
+  };
+});
+
+import * as os from "node:os";
 
 interface TestPaths {
   rootPath: string;
@@ -41,7 +56,6 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 describe("syncPermissions", () => {
   let paths: TestPaths;
-  let homedirSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     const rootPath = fs.mkdtempSync(join(os.tmpdir(), "kiln-security-sync-"));
@@ -50,11 +64,11 @@ describe("syncPermissions", () => {
     fs.mkdirSync(projectPath, { recursive: true });
     fs.mkdirSync(homePath, { recursive: true });
     paths = { rootPath, projectPath, homePath };
-    homedirSpy = vi.spyOn(os, "homedir").mockReturnValue(homePath);
+    _mockedHomedir = homePath;
   });
 
   afterEach(() => {
-    homedirSpy.mockRestore();
+    _mockedHomedir = "";
     try {
       fs.rmSync(paths.rootPath, { recursive: true, force: true });
     } catch {
