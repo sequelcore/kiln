@@ -177,6 +177,9 @@ Missing enforcement pieces:
   `excludeFromContext` now suppresses memory snapshot injection in preamble
 - `4.5c.b` second context-governance slice:
   CLI application flow now governs session context before prompt construction
+- `4.5c.d.a` first runtime data-firewall slice:
+  outbound channel sends now support destination-aware allow/deny/redact
+  evaluation before provider calls
 
 **Primary files (expected):**
 

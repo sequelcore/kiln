@@ -18,6 +18,22 @@ export interface OutboundRoutesConfig {
   readonly tenantRegistry: TenantRegistry;
   readonly appName: string;
   readonly adminToken?: string;
+  readonly evaluateOutboundPermission?: (
+    request: OutboundPermissionRequest,
+  ) => OutboundPermissionDecision | Promise<OutboundPermissionDecision>;
+}
+
+type OutboundDestination = "webhook";
+type OutboundPermissionDecision = "allow" | "deny" | "redact";
+
+interface OutboundPermissionRequest {
+  readonly tenantId: string;
+  readonly channel: "whatsapp" | "instagram" | "messenger";
+  readonly destination: OutboundDestination;
+  readonly type: "template" | "text";
+  readonly to: string;
+  readonly text?: string;
+  readonly templateName?: string;
 }
 
 interface OutboundSendRequest {
@@ -31,6 +47,18 @@ interface OutboundSendRequest {
     readonly components?: readonly WhatsAppTemplateComponent[];
   };
   readonly text?: string;
+}
+
+const REDACTED_OUTBOUND_TEXT = "[REDACTED]";
+
+function mapChannelToDestination(
+  channel: OutboundSendRequest["channel"],
+): OutboundDestination {
+  // Current outbound channel sends leave the runtime over external HTTP APIs.
+  // In policy terms for this slice, treat them as "webhook" destinations.
+  if (channel === "whatsapp") return "webhook";
+  if (channel === "instagram") return "webhook";
+  return "webhook";
 }
 
 export function createOutboundRoutes(config: OutboundRoutesConfig): Hono {
@@ -62,6 +90,31 @@ export function createOutboundRoutes(config: OutboundRoutesConfig): Hono {
       return c.json({ success: false, error: "Tenant not found" }, 404);
     }
 
+    const outboundDecision = config.evaluateOutboundPermission
+      ? await config.evaluateOutboundPermission({
+          tenantId: body.tenantId,
+          channel: body.channel,
+          destination: mapChannelToDestination(body.channel),
+          type: body.type,
+          to: body.to,
+          text: body.text,
+          templateName: body.template?.name,
+        })
+      : "allow";
+
+    if (outboundDecision === "deny") {
+      return c.json({ success: false, error: "Outbound send blocked by policy" }, 403);
+    }
+
+    if (outboundDecision === "redact" && body.type === "template") {
+      return c.json(
+        { success: false, error: "Template outbound send blocked: redact is not supported for templates" },
+        403,
+      );
+    }
+
+    const outboundText = outboundDecision === "redact" ? REDACTED_OUTBOUND_TEXT : body.text;
+
     try {
       if (body.channel === "whatsapp") {
         if (!tenant.whatsappPhoneNumberId || !tenant.whatsappAccessToken) {
@@ -84,14 +137,14 @@ export function createOutboundRoutes(config: OutboundRoutesConfig): Hono {
             body.template.components,
           );
         } else {
-          if (!body.text) {
+          if (!outboundText) {
             return c.json({ success: false, error: "Text sends require text field" }, 400);
           }
           const res = await sendWhatsAppMessage(
             tenant.whatsappPhoneNumberId,
             accessToken,
             body.to,
-            { type: "text", text: { body: body.text } },
+            { type: "text", text: { body: outboundText } },
           );
           const json = (await res.json()) as { messages?: Array<{ id: string }> };
           const messageId = json.messages?.[0]?.id;
@@ -106,23 +159,23 @@ export function createOutboundRoutes(config: OutboundRoutesConfig): Hono {
         if (!tenant.instagramPageId || !tenant.instagramAccessToken) {
           return c.json({ success: false, error: "Tenant has no Instagram credentials configured" }, 422);
         }
-        if (!body.text) {
+        if (!outboundText) {
           return c.json({ success: false, error: "Text sends require text field" }, 400);
         }
 
         const accessToken = resolveEnvToken(tenant.instagramAccessToken);
-        const result = await sendInstagramMessage(tenant.instagramPageId, accessToken, body.to, body.text);
+        const result = await sendInstagramMessage(tenant.instagramPageId, accessToken, body.to, outboundText);
         return c.json({ success: true, messageId: result.messageId });
       } else if (body.channel === "messenger") {
         if (!tenant.messengerAccessToken) {
           return c.json({ success: false, error: "Tenant has no Messenger credentials configured" }, 422);
         }
-        if (!body.text) {
+        if (!outboundText) {
           return c.json({ success: false, error: "Text sends require text field" }, 400);
         }
 
         const accessToken = resolveEnvToken(tenant.messengerAccessToken);
-        const result = await sendMessengerMessage(accessToken, body.to, body.text);
+        const result = await sendMessengerMessage(accessToken, body.to, outboundText);
         return c.json({ success: true, messageId: result.messageId });
       }
     } catch (err) {

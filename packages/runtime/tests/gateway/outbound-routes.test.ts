@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
@@ -32,6 +32,11 @@ describe("createOutboundRoutes", () => {
     config = { tenantRegistry, appName: "test-app", adminToken: ADMIN_TOKEN };
   });
 
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
   function sendRequest(body: Record<string, unknown>, token = ADMIN_TOKEN) {
     const app = createOutboundRoutes(config);
     return app.request("/send", {
@@ -42,6 +47,13 @@ describe("createOutboundRoutes", () => {
       },
       body: JSON.stringify(body),
     });
+  }
+
+  function firstFetchBody(fetchMock: ReturnType<typeof vi.fn>): Record<string, unknown> {
+    const init = fetchMock.mock.calls[0]?.[1] as { body?: string } | undefined;
+    const body = init?.body;
+    if (!body) return {};
+    return JSON.parse(body) as Record<string, unknown>;
   }
 
   it("rejects requests without auth", async () => {
@@ -249,5 +261,119 @@ describe("createOutboundRoutes", () => {
     expect(res.status).toBe(200);
 
     vi.unstubAllGlobals();
+  });
+
+  it("allow decision keeps outbound send behavior unchanged", async () => {
+    const policyHook = vi.fn().mockResolvedValue("allow");
+    config = { ...config, evaluateOutboundPermission: policyHook };
+
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ messages: [{ id: "wamid.allow" }] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const tenant = createTenant(tenantRegistry);
+    const originalText = "Hello allow path";
+    const res = await sendRequest({
+      tenantId: tenant.tenantId,
+      channel: "whatsapp",
+      to: "+1234567890",
+      type: "text",
+      text: originalText,
+    });
+
+    expect(res.status).toBe(200);
+    expect(policyHook).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: tenant.tenantId,
+        channel: "whatsapp",
+        destination: "webhook",
+        type: "text",
+        text: originalText,
+      }),
+    );
+
+    const payload = firstFetchBody(fetchMock);
+    expect(payload.text).toEqual({ body: originalText });
+  });
+
+  it("deny decision blocks send before provider call", async () => {
+    config = {
+      ...config,
+      evaluateOutboundPermission: vi.fn().mockResolvedValue("deny"),
+    };
+
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const tenant = createTenant(tenantRegistry);
+    const res = await sendRequest({
+      tenantId: tenant.tenantId,
+      channel: "whatsapp",
+      to: "+1234567890",
+      type: "text",
+      text: "Hello deny path",
+    });
+
+    expect(res.status).toBe(403);
+    expect(fetchMock).not.toHaveBeenCalled();
+    const body = await res.json();
+    expect(body.success).toBe(false);
+    expect(body.error).toContain("blocked by policy");
+  });
+
+  it("redact decision redacts text payload before provider call", async () => {
+    config = {
+      ...config,
+      evaluateOutboundPermission: vi.fn().mockResolvedValue("redact"),
+    };
+
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ messages: [{ id: "wamid.redact" }] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const tenant = createTenant(tenantRegistry);
+    const res = await sendRequest({
+      tenantId: tenant.tenantId,
+      channel: "whatsapp",
+      to: "+1234567890",
+      type: "text",
+      text: "Sensitive outbound text",
+    });
+
+    expect(res.status).toBe(200);
+    const payload = firstFetchBody(fetchMock);
+    expect(payload.text).toEqual({ body: "[REDACTED]" });
+  });
+
+  it("redact decision blocks template sends without mutating template payload", async () => {
+    config = {
+      ...config,
+      evaluateOutboundPermission: vi.fn().mockResolvedValue("redact"),
+    };
+
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const tenant = createTenant(tenantRegistry);
+    const res = await sendRequest({
+      tenantId: tenant.tenantId,
+      channel: "whatsapp",
+      to: "+1234567890",
+      type: "template",
+      template: {
+        name: "appointment_reminder",
+        language: "es_MX",
+      },
+    });
+
+    expect(res.status).toBe(403);
+    expect(fetchMock).not.toHaveBeenCalled();
+    const body = await res.json();
+    expect(body.success).toBe(false);
+    expect(body.error).toContain("redact is not supported for templates");
   });
 });

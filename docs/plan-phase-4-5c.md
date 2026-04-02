@@ -139,6 +139,20 @@ not only in evaluation or prompt text.
 
 Enforce destination-aware policy for outbound sends and runtime egress paths.
 
+**Current progress**
+
+- first narrow slice landed in
+  [outbound-routes.ts](/C:/Proyectos/Sequel/kiln/packages/runtime/src/gateway/outbound-routes.ts):
+  outbound channel sends now consult an optional permission hook before
+  provider calls
+- current behavior for this slice:
+  - `allow`: unchanged send behavior
+  - `deny`: safe block before provider call
+  - `redact`: text payload rewritten to `[REDACTED]`
+  - template sends + `redact`: blocked safely, not mutated
+- tests landed in
+  [outbound-routes.test.ts](/C:/Proyectos/Sequel/kiln/packages/runtime/tests/gateway/outbound-routes.test.ts)
+
 **Primary files**
 
 - `packages/runtime/src/gateway/outbound-routes.ts`
