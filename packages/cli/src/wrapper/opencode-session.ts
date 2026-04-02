@@ -282,6 +282,7 @@ export class OpenCodeSession implements IKilnSession {
     const startTime = Date.now();
     const abortController = new AbortController();
     this._abortController = abortController;
+    const knownMcpToolNames = new Set<string>();
     const cwd = options.cwd ?? this._config.cwd;
 
     if (options.abortSignal) {
@@ -519,10 +520,13 @@ export class OpenCodeSession implements IKilnSession {
           const part = props.part;
           if (part.type === "tool") {
             if (part.state?.status === "pending" || part.state?.status === "running") {
+              const toolName = part.tool ?? "unknown";
+              const source = knownMcpToolNames.has(toolName) ? "mcp" : undefined;
               yield {
                 type: "tool_use",
-                toolName: part.tool ?? "unknown",
+                toolName,
                 input: part.state?.input ?? {},
+                ...(source ? { source } : {}),
               };
             } else if (part.state?.status === "completed") {
               const output = part.state?.output;
@@ -590,6 +594,16 @@ export class OpenCodeSession implements IKilnSession {
             tools?: Array<{ name: string }>;
           } | undefined;
           if (props?.sessionID !== this._remoteSessionId) continue;
+          const nextMcpToolNames = new Set<string>();
+          for (const tool of props?.tools ?? []) {
+            if (typeof tool?.name === "string" && tool.name.length > 0) {
+              nextMcpToolNames.add(tool.name);
+            }
+          }
+          knownMcpToolNames.clear();
+          for (const toolName of nextMcpToolNames) {
+            knownMcpToolNames.add(toolName);
+          }
           const toolList = props?.tools?.map((t) => t.name).join(", ") ?? "";
           yield { type: "tool_result", toolName: "mcp.tools.changed", output: toolList };
           continue;

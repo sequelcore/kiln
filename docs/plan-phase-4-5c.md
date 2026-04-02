@@ -151,9 +151,14 @@ not only in evaluation or prompt text.
   [claude-code-process.ts](/C:/Proyectos/Sequel/kiln/packages/cli/src/wrapper/claude-code-process.ts):
   Claude MCP-origin tool blocks are now preserved as `tool_use` events with
   `source: "mcp"` instead of collapsing into generic tool calls
+- wrapper metadata expansion landed in
+  [opencode-session.ts](/C:/Proyectos/Sequel/kiln/packages/cli/src/wrapper/opencode-session.ts):
+  OpenCode now tracks MCP-backed tool names from `mcp.tools.changed` and marks
+  matching `tool_use` events as `source: "mcp"`
 - tests landed in
   [run-session-permissions.test.ts](/C:/Proyectos/Sequel/kiln/packages/cli/tests/application/run-session-permissions.test.ts)
   and [claude-code-process.test.ts](/C:/Proyectos/Sequel/kiln/packages/cli/tests/wrapper/claude-code-process.test.ts)
+  and [opencode-session.test.ts](/C:/Proyectos/Sequel/kiln/packages/cli/tests/wrapper/opencode-session.test.ts)
 
 **Primary files**
 

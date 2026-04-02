@@ -3,7 +3,11 @@ import { OpenCodeSession } from "../../src/wrapper/opencode-session.js";
 import type { OpenCodeSessionConfig } from "../../src/wrapper/opencode-session.js";
 import type { IKilnSession } from "../../src/wrapper/session.js";
 
-const { createOpencodeClient } = vi.hoisted(() => ({ createOpencodeClient: vi.fn() }));
+const createOpencodeClient = vi.fn();
+const viRuntime = vi as typeof vi & { mocked?: <T>(item: T) => T };
+if (typeof viRuntime.mocked !== "function") {
+  viRuntime.mocked = <T>(item: T): T => item;
+}
 
 vi.mock("@opencode-ai/sdk/v2", () => ({
   createOpencodeClient,
@@ -248,6 +252,137 @@ describe("OpenCodeSession.run() integration", () => {
     }
 
     expect(events).toContainEqual({ type: "tool_use", toolName: "read", input: { filePath: "/tmp/test.txt" } });
+  });
+
+  it("run() marks tool_use source as mcp when tool name was registered by mcp.tools.changed", async () => {
+    const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+    const mock = {
+      session: {
+        create: vi.fn().mockResolvedValue({ data: { id: "ses_mcp_source" } }),
+        prompt: vi.fn().mockResolvedValue({ data: { info: { cost: 0.002 } } }),
+        abort: vi.fn().mockResolvedValue(undefined),
+      },
+      global: {
+        event: vi.fn().mockResolvedValue({
+          stream: (async function* () {
+            await tick();
+            yield {
+              directory: "/tmp",
+              payload: {
+                type: "mcp.tools.changed",
+                properties: {
+                  sessionID: "ses_mcp_source",
+                  tools: [{ name: "memory_store" }],
+                },
+              },
+            };
+            await tick();
+            yield {
+              directory: "/tmp",
+              payload: {
+                type: "message.part.updated",
+                properties: {
+                  sessionID: "ses_mcp_source",
+                  part: {
+                    type: "tool",
+                    tool: "memory_store",
+                    callID: "call_mcp_1",
+                    state: { status: "running", input: { key: "k", value: "v" } },
+                  },
+                },
+              },
+            };
+            await tick();
+            yield {
+              directory: "/tmp",
+              payload: { type: "session.status", properties: { sessionID: "ses_mcp_source", status: { type: "idle" } } },
+            };
+          })(),
+        }),
+      },
+      config: {
+        update: vi.fn().mockResolvedValue({ data: undefined }),
+      },
+    };
+    vi.mocked(createOpencodeClient).mockReturnValueOnce(mock as any);
+
+    const session = new OpenCodeSession(baseConfig());
+    const events: object[] = [];
+    for await (const event of await session.run({ prompt: "test" })) {
+      events.push(event);
+    }
+
+    expect(events).toContainEqual({
+      type: "tool_use",
+      toolName: "memory_store",
+      input: { key: "k", value: "v" },
+      source: "mcp",
+    });
+  });
+
+  it("run() keeps normal tool_use unmarked when tool is not in MCP registry", async () => {
+    const mock = makeMockClient("ses_native_tool", [
+      {
+        directory: "/tmp",
+        payload: {
+          type: "sessionUpdate",
+          properties: {
+            sessionID: "ses_native_tool",
+            type: "usage_update",
+            cost: { amount: 0.002 },
+          },
+        },
+      },
+      {
+        directory: "/tmp",
+        payload: {
+          type: "mcp.tools.changed",
+          properties: {
+            sessionID: "ses_native_tool",
+            tools: [{ name: "memory_store" }],
+          },
+        },
+      },
+      {
+        directory: "/tmp",
+        payload: {
+          type: "message.part.updated",
+          properties: {
+            sessionID: "ses_native_tool",
+            part: {
+              type: "tool",
+              tool: "bash",
+              callID: "call_bash_2",
+              state: { status: "running", input: { command: "pwd" } },
+            },
+          },
+        },
+      },
+      {
+        directory: "/tmp",
+        payload: { type: "session.status", properties: { sessionID: "ses_native_tool", status: { type: "idle" } } },
+      },
+    ], 0.002);
+    vi.mocked(createOpencodeClient).mockReturnValueOnce(mock as any);
+
+    const session = new OpenCodeSession(baseConfig());
+    const events: object[] = [];
+    for await (const event of await session.run({ prompt: "test" })) {
+      events.push(event);
+    }
+
+    expect(events).toContainEqual({
+      type: "tool_use",
+      toolName: "bash",
+      input: { command: "pwd" },
+    });
+    expect(events).not.toContainEqual(
+      expect.objectContaining({
+        type: "tool_use",
+        toolName: "bash",
+        source: "mcp",
+      }),
+    );
   });
 
   it("run() yields tool_result for completed tool via message.part.updated", async () => {
