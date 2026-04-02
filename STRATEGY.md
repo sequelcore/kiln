@@ -516,8 +516,8 @@ re-locks users into Claude Code-only UX.
 - `4.5c` started: approval-memory and enforcement integration planning is in
   place, with approval-memory persistence, application-backed context
   governance, first runtime data-firewall slices underway, and the first
-  execution-time tool-scope and bash-command enforcement slices landed in the
-  CLI run loop
+  execution-time tool-scope, bash-command, and scoped MCP-tool enforcement
+  slices landed in the CLI run loop
 - later sub-phases still pending: full enforcement integration and core safety
   hardening
 

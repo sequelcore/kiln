@@ -142,6 +142,11 @@ not only in evaluation or prompt text.
   bash-like tool payloads (`Bash`, `bash`) now evaluate `commandRules` when a
   string command is present at `event.input.command`, and denied commands stop
   the active provider attempt before hook execution
+- third narrow slice landed in
+  [run-session.ts](/C:/Proyectos/Sequel/kiln/packages/cli/src/application/run-session.ts):
+  explicitly marked MCP-origin tool events now honor scoped `mcpTools`
+  allowlists with exact-match semantics when the active agent scope defines
+  them
 - tests landed in
   [run-session-permissions.test.ts](/C:/Proyectos/Sequel/kiln/packages/cli/tests/application/run-session-permissions.test.ts)
 

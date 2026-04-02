@@ -111,6 +111,23 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
               break;
             }
 
+            const scopedMcpTools = permissionEvaluator.scope.mcpTools;
+            const hasScopedMcpRestriction =
+              event.source === "mcp"
+              && permissionEvaluator.scope.matchedScope
+              && scopedMcpTools !== undefined;
+            if (hasScopedMcpRestriction && !scopedMcpTools.includes(event.toolName)) {
+              transcript.push({
+                seq: ++transcriptSeq,
+                ts: new Date().toISOString(),
+                event: { type: "tool_use", toolName: `${event.toolName} [DENIED]` },
+              });
+              lastError = `Provider ${providerId} denied MCP tool "${event.toolName}" by policy`;
+              options.registry.reportFailure(providerId, false);
+              providerDeniedByPolicy = true;
+              break;
+            }
+
             const isBashLikeTool = event.toolName === "Bash" || event.toolName === "bash";
             const command = extractCommandFromToolInput(event.input);
             if (isBashLikeTool && command !== undefined) {
