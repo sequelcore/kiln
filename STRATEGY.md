@@ -392,7 +392,10 @@ See [ADR-003: Meta-Orchestrator Model](docs/adr/ADR-003-meta-orchestrator-model.
   slices landed in the CLI run loop; MCP-origin event metadata now exists in
   Codex, Claude, and OpenCode wrapper paths to support honest scoped
   enforcement, and scoped MCP matching now uses canonical selectors instead of
-  raw backend-emitted tool names
+  raw backend-emitted tool names; CLI run-loop tool denies now consult
+  approval memory, preserve normal allowed-tool flow on matching grants,
+  consume `once` grants only after later gates pass, and use stable logical
+  Kiln session IDs for session-scoped matching (including resume paths)
 - `4.5d` started: safety-hardening scout complete and two core slices landed
   (currently uncommitted): prompt-scanner detection-time normalization for
   Unicode/homoglyph and invisible-character variants while preserving the

@@ -195,6 +195,11 @@ Missing enforcement pieces:
 - `4.5c.c` canonical selector tightening:
   wrapper-emitted MCP tool events now carry normalized selectors, and run-loop
   enforcement matches scoped `mcpTools` against those canonical selectors
+- `4.5c.a` approval-memory consumption slice:
+  CLI run-loop tool denies now consult approval memory; matching grants keep
+  the normal allowed-tool flow; `once` grants are consumed only after later
+  gates pass; session-scoped matching now uses stable logical Kiln session IDs
+  (including resume path handoff from `run.ts`)
 - `4.5c.d.a` first runtime data-firewall slice:
   outbound channel sends now support destination-aware allow/deny/redact
   evaluation before provider calls

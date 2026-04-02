@@ -92,6 +92,19 @@ This is the cleanest first slice because:
 - it does not force premature runtime/UI behavior
 - it creates a real foundation for later enforcement
 
+**Current progress**
+
+- approval memory is now consumed in the CLI application run loop for
+  denied `tool_use` events
+- matching approval memory grants allow the tool while preserving the normal
+  allowed-tool flow (transcript + hooks + tool accounting)
+- `once` grants are consumed only after command/MCP/later gates pass
+- session-scoped matching uses stable logical Kiln session IDs from the outer
+  run command, including resumed-session paths
+- focused `run-session-permissions` coverage exists for once/session/project
+  grants and the edge case where a later gate denies execution without
+  consuming a `once` grant
+
 ### 4.5c.b — Context Governance Enforcement
 
 **Purpose**

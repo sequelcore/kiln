@@ -4,6 +4,8 @@ import type {
   ProviderId,
   SessionRequirements,
   PermissionEvaluator,
+  ApprovalMatchQuery,
+  ApprovalMemoryRecord,
 } from "../wrapper/index.js";
 import { createPermissionEvaluator } from "../wrapper/index.js";
 import type {
@@ -26,8 +28,15 @@ export interface RunSessionOptions {
   readonly sessionConfig: ProviderCreateConfig;
   readonly permissionPolicy: ProviderCreateConfig["permissionPolicy"];
   readonly permissionAgent?: string;
+  readonly sessionId?: string;
+  readonly approvalMemoryStore?: ApprovalMemoryLookup;
   readonly env: Record<string, string>;
   readonly sessionHooks: SessionHooks;
+}
+
+export interface ApprovalMemoryLookup {
+  consumeOnce(query: ApprovalMatchQuery): Promise<ApprovalMemoryRecord | null>;
+  findMatch(query: ApprovalMatchQuery): Promise<ApprovalMemoryRecord | null>;
 }
 
 export interface RunSessionResult {
@@ -100,16 +109,25 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
           }
           case "tool_use": {
             const decision = permissionEvaluator.evaluateTool(event.toolName);
+            const stableSessionId = options.sessionId;
+            let matchedToolApprovalMemory: ApprovalMemoryRecord | null = null;
             if (decision.action === "deny") {
-              transcript.push({
-                seq: ++transcriptSeq,
-                ts: new Date().toISOString(),
-                event: { type: "tool_use", toolName: `${event.toolName} [DENIED]` },
-              });
-              lastError = `Provider ${providerId} denied tool "${event.toolName}" by policy`;
-              options.registry.reportFailure(providerId, false);
-              providerDeniedByPolicy = true;
-              break;
+              matchedToolApprovalMemory = await findToolApprovalMemory(
+                options.approvalMemoryStore,
+                event.toolName,
+                stableSessionId,
+              );
+              if (!matchedToolApprovalMemory) {
+                transcript.push({
+                  seq: ++transcriptSeq,
+                  ts: new Date().toISOString(),
+                  event: { type: "tool_use", toolName: `${event.toolName} [DENIED]` },
+                });
+                lastError = `Provider ${providerId} denied tool "${event.toolName}" by policy`;
+                options.registry.reportFailure(providerId, false);
+                providerDeniedByPolicy = true;
+                break;
+              }
             }
 
             const scopedMcpTools = permissionEvaluator.scope.mcpTools;
@@ -144,6 +162,25 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
                   event: { type: "tool_use", toolName: `${event.toolName} [DENIED]` },
                 });
                 lastError = `Provider ${providerId} denied command "${command}" by policy`;
+                options.registry.reportFailure(providerId, false);
+                providerDeniedByPolicy = true;
+                break;
+              }
+            }
+
+            if (matchedToolApprovalMemory?.scope === "once") {
+              const consumed = await consumeToolApprovalOnce(
+                options.approvalMemoryStore,
+                event.toolName,
+                stableSessionId,
+              );
+              if (!consumed) {
+                transcript.push({
+                  seq: ++transcriptSeq,
+                  ts: new Date().toISOString(),
+                  event: { type: "tool_use", toolName: `${event.toolName} [DENIED]` },
+                });
+                lastError = `Provider ${providerId} denied tool "${event.toolName}" by policy`;
                 options.registry.reportFailure(providerId, false);
                 providerDeniedByPolicy = true;
                 break;
@@ -242,4 +279,46 @@ function extractCommandFromToolInput(input: unknown): string | undefined {
   if (typeof input !== "object" || input === null) return undefined;
   const withCommand = input as { command?: unknown };
   return typeof withCommand.command === "string" ? withCommand.command : undefined;
+}
+
+async function findToolApprovalMemory(
+  approvalMemoryStore: ApprovalMemoryLookup | undefined,
+  toolName: string,
+  sessionId: string | undefined,
+): Promise<ApprovalMemoryRecord | null> {
+  if (!approvalMemoryStore || sessionId === undefined) return null;
+
+  const query: ApprovalMatchQuery = {
+    surface: "tool",
+    selector: toolName,
+    action: "allow",
+    sessionId,
+  };
+
+  try {
+    return await approvalMemoryStore.findMatch(query);
+  } catch {
+    return null;
+  }
+}
+
+async function consumeToolApprovalOnce(
+  approvalMemoryStore: ApprovalMemoryLookup | undefined,
+  toolName: string,
+  sessionId: string | undefined,
+): Promise<boolean> {
+  if (!approvalMemoryStore || sessionId === undefined) return false;
+
+  const query: ApprovalMatchQuery = {
+    surface: "tool",
+    selector: toolName,
+    action: "allow",
+    sessionId,
+  };
+
+  try {
+    return (await approvalMemoryStore.consumeOnce(query)) !== null;
+  } catch {
+    return false;
+  }
 }

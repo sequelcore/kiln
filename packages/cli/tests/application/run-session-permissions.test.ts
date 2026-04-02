@@ -1,7 +1,11 @@
-import { describe, expect, it, vi } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DomainConfig } from "@kilnai/core";
 import { runSession } from "../../src/application/run-session.js";
 import type { SessionContext } from "../../src/wrapper/index.js";
+import { ApprovalMemoryStore } from "../../src/wrapper/approval-memory-store.js";
 
 const DOMAIN: DomainConfig = {
   name: "generic",
@@ -12,6 +16,7 @@ const DOMAIN: DomainConfig = {
   multishotExamples: "",
   phaseExamples: "",
 };
+const KILN_SESSION_ID = "kiln-session-1";
 
 function makeContext(): SessionContext {
   return {
@@ -27,6 +32,7 @@ function makeContext(): SessionContext {
 
 function createSessionFromEvents(
   events: readonly unknown[],
+  providerSessionId = "session-1",
 ): {
   sessionId: string;
   capabilities: Record<string, unknown>;
@@ -34,7 +40,7 @@ function createSessionFromEvents(
   dispose: () => Promise<void>;
 } {
   return {
-    sessionId: "session-1",
+    sessionId: providerSessionId,
     capabilities: {},
     run: async function* () {
       for (const event of events) {
@@ -46,6 +52,16 @@ function createSessionFromEvents(
 }
 
 describe("runSession tool permission gating", () => {
+  let projectPath: string;
+
+  beforeEach(() => {
+    projectPath = mkdtempSync(join(tmpdir(), "kiln-run-session-perms-"));
+  });
+
+  afterEach(() => {
+    rmSync(projectPath, { recursive: true, force: true });
+  });
+
   it("denied tool_use causes provider attempt failure", async () => {
     const reportFailure = vi.fn();
     const reportSuccess = vi.fn();
@@ -98,6 +114,270 @@ describe("runSession tool permission gating", () => {
         event: { type: "tool_use", toolName: "Bash [DENIED]" },
       }),
     );
+  });
+
+  it("once grant allows denied tool_use, preserves allowed flow, and is consumed", async () => {
+    const reportFailure = vi.fn();
+    const reportSuccess = vi.fn();
+    const preToolUse = vi.fn();
+    const postToolUse = vi.fn();
+    const approvalMemoryStore = new ApprovalMemoryStore(projectPath);
+
+    await approvalMemoryStore.grant({
+      scope: "once",
+      surface: "tool",
+      selector: "Bash",
+      action: "allow",
+    });
+
+    const session = createSessionFromEvents([
+      { type: "tool_use", toolName: "Bash", input: { command: "ls" } },
+      { type: "tool_result", toolName: "Bash", output: "ok" },
+      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+    ]);
+
+    const result = await runSession({
+      registry: {
+        selectBest: () => ({ primary: "claude", orderedFallbacks: [], scores: [] }),
+        createSession: () => session as any,
+        reportFailure,
+        reportSuccess,
+      } as any,
+      cleanupRegistry: { register: () => {} } as any,
+      manager: { trackCostUpdate: () => {} } as any,
+      context: makeContext(),
+      requirements: {},
+      sessionId: KILN_SESSION_ID,
+      sessionConfig: {
+        task: "test",
+        permissionPolicy: {
+          approval: "on-request",
+          sandbox: "read-only",
+          tools: [{ tool: "Bash", action: "deny" }],
+        },
+      },
+      permissionPolicy: {
+        approval: "on-request",
+        sandbox: "read-only",
+        tools: [{ tool: "Bash", action: "deny" }],
+      },
+      approvalMemoryStore,
+      env: {},
+      sessionHooks: {
+        userPromptSubmit: () => {},
+        preToolUse,
+        postToolUse,
+      } as any,
+    });
+
+    expect(result.sessionSucceeded).toBe(true);
+    expect(preToolUse).toHaveBeenCalledWith("Bash");
+    expect(postToolUse).toHaveBeenCalledWith("Bash");
+    expect(reportSuccess).toHaveBeenCalledWith("claude");
+    expect(reportFailure).not.toHaveBeenCalled();
+    expect(result.transcript).toContainEqual(
+      expect.objectContaining({
+        event: { type: "tool_use", toolName: "Bash" },
+      }),
+    );
+
+    const remaining = await approvalMemoryStore.findMatch({
+      surface: "tool",
+      selector: "Bash",
+      action: "allow",
+      sessionId: KILN_SESSION_ID,
+    });
+    expect(remaining).toBeNull();
+  });
+
+  it("once grant is not consumed when later command gate denies tool execution", async () => {
+    const reportFailure = vi.fn();
+    const preToolUse = vi.fn();
+    const approvalMemoryStore = new ApprovalMemoryStore(projectPath);
+
+    await approvalMemoryStore.grant({
+      scope: "once",
+      surface: "tool",
+      selector: "Bash",
+      action: "allow",
+    });
+
+    const session = createSessionFromEvents([
+      { type: "tool_use", toolName: "Bash", input: { command: "rm -rf /tmp/cache" } },
+      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+    ]);
+
+    const result = await runSession({
+      registry: {
+        selectBest: () => ({ primary: "claude", orderedFallbacks: [], scores: [] }),
+        createSession: () => session as any,
+        reportFailure,
+        reportSuccess: () => {},
+      } as any,
+      cleanupRegistry: { register: () => {} } as any,
+      manager: { trackCostUpdate: () => {} } as any,
+      context: makeContext(),
+      requirements: {},
+      sessionId: KILN_SESSION_ID,
+      sessionConfig: {
+        task: "test",
+        permissionPolicy: {
+          approval: "on-request",
+          sandbox: "read-only",
+          tools: [{ tool: "Bash", action: "deny" }],
+          commands: [{ pattern: "rm -rf /tmp/cache", action: "deny", shell: "bash" }],
+        },
+      },
+      permissionPolicy: {
+        approval: "on-request",
+        sandbox: "read-only",
+        tools: [{ tool: "Bash", action: "deny" }],
+        commands: [{ pattern: "rm -rf /tmp/cache", action: "deny", shell: "bash" }],
+      },
+      approvalMemoryStore,
+      env: {},
+      sessionHooks: {
+        userPromptSubmit: () => {},
+        preToolUse,
+        postToolUse: () => {},
+      } as any,
+    });
+
+    expect(result.sessionSucceeded).toBe(false);
+    expect(result.lastError).toContain('denied command "rm -rf /tmp/cache"');
+    expect(preToolUse).not.toHaveBeenCalled();
+
+    const remaining = await approvalMemoryStore.findMatch({
+      surface: "tool",
+      selector: "Bash",
+      action: "allow",
+      sessionId: KILN_SESSION_ID,
+    });
+    expect(remaining).not.toBeNull();
+    expect(remaining?.scope).toBe("once");
+  });
+
+  it("session grant allows denied tool_use and preserves allowed flow", async () => {
+    const reportFailure = vi.fn();
+    const reportSuccess = vi.fn();
+    const preToolUse = vi.fn();
+    const postToolUse = vi.fn();
+    const approvalMemoryStore = new ApprovalMemoryStore(projectPath);
+
+    await approvalMemoryStore.grant({
+      scope: "session",
+      sessionId: KILN_SESSION_ID,
+      surface: "tool",
+      selector: "Read",
+      action: "allow",
+    });
+
+    const session = createSessionFromEvents([
+      { type: "tool_use", toolName: "Read", input: { filePath: "README.md" } },
+      { type: "tool_result", toolName: "Read", output: "ok" },
+      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+    ], "provider-session-42");
+
+    const result = await runSession({
+      registry: {
+        selectBest: () => ({ primary: "claude", orderedFallbacks: [], scores: [] }),
+        createSession: () => session as any,
+        reportFailure,
+        reportSuccess,
+      } as any,
+      cleanupRegistry: { register: () => {} } as any,
+      manager: { trackCostUpdate: () => {} } as any,
+      context: makeContext(),
+      requirements: {},
+      sessionId: KILN_SESSION_ID,
+      sessionConfig: {
+        task: "test",
+        permissionPolicy: {
+          approval: "on-request",
+          sandbox: "read-only",
+          tools: [{ tool: "Read", action: "deny" }],
+        },
+      },
+      permissionPolicy: {
+        approval: "on-request",
+        sandbox: "read-only",
+        tools: [{ tool: "Read", action: "deny" }],
+      },
+      approvalMemoryStore,
+      env: {},
+      sessionHooks: {
+        userPromptSubmit: () => {},
+        preToolUse,
+        postToolUse,
+      } as any,
+    });
+
+    expect(result.sessionSucceeded).toBe(true);
+    expect(preToolUse).toHaveBeenCalledWith("Read");
+    expect(postToolUse).toHaveBeenCalledWith("Read");
+    expect(reportSuccess).toHaveBeenCalledWith("claude");
+    expect(reportFailure).not.toHaveBeenCalled();
+  });
+
+  it("project grant allows denied tool_use and preserves allowed flow", async () => {
+    const reportFailure = vi.fn();
+    const reportSuccess = vi.fn();
+    const preToolUse = vi.fn();
+    const postToolUse = vi.fn();
+    const approvalMemoryStore = new ApprovalMemoryStore(projectPath);
+
+    await approvalMemoryStore.grant({
+      scope: "project",
+      surface: "tool",
+      selector: "Write",
+      action: "allow",
+    });
+
+    const session = createSessionFromEvents([
+      { type: "tool_use", toolName: "Write", input: { filePath: "README.md", content: "ok" } },
+      { type: "tool_result", toolName: "Write", output: "ok" },
+      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+    ]);
+
+    const result = await runSession({
+      registry: {
+        selectBest: () => ({ primary: "claude", orderedFallbacks: [], scores: [] }),
+        createSession: () => session as any,
+        reportFailure,
+        reportSuccess,
+      } as any,
+      cleanupRegistry: { register: () => {} } as any,
+      manager: { trackCostUpdate: () => {} } as any,
+      context: makeContext(),
+      requirements: {},
+      sessionId: KILN_SESSION_ID,
+      sessionConfig: {
+        task: "test",
+        permissionPolicy: {
+          approval: "on-request",
+          sandbox: "read-only",
+          tools: [{ tool: "Write", action: "deny" }],
+        },
+      },
+      permissionPolicy: {
+        approval: "on-request",
+        sandbox: "read-only",
+        tools: [{ tool: "Write", action: "deny" }],
+      },
+      approvalMemoryStore,
+      env: {},
+      sessionHooks: {
+        userPromptSubmit: () => {},
+        preToolUse,
+        postToolUse,
+      } as any,
+    });
+
+    expect(result.sessionSucceeded).toBe(true);
+    expect(preToolUse).toHaveBeenCalledWith("Write");
+    expect(postToolUse).toHaveBeenCalledWith("Write");
+    expect(reportSuccess).toHaveBeenCalledWith("claude");
+    expect(reportFailure).not.toHaveBeenCalled();
   });
 
   it("allowed tool_use keeps current behavior", async () => {

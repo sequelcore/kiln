@@ -5,6 +5,7 @@ import { SessionManager } from "../wrapper/session-manager.js";
 import { createDefaultRegistry } from "../wrapper/session-registry.js";
 import { cleanupRegistry } from "../wrapper/cleanup-registry.js";
 import type {
+  ApprovalMemoryStore,
   ProviderId,
   SessionRequirements,
   SessionMode,
@@ -16,6 +17,7 @@ import { computeEvalScore, printReport } from "../application/session-report.js"
 import { resolveResumeSessionId } from "../application/session-resume.js";
 import { SessionHooks } from "../application/session-hooks.js";
 import { runSession } from "../application/run-session.js";
+import { ApprovalMemoryStore as ApprovalMemoryStoreImpl } from "../wrapper/index.js";
 import {
   SkillGenerator,
   AnthropicAdapter,
@@ -74,6 +76,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     flags.resume,
     preferredProvider,
   );
+  const approvalMemorySessionId = resumeSessionId ?? sessionId;
 
   console.log(`Domain:  ${context.domain.displayName}`);
   console.log(`Mode:    ${mode}`);
@@ -109,6 +112,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     sessionId,
     workingDirectory: context.workingDirectory,
   });
+  const approvalMemoryStore: ApprovalMemoryStore = new ApprovalMemoryStoreImpl(process.cwd());
 
   const shutdown = (): void => {
     void cleanupRegistry.runAll();
@@ -134,6 +138,8 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     requirements,
     sessionConfig,
     permissionPolicy: config.permissionPolicy,
+    sessionId: approvalMemorySessionId,
+    approvalMemoryStore,
     env,
     sessionHooks,
   });
