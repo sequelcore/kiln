@@ -37,6 +37,37 @@ function makeProvider(toolCallsOnRound?: number): ProviderAdapter {
   };
 }
 
+function makeCommandProvider(command: string, toolName = "bash"): ProviderAdapter {
+  let callCount = 0;
+  return {
+    name: "mock",
+    createMessage: vi.fn().mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        return {
+          parts: textParts("running command..."),
+          inputTokens: 100,
+          outputTokens: 50,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          toolCalls: [{ id: "tc-cmd-1", name: toolName, input: { command } }],
+          stopReason: "tool_use",
+        };
+      }
+      return {
+        parts: textParts("done"),
+        inputTokens: 100,
+        outputTokens: 50,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        toolCalls: [],
+        stopReason: "end_turn",
+      };
+    }),
+    streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+  };
+}
+
 function makeSession(): ModeBSession {
   return new ModeBSession({ appName: "app", tenantId: "test-tenant", userId: "user-1", systemPrompt: "Be helpful." });
 }
@@ -116,6 +147,125 @@ describe("ModeBOrchestrator - Tool Execution Enhancements", () => {
       await orchestrator.processMessage(makeSession(), textParts("delete stuff"));
 
       expect(toolFn).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("dangerous command enforcement", () => {
+    it("deny decision blocks dangerous command before tool execution", async () => {
+      const provider = makeCommandProvider("rm -rf /tmp/cache");
+      const toolFn = vi.fn().mockResolvedValue("should not run");
+      const detector = {
+        evaluate: vi.fn().mockReturnValue({
+          action: "deny",
+          reasonCode: "destructive_unix",
+          reason: "Detected destructive Unix command pattern.",
+        }),
+      };
+
+      const orchestrator = new ModeBOrchestrator({
+        provider,
+        tools: [{ name: "bash", description: "Runs shell commands", inputSchema: {}, tags: new Set() }],
+        builtinTools: new Map([["bash", toolFn]]),
+        dangerousCommandDetector: detector,
+      });
+
+      await orchestrator.processMessage(makeSession(), textParts("cleanup"));
+
+      expect(detector.evaluate).toHaveBeenCalledWith({ command: "rm -rf /tmp/cache", shell: "bash" });
+      expect(toolFn).not.toHaveBeenCalled();
+    });
+
+    it("ask decision blocks ambiguous command before tool execution", async () => {
+      const provider = makeCommandProvider("echo $(cat .env)");
+      const toolFn = vi.fn().mockResolvedValue("should not run");
+      const detector = {
+        evaluate: vi.fn().mockReturnValue({
+          action: "ask",
+          reasonCode: "ambiguous_expansion",
+          reason: "Command contains shell expansion/substitution and requires approval.",
+        }),
+      };
+
+      const orchestrator = new ModeBOrchestrator({
+        provider,
+        tools: [{ name: "bash", description: "Runs shell commands", inputSchema: {}, tags: new Set() }],
+        builtinTools: new Map([["bash", toolFn]]),
+        dangerousCommandDetector: detector,
+      });
+
+      await orchestrator.processMessage(makeSession(), textParts("check env"));
+
+      expect(detector.evaluate).toHaveBeenCalledWith({ command: "echo $(cat .env)", shell: "bash" });
+      expect(toolFn).not.toHaveBeenCalled();
+    });
+
+    it("detector exception does not crash turn and blocks execution", async () => {
+      const provider = makeCommandProvider("git status --short");
+      const toolFn = vi.fn().mockResolvedValue("should not run");
+      const detector = {
+        evaluate: vi.fn().mockImplementation(() => {
+          throw new Error("detector unavailable");
+        }),
+      };
+
+      const orchestrator = new ModeBOrchestrator({
+        provider,
+        tools: [{ name: "bash", description: "Runs shell commands", inputSchema: {}, tags: new Set() }],
+        builtinTools: new Map([["bash", toolFn]]),
+        dangerousCommandDetector: detector,
+      });
+
+      await expect(orchestrator.processMessage(makeSession(), textParts("status"))).resolves.toBeDefined();
+
+      expect(detector.evaluate).toHaveBeenCalledWith({ command: "git status --short", shell: "bash" });
+      expect(toolFn).not.toHaveBeenCalled();
+    });
+
+    it("empty command is blocked through dangerous command enforcement", async () => {
+      const provider = makeCommandProvider("   ");
+      const toolFn = vi.fn().mockResolvedValue("should not run");
+      const detector = {
+        evaluate: vi.fn().mockReturnValue({
+          action: "allow",
+          reasonCode: "safe_read_only",
+          reason: "Command matches deterministic read-only allowlist.",
+        }),
+      };
+
+      const orchestrator = new ModeBOrchestrator({
+        provider,
+        tools: [{ name: "bash", description: "Runs shell commands", inputSchema: {}, tags: new Set() }],
+        builtinTools: new Map([["bash", toolFn]]),
+        dangerousCommandDetector: detector,
+      });
+
+      await orchestrator.processMessage(makeSession(), textParts("status"));
+
+      expect(toolFn).not.toHaveBeenCalled();
+    });
+
+    it("allow decision executes safe command", async () => {
+      const provider = makeCommandProvider("git status --short");
+      const toolFn = vi.fn().mockResolvedValue("ok");
+      const detector = {
+        evaluate: vi.fn().mockReturnValue({
+          action: "allow",
+          reasonCode: "safe_read_only",
+          reason: "Command matches deterministic read-only allowlist.",
+        }),
+      };
+
+      const orchestrator = new ModeBOrchestrator({
+        provider,
+        tools: [{ name: "bash", description: "Runs shell commands", inputSchema: {}, tags: new Set() }],
+        builtinTools: new Map([["bash", toolFn]]),
+        dangerousCommandDetector: detector,
+      });
+
+      await orchestrator.processMessage(makeSession(), textParts("status"));
+
+      expect(detector.evaluate).toHaveBeenCalledWith({ command: "git status --short", shell: "bash" });
+      expect(toolFn).toHaveBeenCalledWith({ command: "git status --short" });
     });
   });
 

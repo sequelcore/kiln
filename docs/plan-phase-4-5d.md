@@ -22,7 +22,7 @@ Harden Kiln safety controls where bypass risk is highest:
 
 ## Current Slice Status
 
-**Status:** STARTED (`4.5d.a` and `4.5d.b` landed, currently uncommitted)
+**Status:** STARTED (`4.5d.a`, `4.5d.b`, and `4.5d.c` landed, currently uncommitted)
 
 First slice landed in core prompt scanning:
 
@@ -48,6 +48,19 @@ Verification status for this slice:
 
 - targeted core compile passed
 - focused test execution remains blocked in the current environment
+
+Third slice landed in runtime enforcement:
+
+- detector enforcement now runs before tool execution in `ModeBOrchestrator`
+- wiring is provided from `gateway-server`
+- `deny` and `ask` are enforced fail-closed
+- detector errors are handled conservatively
+- empty commands are blocked before execution
+
+Verification status for this slice:
+
+- targeted runtime compile passed
+- focused runtime tests are implemented for the enforcement path
 
 ## Next Slices
 

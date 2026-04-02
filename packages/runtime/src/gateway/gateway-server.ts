@@ -20,6 +20,7 @@ import {
   AesSecretStore,
   GroundingRail,
   ModelCapabilityRegistry,
+  DeterministicDangerousCommandDetector,
 } from "@kilnai/core";
 import type { ProviderAdapter, ProviderConfig, App, ToolDefinition, MemoryLayer, SttAdapter, Capability, IntegrationAdapter } from "@kilnai/core";
 import { AnnotationAuthorizer, ToolResultSanitizer } from "@kilnai/core";
@@ -477,6 +478,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
     const toolAuthorizer = capabilityMap.size > 0 ? new AnnotationAuthorizer() : undefined;
     const safetyPipeline = safetyPipelines.get(loaded.name);
     const toolResultSanitizer = safetyPipeline ? new ToolResultSanitizer({ pipeline: safetyPipeline }) : undefined;
+    const dangerousCommandDetector = new DeterministicDangerousCommandDetector();
 
     const orchestrator = new ModeBOrchestrator({
       provider,
@@ -487,6 +489,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
       capabilityMap: capabilityMap.size > 0 ? capabilityMap : undefined,
       toolAuthorizer,
       toolResultSanitizer,
+      dangerousCommandDetector,
     });
 
     // Build grounding deps (shared by all routes for this app)

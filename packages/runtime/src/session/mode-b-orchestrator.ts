@@ -25,6 +25,67 @@ import type { EscalationDetector, EscalationSignal } from "./escalation-detector
 import type { ContextSummarizer } from "./context-summarizer.js";
 
 const DEFAULT_MAX_TOOL_ROUNDS = 10;
+const COMMAND_TOOL_SHELL_BY_NAME = new Map<string, CommandShell>([
+  ["bash", "bash"],
+  ["sh", "sh"],
+  ["zsh", "zsh"],
+  ["powershell", "powershell"],
+  ["pwsh", "powershell"],
+  ["cmd", "cmd"],
+  ["command_execution", "any"],
+  ["command", "any"],
+  ["shell", "any"],
+]);
+
+type CommandShell = "bash" | "sh" | "zsh" | "powershell" | "cmd" | "any";
+type DangerousCommandAction = "allow" | "ask" | "deny";
+
+interface DangerousCommandRequestLike {
+  readonly command: string;
+  readonly shell?: CommandShell;
+}
+
+interface DangerousCommandDecisionLike {
+  readonly action: DangerousCommandAction;
+  readonly reasonCode: string;
+  readonly reason: string;
+}
+
+interface DangerousCommandDetectorLike {
+  evaluate(request: DangerousCommandRequestLike): DangerousCommandDecisionLike;
+}
+
+function parseCommandShell(value: unknown): CommandShell | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === "bash"
+    || normalized === "sh"
+    || normalized === "zsh"
+    || normalized === "powershell"
+    || normalized === "cmd"
+    || normalized === "any"
+  ) {
+    return normalized;
+  }
+  if (normalized === "pwsh") return "powershell";
+  return undefined;
+}
+
+function toDangerousCommandRequest(
+  toolName: string,
+  input: Record<string, unknown>,
+): DangerousCommandRequestLike | undefined {
+  const inferredShell = COMMAND_TOOL_SHELL_BY_NAME.get(toolName.toLowerCase());
+  if (!inferredShell) return undefined;
+  const command = input.command;
+  if (typeof command !== "string") return undefined;
+  const explicitShell = parseCommandShell(input.shell);
+  return {
+    command,
+    shell: explicitShell ?? inferredShell,
+  };
+}
 
 export interface OrchestratorDeps {
   readonly provider: ProviderAdapter;
@@ -46,6 +107,7 @@ export interface OrchestratorDeps {
   readonly toolCache?: ToolCache;
   readonly modelRouter?: ModelRouter;
   readonly providerPool?: ReadonlyMap<string, ProviderAdapter>;
+  readonly dangerousCommandDetector?: DangerousCommandDetectorLike;
 }
 
 export interface ToolExecutionSummary {
@@ -354,6 +416,55 @@ export class ModeBOrchestrator {
               isError: true,
             });
             continue;
+          }
+        }
+
+        // Dangerous command detection (fail-closed for deny and ask) before execution.
+        if (this.deps.dangerousCommandDetector) {
+          const dangerousRequest = toDangerousCommandRequest(tc.name, tc.input);
+          if (dangerousRequest) {
+            let decision: DangerousCommandDecisionLike;
+            if (dangerousRequest.command.trim().length === 0) {
+              decision = {
+                action: "deny",
+                reasonCode: "empty_command",
+                reason: "Command input cannot be empty.",
+              };
+            } else {
+              try {
+                decision = this.deps.dangerousCommandDetector.evaluate(dangerousRequest);
+              } catch (err) {
+                const detectorError = err instanceof Error ? err.message : String(err);
+                this.emitError(session.id, `Dangerous command detector failed for tool "${tc.name}": ${detectorError}`);
+                decision = {
+                  action: "deny",
+                  reasonCode: "detector_error",
+                  reason: "Dangerous command detector failed; execution blocked by policy.",
+                };
+              }
+            }
+            if (decision.action !== "allow") {
+              const blockMessage = decision.action === "deny"
+                ? `Dangerous command blocked: ${decision.reason} (${decision.reasonCode})`
+                : `Command requires approval: ${decision.reason} (${decision.reasonCode})`;
+
+              this.emitToolResult(session.id, tc.name, 0, false, blockMessage.slice(0, 200), true);
+              this.emitError(session.id, `Tool "${tc.name}" blocked by dangerous command detector: ${decision.reasonCode}`);
+              this.appendAudit(tc.name, 0, "error");
+              toolExecutions.push({
+                toolName: tc.name,
+                durationMs: 0,
+                success: false,
+                resultSummary: blockMessage.slice(0, 200),
+              });
+              resultParts.push({
+                type: "tool_result",
+                toolUseId: tc.id,
+                content: blockMessage,
+                isError: true,
+              });
+              continue;
+            }
           }
         }
 

@@ -212,7 +212,7 @@ Missing enforcement pieces:
 
 ### 4.5d — Core Safety Hardening
 
-**Status:** STARTED (`4.5d` scout complete, prompt-scanning slice landed uncommitted, dangerous-command slice landed uncommitted)
+**Status:** STARTED (`4.5d` scout complete, prompt-scanning slice landed uncommitted, dangerous-command core slice landed uncommitted, dangerous-command runtime slice landed uncommitted)
 
 **Scope:**
 
@@ -249,11 +249,22 @@ Missing enforcement pieces:
   Unix destructive commands, Windows destructive commands,
   download-and-exec patterns, and explicit ambiguous ask boundaries
 
+**Third landed slice (currently uncommitted):**
+
+- dangerous-command detector is now enforced in runtime before tool execution
+  via `ModeBOrchestrator`
+- detector wiring is provided from `gateway-server`
+- enforcement is fail-closed for `deny` and `ask`
+- detector errors are treated conservatively and empty commands are blocked
+  before tool execution
+
 **Verification note:**
 
 - targeted core compile passed
 - focused test execution for this slice remains blocked in the current
   environment
+- targeted runtime compile passed
+- focused runtime tests are implemented for the enforcement path
 
 **Primary files:**
 

@@ -527,7 +527,10 @@ re-locks users into Claude Code-only UX.
   original input for audit, plus a new dangerous-command detector contract in
   engine/domain with deterministic core security implementation and
   shell-aware `allow | ask | deny` decisions covering Unix destructive,
-  Windows destructive, download-and-exec, and ambiguous ask boundaries
+  Windows destructive, download-and-exec, and ambiguous ask boundaries; the
+  detector is now enforced in runtime before tool execution via
+  `ModeBOrchestrator`, wired from `gateway-server`, with fail-closed behavior
+  for `deny`/`ask`, detector-error handling, and empty-command blocking
 - later sub-phases still pending: full enforcement integration and remaining
   safety hardening slices
 
@@ -553,6 +556,9 @@ re-locks users into Claude Code-only UX.
   (normalization at detection-time, original input retained for audit)
 - feat(core): dangerous-command detector in core security with shell-aware
   `allow | ask | deny` decisions and explicit ambiguous-boundary asks
+- feat(runtime): dangerous-command detector enforcement before tool execution
+  in `ModeBOrchestrator`, wired from gateway startup with fail-closed
+  handling for `deny`, `ask`, detector errors, and empty commands
 - feat(core): reuse tool-result scanning patterns as safety sink controls
   across prompt and tool-output surfaces
 - feat(core): CROSS_PLATFORM_CODE_EXEC dangerous pattern expansion
@@ -561,6 +567,8 @@ re-locks users into Claude Code-only UX.
   (fail-closed approval semantics + observable denial counters)
 - verification: targeted core compile passed; focused test execution for this
   slice remains blocked in the current environment
+- verification: targeted runtime compile passed; focused runtime tests exist
+  for the enforcement path
 
 ---
 
