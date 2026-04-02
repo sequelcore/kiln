@@ -200,6 +200,11 @@ Missing enforcement pieces:
   the normal allowed-tool flow; `once` grants are consumed only after later
   gates pass; session-scoped matching now uses stable logical Kiln session IDs
   (including resume path handoff from `run.ts`)
+- `4.5c.a` command-memory consumption slice:
+  bash-like command denies now consult command-surface approval memory;
+  matching grants preserve the normal allowed-tool flow; `once` grants are
+  consumed only after later gates pass; session-scoped matching reuses stable
+  logical Kiln session IDs instead of provider-local ids
 - `4.5c.d.a` first runtime data-firewall slice:
   outbound channel sends now support destination-aware allow/deny/redact
   evaluation before provider calls

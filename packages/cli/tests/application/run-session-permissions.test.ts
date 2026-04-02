@@ -545,6 +545,141 @@ describe("runSession tool permission gating", () => {
     );
   });
 
+  it("once command grant allows denied bash command and is consumed", async () => {
+    const reportFailure = vi.fn();
+    const reportSuccess = vi.fn();
+    const preToolUse = vi.fn();
+    const postToolUse = vi.fn();
+    const approvalMemoryStore = new ApprovalMemoryStore(projectPath);
+
+    await approvalMemoryStore.grant({
+      scope: "once",
+      surface: "command",
+      selector: "git push origin main",
+      action: "allow",
+    });
+
+    const session = createSessionFromEvents([
+      { type: "tool_use", toolName: "Bash", input: { command: "git push origin main" } },
+      { type: "tool_result", toolName: "Bash", output: "ok" },
+      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+    ]);
+
+    const result = await runSession({
+      registry: {
+        selectBest: () => ({ primary: "claude", orderedFallbacks: [], scores: [] }),
+        createSession: () => session as any,
+        reportFailure,
+        reportSuccess,
+      } as any,
+      cleanupRegistry: { register: () => {} } as any,
+      manager: { trackCostUpdate: () => {} } as any,
+      context: makeContext(),
+      requirements: {},
+      sessionId: KILN_SESSION_ID,
+      sessionConfig: {
+        task: "test",
+        permissionPolicy: {
+          approval: "on-request",
+          sandbox: "read-only",
+          tools: [{ tool: "Bash", action: "allow" }],
+          commands: [{ pattern: "git push origin main", action: "deny", shell: "bash" }],
+        },
+      },
+      permissionPolicy: {
+        approval: "on-request",
+        sandbox: "read-only",
+        tools: [{ tool: "Bash", action: "allow" }],
+        commands: [{ pattern: "git push origin main", action: "deny", shell: "bash" }],
+      },
+      approvalMemoryStore,
+      env: {},
+      sessionHooks: {
+        userPromptSubmit: () => {},
+        preToolUse,
+        postToolUse,
+      } as any,
+    });
+
+    expect(result.sessionSucceeded).toBe(true);
+    expect(preToolUse).toHaveBeenCalledWith("Bash");
+    expect(postToolUse).toHaveBeenCalledWith("Bash");
+    expect(reportSuccess).toHaveBeenCalledWith("claude");
+    expect(reportFailure).not.toHaveBeenCalled();
+
+    const remaining = await approvalMemoryStore.findMatch({
+      surface: "command",
+      selector: "git push origin main",
+      action: "allow",
+      sessionId: KILN_SESSION_ID,
+    });
+    expect(remaining).toBeNull();
+  });
+
+  it("session command grant uses stable Kiln session id instead of provider session id", async () => {
+    const reportFailure = vi.fn();
+    const reportSuccess = vi.fn();
+    const preToolUse = vi.fn();
+    const postToolUse = vi.fn();
+    const approvalMemoryStore = new ApprovalMemoryStore(projectPath);
+
+    await approvalMemoryStore.grant({
+      scope: "session",
+      sessionId: KILN_SESSION_ID,
+      surface: "command",
+      selector: "git push origin main",
+      action: "allow",
+    });
+
+    const session = createSessionFromEvents([
+      { type: "tool_use", toolName: "Bash", input: { command: "git push origin main" } },
+      { type: "tool_result", toolName: "Bash", output: "ok" },
+      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+    ], "provider-session-42");
+
+    const result = await runSession({
+      registry: {
+        selectBest: () => ({ primary: "claude", orderedFallbacks: [], scores: [] }),
+        createSession: () => session as any,
+        reportFailure,
+        reportSuccess,
+      } as any,
+      cleanupRegistry: { register: () => {} } as any,
+      manager: { trackCostUpdate: () => {} } as any,
+      context: makeContext(),
+      requirements: {},
+      sessionId: KILN_SESSION_ID,
+      sessionConfig: {
+        task: "test",
+        permissionPolicy: {
+          approval: "on-request",
+          sandbox: "read-only",
+          tools: [{ tool: "Bash", action: "allow" }],
+          commands: [{ pattern: "git push origin main", action: "deny", shell: "bash" }],
+        },
+      },
+      permissionPolicy: {
+        approval: "on-request",
+        sandbox: "read-only",
+        tools: [{ tool: "Bash", action: "allow" }],
+        commands: [{ pattern: "git push origin main", action: "deny", shell: "bash" }],
+      },
+      approvalMemoryStore,
+      env: {},
+      sessionHooks: {
+        userPromptSubmit: () => {},
+        preToolUse,
+        postToolUse,
+      } as any,
+    });
+
+    expect(result.sessionSucceeded).toBe(true);
+    expect(preToolUse).toHaveBeenCalledWith("Bash");
+    expect(postToolUse).toHaveBeenCalledWith("Bash");
+    expect(reportSuccess).toHaveBeenCalledWith("claude");
+    expect(reportFailure).not.toHaveBeenCalled();
+  });
+
   it("allowed bash command preserves current behavior", async () => {
     const reportFailure = vi.fn();
     const reportSuccess = vi.fn();

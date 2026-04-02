@@ -104,6 +104,12 @@ This is the cleanest first slice because:
 - focused `run-session-permissions` coverage exists for once/session/project
   grants and the edge case where a later gate denies execution without
   consuming a `once` grant
+- command-surface approval memory is now consumed for denied bash-like command
+  executions in the same CLI run loop
+- matching command grants preserve the normal allowed-tool flow
+- command-surface `once` grants are consumed only after later gates pass
+- command-surface session grants use the same stable logical Kiln session IDs
+  rather than provider-local session ids
 
 ### 4.5c.b — Context Governance Enforcement
 

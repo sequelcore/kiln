@@ -395,7 +395,9 @@ See [ADR-003: Meta-Orchestrator Model](docs/adr/ADR-003-meta-orchestrator-model.
   raw backend-emitted tool names; CLI run-loop tool denies now consult
   approval memory, preserve normal allowed-tool flow on matching grants,
   consume `once` grants only after later gates pass, and use stable logical
-  Kiln session IDs for session-scoped matching (including resume paths)
+  Kiln session IDs for session-scoped matching (including resume paths);
+  bash-like command denies now also consult command-surface approval memory
+  with the same stable session semantics and delayed `once` consumption
 - `4.5d` started: safety-hardening scout complete and two core slices landed
   (currently uncommitted): prompt-scanner detection-time normalization for
   Unicode/homoglyph and invisible-character variants while preserving the

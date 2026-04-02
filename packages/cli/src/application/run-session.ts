@@ -153,18 +153,28 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
 
             const isBashLikeTool = event.toolName === "Bash" || event.toolName === "bash";
             const command = extractCommandFromToolInput(event.input);
+            let matchedCommandApprovalMemory: ApprovalMemoryRecord | null = null;
             if (isBashLikeTool && command !== undefined) {
               const commandDecision = permissionEvaluator.evaluateCommand(command, "bash");
+              matchedCommandApprovalMemory = commandDecision.action === "deny"
+                ? await findCommandApprovalMemory(
+                  options.approvalMemoryStore,
+                  command,
+                  stableSessionId,
+                )
+                : null;
               if (commandDecision.action === "deny") {
-                transcript.push({
-                  seq: ++transcriptSeq,
-                  ts: new Date().toISOString(),
-                  event: { type: "tool_use", toolName: `${event.toolName} [DENIED]` },
-                });
-                lastError = `Provider ${providerId} denied command "${command}" by policy`;
-                options.registry.reportFailure(providerId, false);
-                providerDeniedByPolicy = true;
-                break;
+                if (!matchedCommandApprovalMemory) {
+                  transcript.push({
+                    seq: ++transcriptSeq,
+                    ts: new Date().toISOString(),
+                    event: { type: "tool_use", toolName: `${event.toolName} [DENIED]` },
+                  });
+                  lastError = `Provider ${providerId} denied command "${command}" by policy`;
+                  options.registry.reportFailure(providerId, false);
+                  providerDeniedByPolicy = true;
+                  break;
+                }
               }
             }
 
@@ -181,6 +191,25 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
                   event: { type: "tool_use", toolName: `${event.toolName} [DENIED]` },
                 });
                 lastError = `Provider ${providerId} denied tool "${event.toolName}" by policy`;
+                options.registry.reportFailure(providerId, false);
+                providerDeniedByPolicy = true;
+                break;
+              }
+            }
+
+            if (matchedCommandApprovalMemory?.scope === "once" && command !== undefined) {
+              const consumed = await consumeCommandApprovalOnce(
+                options.approvalMemoryStore,
+                command,
+                stableSessionId,
+              );
+              if (!consumed) {
+                transcript.push({
+                  seq: ++transcriptSeq,
+                  ts: new Date().toISOString(),
+                  event: { type: "tool_use", toolName: `${event.toolName} [DENIED]` },
+                });
+                lastError = `Provider ${providerId} denied command "${command}" by policy`;
                 options.registry.reportFailure(providerId, false);
                 providerDeniedByPolicy = true;
                 break;
@@ -312,6 +341,48 @@ async function consumeToolApprovalOnce(
   const query: ApprovalMatchQuery = {
     surface: "tool",
     selector: toolName,
+    action: "allow",
+    sessionId,
+  };
+
+  try {
+    return (await approvalMemoryStore.consumeOnce(query)) !== null;
+  } catch {
+    return false;
+  }
+}
+
+async function findCommandApprovalMemory(
+  approvalMemoryStore: ApprovalMemoryLookup | undefined,
+  command: string,
+  sessionId: string | undefined,
+): Promise<ApprovalMemoryRecord | null> {
+  if (!approvalMemoryStore || sessionId === undefined) return null;
+
+  const query: ApprovalMatchQuery = {
+    surface: "command",
+    selector: command,
+    action: "allow",
+    sessionId,
+  };
+
+  try {
+    return await approvalMemoryStore.findMatch(query);
+  } catch {
+    return null;
+  }
+}
+
+async function consumeCommandApprovalOnce(
+  approvalMemoryStore: ApprovalMemoryLookup | undefined,
+  command: string,
+  sessionId: string | undefined,
+): Promise<boolean> {
+  if (!approvalMemoryStore || sessionId === undefined) return false;
+
+  const query: ApprovalMatchQuery = {
+    surface: "command",
+    selector: command,
     action: "allow",
     sessionId,
   };
