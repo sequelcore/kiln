@@ -230,7 +230,7 @@ Missing enforcement pieces:
 
 ### 4.5d — Core Safety Hardening
 
-**Status:** STARTED (`4.5d` scout complete, prompt-scanning slice landed, dangerous-command core slice landed, dangerous-command runtime slice landed, cache-hit tool-result sanitization slice landed, runtime prompt-scanner wiring slice landed)
+**Status:** STARTED (`4.5d` scout complete, prompt-scanning slice landed, dangerous-command core slice landed, dangerous-command runtime slice landed, cache-hit tool-result sanitization slice landed, runtime prompt-scanner wiring slice landed, runtime security-alert metrics slice landed)
 
 **Scope:**
 
@@ -291,6 +291,16 @@ Missing enforcement pieces:
 - regression coverage exists for enabled, disabled, and custom
   `allowedPatterns` behavior through the runtime tool-result reinjection path
 
+**Sixth landed slice (currently uncommitted):**
+
+- runtime observability now propagates `security_alert` events into Prometheus
+  via explicit `security_alerts_total` counter wiring in `PrometheusCollector`
+- labels are stable and minimal (`severity`, `category`) with deterministic
+  `unknown` fallback labels for malformed/missing/unsupported category values
+  to keep save-path fail-closed without crashing
+- focused unit coverage added for expected-label increment and fallback-label
+  behavior
+
 **Verification note:**
 
 - targeted core compile passed
@@ -302,12 +312,16 @@ Missing enforcement pieces:
 - targeted runtime compile passed for gateway sanitizer wiring slice
 - focused gateway sanitizer test coverage exists for
   enabled/disabled/custom-allowlist reinjection behavior
+- focused `prometheus-collector` tests cover security-alert metric increment and
+  deterministic fallback-label behavior
 
 **Primary files:**
 
 - `packages/core/src/security/*`
 - `packages/core/src/safety/*`
 - `packages/core/tests/security/*`
+- `packages/runtime/src/observability/prometheus-collector.ts`
+- `packages/runtime/tests/observability/prometheus-collector.test.ts`
 
 ---
 

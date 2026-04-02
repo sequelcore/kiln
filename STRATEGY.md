@@ -375,7 +375,7 @@ See [ADR-003: Meta-Orchestrator Model](docs/adr/ADR-003-meta-orchestrator-model.
 
 ## Phase 4.5 — Permission & Safety
 
-**Status:** STARTED (`4.5a` complete, `4.5b` complete, `4.5c` effectively complete/closable, `4.5d` in progress with multiple landed slices)
+**Status:** STARTED (`4.5a` complete, `4.5b` complete, `4.5c` effectively complete/closable, `4.5d` in progress with multiple landed slices, including runtime security-alert Prometheus propagation)
 **Priority:** HIGH — #1 universal pain point: "no middle ground between approve-all and yolo"
 **Source:** User research across all 3 tools + Claude Code permission/safety scouts
 
@@ -415,7 +415,10 @@ See [ADR-003: Meta-Orchestrator Model](docs/adr/ADR-003-meta-orchestrator-model.
   longer re-executes tools; runtime gateway sanitizer wiring now threads
   `securityConfig.promptInjection` into `ToolResultSanitizer` construction so
   indirect reinjection scanning honors runtime prompt-injection configuration
-  and allowlist behavior
+  and allowlist behavior; runtime observability now also propagates
+  `security_alert` events into Prometheus via a dedicated
+  `security_alerts_total` counter labeled by severity/category with deterministic
+  fallback labels
 - later sub-phases still pending: full enforcement integration and remaining
   safety hardening slices
 
@@ -453,12 +456,15 @@ See [ADR-003: Meta-Orchestrator Model](docs/adr/ADR-003-meta-orchestrator-model.
   `securityConfig.promptInjection` during reinjection
 - test(runtime): regression coverage exists for enabled, disabled, and custom
   `allowedPatterns` behavior through the runtime tool-result reinjection path
+- feat(runtime): Prometheus collector now emits `security_alerts_total` for
+  `security_alert` events with stable `severity` and `category` labels plus
+  deterministic `unknown` fallbacks for malformed/unsupported category values
 - feat(core): reuse tool-result scanning patterns as safety sink controls
   across prompt and tool-output surfaces
 - feat(core): CROSS_PLATFORM_CODE_EXEC dangerous pattern expansion
   (align with Claude Code's broader dangerous command/code coverage)
-- feat(core): denial propagation and metrics wiring into safety events
-  (fail-closed approval semantics + observable denial counters)
+- feat(core): continue denial propagation and broader metrics/event wiring
+  across governed surfaces (fail-closed semantics + observable counters)
 - verification: targeted core compile passed; focused test execution for this
   slice remains blocked in the current environment
 - verification: targeted runtime compile passed; focused runtime tests exist

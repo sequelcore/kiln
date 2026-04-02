@@ -187,6 +187,89 @@ describe("PrometheusCollector", () => {
     );
   });
 
+  it("increments security alert counter", async () => {
+    const collector = new PrometheusCollector();
+    await collector.getRegistry();
+
+    await collector.save(
+      makeEvent("security_alert", {
+        severity: "high",
+        category: "indirect_injection",
+        message: "tool result contains injection patterns",
+      }),
+    );
+
+    expect(mockInc).toHaveBeenCalledWith(
+      "kiln_security_alerts_total",
+      { severity: "high", category: "indirect_injection" },
+      undefined,
+    );
+  });
+
+  it("uses deterministic fallback labels for malformed security alerts", async () => {
+    const collector = new PrometheusCollector();
+    await collector.getRegistry();
+
+    await collector.save(
+      makeEvent("security_alert", {
+        severity: "urgent",
+        category: "   ",
+      }),
+    );
+
+    expect(mockInc).toHaveBeenCalledWith(
+      "kiln_security_alerts_total",
+      { severity: "unknown", category: "unknown" },
+      undefined,
+    );
+
+    mockInc.mockClear();
+
+    await collector.save(makeEvent("security_alert"));
+
+    expect(mockInc).toHaveBeenCalledWith(
+      "kiln_security_alerts_total",
+      { severity: "unknown", category: "unknown" },
+      undefined,
+    );
+  });
+
+  it("collapses unsupported non-empty security categories to unknown", async () => {
+    const collector = new PrometheusCollector();
+    await collector.getRegistry();
+
+    await collector.save(
+      makeEvent("security_alert", {
+        severity: "high",
+        category: "new_attack_surface",
+      }),
+    );
+
+    await collector.save(
+      makeEvent("security_alert", {
+        severity: "high",
+        category: "another_unbounded_value",
+      }),
+    );
+
+    const securityAlertCalls = mockInc.mock.calls.filter(
+      ([metric]) => metric === "kiln_security_alerts_total",
+    );
+
+    expect(securityAlertCalls).toEqual([
+      [
+        "kiln_security_alerts_total",
+        { severity: "high", category: "unknown" },
+        undefined,
+      ],
+      [
+        "kiln_security_alerts_total",
+        { severity: "high", category: "unknown" },
+        undefined,
+      ],
+    ]);
+  });
+
   it("does nothing for unknown event types", async () => {
     const collector = new PrometheusCollector();
     await collector.getRegistry();

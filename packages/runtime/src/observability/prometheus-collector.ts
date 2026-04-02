@@ -1,5 +1,10 @@
 import type { EventStore, KilnEvent } from "@kilnai/core";
 
+const SECURITY_ALERT_CATEGORY_ALLOWLIST = new Set<string>([
+  "indirect_injection",
+  "injection",
+]);
+
 /** Prometheus registry handle (prom-client type) */
 interface PromRegistry {
   metrics(): Promise<string>;
@@ -93,6 +98,13 @@ export class PrometheusCollector implements EventStore {
         name: `${prefix}_model_routings_total`,
         help: "Total model routing decisions",
         labelNames: ["provider", "model", "routing_tier"],
+        registers: [registry],
+      });
+
+      this.counters.security_alerts = new prom.Counter({
+        name: `${prefix}_security_alerts_total`,
+        help: "Total security alerts",
+        labelNames: ["severity", "category"],
         registers: [registry],
       });
 
@@ -202,6 +214,17 @@ export class PrometheusCollector implements EventStore {
         });
         break;
       }
+      case "security_alert": {
+        const e = event as KilnEvent & {
+          severity?: string;
+          category?: string;
+        };
+        this.counters.security_alerts?.inc({
+          severity: this.resolveSecuritySeverityLabel(e.severity),
+          category: this.resolveSecurityCategoryLabel(e.category),
+        });
+        break;
+      }
       // Other event types: no metrics to collect
     }
   }
@@ -224,5 +247,26 @@ export class PrometheusCollector implements EventStore {
       return "openai";
     if (model.startsWith("deepseek")) return "deepseek";
     return "ollama";
+  }
+
+  private resolveSecuritySeverityLabel(severity: unknown): string {
+    if (
+      severity === "low" ||
+      severity === "medium" ||
+      severity === "high" ||
+      severity === "critical"
+    ) {
+      return severity;
+    }
+    return "unknown";
+  }
+
+  private resolveSecurityCategoryLabel(category: unknown): string {
+    if (typeof category !== "string") return "unknown";
+    const normalized = category.trim().toLowerCase();
+    if (normalized.length === 0) return "unknown";
+    return SECURITY_ALERT_CATEGORY_ALLOWLIST.has(normalized)
+      ? normalized
+      : "unknown";
   }
 }

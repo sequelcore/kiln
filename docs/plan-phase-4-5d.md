@@ -22,7 +22,7 @@ Harden Kiln safety controls where bypass risk is highest:
 
 ## Current Slice Status
 
-**Status:** STARTED (`4.5d.a`, `4.5d.b`, `4.5d.c`, `4.5d.d`, and `4.5d.e` landed, currently uncommitted)
+**Status:** STARTED (`4.5d.a`, `4.5d.b`, `4.5d.c`, `4.5d.d`, `4.5d.e`, and `4.5d.f` landed, currently uncommitted)
 
 First slice landed in core prompt scanning:
 
@@ -88,14 +88,26 @@ Verification status for this slice:
 - focused gateway sanitizer regression coverage exists for
   enabled/disabled/custom-allowlist cases
 
+Sixth slice landed in runtime observability denial propagation:
+
+- `PrometheusCollector` now propagates `security_alert` events into explicit
+  `security_alerts_total` counter updates
+- labels are stable/minimal (`severity`, `category`) and avoid unbounded
+  message-cardinality coupling
+- malformed/missing/unsupported values now use deterministic `unknown`
+  fallback labels so `save()` remains fail-closed and non-throwing
+- focused runtime observability tests validate both expected and fallback-label
+  behavior
+
 ## Next Slices
 
 1. Reuse tool-result scanning patterns as explicit sink controls where tool
    outputs re-enter prompts or external channels.
 2. Expand dangerous command/code execution coverage beyond the first detector
    slice where additional shells/pattern families warrant it.
-3. Wire denial propagation into safety metrics/events with deterministic
-   fail-closed semantics for governed surfaces.
+3. Expand denial propagation beyond `security_alert` into remaining safety
+   metrics/events with deterministic fail-closed semantics for governed
+   surfaces.
 4. Add regression tests for new bypass classes before enabling broader defaults.
 
 ## Notes
