@@ -16,6 +16,8 @@ and starts becoming real runtime behavior.
 The goal is to enforce policy at the correct architectural boundaries without
 duplicating policy logic across CLI adapters, runtime gateways, and core.
 
+**Status:** EFFECTIVELY COMPLETE (closable)
+
 ---
 
 ## Scout Summary
@@ -110,6 +112,9 @@ This is the cleanest first slice because:
 - command-surface `once` grants are consumed only after later gates pass
 - command-surface session grants use the same stable logical Kiln session IDs
   rather than provider-local session ids
+- file-governance deny decisions are now enforced in the CLI run loop for
+  explicit path-bearing tool inputs (`input.filePath`, `input.path`) before
+  normal tool execution flow is committed
 
 ### 4.5c.b — Context Governance Enforcement
 
@@ -264,3 +269,11 @@ context/execution enforcement.
   - timestamps
 - tests cover read/write/expiry or session-clearing semantics as applicable
 - no runtime gateway logic is polluted with persistence concerns
+
+## 4.5c Closure Note
+
+- 4.5c core enforcement goals are now covered: approval memory consumption,
+  context governance, agent-scope execution enforcement, and runtime data
+  firewall slices.
+- Remaining work in this area is optional expansion, not a blocking
+  enforcement gap.

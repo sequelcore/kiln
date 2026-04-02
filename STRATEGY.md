@@ -375,7 +375,7 @@ See [ADR-003: Meta-Orchestrator Model](docs/adr/ADR-003-meta-orchestrator-model.
 
 ## Phase 4.5 — Permission & Safety
 
-**Status:** STARTED (`4.5a` complete, `4.5b` complete, `4.5c` in progress, `4.5d` in progress with multiple landed slices)
+**Status:** STARTED (`4.5a` complete, `4.5b` complete, `4.5c` effectively complete/closable, `4.5d` in progress with multiple landed slices)
 **Priority:** HIGH — #1 universal pain point: "no middle ground between approve-all and yolo"
 **Source:** User research across all 3 tools + Claude Code permission/safety scouts
 
@@ -385,7 +385,7 @@ See [ADR-003: Meta-Orchestrator Model](docs/adr/ADR-003-meta-orchestrator-model.
 - `4.5b` complete: richer backend translation contract, adapter consumption,
   and sync-writer persistence landed with explicit Kiln-managed metadata for
   translated-vs-enforced backend rules
-- `4.5c` started: approval-memory and enforcement integration planning is in
+- `4.5c` effectively complete/closable: approval-memory and enforcement integration is in
   place, with approval-memory persistence, application-backed context
   governance, first runtime data-firewall slices underway, and the first
   execution-time tool-scope, bash-command, and scoped MCP-tool enforcement
@@ -397,7 +397,9 @@ See [ADR-003: Meta-Orchestrator Model](docs/adr/ADR-003-meta-orchestrator-model.
   consume `once` grants only after later gates pass, and use stable logical
   Kiln session IDs for session-scoped matching (including resume paths);
   bash-like command denies now also consult command-surface approval memory
-  with the same stable session semantics and delayed `once` consumption
+  with the same stable session semantics and delayed `once` consumption; and
+  file-governance deny decisions are now enforced in the CLI run loop for
+  path-bearing tool inputs (`input.filePath`, `input.path`)
 - `4.5d` started: safety-hardening scout complete and two core slices landed
   (currently uncommitted): prompt-scanner detection-time normalization for
   Unicode/homoglyph and invisible-character variants while preserving the

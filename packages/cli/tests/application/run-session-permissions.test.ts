@@ -116,6 +116,177 @@ describe("runSession tool permission gating", () => {
     );
   });
 
+  it("denied file-governance path on input.filePath blocks provider attempt", async () => {
+    const reportFailure = vi.fn();
+    const reportSuccess = vi.fn();
+    const preToolUse = vi.fn();
+
+    const session = createSessionFromEvents([
+      { type: "tool_use", toolName: "Read", input: { filePath: "project/.env" } },
+      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+    ]);
+
+    const result = await runSession({
+      registry: {
+        selectBest: () => ({ primary: "claude", orderedFallbacks: [], scores: [] }),
+        createSession: () => session as any,
+        reportFailure,
+        reportSuccess,
+      } as any,
+      cleanupRegistry: { register: () => {} } as any,
+      manager: { trackCostUpdate: () => {} } as any,
+      context: makeContext(),
+      requirements: {},
+      sessionConfig: {
+        task: "test",
+        permissionPolicy: {
+          approval: "on-request",
+          sandbox: "read-only",
+          tools: [{ tool: "Read", action: "allow" }],
+          fileGovernance: { denyGlobs: ["**/.env"] },
+        },
+      },
+      permissionPolicy: {
+        approval: "on-request",
+        sandbox: "read-only",
+        tools: [{ tool: "Read", action: "allow" }],
+        fileGovernance: { denyGlobs: ["**/.env"] },
+      },
+      env: {},
+      sessionHooks: {
+        userPromptSubmit: () => {},
+        preToolUse,
+        postToolUse: () => {},
+      } as any,
+    });
+
+    expect(result.sessionSucceeded).toBe(false);
+    expect(result.lastError).toContain('denied file path "project/.env"');
+    expect(reportFailure).toHaveBeenCalledWith("claude", false);
+    expect(reportSuccess).not.toHaveBeenCalled();
+    expect(preToolUse).not.toHaveBeenCalled();
+    expect(result.transcript).toContainEqual(
+      expect.objectContaining({
+        event: { type: "tool_use", toolName: "Read [DENIED]" },
+      }),
+    );
+  });
+
+  it("denied file-governance path on input.path blocks provider attempt", async () => {
+    const reportFailure = vi.fn();
+    const reportSuccess = vi.fn();
+    const preToolUse = vi.fn();
+
+    const session = createSessionFromEvents([
+      { type: "tool_use", toolName: "Write", input: { path: "project/.env", content: "x" } },
+      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+    ]);
+
+    const result = await runSession({
+      registry: {
+        selectBest: () => ({ primary: "claude", orderedFallbacks: [], scores: [] }),
+        createSession: () => session as any,
+        reportFailure,
+        reportSuccess,
+      } as any,
+      cleanupRegistry: { register: () => {} } as any,
+      manager: { trackCostUpdate: () => {} } as any,
+      context: makeContext(),
+      requirements: {},
+      sessionConfig: {
+        task: "test",
+        permissionPolicy: {
+          approval: "on-request",
+          sandbox: "read-only",
+          tools: [{ tool: "Write", action: "allow" }],
+          fileGovernance: { denyGlobs: ["**/.env"] },
+        },
+      },
+      permissionPolicy: {
+        approval: "on-request",
+        sandbox: "read-only",
+        tools: [{ tool: "Write", action: "allow" }],
+        fileGovernance: { denyGlobs: ["**/.env"] },
+      },
+      env: {},
+      sessionHooks: {
+        userPromptSubmit: () => {},
+        preToolUse,
+        postToolUse: () => {},
+      } as any,
+    });
+
+    expect(result.sessionSucceeded).toBe(false);
+    expect(result.lastError).toContain('denied file path "project/.env"');
+    expect(reportFailure).toHaveBeenCalledWith("claude", false);
+    expect(reportSuccess).not.toHaveBeenCalled();
+    expect(preToolUse).not.toHaveBeenCalled();
+    expect(result.transcript).toContainEqual(
+      expect.objectContaining({
+        event: { type: "tool_use", toolName: "Write [DENIED]" },
+      }),
+    );
+  });
+
+  it("allowed file-governance path on input.path preserves current behavior", async () => {
+    const reportFailure = vi.fn();
+    const reportSuccess = vi.fn();
+    const preToolUse = vi.fn();
+    const postToolUse = vi.fn();
+
+    const session = createSessionFromEvents([
+      { type: "tool_use", toolName: "Read", input: { path: "project/docs/readme.md" } },
+      { type: "tool_result", toolName: "Read", output: "ok" },
+      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+    ]);
+
+    const result = await runSession({
+      registry: {
+        selectBest: () => ({ primary: "claude", orderedFallbacks: [], scores: [] }),
+        createSession: () => session as any,
+        reportFailure,
+        reportSuccess,
+      } as any,
+      cleanupRegistry: { register: () => {} } as any,
+      manager: { trackCostUpdate: () => {} } as any,
+      context: makeContext(),
+      requirements: {},
+      sessionConfig: {
+        task: "test",
+        permissionPolicy: {
+          approval: "on-request",
+          sandbox: "read-only",
+          tools: [{ tool: "Read", action: "allow" }],
+          fileGovernance: {
+            denyGlobs: ["**/.env"],
+            allowGlobs: ["**/*.md"],
+          },
+        },
+      },
+      permissionPolicy: {
+        approval: "on-request",
+        sandbox: "read-only",
+        tools: [{ tool: "Read", action: "allow" }],
+        fileGovernance: {
+          denyGlobs: ["**/.env"],
+          allowGlobs: ["**/*.md"],
+        },
+      },
+      env: {},
+      sessionHooks: {
+        userPromptSubmit: () => {},
+        preToolUse,
+        postToolUse,
+      } as any,
+    });
+
+    expect(result.sessionSucceeded).toBe(true);
+    expect(preToolUse).toHaveBeenCalledWith("Read");
+    expect(postToolUse).toHaveBeenCalledWith("Read");
+    expect(reportSuccess).toHaveBeenCalledWith("claude");
+    expect(reportFailure).not.toHaveBeenCalled();
+  });
+
   it("once grant allows denied tool_use, preserves allowed flow, and is consumed", async () => {
     const reportFailure = vi.fn();
     const reportSuccess = vi.fn();

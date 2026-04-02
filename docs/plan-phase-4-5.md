@@ -157,7 +157,7 @@ Missing enforcement pieces:
 
 ### 4.5c — Enforcement Integration (Governance + Approval Memory)
 
-**Status:** STARTED
+**Status:** EFFECTIVELY COMPLETE (closable)
 
 **Scope:**
 
@@ -205,6 +205,10 @@ Missing enforcement pieces:
   matching grants preserve the normal allowed-tool flow; `once` grants are
   consumed only after later gates pass; session-scoped matching reuses stable
   logical Kiln session IDs instead of provider-local ids
+- `4.5c.b` file-governance execution slice:
+  CLI run-loop now enforces file-governance deny decisions for explicit
+  path-bearing tool inputs (`input.filePath`, `input.path`) before normal tool
+  execution flow is committed
 - `4.5c.d.a` first runtime data-firewall slice:
   outbound channel sends now support destination-aware allow/deny/redact
   evaluation before provider calls
@@ -217,6 +221,10 @@ Missing enforcement pieces:
 - `packages/cli/src/wrapper/*`
 - `packages/cli/src/application/*` as needed
 - `packages/runtime/src/*` for destination enforcement points
+
+**Closure note:**
+- Remaining 4.5c work is non-blocking expansion (for example, broader
+  tool-specific path-shape extraction), not a core enforcement gap.
 
 ---
 

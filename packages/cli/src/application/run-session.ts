@@ -178,6 +178,22 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
               }
             }
 
+            const filePath = extractFilePathFromToolInput(event.input);
+            if (filePath !== undefined) {
+              const fileDecision = permissionEvaluator.evaluateFile(filePath);
+              if (fileDecision.action === "deny") {
+                transcript.push({
+                  seq: ++transcriptSeq,
+                  ts: new Date().toISOString(),
+                  event: { type: "tool_use", toolName: `${event.toolName} [DENIED]` },
+                });
+                lastError = `Provider ${providerId} denied file path "${filePath}" by policy`;
+                options.registry.reportFailure(providerId, false);
+                providerDeniedByPolicy = true;
+                break;
+              }
+            }
+
             if (matchedToolApprovalMemory?.scope === "once") {
               const consumed = await consumeToolApprovalOnce(
                 options.approvalMemoryStore,
@@ -308,6 +324,14 @@ function extractCommandFromToolInput(input: unknown): string | undefined {
   if (typeof input !== "object" || input === null) return undefined;
   const withCommand = input as { command?: unknown };
   return typeof withCommand.command === "string" ? withCommand.command : undefined;
+}
+
+function extractFilePathFromToolInput(input: unknown): string | undefined {
+  if (typeof input !== "object" || input === null) return undefined;
+  const withPath = input as { filePath?: unknown; path?: unknown };
+  if (typeof withPath.filePath === "string") return withPath.filePath;
+  if (typeof withPath.path === "string") return withPath.path;
+  return undefined;
 }
 
 async function findToolApprovalMemory(
