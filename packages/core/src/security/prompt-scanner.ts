@@ -268,6 +268,133 @@ const SEVERITY_ORDER: readonly ("low" | "medium" | "high" | "critical")[] = [
   "critical",
 ];
 
+// Detection-time only normalization for common obfuscation vectors.
+// Original input is preserved for reporting/audit paths.
+const INVISIBLE_CHAR_DETECTION_PATTERN = /[\u200B\u200C\u200D\uFEFF\u2060\u00AD\u200E\u200F\u202A-\u202E]/u;
+const WHITESPACE_CHAR_PATTERN = /\s/u;
+
+const CONFUSABLE_CHAR_MAP: Readonly<Record<string, string>> = {
+  // Cyrillic lowercase
+  "\u0430": "a", // а
+  "\u0435": "e", // е
+  "\u043E": "o", // о
+  "\u0440": "p", // р
+  "\u0441": "c", // с
+  "\u0445": "x", // х
+  "\u0456": "i", // і
+  "\u0458": "j", // ј
+  "\u0455": "s", // ѕ
+  // Cyrillic uppercase
+  "\u0410": "a", // А
+  "\u0415": "e", // Е
+  "\u041E": "o", // О
+  "\u0420": "p", // Р
+  "\u0421": "c", // С
+  "\u0425": "x", // Х
+  "\u0406": "i", // І
+  "\u0408": "j", // Ј
+  // Greek
+  "\u03B1": "a", // α
+  "\u03B5": "e", // ε
+  "\u03BF": "o", // ο
+  "\u03C1": "p", // ρ
+  "\u03C4": "t", // τ
+  "\u03C5": "y", // υ
+  "\u03C7": "x", // χ
+  "\u03B9": "i", // ι
+  "\u0391": "a", // Α
+  "\u0395": "e", // Ε
+  "\u039F": "o", // Ο
+  "\u03A1": "p", // Ρ
+  "\u03A4": "t", // Τ
+  "\u03A5": "y", // Υ
+  "\u03A7": "x", // Χ
+  "\u0399": "i", // Ι
+};
+
+interface DetectionNormalizedInput {
+  readonly text: string;
+  readonly sourceMap: readonly number[];
+}
+
+function normalizeForDetection(input: string): DetectionNormalizedInput {
+  const rawChars: string[] = [];
+  const rawSourceMap: number[] = [];
+
+  for (let i = 0; i < input.length; ) {
+    const codePoint = input.codePointAt(i);
+    if (codePoint === undefined) break;
+    const originalChar = String.fromCodePoint(codePoint);
+    const normalizedChars = originalChar.normalize("NFKC");
+
+    for (const normalizedChar of normalizedChars) {
+      const replacedInvisible = INVISIBLE_CHAR_DETECTION_PATTERN.test(normalizedChar) ? " " : normalizedChar;
+      const mappedChar = CONFUSABLE_CHAR_MAP[replacedInvisible] ?? replacedInvisible;
+
+      for (const outChar of mappedChar) {
+        rawChars.push(outChar);
+        rawSourceMap.push(i);
+      }
+    }
+
+    i += originalChar.length;
+  }
+
+  const compactChars: string[] = [];
+  const compactSourceMap: number[] = [];
+  let previousWasWhitespace = false;
+  for (let idx = 0; idx < rawChars.length; idx++) {
+    const ch = rawChars[idx]!;
+    const isWhitespace = WHITESPACE_CHAR_PATTERN.test(ch);
+    if (isWhitespace) {
+      if (!previousWasWhitespace) {
+        compactChars.push(" ");
+        compactSourceMap.push(rawSourceMap[idx]!);
+        previousWasWhitespace = true;
+      }
+      continue;
+    }
+    compactChars.push(ch);
+    compactSourceMap.push(rawSourceMap[idx]!);
+    previousWasWhitespace = false;
+  }
+
+  let start = 0;
+  let end = compactChars.length;
+  while (start < end && compactChars[start] === " ") start++;
+  while (end > start && compactChars[end - 1] === " ") end--;
+
+  return {
+    text: compactChars.slice(start, end).join(""),
+    sourceMap: compactSourceMap.slice(start, end),
+  };
+}
+
+function normalizedMatchStartInOriginal(
+  normalizedMatch: RegExpExecArray,
+  normalizedInput: DetectionNormalizedInput,
+): number {
+  if (normalizedInput.sourceMap.length === 0) return 0;
+  const normalizedIndex = Math.min(normalizedMatch.index, normalizedInput.sourceMap.length - 1);
+  return normalizedInput.sourceMap[normalizedIndex] ?? 0;
+}
+
+function normalizedMatchInOriginal(
+  input: string,
+  normalizedMatch: RegExpExecArray,
+  normalizedInput: DetectionNormalizedInput,
+): string {
+  if (normalizedInput.sourceMap.length === 0) return "";
+  const normalizedStart = Math.min(normalizedMatch.index, normalizedInput.sourceMap.length - 1);
+  const normalizedEnd = Math.min(
+    normalizedMatch.index + Math.max(1, normalizedMatch[0].length) - 1,
+    normalizedInput.sourceMap.length - 1,
+  );
+  const sourceStart = normalizedInput.sourceMap[normalizedStart] ?? 0;
+  const sourceEnd = normalizedInput.sourceMap[normalizedEnd] ?? sourceStart;
+  return input.slice(sourceStart, Math.min(input.length, sourceEnd + 1));
+}
+
 function lowerSeverity(severity: "low" | "medium" | "high" | "critical"): "low" | "medium" | "high" | "critical" {
   const idx = SEVERITY_ORDER.indexOf(severity);
   return SEVERITY_ORDER[Math.max(0, idx - 1)]!;
@@ -310,27 +437,35 @@ export class PromptScanner {
     const threats: PromptThreat[] = [];
     const educational = isEducationalContext(input);
     const allowedPatterns = this.config.allowedPatterns ?? [];
+    const normalizedInput = normalizeForDetection(input);
 
     for (const p of INJECTION_PATTERNS) {
       // Check if this pattern name is in the whitelist
       if (allowedPatterns.includes(p.name)) continue;
 
-      const match = p.pattern.exec(input);
-      if (!match) continue;
+      const directMatch = p.pattern.exec(input);
+      const normalizedMatch = directMatch ? null : p.pattern.exec(normalizedInput.text);
+      if (!directMatch && !normalizedMatch) continue;
+      const matchStart = directMatch
+        ? directMatch.index
+        : normalizedMatchStartInOriginal(normalizedMatch!, normalizedInput);
 
       let severity = p.severity;
 
       // False positive mitigation
       if (educational) {
         severity = lowerSeverity(severity);
-      } else if (isInCodeBlock(input, match.index)) {
+      } else if (isInCodeBlock(input, matchStart)) {
         severity = "low";
       }
 
+      const matchedSnippet = directMatch
+        ? directMatch[0]
+        : normalizedMatchInOriginal(input, normalizedMatch!, normalizedInput);
       threats.push({
         pattern: p.name,
         severity,
-        matched: match[0].slice(0, 100),
+        matched: matchedSnippet.slice(0, 100),
         description: p.description,
       });
     }

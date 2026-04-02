@@ -503,9 +503,9 @@ re-locks users into Claude Code-only UX.
 
 ## Phase 4.5 — Permission & Safety
 
-**Status:** STARTED (`4.5a` complete, `4.5b` complete, `4.5c` in progress)
+**Status:** STARTED (`4.5a` complete, `4.5b` complete, `4.5c` in progress, `4.5d` scout complete + first slice landed uncommitted)
 **Priority:** HIGH — #1 universal pain point: "no middle ground between approve-all and yolo"
-**Source:** User research across all 3 tools + Claude Code permission model scout
+**Source:** User research across all 3 tools + Claude Code permission/safety scouts
 
 ### Current state
 
@@ -521,8 +521,13 @@ re-locks users into Claude Code-only UX.
   Codex, Claude, and OpenCode wrapper paths to support honest scoped
   enforcement, and scoped MCP matching now uses canonical selectors instead of
   raw backend-emitted tool names
-- later sub-phases still pending: full enforcement integration and core safety
-  hardening
+- `4.5d` started: safety-hardening scout complete and first core prompt-scanner
+  slice landed (currently uncommitted): detection-time normalization for
+  Unicode/homoglyph and invisible-character variants while preserving the
+  original input for audit; adversarial coverage added for homoglyph/invisible
+  bypasses and fenced-code downgrade behavior
+- later sub-phases still pending: full enforcement integration and remaining
+  safety hardening slices
 
 ### Granular Permission Policy
 - feat(core): per-tool permission rules (allowlist by tool name/pattern)
@@ -542,11 +547,14 @@ re-locks users into Claude Code-only UX.
 - feat(cli): --safe-defaults flag — privacy-first configuration preset
 
 ### Safety Pipeline Improvements
-- fix(core): close homoglyph/Unicode prompt injection bypasses
-  (Cyrillic + German patterns — documented TODOs in adversarial tests)
+- fix(core): Unicode/homoglyph-safe detection pipeline in prompt scanning
+  (normalization at detection-time, original input retained for audit)
+- feat(core): reuse tool-result scanning patterns as safety sink controls
+  across prompt and tool-output surfaces
 - feat(core): CROSS_PLATFORM_CODE_EXEC dangerous pattern expansion
-  (align with Claude Code's extended list: python, node, npx, ssh, etc.)
-- feat(core): denial tracking propagation to safety pipeline
+  (align with Claude Code's broader dangerous command/code coverage)
+- feat(core): denial propagation and metrics wiring into safety events
+  (fail-closed approval semantics + observable denial counters)
 
 ---
 

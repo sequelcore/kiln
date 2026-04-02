@@ -212,12 +212,34 @@ Missing enforcement pieces:
 
 ### 4.5d — Core Safety Hardening
 
+**Status:** STARTED (`4.5d` scout complete, first prompt-scanning slice landed uncommitted)
+
 **Scope:**
 
 - Unicode/homoglyph normalization for injection detection
-- expanded dangerous code-exec pattern coverage
+- tool-result scanning reuse for sink controls
+- expanded dangerous command/code-exec pattern coverage
 - propagate denial signals into safety events/metrics
 - adversarial regressions for known bypass classes
+
+**Scout conclusions (Claude Code patterns to carry into Kiln):**
+
+- layered defense beats single-pass filtering (input normalization + execution
+  checks + sink checks)
+- fail-closed approval semantics are safer than optimistic allow on ambiguous
+  paths or unresolved dynamic behavior
+- sink controls matter as much as source controls (tool-output scanning and
+  post-tool hooks reduce exfiltration/injection rebound risk)
+- denial propagation must be explicit and observable (counters + metrics), not
+  silent
+
+**First landed slice (currently uncommitted):**
+
+- core prompt scanning now performs detection-time normalization only
+  (Unicode/homoglyph + invisible-character classes) while preserving original
+  input for audit trails
+- adversarial tests expanded for homoglyph/invisible-char bypass attempts and
+  fenced-code downgrade behavior
 
 **Primary files:**
 
