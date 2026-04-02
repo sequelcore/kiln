@@ -22,7 +22,7 @@ Harden Kiln safety controls where bypass risk is highest:
 
 ## Current Slice Status
 
-**Status:** STARTED (`4.5d.a`, `4.5d.b`, and `4.5d.c` landed, currently uncommitted)
+**Status:** STARTED (`4.5d.a`, `4.5d.b`, `4.5d.c`, and `4.5d.d` landed, currently uncommitted)
 
 First slice landed in core prompt scanning:
 
@@ -61,6 +61,18 @@ Verification status for this slice:
 
 - targeted runtime compile passed
 - focused runtime tests are implemented for the enforcement path
+
+Fourth slice landed in cache-hit tool-result sink hardening:
+
+- cached tool results now pass through `ToolResultSanitizer` before
+  reinjection in `ModeBOrchestrator`
+- sanitizer failure on cache hit no longer re-executes the tool
+- cache-hit reinjection remains controlled and does not bypass the safety path
+
+Verification status for this slice:
+
+- targeted runtime compile passed
+- focused `mode-b-orchestrator-tools` cache-hit sanitization test passed
 
 ## Next Slices
 

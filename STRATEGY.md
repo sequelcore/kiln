@@ -402,7 +402,10 @@ See [ADR-003: Meta-Orchestrator Model](docs/adr/ADR-003-meta-orchestrator-model.
   Windows destructive, download-and-exec, and ambiguous ask boundaries; the
   detector is now enforced in runtime before tool execution via
   `ModeBOrchestrator`, wired from `gateway-server`, with fail-closed behavior
-  for `deny`/`ask`, detector-error handling, and empty-command blocking
+  for `deny`/`ask`, detector-error handling, and empty-command blocking;
+  cached tool results now also pass through `ToolResultSanitizer` before
+  reinjection in `ModeBOrchestrator`, and sanitizer failure on cache hit no
+  longer re-executes tools
 - later sub-phases still pending: full enforcement integration and remaining
   safety hardening slices
 
@@ -431,6 +434,9 @@ See [ADR-003: Meta-Orchestrator Model](docs/adr/ADR-003-meta-orchestrator-model.
 - feat(runtime): dangerous-command detector enforcement before tool execution
   in `ModeBOrchestrator`, wired from gateway startup with fail-closed
   handling for `deny`, `ask`, detector errors, and empty commands
+- feat(runtime): cache-hit tool-result sanitization before reinjection in
+  `ModeBOrchestrator`; sanitizer failure keeps cache-hit flow and does not
+  re-execute tools
 - feat(core): reuse tool-result scanning patterns as safety sink controls
   across prompt and tool-output surfaces
 - feat(core): CROSS_PLATFORM_CODE_EXEC dangerous pattern expansion
@@ -441,6 +447,8 @@ See [ADR-003: Meta-Orchestrator Model](docs/adr/ADR-003-meta-orchestrator-model.
   slice remains blocked in the current environment
 - verification: targeted runtime compile passed; focused runtime tests exist
   for the enforcement path
+- verification: targeted runtime compile passed and focused
+  `mode-b-orchestrator-tools` test passed for cache-hit sanitization slice
 
 ---
 

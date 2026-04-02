@@ -491,7 +491,18 @@ export class ModeBOrchestrator {
           try {
             const cached = this.deps.toolCache.get(tc.name, tc.input);
             if (cached !== undefined) {
-              const resultString = typeof cached === "string" ? cached : JSON.stringify(cached);
+              let resultString = typeof cached === "string" ? cached : JSON.stringify(cached);
+              if (this.deps.toolResultSanitizer) {
+                try {
+                  const sanitizationResult = await this.deps.toolResultSanitizer.sanitize(resultString);
+                  if (sanitizationResult.sanitized) {
+                    resultString = sanitizationResult.content;
+                  }
+                } catch (err) {
+                  const sanitizerError = err instanceof Error ? err.message : String(err);
+                  this.emitError(session.id, `Tool result sanitizer failed for cached tool "${tc.name}": ${sanitizerError}`);
+                }
+              }
               this.emitToolCacheHit(session.id, tc.name, cacheTtl);
               resultParts.push({
                 type: "tool_result",

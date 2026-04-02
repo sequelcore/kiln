@@ -212,7 +212,7 @@ Missing enforcement pieces:
 
 ### 4.5d — Core Safety Hardening
 
-**Status:** STARTED (`4.5d` scout complete, prompt-scanning slice landed uncommitted, dangerous-command core slice landed uncommitted, dangerous-command runtime slice landed uncommitted)
+**Status:** STARTED (`4.5d` scout complete, prompt-scanning slice landed uncommitted, dangerous-command core slice landed uncommitted, dangerous-command runtime slice landed uncommitted, cache-hit tool-result sanitization slice landed uncommitted)
 
 **Scope:**
 
@@ -258,6 +258,13 @@ Missing enforcement pieces:
 - detector errors are treated conservatively and empty commands are blocked
   before tool execution
 
+**Fourth landed slice (currently uncommitted):**
+
+- cached tool results now go through `ToolResultSanitizer` before reinjection
+  in `ModeBOrchestrator` (same safety path as live tool results)
+- sanitizer failure during cache-hit handling no longer falls through to tool
+  re-execution; cache-hit flow remains safe and controlled
+
 **Verification note:**
 
 - targeted core compile passed
@@ -265,6 +272,7 @@ Missing enforcement pieces:
   environment
 - targeted runtime compile passed
 - focused runtime tests are implemented for the enforcement path
+- focused `mode-b-orchestrator-tools` cache-hit sanitization test passed
 
 **Primary files:**
 
