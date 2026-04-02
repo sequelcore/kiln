@@ -180,6 +180,9 @@ Missing enforcement pieces:
 - `4.5c.c` first execution-time agent-scope enforcement slice:
   denied `tool_use` events now fail the active provider attempt before hook
   execution in the CLI application run loop, including agent-scope overlays
+- `4.5c.c` second execution-time enforcement slice:
+  bash-like tool payloads now evaluate `commandRules` in the CLI application
+  run loop when a command string is present
 - `4.5c.d.a` first runtime data-firewall slice:
   outbound channel sends now support destination-aware allow/deny/redact
   evaluation before provider calls

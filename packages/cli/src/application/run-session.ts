@@ -111,6 +111,23 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
               break;
             }
 
+            const isBashLikeTool = event.toolName === "Bash" || event.toolName === "bash";
+            const command = extractCommandFromToolInput(event.input);
+            if (isBashLikeTool && command !== undefined) {
+              const commandDecision = permissionEvaluator.evaluateCommand(command, "bash");
+              if (commandDecision.action === "deny") {
+                transcript.push({
+                  seq: ++transcriptSeq,
+                  ts: new Date().toISOString(),
+                  event: { type: "tool_use", toolName: `${event.toolName} [DENIED]` },
+                });
+                lastError = `Provider ${providerId} denied command "${command}" by policy`;
+                options.registry.reportFailure(providerId, false);
+                providerDeniedByPolicy = true;
+                break;
+              }
+            }
+
             transcript.push({
               seq: ++transcriptSeq,
               ts: new Date().toISOString(),
@@ -197,4 +214,10 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
     successfulProviderId,
     transcript,
   };
+}
+
+function extractCommandFromToolInput(input: unknown): string | undefined {
+  if (typeof input !== "object" || input === null) return undefined;
+  const withCommand = input as { command?: unknown };
+  return typeof withCommand.command === "string" ? withCommand.command : undefined;
 }

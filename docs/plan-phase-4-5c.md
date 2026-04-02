@@ -137,6 +137,11 @@ not only in evaluation or prompt text.
   policy-derived provider failure
 - agent-specific overlays are honored when `permissionAgent` is supplied to the
   application run flow
+- second narrow slice landed in
+  [run-session.ts](/C:/Proyectos/Sequel/kiln/packages/cli/src/application/run-session.ts):
+  bash-like tool payloads (`Bash`, `bash`) now evaluate `commandRules` when a
+  string command is present at `event.input.command`, and denied commands stop
+  the active provider attempt before hook execution
 - tests landed in
   [run-session-permissions.test.ts](/C:/Proyectos/Sequel/kiln/packages/cli/tests/application/run-session-permissions.test.ts)
 

@@ -208,4 +208,173 @@ describe("runSession tool permission gating", () => {
     expect(reportFailure).toHaveBeenCalledWith("claude", false);
     expect(preToolUse).not.toHaveBeenCalled();
   });
+
+  it("denied bash command blocks provider attempt even when tool is allowed", async () => {
+    const reportFailure = vi.fn();
+    const reportSuccess = vi.fn();
+    const preToolUse = vi.fn();
+
+    const session = createSessionFromEvents([
+      { type: "tool_use", toolName: "Bash", input: { command: "rm -rf /tmp/cache" } },
+      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+    ]);
+
+    const result = await runSession({
+      registry: {
+        selectBest: () => ({ primary: "claude", orderedFallbacks: [], scores: [] }),
+        createSession: () => session as any,
+        reportFailure,
+        reportSuccess,
+      } as any,
+      cleanupRegistry: { register: () => {} } as any,
+      manager: { trackCostUpdate: () => {} } as any,
+      context: makeContext(),
+      requirements: {},
+      sessionConfig: {
+        task: "test",
+        permissionPolicy: {
+          approval: "on-request",
+          sandbox: "read-only",
+          tools: [{ tool: "Bash", action: "allow" }],
+          commands: [{ pattern: "rm -rf /tmp/cache", action: "deny", shell: "bash" }],
+        },
+      },
+      permissionPolicy: {
+        approval: "on-request",
+        sandbox: "read-only",
+        tools: [{ tool: "Bash", action: "allow" }],
+        commands: [{ pattern: "rm -rf /tmp/cache", action: "deny", shell: "bash" }],
+      },
+      env: {},
+      sessionHooks: {
+        userPromptSubmit: () => {},
+        preToolUse,
+        postToolUse: () => {},
+      } as any,
+    });
+
+    expect(result.sessionSucceeded).toBe(false);
+    expect(result.lastError).toContain('denied command "rm -rf /tmp/cache"');
+    expect(reportFailure).toHaveBeenCalledWith("claude", false);
+    expect(reportSuccess).not.toHaveBeenCalled();
+    expect(preToolUse).not.toHaveBeenCalled();
+    expect(result.transcript).toContainEqual(
+      expect.objectContaining({
+        event: { type: "tool_use", toolName: "Bash [DENIED]" },
+      }),
+    );
+  });
+
+  it("allowed bash command preserves current behavior", async () => {
+    const reportFailure = vi.fn();
+    const reportSuccess = vi.fn();
+    const preToolUse = vi.fn();
+    const postToolUse = vi.fn();
+
+    const session = createSessionFromEvents([
+      { type: "tool_use", toolName: "bash", input: { command: "git status" } },
+      { type: "tool_result", toolName: "bash", output: "ok" },
+      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+    ]);
+
+    const result = await runSession({
+      registry: {
+        selectBest: () => ({ primary: "claude", orderedFallbacks: [], scores: [] }),
+        createSession: () => session as any,
+        reportFailure,
+        reportSuccess,
+      } as any,
+      cleanupRegistry: { register: () => {} } as any,
+      manager: { trackCostUpdate: () => {} } as any,
+      context: makeContext(),
+      requirements: {},
+      sessionConfig: {
+        task: "test",
+        permissionPolicy: {
+          approval: "on-request",
+          sandbox: "read-only",
+          tools: [{ tool: "bash", action: "allow" }],
+          commands: [{ pattern: "git status", action: "allow", shell: "bash" }],
+        },
+      },
+      permissionPolicy: {
+        approval: "on-request",
+        sandbox: "read-only",
+        tools: [{ tool: "bash", action: "allow" }],
+        commands: [{ pattern: "git status", action: "allow", shell: "bash" }],
+      },
+      env: {},
+      sessionHooks: {
+        userPromptSubmit: () => {},
+        preToolUse,
+        postToolUse,
+      } as any,
+    });
+
+    expect(result.sessionSucceeded).toBe(true);
+    expect(preToolUse).toHaveBeenCalledWith("bash");
+    expect(postToolUse).toHaveBeenCalledWith("bash");
+    expect(reportSuccess).toHaveBeenCalledWith("claude");
+    expect(reportFailure).not.toHaveBeenCalled();
+  });
+
+  it("agent-scoped command deny overrides root allow when permissionAgent is supplied", async () => {
+    const reportFailure = vi.fn();
+    const preToolUse = vi.fn();
+
+    const session = createSessionFromEvents([
+      { type: "tool_use", toolName: "Bash", input: { command: "git push origin main" } },
+      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+    ]);
+
+    const result = await runSession({
+      registry: {
+        selectBest: () => ({ primary: "claude", orderedFallbacks: [], scores: [] }),
+        createSession: () => session as any,
+        reportFailure,
+        reportSuccess: () => {},
+      } as any,
+      cleanupRegistry: { register: () => {} } as any,
+      manager: { trackCostUpdate: () => {} } as any,
+      context: makeContext(),
+      requirements: {},
+      sessionConfig: {
+        task: "test",
+        permissionPolicy: {
+          approval: "on-request",
+          sandbox: "read-only",
+          tools: [{ tool: "Bash", action: "allow" }],
+          commands: [{ pattern: "git push origin main", action: "allow", shell: "bash" }],
+          agentScopes: [{
+            agent: "agent-alpha",
+            inherit: true,
+            commands: [{ pattern: "git push origin main", action: "deny", shell: "bash" }],
+          }],
+        },
+      },
+      permissionPolicy: {
+        approval: "on-request",
+        sandbox: "read-only",
+        tools: [{ tool: "Bash", action: "allow" }],
+        commands: [{ pattern: "git push origin main", action: "allow", shell: "bash" }],
+        agentScopes: [{
+          agent: "agent-alpha",
+          inherit: true,
+          commands: [{ pattern: "git push origin main", action: "deny", shell: "bash" }],
+        }],
+      },
+      permissionAgent: "agent-alpha",
+      env: {},
+      sessionHooks: {
+        userPromptSubmit: () => {},
+        preToolUse,
+        postToolUse: () => {},
+      } as any,
+    });
+
+    expect(result.sessionSucceeded).toBe(false);
+    expect(result.lastError).toContain('denied command "git push origin main"');
+    expect(reportFailure).toHaveBeenCalledWith("claude", false);
+    expect(preToolUse).not.toHaveBeenCalled();
+  });
 });
