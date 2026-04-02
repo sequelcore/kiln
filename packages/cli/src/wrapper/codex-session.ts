@@ -331,6 +331,7 @@ export class CodexSession implements IKilnSession {
                 type: "tool_use",
                 toolName: item.tool ?? item.title ?? "mcp_tool",
                 input: item.arguments ?? {},
+                source: "mcp",
               };
               break;
 

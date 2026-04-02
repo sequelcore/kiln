@@ -239,7 +239,12 @@ describe("CodexSession.run() JSONL parsing", () => {
     resolveExit(0);
 
     const events = await collectPromise;
-    expect(events).toContainEqual({ type: "tool_use", toolName: "memory_store", input: { key: "test", value: "42" } });
+    expect(events).toContainEqual({
+      type: "tool_use",
+      toolName: "memory_store",
+      input: { key: "test", value: "42" },
+      source: "mcp",
+    });
   });
 
   it("run() skips reasoning items silently", async () => {
