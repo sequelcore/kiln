@@ -59,10 +59,18 @@ export async function startTui(
   };
 
   const VALID_PROVIDERS = ["claude", "codex", "opencode"];
+  // TODO(7d-models): Two improvements needed:
+  // 1. Dynamic model list — gateway should query each CLI at startup (e.g. `claude models ls`)
+  //    and send available models in a `welcome` frame instead of this hardcoded list.
+  // 2. Model actually applied — CliSubscriptionExecutor must accept model and pass --model <id>
+  //    to the subprocess. Right now the picker is display-only; the CLI uses its own config.
   const PROVIDER_MODELS: Record<string, string[]> = {
-    claude: ["sonnet-4-20250514", "haiku-4-20250514", "opus-4-20250514"],
-    codex: ["codex-2-2025-01-24", "codex-2-2025-02-24"],
-    opencode: ["opencode-o3", "opencode-o4", "opencode-o1"],
+    // Claude Code models (subscription tier: sonnet is default, opus for heavy tasks)
+    claude: ["claude-sonnet-4-5", "claude-opus-4-5", "claude-haiku-4-5"],
+    // Codex CLI models (OpenAI reasoning: o4-mini is subscription default, o3 for heavier tasks)
+    codex: ["o4-mini", "o3", "o3-mini"],
+    // OpenCode models (configured via opencode.json; these are real provider/model combos)
+    opencode: ["claude-sonnet-4-5", "gpt-4o", "o4-mini"],
   };
 
   const themeNames = Object.keys(themes);

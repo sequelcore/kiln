@@ -642,7 +642,9 @@ Persistent conversational interface showing:
    - /provider picker: provider+model selection UI with 2-screen navigation
    - Status guard: late WS frames discarded after turn completion
    - Bug fixes (v0.24.2): /provider command, tool routing, status race, token pipeline
-7d. Budget panel (per-provider real-time cost + token breakdown)
+7d. Budget panel (per-provider real-time cost + token breakdown) — DONE (v0.24.3)
+   - Deferred: dynamic model list from gateway welcome frame (currently hardcoded)
+   - Deferred: CliSubscriptionExecutor must pass --model <id> to subprocess (picker is display-only today)
 7e. Routing indicator (which CLI was chosen and why) — see routing design above
 7f. Full integration: kiln command launches TUI by default when interactive
 7g. OpenKiln TUI variant (channel-aware, personal branding)
