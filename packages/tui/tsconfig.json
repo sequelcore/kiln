@@ -4,12 +4,12 @@
     "composite": true,
     "outDir": "dist",
     "rootDir": "src",
-    "lib": ["ES2023"]
+    "lib": ["ES2023"],
+    "jsx": "react-jsx",
+    "jsxImportSource": "@opentui/react"
   },
   "include": ["src"],
   "references": [
-    { "path": "../core" },
-    { "path": "../runtime" },
-    { "path": "../sdk" }
+    { "path": "../core" }
   ]
 }

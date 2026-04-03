@@ -2,7 +2,7 @@
 > Living document. High-level vision and phased plan.
 > Each phase will have its own dedicated research → architecture → 
 > implementation pipeline before execution.
-> Last updated: 2026-04-01
+> Last updated: 2026-04-03
 
 ## 1. What Kiln Is
 
@@ -623,13 +623,19 @@ Persistent conversational interface showing:
 
 **Sub-phases:**
 7a. @kilnai/tui package scaffold — DONE (v0.23.x)
-7b. Conversation component (input + message history) — DONE (v0.24.0)
-    - OpenTUI renderer, input fixes (vim keys, Enter freeze, Ctrl+V paste)
-    - Native session persistence (providerSessionId unification, crash-resilient restart)
-    - /clear command (WS protocol: clear/cleared frames)
-    - opencode-style layout: chatArea + divider + sidebar (provider, cost, cwd, turns, tool)
-    - Theme token system: KilnTheme interface, 5 built-in themes, --theme flag
-7c. Swarm status panel (real-time via EventBus)
+7b. Conversation component (input + message history) — DONE (v0.24.1)
+   - OpenTUI renderer, input fixes (vim keys, Enter freeze, Ctrl+V paste)
+   - Native session persistence (providerSessionId unification, crash-resilient restart)
+   - /clear command (WS protocol: clear/cleared frames)
+   - opencode-style layout: chatArea + divider + sidebar (provider, cost, cwd, turns, tool)
+   - Theme token system: 12 built-in themes, --theme flag
+   - Real-time activity bar (command bar integration): phase + tool + details
+   - Sidebar tool counter (no duplicates), input clear on Enter fix
+7c. TUI Gateway Integration — IN PROGRESS
+   - CliSubscriptionExecutor in progress (packages/runtime/src/execution/)
+   - TuiWsClient implemented (packages/tui/src/ws-client.ts)
+   - GatewaySession implemented (packages/tui/src/gateway-session.ts)
+   - startTuiGateway() scaffolding exists
 7d. Budget panel (per-provider, updates on cost events)
 7e. Routing indicator (which CLI was chosen and why) — see routing design above
 7f. Full integration: kiln command launches TUI

@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.24.1 (2026-04-03) -- TUI Real-Time Visibility
+
+### Activity Bar Integration
+- Moved live activity display from separate bar to command bar status area.
+- Command bar now shows: spinner + phase icon + phase name + tool name + details.
+- Phase icons: ⚡planning, ⟳executing, 🤔reasoning, 💬responding.
+- Details truncated at 40 chars to prevent overflow.
+
+### Sidebar Tool Counter
+- Fixed duplicate tool entries in sidebar — now shows single line with call count.
+- Format: "⟳ write" (single call) or "⟳ write ×3" (multiple calls).
+- `toolCallCounts` added to ReactiveState, tracked in handleToolUse.
+
+### Input Fix
+- Fixed Enter key handling: input now clears AND submits correctly.
+- Removed duplicate Enter handling from keypress handler (left only in TextareaRenderable.onSubmit).
+- Textarea now clears via `inputTextarea.clear()` + state update.
+
+### Extended Theme System
+- Expanded from 5 to 12 built-in themes: kiln-dark, dracula, catppuccin-mocha, nord, tokyo-night, gruvbox-dark, rose-pine, kanagawa-wave, everforest-dark, ayu-dark, one-dark, night-owl.
+- All themes in `packages/tui/src/theme.ts`.
+
 ## v0.24.0 (2026-04-02) -- Kiln TUI v2
 
 ### TUI Native Session Persistence

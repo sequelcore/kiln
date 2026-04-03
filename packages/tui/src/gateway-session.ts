@@ -1,16 +1,11 @@
-// TUI: GatewaySession — implements SessionLike over the local TUI gateway WebSocket.
-//
-// Maps WS frames to the SessionEvent async iterator that startTui() consumes:
-//   done frame   → text_delta (full content) + completed
-//   error frame  → error
-//   welcome frame → ignored
-//
-// The async queue pattern: run() sends the user message, ws onMessage pushes
-// events into the queue, and the async iterator reads from the queue.
-// A sentinel value signals the iterator to stop.
+/**
+ * @fileoverview TUI Gateway session implementation.
+ * @module @kilnai/tui
+ */
 
 import { randomUUID } from "node:crypto";
-import type { SessionLike, SessionEvent } from "./types.js";
+import type { SessionLike } from "./types.js";
+import type { SessionEventInternal } from "./types.js";
 import { TuiWsClient } from "./ws-client.js";
 import type { TuiInboundFrame } from "./ws-client.js";
 
@@ -20,7 +15,7 @@ const CLEAR_TIMEOUT_MS = 5_000;
 
 const STOP = Symbol("STOP");
 
-type QueueItem = SessionEvent | typeof STOP;
+type QueueItem = SessionEventInternal | typeof STOP;
 
 /**
  * GatewaySession — TUI's SessionLike implementation backed by the local gateway WS.
@@ -58,7 +53,7 @@ export class GatewaySession implements SessionLike {
     this.client.connect();
   }
 
-  async *run(opts: { prompt: string; cwd?: string }): AsyncGenerator<SessionEvent> {
+  async *run(opts: { prompt: string; cwd?: string }): AsyncGenerator<SessionEventInternal> {
     // Wait for connection to be established
     await this.waitForConnection();
 
@@ -138,7 +133,7 @@ export class GatewaySession implements SessionLike {
     }
   }
 
-  private push(event: SessionEvent): void {
+  private push(event: SessionEventInternal): void {
     this.queue.push(event);
     this.resolveQueue();
   }
@@ -155,7 +150,7 @@ export class GatewaySession implements SessionLike {
     }
   }
 
-  private async *drainQueue(): AsyncIterable<SessionEvent> {
+  private async *drainQueue(): AsyncIterable<SessionEventInternal> {
     while (true) {
       if (this.queue.length > 0) {
         const item = this.queue.shift()!;

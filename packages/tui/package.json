@@ -1,7 +1,7 @@
 {
   "name": "@kilnai/tui",
   "version": "0.23.2",
-  "description": "Terminal interface adapter foundation for Kiln",
+  "description": "Terminal interface for Kiln",
   "type": "module",
   "exports": {
     ".": {
@@ -10,35 +10,33 @@
     }
   },
   "types": "./dist/index.d.ts",
-  "files": [
-    "dist",
-    "README.md"
-  ],
+  "files": ["dist"],
   "scripts": {
     "build": "tsc",
-    "typecheck": "tsc --noEmit",
-    "test": "echo 'No tests yet'"
+    "typecheck": "tsc --noEmit"
   },
   "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/sequelcore/kiln.git",
-    "directory": "packages/tui"
-  },
-  "homepage": "https://github.com/sequelcore/kiln/tree/main/packages/tui",
-  "keywords": [
-    "ai",
-    "tui",
-    "terminal",
-    "orchestration"
-  ],
   "publishConfig": {
     "access": "public"
   },
+  "dependencies": {
+    "@opentui/core": "0.1.92",
+    "@opentui/react": "0.1.92"
+  },
+  "optionalDependencies": {
+    "@opentui/core-darwin-arm64": "0.1.92",
+    "@opentui/core-darwin-x64": "0.1.92",
+    "@opentui/core-linux-arm64": "0.1.92",
+    "@opentui/core-linux-x64": "0.1.92",
+    "@opentui/core-win32-arm64": "0.1.92",
+    "@opentui/core-win32-x64": "0.1.92"
+  },
   "peerDependencies": {
     "@kilnai/core": "workspace:*",
-    "@kilnai/runtime": "workspace:*",
-    "@kilnai/react": "workspace:*",
+    "@kilnai/cli": "workspace:*",
     "react": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0"
   }
 }

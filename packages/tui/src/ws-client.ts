@@ -1,11 +1,10 @@
-// TUI WebSocket client — adapted from packages/widget/src/ws-client.ts
-// Changes from widget version:
-//   - No localStorage: userId passed as constructor param
-//   - No widgetId/identify frame: TUI connects directly with ?userId= query param
-//   - No browser-specific APIs: uses Bun/Node WebSocket global
-//   - Heartbeat pong and auto-reconnect preserved
-
-/** Inbound frames the TUI gateway sends. */
+/**
+ * @fileoverview TUI WebSocket client for gateway communication.
+ * @module @kilnai/tui
+ */
+/**
+ * Inbound frames the TUI gateway sends.
+ */
 export type TuiInboundFrame =
   | { type: "thinking" }
   | { type: "activity"; activity: string; toolName?: string; output?: string; usd?: number; inputTokens?: number; outputTokens?: number }
@@ -14,11 +13,16 @@ export type TuiInboundFrame =
   | { type: "welcome"; greeting?: string }
   | { type: "cleared" };
 
-/** Outbound frames the TUI sends to the gateway. */
+/**
+ * Outbound frames the TUI sends to the gateway.
+ */
 export type TuiOutboundFrame =
   | { type: "message"; content: string }
   | { type: "clear" };
 
+/**
+ * Configuration options for TuiWsClient.
+ */
 export interface TuiWsClientOptions {
   readonly url: string;
   readonly userId: string;
