@@ -42,6 +42,8 @@ export interface ReactiveState {
   perProviderCost: Record<string, number>;
   /** Per-provider cumulative token counts. */
   perProviderTokens: Record<string, { input: number; output: number }>;
+  /** How the current provider was selected: user-driven or automatic routing. */
+  routeMode: "user" | "auto";
   listeners: Set<() => void>;
 }
 
@@ -80,6 +82,7 @@ export function createReactiveState(): ReactiveState {
     toolCallCounts: {},
     perProviderCost: {},
     perProviderTokens: {},
+    routeMode: "user",
     listeners: new Set(),
   };
 }

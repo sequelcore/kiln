@@ -12,7 +12,7 @@ import type { KilnTheme } from "./theme.js";
 import { defaultTheme, themes } from "./theme.js";
 import { initUI, createThemePicker, destroyThemePicker, createProviderPicker, destroyProviderPicker } from "./ui.js";
 import { sendMessage } from "./handlers.js";
-import { renderSidebarCost, renderSidebarTurns } from "./render.js";
+import { renderSidebarCost, renderSidebarTurns, renderSidebarProvider } from "./render.js";
 
 /** Spinner frames for thinking indicator. */
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -129,6 +129,7 @@ export async function startTui(
 
   renderSidebarCost(state, currentTheme, ui);
   renderSidebarTurns(state, currentTheme, ui);
+  renderSidebarProvider(state, currentTheme, ui, domain);
   renderer.start();
 
   // Sidebar visibility based on terminal width
@@ -200,6 +201,7 @@ export async function startTui(
       const selectedModel = PROVIDER_MODELS[selectedProvider]?.[providerPickerState.modelIndex] ?? "";
       update(state, "currentProvider", selectedProvider);
       update(state, "currentModel", selectedModel);
+      update(state, "routeMode", "user");
       
       // Switch provider in gateway
       void (async () => {
@@ -212,7 +214,7 @@ export async function startTui(
         } catch {
           // Fail-open: provider switch is best-effort
         }
-        ui.sidebarProviderText.content = t`${fg(currentTheme.accent)("[" + selectedProvider + "]")} ${fg(currentTheme.text)(domain)} ${fg(currentTheme.textMuted)(selectedModel ? "· " + selectedModel : "")}`;
+        renderSidebarProvider(state, currentTheme, ui, domain);
       })();
     }
     destroyProviderPicker(providerPicker);
@@ -288,7 +290,7 @@ export async function startTui(
     ui.inputContainer.backgroundColor = currentTheme.backgroundElement;
     ui.commandBar.backgroundColor = currentTheme.background;
     ui.sidebar.backgroundColor = currentTheme.backgroundPanel;
-    ui.sidebarProviderText.content = t`${fg(currentTheme.accent)("[" + provider + "]")} ${fg(currentTheme.text)(domain)}`;
+    renderSidebarProvider(state, currentTheme, ui, domain);
     ui.sidebarCostText.content = t`${fg(currentTheme.textMuted)(`$${state.cost.toFixed(4)}`)}`;
     ui.sidebarCwdText.content = t`${fg(currentTheme.textMuted)(shortPath(process.cwd()))}`;
     ui.sidebarTurnsText.content = t`${fg(currentTheme.textMuted)(`turns: ${state.turns}  tok: ${state.inputTokens >= 1000 ? (state.inputTokens / 1000).toFixed(1) + "k" : state.inputTokens}/${state.outputTokens >= 1000 ? (state.outputTokens / 1000).toFixed(1) + "k" : state.outputTokens}`)}`;

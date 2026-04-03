@@ -82,10 +82,12 @@ export async function handleTextDelta(
       });
       ctx.chatScrollBox.content.add(assistantBox);
 
-      // Model header
-      const modelLabel = ctx.state.currentModel || ctx.provider;
+      // Routing header — shows which provider (+ model if known) handled this response
+      const provider = ctx.state.currentProvider;
+      const model = ctx.state.currentModel;
+      const routeLabel = model ? `${provider} · ${model}` : provider;
       const headerNode = new TextRenderable(ctx.renderer, {
-        content: t`${fg(ctx.theme.textMuted)("[" + modelLabel + "]")}`,
+        content: t`${fg(ctx.theme.textMuted)("[" + routeLabel + "]")}`,
         width: "100%",
       });
       assistantBox.add(headerNode);

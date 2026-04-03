@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.24.4 (2026-04-03) -- TUI Routing Indicator (7e)
+
+### Routing label in chat
+- Each assistant response now shows `[opencode · opencode-o3]` (provider + model if known) or `[opencode]` if no model.
+- **Bug fix:** label was using `ctx.provider` (startup arg) — stale after `/provider` switch. Now uses `ctx.state.currentProvider`.
+
+### Sidebar provider display
+- Consolidated all `sidebarProviderText` updates into `renderSidebarProvider(state, theme, ui, domain)`.
+- Format: `[opencode] sequel/kiln · opencode-o3  via user` (route mode badge).
+- `routeMode: "user" | "auto"` added to `ReactiveState` — defaults to `"user"`. Future automatic routing (Phase 7.5) will set `"auto"`.
+- `closeProviderPicker` now sets `routeMode: "user"` explicitly on every manual provider switch.
+
 ## v0.24.2 (2026-04-03) -- TUI Event Pipeline Fixes
 
 ### `/provider` command

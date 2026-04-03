@@ -79,16 +79,18 @@ export function renderInput(
 
 /**
  * Renders provider and model info in sidebar.
+ * Format: "[provider] domain · model  via user"
  */
-export function renderProviderInfo(
+export function renderSidebarProvider(
   state: ReactiveState,
   theme: KilnTheme,
-  ui: UIComponents
+  ui: UIComponents,
+  domain: string
 ): void {
-  const provider = state.currentProvider;
   const model = state.currentModel;
-  const modelDisplay = model ? ` · ${model}` : "";
-  ui.sidebarProviderText.content = t`${fg(theme.accent)("[" + provider + "]")} ${fg(theme.text)(modelDisplay)}`;
+  const modelStr = model ? ` · ${model}` : "";
+  const routeMode = state.routeMode === "auto" ? " auto" : " via user";
+  ui.sidebarProviderText.content = t`${fg(theme.accent)("[" + state.currentProvider + "]")} ${fg(theme.text)(domain + modelStr)}${fg(theme.textMuted)(routeMode)}`;
 }
 
 /**
