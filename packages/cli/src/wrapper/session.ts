@@ -86,7 +86,7 @@ export interface KilnPermissionPolicy {
 }
 
 export type SessionEvent =
-  | { type: "text_delta"; content: string }
+  | { type: "text_delta"; content: string; isThinking?: boolean }
   | { type: "tool_use"; toolName: string; input: unknown; source?: "native" | "mcp"; mcpSelector?: string }
   | { type: "tool_result"; toolName: string; output: string }
   | {
@@ -131,4 +131,5 @@ export interface IKilnSession {
   dispose(): Promise<void>;
   readonly capabilities: SessionCapabilities;
   readonly sessionId: string;
+  readonly providerSessionId: string | undefined;
 }

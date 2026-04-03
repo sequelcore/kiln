@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, execSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import type {
@@ -20,6 +20,10 @@ interface OpencodeClientShape {
       params: { directory?: string },
       options?: { throwOnError?: boolean },
     ): Promise<{ data?: { id: string } }>;
+    get(
+      params: { sessionID: string; directory?: string },
+      options?: { throwOnError?: boolean },
+    ): Promise<{ data?: { id: string; time?: { created: number } } }>;
     prompt(
       params: {
         sessionID: string;
@@ -245,6 +249,7 @@ export class OpenCodeSession implements IKilnSession {
   private readonly _config: OpenCodeSessionConfig;
   private readonly _capabilities: MutableCapabilities & Omit<SessionCapabilities, "supportedTools">;
   private _remoteSessionId: string | null = null;
+  private _resolvedBaseUrl: string | null = null;
   private _lastCostUsd = 0;
   private _abortController: AbortController | null = null;
   private _eventAbortController: AbortController | null = null;
@@ -278,12 +283,17 @@ export class OpenCodeSession implements IKilnSession {
     return this._capabilities;
   }
 
+  get providerSessionId(): string | undefined {
+    return this._remoteSessionId ?? undefined;
+  }
+
   async *run(options: SessionRunOptions): AsyncIterable<SessionEvent> {
     if (this._disposed) return;
     const startTime = Date.now();
     const abortController = new AbortController();
     this._abortController = abortController;
     const knownMcpToolNames = new Set<string>();
+    const partTypes = new Map<string, string>(); // partID → part type ("text" | "reasoning" | "tool" | ...)
     const cwd = options.cwd ?? this._config.cwd;
 
     if (options.abortSignal) {
@@ -303,104 +313,119 @@ export class OpenCodeSession implements IKilnSession {
 
     try {
       let baseUrl: string;
-      let attachSession = false;
-      if (this._config.resumeSessionId !== undefined) {
-        try {
-          const store = new SessionStore(this._config.cwd);
-          const record = await store.find(this._config.resumeSessionId);
-          if (record?.remoteSessionId) {
-            attachSession = true;
+      const isResumingTurn = this._resolvedBaseUrl !== null && this._remoteSessionId !== null;
+
+      let storedRemoteSessionId: string | undefined;
+      if (!isResumingTurn) {
+        if (this._config.resumeSessionId !== undefined) {
+          try {
+            const store = new SessionStore(this._config.cwd);
+            const record = await store.find(this._config.resumeSessionId);
+            if (record?.providerSessionId) {
+              storedRemoteSessionId = record.providerSessionId;
+            }
+          } catch {
+            console.error("[SessionStore] Resume lookup failed, continuing without resume");
           }
-        } catch {
-          console.error("[SessionStore] Resume lookup failed, continuing without resume");
         }
-      }
-      if (this._config.baseUrl) {
-        baseUrl = this._config.baseUrl;
+        if (this._config.baseUrl) {
+          baseUrl = this._config.baseUrl;
+        } else {
+          const port = this._config.port ?? 0;
+          const actualPort = await this.spawnAndWaitForServe(port, cwd, this._config.env);
+          baseUrl = `http://127.0.0.1:${actualPort}`;
+        }
+        this._resolvedBaseUrl = baseUrl;
       } else {
-        const port = this._config.port ?? 0;
-        const actualPort = await this.spawnAndWaitForServe(port, cwd, this._config.env, attachSession);
-        baseUrl = `http://127.0.0.1:${actualPort}`;
+        baseUrl = this._resolvedBaseUrl!;
       }
 
       const { createOpencodeClient } = await import("@opencode-ai/sdk/v2");
       const client = asOpencodeClient(createOpencodeClient({ baseUrl }));
 
-      const approval = this._capabilities.permissionPolicy.approval;
-      const permValue: OpenCodePermissionValue =
-        approval === "never" ? "allow" : approval === "untrusted" ? "deny" : "ask";
-      const permissionPayload = applyGranularPermissionOverrides(
-        {
-          edit: permValue,
-          bash: permValue,
-          webfetch: permValue,
-        },
-        this._config.nativeRules,
-      );
-      await client.config
-        .update({
-          body: { permission: permissionPayload },
-          query: { directory: cwd },
-        })
-        .catch((err: unknown) => {
-          console.debug(
-            `[opencode] config.update failed: ${err instanceof Error ? err.message : String(err)}`,
-          );
-        });
-
-      const mcpEntryPath = this._config.mcpServerEntryPath;
-      if (mcpEntryPath && existsSync(mcpEntryPath)) {
-        const mcpEntry: Record<string, unknown> = {
-          type: "local",
-          command: ["node", mcpEntryPath],
-          enabled: true,
-        };
+      if (!isResumingTurn) {
+        const approval = this._capabilities.permissionPolicy.approval;
+        const permValue: OpenCodePermissionValue =
+          approval === "never" ? "allow" : approval === "untrusted" ? "deny" : "ask";
+        const permissionPayload = applyGranularPermissionOverrides(
+          {
+            edit: permValue,
+            bash: permValue,
+            webfetch: permValue,
+          },
+          this._config.nativeRules,
+        );
         await client.config
           .update({
-            body: { mcp: { kiln: mcpEntry } },
+            body: { permission: permissionPayload },
             query: { directory: cwd },
           })
           .catch((err: unknown) => {
             console.debug(
-              `[opencode] MCP config.update failed: ${err instanceof Error ? err.message : String(err)}`,
+              `[opencode] config.update failed: ${err instanceof Error ? err.message : String(err)}`,
             );
           });
-      } else if (mcpEntryPath) {
-        debug(`MCP server entry not found at ${mcpEntryPath}, skipping runtime MCP registration`);
+
+        const mcpEntryPath = this._config.mcpServerEntryPath;
+        if (mcpEntryPath && existsSync(mcpEntryPath)) {
+          const mcpEntry: Record<string, unknown> = {
+            type: "local",
+            command: ["node", mcpEntryPath],
+            enabled: true,
+          };
+          await client.config
+            .update({
+              body: { mcp: { kiln: mcpEntry } },
+              query: { directory: cwd },
+            })
+            .catch((err: unknown) => {
+              console.debug(
+                `[opencode] MCP config.update failed: ${err instanceof Error ? err.message : String(err)}`,
+              );
+            });
+        } else if (mcpEntryPath) {
+          debug(`MCP server entry not found at ${mcpEntryPath}, skipping runtime MCP registration`);
+        }
+
+        await client.config
+          .update({
+            body: { experimental: { batch_tool: true } },
+            query: { directory: cwd },
+          })
+          .catch((err: unknown) => {
+            console.debug(
+              `[opencode] batch_tool config.update failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          });
       }
 
-      await client.config
-        .update({
-          body: { experimental: { batch_tool: true } },
-          query: { directory: cwd },
-        })
-        .catch((err: unknown) => {
-          console.debug(
-            `[opencode] batch_tool config.update failed: ${err instanceof Error ? err.message : String(err)}`,
+      if (!isResumingTurn) {
+        if (storedRemoteSessionId !== undefined) {
+          const getResult = await client.session.get(
+            { sessionID: storedRemoteSessionId, directory: cwd },
+            { throwOnError: true },
           );
-        });
-
-      const createResult = await client.session.create(
-        { directory: cwd },
-        { throwOnError: true },
-      );
-      this._remoteSessionId = createResult.data!.id;
+          this._remoteSessionId = getResult.data!.id;
+        } else {
+          const createResult = await client.session.create(
+            { directory: cwd },
+            { throwOnError: true },
+          );
+          this._remoteSessionId = createResult.data!.id;
+        }
+      }
 
       this._eventAbortController = new AbortController();
       const eventStreamPromise = client.global.event({
         signal: this._eventAbortController.signal,
       });
 
-      const eventQueue: Array<{
+      const eventQueue: Array<QueuedEvent> = [];
+      type QueuedEvent = {
         directory: string;
         payload: { type: string; properties?: Record<string, unknown> };
-      }> = [];
-      let eventYield: (
-        value: {
-          directory: string;
-          payload: { type: string; properties?: Record<string, unknown> };
-        } | null,
-      ) => void = () => {};
+      };
+      let eventYield: ((value: QueuedEvent | null) => void) | null = null;
       const eventDone = new Set<() => void>();
 
       eventStreamPromise
@@ -408,9 +433,9 @@ export class OpenCodeSession implements IKilnSession {
           try {
             for await (const event of stream) {
               if (this._eventAbortController?.signal.aborted) break;
-              if (eventYield) {
+              if (eventYield !== null) {
                 const yieldFn = eventYield;
-                eventYield = () => {};
+                eventYield = null;
                 yieldFn(event);
               } else {
                 eventQueue.push(event);
@@ -425,17 +450,10 @@ export class OpenCodeSession implements IKilnSession {
           for (const doneFn of eventDone) doneFn();
         });
 
-      const waitForEvent = (): Promise<{
-        directory: string;
-        payload: { type: string; properties?: Record<string, unknown> };
-      } | null> => {
+      const waitForEvent = (): Promise<QueuedEvent | null> => {
         if (eventQueue.length > 0) return Promise.resolve(eventQueue.shift()!);
         return new Promise((resolve) => {
-          const yieldFn = (event: {
-            directory: string;
-            payload: { type: string; properties?: Record<string, unknown> };
-          } | null) => resolve(event);
-          eventYield = yieldFn;
+          eventYield = resolve;
           eventDone.add(() => resolve(null));
         });
       };
@@ -443,7 +461,7 @@ export class OpenCodeSession implements IKilnSession {
       const promptResult = await client.session
         .prompt(
           {
-            sessionID: this._remoteSessionId,
+            sessionID: this._remoteSessionId!,
             parts: [{
               type: "text",
               text: appendConstraintInstructions(
@@ -488,12 +506,18 @@ export class OpenCodeSession implements IKilnSession {
         if (event.payload.type === "message.part.delta") {
           const props = event.payload.properties as {
             sessionID?: string;
+            partID?: string;
             field?: string;
             delta?: string;
           } | undefined;
           if (props?.sessionID !== this._remoteSessionId) continue;
           if (props?.field === "text" && props?.delta) {
-            yield { type: "text_delta", content: props.delta };
+            const partType = props.partID ? partTypes.get(props.partID) : undefined;
+            if (partType === "reasoning") {
+              yield { type: "text_delta", content: props.delta, isThinking: true };
+            } else {
+              yield { type: "text_delta", content: props.delta };
+            }
           }
           continue;
         }
@@ -502,6 +526,7 @@ export class OpenCodeSession implements IKilnSession {
           const props = event.payload.properties as {
             sessionID?: string;
             part?: {
+              id?: string;
               type?: string;
               callID?: string;
               tool?: string;
@@ -519,6 +544,8 @@ export class OpenCodeSession implements IKilnSession {
           if (!props?.part) continue;
 
           const part = props.part;
+          if (part.id && part.type) partTypes.set(part.id, part.type);
+
           if (part.type === "tool") {
             if (part.state?.status === "pending" || part.state?.status === "running") {
               const toolName = part.tool ?? "unknown";
@@ -632,7 +659,7 @@ export class OpenCodeSession implements IKilnSession {
           completedAt,
           cost: this._lastCostUsd,
           projectPath: this._config.cwd,
-          remoteSessionId: this._remoteSessionId ?? undefined,
+          providerSessionId: this._remoteSessionId ?? undefined,
         });
       } catch (err) {
         console.error("[SessionStore] Failed to append session record:", err instanceof Error ? err.message : String(err));
@@ -655,12 +682,13 @@ export class OpenCodeSession implements IKilnSession {
     port: number,
     cwd: string,
     env?: Record<string, string>,
-    attach?: boolean,
   ): Promise<number> {
-    const opencodePath = await this._findOpencodePath();
-    const args = ["serve", "--port", String(port), "--cwd", cwd];
-    if (attach) args.push("--attach");
+    const opencodePath = this._findOpencodePath();
+    const args = ["serve", "--port", String(port)];
     const spawnEnv = { ...process.env, ...env };
+
+    debug(`[opencode] spawning: ${opencodePath} ${args.join(" ")}`);
+    debug(`[opencode] cwd: ${cwd}`);
 
     const proc = spawn(opencodePath, args, {
       cwd,
@@ -671,18 +699,20 @@ export class OpenCodeSession implements IKilnSession {
     this.serveProcess = proc;
 
     let actualPort = port;
-    const portRegex = /Listening on (?:http:\/\/)?[^:]*:(\d+)/;
+    let stderrOutput = "";
+    const portRegex = /listening on (?:http:\/\/)?[^:]*:(\d+)/i;
 
     const portPromise = new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(() => {
-        reject(new Error("opencode serve failed to start within 10 seconds"));
-      }, 10_000);
+        reject(new Error(`opencode serve failed to start within 15 seconds\nStderr: ${stderrOutput}`));
+      }, 15_000);
 
       const handleData = (data: Buffer) => {
         const line = data.toString();
+        debug(`[opencode] stdout/stderr: ${line.trim()}`);
         const match = line.match(portRegex);
-        if (match?.[1]) actualPort = parseInt(match[1], 10);
-        if (line.includes("Listening on")) {
+        if (match?.[1]) {
+          actualPort = parseInt(match[1], 10);
           clearTimeout(timeout);
           proc.stdout?.removeListener("data", handleData);
           resolve();
@@ -690,16 +720,21 @@ export class OpenCodeSession implements IKilnSession {
       };
 
       proc.stdout?.on("data", handleData);
+      proc.stderr?.on("data", (data: Buffer) => {
+        stderrOutput += data.toString();
+        handleData(data);
+      });
 
       proc.on("error", (err: Error) => {
         clearTimeout(timeout);
-        reject(new Error(`Failed to spawn opencode serve: ${err.message}`));
+        reject(new Error(`Failed to spawn opencode serve: ${err.message}\nStderr: ${stderrOutput}`));
       });
 
       proc.on("exit", (code: number | null) => {
         clearTimeout(timeout);
+        debug(`[opencode] serve exited with code ${code}`);
         if (code !== 0 && code !== null) {
-          reject(new Error(`opencode serve exited with code ${code}`));
+          reject(new Error(`opencode serve exited with code ${code}\nStderr: ${stderrOutput}`));
         }
       });
     });
@@ -708,26 +743,18 @@ export class OpenCodeSession implements IKilnSession {
     return actualPort;
   }
 
-  private async _findOpencodePath(): Promise<string> {
-    const candidates = ["opencode", "opencode.exe"];
+  private _findOpencodePath(): string {
+    const homedir = process.env.HOME ?? process.env.USERPROFILE ?? "";
+    const fallbackPaths = [
+      `${homedir}\\.bun\\bin\\opencode.exe`,
+      `${homedir}\\AppData\\Roaming\\npm\\opencode.cmd`,
+    ];
+    const candidates = ["opencode", "opencode.exe", ...fallbackPaths];
 
     for (const candidate of candidates) {
       try {
-        const output = await new Promise<string>((resolve, reject) => {
-          const proc = spawn(candidate, ["--version"], {
-            stdio: "ignore",
-          });
-          let out = "";
-          proc.stdout?.on("data", (d: Buffer) => {
-            out += d.toString();
-          });
-          proc.on("close", (code: number | null) => {
-            if (code === 0) resolve(out.trim());
-            else reject(new Error("exit " + code));
-          });
-          proc.on("error", () => reject(new Error("not found")));
-        });
-        if (output) return candidate;
+        execSync(`"${candidate}" --version`, { stdio: "ignore" });
+        return candidate;
       } catch {
         // try next
       }

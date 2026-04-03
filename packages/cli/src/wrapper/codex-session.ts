@@ -145,6 +145,10 @@ export class CodexSession implements IKilnSession {
     return this._capabilities;
   }
 
+  get providerSessionId(): string | undefined {
+    return this._threadId ?? undefined;
+  }
+
   async *run(options: SessionRunOptions): AsyncIterable<SessionEvent> {
     if (this._disposed) return;
 
@@ -171,8 +175,8 @@ export class CodexSession implements IKilnSession {
       try {
         const store = new SessionStore(cwd);
         const record = await store.find(this.config.resumeSessionId);
-        if (record?.threadId) {
-          resumeThreadId = record.threadId;
+        if (record?.providerSessionId) {
+          resumeThreadId = record.providerSessionId;
         }
       } catch {
         console.error("[SessionStore] Resume lookup failed, continuing without resume");
@@ -308,6 +312,9 @@ export class CodexSession implements IKilnSession {
               break;
 
             case "reasoning":
+              if (item.text !== undefined) {
+                yield { type: "text_delta", content: item.text, isThinking: true };
+              }
               break;
 
             case "command_execution":
@@ -423,7 +430,7 @@ export class CodexSession implements IKilnSession {
               completedAt,
               cost: computedUsd,
               projectPath: cwd,
-              threadId: this._threadId ?? undefined,
+              providerSessionId: this._threadId ?? undefined,
             });
           } catch (err) {
             console.error("[SessionStore] Failed to append session record:", err instanceof Error ? err.message : String(err));
@@ -474,7 +481,7 @@ export class CodexSession implements IKilnSession {
                 completedAt,
                 cost: 0,
                 projectPath: cwd,
-                threadId: this._threadId ?? undefined,
+                providerSessionId: this._threadId ?? undefined,
               });
             } catch (err) {
               console.error("[SessionStore] Failed to append session record:", err instanceof Error ? err.message : String(err));
@@ -514,7 +521,7 @@ export class CodexSession implements IKilnSession {
             completedAt,
             cost: 0,
             projectPath: cwd,
-            threadId: this._threadId ?? undefined,
+            providerSessionId: this._threadId ?? undefined,
           });
         } catch (err) {
           console.error("[SessionStore] Failed to append session record:", err instanceof Error ? err.message : String(err));

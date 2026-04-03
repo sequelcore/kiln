@@ -37,6 +37,7 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     skill: "Manage skills (list, install, publish)",
     cron: "Manage scheduled jobs (list, add, remove, run)",
     sync: "Sync permissions and hooks to Claude Code, Codex, and OpenCode (--permissions, --hooks, --all)",
+    tui: "Interactive terminal chat (TUI mode)",
   };
 
   function printHelp(): void {
@@ -172,6 +173,19 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
   if (command === "sync") {
     const { syncCommand } = await import("./commands/sync.js");
     await syncCommand(config, undefined, args.slice(1));
+    return;
+  }
+
+  if (command === "tui") {
+    const { tuiCommand } = await import("./commands/tui.js");
+    const portIdx = args.indexOf("--port");
+    const port = portIdx >= 0 && portIdx + 1 < args.length ? parseInt(args[portIdx + 1]!, 10) : undefined;
+    await tuiCommand(config, {
+      provider: findFlag(args, "--provider"),
+      cwd: findFlag(args, "--cwd"),
+      port: !Number.isNaN(port!) && port! > 0 ? port : undefined,
+      theme: findFlag(args, "--theme"),
+    });
     return;
   }
 }

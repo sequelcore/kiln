@@ -125,6 +125,10 @@ export class ClaudeSession implements IKilnSession {
     return this._capabilities;
   }
 
+  get providerSessionId(): string | undefined {
+    return this.sessionId;
+  }
+
   async *run(options: SessionRunOptions): AsyncIterable<SessionEvent> {
     const { query } = await import("@anthropic-ai/claude-agent-sdk");
 
@@ -214,7 +218,12 @@ export class ClaudeSession implements IKilnSession {
           };
           const blocks = assMsg.message?.content ?? [];
           for (const block of blocks) {
-            if (block.type === "text" && block.text !== undefined) {
+            if (block.type === "thinking") {
+              const thinking = (block as unknown as { thinking?: string }).thinking;
+              if (thinking !== undefined) {
+                yield { type: "text_delta", content: thinking, isThinking: true };
+              }
+            } else if (block.type === "text" && block.text !== undefined) {
               yield { type: "text_delta", content: block.text };
             } else if ((block.type === "tool_use" || block.type === "mcp_tool_use") && block.name) {
               if (block.type === "mcp_tool_use") {
@@ -269,6 +278,7 @@ export class ClaudeSession implements IKilnSession {
               completedAt,
               cost: totalCostUsd,
               projectPath: this.config.cwd,
+              providerSessionId: this.providerSessionId,
             });
           } catch (err) {
             console.error("[SessionStore] Failed to append session record:", err instanceof Error ? err.message : String(err));

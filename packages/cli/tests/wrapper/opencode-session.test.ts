@@ -645,6 +645,98 @@ describe("OpenCodeSession.run() integration", () => {
     expect(killFn).toHaveBeenCalledWith("SIGTERM");
   });
 
+  describe("resume path", () => {
+    it("calls session.get when providerSessionId exists in store", async () => {
+      const mock = {
+        session: {
+          create: vi.fn().mockResolvedValue({ data: { id: "should-not-be-used" } }),
+          get: vi.fn().mockResolvedValue({ data: { id: "oc-abc", time: { created: 1234567890 } } }),
+          prompt: vi.fn().mockResolvedValue({ data: { info: { cost: 0, stopReason: "end_turn" } } }),
+          abort: vi.fn().mockResolvedValue(undefined),
+        },
+        global: {
+          event: vi.fn().mockResolvedValue({
+            stream: makeStream({
+              directory: "/tmp",
+              payload: { type: "session.status", properties: { sessionID: "oc-abc", status: { type: "idle" } } },
+            }).stream,
+          }),
+        },
+        config: {
+          update: vi.fn().mockResolvedValue({ data: undefined }),
+        },
+      };
+      vi.mocked(createOpencodeClient).mockReturnValueOnce(mock as any);
+
+      const { SessionStore } = await import("../../src/wrapper/session-store.js");
+      vi.spyOn(SessionStore.prototype, "find").mockResolvedValueOnce({
+        sessionId: "k-123",
+        providerSessionId: "oc-abc",
+        provider: "opencode",
+        task: "test task",
+        completedAt: new Date().toISOString(),
+        cost: 0,
+        projectPath: process.cwd(),
+      });
+      vi.spyOn(SessionStore.prototype, "append").mockResolvedValueOnce(undefined);
+
+      const session = new OpenCodeSession(baseConfig({ resumeSessionId: "k-123" }));
+      const events: object[] = [];
+      for await (const event of await session.run({ prompt: "resume me" })) {
+        events.push(event);
+      }
+
+      expect(mock.session.get).toHaveBeenCalledWith(
+        { sessionID: "oc-abc", directory: expect.any(String) },
+        { throwOnError: true },
+      );
+      expect(mock.session.create).not.toHaveBeenCalled();
+    });
+
+    it("calls session.create when no resumeSessionId configured", async () => {
+      const mock = makeMockClient("oc-fresh", [
+        {
+          directory: "/tmp",
+          payload: { type: "session.status", properties: { sessionID: "oc-fresh", status: { type: "idle" } } },
+        },
+      ]);
+      vi.mocked(createOpencodeClient).mockReturnValueOnce(mock as any);
+
+      const { SessionStore } = await import("../../src/wrapper/session-store.js");
+      const getFn = vi.spyOn(SessionStore.prototype, "find").mockResolvedValueOnce(null);
+      vi.spyOn(SessionStore.prototype, "append").mockResolvedValueOnce(undefined);
+
+      const session = new OpenCodeSession(baseConfig());
+      for await (const _ of await session.run({ prompt: "fresh start" })) {
+        // consume
+      }
+
+      expect(mock.session.create).toHaveBeenCalled();
+      expect(getFn).not.toHaveBeenCalled();
+    });
+
+    it("falls back to session.create when store.find returns null", async () => {
+      const mock = makeMockClient("oc-fallback", [
+        {
+          directory: "/tmp",
+          payload: { type: "session.status", properties: { sessionID: "oc-fallback", status: { type: "idle" } } },
+        },
+      ]);
+      vi.mocked(createOpencodeClient).mockReturnValueOnce(mock as any);
+
+      const { SessionStore } = await import("../../src/wrapper/session-store.js");
+      vi.spyOn(SessionStore.prototype, "find").mockResolvedValueOnce(null);
+      vi.spyOn(SessionStore.prototype, "append").mockResolvedValueOnce(undefined);
+
+      const session = new OpenCodeSession(baseConfig({ resumeSessionId: "k-missing" }));
+      for await (const _ of await session.run({ prompt: "no prior session" })) {
+        // consume
+      }
+
+      expect(mock.session.create).toHaveBeenCalled();
+    });
+  });
+
   it("run() yields error event when spawnAndWaitForServe rejects", async () => {
     vi.mocked(createOpencodeClient).mockReturnValueOnce({
       session: {

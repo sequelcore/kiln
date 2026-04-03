@@ -9,8 +9,7 @@ export interface SessionRecord {
   completedAt: string;
   cost: number;
   projectPath: string;
-  remoteSessionId?: string;
-  threadId?: string;
+  providerSessionId?: string;
 }
 
 export class SessionStore {
@@ -52,6 +51,32 @@ export class SessionStore {
       return JSON.parse(lastLine) as SessionRecord;
     } catch {
       return null;
+    }
+  }
+
+  async clearLast(provider?: string): Promise<void> {
+    try {
+      const content = await readFile(this.filePath, 'utf-8');
+      const lines = content.split('\n').filter((line) => line.trim() !== '');
+      // Find index of the last record matching provider (or any if undefined)
+      let lastMatchIndex = -1;
+      for (let i = 0; i < lines.length; i++) {
+        try {
+          const record = JSON.parse(lines[i]!) as SessionRecord;
+          if (provider === undefined || record.provider === provider) {
+            lastMatchIndex = i;
+          }
+        } catch {
+          // Skip malformed lines
+        }
+      }
+      if (lastMatchIndex === -1) return;
+      const remaining = lines.filter((_, i) => i !== lastMatchIndex);
+      const dir = join(this.filePath, '..');
+      await mkdir(dir, { recursive: true });
+      await writeFile(this.filePath, remaining.map((l) => l + '\n').join(''), 'utf-8');
+    } catch (err) {
+      console.error('[SessionStore] Failed to clearLast:', err);
     }
   }
 

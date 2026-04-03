@@ -248,7 +248,7 @@ describe("CodexSession.run() JSONL parsing", () => {
     });
   });
 
-  it("run() skips reasoning items silently", async () => {
+  it("run() emits reasoning items as text_delta with isThinking flag", async () => {
     const { proc, emitLine, resolveExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
     vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
@@ -263,7 +263,7 @@ describe("CodexSession.run() JSONL parsing", () => {
     resolveExit(0);
 
     const events = await collectPromise;
-    expect(events).not.toContainEqual(expect.objectContaining({ type: "text_delta", content: "Let me think..." }));
+    expect(events).toContainEqual(expect.objectContaining({ type: "text_delta", content: "Let me think...", isThinking: true }));
   });
 
   it("run() emits tool_use for item.started events", async () => {
