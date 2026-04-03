@@ -10,6 +10,7 @@ export interface Message {
   role: "user" | "assistant" | "tool" | "error";
   content: string;
   toolName?: string;
+  toolInput?: unknown;
 }
 
 /** Possible TUI status values. */
@@ -31,8 +32,16 @@ export interface ReactiveState {
   outputTokens: number;
   themePickerOpen: boolean;
   themePickerIndex: number;
+  providerPickerOpen: boolean;
+  providerPickerIndex: number;
+  currentProvider: string;
+  currentModel: string;
   currentActivity: ActivitySnapshot;
   toolCallCounts: Record<string, number>;
+  /** Per-provider cumulative cost in USD. Key: provider name (e.g. "claude"). */
+  perProviderCost: Record<string, number>;
+  /** Per-provider cumulative token counts. */
+  perProviderTokens: Record<string, { input: number; output: number }>;
   listeners: Set<() => void>;
 }
 
@@ -63,8 +72,14 @@ export function createReactiveState(): ReactiveState {
     outputTokens: 0,
     themePickerOpen: false,
     themePickerIndex: 0,
+    providerPickerOpen: false,
+    providerPickerIndex: 0,
+    currentProvider: "claude",
+    currentModel: "",
     currentActivity: { phase: "" },
     toolCallCounts: {},
+    perProviderCost: {},
+    perProviderTokens: {},
     listeners: new Set(),
   };
 }

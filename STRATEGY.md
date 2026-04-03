@@ -631,50 +631,33 @@ Persistent conversational interface showing:
    - Theme token system: 12 built-in themes, --theme flag
    - Real-time activity bar (command bar integration): phase + tool + details
    - Sidebar tool counter (no duplicates), input clear on Enter fix
-7c. TUI Gateway Integration — IN PROGRESS
-   - CliSubscriptionExecutor implemented (packages/runtime/src/execution/)
-   - TuiGateway scaffolding (packages/runtime/src/gateway/tui-gateway.ts)
-   - Runtime exports updated (packages/runtime/src/index.ts)
-   - TuiWsClient implemented (packages/tui/src/ws-client.ts)
-   - GatewaySession implemented (packages/tui/src/gateway-session.ts)
-7d. Budget panel (per-provider, updates on cost events)
+7c. TUI Gateway Integration — DONE (v0.24.2)
+   - CliSubscriptionExecutor: stateless CLI subprocess executor (ProviderAdapter)
+   - startTuiGateway(): in-process WS gateway on port 4801, ModeBOrchestrator wired
+   - TuiWsClient: Bun WebSocket client with heartbeat + exponential backoff reconnect
+   - GatewaySession: SessionLike over WS, maps frames to SessionEventInternal async iterator
+   - TUI-specific WS protocol: message/clear/provider outbound; thinking/activity/done/error inbound
+   - Activity event pipeline: tool_use/tool_result/cost_update routed to handlers
+   - Token count pipeline: inputTokens/outputTokens threaded through all frames
+   - /provider picker: provider+model selection UI with 2-screen navigation
+   - Status guard: late WS frames discarded after turn completion
+   - Bug fixes (v0.24.2): /provider command, tool routing, status race, token pipeline
+7d. Budget panel (per-provider real-time cost + token breakdown)
 7e. Routing indicator (which CLI was chosen and why) — see routing design above
-7f. Full integration: kiln command launches TUI
+7f. Full integration: kiln command launches TUI by default when interactive
 7g. OpenKiln TUI variant (channel-aware, personal branding)
 
 ---
 
 ### Phase 7c — TUI Gateway Integration (ADR-002)
 
-**Status:** Planned  
-**Depends on:** Phase 7a (OpenTUI rendering), Phase 7b (provider sessions)  
-**ADR:** [ADR-002](docs/adr/ADR-002-tui-gateway-architecture.md) (amended 2026-04-02)
+**Status:** DONE (v0.24.2)  
+**ADR:** [ADR-002](docs/adr/ADR-002-tui-gateway-architecture.md) (amended 2026-04-03)
 
-Current TUI prototype spawns provider sessions directly (Phase 7a-b). Long-term architecture
-routes through the local gateway via WebSocket. The gateway owns all orchestration; the TUI
-becomes a pure rendering layer.
-
-**Key architectural decision:** The gateway uses a **stateless CLI-subscription executor**
-(`CliSubscriptionExecutor`) for TUI — spawning `claude`/`codex`/`opencode` subprocesses per
-turn to preserve flat-rate subscription arbitrage. The existing `ProviderAdapter` (API keys)
-continues to serve widget/web channels. The execution backend is a runtime concern, chosen by
-channel type.
-
-**Scope:**
-1. Create `CliSubscriptionExecutor` in `@kilnai/runtime` — stateless per-turn CLI subprocess
-   execution behind a generalized `ModelExecutor` interface (shared with `ApiExecutor`)
-2. Create `startTuiGateway()` in `@kilnai/runtime` — in-process gateway on port 4801 with
-   `ModeBOrchestrator` using `CliSubscriptionExecutor`, no YAML required
-3. Extract or adapt `WsClient` from widget for TUI use (Bun WebSocket, no localStorage)
-4. Create `GatewaySession` implementing `SessionLike` — maps WS frames to `SessionEvent`
-   async iterator
-5. Update `packages/cli/src/commands/tui.ts` — start `startTuiGateway()` in-process, connect
-   TUI via WS, remove direct provider session wiring entirely
-6. TUI identity: `userId=kiln-tui` on the TUI-specific WS route (no widgetId/tenant needed)
-7. Accept `done`-only frames for Phase 7c (no token-by-token streaming until Phase 7d)
-
-**Not in scope:** Delta streaming over WS (Phase 7d), remote gateway attach `--attach <url>`
-(Phase 7d), agent teams (Phase 7.5).
+All 7 scope items delivered. TUI routes through in-process gateway via WebSocket.
+Gateway owns all orchestration (ModeBOrchestrator, SessionRegistry, memory, safety).
+TUI is a pure rendering layer — no orchestration logic in `@kilnai/tui`.
+See [ADR-002](docs/adr/ADR-002-tui-gateway-architecture.md) for protocol spec and architecture.
 
 ---
 

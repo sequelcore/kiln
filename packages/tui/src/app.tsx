@@ -10,7 +10,7 @@ import type { Message } from "./state.js";
 import { createReactiveState, update } from "./state.js";
 import type { KilnTheme } from "./theme.js";
 import { defaultTheme, themes } from "./theme.js";
-import { initUI, createThemePicker, destroyThemePicker } from "./ui.js";
+import { initUI, createThemePicker, destroyThemePicker, createProviderPicker, destroyProviderPicker } from "./ui.js";
 import { sendMessage } from "./handlers.js";
 import { renderSidebarCost, renderSidebarTurns } from "./render.js";
 
@@ -50,6 +50,20 @@ export async function startTui(
   let localThemeIndex = 0;
   let themePickerOpen = false;
   let themePicker: ReturnType<typeof createThemePicker> | null = null;
+  let providerPickerOpen = false;
+  let providerPicker: ReturnType<typeof createProviderPicker> | null = null;
+  let providerPickerState = {
+    providerIndex: 0,
+    modelIndex: 0,
+    mode: "providers" as "providers" | "models",
+  };
+
+  const VALID_PROVIDERS = ["claude", "codex", "opencode"];
+  const PROVIDER_MODELS: Record<string, string[]> = {
+    claude: ["sonnet-4-20250514", "haiku-4-20250514", "opus-4-20250514"],
+    codex: ["codex-2-2025-01-24", "codex-2-2025-02-24"],
+    opencode: ["opencode-o3", "opencode-o4", "opencode-o1"],
+  };
 
   const themeNames = Object.keys(themes);
   const themeValues = Object.values(themes);
@@ -81,6 +95,10 @@ export async function startTui(
       }
       if (text === "/theme") {
         openThemePicker();
+        return;
+      }
+      if (text === "/provider") {
+        openProviderPicker();
         return;
       }
       void sendMessage(
@@ -158,6 +176,88 @@ export async function startTui(
     update(state, "themePickerOpen", false);
   }
 
+  function openProviderPicker(): void {
+    if (providerPicker) return;
+    providerPickerOpen = true;
+    providerPicker = createProviderPicker(
+      renderer,
+      currentTheme,
+      VALID_PROVIDERS,
+      PROVIDER_MODELS,
+      terminalWidth,
+      terminalHeight,
+      providerPickerState.providerIndex,
+      providerPickerState.modelIndex
+    );
+    update(state, "providerPickerOpen", true);
+    update(state, "currentProvider", VALID_PROVIDERS[providerPickerState.providerIndex] ?? "claude");
+  }
+
+  function closeProviderPicker(apply: boolean): void {
+    if (!providerPicker) return;
+    if (apply) {
+      const selectedProvider = VALID_PROVIDERS[providerPickerState.providerIndex] ?? "claude";
+      const selectedModel = PROVIDER_MODELS[selectedProvider]?.[providerPickerState.modelIndex] ?? "";
+      update(state, "currentProvider", selectedProvider);
+      update(state, "currentModel", selectedModel);
+      
+      // Switch provider in gateway
+      void (async () => {
+        try {
+          const session = await createSession();
+          const hasSwitchProvider = typeof (session as unknown as { switchProvider?: unknown }).switchProvider === "function";
+          if (hasSwitchProvider) {
+            await (session as unknown as { switchProvider: (provider: string) => Promise<string> }).switchProvider(selectedProvider);
+          }
+        } catch {
+          // Fail-open: provider switch is best-effort
+        }
+        ui.sidebarProviderText.content = t`${fg(currentTheme.accent)("[" + selectedProvider + "]")} ${fg(currentTheme.text)(domain)} ${fg(currentTheme.textMuted)(selectedModel ? "· " + selectedModel : "")}`;
+      })();
+    }
+    destroyProviderPicker(providerPicker);
+    providerPicker = null;
+    providerPickerOpen = false;
+    update(state, "providerPickerOpen", false);
+  }
+
+  function navigateProviderPicker(direction: number): void {
+    if (!providerPicker) return;
+    
+    if (providerPickerState.mode === "providers") {
+      providerPickerState.providerIndex = (providerPickerState.providerIndex + direction + VALID_PROVIDERS.length) % VALID_PROVIDERS.length;
+      providerPickerState.modelIndex = 0;
+      providerPickerState.mode = "providers";
+      providerPicker.title.content = t`${fg(currentTheme.accent)(" Select Provider ")}`;
+      for (let i = 0; i < providerPicker.providers.length; i++) {
+        const isSelected = i === providerPickerState.providerIndex;
+        const prefix = isSelected ? "● " : "○ ";
+        const provider = VALID_PROVIDERS[i] ?? "";
+        providerPicker.providers[i]!.content = t`${fg(isSelected ? currentTheme.accent : currentTheme.textMuted)(prefix + provider)}`;
+        providerPicker.providers[i]!.visible = true;
+      }
+      for (const modelItem of providerPicker.models) {
+        modelItem!.visible = false;
+      }
+    } else {
+      const currentProvider = VALID_PROVIDERS[providerPickerState.providerIndex] ?? "";
+      const models = PROVIDER_MODELS[currentProvider] ?? [];
+      if (models.length === 0) {
+        providerPickerState.mode = "providers";
+        return;
+      }
+      providerPickerState.modelIndex = (providerPickerState.modelIndex + direction + models.length) % models.length;
+      for (let i = 0; i < providerPicker.models.length; i++) {
+        const isSelected = i === providerPickerState.modelIndex;
+        const prefix = isSelected ? "● " : "  ";
+        const model = models[i] ?? "";
+        if (providerPicker.models[i]) {
+          providerPicker.models[i]!.content = t`${fg(isSelected ? currentTheme.primary : currentTheme.textMuted)(prefix + model)}`;
+        }
+      }
+    }
+  }
+
   function navigateThemePicker(direction: number): void {
     localThemeIndex = (localThemeIndex + direction + themeNames.length) % themeNames.length;
     if (themePicker) {
@@ -191,11 +291,11 @@ export async function startTui(
     ui.sidebarProviderText.content = t`${fg(currentTheme.accent)("[" + provider + "]")} ${fg(currentTheme.text)(domain)}`;
     ui.sidebarCostText.content = t`${fg(currentTheme.textMuted)(`$${state.cost.toFixed(4)}`)}`;
     ui.sidebarCwdText.content = t`${fg(currentTheme.textMuted)(shortPath(process.cwd()))}`;
-    ui.sidebarTurnsText.content = t`${fg(currentTheme.textMuted)(`turns: ${state.turns}  tok: ${state.inputTokens + state.outputTokens}`)}`;
+    ui.sidebarTurnsText.content = t`${fg(currentTheme.textMuted)(`turns: ${state.turns}  tok: ${state.inputTokens >= 1000 ? (state.inputTokens / 1000).toFixed(1) + "k" : state.inputTokens}/${state.outputTokens >= 1000 ? (state.outputTokens / 1000).toFixed(1) + "k" : state.outputTokens}`)}`;
     ui.sidebarDivider.content = t`${fg(currentTheme.border)("─".repeat(38))}`;
     renderInput();
     renderCommandBarStatus();
-    ui.commandBarText.content = t`${fg(currentTheme.textMuted)("/theme  ctrl+shift+P commands")}`;
+    ui.commandBarText.content = t`${fg(currentTheme.textMuted)("/theme /provider  ctrl+shift+P commands")}`;
     for (const { msg, node } of messageNodes) {
       const parent = node.parent;
       if (parent && "backgroundColor" in parent) {
@@ -295,6 +395,61 @@ export async function startTui(
       return;
     }
 
+    if (providerPickerOpen) {
+      if (!providerPicker) return;
+      if (key.sequence === "\x1b") {
+        if (providerPickerState.mode === "models") {
+          providerPickerState.mode = "providers";
+          providerPicker.title.content = t`${fg(currentTheme.accent)(" Select Provider ")}`;
+          for (const providerItem of providerPicker.providers) {
+            if (providerItem) providerItem.visible = true;
+          }
+          for (const modelItem of providerPicker.models) {
+            if (modelItem) modelItem.visible = false;
+          }
+          return;
+        }
+        closeProviderPicker(false);
+        return;
+      }
+      if (key.sequence === "\r" || key.sequence === "\n") {
+        if (providerPickerState.mode === "providers") {
+          const currentProvider = VALID_PROVIDERS[providerPickerState.providerIndex] ?? "";
+          const models = PROVIDER_MODELS[currentProvider] ?? [];
+          if (models.length > 0) {
+            providerPickerState.mode = "models";
+            providerPicker.title.content = t`${fg(currentTheme.accent)(` ${currentProvider} models `)}`;
+            for (const providerItem of providerPicker.providers) {
+              if (providerItem) providerItem.visible = false;
+            }
+            for (let i = 0; i < providerPicker.models.length; i++) {
+              const modelItem = providerPicker.models[i];
+              if (modelItem) {
+                modelItem.visible = i < models.length;
+                if (i < models.length) {
+                  const isSelected = i === providerPickerState.modelIndex;
+                  const prefix = isSelected ? "● " : "  ";
+                  modelItem.content = t`${fg(isSelected ? currentTheme.primary : currentTheme.textMuted)(prefix + models[i])}`;
+                }
+              }
+            }
+          }
+          return;
+        }
+        closeProviderPicker(true);
+        return;
+      }
+      if (key.name === "up" || key.sequence === "\x1b[A" || key.name === "k") {
+        navigateProviderPicker(-1);
+        return;
+      }
+      if (key.name === "down" || key.sequence === "\x1b[B" || key.name === "j") {
+        navigateProviderPicker(1);
+        return;
+      }
+      return;
+    }
+
     if (key.ctrl && (key.name === "v" || key.sequence === "\x16")) {
       try {
         let clip: string;
@@ -344,6 +499,10 @@ export async function startTui(
         }
         if (text === "/theme") {
           openThemePicker();
+          return;
+        }
+        if (text === "/provider") {
+          openProviderPicker();
           return;
         }
         void sendMessage(

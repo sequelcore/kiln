@@ -215,6 +215,16 @@ export function handleCostUpdate(
   // Accumulate token counts from cost_update events (subscription sessions send these per-turn)
   if (inputTokens !== undefined) update(ctx.state, "inputTokens", ctx.state.inputTokens + inputTokens);
   if (outputTokens !== undefined) update(ctx.state, "outputTokens", ctx.state.outputTokens + outputTokens);
+
+  // Per-provider attribution
+  const provider = ctx.state.currentProvider;
+  ctx.state.perProviderCost[provider] = (ctx.state.perProviderCost[provider] ?? 0) + usd;
+  const prev = ctx.state.perProviderTokens[provider] ?? { input: 0, output: 0 };
+  ctx.state.perProviderTokens[provider] = {
+    input: prev.input + (inputTokens ?? 0),
+    output: prev.output + (outputTokens ?? 0),
+  };
+
   renderSidebarCost();
 }
 
