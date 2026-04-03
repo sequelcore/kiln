@@ -35,6 +35,9 @@ export class GatewaySession implements SessionLike {
   /** Pending clear callbacks — set while waiting for "cleared" frame. */
   private clearCallbacks: { resolve: () => void; reject: (err: Error) => void } | null = null;
 
+  /** Pending provider change callbacks — set while waiting for "provider_changed" frame. */
+  private providerChangeCallbacks: { resolve: (provider: string) => void; reject: (err: Error) => void } | null = null;
+
   constructor(wsUrl: string) {
     this.userId = `kiln-tui-${randomUUID()}`;
 
@@ -97,6 +100,35 @@ export class GatewaySession implements SessionLike {
     });
   }
 
+  /**
+   * Send a provider frame to the gateway and wait for the provider_changed acknowledgement.
+   * Resolves with the new provider name. Rejects after timeout.
+   */
+  async switchProvider(provider: string): Promise<string> {
+    await this.waitForConnection();
+    return new Promise<string>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.providerChangeCallbacks = null;
+        reject(new Error("Provider switch timed out"));
+      }, CLEAR_TIMEOUT_MS);
+
+      this.providerChangeCallbacks = {
+        resolve: (newProvider: string) => {
+          clearTimeout(timeout);
+          this.providerChangeCallbacks = null;
+          resolve(newProvider);
+        },
+        reject: (err) => {
+          clearTimeout(timeout);
+          this.providerChangeCallbacks = null;
+          reject(err);
+        },
+      };
+
+      this.client.send({ type: "provider", provider });
+    });
+  }
+
   async dispose(): Promise<void> {
     this.client.disconnect();
     // Unblock any waiting iterator
@@ -113,14 +145,21 @@ export class GatewaySession implements SessionLike {
         toolName: frame.toolName,
         output: frame.output,
         usd: frame.usd,
+        inputTokens: frame.inputTokens,
+        outputTokens: frame.outputTokens,
       });
     } else if (frame.type === "done") {
       // Phase 7c: synthesize text_delta from full done content
       if (frame.content) {
         this.push({ type: "text_delta", content: frame.content });
       }
-      // Estimate cost from token counts (0 for subscription-backed sessions)
-      this.push({ type: "completed", totalUsd: 0 });
+      // Pass through token counts from the gateway
+      this.push({ 
+        type: "completed", 
+        totalUsd: 0,
+        inputTokens: frame.inputTokens,
+        outputTokens: frame.outputTokens
+      });
       this.pushStop();
     } else if (frame.type === "error") {
       this.push({ type: "error", message: frame.message });
@@ -130,6 +169,10 @@ export class GatewaySession implements SessionLike {
     // cleared frame: resolve pending clear promise
     if (frame.type === "cleared") {
       this.clearCallbacks?.resolve();
+    }
+    // provider_changed frame: resolve pending provider switch promise
+    if (frame.type === "provider_changed") {
+      this.providerChangeCallbacks?.resolve(frame.provider);
     }
   }
 

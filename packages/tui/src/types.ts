@@ -25,7 +25,7 @@ export type SessionEvent =
   | { type: "completed"; totalUsd: number }
   | { type: "error"; message: string }
   | { type: "thinking" }
-  | { type: "activity"; activity: string; toolName?: string; output?: string; usd?: number };
+  | { type: "activity"; activity: string; toolName?: string; output?: string; usd?: number; input?: unknown };
 
 /**
  * @internal
@@ -36,10 +36,10 @@ export type SessionEventInternal =
   | { type: "tool_use"; toolName: string; input?: unknown }
   | { type: "tool_result"; toolName: string; output: string }
   | { type: "cost_update"; usd: number }
-  | { type: "completed"; totalUsd: number }
+  | { type: "completed"; totalUsd: number; inputTokens?: number; outputTokens?: number }
   | { type: "error"; message: string }
   | { type: "thinking" }
-  | { type: "activity"; activity: string; toolName?: string; output?: string; usd?: number };
+  | { type: "activity"; activity: string; toolName?: string; output?: string; usd?: number; input?: unknown; inputTokens?: number; outputTokens?: number };
 
 /**
  * @description The only session abstraction the TUI depends on.

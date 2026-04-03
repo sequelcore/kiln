@@ -135,7 +135,7 @@ export function initUI(
       const text = inputTextarea.plainText.trim();
       if (text && state.status !== "running" && !state.themePickerOpen) {
         inputTextarea.clear();
-        if (text === "/clear" || text === "/theme") {
+        if (text === "/clear" || text === "/theme" || text === "/provider") {
           return;
         }
         onSubmit(text);
@@ -354,5 +354,123 @@ export function createThemePicker(
  * Destroys theme picker overlay.
  */
 export function destroyThemePicker(picker: ThemePickerComponents): void {
+  picker.scrim.destroy();
+}
+
+/**
+ * Provider picker overlay components.
+ */
+export interface ProviderPickerComponents {
+  scrim: InstanceType<typeof BoxRenderable>;
+  panel: InstanceType<typeof BoxRenderable>;
+  title: InstanceType<typeof TextRenderable>;
+  providers: InstanceType<typeof TextRenderable>[];
+  models: InstanceType<typeof TextRenderable>[];
+  hint: InstanceType<typeof TextRenderable>;
+  mode: "providers" | "models";
+}
+
+/**
+ * Creates provider picker overlay with two screens: provider selection then model selection.
+ */
+export function createProviderPicker(
+  renderer: CliRenderer,
+  theme: KilnTheme,
+  providers: string[],
+  models: Record<string, string[]>,
+  terminalWidth: number,
+  terminalHeight: number,
+  initialProviderIndex: number,
+  initialModelIndex: number
+): ProviderPickerComponents {
+  const scrim = new BoxRenderable(renderer, {
+    id: "provider-picker-scrim",
+    position: "absolute",
+    left: 0,
+    top: 0,
+    width: terminalWidth,
+    height: terminalHeight,
+    backgroundColor: RGBA.fromInts(0, 0, 0, 150),
+    zIndex: 3000,
+    alignItems: "center",
+    justifyContent: "center",
+  });
+  renderer.root.add(scrim);
+
+  const panelWidth = 50;
+  const panel = new BoxRenderable(renderer, {
+    id: "provider-picker-panel",
+    flexDirection: "column",
+    width: panelWidth,
+    backgroundColor: theme.backgroundPanel,
+    border: true,
+    borderColor: theme.accent,
+  });
+  scrim.add(panel);
+
+  const title = new TextRenderable(renderer, {
+    id: "provider-picker-title",
+    content: t`${fg(theme.accent)(" Select Provider ")}`,
+    width: "100%",
+    height: 2,
+  });
+  panel.add(title);
+
+  const providerItems: InstanceType<typeof TextRenderable>[] = [];
+  for (let i = 0; i < providers.length; i++) {
+    const name = providers[i];
+    const isSelected = i === initialProviderIndex;
+    const prefix = isSelected ? "● " : "○ ";
+    const item = new TextRenderable(renderer, {
+      id: `provider-item-${i}`,
+      content: t`${fg(isSelected ? theme.accent : theme.textMuted)(prefix + name)}`,
+      width: "100%",
+      height: 2,
+    });
+    panel.add(item);
+    providerItems.push(item);
+  }
+
+  const modelItems: InstanceType<typeof TextRenderable>[] = [];
+  const initialProvider = providers[initialProviderIndex] ?? providers[0] ?? "";
+  const currentModels = models[initialProvider] ?? [];
+  for (let i = 0; i < currentModels.length; i++) {
+    const name = currentModels[i];
+    const isSelected = i === initialModelIndex;
+    const prefix = isSelected ? "● " : "  ";
+    const item = new TextRenderable(renderer, {
+      id: `model-item-${i}`,
+      content: t`${fg(isSelected ? theme.primary : theme.textMuted)(prefix + name)}`,
+      width: "100%",
+      height: 2,
+      visible: false,
+    });
+    panel.add(item);
+    modelItems.push(item);
+  }
+
+  const hint = new TextRenderable(renderer, {
+    id: "provider-picker-hint",
+    content: t`${fg(theme.textMuted)("↑↓ navigate  Enter select  Esc cancel")}`,
+    width: "100%",
+    height: 2,
+  });
+  panel.add(hint);
+
+  return {
+    scrim,
+    panel,
+    title,
+    providers: providerItems,
+    models: modelItems,
+    hint,
+    mode: "providers",
+  };
+}
+
+/**
+ * Destroys provider picker overlay.
+ */
+export function destroyProviderPicker(picker: ProviderPickerComponents): void {
   picker.scrim.destroy();
 }

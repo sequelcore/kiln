@@ -30,7 +30,7 @@ export interface HandlerContext {
   chatScrollBox: ScrollBoxRenderable;
   sidebarToolsBox: ScrollBoxRenderable;
   sidebarToolNode: TextRenderable | null;
-  messageNodes: { msg: Message; node: TextRenderable | MarkdownRenderable }[];
+  messageNodes: { msg: Message; node: TextRenderable | MarkdownRenderable; toolInput?: unknown }[];
   createSession: () => Promise<SessionLike>;
   provider: string;
   domain: string;
@@ -72,7 +72,7 @@ export async function handleTextDelta(
       assistantData.msg = { role: "assistant", content };
       const assistantBox = new BoxRenderable(ctx.renderer, {
         id: `msg-${ctx.messageNodes.length}`,
-        flexDirection: "row",
+        flexDirection: "column",
         width: "100%",
         paddingTop: 1,
         paddingBottom: 1,
@@ -81,6 +81,14 @@ export async function handleTextDelta(
         backgroundColor: ctx.theme.assistantBg,
       });
       ctx.chatScrollBox.content.add(assistantBox);
+
+      // Model header
+      const modelLabel = ctx.state.currentModel || ctx.provider;
+      const headerNode = new TextRenderable(ctx.renderer, {
+        content: t`${fg(ctx.theme.textMuted)("[" + modelLabel + "]")}`,
+        width: "100%",
+      });
+      assistantBox.add(headerNode);
 
       assistantData.markdown = new MarkdownRenderable(ctx.renderer, {
         content,
@@ -105,12 +113,26 @@ export async function handleTextDelta(
 }
 
 /**
- * Handles tool_use events - displays tool in chat and updates sidebar count.
+ * Handles tool_use events - displays tool in chat with input preview and updates sidebar count.
  */
 export function handleToolUse(
   ctx: HandlerContext,
-  toolName: string
+  toolName: string,
+  input?: unknown
 ): void {
+  // Format input as inline preview: [key=value, ...]
+  let inputPreview = "";
+  if (input && typeof input === "object") {
+    const entries = Object.entries(input as Record<string, unknown>).slice(0, 3);
+    inputPreview = entries
+      .map(([k, v]) => {
+        const vStr = typeof v === "string" ? v : JSON.stringify(v);
+        return vStr.length > 20 ? `${k}=${vStr.slice(0, 17)}...` : `${k}=${vStr}`;
+      })
+      .join(", ");
+    if (inputPreview) inputPreview = " [" + inputPreview + "]";
+  }
+
   const toolMsg = createMessage("tool", "", toolName);
   const msgBox = new BoxRenderable(ctx.renderer, {
     id: `msg-${ctx.messageNodes.length}`,
@@ -124,11 +146,11 @@ export function handleToolUse(
   });
   ctx.chatScrollBox.content.add(msgBox);
   const node = new TextRenderable(ctx.renderer, {
-    content: t`${fg(ctx.theme.toolFg)("⟳ " + (toolName ?? "tool"))}`,
+    content: t`${fg(ctx.theme.toolFg)("⟳ " + (toolName ?? "tool"))}${fg(ctx.theme.textMuted)(inputPreview)}`,
     width: "100%",
   });
   msgBox.add(node);
-  ctx.messageNodes.push({ msg: toolMsg, node });
+  ctx.messageNodes.push({ msg: toolMsg, node, toolInput: input });
   update(ctx.state, "messages", [...ctx.state.messages, toolMsg]);
 
   update(ctx.state, "currentActivity", {
@@ -185,9 +207,14 @@ export function handleToolResult(
 export function handleCostUpdate(
   ctx: HandlerContext,
   usd: number,
-  renderSidebarCost: () => void
+  renderSidebarCost: () => void,
+  inputTokens?: number,
+  outputTokens?: number
 ): void {
   update(ctx.state, "cost", ctx.state.cost + usd);
+  // Accumulate token counts from cost_update events (subscription sessions send these per-turn)
+  if (inputTokens !== undefined) update(ctx.state, "inputTokens", ctx.state.inputTokens + inputTokens);
+  if (outputTokens !== undefined) update(ctx.state, "outputTokens", ctx.state.outputTokens + outputTokens);
   renderSidebarCost();
 }
 
@@ -211,14 +238,20 @@ export function handleActivity(
   toolName: string | undefined,
   output: string | undefined,
   usd: number | undefined,
+  input: unknown | undefined,
+  inputTokens: number | undefined,
+  outputTokens: number | undefined,
   renderSidebarCost: () => void
 ): void {
-  if (activity === "tool_use" && toolName) {
-    handleToolUse(ctx, toolName);
-  } else if (activity === "tool_result" && toolName && output !== undefined) {
+  // Ignore late-arriving frames after the turn has completed.
+  if (ctx.state.status !== "running") return;
+
+  if (activity === "cost_update" && usd !== undefined) {
+    handleCostUpdate(ctx, usd, renderSidebarCost, inputTokens, outputTokens);
+  } else if (activity === "tool_use" && toolName) {
+    handleToolUse(ctx, toolName, input);
+  } else if (activity === "tool_result" && toolName && output) {
     handleToolResult(ctx, toolName, output);
-  } else if (activity === "cost_update" && usd !== undefined) {
-    handleCostUpdate(ctx, usd, renderSidebarCost);
   }
 }
 
@@ -228,13 +261,21 @@ export function handleActivity(
 export function handleCompleted(
   ctx: HandlerContext,
   totalUsd: number,
+  inputTokens: number,
+  outputTokens: number,
   spinner: { interval: ReturnType<typeof setInterval> | null },
   thinkingNodeRef: { node: TextRenderable | null },
   renderSidebarCost: () => void,
-  renderSidebarTurns: () => void
+  renderSidebarTurns: () => void,
+  renderCommandBarStatus: () => void
 ): void {
   if (totalUsd) update(ctx.state, "cost", totalUsd);
+  // Only overwrite token counts from completion if they are non-zero
+  // (subscription sessions report 0 from done frame; prefer accumulated cost_update values)
+  if (inputTokens > 0) update(ctx.state, "inputTokens", inputTokens);
+  if (outputTokens > 0) update(ctx.state, "outputTokens", outputTokens);
   update(ctx.state, "status", "idle");
+  update(ctx.state, "currentActivity", { phase: "" });
   update(ctx.state, "thinkingVisible", false);
   update(ctx.state, "thinking", "");
   update(ctx.state, "turns", ctx.state.turns + 1);
@@ -251,6 +292,7 @@ export function handleCompleted(
 
   renderSidebarCost();
   renderSidebarTurns();
+  renderCommandBarStatus();
 }
 
 /**
@@ -342,23 +384,17 @@ export async function sendMessage(
             await handleTextDelta(ctx, event.content, !!event.isThinking, assistantData);
           }
           break;
-        case "tool_use":
-          if (event.toolName) handleToolUse(ctx, event.toolName);
-          break;
-        case "tool_result":
-          if (event.toolName && event.output) handleToolResult(ctx, event.toolName, event.output);
-          break;
         case "cost_update":
           if (event.usd) handleCostUpdate(ctx, event.usd, renderSidebarCost);
           break;
         case "activity":
-          handleActivity(ctx, event.activity, event.toolName, event.output, event.usd, renderSidebarCost);
+          handleActivity(ctx, event.activity, event.toolName, event.output, event.usd, event.input, event.inputTokens, event.outputTokens, renderSidebarCost);
           break;
         case "thinking":
           handleThinking(ctx, renderSidebarCost);
           break;
         case "completed":
-          handleCompleted(ctx, event.totalUsd, spinnerRef, thinkingNodeRef, renderSidebarCost, renderSidebarTurns);
+          handleCompleted(ctx, event.totalUsd, event.inputTokens ?? 0, event.outputTokens ?? 0, spinnerRef, thinkingNodeRef, renderSidebarCost, renderSidebarTurns, renderCommandBarStatus);
           break;
         case "error":
           if (event.message) handleError(ctx, event.message);

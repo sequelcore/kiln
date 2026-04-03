@@ -68,12 +68,29 @@ The subprocess does NOT own conversation state. The gateway is the sole owner of
 
 ### Protocol
 
-Reuse the existing WebSocket protocol from `@kilnai/widget`:
+TUI-specific WebSocket protocol (not the widget protocol — no widgetId, no tenant, stateless per userId):
 
-- **Outbound**: `{ type: "message", content: string }` + `{ type: "identify", visitor }`
-- **Inbound**: `{ type: "done", content, parts, inputTokens, outputTokens }` + `{ type: "error" }` + `{ type: "welcome", greeting, suggestions }` + `{ type: "suggestions", items }`
-- **Heartbeat**: ping/pong (30s interval, 90s timeout)
-- **Auto-reconnect**: exponential backoff (1s to 30s max)
+**Outbound (TUI → gateway)**
+- `{ type: "message", content: string }` — user turn
+- `{ type: "clear" }` — reset session; gateway replies `cleared`
+- `{ type: "provider", provider: string }` — switch CLI provider; gateway replies `provider_changed`
+
+**Inbound (gateway → TUI)**
+- `{ type: "thinking" }` — work started (triggers spinner)
+- `{ type: "activity", activity: "tool_use" | "tool_result" | "cost_update", toolName?, output?, usd?, inputTokens?, outputTokens?, input? }` — streamed mid-turn events
+- `{ type: "done", content, inputTokens, outputTokens }` — full response text + token counts
+- `{ type: "error", message }` — turn failed
+- `{ type: "cleared" }` — session reset acknowledged
+- `{ type: "provider_changed", provider }` — provider switch acknowledged
+
+**Activity routing in TUI (`handleActivity`)**
+- `tool_use` → `handleToolUse` (renders `⟳ tool [args]` in chat + sidebar counter)
+- `tool_result` → `handleToolResult` (updates tool row with truncated output)
+- `cost_update` → `handleCostUpdate` (accumulates cost + tokens; preferred token source for subscription sessions)
+- Late-arriving frames (after turn completes) are dropped by a `status !== "running"` guard
+
+**Heartbeat**: ping/pong (30s interval, 90s timeout)  
+**Auto-reconnect**: exponential backoff (1s → 30s max)
 
 ### Migration Path
 

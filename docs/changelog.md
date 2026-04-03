@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.24.2 (2026-04-03) -- TUI Event Pipeline Fixes
+
+### `/provider` command
+- Fixed `/provider` command being sent to the AI as a plain message instead of opening the provider picker.
+- Root cause: `TextareaRenderable.onSubmit` guard was missing `/provider` — it correctly skipped `/clear` and `/theme` but passed `/provider` through to `sendMessage`. Added to guard.
+
+### Tool event routing
+- `activity` frames for `tool_use` and `tool_result` were silently dropped — `handleActivity` only routed `cost_update`.
+- Removed the dead `case "tool_use"` / `case "tool_result"` branches from `sendMessage` (these event types are never emitted by the gateway; all mid-turn events arrive as `activity` frames).
+- `handleActivity` now routes: `tool_use` → `handleToolUse`, `tool_result` → `handleToolResult`, `cost_update` → `handleCostUpdate`.
+
+### Status bar race condition
+- Command bar could remain stuck on `⟳ executing: …` after a turn completed when `tool_result` activity frames arrived from the WS after the `done` frame.
+- Added `if (ctx.state.status !== "running") return` guard at the top of `handleActivity` to discard late-arriving frames.
+
+### Token count pipeline
+- Token count always showed `0` despite the gateway forwarding `inputTokens`/`outputTokens` in `cost_update` activity frames.
+- Three-part fix: (1) added `inputTokens?`/`outputTokens?` to `SessionEventInternal` activity variant in `types.ts`; (2) `gateway-session.ts` now forwards the fields from the WS frame into the session event; (3) `sendMessage` passes `event.inputTokens`/`event.outputTokens` to `handleActivity` instead of hardcoded `undefined`.
+
 ## v0.24.1 (2026-04-03) -- TUI Real-Time Visibility
 
 ### Activity Bar Integration
