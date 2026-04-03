@@ -39,7 +39,7 @@ function resolveMode(flags: RunFlags): SessionMode {
   return "cli-wrapper";
 }
 
-const DEFAULT_POLICY: KilnPermissionPolicy = { approval: "on-request", sandbox: "read-only" };
+const DEFAULT_POLICY: KilnPermissionPolicy = { approval: "never", sandbox: "workspace-write" };
 
 function buildConfig(flags: RunFlags, mode: SessionMode): WrapperConfig {
   return {
