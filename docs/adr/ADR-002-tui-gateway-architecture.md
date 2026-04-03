@@ -116,9 +116,11 @@ Reuse the existing WebSocket protocol from `@kilnai/widget`:
 | `packages/tui/src/ws-client.ts` | WebSocket client (adapted from widget) | ✅ Implemented |
 | `packages/tui/src/gateway-session.ts` | SessionLike over WS (maps frames to events) | ✅ Implemented |
 | `packages/tui/src/theme.ts` | 12 built-in themes | ✅ Implemented |
-| `packages/runtime/src/gateway/gateway-server.ts` | `startTuiGateway()` entrypoint | ⚠️ Stub exists |
-| `packages/runtime/src/gateway/tui-gateway.ts` | TUI-specific gateway logic | ⚠️ Stub exists |
+| `packages/runtime/src/gateway/tui-gateway.ts` | TUI gateway logic (WS handler, ModeBOrchestrator) | ✅ Implemented |
+| `packages/runtime/src/execution/cli-subscription-executor.ts` | CLI subprocess execution | ✅ Implemented |
+| `packages/runtime/src/execution/api-executor.ts` | API-backed execution (for web channels) | ✅ Implemented |
+| `packages/runtime/src/execution/model-executor.ts` | ModelExecutor interface | ✅ Implemented |
+| `packages/runtime/src/gateway/gateway-server.ts` | startTuiGateway() entrypoint | ✅ Existing |
 | `packages/runtime/src/session/mode-b-orchestrator.ts` | Multi-turn orchestration | ✅ Existing |
 | `packages/runtime/src/session/mode-b-session.ts` | Session persistence | ✅ Existing |
-| `packages/runtime/src/execution/cli-subscription-executor.ts` | CLI subprocess execution | 🔄 In Progress |
 | `packages/widget/src/ws-client.ts` | Reference WS client implementation | ✅ Existing |

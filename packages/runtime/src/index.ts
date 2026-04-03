@@ -5,6 +5,8 @@ export { startGateway } from "./gateway/gateway-server.js";
 export type { StartGatewayOptions } from "./gateway/gateway-server.js";
 export { startDevServer } from "./gateway/gateway-server.js";
 export type { DevServerOptions } from "./gateway/gateway-server.js";
+export { startTuiGateway } from "./gateway/tui-gateway.js";
+export type { TuiGatewayOptions, TuiGateway } from "./gateway/tui-gateway.js";
 export { resolveApps } from "./gateway/app-resolver.js";
 export type { ResolvedApp } from "./gateway/app-resolver.js";
 export { createModeBRoutes } from "./gateway/mode-b-routes.js";
@@ -192,3 +194,9 @@ export { requireApiKey, requireBearer, requireWebhookSignature, isOriginAllowed 
 
 // Utils
 export { verifyHmacSha256 } from "./utils/hmac.js";
+
+// Execution Backends
+export { CliSubscriptionExecutor } from "./execution/cli-subscription-executor.js";
+export type { CliSessionFactory, CliSession, CliSessionEvent, CliSessionRunOptions } from "./execution/cli-subscription-executor.js";
+export { ApiExecutor } from "./execution/api-executor.js";
+

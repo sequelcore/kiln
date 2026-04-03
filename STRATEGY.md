@@ -632,10 +632,11 @@ Persistent conversational interface showing:
    - Real-time activity bar (command bar integration): phase + tool + details
    - Sidebar tool counter (no duplicates), input clear on Enter fix
 7c. TUI Gateway Integration — IN PROGRESS
-   - CliSubscriptionExecutor in progress (packages/runtime/src/execution/)
+   - CliSubscriptionExecutor implemented (packages/runtime/src/execution/)
+   - TuiGateway scaffolding (packages/runtime/src/gateway/tui-gateway.ts)
+   - Runtime exports updated (packages/runtime/src/index.ts)
    - TuiWsClient implemented (packages/tui/src/ws-client.ts)
    - GatewaySession implemented (packages/tui/src/gateway-session.ts)
-   - startTuiGateway() scaffolding exists
 7d. Budget panel (per-provider, updates on cost events)
 7e. Routing indicator (which CLI was chosen and why) — see routing design above
 7f. Full integration: kiln command launches TUI
