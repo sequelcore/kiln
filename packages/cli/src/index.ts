@@ -56,8 +56,20 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
   }
 
   if (!command) {
-    const { devCommand } = await import("./commands/dev.js");
-    await devCommand(config, {});
+    if (process.stdout.isTTY) {
+      const { tuiCommand } = await import("./commands/tui.js");
+      const portIdx = args.indexOf("--port");
+      const port = portIdx >= 0 && portIdx + 1 < args.length ? parseInt(args[portIdx + 1]!, 10) : undefined;
+      await tuiCommand(config, {
+        provider: findFlag(args, "--provider"),
+        cwd: findFlag(args, "--cwd"),
+        port: !Number.isNaN(port!) && port! > 0 ? port : undefined,
+        theme: findFlag(args, "--theme"),
+      });
+    } else {
+      const { devCommand } = await import("./commands/dev.js");
+      await devCommand(config, {});
+    }
     return;
   }
 

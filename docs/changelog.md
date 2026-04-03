@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.24.5 (2026-04-03) -- TUI as Default CLI (7f)
+
+### CLI Entry Point
+- The default `kiln` command now launches the interactive TUI if `process.stdout.isTTY` is true.
+- If called in a non-interactive context (like CI or piped output), it falls back to the previous default (`devCommand`).
+
 ## v0.24.4 (2026-04-03) -- TUI Routing Indicator (7e)
 
 ### Routing label in chat

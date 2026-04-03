@@ -646,7 +646,7 @@ Persistent conversational interface showing:
    - Deferred: dynamic model list from gateway welcome frame (currently hardcoded)
    - Deferred: CliSubscriptionExecutor must pass --model <id> to subprocess (picker is display-only today)
 7e. Routing indicator (which CLI was chosen and why) — see routing design above
-7f. Full integration: kiln command launches TUI by default when interactive
+7f. Full integration: kiln command launches TUI by default when interactive — DONE (v0.24.5)
 7g. OpenKiln TUI variant (channel-aware, personal branding)
 
 ---
