@@ -1,5 +1,44 @@
 # Changelog
 
+## v0.24.0 (2026-04-02) -- Kiln TUI v2
+
+### TUI Native Session Persistence
+- `IKilnSession`: added `providerSessionId: string | undefined` — unified provider-native session ID across all three backends (replaces split `remoteSessionId`/`threadId` on SessionRecord).
+- `SessionRecord` in `wrapper/session-store.ts`: replaced `remoteSessionId` + `threadId` with single `providerSessionId` field.
+- `SessionStore`: added `clearLast(provider?: string): Promise<void>` — rewrites JSONL without last matching record.
+- `ClaudeSession`, `CodexSession`, `OpenCodeSession`: all implement `providerSessionId` getter.
+- OpenCode resume: fixed broken `--attach` path; now uses `client.session.get({ sessionID })` for crash-resilient restart.
+- `makeResumableSessionFactory` in `tui.ts`: async factory with closure state + disk persistence; reads last session on startup, persists on dispose.
+
+### TUI Keyboard + Input Fixes
+- Printable characters now route to input BEFORE scroll handler — fixes vim keys (`hjkl`) being swallowed.
+- Control characters (`cp < 32` or `cp === 127`) excluded from input — fixes Enter and Backspace being appended as text.
+- Ctrl+V paste: cross-platform clipboard read (`powershell Get-Clipboard` on Windows, `pbpaste` on macOS, `xclip` on Linux).
+
+### /clear Command
+- TUI detects `/clear` input and calls `session.clear()` on the GatewaySession.
+- WS protocol: `{ type: "clear" }` frame sent to gateway; gateway calls `onClear()` and replies `{ type: "cleared" }`.
+- `TuiGateway` accepts optional `onClear?: () => Promise<void>` callback; clears session store on receipt.
+
+### opencode-style Layout
+- Two-column layout: `chatArea` (flex-grow) + 1px `dividerBar` + `sidebar` (width=42).
+- Sidebar shows: provider, cumulative cost, working directory, turn count, last tool used.
+- Status dot on input line: `●` green=idle, yellow=running, red=error.
+- Sidebar auto-collapses when terminal width < 100 columns.
+- Removed: header box, bottom status bar.
+
+### Theme Token System
+- New file `packages/tui/src/theme.ts`: `KilnTheme` interface (15 semantic color tokens), 5 built-in themes.
+- Built-in themes: `kiln-dark` (default), `dracula`, `catppuccin-mocha`, `nord`, `tokyo-night`.
+- All hardcoded hex colors in `app.tsx` replaced with `theme.*` token references.
+- `--theme <name>` CLI flag on `kiln tui` command.
+- `packages/tui/src/index.ts`: exports all themes, `defaultTheme`, `type KilnTheme`.
+
+### Testing
+- 4,594 tests passing (up from 4,469), zero typecheck errors.
+- New test files: `tui-session-persistence.test.ts`, `session-store-clear.test.ts`, `tui-gateway-clear.test.ts`, extended `opencode-session.test.ts`.
+- Fixed stale `codex-session.test.ts`: reasoning items now assert `isThinking: true` (not silently dropped).
+
 ## v0.23.2 (2026-03-26) -- MCP OAuth Discovery: Add authorization_endpoint
 
 ### Bug Fix

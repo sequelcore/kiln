@@ -437,6 +437,13 @@ See [ADR-003: Meta-Orchestrator Model](docs/adr/ADR-003-meta-orchestrator-model.
   credentials excluded from agent context by default
 - feat(runtime): CI/PR safety — no env variable leaks in GitHub Actions
 - feat(cli): --safe-defaults flag — privacy-first configuration preset
+- feat(cli): global user config at `~/.kiln/config.yaml` — permission policy,
+  preferred provider, API keys; resolution chain: kiln.yaml (project) >
+  ~/.kiln/config.yaml (global) > hardcoded fallback (read-only/on-request);
+  unblocks `kiln run` outside app repos without needing per-project kiln.yaml.
+  **Known gap:** current DEFAULT_POLICY in run.ts is temporarily set to
+  `workspace-write/never` as a usability fix until global config lands —
+  revert to `read-only/on-request` once ~/.kiln/config.yaml is implemented.
 
 ### Safety Pipeline Improvements
 - fix(core): Unicode/homoglyph-safe detection pipeline in prompt scanning
@@ -569,16 +576,39 @@ All previous phases are prerequisites:
 - Phase 5: OpenKiln channels (kiln TUI + Telegram/Discord)
 - Phase 6: cloud (kiln TUI connects to remote gateway) ✅ already live
 
-**Tech stack (confirmed):**
-- Ink + @inkjs/ui — React for terminal (same model as @kilnai/react)
-- @kilnai/react hooks — useKilnChat, useKilnState, useKilnEvents
+**Tech stack (confirmed, updated 2026-04-02):**
+- OpenTUI (@opentui/core) — imperative terminal renderer with Yoga flexbox layout
+  - Ink was the original plan; OpenTUI chosen after studying t1code and opencode source
+  - Key primitives: BoxRenderable (flex layout), ScrollBoxRenderable (sticky scroll),
+    TextRenderable (styled text via fg()/t``), InputRenderable/TextareaRenderable (input)
+  - Styling: use fg()/bold()/t`` API — never raw ANSI escape codes in content strings
+  - Render order: add all renderables to root FIRST, then call renderer.start()
+- @kilnai/react hooks available for future React-based variant (@opentui/react)
 - EventBus 43 typed events — feeds real-time TUI updates
-- New package: @kilnai/tui in the monorepo
-- Upgrade path: Rezi (C-backed engine, 50+ widgets) if Ink hits limits
+- Package: @kilnai/tui (exists, imperative implementation in progress)
 
-**Upgrade path:**
-Ink → for initial TUI (spinners, inputs, progress bars)
-Rezi → when richer widgets needed (split panes, charts, modals)
+**Routing and the TUI — design decision (locked 2026-04-02):**
+The TUI has two distinct interaction modes with routing:
+
+1. **Direct provider selection (user-driven):** When the user picks a provider/model
+   in the TUI, routing is bypassed — `registry.createSession(id, config)` is called
+   directly. The user is the decision-maker; no automatic routing needed.
+
+2. **Supervisor/swarm orchestration (agent-driven):** When the active agent spawns
+   sub-agents mid-conversation (e.g. "route this reasoning subtask to opus, this
+   codegen to codex"), the routing layer, circuit breaker, and capability scoring
+   all become active. The TUI surfaces this as a live stream of sub-agent activity.
+
+   Example flow:
+   ```
+   User (TUI) → orchestrator (claude-sonnet)
+                  ├── routes subtask A → opus   (deep reasoning)
+                  ├── routes subtask B → codex  (code execution)
+                  └── routes subtask C → haiku  (fast summarization)
+   ```
+
+   The TUI shows all activity as a unified conversation with per-backend cost tracking.
+   This is the Phase 7c/7d/7e work — not needed for the minimal chat foundation.
 
 **TUI layout vision:**
 Persistent conversational interface showing:
@@ -591,23 +621,53 @@ Persistent conversational interface showing:
 - Last tasks: recent completions with cost + duration
 - Input: conversational, not command-based
 
-**Research needed before execution:**
-- Ink vs OpenTUI (@opentui/react) comparison for Kiln use case
-- @inkjs/ui component inventory vs Kiln needs
-- Rezi capabilities and when to upgrade from Ink
-- How Claude Code and OpenCode implement their TUIs
-  (study their source as reference implementations)
-- Windows terminal compatibility: ANSI, color, resize handling
-- SSH session compatibility for remote use
-
 **Sub-phases:**
-7a. @kilnai/tui package scaffold (Ink + @kilnai/react) — foundation started
-7b. Conversation component (input + message history)
+7a. @kilnai/tui package scaffold — DONE (v0.23.x)
+7b. Conversation component (input + message history) — DONE (v0.24.0)
+    - OpenTUI renderer, input fixes (vim keys, Enter freeze, Ctrl+V paste)
+    - Native session persistence (providerSessionId unification, crash-resilient restart)
+    - /clear command (WS protocol: clear/cleared frames)
+    - opencode-style layout: chatArea + divider + sidebar (provider, cost, cwd, turns, tool)
+    - Theme token system: KilnTheme interface, 5 built-in themes, --theme flag
 7c. Swarm status panel (real-time via EventBus)
 7d. Budget panel (per-provider, updates on cost events)
-7e. Routing indicator (which CLI was chosen and why)
+7e. Routing indicator (which CLI was chosen and why) — see routing design above
 7f. Full integration: kiln command launches TUI
 7g. OpenKiln TUI variant (channel-aware, personal branding)
+
+---
+
+### Phase 7c — TUI Gateway Integration (ADR-002)
+
+**Status:** Planned  
+**Depends on:** Phase 7a (OpenTUI rendering), Phase 7b (provider sessions)  
+**ADR:** [ADR-002](docs/adr/ADR-002-tui-gateway-architecture.md) (amended 2026-04-02)
+
+Current TUI prototype spawns provider sessions directly (Phase 7a-b). Long-term architecture
+routes through the local gateway via WebSocket. The gateway owns all orchestration; the TUI
+becomes a pure rendering layer.
+
+**Key architectural decision:** The gateway uses a **stateless CLI-subscription executor**
+(`CliSubscriptionExecutor`) for TUI — spawning `claude`/`codex`/`opencode` subprocesses per
+turn to preserve flat-rate subscription arbitrage. The existing `ProviderAdapter` (API keys)
+continues to serve widget/web channels. The execution backend is a runtime concern, chosen by
+channel type.
+
+**Scope:**
+1. Create `CliSubscriptionExecutor` in `@kilnai/runtime` — stateless per-turn CLI subprocess
+   execution behind a generalized `ModelExecutor` interface (shared with `ApiExecutor`)
+2. Create `startTuiGateway()` in `@kilnai/runtime` — in-process gateway on port 4801 with
+   `ModeBOrchestrator` using `CliSubscriptionExecutor`, no YAML required
+3. Extract or adapt `WsClient` from widget for TUI use (Bun WebSocket, no localStorage)
+4. Create `GatewaySession` implementing `SessionLike` — maps WS frames to `SessionEvent`
+   async iterator
+5. Update `packages/cli/src/commands/tui.ts` — start `startTuiGateway()` in-process, connect
+   TUI via WS, remove direct provider session wiring entirely
+6. TUI identity: `userId=kiln-tui` on the TUI-specific WS route (no widgetId/tenant needed)
+7. Accept `done`-only frames for Phase 7c (no token-by-token streaming until Phase 7d)
+
+**Not in scope:** Delta streaming over WS (Phase 7d), remote gateway attach `--attach <url>`
+(Phase 7d), agent teams (Phase 7.5).
 
 ---
 

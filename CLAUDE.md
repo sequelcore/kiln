@@ -248,6 +248,18 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `mcp/gateway-mcp-types.ts` | GatewayMcpDeps: dependency injection interface for all 25 gateway capabilities |
 | `mcp/tool-schemas.ts` | JSON Schema definitions for 25 MCP tools (memory, knowledge, cost, safety, integrations, routing, eval, enrichment, cross-agent memory, swarm primitives) |
 | `mcp/swarm-store.ts` | SwarmStore: SqliteMemoryStore-backed swarm state (join/leave/status/broadcast/claim/release) with _swarm:/_member:/_claim: tag conventions |
+| `gateway/tui-gateway.ts` | `startTuiGateway()`: in-process gateway on port 4801 for TUI WS connections; `TuiGatewayOptions.onClear` callback — handles `{ type: "clear" }` WS frame, calls `onClear()`, replies `{ type: "cleared" }`. |
+
+### TUI (`packages/tui/src/`)
+
+| File | Purpose |
+|------|---------|
+| `app.tsx` | Main TUI application: two-column layout (chatArea + divider + sidebar), printable-first key routing, Ctrl+V paste, /clear command, theme token rendering, sidebar auto-collapse < 100 cols. |
+| `theme.ts` | `KilnTheme` interface (15 semantic tokens), 5 built-in themes: `kiln-dark`, `dracula`, `catppuccin-mocha`, `nord`, `tokyo-night`. `defaultTheme = kilnDark`. `themes: Record<string, KilnTheme>` export. |
+| `gateway-session.ts` | `GatewaySession`: WS-based session adapter implementing `IKilnSession`-compatible interface; `clear()` sends `{ type: "clear" }` frame and awaits `{ type: "cleared" }` with 5s timeout. |
+| `ws-client.ts` | `WsClient`: Bun WebSocket client for TUI↔gateway; `TuiOutboundFrame` includes `{ type: "clear" }`; `TuiInboundFrame` includes `{ type: "cleared" }`. |
+| `types.ts` | Shared TUI type definitions. |
+| `index.ts` | Re-exports: `startTui`, all 5 themes, `defaultTheme`, `themes`, `type KilnTheme`. |
 
 ### CLI (`packages/cli/src/`)
 
@@ -258,7 +270,7 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `commands/init.ts` | Interactive wizard: generates app.yaml + gateway.yaml |
 | `commands/dev.ts` | Dev mode with YAML hot-reload |
 | `commands/cron.ts` | `kiln cron` command: list, add, remove, run subcommands for schedule triggers. Dynamic import of `@kilnai/runtime` for Scheduler + EventBus. |
-| `wrapper/session.ts` | `KilnPermissionAction`, `KilnPermissionApproval` (`never`\|`on-request`\|`on-failure`\|`untrusted`), `KilnSandboxMode` (`read-only`\|`workspace-write`\|`danger-full-access`), `KilnToolPermissionRule`, `KilnCommandPermissionRule`, `KilnFileGovernancePolicy`, `KilnDataFirewallRule`, `KilnAgentPermissionScope`, `KilnPermissionPolicy` (all fields optional), `SessionCapabilities.permissionPolicy`, `SessionEvent` discriminated union, `IKilnSession` interface |
+| `wrapper/session.ts` | `KilnPermissionAction`, `KilnPermissionApproval` (`never`\|`on-request`\|`on-failure`\|`untrusted`), `KilnSandboxMode` (`read-only`\|`workspace-write`\|`danger-full-access`), `KilnToolPermissionRule`, `KilnCommandPermissionRule`, `KilnFileGovernancePolicy`, `KilnDataFirewallRule`, `KilnAgentPermissionScope`, `KilnPermissionPolicy` (all fields optional), `SessionCapabilities.permissionPolicy`, `SessionEvent` discriminated union, `IKilnSession` interface with `providerSessionId: string | undefined` |
 | `wrapper/session-manager.ts` | SessionManager: pre-session setup (domain detection, system prompt via buildPreamble, MCP path, memorySnapshot passthrough) + post-session report (duration, cost aggregation). Falls back to `defaultBuildSystemPrompt` if `KilnAppConfig.buildSystemPrompt` is omitted. |
 | `wrapper/preamble-builder.ts` | Pure function `buildPreamble(ctx, policy, agent?)` — assembles `<kiln-preamble>` XML with `<role>`, `<task>`, `<domain>`, `<constraints>`, `<memory>` (200-line cap with truncation), `<instructions>`. Sections omitted when empty. XML-escaped content. |
 | `config.ts` | `KilnAppConfig`: `buildSystemPrompt` now optional with `defaultBuildSystemPrompt` as sensible default (calls `buildPreamble`). `SystemPromptOptions` with `task`, `domain`, `memorySnapshot?`, `projectPath`. |
@@ -273,7 +285,8 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `commands/run.ts` | `kiln run` command: `permissionPolicy?: KilnPermissionPolicy` on `RunFlags`; registry-driven session selection with circuit breaker fallback. Real `toolCount` + `turnDepth` tracking. Persists `.kiln/sessions/{id}/meta.json` + `transcript.jsonl` per session (fail-open). Passes transcript to `SkillGenerator.maybeGenerate()` for two-phase capture. Prints capture hint in cli-wrapper mode without API key. |
 | `commands/skill.ts` | `kiln skill` subcommands: `list`, `install`, `publish`, `capture`. |
 | `commands/skill-capture.ts` | `kiln skill capture [sessionId] --last --scope project\|user --yes --dry-run` — two-phase interactive skill promotion: loads transcript → SkillCaptureService.extractSummary → generateSkill → user review → write SKILL.md. |
-| `wrapper/session-store.ts` | `SessionStore`: append-only JSONL index at `.kiln/sessions.jsonl` (lightweight, used for --resume/--last). `TranscriptStore`: per-session `.kiln/sessions/{id}/meta.json` + `transcript.jsonl` persistence; `init`, `append`, `finalize`, `readMeta`, `readTranscript`, `listSessions`. |
+| `wrapper/session-store.ts` | `SessionStore`: append-only JSONL index at `.kiln/sessions.jsonl` (lightweight, used for --resume/--last). `clearLast(provider?)` rewrites JSONL without last matching record (used by /clear). `SessionRecord.providerSessionId` — unified provider-native session ID (replaces split remoteSessionId/threadId). `TranscriptStore`: per-session `.kiln/sessions/{id}/meta.json` + `transcript.jsonl` persistence; `init`, `append`, `finalize`, `readMeta`, `readTranscript`, `listSessions`. |
+| `commands/tui.ts` | `kiln tui` command: `--provider`, `--theme` flags; `makeResumableSessionFactory()` async factory with disk persistence + `onClear` callback; starts `startTuiGateway()` in-process, connects via WS. |
 | `mcp/config-generator.ts` | `McpClient = "claude-code" \| "codex" \| "opencode" \| "all"`; `McpServerDef` interface; `generateMcpConfig(client, serverDef, projectPath)` async dispatcher; `generateClaudeCodeMcp`: writes `{projectPath}/.mcp.json`, merges `mcpServers.<name>` only; `generateCodexMcp`: reads/writes `~/.codex/config.toml` via smol-toml, merges `mcp_servers.<name>` only; `generateOpenCodeMcp`: reads/writes `~/.config/opencode/opencode.json` (JSONC-safe), merges `mcp.<name>` only. `generateConfig()` retained for backward compat (stdout JSON). |
 | `sync/security-sync.ts` | `syncPermissions(kilnYaml, projectPath)` — reads `permissions` from kiln.yaml, calls `translatePermission()` for each backend, writes native permission format to each backend's config file. Claude Code: `.claude/settings.json` permissions allow/deny rules; Codex: `~/.codex/config.toml` approval_policy + sandbox_mode; OpenCode: `~/.config/opencode/opencode.json` permission.default. Merge-only semantics, errors collected per-backend. |
 | `sync/hook-sync.ts` | `syncHooks(projectPath, kilnDir)` — copies `autoformat.sh` from `.kiln/hooks/` to `.claude/hooks/` and `.codex/hooks/` (non-Windows only). Creates default hook if source doesn't exist. Registers hook in `.claude/settings.json` hooks section. |
