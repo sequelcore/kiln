@@ -48,6 +48,7 @@
   },
   "peerDependencies": {
     "@kilnai/core": "workspace:*",
+    "@kilnai/tui": "workspace:*",
     "@kilnai/runtime": "workspace:*"
   },
   "devDependencies": {
