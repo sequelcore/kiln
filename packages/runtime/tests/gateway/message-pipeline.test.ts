@@ -12,19 +12,29 @@ const originalFetch = globalThis.fetch;
 
 function makeMockSession(): ModeBSession {
   let _userContext: Record<string, string> | undefined;
+  let _sessionLedger: Record<string, unknown> = {};
+  let _exactArtifacts: string[] = [];
   const session = {
     id: "test-app:test-tenant:user-1:12345",
     appName: "test-app",
     tenantId: "test-tenant",
     userId: "user-1",
-    sessionMode: "ai_active",
+    sessionMode: "ai_active" as const,
     totalTokens: 0,
     userTurnCount: 0,
-    conversationHistory: [],
+    conversationHistory: [] as any,
+    messageCount: 0,
     accumulateTokens: vi.fn(),
     get userContext() { return _userContext; },
     updateUserContext(ctx: Record<string, string>) {
       _userContext = { ..._userContext, ...ctx };
+    },
+    updateSessionLedger(updates: Record<string, unknown>) {
+      _sessionLedger = { ..._sessionLedger, ...updates };
+    },
+    get sessionLedger() { return _sessionLedger as any; },
+    addExactArtifact(artifact: string) {
+      _exactArtifacts.push(artifact);
     },
   } as unknown as ModeBSession;
   return session;

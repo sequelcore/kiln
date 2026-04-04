@@ -1,6 +1,6 @@
 # Kiln - Domain-Agnostic AI Orchestration Engine
 
-MIT-licensed. YAML-configured AI orchestration with 7 primitives (Agent, Capability, Workflow, Memory, Task, Channel, Trigger) + 3 composites (Team, Router, App). Multi-tenant gateway, 8 channel adapters, provider adapters, cross-app delegation, eval framework, enterprise safety pipeline.
+Apache-2.0 licensed. YAML-configured AI orchestration with 7 primitives (Agent, Capability, Workflow, Memory, Task, Channel, Trigger) + 3 composites (Team, Router, App). Multi-tenant gateway, 8 channel adapters, provider adapters, cross-app delegation, eval framework, enterprise safety pipeline.
 
 ## Architecture
 

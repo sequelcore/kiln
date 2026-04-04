@@ -185,6 +185,19 @@
   a concrete `kiln.yaml` example, and the docs index now links that capability
   more explicitly.
 
+### Memory Quality (Phase 3.6)
+- Added hierarchical topic key support to memory entries with `topicKey`,
+  `revisionCount`, and `lastSeenAt` fields in `MemoryEntry` interface.
+- Implemented topic key upsert in `SqliteMemoryStore.save()`: when `topicKey`
+  is provided, the store performs an upsert (UPDATE if exists, INSERT if new)
+  instead of always inserting. Revision count increments on each update.
+- Added direct key lookup bypass: when search query contains "/", the store
+  performs a direct topic key lookup instead of FTS5 search (Engram pattern).
+- Added `deleted_at` column for soft-delete support.
+- Updated MCP tool schemas in both CLI and runtime to expose `topic_key` field.
+- Fixed test isolation in `vitest-bun-sqlite-mock.ts`: `:memory:` databases now
+  always return a fresh instance to prevent cross-test state leakage.
+
 ### F1 -- Field substrate
 - Added a new `packages/core/src/field/` bounded context.
 - Landed the first field-domain substrate:

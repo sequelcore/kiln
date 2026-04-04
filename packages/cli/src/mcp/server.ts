@@ -139,7 +139,8 @@ export class KilnMcpServer {
       const content = (args["content"] as string) ?? "";
       const layer = (args["layer"] as MemoryLayer) ?? "project";
       const tags = (args["tags"] as string[]) ?? [];
-      const id = await this._memoryManager.save({ content, layer, tags });
+      const topicKey = args["topic_key"] as string | undefined;
+      const id = await this._memoryManager.save({ content, layer, tags, topicKey });
       return jsonResult({ saved: true, id });
     });
 

@@ -379,30 +379,45 @@ export function destroyThemePicker(picker: ThemePickerComponents): void {
 
 /**
  * Provider picker overlay components.
+ *
+ * ARCHITECTURE NOTE:
+ * title and hint live OUTSIDE the scrollBox (in a wrapper column panel) so
+ * their height never offsets the y-coordinates of data rows inside the
+ * scrollBox.  Only data rows are ever added to / removed from scrollBox.content.
+ * This makes scrollChildIntoView() work correctly with no manual math.
  */
 export interface ProviderPickerComponents {
-  scrim: BoxRenderable;
-  panel: BoxRenderable;
-  title: TextRenderable;
-  providers: TextRenderable[];
-  models: TextRenderable[];
-  scrollBox?: ScrollBoxRenderable;
-  hint: TextRenderable;
+  scrim: InstanceType<typeof BoxRenderable>;
+  /** Outer column panel that holds title + scrollBox + hint. */
+  panel: InstanceType<typeof BoxRenderable>;
+  title: InstanceType<typeof TextRenderable>;
+  /** The scrollable region that contains ONLY data rows. */
+  scrollBox: InstanceType<typeof ScrollBoxRenderable>;
+  hint: InstanceType<typeof TextRenderable>;
+  /** Live data rows currently in scrollBox.content. */
+  rows: InstanceType<typeof TextRenderable>[];
   mode: "providers" | "models";
 }
 
 /**
- * Creates provider picker overlay with two screens: provider selection then model selection.
+ * Creates the provider picker overlay shell.
+ *
+ * Layout (top→bottom inside panel):
+ *   ┌─────────────────────────┐
+ *   │  title  (TextRenderable) │  ← fixed, outside scroll
+ *   ├─────────────────────────┤
+ *   │  scrollBox               │  ← only data rows scroll here
+ *   ├─────────────────────────┤
+ *   │  hint   (TextRenderable) │  ← fixed, outside scroll
+ *   └─────────────────────────┘
+ *
+ * Data rows are managed entirely by app.tsx via renderProviderPicker().
  */
 export function createProviderPicker(
   renderer: CliRenderer,
   theme: KilnTheme,
-  providers: string[],
-  models: Record<string, string[]>,
   terminalWidth: number,
-  terminalHeight: number,
-  initialProviderIndex: number,
-  initialModelIndex: number
+  terminalHeight: number
 ): ProviderPickerComponents {
   const scrim = new BoxRenderable(renderer, {
     id: "provider-picker-scrim",
@@ -419,74 +434,57 @@ export function createProviderPicker(
   renderer.root.add(scrim);
 
   const panelWidth = 50;
-  const scrollBox = new ScrollBoxRenderable(renderer, {
-    id: "provider-picker-scrollbox",
+
+  // Reserve rows for: title(2) + hint(2) + border(2) = 6
+  // Give the scrollbox the remaining space up to a cap.
+  const scrollBoxHeight = Math.min(terminalHeight - 4 - 6, 18);
+
+  // Outer column panel: border + title + scrollbox + hint
+  const panel = new BoxRenderable(renderer, {
+    id: "provider-picker-panel",
+    flexDirection: "column",
     width: panelWidth,
-    height: Math.min(terminalHeight - 4, 20),
     backgroundColor: theme.backgroundPanel,
     border: true,
     borderColor: theme.accent,
-    scrollY: true,
   });
-  scrim.add(scrollBox);
+  scrim.add(panel);
 
+  // Title row — fixed, never scrolls
   const title = new TextRenderable(renderer, {
     id: "provider-picker-title",
     content: t`${fg(theme.accent)(" Select Provider ")}`,
     width: "100%",
     height: 2,
   });
-  scrollBox.content.add(title);
+  panel.add(title);
 
-  const providerItems: InstanceType<typeof TextRenderable>[] = [];
-  for (let i = 0; i < providers.length; i++) {
-    const name = providers[i];
-    const isSelected = i === initialProviderIndex;
-    const prefix = isSelected ? "● " : "○ ";
-    const item = new TextRenderable(renderer, {
-      id: `provider-item-${i}`,
-      content: t`${fg(isSelected ? theme.accent : theme.textMuted)(prefix + name)}`,
-      width: "100%",
-      height: 2,
-    });
-    scrollBox.content.add(item);
-    providerItems.push(item);
-  }
+  // Scrollable data area — ONLY data rows go in here
+  const scrollBox = new ScrollBoxRenderable(renderer, {
+    id: "provider-picker-scrollbox",
+    width: "100%",
+    height: scrollBoxHeight,
+    backgroundColor: theme.backgroundPanel,
+    scrollY: true,
+  });
+  panel.add(scrollBox);
 
-  const modelItems: InstanceType<typeof TextRenderable>[] = [];
-  const initialProvider = providers[initialProviderIndex] ?? providers[0] ?? "";
-  const currentModels = models[initialProvider] ?? [];
-  for (let i = 0; i < currentModels.length; i++) {
-    const name = currentModels[i];
-    const isSelected = i === initialModelIndex;
-    const prefix = isSelected ? "● " : "  ";
-    const item = new TextRenderable(renderer, {
-      id: `model-item-${i}`,
-      content: t`${fg(isSelected ? theme.primary : theme.textMuted)(prefix + name)}`,
-      width: "100%",
-      height: 2,
-      visible: false,
-    });
-    scrollBox.content.add(item);
-    modelItems.push(item);
-  }
-
+  // Hint row — fixed, never scrolls
   const hint = new TextRenderable(renderer, {
     id: "provider-picker-hint",
     content: t`${fg(theme.textMuted)("↑↓ navigate  Enter select  Esc cancel")}`,
     width: "100%",
     height: 2,
   });
-  scrollBox.content.add(hint);
+  panel.add(hint);
 
   return {
     scrim,
-    panel: scrollBox.viewport,
+    panel,
     title,
-    providers: providerItems,
-    models: modelItems,
     scrollBox,
     hint,
+    rows: [],
     mode: "providers",
   };
 }

@@ -9,6 +9,9 @@ export interface MemoryEntry {
   readonly layer: MemoryLayer;
   readonly content: string;
   readonly tags: readonly string[];
+  readonly topicKey?: string;
+  readonly revisionCount?: number;
+  readonly lastSeenAt?: Date;
   readonly createdAt: Date;
   readonly lastAccessedAt: Date;
   readonly accessCount: number;
@@ -19,13 +22,13 @@ export interface MemoryEntry {
 /** Memory search result with relevance score */
 export interface MemorySearchResult {
   readonly entry: MemoryEntry;
-  readonly score: number;
-  readonly snippet: string;
+  readonly score?: number;
+  readonly snippet?: string;
 }
 
 /** Memory store interface */
 export interface MemoryStore {
-  save(entry: Omit<MemoryEntry, "id" | "createdAt" | "lastAccessedAt" | "accessCount">): Promise<string>;
+  save(entry: Omit<MemoryEntry, "id" | "createdAt" | "lastAccessedAt" | "accessCount" | "revisionCount" | "lastSeenAt">): Promise<string>;
   search(query: string, limit?: number): Promise<readonly MemorySearchResult[]>;
   recall(query: string, tokenBudget: number): Promise<string>;
   forget(id: string): Promise<void>;

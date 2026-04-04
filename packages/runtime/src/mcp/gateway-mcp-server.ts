@@ -297,6 +297,7 @@ export class GatewayMcpServer {
       key: args["key"],
       content: args["content"],
       ...(args["tags"] ? { tags: args["tags"] } : {}),
+      ...(args["topic_key"] ? { topicKey: args["topic_key"] } : {}),
     });
     return this.jsonResult(result);
   }

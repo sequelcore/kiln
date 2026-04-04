@@ -31,9 +31,13 @@ export const MEMORY_STORE_SCHEMA = {
       type: "string",
       description: "Unique key for the memory entry",
     },
+    topic_key: {
+      type: "string",
+      description: "Hierarchical key for this memory (e.g. 'architecture/auth-model'). If a memory with this key already exists in the same scope, it will be updated rather than duplicated.",
+    },
     content: {
       type: "string",
-      description: "Content to store",
+      description: "Content to store. Use What/Why/Where/Learned format: **What** (the fact), **Why** (the reasoning), **Where** (affected files or locations), **Learned** (insight for future reference).",
     },
     tags: {
       type: "string",

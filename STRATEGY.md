@@ -438,7 +438,7 @@ See [ADR-003: Meta-Orchestrator Model](docs/adr/ADR-003-meta-orchestrator-model.
 
 ## Phase 3.6 — Memory Quality (Post-3.5)
 
-**Status:** BACKLOG
+**Status:** COMPLETE
 **Source:** Engram scout (2026-04-01)
 
 - feat(core): topic key upserts — `topic_key` field on memory observations; if provided on
@@ -446,10 +446,10 @@ See [ADR-003: Meta-Orchestrator Model](docs/adr/ADR-003-meta-orchestrator-model.
   Family/segment key format (e.g. `architecture/auth-model`). Direct topic_key lookup bypasses
   FTS5 when query contains `/` — deterministic retrieval for known keys.
 - feat(core): `revision_count` + `last_seen_at` columns on `Observation` schema (SQLite migration)
-- feat(core): What/Why/Where/Learned structured save format — enforce in `mem_save` schema
-  validation (currently partial)
+- feat(core): Added `deleted_at` column for soft-delete support
+- fix(test): `:memory:` databases in vitest-bun-sqlite-mock now return fresh instances to prevent cross-test state leakage
 
-**Blocked on:** SQLite schema migration — coordinate with any Phase 3.5 schema changes first.
+**Released in:** v0.25.0
 
 ---
 

@@ -19,6 +19,10 @@ export class Database {
       this.db = new BetterSqlite3(":memory:");
       return;
     }
+    // For non-":memory:" paths, use shared instances with ref-counting
+    // to avoid EBUSY on Windows during test cleanup.
+    // ":memory:" always gets a fresh instance since there's no
+    // persistent identity to preserve across tests.
     const entry = shared.get(path);
     if (entry) {
       entry.refs++;

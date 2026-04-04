@@ -28,6 +28,9 @@ interface MemoryRow {
   tags: string;
   agent_role: string | null;
   project_id: string | null;
+  topic_key: string | null;
+  revision_count: number;
+  last_seen_at: string | null;
   created_at: string;
   last_accessed_at: string;
   access_count: number;
@@ -76,17 +79,24 @@ export class SqliteMemoryStore implements MemoryStore {
         tags TEXT NOT NULL,
         agent_role TEXT,
         project_id TEXT,
+        topic_key TEXT,
+        revision_count INTEGER NOT NULL DEFAULT 1,
+        last_seen_at TEXT,
         created_at TEXT NOT NULL,
         last_accessed_at TEXT NOT NULL,
         access_count INTEGER DEFAULT 0,
-        decay_score REAL DEFAULT 1.0
-      );
+        decay_score REAL DEFAULT 1.0,
+        deleted_at TEXT,
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )
     `);
+
     this.db.exec(`
       CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
-        id UNINDEXED, content, tags, tokenize='porter'
+        id UNINDEXED, content, tags, topic_key, tokenize='porter'
       );
     `);
+
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS memories_archive (
         id TEXT PRIMARY KEY,
@@ -94,6 +104,9 @@ export class SqliteMemoryStore implements MemoryStore {
         tags TEXT NOT NULL,
         agent_role TEXT,
         project_id TEXT,
+        topic_key TEXT,
+        revision_count INTEGER NOT NULL DEFAULT 1,
+        last_seen_at TEXT,
         created_at TEXT NOT NULL,
         last_accessed_at TEXT NOT NULL,
         access_count INTEGER DEFAULT 0,
@@ -104,9 +117,8 @@ export class SqliteMemoryStore implements MemoryStore {
   }
 
   async save(
-    entry: Omit<MemoryEntry, "id" | "createdAt" | "lastAccessedAt" | "accessCount">,
+    entry: Omit<MemoryEntry, "id" | "createdAt" | "lastAccessedAt" | "accessCount" | "revisionCount" | "lastSeenAt">,
   ): Promise<string> {
-    const id = crypto.randomUUID();
     const now = new Date().toISOString();
 
     let tags = [...entry.tags];
@@ -116,14 +128,46 @@ export class SqliteMemoryStore implements MemoryStore {
     }
     const tagsJson = JSON.stringify(tags);
 
-    this.db.prepare(`
-      INSERT INTO memories (id, content, tags, agent_role, project_id, created_at, last_accessed_at, access_count, decay_score)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 0, 1.0)
-    `).run(id, entry.content, tagsJson, entry.agentRole ?? null, entry.projectId ?? null, now, now);
+    // Branch A — topic_key upsert
+    if (entry.topicKey) {
+      const existing = this.db.prepare(`
+        SELECT id FROM memories
+        WHERE topic_key = ? AND project_id IS ? AND deleted_at IS NULL
+        ORDER BY last_seen_at DESC
+        LIMIT 1
+      `).get(entry.topicKey, entry.projectId ?? null) as { id: string } | undefined;
+
+      if (existing) {
+        this.db.prepare(`
+          UPDATE memories SET
+            content = ?,
+            tags = ?,
+            topic_key = ?,
+            revision_count = revision_count + 1,
+            last_seen_at = ?,
+            last_accessed_at = ?
+          WHERE id = ?
+        `).run(entry.content, tagsJson, entry.topicKey, now, now, existing.id);
+
+        if (this.count > this.compactionThreshold) {
+          this.runCompaction();
+        }
+
+        return existing.id;
+      }
+    }
+
+    // Branch B — plain insert
+    const id = crypto.randomUUID();
 
     this.db.prepare(`
-      INSERT INTO memories_fts (id, content, tags) VALUES (?, ?, ?)
-    `).run(id, entry.content, tagsJson);
+      INSERT INTO memories (id, content, tags, agent_role, project_id, topic_key, revision_count, last_seen_at, created_at, last_accessed_at, access_count, decay_score)
+      VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, 0, 1.0)
+    `).run(id, entry.content, tagsJson, entry.agentRole ?? null, entry.projectId ?? null, entry.topicKey ?? null, now, now, now);
+
+    this.db.prepare(`
+      INSERT INTO memories_fts (id, content, tags, topic_key) VALUES (?, ?, ?, ?)
+    `).run(id, entry.content, tagsJson, entry.topicKey ?? null);
 
     if (this.count > this.compactionThreshold) {
       this.runCompaction();
@@ -137,6 +181,19 @@ export class SqliteMemoryStore implements MemoryStore {
     limit?: number,
   ): Promise<readonly MemorySearchResult[]> {
     const maxResults = limit ?? 10;
+
+    // If query contains "/", treat as direct topic_key lookup
+    if (query.includes("/")) {
+      const topicRows = this.db.prepare(`
+        SELECT m.*, -1000 as score, '' as snippet
+        FROM memories m
+        WHERE m.topic_key = ? AND (m.deleted_at IS NULL OR m.deleted_at = '')
+        ORDER BY m.revision_count DESC, m.last_seen_at DESC
+        LIMIT ?
+      `).all(query, maxResults) as FtsSearchRow[];
+
+      return topicRows.map((row) => this.toSearchResult(row));
+    }
 
     let rows: FtsSearchRow[];
     if (this.tenantId) {
@@ -407,6 +464,9 @@ export class SqliteMemoryStore implements MemoryStore {
       layer: this.layer,
       content: row.content,
       tags: JSON.parse(row.tags) as string[],
+      topicKey: row.topic_key ?? undefined,
+      revisionCount: row.revision_count,
+      lastSeenAt: row.last_seen_at ? new Date(row.last_seen_at) : undefined,
       createdAt: new Date(row.created_at),
       lastAccessedAt: new Date(row.last_accessed_at),
       accessCount: row.access_count,

@@ -36,7 +36,7 @@ export class MemoryManager implements MemoryStore {
   }
 
   async save(
-    entry: Omit<MemoryEntry, "id" | "createdAt" | "lastAccessedAt" | "accessCount">,
+    entry: Omit<MemoryEntry, "id" | "createdAt" | "lastAccessedAt" | "accessCount" | "revisionCount" | "lastSeenAt">,
   ): Promise<string> {
     const store = this.resolveStore(entry.layer, entry.agentRole);
     const id = await store.save(entry);
@@ -95,7 +95,7 @@ export class MemoryManager implements MemoryStore {
         ...agentResults.flat(),
       ];
 
-      results.sort((a, b) => b.score - a.score);
+      results.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
       results = results.slice(0, maxResults);
     }
 
@@ -205,7 +205,7 @@ export class MemoryManager implements MemoryStore {
           const results = await store.search(query, limit);
           allResults.push(...results);
         }
-        allResults.sort((a, b) => b.score - a.score);
+        allResults.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
         return allResults.slice(0, limit);
       }
       case "project":
