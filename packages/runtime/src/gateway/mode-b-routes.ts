@@ -2,7 +2,7 @@
 // Handles message processing, session listing, and session removal
 
 import { Hono } from "hono";
-import type { ContentPart, TenantConfig, RetrievalPipeline } from "@kilnai/core";
+import type { ContentPart, TenantConfig, RetrievalPipeline, ContextArtifactCache } from "@kilnai/core";
 import { textParts, extractText } from "@kilnai/core";
 import { formatKnowledgeContext } from "./context-formatter.js";
 import type { ModeBOrchestrator } from "../session/mode-b-orchestrator.js";
@@ -29,6 +29,7 @@ export interface ModeBAppRuntime {
   readonly handoffSummarizer?: AgentHandoffSummarizer;
   readonly eventBus?: EventBus;
   readonly groundingDeps?: import("./message-pipeline.js").InboundMessageContext["groundingDeps"];
+  readonly contextArtifactCache?: ContextArtifactCache;
 }
 
 /** Request body for POST /message */
@@ -158,6 +159,7 @@ export function createModeBRoutes(runtime: ModeBAppRuntime): Hono {
         userContext,
         groundingMode: runtime.tenant?.groundingMode,
         groundingDeps: runtime.groundingDeps,
+        contextArtifactCache: runtime.contextArtifactCache,
         activeAgentId,
         activeAgentName,
         routingTier,

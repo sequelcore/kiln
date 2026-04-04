@@ -27,6 +27,9 @@ export class GatewaySession implements SessionLike {
   private readonly client: TuiWsClient;
   private readonly userId: string;
 
+  /** Callback invoked when a welcome frame is received. */
+  private onWelcome: ((models: Record<string, string[]>) => void) | null = null;
+
   /** Pending queue items for the current turn. Set while a turn is in flight. */
   private queue: QueueItem[] = [];
   private resolve: (() => void) | null = null;
@@ -38,8 +41,9 @@ export class GatewaySession implements SessionLike {
   /** Pending provider change callbacks — set while waiting for "provider_changed" frame. */
   private providerChangeCallbacks: { resolve: (provider: string) => void; reject: (err: Error) => void } | null = null;
 
-  constructor(wsUrl: string) {
+  constructor(wsUrl: string, onWelcome?: (models: Record<string, string[]>) => void) {
     this.userId = `kiln-tui-${randomUUID()}`;
+    this.onWelcome = onWelcome ?? null;
 
     this.client = new TuiWsClient({
       url: wsUrl,
@@ -104,7 +108,7 @@ export class GatewaySession implements SessionLike {
    * Send a provider frame to the gateway and wait for the provider_changed acknowledgement.
    * Resolves with the new provider name. Rejects after timeout.
    */
-  async switchProvider(provider: string): Promise<string> {
+  async switchProvider(provider: string, model?: string): Promise<string> {
     await this.waitForConnection();
     return new Promise<string>((resolve, reject) => {
       const timeout = setTimeout(() => {
@@ -125,7 +129,7 @@ export class GatewaySession implements SessionLike {
         },
       };
 
-      this.client.send({ type: "provider", provider });
+      this.client.send({ type: "provider", provider, ...(model ? { model } : {}) });
     });
   }
 
@@ -158,14 +162,18 @@ export class GatewaySession implements SessionLike {
         type: "completed", 
         totalUsd: 0,
         inputTokens: frame.inputTokens,
-        outputTokens: frame.outputTokens
+        outputTokens: frame.outputTokens,
+        runtimeContinuity: frame.runtimeContinuity,
       });
       this.pushStop();
     } else if (frame.type === "error") {
       this.push({ type: "error", message: frame.message });
       this.pushStop();
     }
-    // welcome frame: ignored (TUI doesn't need a greeting)
+    // welcome frame: invoke callback if models provided
+    if (frame.type === "welcome" && frame.models && this.onWelcome) {
+      this.onWelcome(frame.models);
+    }
     // cleared frame: resolve pending clear promise
     if (frame.type === "cleared") {
       this.clearCallbacks?.resolve();

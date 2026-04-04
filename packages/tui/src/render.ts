@@ -8,6 +8,26 @@ import type { ReactiveState, Message } from "./state.js";
 import type { KilnTheme } from "./theme.js";
 import type { UIComponents } from "./ui.js";
 
+export function renderSidebarField(
+  state: ReactiveState,
+  theme: KilnTheme,
+  ui: UIComponents
+): void {
+  const f = state.fieldSnapshot;
+  const statusEmoji = f.status === "runaway" ? "!" : f.status === "starvation" ? "~" : f.status === "stable" ? "=" : "?";
+  const dominant = f.dominantRegions.length > 0
+    ? f.dominantRegions.slice(0, 3).join(", ")
+    : "--";
+  const satPct = (f.saturation * 100).toFixed(0);
+  const entropyStr = f.entropy.toFixed(2);
+  const lines = [
+    `field [${statusEmoji}]`,
+    `dom: ${dominant}`,
+    `sat: ${satPct}%  H: ${entropyStr}`,
+  ].join("\n");
+  ui.sidebarFieldText.content = t`${fg(theme.textMuted)(lines)}`;
+}
+
 /**
  * Formats a token count as a compact string (e.g. 12345 → "12.3k").
  */
@@ -63,6 +83,40 @@ export function renderSidebarTurns(
     `turns: ${state.turns}  tok: ${inTok}/${outTok}`
   )}`;
 
+}
+
+/**
+ * Renders the sidebar resume strategy and feedback display for the current provider.
+ */
+export function renderSidebarResume(
+  state: ReactiveState,
+  theme: KilnTheme,
+  ui: UIComponents
+): void {
+  const resumeInfo = state.resumeInfoByProvider[state.currentProvider];
+  const runtimeInfo = state.runtimeContinuityByProvider[state.currentProvider];
+  const resumeLine = resumeInfo?.strategy
+    ? `resume: ${resumeInfo.strategy}${resumeInfo.feedbackLabel ? ` · ${resumeInfo.feedbackLabel}` : ""}`
+    : "resume: --";
+  const runtimeLine = runtimeInfo?.strategy
+    ? `runtime: ${runtimeInfo.strategy}${runtimeInfo.feedbackLabel ? ` · ${runtimeInfo.feedbackLabel}` : ""}`
+    : "runtime: --";
+  const pressureLine = runtimeInfo?.pressure
+    ? `ctx: ${runtimeInfo.pressure}${runtimeInfo.supportArtifactCount !== undefined ? ` · src ${runtimeInfo.supportArtifactCount}` : ""}`
+    : "ctx: --";
+  const sourceLine = runtimeInfo?.supportArtifactSources?.length
+    ? `srcs: ${runtimeInfo.supportArtifactSources.join(", ")}`
+    : "srcs: --";
+  const fallbackLine = runtimeInfo?.fallbackLabel
+    ? `why: ${runtimeInfo.fallbackLabel}`
+    : "why: --";
+  const usedLine = runtimeInfo?.supportArtifactSources?.length
+    ? `used: ${runtimeInfo.usedCachedSupport ? "selected" : "available-only"}`
+    : "used: --";
+  const selectionLine = runtimeInfo?.selectionReason
+    ? `sel: ${runtimeInfo.selectionReason}`
+    : "sel: --";
+  ui.sidebarResumeText.content = t`${fg(theme.textMuted)(`${resumeLine}\n${runtimeLine}\n${pressureLine}\n${sourceLine}\n${fallbackLine}\n${usedLine}\n${selectionLine}`)}`;
 }
 
 /**

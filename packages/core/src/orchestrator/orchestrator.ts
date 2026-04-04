@@ -32,6 +32,7 @@ import type { CheckpointStore } from "./checkpoint-store.js";
 import type { Checkpoint, CheckpointOptions, ReplayOverrides } from "./checkpoint-types.js";
 import type { InterruptRequest, ResumeCommand, InterruptState } from "./interrupt.js";
 import type { InterruptRequestedEvent, InterruptResumedEvent } from "../events/index.js";
+import { attachFieldUpdater, startFieldPropagator, startFieldInhibitor, startStabilityMonitor } from "../field/field-service.js";
 
 const DEFAULT_CONFIG: OrchestratorConfig = {
   requireApproval: true,
@@ -88,6 +89,10 @@ export class Orchestrator {
   constructor(config?: Partial<OrchestratorConfig>) {
     this._config = { ...DEFAULT_CONFIG, ...config };
     this._eventBus = new EventBus();
+      attachFieldUpdater(this._eventBus);
+      startFieldPropagator();
+      startFieldInhibitor();
+      startStabilityMonitor();
     this._costTracker = new CostTracker();
     // PhaseMachine is constructed without a sessionId; it gets set in start()
     this._phaseMachine = new PhaseMachine(this._eventBus, this._config);

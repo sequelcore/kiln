@@ -23,6 +23,8 @@ export function serializeSession(session: ModeBSession): string {
     userTurnCount: session.userTurnCount,
     lastHumanMessageAt: session.lastHumanMessageAt,
     userContext: session.userContext,
+    sessionLedger: session.sessionLedger,
+    exactArtifacts: session.exactArtifacts,
   };
   return JSON.stringify(data);
 }

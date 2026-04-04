@@ -1,6 +1,114 @@
-import type { SessionReport } from "../wrapper/index.js";
+import type { SessionReport, ContextGovernanceSummary } from "../wrapper/index.js";
+import type { ProjectedContext, ProjectedContextBlockKind } from "./context-types.js";
 
 type EvalScoreLabel = "excellent" | "good" | "fair" | "poor";
+
+function formatKindCounts(counts: Partial<Record<ProjectedContextBlockKind, number>>): string {
+  return Object.entries(counts)
+    .filter(([, count]) => typeof count === "number" && count > 0)
+    .map(([kind, count]) => `${kind}:${count}`)
+    .join(", ");
+}
+
+function formatSourceCounts(counts: Record<string, number>): string {
+  return Object.entries(counts)
+    .filter(([, count]) => typeof count === "number" && count > 0)
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .map(([source, count]) => `${source}:${count}`)
+    .join(", ");
+}
+
+function inferDeferredReasons(projectedContext: ProjectedContext): string[] {
+  const reasons = new Set<string>();
+  const deferredBlocks = projectedContext.deferredBlocks ?? [];
+
+  if (deferredBlocks.length === 0) {
+    return [];
+  }
+  if (projectedContext.overflow) {
+    reasons.add("required-overflow");
+  }
+
+  for (const block of deferredBlocks) {
+    if (block.kind === "summary") {
+      reasons.add("lower-priority-summary");
+    } else if (block.kind === "memory") {
+      reasons.add("lower-priority-memory");
+    } else if (block.kind === "knowledge") {
+      reasons.add("lower-priority-knowledge");
+    } else if (block.kind === "artifact") {
+      reasons.add("artifact-budget-pressure");
+    } else if (block.kind === "ledger") {
+      reasons.add("ledger-budget-pressure");
+    }
+  }
+
+  if (!projectedContext.overflow && deferredBlocks.length > 0) {
+    reasons.add("budget-cap");
+  }
+
+  return [...reasons];
+}
+
+export function summarizeContextGovernance(projectedContext: ProjectedContext): ContextGovernanceSummary {
+  const selectedKinds: Partial<Record<ProjectedContextBlockKind, number>> = {};
+  const deferredKinds: Partial<Record<ProjectedContextBlockKind, number>> = {};
+  const selectedSources: Record<string, number> = {};
+  const deferredSources: Record<string, number> = {};
+
+  for (const block of projectedContext.blocks) {
+    selectedKinds[block.kind] = (selectedKinds[block.kind] ?? 0) + 1;
+    selectedSources[block.source] = (selectedSources[block.source] ?? 0) + 1;
+  }
+  for (const block of projectedContext.deferredBlocks ?? []) {
+    deferredKinds[block.kind] = (deferredKinds[block.kind] ?? 0) + 1;
+    deferredSources[block.source] = (deferredSources[block.source] ?? 0) + 1;
+  }
+
+  return {
+    selectedTokens: projectedContext.estimatedTokens,
+    tokenBudget: projectedContext.tokenBudget,
+    overflow: projectedContext.overflow ?? false,
+    selectedCount: projectedContext.blocks.length,
+    deferredCount: projectedContext.deferredBlocks?.length ?? 0,
+    selectedKinds,
+    deferredKinds,
+    selectedSources,
+    deferredSources,
+    deferredReasons: inferDeferredReasons(projectedContext),
+  };
+}
+
+export function printContextGovernancePreview(summary: ContextGovernanceSummary): void {
+  const selectedKinds = formatKindCounts(summary.selectedKinds);
+  const deferredKinds = formatKindCounts(summary.deferredKinds);
+  const selectedSources = formatSourceCounts(summary.selectedSources);
+  const deferredSources = formatSourceCounts(summary.deferredSources);
+
+  console.log("Context preview:");
+  console.log(
+    `  ${summary.selectedTokens}/${summary.tokenBudget ?? "?"} tok`
+    + `, selected ${summary.selectedCount}`
+    + `, deferred ${summary.deferredCount}`
+    + (summary.overflow ? ", overflow" : "")
+  );
+  if (selectedKinds) {
+    console.log(`  selected kinds: ${selectedKinds}`);
+  }
+  if (deferredKinds) {
+    console.log(`  deferred kinds: ${deferredKinds}`);
+  }
+  if (selectedSources) {
+    console.log(`  selected src:   ${selectedSources}`);
+  }
+  if (deferredSources) {
+    console.log(`  deferred src:   ${deferredSources}`);
+  }
+  if (summary.deferredReasons.length > 0) {
+    console.log(`  deferred why:   ${summary.deferredReasons.join(", ")}`);
+  }
+  console.log("");
+}
 
 export function computeEvalScore(opts: {
   succeeded: boolean;
@@ -68,6 +176,51 @@ export function printReport(report: SessionReport, appName: string): void {
   console.log(`Duration: ${durationSec}s`);
   if ((report as { resumedFrom?: string }).resumedFrom) {
     console.log(`Resumed:  from session ${(report as { resumedFrom: string }).resumedFrom}`);
+  }
+  if (report.resumeStrategy && report.resumeStrategy !== "none") {
+    console.log(`Resume:   ${report.resumeStrategy}`);
+  }
+  if (report.resumeFeedback && report.resumeStrategy && report.resumeStrategy !== "none") {
+    const preferred = report.resumeFeedback.preferredStrategy
+      ? `, prefer ${report.resumeFeedback.preferredStrategy}`
+      : "";
+    const source = report.resumeFeedback.influencedChoice ? "applied" : "observed";
+    console.log(`Resumeƒ:  ${source}${preferred}, ${report.resumeFeedback.sampleSize} samples`);
+  }
+  if (report.resumeOutcome && report.resumeStrategy && report.resumeStrategy !== "none") {
+    console.log(
+      `Resume→   ${report.resumeOutcome.succeeded ? "success" : "failure"}`
+      + `, $${report.resumeOutcome.costUsd.toFixed(2)}`
+      + `, ${report.resumeOutcome.toolCallCount} tools`
+      + (report.resumeOutcome.finalProvider ? `, ${report.resumeOutcome.finalProvider}` : ""),
+    );
+  }
+  if (report.contextGovernance) {
+    const selectedKinds = formatKindCounts(report.contextGovernance.selectedKinds);
+    const deferredKinds = formatKindCounts(report.contextGovernance.deferredKinds);
+    const selectedSources = formatSourceCounts(report.contextGovernance.selectedSources);
+    const deferredSources = formatSourceCounts(report.contextGovernance.deferredSources);
+    console.log(
+      `Context:  ${report.contextGovernance.selectedTokens}/${report.contextGovernance.tokenBudget ?? "?"} tok`
+      + `, selected ${report.contextGovernance.selectedCount}`
+      + `, deferred ${report.contextGovernance.deferredCount}`
+      + (report.contextGovernance.overflow ? ", overflow" : "")
+    );
+    if (selectedKinds) {
+      console.log(`Context✓: ${selectedKinds}`);
+    }
+    if (deferredKinds) {
+      console.log(`Context…: ${deferredKinds}`);
+    }
+    if (selectedSources) {
+      console.log(`Context+: ${selectedSources}`);
+    }
+    if (deferredSources) {
+      console.log(`Context-: ${deferredSources}`);
+    }
+    if (report.contextGovernance.deferredReasons.length > 0) {
+      console.log(`Context?: ${report.contextGovernance.deferredReasons.join(", ")}`);
+    }
   }
   if (report.verificationResult) {
     const v = report.verificationResult;

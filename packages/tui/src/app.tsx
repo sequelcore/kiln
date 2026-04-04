@@ -5,14 +5,15 @@
 
 import { execSync } from "node:child_process";
 import { createCliRenderer } from "@opentui/core";
+import { getFieldStore } from "@kilnai/core";
 import type { SessionLike } from "./types.js";
-import type { Message } from "./state.js";
+import type { Message, ResumeSidebarInfo } from "./state.js";
 import { createReactiveState, update } from "./state.js";
 import type { KilnTheme } from "./theme.js";
 import { defaultTheme, themes } from "./theme.js";
 import { initUI, createThemePicker, destroyThemePicker, createProviderPicker, destroyProviderPicker } from "./ui.js";
 import { sendMessage } from "./handlers.js";
-import { renderSidebarCost, renderSidebarTurns, renderSidebarProvider } from "./render.js";
+import { renderSidebarCost, renderSidebarResume, renderSidebarTurns, renderSidebarProvider, renderSidebarField } from "./render.js";
 
 /** Spinner frames for thinking indicator. */
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -28,7 +29,10 @@ export async function startTui(
   createSession: () => Promise<SessionLike>,
   provider = "claude",
   domain = "unknown",
-  theme: KilnTheme = defaultTheme
+  theme: KilnTheme = defaultTheme,
+  initialResumeInfo: Record<string, ResumeSidebarInfo> = {},
+  refreshResumeInfo?: () => Promise<Record<string, ResumeSidebarInfo>>,
+  providerModelsRef?: { current: Record<string, string[]> },
 ): Promise<void> {
   const renderer = await createCliRenderer({
     exitOnCtrlC: false,
@@ -43,6 +47,7 @@ export async function startTui(
   const terminalHeight = renderer.height ?? 40;
 
   const state = createReactiveState();
+  update(state, "resumeInfoByProvider", initialResumeInfo);
   const messageNodes: { msg: Message; node: InstanceType<typeof import("@opentui/core").TextRenderable> }[] = [];
   const thinkingNodeRef = { node: null as InstanceType<typeof import("@opentui/core").TextRenderable> | null };
   const spinnerRef = { interval: null as ReturnType<typeof setInterval> | null };
@@ -59,19 +64,19 @@ export async function startTui(
   };
 
   const VALID_PROVIDERS = ["claude", "codex", "opencode"];
-  // TODO(7d-models): Two improvements needed:
-  // 1. Dynamic model list — gateway should query each CLI at startup (e.g. `claude models ls`)
-  //    and send available models in a `welcome` frame instead of this hardcoded list.
-  // 2. Model actually applied — CliSubscriptionExecutor must accept model and pass --model <id>
-  //    to the subprocess. Right now the picker is display-only; the CLI uses its own config.
-  const PROVIDER_MODELS: Record<string, string[]> = {
-    // Claude Code models (subscription tier: sonnet is default, opus for heavy tasks)
-    claude: ["claude-sonnet-4-5", "claude-opus-4-5", "claude-haiku-4-5"],
-    // Codex CLI models (OpenAI reasoning: o4-mini is subscription default, o3 for heavier tasks)
-    codex: ["o4-mini", "o3", "o3-mini"],
-    // OpenCode models (configured via opencode.json; these are real provider/model combos)
-    opencode: ["claude-sonnet-4-5", "gpt-4o", "o4-mini"],
-  };
+  let PROVIDER_MODELS: Record<string, string[]> = {};
+
+  // If providerModelsRef is provided, poll it for dynamic model lists
+  if (providerModelsRef) {
+    const pollModels = () => {
+      const models = providerModelsRef.current;
+      if (models && Object.keys(models).length > 0) {
+        PROVIDER_MODELS = models;
+      }
+    };
+    setInterval(pollModels, 500);
+    pollModels();
+  }
 
   const themeNames = Object.keys(themes);
   const themeValues = Object.values(themes);
@@ -120,6 +125,7 @@ export async function startTui(
           sidebarToolNode: null,
           messageNodes,
           createSession,
+          refreshResumeInfo,
           provider,
           domain,
         },
@@ -127,6 +133,7 @@ export async function startTui(
         thinkingNodeRef,
         () => renderSidebarCost(state, currentTheme, ui),
         () => renderSidebarTurns(state, currentTheme, ui),
+        () => renderSidebarResume(state, currentTheme, ui),
         renderCommandBarStatus,
         startSpinner,
         stopSpinner,
@@ -138,6 +145,8 @@ export async function startTui(
   renderSidebarCost(state, currentTheme, ui);
   renderSidebarTurns(state, currentTheme, ui);
   renderSidebarProvider(state, currentTheme, ui, domain);
+  renderSidebarResume(state, currentTheme, ui);
+  renderSidebarField(state, currentTheme, ui);
   renderer.start();
 
   // Sidebar visibility based on terminal width
@@ -217,12 +226,13 @@ export async function startTui(
           const session = await createSession();
           const hasSwitchProvider = typeof (session as unknown as { switchProvider?: unknown }).switchProvider === "function";
           if (hasSwitchProvider) {
-            await (session as unknown as { switchProvider: (provider: string) => Promise<string> }).switchProvider(selectedProvider);
+            await (session as unknown as { switchProvider: (provider: string, model?: string) => Promise<string> }).switchProvider(selectedProvider, selectedModel || undefined);
           }
         } catch {
           // Fail-open: provider switch is best-effort
         }
         renderSidebarProvider(state, currentTheme, ui, domain);
+        renderSidebarResume(state, currentTheme, ui);
       })();
     }
     destroyProviderPicker(providerPicker);
@@ -249,6 +259,7 @@ export async function startTui(
       for (const modelItem of providerPicker.models) {
         modelItem!.visible = false;
       }
+      providerPicker.scrollBox?.scrollTo({ x: 0, y: providerPickerState.providerIndex * 2 });
     } else {
       const currentProvider = VALID_PROVIDERS[providerPickerState.providerIndex] ?? "";
       const models = PROVIDER_MODELS[currentProvider] ?? [];
@@ -265,6 +276,8 @@ export async function startTui(
           providerPicker.models[i]!.content = t`${fg(isSelected ? currentTheme.primary : currentTheme.textMuted)(prefix + model)}`;
         }
       }
+      const modelStartIndex = 2 + VALID_PROVIDERS.length + 1;
+      providerPicker.scrollBox?.scrollTo({ x: 0, y: modelStartIndex + providerPickerState.modelIndex * 2 });
     }
   }
 
@@ -299,6 +312,7 @@ export async function startTui(
     ui.commandBar.backgroundColor = currentTheme.background;
     ui.sidebar.backgroundColor = currentTheme.backgroundPanel;
     renderSidebarProvider(state, currentTheme, ui, domain);
+    renderSidebarResume(state, currentTheme, ui);
     ui.sidebarCostText.content = t`${fg(currentTheme.textMuted)(`$${state.cost.toFixed(4)}`)}`;
     ui.sidebarCwdText.content = t`${fg(currentTheme.textMuted)(shortPath(process.cwd()))}`;
     ui.sidebarTurnsText.content = t`${fg(currentTheme.textMuted)(`turns: ${state.turns}  tok: ${state.inputTokens >= 1000 ? (state.inputTokens / 1000).toFixed(1) + "k" : state.inputTokens}/${state.outputTokens >= 1000 ? (state.outputTokens / 1000).toFixed(1) + "k" : state.outputTokens}`)}`;
@@ -377,9 +391,29 @@ export async function startTui(
 
   const { t, fg } = await import("@opentui/core");
 
+  const fieldPollInterval = setInterval(async () => {
+    try {
+      const snapshot = await getFieldStore().snapshot();
+      const regions = [...snapshot.regions.values()];
+      const saturation = regions.length > 0
+        ? regions.reduce((sum, r) => sum + r.value, 0) / regions.length
+        : 0;
+      update(state, "fieldSnapshot", {
+        dominantRegions: snapshot.dominantRegions.slice(),
+        saturation,
+        entropy: snapshot.entropy,
+        status: "stable",
+      });
+      renderSidebarField(state, currentTheme, ui);
+    } catch {
+      // Fail-open: field polling is best-effort
+    }
+  }, 2_000);
+
   // Input handling
   renderer.keyInput.on("keypress", (key) => {
     if (key.sequence === "\x03" || (key.ctrl && (key.name === "c" || key.sequence === "C"))) {
+      clearInterval(fieldPollInterval);
       renderer.destroy();
       process.exit(0);
       return;
@@ -526,6 +560,7 @@ export async function startTui(
             sidebarToolNode: null,
             messageNodes,
             createSession,
+            refreshResumeInfo,
             provider,
             domain,
           },
@@ -533,6 +568,7 @@ export async function startTui(
           thinkingNodeRef,
           () => renderSidebarCost(state, currentTheme, ui),
           () => renderSidebarTurns(state, currentTheme, ui),
+          () => renderSidebarResume(state, currentTheme, ui),
           renderCommandBarStatus,
           startSpinner,
           stopSpinner,

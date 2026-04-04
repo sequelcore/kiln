@@ -1,11 +1,12 @@
 import type { DomainConfig, DomainRegistry } from "@kilnai/core";
 import type { KilnYaml, KilnHooksConfig } from "./kiln-yaml.js";
+import type { ProjectedContext } from "./application/context-types.js";
 
 /** Options passed to the system prompt builder */
 export interface SystemPromptOptions {
   readonly task: string;
   readonly domain: DomainConfig;
-  readonly memorySnapshot?: string;
+  readonly projectedContext: ProjectedContext;
   readonly projectPath: string;
 }
 
@@ -18,7 +19,7 @@ function defaultBuildSystemPrompt(opts: SystemPromptOptions): string {
       mode: "api-key",
       domain: opts.domain,
       systemPrompt: "",
-      memorySnapshot: opts.memorySnapshot,
+      projectedContext: opts.projectedContext,
       mcpServerEntryPath: "",
       workingDirectory: opts.projectPath,
       task: opts.task,

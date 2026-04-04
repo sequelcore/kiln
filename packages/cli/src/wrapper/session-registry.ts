@@ -7,6 +7,7 @@ import type {
   KilnToolPermissionRule,
 } from "./session.js";
 import { debug } from "./debug.js";
+import { getFieldStrength } from "@kilnai/core";
 import { ClaudeSession } from "./claude-code-process.js";
 import { CodexSession } from "./codex-session.js";
 import { OpenCodeSession } from "./opencode-session.js";
@@ -730,6 +731,15 @@ export class SessionRegistry {
     }
 
     if (!excluded) {
+      const fieldPressure = getFieldStrength(`provider:${descriptor.id}`);
+      if (fieldPressure > 0) {
+        const bonus = Math.min(fieldPressure * 15, 15);
+        score += bonus;
+        reasons.push(`field pressure +${bonus.toFixed(2)}`);
+      }
+    }
+
+    if (!excluded) {
       reasons.push(`${descriptor.id} is available`);
     }
 
@@ -787,6 +797,7 @@ export function createDefaultRegistry(): {
           constraintInstructions: translated.constraintInstructions,
           translationWarnings: translated.warnings,
           resumeSessionId: config.resumeSessionId,
+          model: config.model,
         });
       },
     },
@@ -844,6 +855,7 @@ export function createDefaultRegistry(): {
         const cfg = translated.config;
         return new OpenCodeSession({
           task: config.task,
+          model: config.model,
           cwd: config.cwd ?? process.cwd(),
           env: config.env,
           mcpServers: config.mcpServers

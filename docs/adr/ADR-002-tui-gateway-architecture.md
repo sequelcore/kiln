@@ -94,9 +94,9 @@ TUI-specific WebSocket protocol (not the widget protocol — no widgetId, no ten
 
 ### Migration Path
 
-- **Phase 1 (current, v0.23.x)**: Direct provider sessions. Works for demo/testing. No memory, safety, or MCP.
-- **Phase 2 (target, Phase 7c)**: `kiln tui` auto-starts `startTuiGateway()` on port 4801, connects via WS. TUI becomes rendering layer. Gateway uses `CliSubscriptionExecutor` for subscription-backed execution. Full Kiln pipeline.
-- **Phase 3 (future, Phase 7d)**: Delta streaming over WS. `--attach <url>` to connect to remote gateway. Same TUI, production backend.
+- **Phase 1 (historical, v0.23.x)**: Direct provider sessions. Useful as the first prototype. No memory, safety, or MCP.
+- **Phase 2 (delivered, Phase 7c / v0.24.2)**: `kiln tui` auto-starts `startTuiGateway()` on port 4801, connects via WS. TUI is now the rendering layer. Gateway uses `CliSubscriptionExecutor` for subscription-backed execution. Full Kiln pipeline.
+- **Phase 3 (partially delivered, Phase 7d-7f / v0.24.3-v0.24.5)**: Budget visibility, routing indicator, and interactive-default CLI entrypoint are now shipped. Remaining future work is remote attach and richer streaming, not the base TUI gateway path.
 
 ## Consequences
 

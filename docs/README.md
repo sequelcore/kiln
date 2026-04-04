@@ -30,9 +30,11 @@
 | [Eval](guides/eval.md) | Scorers, datasets, experiments, comparator |
 | [Eval Benchmarking](guides/eval-benchmarking.md) | Scorer-to-research mapping, predictive metrics, industry standards |
 | [Delegation](guides/delegation.md) | Cross-app delegation, A2A protocol |
-| [CLI Wrapper](guides/cli-wrapper.md) | IKilnSession, 3 backends, permission policy, session resume, config sync |
+| [CLI Wrapper](guides/cli-wrapper.md) | IKilnSession, 3 backends, permission policy, session resume, config sync, context-governance config |
 | [Hooks](guides/hooks.md) | HookRegistry, lifecycle events, modes, kiln.yaml config |
 | [Skills](guides/skills.md) | SKILL.md format, registry, capture pipeline, CLI commands |
+| [Phase 7 Plan](plan-phase-7.md) | Kiln TUI implementation boundary, current status snapshot, remaining scope |
+| [Context Governance Plan](plan-context-governance.md) | Sequential implementation plan for context/token governance and the later field layer |
 
 ## SDK
 
@@ -45,7 +47,9 @@
 |-----|--------|-------|
 | [ADR-001](adr/ADR-001-neural-field-orchestration.md) | Deferred | Neural Field Orchestration — FieldStore as coordination primitive |
 | [ADR-002](adr/ADR-002-subprocess-integration.md) | Accepted | Subprocess Integration -- 5 limitations and architectural solutions |
+| [ADR-002 TUI](adr/ADR-002-tui-gateway-architecture.md) | Accepted | TUI Gateway Architecture -- thin TUI over gateway-owned orchestration |
 | [ADR-003](adr/ADR-003-meta-orchestrator-model.md) | Accepted | Meta-Orchestrator Model -- why Kiln orchestrates CLIs, not plugins |
+| [ADR-004](adr/ADR-004-budgeted-sufficient-context-orchestration.md) | Proposed | Budgeted Sufficient Context Orchestration -- virtual context window and projected working set |
 
 ## Contributing
 

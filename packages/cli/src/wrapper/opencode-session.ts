@@ -397,6 +397,19 @@ export class OpenCodeSession implements IKilnSession {
               `[opencode] batch_tool config.update failed: ${err instanceof Error ? err.message : String(err)}`,
             );
           });
+
+        if (this._config.model) {
+          await client.config
+            .update({
+              body: { model: this._config.model } as Record<string, unknown>,
+              query: { directory: cwd },
+            })
+            .catch((err: unknown) => {
+              console.debug(
+                `[opencode] model config.update failed: ${err instanceof Error ? err.message : String(err)}`,
+              );
+            });
+        }
       }
 
       if (!isResumingTurn) {

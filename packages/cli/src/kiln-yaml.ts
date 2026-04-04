@@ -14,6 +14,10 @@ export type {
   KilnYamlMcp,
   KilnYamlMcpServer,
   KilnYamlModel,
+  KilnContextGovernanceConfig,
+  KilnContextGovernanceSource,
+  KilnContextGovernanceAggressiveness,
+  KilnContextGovernanceCachePolicy,
   KilnYamlPermissions,
   KilnYamlToolRule,
   KilnYamlCommandRule,
@@ -70,6 +74,7 @@ export function mergeKilnYaml(base: KilnYaml, override: Partial<KilnYaml>): Kiln
     model: override.model ?? base.model,
     permissions: override.permissions ?? base.permissions,
     providers: override.providers ?? base.providers,
+    contextGovernance: override.contextGovernance ?? base.contextGovernance,
     hooks: override.hooks ?? base.hooks,
   };
 }

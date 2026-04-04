@@ -93,7 +93,12 @@ Full documentation at [docs/README.md](docs/README.md).
 | [Multi-Tenant](docs/guides/multi-tenant.md) | Tenant isolation, registry, per-tenant config |
 | [Memory](docs/guides/memory.md) | Scopes, decay, compaction, git sync |
 | [Safety](docs/guides/safety.md) | PII scanner, content classifier, policy rails |
+| [CLI Wrapper](docs/guides/cli-wrapper.md) | Session backends, resume policy, config sync, and context-governance config |
 | [Eval](docs/guides/eval.md) | Scorers, datasets, experiments |
+| [Phase 7 Plan](docs/plan-phase-7.md) | Kiln TUI architecture boundary, status snapshot, and remaining scope |
+| [Context Governance Plan](docs/plan-context-governance.md) | Sequential plan for token/context governance and the later field layer |
+| [TUI Gateway ADR](docs/adr/ADR-002-tui-gateway-architecture.md) | Why the TUI is a thin client over the local gateway |
+| [Context Governance ADR](docs/adr/ADR-004-budgeted-sufficient-context-orchestration.md) | Why Kiln should manage a virtual context window instead of replaying raw history |
 | [FAQ](docs/faq.md) | Common questions |
 | [Changelog](docs/changelog.md) | Version history |
 

@@ -1,8 +1,13 @@
 import type { KilnAppConfig } from "../config.js";
+import { inferResumeStrategyFeedback } from "../application/resume-strategy-feedback.js";
+import { collectResumeSignals, decideResumeStrategy } from "../application/resume-strategy-policy.js";
 import { createDefaultRegistry } from "../wrapper/session-registry.js";
-import { SessionStore } from "../wrapper/session-store.js";
+import { SessionStore, TranscriptStore } from "../wrapper/session-store.js";
+import type { ResumeFeedback, ResumeStrategy } from "../wrapper/index.js";
 import { GatewaySession, waitForGateway, themes, kilnDark } from "@kilnai/tui";
-import type { CliSessionFactory, CliSession } from "@kilnai/runtime";
+import { getProjectContextArtifactCache } from "@kilnai/runtime";
+import type { CliSessionFactory } from "@kilnai/runtime";
+import type { ContextArtifactCache } from "@kilnai/core";
 
 export interface TuiFlags {
   provider?: string;
@@ -22,55 +27,189 @@ function parseProvider(p?: string): SupportedProvider {
 }
 
 /**
- * Stateful session factory that tracks the last provider session ID
- * for cross-turn resume. Each call creates a fresh CLI subprocess,
- * but passes the previous turn's session ID for conversation continuity.
- * Persists session records so resumeSessionId survives process restarts.
+ * Dynamic session factory that supports cross-provider session management.
+ * Each provider maintains independent session state, allowing seamless switching.
  */
-export async function makeResumableSessionFactory(
-  provider: SupportedProvider,
+export async function makeMultiProviderSessionFactory(
+  initialProvider: SupportedProvider,
   cwd: string,
   registry: ReturnType<typeof createDefaultRegistry>["registry"],
   sessionStore: SessionStore,
-): Promise<{ factory: CliSessionFactory; onClear: () => Promise<void> }> {
-  const lastRecord = await sessionStore.last(provider);
-  let resumeSessionId: string | undefined = lastRecord?.sessionId;
+  transcriptStore: TranscriptStore,
+  contextArtifactCache: ContextArtifactCache,
+): Promise<MultiProviderSessionManager> {
+  const providers = ["claude", "codex", "opencode"] as const;
+  
+  // Per-provider session state
+  const providerState: Record<SupportedProvider, { resumeSessionId?: string; providerSessionId?: string }> = {
+    claude: {},
+    codex: {},
+    opencode: {},
+  };
+  
+  let currentProvider: SupportedProvider = initialProvider;
+  let currentModel: string = "";
 
-  const factory = (systemPrompt: string, sessionCwd: string) => {
-    const session = registry.createSession(provider, {
-      task: "interactive",
-      systemPrompt,
-      cwd: sessionCwd || cwd,
-      permissionPolicy: { approval: "never", sandbox: "workspace-write" },
-      resumeSessionId,
-    });
+  // Load last session for each provider
+  for (const p of providers) {
+    const lastRecord = await sessionStore.last(p);
+    if (lastRecord) {
+      providerState[p].resumeSessionId = lastRecord.sessionId;
+      providerState[p].providerSessionId = lastRecord.providerSessionId;
+    }
+  }
 
-    // Capture session ID for next turn's resume and persist to disk
-    const originalDispose = session.dispose.bind(session);
-    session.dispose = async () => {
-      const capturedId = session.sessionId;
-      await originalDispose();
-      resumeSessionId = capturedId;
-      await sessionStore.append({
-        sessionId: capturedId,
-        provider,
-        task: "interactive",
-        completedAt: new Date().toISOString(),
-        cost: 0,
-        projectPath: cwd,
-        providerSessionId: session.providerSessionId,
-      });
+  const policyAwareFactory: CliSessionFactory = (systemPrompt: string, sessionCwd: string) => {
+    const state = providerState[currentProvider];
+    return {
+      run: async function* (options) {
+        const resumedFrom = state.resumeSessionId;
+        const projectArtifactKey = `project-summary:${cwd}`;
+        const sessionArtifactKey = resumedFrom ? `session-summary:${resumedFrom}` : undefined;
+        const planArtifactKey = `plan-summary:${cwd}:interactive`;
+        const signals = collectResumeSignals({
+          cache: contextArtifactCache,
+          keys: [sessionArtifactKey, projectArtifactKey, planArtifactKey],
+        });
+        const feedback = resumedFrom
+          ? await inferResumeStrategyFeedback(transcriptStore, currentProvider)
+          : undefined;
+        const decision = decideResumeStrategy({
+          resumeSessionId: resumedFrom,
+          preferredProvider: currentProvider,
+          signals,
+          feedback,
+        });
+        const resumeStrategy: ResumeStrategy = decision.resumeStrategy;
+        const resumeFeedback: ResumeFeedback | undefined = decision.resumeFeedback;
+
+        const resumedSession = registry.createSession(currentProvider, {
+          task: "interactive",
+          systemPrompt,
+          cwd: sessionCwd || cwd,
+          permissionPolicy: { approval: "never", sandbox: "workspace-write" },
+          resumeSessionId: decision.shouldUseProviderNativeResume ? resumedFrom : undefined,
+          model: currentModel || undefined,
+        });
+
+        const originalDispose = resumedSession.dispose.bind(resumedSession);
+        resumedSession.dispose = async () => {
+          const capturedId = resumedSession.sessionId;
+          await transcriptStore.init(capturedId, {
+            kilnSessionId: capturedId,
+            provider: currentProvider,
+            task: "interactive",
+            startedAt: new Date().toISOString(),
+            resumeStrategy,
+            resumeFeedback,
+            sessionLedger: {
+              currentPhase: "interactive",
+              resumedFrom,
+              workingDirectory: sessionCwd || cwd,
+            },
+          });
+          await originalDispose();
+          providerState[currentProvider].resumeSessionId = capturedId;
+          providerState[currentProvider].providerSessionId = resumedSession.providerSessionId;
+          await transcriptStore.finalize(capturedId, {
+            completedAt: new Date().toISOString(),
+            providerSessionId: resumedSession.providerSessionId,
+            resumeStrategy,
+            resumeFeedback,
+            sessionLedger: {
+              currentPhase: "completed",
+              resumedFrom,
+              workingDirectory: sessionCwd || cwd,
+              lastProvider: currentProvider,
+            },
+          });
+          await sessionStore.append({
+            sessionId: capturedId,
+            provider: currentProvider,
+            task: "interactive",
+            completedAt: new Date().toISOString(),
+            cost: 0,
+            projectPath: cwd,
+            providerSessionId: resumedSession.providerSessionId,
+            resumeStrategy,
+          });
+        };
+
+        for await (const event of resumedSession.run(options)) {
+          yield event;
+        }
+      },
+      dispose: async () => {
+        // no-op; inner session is disposed inside run lifecycle
+      },
     };
-
-    return session as unknown as CliSession;
   };
 
-  const onClear = async () => {
-    resumeSessionId = undefined;
-    await sessionStore.clearLast(provider);
+  return {
+    factory: policyAwareFactory,
+    getProvider: () => currentProvider,
+    setProvider: (newProvider: string) => {
+      if (VALID_PROVIDERS.includes(newProvider as SupportedProvider)) {
+        currentProvider = newProvider as SupportedProvider;
+      }
+    },
+    getModel: () => currentModel,
+    setModel: (model: string) => {
+      currentModel = model;
+    },
+    onClear: async (provider?: string) => {
+      const p = (provider && VALID_PROVIDERS.includes(provider as SupportedProvider)) 
+        ? provider as SupportedProvider 
+        : currentProvider;
+      providerState[p].resumeSessionId = undefined;
+      providerState[p].providerSessionId = undefined;
+      await sessionStore.clearLast(p);
+    },
   };
+}
 
-  return { factory, onClear };
+export interface MultiProviderSessionManager {
+  readonly factory: CliSessionFactory;
+  getProvider: () => string;
+  setProvider: (provider: string) => void;
+  getModel: () => string;
+  setModel: (model: string) => void;
+  onClear: (provider?: string) => Promise<void>;
+}
+
+function formatResumeFeedback(feedback: ResumeFeedback | undefined): string | undefined {
+  if (!feedback) {
+    return undefined;
+  }
+  const source = feedback.influencedChoice ? "applied" : "observed";
+  const preferred = feedback.preferredStrategy ? ` ${feedback.preferredStrategy}` : "";
+  return `${source}${preferred} · ${feedback.sampleSize}`;
+}
+
+async function loadInitialResumeInfo(
+  cwd: string,
+  sessionStore: SessionStore,
+): Promise<Record<string, { strategy?: ResumeStrategy; feedbackLabel?: string }>> {
+  const transcriptStore = new TranscriptStore(cwd);
+  const providers = ["claude", "codex", "opencode"] as const;
+  const info: Record<string, { strategy?: ResumeStrategy; feedbackLabel?: string }> = {};
+
+  for (const provider of providers) {
+    const lastRecord = await sessionStore.last(provider);
+    if (!lastRecord) {
+      continue;
+    }
+    const meta = await transcriptStore.readMeta(lastRecord.sessionId);
+    if (!meta?.resumeStrategy || meta.resumeStrategy === "none") {
+      continue;
+    }
+    info[provider] = {
+      strategy: meta.resumeStrategy,
+      feedbackLabel: formatResumeFeedback(meta.resumeFeedback),
+    };
+  }
+
+  return info;
 }
 
 export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {}): Promise<void> {
@@ -80,14 +219,15 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
 
   const cwd = flags.cwd ?? process.cwd();
   const provider = parseProvider(flags.provider);
+  const contextArtifactCache = await getProjectContextArtifactCache(cwd);
 
   // Resolve domain display name from app config if available
   let domain = "kiln";
   try {
     const { SessionManager } = await import("../wrapper/session-manager.js");
     const wrapperConfig = { mode: "cli-wrapper" as const, permissionPolicy: { approval: "never" as const, sandbox: "workspace-write" as const } };
-    const manager = new SessionManager(wrapperConfig, appConfig);
-    const context = await manager.prepare("interactive", cwd);
+    const manager = new SessionManager(wrapperConfig, appConfig, contextArtifactCache);
+    const context = await manager.prepare("interactive", cwd, undefined, undefined, undefined);
     domain = context.domain.displayName;
   } catch {
     // Non-fatal — proceed without domain name
@@ -95,16 +235,40 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
 
   // Inject CLI session factory into the gateway (dependency inversion)
   const sessionStore = new SessionStore(cwd);
-  const { factory: sessionFactory, onClear } = await makeResumableSessionFactory(provider, cwd, registry, sessionStore);
+  const transcriptStore = new TranscriptStore(cwd);
+  const initialResumeInfo = await loadInitialResumeInfo(cwd, sessionStore);
+  const sessionManager = await makeMultiProviderSessionFactory(
+    provider,
+    cwd,
+    registry,
+    sessionStore,
+    transcriptStore,
+    contextArtifactCache,
+  );
 
   // Start the in-process TUI gateway on port 4801
-  const gateway = await startTuiGateway({ provider, sessionFactory, port: flags.port, onClear });
+  const gateway = await startTuiGateway({
+    sessionManager,
+    port: flags.port,
+    onClear: sessionManager.onClear,
+    contextArtifactCache,
+  });
 
   // Wait for gateway to be ready before connecting the TUI
   await waitForGateway(`http://localhost:${gateway.port}/health`);
 
+  // Pre-populate provider models from gateway
+  const providerModelsRef: { current: Record<string, string[]> } = {
+    current: gateway.models,
+  };
+
   // GatewaySession is the sole SessionLike — gateway owns orchestration
-  const createSession = async () => new GatewaySession(gateway.url);
+  const createSession = async () => new GatewaySession(
+    gateway.url,
+    (models: Record<string, string[]>) => {
+      providerModelsRef.current = models;
+    }
+  );
 
   const shutdown = (code = 0, error?: unknown) => {
     gateway.shutdown();
@@ -128,7 +292,15 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   for (const [ev, handler] of handlers) process.on(ev, handler);
 
   const resolvedTheme = themes[flags.theme ?? "kiln-dark"] ?? kilnDark;
-  await startTui(createSession, provider, domain, resolvedTheme);
+  await startTui(
+    createSession,
+    provider,
+    domain,
+    resolvedTheme,
+    initialResumeInfo,
+    () => loadInitialResumeInfo(cwd, sessionStore),
+    providerModelsRef,
+  );
 
   gateway.shutdown();
   for (const [ev, handler] of handlers) process.off(ev, handler);

@@ -1,4 +1,4 @@
-import type { ContentPart, SessionLimitsConfig, SkillRegistry, GroundingMode, GroundingResult, ProviderAdapter, ModelCapabilityRegistry, EventBus } from "@kilnai/core";
+import type { ContentPart, SessionLimitsConfig, SkillRegistry, GroundingMode, GroundingResult, ProviderAdapter, ModelCapabilityRegistry, EventBus, ContextArtifactCache } from "@kilnai/core";
 import { extractText, textParts, GroundingRail } from "@kilnai/core";
 import type { AbuseDetectionConfig } from "../session/repetitive-abuse-detector.js";
 import { detectRepetitiveAbuse } from "../session/repetitive-abuse-detector.js";
@@ -11,6 +11,18 @@ import type { SessionMode } from "../session/session-mode.js";
 import type { EscalationSignal } from "../session/escalation-detector.js";
 import { TraceContext } from "./trace-context.js";
 import { appendGroundingDirective, formatUserContext } from "./context-formatter.js";
+import {
+  classifyRuntimeContextPressure,
+  formatRuntimeResumeFeedbackLabel,
+  formatRuntimeResumeDecision,
+  normalizeRuntimeTaskShape,
+  readRuntimeSupportArtifactsDetailed,
+  writeRuntimeContinuityOutcomeArtifact,
+  writeRuntimeContextBundleArtifact,
+  writeRuntimeHandoffSummaryArtifact,
+  writeRuntimeThreadSummaryArtifact,
+  writeRuntimeToolBundleArtifact,
+} from "../session/context-artifact-summary.js";
 
 type EgressDestination = "webhook";
 type EgressPermissionDecision = "allow" | "deny" | "redact";
@@ -66,6 +78,7 @@ export interface InboundMessageContext {
     readonly modelRegistry: ModelCapabilityRegistry;
     readonly eventBus?: EventBus;
   };
+  readonly contextArtifactCache?: ContextArtifactCache;
   readonly evaluateEgressPermission?: (
     request: EgressPermissionRequest,
   ) => EgressPermissionDecision | Promise<EgressPermissionDecision>;
@@ -148,6 +161,8 @@ function redactAssistantParts(parts: readonly ContentPart[]): readonly ContentPa
 export async function processInboundMessage(ctx: InboundMessageContext): Promise<ProcessResult> {
   const trace = new TraceContext(ctx.traceId);
   trace.log("pipeline", "Processing inbound message", { appName: ctx.appName, userId: ctx.userId, channel: ctx.channel });
+  const userText = extractText(ctx.userParts);
+  const taskShape = normalizeRuntimeTaskShape(userText);
 
   // Budget check
   if (ctx.billing) {
@@ -178,6 +193,10 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
   if (ctx.userContext && Object.keys(ctx.userContext).length > 0) {
     session.updateUserContext(ctx.userContext);
   }
+  session.updateSessionLedger({
+    currentPhase: "processing",
+    turnDepth: session.messageCount + 1,
+  });
 
   // Session turn limit check
   if (ctx.sessionLimits?.maxTurns && session.userTurnCount >= ctx.sessionLimits.maxTurns) {
@@ -249,7 +268,6 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
 
   // Repetitive abuse detection
   if (ctx.abuseDetection) {
-    const userText = extractText(ctx.userParts);
     const abuse = detectRepetitiveAbuse(userText, session.conversationHistory, ctx.abuseDetection);
     if (abuse) {
       trace.warn("pipeline", "Abuse detected", { type: abuse.type, confidence: abuse.confidence });
@@ -285,8 +303,28 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
   }
 
   // Merge recalled memory + knowledge context + contact context (user context goes first)
+  const runtimeSupport = readRuntimeSupportArtifactsDetailed(ctx.contextArtifactCache, {
+    session,
+    channel: ctx.channel,
+    providerHint: session.sessionLedger.lastProvider,
+    taskShape,
+  });
+  const cachedRuntimeSummary = runtimeSupport.content;
+  session.addExactArtifact(formatRuntimeResumeDecision(runtimeSupport.decision));
+  trace.log("pipeline", "Runtime continuity decision", {
+    strategy: runtimeSupport.decision.resumeStrategy,
+    signals: runtimeSupport.decision.cachedResumeSignalCount,
+    pressure: classifyRuntimeContextPressure(runtimeSupport.supportArtifactCount),
+    sources: runtimeSupport.supportArtifactSources,
+    fallback: runtimeSupport.fallbackLabel,
+    usedSelectedSources: runtimeSupport.usedCachedSupport,
+    selectionReason: runtimeSupport.selectionReason,
+    usedCache: runtimeSupport.decision.resumeStrategy === "cache-first",
+    feedback: formatRuntimeResumeFeedbackLabel(runtimeSupport.decision),
+    influenced: runtimeSupport.decision.resumeFeedback?.influencedChoice ?? false,
+  });
   const userCtxBlock = formatUserContext(session.userContext);
-  const mergedMemory = [userCtxBlock, ctx.recalledMemory, ctx.knowledgeContext, ctx.contactContext].filter(Boolean).join("\n\n") || undefined;
+  const mergedMemory = [userCtxBlock, cachedRuntimeSummary, ctx.recalledMemory, ctx.knowledgeContext, ctx.contactContext].filter(Boolean).join("\n\n") || undefined;
   const combinedMemory = appendGroundingDirective(mergedMemory, ctx.groundingMode);
 
   // Resolve active skills
@@ -365,6 +403,71 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
 
   // Accumulate session tokens for limit tracking
   session.accumulateTokens(result.inputTokens + result.outputTokens);
+  session.updateSessionLedger({
+    currentPhase: result.queued ? "queued" : "responded",
+    lastProvider: result.routingDecision?.provider ?? session.sessionLedger.lastProvider,
+    toolCallCount: result.toolExecutions?.length ?? session.sessionLedger.toolCallCount,
+    turnDepth: session.userTurnCount,
+    lastSummary: result.contextSummary,
+  });
+  if (result.routingDecision) {
+    session.addExactArtifact(`Runtime routed provider: ${result.routingDecision.provider}/${result.routingDecision.model}`);
+  }
+  if (result.contextSummary) {
+    session.addExactArtifact(`Runtime context summary: ${result.contextSummary}`);
+  }
+  if (result.toolExecutions) {
+    for (const exec of result.toolExecutions) {
+      session.addExactArtifact(`Tool execution: ${exec.toolName} (${exec.success ? "success" : "error"})`);
+      if (exec.resultSummary.trim() !== "") {
+        session.addExactArtifact(`Tool result summary: ${exec.resultSummary}`);
+      }
+    }
+  }
+  if (groundingResult && !groundingResult.grounded) {
+    session.addExactArtifact(`Grounding blocked: ${groundingResult.ungroundedClaims.join("; ")}`);
+  }
+  if (result.escalation) {
+    session.addExactArtifact(`Escalation detected: ${result.escalation.reason}`);
+  }
+  writeRuntimeThreadSummaryArtifact(ctx.contextArtifactCache, session);
+  writeRuntimeHandoffSummaryArtifact(ctx.contextArtifactCache, {
+    session,
+    handoffBrief: ctx.handoffBrief,
+    handoffBlocked: ctx.pingPongBlocked,
+    handoffBlockReason: ctx.pingPongReason,
+    escalationReason: result.escalation?.reason,
+    escalationDetail: result.escalation?.detail,
+  });
+  writeRuntimeContextBundleArtifact(ctx.contextArtifactCache, {
+    appName: session.appName,
+    tenantId: session.tenantId,
+    channel: ctx.channel,
+    provider: result.routingDecision?.provider ?? session.sessionLedger.lastProvider ?? "unknown",
+    taskShape,
+    activeAgentId: ctx.activeAgentId,
+    routingTier: result.routingDecision?.routingTier ?? ctx.routingTier,
+    contextSummary: result.contextSummary,
+  });
+  writeRuntimeToolBundleArtifact(ctx.contextArtifactCache, {
+    appName: session.appName,
+    tenantId: session.tenantId,
+    channel: ctx.channel,
+    taskShape,
+    toolExecutions: result.toolExecutions,
+  });
+  writeRuntimeContinuityOutcomeArtifact(ctx.contextArtifactCache, {
+    session,
+    channel: ctx.channel,
+    taskShape,
+    decision: runtimeSupport.decision,
+    queued: result.queued,
+    inputTokens: result.inputTokens,
+    outputTokens: result.outputTokens,
+    toolCount: result.toolExecutions?.length,
+    provider: result.routingDecision?.provider ?? session.sessionLedger.lastProvider,
+    model: result.routingDecision?.model,
+  });
 
   // Persist mutated session (required for non-reference stores like Redis)
   await ctx.sessionRegistry.save(session);

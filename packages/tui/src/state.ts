@@ -44,7 +44,35 @@ export interface ReactiveState {
   perProviderTokens: Record<string, { input: number; output: number }>;
   /** How the current provider was selected: user-driven or automatic routing. */
   routeMode: "user" | "auto";
+  /** Last known resume metadata keyed by provider. */
+  resumeInfoByProvider: Record<string, ResumeSidebarInfo>;
+  /** Last known runtime continuity metadata keyed by provider. */
+  runtimeContinuityByProvider: Record<string, RuntimeContinuitySidebarInfo>;
+  fieldSnapshot: FieldSidebarInfo;
   listeners: Set<() => void>;
+}
+
+export interface ResumeSidebarInfo {
+  strategy?: string;
+  feedbackLabel?: string;
+}
+
+export interface RuntimeContinuitySidebarInfo {
+  strategy?: string;
+  feedbackLabel?: string;
+  pressure?: string;
+  supportArtifactCount?: number;
+  supportArtifactSources?: string[];
+  fallbackLabel?: string;
+  usedCachedSupport?: boolean;
+  selectionReason?: string;
+}
+
+export interface FieldSidebarInfo {
+  dominantRegions: string[];
+  saturation: number;
+  entropy: number;
+  status: "stable" | "runaway" | "starvation" | "unknown";
 }
 
 /**
@@ -83,6 +111,9 @@ export function createReactiveState(): ReactiveState {
     perProviderCost: {},
     perProviderTokens: {},
     routeMode: "user",
+    resumeInfoByProvider: {},
+    runtimeContinuityByProvider: {},
+    fieldSnapshot: { dominantRegions: [], saturation: 0, entropy: 0, status: "unknown" },
     listeners: new Set(),
   };
 }

@@ -39,6 +39,8 @@ export interface UIComponents {
   sidebarCostText: InstanceType<typeof TextRenderable>;
   sidebarCwdText: InstanceType<typeof TextRenderable>;
   sidebarTurnsText: InstanceType<typeof TextRenderable>;
+  sidebarResumeText: InstanceType<typeof TextRenderable>;
+  sidebarFieldText: InstanceType<typeof TextRenderable>;
   sidebarDivider: InstanceType<typeof TextRenderable>;
   sidebarToolsBox: InstanceType<typeof ScrollBoxRenderable>;
   inputContainer: InstanceType<typeof BoxRenderable>;
@@ -224,6 +226,22 @@ export function initUI(
   });
   sidebar.add(sidebarTurnsText);
 
+  const sidebarResumeText = new TextRenderable(renderer, {
+    id: "sidebar-resume",
+    content: t`${fg(theme.textMuted)("resume: --\nruntime: --\nctx: --\nsrcs: --\nwhy: --\nused: --\nsel: --")}`,
+    width: "100%",
+    height: 8,
+  });
+  sidebar.add(sidebarResumeText);
+
+  const sidebarFieldText = new TextRenderable(renderer, {
+    id: "sidebar-field",
+    content: t`${fg(theme.textMuted)("field [?]\ndom: --\nsat: 0%  H: 0.00")}`,
+    width: "100%",
+    height: 4,
+  });
+  sidebar.add(sidebarFieldText);
+
   const sidebarDivider = new TextRenderable(renderer, {
     id: "sidebar-divider",
     content: t`${fg(theme.border)("─".repeat(38))}`,
@@ -259,6 +277,8 @@ export function initUI(
     sidebarCostText,
     sidebarCwdText,
     sidebarTurnsText,
+    sidebarResumeText,
+    sidebarFieldText,
     sidebarDivider,
     sidebarToolsBox,
     inputContainer,
@@ -361,12 +381,13 @@ export function destroyThemePicker(picker: ThemePickerComponents): void {
  * Provider picker overlay components.
  */
 export interface ProviderPickerComponents {
-  scrim: InstanceType<typeof BoxRenderable>;
-  panel: InstanceType<typeof BoxRenderable>;
-  title: InstanceType<typeof TextRenderable>;
-  providers: InstanceType<typeof TextRenderable>[];
-  models: InstanceType<typeof TextRenderable>[];
-  hint: InstanceType<typeof TextRenderable>;
+  scrim: BoxRenderable;
+  panel: BoxRenderable;
+  title: TextRenderable;
+  providers: TextRenderable[];
+  models: TextRenderable[];
+  scrollBox?: ScrollBoxRenderable;
+  hint: TextRenderable;
   mode: "providers" | "models";
 }
 
@@ -398,15 +419,16 @@ export function createProviderPicker(
   renderer.root.add(scrim);
 
   const panelWidth = 50;
-  const panel = new BoxRenderable(renderer, {
-    id: "provider-picker-panel",
-    flexDirection: "column",
+  const scrollBox = new ScrollBoxRenderable(renderer, {
+    id: "provider-picker-scrollbox",
     width: panelWidth,
+    height: Math.min(terminalHeight - 4, 20),
     backgroundColor: theme.backgroundPanel,
     border: true,
     borderColor: theme.accent,
+    scrollY: true,
   });
-  scrim.add(panel);
+  scrim.add(scrollBox);
 
   const title = new TextRenderable(renderer, {
     id: "provider-picker-title",
@@ -414,7 +436,7 @@ export function createProviderPicker(
     width: "100%",
     height: 2,
   });
-  panel.add(title);
+  scrollBox.content.add(title);
 
   const providerItems: InstanceType<typeof TextRenderable>[] = [];
   for (let i = 0; i < providers.length; i++) {
@@ -427,7 +449,7 @@ export function createProviderPicker(
       width: "100%",
       height: 2,
     });
-    panel.add(item);
+    scrollBox.content.add(item);
     providerItems.push(item);
   }
 
@@ -445,7 +467,7 @@ export function createProviderPicker(
       height: 2,
       visible: false,
     });
-    panel.add(item);
+    scrollBox.content.add(item);
     modelItems.push(item);
   }
 
@@ -455,14 +477,15 @@ export function createProviderPicker(
     width: "100%",
     height: 2,
   });
-  panel.add(hint);
+  scrollBox.content.add(hint);
 
   return {
     scrim,
-    panel,
+    panel: scrollBox.viewport,
     title,
     providers: providerItems,
     models: modelItems,
+    scrollBox,
     hint,
     mode: "providers",
   };

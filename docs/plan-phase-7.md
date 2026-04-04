@@ -1,12 +1,15 @@
 # Phase 7 Implementation Plan: Kiln TUI as Interface Adapter
 
-> Generated: 2026-04-01. Sources: local Kiln architecture scout + Phase 7 roadmap decision.
+> Generated: 2026-04-01. Updated: 2026-04-03.
+> Sources: local Kiln architecture scout + Phase 7 roadmap decision + landed TUI changelog/ADR updates.
 
-## Foundation Status
+## Status Snapshot
 
-As of `2026-04-01`, Phase `7a` has started.
+As of `2026-04-03`, the original implementation plan is partially completed and
+should now be read as an architectural boundary document plus remaining-scope
+checklist, not as a "Phase 7 has barely started" snapshot.
 
-Landed foundation work:
+Landed work:
 
 - `packages/tui` exists as a dedicated package boundary
 - root workspace wiring includes `@kilnai/tui`
@@ -16,14 +19,24 @@ Landed foundation work:
   - `packages/cli/src/application/session-hooks.ts`
   - `packages/cli/src/application/run-session.ts`
 
+- OpenTUI-based conversation shell shipped
+- TUI gateway integration shipped through the in-process WebSocket gateway
+- native session persistence, `/clear`, provider picker, themes, activity bar,
+  routing labels, and budget panel shipped
+- interactive `kiln` now launches the TUI by default
+
 Not landed yet:
 
-- no real terminal shell
-- no terminal components or presenters
-- no approval/diff/routing UI
-- no TUI-driven interactive entry flow
+- approval queue as a first-class operator surface
+- diff/change visibility panel
+- fuller session browser/resume UX beyond the landed persistence flow
+- OpenKiln-branded/channel-aware variant
+- Phase 7 closeout and alignment of this plan's sub-phase names with the
+  roadmap/changelog record
 
-This document remains the implementation boundary spec for the next session.
+This document remains the implementation boundary spec for the remaining Phase 7
+work and should be interpreted alongside `STRATEGY.md`, `docs/changelog.md`,
+and `docs/adr/ADR-002-tui-gateway-architecture.md`.
 
 ## Objective
 

@@ -30,6 +30,15 @@ export interface SerializedSessionData {
   readonly userTurnCount?: number;
   readonly lastHumanMessageAt?: number | null;
   readonly userContext?: Record<string, string>;
+  readonly sessionLedger?: {
+    readonly currentPhase: string;
+    readonly lastError?: string;
+    readonly lastProvider?: string;
+    readonly toolCallCount?: number;
+    readonly turnDepth?: number;
+    readonly lastSummary?: string;
+  };
+  readonly exactArtifacts?: readonly string[];
 }
 
 export interface ModeBSessionConfig {
@@ -62,6 +71,15 @@ export class ModeBSession {
   private _userTurnCount = 0;
   private _lastHumanMessageAt: number | null = null;
   private _userContext: Record<string, string> | undefined = undefined;
+  private _sessionLedger: {
+    currentPhase: string;
+    lastError?: string;
+    lastProvider?: string;
+    toolCallCount?: number;
+    turnDepth?: number;
+    lastSummary?: string;
+  } = { currentPhase: "active" };
+  private _exactArtifacts: string[] = [];
 
   constructor(config: ModeBSessionConfig) {
     this.appName = config.appName;
@@ -145,6 +163,12 @@ export class ModeBSession {
     // Restore user context
     if (data.userContext) {
       (session as unknown as { _userContext: Record<string, string> })._userContext = data.userContext;
+    }
+    if (data.sessionLedger) {
+      (session as unknown as { _sessionLedger: typeof session._sessionLedger })._sessionLedger = { ...data.sessionLedger };
+    }
+    if (data.exactArtifacts) {
+      (session as unknown as { _exactArtifacts: string[] })._exactArtifacts = [...data.exactArtifacts];
     }
     // Restore version and record loaded version for conflict detection
     const storedVersion = data.version;
@@ -249,6 +273,21 @@ export class ModeBSession {
     return this._userContext;
   }
 
+  get sessionLedger(): {
+    readonly currentPhase: string;
+    readonly lastError?: string;
+    readonly lastProvider?: string;
+    readonly toolCallCount?: number;
+    readonly turnDepth?: number;
+    readonly lastSummary?: string;
+  } {
+    return this._sessionLedger;
+  }
+
+  get exactArtifacts(): readonly string[] {
+    return this._exactArtifacts;
+  }
+
   /** Merges keys from ctx into the stored user context. Empty object is a no-op. */
   updateUserContext(ctx: Record<string, string>): void {
     if (Object.keys(ctx).length === 0) return;
@@ -259,6 +298,31 @@ export class ModeBSession {
   /** Replaces user context entirely. Pass undefined to clear. */
   setUserContext(ctx: Record<string, string> | undefined): void {
     this._userContext = ctx;
+    this._version++;
+  }
+
+  updateSessionLedger(
+    updates: Partial<{
+      currentPhase: string;
+      lastError?: string;
+      lastProvider?: string;
+      toolCallCount?: number;
+      turnDepth?: number;
+      lastSummary?: string;
+    }>,
+  ): void {
+    this._sessionLedger = { ...this._sessionLedger, ...updates };
+    this._version++;
+  }
+
+  addExactArtifact(artifact: string): void {
+    const trimmed = artifact.trim();
+    if (trimmed === "") return;
+    if (this._exactArtifacts.includes(trimmed)) return;
+    this._exactArtifacts.push(trimmed);
+    if (this._exactArtifacts.length > 20) {
+      this._exactArtifacts = this._exactArtifacts.slice(-20);
+    }
     this._version++;
   }
 }

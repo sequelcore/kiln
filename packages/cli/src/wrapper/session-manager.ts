@@ -1,12 +1,114 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Orchestrator, GateRunner, VerificationLoop, EventBus } from "@kilnai/core";
-import type { DomainConfig, RoleUsage, QualityGate, VerificationResult } from "@kilnai/core";
+import type { ContextArtifactCache, DomainConfig, RoleUsage, QualityGate, VerificationResult } from "@kilnai/core";
 import { MODEL_PRICING } from "@kilnai/core";
-import type { WrapperConfig, SessionContext, SessionReport } from "./index.js";
+import type { ResumeFeedback, ResumeStrategy, WrapperConfig, SessionContext, SessionReport } from "./index.js";
 import type { KilnAppConfig } from "../config.js";
 import { defaultBuildSystemPrompt } from "../config.js";
+import { DefaultContextGovernor } from "../application/context-governor.js";
+import { buildModuleArtifactKey, extractTouchedFilePaths } from "../application/repo-summary-cache.js";
+import {
+  collectResumeSignals,
+  decideResumeStrategy,
+} from "../application/resume-strategy-policy.js";
+import type { SessionLedger } from "../application/session-ledger.js";
+import type { PersistedSessionMeta } from "./session-store.js";
+import type { ProviderId } from "./session-registry.js";
 import type { WorktreeManager } from "./worktree-manager.js";
+import type {
+  KilnContextGovernanceAggressiveness,
+  KilnContextGovernanceSource,
+} from "../kiln-yaml-types.js";
+
+function resolveContextGovernancePolicy(appConfig: KilnAppConfig): {
+  tokenBudget?: number;
+  useCache: boolean;
+  preferredSources?: readonly KilnContextGovernanceSource[];
+  summaryAggressiveness?: KilnContextGovernanceAggressiveness;
+} {
+  const config = appConfig.kilnYaml?.contextGovernance;
+  return {
+    tokenBudget: config?.turnBudget,
+    useCache: config?.cachePolicy !== "off",
+    preferredSources: config?.preferredSources,
+    summaryAggressiveness: config?.summaryAggressiveness,
+  };
+}
+
+function normalizeTaskKey(task: string): string {
+  return task
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80) || "interactive";
+}
+
+function buildResumeProjectionState(input: {
+  cache: ContextArtifactCache;
+  projectPath: string;
+  task: string;
+  worktreePath?: string;
+  resumeSessionId?: string;
+  resumedMeta?: PersistedSessionMeta;
+  moduleArtifactKeys: readonly string[];
+  preferredProvider?: ProviderId;
+  feedback?: ResumeFeedback;
+}): {
+  hasCachedResumeContext: boolean;
+  cachedResumeSignalCount: number;
+  resumeStrategy: ResumeStrategy;
+  resumeFeedback?: ResumeFeedback;
+  sessionLedger: SessionLedger;
+  exactArtifacts: readonly string[];
+  shouldUseProviderNativeResume: boolean;
+} {
+  const { cache, projectPath, task, worktreePath, resumeSessionId, resumedMeta, moduleArtifactKeys } = input;
+  const sessionArtifactKey = resumeSessionId ? `session-summary:${resumeSessionId}` : undefined;
+  const projectArtifactKey = `project-summary:${projectPath}`;
+  const planArtifactKey = `plan-summary:${projectPath}:${normalizeTaskKey(task)}`;
+  const signals = collectResumeSignals({
+    cache,
+    keys: [sessionArtifactKey, projectArtifactKey, planArtifactKey],
+    includeModules: moduleArtifactKeys.length > 0,
+  });
+  const { cachedResumeSignalCount, hasCachedResumeContext } = signals;
+
+  const sessionLedger: SessionLedger = {
+    currentPhase: resumedMeta?.sessionLedger?.currentPhase ?? "prepare",
+    resumedFrom: resumeSessionId,
+    workingDirectory: projectPath,
+    worktreePath,
+    lastError: hasCachedResumeContext ? undefined : resumedMeta?.sessionLedger?.lastError,
+    lastProvider: resumedMeta?.sessionLedger?.lastProvider,
+    toolCallCount: resumedMeta?.sessionLedger?.toolCallCount,
+    turnDepth: resumedMeta?.sessionLedger?.turnDepth,
+  };
+
+  const fallbackArtifacts = hasCachedResumeContext
+    ? []
+    : (resumedMeta?.exactArtifacts ?? []).slice(0, 10);
+  const decision = decideResumeStrategy({
+    resumeSessionId,
+    preferredProvider: input.preferredProvider,
+    signals,
+    feedback: input.feedback,
+  });
+
+  return {
+    hasCachedResumeContext,
+    cachedResumeSignalCount,
+    resumeStrategy: decision.resumeStrategy,
+    resumeFeedback: decision.resumeFeedback,
+    sessionLedger,
+    exactArtifacts: [
+      ...fallbackArtifacts,
+      ...(worktreePath ? [`Active isolated worktree path: ${worktreePath}`] : []),
+    ],
+    shouldUseProviderNativeResume: decision.shouldUseProviderNativeResume,
+  };
+}
 
 /**
  * Manages the full session lifecycle: prepare -> cleanup.
@@ -17,6 +119,7 @@ import type { WorktreeManager } from "./worktree-manager.js";
 export class SessionManager {
   private readonly wrapperConfig: WrapperConfig;
   private readonly appConfig: KilnAppConfig;
+  private readonly contextArtifactCache: ContextArtifactCache;
   private readonly worktreeManager?: WorktreeManager;
   private orchestrator: Orchestrator | null = null;
   private domain: DomainConfig | null = null;
@@ -39,10 +142,12 @@ export class SessionManager {
   constructor(
     wrapperConfig: WrapperConfig,
     appConfig: KilnAppConfig,
+    contextArtifactCache: ContextArtifactCache,
     worktreeManager?: WorktreeManager,
   ) {
     this.wrapperConfig = wrapperConfig;
     this.appConfig = appConfig;
+    this.contextArtifactCache = contextArtifactCache;
     this.worktreeManager = worktreeManager;
   }
 
@@ -55,17 +160,14 @@ export class SessionManager {
     projectPath: string,
     memorySnapshot?: string,
     isolate?: boolean,
+    resumeSessionId?: string,
+    resumedMeta?: PersistedSessionMeta,
+    preferredProvider?: ProviderId,
+    resumeStrategyFeedback?: ResumeFeedback,
   ): Promise<SessionContext> {
     const registry = this.appConfig.createRegistry();
     registry.loadInstalledDomains(projectPath);
     this.domain = registry.detectAndMerge(projectPath);
-
-    const systemPrompt = (this.appConfig.buildSystemPrompt ?? defaultBuildSystemPrompt)({
-      task,
-      domain: this.domain,
-      memorySnapshot,
-      projectPath,
-    });
 
     const mcpServerEntryPath = join(
       dirname(fileURLToPath(import.meta.url)),
@@ -86,15 +188,62 @@ export class SessionManager {
       this.activeSessionId = sessionId;
     }
 
+    const touchedFiles = extractTouchedFilePaths(resumedMeta?.exactArtifacts ?? []);
+    const moduleArtifactKeys = (
+      await Promise.all(touchedFiles.slice(0, 5).map((filePath) => buildModuleArtifactKey(projectPath, filePath)))
+    ).filter((key): key is string => key !== undefined);
+    const {
+      resumeStrategy,
+      resumeFeedback,
+      sessionLedger,
+      exactArtifacts,
+      shouldUseProviderNativeResume,
+    } = buildResumeProjectionState({
+      cache: this.contextArtifactCache,
+      projectPath,
+      task,
+      worktreePath,
+      resumeSessionId,
+      resumedMeta,
+      moduleArtifactKeys,
+      preferredProvider,
+      feedback: resumeStrategyFeedback,
+    });
+    const governancePolicy = resolveContextGovernancePolicy(this.appConfig);
+    const providerResumeSessionId = shouldUseProviderNativeResume ? resumeSessionId : undefined;
+    const projectedContext = new DefaultContextGovernor().project({
+      memorySnapshot,
+      sessionLedger,
+      exactArtifacts,
+      cache: governancePolicy.useCache ? this.contextArtifactCache : undefined,
+      moduleArtifactKeys,
+      projectArtifactKey: `project-summary:${projectPath}`,
+      planArtifactKey: `plan-summary:${projectPath}:${normalizeTaskKey(task)}`,
+      sessionArtifactKey: resumeSessionId ? `session-summary:${resumeSessionId}` : undefined,
+      tokenBudget: governancePolicy.tokenBudget,
+      preferredSources: governancePolicy.preferredSources,
+      summaryAggressiveness: governancePolicy.summaryAggressiveness,
+    });
+
+    const systemPrompt = (this.appConfig.buildSystemPrompt ?? defaultBuildSystemPrompt)({
+      task,
+      domain: this.domain,
+      projectedContext,
+      projectPath,
+    });
+
     return {
       mode: this.wrapperConfig.mode,
       domain: this.domain,
       systemPrompt,
-      memorySnapshot,
+      projectedContext,
       mcpServerEntryPath,
       workingDirectory,
       task,
       worktreePath,
+      resumeSessionId: providerResumeSessionId,
+      resumeStrategy,
+      resumeFeedback,
     };
   }
 

@@ -157,9 +157,23 @@ export interface KilnHooksConfig {
   readonly SubagentStop?: readonly HookRule[];
 }
 
-export interface KilnCompactionConfig {
-  threshold?: number;
+export type KilnContextGovernanceSource =
+  | "ledger"
+  | "artifact"
+  | "summary"
+  | "memory"
+  | "knowledge";
+
+export type KilnContextGovernanceAggressiveness = "low" | "medium" | "high";
+
+export type KilnContextGovernanceCachePolicy = "off" | "prefer";
+
+export interface KilnContextGovernanceConfig {
+  turnBudget?: number;
   previewBeforeApply?: boolean;
+  preferredSources?: readonly KilnContextGovernanceSource[];
+  summaryAggressiveness?: KilnContextGovernanceAggressiveness;
+  cachePolicy?: KilnContextGovernanceCachePolicy;
 }
 
 export interface KilnYaml {
@@ -179,5 +193,5 @@ export interface KilnYaml {
   readonly skillGeneration?: KilnYamlSkillGeneration;
   readonly qualityGates?: readonly KilnYamlQualityGate[];
   readonly hooks?: KilnHooksConfig;
-  readonly compaction?: KilnCompactionConfig;
+  readonly contextGovernance?: KilnContextGovernanceConfig;
 }

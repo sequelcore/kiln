@@ -190,6 +190,9 @@ export class CodexSession implements IKilnSession {
       "--ask-for-approval",
       this.config.approvalMode ?? "on-request",
     ];
+    if (this.config.model) {
+      args.push("-m", this.config.model);
+    }
     if (resumeThreadId) {
       args.push("--resume", resumeThreadId);
     }

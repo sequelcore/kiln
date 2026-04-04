@@ -1,6 +1,7 @@
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { appendFile, readFile, writeFile, readdir } from 'node:fs/promises';
+import type { ResumeFeedback, ResumeOutcome, ResumeStrategy } from './index.js';
 
 export interface SessionRecord {
   sessionId: string;
@@ -10,6 +11,7 @@ export interface SessionRecord {
   cost: number;
   projectPath: string;
   providerSessionId?: string;
+  resumeStrategy?: ResumeStrategy;
 }
 
 export class SessionStore {
@@ -111,6 +113,20 @@ export interface PersistedSessionMeta {
   toolCount?: number;
   turnDepth?: number;
   providerSessionId?: string;
+  resumeStrategy?: ResumeStrategy;
+  resumeFeedback?: ResumeFeedback;
+  resumeOutcome?: ResumeOutcome;
+  sessionLedger?: {
+    currentPhase: string;
+    resumedFrom?: string;
+    workingDirectory?: string;
+    worktreePath?: string;
+    lastError?: string;
+    lastProvider?: string;
+    toolCallCount?: number;
+    turnDepth?: number;
+  };
+  exactArtifacts?: string[];
 }
 
 export interface PersistedTranscriptLine {

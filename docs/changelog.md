@@ -1,5 +1,246 @@
 # Changelog
 
+## Unreleased -- Context Governance Foundations
+
+### fix(tui): model list is gateway-owned, TUI has no hardcoded models
+- `TuiGateway` now exposes `models: Record<string, string[]>` so callers can
+  read the list synchronously without waiting for a WS connection.
+- `tui.ts` pre-populates `providerModelsRef` from `gateway.models` immediately
+  after `waitForGateway` — picker is correct from the first keypress.
+- `app.tsx` hardcoded `PROVIDER_MODELS` replaced with `{}` — all model data
+  comes from the gateway. TODO comment removed (both items resolved).
+- Single source of truth: gateway queries `opencode models` + `codex app-server`
+  at startup; Claude stays hardcoded there (no unauthenticated discovery path).
+
+### fix(tui): dynamic model lists from CLI introspection at gateway startup
+- `getCodexModels()` in `tui-gateway.ts` spawns `codex app-server` and sends a
+  JSON-RPC `model/list` request over stdio, parsing `result.data[].id`. Falls
+  back to hardcoded defaults if the process fails or times out (5 s).
+- `getOpencodeModels()` (existing) runs `opencode models` and parses line-by-line.
+- Both are fetched in parallel at gateway startup via `Promise.all` before the
+  server begins listening, so the welcome frame always carries a fresh list.
+- Claude list updated to canonical IDs + short aliases (`claude-sonnet-4-6`,
+  `claude-opus-4-6`, `claude-haiku-4-5-20251001`, `sonnet`, `opus`, `haiku`).
+  No runtime discovery path exists for Claude without auth or a live session.
+
+### fix(tui): model selection wired end to end for all three providers
+- `TuiOutboundFrame` provider frame carries `model?: string`; `TuiInboundFrame`
+  welcome frame carries `models?: Record<string, string[]>`.
+- `GatewaySession.switchProvider(provider, model?)` forwards the model over WS;
+  `onWelcome` callback delivers the dynamic model list to the TUI on connect.
+- `app.tsx` receives the welcome model list via `providerModelsRef` passed from
+  `tui.ts`, replacing the hardcoded `PROVIDER_MODELS` for OpenCode at runtime.
+- `tui-gateway.ts` runs `opencode models` at startup, stores the list, and
+  includes it in the WS welcome frame under `models.opencode`. Claude and Codex
+  entries remain hardcoded (no CLI enumeration API).
+- `ClaudeSession`: `model?: string` added to `ClaudeSessionConfig`; passed
+  directly to `sdkOptions.model` (Claude Code SDK `Options` type supports it).
+- `OpenCodeSession`: model forwarded via `config.update({ body: { model } })`
+  after the permissions PATCH. Format is `provider/model` per OpenCode SDK.
+- `CodexSession`: `-m <model>` flag added to spawn args (landed in prior fix).
+- `session-registry.ts`: `config.model` passed through to all three session
+  constructors from `ProviderCreateConfig`.
+
+### CG1 -- Explicit projected context
+- Added explicit projected-context types in the CLI application layer instead of
+  treating prompt memory as an anonymous string blob.
+- `SessionContext` now carries `projectedContext`.
+- `buildPreamble()` now renders projected context into the prompt rather than
+  reading `memorySnapshot` directly.
+
+### CG2 -- Deterministic token-budget selection
+- Added reusable context-budget selection in `core/src/memory/context-budget.ts`.
+- The default CLI `ContextGovernor` now selects projected context blocks under a
+  token budget before prompt assembly.
+- This is the first deterministic pass only; richer source selection and
+  runtime/TUI integration remain pending.
+
+### CG3 -- Initial session ledger and exact-artifact inputs
+- Added explicit `SessionLedger` types in the CLI application layer.
+- The CLI governor now accepts session-ledger and exact-artifact candidates in
+  addition to memory snapshots.
+- `run.ts` now resolves resume state before session preparation so the initial
+  projected context can reflect resumed-session state.
+- Session metadata now persists structured ledger state and exact artifacts.
+- Resume preparation now rehydrates prior ledger/artifact state into the
+  governor.
+- Runtime session serialization now persists structured ledger state and exact
+  artifacts.
+- The shared runtime message pipeline now records ledger/artifact updates from
+  routing, summaries, escalations, grounding outcomes, and tool executions.
+
+### CG4 -- Initial cacheable context artifacts
+- Added typed context-artifact cache interfaces in `core`.
+- Added an in-memory context-artifact cache implementation.
+- Successful CLI sessions now write a reusable cached session-summary artifact.
+- Resume preparation can inject that cached summary back into projected context.
+- Successful CLI sessions now also write a reusable cached project-summary
+  artifact keyed by working directory.
+- Successful CLI sessions now also write a reusable cached plan-summary/template
+  artifact keyed by project path and normalized task.
+- Successful CLI sessions now also write reusable cached module-summary
+  artifacts keyed by project-relative path and current file content hash.
+- Context artifacts now persist per project on disk in
+  `.kiln/context-artifacts.json` instead of existing only in process memory.
+- The project-backed persistent cache adapter moved from the CLI wrapper into
+  `packages/runtime`, so downstream runtime consumers can share the same
+  context-artifact persistence substrate.
+- Runtime gateway flows now read and refresh a generic thread-summary artifact
+  keyed by `appName + tenantId + userId` when a context-artifact cache is
+  supplied. The TUI gateway now uses this shared runtime path.
+- Runtime cache coverage now also includes bounded escalation/handoff summaries,
+  context-summary bundles keyed by route/provider/task shape, and tool-result
+  bundles keyed by channel/task shape.
+- CLI resume now prefers cached session/project/plan/module artifacts when
+  rebuilding projected context and only falls back to persisted exact artifacts
+  when cached continuity is insufficient.
+- CLI provider-native resume is now conditional: Kiln only forwards a resume
+  session to the provider when cached continuity is too weak to trust
+  reconstructed context alone.
+- The first backend-aware native resume policy is now encoded: `codex` and
+  `opencode` may use native resume when needed, while `claude` currently stays
+  cache-first.
+- The chosen resume strategy is now persisted in session metadata and printed in
+  the final CLI session report.
+- CLI session metadata now also records bounded resume outcome data: success,
+  final provider, cost, tool count, duration, and verification result when
+  available.
+- The CLI now uses recent local resume outcomes as a deterministic feedback
+  signal in borderline resume cases, biasing `cache-first` versus
+  `provider-native` only when one strategy is measurably cheaper or more
+  successful for the same provider.
+- CLI reports and persisted session metadata now show whether that feedback
+  merely existed or actually influenced the final resume choice, along with the
+  bounded sample size considered.
+- The TUI sidebar now shows the last known per-provider resume strategy and
+  feedback summary, so switching providers exposes the same bounded resume
+  policy context interactively.
+- Interactive TUI turns now refresh that sidebar metadata after completion by
+  persisting minimal native-resume transcript meta and reloading the per-
+  provider view.
+- The TUI session factory now applies the same bounded cache-first versus
+  provider-native resume policy surface as the CLI path, instead of hardcoding
+  interactive resume to `provider-native | none`.
+- CLI and TUI resume decisions now share one authoritative helper, reducing
+  policy drift between the two interactive entry surfaces.
+- The shared resume policy is now split into signal collection and strategy
+  decision, making it easier to reuse in runtime/gateway paths later without
+  dragging in CLI-specific artifact-key assumptions.
+- The neutral presence-based resume signal collector now lives in `core`, and
+  runtime support-artifact hydration uses it too, so the shared substrate now
+  spans `core`, `runtime`, and `cli`.
+- The neutral resume-decision layer now also lives in `core`, while the CLI
+  keeps only the provider-specific wrapper semantics on top.
+- Runtime support-artifact hydration now also calls the shared core decision
+  layer, so governed-resume behavior is no longer limited to CLI/TUI entry
+  surfaces.
+- Runtime continuity decisions are now recorded in session artifacts and trace
+  logs, making cache-first versus fallback continuity behavior inspectable in
+  gateway flows too.
+- Runtime gateway and TUI flows now persist bounded continuity outcome history
+  per thread/channel so later policy slices can compare governed cache-first
+  versus fallback behavior using real local outcomes.
+- Runtime support-artifact hydration now reads that bounded continuity history
+  back into the shared decision layer, allowing borderline cache-first versus
+  fallback choices to use local runtime evidence too.
+- The TUI sidebar now shows runtime continuity strategy and feedback for the
+  active provider, so interactive sessions expose governed runtime decisions in
+  addition to wrapper-side resume policy.
+- The TUI sidebar now also shows an initial runtime context-pressure line for
+  the active provider, based on cached support-artifact count, marking the
+  first landed `CG6` visibility slice.
+- That runtime context-pressure view now also lists the active bounded support
+  sources (`thread`, `handoff`, `context`, `tools`) for the selected provider.
+- The same sidebar block now shows a bounded fallback reason so operators can
+  distinguish `live-session`, `no-sources`, and `sources-not-selected`.
+- The same sidebar block now also distinguishes whether support sources were
+  merely available or actually selected into the current turn.
+- The same sidebar block now also shows a bounded selection-reason label such
+  as `single-source-cache`, `multi-source-cache`, or `withheld-by-policy`.
+- The CLI session report now includes a bounded context-governance summary with
+  selected tokens vs budget plus selected/deferred block counts and kinds.
+- The same CLI summary now includes bounded defer reasons inferred from the
+  deferred projected-context blocks.
+- The same CLI summary now includes selected/deferred source breakdowns from
+  the real projected-context blocks.
+### CG7 -- Initial context-governance config surface
+- Replaced the old narrow `compaction` wrapper config shape with a first-class
+  `contextGovernance` block in `kiln.yaml`.
+- The first live fields are now wired into session preparation:
+  - `contextGovernance.turnBudget`
+  - `contextGovernance.cachePolicy`
+- Optional projected-context selection can now also be biased by
+  `contextGovernance.preferredSources`, letting the governor prefer
+  `ledger`/`artifact`/`summary`/`memory`/`knowledge` classes without excluding
+  required context.
+- Optional projected-context weighting now also honors
+  `contextGovernance.summaryAggressiveness`, shifting summary-vs-artifact
+  preference in a bounded way while preserving required-block behavior.
+- `contextGovernance.previewBeforeApply` now triggers a bounded pre-run context
+  preview in the CLI path using the actual projected working set that will be
+  sent into prompt assembly.
+- Projected-context assembly can now be configured to use a different turn
+  budget or to disable cache-backed context reconstruction explicitly.
+- The CLI wrapper guide now documents the live `contextGovernance` fields with
+  a concrete `kiln.yaml` example, and the docs index now links that capability
+  more explicitly.
+
+### F1 -- Field substrate
+- Added a new `packages/core/src/field/` bounded context.
+- Landed the first field-domain substrate:
+  - `FieldSignal`
+  - `FieldVector`
+  - `FieldSnapshot`
+  - `FieldConfig`
+  - `FieldStore`
+- Added `InMemoryFieldStore` as the first usable implementation.
+- Added `SqliteFieldStore` so field vectors can survive process restarts via Bun SQLite storage.
+- Exported the field substrate from `@kilnai/core` for later EventBus, routing,
+  and memory integration.
+- Context-governor now queries the shared `field-service` for the current
+  `category:<kind>` strength and adds a bounded boost to optional candidate scores.
+- Added `FieldPropagator`, a scheduled decay+diffusion tick that re-injects
+  propagation signals into the field store without altering routing yet.
+
+### F5 -- fix: wire inhibitor and stability monitor into orchestrator lifecycle
+- `Orchestrator` constructor now calls `startFieldInhibitor()` and
+  `startStabilityMonitor()` alongside the existing `startFieldPropagator()`.
+- Both were previously exported but never started — lateral inhibition and
+  runaway/starvation detection are now active for every orchestrator instance.
+
+### F6 -- TUI field observability
+- Added `FieldSidebarInfo` to TUI state (`dominantRegions`, `saturation`,
+  `entropy`, `status`).
+- `render.ts` now has `renderSidebarField` which shows dominant context regions,
+  saturation %, Shannon entropy, and field stability status (`=` stable, `!`
+  runaway, `~` starvation, `?` unknown).
+- `ui.ts` adds the `sidebarFieldText` panel below the resume block.
+- `app.tsx` polls `getFieldStore().snapshot()` every 2 s, updates
+  `fieldSnapshot` state, and re-renders the panel. Clears the interval on exit.
+
+### F5 -- Propagation, inhibition, stability
+- Added `FieldInhibitor` (`packages/core/src/field/field-inhibitor.ts`): lateral
+  inhibition that suppresses competing regions when a dominant region (value >=
+  0.6) is detected, injecting bounded negative signals (capped by
+  `inhibitionStrength * dominant.value`) into the weakest non-dominant regions.
+- Added `StabilityMonitor` (`packages/core/src/field/stability-monitor.ts`):
+  detects runaway (single region >= 0.85 and entropy < 1.0) and starvation (mean
+  region value < 0.05), fires callbacks on transitions, and fires `onStabilized`
+  when returning to a healthy state.
+- `field-service.ts` now exports `startFieldInhibitor`, `stopFieldInhibitor`,
+  `startStabilityMonitor`, and `stopStabilityMonitor` so callers share the same
+  singleton instances backed by the shared `fieldStore`.
+- Both classes and their config types are exported from `@kilnai/core` via the
+  field barrel.
+
+### F4 -- Field-modulated routing
+- `SessionRegistry._score()` now reads `getFieldStrength("provider:<id>")` from
+  the shared `field-service` snapshot and adds a bounded +0..15 bonus to
+  provider scores.
+- Hard constraints (preferredProvider, cost-tier cap, capability exclusions) and
+  circuit-breaker semantics are unaffected — the field bonus is a soft
+  tiebreaker only.
+
 ## v0.24.5 (2026-04-03) -- TUI as Default CLI (7f)
 
 ### CLI Entry Point

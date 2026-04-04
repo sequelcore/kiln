@@ -52,3 +52,11 @@ export type { DecayCurve, DecayConfig } from "./decay-curves.js";
 // Memory compaction (Phase 2D)
 export { MemoryCompactor, DEFAULT_COMPACTION_CONFIG } from "./compactor.js";
 export type { CompactionConfig, CompactionResult, CompactableStore, CompactableEntry } from "./compactor.js";
+export { selectContextWithinBudget } from "./context-budget.js";
+export type { ContextBudgetCandidate, ContextBudgetSelection } from "./context-budget.js";
+export { InMemoryContextArtifactCache } from "./context-cache.js";
+export type { ContextArtifact, ContextArtifactCache } from "./context-cache.js";
+export { collectResumeSignalsFromPresence } from "./resume-signals.js";
+export type { ResumeSignalSet } from "./resume-signals.js";
+export { decideResumePolicy } from "./resume-policy.js";
+export type { ResumeFeedbackSignal, ResumePolicyDecision, ResumeStrategyKind } from "./resume-policy.js";

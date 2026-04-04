@@ -48,6 +48,7 @@ export interface ClaudeSessionConfig {
   readonly translationWarnings?: readonly string[];
   readonly permissionPolicy?: KilnPermissionPolicy;
   readonly resumeSessionId?: string;
+  readonly model?: string;
 }
 
 function derivePermissionPolicy(
@@ -165,6 +166,7 @@ export class ClaudeSession implements IKilnSession {
       permissionMode: this.config.permissionMode ?? "default",
       allowDangerouslySkipPermissions: this.config.allowDangerouslySkipPermissions ?? false,
       settingSources: ["project"],
+      model: this.config.model,
       stderr: (data: string) => {
         process.stderr.write(data);
       },

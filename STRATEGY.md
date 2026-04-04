@@ -287,6 +287,86 @@ Deferred items:
 - Skill improvement loop (eval-scored promotion), citation tracking, automatic consolidation
 - Surface provider name + model in session report footer
 
+### Claude Code SDK — unexposed options (Phase 3.5 follow-on)
+
+Audit of the official Claude Code CLI reference (2026-04-03) identified SDK options not yet
+surfaced in `ClaudeSessionConfig` or `kiln run` flags. Priority order:
+
+**High — add to `ClaudeSessionConfig` + `RunFlags`:**
+- `model` — override model per session (`claude-sonnet-4-6`, `claude-opus-4-6`, etc.); required for model routing (STRATEGY Phase 4 agent_context) ✅ DONE
+- `effort` — session effort level (`low | medium | high | max`); `max` Opus 4.6 only; maps directly to cost governance
+- `maxTurns` — cap agentic turns; exits with error when limit reached; guardrail for runaway loops
+- `maxBudgetUsd` — hard USD cap per session (print/headless mode only); complements Kiln's own budget tracking
+
+**Medium — add when needed:**
+- `tools` — restrict which built-in tools Claude can use (`""` = none, `"default"` = all, or explicit list like `"Bash,Edit,Read"`); enables least-privilege per session
+- `allowedTools` / `disallowedTools` — fine-grained tool permission overlay without changing permission mode
+- `addDir` — additional working directories; needed for monorepo workflows where agent reads across packages
+- `forkSession` — create new session ID on resume instead of reusing original; maps to the deferred POST /fork story above
+
+**Not relevant for Kiln:**
+- `--chrome`, `--ide`, `--remote`, `--teleport`, `--remote-control` — interactive/browser features outside headless scope
+- `--bare` — strips MCP + CLAUDE.md discovery that Kiln relies on
+- `--betas` — API-key users only; Kiln targets subscription path too
+- `--teammate-mode`, `--tmux` — Kiln has its own TUI/orchestration layer
+
+**Subscription note (2026-04-04):** Anthropic confirmed that tools wrapping the Claude Code
+harness (Agent SDK, `claude -p`, headless) remain covered by subscriptions. Only third-party
+tools that use OAuth login to consume subscription capacity (e.g. OpenClaw) are restricted.
+Kiln's `ClaudeSession` uses `@anthropic-ai/claude-agent-sdk` directly — unaffected.
+
+### OpenCode CLI — unexposed options (Phase 3.5 follow-on)
+
+Audit of the OpenCode CLI reference (2026-04-03). `OpenCodeSessionConfig` already wires:
+`model` (✅ now forwarded via `config.update` PATCH), `port`, `baseUrl`, `permissionDefault`, `mcpServers`, `resumeSessionId`.
+
+**High — add to `OpenCodeSessionConfig` + `RunFlags`:**
+- `--agent` — specify an OpenCode agent by name; needed once Phase 4 agent configs land
+- `--fork` — fork session on continue (use with `--continue`/`--session`); maps to deferred POST /fork story
+- `--attach` — attach to a running `opencode serve` instance to avoid MCP cold-start on every `kiln run`; highest-value latency win for repeated runs
+
+**Medium — add when needed:**
+- `--title` — session title; surfaced in `opencode session list` and Kiln session report footer
+- `--format json` — raw JSON event stream; already using ACP SSE but useful as fallback output mode
+- `--share` — share session URL; optional telemetry/shareability feature
+
+**Environment variables worth exposing via `OpenCodeSessionConfig.env`:**
+- `OPENCODE_DISABLE_AUTOCOMPACT` — disable auto-compaction when Kiln manages compaction itself
+- `OPENCODE_DISABLE_PRUNE` — prevent OpenCode from pruning session data Kiln may want to retain
+- `OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS` — bash command timeout override
+
+**`opencode serve` + `--attach` pattern (high value):**
+`OpenCodeSession` currently spawns a fresh `opencode serve` per `kiln run` invocation, paying
+MCP cold-start cost every time. The `opencode run --attach http://localhost:<port>` flag lets
+a persistent server be reused. Design: `SessionRegistry` could manage a shared OpenCode server
+process lifecycle (start on first use, reuse on subsequent calls, restart on failure).
+Tracked under Phase 3 deferred: `--attach` lifecycle (blocked on OpenCode upstream session persistence).
+
+### Codex CLI — unexposed options (Phase 3.5 follow-on)
+
+Audit of the Codex CLI reference (2026-04-03). `CodexSessionConfig` already wires:
+`model` (✅ `-m` flag now passed to spawn args), `approvalMode`, `sandboxMode`, `resumeSessionId`. Spawn args: `exec --json --full-auto --ask-for-approval --cd`.
+Dynamic model list: ✅ `codex app-server` + JSON-RPC `model/list` at TUI gateway startup.
+
+**High — add to `CodexSessionConfig` + spawn args:**
+- `--sandbox` / `-s` — `CodexSession` sets `--full-auto` which implies `workspace-write`, but `sandboxMode` field exists and is never passed as `--sandbox` arg; wire it explicitly so `read-only` and `danger-full-access` are actually honored
+- `--ephemeral` — run without persisting session files; useful for throwaway CI tasks that shouldn't pollute `.codex/` history
+- `--output-schema` — JSON Schema for validated structured output; enables Kiln to request typed responses from Codex
+
+**Medium — add when needed:**
+- `--profile` — named config set from `~/.codex/config.toml`; allows per-project Codex configuration without env var hacks
+- `--add-dir` — grant write access to additional directories; same need as Claude Code `--add-dir`
+- `--skip-git-repo-check` — allow `kiln run` outside a git repo; currently Codex exits if no `.git` found
+
+**Already handled differently:**
+- `--json` — already passed; JSONL parsing in `codex-session.ts` is correct
+- `--resume` — wired via `resumeThreadId` from `SessionStore`
+- `--cd` / `-C` — already passed as last positional args
+
+**Critical bug to fix:** `--sandbox` is never passed to the spawn args even though `sandboxMode`
+is on the config interface. `--full-auto` hardcodes `workspace-write` regardless of what
+`sandboxMode` says. Callers setting `sandboxMode: "read-only"` get workspace-write silently.
+
 ---
 
 ### Phase 4 — kiln config sync for Agents
@@ -529,10 +609,11 @@ Gateway live at gw.kilvo.app on Coolify. See [Gateway YAML](docs/configuration/g
 ### Phase 7 — Kiln TUI (The Final Destination)
 
 **Status:** STARTED
-**Current state:** `7a` foundation is in place. `@kilnai/tui` exists as a
-package boundary, and `packages/cli/src/commands/run.ts` has begun extraction
-into reusable CLI application services (`session-report`, `session-resume`,
-`session-hooks`, `run-session`). No real terminal UI has been built yet.
+**Current state:** Phase 7 has moved beyond foundation work. `7a` through `7d`
+are complete, `7e` routing indicator and `7f` interactive-default entrypoint
+have shipped in the changelog, and Kiln TUI is now a working terminal product
+surface rather than a scaffold. The current gap is `7g` (OpenKiln-branded
+variant) plus broader follow-on work tracked in Phase `7.5`.
 
 **Goal:** Replace claude TUI as the primary entry point.
 Kiln TUI is the conversational interface that orchestrates
@@ -643,9 +724,11 @@ Persistent conversational interface showing:
    - Status guard: late WS frames discarded after turn completion
    - Bug fixes (v0.24.2): /provider command, tool routing, status race, token pipeline
 7d. Budget panel (per-provider real-time cost + token breakdown) — DONE (v0.24.3)
-   - Deferred: dynamic model list from gateway welcome frame (currently hardcoded)
-   - Deferred: CliSubscriptionExecutor must pass --model <id> to subprocess (picker is display-only today)
-7e. Routing indicator (which CLI was chosen and why) — see routing design above
+   - FIXED: model selection wired end to end for all three providers. Claude Code via SDK `Options.model`, OpenCode via `config.update` PATCH, Codex via `-m` flag.
+   - FIXED: dynamic model list — gateway runs `opencode models` (line output) and `codex app-server` + JSON-RPC `model/list` in parallel at startup; both lists sent in welcome frame. Claude stays hardcoded (no unauthenticated discovery path; `supportedModels()` SDK requires a live session).
+7e. Routing indicator (which CLI was chosen and why) — DONE (v0.24.4)
+   - Chat responses show provider/model labels
+   - Sidebar provider display includes route mode badge (`user` vs future `auto`)
 7f. Full integration: kiln command launches TUI by default when interactive — DONE (v0.24.5)
 7g. OpenKiln TUI variant (channel-aware, personal branding)
 
@@ -696,6 +779,253 @@ See [ADR-002](docs/adr/ADR-002-tui-gateway-architecture.md) for protocol spec an
   measure scaffold decisions (compaction/permissions/tools) independently
   from model performance (fills gap identified in market research)
 - feat(core): SWE-bench integration for coding task evaluation
+
+---
+
+## Backend Architecture — Harness vs Provider
+
+**Status:** DESIGN (implementation spread across multiple phases)
+
+Kiln supports two fundamentally different backend types. This distinction must be
+explicit in `kiln.yaml`, `kiln run`, and the TUI provider picker.
+
+### Harness backends
+
+Kiln spawns an external CLI process that brings its own agent loop, tool access,
+permission model, and context management. Kiln orchestrates from the outside.
+
+| Backend | Process | Session type |
+|---|---|---|
+| `claude-code` | `@anthropic-ai/claude-agent-sdk` | `ClaudeSession` |
+| `codex` | `codex exec --json` | `CodexSession` |
+| `opencode` | `opencode serve` + ACP SDK | `OpenCodeSession` |
+
+Harness backends consume the user's subscription or CLI credits (ChatGPT Plus,
+Claude subscription, OpenCode Go). No API key required for the model calls —
+the CLI handles billing internally.
+
+### Provider backends
+
+Kiln calls the model API directly. Kiln IS the agent — it owns the loop, tools,
+context, and prompt construction. The provider only returns tokens.
+
+| Provider | Adapter | Notes |
+|---|---|---|
+| `anthropic` | `anthropic.ts` | Direct Anthropic API |
+| `openrouter` | `openrouter.ts` | 300+ models, free tier available |
+| `openai` | `openai.ts` | Direct OpenAI API |
+| `deepseek` | `deepseek.ts` | Cost-efficient reasoning models |
+| `ollama` | `ollama.ts` | Local models, zero API cost |
+
+All provider backends require a `PROVIDER_API_KEY` env var (except Ollama).
+OpenRouter is the most valuable for free-tier access — models like
+`meta-llama/llama-3.1-8b-instruct:free` and `google/gemma-3-27b-it:free`
+enable zero-cost testing, eval runs, and fallback routing.
+
+### `kiln.yaml` schema
+
+```yaml
+session:
+  backend:
+    type: harness          # claude-code | codex | opencode
+    provider: claude-code
+
+  # or
+
+  backend:
+    type: provider         # anthropic | openrouter | openai | deepseek | ollama
+    provider: openrouter
+    model: meta-llama/llama-3.1-8b-instruct:free
+```
+
+### TUI provider picker
+
+The existing provider picker (Phase 7b) should reflect this two-section layout:
+
+```
+Select backend
+
+  ── Harness ──────────────────────────────
+  ● Claude Code       (subscription)
+  ○ Codex             (ChatGPT Plus)
+  ○ OpenCode          (OpenCode Go)
+
+  ── Direct API ───────────────────────────
+  ○ Anthropic         (ANTHROPIC_API_KEY)
+  ○ OpenRouter        (free tier available)
+  ○ Ollama            (local, no API cost)
+  ○ DeepSeek          (DEEPSEEK_API_KEY)
+```
+
+### Capability comparison
+
+| Capability | Harness | Provider (today) | Provider + @kilnai/tools |
+|---|---|---|---|
+| File tools (Read/Write/Bash) | CLI owns | None | Kiln-native (rg/fd/jq) |
+| Permission UX | CLI owns | None | Kiln layer — full control |
+| Context compaction | CLI owns | Kiln must build | Kiln layer — full control |
+| Cost tracking | Native | core ✓ | core ✓ |
+| MCP tools | Full | core ✓ | core ✓ |
+| Memory / RAG | Kiln layer | Kiln layer ✓ | Kiln layer ✓ |
+| Safety pipeline | Kiln layer | Kiln layer ✓ | Kiln layer ✓ |
+| Model routing | Fixed to CLI | 300+ via OpenRouter | 300+ via OpenRouter |
+| Free tier models | No | OpenRouter free ✓ | OpenRouter free ✓ |
+| Local / offline | No | Ollama ✓ | Ollama ✓ |
+| Mid-session model switch | No | Yes | Yes |
+| Per-tool observability | No — CLI owns | Full — Kiln owns | Full — Kiln owns |
+| Intern tool interception | No | Full | Full |
+
+**Trajectory:**
+```
+Today:     harness = powerful,   provider = limited
++ tools:   harness = powerful,   provider = equally powerful
+Long term: harness = compatible, provider = primary
+```
+
+Harness backends are the practical path today because `@kilnai/tools` does not
+exist yet. Once it ships, provider + tools owns the entire stack and becomes
+the default mode. Harness backends become the compatibility path for users who
+prefer their existing CLI setup or need IDE integration.
+
+### Unified SessionRegistry — orchestrator calls both
+
+The orchestrator does not choose between harness and provider — it draws from
+both pools simultaneously. `SessionRegistry` already does priority-ordered
+selection with circuit breaker fallback across harness backends. Extending it
+to include provider sessions gives the orchestrator a unified backend pool:
+
+```
+SessionRegistry
+├── Harness pool
+│   ├── ClaudeSession        (priority 1 — most capable today)
+│   ├── CodexSession         (priority 2)
+│   └── OpenCodeSession      (priority 3)
+│
+└── Provider pool
+    ├── ProviderSession(anthropic, opus)              (complex tasks)
+    ├── ProviderSession(openrouter, llama-3.1-free)   (lightweight tasks)
+    └── ProviderSession(ollama, local)                (offline / free)
+```
+
+This enables **per-agent backend assignment** in team configs:
+
+```yaml
+team:
+  strategy: supervisor
+  agents:
+    - name: architect
+      backend:
+        type: harness
+        provider: claude-code          # full tool access for coding tasks
+
+    - name: researcher
+      backend:
+        type: provider
+        provider: openrouter
+        model: google/gemma-3-27b-it:free   # free, sufficient for research
+
+    - name: reviewer
+      backend:
+        type: provider
+        provider: anthropic
+        model: claude-sonnet-4-6       # direct API for structured review
+```
+
+Each agent picks the right backend for its role. Expensive harness for the
+coder, free model for the researcher, direct API for the reviewer. Cost
+optimization is a first-class config concern, not an afterthought.
+
+The circuit breaker already handles fallback — if Claude Code is rate-limited,
+the registry can fall through to a provider backend automatically.
+
+### What needs to be built
+
+Provider backends are fully implemented in `packages/core/src/agents/infrastructure/`.
+What is missing is the **session adapter layer** — a `ProviderSession` implementing
+`IKilnSession` that drives the core `Orchestrator` directly instead of spawning a CLI.
+Kiln owns the agent loop: tool execution, permission enforcement, context compaction,
+and cost tracking all run inside Kiln rather than being delegated to the external CLI.
+
+**Phases:**
+- `P-backend-1`: `ProviderSession` implementing `IKilnSession` over core `Orchestrator`
+- `P-backend-2`: `SessionRegistry` unified pool — harness + provider with shared circuit breaker
+- `P-backend-3`: `kiln run --type provider --provider openrouter --model <id>` CLI flag
+- `P-backend-4`: TUI provider picker two-section layout (harness / direct API)
+- `P-backend-5`: `kiln.yaml` `session.backend` + per-agent backend assignment in team config
+- `P-backend-6`: Free-tier OpenRouter models surfaced in TUI with zero-cost label
+- `P-backend-7`: `@kilnai/tools` integration — provider sessions get rg/fd/jq natively (depends on Phase 7.6)
+
+**Dependency:** `P-backend-1` is the foundation — all others follow from it.
+Timing: after Phase 4.5 permission layer is stable (provider sessions need
+the same permission enforcement that harness sessions already have).
+
+---
+
+## Phase 7.6 — `@kilnai/tools` — Vendored Shell Tools
+
+**Status:** BACKLOG
+**Timing:** After Phase 4 (kiln.yaml as single source of truth) is stable
+**Scope:** New package `packages/tools` — platform-specific binary bundles
+
+### Problem
+
+Agents default to `grep`/`find`/`cat` when better tools exist. Silent fallback
+means token waste and degraded output quality with no warning. Requiring users
+to manually install shell tools violates zero-friction setup and breaks CI,
+Docker, and new teammate onboarding.
+
+### Decision: vendor the binaries
+
+Following the `esbuild`/`@tailwindcss/oxide` pattern — ship platform binaries
+as npm `optionalDependencies` with platform conditions. `bun install` pulls the
+right binary for the host. No user action required. Works offline and in CI.
+
+```json
+"optionalDependencies": {
+  "@kilnai/tools-win32-x64":   "x.y.z",
+  "@kilnai/tools-darwin-arm64": "x.y.z",
+  "@kilnai/tools-darwin-x64":  "x.y.z",
+  "@kilnai/tools-linux-x64":   "x.y.z"
+}
+```
+
+At runtime, `@kilnai/tools` resolves the binary path from its own package,
+falling back to system PATH if the optional dep wasn't installed (e.g. pnpm
+hoisting edge cases). `buildPreamble()` uses the resolved path so agents always
+get the fast tool, regardless of what the user has installed globally.
+
+### Tools to vendor (priority order)
+
+| Tool | Replaces | Why it matters for agents |
+|------|----------|--------------------------|
+| `jq` | `cat file.json` + manual parsing | Biggest token saver — structured extraction vs full file dumps. Agent asks for exactly what it needs instead of reading 80-line files for 3 fields |
+| `rg` (ripgrep) | `grep -r` | Respects `.gitignore` automatically — no `node_modules` noise. 10-100x faster. `--json` output is structured and reliable. Smart defaults mean agent writes correct invocation first try |
+| `fd` | `find . -name` | Same `.gitignore` respect. `fd pattern` syntax vs `find . -name "*pattern*"` — agent errors drop. Clean relative path output = fewer tokens per result |
+| `bat` | `cat` | Low priority — agents don't need syntax highlighting. Defer or skip entirely |
+
+**Verdict:** vendor `jq` + `rg` + `fd`. Skip `bat`.
+
+### `kiln.yaml` integration
+
+```yaml
+shell:
+  preferredTools:
+    search: rg      # falls back to grep if vendored binary unavailable
+    find: fd        # falls back to find
+    json: jq        # falls back to cat + manual parse (agent handles)
+```
+
+`kiln sync` propagates tool preferences to each backend's native config.
+`buildPreamble()` reads resolved binary paths and injects a `<native-tools>`
+block so agents receive explicit instruction to prefer these tools over
+built-in alternatives. No silent fallback — if a tool is declared but
+unresolvable, Kiln warns once at session start.
+
+### Package size
+
+`jq` + `rg` + `fd` total ~5MB per platform. Acceptable given that
+`node_modules` is already hundreds of MB and the token savings compound
+across every multi-turn session.
 
 ---
 

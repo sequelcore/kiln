@@ -48,6 +48,7 @@ export interface RunSessionResult {
   readonly turnDepth: number;
   readonly successfulProviderId?: ProviderId;
   readonly transcript: PersistedTranscriptEvent[];
+  readonly exactArtifacts: readonly string[];
 }
 
 export async function runSession(options: RunSessionOptions): Promise<RunSessionResult> {
@@ -70,6 +71,7 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
   let turnDepth = 0;
   let successfulProviderId: ProviderId | undefined;
   const transcript: PersistedTranscriptEvent[] = [];
+  const exactArtifacts = new Set<string>();
   let transcriptSeq = 0;
   let isFirstDeltaOfTurn = false;
   let awaitingTurnStart = true;
@@ -153,6 +155,9 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
 
             const isBashLikeTool = event.toolName === "Bash" || event.toolName === "bash";
             const command = extractCommandFromToolInput(event.input);
+            if (command !== undefined) {
+              exactArtifacts.add(`Command executed: ${command}`);
+            }
             let matchedCommandApprovalMemory: ApprovalMemoryRecord | null = null;
             if (isBashLikeTool && command !== undefined) {
               const commandDecision = permissionEvaluator.evaluateCommand(command, "bash");
@@ -180,6 +185,9 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
 
             const filePath = extractFilePathFromToolInput(event.input);
             if (filePath !== undefined) {
+              exactArtifacts.add(`File path touched: ${filePath}`);
+            }
+            if (filePath !== undefined) {
               const fileDecision = permissionEvaluator.evaluateFile(filePath);
               if (fileDecision.action === "deny") {
                 transcript.push({
@@ -188,6 +196,7 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
                   event: { type: "tool_use", toolName: `${event.toolName} [DENIED]` },
                 });
                 lastError = `Provider ${providerId} denied file path "${filePath}" by policy`;
+                exactArtifacts.add(lastError);
                 options.registry.reportFailure(providerId, false);
                 providerDeniedByPolicy = true;
                 break;
@@ -270,11 +279,13 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
             isPreflightCrash = event.isPreflightCrash;
             if (event.isPreflightCrash) {
               lastError = `Provider ${providerId} crashed before starting`;
+              exactArtifacts.add(lastError);
               options.registry.reportFailure(providerId, true);
               break;
             }
             if (event.isError) {
               lastError = `Provider ${providerId} ended with error`;
+              exactArtifacts.add(lastError);
               options.registry.reportFailure(providerId, false);
               break;
             }
@@ -285,6 +296,9 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
           }
           case "error": {
             lastError = event.message;
+            if (event.message.trim() !== "") {
+              exactArtifacts.add(`Provider error: ${event.message}`);
+            }
             if (!event.isRetryable) {
               options.registry.reportFailure(providerId, false);
             }
@@ -317,6 +331,7 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
     turnDepth,
     successfulProviderId,
     transcript,
+    exactArtifacts: [...exactArtifacts],
   };
 }
 

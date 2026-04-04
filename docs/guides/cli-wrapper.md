@@ -183,6 +183,50 @@ Generates MCP server configuration for one or all backends:
 - `--hooks`: copies autoformat.sh to backend hook directories
 - `--all`: both
 
+## Context Governance Config
+
+The CLI/TUI wrapper now reads `contextGovernance` from `kiln.yaml` and applies
+it during projected-context assembly.
+
+Current live fields:
+- `turnBudget`
+- `cachePolicy`
+- `preferredSources`
+- `summaryAggressiveness`
+- `previewBeforeApply`
+
+Example:
+
+```yaml
+version: "1"
+provider: claude
+
+contextGovernance:
+  turnBudget: 1400
+  cachePolicy: prefer
+  preferredSources:
+    - ledger
+    - artifact
+    - summary
+  summaryAggressiveness: high
+```
+
+Current behavior:
+- `turnBudget`: overrides the projected-context token budget used by the
+  default governor
+- `cachePolicy: off`: disables cache-backed projected-context reconstruction
+- `preferredSources`: biases optional selection toward the listed source
+  classes
+- `summaryAggressiveness`: shifts optional summary-vs-artifact weighting
+  without changing required-block semantics
+- `previewBeforeApply: true`: prints a bounded pre-run context-governance
+  preview from the actual projected context before the session starts
+
+Notes:
+- this config currently affects the CLI/TUI preparation path first
+- the policy is bounded by design: required ledger/artifact correctness context
+  is still preserved even when preference settings change
+
 ## System Prompt Injection
 
 `buildPreamble(ctx, policy, agent?)` in `packages/cli/src/wrapper/preamble-builder.ts` assembles a kiln-preamble XML block injected on every prompt:

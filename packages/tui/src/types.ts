@@ -36,7 +36,22 @@ export type SessionEventInternal =
   | { type: "tool_use"; toolName: string; input?: unknown }
   | { type: "tool_result"; toolName: string; output: string }
   | { type: "cost_update"; usd: number }
-  | { type: "completed"; totalUsd: number; inputTokens?: number; outputTokens?: number }
+  | {
+      type: "completed";
+      totalUsd: number;
+      inputTokens?: number;
+      outputTokens?: number;
+      runtimeContinuity?: {
+        strategy: string;
+        feedbackLabel?: string;
+        pressure?: string;
+        supportArtifactCount?: number;
+        supportArtifactSources?: string[];
+        fallbackLabel?: string;
+        usedCachedSupport?: boolean;
+        selectionReason?: string;
+      };
+    }
   | { type: "error"; message: string }
   | { type: "thinking" }
   | { type: "activity"; activity: string; toolName?: string; output?: string; usd?: number; input?: unknown; inputTokens?: number; outputTokens?: number };

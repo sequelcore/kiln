@@ -8,17 +8,35 @@
 export type TuiInboundFrame =
   | { type: "thinking" }
   | { type: "activity"; activity: string; toolName?: string; output?: string; usd?: number; inputTokens?: number; outputTokens?: number }
-  | { type: "done"; content: string; parts?: unknown[]; inputTokens: number; outputTokens: number }
+  | {
+      type: "done";
+      content: string;
+      parts?: unknown[];
+      inputTokens: number;
+      outputTokens: number;
+      runtimeContinuity?: {
+        strategy: string;
+        feedbackLabel?: string;
+        pressure?: string;
+        supportArtifactCount?: number;
+        supportArtifactSources?: string[];
+        fallbackLabel?: string;
+        usedCachedSupport?: boolean;
+        selectionReason?: string;
+      };
+    }
   | { type: "error"; message: string; code?: string }
-  | { type: "welcome"; greeting?: string }
-  | { type: "cleared" };
+  | { type: "welcome"; greeting?: string; models?: Record<string, string[]> }
+  | { type: "cleared" }
+  | { type: "provider_changed"; provider: string };
 
 /**
  * Outbound frames the TUI sends to the gateway.
  */
 export type TuiOutboundFrame =
   | { type: "message"; content: string }
-  | { type: "clear" };
+  | { type: "clear" }
+  | { type: "provider"; provider: string; model?: string };
 
 /**
  * Configuration options for TuiWsClient.

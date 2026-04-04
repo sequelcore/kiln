@@ -1,4 +1,5 @@
 import type { Agent, DomainConfig } from "@kilnai/core";
+import { renderProjectedContext } from "../application/context-types.js";
 import type { KilnPermissionPolicy } from "./session.js";
 import type { SessionContext } from "./index.js";
 
@@ -86,9 +87,7 @@ export function buildPreamble(
   policy: KilnPermissionPolicy,
   agent?: Agent,
 ): string {
-  const memorySnapshot = policy.fileGovernance?.excludeFromContext === true
-    ? undefined
-    : ctx.memorySnapshot;
+  const renderedProjectedContext = renderProjectedContext(ctx.projectedContext);
 
   const staticSections: (string | null)[] = [
     agent ? buildRoleSection(agent) : null,
@@ -99,7 +98,7 @@ export function buildPreamble(
 
   const dynamicSections: (string | null)[] = [
     buildTaskSection(ctx.task),
-    buildMemorySection(memorySnapshot),
+    buildMemorySection(renderedProjectedContext),
     buildInstructionsSection(agent?.instructions),
   ];
 

@@ -14,7 +14,7 @@ import {
   type ScrollBoxRenderable,
 } from "@opentui/core";
 import type { SessionLike } from "./types.js";
-import type { ReactiveState, Message } from "./state.js";
+import type { ReactiveState, Message, ResumeSidebarInfo } from "./state.js";
 import { update, createMessage } from "./state.js";
 import type { KilnTheme } from "./theme.js";
 import type { UIComponents } from "./ui.js";
@@ -32,6 +32,7 @@ export interface HandlerContext {
   sidebarToolNode: TextRenderable | null;
   messageNodes: { msg: Message; node: TextRenderable | MarkdownRenderable; toolInput?: unknown }[];
   createSession: () => Promise<SessionLike>;
+  refreshResumeInfo?: () => Promise<Record<string, ResumeSidebarInfo>>;
   provider: string;
   domain: string;
 }
@@ -275,11 +276,13 @@ export function handleCompleted(
   totalUsd: number,
   inputTokens: number,
   outputTokens: number,
+  runtimeContinuity: { strategy: string; feedbackLabel?: string } | undefined,
   spinner: { interval: ReturnType<typeof setInterval> | null },
   thinkingNodeRef: { node: TextRenderable | null },
   renderSidebarCost: () => void,
   renderSidebarTurns: () => void,
-  renderCommandBarStatus: () => void
+  renderCommandBarStatus: () => void,
+  renderSidebarResume?: () => void
 ): void {
   if (totalUsd) update(ctx.state, "cost", totalUsd);
   // Only overwrite token counts from completion if they are non-zero
@@ -291,6 +294,9 @@ export function handleCompleted(
   update(ctx.state, "thinkingVisible", false);
   update(ctx.state, "thinking", "");
   update(ctx.state, "turns", ctx.state.turns + 1);
+  if (runtimeContinuity?.strategy) {
+    ctx.state.runtimeContinuityByProvider[ctx.state.currentProvider] = runtimeContinuity;
+  }
 
   if (spinner.interval) {
     clearInterval(spinner.interval);
@@ -304,6 +310,7 @@ export function handleCompleted(
 
   renderSidebarCost();
   renderSidebarTurns();
+  renderSidebarResume?.();
   renderCommandBarStatus();
 }
 
@@ -351,6 +358,7 @@ export async function sendMessage(
   thinkingNodeRef: { node: TextRenderable | null },
   renderSidebarCost: () => void,
   renderSidebarTurns: () => void,
+  renderSidebarResume: () => void,
   renderCommandBarStatus: () => void,
   startSpinner: () => void,
   _stopSpinner: () => void,
@@ -406,7 +414,27 @@ export async function sendMessage(
           handleThinking(ctx, renderSidebarCost);
           break;
         case "completed":
-          handleCompleted(ctx, event.totalUsd, event.inputTokens ?? 0, event.outputTokens ?? 0, spinnerRef, thinkingNodeRef, renderSidebarCost, renderSidebarTurns, renderCommandBarStatus);
+          handleCompleted(
+            ctx,
+            event.totalUsd,
+            event.inputTokens ?? 0,
+            event.outputTokens ?? 0,
+            event.runtimeContinuity,
+            spinnerRef,
+            thinkingNodeRef,
+            renderSidebarCost,
+            renderSidebarTurns,
+            renderCommandBarStatus,
+            renderSidebarResume,
+          );
+          if (ctx.refreshResumeInfo) {
+            void ctx.refreshResumeInfo().then((info) => {
+              update(ctx.state, "resumeInfoByProvider", info);
+              renderSidebarResume();
+            }).catch(() => {
+              // fail-open
+            });
+          }
           break;
         case "error":
           if (event.message) handleError(ctx, event.message);
