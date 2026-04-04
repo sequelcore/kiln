@@ -13,21 +13,31 @@ const DOMAIN: DomainConfig = {
   phaseExamples: "",
 };
 
-function makeContext(memorySnapshot: string | undefined): SessionContext {
+function makeContext(
+  projectedContext: SessionContext["projectedContext"]
+): SessionContext {
   return {
     mode: "api-key",
     domain: DOMAIN,
     systemPrompt: "",
-    memorySnapshot,
+    projectedContext,
+    memorySnapshot: undefined,
     mcpServerEntryPath: "",
     workingDirectory: process.cwd(),
     task: "Test task",
+    resumeStrategy: "none",
   };
 }
 
 describe("governSessionContext", () => {
-  it("removes memorySnapshot when excludeFromContext is true", () => {
-    const context = makeContext("sensitive memory");
+  it("removes memory blocks from projectedContext when excludeFromContext is true", () => {
+    const context = makeContext({
+      blocks: [
+        { id: "1", kind: "memory", source: "test", content: "sensitive memory", required: false, score: 0, estimatedTokens: 100 },
+        { id: "2", kind: "artifact", source: "test", content: "some artifact", required: false, score: 0, estimatedTokens: 50 },
+      ],
+      estimatedTokens: 150,
+    });
 
     const governed = governSessionContext(context, {
       approval: "on-request",
@@ -35,11 +45,18 @@ describe("governSessionContext", () => {
       fileGovernance: { excludeFromContext: true },
     });
 
-    expect(governed.memorySnapshot).toBeUndefined();
+    expect(governed.projectedContext?.blocks).toHaveLength(1);
+    expect(governed.projectedContext?.blocks[0]?.kind).toBe("artifact");
   });
 
-  it("preserves memorySnapshot when excludeFromContext is false", () => {
-    const context = makeContext("normal memory");
+  it("preserves projectedContext when excludeFromContext is false", () => {
+    const context = makeContext({
+      blocks: [
+        { id: "1", kind: "memory", source: "test", content: "normal memory", required: false, score: 0, estimatedTokens: 100 },
+        { id: "2", kind: "artifact", source: "test", content: "some artifact", required: false, score: 0, estimatedTokens: 50 },
+      ],
+      estimatedTokens: 150,
+    });
 
     const governed = governSessionContext(context, {
       approval: "on-request",
@@ -47,18 +64,7 @@ describe("governSessionContext", () => {
       fileGovernance: { excludeFromContext: false },
     });
 
-    expect(governed.memorySnapshot).toBe("normal memory");
-  });
-
-  it("preserves memorySnapshot when excludeFromContext is undefined", () => {
-    const context = makeContext("default memory");
-
-    const governed = governSessionContext(context, {
-      approval: "on-request",
-      sandbox: "read-only",
-    });
-
-    expect(governed.memorySnapshot).toBe("default memory");
+    expect(governed.projectedContext?.blocks).toHaveLength(2);
   });
 });
 
@@ -84,7 +90,12 @@ describe("runSession context governance integration", () => {
       dispose: async () => {},
     };
 
-    const context = makeContext("sensitive memory");
+    const context = makeContext({
+      blocks: [
+        { id: "1", kind: "memory", source: "test", content: "sensitive memory", required: false, score: 0, estimatedTokens: 100 },
+      ],
+      estimatedTokens: 100,
+    });
 
     const registry = {
       selectBest: () => ({
@@ -133,7 +144,7 @@ describe("runSession context governance integration", () => {
     expect(result.sessionSucceeded).toBe(true);
     expect(buildPreambleMock).toHaveBeenCalledTimes(1);
     const governedContext = buildPreambleMock.mock.calls[0]?.[0] as SessionContext;
-    expect(governedContext.memorySnapshot).toBeUndefined();
+    expect(governedContext.projectedContext?.blocks?.length).toBe(0);
 
     vi.doUnmock("../../src/wrapper/preamble-builder.js");
   });

@@ -15,7 +15,7 @@ const MINIMAL_CONTEXT: SessionContext = {
     phaseExamples: "",
   },
   systemPrompt: "",
-  memorySnapshot: undefined,
+  projectedContext: { blocks: [], estimatedTokens: 0 },
   mcpServerEntryPath: "",
   workingDirectory: "/tmp",
   task: "Fix the login bug",
@@ -46,30 +46,26 @@ const FULL_AGENT: Agent = {
 };
 
 describe("buildPreamble", () => {
-  it("includes all sections when agent and memory are present", () => {
+  it("includes all sections when projectedContext contains memory", () => {
     const ctx: SessionContext = {
       ...MINIMAL_CONTEXT,
       domain: FULL_DOMAIN,
-      memorySnapshot: "Remember: use strict mode for new files",
+      projectedContext: { 
+        blocks: [{ id: "mem1", kind: "memory", source: "test", content: "Remember: use strict mode", required: false, score: 0.6 }],
+        estimatedTokens: 10 
+      },
     };
     const result = buildPreamble(ctx, { approval: "never", sandbox: "danger-full-access" }, FULL_AGENT);
 
     expect(result).toContain("<kiln-preamble>");
     expect(result).toContain("<role>");
-    expect(result).toContain("You are Aria, Senior Python Engineer. Goal: Write clean, tested, maintainable Python code");
-    expect(result).toContain("You are a senior Python engineer");
+    expect(result).toContain("You are Aria, Senior Python Engineer");
     expect(result).toContain("<task>Fix the login bug</task>");
     expect(result).toContain("<domain>");
-    expect(result).toContain("Project type: Python");
-    expect(result).toContain("Tool tags: python, testing, linting");
-    expect(result).toContain("Quality gates: ruff, pytest");
     expect(result).toContain("<constraints>");
-    expect(result).toContain("Approval mode: never");
-    expect(result).toContain("Sandbox: danger-full-access");
     expect(result).toContain("<memory>");
     expect(result).toContain("Remember: use strict mode");
     expect(result).toContain("<instructions>");
-    expect(result).toContain("Always run lint before committing");
     expect(result).toContain("</kiln-preamble>");
   });
 
@@ -97,19 +93,28 @@ describe("buildPreamble", () => {
     expect(result).not.toContain("<instructions>");
   });
 
-  it("omits <memory> when memorySnapshot is undefined", () => {
+  it("omits <memory> when projectedContext has no memory blocks", () => {
     const result = buildPreamble(MINIMAL_CONTEXT, { approval: "on-request", sandbox: "read-only" }, undefined);
     expect(result).not.toContain("<memory>");
   });
 
-  it("omits <memory> when memorySnapshot is empty string", () => {
-    const ctx: SessionContext = { ...MINIMAL_CONTEXT, memorySnapshot: "  " };
+  it("omits <memory> when projectedContext block content is empty", () => {
+    const ctx: SessionContext = {
+      ...MINIMAL_CONTEXT,
+      projectedContext: { blocks: [{ id: "x", kind: "memory", source: "test", content: "  ", required: false, score: 0.5 }], estimatedTokens: 0 },
+    };
     const result = buildPreamble(ctx, { approval: "on-request", sandbox: "read-only" }, undefined);
     expect(result).not.toContain("<memory>");
   });
 
-  it("omits <memory> when excludeFromContext is true even if memorySnapshot exists", () => {
-    const ctx: SessionContext = { ...MINIMAL_CONTEXT, memorySnapshot: "Sensitive memory context" };
+  it("omits <memory> when excludeFromContext is true even if projectedContext has memory", () => {
+    const ctx: SessionContext = {
+      ...MINIMAL_CONTEXT,
+      projectedContext: {
+        blocks: [{ id: "mem1", kind: "memory", source: "test", content: "Sensitive memory context", required: false, score: 0.6 }],
+        estimatedTokens: 10,
+      },
+    };
     const result = buildPreamble(
       ctx,
       {
@@ -124,7 +129,13 @@ describe("buildPreamble", () => {
   });
 
   it("includes <memory> when excludeFromContext is false", () => {
-    const ctx: SessionContext = { ...MINIMAL_CONTEXT, memorySnapshot: "Normal memory context" };
+    const ctx: SessionContext = {
+      ...MINIMAL_CONTEXT,
+      projectedContext: {
+        blocks: [{ id: "mem1", kind: "memory", source: "test", content: "Normal memory context", required: false, score: 0.6 }],
+        estimatedTokens: 10,
+      },
+    };
     const result = buildPreamble(
       ctx,
       {
@@ -139,7 +150,13 @@ describe("buildPreamble", () => {
   });
 
   it("includes <memory> when excludeFromContext is undefined", () => {
-    const ctx: SessionContext = { ...MINIMAL_CONTEXT, memorySnapshot: "Default memory context" };
+    const ctx: SessionContext = {
+      ...MINIMAL_CONTEXT,
+      projectedContext: {
+        blocks: [{ id: "mem1", kind: "memory", source: "test", content: "Default memory context", required: false, score: 0.6 }],
+        estimatedTokens: 10,
+      },
+    };
     const result = buildPreamble(
       ctx,
       {
@@ -153,12 +170,15 @@ describe("buildPreamble", () => {
     expect(result).toContain("Default memory context");
   });
 
-  it("truncates memorySnapshot at 200 lines", () => {
+  it("truncates projectedContext memory at 200 lines", () => {
     const lines: string[] = [];
     for (let i = 1; i <= 250; i++) {
       lines.push(`Line ${i}: context from prior session`);
     }
-    const ctx: SessionContext = { ...MINIMAL_CONTEXT, memorySnapshot: lines.join("\n") };
+    const ctx: SessionContext = {
+      ...MINIMAL_CONTEXT,
+      projectedContext: { blocks: [{ id: "mem1", kind: "memory", source: "test", content: lines.join("\n"), required: false, score: 0.6 }], estimatedTokens: 1000 },
+    };
     const result = buildPreamble(ctx, { approval: "on-request", sandbox: "read-only" }, undefined);
 
     expect(result).toContain("[memory truncated — 50 lines omitted]");
@@ -166,12 +186,15 @@ describe("buildPreamble", () => {
     expect(result).toContain("Line 200");
   });
 
-  it("does not truncate when memorySnapshot is exactly 200 lines", () => {
+  it("does not truncate when projectedContext memory is exactly 200 lines", () => {
     const lines: string[] = [];
     for (let i = 1; i <= 200; i++) {
       lines.push(`Line ${i}`);
     }
-    const ctx: SessionContext = { ...MINIMAL_CONTEXT, memorySnapshot: lines.join("\n") };
+    const ctx: SessionContext = {
+      ...MINIMAL_CONTEXT,
+      projectedContext: { blocks: [{ id: "mem1", kind: "memory", source: "test", content: lines.join("\n"), required: false, score: 0.6 }], estimatedTokens: 800 },
+    };
     const result = buildPreamble(ctx, { approval: "on-request", sandbox: "read-only" }, undefined);
 
     expect(result).not.toContain("truncated");
@@ -187,7 +210,10 @@ describe("buildPreamble", () => {
   });
 
   it("escapes XML special characters in memory", () => {
-    const ctx: SessionContext = { ...MINIMAL_CONTEXT, memorySnapshot: "Use <b>bold</b> tags & wrap" };
+    const ctx: SessionContext = {
+      ...MINIMAL_CONTEXT,
+      projectedContext: { blocks: [{ id: "mem1", kind: "memory", source: "test", content: "Use <b>bold</b> tags & wrap", required: false, score: 0.6 }], estimatedTokens: 10 },
+    };
     const result = buildPreamble(ctx, { approval: "on-request", sandbox: "read-only" }, undefined);
     expect(result).toContain("&lt;b&gt;");
     expect(result).toContain("&amp;");

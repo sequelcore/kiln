@@ -23,6 +23,7 @@ function makeContext(): SessionContext {
     mode: "api-key",
     domain: DOMAIN,
     systemPrompt: "",
+    projectedContext: { blocks: [], estimatedTokens: 0 },
     memorySnapshot: undefined,
     mcpServerEntryPath: "",
     workingDirectory: process.cwd(),
