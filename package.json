@@ -8,7 +8,7 @@
   "scripts": {
     "build": "bun run --filter '*' build",
     "typecheck": "tsc -b packages/core packages/runtime packages/sdk packages/cli packages/tui && tsc -p packages/studio/tsconfig.json --noEmit",
-    "test": "bun run --filter @kilnai/core test && bun run --filter @kilnai/runtime test && bun run --filter @kilnai/cli test && bun run --filter @kilnai/react test && bun run --filter @kilnai/widget test && bun run --filter @kilnai/studio test && bun run --filter @kilnai/tui test"
+    "test": "bun run --filter @kilnai/core test && bun run --filter @kilnai/runtime test && bun run --filter @kilnai/cli test && bun run --filter @kilnai/react test && bun run --filter @kilnai/widget test && bun run --filter @kilnai/tui test && bun run --filter @kilnai/studio test"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",

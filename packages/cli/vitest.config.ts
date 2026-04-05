@@ -5,5 +5,6 @@ export default defineConfig({
     alias: {
       "bun:sqlite": new URL("../../vitest-bun-sqlite-mock.ts", import.meta.url).pathname,
     },
+    globals: true,
   },
 });

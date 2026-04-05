@@ -13,11 +13,15 @@ vi.mock("node:fs", async () => {
   };
 });
 
+vi.mock("@kilnai/runtime", () => ({
+  getProjectContextArtifactCache: vi.fn().mockResolvedValue(new InMemoryContextArtifactCache()),
+}));
+
 import { printReport, computeEvalScore } from "../../src/application/session-report.js";
 import { SessionManager } from "../../src/wrapper/session-manager.js";
 import type { WrapperConfig, SessionReport } from "../../src/wrapper/index.js";
-import { DomainRegistry } from "@kilnai/core";
-import type { DomainConfig } from "@kilnai/core";
+import { DomainRegistry, InMemoryContextArtifactCache } from "@kilnai/core";
+import type { DomainConfig, ContextArtifactCache } from "@kilnai/core";
 
 const PYTHON_CONFIG: DomainConfig = {
   name: "python",
@@ -29,18 +33,15 @@ const PYTHON_CONFIG: DomainConfig = {
   phaseExamples: "",
 };
 
+const MOCK_CACHE: ContextArtifactCache = new InMemoryContextArtifactCache();
+
 const MOCK_APP_CONFIG: KilnAppConfig = {
-  appName: "kiln",
-  dirName: ".kiln",
-  version: "0.1.0",
-  description: "Kiln AI orchestration engine",
   createRegistry: () => new DomainRegistry({
     builtinConfigs: [PYTHON_CONFIG],
     domainsDir: ".kiln/domains",
   }),
   buildSystemPrompt: (opts) =>
     `<kiln-session><task>${opts.task}</task></kiln-session>`,
-  mcpServerName: "kiln",
 };
 
 function makeConfig(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
@@ -69,7 +70,7 @@ function makeReport(overrides: Partial<SessionReport> = {}): SessionReport {
 describe("run command", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(existsSync).mockReturnValue(false);
+    (existsSync as ReturnType<typeof vi.fn>).mockReturnValue(false);
   });
 
   afterEach(() => {
@@ -79,7 +80,7 @@ describe("run command", () => {
   describe("session mode resolution", () => {
     it("determines api-key mode with --api-key", async () => {
       const config = makeConfig({ mode: "api-key", apiKey: "sk-ant-test" });
-      const manager = new SessionManager(config, MOCK_APP_CONFIG);
+      const manager = new SessionManager(config, MOCK_APP_CONFIG, MOCK_CACHE);
       const ctx = await manager.prepare("Fix bug", "/project");
 
       expect(ctx.mode).toBe("api-key");
@@ -91,7 +92,7 @@ describe("run command", () => {
         apiKey: "sk-test",
         provider: "openai",
       });
-      const manager = new SessionManager(config, MOCK_APP_CONFIG);
+      const manager = new SessionManager(config, MOCK_APP_CONFIG, MOCK_CACHE);
       const ctx = await manager.prepare("Fix bug", "/project");
 
       expect(ctx.mode).toBe("byok");
@@ -101,7 +102,7 @@ describe("run command", () => {
   describe("session lifecycle", () => {
     it("calls prepare -> cleanup in order", async () => {
       const config = makeConfig();
-      const manager = new SessionManager(config, MOCK_APP_CONFIG);
+      const manager = new SessionManager(config, MOCK_APP_CONFIG, MOCK_CACHE);
 
       const ctx = await manager.prepare("Add tests", "/project");
       expect(ctx.task).toBe("Add tests");
@@ -209,7 +210,7 @@ describe("run command", () => {
   describe("error handling", () => {
     it("handles missing task string", async () => {
       const config = makeConfig();
-      const manager = new SessionManager(config, MOCK_APP_CONFIG);
+      const manager = new SessionManager(config, MOCK_APP_CONFIG, MOCK_CACHE);
 
       const ctx = await manager.prepare("", "/project");
       expect(ctx.task).toBe("");

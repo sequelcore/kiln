@@ -87,7 +87,10 @@ export function buildPreamble(
   policy: KilnPermissionPolicy,
   agent?: Agent,
 ): string {
-  const renderedProjectedContext = renderProjectedContext(ctx.projectedContext);
+  const shouldExcludeMemory = policy.fileGovernance?.excludeFromContext === true;
+  const renderedProjectedContext = shouldExcludeMemory
+    ? undefined
+    : renderProjectedContext(ctx.projectedContext);
 
   const staticSections: (string | null)[] = [
     agent ? buildRoleSection(agent) : null,

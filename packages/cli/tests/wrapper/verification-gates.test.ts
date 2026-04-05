@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { SessionManager } from "../../src/wrapper/session-manager.js";
 import type { WrapperConfig } from "../../src/wrapper/index.js";
 import type { KilnAppConfig } from "../../src/config.js";
-import { DomainRegistry } from "@kilnai/core";
-import type { QualityGate, VerificationResult } from "@kilnai/core";
+import { DomainRegistry, InMemoryContextArtifactCache } from "@kilnai/core";
+import type { QualityGate, VerificationResult, ContextArtifactCache } from "@kilnai/core";
 
 vi.mock("node:fs", () => ({
   existsSync: vi.fn(() => false),
@@ -12,20 +12,21 @@ vi.mock("node:fs", () => ({
   readFileSync: vi.fn(() => ""),
 }));
 
+vi.mock("@kilnai/runtime", () => ({
+  getProjectContextArtifactCache: vi.fn().mockResolvedValue(new InMemoryContextArtifactCache()),
+}));
+
+const MOCK_CACHE: ContextArtifactCache = new InMemoryContextArtifactCache();
+
 const MOCK_WRAPPER_CONFIG: WrapperConfig = {
   mode: "api-key",
   permissionPolicy: { approval: "on-request", sandbox: "read-only" },
 };
 
 const MOCK_APP_CONFIG: KilnAppConfig = {
-  appName: "kiln",
-  dirName: ".kiln",
-  version: "0.1.0",
-  description: "Kiln AI orchestration engine",
   createRegistry: () =>
     new DomainRegistry({ builtinConfigs: [], domainsDir: ".kiln/domains" }),
   buildSystemPrompt: () => "<kiln-session/>",
-  mcpServerName: "kiln",
 };
 
 describe("verification-gates", () => {
@@ -39,7 +40,7 @@ describe("verification-gates", () => {
 
   describe("runVerification()", () => {
     it("returns passed:true when all gate commands succeed", async () => {
-      const manager = new SessionManager(MOCK_WRAPPER_CONFIG, MOCK_APP_CONFIG);
+      const manager = new SessionManager(MOCK_WRAPPER_CONFIG, MOCK_APP_CONFIG, MOCK_CACHE);
       await manager.prepare("task", "/project");
 
       const gates: readonly QualityGate[] = [
@@ -55,7 +56,7 @@ describe("verification-gates", () => {
     });
 
     it("returns passed:false when a required gate fails", async () => {
-      const manager = new SessionManager(MOCK_WRAPPER_CONFIG, MOCK_APP_CONFIG);
+      const manager = new SessionManager(MOCK_WRAPPER_CONFIG, MOCK_APP_CONFIG, MOCK_CACHE);
       await manager.prepare("task", "/project");
 
       const gates: readonly QualityGate[] = [
@@ -70,7 +71,7 @@ describe("verification-gates", () => {
     });
 
     it("returns empty checks when gates array is empty", async () => {
-      const manager = new SessionManager(MOCK_WRAPPER_CONFIG, MOCK_APP_CONFIG);
+      const manager = new SessionManager(MOCK_WRAPPER_CONFIG, MOCK_APP_CONFIG, MOCK_CACHE);
       await manager.prepare("task", "/project");
 
       const result = await manager.runVerification([], process.cwd());
@@ -81,7 +82,7 @@ describe("verification-gates", () => {
 
   describe("cleanup() with verification result", () => {
     it("includes verification result in report when provided", async () => {
-      const manager = new SessionManager(MOCK_WRAPPER_CONFIG, MOCK_APP_CONFIG);
+      const manager = new SessionManager(MOCK_WRAPPER_CONFIG, MOCK_APP_CONFIG, MOCK_CACHE);
       await manager.prepare("task", "/project");
 
       const verificationResult: VerificationResult = {
@@ -102,7 +103,7 @@ describe("verification-gates", () => {
     });
 
     it("omits verification result when not provided", async () => {
-      const manager = new SessionManager(MOCK_WRAPPER_CONFIG, MOCK_APP_CONFIG);
+      const manager = new SessionManager(MOCK_WRAPPER_CONFIG, MOCK_APP_CONFIG, MOCK_CACHE);
       await manager.prepare("task", "/project");
 
       const report = manager.cleanup("session-1", 0);

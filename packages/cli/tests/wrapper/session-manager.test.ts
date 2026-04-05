@@ -3,8 +3,8 @@ import { existsSync } from "node:fs";
 import { SessionManager } from "../../src/wrapper/session-manager.js";
 import type { WrapperConfig } from "../../src/wrapper/index.js";
 import type { KilnAppConfig } from "../../src/config.js";
-import { DomainRegistry } from "@kilnai/core";
-import type { DomainConfig } from "@kilnai/core";
+import { DomainRegistry, InMemoryContextArtifactCache } from "@kilnai/core";
+import type { DomainConfig, ContextArtifactCache } from "@kilnai/core";
 
 const PYTHON_CONFIG: DomainConfig = {
   name: "python",
@@ -27,25 +27,26 @@ vi.mock("node:fs", async () => {
   };
 });
 
+vi.mock("@kilnai/runtime", () => ({
+  getProjectContextArtifactCache: vi.fn().mockResolvedValue(new InMemoryContextArtifactCache()),
+}));
+
+const MOCK_CACHE: ContextArtifactCache = new InMemoryContextArtifactCache();
+
 const MOCK_CONFIG: WrapperConfig = {
   mode: "api-key",
   permissionPolicy: { approval: "on-request", sandbox: "read-only" },
 };
 
 const MOCK_APP_CONFIG: KilnAppConfig = {
-  appName: "kiln",
-  dirName: ".kiln",
-  version: "0.1.0",
-  description: "Kiln AI orchestration engine",
   createRegistry: () => new DomainRegistry({
     builtinConfigs: [PYTHON_CONFIG],
     domainsDir: ".kiln/domains",
   }),
   buildSystemPrompt: (opts) => {
-    const mem = opts.memorySnapshot ?? "No prior memory available.";
+    const mem = opts.projectedContext?.blocks?.[0]?.content ?? "No prior memory available.";
     return `<kiln-session><task>${opts.task}</task><memory>${mem}</memory></kiln-session>`;
   },
-  mcpServerName: "kiln",
 };
 
 describe("SessionManager", () => {
@@ -60,7 +61,7 @@ describe("SessionManager", () => {
 
   describe("prepare()", () => {
     it("returns a valid SessionContext", async () => {
-      const manager = new SessionManager(MOCK_CONFIG, MOCK_APP_CONFIG);
+      const manager = new SessionManager(MOCK_CONFIG, MOCK_APP_CONFIG, MOCK_CACHE);
       const ctx = await manager.prepare("Fix the bug", "/home/user/project");
 
       expect(ctx.mode).toBe("api-key");
@@ -72,7 +73,7 @@ describe("SessionManager", () => {
     });
 
     it("resolves MCP server entry path", async () => {
-      const manager = new SessionManager(MOCK_CONFIG, MOCK_APP_CONFIG);
+      const manager = new SessionManager(MOCK_CONFIG, MOCK_APP_CONFIG, MOCK_CACHE);
       const ctx = await manager.prepare("task", "/home/user/project");
 
       expect(ctx.mcpServerEntryPath).toContain("mcp");
@@ -80,11 +81,11 @@ describe("SessionManager", () => {
     });
 
     it("detects domain via DomainRegistry", async () => {
-      vi.mocked(existsSync).mockImplementation((p) => {
+      (existsSync as ReturnType<typeof vi.fn>).mockImplementation((p) => {
         return typeof p === "string" && p.includes("pyproject.toml");
       });
 
-      const manager = new SessionManager(MOCK_CONFIG, MOCK_APP_CONFIG);
+      const manager = new SessionManager(MOCK_CONFIG, MOCK_APP_CONFIG, MOCK_CACHE);
       const ctx = await manager.prepare("Add tests", "/home/user/python-project");
 
       expect(ctx.domain.name).toBe("python");
@@ -92,29 +93,26 @@ describe("SessionManager", () => {
     });
 
     it("falls back to generic domain when nothing detected", async () => {
-      vi.mocked(existsSync).mockReturnValue(false);
+      (existsSync as ReturnType<typeof vi.fn>).mockReturnValue(false);
 
-      const manager = new SessionManager(MOCK_CONFIG, MOCK_APP_CONFIG);
+      const manager = new SessionManager(MOCK_CONFIG, MOCK_APP_CONFIG, MOCK_CACHE);
       const ctx = await manager.prepare("Do something", "/home/user/unknown");
 
       expect(ctx.domain.name).toBe("generic");
     });
 
-    it("includes memory snapshot in system prompt when provided", async () => {
-      const manager = new SessionManager(MOCK_CONFIG, MOCK_APP_CONFIG);
-      const ctx = await manager.prepare(
-        "task",
-        "/home/user/project",
-        "Remember: use strict mode",
-      );
+    it("generates system prompt via buildSystemPrompt from app config", async () => {
+      const manager = new SessionManager(MOCK_CONFIG, MOCK_APP_CONFIG, MOCK_CACHE);
+      const ctx = await manager.prepare("task", "/home/user/project");
 
-      expect(ctx.systemPrompt).toContain("Remember: use strict mode");
+      expect(ctx.systemPrompt).toContain("<kiln-session>");
+      expect(ctx.systemPrompt).toContain("task");
     });
   });
 
   describe("cleanup()", () => {
     it("returns a SessionReport", async () => {
-      const manager = new SessionManager(MOCK_CONFIG, MOCK_APP_CONFIG);
+      const manager = new SessionManager(MOCK_CONFIG, MOCK_APP_CONFIG, MOCK_CACHE);
       await manager.prepare("Fix the login bug", "/home/user/project");
       const report = manager.cleanup("test-session-id");
 
