@@ -945,8 +945,11 @@ export async function startTui(
       (key.sequence === "\r" || key.sequence === "\n") &&
       state.status !== "running"
     ) {
-      // If a session is selected in the browser, trigger resume
-      if (state.sessions.length > 0 && state.selectedSessionIndex >= 0) {
+      // First: check for session resume (only when input is empty)
+      const inputText = state.input.trim();
+      
+      // If input is empty and a session is selected, resume it
+      if (inputText === "" && state.sessions.length > 0 && state.selectedSessionIndex >= 0) {
         const selectedSession = state.sessions[state.selectedSessionIndex];
         if (selectedSession && onResumeSession) {
           onResumeSession(selectedSession.sessionId);
@@ -955,52 +958,56 @@ export async function startTui(
         }
       }
 
-      const text = state.input.trim();
-      if (text) {
+      // Process slash commands (must check before session resume check)
+      if (inputText === "/clear" || inputText === "/theme" || inputText === "/provider") {
+        // Commands are handled after clearing input
         ui.inputTextarea.clear();
-        // Reset state.input immediately — inputTextarea.clear() only clears
-        // the visual widget, not the state string. Without this, leftover text
-        // from a slash command gets prepended to the next typed message.
         update(state, "input", "");
-
-        if (text === "/clear") {
-          void (async () => {
-            const session = await createSession();
-            const hasClear =
-              typeof (session as unknown as { clear?: unknown }).clear ===
-              "function";
-            if (hasClear) {
-              try {
-                await (
-                  session as unknown as { clear: () => Promise<void> }
-                ).clear();
-              } catch {
-                // fail-open
+        
+        if (inputText === "/clear") {
+            void (async () => {
+              const session = await createSession();
+              const hasClear =
+                typeof (session as unknown as { clear?: unknown }).clear ===
+                "function";
+              if (hasClear) {
+                try {
+                  await (
+                    session as unknown as { clear: () => Promise<void> }
+                  ).clear();
+                } catch {
+                  // fail-open
+                }
               }
-            }
-            const statusNode = new (
-              await import("@opentui/core")
-            ).TextRenderable(renderer, {
-              content: t`${fg(currentTheme.accent)("Session cleared. Starting fresh next turn.")}`,
-              width: "100%",
-            });
-            ui.chatScrollBox.content.add(statusNode);
-            update(state, "messages", [...state.messages]);
-          })();
-          return;
+              const statusNode = new (
+                await import("@opentui/core")
+              ).TextRenderable(renderer, {
+                content: t`${fg(currentTheme.accent)("Session cleared. Starting fresh next turn.")}`,
+                width: "100%",
+              });
+              ui.chatScrollBox.content.add(statusNode);
+              update(state, "messages", [...state.messages]);
+            })();
+            return;
+          }
+
+          if (inputText === "/theme") {
+            openThemePicker();
+            return;
+          }
+
+          if (inputText === "/provider") {
+            openProviderPicker();
+            return;
+          }
         }
 
-        if (text === "/theme") {
-          openThemePicker();
-          return;
-        }
+        // If there's text, submit as normal message (after clearing input for slash commands)
+        if (inputText) {
+          ui.inputTextarea.clear();
+          update(state, "input", "");
 
-        if (text === "/provider") {
-          openProviderPicker();
-          return;
-        }
-
-        void sendMessage(
+          void sendMessage(
           {
             renderer,
             state,
@@ -1017,7 +1024,7 @@ export async function startTui(
             renderSidebarApprovals: () => renderSidebarApprovals(state, currentTheme, ui),
             renderSidebarChanges: () => renderSidebarChanges(state, currentTheme, ui),
           },
-          text,
+          inputText,
           thinkingNodeRef,
           () => renderSidebarCost(state, currentTheme, ui),
           () => renderSidebarTurns(state, currentTheme, ui),
