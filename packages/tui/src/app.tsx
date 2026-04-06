@@ -959,7 +959,7 @@ export async function startTui(
       }
 
       // Process slash commands (must check before session resume check)
-      if (inputText === "/clear" || inputText === "/theme" || inputText === "/provider") {
+      if (inputText === "/clear" || inputText === "/theme" || inputText === "/provider" || inputText === "/resume") {
         // Commands are handled after clearing input
         ui.inputTextarea.clear();
         update(state, "input", "");
@@ -998,6 +998,18 @@ export async function startTui(
 
           if (inputText === "/provider") {
             openProviderPicker();
+            return;
+          }
+
+          if (inputText === "/resume") {
+            // Focus on session browser - move selection to first session
+            if (state.sessions.length > 0) {
+              update(state, "selectedSessionIndex", 0);
+              renderSidebarSessions(state, currentTheme, ui);
+              ui.commandBarStatus.content = t`${fg(currentTheme.accent)("Use arrow keys to select, Enter to resume")}`;
+            } else {
+              ui.commandBarStatus.content = t`${fg(currentTheme.error)("No sessions to resume")}`;
+            }
             return;
           }
         }

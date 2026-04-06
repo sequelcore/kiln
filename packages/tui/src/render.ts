@@ -153,9 +153,21 @@ export function renderSidebarProvider(
 function fmtSession(s: SessionListItem, selected: boolean): string {
   const date = s.completedAt.slice(0, 10);
   const costStr = `$${s.cost.toFixed(2)}`;
-  const taskShort = s.task.length > 18 ? s.task.slice(0, 18) + "…" : s.task;
+  const taskShort = s.task.length > 14 ? s.task.slice(0, 14) + "…" : s.task;
+  
+  let meta = "";
+  if (s.turns !== undefined && s.turns > 0) {
+    meta += `${s.turns}t`;
+  }
+  if (s.durationMs !== undefined && s.durationMs > 0) {
+    const secs = Math.round(s.durationMs / 1000);
+    if (meta) meta += " · ";
+    meta += secs < 60 ? `${secs}s` : `${Math.floor(secs / 60)}m${secs % 60}s`;
+  }
+  if (meta) meta = ` · ${meta}`;
+  
   const prefix = selected ? "▶ " : "  ";
-  return `${prefix}[${s.provider}] ${date} ${costStr} ${taskShort}`;
+  return `${prefix}[${s.provider}] ${date} ${costStr}${meta}\n    ${taskShort}`;
 }
 
 /**

@@ -90,6 +90,8 @@ export interface SessionListItem {
   task: string;
   completedAt: string;
   cost: number;
+  turns?: number;
+  durationMs?: number;
 }
 
 /** Pending approval request. */

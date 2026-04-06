@@ -140,7 +140,7 @@ export function initUI(
       const text = inputTextarea.plainText.trim();
       if (text && state.status !== "running" && !state.themePickerOpen) {
         inputTextarea.clear();
-        if (text === "/clear" || text === "/theme" || text === "/provider") {
+        if (text === "/clear" || text === "/theme" || text === "/provider" || text === "/resume") {
           return;
         }
         onSubmit(text);
