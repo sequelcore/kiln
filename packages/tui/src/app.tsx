@@ -28,6 +28,7 @@ import {
   renderSidebarSessions,
   renderSidebarApprovals,
   renderSidebarChanges,
+  renderSlashPopover,
 } from "./render.js";
 
 /** Spinner frames for thinking indicator. */
@@ -87,6 +88,15 @@ export async function startTui(
 
   const VALID_PROVIDERS = ["claude", "codex", "opencode"];
   let PROVIDER_MODELS: Record<string, string[]> = {};
+
+  const SLASH_COMMANDS = [
+    { id: "clear", trigger: "clear", title: "Clear session", description: "Start a new session", type: "builtin" as const },
+    { id: "theme", trigger: "theme", title: "Change theme", description: "Switch color theme", type: "builtin" as const },
+    { id: "provider", trigger: "provider", title: "Change provider", description: "Switch AI provider", type: "builtin" as const },
+    { id: "resume", trigger: "resume", title: "Resume session", description: "Browse and resume previous sessions", type: "builtin" as const },
+  ];
+
+  update(state, "slashCommands", SLASH_COMMANDS);
 
   if (providerModelsRef) {
     const pollModels = () => {
@@ -663,6 +673,22 @@ export async function startTui(
     if (ui.inputTextarea) {
       ui.inputTextarea.textColor = currentTheme.text;
     }
+    
+    const input = state.input;
+    if (input.startsWith("/")) {
+      const query = input.slice(1).toLowerCase();
+      const filtered = state.slashCommands.filter(cmd => 
+        cmd.trigger.toLowerCase().includes(query)
+      );
+      update(state, "slashCommands", filtered.length > 0 ? filtered : SLASH_COMMANDS);
+      update(state, "slashCommandIndex", 0);
+      update(state, "slashPopoverOpen", true);
+      renderSlashPopover(state, currentTheme, ui);
+    } else {
+      update(state, "slashPopoverOpen", false);
+      update(state, "slashCommands", SLASH_COMMANDS);
+      renderSlashPopover(state, currentTheme, ui);
+    }
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -1055,6 +1081,73 @@ export async function startTui(
       update(state, "input", state.input.slice(0, -1));
       renderInput();
       return;
+    }
+
+    // ── Slash command popover navigation ─────────────────────────────────
+    if (state.slashPopoverOpen) {
+      if (key.name === "up" || key.sequence === "\x1b[A" || key.name === "k") {
+        const newIndex = Math.max(0, state.slashCommandIndex - 1);
+        update(state, "slashCommandIndex", newIndex);
+        renderSlashPopover(state, currentTheme, ui);
+        return;
+      }
+      if (key.name === "down" || key.sequence === "\x1b[B" || key.name === "j") {
+        const newIndex = Math.min(state.slashCommands.length - 1, state.slashCommandIndex + 1);
+        update(state, "slashCommandIndex", newIndex);
+        renderSlashPopover(state, currentTheme, ui);
+        return;
+      }
+      if (key.sequence === "\r" || key.sequence === "\n") {
+        // Execute selected command
+        const cmd = state.slashCommands[state.slashCommandIndex];
+        if (cmd) {
+          ui.inputTextarea.clear();
+          update(state, "input", "");
+          update(state, "slashPopoverOpen", false);
+          
+          if (cmd.trigger === "clear") {
+            void (async () => {
+              const session = await createSession();
+              const hasClear = typeof (session as unknown as { clear?: unknown }).clear === "function";
+              if (hasClear) {
+                try {
+                  await (session as unknown as { clear: () => Promise<void> }).clear();
+                } catch { /* fail-open */ }
+              }
+              const statusNode = new (await import("@opentui/core")).TextRenderable(renderer, {
+                content: t`${fg(currentTheme.accent)("Session cleared.")}`,
+                width: "100%",
+              });
+              ui.chatScrollBox.content.add(statusNode);
+              update(state, "messages", [...state.messages]);
+            })();
+            return;
+          }
+          if (cmd.trigger === "theme") {
+            openThemePicker();
+            return;
+          }
+          if (cmd.trigger === "provider") {
+            openProviderPicker();
+            return;
+          }
+          if (cmd.trigger === "resume") {
+            if (state.sessions.length > 0) {
+              update(state, "selectedSessionIndex", 0);
+              renderSidebarSessions(state, currentTheme, ui);
+              ui.commandBarStatus.content = t`${fg(currentTheme.accent)("Use arrow keys to select, Enter to resume")}`;
+            }
+            return;
+          }
+        }
+        return;
+      }
+      if (key.sequence === "\x1b") {
+        update(state, "slashPopoverOpen", false);
+        update(state, "slashCommands", SLASH_COMMANDS);
+        renderSlashPopover(state, currentTheme, ui);
+        return;
+      }
     }
   });
 

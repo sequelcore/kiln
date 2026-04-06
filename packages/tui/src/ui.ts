@@ -51,6 +51,8 @@ export interface UIComponents {
   commandBar: InstanceType<typeof BoxRenderable>;
   commandBarStatus: InstanceType<typeof TextRenderable>;
   commandBarText: InstanceType<typeof TextRenderable>;
+  slashPopover: InstanceType<typeof BoxRenderable>;
+  slashPopoverText: InstanceType<typeof TextRenderable>;
 }
 
 /**
@@ -317,6 +319,24 @@ export function initUI(
   });
   sidebar.add(sidebarChangesText);
 
+  const slashPopover = new BoxRenderable(renderer, {
+    id: "slash-popover",
+    width: "100%",
+    maxHeight: 10,
+    flexDirection: "column",
+    backgroundColor: theme.background,
+    zIndex: 100,
+    visible: false,
+  });
+
+  const slashPopoverText = new TextRenderable(renderer, {
+    id: "slash-popover-text",
+    content: t`${fg(theme.text)("")}`,
+    width: "100%",
+    flexGrow: 1,
+  });
+  slashPopover.add(slashPopoverText);
+
   return {
     rootContainer,
     mainRow,
@@ -339,6 +359,8 @@ export function initUI(
     commandBar,
     commandBarStatus,
     commandBarText,
+    slashPopover,
+    slashPopoverText,
   };
 }
 

@@ -266,6 +266,35 @@ export function renderSidebarSessions(
 }
 
 /**
+ * Renders the slash command popover.
+ */
+export function renderSlashPopover(
+  state: ReactiveState,
+  theme: KilnTheme,
+  ui: import("./ui.js").UIComponents
+): void {
+  if (!state.slashPopoverOpen || state.slashCommands.length === 0) {
+    ui.slashPopover.visible = false;
+    ui.slashPopoverText.content = t`${fg(theme.text)("")}`;
+    return;
+  }
+
+  ui.slashPopover.visible = true;
+  const lines: string[] = [];
+  const maxItems = Math.min(state.slashCommands.length, 6);
+  
+  for (let i = 0; i < maxItems; i++) {
+    const cmd = state.slashCommands[i]!;
+    const isSelected = i === state.slashCommandIndex;
+    const prefix = isSelected ? "▶ " : "  ";
+    const desc = cmd.description ? ` - ${cmd.description}` : "";
+    lines.push(`${prefix}/${cmd.trigger}${desc}`);
+  }
+  
+  ui.slashPopoverText.content = t`${fg(theme.text)(lines.join("\n"))}`;
+}
+
+/**
  * Generates content for a message based on its role.
  */
 export function msgContent(

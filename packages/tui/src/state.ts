@@ -57,6 +57,12 @@ export interface ReactiveState {
   pendingApprovals: PendingApproval[];
   /** Files changed in the current session turn. */
   changedFiles: ChangedFile[];
+  /** Available slash commands for command palette. */
+  slashCommands: SlashCommand[];
+  /** Currently selected slash command index. */
+  slashCommandIndex: number;
+  /** Whether slash command popover is open. */
+  slashPopoverOpen: boolean;
   listeners: Set<() => void>;
 }
 
@@ -110,9 +116,16 @@ export interface ChangedFile {
   timestamp: Date;
 }
 
-/**
- * Real-time activity snapshot for live progress visibility.
- */
+/** Slash command for command palette. */
+export interface SlashCommand {
+  id: string;
+  trigger: string;
+  title: string;
+  description?: string;
+  type: "builtin" | "custom";
+}
+
+/** Real-time activity snapshot for live progress visibility. */
 export interface ActivitySnapshot {
   phase: "" | "planning" | "executing" | "reasoning" | "responding";
   toolName?: string;
@@ -153,6 +166,9 @@ export function createReactiveState(): ReactiveState {
     selectedSessionIndex: -1,
     pendingApprovals: [],
     changedFiles: [],
+    slashCommands: [],
+    slashCommandIndex: -1,
+    slashPopoverOpen: false,
     listeners: new Set(),
   };
 }
