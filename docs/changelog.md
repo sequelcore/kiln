@@ -2,6 +2,13 @@
 
 ## Unreleased -- Context Governance Foundations
 
+### feat(tui): session history browser in sidebar
+- Added `SessionStore.list()` method to retrieve all session records.
+- TUI sidebar now shows session history with provider, date, cost, and task.
+- Arrow keys (up/down) or vim keys (j/k) navigate session list.
+- Sessions displayed in reverse chronological order (newest first).
+- Selected session highlighted with "▶" prefix.
+
 ### fix(tui): model list is gateway-owned, TUI has no hardcoded models
 - `TuiGateway` now exposes `models: Record<string, string[]>` so callers can
   read the list synchronously without waiting for a WS connection.

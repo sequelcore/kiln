@@ -4,7 +4,7 @@
  */
 
 import { t, fg } from "@opentui/core";
-import type { ReactiveState, Message } from "./state.js";
+import type { ReactiveState, Message, SessionListItem } from "./state.js";
 import type { KilnTheme } from "./theme.js";
 import type { UIComponents } from "./ui.js";
 
@@ -145,6 +145,40 @@ export function renderSidebarProvider(
   const modelStr = model ? ` · ${model}` : "";
   const routeMode = state.routeMode === "auto" ? " auto" : " via user";
   ui.sidebarProviderText.content = t`${fg(theme.accent)("[" + state.currentProvider + "]")} ${fg(theme.text)(domain + modelStr)}${fg(theme.textMuted)(routeMode)}`;
+}
+
+/**
+ * Formats a session list item for sidebar display.
+ */
+function fmtSession(s: SessionListItem, selected: boolean): string {
+  const date = s.completedAt.slice(0, 10);
+  const costStr = `$${s.cost.toFixed(2)}`;
+  const taskShort = s.task.length > 18 ? s.task.slice(0, 18) + "…" : s.task;
+  const prefix = selected ? "▶ " : "  ";
+  return `${prefix}[${s.provider}] ${date} ${costStr} ${taskShort}`;
+}
+
+/**
+ * Renders the session history list in the sidebar.
+ */
+export function renderSidebarSessions(
+  state: ReactiveState,
+  theme: KilnTheme,
+  ui: UIComponents
+): void {
+  if (state.sessions.length === 0) {
+    ui.sidebarSessionsText.content = t`${fg(theme.textMuted)("(no sessions)")}`;
+    return;
+  }
+
+  const lines: string[] = [];
+  const maxItems = Math.min(state.sessions.length, 8);
+  for (let i = 0; i < maxItems; i++) {
+    const s = state.sessions[i]!;
+    const isSelected = i === state.selectedSessionIndex;
+    lines.push(fmtSession(s, isSelected));
+  }
+  ui.sidebarSessionsText.content = t`${fg(theme.text)(lines.join("\n"))}`;
 }
 
 /**

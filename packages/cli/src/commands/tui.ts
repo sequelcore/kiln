@@ -292,6 +292,17 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   for (const [ev, handler] of handlers) process.on(ev, handler);
 
   const resolvedTheme = themes[flags.theme ?? "kiln-dark"] ?? kilnDark;
+
+  // Session list loader for sidebar browser
+  async function loadSessionList() {
+    try {
+      const records = await sessionStore.list();
+      return records.slice(0, 20);
+    } catch {
+      return [];
+    }
+  }
+
   await startTui(
     createSession,
     provider,
@@ -300,6 +311,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     initialResumeInfo,
     () => loadInitialResumeInfo(cwd, sessionStore),
     providerModelsRef,
+    loadSessionList,
   );
 
   gateway.shutdown();

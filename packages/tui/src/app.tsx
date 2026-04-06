@@ -7,7 +7,7 @@ import { execSync } from "node:child_process";
 import { createCliRenderer, TextRenderable } from "@opentui/core";
 import { getFieldStore } from "@kilnai/core";
 import type { SessionLike } from "./types.js";
-import type { Message, ResumeSidebarInfo } from "./state.js";
+import type { Message, ResumeSidebarInfo, SessionListItem } from "./state.js";
 import { createReactiveState, update } from "./state.js";
 import type { KilnTheme } from "./theme.js";
 import { defaultTheme, themes } from "./theme.js";
@@ -25,6 +25,7 @@ import {
   renderSidebarTurns,
   renderSidebarProvider,
   renderSidebarField,
+  renderSidebarSessions,
 } from "./render.js";
 
 /** Spinner frames for thinking indicator. */
@@ -38,6 +39,7 @@ export async function startTui(
   initialResumeInfo: Record<string, ResumeSidebarInfo> = {},
   refreshResumeInfo?: () => Promise<Record<string, ResumeSidebarInfo>>,
   providerModelsRef?: { current: Record<string, string[]> },
+  loadSessions?: () => Promise<SessionListItem[]>,
 ): Promise<void> {
   const renderer = await createCliRenderer({
     exitOnCtrlC: false,
@@ -183,6 +185,28 @@ export async function startTui(
   renderSidebarProvider(state, currentTheme, ui, domain);
   renderSidebarResume(state, currentTheme, ui);
   renderSidebarField(state, currentTheme, ui);
+
+  // Load session history into sidebar
+  if (loadSessions) {
+    try {
+      const sessions = await loadSessions();
+      const sessionItems: SessionListItem[] = sessions.map((s) => ({
+        sessionId: s.sessionId,
+        provider: s.provider,
+        task: s.task,
+        completedAt: s.completedAt,
+        cost: s.cost,
+      }));
+      update(state, "sessions", sessionItems);
+      if (sessionItems.length > 0) {
+        update(state, "selectedSessionIndex", 0);
+      }
+      renderSidebarSessions(state, currentTheme, ui);
+    } catch {
+      // fail-open — sessions are optional
+    }
+  }
+
   renderer.start();
 
   const applySidebarVisibility = (visible: boolean): void => {
@@ -803,6 +827,35 @@ export async function startTui(
       }
 
       return;
+    }
+
+    // ── Session browser navigation ─────────────────────────────────────────
+    // Arrow keys navigate session list when there are sessions
+    if (state.sessions.length > 0) {
+      if (
+        key.name === "up" ||
+        key.sequence === "\x1b[A" ||
+        key.name === "k"
+      ) {
+        const newIndex = state.selectedSessionIndex <= 0
+          ? state.sessions.length - 1
+          : state.selectedSessionIndex - 1;
+        update(state, "selectedSessionIndex", newIndex);
+        renderSidebarSessions(state, currentTheme, ui);
+        return;
+      }
+      if (
+        key.name === "down" ||
+        key.sequence === "\x1b[B" ||
+        key.name === "j"
+      ) {
+        const newIndex = state.selectedSessionIndex >= state.sessions.length - 1
+          ? 0
+          : state.selectedSessionIndex + 1;
+        update(state, "selectedSessionIndex", newIndex);
+        renderSidebarSessions(state, currentTheme, ui);
+        return;
+      }
     }
 
     // ── Clipboard paste ───────────────────────────────────────────────────

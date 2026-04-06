@@ -24,12 +24,13 @@ Landed work:
 - native session persistence, `/clear`, provider picker, themes, activity bar,
   routing labels, and budget panel shipped
 - interactive `kiln` now launches the TUI by default
+- session history browser in sidebar with keyboard navigation
 
 Not landed yet:
 
 - approval queue as a first-class operator surface
 - diff/change visibility panel
-- fuller session browser/resume UX beyond the landed persistence flow
+- fuller session browser/resume UX (resume action on selected session)
 - OpenKiln-branded/channel-aware variant
 - Phase 7 closeout and alignment of this plan's sub-phase names with the
   roadmap/changelog record

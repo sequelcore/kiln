@@ -43,6 +43,7 @@ export interface UIComponents {
   sidebarFieldText: InstanceType<typeof TextRenderable>;
   sidebarDivider: InstanceType<typeof TextRenderable>;
   sidebarToolsBox: InstanceType<typeof ScrollBoxRenderable>;
+  sidebarSessionsText: InstanceType<typeof TextRenderable>;
   inputContainer: InstanceType<typeof BoxRenderable>;
   inputTextarea: InstanceType<typeof TextareaRenderable>;
   commandBar: InstanceType<typeof BoxRenderable>;
@@ -267,6 +268,22 @@ export function initUI(
   });
   sidebar.add(sidebarToolsBox);
 
+  const sidebarSessionsLabel = new TextRenderable(renderer, {
+    id: "sidebar-sessions-label",
+    content: t`${fg(theme.textMuted)("sessions")}`,
+    width: "100%",
+    height: 2,
+  });
+  sidebar.add(sidebarSessionsLabel);
+
+  const sidebarSessionsText = new TextRenderable(renderer, {
+    id: "sidebar-sessions",
+    content: t`${fg(theme.textMuted)("(no sessions)")}`,
+    width: "100%",
+    flexGrow: 1,
+  });
+  sidebar.add(sidebarSessionsText);
+
   return {
     rootContainer,
     mainRow,
@@ -281,6 +298,7 @@ export function initUI(
     sidebarFieldText,
     sidebarDivider,
     sidebarToolsBox,
+    sidebarSessionsText,
     inputContainer,
     inputTextarea,
     commandBar,

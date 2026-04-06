@@ -101,6 +101,24 @@ export class SessionStore {
       return null;
     }
   }
+
+  async list(): Promise<SessionRecord[]> {
+    try {
+      const content = await readFile(this.filePath, 'utf-8');
+      const lines = content.split('\n').filter((line) => line.trim() !== '');
+      const records: SessionRecord[] = [];
+      for (const line of lines) {
+        try {
+          records.push(JSON.parse(line) as SessionRecord);
+        } catch {
+          continue;
+        }
+      }
+      return records.reverse();
+    } catch {
+      return [];
+    }
+  }
 }
 
 export interface PersistedSessionMeta {

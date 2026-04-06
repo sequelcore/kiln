@@ -49,6 +49,10 @@ export interface ReactiveState {
   /** Last known runtime continuity metadata keyed by provider. */
   runtimeContinuityByProvider: Record<string, RuntimeContinuitySidebarInfo>;
   fieldSnapshot: FieldSidebarInfo;
+  /** Session history for sidebar browser. */
+  sessions: SessionListItem[];
+  /** Currently selected session index in the sidebar browser. */
+  selectedSessionIndex: number;
   listeners: Set<() => void>;
 }
 
@@ -73,6 +77,15 @@ export interface FieldSidebarInfo {
   saturation: number;
   entropy: number;
   status: "stable" | "runaway" | "starvation" | "unknown";
+}
+
+/** Session list item for sidebar display. */
+export interface SessionListItem {
+  sessionId: string;
+  provider: string;
+  task: string;
+  completedAt: string;
+  cost: number;
 }
 
 /**
@@ -114,6 +127,8 @@ export function createReactiveState(): ReactiveState {
     resumeInfoByProvider: {},
     runtimeContinuityByProvider: {},
     fieldSnapshot: { dominantRegions: [], saturation: 0, entropy: 0, status: "unknown" },
+    sessions: [],
+    selectedSessionIndex: -1,
     listeners: new Set(),
   };
 }
