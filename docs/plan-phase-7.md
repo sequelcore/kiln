@@ -31,7 +31,7 @@ Not landed yet:
 
 - approval queue as a first-class operator surface
 - diff/change visibility panel
-- fuller session browser/resume UX (resume action to continue from selected session)
+- session resume action (continue selected session from where it left off)
 - OpenKiln-branded/channel-aware variant
 - Phase 7 closeout and alignment of this plan's sub-phase names with the
   roadmap/changelog record
