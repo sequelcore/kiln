@@ -53,6 +53,8 @@ export interface ReactiveState {
   sessions: SessionListItem[];
   /** Currently selected session index in the sidebar browser. */
   selectedSessionIndex: number;
+  /** Pending approval requests from the gateway. */
+  pendingApprovals: PendingApproval[];
   listeners: Set<() => void>;
 }
 
@@ -86,6 +88,13 @@ export interface SessionListItem {
   task: string;
   completedAt: string;
   cost: number;
+}
+
+/** Pending approval request. */
+export interface PendingApproval {
+  sessionId: string;
+  description: string;
+  requestedAt: Date;
 }
 
 /**
@@ -129,6 +138,7 @@ export function createReactiveState(): ReactiveState {
     fieldSnapshot: { dominantRegions: [], saturation: 0, entropy: 0, status: "unknown" },
     sessions: [],
     selectedSessionIndex: -1,
+    pendingApprovals: [],
     listeners: new Set(),
   };
 }

@@ -2,6 +2,21 @@
 
 ## Unreleased -- Context Governance Foundations
 
+### feat(tui): approval queue in sidebar with keyboard controls
+- Added `PendingApproval` interface and `pendingApprovals` array to `ReactiveState`.
+- TUI sidebar now displays pending approval requests below sessions.
+- Keyboard controls: press 'a' to approve, 'd' to reject (when approvals exist).
+- Added frame types for approval flow:
+  - Inbound: `approval_requested`, `approval_received`
+  - Outbound: `approve`, `reject`
+- Gateway streams `approval_requested` events via `TuiActivityStreamer`
+  - Subscribes to `eventBus` for approval events and forwards to WebSocket
+- Gateway handles approve/reject frames via `ApprovalGateRegistry`
+  - Registers orchestrator as `ApprovalTarget` at startup
+  - Calls `orchestrator.continue()` on approve, emits `approval_received` on reject
+- Added `emitApprovalRequested()` and `emitApprovalReceived()` methods to
+  `ModeBOrchestrator` for emitting events to the event bus.
+
 ### feat(tui): session history browser in sidebar
 - Added `SessionStore.list()` method to retrieve all session records.
 - TUI sidebar now shows session history with provider, date, cost, and task.

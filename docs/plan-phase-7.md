@@ -27,10 +27,11 @@ Landed work:
 - session history browser in sidebar with keyboard navigation
 - Enter key shows selected session details in command bar
 - Enter again triggers resume of selected session via session manager
+- **approval queue in sidebar with keyboard controls** — press 'a' to approve,
+  'd' to reject; WebSocket frame flow end-to-end via event bus
 
 Not landed yet:
 
-- approval queue as a first-class operator surface
 - diff/change visibility panel
 - OpenKiln-branded/channel-aware variant
 - Phase 7 closeout and alignment of this plan's sub-phase names with the

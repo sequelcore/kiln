@@ -4,7 +4,7 @@
  */
 
 import { t, fg } from "@opentui/core";
-import type { ReactiveState, Message, SessionListItem } from "./state.js";
+import type { ReactiveState, Message, SessionListItem, PendingApproval } from "./state.js";
 import type { KilnTheme } from "./theme.js";
 import type { UIComponents } from "./ui.js";
 
@@ -156,6 +156,39 @@ function fmtSession(s: SessionListItem, selected: boolean): string {
   const taskShort = s.task.length > 18 ? s.task.slice(0, 18) + "…" : s.task;
   const prefix = selected ? "▶ " : "  ";
   return `${prefix}[${s.provider}] ${date} ${costStr} ${taskShort}`;
+}
+
+/**
+ * Formats an approval request for sidebar display.
+ */
+function fmtApproval(a: PendingApproval, index: number): string {
+  const descShort = a.description.length > 22 
+    ? a.description.slice(0, 22) + "…" 
+    : a.description;
+  const prefix = index === 0 ? "▶ " : "  ";
+  return `${prefix}${descShort}`;
+}
+
+/**
+ * Renders the approval queue in the sidebar.
+ */
+export function renderSidebarApprovals(
+  state: ReactiveState,
+  theme: KilnTheme,
+  ui: import("./ui.js").UIComponents
+): void {
+  if (state.pendingApprovals.length === 0) {
+    ui.sidebarApprovalsText.content = t`${fg(theme.textMuted)("(none)")}`;
+    return;
+  }
+
+  const lines: string[] = [];
+  const maxItems = Math.min(state.pendingApprovals.length, 5);
+  for (let i = 0; i < maxItems; i++) {
+    const a = state.pendingApprovals[i]!;
+    lines.push(fmtApproval(a, i));
+  }
+  ui.sidebarApprovalsText.content = t`${fg(theme.text)(lines.join("\n"))}`;
 }
 
 /**

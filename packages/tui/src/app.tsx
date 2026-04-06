@@ -26,6 +26,7 @@ import {
   renderSidebarProvider,
   renderSidebarField,
   renderSidebarSessions,
+  renderSidebarApprovals,
 } from "./render.js";
 
 /** Spinner frames for thinking indicator. */
@@ -167,6 +168,7 @@ export async function startTui(
           refreshResumeInfo,
           provider,
           domain,
+          renderSidebarApprovals: () => renderSidebarApprovals(state, currentTheme, ui),
         },
         text,
         thinkingNodeRef,
@@ -186,6 +188,7 @@ export async function startTui(
   renderSidebarProvider(state, currentTheme, ui, domain);
   renderSidebarResume(state, currentTheme, ui);
   renderSidebarField(state, currentTheme, ui);
+  renderSidebarApprovals(state, currentTheme, ui);
 
   // Load session history into sidebar
   if (loadSessions) {
@@ -859,6 +862,35 @@ export async function startTui(
       }
     }
 
+    // ── Approval queue ──────────────────────────────────────────────────────
+    // 'a' to approve, 'd' to reject when there are pending approvals
+    if (state.pendingApprovals.length > 0) {
+      if (key.name === "a") {
+        void (async () => {
+          const session = await createSession();
+          const hasApprove = typeof (session as unknown as { approve?: unknown }).approve === "function";
+          if (hasApprove) {
+            (session as unknown as { approve: (sessionId?: string) => void }).approve();
+          }
+          update(state, "pendingApprovals", state.pendingApprovals.slice(1));
+          renderSidebarApprovals(state, currentTheme, ui);
+        })();
+        return;
+      }
+      if (key.name === "d") {
+        void (async () => {
+          const session = await createSession();
+          const hasReject = typeof (session as unknown as { reject?: unknown }).reject === "function";
+          if (hasReject) {
+            (session as unknown as { reject: (reason: string, sessionId?: string) => void }).reject("rejected by user");
+          }
+          update(state, "pendingApprovals", state.pendingApprovals.slice(1));
+          renderSidebarApprovals(state, currentTheme, ui);
+        })();
+        return;
+      }
+    }
+
     // ── Clipboard paste ───────────────────────────────────────────────────
     if (key.ctrl && (key.name === "v" || key.sequence === "\x16")) {
       try {
@@ -979,6 +1011,7 @@ export async function startTui(
             refreshResumeInfo,
             provider,
             domain,
+            renderSidebarApprovals: () => renderSidebarApprovals(state, currentTheme, ui),
           },
           text,
           thinkingNodeRef,

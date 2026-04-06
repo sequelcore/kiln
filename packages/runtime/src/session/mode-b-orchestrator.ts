@@ -2,6 +2,8 @@ import type { ProviderAdapter, ContentPart, ToolDefinition, ToolCall } from "@ki
 import type { McpClient } from "@kilnai/core";
 import type {
   EventBus,
+  ApprovalRequestedEvent,
+  ApprovalReceivedEvent,
   ToolCalledEvent,
   ToolAuthorizedEvent,
   ToolResultEvent,
@@ -163,6 +165,41 @@ export class ModeBOrchestrator {
   /** The model identifier passed to this orchestrator. Used by callers for usage reporting. */
   get model(): string | undefined {
     return this.deps.model;
+  }
+
+  /** Get the event bus for emitting events. */
+  get eventBus(): EventBus | undefined {
+    return this.deps.eventBus;
+  }
+
+  /** Emit an approval_requested event. */
+  emitApprovalRequested(description: string, sessionId: string): void {
+    const event: ApprovalRequestedEvent = {
+      type: "approval_requested",
+      taskId: "",
+      description,
+      timestamp: new Date(),
+      sessionId,
+    };
+    this.deps.eventBus?.emit(event);
+  }
+
+  /** Emit an approval_received event. */
+  emitApprovalReceived(approved: boolean, reason?: string, sessionId?: string): void {
+    const event: ApprovalReceivedEvent = {
+      type: "approval_received",
+      taskId: "",
+      approved,
+      reason,
+      timestamp: new Date(),
+      sessionId: sessionId ?? "",
+    };
+    this.deps.eventBus?.emit(event);
+  }
+
+  /** Continue past an approval gate (for testing/manual triggering). */
+  continue(): void {
+    this.emitApprovalReceived(true, "user approved", "tui-session");
   }
 
   /** Current tool definitions. */

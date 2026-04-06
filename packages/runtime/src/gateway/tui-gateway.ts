@@ -4,10 +4,11 @@ import type { WSContext } from "hono/ws";
 import { execSync } from "node:child_process";
 import { ModeBOrchestrator } from "../session/mode-b-orchestrator.js";
 import { SessionRegistry } from "../session/session-registry.js";
-import { textParts, extractText } from "@kilnai/core";
+import { textParts, extractText, EventBus, type ApprovalRequestedEvent, type ApprovalReceivedEvent, type KilnEvent } from "@kilnai/core";
 import type { ContextArtifactCache } from "@kilnai/core";
-import type { CliSessionFactory, CliSessionEvent } from "../execution/cli-subscription-executor.js";
 import { CliSubscriptionExecutor } from "../execution/cli-subscription-executor.js";
+import type { CliSessionFactory, CliSessionEvent } from "../execution/cli-subscription-executor.js";
+import { ApprovalGateRegistry, ApprovalTarget } from "./approval-registry.js";
 import {
   classifyRuntimeContextPressure,
   formatRuntimeResumeFeedbackLabel,
@@ -112,6 +113,8 @@ export interface TuiGatewayOptions {
   readonly onProviderSwitch?: OnProviderSwitch;
   /** Optional context-artifact cache used to hydrate and persist runtime summaries. */
   readonly contextArtifactCache?: ContextArtifactCache;
+  /** Event bus for listening to approval events. */
+  readonly eventBus?: EventBus;
 }
 
 export interface TuiGateway {
@@ -146,8 +149,18 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
     providerLabel,
     (event) => activityStreamer.forward(event),
   );
-  const orchestrator = new ModeBOrchestrator({ provider: executor });
+  const eventBus = options.eventBus ?? new EventBus(100);
+  const orchestrator = new ModeBOrchestrator({ provider: executor, eventBus });
+  const approvalRegistry = new ApprovalGateRegistry();
   const sessionRegistry = new SessionRegistry();
+
+  // Register orchestrator with approval registry for approval frame handling
+  const approvalTarget: ApprovalTarget = {
+    approve: () => orchestrator.continue?.(),
+    reject: (reason: string) => orchestrator.emitApprovalReceived(false, reason),
+    status: () => "awaiting_approval", // Simplified: always treat as awaiting_approval when approve is called
+  };
+  approvalRegistry.register("tui-session", approvalTarget);
 
   const { upgradeWebSocket, websocket } = createBunWebSocket();
 
@@ -164,7 +177,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
 
       return {
         async onOpen(_event: Event, ws: WSContext) {
-          activityStreamer.register(ws);
+          activityStreamer.register(ws, options.eventBus);
           ws.send(JSON.stringify({
             type: "welcome",
             models: {
@@ -202,6 +215,25 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
               }
               options.onProviderSwitch?.(newProvider);
               ws.send(JSON.stringify({ type: "provider_changed", provider: newProvider }));
+              return;
+            }
+
+            // Handle approval responses from TUI
+            if (frame.type === "approve") {
+              const sessionId = typeof frame.sessionId === "string" ? frame.sessionId : undefined;
+              const result = approvalRegistry.approve(sessionId);
+              if (!result.ok) {
+                ws.send(JSON.stringify({ type: "error", message: result.error ?? "Approval failed" }));
+              }
+              return;
+            }
+            if (frame.type === "reject") {
+              const sessionId = typeof frame.sessionId === "string" ? frame.sessionId : undefined;
+              const reason = typeof frame.reason === "string" ? frame.reason : "rejected by user";
+              const result = approvalRegistry.reject(reason, sessionId);
+              if (!result.ok) {
+                ws.send(JSON.stringify({ type: "error", message: result.error ?? "Rejection failed" }));
+              }
               return;
             }
 
@@ -363,13 +395,61 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
  */
 class TuiActivityStreamer {
   private ws: WSContext | null = null;
+  private eventBus: EventBus | null = null;
+  private approvalHandler: ((event: import("@kilnai/core").KilnEvent) => void) | null = null;
+  private receivedHandler: ((event: import("@kilnai/core").KilnEvent) => void) | null = null;
 
-  register(ws: WSContext): void {
+  register(ws: WSContext, eventBus?: EventBus): void {
     this.ws = ws;
+    this.eventBus = eventBus ?? null;
+    this.setupEventListeners();
+  }
+
+  private setupEventListeners(): void {
+    if (!this.eventBus) return;
+
+    this.approvalHandler = (event: KilnEvent) => {
+      if (event.type === "approval_requested") {
+        const approvalEvent = event as unknown as ApprovalRequestedEvent;
+        if (this.ws) {
+          this.ws.send(JSON.stringify({
+            type: "approval_requested",
+            description: approvalEvent.description,
+            sessionId: approvalEvent.sessionId,
+          }));
+        }
+      }
+    };
+    this.eventBus.onAny(this.approvalHandler);
+
+    this.receivedHandler = (event: KilnEvent) => {
+      if (event.type === "approval_received") {
+        const receivedEvent = event as unknown as ApprovalReceivedEvent;
+        if (this.ws) {
+          this.ws.send(JSON.stringify({
+            type: "approval_received",
+            approved: receivedEvent.approved,
+            reason: receivedEvent.reason,
+          }));
+        }
+      }
+    };
+    this.eventBus.onAny(this.receivedHandler);
   }
 
   unregister(ws: WSContext): void {
-    if (this.ws === ws) this.ws = null;
+    if (this.ws === ws) {
+      this.ws = null;
+    }
+    if (this.eventBus && this.approvalHandler) {
+      this.eventBus.offAny(this.approvalHandler);
+      this.approvalHandler = null;
+    }
+    if (this.eventBus && this.receivedHandler) {
+      this.eventBus.offAny(this.receivedHandler);
+      this.receivedHandler = null;
+    }
+    this.eventBus = null;
   }
 
   forward(event: CliSessionEvent): void {
@@ -400,5 +480,6 @@ class TuiActivityStreamer {
       }));
     }
     // text_delta, completed, error are handled by the gateway's done frame
+    // approval_requested/approval_received come via eventBus, not CliSessionEvent
   }
 }

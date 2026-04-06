@@ -44,6 +44,7 @@ export interface UIComponents {
   sidebarDivider: InstanceType<typeof TextRenderable>;
   sidebarToolsBox: InstanceType<typeof ScrollBoxRenderable>;
   sidebarSessionsText: InstanceType<typeof TextRenderable>;
+  sidebarApprovalsText: InstanceType<typeof TextRenderable>;
   inputContainer: InstanceType<typeof BoxRenderable>;
   inputTextarea: InstanceType<typeof TextareaRenderable>;
   commandBar: InstanceType<typeof BoxRenderable>;
@@ -284,6 +285,22 @@ export function initUI(
   });
   sidebar.add(sidebarSessionsText);
 
+  const sidebarApprovalsLabel = new TextRenderable(renderer, {
+    id: "sidebar-approvals-label",
+    content: t`${fg(theme.textMuted)("approvals")}`,
+    width: "100%",
+    height: 2,
+  });
+  sidebar.add(sidebarApprovalsLabel);
+
+  const sidebarApprovalsText = new TextRenderable(renderer, {
+    id: "sidebar-approvals",
+    content: t`${fg(theme.textMuted)("(none)")}`,
+    width: "100%",
+    flexGrow: 1,
+  });
+  sidebar.add(sidebarApprovalsText);
+
   return {
     rootContainer,
     mainRow,
@@ -299,6 +316,7 @@ export function initUI(
     sidebarDivider,
     sidebarToolsBox,
     sidebarSessionsText,
+    sidebarApprovalsText,
     inputContainer,
     inputTextarea,
     commandBar,

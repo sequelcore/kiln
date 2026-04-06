@@ -28,7 +28,9 @@ export type TuiInboundFrame =
   | { type: "error"; message: string; code?: string }
   | { type: "welcome"; greeting?: string; models?: Record<string, string[]> }
   | { type: "cleared" }
-  | { type: "provider_changed"; provider: string };
+  | { type: "provider_changed"; provider: string }
+  | { type: "approval_requested"; description: string; sessionId: string }
+  | { type: "approval_received"; approved: boolean; reason?: string };
 
 /**
  * Outbound frames the TUI sends to the gateway.
@@ -36,7 +38,9 @@ export type TuiInboundFrame =
 export type TuiOutboundFrame =
   | { type: "message"; content: string }
   | { type: "clear" }
-  | { type: "provider"; provider: string; model?: string };
+  | { type: "provider"; provider: string; model?: string }
+  | { type: "approve"; sessionId?: string }
+  | { type: "reject"; reason: string; sessionId?: string };
 
 /**
  * Configuration options for TuiWsClient.

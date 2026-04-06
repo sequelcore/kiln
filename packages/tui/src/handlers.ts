@@ -14,7 +14,7 @@ import {
   type ScrollBoxRenderable,
 } from "@opentui/core";
 import type { SessionLike } from "./types.js";
-import type { ReactiveState, Message, ResumeSidebarInfo } from "./state.js";
+import type { ReactiveState, Message, ResumeSidebarInfo, PendingApproval } from "./state.js";
 import { update, createMessage } from "./state.js";
 import type { KilnTheme } from "./theme.js";
 import type { UIComponents } from "./ui.js";
@@ -35,6 +35,7 @@ export interface HandlerContext {
   refreshResumeInfo?: () => Promise<Record<string, ResumeSidebarInfo>>;
   provider: string;
   domain: string;
+  renderSidebarApprovals?: () => void;
 }
 
 /**
@@ -254,12 +255,22 @@ export function handleActivity(
   input: unknown | undefined,
   inputTokens: number | undefined,
   outputTokens: number | undefined,
-  renderSidebarCost: () => void
+  renderSidebarCost: () => void,
+  renderSidebarApprovals?: () => void
 ): void {
   // Ignore late-arriving frames after the turn has completed.
   if (ctx.state.status !== "running") return;
 
-  if (activity === "cost_update" && usd !== undefined) {
+  if (activity === "approval_requested" && output !== undefined) {
+    handleApprovalRequested(ctx, output, "");
+    renderSidebarApprovals?.();
+  } else if (activity === "approval_approved" || activity === "approval_rejected") {
+    // Clear the first pending approval when we get a response
+    if (ctx.state.pendingApprovals.length > 0) {
+      update(ctx.state, "pendingApprovals", ctx.state.pendingApprovals.slice(1));
+      renderSidebarApprovals?.();
+    }
+  } else if (activity === "cost_update" && usd !== undefined) {
     handleCostUpdate(ctx, usd, renderSidebarCost, inputTokens, outputTokens);
   } else if (activity === "tool_use" && toolName) {
     handleToolUse(ctx, toolName, input);
@@ -345,6 +356,22 @@ export function handleError(
 }
 
 /**
+ * Handles approval_requested events - adds to pending approvals queue.
+ */
+export function handleApprovalRequested(
+  ctx: HandlerContext,
+  description: string,
+  sessionId: string
+): void {
+  const approval: PendingApproval = {
+    sessionId,
+    description,
+    requestedAt: new Date(),
+  };
+  update(ctx.state, "pendingApprovals", [...ctx.state.pendingApprovals, approval]);
+}
+
+/**
  * Spinner animation frames.
  */
 export const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -408,7 +435,18 @@ export async function sendMessage(
           if (event.usd) handleCostUpdate(ctx, event.usd, renderSidebarCost);
           break;
         case "activity":
-          handleActivity(ctx, event.activity, event.toolName, event.output, event.usd, event.input, event.inputTokens, event.outputTokens, renderSidebarCost);
+          handleActivity(
+            ctx,
+            event.activity,
+            event.toolName,
+            event.output,
+            event.usd,
+            event.input,
+            event.inputTokens,
+            event.outputTokens,
+            renderSidebarCost,
+            ctx.renderSidebarApprovals,
+          );
           break;
         case "thinking":
           handleThinking(ctx, renderSidebarCost);

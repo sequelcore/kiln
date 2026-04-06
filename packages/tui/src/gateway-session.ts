@@ -122,7 +122,7 @@ export class GatewaySession implements SessionLike {
           this.providerChangeCallbacks = null;
           resolve(newProvider);
         },
-        reject: (err) => {
+        reject: (err: Error) => {
           clearTimeout(timeout);
           this.providerChangeCallbacks = null;
           reject(err);
@@ -131,6 +131,20 @@ export class GatewaySession implements SessionLike {
 
       this.client.send({ type: "provider", provider, ...(model ? { model } : {}) });
     });
+  }
+
+  /**
+   * Send an approval response to the gateway.
+   */
+  approve(sessionId?: string): void {
+    this.client.send({ type: "approve", sessionId });
+  }
+
+  /**
+   * Send a rejection response to the gateway.
+   */
+  reject(reason: string, sessionId?: string): void {
+    this.client.send({ type: "reject", reason, sessionId });
   }
 
   async dispose(): Promise<void> {
@@ -169,6 +183,18 @@ export class GatewaySession implements SessionLike {
     } else if (frame.type === "error") {
       this.push({ type: "error", message: frame.message });
       this.pushStop();
+    } else if (frame.type === "approval_requested") {
+      this.push({ 
+        type: "activity", 
+        activity: "approval_requested",
+        details: frame.description,
+      });
+    } else if (frame.type === "approval_received") {
+      this.push({ 
+        type: "activity", 
+        activity: frame.approved ? "approval_approved" : "approval_rejected",
+        details: frame.reason,
+      });
     }
     // welcome frame: invoke callback if models provided
     if (frame.type === "welcome" && frame.models && this.onWelcome) {
