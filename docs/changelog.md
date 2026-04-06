@@ -8,6 +8,7 @@
 - Arrow keys (up/down) or vim keys (j/k) navigate session list.
 - Sessions displayed in reverse chronological order (newest first).
 - Selected session highlighted with "▶" prefix.
+- Press Enter on selected session to view details in command bar.
 
 ### fix(tui): model list is gateway-owned, TUI has no hardcoded models
 - `TuiGateway` now exposes `models: Record<string, string[]>` so callers can

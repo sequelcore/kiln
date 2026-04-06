@@ -909,6 +909,18 @@ export async function startTui(
       (key.sequence === "\r" || key.sequence === "\n") &&
       state.status !== "running"
     ) {
+      // If a session is selected in the browser, show its details
+      if (state.sessions.length > 0 && state.selectedSessionIndex >= 0) {
+        const selectedSession = state.sessions[state.selectedSessionIndex];
+        if (selectedSession) {
+          const details = `[${selectedSession.provider}] ${selectedSession.task}\n${
+            selectedSession.cost.toFixed(4)
+          } • ${selectedSession.completedAt}\nID: ${selectedSession.sessionId.slice(0, 12)}...`;
+          ui.commandBarStatus.content = t`${fg(currentTheme.accent)(details)}`;
+          return;
+        }
+      }
+
       const text = state.input.trim();
       if (text) {
         ui.inputTextarea.clear();

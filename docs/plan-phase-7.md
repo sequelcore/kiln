@@ -25,12 +25,13 @@ Landed work:
   routing labels, and budget panel shipped
 - interactive `kiln` now launches the TUI by default
 - session history browser in sidebar with keyboard navigation
+- Enter key shows selected session details in command bar
 
 Not landed yet:
 
 - approval queue as a first-class operator surface
 - diff/change visibility panel
-- fuller session browser/resume UX (resume action on selected session)
+- fuller session browser/resume UX (resume action to continue from selected session)
 - OpenKiln-branded/channel-aware variant
 - Phase 7 closeout and alignment of this plan's sub-phase names with the
   roadmap/changelog record
