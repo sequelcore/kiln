@@ -40,6 +40,7 @@ export async function startTui(
   refreshResumeInfo?: () => Promise<Record<string, ResumeSidebarInfo>>,
   providerModelsRef?: { current: Record<string, string[]> },
   loadSessions?: () => Promise<SessionListItem[]>,
+  onResumeSession?: (sessionId: string) => void,
 ): Promise<void> {
   const renderer = await createCliRenderer({
     exitOnCtrlC: false,
@@ -909,14 +910,12 @@ export async function startTui(
       (key.sequence === "\r" || key.sequence === "\n") &&
       state.status !== "running"
     ) {
-      // If a session is selected in the browser, show its details
+      // If a session is selected in the browser, trigger resume
       if (state.sessions.length > 0 && state.selectedSessionIndex >= 0) {
         const selectedSession = state.sessions[state.selectedSessionIndex];
-        if (selectedSession) {
-          const details = `[${selectedSession.provider}] ${selectedSession.task}\n${
-            selectedSession.cost.toFixed(4)
-          } • ${selectedSession.completedAt}\nID: ${selectedSession.sessionId.slice(0, 12)}...`;
-          ui.commandBarStatus.content = t`${fg(currentTheme.accent)(details)}`;
+        if (selectedSession && onResumeSession) {
+          onResumeSession(selectedSession.sessionId);
+          ui.commandBarStatus.content = t`${fg(currentTheme.accent)(`Resuming session ${selectedSession.sessionId.slice(0, 8)}...`)}`;
           return;
         }
       }

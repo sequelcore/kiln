@@ -165,6 +165,12 @@ export async function makeMultiProviderSessionFactory(
       providerState[p].providerSessionId = undefined;
       await sessionStore.clearLast(p);
     },
+    setResumeSession: (sessionId: string, provider: string) => {
+      if (VALID_PROVIDERS.includes(provider as SupportedProvider)) {
+        const p = provider as SupportedProvider;
+        providerState[p].resumeSessionId = sessionId;
+      }
+    },
   };
 }
 
@@ -175,6 +181,7 @@ export interface MultiProviderSessionManager {
   getModel: () => string;
   setModel: (model: string) => void;
   onClear: (provider?: string) => Promise<void>;
+  setResumeSession: (sessionId: string, provider: string) => void;
 }
 
 function formatResumeFeedback(feedback: ResumeFeedback | undefined): string | undefined {
@@ -303,6 +310,12 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     }
   }
 
+  // Session resume handler - sets resume session ID for the selected provider
+  const handleResumeSession = (sessionId: string) => {
+    // Find which provider this session belongs to and set it as the resume target
+    sessionManager.setResumeSession(sessionId, provider);
+  };
+
   await startTui(
     createSession,
     provider,
@@ -312,6 +325,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     () => loadInitialResumeInfo(cwd, sessionStore),
     providerModelsRef,
     loadSessionList,
+    handleResumeSession,
   );
 
   gateway.shutdown();

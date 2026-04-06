@@ -26,12 +26,12 @@ Landed work:
 - interactive `kiln` now launches the TUI by default
 - session history browser in sidebar with keyboard navigation
 - Enter key shows selected session details in command bar
+- Enter again triggers resume of selected session via session manager
 
 Not landed yet:
 
 - approval queue as a first-class operator surface
 - diff/change visibility panel
-- session resume action (continue selected session from where it left off)
 - OpenKiln-branded/channel-aware variant
 - Phase 7 closeout and alignment of this plan's sub-phase names with the
   roadmap/changelog record

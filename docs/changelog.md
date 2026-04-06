@@ -9,6 +9,7 @@
 - Sessions displayed in reverse chronological order (newest first).
 - Selected session highlighted with "▶" prefix.
 - Press Enter on selected session to view details in command bar.
+- Press Enter again to trigger resume of that session via the session manager.
 
 ### fix(tui): model list is gateway-owned, TUI has no hardcoded models
 - `TuiGateway` now exposes `models: Record<string, string[]>` so callers can
