@@ -90,6 +90,13 @@ export type SessionEvent =
   | { type: "tool_use"; toolName: string; input: unknown; source?: "native" | "mcp"; mcpSelector?: string }
   | { type: "tool_result"; toolName: string; output: string }
   | {
+      type: "file_changed";
+      path: string;
+      changeType: "created" | "modified" | "deleted";
+      linesAdded?: number;
+      linesRemoved?: number;
+    }
+  | {
       type: "cost_update";
       usd: number;
       mode: CostTrackingMode;

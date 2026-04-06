@@ -45,6 +45,7 @@ export interface UIComponents {
   sidebarToolsBox: InstanceType<typeof ScrollBoxRenderable>;
   sidebarSessionsText: InstanceType<typeof TextRenderable>;
   sidebarApprovalsText: InstanceType<typeof TextRenderable>;
+  sidebarChangesText: InstanceType<typeof TextRenderable>;
   inputContainer: InstanceType<typeof BoxRenderable>;
   inputTextarea: InstanceType<typeof TextareaRenderable>;
   commandBar: InstanceType<typeof BoxRenderable>;
@@ -301,6 +302,21 @@ export function initUI(
   });
   sidebar.add(sidebarApprovalsText);
 
+  const sidebarChangesLabel = new TextRenderable(renderer, {
+    content: t`${fg(theme.textMuted)("changes")}`,
+    width: "100%",
+    height: 2,
+  });
+  sidebar.add(sidebarChangesLabel);
+
+  const sidebarChangesText = new TextRenderable(renderer, {
+    id: "sidebar-changes",
+    content: t`${fg(theme.textMuted)("(none)")}`,
+    width: "100%",
+    flexGrow: 1,
+  });
+  sidebar.add(sidebarChangesText);
+
   return {
     rootContainer,
     mainRow,
@@ -317,6 +333,7 @@ export function initUI(
     sidebarToolsBox,
     sidebarSessionsText,
     sidebarApprovalsText,
+    sidebarChangesText,
     inputContainer,
     inputTextarea,
     commandBar,

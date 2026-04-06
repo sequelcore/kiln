@@ -608,10 +608,11 @@ Gateway live at gw.kilvo.app on Coolify. See [Gateway YAML](docs/configuration/g
 
 ### Phase 7 — Kiln TUI (The Final Destination)
 
-**Status:** STARTED
-**Current state:** Phase 7 has moved beyond foundation work. `7a` through `7f`
-are complete, and Kiln TUI is now a working terminal product surface rather than
-a scaffold. Phase 8 (Agent Teams) follows after 7g.
+**Status:** DONE (v0.25.0)
+**Current state:** All sub-phases complete (7a through 7g). Kiln TUI is a working
+terminal product surface with conversation shell, approval queue, routing
+indicator, budget panel, session browser, and diff/change visibility. Phase 8
+(Agent Teams) is next.
 
 **Goal:** Replace claude TUI as the primary entry point.
 Kiln TUI is the conversational interface that orchestrates
@@ -727,8 +728,8 @@ Persistent conversational interface showing:
 7e. Routing indicator (which CLI was chosen and why) — DONE (v0.24.4)
    - Chat responses show provider/model labels
    - Sidebar provider display includes route mode badge (`user` vs future `auto`)
- 7f. Full integration: kiln command launches TUI by default when interactive — DONE (v0.24.5)
- 7g. Diff/change visibility (file diffs, change summary per turn)
+  7f. Full integration: kiln command launches TUI by default when interactive — DONE (v0.24.5)
+  7g. Diff/change visibility (file diffs, change summary per turn) — DONE (v0.25.0)
 
 ---
 

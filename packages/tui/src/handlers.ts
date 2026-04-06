@@ -36,6 +36,7 @@ export interface HandlerContext {
   provider: string;
   domain: string;
   renderSidebarApprovals?: () => void;
+  renderSidebarChanges?: () => void;
 }
 
 /**
@@ -256,7 +257,8 @@ export function handleActivity(
   inputTokens: number | undefined,
   outputTokens: number | undefined,
   renderSidebarCost: () => void,
-  renderSidebarApprovals?: () => void
+  renderSidebarApprovals?: () => void,
+  event?: { path?: string; changeType?: "created" | "modified" | "deleted"; linesAdded?: number; linesRemoved?: number }
 ): void {
   // Ignore late-arriving frames after the turn has completed.
   if (ctx.state.status !== "running") return;
@@ -276,6 +278,18 @@ export function handleActivity(
     handleToolUse(ctx, toolName, input);
   } else if (activity === "tool_result" && toolName && output) {
     handleToolResult(ctx, toolName, output);
+  } else if (activity === "file_changed") {
+    const path = (event as { path?: string }).path;
+    const changeType = (event as { changeType?: "created" | "modified" | "deleted" }).changeType;
+    const linesAdded = (event as { linesAdded?: number }).linesAdded;
+    const linesRemoved = (event as { linesRemoved?: number }).linesRemoved;
+    if (path && changeType) {
+      update(ctx.state, "changedFiles", [
+        ...ctx.state.changedFiles,
+        { path, changeType, linesAdded, linesRemoved, timestamp: new Date() },
+      ]);
+      ctx.renderSidebarChanges?.();
+    }
   }
 }
 
@@ -446,6 +460,7 @@ export async function sendMessage(
             event.outputTokens,
             renderSidebarCost,
             ctx.renderSidebarApprovals,
+            event,
           );
           break;
         case "thinking":

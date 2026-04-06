@@ -55,6 +55,8 @@ export interface ReactiveState {
   selectedSessionIndex: number;
   /** Pending approval requests from the gateway. */
   pendingApprovals: PendingApproval[];
+  /** Files changed in the current session turn. */
+  changedFiles: ChangedFile[];
   listeners: Set<() => void>;
 }
 
@@ -95,6 +97,15 @@ export interface PendingApproval {
   sessionId: string;
   description: string;
   requestedAt: Date;
+}
+
+/** File change record. */
+export interface ChangedFile {
+  path: string;
+  changeType: "created" | "modified" | "deleted";
+  linesAdded?: number;
+  linesRemoved?: number;
+  timestamp: Date;
 }
 
 /**
@@ -139,6 +150,7 @@ export function createReactiveState(): ReactiveState {
     sessions: [],
     selectedSessionIndex: -1,
     pendingApprovals: [],
+    changedFiles: [],
     listeners: new Set(),
   };
 }

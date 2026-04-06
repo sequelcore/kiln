@@ -27,6 +27,7 @@ import {
   renderSidebarField,
   renderSidebarSessions,
   renderSidebarApprovals,
+  renderSidebarChanges,
 } from "./render.js";
 
 /** Spinner frames for thinking indicator. */
@@ -169,6 +170,7 @@ export async function startTui(
           provider,
           domain,
           renderSidebarApprovals: () => renderSidebarApprovals(state, currentTheme, ui),
+          renderSidebarChanges: () => renderSidebarChanges(state, currentTheme, ui),
         },
         text,
         thinkingNodeRef,
@@ -189,6 +191,7 @@ export async function startTui(
   renderSidebarResume(state, currentTheme, ui);
   renderSidebarField(state, currentTheme, ui);
   renderSidebarApprovals(state, currentTheme, ui);
+  renderSidebarChanges(state, currentTheme, ui);
 
   // Load session history into sidebar
   if (loadSessions) {
@@ -1012,6 +1015,7 @@ export async function startTui(
             provider,
             domain,
             renderSidebarApprovals: () => renderSidebarApprovals(state, currentTheme, ui),
+            renderSidebarChanges: () => renderSidebarChanges(state, currentTheme, ui),
           },
           text,
           thinkingNodeRef,

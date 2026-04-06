@@ -170,6 +170,45 @@ function fmtApproval(a: PendingApproval, index: number): string {
 }
 
 /**
+ * Renders the changed files list in the sidebar.
+ */
+export function renderSidebarChanges(
+  state: ReactiveState,
+  theme: KilnTheme,
+  ui: import("./ui.js").UIComponents
+): void {
+  if (state.changedFiles.length === 0) {
+    ui.sidebarChangesText.content = t`${fg(theme.textMuted)("(none)")}`;
+    return;
+  }
+
+  const lines: string[] = [];
+  const maxItems = Math.min(state.changedFiles.length, 8);
+  for (let i = 0; i < maxItems; i++) {
+    const f = state.changedFiles[i]!;
+    lines.push(fmtChange(f, i));
+  }
+  ui.sidebarChangesText.content = t`${fg(theme.text)(lines.join("\n"))}`;
+}
+
+/**
+ * Formats a file change for sidebar display.
+ */
+function fmtChange(f: import("./state.js").ChangedFile, index: number): string {
+  const icon = f.changeType === "created" ? "+" : f.changeType === "deleted" ? "-" : "~";
+  const base = f.path.split("/").pop() ?? f.path;
+  const prefix = index === 0 ? "▶ " : "  ";
+  
+  if (f.linesAdded !== undefined || f.linesRemoved !== undefined) {
+    const added = f.linesAdded ? `+${f.linesAdded}` : "";
+    const removed = f.linesRemoved ? `-${f.linesRemoved}` : "";
+    return `${prefix}${icon} ${base} ${added}${removed}`;
+  }
+  
+  return `${prefix}${icon} ${base}`;
+}
+
+/**
  * Renders the approval queue in the sidebar.
  */
 export function renderSidebarApprovals(

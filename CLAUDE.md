@@ -296,6 +296,10 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 
 See [STRATEGY.md](STRATEGY.md) for roadmap and phase status.
 
+### Phase 7 — Kiln TUI (COMPLETE v0.25.0)
+
+All sub-phases complete: 7a (package scaffold), 7b (conversation shell), 7c (TUI Gateway integration), 7d (budget panel), 7e (routing indicator), 7f (interactive default), 7g (diff/change visibility). Kiln TUI is now a full terminal product surface.
+
 ### Integration Runtime Phase 4 (MCP Surface)
 
 Expose integration adapters as MCP tools (same implementation, two surfaces). Phases 1-3 complete. Phase 4 MCP wiring complete (v0.22.0): `integration_list` and `integration_execute` wired.
@@ -306,7 +310,8 @@ Kiln as production runtime for CLI agents (Claude Code, Codex CLI, Goose) via MC
 
 ### OpenKiln (Personal AI Agent)
 
-OpenKiln: See STRATEGY.md Phase 5 for full plan.
+OpenKiln is a downstream product built on Kiln, not an engine phase.
+See STRATEGY.md Phase 7 for the TUI that powers OpenKiln.
 
 ### kiln run v2 (cross-CLI)
 

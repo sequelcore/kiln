@@ -470,6 +470,15 @@ class TuiActivityStreamer {
         toolName: event.toolName,
         output: event.output,
       }));
+    } else if (event.type === "file_changed") {
+      this.ws.send(JSON.stringify({
+        type: "activity",
+        activity: "file_changed",
+        path: event.path,
+        changeType: event.changeType,
+        linesAdded: event.linesAdded,
+        linesRemoved: event.linesRemoved,
+      }));
     } else if (event.type === "cost_update") {
       this.ws.send(JSON.stringify({
         type: "activity",

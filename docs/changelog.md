@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased -- Diff/Change Visibility (v0.25.0)
+
+### feat(tui): diff/change visibility in sidebar
+- Added `file_changed` event type to `SessionEvent` union in CLI and TUI.
+- Added `extractFileChange()` method in `CliSubscriptionExecutor` to parse tool results
+  from Edit/Write/MultiEdit tools and emit structured change events.
+- TUI now displays a "changes" section in the sidebar showing files modified during
+  the session turn with icons: `+` (created), `~` (modified), `-` (deleted).
+- Added `changedFiles: ChangedFile[]` to `ReactiveState` with `ChangedFile` interface
+  containing path, changeType, linesAdded, linesRemoved, and timestamp.
+- Added `renderSidebarChanges()` function and `sidebarChangesText` UI component.
+- Gateway forwards `file_changed` activity events via `TuiActivityStreamer`.
+
+---
+
 ## Unreleased -- Context Governance Foundations
 
 ### feat(tui): approval queue in sidebar with keyboard controls
