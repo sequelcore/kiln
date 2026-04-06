@@ -609,11 +609,9 @@ Gateway live at gw.kilvo.app on Coolify. See [Gateway YAML](docs/configuration/g
 ### Phase 7 — Kiln TUI (The Final Destination)
 
 **Status:** STARTED
-**Current state:** Phase 7 has moved beyond foundation work. `7a` through `7d`
-are complete, `7e` routing indicator and `7f` interactive-default entrypoint
-have shipped in the changelog, and Kiln TUI is now a working terminal product
-surface rather than a scaffold. The current gap is `7g` (OpenKiln-branded
-variant) plus broader follow-on work tracked in Phase `7.5`.
+**Current state:** Phase 7 has moved beyond foundation work. `7a` through `7f`
+are complete, and Kiln TUI is now a working terminal product surface rather than
+a scaffold. Phase 8 (Agent Teams) follows after 7g.
 
 **Goal:** Replace claude TUI as the primary entry point.
 Kiln TUI is the conversational interface that orchestrates
@@ -654,8 +652,8 @@ All previous phases are prerequisites:
 - Phase 2: config sync (kiln TUI configures everything)
 - Phase 3: capabilities activated (kiln TUI surfaces them)
 - Phase 4: agent context dynamic (kiln TUI orchestrates)
-- Phase 5: OpenKiln channels (kiln TUI + Telegram/Discord)
-- Phase 6: cloud (kiln TUI connects to remote gateway) ✅ already live
+- Phase 5: cloud (kiln TUI connects to remote gateway) ✅ already live
+- Phase 6: agent teams (swarm activation, plan mode)
 
 **Tech stack (confirmed, updated 2026-04-02):**
 - OpenTUI (@opentui/core) — imperative terminal renderer with Yoga flexbox layout
@@ -729,8 +727,8 @@ Persistent conversational interface showing:
 7e. Routing indicator (which CLI was chosen and why) — DONE (v0.24.4)
    - Chat responses show provider/model labels
    - Sidebar provider display includes route mode badge (`user` vs future `auto`)
-7f. Full integration: kiln command launches TUI by default when interactive — DONE (v0.24.5)
-7g. OpenKiln TUI variant (channel-aware, personal branding)
+ 7f. Full integration: kiln command launches TUI by default when interactive — DONE (v0.24.5)
+ 7g. Diff/change visibility (file diffs, change summary per turn)
 
 ---
 
@@ -746,7 +744,7 @@ See [ADR-002](docs/adr/ADR-002-tui-gateway-architecture.md) for protocol spec an
 
 ---
 
-## Phase 7.5 — Agent Teams
+## Phase 8 — Agent Teams
 
 **Status:** PENDING
 **Priority:** MEDIUM-HIGH — top request across all 3 tools, Kiln already has primitives
@@ -953,7 +951,7 @@ and cost tracking all run inside Kiln rather than being delegated to the externa
 - `P-backend-4`: TUI provider picker two-section layout (harness / direct API)
 - `P-backend-5`: `kiln.yaml` `session.backend` + per-agent backend assignment in team config
 - `P-backend-6`: Free-tier OpenRouter models surfaced in TUI with zero-cost label
-- `P-backend-7`: `@kilnai/tools` integration — provider sessions get rg/fd/jq natively (depends on Phase 7.6)
+- `P-backend-7`: `@kilnai/tools` integration — provider sessions get rg/fd/jq natively (depends on Phase 9)
 
 **Dependency:** `P-backend-1` is the foundation — all others follow from it.
 Timing: after Phase 4.5 permission layer is stable (provider sessions need
@@ -961,7 +959,7 @@ the same permission enforcement that harness sessions already have).
 
 ---
 
-## Phase 7.6 — `@kilnai/tools` — Vendored Shell Tools
+## Phase 9 — `@kilnai/tools` — Vendored Shell Tools
 
 **Status:** BACKLOG
 **Timing:** After Phase 4 (kiln.yaml as single source of truth) is stable
@@ -1029,7 +1027,7 @@ across every multi-turn session.
 
 ---
 
-## Phase 8 — External Validation
+## Phase 10 — External Validation
 
 **Status:** PLANNED
 **Timing:** After all remaining product phases are stable enough to represent the
@@ -1092,7 +1090,7 @@ Desktop app for coding agents. Mac-only. Not applicable to Windows setup.
 - Reply to @CRudinschi thread (saved in likes)
 - Target Hermes and OpenClaw communities
 - Focus: "Hermes but with subscription arbitrage and cross-CLI"
-- Timing: after Phase 5 (npx openkiln init working)
+- Timing: after Phase 7 (TUI complete, npx openkiln init working)
 
 ---
 
