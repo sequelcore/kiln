@@ -155,6 +155,21 @@ export async function startTui(
         return;
       }
 
+      if (text === "/plan" && !state.planMode) {
+        void (async () => {
+          update(state, "planMode", true);
+          renderSidebarProvider(state, currentTheme, ui, domain);
+          const planNode = new (
+            await import("@opentui/core")
+          ).TextRenderable(renderer, {
+            content: t`${fg(currentTheme.warning)("Plan mode enabled. Run /exec when ready to execute.")}`,
+            width: "100%",
+          });
+          ui.chatScrollBox.content.add(planNode);
+        })();
+        return;
+      }
+
       if (text === "/theme") {
         openThemePicker();
         return;
@@ -436,119 +451,10 @@ export async function startTui(
     providerPickerState.mode = "providers";
     renderProviderPicker();
 
-    providerPicker.scrollBox.scrollTo(0);
+providerPicker.scrollBox.scrollTo(0);
     process.nextTick(() => {
       scrollToSelectedRow(true);
     });
-  }
-
-  function closeProviderPicker(apply: boolean): void {
-    if (!providerPicker) return;
-
-    if (apply) {
-      const selectedProvider = getCurrentProvider();
-      const selectedModel =
-        getCurrentModels()[providerPickerState.modelIndex] ?? "";
-
-      update(state, "currentProvider", selectedProvider);
-      update(state, "currentModel", selectedModel);
-      update(state, "routeMode", "user");
-
-      void (async () => {
-        try {
-          const session = await createSession();
-          const hasSwitchProvider =
-            typeof (
-              session as unknown as { switchProvider?: unknown }
-            ).switchProvider === "function";
-          if (hasSwitchProvider) {
-            await (
-              session as unknown as {
-                switchProvider: (
-                  provider: string,
-                  model?: string,
-                ) => Promise<string>;
-              }
-            ).switchProvider(selectedProvider, selectedModel || undefined);
-          }
-        } catch {
-          // fail-open
-        }
-
-        renderSidebarProvider(state, currentTheme, ui, domain);
-        renderSidebarResume(state, currentTheme, ui);
-      })();
-    }
-
-    destroyProviderPicker(providerPicker);
-    providerPicker = null;
-    providerPickerOpen = false;
-    update(state, "providerPickerOpen", false);
-  }
-
-  function enterModelMode(): void {
-    const models = getCurrentModels();
-    if (!providerPicker || models.length === 0) return;
-
-    providerPickerState.mode = "models";
-    providerPickerState.modelIndex = Math.min(
-      providerPickerState.modelIndex,
-      Math.max(0, models.length - 1),
-    );
-
-    renderProviderPicker();
-
-    providerPicker.scrollBox.scrollTo(0);
-    process.nextTick(() => {
-      scrollToSelectedRow(true);
-    });
-  }
-
-  function returnToProviderMode(): void {
-    if (!providerPicker) return;
-
-    providerPickerState.mode = "providers";
-    renderProviderPicker();
-
-    providerPicker.scrollBox.scrollTo(0);
-    process.nextTick(() => {
-      scrollToSelectedRow(true);
-    });
-  }
-
-  /**
-   * Moves selection by one step without rebuilding rows.
-   * Only the two affected rows are updated via updatePickerSelection().
-   * scrollChildIntoView() then scrolls the minimum amount needed to keep
-   * the new selection visible — one row at a time when near the boundary,
-   * nothing when already fully in view.
-   */
-  function navigateProviderPicker(direction: number): void {
-    if (!providerPicker) return;
-
-    if (providerPickerState.mode === "providers") {
-      const prevIdx = providerPickerState.providerIndex;
-      providerPickerState.providerIndex =
-        (prevIdx + direction + VALID_PROVIDERS.length) % VALID_PROVIDERS.length;
-      providerPickerState.modelIndex = 0;
-
-      updatePickerSelection(prevIdx, providerPickerState.providerIndex);
-      scrollToSelectedRow(false);
-      return;
-    }
-
-    const models = getCurrentModels();
-    if (models.length === 0) {
-      returnToProviderMode();
-      return;
-    }
-
-    const prevIdx = providerPickerState.modelIndex;
-    providerPickerState.modelIndex =
-      (prevIdx + direction + models.length) % models.length;
-
-    updatePickerSelection(prevIdx, providerPickerState.modelIndex);
-    scrollToSelectedRow(false);
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -985,7 +891,7 @@ export async function startTui(
       }
 
       // Process slash commands (must check before session resume check)
-      if (inputText === "/clear" || inputText === "/theme" || inputText === "/provider" || inputText === "/resume") {
+      if (inputText === "/clear" || inputText === "/theme" || inputText === "/provider" || inputText === "/resume" || inputText === "/plan") {
         // Commands are handled after clearing input
         ui.inputTextarea.clear();
         update(state, "input", "");

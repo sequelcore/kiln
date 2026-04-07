@@ -11,6 +11,8 @@
 - Final output renders `<proposed_plan>` block to user
 - TUI sidebar shows PLAN badge when active
 - `/exec` command transitions from plan mode to execution mode
+- TUI: `/plan` command enables plan mode mid-session
+- TUI: `kiln tui --plan` starts in plan mode
 
 ### feat(cli): APC - Agentic Plan Caching
 - Plan summaries cached via context-artifact cache with `plan-summary:{path}:{task}` key

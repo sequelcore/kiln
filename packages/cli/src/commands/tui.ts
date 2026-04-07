@@ -14,6 +14,7 @@ export interface TuiFlags {
   cwd?: string;
   port?: number;
   theme?: string;
+  plan?: boolean;
 }
 
 const VALID_PROVIDERS = ["claude", "codex", "opencode"] as const;
@@ -259,6 +260,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     port: flags.port,
     onClear: sessionManager.onClear,
     contextArtifactCache,
+    planMode: flags.plan ?? false,
   });
 
   // Wait for gateway to be ready before connecting the TUI
