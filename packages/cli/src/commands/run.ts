@@ -41,6 +41,7 @@ export interface RunFlags {
   readonly permissionPolicy?: KilnPermissionPolicy;
   readonly isolate?: boolean;
   readonly resume?: boolean;
+  readonly plan?: boolean;
 }
 
 function resolveMode(flags: RunFlags): SessionMode {
@@ -50,13 +51,14 @@ function resolveMode(flags: RunFlags): SessionMode {
 }
 
 const DEFAULT_POLICY: KilnPermissionPolicy = { approval: "never", sandbox: "workspace-write" };
+const PLAN_POLICY: KilnPermissionPolicy = { approval: "untrusted", sandbox: "read-only" };
 
 function buildConfig(flags: RunFlags, mode: SessionMode): WrapperConfig {
   return {
     mode,
     apiKey: flags.apiKey,
     provider: flags.provider,
-    permissionPolicy: flags.permissionPolicy ?? DEFAULT_POLICY,
+    permissionPolicy: flags.plan ? PLAN_POLICY : (flags.permissionPolicy ?? DEFAULT_POLICY),
   };
 }
 

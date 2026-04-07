@@ -747,7 +747,7 @@ See [ADR-002](docs/adr/ADR-002-tui-gateway-architecture.md) for protocol spec an
 
 ## Phase 8 — Agent Teams
 
-**Status:** PENDING
+**Status:** IN PROGRESS (8.1 Plan Mode)
 **Priority:** MEDIUM-HIGH — top request across all 3 tools, Kiln already has primitives
 **Source:** Market research + swarm scout + academic findings (Workforce, Conductor)
 
@@ -758,12 +758,76 @@ See [ADR-002](docs/adr/ADR-002-tui-gateway-architecture.md) for protocol spec an
 - feat(core): parallel agent coordination with write serialization
   (prevent concurrent file conflicts)
 
-### Plan Mode
-- feat(cli): kiln plan — separate planning phase from execution
-- feat(core): Agentic Plan Caching (APC) — reuse plan templates
-  for similar tasks (reduce re-planning cost)
-- feat(cli): plan → review → approve → execute flow
-- feat(cli): PlanExitTool equivalent (read-only planning agent)
+### Plan Mode (Phase 8.1 — IN PROGRESS)
+
+**Design:** Best-of-three synthesis from Claude Code, Codex, and Hermes.
+
+#### Item 1: `kiln plan` Command
+
+**Status:** IMPLEMENTING (v0.25.0)
+
+**Prerequisites existing:**
+- `permissionMode: "plan"` in CLI wrapper (read-only permissions)
+- `plan-summary` artifacts in CG4 context governance
+- `context-governor.ts` with `planArtifactKey` handling
+
+**Implementation scope:**
+- CLI command: `kiln plan <task>` — separate planning phase from execution
+- Flags: `--plan` flag on `kiln run`, adds `"plan-mode"` session
+- Execution boundary: block Edit/Write/MultiEdit tools in plan mode
+- 3-phase workflow: Explore → Intent Chat → Implementation Chat
+- Final output: `<proposed_plan>` block rendered to user
+
+**3-phase workflow (from Codex, adapted):**
+
+| Phase | Goal | Agent Behavior |
+|-------|------|--------------|
+| 1. Explore | Ground in environment | Run read-only exploration first — resolve unknowns from repo |
+| 2. Intent Chat | Clarify what they actually want | Ask via `request_user_input` until goal + success criteria + constraints locked |
+| 3. Implementation Chat | Design decision-complete solution | Explore approach, APIs, edge cases, testing |
+
+**Execution boundaries (enforced):**
+
+| Allowed (non-mutating) | Not Allowed (mutating) |
+|------------------------|---------------------|
+| Read, glob, grep, rg | Edit, Write, apply_patch |
+| Static analysis, type inspection | Formatters, linters |
+| Dry-run commands (no file changes) | sed, tee, echo → files |
+| Tests/builds to `target/`, `.cache/` | Commits, pushes, external actions |
+
+**Final plan output format:**
+
+```
+<proposed_plan>
+## Summary
+[concise summary]
+
+## Implementation Changes
+- [bullet by subsystem, not file-by-file]
+
+## Test Plan
+- [verification steps]
+
+## Assumptions
+- [defaults chosen where ambiguous]
+</proposed_plan>
+```
+
+#### Item 2: APC — Agentic Plan Caching
+
+**Status:** COMPLETE (v0.25.0)
+**Implemented:** Context-artifact cache with `plan-summary:{projectPath}:{normalizedTask}` key — already exists in CG4 via `contextGovernor.ts` + `sessionManager.ts`. Plan summaries are cached and retrieved on resume for similar tasks.
+
+#### Item 3: Review Flow
+
+**Status:** PENDING
+**Scope:** plan → review → approve → execute pipeline
+**Key:** approval-gated transition from plan mode to execution mode
+
+#### Item 4: PlanExitTool
+
+**Status:** PENDING
+**Scope:** Read-only planning agent equivalent to Codex `update_plan`
 
 ### Coordination Intelligence
 - feat(core): Conductor-inspired coordination policy —

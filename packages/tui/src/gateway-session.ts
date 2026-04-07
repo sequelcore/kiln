@@ -26,6 +26,11 @@ type QueueItem = SessionEventInternal | typeof STOP;
 export class GatewaySession implements SessionLike {
   private readonly client: TuiWsClient;
   private readonly userId: string;
+  private _planMode = false;
+
+  get planMode(): boolean {
+    return this._planMode;
+  }
 
   /** Callback invoked when a welcome frame is received. */
   private onWelcome: ((models: Record<string, string[]>) => void) | null = null;
@@ -167,11 +172,9 @@ export class GatewaySession implements SessionLike {
         outputTokens: frame.outputTokens,
       });
     } else if (frame.type === "done") {
-      // Phase 7c: synthesize text_delta from full done content
       if (frame.content) {
         this.push({ type: "text_delta", content: frame.content });
       }
-      // Pass through token counts from the gateway
       this.push({ 
         type: "completed", 
         totalUsd: 0,
@@ -195,17 +198,18 @@ export class GatewaySession implements SessionLike {
         activity: frame.approved ? "approval_approved" : "approval_rejected",
         details: frame.reason,
       });
-    }
-    // welcome frame: invoke callback if models provided
-    if (frame.type === "welcome" && frame.models && this.onWelcome) {
-      this.onWelcome(frame.models);
-    }
-    // cleared frame: resolve pending clear promise
-    if (frame.type === "cleared") {
+    } else if (frame.type === "welcome") {
+      if (frame.models && this.onWelcome) {
+        this.onWelcome(frame.models);
+      }
+      if ("planMode" in frame) {
+        this._planMode = frame.planMode ?? false;
+      }
+    } else if (frame.type === "exec_confirmed") {
+      this._planMode = false;
+    } else if (frame.type === "cleared") {
       this.clearCallbacks?.resolve();
-    }
-    // provider_changed frame: resolve pending provider switch promise
-    if (frame.type === "provider_changed") {
+    } else if (frame.type === "provider_changed") {
       this.providerChangeCallbacks?.resolve(frame.provider);
     }
   }

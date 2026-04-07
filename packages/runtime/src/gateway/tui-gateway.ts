@@ -115,6 +115,8 @@ export interface TuiGatewayOptions {
   readonly contextArtifactCache?: ContextArtifactCache;
   /** Event bus for listening to approval events. */
   readonly eventBus?: EventBus;
+  /** Whether plan mode is active (read-only planning). */
+  readonly planMode?: boolean;
 }
 
 export interface TuiGateway {
@@ -185,6 +187,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
               codex: codexModels.length > 0 ? codexModels : ["o4-mini", "o3", "o3-mini"],
               opencode: opencodeModels,
             },
+            planMode: options.planMode ?? false,
           }));
         },
 
@@ -215,6 +218,16 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
               }
               options.onProviderSwitch?.(newProvider);
               ws.send(JSON.stringify({ type: "provider_changed", provider: newProvider }));
+              return;
+            }
+
+            // Handle plan mode execution transition
+            if (frame.type === "exec") {
+              if (!options.planMode) {
+                ws.send(JSON.stringify({ type: "error", message: "Not in plan mode" }));
+                return;
+              }
+              ws.send(JSON.stringify({ type: "exec_confirmed" }));
               return;
             }
 

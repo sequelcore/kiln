@@ -133,7 +133,7 @@ export function renderInput(
 
 /**
  * Renders provider and model info in sidebar.
- * Format: "[provider] domain · model  via user"
+ * Format: "[provider] domain · model  via user" or "[provider] PLAN · model"
  */
 export function renderSidebarProvider(
   state: ReactiveState,
@@ -143,8 +143,10 @@ export function renderSidebarProvider(
 ): void {
   const model = state.currentModel;
   const modelStr = model ? ` · ${model}` : "";
+  const planBadge = state.planMode ? ` ${fg(theme.warning)("PLAN")}` : "";
   const routeMode = state.routeMode === "auto" ? " auto" : " via user";
-  ui.sidebarProviderText.content = t`${fg(theme.accent)("[" + state.currentProvider + "]")} ${fg(theme.text)(domain + modelStr)}${fg(theme.textMuted)(routeMode)}`;
+  const routeStr = state.planMode ? "" : fg(theme.textMuted)(routeMode);
+  ui.sidebarProviderText.content = t`${fg(theme.accent)("[" + state.currentProvider + "]")}${planBadge} ${fg(theme.text)(domain + modelStr)}${routeStr}`;
 }
 
 /**

@@ -25,7 +25,8 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
 
   const COMMANDS: Record<string, string> = {
     init: `Initialize ${APP_NAME} in the current project (--force, --non-interactive, --domain, --provider, --channels, --team-mode)`,
-    run: "Start a CLI-only coding session with Claude Code",
+    run: "Start a CLI-only coding session with Claude Code (use --plan for plan mode)",
+    plan: "Start a planning session before execution (3-phase workflow)",
     status: "Show current phase, tasks, and costs",
     memory: "Browse and search memory layers",
     config: "Edit domain config and provider settings",
@@ -52,6 +53,7 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     console.log("  --provider   LLM provider (claude, openai, deepseek)");
     console.log("  --port       Port override (dev/gateway)");
     console.log("  --playground Open Studio in browser (dev mode)");
+    console.log("  --plan      Plan mode: read-only exploration before execution");
     console.log(`\nRun '${APP_NAME} <command> --help' for command-specific help.\n`);
   }
 
@@ -112,6 +114,13 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     const { task, flags } = parseRunArgs(args.slice(1));
     const { runCommand } = await import("./commands/run.js");
     await runCommand(config, task, flags);
+    return;
+  }
+
+  if (command === "plan") {
+    const { task, flags } = parseRunArgs(args.slice(1));
+    const { runCommand } = await import("./commands/run.js");
+    await runCommand(config, task, { ...flags, plan: true });
     return;
   }
 
@@ -221,8 +230,8 @@ function parsePort(args: readonly string[]): number {
   return 4800;
 }
 
-function parseRunArgs(rawArgs: readonly string[]): { task: string; flags: { apiKey?: string; provider?: string; isolate?: boolean } } {
-  const flags: { apiKey?: string; provider?: string; isolate?: boolean } = {};
+function parseRunArgs(rawArgs: readonly string[]): { task: string; flags: { apiKey?: string; provider?: string; isolate?: boolean; plan?: boolean } } {
+  const flags: { apiKey?: string; provider?: string; isolate?: boolean; plan?: boolean } = {};
   const taskParts: string[] = [];
   let i = 0;
   while (i < rawArgs.length) {
@@ -235,6 +244,9 @@ function parseRunArgs(rawArgs: readonly string[]): { task: string; flags: { apiK
       i += 2;
     } else if (arg === "--isolate") {
       flags.isolate = true;
+      i += 1;
+    } else if (arg === "--plan") {
+      flags.plan = true;
       i += 1;
     } else {
       taskParts.push(arg);

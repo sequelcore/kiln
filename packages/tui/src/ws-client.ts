@@ -26,7 +26,8 @@ export type TuiInboundFrame =
       };
     }
   | { type: "error"; message: string; code?: string }
-  | { type: "welcome"; greeting?: string; models?: Record<string, string[]> }
+  | { type: "welcome"; greeting?: string; models?: Record<string, string[]>; planMode?: boolean }
+  | { type: "exec_confirmed" } // Plan mode exit confirmed, execution can proceed
   | { type: "cleared" }
   | { type: "provider_changed"; provider: string }
   | { type: "approval_requested"; description: string; sessionId: string }
@@ -40,7 +41,8 @@ export type TuiOutboundFrame =
   | { type: "clear" }
   | { type: "provider"; provider: string; model?: string }
   | { type: "approve"; sessionId?: string }
-  | { type: "reject"; reason: string; sessionId?: string };
+  | { type: "reject"; reason: string; sessionId?: string }
+  | { type: "exec" }; // Exit plan mode and execute
 
 /**
  * Configuration options for TuiWsClient.

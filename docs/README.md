@@ -33,6 +33,7 @@
 | [CLI Wrapper](guides/cli-wrapper.md) | IKilnSession, 3 backends, permission policy, session resume, config sync, context-governance config |
 | [Hooks](guides/hooks.md) | HookRegistry, lifecycle events, modes, kiln.yaml config |
 | [Skills](guides/skills.md) | SKILL.md format, registry, capture pipeline, CLI commands |
+| [Plan Mode](guides/plan-mode.md) | `kiln plan` command, 3-phase workflow, execution boundaries |
 | [Phase 7 Plan](plan-phase-7.md) | Kiln TUI implementation boundary, current status snapshot, remaining scope |
 | [Context Governance Plan](plan-context-governance.md) | Sequential implementation plan for context/token governance and the later field layer |
 

@@ -57,6 +57,8 @@ export interface ReactiveState {
   pendingApprovals: PendingApproval[];
   /** Files changed in the current session turn. */
   changedFiles: ChangedFile[];
+  /** Whether plan mode is active (read-only planning). */
+  planMode: boolean;
   /** Available slash commands for command palette. */
   slashCommands: SlashCommand[];
   /** Currently selected slash command index. */
@@ -166,6 +168,7 @@ export function createReactiveState(): ReactiveState {
     selectedSessionIndex: -1,
     pendingApprovals: [],
     changedFiles: [],
+    planMode: false,
     slashCommands: [],
     slashCommandIndex: -1,
     slashPopoverOpen: false,

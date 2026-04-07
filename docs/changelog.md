@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased -- Plan Mode (v0.25.0)
+
+### feat(cli): kiln plan command (Phase 8.1)
+- Added `plan` command: `kiln plan <task>` — separate planning phase from execution
+- Added `--plan` flag on `kiln run`: `kiln run --plan <task>`
+- Uses permissionMode: "plan" (approval: "untrusted", sandbox: "read-only")
+- 3-phase workflow: Explore → Intent Chat → Implementation Chat
+- Execution boundaries: blocks Edit/Write/MultiEdit tools in plan mode
+- Final output renders `<proposed_plan>` block to user
+- TUI sidebar shows PLAN badge when active
+- `/exec` command transitions from plan mode to execution mode
+
+### feat(cli): APC - Agentic Plan Caching
+- Plan summaries cached via context-artifact cache with `plan-summary:{path}:{task}` key
+- Retrieved on session resume for similar tasks (reduce re-planning cost)
+
+### feat(docs): plan mode guide
+- Added `docs/guides/plan-mode.md` with full spec
+- Updated docs/README.md with Plan Mode guide link
+- Updated STRATEGY.md Phase 8 with detailed Plan Mode spec
+
+---
+
 ## Unreleased -- Diff/Change Visibility (v0.25.0)
 
 ### feat(tui): diff/change visibility in sidebar
