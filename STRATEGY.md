@@ -2,7 +2,7 @@
 > Living document. High-level vision and phased plan.
 > Each phase will have its own dedicated research → architecture → 
 > implementation pipeline before execution.
-> Last updated: 2026-04-03
+> Last updated: 2026-04-07
 
 ## 1. What Kiln Is
 
@@ -1024,79 +1024,421 @@ the same permission enforcement that harness sessions already have).
 
 ---
 
-## Phase 9 — `@kilnai/tools` — Vendored Shell Tools
+## Phase 9 — Native Developer Tools (`@kilnai/tools`) [URGENT]
 
-**Status:** BACKLOG
-**Timing:** After Phase 4 (kiln.yaml as single source of truth) is stable
-**Scope:** New package `packages/tools` — platform-specific binary bundles
+**Status:** PLANNED — critical path for Phases 10-12
+**Priority:** URGENT — without native tools, provider backends cannot compete with harness backends
+**Source:** Evolution research (2026-04-07): Claude Code, Codex, OpenCode, Goose, Aider, OpenClaw tool interface analysis
+**Dependency:** Phase 4.5 (permission layer) must be stable
 
 ### Problem
 
-Agents default to `grep`/`find`/`cat` when better tools exist. Silent fallback
-means token waste and degraded output quality with no warning. Requiring users
-to manually install shell tools violates zero-friction setup and breaks CI,
-Docker, and new teammate onboarding.
+Kiln's provider backends (Anthropic, OpenRouter, DeepSeek, Ollama) can call LLMs directly but
+have no developer tools (bash, file read/write, search). Users must use harness backends
+(Claude Code, Codex, OpenCode) for any real coding work. This makes Kiln a CLI wrapper, not a
+runtime. Every competitor (Claude Code, Codex, OpenCode, Goose, Hermes, OpenClaw) owns their
+tool execution — Kiln must too.
 
-### Decision: vendor the binaries
+### Research Findings (2026-04-07)
 
-Following the `esbuild`/`@tailwindcss/oxide` pattern — ship platform binaries
-as npm `optionalDependencies` with platform conditions. `bun install` pulls the
-right binary for the host. No user action required. Works offline and in CI.
+Tool interfaces have converged across the industry:
 
-```json
-"optionalDependencies": {
-  "@kilnai/tools-win32-x64":   "x.y.z",
-  "@kilnai/tools-darwin-arm64": "x.y.z",
-  "@kilnai/tools-darwin-x64":  "x.y.z",
-  "@kilnai/tools-linux-x64":   "x.y.z"
-}
-```
+| Tool | Claude Code | OpenCode | Goose | Codex |
+|------|-------------|----------|-------|-------|
+| Shell | `Bash` | `bash` | `developer__shell` | `shell` |
+| Read file | `Read` | `read` | (via shell) | (via shell) |
+| Edit file | `Edit` (old/new) | `edit` (old/new) | `text_editor` (str_replace) | `apply_patch` (diff) |
+| Write file | `Write` | (via edit) | (via text_editor) | (via apply_patch) |
+| Search content | `Grep` | `grep` | (via shell) | (via shell) |
+| Find files | `Glob` | `glob` | (via shell) | (via shell) |
 
-At runtime, `@kilnai/tools` resolves the binary path from its own package,
-falling back to system PATH if the optional dep wasn't installed (e.g. pnpm
-hoisting edge cases). `buildPreamble()` uses the resolved path so agents always
-get the fast tool, regardless of what the user has installed globally.
+Two design philosophies exist:
+- **Granular** (Claude Code, OpenCode): separate tool per operation — inspectable, permissionable
+- **Minimal** (Codex): shell + patch only — fewer tokens, less control
 
-### Tools to vendor (priority order)
+**Decision:** Kiln uses the granular approach. It aligns with the existing permission policy
+system (`KilnPermissionPolicy`), safety pipeline, and audit log. A dedicated `Grep` tool can be
+permission-gated and audited; a `bash rg` cannot.
 
-| Tool | Replaces | Why it matters for agents |
-|------|----------|--------------------------|
-| `jq` | `cat file.json` + manual parsing | Biggest token saver — structured extraction vs full file dumps. Agent asks for exactly what it needs instead of reading 80-line files for 3 fields |
-| `rg` (ripgrep) | `grep -r` | Respects `.gitignore` automatically — no `node_modules` noise. 10-100x faster. `--json` output is structured and reliable. Smart defaults mean agent writes correct invocation first try |
-| `fd` | `find . -name` | Same `.gitignore` respect. `fd pattern` syntax vs `find . -name "*pattern*"` — agent errors drop. Clean relative path output = fewer tokens per result |
-| `bat` | `cat` | Low priority — agents don't need syntax highlighting. Defer or skip entirely |
+### Rules (apply to all sub-phases)
 
-**Verdict:** vendor `jq` + `rg` + `fd`. Skip `bat`.
+- Schemas are the product, implementations are swappable
+- No reimplementation — wrap best CLI tools (rg, fd, jq), fallback to pure TS
+- No dead code — old Phase 9 vendored-only scope is absorbed, not duplicated
+- Same orchestrator, new tool category — no parallel execution system
+- One implementation, two surfaces (native + MCP) — no duplication
+- Test before done: typecheck + vitest after every sub-phase
+- Update CLAUDE.md bounded context table after completion
 
-### `kiln.yaml` integration
+### Sub-phases
 
-```yaml
-shell:
-  preferredTools:
-    search: rg      # falls back to grep if vendored binary unavailable
-    find: fd        # falls back to find
-    json: jq        # falls back to cat + manual parse (agent handles)
-```
+#### 9a. Tool Interface Layer (foundation)
 
-`kiln sync` propagates tool preferences to each backend's native config.
-`buildPreamble()` reads resolved binary paths and injects a `<native-tools>`
-block so agents receive explicit instruction to prefer these tools over
-built-in alternatives. No silent fallback — if a tool is declared but
-unresolvable, Kiln warns once at session start.
+**Scope:** Domain types + registry in `core/src/tools/domain/`
 
-### Package size
+- `DevTool` interface: `name`, `description`, `inputSchema` (JSON Schema), `execute(input, sandbox): Promise<ToolResult>`
+- `DevToolRegistry`: register, lookup, list tools — same pattern as `CapabilityRegistry`
+- `ToolResult` type: `{ output: string, isError: boolean, metadata?: Record<string, unknown> }`
+- `ToolEnvironment` type: detected binary paths (rg, fd, jq, git) — cached at startup
+- `detectToolEnvironment()`: runs once, logs availability, determines fast-path vs fallback
+- 7 tool schemas matching industry standard: `bash`, `read`, `write`, `edit`, `grep`, `glob`, `git`
 
-`jq` + `rg` + `fd` total ~5MB per platform. Acceptable given that
-`node_modules` is already hundreds of MB and the token savings compound
-across every multi-turn session.
+**Files:** `core/src/tools/domain/tool.ts`, `core/src/tools/domain/tool-registry.ts`, `core/src/tools/domain/tool-environment.ts`
+**Tests:** Schema validation, registry CRUD, environment detection with/without binaries
+**Reference:** Claude Code tool schemas (Read/Write/Edit/Bash/Glob/Grep), OpenCode tool schemas (bash/read/edit/grep/glob)
+
+#### 9b. Tool Implementations (executors)
+
+**Scope:** Infrastructure implementations in `core/src/tools/infrastructure/`
+
+| Tool | Primary (fast) | Fallback (portable) | Key params |
+|------|---------------|---------------------|------------|
+| `bash` | spawn subprocess | same | `command`, `timeout`, `cwd` |
+| `read` | `fs.readFile` | same | `filePath`, `offset`, `limit` |
+| `write` | `fs.writeFile` | same | `filePath`, `content` |
+| `edit` | string replace | same | `filePath`, `oldString`, `newString` |
+| `grep` | `rg` (ripgrep) | `readline` + regex | `pattern`, `path`, `glob`, `outputMode` |
+| `glob` | `fd` | `fast-glob` | `pattern`, `path` |
+| `git` | `git` CLI | same | `subcommand`, `args` |
+
+- All executors receive `SandboxContext` — filesystem + network isolation enforced
+- All executors respect `KilnPermissionPolicy` tool rules
+- `grep` and `glob` use `ToolEnvironment` to select fast-path vs fallback
+- Output formatting: structured for LLM consumption (line numbers, truncation, token-aware limits)
+
+**Files:** `core/src/tools/infrastructure/bash-tool.ts`, `read-tool.ts`, `write-tool.ts`, `edit-tool.ts`, `grep-tool.ts`, `glob-tool.ts`, `git-tool.ts`
+**Tests:** Each tool tested with sandbox mock, both fast-path and fallback paths
+**Reference:** Claude Code Grep wraps rg, OpenCode grep wraps rg — same pattern
+
+#### 9c. Vendored Binaries (absorbed from old Phase 9)
+
+**Scope:** Platform-specific binary packages following esbuild/tailwind pattern
+
+- `@kilnai/tools-win32-x64`, `@kilnai/tools-darwin-arm64`, `@kilnai/tools-darwin-x64`, `@kilnai/tools-linux-x64`
+- Binaries: `rg` (ripgrep) + `fd` + `jq` — ~5MB per platform
+- Resolution: vendored binary preferred → system PATH fallback → pure TS fallback
+- `detectToolEnvironment()` resolves paths in this order
+- `kiln.yaml` integration: `shell.preferredTools` config (optional)
+
+**Files:** `packages/tools/` package scaffold, platform-specific optional deps
+**Tests:** Binary resolution on each platform, fallback chain verification
+**Reference:** esbuild `optionalDependencies` pattern, `@tailwindcss/oxide` pattern
+
+#### 9d. Tool Execution Loop
+
+**Scope:** Wire dev tools into core Orchestrator's existing execution cycle
+
+- Register `DevToolRegistry` tools as capabilities in Orchestrator
+- Execution flow: LLM response → tool call extraction → permission check → sandbox execute → result injection
+- Permission enforcement: `KilnPermissionPolicy` tool rules checked before execution (from Phase 4.5a)
+- Sandbox enforcement: `core/src/sandbox/` per-agent isolation applied to all tool executions
+- Cost tracking: tool execution events emitted to `EventBus` (existing 43 event types)
+- Error handling: tool failures reported as structured `ToolResult` with `isError: true`
+
+**Files:** Modifications to `core/src/orchestrator/orchestrator.ts`, new `core/src/tools/tool-executor.ts`
+**Tests:** End-to-end: LLM mock → tool call → sandbox execute → result fed back
+**Reference:** Mode B already executes webhook/integration tools via `ModeBOrchestrator` — same pattern, new tool category
+**Rule:** No parallel execution system — extend existing orchestrator
+
+#### 9e. MCP Surface for Dev Tools
+
+**Scope:** Expose dev tools as built-in MCP server (stdio + HTTP transports)
+
+- `DevToolsMcpServer`: registers all 7 tools as MCP tool schemas
+- stdio transport: `kiln tools --mcp` starts stdio server
+- HTTP transport: auto-registered in gateway when dev tools are active
+- External agents (Claude Code, Codex) can use Kiln's tools via MCP
+- Same tool implementations, same sandbox, same permissions — two transports
+
+**Files:** `core/src/tools/mcp/dev-tools-server.ts`
+**Tests:** MCP tool call → executor → result roundtrip
+**Reference:** Goose ships developer tools as MCP server (`developer__shell`, `developer__text_editor`)
+**Rule:** One implementation, two surfaces — no code duplication
+
+#### 9f. TUI Direct Connection
+
+**Scope:** `kiln tui` connects to orchestrator directly without gateway config
+
+- Lightweight in-process bridge: TUI → Orchestrator (reuse `startTuiGateway` pattern)
+- No `app.yaml` or `gateway.yaml` required
+- Provider selection: `--provider` flag or `kiln.yaml` config
+- Dev tools active by default in TUI mode
+- Memory, safety pipeline, cost tracking all active (same as gateway path)
+
+**Files:** Modifications to `packages/tui/src/gateway-session.ts`, `packages/cli/src/commands/tui.ts`
+**Tests:** TUI startup without any YAML files, conversation with tool execution
+**Reference:** Codex TUI is same-process (ratatui), OpenCode TUI connects to local `opencode serve`
+**Rule:** TUI is a rendering layer — orchestrator owns agent loop
 
 ---
 
-## Phase 10 — External Validation
+## Phase 10 — ProviderSession (Direct API Backend) [URGENT]
+
+**Status:** PLANNED — depends on Phase 9 (native tools)
+**Priority:** URGENT — enables Kiln as true provider-agnostic runtime
+**Source:** Evolution research (2026-04-07), existing P-backend design in STRATEGY.md
+**Dependency:** Phase 9 (native tools must exist for provider sessions to be useful)
+
+### Problem
+
+Kiln has 5 provider adapters (`anthropic.ts`, `openai.ts`, `deepseek.ts`, `openrouter.ts`,
+`ollama.ts`) that call LLMs directly, but no `IKilnSession` implementation that drives them
+for developer-facing tasks. Users who want to use OpenRouter, DeepSeek, or Ollama cannot —
+they must use a harness backend. With Phase 9 tools available, a `ProviderSession` completes
+the stack: Kiln owns the agent loop, tools, permissions, and context.
+
+### Rules
+
+- Same `IKilnSession` contract — no special-casing for provider vs harness
+- No dead code — `ProviderSession` replaces nothing, extends the pool
+- Harness backends remain — they become optional, not deprecated
+- Test before done: full session lifecycle tested with mock provider
+
+### Sub-phases
+
+#### 10a. ProviderSession implementing IKilnSession
+
+- New `ProviderSession` class in `cli/src/wrapper/provider-session.ts`
+- Drives core `Orchestrator` directly via provider adapter
+- Kiln owns: tool execution (Phase 9), permission enforcement, context management, cost tracking
+- Maps Orchestrator events → `SessionEvent` stream (same as ClaudeSession/CodexSession/OpenCodeSession)
+- Provider selected by name: `anthropic`, `openrouter`, `openai`, `deepseek`, `ollama`
+- Model selected by ID: `claude-sonnet-4-6`, `meta-llama/llama-3.1-8b-instruct:free`, etc.
+
+**Files:** `cli/src/wrapper/provider-session.ts`
+**Tests:** Full session lifecycle with mock provider adapter
+
+#### 10b. Unified SessionRegistry Pool
+
+- `SessionRegistry` accepts both harness + provider sessions in a single pool
+- Shared circuit breaker + priority scoring across both types
+- Per-agent backend assignment: team configs can mix harness + provider
+- Fallback: if harness backend is rate-limited, registry falls through to provider
+
+**Files:** Modifications to `cli/src/wrapper/session-registry.ts`
+**Tests:** Mixed pool selection, circuit breaker fallback across types
+
+#### 10c. CLI + TUI Integration
+
+- `kiln run --provider openrouter --model deepseek-r1` creates ProviderSession
+- `kiln tui` provider picker: two-section layout (Harness / Direct API)
+- Free-tier OpenRouter models surfaced with `(free)` label
+- `kiln.yaml` `session.backend` schema supports both types
+
+**Files:** Modifications to `cli/src/commands/run.ts`, `cli/src/commands/tui.ts`, `tui/src/app.tsx`
+**Tests:** CLI flag parsing, TUI picker rendering, provider session creation
+
+#### 10d. Context Management for Provider Sessions
+
+- Context window tracking (token counting per provider/model)
+- Compaction strategy: Kiln-owned sliding window (not delegated to CLI)
+- System prompt construction via `buildPreamble()` — already exists
+- Memory injection: same pipeline as Mode B gateway (user, agent, project scopes)
+- Knowledge injection: same RAG pipeline as gateway
+
+**Files:** New `cli/src/wrapper/provider-context.ts`, modifications to `cli/src/wrapper/preamble-builder.ts`
+**Tests:** Context window overflow handling, compaction trigger, memory injection
+
+---
+
+## Phase 11 — Layered Runtime Config [URGENT]
+
+**Status:** PLANNED — depends on Phase 10 (config needs backends to configure)
+**Priority:** URGENT — every competitor has layered config; Kiln's config is the #1 adoption barrier
+**Source:** Evolution research (2026-04-07): Codex ConfigLayerStack, OpenCode 4-tier config, Claude Code settings.json scoping
+
+### Problem
+
+Kiln requires `app.yaml` + `gateway.yaml` for any non-trivial use. Competitors require zero
+config (Claude Code), one TOML file (Codex), or one JSON file (OpenCode). The research
+confirmed: developers reward minimal surface area for the 90% case. Any framework requiring
+gateway config to run a simple agent loses to one that doesn't.
+
+### Rules
+
+- Progressive disclosure: complexity scales with ambition
+- No backward compat shims — if config schema changes, it changes cleanly
+- Merge semantics must be explicit and documented — no magic
+- YAML format throughout (consistent with existing kiln.yaml)
+- Test before done: config loading tested with all layer combinations
+
+### Sub-phases
+
+#### 11a. Global Config (`~/.kiln/config.yaml`)
+
+- Provider + model defaults
+- Global MCP servers
+- TUI preferences (theme, keybinds)
+- Default permission policy
+- Identity (name, timezone — for buildPreamble personalization)
+- Resolution: `~/.kiln/config.yaml` on all platforms (XDG-aware on Linux)
+- Created by first-run wizard or `kiln init --global`
+
+**Files:** New `cli/src/config/global-config.ts`, schema definition, loader
+**Tests:** Load, merge with defaults, missing file handling, first-run creation
+**Reference:** Codex `~/.codex/config.toml`, OpenCode `~/.config/opencode/opencode.json`
+
+#### 11b. Project Config (`./kiln.yaml`) with Merge Semantics
+
+- Project-specific overrides committed to git
+- Merge rules (explicit, documented):
+  - Scalar fields: project overrides global (model, provider, theme)
+  - Agent definitions: deep merge (project adds skills/tools to global agent)
+  - MCP servers: additive (both global and project servers active)
+  - Permission rules: project can tighten, never loosen global policy
+- `loadKilnConfig(projectPath)`: returns merged config from global + project
+
+**Files:** New `cli/src/config/config-merger.ts`, modifications to existing `cli/src/config.ts`
+**Tests:** All merge scenarios: override, additive, tighten-only permissions, missing layers
+**Reference:** Codex `ConfigLayerStack` (system > user > project), OpenCode 4-tier precedence
+
+#### 11c. Zero-Config First Run
+
+- `kiln tui` works with zero files: `--provider openrouter --model deepseek-r1`
+- `KILN_PROVIDER` + `KILN_MODEL` env vars as alternative to flags
+- First-run wizard: interactive provider selection → creates `~/.kiln/config.yaml`
+- `kiln init` creates project `kiln.yaml` from template (existing command, enhanced)
+- Target: < 60 seconds from install to first conversation
+
+**Files:** Modifications to `cli/src/commands/tui.ts`, `cli/src/commands/init.ts`
+**Tests:** Cold start with no files, env var resolution, wizard flow
+**Reference:** OpenClaw first-run wizard, Claude Code zero-config with `ANTHROPIC_API_KEY`
+
+#### 11d. Agent Definitions as Markdown
+
+- `~/.kiln/agents/*.md` (global) + `.kiln/agents/*.md` (project)
+- Format: YAML frontmatter + markdown body (same as SKILL.md):
+  ```markdown
+  ---
+  name: coder
+  role: Senior TypeScript developer
+  tools: [bash, edit, read, glob, grep]
+  model: claude-sonnet-4-6
+  skills: [sequel-spring, code-reviewer]
+  ---
+  Additional instructions for this agent...
+  ```
+- Loaded by config loader, merged into agent registry
+- Available in TUI agent picker and `kiln run --agent <name>`
+
+**Files:** New `cli/src/config/agent-loader.ts`
+**Tests:** Parse frontmatter, merge with config agents, missing directory handling
+**Reference:** ECC `agents/*.md`, OpenCode `agents/*.md`, OpenClaw `SOUL.md`
+
+#### 11e. AGENTS.md Generation
+
+- `kiln sync --agents-md` generates cross-tool context file at project root
+- Content: agent names, roles, tools, skills — derived from merged kiln.yaml + agents/*.md
+- Readable by Claude Code, Codex, OpenCode, Cursor without any Kiln-specific config
+- Auto-generated, not hand-maintained — single source of truth is kiln.yaml
+
+**Files:** New `cli/src/sync/agents-md-sync.ts`, modifications to `cli/src/commands/sync.ts`
+**Tests:** Generation from various config combinations, idempotent re-generation
+**Reference:** ECC finding — AGENTS.md is the universal cross-tool context file standard
+
+---
+
+## Phase 12 — Runtime Polish & Competitive Parity [URGENT]
+
+**Status:** PLANNED — depends on Phases 9-11
+**Priority:** URGENT — competitive parity features that prevent churn
+**Source:** Evolution research (2026-04-07): OpenClaw, Hermes, Aider, Goose, ECC feature analysis
+
+### Rules
+
+- Each sub-phase is independent — can ship in any order
+- No speculative abstractions — build only what research validated
+- Test before done
+
+### Sub-phases
+
+#### 12a. Provider Fallback Chain
+
+- Config: `providers: [anthropic, openrouter/anthropic, deepseek]` — tries in order
+- Integrates with existing circuit breaker (no new system)
+- Auth rotation for providers with multiple keys
+- Exponential backoff per provider (existing `withRetry` pattern)
+
+**Files:** Modifications to `cli/src/wrapper/session-registry.ts`, `core/src/agents/` adapters
+**Reference:** OpenClaw auth rotation + fallback chain, Aider litellm fallback
+
+#### 12b. External Model Registry
+
+- Fetch model catalog from `models.dev/api.json` at startup (cache for 24h)
+- Bundled snapshot as offline fallback
+- Replaces hardcoded 17 `ModelCapabilityProfile` entries in `model-capability-registry.ts`
+- TUI model picker populated from registry (not hardcoded list)
+
+**Files:** New `core/src/agents/model-registry.ts`, modifications to `model-capability-registry.ts`
+**Reference:** OpenCode `models.ts:88-99` fetches from `https://models.dev/api.json`
+
+#### 12c. Session Resume & Fork
+
+- `kiln run --resume` — enhance existing SessionStore resume
+- `kiln run --fork <session-id>` — create new session from checkpoint
+- `kiln sessions list` — browse prior sessions with metadata
+- Session metadata: provider, model, cost, duration, task summary
+
+**Files:** Modifications to `cli/src/wrapper/session-store.ts`, new `cli/src/commands/sessions.ts`
+**Reference:** Codex `resume`/`fork`, Claude Code `--resume`
+
+#### 12d. MCP Auto-Discovery
+
+- `kiln mcp search <query>` against MCP registry (mcpregistry.io or similar)
+- `kiln mcp install <name>` auto-configures in kiln.yaml
+- Token budget warning: alert when >80 tools active (context degradation threshold)
+- Reference model list from registry for available servers
+
+**Files:** New `cli/src/commands/mcp-search.ts`
+**Reference:** OpenClaw `mcp-hub` skill (1,200+ servers auto-discovered), ECC token budget finding
+
+#### 12e. Skill Registry Hub
+
+- `kiln skill search <query>` against public index
+- `kiln skill install <name>` downloads SKILL.md to project `.kiln/skills/`
+- Index starts as GitHub repository (JSON manifest), evolves to hosted registry
+- Skills installable at global (`~/.kiln/skills/`) or project (`.kiln/skills/`) scope
+
+**Files:** New `cli/src/commands/skill-search.ts`, modifications to `cli/src/commands/skill.ts`
+**Reference:** OpenClaw ClawHub (800+ skills, searchable), ECC 181 skills
+
+#### 12f. Subagent Model Routing
+
+- `KILN_SUBAGENT_MODEL` env var to route subagents to cheaper models
+- Config: `subagentModel: claude-haiku-4-5` in kiln.yaml
+- Applied when spawning subagent sessions (both harness and provider)
+- Surfaces as `CLAUDE_CODE_SUBAGENT_MODEL` for Claude Code harness backend
+
+**Files:** Modifications to `cli/src/wrapper/session-manager.ts`, kiln.yaml schema
+**Reference:** ECC finding — `CLAUDE_CODE_SUBAGENT_MODEL` is undocumented Claude Code knob
+
+---
+
+### Dependency Chain (Phases 9-13)
+
+```
+Phase 4.5 (permissions, IN PROGRESS) ──┐
+                                        ├── Phase 9 (native tools)
+Phase 8 (agent teams, IN PROGRESS) ────┘       │
+                                          Phase 10 (ProviderSession)
+                                                │
+                                          Phase 11 (layered config)
+                                                │
+                                          Phase 12 (runtime polish)
+                                                │
+                                          Phase 13 (external validation)
+```
+
+Phases 9-12 are all marked [URGENT]. Phase 9 is the critical path — everything depends on it.
+Phase 8 (Agent Teams) and Phase 4.5 (Permissions) continue in parallel — they are prerequisites.
+
+---
+
+## Phase 13 — External Validation
 
 **Status:** PLANNED
-**Timing:** After all remaining product phases are stable enough to represent the
-real Kiln experience. Do not optimize the roadmap around benchmark chasing.
+**Timing:** After Phases 9-12 are stable enough to represent the real Kiln experience.
+Do not optimize the roadmap around benchmark chasing.
 
 ### Terminal-Bench Submission
 
@@ -1113,8 +1455,9 @@ real Kiln experience. Do not optimize the roadmap around benchmark chasing.
 
 ### Readiness Gate Before Submission
 
-- Phase 4 / 4.5 / 5 / 7 / 7.5 implemented to a stable standard
+- Phases 9-12 implemented to a stable standard
 - Kiln TUI is the real primary interface, not a prototype shell
+- Provider sessions work end-to-end with native tools
 - Resume, approvals, routing visibility, and diff visibility are production-ready
 - Internal benchmark and regression suites are already green
 
@@ -1211,6 +1554,17 @@ This roadmap was enriched with intelligence from:
 - Academic: ACON, HippoRAG, GraphRAG, A-MEM, SYNAPSE,
   Workforce (NeurIPS 2025), Conductor (2026), CodeSim (NAACL 2025),
   APC, KVFlow (NeurIPS 2025), SWE-EVO (2025)
+
+### Evolution Research (2026-04-07)
+- Local scouts: Claude Code, Codex CLI, OpenCode, Hermes Agent (full source reconnaissance)
+- Web research: Aider, Goose, Claude Code public docs, Codex public docs
+- Market validation: LangGraph, CrewAI, AutoGen/MAF, Bedrock AgentCore, agentgateway.dev, Julep, Letta
+- OpenClaw capabilities analysis (250K+ stars, 800+ skills, 25+ channels)
+- ECC (Everything Claude Code) patterns analysis (47 agents, 181 skills, 14 MCP servers)
+- Tool interface research: Claude Code, Codex, OpenCode, Goose, Aider tool schemas
+- Key finding: two-layer architecture (runtime + gateway) validated by market
+- Key finding: native dev tools are prerequisite for provider-agnostic runtime
+- Key finding: Kiln is the only open, self-hostable product covering both layers
 
 ### Key Findings That Shaped This Roadmap
 1. No tool has a middle ground between approve-all and yolo permissions
