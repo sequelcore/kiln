@@ -40,6 +40,12 @@ export interface ProviderCreateConfig {
   readonly permissionPolicy: KilnPermissionPolicy;
   readonly model?: string;
   readonly resumeSessionId?: string;
+  readonly ephemeral?: boolean;
+  readonly profile?: string;
+  readonly skipGitRepoCheck?: boolean;
+  readonly outputSchema?: string;
+  readonly addDir?: string;
+  readonly localProvider?: string;
 }
 
 export interface ClaudeBackendConfig {
@@ -49,7 +55,7 @@ export interface ClaudeBackendConfig {
 
 export interface CodexBackendConfig {
   readonly approvalMode: "never" | "on-request" | "on-failure" | "untrusted";
-  readonly sandboxMode: "workspace-write" | "danger-full-access";
+  readonly sandboxMode: "read-only" | "workspace-write" | "danger-full-access";
 }
 
 export interface OpenCodeBackendConfig {
@@ -142,7 +148,7 @@ export function translatePermission(
       if (backend === "codex") {
         return {
           backend: "codex",
-          config: { approvalMode: "on-request", sandboxMode: "workspace-write" },
+          config: { approvalMode: "never", sandboxMode: "read-only" },
           nativeRules: { coarseOnly: true },
           representableRules,
           unsupportedRules,
@@ -245,7 +251,7 @@ export function translatePermission(
     if (backend === "codex") {
       return {
         backend: "codex",
-        config: { approvalMode: "on-request", sandboxMode: "workspace-write" },
+        config: { approvalMode: "on-request", sandboxMode: sandbox },
         nativeRules: { coarseOnly: true },
         representableRules,
         unsupportedRules,
@@ -279,7 +285,7 @@ export function translatePermission(
     if (backend === "codex") {
       return {
         backend: "codex",
-        config: { approvalMode: "on-failure", sandboxMode: "workspace-write" },
+        config: { approvalMode: "on-failure", sandboxMode: sandbox },
         nativeRules: { coarseOnly: true },
         representableRules,
         unsupportedRules,
@@ -313,7 +319,7 @@ export function translatePermission(
     if (backend === "codex") {
       return {
         backend: "codex",
-        config: { approvalMode: "untrusted", sandboxMode: "workspace-write" },
+        config: { approvalMode: "untrusted", sandboxMode: sandbox },
         nativeRules: { coarseOnly: true },
         representableRules,
         unsupportedRules,
@@ -346,7 +352,7 @@ export function translatePermission(
   if (backend === "codex") {
     return {
       backend: "codex",
-      config: { approvalMode: "on-request", sandboxMode: "workspace-write" },
+      config: { approvalMode: approval, sandboxMode: sandbox },
       nativeRules: { coarseOnly: true },
       representableRules,
       unsupportedRules,
@@ -826,6 +832,12 @@ export function createDefaultRegistry(): {
           env: config.env,
           approvalMode: cfg.approvalMode,
           sandboxMode: cfg.sandboxMode,
+          ephemeral: config.ephemeral,
+          profile: config.profile,
+          skipGitRepoCheck: config.skipGitRepoCheck,
+          outputSchema: config.outputSchema,
+          addDir: config.addDir,
+          localProvider: config.localProvider,
           nativeRules: translated.nativeRules,
           representableRules: translated.representableRules,
           unsupportedRules: translated.unsupportedRules,

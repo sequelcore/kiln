@@ -22,6 +22,13 @@ import { SessionManager } from "../../src/wrapper/session-manager.js";
 import type { WrapperConfig, SessionReport } from "../../src/wrapper/index.js";
 import { DomainRegistry, InMemoryContextArtifactCache } from "@kilnai/core";
 import type { DomainConfig, ContextArtifactCache } from "@kilnai/core";
+import { createCli } from "../../src/index.js";
+
+const runCommandMock = vi.hoisted(() => vi.fn());
+
+vi.mock("../../src/commands/run.js", () => ({
+  runCommand: runCommandMock,
+}));
 
 const PYTHON_CONFIG: DomainConfig = {
   name: "python",
@@ -68,13 +75,173 @@ function makeReport(overrides: Partial<SessionReport> = {}): SessionReport {
 }
 
 describe("run command", () => {
+  const originalArgv = [...process.argv];
+
   beforeEach(() => {
     vi.clearAllMocks();
     (existsSync as ReturnType<typeof vi.fn>).mockReturnValue(false);
+    process.argv = [...originalArgv];
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    process.argv = [...originalArgv];
+  });
+
+  describe("CLI run flag parsing", () => {
+    it("forwards --ephemeral to runCommand flags", async () => {
+      process.argv = [
+        process.argv[0] ?? "bun",
+        process.argv[1] ?? "kiln",
+        "run",
+        "ship",
+        "it",
+        "--provider",
+        "codex",
+        "--ephemeral",
+      ];
+
+      await createCli(MOCK_APP_CONFIG);
+
+      expect(runCommandMock).toHaveBeenCalledTimes(1);
+      expect(runCommandMock).toHaveBeenCalledWith(
+        MOCK_APP_CONFIG,
+        "ship it",
+        expect.objectContaining({
+          provider: "codex",
+          ephemeral: true,
+        }),
+      );
+    });
+
+    it("forwards --profile to runCommand flags", async () => {
+      process.argv = [
+        process.argv[0] ?? "bun",
+        process.argv[1] ?? "kiln",
+        "run",
+        "ship",
+        "it",
+        "--provider",
+        "codex",
+        "--profile",
+        "fast-lane",
+      ];
+
+      await createCli(MOCK_APP_CONFIG);
+
+      expect(runCommandMock).toHaveBeenCalledTimes(1);
+      expect(runCommandMock).toHaveBeenCalledWith(
+        MOCK_APP_CONFIG,
+        "ship it",
+        expect.objectContaining({
+          provider: "codex",
+          profile: "fast-lane",
+        }),
+      );
+    });
+
+    it("forwards --skip-git-repo-check to runCommand flags", async () => {
+      process.argv = [
+        process.argv[0] ?? "bun",
+        process.argv[1] ?? "kiln",
+        "run",
+        "ship",
+        "it",
+        "--provider",
+        "codex",
+        "--skip-git-repo-check",
+      ];
+
+      await createCli(MOCK_APP_CONFIG);
+
+      expect(runCommandMock).toHaveBeenCalledTimes(1);
+      expect(runCommandMock).toHaveBeenCalledWith(
+        MOCK_APP_CONFIG,
+        "ship it",
+        expect.objectContaining({
+          provider: "codex",
+          skipGitRepoCheck: true,
+        }),
+      );
+    });
+
+    it("forwards --output-schema to runCommand flags", async () => {
+      process.argv = [
+        process.argv[0] ?? "bun",
+        process.argv[1] ?? "kiln",
+        "run",
+        "ship",
+        "it",
+        "--provider",
+        "codex",
+        "--output-schema",
+        ".kiln/schemas/result.json",
+      ];
+
+      await createCli(MOCK_APP_CONFIG);
+
+      expect(runCommandMock).toHaveBeenCalledTimes(1);
+      expect(runCommandMock).toHaveBeenCalledWith(
+        MOCK_APP_CONFIG,
+        "ship it",
+        expect.objectContaining({
+          provider: "codex",
+          outputSchema: ".kiln/schemas/result.json",
+        }),
+      );
+    });
+
+    it("forwards --add-dir to runCommand flags", async () => {
+      process.argv = [
+        process.argv[0] ?? "bun",
+        process.argv[1] ?? "kiln",
+        "run",
+        "ship",
+        "it",
+        "--provider",
+        "codex",
+        "--add-dir",
+        "C:/workspace/shared",
+      ];
+
+      await createCli(MOCK_APP_CONFIG);
+
+      expect(runCommandMock).toHaveBeenCalledTimes(1);
+      expect(runCommandMock).toHaveBeenCalledWith(
+        MOCK_APP_CONFIG,
+        "ship it",
+        expect.objectContaining({
+          provider: "codex",
+          addDir: "C:/workspace/shared",
+        }),
+      );
+    });
+
+    it("forwards --local-provider to runCommand flags", async () => {
+      process.argv = [
+        process.argv[0] ?? "bun",
+        process.argv[1] ?? "kiln",
+        "run",
+        "ship",
+        "it",
+        "--provider",
+        "codex",
+        "--local-provider",
+        "ollama",
+      ];
+
+      await createCli(MOCK_APP_CONFIG);
+
+      expect(runCommandMock).toHaveBeenCalledTimes(1);
+      expect(runCommandMock).toHaveBeenCalledWith(
+        MOCK_APP_CONFIG,
+        "ship it",
+        expect.objectContaining({
+          provider: "codex",
+          localProvider: "ollama",
+        }),
+      );
+    });
   });
 
   describe("session mode resolution", () => {

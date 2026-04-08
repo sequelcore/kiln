@@ -42,6 +42,12 @@ export interface RunFlags {
   readonly isolate?: boolean;
   readonly resume?: boolean;
   readonly plan?: boolean;
+  readonly ephemeral?: boolean;
+  readonly profile?: string;
+  readonly skipGitRepoCheck?: boolean;
+  readonly outputSchema?: string;
+  readonly addDir?: string;
+  readonly localProvider?: string;
 }
 
 function resolveMode(flags: RunFlags): SessionMode {
@@ -164,6 +170,12 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     env,
     permissionPolicy: config.permissionPolicy,
     resumeSessionId: context.resumeSessionId,
+    ephemeral: flags.ephemeral,
+    profile: flags.profile,
+    skipGitRepoCheck: flags.skipGitRepoCheck,
+    outputSchema: flags.outputSchema,
+    addDir: flags.addDir,
+    localProvider: flags.localProvider,
   };
 
   const sessionHooks = new SessionHooks(appConfig.kilnYaml?.hooks, {

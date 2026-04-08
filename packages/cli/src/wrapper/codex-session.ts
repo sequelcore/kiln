@@ -24,7 +24,13 @@ export interface CodexSessionConfig {
   readonly cwd?: string;
   readonly env?: Record<string, string>;
   readonly approvalMode?: "never" | "on-request" | "on-failure" | "untrusted";
-  readonly sandboxMode?: "workspace-write" | "danger-full-access";
+  readonly sandboxMode?: "read-only" | "workspace-write" | "danger-full-access";
+  readonly ephemeral?: boolean;
+  readonly profile?: string;
+  readonly skipGitRepoCheck?: boolean;
+  readonly outputSchema?: string;
+  readonly addDir?: string;
+  readonly localProvider?: string;
   readonly nativeRules?: { readonly coarseOnly: true };
   readonly representableRules?: readonly TranslationRuleMetadata[];
   readonly unsupportedRules?: readonly TranslationRuleMetadata[];
@@ -39,19 +45,10 @@ function derivePermissionPolicy(
   sandboxMode?: CodexSessionConfig["sandboxMode"],
   fallback?: KilnPermissionPolicy,
 ): KilnPermissionPolicy {
-  if (approvalMode === "never") {
-    return { approval: "never", sandbox: sandboxMode === "danger-full-access" ? "danger-full-access" : "workspace-write" };
-  }
-  if (approvalMode === "on-request") {
-    return { approval: "on-request", sandbox: sandboxMode === "danger-full-access" ? "danger-full-access" : sandboxMode ?? "read-only" };
-  }
-  if (approvalMode === "on-failure") {
-    return { approval: "on-failure", sandbox: sandboxMode === "danger-full-access" ? "danger-full-access" : sandboxMode ?? "read-only" };
-  }
-  if (approvalMode === "untrusted") {
-    return { approval: "untrusted", sandbox: "read-only" };
-  }
-  return fallback ?? { approval: "on-request", sandbox: "read-only" };
+  return {
+    approval: approvalMode ?? fallback?.approval ?? "on-request",
+    sandbox: sandboxMode ?? fallback?.sandbox ?? "read-only",
+  };
 }
 
 function buildFallbackConstraintInstructions(
@@ -186,15 +183,34 @@ export class CodexSession implements IKilnSession {
     const args = [
       "exec",
       "--json",
-      "--full-auto",
       "--ask-for-approval",
       this.config.approvalMode ?? "on-request",
+      "--sandbox",
+      this.config.sandboxMode ?? "read-only",
     ];
     if (this.config.model) {
       args.push("-m", this.config.model);
     }
+    if (this.config.profile) {
+      args.push("--profile", this.config.profile);
+    }
+    if (this.config.skipGitRepoCheck) {
+      args.push("--skip-git-repo-check");
+    }
+    if (this.config.outputSchema) {
+      args.push("--output-schema", this.config.outputSchema);
+    }
+    if (this.config.addDir) {
+      args.push("--add-dir", this.config.addDir);
+    }
+    if (this.config.localProvider) {
+      args.push("--local-provider", this.config.localProvider);
+    }
     if (resumeThreadId) {
       args.push("--resume", resumeThreadId);
+    }
+    if (this.config.ephemeral) {
+      args.push("--ephemeral");
     }
     const promptWithConstraints = appendConstraintInstructions(
       options.prompt,

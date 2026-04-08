@@ -187,6 +187,180 @@ describe("CodexSession.run() JSONL parsing", () => {
     );
   });
 
+  it("run() passes explicit approval and sandbox args instead of relying on full-auto", async () => {
+    const { proc, emitLine, resolveExit } = makeMockProc();
+    vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
+    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
+
+    const session = new CodexSession(baseConfig({
+      approvalMode: "untrusted",
+      sandboxMode: "read-only",
+    }));
+    const collectPromise = collectEvents(session.run({ prompt: "Inspect the repo" }));
+
+    emitLine({ type: "thread.started", thread_id: "t1" });
+    emitLine({ type: "turn.started" });
+    emitLine({ type: "turn.completed", usage: { input_tokens: 10, cached_input_tokens: 0, output_tokens: 5 } });
+    resolveExit(0);
+
+    await collectPromise;
+
+    const spawnCall = vi.mocked(mockSpawn).mock.calls[0];
+    const spawnArgs = spawnCall?.[1] as string[] | undefined;
+    expect(spawnArgs).toBeDefined();
+    expect(spawnArgs).not.toContain("--full-auto");
+    expect(spawnArgs).toContain("--ask-for-approval");
+    expect(spawnArgs).toContain("untrusted");
+    expect(spawnArgs).toContain("--sandbox");
+    expect(spawnArgs).toContain("read-only");
+  });
+
+  it("run() appends --ephemeral when configured", async () => {
+    const { proc, emitLine, resolveExit } = makeMockProc();
+    vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
+    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
+
+    const session = new CodexSession(baseConfig({
+      ephemeral: true,
+    }));
+    const collectPromise = collectEvents(session.run({ prompt: "Inspect the repo" }));
+
+    emitLine({ type: "thread.started", thread_id: "t1" });
+    emitLine({ type: "turn.started" });
+    emitLine({ type: "turn.completed", usage: { input_tokens: 10, cached_input_tokens: 0, output_tokens: 5 } });
+    resolveExit(0);
+
+    await collectPromise;
+
+    const spawnCall = vi.mocked(mockSpawn).mock.calls[0];
+    const spawnArgs = spawnCall?.[1] as string[] | undefined;
+    expect(spawnArgs).toBeDefined();
+    expect(spawnArgs).toContain("--ephemeral");
+  });
+
+  it("run() appends --profile with the configured profile name", async () => {
+    const { proc, emitLine, resolveExit } = makeMockProc();
+    vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
+    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
+
+    const session = new CodexSession(baseConfig({
+      profile: "fast-lane",
+    }));
+    const collectPromise = collectEvents(session.run({ prompt: "Inspect the repo" }));
+
+    emitLine({ type: "thread.started", thread_id: "t1" });
+    emitLine({ type: "turn.started" });
+    emitLine({ type: "turn.completed", usage: { input_tokens: 10, cached_input_tokens: 0, output_tokens: 5 } });
+    resolveExit(0);
+
+    await collectPromise;
+
+    const spawnCall = vi.mocked(mockSpawn).mock.calls[0];
+    const spawnArgs = spawnCall?.[1] as string[] | undefined;
+    expect(spawnArgs).toBeDefined();
+    const profileIndex = spawnArgs?.indexOf("--profile");
+    expect(profileIndex).toBeGreaterThanOrEqual(0);
+    expect(spawnArgs?.[profileIndex! + 1]).toBe("fast-lane");
+  });
+
+  it("run() appends --skip-git-repo-check when configured", async () => {
+    const { proc, emitLine, resolveExit } = makeMockProc();
+    vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
+    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
+
+    const session = new CodexSession(baseConfig({
+      skipGitRepoCheck: true,
+    }));
+    const collectPromise = collectEvents(session.run({ prompt: "Inspect the repo" }));
+
+    emitLine({ type: "thread.started", thread_id: "t1" });
+    emitLine({ type: "turn.started" });
+    emitLine({ type: "turn.completed", usage: { input_tokens: 10, cached_input_tokens: 0, output_tokens: 5 } });
+    resolveExit(0);
+
+    await collectPromise;
+
+    const spawnCall = vi.mocked(mockSpawn).mock.calls[0];
+    const spawnArgs = spawnCall?.[1] as string[] | undefined;
+    expect(spawnArgs).toBeDefined();
+    expect(spawnArgs).toContain("--skip-git-repo-check");
+  });
+
+  it("run() appends --output-schema with configured file path", async () => {
+    const { proc, emitLine, resolveExit } = makeMockProc();
+    vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
+    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
+
+    const session = new CodexSession(baseConfig({
+      outputSchema: ".kiln/schemas/result.json",
+    }));
+    const collectPromise = collectEvents(session.run({ prompt: "Inspect the repo" }));
+
+    emitLine({ type: "thread.started", thread_id: "t1" });
+    emitLine({ type: "turn.started" });
+    emitLine({ type: "turn.completed", usage: { input_tokens: 10, cached_input_tokens: 0, output_tokens: 5 } });
+    resolveExit(0);
+
+    await collectPromise;
+
+    const spawnCall = vi.mocked(mockSpawn).mock.calls[0];
+    const spawnArgs = spawnCall?.[1] as string[] | undefined;
+    expect(spawnArgs).toBeDefined();
+    const schemaFlagIndex = spawnArgs?.indexOf("--output-schema");
+    expect(schemaFlagIndex).toBeGreaterThanOrEqual(0);
+    expect(spawnArgs?.[schemaFlagIndex! + 1]).toBe(".kiln/schemas/result.json");
+  });
+
+  it("run() appends --add-dir with configured path", async () => {
+    const { proc, emitLine, resolveExit } = makeMockProc();
+    vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
+    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
+
+    const session = new CodexSession(baseConfig({
+      addDir: "C:/workspace/shared",
+    }));
+    const collectPromise = collectEvents(session.run({ prompt: "Inspect the repo" }));
+
+    emitLine({ type: "thread.started", thread_id: "t1" });
+    emitLine({ type: "turn.started" });
+    emitLine({ type: "turn.completed", usage: { input_tokens: 10, cached_input_tokens: 0, output_tokens: 5 } });
+    resolveExit(0);
+
+    await collectPromise;
+
+    const spawnCall = vi.mocked(mockSpawn).mock.calls[0];
+    const spawnArgs = spawnCall?.[1] as string[] | undefined;
+    expect(spawnArgs).toBeDefined();
+    const addDirIndex = spawnArgs?.indexOf("--add-dir");
+    expect(addDirIndex).toBeGreaterThanOrEqual(0);
+    expect(spawnArgs?.[addDirIndex! + 1]).toBe("C:/workspace/shared");
+  });
+
+  it("run() appends --local-provider with configured provider name", async () => {
+    const { proc, emitLine, resolveExit } = makeMockProc();
+    vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
+    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
+
+    const session = new CodexSession(baseConfig({
+      localProvider: "ollama",
+    }));
+    const collectPromise = collectEvents(session.run({ prompt: "Inspect the repo" }));
+
+    emitLine({ type: "thread.started", thread_id: "t1" });
+    emitLine({ type: "turn.started" });
+    emitLine({ type: "turn.completed", usage: { input_tokens: 10, cached_input_tokens: 0, output_tokens: 5 } });
+    resolveExit(0);
+
+    await collectPromise;
+
+    const spawnCall = vi.mocked(mockSpawn).mock.calls[0];
+    const spawnArgs = spawnCall?.[1] as string[] | undefined;
+    expect(spawnArgs).toBeDefined();
+    const localProviderIndex = spawnArgs?.indexOf("--local-provider");
+    expect(localProviderIndex).toBeGreaterThanOrEqual(0);
+    expect(spawnArgs?.[localProviderIndex! + 1]).toBe("ollama");
+  });
+
   it("run() yields text_delta for agent_message item", async () => {
     const { proc, emitLine, resolveExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);

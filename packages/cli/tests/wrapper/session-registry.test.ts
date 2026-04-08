@@ -402,6 +402,102 @@ describe("SessionRegistry", () => {
       expect(internal.config?.unsupportedRules?.length).toBeGreaterThan(0);
     });
 
+    it("passes ephemeral flag through to codex adapter config", () => {
+      const { registry } = createDefaultRegistry();
+      const session = registry.createSession("codex", {
+        task: "test",
+        permissionPolicy: GRANULAR_POLICY,
+        ephemeral: true,
+      });
+      const internal = session as unknown as {
+        config?: {
+          ephemeral?: boolean;
+        };
+      };
+
+      expect(internal.config?.ephemeral).toBe(true);
+    });
+
+    it("passes profile through to codex adapter config", () => {
+      const { registry } = createDefaultRegistry();
+      const session = registry.createSession("codex", {
+        task: "test",
+        permissionPolicy: GRANULAR_POLICY,
+        profile: "fast-lane",
+      });
+      const internal = session as unknown as {
+        config?: {
+          profile?: string;
+        };
+      };
+
+      expect(internal.config?.profile).toBe("fast-lane");
+    });
+
+    it("passes skipGitRepoCheck through to codex adapter config", () => {
+      const { registry } = createDefaultRegistry();
+      const session = registry.createSession("codex", {
+        task: "test",
+        permissionPolicy: GRANULAR_POLICY,
+        skipGitRepoCheck: true,
+      });
+      const internal = session as unknown as {
+        config?: {
+          skipGitRepoCheck?: boolean;
+        };
+      };
+
+      expect(internal.config?.skipGitRepoCheck).toBe(true);
+    });
+
+    it("passes outputSchema through to codex adapter config", () => {
+      const { registry } = createDefaultRegistry();
+      const session = registry.createSession("codex", {
+        task: "test",
+        permissionPolicy: GRANULAR_POLICY,
+        outputSchema: ".kiln/schemas/result.json",
+      });
+      const internal = session as unknown as {
+        config?: {
+          outputSchema?: string;
+        };
+      };
+
+      expect(internal.config?.outputSchema).toBe(".kiln/schemas/result.json");
+    });
+
+    it("passes addDir through to codex adapter config", () => {
+      const { registry } = createDefaultRegistry();
+      const session = registry.createSession("codex", {
+        task: "test",
+        permissionPolicy: GRANULAR_POLICY,
+        addDir: "C:/workspace/shared",
+      });
+      const internal = session as unknown as {
+        config?: {
+          addDir?: string;
+        };
+      };
+
+      expect(internal.config?.addDir).toBe("C:/workspace/shared");
+    });
+
+    it("passes localProvider through to codex adapter config", () => {
+      const { registry } = createDefaultRegistry();
+      const session = registry.createSession("codex", {
+        task: "test",
+        permissionPolicy: GRANULAR_POLICY,
+        localProvider: "ollama",
+      });
+      const internal = session as unknown as {
+        config?: {
+          localProvider?: string;
+        };
+      };
+
+      expect(internal.config?.localProvider).toBe("ollama");
+    });
+
     it("passes richer translated metadata into claude adapter config", () => {
       const { registry } = createDefaultRegistry();
       const session = registry.createSession("claude", {
@@ -490,12 +586,12 @@ describe("SessionRegistry", () => {
   });
 
   describe("translatePermission — codex backend", () => {
-    it("never + read-only → on-request, workspace-write", () => {
+    it("never + read-only → never, read-only", () => {
       const result = translatePermission({ approval: "never", sandbox: "read-only" }, "codex");
       expect(result.backend).toBe("codex");
       const cfg = result.config as { approvalMode: string; sandboxMode: string };
-      expect(cfg.approvalMode).toBe("on-request");
-      expect(cfg.sandboxMode).toBe("workspace-write");
+      expect(cfg.approvalMode).toBe("never");
+      expect(cfg.sandboxMode).toBe("read-only");
     });
 
     it("never + workspace-write → never, workspace-write", () => {
@@ -512,29 +608,31 @@ describe("SessionRegistry", () => {
       expect(cfg.sandboxMode).toBe("danger-full-access");
     });
 
-    it("on-request + any → on-request, workspace-write", () => {
+    it("on-request preserves the requested sandbox for codex", () => {
       for (const sandbox of ["read-only", "workspace-write", "danger-full-access"] as const) {
         const result = translatePermission({ approval: "on-request", sandbox }, "codex");
         const cfg = result.config as { approvalMode: string; sandboxMode: string };
         expect(cfg.approvalMode).toBe("on-request");
-        expect(cfg.sandboxMode).toBe("workspace-write");
+        expect(cfg.sandboxMode).toBe(sandbox);
       }
     });
 
-    it("untrusted + any → untrusted, workspace-write", () => {
+    it("untrusted preserves the requested sandbox for codex", () => {
       for (const sandbox of ["read-only", "workspace-write", "danger-full-access"] as const) {
         const result = translatePermission({ approval: "untrusted", sandbox }, "codex");
         const cfg = result.config as { approvalMode: string; sandboxMode: string };
         expect(cfg.approvalMode).toBe("untrusted");
-        expect(cfg.sandboxMode).toBe("workspace-write");
+        expect(cfg.sandboxMode).toBe(sandbox);
       }
     });
 
-    it("on-failure maps through for codex", () => {
-      const result = translatePermission({ approval: "on-failure", sandbox: "read-only" }, "codex");
-      const cfg = result.config as { approvalMode: string; sandboxMode: string };
-      expect(cfg.approvalMode).toBe("on-failure");
-      expect(cfg.sandboxMode).toBe("workspace-write");
+    it("on-failure preserves the requested sandbox for codex", () => {
+      for (const sandbox of ["read-only", "workspace-write", "danger-full-access"] as const) {
+        const result = translatePermission({ approval: "on-failure", sandbox }, "codex");
+        const cfg = result.config as { approvalMode: string; sandboxMode: string };
+        expect(cfg.approvalMode).toBe("on-failure");
+        expect(cfg.sandboxMode).toBe(sandbox);
+      }
     });
   });
 

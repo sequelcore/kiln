@@ -61,7 +61,7 @@ SessionCapabilities describes what each backend supports:
 | Output format | SDK events | JSONL stream | ACP SSE events |
 | Resume | reuseEnvironmentId, --resume | --conversation-id (deferred) | stored remoteSessionId, --attach |
 | Cost tracking | native (SDK reports USD) | computed (token counts + models.dev) | none |
-| Permission delivery | settings.json rules | config.toml approval_policy | PATCH /config |
+| Permission delivery | settings.json rules | exec flags (`--ask-for-approval`, `--sandbox`) + config.toml defaults | PATCH /config |
 | MCP config | .mcp.json in project | config.toml mcp_servers | PATCH /config mcp block |
 | Bare mode | --bare (skips hooks/skills/plugins) | N/A | N/A (uses serve mode) |
 
@@ -140,10 +140,46 @@ export interface KilnAgentPermissionScope {
 
 `translatePermission()` in `packages/cli/src/wrapper/session-registry.ts` converts policy to backend-native format:
 - Claude Code: settings.json allow/deny rules
-- Codex CLI: config.toml approval_policy + sandbox_mode
+- Codex CLI: explicit `codex exec --ask-for-approval <mode> --sandbox <mode>` spawn args, with config.toml acting only as the ambient default outside Kiln-managed runs
 - OpenCode: opencode.json permission.default
 
 Unsupported granular rules are expressed as constraint instructions injected into the system prompt.
+
+### Codex-specific note
+
+For Codex, Kiln now preserves the requested sandbox mode exactly:
+- `read-only` stays `read-only`
+- `workspace-write` stays `workspace-write`
+- `danger-full-access` stays `danger-full-access`
+
+Kiln does not rely on `--full-auto` for Codex runs because that alias expands to
+`--ask-for-approval on-request --sandbox workspace-write`, which would silently
+override a stricter `read-only` policy.
+
+When `kiln run --provider codex --ephemeral ...` is used, Kiln also forwards
+Codex's native `--ephemeral` flag so the session runs without persisting Codex
+session files to disk.
+
+When `kiln run --provider codex --profile <name> ...` is used, Kiln forwards
+Codex's native `--profile <name>` flag so the run uses the named profile from
+`~/.codex/config.toml`.
+
+When `kiln run --provider codex --skip-git-repo-check ...` is used, Kiln
+forwards Codex's native `--skip-git-repo-check` flag so Codex can run outside a
+git repository when that is explicitly requested.
+
+When `kiln run --provider codex --output-schema <file> ...` is used, Kiln
+forwards Codex's native `--output-schema <file>` flag so Codex validates the
+final response against the provided JSON Schema file.
+
+When `kiln run --provider codex --add-dir <path> ...` is used, Kiln forwards
+Codex's native `--add-dir <path>` flag so an additional writable directory is
+granted for that run. The current Kiln CLI slice supports a single `--add-dir`
+value.
+
+When `kiln run --provider codex --local-provider <name> ...` is used, Kiln
+forwards Codex's native `--local-provider <name>` flag so a local Codex backend
+such as `ollama` or `lmstudio` can be selected for that run.
 
 ### Normalization
 
