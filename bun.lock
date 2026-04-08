@@ -47,6 +47,7 @@
       "version": "0.23.2",
       "dependencies": {
         "@anthropic-ai/sdk": "^0.74.0",
+        "@kilnai/tools": "workspace:*",
         "@modelcontextprotocol/sdk": "^1.26.0",
         "yaml": "^2.8.2",
       },
@@ -114,6 +115,32 @@
         "typescript": "^5.6.0",
         "vite": "^7.0.0",
       },
+    },
+    "packages/tools": {
+      "name": "@kilnai/tools",
+      "version": "0.23.2",
+      "optionalDependencies": {
+        "@kilnai/tools-darwin-arm64": "0.23.2",
+        "@kilnai/tools-darwin-x64": "0.23.2",
+        "@kilnai/tools-linux-x64": "0.23.2",
+        "@kilnai/tools-win32-x64": "0.23.2",
+      },
+    },
+    "packages/tools-darwin-arm64": {
+      "name": "@kilnai/tools-darwin-arm64",
+      "version": "0.23.2",
+    },
+    "packages/tools-darwin-x64": {
+      "name": "@kilnai/tools-darwin-x64",
+      "version": "0.23.2",
+    },
+    "packages/tools-linux-x64": {
+      "name": "@kilnai/tools-linux-x64",
+      "version": "0.23.2",
+    },
+    "packages/tools-win32-x64": {
+      "name": "@kilnai/tools-win32-x64",
+      "version": "0.23.2",
     },
     "packages/tui": {
       "name": "@kilnai/tui",
@@ -370,6 +397,16 @@
     "@kilnai/runtime": ["@kilnai/runtime@workspace:packages/runtime"],
 
     "@kilnai/studio": ["@kilnai/studio@workspace:packages/studio"],
+
+    "@kilnai/tools": ["@kilnai/tools@workspace:packages/tools"],
+
+    "@kilnai/tools-darwin-arm64": ["@kilnai/tools-darwin-arm64@workspace:packages/tools-darwin-arm64"],
+
+    "@kilnai/tools-darwin-x64": ["@kilnai/tools-darwin-x64@workspace:packages/tools-darwin-x64"],
+
+    "@kilnai/tools-linux-x64": ["@kilnai/tools-linux-x64@workspace:packages/tools-linux-x64"],
+
+    "@kilnai/tools-win32-x64": ["@kilnai/tools-win32-x64@workspace:packages/tools-win32-x64"],
 
     "@kilnai/tui": ["@kilnai/tui@workspace:packages/tui"],
 

@@ -1,0 +1,136 @@
+import { execFile as execFileCallback } from "node:child_process";
+import { promisify } from "node:util";
+import { TOOL_SCHEMAS, type DevTool, type ToolInput, type ToolResult } from "../domain/tool.js";
+import {
+  getSandboxContext,
+  resolvePath,
+  requireString,
+  toErrorResult,
+  toSuccessResult,
+  validateCommand,
+  validateReadPath,
+} from "./tool-helpers.js";
+
+const execFile = promisify(execFileCallback);
+const DEFAULT_TIMEOUT_MS = 30_000;
+const MAX_BUFFER = 2 * 1024 * 1024;
+
+type GitCommandResult = {
+  readonly stdout: string;
+  readonly stderr: string;
+};
+
+type GitCommandRunner = (
+  args: readonly string[],
+  cwd: string,
+  timeoutMs: number,
+) => Promise<GitCommandResult>;
+
+export interface GitToolOptions {
+  readonly commandRunner?: GitCommandRunner;
+}
+
+export class GitTool implements DevTool {
+  readonly name = "git";
+  readonly description = TOOL_SCHEMAS.git.description;
+  readonly inputSchema = TOOL_SCHEMAS.git.inputSchema;
+  readonly annotations = TOOL_SCHEMAS.git.annotations;
+
+  private readonly commandRunner: GitCommandRunner;
+
+  constructor(options: GitToolOptions = {}) {
+    this.commandRunner = options.commandRunner ?? runGitCommand;
+  }
+
+  async execute(input: ToolInput, sandbox?: unknown): Promise<ToolResult> {
+    const subcommandInput = requireString(input, "subcommand");
+    if (!subcommandInput.ok) {
+      return subcommandInput.result;
+    }
+
+    const argsInput = readArgs(input);
+    if (!argsInput.ok) {
+      return toErrorResult(argsInput.message);
+    }
+
+    const sandboxContext = getSandboxContext(sandbox);
+    const cwd = resolvePath(sandboxContext?.cwd ?? process.cwd(), sandbox);
+
+    const cwdError = validateReadPath(cwd, sandbox);
+    if (cwdError) {
+      return toErrorResult(cwdError, { cwd });
+    }
+
+    const commandString = toCommandString(subcommandInput.value, argsInput.value);
+    const commandError = validateCommand(commandString, cwd, sandbox);
+    if (commandError) {
+      return toErrorResult(commandError, { cwd, command: commandString });
+    }
+
+    const allArgs = [subcommandInput.value, ...argsInput.value];
+
+    try {
+      const result = await this.commandRunner(allArgs, cwd, DEFAULT_TIMEOUT_MS);
+      const output = [result.stdout, result.stderr].filter(Boolean).join("").trim();
+      return toSuccessResult(output, {
+        cwd,
+        command: commandString,
+      });
+    } catch (error) {
+      const err = error as NodeJS.ErrnoException & {
+        stdout?: string;
+        stderr?: string;
+        code?: number | string;
+        signal?: NodeJS.Signals;
+      };
+
+      const message =
+        [err.stderr, err.stdout].filter(Boolean).join("").trim() ||
+        err.message ||
+        "git command failed";
+
+      return toErrorResult(message, {
+        cwd,
+        command: commandString,
+        code: err.code,
+        signal: err.signal,
+      });
+    }
+  }
+}
+
+function readArgs(input: ToolInput): { ok: true; value: string[] } | { ok: false; message: string } {
+  const rawArgs = input.input["args"];
+  if (rawArgs === undefined) {
+    return { ok: true, value: [] };
+  }
+
+  if (!Array.isArray(rawArgs) || rawArgs.some((value) => typeof value !== "string")) {
+    return { ok: false, message: "Invalid input: \"args\" must be an array of strings" };
+  }
+
+  return { ok: true, value: [...rawArgs] };
+}
+
+function toCommandString(subcommand: string, args: readonly string[]): string {
+  if (args.length === 0) {
+    return `git ${subcommand}`;
+  }
+
+  return `git ${subcommand} ${args.join(" ")}`;
+}
+
+async function runGitCommand(
+  args: readonly string[],
+  cwd: string,
+  timeoutMs: number,
+): Promise<GitCommandResult> {
+  const { stdout, stderr } = await execFile("git", args, {
+    cwd,
+    timeout: timeoutMs,
+    windowsHide: true,
+    maxBuffer: MAX_BUFFER,
+  });
+
+  return { stdout, stderr };
+}

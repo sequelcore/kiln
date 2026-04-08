@@ -34,6 +34,7 @@ Bun monorepo with 6 packages:
 | domain | `core/src/domain/` | Domain config: tech stack detection, YAML schema, DomainRegistry. Built-in kits at `core/src/domains/*.yaml` |
 | package | `core/src/package/` | Distribution: versioning, content hashing, security validation |
 | skill | `core/src/skill/` | SKILL.md format (markdown + YAML frontmatter), SkillRegistry (3-tier discovery, progressive disclosure), SkillGenerator (auto-generate post-session, two-phase when transcript available), SkillCaptureService (Phase 1: extractSummary → JSON; Phase 2: generateSkill → SKILL.md), PersistedTranscriptEvent type, runtime injection via PerCallToolConfig.skillInstructions |
+| tools | `core/src/tools/` | Native developer tools (Phase 9): `DevTool`, `DevToolRegistry`, `ToolEnvironment`, 7 executors (`bash`, `read`, `write`, `edit`, `grep`, `glob`, `git`), `DevToolExecutionBridge`, `DevToolsMcpServer`. Shared fallback helpers in `tool-helpers.ts`. |
 | enrichment | `core/src/enrichment/` | Post-conversation enrichment: effort score, LLM enrichment pipeline, sentiment/resolution/CSAT |
 | eval | `core/src/eval/` | 23 scorers (11 rule + 12 LLM-as-judge), dataset loader, experiment runner, comparator, consistency runner (pass^k) |
 | observability (core) | `core/src/observability/` | OTel span mapper (exhaustive event-to-span mapping) + OTelExporter (EventStore sink) |
@@ -152,6 +153,14 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `engine/domain/rate-limiter.ts` | RateLimiter, RateLimitConfig, RateLimitResult interfaces |
 | `engine/domain/integration.ts` | IntegrationAdapter, IntegrationOperation, IntegrationResult, CredentialResolver, ResolvedCredential interfaces |
 | `engine/domain/tool-execution.ts` | RetryStrategy, ToolAuthorizer, ToolExecutionResult interfaces |
+| `tools/domain/tool.ts` | `DevTool`, `ToolResult`, `DevToolName`, `TOOL_SCHEMAS` (7 tools) |
+| `tools/domain/tool-registry.ts` | `DevToolRegistry` register (throws on duplicate)/lookup/list |
+| `tools/domain/tool-environment.ts` | Binary detection (`rg`, `fd`, `jq`, `git`), process-wide cache, `clearToolEnvironmentCache()` |
+| `tools/infrastructure/tool-helpers.ts` | Shared sandbox helpers + extracted grep/glob fallback utils (`runCommand`, `walkFiles`, `matchesGlob`, `globToRegExp`, `normalizePath`) |
+| `tools/tool-executor.ts` | `DevToolExecutionBridge`: authorization (deny vs approval-required), retry/fallback, event emission |
+| `tools/mcp/dev-tools-server.ts` | `DevToolsMcpServer`: MCP stdio surface, instance-level SDK caching |
+| `tools/index.ts` | Tools bounded-context barrel export |
+| `index.ts` | Root `@kilnai/core` export surface (includes `./tools/index.js`) |
 | `memory/sqlite-store.ts` | SQLite + FTS5 memory (decay, compaction, tenant namespacing) |
 | `safety/safety-pipeline.ts` | PII -> content -> rails pipeline (fail-open) |
 | `eval/experiment-runner.ts` | Generate outputs, score with error isolation |

@@ -470,6 +470,15 @@ export function getErrorSuggestion(
       return { suggestion, docUrl: docUrl(code) };
     }
 
+    case "TOOL_APPROVAL_REQUIRED": {
+      const toolName = context?.toolName;
+      let suggestion = "Tool execution requires human approval before proceeding.";
+      if (toolName) {
+        suggestion += ` Tool: "${toolName}". The tool's annotations indicate it needs approval (e.g., destructive operation).`;
+      }
+      return { suggestion, docUrl: docUrl(code) };
+    }
+
     case "TOOL_EXECUTION_TIMEOUT": {
       const toolName = context?.toolName;
       const timeoutMs = context?.timeoutMs;

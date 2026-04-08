@@ -437,6 +437,14 @@ export async function startTui(
   function openProviderPicker(): void {
     if (providerPicker) return;
 
+    const activeProviderIndex = VALID_PROVIDERS.indexOf(state.currentProvider);
+    providerPickerState.providerIndex =
+      activeProviderIndex >= 0 ? activeProviderIndex : 0;
+    const activeModels = getCurrentModels();
+    const activeModelIndex = activeModels.indexOf(state.currentModel);
+    providerPickerState.modelIndex = activeModelIndex >= 0 ? activeModelIndex : 0;
+    providerPickerState.mode = "providers";
+
     providerPickerOpen = true;
     providerPicker = createProviderPicker(
       renderer,
@@ -448,12 +456,120 @@ export async function startTui(
     update(state, "providerPickerOpen", true);
     update(state, "currentProvider", getCurrentProvider());
 
-    providerPickerState.mode = "providers";
     renderProviderPicker();
-
-providerPicker.scrollBox.scrollTo(0);
+    providerPicker.scrollBox.scrollTo(0);
     process.nextTick(() => {
       scrollToSelectedRow(true);
+    });
+  }
+
+  function closeProviderPicker(apply: boolean): void {
+    if (!providerPicker) return;
+
+    if (apply) {
+      const selectedProvider = getCurrentProvider();
+      const models = getCurrentModels();
+      const selectedModel =
+        providerPickerState.mode === "models"
+          ? (models[providerPickerState.modelIndex] ?? "")
+          : state.currentProvider === selectedProvider
+            ? state.currentModel
+            : "";
+
+      update(state, "currentProvider", selectedProvider);
+      update(state, "currentModel", selectedModel);
+      update(state, "routeMode", "user");
+      update(state, "providerPickerIndex", providerPickerState.providerIndex);
+      renderSidebarProvider(state, currentTheme, ui, domain);
+      renderSidebarResume(state, currentTheme, ui);
+
+      void (async () => {
+        try {
+          const session = await createSession();
+          const hasSwitchProvider =
+            typeof (
+              session as unknown as {
+                switchProvider?: unknown;
+              }
+            ).switchProvider === "function";
+          if (hasSwitchProvider) {
+            await (
+              session as unknown as {
+                switchProvider: (
+                  providerName: string,
+                  modelName?: string,
+                ) => Promise<string>;
+              }
+            ).switchProvider(
+              selectedProvider,
+              selectedModel ? selectedModel : undefined,
+            );
+          }
+        } catch {
+          // fail-open
+        }
+      })();
+    }
+
+    destroyProviderPicker(providerPicker);
+    providerPicker = null;
+    providerPickerOpen = false;
+    update(state, "providerPickerOpen", false);
+  }
+
+  function returnToProviderMode(): void {
+    if (!providerPicker) return;
+    if (providerPickerState.mode === "providers") return;
+
+    providerPickerState.mode = "providers";
+    renderProviderPicker();
+    providerPicker.scrollBox.scrollTo(0);
+    process.nextTick(() => {
+      scrollToSelectedRow(true);
+    });
+  }
+
+  function enterModelMode(): void {
+    if (!providerPicker) return;
+    const models = getCurrentModels();
+    if (models.length === 0) {
+      closeProviderPicker(true);
+      return;
+    }
+
+    const activeModelIndex = models.indexOf(state.currentModel);
+    providerPickerState.modelIndex = activeModelIndex >= 0 ? activeModelIndex : 0;
+    providerPickerState.mode = "models";
+    renderProviderPicker();
+    providerPicker.scrollBox.scrollTo(0);
+    process.nextTick(() => {
+      scrollToSelectedRow(true);
+    });
+  }
+
+  function navigateProviderPicker(direction: number): void {
+    if (!providerPicker) return;
+
+    const inProviderMode = providerPickerState.mode === "providers";
+    const choices = inProviderMode ? VALID_PROVIDERS : getCurrentModels();
+    if (choices.length === 0) return;
+
+    const prevIdx = inProviderMode
+      ? providerPickerState.providerIndex
+      : providerPickerState.modelIndex;
+    const nextIdx = (prevIdx + direction + choices.length) % choices.length;
+    if (nextIdx === prevIdx) return;
+
+    if (inProviderMode) {
+      providerPickerState.providerIndex = nextIdx;
+      update(state, "providerPickerIndex", nextIdx);
+    } else {
+      providerPickerState.modelIndex = nextIdx;
+    }
+
+    updatePickerSelection(prevIdx, nextIdx);
+    process.nextTick(() => {
+      scrollToSelectedRow(false);
     });
   }
 

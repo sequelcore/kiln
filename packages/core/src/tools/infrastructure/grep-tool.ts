@@ -1,0 +1,249 @@
+import { readFile } from "node:fs/promises";
+import { basename, relative } from "node:path";
+import {
+  detectToolEnvironment,
+  type ToolEnvironment,
+} from "../domain/tool-environment.js";
+import {
+  TOOL_SCHEMAS,
+  type DevTool,
+  type ToolInput,
+  type ToolResult,
+} from "../domain/tool.js";
+import {
+  type CommandResult,
+  getSandboxContext,
+  matchesGlob,
+  normalizePath,
+  optionalString,
+  requireString,
+  resolvePath,
+  runCommand as defaultRunCommand,
+  toErrorResult,
+  toSuccessResult,
+  validateReadPath,
+  walkFiles,
+} from "./tool-helpers.js";
+
+const DEFAULT_TIMEOUT_MS = 30_000;
+
+type GrepOutputMode = "content" | "files_with_matches" | "count";
+
+type GrepCommandRunner = (
+  binary: string,
+  args: readonly string[],
+  cwd: string,
+  timeoutMs: number,
+) => Promise<CommandResult>;
+
+type EnvironmentProvider = () => Promise<ToolEnvironment>;
+
+export interface GrepToolOptions {
+  readonly commandRunner?: GrepCommandRunner;
+  readonly environmentProvider?: EnvironmentProvider;
+}
+
+export class GrepTool implements DevTool {
+  readonly name = "grep";
+  readonly description = TOOL_SCHEMAS.grep.description;
+  readonly inputSchema = TOOL_SCHEMAS.grep.inputSchema;
+  readonly annotations = TOOL_SCHEMAS.grep.annotations;
+
+  private readonly commandRunner: GrepCommandRunner;
+  private readonly environmentProvider: EnvironmentProvider;
+
+  constructor(options: GrepToolOptions = {}) {
+    this.commandRunner = options.commandRunner ?? defaultRunCommand;
+    this.environmentProvider = options.environmentProvider ?? detectToolEnvironment;
+  }
+
+  async execute(input: ToolInput, sandbox?: unknown): Promise<ToolResult> {
+    const patternInput = requireString(input, "pattern");
+    if (!patternInput.ok) {
+      return patternInput.result;
+    }
+
+    const sandboxContext = getSandboxContext(sandbox);
+    const searchRoot = resolvePath(
+      optionalString(input,"path") ?? sandboxContext?.cwd ?? process.cwd(),
+      sandbox,
+    );
+    const rootReadError = validateReadPath(searchRoot, sandbox);
+    if (rootReadError) {
+      return toErrorResult(rootReadError, { path: searchRoot });
+    }
+
+    const globFilter = optionalString(input,"glob");
+    const modeValue = optionalString(input,"outputMode");
+    const outputMode = isGrepOutputMode(modeValue) ? modeValue : "content";
+
+    try {
+      const environment = await this.environmentProvider();
+      const rgPath = environment.rg?.path;
+
+      if (rgPath) {
+        return await this.executeFastPath(
+          rgPath,
+          searchRoot,
+          patternInput.value,
+          globFilter,
+          outputMode,
+        );
+      }
+
+      return await this.executeFallback(
+        searchRoot,
+        patternInput.value,
+        globFilter,
+        outputMode,
+        sandbox,
+      );
+    } catch (error) {
+      const err = error as Error;
+      return toErrorResult(err.message, {
+        path: searchRoot,
+      });
+    }
+  }
+
+  private async executeFastPath(
+    rgPath: string,
+    searchRoot: string,
+    pattern: string,
+    globFilter: string | undefined,
+    outputMode: GrepOutputMode,
+  ): Promise<ToolResult> {
+    const args = buildFastPathArgs(pattern, globFilter, outputMode);
+
+    try {
+      const result = await this.commandRunner(
+        rgPath,
+        args,
+        searchRoot,
+        DEFAULT_TIMEOUT_MS,
+      );
+
+      return toSuccessResult(result.stdout.trim(), {
+        path: searchRoot,
+        strategy: "rg",
+        outputMode,
+      });
+    } catch (error) {
+      const err = error as NodeJS.ErrnoException & {
+        stdout?: string;
+        stderr?: string;
+        code?: number | string;
+      };
+
+      if (String(err.code) === "1") {
+        return toSuccessResult("", {
+          path: searchRoot,
+          strategy: "rg",
+          outputMode,
+          noMatches: true,
+        });
+      }
+
+      const message =
+        [err.stderr, err.stdout].filter(Boolean).join("").trim() ||
+        err.message ||
+        "rg execution failed";
+
+      return toErrorResult(message, {
+        path: searchRoot,
+        strategy: "rg",
+      });
+    }
+  }
+
+  private async executeFallback(
+    searchRoot: string,
+    pattern: string,
+    globFilter: string | undefined,
+    outputMode: GrepOutputMode,
+    sandbox?: unknown,
+  ): Promise<ToolResult> {
+    let expression: RegExp;
+    try {
+      expression = new RegExp(pattern);
+    } catch {
+      return toErrorResult("Invalid input: \"pattern\" must be a valid regular expression");
+    }
+
+    const files = await walkFiles(searchRoot);
+    const resultsContent: string[] = [];
+    const resultsFiles: string[] = [];
+    const resultsCount: string[] = [];
+
+    for (const filePath of files) {
+      const readError = validateReadPath(filePath, sandbox);
+      if (readError) {
+        continue;
+      }
+
+      const relativePath = normalizePath(relative(searchRoot, filePath) || basename(filePath));
+      if (globFilter && !matchesGlob(relativePath, globFilter)) {
+        continue;
+      }
+
+      const content = await readFile(filePath, "utf8");
+      const lines = content.split(/\r?\n/);
+
+      let matchedLines = 0;
+      for (let index = 0; index < lines.length; index++) {
+        if (expression.test(lines[index] ?? "")) {
+          matchedLines += 1;
+
+          if (outputMode === "content") {
+            resultsContent.push(`${relativePath}:${index + 1}:${lines[index] ?? ""}`);
+          }
+        }
+      }
+
+      if (matchedLines > 0) {
+        if (outputMode === "files_with_matches") {
+          resultsFiles.push(relativePath);
+        } else if (outputMode === "count") {
+          resultsCount.push(`${relativePath}:${matchedLines}`);
+        }
+      }
+    }
+
+    const output =
+      outputMode === "content"
+        ? resultsContent.join("\n")
+        : outputMode === "files_with_matches"
+          ? resultsFiles.join("\n")
+          : resultsCount.join("\n");
+
+    return toSuccessResult(output, {
+      path: searchRoot,
+      strategy: "fallback",
+      outputMode,
+    });
+  }
+}
+
+function isGrepOutputMode(value: string | undefined): value is GrepOutputMode {
+  return value === "content" || value === "files_with_matches" || value === "count";
+}
+
+function buildFastPathArgs(
+  pattern: string,
+  globFilter: string | undefined,
+  outputMode: GrepOutputMode,
+): string[] {
+  const args: string[] = ["--no-heading", "--line-number"];
+  if (globFilter) {
+    args.push("--glob", globFilter);
+  }
+
+  if (outputMode === "files_with_matches") {
+    args.push("--files-with-matches");
+  } else if (outputMode === "count") {
+    args.push("--count");
+  }
+
+  args.push(pattern, ".");
+  return args;
+}

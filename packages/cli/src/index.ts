@@ -38,6 +38,7 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     skill: "Manage skills (list, install, publish)",
     cron: "Manage scheduled jobs (list, add, remove, run)",
     sync: "Sync permissions and hooks to Claude Code, Codex, and OpenCode (--permissions, --hooks, --all)",
+    tools: "Launch native dev tools MCP server over stdio (--mcp)",
     tui: "Interactive terminal chat (TUI mode)",
   };
 
@@ -53,7 +54,14 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     console.log("  --provider   LLM provider (claude, openai, deepseek)");
     console.log("  --port       Port override (dev/gateway)");
     console.log("  --playground Open Studio in browser (dev mode)");
+    console.log("  --mcp       Start tools command in MCP stdio mode");
     console.log("  --plan      Plan mode: read-only exploration before execution");
+    console.log("  --ephemeral Run Codex without persisting session files");
+    console.log("  --profile    Codex profile name from ~/.codex/config.toml");
+    console.log("  --output-schema  Path to JSON schema file for Codex structured output");
+    console.log("  --add-dir  Additional writable directory for Codex (single path)");
+    console.log("  --skip-git-repo-check  Allow Codex runs outside a git repo");
+    console.log("  --local-provider  Codex local provider name (ollama or lmstudio)");
     console.log(`\nRun '${APP_NAME} <command> --help' for command-specific help.\n`);
   }
 
@@ -197,6 +205,12 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     return;
   }
 
+  if (command === "tools") {
+    const { toolsCommand } = await import("./commands/tools.js");
+    await toolsCommand(config, { mcp: args.includes("--mcp") });
+    return;
+  }
+
   if (command === "tui") {
     const { tuiCommand } = await import("./commands/tui.js");
     const portIdx = args.indexOf("--port");
@@ -230,8 +244,8 @@ function parsePort(args: readonly string[]): number {
   return 4800;
 }
 
-function parseRunArgs(rawArgs: readonly string[]): { task: string; flags: { apiKey?: string; provider?: string; isolate?: boolean; plan?: boolean } } {
-  const flags: { apiKey?: string; provider?: string; isolate?: boolean; plan?: boolean } = {};
+function parseRunArgs(rawArgs: readonly string[]): { task: string; flags: { apiKey?: string; provider?: string; isolate?: boolean; plan?: boolean; ephemeral?: boolean; profile?: string; skipGitRepoCheck?: boolean; outputSchema?: string; addDir?: string; localProvider?: string } } {
+  const flags: { apiKey?: string; provider?: string; isolate?: boolean; plan?: boolean; ephemeral?: boolean; profile?: string; skipGitRepoCheck?: boolean; outputSchema?: string; addDir?: string; localProvider?: string } = {};
   const taskParts: string[] = [];
   let i = 0;
   while (i < rawArgs.length) {
@@ -248,6 +262,24 @@ function parseRunArgs(rawArgs: readonly string[]): { task: string; flags: { apiK
     } else if (arg === "--plan") {
       flags.plan = true;
       i += 1;
+    } else if (arg === "--ephemeral") {
+      flags.ephemeral = true;
+      i += 1;
+    } else if (arg === "--profile" && i + 1 < rawArgs.length) {
+      flags.profile = rawArgs[i + 1];
+      i += 2;
+    } else if (arg === "--skip-git-repo-check") {
+      flags.skipGitRepoCheck = true;
+      i += 1;
+    } else if (arg === "--output-schema" && i + 1 < rawArgs.length) {
+      flags.outputSchema = rawArgs[i + 1];
+      i += 2;
+    } else if (arg === "--add-dir" && i + 1 < rawArgs.length) {
+      flags.addDir = rawArgs[i + 1];
+      i += 2;
+    } else if (arg === "--local-provider" && i + 1 < rawArgs.length) {
+      flags.localProvider = rawArgs[i + 1];
+      i += 2;
     } else {
       taskParts.push(arg);
       i += 1;

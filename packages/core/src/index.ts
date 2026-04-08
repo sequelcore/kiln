@@ -16,6 +16,7 @@ export * from "./knowledge/index.js";
 export * from "./eval/index.js";
 export * from "./safety/index.js";
 export * from "./enrichment/index.js";
+export * from "./tools/index.js";
 export * as engine from "./engine/index.js";
 
 // Re-export streaming types for runtime

@@ -8,7 +8,15 @@ import type {
 import { PhaseMachine, phaseMeta } from "./phase-machine.js";
 import { EventBus } from "../events/event-bus.js";
 import { CostTracker } from "../cost/cost-tracker.js";
-import type { PhaseChangedEvent, TraceSpanEvent } from "../events/index.js";
+import type {
+  InterruptRequestedEvent,
+  InterruptResumedEvent,
+  PhaseChangedEvent,
+  ToolAuthorizedEvent,
+  ToolCalledEvent,
+  ToolResultEvent,
+  TraceSpanEvent,
+} from "../events/index.js";
 import { createTraceContext, startSpan } from "../events/trace.js";
 import type { TraceSpan, TraceContext } from "../events/trace.js";
 import type { CostSummary } from "../cost/index.js";
@@ -23,6 +31,7 @@ import { createStrategy } from "./strategies/index.js";
 import type { StrategyHandler } from "./strategies/index.js";
 import { createPolicy, ROLE_PRESETS } from "../sandbox/index.js";
 import type { SandboxPolicy } from "../sandbox/index.js";
+import { KilnError } from "../engine/errors.js";
 import { ProviderRegistry } from "../agents/provider-registry.js";
 import type { ProviderAdapter, AgentRole } from "../agents/index.js";
 import { GitSyncManager } from "../memory/git-sync-manager.js";
@@ -31,8 +40,15 @@ import type { ProjectMemoryStore } from "../memory/project-store.js";
 import type { CheckpointStore } from "./checkpoint-store.js";
 import type { Checkpoint, CheckpointOptions, ReplayOverrides } from "./checkpoint-types.js";
 import type { InterruptRequest, ResumeCommand, InterruptState } from "./interrupt.js";
-import type { InterruptRequestedEvent, InterruptResumedEvent } from "../events/index.js";
 import { attachFieldUpdater, startFieldPropagator, startFieldInhibitor, startStabilityMonitor } from "../field/field-service.js";
+import { AnnotationAuthorizer } from "../security/annotation-authorizer.js";
+import { DevToolRegistry } from "../tools/domain/tool-registry.js";
+import type { DevTool } from "../tools/domain/tool.js";
+import {
+  DevToolExecutionBridge,
+  type DevToolExecutionRequest,
+  type DevToolExecutionResult,
+} from "../tools/tool-executor.js";
 
 const DEFAULT_CONFIG: OrchestratorConfig = {
   requireApproval: true,
@@ -73,6 +89,8 @@ export class Orchestrator {
   private readonly _tree: TaskTree;
   private readonly _batchExecutor: BatchExecutor;
   private readonly _providerRegistry: ProviderRegistry;
+  private readonly _devToolRegistry: DevToolRegistry;
+  private readonly _devToolExecutionBridge: DevToolExecutionBridge;
   private readonly _sandboxPolicies = new Map<string, SandboxPolicy>();
   private _sessionId: string | null = null;
   private _task: string | null = null;
@@ -97,6 +115,11 @@ export class Orchestrator {
     // PhaseMachine is constructed without a sessionId; it gets set in start()
     this._phaseMachine = new PhaseMachine(this._eventBus, this._config);
     this._providerRegistry = new ProviderRegistry();
+    this._devToolRegistry = new DevToolRegistry();
+    this._devToolExecutionBridge = new DevToolExecutionBridge({
+      registry: this._devToolRegistry,
+      authorizer: new AnnotationAuthorizer(),
+    });
 
     const treeConfig: TreeConfig = {
       maxDepth: this._config.maxDepth,
@@ -276,6 +299,11 @@ export class Orchestrator {
     return this._providerRegistry;
   }
 
+  /** Expose native dev tool registry for setup/configuration */
+  get devToolRegistry(): DevToolRegistry {
+    return this._devToolRegistry;
+  }
+
   /** Register a provider adapter by name */
   registerProvider(name: string, adapter: ProviderAdapter): void {
     this._providerRegistry.register(name, adapter);
@@ -289,6 +317,113 @@ export class Orchestrator {
   /** Get the provider for a given role (role-specific -> default -> first registered) */
   getProviderForRole(role: AgentRole): ProviderAdapter {
     return this._providerRegistry.getForRole(role);
+  }
+
+  /** Register a native developer tool by name */
+  registerDevTool(tool: DevTool): void {
+    this._devToolRegistry.register(tool);
+  }
+
+  /**
+   * Execute a native developer tool through the shared bridge.
+   * If no explicit sandbox is provided and a role is present, use the role sandbox policy.
+   */
+  async executeDevTool(
+    request: DevToolExecutionRequest & { readonly role?: string; readonly cwd?: string },
+  ): Promise<DevToolExecutionResult> {
+    const startedAt = Date.now();
+    const sessionId = this._sessionId ?? "";
+    const taskId = this._task ?? undefined;
+    const registeredTool = this._devToolRegistry.lookup(request.name);
+    const authorization = registeredTool
+      ? this._devToolExecutionBridge.authorizeRequest(request.name)
+      : undefined;
+    const calledEvent: ToolCalledEvent = {
+      type: "tool_called",
+      toolName: request.name,
+      toolInput: request.input,
+      taskId,
+      annotations: registeredTool?.annotations as Record<string, unknown> | undefined,
+      authorizationLevel: authorization?.level,
+      timestamp: new Date(),
+      sessionId,
+    };
+    this._eventBus.emit(calledEvent);
+
+    const roleSandbox = request.role ? this.getSandboxPolicy(request.role) : undefined;
+    const sandbox = request.sandbox ?? (roleSandbox
+      ? {
+          cwd: request.cwd,
+          policy: roleSandbox,
+        }
+      : undefined);
+
+    const resolvedAuthorization = authorization ?? this._devToolExecutionBridge.authorizeRequest(request.name);
+    const authorizedEvent: ToolAuthorizedEvent = {
+      type: "tool_authorized",
+      toolName: resolvedAuthorization.toolName,
+      level: resolvedAuthorization.level,
+      allowed: resolvedAuthorization.allowed,
+      reason: resolvedAuthorization.reason,
+      timestamp: new Date(),
+      sessionId,
+    };
+    this._eventBus.emit(authorizedEvent);
+
+    if (!resolvedAuthorization.allowed || resolvedAuthorization.requiresApproval) {
+      throw new KilnError("TOOL_AUTHORIZATION_DENIED", resolvedAuthorization.reason, {
+        context: {
+          toolName: resolvedAuthorization.toolName,
+          level: resolvedAuthorization.level,
+          requiresApproval: resolvedAuthorization.requiresApproval,
+        },
+        retryable: false,
+      });
+    }
+
+    try {
+      const execution = await this._devToolExecutionBridge.execute({
+        ...request,
+        sandbox,
+      });
+
+      const resultEvent: ToolResultEvent = {
+        type: "tool_result",
+        toolName: request.name,
+        taskId,
+        durationMs: Date.now() - startedAt,
+        success: !execution.result.isError,
+        isError: execution.result.isError,
+        retryAttempt: execution.attempts,
+        resultSummary: execution.result.output.slice(0, 200),
+        timestamp: new Date(),
+        sessionId,
+      };
+      this._eventBus.emit(resultEvent);
+
+      return execution;
+    } catch (error) {
+      if (error instanceof KilnError && error.code === "TOOL_AUTHORIZATION_DENIED") {
+        throw error;
+      }
+
+      const failureSummary = error instanceof Error
+        ? error.message
+        : "Tool execution failed";
+      const resultEvent: ToolResultEvent = {
+        type: "tool_result",
+        toolName: request.name,
+        taskId,
+        durationMs: Date.now() - startedAt,
+        success: false,
+        isError: true,
+        resultSummary: failureSummary.slice(0, 200),
+        timestamp: new Date(),
+        sessionId,
+      };
+      this._eventBus.emit(resultEvent);
+      throw error;
+    }
   }
 
   /** Initialize git-synced memory and run auto-import */

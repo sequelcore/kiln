@@ -5,6 +5,7 @@ import { createDefaultRegistry } from "../wrapper/session-registry.js";
 import { SessionStore, TranscriptStore } from "../wrapper/session-store.js";
 import type { ResumeFeedback, ResumeStrategy } from "../wrapper/index.js";
 import { GatewaySession, waitForGateway, themes, kilnDark } from "@kilnai/tui";
+import type { SessionLike } from "@kilnai/tui";
 import { getProjectContextArtifactCache } from "@kilnai/runtime";
 import type { CliSessionFactory } from "@kilnai/runtime";
 import type { ContextArtifactCache } from "@kilnai/core";
@@ -17,6 +18,20 @@ export interface TuiFlags {
   plan?: boolean;
 }
 
+type TuiStartupTransport = "gateway" | "direct";
+
+interface TuiBootstrapOptions {
+  readonly flags: TuiFlags;
+  readonly sessionManager: MultiProviderSessionManager;
+  readonly contextArtifactCache: ContextArtifactCache;
+}
+
+interface TuiBootstrapResult {
+  readonly createSession: () => Promise<SessionLike>;
+  readonly providerModelsRef: { current: Record<string, string[]> };
+  shutdown(): void;
+}
+
 const VALID_PROVIDERS = ["claude", "codex", "opencode"] as const;
 type SupportedProvider = (typeof VALID_PROVIDERS)[number];
 
@@ -25,6 +40,13 @@ function parseProvider(p?: string): SupportedProvider {
     return p as SupportedProvider;
   }
   return "claude";
+}
+
+function resolveTuiStartupTransport(_flags: TuiFlags): TuiStartupTransport {
+  if (process.env.KILN_TUI_TRANSPORT?.toLowerCase() === 'gateway') {
+    return 'gateway';
+  }
+  return "direct";
 }
 
 /**
@@ -220,9 +242,142 @@ async function loadInitialResumeInfo(
   return info;
 }
 
+async function bootstrapGatewaySession(
+  options: TuiBootstrapOptions,
+): Promise<TuiBootstrapResult> {
+  const { startTuiGateway } = await import("@kilnai/runtime");
+  const { flags, sessionManager, contextArtifactCache } = options;
+
+  const gateway = await startTuiGateway({
+    sessionManager,
+    port: flags.port,
+    onClear: sessionManager.onClear,
+    contextArtifactCache,
+    planMode: flags.plan ?? false,
+  });
+
+  await waitForGateway(`http://localhost:${gateway.port}/health`);
+
+  const providerModelsRef: { current: Record<string, string[]> } = {
+    current: gateway.models,
+  };
+
+  const createSession = async () => new GatewaySession(
+    gateway.url,
+    (models: Record<string, string[]>) => {
+      providerModelsRef.current = models;
+    },
+  );
+
+  return {
+    createSession,
+    providerModelsRef,
+    shutdown: () => gateway.shutdown(),
+  };
+}
+
+function mapSessionEventToTui(event: unknown):
+  | { type: "text_delta"; content: string; isThinking?: boolean }
+  | { type: "file_changed"; path: string; changeType: "created" | "modified" | "deleted"; linesAdded?: number; linesRemoved?: number }
+  | { type: "cost_update"; usd: number }
+  | { type: "completed"; totalUsd: number }
+  | { type: "error"; message: string }
+  | { type: "activity"; activity: string; toolName?: string; output?: string; input?: unknown } {
+  const candidate = event as { type?: string; [key: string]: unknown } | undefined;
+  switch (candidate?.type) {
+    case "text_delta":
+      return {
+        type: "text_delta",
+        content: String(candidate.content ?? ""),
+      };
+    case "file_changed":
+      return {
+        type: "file_changed",
+        path: String(candidate.path ?? ""),
+        changeType: (candidate.changeType as "created" | "modified" | "deleted") ?? "modified",
+        linesAdded: typeof candidate.linesAdded === "number" ? candidate.linesAdded : undefined,
+        linesRemoved: typeof candidate.linesRemoved === "number" ? candidate.linesRemoved : undefined,
+      };
+    case "cost_update":
+      return {
+        type: "cost_update",
+        usd: typeof candidate.usd === "number" ? candidate.usd : 0,
+      };
+    case "completed":
+      return {
+        type: "completed",
+        totalUsd: typeof candidate.totalUsd === "number" ? candidate.totalUsd : 0,
+      };
+    case "error":
+      return {
+        type: "error",
+        message: `${String(candidate.code ?? "ERROR")}: ${String(candidate.message ?? "Unknown error")}`,
+      };
+    case "tool_use":
+      return {
+        type: "activity",
+        activity: "tool_use",
+        toolName: typeof candidate.toolName === "string" ? candidate.toolName : undefined,
+        input: candidate.input,
+      };
+    case "tool_result":
+      return {
+        type: "activity",
+        activity: "tool_result",
+        toolName: typeof candidate.toolName === "string" ? candidate.toolName : undefined,
+        output: typeof candidate.output === "string" ? candidate.output : undefined,
+      };
+    default:
+      return {
+        type: "activity",
+        activity: "unknown_event",
+      };
+  }
+}
+
+async function bootstrapDirectSession(
+  options: TuiBootstrapOptions,
+): Promise<TuiBootstrapResult> {
+  const { flags, sessionManager } = options;
+  const sessionCwd = flags.cwd ?? process.cwd();
+
+  const createSession = async (): Promise<SessionLike> => {
+    const inner = sessionManager.factory(
+      "You are Kiln TUI in direct transport mode.",
+      sessionCwd,
+    );
+
+    return {
+      async *run(opts: { prompt: string; cwd?: string }) {
+        for await (const event of inner.run(opts)) {
+          yield mapSessionEventToTui(event);
+        }
+      },
+      async dispose() {
+        await inner.dispose();
+      },
+    };
+  };
+
+  return {
+    createSession,
+    providerModelsRef: { current: {} },
+    shutdown: () => {},
+  };
+}
+
+async function bootstrapTuiSession(
+  options: TuiBootstrapOptions,
+): Promise<TuiBootstrapResult> {
+  const transport = resolveTuiStartupTransport(options.flags);
+  if (transport === 'gateway') {
+    return bootstrapGatewaySession(options);
+  }
+  return bootstrapDirectSession(options);
+}
+
 export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {}): Promise<void> {
   const { startTui } = await import("@kilnai/tui");
-  const { startTuiGateway } = await import("@kilnai/runtime");
   const { registry } = createDefaultRegistry();
 
   const cwd = flags.cwd ?? process.cwd();
@@ -254,33 +409,14 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     contextArtifactCache,
   );
 
-  // Start the in-process TUI gateway on port 4801
-  const gateway = await startTuiGateway({
+  const bootstrap = await bootstrapTuiSession({
+    flags,
     sessionManager,
-    port: flags.port,
-    onClear: sessionManager.onClear,
     contextArtifactCache,
-    planMode: flags.plan ?? false,
   });
 
-  // Wait for gateway to be ready before connecting the TUI
-  await waitForGateway(`http://localhost:${gateway.port}/health`);
-
-  // Pre-populate provider models from gateway
-  const providerModelsRef: { current: Record<string, string[]> } = {
-    current: gateway.models,
-  };
-
-  // GatewaySession is the sole SessionLike — gateway owns orchestration
-  const createSession = async () => new GatewaySession(
-    gateway.url,
-    (models: Record<string, string[]>) => {
-      providerModelsRef.current = models;
-    }
-  );
-
   const shutdown = (code = 0, error?: unknown) => {
-    gateway.shutdown();
+    bootstrap.shutdown();
     if (error) {
       process.stderr.write(String(error instanceof Error ? (error.stack ?? error.message) : error) + "\n");
       process.exitCode = 1;
@@ -319,17 +455,17 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   };
 
   await startTui(
-    createSession,
+    bootstrap.createSession,
     provider,
     domain,
     resolvedTheme,
     initialResumeInfo,
     () => loadInitialResumeInfo(cwd, sessionStore),
-    providerModelsRef,
+    bootstrap.providerModelsRef,
     loadSessionList,
     handleResumeSession,
   );
 
-  gateway.shutdown();
+  bootstrap.shutdown();
   for (const [ev, handler] of handlers) process.off(ev, handler);
 }

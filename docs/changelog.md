@@ -1,5 +1,92 @@
 # Changelog
 
+## Unreleased -- Codex Sandbox Enforcement
+
+### fix(cli): preserve Codex sandbox mode in Kiln-managed runs
+- `CodexSession` now passes explicit `--ask-for-approval` and `--sandbox`
+  flags instead of relying on `--full-auto`.
+- Codex permission translation now preserves the requested sandbox mode
+  (`read-only`, `workspace-write`, `danger-full-access`) instead of collapsing
+  non-danger modes to `workspace-write`.
+- Updated the CLI wrapper guide to document Codex's explicit sandbox handling.
+
+### feat(cli): add Codex ephemeral session support
+- `kiln run --provider codex --ephemeral ...` now forwards Codex's native
+  `--ephemeral` flag.
+- Threaded `ephemeral` through `RunFlags`, provider session config, and the
+  Codex wrapper spawn args.
+- Added focused CLI parsing and wrapper tests for the new flag.
+
+### feat(cli): add Codex profile support
+- `kiln run --provider codex --profile <name> ...` now forwards Codex's native
+  `--profile <name>` flag.
+- Threaded `profile` through `RunFlags`, provider session config, and the
+  Codex wrapper spawn args.
+- Added focused CLI parsing and wrapper tests for the new flag.
+
+### feat(cli): add Codex skip-git-repo-check support
+- `kiln run --provider codex --skip-git-repo-check ...` now forwards Codex's
+  native `--skip-git-repo-check` flag.
+- Threaded `skipGitRepoCheck` through `RunFlags`, provider session config, and
+  the Codex wrapper spawn args.
+- Added focused CLI parsing and wrapper tests for the new flag.
+
+### feat(cli): add Codex output-schema support
+- `kiln run --provider codex --output-schema <file> ...` now forwards Codex's
+  native `--output-schema <file>` flag.
+- Threaded `outputSchema` through `RunFlags`, provider session config, and the
+  Codex wrapper spawn args.
+- Added focused CLI parsing and wrapper tests for the new flag.
+
+### feat(cli): add Codex add-dir support
+- `kiln run --provider codex --add-dir <path> ...` now forwards Codex's native
+  `--add-dir <path>` flag.
+- Threaded `addDir` through `RunFlags`, provider session config, and the Codex
+  wrapper spawn args.
+- Added focused CLI parsing and wrapper tests for the new flag.
+- This first slice supports a single `--add-dir` value.
+
+### feat(cli): add Codex local-provider support
+- `kiln run --provider codex --local-provider <name> ...` now forwards Codex's
+  native `--local-provider <name>` flag.
+- Threaded `localProvider` through `RunFlags`, provider session config, and the
+  Codex wrapper spawn args.
+- Added focused CLI parsing and wrapper tests for the new flag.
+
+## Unreleased -- Native Developer Tools (Phase 9)
+
+### feat(core): land tools domain foundation (Phase 9a)
+- Added native developer tools foundation under `packages/core/src/tools/domain`:
+  - `tool.ts` — `DevTool`, `ToolResult`, `DevToolName`, `TOOL_SCHEMAS`
+  - `tool-registry.ts` — `DevToolRegistry` (throws on duplicate registration)
+  - `tool-environment.ts` — Binary detection with process-wide cache, `clearToolEnvironmentCache()`
+- Added tools barrel export at `packages/core/src/tools/index.ts`.
+- Added root export wiring in `packages/core/src/index.ts`.
+- Added tests under `packages/core/tests/tools/domain`.
+
+### feat(core): native tool executors (Phase 9b)
+- Added executors for all 7 tools: `bash`, `read`, `write`, `edit`, `grep`, `glob`, `git`.
+- `bash` uses `bash -c` (no `-l` profile sourcing) with sandbox-only injection boundary.
+- `read` uses line-based `offset`/`limit` matching Claude Code convention.
+- `grep`/`glob` share extracted helpers (`tool-helpers.ts`): `runCommand`, `walkFiles`, `matchesGlob`, `globToRegExp`, `normalizePath`.
+
+### feat(core): wire native tool execution events (Phase 9d)
+- `DevToolExecutionBridge` in `packages/core/src/tools/tool-executor.ts`.
+- Single executor closure for primary + fallback paths (no redundancy).
+- Distinct error codes: `TOOL_AUTHORIZATION_DENIED` (hard deny) vs `TOOL_APPROVAL_REQUIRED` (needs approval).
+- Orchestrator emits `tool_called`, `tool_authorized`, `tool_result` with annotations and task context.
+
+### feat(core): expose native dev tools as MCP surface (Phase 9e)
+- `DevToolsMcpServer` in `packages/core/src/tools/mcp/dev-tools-server.ts`.
+- Instance-level SDK caching (failed loads are retryable).
+- CLI entrypoint: `kiln tools --mcp` (stdio).
+
+### feat(cli): default TUI path is direct connection (Phase 9f)
+- Direct TUI bootstrap is the default for `kiln tui`.
+- Gateway bootstrap via `KILN_TUI_TRANSPORT=gateway` override only.
+
+---
+
 ## Unreleased -- Plan Mode (v0.25.0)
 
 ### feat(cli): kiln plan command (Phase 8.1)

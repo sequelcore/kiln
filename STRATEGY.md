@@ -345,27 +345,27 @@ Tracked under Phase 3 deferred: `--attach` lifecycle (blocked on OpenCode upstre
 ### Codex CLI — unexposed options (Phase 3.5 follow-on)
 
 Audit of the Codex CLI reference (2026-04-03). `CodexSessionConfig` already wires:
-`model` (✅ `-m` flag now passed to spawn args), `approvalMode`, `sandboxMode`, `resumeSessionId`. Spawn args: `exec --json --full-auto --ask-for-approval --cd`.
+`model` (✅ `-m` flag now passed to spawn args), `approvalMode`, `sandboxMode`, `resumeSessionId`. Spawn args: `exec --json --ask-for-approval --sandbox --cd`.
 Dynamic model list: ✅ `codex app-server` + JSON-RPC `model/list` at TUI gateway startup.
 
 **High — add to `CodexSessionConfig` + spawn args:**
-- `--sandbox` / `-s` — `CodexSession` sets `--full-auto` which implies `workspace-write`, but `sandboxMode` field exists and is never passed as `--sandbox` arg; wire it explicitly so `read-only` and `danger-full-access` are actually honored
-- `--ephemeral` — run without persisting session files; useful for throwaway CI tasks that shouldn't pollute `.codex/` history
-- `--output-schema` — JSON Schema for validated structured output; enables Kiln to request typed responses from Codex
+- `--sandbox` / `-s` — ✅ DONE (2026-04-08). `CodexSession` now passes `--sandbox` explicitly and preserves `read-only`, `workspace-write`, and `danger-full-access` instead of relying on `--full-auto`
+- `--ephemeral` — ✅ DONE (2026-04-08). `kiln run --provider codex --ephemeral ...` now forwards Codex's native `--ephemeral` flag for non-persistent Codex sessions
+- `--output-schema` — ✅ DONE (2026-04-08). `kiln run --provider codex --output-schema <file> ...` now forwards Codex's native `--output-schema <file>` flag
 
 **Medium — add when needed:**
-- `--profile` — named config set from `~/.codex/config.toml`; allows per-project Codex configuration without env var hacks
-- `--add-dir` — grant write access to additional directories; same need as Claude Code `--add-dir`
-- `--skip-git-repo-check` — allow `kiln run` outside a git repo; currently Codex exits if no `.git` found
+- `--profile` — ✅ DONE (2026-04-08). `kiln run --provider codex --profile <name> ...` now forwards Codex's native `--profile <name>` flag
+- `--add-dir` — ✅ DONE (2026-04-08). `kiln run --provider codex --add-dir <path> ...` now forwards Codex's native `--add-dir <path>` flag (current Kiln CLI slice supports a single path)
+- `--skip-git-repo-check` — ✅ DONE (2026-04-08). `kiln run --provider codex --skip-git-repo-check ...` now forwards Codex's native `--skip-git-repo-check` flag
 
 **Already handled differently:**
 - `--json` — already passed; JSONL parsing in `codex-session.ts` is correct
 - `--resume` — wired via `resumeThreadId` from `SessionStore`
 - `--cd` / `-C` — already passed as last positional args
 
-**Critical bug to fix:** `--sandbox` is never passed to the spawn args even though `sandboxMode`
-is on the config interface. `--full-auto` hardcodes `workspace-write` regardless of what
-`sandboxMode` says. Callers setting `sandboxMode: "read-only"` get workspace-write silently.
+**Resolved (2026-04-08):** `CodexSession` no longer relies on `--full-auto` for Kiln-managed
+runs. Kiln now passes explicit `--ask-for-approval` and `--sandbox` flags, so the configured
+Codex sandbox mode is enforced instead of silently collapsing to `workspace-write`.
 
 ---
 
@@ -388,10 +388,11 @@ is on the config interface. `--full-auto` hardcodes `workspace-write` regardless
 **Additional Phase 4 scope (from competitive intelligence):**
 - feat(core): AGENTS.md support + CLAUDE.md↔AGENTS.md bridge —
   cross-tool instruction standard (top request in Claude Code community)
-- feat(cli): CodexSession --sandbox flag passthrough (enforce, not ignore)
-- feat(cli): CodexSession --local-provider ollama/lmstudio support
-  (local model routing via Codex backend)
-- feat(cli): CodexSession --profile support for named config sets
+- feat(cli): CodexSession --sandbox flag passthrough (enforce, not ignore) ✅ DONE (2026-04-08)
+- feat(cli): CodexSession --local-provider ollama/lmstudio support ✅ DONE (2026-04-08)
+  (`kiln run --provider codex --local-provider <name> ...` now forwards Codex's native
+  local backend selector for runs targeting providers such as `ollama` or `lmstudio`)
+- feat(cli): CodexSession --profile support for named config sets ✅ DONE (2026-04-08)
 - feat(cli): OpenCodeSession sandbox mode actually enforced
   (currently silently ignored)
 
@@ -1026,7 +1027,7 @@ the same permission enforcement that harness sessions already have).
 
 ## Phase 9 — Native Developer Tools (`@kilnai/tools`) [URGENT]
 
-**Status:** PLANNED — critical path for Phases 10-12
+**Status:** COMPLETED — Phases 9a-9f landed + review hardening; critical path cleared for Phases 10-12
 **Priority:** URGENT — without native tools, provider backends cannot compete with harness backends
 **Source:** Evolution research (2026-04-07): Claude Code, Codex, OpenCode, Goose, Aider, OpenClaw tool interface analysis
 **Dependency:** Phase 4.5 (permission layer) must be stable
@@ -1068,11 +1069,13 @@ permission-gated and audited; a `bash rg` cannot.
 - Same orchestrator, new tool category — no parallel execution system
 - One implementation, two surfaces (native + MCP) — no duplication
 - Test before done: typecheck + vitest after every sub-phase
-- Update CLAUDE.md bounded context table after completion
+- Update CLAUDE.md bounded context table after 9a completion (done)
 
 ### Sub-phases
 
 #### 9a. Tool Interface Layer (foundation)
+
+**Status:** COMPLETED (landed)
 
 **Scope:** Domain types + registry in `core/src/tools/domain/`
 
@@ -1086,8 +1089,12 @@ permission-gated and audited; a `bash rg` cannot.
 **Files:** `core/src/tools/domain/tool.ts`, `core/src/tools/domain/tool-registry.ts`, `core/src/tools/domain/tool-environment.ts`
 **Tests:** Schema validation, registry CRUD, environment detection with/without binaries
 **Reference:** Claude Code tool schemas (Read/Write/Edit/Bash/Glob/Grep), OpenCode tool schemas (bash/read/edit/grep/glob)
+**Also landed:** `packages/core/src/tools/index.ts`, root export in `packages/core/src/index.ts`, and tests under `packages/core/tests/tools/domain/`
+**Review hardening:** `DevToolRegistry.register()` throws on duplicate (no silent overwrite). `ToolEnvironment` uses readonly object spread. `clearToolEnvironmentCache()` added for test isolation.
 
 #### 9b. Tool Implementations (executors)
+
+**Status:** COMPLETED (landed)
 
 **Scope:** Infrastructure implementations in `core/src/tools/infrastructure/`
 
@@ -1109,8 +1116,12 @@ permission-gated and audited; a `bash rg` cannot.
 **Files:** `core/src/tools/infrastructure/bash-tool.ts`, `read-tool.ts`, `write-tool.ts`, `edit-tool.ts`, `grep-tool.ts`, `glob-tool.ts`, `git-tool.ts`
 **Tests:** Each tool tested with sandbox mock, both fast-path and fallback paths
 **Reference:** Claude Code Grep wraps rg, OpenCode grep wraps rg — same pattern
+**Landed:** Native executors for `bash`, `read`, `write`, `edit`, `grep`, `glob`, and `git` are implemented in the core tools slice with focused coverage.
+**Review hardening:** `bash` uses `-c` (no `-l` profile sourcing). `read` uses line-based offset/limit. Shared fallback helpers (`runCommand`, `walkFiles`, `matchesGlob`, `globToRegExp`, `normalizePath`) extracted to `tool-helpers.ts` — eliminated ~140 lines of duplication across grep/glob.
 
 #### 9c. Vendored Binaries (absorbed from old Phase 9)
+
+**Status:** COMPLETED (landed)
 
 **Scope:** Platform-specific binary packages following esbuild/tailwind pattern
 
@@ -1123,8 +1134,11 @@ permission-gated and audited; a `bash rg` cannot.
 **Files:** `packages/tools/` package scaffold, platform-specific optional deps
 **Tests:** Binary resolution on each platform, fallback chain verification
 **Reference:** esbuild `optionalDependencies` pattern, `@tailwindcss/oxide` pattern
+**Landed:** `packages/tools` plus platform packages are in place, vendored-first resolution for `rg`/`fd`/`jq` is wired into tool environment detection, and `git` remains PATH-only.
 
 #### 9d. Tool Execution Loop
+
+**Status:** COMPLETED (landed)
 
 **Scope:** Wire dev tools into core Orchestrator's existing execution cycle
 
@@ -1139,8 +1153,12 @@ permission-gated and audited; a `bash rg` cannot.
 **Tests:** End-to-end: LLM mock → tool call → sandbox execute → result fed back
 **Reference:** Mode B already executes webhook/integration tools via `ModeBOrchestrator` — same pattern, new tool category
 **Rule:** No parallel execution system — extend existing orchestrator
+**Landed:** `packages/core/src/tools/tool-executor.ts` bridges native tools into the orchestrator, and `packages/core/src/orchestrator/orchestrator.ts` now emits `tool_called`, `tool_authorized`, and `tool_result` with `annotations`, `authorizationLevel`, and `taskId` when available.
+**Review hardening:** Single executor closure (no primary/fallback redundancy). Distinct error codes: `TOOL_AUTHORIZATION_DENIED` vs `TOOL_APPROVAL_REQUIRED`.
 
 #### 9e. MCP Surface for Dev Tools
+
+**Status:** COMPLETED (landed)
 
 **Scope:** Expose dev tools as built-in MCP server (stdio + HTTP transports)
 
@@ -1154,8 +1172,12 @@ permission-gated and audited; a `bash rg` cannot.
 **Tests:** MCP tool call → executor → result roundtrip
 **Reference:** Goose ships developer tools as MCP server (`developer__shell`, `developer__text_editor`)
 **Rule:** One implementation, two surfaces — no code duplication
+**Landed:** `DevToolsMcpServer` now exposes the native dev tools over MCP, and `kiln tools --mcp` provides the stdio entrypoint.
+**Review hardening:** SDK promise moved to instance state (failed loads retryable, no module-level singleton).
 
 #### 9f. TUI Direct Connection
+
+**Status:** COMPLETED (landed)
 
 **Scope:** `kiln tui` connects to orchestrator directly without gateway config
 
@@ -1169,6 +1191,8 @@ permission-gated and audited; a `bash rg` cannot.
 **Tests:** TUI startup without any YAML files, conversation with tool execution
 **Reference:** Codex TUI is same-process (ratatui), OpenCode TUI connects to local `opencode serve`
 **Rule:** TUI is a rendering layer — orchestrator owns agent loop
+**Landed:** `packages/cli/src/commands/tui.ts` now uses an extracted bootstrap seam, direct transport is the default path, gateway mode is the explicit fallback override, and normal `kiln tui` startup no longer hard-depends on YAML/gateway bootstrap.
+**Review hardening:** Removed dead code branches (unreachable default case, redundant env var check).
 
 ---
 

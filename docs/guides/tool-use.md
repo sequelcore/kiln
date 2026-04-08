@@ -2,7 +2,7 @@
 
 Kiln agents execute tools (capabilities) during conversations. The orchestrator runs a while-loop: the LLM decides which tools to call, the orchestrator executes them, feeds results back, and repeats until the LLM produces a final text response.
 
-Sources: `packages/core/src/engine/domain/capability.ts`, `packages/runtime/src/session/mode-b-orchestrator.ts`, `packages/core/src/agents/tool-rag.ts`
+Sources: `packages/core/src/engine/domain/capability.ts`, `packages/runtime/src/session/mode-b-orchestrator.ts`, `packages/core/src/agents/tool-rag.ts`, `packages/core/src/tools/domain/tool.ts`, `packages/core/src/tools/domain/tool-registry.ts`, `packages/core/src/tools/domain/tool-environment.ts`
 
 ---
 
@@ -16,6 +16,51 @@ When an agent receives a message, the orchestrator enters a tool loop:
 4. When the LLM returns a final text response (no tool calls), exit the loop.
 
 The loop is bounded by `maxToolRounds` (default: 15). If the limit is reached, the orchestrator returns the last available response. Budget is checked before each round (after the first) -- if exhausted mid-loop, the loop breaks and returns what it has. Budget check errors are fail-open.
+
+---
+
+## Native Developer Tools (Phase 9)
+
+Phase 9 lands a complete native developer tools stack in `@kilnai/core`:
+
+### Domain Layer (9a)
+
+- `DevTool` and `ToolResult` domain contracts (`tools/domain/tool.ts`)
+- `DevToolRegistry` for register/lookup/list — throws on duplicate registration (`tools/domain/tool-registry.ts`)
+- `ToolEnvironment` detection for native binary availability with process-wide cache and `clearToolEnvironmentCache()` for test isolation (`tools/domain/tool-environment.ts`)
+- 7-tool schema set: `bash`, `read`, `write`, `edit`, `grep`, `glob`, `git`
+
+### Executors (9b)
+
+Native executors for all seven tools under `tools/infrastructure/`:
+
+- **bash**: Executes via `bash -c` (no profile sourcing). Sandbox boundary is the only injection guard.
+- **read**: Line-based `offset`/`limit` (not character-based), matching Claude Code convention.
+- **write**: Creates parent directories, validates write path against sandbox.
+- **edit**: String replacement (single or replaceAll), validates both read and write paths.
+- **grep**: Fast path via `rg`, fallback via recursive walk + `RegExp`. Shared helpers extracted to `tool-helpers.ts`.
+- **glob**: Fast path via `fd`, fallback via recursive walk + glob-to-regex. Same shared helpers.
+- **git**: Executes git subcommands via `execFile("git", args)`.
+
+### Orchestrator Bridge (9d)
+
+`DevToolExecutionBridge` (`tools/tool-executor.ts`) wires tools into the orchestrator:
+
+- Single executor closure handles both primary and fallback paths (no redundancy).
+- Two distinct authorization error codes: `TOOL_AUTHORIZATION_DENIED` (hard deny) and `TOOL_APPROVAL_REQUIRED` (needs human approval).
+- Emits `tool_called`, `tool_authorized`, `tool_result` events with annotation and task context.
+
+### MCP Surface (9e)
+
+`DevToolsMcpServer` (`tools/mcp/dev-tools-server.ts`) exposes the same tools via MCP:
+
+- `kiln tools --mcp` starts the dev-tools MCP server on stdio.
+- Instance-level SDK caching (failed loads are retryable, no module-level singleton).
+- MCP tool calls route through the shared execution bridge.
+
+### TUI Direct Path (9f)
+
+`kiln tui` defaults to direct orchestrator transport. Gateway transport is an explicit fallback override via `KILN_TUI_TRANSPORT=gateway`.
 
 ---
 

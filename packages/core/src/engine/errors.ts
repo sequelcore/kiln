@@ -87,6 +87,8 @@ export type KilnErrorCode =
   | "CONTACT_MEMORY_EXTRACTION_FAILED"
   // Tool execution (Phase 5a)
   | "TOOL_AUTHORIZATION_DENIED"
+  // Tool execution (Phase 9a)
+  | "TOOL_APPROVAL_REQUIRED"
   | "TOOL_EXECUTION_TIMEOUT"
   | "TOOL_RETRY_EXHAUSTED"
   | "TOOL_RESULT_SANITIZED"

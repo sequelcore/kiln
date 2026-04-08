@@ -2,15 +2,57 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { SessionRecord, TranscriptStore } from "../../src/wrapper/session-store.js";
 import { InMemoryContextArtifactCache, type ContextArtifactCache } from "@kilnai/core";
 
-vi.mock("@kilnai/tui", () => ({ GatewaySession: vi.fn(), waitForGateway: vi.fn(), startTui: vi.fn() }));
-vi.mock("@kilnai/runtime", () => ({ startTuiGateway: vi.fn(), getProjectContextArtifactCache: vi.fn() }));
+const {
+  mockGatewaySessionCtor,
+  mockWaitForGateway,
+  mockStartTui,
+  mockStartTuiGateway,
+  mockGetProjectContextArtifactCache,
+  mockSessionManagerPrepare,
+} = vi.hoisted(() => ({
+  mockGatewaySessionCtor: vi.fn(),
+  mockWaitForGateway: vi.fn(),
+  mockStartTui: vi.fn(),
+  mockStartTuiGateway: vi.fn(),
+  mockGetProjectContextArtifactCache: vi.fn(),
+  mockSessionManagerPrepare: vi.fn(),
+}));
+
+vi.mock("@kilnai/tui", () => ({
+  GatewaySession: class MockGatewaySession {
+    constructor(...args: unknown[]) {
+      mockGatewaySessionCtor(...args);
+    }
+    async *run() {}
+    async dispose() {}
+  },
+  waitForGateway: mockWaitForGateway,
+  startTui: mockStartTui,
+  themes: { "kiln-dark": {} },
+  kilnDark: {},
+}));
+vi.mock("@kilnai/runtime", () => ({
+  startTuiGateway: mockStartTuiGateway,
+  getProjectContextArtifactCache: mockGetProjectContextArtifactCache,
+}));
+vi.mock("../../src/wrapper/session-manager.js", () => ({
+  SessionManager: class MockSessionManager {
+    prepare = mockSessionManagerPrepare;
+  },
+}));
 
 // We test makeMultiProviderSessionFactory via a lightweight re-implementation
 // that mirrors the exported function's logic — this keeps tests fast and
 // isolated without requiring the full runtime to be importable.
 //
 // The actual function is tested by importing it directly once exported.
-import { makeMultiProviderSessionFactory } from "../../src/commands/tui.js";
+import { makeMultiProviderSessionFactory, tuiCommand } from "../../src/commands/tui.js";
+
+const APP_CONFIG = {
+  createRegistry: () => {
+    throw new Error("createRegistry should not be used in tui command tests");
+  },
+};
 
 function makeStore(lastRecord: SessionRecord | null = null) {
   const appended: SessionRecord[] = [];
@@ -66,6 +108,16 @@ function makeRegistry(sessionId = "sess-abc") {
 describe("makeMultiProviderSessionFactory", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockStartTui.mockResolvedValue(undefined);
+    mockWaitForGateway.mockResolvedValue(undefined);
+    mockGetProjectContextArtifactCache.mockResolvedValue(new InMemoryContextArtifactCache());
+    mockSessionManagerPrepare.mockRejectedValue(new Error("missing gateway config"));
+    mockStartTuiGateway.mockResolvedValue({
+      port: 4801,
+      url: "ws://localhost:4801/ws",
+      models: { claude: [], codex: [], opencode: [] },
+      shutdown: vi.fn(),
+    });
   });
 
   it("initializes resumeSessionId from store.last() on startup", async () => {
@@ -157,5 +209,90 @@ describe("makeMultiProviderSessionFactory", () => {
     await onClear();
 
     expect(store.clearLast).toHaveBeenCalledWith("claude");
+  });
+
+  it("tuiCommand boots with empty project and no YAML config", async () => {
+    const previousTransport = process.env.KILN_TUI_TRANSPORT;
+    delete process.env.KILN_TUI_TRANSPORT;
+    const { mkdtemp, rm } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const cwd = await mkdtemp(join(tmpdir(), "kiln-tui-empty-"));
+
+    mockStartTui.mockImplementation(async (createSession: () => Promise<unknown>) => {
+      await createSession();
+    });
+
+    try {
+      await expect(
+        tuiCommand(APP_CONFIG, { cwd, provider: "claude" }),
+      ).resolves.toBeUndefined();
+    } finally {
+      process.env.KILN_TUI_TRANSPORT = previousTransport;
+      await rm(cwd, { recursive: true, force: true });
+    }
+
+    expect(mockSessionManagerPrepare).toHaveBeenCalled();
+    expect(mockStartTuiGateway).not.toHaveBeenCalled();
+    expect(mockWaitForGateway).not.toHaveBeenCalled();
+    expect(mockStartTui).toHaveBeenCalledTimes(1);
+    expect(mockGatewaySessionCtor).not.toHaveBeenCalled();
+  });
+
+  it("tuiCommand uses direct bootstrap by default without env gating", async () => {
+    const previousTransport = process.env.KILN_TUI_TRANSPORT;
+    delete process.env.KILN_TUI_TRANSPORT;
+
+    const { mkdtemp, rm } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const cwd = await mkdtemp(join(tmpdir(), "kiln-tui-direct-"));
+
+    mockStartTui.mockImplementation(async (createSession: () => Promise<unknown>) => {
+      const session = await createSession();
+      const direct = session as { dispose: () => Promise<void> };
+      await direct.dispose();
+    });
+
+    try {
+      await expect(
+        tuiCommand(APP_CONFIG, { cwd, provider: "claude" }),
+      ).resolves.toBeUndefined();
+    } finally {
+      process.env.KILN_TUI_TRANSPORT = previousTransport;
+      await rm(cwd, { recursive: true, force: true });
+    }
+
+    expect(mockStartTuiGateway).not.toHaveBeenCalled();
+    expect(mockWaitForGateway).not.toHaveBeenCalled();
+    expect(mockStartTui).toHaveBeenCalledTimes(1);
+  });
+
+  it("tuiCommand can fallback to gateway bootstrap via env override", async () => {
+    const previousTransport = process.env.KILN_TUI_TRANSPORT;
+    process.env.KILN_TUI_TRANSPORT = "gateway";
+
+    const { mkdtemp, rm } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const cwd = await mkdtemp(join(tmpdir(), "kiln-tui-gateway-"));
+
+    mockStartTui.mockImplementation(async (createSession: () => Promise<unknown>) => {
+      await createSession();
+    });
+
+    try {
+      await expect(
+        tuiCommand(APP_CONFIG, { cwd, provider: "claude" }),
+      ).resolves.toBeUndefined();
+    } finally {
+      process.env.KILN_TUI_TRANSPORT = previousTransport;
+      await rm(cwd, { recursive: true, force: true });
+    }
+
+    expect(mockStartTuiGateway).toHaveBeenCalledTimes(1);
+    expect(mockWaitForGateway).toHaveBeenCalledTimes(1);
+    expect(mockStartTui).toHaveBeenCalledTimes(1);
+    expect(mockGatewaySessionCtor).toHaveBeenCalledTimes(1);
   });
 });
