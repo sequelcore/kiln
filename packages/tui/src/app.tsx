@@ -86,7 +86,20 @@ export async function startTui(
     mode: "providers" as "providers" | "models",
   };
 
-  const VALID_PROVIDERS = ["claude", "codex", "opencode"];
+  const HARNESS_PROVIDERS = ["claude", "codex", "opencode"] as const;
+  const DIRECT_API_PROVIDERS = [
+    "anthropic",
+    "openai",
+    "deepseek",
+    "openrouter",
+    "ollama",
+  ] as const;
+  const VALID_PROVIDERS = [...HARNESS_PROVIDERS, ...DIRECT_API_PROVIDERS] as const;
+  const PROVIDER_GROUPS = [
+    { title: "Harness", providers: HARNESS_PROVIDERS },
+    { title: "Direct API", providers: DIRECT_API_PROVIDERS },
+  ] as const;
+  const FREE_PROVIDERS = new Set<string>(["openrouter", "ollama"]);
   let PROVIDER_MODELS: Record<string, string[]> = {};
 
   const SLASH_COMMANDS = [
@@ -268,6 +281,24 @@ export async function startTui(
     return PROVIDER_MODELS[getCurrentProvider()] ?? [];
   }
 
+  function getProviderLabel(providerName: string): string {
+    return FREE_PROVIDERS.has(providerName)
+      ? `${providerName} (free)`
+      : providerName;
+  }
+
+  function getProviderRowId(providerName: string): string {
+    return `provider-item-${providerName}`;
+  }
+
+  function findProviderRow(providerName: string):
+    | InstanceType<typeof TextRenderable>
+    | undefined {
+    if (!providerPicker) return undefined;
+    const targetId = getProviderRowId(providerName);
+    return providerPicker.rows.find((row) => row.id === targetId);
+  }
+
   /**
    * Destroys all dynamic data rows from scrollBox.content.
    * title and hint are in the outer panel, not the scrollBox, so they are
@@ -319,19 +350,33 @@ export async function startTui(
       providerPicker.mode = "providers";
       providerPicker.title.content = t`${fg(currentTheme.accent)(" Select Provider ")}`;
 
-      for (let i = 0; i < VALID_PROVIDERS.length; i++) {
-        const selected = i === providerPickerState.providerIndex;
-        const label = VALID_PROVIDERS[i] ?? "";
-        const row = makePickerRow(
-          `provider-item-${i}`,
-          label,
-          selected,
-          currentTheme.accent,
+      for (const group of PROVIDER_GROUPS) {
+        const groupId = group.title.toLowerCase().replace(/\s+/g, "-");
+        const headerRow = makePickerRow(
+          `provider-group-${groupId}`,
+          `[${group.title}]`,
+          false,
+          currentTheme.border,
           currentTheme.textMuted,
-          selected ? "● " : "○ ",
+          "",
         );
-        scrollContent.add(row);
-        providerPicker.rows.push(row);
+        scrollContent.add(headerRow);
+        providerPicker.rows.push(headerRow);
+
+        for (const providerName of group.providers) {
+          const selected = VALID_PROVIDERS[providerPickerState.providerIndex] === providerName;
+          const label = getProviderLabel(providerName);
+          const row = makePickerRow(
+            getProviderRowId(providerName),
+            label,
+            selected,
+            currentTheme.accent,
+            currentTheme.textMuted,
+            selected ? "● " : "○ ",
+          );
+          scrollContent.add(row);
+          providerPicker.rows.push(row);
+        }
       }
 
       providerPicker.hint.content = t`${fg(currentTheme.textMuted)("↑↓ navigate  Enter models  Esc cancel")}`;
@@ -372,23 +417,35 @@ export async function startTui(
     if (!providerPicker) return;
 
     const isProviders = providerPickerState.mode === "providers";
-    const selectedColor = isProviders
-      ? currentTheme.accent
-      : currentTheme.primary;
-    const names = isProviders ? VALID_PROVIDERS : getCurrentModels();
 
+    if (isProviders) {
+      const prevProvider = VALID_PROVIDERS[prevIdx];
+      const nextProvider = VALID_PROVIDERS[nextIdx];
+      if (!prevProvider || !nextProvider) return;
+
+      const prevRow = findProviderRow(prevProvider);
+      const nextRow = findProviderRow(nextProvider);
+
+      if (prevRow) {
+        prevRow.content = t`${fg(currentTheme.textMuted)(`○ ${getProviderLabel(prevProvider)}`)}`;
+      }
+      if (nextRow) {
+        nextRow.content = t`${fg(currentTheme.accent)(`● ${getProviderLabel(nextProvider)}`)}`;
+      }
+      return;
+    }
+
+    const names = getCurrentModels();
     const prevRow = providerPicker.rows[prevIdx];
     const nextRow = providerPicker.rows[nextIdx];
 
     if (prevRow) {
       const label = names[prevIdx] ?? "";
-      const prefix = isProviders ? "○ " : "  ";
-      prevRow.content = t`${fg(currentTheme.textMuted)(prefix + label)}`;
+      prevRow.content = t`${fg(currentTheme.textMuted)(`  ${label}`)}`;
     }
-
     if (nextRow) {
       const label = names[nextIdx] ?? "";
-      nextRow.content = t`${fg(selectedColor)("● " + label)}`;
+      nextRow.content = t`${fg(currentTheme.primary)(`● ${label}`)}`;
     }
   }
 
@@ -402,12 +459,15 @@ export async function startTui(
   function scrollToSelectedRow(center = false): void {
     if (!providerPicker) return;
 
-    const selectedIdx =
-      providerPickerState.mode === "providers"
-        ? providerPickerState.providerIndex
-        : providerPickerState.modelIndex;
-
-    const targetRow = providerPicker.rows[selectedIdx];
+    const targetRow = (() => {
+      if (providerPickerState.mode === "providers") {
+        const selectedProvider = VALID_PROVIDERS[providerPickerState.providerIndex];
+        return selectedProvider
+          ? findProviderRow(selectedProvider)
+          : undefined;
+      }
+      return providerPicker.rows[providerPickerState.modelIndex];
+    })();
     if (!targetRow) return;
 
     const scrollBox = providerPicker.scrollBox;
@@ -437,7 +497,9 @@ export async function startTui(
   function openProviderPicker(): void {
     if (providerPicker) return;
 
-    const activeProviderIndex = VALID_PROVIDERS.indexOf(state.currentProvider);
+    const activeProviderIndex = VALID_PROVIDERS.findIndex(
+      (providerName) => providerName === state.currentProvider,
+    );
     providerPickerState.providerIndex =
       activeProviderIndex >= 0 ? activeProviderIndex : 0;
     const activeModels = getCurrentModels();

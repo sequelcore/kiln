@@ -63,6 +63,102 @@ describe("runSession tool permission gating", () => {
     rmSync(projectPath, { recursive: true, force: true });
   });
 
+  it("explicit direct provider does not fall back to harness providers on failure", async () => {
+    const reportFailure = vi.fn();
+    const reportSuccess = vi.fn();
+    const createdProviders: string[] = [];
+
+    const directProviderSession = createSessionFromEvents([
+      { type: "error", code: "PROVIDER_SESSION_ERROR", message: "Missing required API key", isRetryable: false },
+      { type: "completed", totalUsd: 0, durationMs: 1, isError: true, isPreflightCrash: false },
+    ]);
+    const fallbackHarnessSession = createSessionFromEvents([
+      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+    ]);
+
+    const result = await runSession({
+      registry: {
+        selectBest: () => ({ primary: "openrouter", orderedFallbacks: ["claude"], scores: [] }),
+        createSession: (providerId: string) => {
+          createdProviders.push(providerId);
+          return providerId === "openrouter"
+            ? directProviderSession as any
+            : fallbackHarnessSession as any;
+        },
+        reportFailure,
+        reportSuccess,
+      } as any,
+      cleanupRegistry: { register: () => {} } as any,
+      manager: { trackCostUpdate: () => {} } as any,
+      context: makeContext(),
+      requirements: { preferredProvider: "openrouter" },
+      sessionConfig: {
+        task: "test",
+        permissionPolicy: { approval: "never", sandbox: "workspace-write" },
+      },
+      permissionPolicy: { approval: "never", sandbox: "workspace-write" },
+      env: {},
+      sessionHooks: {
+        userPromptSubmit: () => {},
+        preToolUse: () => {},
+        postToolUse: () => {},
+      } as any,
+    });
+
+    expect(createdProviders).toEqual(["openrouter"]);
+    expect(result.sessionSucceeded).toBe(false);
+    expect(result.successfulProviderId).toBeUndefined();
+    expect(reportSuccess).not.toHaveBeenCalled();
+    expect(reportFailure).toHaveBeenCalledWith("openrouter", false);
+  });
+
+  it("non-explicit selection preserves fallback behavior", async () => {
+    const reportFailure = vi.fn();
+    const reportSuccess = vi.fn();
+    const createdProviders: string[] = [];
+
+    const primarySession = createSessionFromEvents([
+      { type: "error", code: "PRIMARY_FAILED", message: "Primary failed", isRetryable: false },
+      { type: "completed", totalUsd: 0, durationMs: 1, isError: true, isPreflightCrash: false },
+    ]);
+    const fallbackSession = createSessionFromEvents([
+      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+    ]);
+
+    const result = await runSession({
+      registry: {
+        selectBest: () => ({ primary: "claude", orderedFallbacks: ["opencode"], scores: [] }),
+        createSession: (providerId: string) => {
+          createdProviders.push(providerId);
+          return providerId === "claude" ? primarySession as any : fallbackSession as any;
+        },
+        reportFailure,
+        reportSuccess,
+      } as any,
+      cleanupRegistry: { register: () => {} } as any,
+      manager: { trackCostUpdate: () => {} } as any,
+      context: makeContext(),
+      requirements: {},
+      sessionConfig: {
+        task: "test",
+        permissionPolicy: { approval: "never", sandbox: "workspace-write" },
+      },
+      permissionPolicy: { approval: "never", sandbox: "workspace-write" },
+      env: {},
+      sessionHooks: {
+        userPromptSubmit: () => {},
+        preToolUse: () => {},
+        postToolUse: () => {},
+      } as any,
+    });
+
+    expect(createdProviders).toEqual(["claude", "opencode"]);
+    expect(result.sessionSucceeded).toBe(true);
+    expect(result.successfulProviderId).toBe("opencode");
+    expect(reportFailure).toHaveBeenCalledWith("claude", false);
+    expect(reportSuccess).toHaveBeenCalledWith("opencode");
+  });
+
   it("denied tool_use causes provider attempt failure", async () => {
     const reportFailure = vi.fn();
     const reportSuccess = vi.fn();

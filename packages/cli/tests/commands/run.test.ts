@@ -242,6 +242,60 @@ describe("run command", () => {
         }),
       );
     });
+
+    it("forwards --model to runCommand flags", async () => {
+      process.argv = [
+        process.argv[0] ?? "bun",
+        process.argv[1] ?? "kiln",
+        "run",
+        "ship",
+        "it",
+        "--provider",
+        "openrouter",
+        "--model",
+        "meta-llama/llama-3.1-8b-instruct:free",
+      ];
+
+      await createCli(MOCK_APP_CONFIG);
+
+      expect(runCommandMock).toHaveBeenCalledTimes(1);
+      expect(runCommandMock).toHaveBeenCalledWith(
+        MOCK_APP_CONFIG,
+        "ship it",
+        expect.objectContaining({
+          provider: "openrouter",
+          model: "meta-llama/llama-3.1-8b-instruct:free",
+        }),
+      );
+    });
+  });
+
+  describe("help output", () => {
+    it("includes direct providers and --model option", async () => {
+      const output: string[] = [];
+      const consoleSpy = vi.spyOn(console, "log").mockImplementation((msg: unknown) => {
+        output.push(String(msg));
+      });
+      const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => {
+        throw new Error("process.exit called");
+      });
+
+      process.argv = [
+        process.argv[0] ?? "bun",
+        process.argv[1] ?? "kiln",
+        "--help",
+      ];
+
+      await expect(createCli(MOCK_APP_CONFIG)).rejects.toThrow("process.exit called");
+
+      const text = output.join("\n");
+      expect(text).toContain("--model");
+      expect(text).toContain("openrouter");
+      expect(text).toContain("ollama");
+
+      consoleSpy.mockRestore();
+      exitSpy.mockRestore();
+    });
   });
 
   describe("session mode resolution", () => {

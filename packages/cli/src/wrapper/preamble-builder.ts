@@ -7,6 +7,21 @@ export const PREAMBLE_CACHE_BOUNDARY = "__KILN_PROMPT_DYNAMIC_BOUNDARY__";
 
 const MEMORY_LINE_LIMIT = 200;
 
+export function buildProviderSystemPrompt(
+  basePrompt: string,
+  constraintInstructions?: readonly string[],
+): string {
+  if (!constraintInstructions || constraintInstructions.length === 0) {
+    return basePrompt;
+  }
+
+  const section = `[KILN POLICY CONSTRAINTS]\n${constraintInstructions.join("\n")}`;
+  if (basePrompt.trim().length === 0) {
+    return section;
+  }
+  return `${basePrompt}\n\n${section}`;
+}
+
 function trimMemory(memory: string): string {
   const lines = memory.split("\n");
   if (lines.length <= MEMORY_LINE_LIMIT) return memory;

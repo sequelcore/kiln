@@ -12,6 +12,7 @@ import type {
   ProviderCreateConfig,
   SessionRegistry,
 } from "../wrapper/session-registry.js";
+import { isDirectApiProvider } from "../wrapper/session-registry.js";
 import type { CleanupRegistry } from "../wrapper/cleanup-registry.js";
 import type { SessionManager } from "../wrapper/session-manager.js";
 import type { SessionContext } from "../wrapper/index.js";
@@ -57,11 +58,13 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
     options.permissionPolicy,
     { agent: options.permissionAgent },
   );
-  const selection = options.registry.selectBest(options.requirements);
-  const candidates: ProviderId[] = [
-    selection.primary,
-    ...selection.orderedFallbacks,
-  ];
+  const preferredProvider = options.requirements.preferredProvider;
+  const candidates: ProviderId[] = (preferredProvider && isDirectApiProvider(preferredProvider))
+    ? [preferredProvider]
+    : (() => {
+        const selection = options.registry.selectBest(options.requirements);
+        return [selection.primary, ...selection.orderedFallbacks];
+      })();
 
   let finalCostUsd = 0;
   let sessionSucceeded = false;
@@ -77,7 +80,8 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
   let awaitingTurnStart = true;
   let lastToolName: string | undefined;
 
-  for (const providerId of candidates) {
+  for (let candidateIndex = 0; candidateIndex < candidates.length; candidateIndex += 1) {
+    const providerId = candidates[candidateIndex]!;
     let isPreflightCrash = false;
     let providerDeniedByPolicy = false;
 
@@ -311,13 +315,13 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
         }
       }
     } finally {
-      options.cleanupRegistry.register(async () => session.dispose());
       await session.dispose();
     }
 
     if (sessionSucceeded) break;
 
-    if (!isPreflightCrash && !sessionSucceeded) {
+    const hasMoreCandidates = candidateIndex < candidates.length - 1;
+    if (!isPreflightCrash && !sessionSucceeded && hasMoreCandidates) {
       console.error(`[kiln] Provider ${providerId} failed, trying next...`);
     }
   }

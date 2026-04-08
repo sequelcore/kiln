@@ -2,7 +2,7 @@
 > Living document. High-level vision and phased plan.
 > Each phase will have its own dedicated research → architecture → 
 > implementation pipeline before execution.
-> Last updated: 2026-04-07
+> Last updated: 2026-04-08
 
 ## 1. What Kiln Is
 
@@ -1200,6 +1200,8 @@ permission-gated and audited; a `bash rg` cannot.
 
 ## Phase 10 — ProviderSession (Direct API Backend) [URGENT]
 
+**Status:** COMPLETE (implemented 2026-04-08, pre-release)
+
 **Status:** PLANNED — depends on Phase 9 (native tools)
 **Priority:** URGENT — enables Kiln as true provider-agnostic runtime
 **Source:** Evolution research (2026-04-07), existing P-backend design in STRATEGY.md
@@ -1212,6 +1214,13 @@ Kiln has 5 provider adapters (`anthropic.ts`, `openai.ts`, `deepseek.ts`, `openr
 for developer-facing tasks. Users who want to use OpenRouter, DeepSeek, or Ollama cannot —
 they must use a harness backend. With Phase 9 tools available, a `ProviderSession` completes
 the stack: Kiln owns the agent loop, tools, permissions, and context.
+
+Phase 10 landed the direct-provider path for `anthropic`, `openai`, `deepseek`,
+`openrouter`, and `ollama` under the same `IKilnSession` contract as the
+existing CLI harness backends. The registry now supports an 8-provider pool,
+`kiln run` can select direct API providers without MCP, the TUI exposes both
+Harness and Direct API providers, and direct-provider prompt construction no
+longer duplicates governed preamble context.
 
 ### Rules
 

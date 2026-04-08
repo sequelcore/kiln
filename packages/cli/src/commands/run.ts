@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { SessionManager } from "../wrapper/session-manager.js";
-import { createDefaultRegistry } from "../wrapper/session-registry.js";
+import { createDefaultRegistry, isDirectApiProvider } from "../wrapper/session-registry.js";
 import { cleanupRegistry } from "../wrapper/cleanup-registry.js";
 import type {
   ApprovalMemoryStore,
@@ -33,11 +33,13 @@ import {
   VerificationResult,
   scoreComplexity,
 } from "@kilnai/core";
-import { getProjectContextArtifactCache } from "@kilnai/runtime";
+import { getProjectContextArtifactCache } from "../application/project-context-cache.js";
+import type { ContextArtifactCache } from "@kilnai/core";
 
 export interface RunFlags {
   readonly apiKey?: string;
   readonly provider?: string;
+  readonly model?: string;
   readonly permissionPolicy?: KilnPermissionPolicy;
   readonly isolate?: boolean;
   readonly resume?: boolean;
@@ -87,7 +89,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
   const config = buildConfig(flags, mode);
   const sessionId = randomUUID();
   const { registry, worktreeManager } = createDefaultRegistry();
-  const contextArtifactCache = await getProjectContextArtifactCache(process.cwd());
+  const contextArtifactCache: ContextArtifactCache = await getProjectContextArtifactCache(process.cwd());
   const manager = new SessionManager(config, appConfig, contextArtifactCache, worktreeManager);
   const preferredProvider = config.provider as ProviderId | undefined;
   const resumeSessionId = await resolveResumeSessionId(
@@ -139,8 +141,8 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
   }
 
   const requirements: SessionRequirements = {
-    preferredProvider: config.provider as ProviderId | undefined,
-    requiresMcp: true,
+    preferredProvider,
+    requiresMcp: !isDirectApiProvider(preferredProvider),
   };
 
   const startedAt = new Date().toISOString();
@@ -176,6 +178,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     outputSchema: flags.outputSchema,
     addDir: flags.addDir,
     localProvider: flags.localProvider,
+    model: flags.model,
   };
 
   const sessionHooks = new SessionHooks(appConfig.kilnYaml?.hooks, {

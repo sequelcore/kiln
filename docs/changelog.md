@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased -- ProviderSession Direct API Backends (Phase 10)
+
+### feat(cli): add direct provider sessions alongside CLI harness backends
+- Added `ProviderSession` as a new `IKilnSession` implementation for
+  `anthropic`, `openai`, `deepseek`, `openrouter`, and `ollama`.
+- `SessionRegistry` now manages a unified 8-provider pool with direct-provider
+  descriptors, dynamic provider iteration, and direct-provider permission
+  constraint translation.
+- `kiln run` now disables MCP requirements for explicitly selected direct API
+  providers, while preserving harness-first behavior when no direct provider is
+  requested.
+- `kiln tui` now exposes direct API providers in a separate picker section and
+  labels `openrouter` and `ollama` as `(free)`.
+- Added `ProviderContextTracker` and `buildProviderSystemPrompt()` for the
+  direct-provider path, and corrected direct-provider prompt assembly so
+  governed preamble context is applied once as system context instead of being
+  duplicated across system and user messages.
+
 ## Unreleased -- Codex Sandbox Enforcement
 
 ### fix(cli): preserve Codex sandbox mode in Kiln-managed runs

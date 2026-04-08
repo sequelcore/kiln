@@ -11,10 +11,26 @@ import { getFieldStrength } from "@kilnai/core";
 import { ClaudeSession } from "./claude-code-process.js";
 import { CodexSession } from "./codex-session.js";
 import { OpenCodeSession } from "./opencode-session.js";
+import { ProviderSession } from "./provider-session.js";
 import { WorktreeManager } from "./worktree-manager.js";
 import { normalizePermissionPolicy } from "./permission-normalizer.js";
 
-export type ProviderId = "claude" | "codex" | "opencode";
+export type CliHarnessProviderId = "claude" | "codex" | "opencode";
+export type DirectApiProviderId = "anthropic" | "openai" | "deepseek" | "openrouter" | "ollama";
+export type ProviderId = CliHarnessProviderId | DirectApiProviderId;
+
+const DIRECT_API_PROVIDERS = new Set<DirectApiProviderId>([
+  "anthropic",
+  "openai",
+  "deepseek",
+  "openrouter",
+  "ollama",
+]);
+
+export function isDirectApiProvider(provider: ProviderId | undefined): provider is DirectApiProviderId {
+  if (!provider) return false;
+  return DIRECT_API_PROVIDERS.has(provider as DirectApiProviderId);
+}
 
 export interface SessionRequirements {
   readonly requiresMcp?: boolean;
@@ -117,6 +133,15 @@ type OpenCodeTranslationEnvelope = Extract<BackendConfig, { backend: "opencode" 
 
 const OPENCODE_SANDBOX_WARNING =
   "OpenCode does not natively enforce Kiln sandbox modes; Kiln maps sandbox intent to permission prompting semantics only.";
+const DIRECT_PROVIDER_POLICY_WARNING =
+  "Direct API providers do not natively enforce Kiln granular permission rules; constraints are appended to the system prompt.";
+
+export interface ProviderPermissionTranslation {
+  readonly provider: DirectApiProviderId;
+  readonly unsupportedRules: readonly PermissionTranslationRule[];
+  readonly constraintInstructions: readonly string[];
+  readonly warnings: readonly string[];
+}
 
 export function translatePermission(
   policy: KilnPermissionPolicy,
@@ -378,6 +403,28 @@ export function translatePermission(
   };
 }
 
+export function translatePermissionForProvider(
+  policy: KilnPermissionPolicy,
+  provider: DirectApiProviderId,
+): ProviderPermissionTranslation {
+  const normalized = normalizePermissionPolicy(policy);
+  const granularRules = collectTranslationRules(normalized);
+  const unsupportedRules = granularRules;
+  const constraintInstructions = buildConstraintInstructions(provider, unsupportedRules);
+  const warnings: string[] = [DIRECT_PROVIDER_POLICY_WARNING];
+  if (unsupportedRules.length > 0) {
+    warnings.push(
+      `${unsupportedRules.length} granular permission rule(s) are not natively supported by ${provider} and require Kiln-side constraints`,
+    );
+  }
+  return {
+    provider,
+    unsupportedRules,
+    constraintInstructions,
+    warnings,
+  };
+}
+
 function collectTranslationRules(
   policy: ReturnType<typeof normalizePermissionPolicy>,
 ): PermissionTranslationRule[] {
@@ -583,7 +630,7 @@ export class SessionRegistry {
   }
 
   selectBest(requirements: SessionRequirements = {}): SelectionResult {
-    const allIds: ProviderId[] = ["claude", "codex", "opencode"];
+    const allIds: ProviderId[] = [...this.providers.keys()];
     const scores: CandidateScore[] = [];
     const candidates: ProviderId[] = [];
 
@@ -673,7 +720,7 @@ export class SessionRegistry {
   list(): readonly (SessionProviderDescriptor & {
     health: "healthy" | "suppressed" | "half-open";
   })[] {
-    const ids: ProviderId[] = ["claude", "codex", "opencode"];
+    const ids: ProviderId[] = [...this.providers.keys()];
     return ids
       .map((id) => {
         const descriptor = this.providers.get(id);
@@ -891,6 +938,166 @@ export function createDefaultRegistry(): {
           constraintInstructions: translated.constraintInstructions,
           translationWarnings: translated.warnings,
           resumeSessionId: (config as { resumeSessionId?: string }).resumeSessionId,
+        });
+      },
+    },
+    {
+      id: "anthropic",
+      costTier: "high",
+      capabilities: {
+        mcp: false,
+        streaming: true,
+        resumable: false,
+        resume: false,
+        costTrackingMode: "computed",
+        supportedTools: [],
+        maxContextTokens: null,
+        priority: 4,
+        fallbackTo: null,
+        permissionPolicy: DEFAULT_POLICY,
+      },
+      create: (config) => {
+        const translated = translatePermissionForProvider(config.permissionPolicy, "anthropic");
+        for (const warning of translated.warnings) {
+          debug("[provider:anthropic]", warning);
+        }
+        return new ProviderSession({
+          provider: "anthropic",
+          model: config.model,
+          task: config.task,
+          systemPrompt: config.systemPrompt,
+          cwd: config.cwd,
+          env: config.env,
+          permissionPolicy: config.permissionPolicy,
+          constraintInstructions: translated.constraintInstructions,
+        });
+      },
+    },
+    {
+      id: "openai",
+      costTier: "high",
+      capabilities: {
+        mcp: false,
+        streaming: true,
+        resumable: false,
+        resume: false,
+        costTrackingMode: "computed",
+        supportedTools: [],
+        maxContextTokens: null,
+        priority: 5,
+        fallbackTo: null,
+        permissionPolicy: DEFAULT_POLICY,
+      },
+      create: (config) => {
+        const translated = translatePermissionForProvider(config.permissionPolicy, "openai");
+        for (const warning of translated.warnings) {
+          debug("[provider:openai]", warning);
+        }
+        return new ProviderSession({
+          provider: "openai",
+          model: config.model,
+          task: config.task,
+          systemPrompt: config.systemPrompt,
+          cwd: config.cwd,
+          env: config.env,
+          permissionPolicy: config.permissionPolicy,
+          constraintInstructions: translated.constraintInstructions,
+        });
+      },
+    },
+    {
+      id: "openrouter",
+      costTier: "low",
+      capabilities: {
+        mcp: false,
+        streaming: true,
+        resumable: false,
+        resume: false,
+        costTrackingMode: "computed",
+        supportedTools: [],
+        maxContextTokens: null,
+        priority: 6,
+        fallbackTo: null,
+        permissionPolicy: DEFAULT_POLICY,
+      },
+      create: (config) => {
+        const translated = translatePermissionForProvider(config.permissionPolicy, "openrouter");
+        for (const warning of translated.warnings) {
+          debug("[provider:openrouter]", warning);
+        }
+        return new ProviderSession({
+          provider: "openrouter",
+          model: config.model,
+          task: config.task,
+          systemPrompt: config.systemPrompt,
+          cwd: config.cwd,
+          env: config.env,
+          permissionPolicy: config.permissionPolicy,
+          constraintInstructions: translated.constraintInstructions,
+        });
+      },
+    },
+    {
+      id: "deepseek",
+      costTier: "medium",
+      capabilities: {
+        mcp: false,
+        streaming: true,
+        resumable: false,
+        resume: false,
+        costTrackingMode: "computed",
+        supportedTools: [],
+        maxContextTokens: null,
+        priority: 7,
+        fallbackTo: null,
+        permissionPolicy: DEFAULT_POLICY,
+      },
+      create: (config) => {
+        const translated = translatePermissionForProvider(config.permissionPolicy, "deepseek");
+        for (const warning of translated.warnings) {
+          debug("[provider:deepseek]", warning);
+        }
+        return new ProviderSession({
+          provider: "deepseek",
+          model: config.model,
+          task: config.task,
+          systemPrompt: config.systemPrompt,
+          cwd: config.cwd,
+          env: config.env,
+          permissionPolicy: config.permissionPolicy,
+          constraintInstructions: translated.constraintInstructions,
+        });
+      },
+    },
+    {
+      id: "ollama",
+      costTier: "low",
+      capabilities: {
+        mcp: false,
+        streaming: true,
+        resumable: false,
+        resume: false,
+        costTrackingMode: "computed",
+        supportedTools: [],
+        maxContextTokens: null,
+        priority: 8,
+        fallbackTo: null,
+        permissionPolicy: DEFAULT_POLICY,
+      },
+      create: (config) => {
+        const translated = translatePermissionForProvider(config.permissionPolicy, "ollama");
+        for (const warning of translated.warnings) {
+          debug("[provider:ollama]", warning);
+        }
+        return new ProviderSession({
+          provider: "ollama",
+          model: config.model,
+          task: config.task,
+          systemPrompt: config.systemPrompt,
+          cwd: config.cwd,
+          env: config.env,
+          permissionPolicy: config.permissionPolicy,
+          constraintInstructions: translated.constraintInstructions,
         });
       },
     },

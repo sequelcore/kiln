@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { buildPreamble } from "../../src/wrapper/preamble-builder.js";
+import {
+  buildPreamble,
+  buildProviderSystemPrompt,
+} from "../../src/wrapper/preamble-builder.js";
 import type { SessionContext } from "../../src/wrapper/index.js";
 import type { DomainConfig, Agent } from "@kilnai/core";
 
@@ -252,5 +255,30 @@ describe("buildPreamble", () => {
     expect(result).toContain("You are Bot, Assistant. Goal: Help");
     expect(result).not.toContain("undefined");
     expect(result).not.toContain("null");
+  });
+});
+
+describe("buildProviderSystemPrompt", () => {
+  it("returns base prompt when there are no constraint instructions", () => {
+    const result = buildProviderSystemPrompt("Base prompt");
+    expect(result).toBe("Base prompt");
+  });
+
+  it("appends policy constraints when base prompt is present", () => {
+    const result = buildProviderSystemPrompt("Base prompt", [
+      "[file-governance] DENY **/.env",
+      "[data-firewall] REDACT logs",
+    ]);
+    expect(result).toContain("Base prompt");
+    expect(result).toContain("[KILN POLICY CONSTRAINTS]");
+    expect(result).toContain("[file-governance] DENY **/.env");
+    expect(result).toContain("[data-firewall] REDACT logs");
+  });
+
+  it("returns only policy constraints when base prompt is empty", () => {
+    const result = buildProviderSystemPrompt("", [
+      "[file-governance] DENY **/.env",
+    ]);
+    expect(result).toBe("[KILN POLICY CONSTRAINTS]\n[file-governance] DENY **/.env");
   });
 });
