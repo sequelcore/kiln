@@ -133,6 +133,9 @@ export interface OpenCodeSessionConfig {
   readonly resumeSessionId?: string;
 }
 
+const OPENCODE_SANDBOX_WARNING =
+  "OpenCode does not natively enforce Kiln sandbox modes; Kiln maps sandbox intent to permission prompting semantics only.";
+
 function derivePermissionPolicy(
   permissionDefault?: string,
   sandboxMode?: KilnSandboxMode,
@@ -145,6 +148,19 @@ function derivePermissionPolicy(
     return { approval: "untrusted", sandbox: "read-only" };
   }
   return fallback ?? { approval: "on-request", sandbox: "read-only" };
+}
+
+function collectRuntimeWarnings(config: OpenCodeSessionConfig): string[] {
+  const warnings = new Set(config.translationWarnings ?? []);
+  if (config.sandboxMode && config.sandboxMode !== "read-only") {
+    warnings.add(
+      `OpenCode sandbox mode '${config.sandboxMode}' is not natively enforced; using permission prompting semantics only.`,
+    );
+  }
+  if (warnings.size === 0 && config.sandboxMode !== undefined) {
+    warnings.add(OPENCODE_SANDBOX_WARNING);
+  }
+  return [...warnings];
 }
 
 type OpenCodePermissionValue = "ask" | "allow" | "deny";
@@ -274,8 +290,8 @@ export class OpenCodeSession implements IKilnSession {
         config.permissionPolicy,
       ),
     };
-    if (config.sandboxMode && config.sandboxMode !== "read-only") {
-      debug(`sandboxMode=${config.sandboxMode} not supported, silently ignored`);
+    for (const warning of collectRuntimeWarnings(config)) {
+      debug(`[opencode] ${warning}`);
     }
   }
 

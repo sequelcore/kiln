@@ -141,9 +141,17 @@ export interface KilnAgentPermissionScope {
 `translatePermission()` in `packages/cli/src/wrapper/session-registry.ts` converts policy to backend-native format:
 - Claude Code: settings.json allow/deny rules
 - Codex CLI: explicit `codex exec --ask-for-approval <mode> --sandbox <mode>` spawn args, with config.toml acting only as the ambient default outside Kiln-managed runs
-- OpenCode: opencode.json permission.default
+- OpenCode: permission prompting defaults (`permissionDefault`) via runtime `config.update` payloads (`edit`, `bash`, `webfetch`)
 
 Unsupported granular rules are expressed as constraint instructions injected into the system prompt.
+
+### OpenCode-specific note
+
+OpenCode does not expose a native sandbox mode equivalent to Codex's
+`--sandbox`. Kiln still accepts the unified `sandbox` policy field, but for
+OpenCode it is interpreted as approval/prompting intent and mapped to
+`permissionDefault` plus tool permission payloads. This is advisory permission
+behavior, not native filesystem sandbox enforcement.
 
 ### Codex-specific note
 

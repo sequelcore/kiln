@@ -115,6 +115,9 @@ type ClaudeTranslationEnvelope = Extract<BackendConfig, { backend: "claude" }>;
 type CodexTranslationEnvelope = Extract<BackendConfig, { backend: "codex" }>;
 type OpenCodeTranslationEnvelope = Extract<BackendConfig, { backend: "opencode" }>;
 
+const OPENCODE_SANDBOX_WARNING =
+  "OpenCode does not natively enforce Kiln sandbox modes; Kiln maps sandbox intent to permission prompting semantics only.";
+
 export function translatePermission(
   policy: KilnPermissionPolicy,
   backend: "claude" | "codex" | "opencode",
@@ -126,11 +129,15 @@ export function translatePermission(
   const representableRules = granularRules.filter((rule) => isRepresentableByBackend(rule, backend));
   const unsupportedRules = granularRules.filter((rule) => !isRepresentableByBackend(rule, backend));
   const constraintInstructions = buildConstraintInstructions(backend, unsupportedRules);
-  const warnings = unsupportedRules.length > 0
-    ? [
-        `${unsupportedRules.length} granular permission rule(s) are not natively supported by ${backend} and require Kiln-side constraints`,
-      ]
-    : [];
+  const warnings: string[] = [];
+  if (unsupportedRules.length > 0) {
+    warnings.push(
+      `${unsupportedRules.length} granular permission rule(s) are not natively supported by ${backend} and require Kiln-side constraints`,
+    );
+  }
+  if (backend === "opencode") {
+    warnings.push(OPENCODE_SANDBOX_WARNING);
+  }
 
   if (approval === "never") {
     if (sandbox === "read-only") {

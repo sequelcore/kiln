@@ -53,6 +53,14 @@
   Codex wrapper spawn args.
 - Added focused CLI parsing and wrapper tests for the new flag.
 
+### fix(cli): make OpenCode sandbox semantics explicit
+- OpenCode permission translation now always emits a deterministic warning that
+  OpenCode does not natively enforce Kiln sandbox modes.
+- `OpenCodeSession` now surfaces explicit runtime warnings for translated
+  OpenCode sandbox semantics instead of "silently ignored" messaging.
+- Added focused wrapper tests for both translation warning metadata and runtime
+  warning emission.
+
 ## Unreleased -- Native Developer Tools (Phase 9)
 
 ### feat(core): land tools domain foundation (Phase 9a)

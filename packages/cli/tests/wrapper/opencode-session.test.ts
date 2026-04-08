@@ -75,6 +75,42 @@ describe("OpenCodeSession implements IKilnSession", () => {
     expect(session.capabilities.fallbackTo).toBeNull();
   });
 
+  it("emits explicit runtime warning when sandboxMode is non-read-only", () => {
+    const previousEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "development";
+    const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
+    try {
+      new OpenCodeSession(baseConfig({ sandboxMode: "workspace-write" }));
+
+      expect(debugSpy).toHaveBeenCalledWith(
+        expect.stringContaining(
+          "OpenCode sandbox mode 'workspace-write' is not natively enforced; using permission prompting semantics only.",
+        ),
+      );
+    } finally {
+      debugSpy.mockRestore();
+      process.env.NODE_ENV = previousEnv;
+    }
+  });
+
+  it("emits translation warnings when provided", () => {
+    const previousEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "development";
+    const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
+    try {
+      new OpenCodeSession(baseConfig({
+        translationWarnings: ["opencode warning from translation"],
+      }));
+
+      expect(debugSpy).toHaveBeenCalledWith(
+        expect.stringContaining("opencode warning from translation"),
+      );
+    } finally {
+      debugSpy.mockRestore();
+      process.env.NODE_ENV = previousEnv;
+    }
+  });
+
   it("dispose resolves without error", async () => {
     const session = new OpenCodeSession(baseConfig());
     await expect(session.dispose()).resolves.toBeUndefined();

@@ -393,8 +393,10 @@ Codex sandbox mode is enforced instead of silently collapsing to `workspace-writ
   (`kiln run --provider codex --local-provider <name> ...` now forwards Codex's native
   local backend selector for runs targeting providers such as `ollama` or `lmstudio`)
 - feat(cli): CodexSession --profile support for named config sets ✅ DONE (2026-04-08)
-- feat(cli): OpenCodeSession sandbox mode actually enforced
-  (currently silently ignored)
+- fix(cli): OpenCodeSession sandbox semantics are explicit ✅ DONE (2026-04-08)
+  (`translatePermission()` and `OpenCodeSession` now surface deterministic warnings
+  that OpenCode does not natively enforce Kiln sandbox modes; Kiln maps sandbox
+  intent to permission prompting semantics only)
 
 **Sub-phases:**
 4a. kiln-context SKILL.md (static parts)

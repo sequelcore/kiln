@@ -531,6 +531,7 @@ describe("SessionRegistry", () => {
             commands: readonly { pattern: string; action: string }[];
             fileGovernance: { denyGlobs: readonly string[] };
           };
+          translationWarnings?: readonly string[];
         };
       };
 
@@ -540,6 +541,9 @@ describe("SessionRegistry", () => {
         action: "allow",
       });
       expect(internal._config?.nativeRules?.fileGovernance.denyGlobs).toContain("**/.env");
+      expect(internal._config?.translationWarnings).toContain(
+        "OpenCode does not natively enforce Kiln sandbox modes; Kiln maps sandbox intent to permission prompting semantics only.",
+      );
     });
   });
 
@@ -670,6 +674,13 @@ describe("SessionRegistry", () => {
         const cfg = result.config as { permissionDefault: string };
         expect(cfg.permissionDefault).toBe("deny");
       }
+    });
+
+    it("always surfaces explicit sandbox warning metadata", () => {
+      const result = translatePermission({ approval: "on-request", sandbox: "read-only" }, "opencode");
+      expect(result.warnings).toContain(
+        "OpenCode does not natively enforce Kiln sandbox modes; Kiln maps sandbox intent to permission prompting semantics only.",
+      );
     });
   });
 
