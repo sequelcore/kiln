@@ -1,8 +1,8 @@
 # Tool Use
 
-Kiln agents execute tools (capabilities) during conversations. The orchestrator runs a while-loop: the LLM decides which tools to call, the orchestrator executes them, feeds results back, and repeats until the LLM produces a final text response.
+Kiln uses the same core pattern for every tool category: publish a schema to the model, authorize the call, execute it inside the runtime boundary, and feed a structured result back into the loop. That keeps tool use inspectable and portable across webhook tools, integration adapters, MCP-connected tools, and the native developer tool stack.
 
-Sources: `packages/core/src/engine/domain/capability.ts`, `packages/runtime/src/session/mode-b-orchestrator.ts`, `packages/core/src/agents/tool-rag.ts`, `packages/core/src/tools/domain/tool.ts`, `packages/core/src/tools/domain/tool-registry.ts`, `packages/core/src/tools/domain/tool-environment.ts`
+Sources: `packages/core/src/engine/domain/capability.ts`, `packages/core/src/engine/domain/tool-execution.ts`, `packages/core/src/orchestrator/orchestrator.ts`, `packages/core/src/security/annotation-authorizer.ts`, `packages/core/src/tools/domain/tool.ts`, `packages/core/src/tools/domain/tool-registry.ts`, `packages/core/src/tools/domain/tool-environment.ts`, `packages/core/src/tools/infrastructure/*.ts`, `packages/core/src/tools/tool-executor.ts`, `packages/core/src/tools/mcp/dev-tools-server.ts`, `packages/cli/src/wrapper/session.ts`, `packages/cli/src/wrapper/session-registry.ts`
 
 ---
 
@@ -10,63 +10,18 @@ Sources: `packages/core/src/engine/domain/capability.ts`, `packages/runtime/src/
 
 When an agent receives a message, the orchestrator enters a tool loop:
 
-1. Send the conversation (including system prompt, history, and available tools) to the LLM.
-2. If the LLM returns tool calls, execute each one and append the results to the conversation.
-3. Repeat from step 1.
-4. When the LLM returns a final text response (no tool calls), exit the loop.
+1. Send the conversation, system prompt, and tool schemas to the model.
+2. If the model emits tool calls, authorize and execute them.
+3. Append each tool result to the conversation.
+4. Repeat until the model returns a final text response.
 
-The loop is bounded by `maxToolRounds` (default: 15). If the limit is reached, the orchestrator returns the last available response. Budget is checked before each round (after the first) -- if exhausted mid-loop, the loop breaks and returns what it has. Budget check errors are fail-open.
-
----
-
-## Native Developer Tools (Phase 9)
-
-Phase 9 lands a complete native developer tools stack in `@kilnai/core`:
-
-### Domain Layer (9a)
-
-- `DevTool` and `ToolResult` domain contracts (`tools/domain/tool.ts`)
-- `DevToolRegistry` for register/lookup/list — throws on duplicate registration (`tools/domain/tool-registry.ts`)
-- `ToolEnvironment` detection for native binary availability with process-wide cache and `clearToolEnvironmentCache()` for test isolation (`tools/domain/tool-environment.ts`)
-- 7-tool schema set: `bash`, `read`, `write`, `edit`, `grep`, `glob`, `git`
-
-### Executors (9b)
-
-Native executors for all seven tools under `tools/infrastructure/`:
-
-- **bash**: Executes via `bash -c` (no profile sourcing). Sandbox boundary is the only injection guard.
-- **read**: Line-based `offset`/`limit` (not character-based), matching Claude Code convention.
-- **write**: Creates parent directories, validates write path against sandbox.
-- **edit**: String replacement (single or replaceAll), validates both read and write paths.
-- **grep**: Fast path via `rg`, fallback via recursive walk + `RegExp`. Shared helpers extracted to `tool-helpers.ts`.
-- **glob**: Fast path via `fd`, fallback via recursive walk + glob-to-regex. Same shared helpers.
-- **git**: Executes git subcommands via `execFile("git", args)`.
-
-### Orchestrator Bridge (9d)
-
-`DevToolExecutionBridge` (`tools/tool-executor.ts`) wires tools into the orchestrator:
-
-- Single executor closure handles both primary and fallback paths (no redundancy).
-- Two distinct authorization error codes: `TOOL_AUTHORIZATION_DENIED` (hard deny) and `TOOL_APPROVAL_REQUIRED` (needs human approval).
-- Emits `tool_called`, `tool_authorized`, `tool_result` events with annotation and task context.
-
-### MCP Surface (9e)
-
-`DevToolsMcpServer` (`tools/mcp/dev-tools-server.ts`) exposes the same tools via MCP:
-
-- `kiln tools --mcp` starts the dev-tools MCP server on stdio.
-- Instance-level SDK caching (failed loads are retryable, no module-level singleton).
-- MCP tool calls route through the shared execution bridge.
-
-### TUI Direct Path (9f)
-
-`kiln tui` defaults to direct orchestrator transport. Gateway transport is an explicit fallback override via `KILN_TUI_TRANSPORT=gateway`.
+The loop is bounded by the session's execution settings and emits tool lifecycle events through the `EventBus`.
 
 ---
 
-## Capabilities in app.yaml
+## Capabilities in `app.yaml`
 
-Every tool an agent can use must be declared as a capability in the team's `capabilities` array. Agents reference capabilities by name in their `tools` list. The loader validates all references at startup.
+Every non-native tool exposed by an app is declared as a capability and referenced by agent name. The loader validates those references at startup.
 
 ```yaml
 capabilities:
@@ -82,466 +37,440 @@ capabilities:
     tags: [billing]
     annotations:
       destructive: true
-
-  - name: update_profile
-    description: Update customer profile information
-    tags: [crm]
-    annotations:
-      cacheTtl: 300
-      outputSchema:
-        type: object
-        properties:
-          success:
-            type: boolean
-          updatedFields:
-            type: array
-            items:
-              type: string
 ```
 
-### Annotations
+### Capability annotations
 
 | Annotation | Type | Effect |
 |-----------|------|--------|
-| `readOnly` | boolean | Safe to cache/retry, no side effects. Level 0 authorization (auto-execute). |
-| `destructive` | boolean | Requires higher authorization (Level 2, confirm before execution). |
-| `idempotent` | boolean | Safe to retry on failure without side effects. |
-| `cacheTtl` | number (seconds) | Cache tool results for this duration. |
-| `guardrail` | boolean | Level 3 authorization -- always requires confirmation. |
-| `outputSchema` | JSON Schema | Validates tool output structure. |
+| `readOnly` | boolean | Safe to auto-execute and retry. |
+| `destructive` | boolean | Classified as always-confirm. |
+| `idempotent` | boolean | Safe for audited retry. |
+| `cacheTtl` | number | Enables tool-result caching for the declared TTL. |
+| `guardrail` | boolean | Reserved for highest-friction confirmation flows. |
+| `outputSchema` | JSON Schema | Validates the returned shape. |
 
-Unannotated capabilities default to `destructive: true`.
+Unannotated capabilities default to the authorizer's configured default level.
 
 ---
 
-## Retry and Fallback
+## Retry and fallback
 
-Capabilities can declare retry and fallback behavior. When a tool call fails, the orchestrator retries according to the config. If all retries are exhausted, an optional fallback tool is invoked with the same input.
+Capabilities can declare retry behavior and an optional fallback tool:
 
 ```yaml
 capabilities:
   - name: search_inventory
-    description: Search product inventory
     retry:
       maxAttempts: 3
       backoff: exponential
       fallback: search_inventory_cache
-
-  - name: search_inventory_cache
-    description: Search cached inventory snapshot
-    tags: [catalog]
-    annotations:
-      readOnly: true
 ```
 
-| Field | Default | Description |
-|-------|---------|-------------|
-| `maxAttempts` | 1 | Total attempts (1 = no retry). |
-| `backoff` | `none` | Backoff strategy: `none`, `linear`, `exponential`. |
-| `fallback` | -- | Capability name to invoke if all retries fail. Must be declared in the same team. |
+At execution time, Kiln uses `executeWithRetry()` from `packages/core/src/agents/tool-execution-engine.ts`:
+
+- `maxAttempts` defaults to `3`
+- `timeout` defaults to `30s`
+- validation errors can short-circuit
+- timeouts surface as `TOOL_EXECUTION_TIMEOUT`
+- exhausted retries surface as `TOOL_RETRY_EXHAUSTED`
+- `fallback` is executed through the same executor path
 
 ---
 
-## Authorization
+## Authorization model
 
-Tool execution uses a 4-level authorization model based on `CapabilityAnnotations`. The `ToolAuthorizer` inspects annotations before each tool call and returns allow or deny with a reason.
+Native and app-defined tools both rely on annotation-driven authorization. `AnnotationAuthorizer` maps tool annotations onto four execution levels:
 
-| Level | Condition | Behavior |
-|-------|-----------|----------|
-| 0 (auto-execute) | `readOnly: true` | Executed immediately, no approval needed. |
-| 1 (audit) | No annotations (unannotated defaults to destructive, but standard tools without explicit annotations) | Executed and logged. Default for tools with no explicit `readOnly`, `destructive`, or `guardrail` annotation. |
-| 2 (confirm) | `destructive: true` | Requires approval before execution. Denied tools return an error tool_result to the LLM. |
-| 3 (always-confirm) | `guardrail: true` | Always requires confirmation, regardless of other annotations. |
+| Level | Annotation shape | Result |
+|-------|------------------|--------|
+| `1` | `readOnly: true` | auto-execute |
+| `2` | `idempotent: true` or default policy | audited execution |
+| `3` | unknown tool when approval is required | approval required |
+| `4` | `destructive: true` | approval required |
 
-When a tool is denied, the orchestrator returns an error tool_result to the LLM describing the denial reason. The LLM can then inform the user or attempt an alternative approach.
+`DevToolExecutionBridge` converts authorization failures into explicit engine errors:
 
----
+- `TOOL_AUTHORIZATION_DENIED`: hard deny
+- `TOOL_APPROVAL_REQUIRED`: execution is blocked pending approval
 
-## Webhook Tools
-
-External systems can expose HTTP endpoints as tools via per-tenant webhook tool configuration. Webhook tools are executed by the `WebhookToolExecutor`.
-
-### Configuration
-
-Webhook tools are configured on `TenantConfig.webhookTools[]` via the tenant admin API:
-
-```json
-{
-  "webhookTools": [
-    {
-      "name": "check_order_status",
-      "description": "Check the status of a customer order",
-      "url": "https://api.example.com/tools/order-status",
-      "secret": "whsec_abc123...",
-      "timeout": 30,
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "orderId": { "type": "string" }
-        },
-        "required": ["orderId"]
-      }
-    }
-  ]
-}
-```
-
-| Field | Required | Default | Description |
-|-------|----------|---------|-------------|
-| `name` | Yes | -- | Tool name (must be unique within the tenant). |
-| `description` | Yes | -- | Description shown to the LLM. |
-| `url` | Yes | -- | HTTP endpoint to POST to. |
-| `secret` | Yes | -- | HMAC-SHA256 signing key. |
-| `timeout` | No | 30 | Request timeout in seconds. |
-| `inputSchema` | No | -- | JSON Schema for input validation. |
-
-### Request Format
-
-The executor sends an HTTP POST to the configured URL:
-
-```
-POST https://api.example.com/tools/order-status
-Content-Type: application/json
-X-Kiln-Signature: sha256=<hmac>
-X-Kiln-Timestamp: <iso>
-
-{
-  "tool": "check_order_status",
-  "input": { "orderId": "ORD-12345" },
-  "timestamp": "2026-03-07T18:30:00.000Z"
-}
-```
-
-The `X-Kiln-Signature` header contains `sha256=` followed by the HMAC-SHA256 hex digest of the JSON request body, computed using the tool's `secret`.
-
-### Response
-
-The endpoint must return a JSON response. The parsed JSON is returned as the tool result to the LLM.
-
-### Error Handling
-
-| Error Type | Behavior |
-|------------|----------|
-| Timeout | AbortController cancels the request after `timeout` seconds. |
-| HTTP 5xx | Retryable (if retry config is set on the capability). |
-| HTTP 4xx | Not retryable -- returned as error tool_result. |
-| Network error | Retryable (if retry config is set). |
+That distinction matters because the caller can treat "never allowed" differently from "allowed after approval."
 
 ---
 
-## Integration Tools
+## Webhook tools
 
-Integration tools let AI agents call third-party APIs (Google Calendar, Stripe, Google Sheets, etc.) without requiring the tenant to set up webhook endpoints. Each integration is backed by an `IntegrationAdapter` — a separate npm package that handles API communication. Kiln provides the runtime: adapter registry, credential resolution, tool definition generation, and execution.
+Webhook tools expose external HTTP endpoints as tenant-scoped tools. Kiln signs requests with HMAC-SHA256 and returns the parsed JSON response as the tool result.
 
-Sources: `packages/core/src/engine/domain/integration.ts`, `packages/runtime/src/gateway/integration-registry.ts`, `packages/runtime/src/gateway/integration-executor.ts`, `packages/runtime/src/gateway/local-credential-resolver.ts`
-
-### Three Tool Executor Types
-
-| Executor | Input | Use Case |
-|----------|-------|----------|
-| **WebhookToolExecutor** | HTTP POST + HMAC-SHA256 | Developer-built endpoints |
-| **IntegrationExecutor** | Adapter registry + credential resolution | Zero-code, credentials only |
-| **McpClient** | External MCP servers | Technical setup |
-
-### Architecture
-
-```
-TenantConfig.integrations[]
-    ├── provider: "google_calendar"
-    ├── credentialKey: "gc-cred-123"     (encrypted in SecretStore)
-    ├── operations?: ["check_availability"]  (optional subset filter)
-    └── config?: { calendarId: "..." }   (optional adapter-specific config)
-
-                    ↓ at request time
-
-IntegrationExecutor
-    ├── CredentialResolver.resolve(tenantId, provider)
-    │       → ResolvedCredential { type, value, headers?, expiresAt? }
-    └── IntegrationAdapter.execute(operation, credential, input, options)
-            → IntegrationResult { data }
-```
-
-### Tenant Configuration
-
-Integrations are configured on `TenantConfig.integrations[]` via the tenant admin API:
-
-```json
-{
-  "integrations": [
-    {
-      "provider": "google_calendar",
-      "credentialKey": "gc-cred-123"
-    },
-    {
-      "provider": "stripe",
-      "credentialKey": "stripe-cred-456",
-      "operations": ["create_payment_link"]
-    },
-    {
-      "provider": "google_sheets",
-      "credentialKey": "sheets-cred",
-      "config": { "spreadsheetId": "abc123" }
-    }
-  ]
-}
-```
+Key fields on `TenantConfig.webhookTools[]`:
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `provider` | Yes | Adapter provider name (must match a registered adapter). Must be unique per tenant. |
-| `credentialKey` | Yes | Reference to the encrypted credential in the SecretStore. |
-| `operations` | No | Subset of adapter operations to expose. When omitted, all operations are available. |
-| `config` | No | Adapter-specific configuration (passed through as-is). |
+| `name` | Yes | Tool name shown to the model |
+| `description` | Yes | Tool description |
+| `url` | Yes | Endpoint to call |
+| `secret` | Yes | Signing key |
+| `timeout` | No | Request timeout in seconds |
+| `inputSchema` | No | JSON Schema for request validation |
 
-Credentials are encrypted at rest using the same AES-256-GCM mechanism as webhook tool secrets. Key pattern: `tenant:{tenantId}:integration:{provider}`.
-
-### Tool Naming
-
-Integration tools follow the naming convention `{provider}_{operation}`:
-
-- `google_calendar_check_availability`
-- `stripe_create_payment_link`
-- `google_sheets_append_row`
-
-Each tool is tagged with `["integration", "{provider}"]` for ToolRAG and filtering.
-
-### Credential Resolution
-
-The `CredentialResolver` interface resolves encrypted credential references at execution time:
-
-```typescript
-interface CredentialResolver {
-  resolve(tenantId: string, provider: string): Promise<ResolvedCredential>;
-  invalidate(tenantId: string, provider: string): void;
-}
-
-interface ResolvedCredential {
-  type: "bearer" | "api_key" | "basic" | "custom";
-  value: string;
-  headers?: Record<string, string>;
-  expiresAt?: Date;
-}
-```
-
-**LocalCredentialResolver** (self-hosted): reads from the Kiln SecretStore. Supports two formats:
-
-1. **JSON structured** — full credential object: `{"type": "api_key", "value": "sk_test", "headers": {"X-Api-Key": "sk_test"}}`
-2. **Plain string** — interpreted as bearer token: `"ya29.some-token"` → `{type: "bearer", value: "ya29.some-token"}`
-
-### IntegrationAdapter Interface
-
-Each adapter is a separate npm package implementing:
-
-```typescript
-interface IntegrationAdapter {
-  readonly provider: string;
-  readonly version: string;
-  readonly operations: readonly IntegrationOperation[];
-  execute(
-    operation: string,
-    credentials: ResolvedCredential,
-    input: Record<string, unknown>,
-    options?: ExecutionOptions,
-  ): Promise<IntegrationResult>;
-}
-```
-
-Adapters are registered at gateway startup via `IntegrationRegistry.register()`. The registry discovers adapters and generates tool definitions for `buildTenantToolContext()`.
-
-### Error Handling
-
-| Error Code | When | Retryable |
-|------------|------|-----------|
-| `INTEGRATION_TOOL_FAILED` | Adapter execution fails or unknown operation | Depends (adapter errors retryable, unknown operation not) |
-| `CREDENTIAL_RESOLVE_FAILED` | Credential not found or resolver error | Depends (resolver error retryable, not found not) |
-| `INTEGRATION_ADAPTER_NOT_FOUND` | Provider not registered in registry | No |
-
-KilnErrors from adapters or resolvers are re-thrown without wrapping to preserve error codes.
-
-### Zero-Change Integration
-
-Integration tools are wired through `buildTenantToolContext()` — the same function that handles webhook tools. They appear as regular builtin tools to the orchestrator. This means:
-
-- **Authorization** works automatically — adapter operations declare `annotations` (readOnly, destructive, idempotent) on `IntegrationOperation`, surfaced via `IntegrationRegistry.getCapabilities()` and piped through `PerCallToolConfig.perCallCapabilities` to the orchestrator's annotation-based 4-level authorization model.
-- **Rate limiting** applies per-tool via `SlidingWindowRateLimiter`.
-- **Result sanitization** passes through the safety pipeline.
-- **ToolRAG** includes integration tools in embedding-based selection.
-- **Caching** works with `cacheTtl` annotations on adapter operations.
-- **Events** emit `tool_called`, `tool_authorized`, `tool_result`, and `TOOL_EXECUTED` conversation events.
-- **Audit logging** records all integration tool executions with annotation metadata.
+The webhook executor uses the same tool loop as any other capability, which means rate limiting, authorization, result sanitization, and event emission stay consistent.
 
 ---
 
-## Per-Tenant Tool Config
+## Integration tools
 
-Tenants can have custom tool configurations managed via the tenant admin API (`PATCH /admin/{appName}/tenants/:id`).
+Integration tools wrap third-party APIs behind `IntegrationAdapter` implementations. The runtime handles:
 
-### Tool Allowlist
+- adapter registration
+- credential resolution
+- tool definition generation
+- execution and error wrapping
 
-The `tools` field is a string array that restricts which tools are available to the tenant's sessions. When omitted, all tools are available.
+Tool names follow `{provider}_{operation}`, such as `google_calendar_check_availability` or `stripe_create_payment_link`. Integration operations surface annotations, so they participate in the same authorization and retry rules as other tools.
 
-```json
-{
-  "tools": ["search_products", "check_order_status", "get_faq"]
+---
+
+## Native developer tools
+
+The native developer tool stack lives under `packages/core/src/tools/`. It exists so Kiln can execute coding tasks without depending on an external harness backend.
+
+### Domain contracts
+
+`packages/core/src/tools/domain/tool.ts` defines the core types:
+
+```ts
+export type ToolInput = {
+  readonly name: string;
+  readonly input: Record<string, unknown>;
+};
+
+export type ToolResult = {
+  readonly output: string;
+  readonly isError: boolean;
+  readonly metadata?: Record<string, unknown>;
+};
+
+export interface DevTool {
+  readonly name: string;
+  readonly description: string;
+  readonly inputSchema: Record<string, unknown>;
+  readonly annotations?: DevToolAnnotations;
+  execute(input: ToolInput, sandbox?: unknown): Promise<ToolResult>;
 }
 ```
 
-### Tool Config
+The seven built-in tool names are:
 
-The `toolConfig` object controls execution limits and rate limiting:
+- `bash`
+- `read`
+- `write`
+- `edit`
+- `grep`
+- `glob`
+- `git`
 
-```json
-{
-  "toolConfig": {
-    "maxIterationsPerSession": 10,
-    "rateLimits": {
-      "defaultPerMinute": 60,
-      "perTool": {
-        "process_refund": 5,
-        "send_email": 10
-      }
-    }
-  }
+### Built-in tool schemas
+
+`TOOL_SCHEMAS` is the source of truth for names, descriptions, input schemas, and annotations. Those schemas are used both by native callers and by the MCP surface.
+
+### Tool reference
+
+| Tool | Purpose | Key params | Output shape |
+|------|---------|------------|--------------|
+| `bash` | Run a shell command through `bash -c` | `command`, `timeout`, `cwd` | `ToolResult.output` is combined stdout+stderr; metadata includes `cwd`, `command`, `timeoutMs` |
+| `read` | Read file content from disk | `filePath`, `offset`, `limit` | `output` is the selected line window; metadata includes `filePath`, `offset`, `limit`, `totalLines` |
+| `write` | Replace full file contents | `filePath`, `content` | `output` is a confirmation string; metadata includes `filePath`, `bytesWritten` |
+| `edit` | Replace one or all string matches in a file | `filePath`, `oldString`, `newString`, `replaceAll` | `output` is a replacement summary or an error; metadata includes `filePath`, `replacements`, `replaceAll` |
+| `grep` | Search file content by regex | `pattern`, `path`, `glob`, `outputMode` | `output` is newline-delimited matches, file paths, or counts; metadata includes `path`, `strategy`, `outputMode` |
+| `glob` | Match files by glob pattern | `pattern`, `path` | `output` is newline-delimited relative file paths; metadata includes `path`, `strategy`, `count` |
+| `git` | Run a git subcommand | `subcommand`, `args` | `output` is combined stdout+stderr; metadata includes `cwd`, `command` |
+
+### Executor behavior
+
+The built-in executors are intentionally small and predictable:
+
+- `BashTool` validates `cwd`, validates the command string against the sandbox policy, clamps timeout to `300000ms`, and executes with `execFile("bash", ["-c", command])`.
+- `ReadTool` uses line-based slicing, not byte offsets.
+- `WriteTool` creates parent directories before writing.
+- `EditTool` supports single replacement and `replaceAll`, and fails if the target string is not found.
+- `GrepTool` uses `rg` when available and falls back to a recursive file walk plus JavaScript `RegExp`.
+- `GlobTool` uses `fd` when available and falls back to the same recursive walker plus glob matching helpers.
+- `GitTool` executes `git` directly and validates the reconstructed command string before running it.
+
+All seven tools return `ToolResult`; failures are regular tool results when possible, not uncaught process exceptions.
+
+---
+
+## ToolEnvironment
+
+`ToolEnvironment` records the detected developer-tool binaries:
+
+```ts
+export interface ToolEnvironment {
+  readonly rg?: BinaryInfo;
+  readonly fd?: BinaryInfo;
+  readonly jq?: BinaryInfo;
+  readonly git?: BinaryInfo;
 }
 ```
 
-| Field | Default | Max | Description |
-|-------|---------|-----|-------------|
-| `toolConfig.maxIterationsPerSession` | 10 | 50 | Max tool rounds per message. |
-| `toolConfig.rateLimits.defaultPerMinute` | 60 | -- | Default sliding window rate limit per tool. |
-| `toolConfig.rateLimits.perTool` | -- | -- | Per-tool rate limit overrides (tool name to requests/minute). |
+`detectToolEnvironment()` probes:
+
+- `rg`
+- `fd`
+- `jq`
+- `git`
+
+It caches the first successful detection result process-wide, and `clearToolEnvironmentCache()` resets that cache for tests or PATH changes.
+
+### Resolution order
+
+Kiln's developer tool stack is designed around three layers:
+
+1. Vendored binaries from `@kilnai/tools` platform packages for `rg`, `fd`, and `jq`
+2. System binaries discovered from PATH
+3. Pure TypeScript fallback inside the executor when no binary is available
+
+In the current core source, `detectToolEnvironment()` performs the PATH probe and the fallback logic lives in `GrepTool` and `GlobTool`. The vendored resolver is packaged separately in `packages/tools`, which publishes platform-specific optional dependencies such as `@kilnai/tools-win32-x64`.
+
+`git` is different: Kiln detects it from PATH, but there is no pure TypeScript git fallback.
 
 ---
 
-## Per-Call Tool Configuration
+## DevToolRegistry
 
-The orchestrator is shared across tenants. Rather than mutating orchestrator-level state, per-tenant tool infrastructure is passed as the 5th parameter to `processMessage()`. This includes the tool allowlist, rate limiter instance, and any additional tools (e.g., webhook tools) scoped to the tenant.
+`DevToolRegistry` is the runtime index for developer tools:
 
-```typescript
-const result = await orchestrator.processMessage(
-  session,
-  message,
-  systemPrompt,
-  tools,
-  {
-    allowedTools: ["search_products", "get_faq"],
-    rateLimiter: tenantRateLimiter,
-    additionalTools: webhookToolDefinitions,
-  }
-);
+```ts
+export class DevToolRegistry {
+  register(tool: DevTool): void;
+  lookup(name: string): DevTool | undefined;
+  list(): readonly DevTool[];
+  has(name: string): boolean;
+  get size(): number;
+}
 ```
 
-`additionalTools` are merged locally for the duration of the call -- they are not registered on the orchestrator and do not persist across invocations. This avoids tool accumulation when the same orchestrator serves many tenants.
+Design choice:
 
-The `TenantToolFactory.buildTenantToolContext()` constructs this configuration from `TenantConfig`, handling webhook tool instantiation, integration tool wiring, allowlist intersection, and rate limiter setup.
+- registration is explicit
+- lookup is by stable string name
+- duplicate registration throws immediately
+
+That matters because the registry is the composition boundary for both the orchestrator and the MCP server. Silent replacement would make authorization, audit logging, and debugging unreliable.
+
+### Custom registration example
+
+```ts
+import { DevToolRegistry, type DevTool, type ToolInput, type ToolResult } from "@kilnai/core";
+
+const echoTool: DevTool = {
+  name: "echo_json",
+  description: "Echo structured JSON input back to the caller.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      payload: { type: "object" },
+    },
+    required: ["payload"],
+  },
+  annotations: {
+    readOnly: true,
+    idempotent: true,
+  },
+  async execute(input: ToolInput): Promise<ToolResult> {
+    return {
+      output: JSON.stringify(input.input.payload, null, 2),
+      isError: false,
+      metadata: { tool: "echo_json" },
+    };
+  },
+};
+
+const registry = new DevToolRegistry();
+registry.register(echoTool);
+```
 
 ---
 
-## Rate Limiting
+## DevToolExecutionBridge
 
-The `SlidingWindowRateLimiter` enforces per-tool, per-tenant rate limits using an in-memory sliding window (60-second window).
+`DevToolExecutionBridge` is the execution layer between the registry and the caller. It is used directly by the orchestrator and by the MCP server.
 
-When a tool call exceeds its rate limit:
+### Request shape
 
-- The call is not executed.
-- An error tool_result is returned to the LLM with a `retry-after` indication.
-- The LLM can inform the user or attempt a different tool.
+```ts
+export interface DevToolExecutionRequest {
+  readonly name: string;
+  readonly input: Record<string, unknown>;
+  readonly sandbox?: unknown;
+  readonly retry?: RetryConfig;
+}
+```
 
-Per-tenant isolation ensures one tenant's rate limits do not affect another. Expired entries are auto-pruned on each check.
+### What it does
+
+- resolves the primary tool from the registry
+- validates fallback registration before execution begins
+- authorizes the tool before execution
+- delegates retry and timeout handling to `executeWithRetry()`
+- re-validates tool registration for each attempt
+- guarantees that the returned value conforms to `ToolResult`
+
+### Authorization flow
+
+`authorizeRequest()` exposes the decision without executing the tool. `execute()` performs the same check again before each run:
+
+1. lookup tool
+2. classify annotations through `ToolAuthorizer`
+3. allow immediately, require approval, or deny
+4. if approved, execute with retry/fallback
+
+Error codes:
+
+- `TOOL_AUTHORIZATION_DENIED`: execution is blocked
+- `TOOL_APPROVAL_REQUIRED`: approval is required before execution
+- `INTERNAL_ERROR`: missing primary tool, missing fallback tool, or invalid result shape
+
+### Retry and fallback
+
+Retries and fallback are not duplicated across tools. The bridge supplies a single executor closure to `executeWithRetry()`, which then applies:
+
+- bounded timeout
+- retry attempts
+- error classification
+- optional fallback tool invocation
+
+### Event emission
+
+The bridge itself focuses on execution. `Orchestrator.executeDevTool()` wraps it and emits:
+
+- `tool_called`
+- `tool_authorized`
+- `tool_result`
+
+Those events include authorization level, annotations, duration, success, and a result summary. The design keeps the bridge reusable while preserving observability at the orchestration boundary.
 
 ---
 
-## Tool Events
+## DevToolsMcpServer
 
-Tool execution emits events at two levels:
+`DevToolsMcpServer` exposes the same registered developer tools as MCP tools.
 
-### Internal EventBus
+### Why it exists
 
-Available in dev mode via `GET /dev/events` (SSE) and through the OTel exporter:
+Kiln's developer tools are useful beyond Kiln's own orchestrator. By projecting them through MCP, external agents can consume the same tool implementations over stdio.
 
-| Event | Key Payload Fields |
-|-------|--------------------|
-| `tool_called` | `toolName`, `input`, `tenantId`, `sessionId` |
+### How it works
+
+- `listTools()` maps `TOOL_SCHEMAS` into MCP tool descriptors
+- `callTool()` delegates to `DevToolExecutionBridge`
+- successful calls return JSON-formatted text content
+- failed calls return `isError: true`
+
+The server lazily loads `@modelcontextprotocol/sdk`, caches the resolved modules on the instance, and clears the in-flight promise if initialization fails so a later retry can succeed.
+
+### CLI entrypoint
+
+`packages/cli/src/commands/tools.ts` wires the stdio transport:
+
+```bash
+kiln tools --mcp
+```
+
+That command:
+
+1. builds a default `DevToolRegistry`
+2. registers `bash`, `read`, `write`, `edit`, `grep`, `glob`, and `git`
+3. creates `DevToolExecutionBridge`
+4. starts `DevToolsMcpServer` on stdio
+
+This is the consumption path for external MCP-compatible agents.
+
+---
+
+## Permission enforcement
+
+Permission enforcement for native developer tools has two layers.
+
+### Core execution layer
+
+Inside `@kilnai/core`, the immediate gate is annotation-based:
+
+- `read`, `grep`, and `glob` are `readOnly`
+- `bash` and `write` are destructive
+- `edit` and `git` are non-read-only but not marked destructive in the schema
+
+`AnnotationAuthorizer` turns those annotations into execution levels before the bridge runs the tool.
+
+### Wrapper policy layer
+
+At the CLI wrapper layer, `KilnPermissionPolicy` controls what the backend is allowed to attempt:
+
+- harness backends receive native permission translations where supported
+- unsupported granular rules are rendered as constraint instructions
+- direct API backends use `translatePermissionForProvider()` and inject constraints into the provider system prompt
+
+That means the wrapper can restrict which tool calls a backend should make, while the core runtime still performs final authorization on the concrete developer tool that is about to execute.
+
+For direct API backends, this is advisory rather than native sandbox enforcement. The provider sees policy constraints in the system prompt; the runtime still owns actual tool execution.
+
+---
+
+## Per-tenant tool configuration
+
+Tenants can further scope runtime tool behavior with:
+
+- tool allowlists
+- per-tool rate limits
+- max iterations per session
+- tenant-specific webhook and integration tool registration
+
+These controls are passed into the orchestrator as per-call tool context instead of mutating global state. That keeps one orchestrator instance safe for multi-tenant use.
+
+---
+
+## Tool events
+
+Tool execution emits two families of events.
+
+### Internal EventBus events
+
+| Event | Key fields |
+|-------|------------|
+| `tool_called` | `toolName`, `toolInput`, `annotations`, `authorizationLevel`, `taskId` |
 | `tool_authorized` | `toolName`, `level`, `allowed`, `reason` |
-| `tool_result` | `toolName`, `durationMs`, `success`, `retryCount` |
+| `tool_result` | `toolName`, `durationMs`, `success`, `isError`, `retryAttempt`, `resultSummary` |
 
-### Conversation Events
+### Conversation events
 
-Emitted to the product backend via `ConversationEventEmitter` (fire-and-forget POST):
-
-| Event Type | Payload |
-|------------|---------|
-| `TOOL_EXECUTED` | `toolName`, `durationMs`, `success`, `resultSummary` |
-
-Conversation events are configured in `gateway.yaml` under `conversationEvents`. See [Gateway YAML Reference](../configuration/gateway-yaml.md) for setup.
+Gateway-side runtime sessions also emit `TOOL_EXECUTED` for downstream product integrations.
 
 ---
 
-## Result Sanitization
+## Result sanitization
 
-Tool results pass through the safety pipeline before being fed back to the LLM. The pipeline applies:
+Tool results can flow through the safety pipeline before they are reinjected into the model context. Kiln uses the same sanitization principles across tool categories:
 
-1. **PII scanner** -- detects and redacts personally identifiable information (6 types).
-2. **Content classifier** -- checks for unsafe content (6 categories).
-3. **Indirect injection scanner** -- runs `PromptScanner.scanHeuristic()` on tool results to detect prompt injection attempts embedded in external data (e.g., a malicious instruction hidden in a database record or API response). Detections emit a `security_alert` event with severity `high` and category `indirect_injection`.
+- PII detection and redaction
+- content classification
+- indirect prompt-injection scanning on returned content
 
-Sanitized results are logged with `success_sanitized` status in the audit log. The original unsanitized result is never stored or forwarded.
-
-The safety pipeline is fail-open: if sanitization fails, the original result is used to avoid blocking the conversation.
+The pipeline is intentionally fail-open so a safety-service outage does not freeze tool execution.
 
 ---
 
-## Tool Result Caching
+## Tool selection and scaling
 
-Capabilities annotated with `cacheTtl` have their results cached in the `ToolCache`. When the same tool is called with identical input within the TTL window, the cached result is returned without executing the tool. This reduces latency and cost for frequently-called read-only tools.
+When a session has many tools, Kiln can reduce the prompt footprint by ranking relevant tools before each round. Tool descriptions and annotations still remain the source of truth; ToolRAG only narrows the candidate set.
 
-```yaml
-capabilities:
-  - name: get_product_details
-    description: Get product details by ID
-    tags: [catalog]
-    annotations:
-      readOnly: true
-      cacheTtl: 300    # cache results for 5 minutes
-```
-
-The orchestrator checks the cache before each tool execution. On a cache hit, the cached result is returned immediately and a `tool_cache_hit` event is emitted via the EventBus. Cache misses proceed with normal tool execution, and the result is stored in the cache for future calls.
-
-Cache keys are derived from the tool name and serialized input. The cache is in-memory and scoped per-session.
+For large installations, that matters because developer tools, webhook tools, integration tools, and MCP tools all compete for context budget.
 
 ---
 
-## ToolRAG
+## Related
 
-When an app has more than 30 tools, embedding-based tool selection filters to the most relevant tools per message. This reduces token usage and improves tool selection accuracy.
-
-The existing `tool-rag.ts` implementation uses capability descriptions as the embedding corpus. At query time, it embeds the user message and selects the top-k most relevant tools via cosine similarity.
-
-ToolRAG is fail-open: if the embedding or selection fails, all tools are passed to the LLM as a fallback.
-
----
-
-## MCP Tool Description Scanning
-
-When MCP servers are connected, the `McpClient` discovers tools from each server. As a security measure, tool descriptions are scanned for prompt injection patterns using `PromptScanner.scanHeuristic()` at discovery time. Tools with suspicious descriptions (e.g., containing hidden instructions or override attempts) are filtered out and never registered as available capabilities.
-
-This prevents a compromised or malicious MCP server from injecting prompt manipulation through tool descriptions. Filtered tools are logged as warnings but do not block the remaining tools from the same server.
-
-To enable MCP tool scanning, pass a `PromptScanner` instance via `McpClientOptions.promptScanner`.
-
----
-
-## Budget Integration
-
-The tool loop integrates with the billing middleware:
-
-- Budget is checked before each round (after the first).
-- If budget is exhausted mid-loop, the loop breaks and returns the last available response.
-- Budget check errors are fail-open -- a billing service outage never blocks tool execution.
-- The `BUDGET_EXHAUSTED` error code is returned to the LLM if budget runs out, allowing it to inform the user.
-
----
-
-## YAML Reference
-
-See [App YAML Reference](../configuration/app-yaml.md) for the full `capabilities:` configuration schema.
+- [CLI Wrapper](cli-wrapper.md)
+- [Gateway YAML Reference](../configuration/gateway-yaml.md)
+- [Skills](skills.md)
+- [Observability](observability.md)

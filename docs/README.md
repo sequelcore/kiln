@@ -17,7 +17,7 @@
 |-------|-------|
 | [Channels](guides/channels.md) | 8 channel adapters (CLI, Web, WhatsApp, Instagram, Messenger, Slack, Email, API) |
 | [Knowledge](guides/knowledge.md) | RAG pipeline, vector stores, STT, contact memory |
-| [Tool Use](guides/tool-use.md) | Tool execution, authorization, webhook tools, integration tools, rate limiting |
+| [Tool Use](guides/tool-use.md) | Tool execution, authorization, webhook/integration tools, native developer tools, and MCP exposure |
 | [Multi-Agent Routing](guides/multi-agent.md) | Multiple agents per tenant, 3-tier routing, handoff briefs |
 | [Model Routing](guides/model-routing.md) | Per-request model selection, complexity scoring, rules |
 | [Enrichment](guides/enrichment.md) | Post-conversation analytics (effort score, sentiment, CSAT) |
@@ -30,12 +30,10 @@
 | [Eval](guides/eval.md) | Scorers, datasets, experiments, comparator |
 | [Eval Benchmarking](guides/eval-benchmarking.md) | Scorer-to-research mapping, predictive metrics, industry standards |
 | [Delegation](guides/delegation.md) | Cross-app delegation, A2A protocol |
-| [CLI Wrapper](guides/cli-wrapper.md) | IKilnSession, 3 backends, permission policy, session resume, config sync, context-governance config |
+| [CLI Wrapper](guides/cli-wrapper.md) | IKilnSession, harness backends, direct API backends via ProviderSession, permission policy, session resume, and config sync |
 | [Hooks](guides/hooks.md) | HookRegistry, lifecycle events, modes, kiln.yaml config |
 | [Skills](guides/skills.md) | SKILL.md format, registry, capture pipeline, CLI commands |
 | [Plan Mode](guides/plan-mode.md) | `kiln plan` command, 3-phase workflow, execution boundaries |
-| [Phase 7 Plan](plan-phase-7.md) | Kiln TUI implementation boundary, current status snapshot, remaining scope |
-| [Context Governance Plan](plan-context-governance.md) | Sequential implementation plan for context/token governance and the later field layer |
 
 ## SDK
 

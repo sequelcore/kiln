@@ -2,79 +2,246 @@
 
 ## Overview
 
-Kiln wraps 3 CLI backends (Claude Code, Codex CLI, OpenCode) behind a unified IKilnSession interface. The wrapper layer handles subprocess lifecycle, permission translation, session resume, config sync, and cost tracking.
+Kiln wraps multiple execution backends behind a single `IKilnSession` contract. That keeps the run loop, transcript handling, approval memory, reporting, and provider selection logic independent from any one agent runtime.
 
-## IKilnSession Interface
+There are two backend families:
 
-Defined in `packages/cli/src/wrapper/session.ts`. All session implementations must satisfy this contract.
+- harness backends: Claude Code, Codex CLI, OpenCode
+- direct API backends: Anthropic, OpenAI, OpenRouter, DeepSeek, Ollama
 
-The interface:
-- `run(options: SessionRunOptions): AsyncIterable<SessionEvent>` -- async generator yielding events
-- `dispose(): Promise<void>` -- cleanup subprocess
-- `capabilities: SessionCapabilities` -- static metadata about the backend
-- `sessionId: string` -- unique identifier
+Sources: `packages/cli/src/wrapper/session.ts`, `packages/cli/src/wrapper/session-registry.ts`, `packages/cli/src/wrapper/provider-session.ts`, `packages/cli/src/wrapper/provider-context.ts`, `packages/cli/src/wrapper/preamble-builder.ts`, `packages/cli/src/commands/run.ts`, `packages/cli/src/commands/tui.ts`
 
-### SessionEvent
+## `IKilnSession`
 
-SessionEvent is a discriminated union with 6 variants:
+Every backend implements the same interface:
+
+```ts
+export interface IKilnSession {
+  run(options: SessionRunOptions): AsyncIterable<SessionEvent>;
+  dispose(): Promise<void>;
+  readonly capabilities: SessionCapabilities;
+  readonly sessionId: string;
+  readonly providerSessionId: string | undefined;
+}
+```
+
+### `SessionEvent`
+
+`SessionEvent` is the stream contract seen by the CLI and TUI.
 
 | Variant | Fields | Description |
 |---------|--------|-------------|
-| `text_delta` | `content: string` | Streaming text output |
-| `tool_use` | `toolName: string`, `input: unknown`, `source?: "native" \| "mcp"`, `mcpSelector?: string` | Tool invocation (with optional MCP source and selector) |
-| `tool_result` | `toolName: string`, `output: string` | Tool output |
-| `cost_update` | `usd: number`, `mode: CostTrackingMode`, `inputTokens?: number`, `outputTokens?: number`, `cacheReadTokens?: number` | Per-turn cost with USD, token counts, and tracking mode |
-| `completed` | `totalUsd: number`, `durationMs: number`, `isError: boolean`, `isPreflightCrash: boolean` | Session end with total cost, duration, error status |
-| `error` | `code: string`, `message: string`, `isRetryable: boolean` | Structured error with code, message, retryability |
+| `text_delta` | `content`, `isThinking?` | Streaming text output |
+| `tool_use` | `toolName`, `input`, `source?`, `mcpSelector?` | Tool invocation |
+| `tool_result` | `toolName`, `output` | Tool output |
+| `file_changed` | `path`, `changeType`, `linesAdded?`, `linesRemoved?` | File mutation event |
+| `cost_update` | `usd`, `mode`, `inputTokens?`, `outputTokens?`, `cacheReadTokens?` | Incremental cost/token data |
+| `completed` | `totalUsd`, `durationMs`, `isError`, `isPreflightCrash` | End-of-session marker |
+| `error` | `code`, `message`, `isRetryable` | Structured failure |
 
-### SessionCapabilities
+### `SessionCapabilities`
 
-SessionCapabilities describes what each backend supports:
+`SessionCapabilities` describes runtime behavior:
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `mcp` | `boolean` | MCP support |
-| `streaming` | `boolean` | Streaming output |
-| `resumable` | `boolean` | Session resume capability |
-| `resume` | `boolean` | Can resume previous session |
-| `costTrackingMode` | `CostTrackingMode` | `native` \| `computed` \| `none` |
-| `supportedTools` | `readonly string[]` | Tool allowlist |
-| `maxContextTokens` | `number \| null` | Context window size (null = unknown) |
-| `priority` | `number` | Ordering for SessionRegistry selection |
-| `fallbackTo` | `string \| null` | Next backend to try on failure |
-| `permissionPolicy` | `KilnPermissionPolicy` | The KilnPermissionPolicy applied to this session |
+| Field | Description |
+|-------|-------------|
+| `mcp` | Whether the backend can use MCP directly |
+| `streaming` | Whether the backend streams output |
+| `resumable` | Whether the backend exposes resumable semantics |
+| `resume` | Whether Kiln can reattach to prior sessions |
+| `costTrackingMode` | `native`, `computed`, or `none` |
+| `supportedTools` | Tool allowlist when the backend exposes one |
+| `maxContextTokens` | Known context limit or `null` |
+| `priority` | Registry ordering weight |
+| `fallbackTo` | Explicit next backend, if any |
+| `permissionPolicy` | The normalized Kiln permission policy attached to the session |
 
-### SessionRunOptions
+## Harness backends
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `prompt` | `string` | The prompt to send to the backend |
-| `cwd?` | `string` | Working directory |
-| `env?` | `Record<string, string>` | Environment variables |
-| `abortSignal?` | `AbortSignal` | Abort controller signal |
+The harness path shells out to external agent runtimes:
 
-## Backend Implementations
+| Backend | Transport | Notes |
+|---------|-----------|-------|
+| Claude Code | SDK / subprocess | Native cost reporting |
+| Codex CLI | `codex exec --json` | Computed cost tracking |
+| OpenCode | `opencode serve` + SDK | MCP-capable, runtime config patching |
 
-| Aspect | ClaudeSession | CodexSession | OpenCodeSession |
-|--------|--------------|--------------|-----------------|
-| Spawn | subprocess (claude -p) | subprocess (codex exec --json) | opencode serve + SDK |
-| Output format | SDK events | JSONL stream | ACP SSE events |
-| Resume | reuseEnvironmentId, --resume | --conversation-id (deferred) | stored remoteSessionId, --attach |
-| Cost tracking | native (SDK reports USD) | computed (token counts + models.dev) | none |
-| Permission delivery | settings.json rules | exec flags (`--ask-for-approval`, `--sandbox`) + config.toml defaults | PATCH /config |
-| MCP config | .mcp.json in project | config.toml mcp_servers | PATCH /config mcp block |
-| Bare mode | --bare (skips hooks/skills/plugins) | N/A | N/A (uses serve mode) |
+Harness backends are the path to use when you need runtime-native MCP support, provider-owned resume semantics, or the backend's own tool execution surface.
 
-Key implementation files:
-- `packages/cli/src/wrapper/claude-code-process.ts`
-- `packages/cli/src/wrapper/codex-session.ts`
-- `packages/cli/src/wrapper/opencode-session.ts`
+## Direct API backends
 
-## Permission Policy
+`ProviderSession` is the direct-API implementation of `IKilnSession`. It talks to Kiln's provider adapters directly instead of launching a subprocess.
 
-KilnPermissionPolicy is the canonical permission model. All fields are optional:
+### When to use `ProviderSession`
 
-```typescript
+Use a direct API backend when you want:
+
+- no subprocess lifecycle
+- lower startup latency
+- direct provider selection from Kiln
+- a unified provider pool shared with harness backends
+
+Use a harness backend when you need:
+
+- MCP support
+- native tool execution from the external runtime
+- backend-owned session resume or attach flows
+
+### Supported providers
+
+| Provider | Env var | Default model | Cost tier | Priority |
+|----------|---------|---------------|-----------|----------|
+| `anthropic` | `ANTHROPIC_API_KEY` | `claude-sonnet-4-6` | high | 4 |
+| `openai` | `OPENAI_API_KEY` | `gpt-4o` | high | 5 |
+| `openrouter` | `OPENROUTER_API_KEY` | user-selected | low | 6 |
+| `deepseek` | `DEEPSEEK_API_KEY` | `deepseek-chat` | medium | 7 |
+| `ollama` | none, `OLLAMA_BASE_URL` optional | user-selected | local | 8 |
+
+The priority values come from both `ProviderSession` and the registry descriptors in `session-registry.ts`.
+
+### `ProviderSessionConfig`
+
+`ProviderSession` is configured with:
+
+```ts
+export interface ProviderSessionConfig {
+  readonly provider: "anthropic" | "openai" | "deepseek" | "openrouter" | "ollama";
+  readonly model?: string;
+  readonly task: string;
+  readonly systemPrompt?: string;
+  readonly cwd?: string;
+  readonly env?: Record<string, string>;
+  readonly permissionPolicy: KilnPermissionPolicy;
+  readonly constraintInstructions?: readonly string[];
+}
+```
+
+Design choice:
+
+- `task` is explicit because direct API sessions do not reconstruct a harness-side task object
+- `env` can override process environment on a per-run basis
+- `constraintInstructions` carries wrapper-level policy translation into the provider prompt
+
+### How `ProviderSession` runs
+
+`ProviderSession.run()`:
+
+1. resolves provider credentials from `options.env`, then `config.env`, then `process.env`
+2. instantiates the provider adapter
+3. detects whether the prompt already contains a structured Kiln preamble
+4. builds the final provider system prompt with `buildProviderSystemPrompt()`
+5. streams provider events and maps them into `SessionEvent`
+6. updates context accounting when the provider signals completion
+
+`dispose()` is a no-op because there is no subprocess or socket to tear down.
+
+`providerSessionId` is always `undefined` in V1.
+
+### `AgentStreamEvent` to `SessionEvent`
+
+`ProviderSession` translates provider stream output into the wrapper contract:
+
+| Provider event | Session event | Notes |
+|----------------|---------------|-------|
+| `thinking` | `text_delta` | `isThinking: true` |
+| `text` | `text_delta` | standard streamed output |
+| `tool_use` | `tool_use` | parses JSON payload for `name` and `input` |
+| `tool_result` | `tool_result` | currently emitted with empty `toolName` |
+| `done` | `cost_update` then `completed` | computed cost mode, zero USD in V1 |
+
+Parse failures on provider `tool_use` payloads surface as `error` events with code `PROVIDER_TOOL_USE_PARSE_ERROR`.
+
+Any outer execution failure surfaces as `PROVIDER_SESSION_ERROR`.
+
+### Permission policy
+
+Direct API providers do not natively implement Kiln's granular permission model. `translatePermissionForProvider()` handles that by converting the `KilnPermissionPolicy` into prompt-side constraints:
+
+- every granular rule becomes an unsupported rule for direct providers
+- those rules are rendered into `constraintInstructions`
+- `buildProviderSystemPrompt()` appends them under `[KILN POLICY CONSTRAINTS]`
+
+That means:
+
+- constraints are injected into the provider system prompt
+- they are not natively enforced by the provider transport
+- native execution remains a Kiln responsibility, not a provider responsibility
+
+This is an explicit design tradeoff: lower latency and simpler transport in exchange for weaker native enforcement than a harness backend can provide.
+
+### `ProviderContextTracker`
+
+`ProviderContextTracker` gives Kiln a backend-independent way to watch context pressure for direct API sessions.
+
+Config:
+
+```ts
+new ProviderContextTracker({
+  maxContextTokens: 128000,
+  compactionThreshold: 0.85,
+});
+```
+
+Current behavior:
+
+- accumulates input and output token counts
+- computes `compactionThresholdTokens` as `floor(maxContextTokens * compactionThreshold)`
+- exposes `shouldTriggerCompaction(pendingTokens?)`
+- supports `reset(tokens?)`
+
+In `ProviderSession`, the tracker updates on provider `done` events using `inputTokens` and `outputTokens` when present.
+
+## SessionRegistry
+
+`SessionRegistry` is the backend pool and fallback selector for both harness and direct API sessions.
+
+### What it manages
+
+- provider registration
+- requirement filtering
+- score-based selection
+- health state via a shared circuit breaker
+- provider construction
+
+### Current provider pool
+
+The default registry contains eight backends:
+
+- `claude`
+- `codex`
+- `opencode`
+- `anthropic`
+- `openai`
+- `openrouter`
+- `deepseek`
+- `ollama`
+
+### Selection behavior
+
+`selectBest()` evaluates:
+
+- preferred provider
+- MCP requirement
+- streaming requirement
+- resume requirement
+- max cost tier
+- configured provider priority
+- field-pressure bonus from `getFieldStrength()`
+
+The circuit breaker:
+
+- opens after three failures
+- suppresses a provider for 30 seconds
+- moves to half-open after suppression expires
+- closes on success
+
+The result is a primary provider plus ordered fallbacks.
+
+## Permission policy
+
+`KilnPermissionPolicy` is the wrapper's canonical permission contract:
+
+```ts
 export interface KilnPermissionPolicy {
   readonly approval?: KilnPermissionApproval;
   readonly sandbox?: KilnSandboxMode;
@@ -88,214 +255,85 @@ export interface KilnPermissionPolicy {
 }
 ```
 
-### Permission Types
+### Translation paths
 
-| Type | Values |
-|------|--------|
-| `KilnPermissionApproval` | `never` \| `on-request` \| `on-failure` \| `untrusted` |
-| `KilnSandboxMode` | `read-only` \| `workspace-write` \| `danger-full-access` |
-| `KilnPermissionAction` | `allow` \| `ask` \| `deny` |
+- `translatePermission()` targets harness backends
+- `translatePermissionForProvider()` targets direct API backends
 
-### Granular Rules
+Backend behavior differs:
 
-```typescript
-export interface KilnToolPermissionRule {
-  readonly tool: string;
-  readonly action: KilnPermissionAction;
-  readonly reason?: string;
-}
+| Backend family | Native enforcement |
+|----------------|--------------------|
+| Claude Code | partial native translation plus prompt constraints |
+| Codex CLI | coarse native approval/sandbox flags, granular rules become constraints |
+| OpenCode | runtime permission payloads, sandbox intent is advisory |
+| Direct API providers | no native enforcement, prompt constraints only |
 
-export interface KilnCommandPermissionRule {
-  readonly pattern: string;
-  readonly action: KilnPermissionAction;
-  readonly shell?: "bash" | "sh" | "zsh" | "any";
-  readonly reason?: string;
-}
+`normalizePermissionPolicy()` applies safe defaults and merges user rules before any translation happens.
 
-export interface KilnFileGovernancePolicy {
-  readonly denyGlobs?: readonly string[];
-  readonly askGlobs?: readonly string[];
-  readonly allowGlobs?: readonly string[];
-  readonly excludeFromContext?: boolean;
-}
+## Session resume and persistence
 
-export interface KilnDataFirewallRule {
-  readonly destination: KilnDataDestination | string;
-  readonly action: "allow" | "redact" | "deny";
-  readonly classifications?: readonly string[];
-  readonly reason?: string;
-}
+The wrapper persists session metadata and transcripts through `SessionStore` and `TranscriptStore`.
 
-export interface KilnAgentPermissionScope {
-  readonly agent: string;
-  readonly inherit?: boolean;
-  readonly tools?: readonly KilnToolPermissionRule[];
-  readonly commands?: readonly KilnCommandPermissionRule[];
-  readonly fileGovernance?: KilnFileGovernancePolicy;
-  readonly mcpTools?: readonly string[];
-}
+Current direct-provider limitation:
+
+- `ProviderSession` does not support session resume
+- `providerSessionId` is unset
+- direct API backends participate in transcript persistence, but not in provider-native reattachment
+
+Harness backends remain the path for native resume behavior.
+
+## System prompt construction
+
+Kiln uses two prompt builders:
+
+- `buildPreamble()` for harness sessions, which emits `<kiln-preamble>` XML
+- `buildProviderSystemPrompt()` for direct API sessions, which appends plain-text policy constraints
+
+That split exists because direct providers do not need harness-specific prompt wrapping and do not receive MCP/runtime metadata in the same way.
+
+## CLI usage
+
+Examples:
+
+```bash
+kiln run --provider openrouter --model meta-llama/llama-3.1-8b-instruct:free "Summarize this repo"
 ```
 
-### Translation
-
-`translatePermission()` in `packages/cli/src/wrapper/session-registry.ts` converts policy to backend-native format:
-- Claude Code: settings.json allow/deny rules
-- Codex CLI: explicit `codex exec --ask-for-approval <mode> --sandbox <mode>` spawn args, with config.toml acting only as the ambient default outside Kiln-managed runs
-- OpenCode: permission prompting defaults (`permissionDefault`) via runtime `config.update` payloads (`edit`, `bash`, `webfetch`)
-
-Unsupported granular rules are expressed as constraint instructions injected into the system prompt.
-
-### OpenCode-specific note
-
-OpenCode does not expose a native sandbox mode equivalent to Codex's
-`--sandbox`. Kiln still accepts the unified `sandbox` policy field, but for
-OpenCode it is interpreted as approval/prompting intent and mapped to
-`permissionDefault` plus tool permission payloads. This is advisory permission
-behavior, not native filesystem sandbox enforcement.
-
-### Codex-specific note
-
-For Codex, Kiln now preserves the requested sandbox mode exactly:
-- `read-only` stays `read-only`
-- `workspace-write` stays `workspace-write`
-- `danger-full-access` stays `danger-full-access`
-
-Kiln does not rely on `--full-auto` for Codex runs because that alias expands to
-`--ask-for-approval on-request --sandbox workspace-write`, which would silently
-override a stricter `read-only` policy.
-
-When `kiln run --provider codex --ephemeral ...` is used, Kiln also forwards
-Codex's native `--ephemeral` flag so the session runs without persisting Codex
-session files to disk.
-
-When `kiln run --provider codex --profile <name> ...` is used, Kiln forwards
-Codex's native `--profile <name>` flag so the run uses the named profile from
-`~/.codex/config.toml`.
-
-When `kiln run --provider codex --skip-git-repo-check ...` is used, Kiln
-forwards Codex's native `--skip-git-repo-check` flag so Codex can run outside a
-git repository when that is explicitly requested.
-
-When `kiln run --provider codex --output-schema <file> ...` is used, Kiln
-forwards Codex's native `--output-schema <file>` flag so Codex validates the
-final response against the provided JSON Schema file.
-
-When `kiln run --provider codex --add-dir <path> ...` is used, Kiln forwards
-Codex's native `--add-dir <path>` flag so an additional writable directory is
-granted for that run. The current Kiln CLI slice supports a single `--add-dir`
-value.
-
-When `kiln run --provider codex --local-provider <name> ...` is used, Kiln
-forwards Codex's native `--local-provider <name>` flag so a local Codex backend
-such as `ollama` or `lmstudio` can be selected for that run.
-
-### Normalization
-
-`normalizePermissionPolicy()` in `packages/cli/src/wrapper/permission-normalizer.ts` applies SAFE_DEFAULTS base rules and merges user rules with last-match-wins semantics.
-
-## Session Resume
-
-SessionStore (`packages/cli/src/wrapper/session-store.ts`) provides lightweight session indexing:
-- Append-only JSONL at `.kiln/sessions.jsonl`
-- Used for `--resume` and `--last` lookups
-- Fail-open: if write fails, session still runs
-
-TranscriptStore provides per-session persistence:
-- `.kiln/sessions/{id}/meta.json`: session metadata
-- `.kiln/sessions/{id}/transcript.jsonl`: full event log
-- Used by skill capture pipeline
-
-Resume per backend:
-- Claude Code: reuseEnvironmentId passed to SDK, --resume flag on kiln run
-- OpenCode: remoteSessionId stored and reused, --attach flag
-- Codex: thread_id via --conversation-id (deferred: upstream support incomplete)
-
-## Config Sync
-
-### kiln mcp-config
-
-Generates MCP server configuration for one or all backends:
-- `--client claude-code`: writes `{project}/.mcp.json`
-- `--client codex`: writes `~/.codex/config.toml` (via smol-toml)
-- `--client opencode`: writes `~/.config/opencode/opencode.json` (JSONC-safe)
-- `--client all`: writes all three
-- Merge-only semantics: existing keys preserved, only Kiln-managed entries updated
-
-### kiln sync
-
-- `--permissions`: reads kiln.yaml, calls translatePermission() per backend, writes native config
-- `--hooks`: copies autoformat.sh to backend hook directories
-- `--all`: both
-
-## Context Governance Config
-
-The CLI/TUI wrapper now reads `contextGovernance` from `kiln.yaml` and applies
-it during projected-context assembly.
-
-Current live fields:
-- `turnBudget`
-- `cachePolicy`
-- `preferredSources`
-- `summaryAggressiveness`
-- `previewBeforeApply`
-
-Example:
-
-```yaml
-version: "1"
-provider: claude
-
-contextGovernance:
-  turnBudget: 1400
-  cachePolicy: prefer
-  preferredSources:
-    - ledger
-    - artifact
-    - summary
-  summaryAggressiveness: high
+```bash
+kiln run --provider anthropic --model claude-sonnet-4-6 "Review these changes"
 ```
 
-Current behavior:
-- `turnBudget`: overrides the projected-context token budget used by the
-  default governor
-- `cachePolicy: off`: disables cache-backed projected-context reconstruction
-- `preferredSources`: biases optional selection toward the listed source
-  classes
-- `summaryAggressiveness`: shifts optional summary-vs-artifact weighting
-  without changing required-block semantics
-- `previewBeforeApply: true`: prints a bounded pre-run context-governance
-  preview from the actual projected context before the session starts
+```bash
+kiln tui --provider ollama
+```
 
-Notes:
-- this config currently affects the CLI/TUI preparation path first
-- the policy is bounded by design: required ledger/artifact correctness context
-  is still preserved even when preference settings change
+`run.ts` treats direct API providers differently in one important way: when a provider is direct, `requiresMcp` is set to `false` so the registry does not exclude the provider for lacking MCP support.
 
-## System Prompt Injection
+## TUI integration
 
-`buildPreamble(ctx, policy, agent?)` in `packages/cli/src/wrapper/preamble-builder.ts` assembles a kiln-preamble XML block injected on every prompt:
+`kiln tui` can select both harness and direct API providers. The provider picker is split into:
 
-Sections (each omitted when empty):
-- `role`: agent name, role, goal, backstory
-- `task`: the current prompt/instruction
-- `domain`: project type, tool tags, quality gates
-- `constraints`: approval mode, sandbox mode
-- `memory`: memory snapshot (200-line cap with truncation notice)
-- `instructions`: additional directives
+- Harness
+- Direct API
 
-All content is XML-escaped. The preamble includes a static kiln-compaction-recovery section for context window management.
+That makes the backend tradeoff explicit instead of hiding direct providers behind CLI-specific naming.
 
-## SessionRegistry
+## Limitations
 
-SessionRegistry (`packages/cli/src/wrapper/session-registry.ts`) manages backend selection:
-- Priority-ordered: backends sorted by SessionCapabilities.priority
-- Capability filtering: only backends matching required features are considered
-- Circuit breaker: failed backends suppressed for 30 seconds, then half-open probe
-- Fallback chain: if preferred backend fails or is suppressed, next by priority is tried
+Current direct API backend limitations:
+
+- no MCP support
+- no native tool execution surface in V1
+- no provider-native session resume
+- computed cost mode reports `usd: 0` in V1
+- `tool_result` events currently do not carry a provider-supplied tool name
+
+These are implementation boundaries, not documentation gaps.
 
 ## Related
 
-- [Gateway Configuration](../configuration/gateway-yaml.md) -- Mode B session lifecycle
-- [Hooks](hooks.md) -- hook system and lifecycle events
-- [Skills](skills.md) -- skill format and capture pipeline
-- [Observability](observability.md) -- cost tracking and metrics
+- [Tool Use](tool-use.md)
+- [Hooks](hooks.md)
+- [Skills](skills.md)
+- [Observability](observability.md)
