@@ -31,6 +31,7 @@
 | [Eval Benchmarking](guides/eval-benchmarking.md) | Scorer-to-research mapping, predictive metrics, industry standards |
 | [Delegation](guides/delegation.md) | Cross-app delegation, A2A protocol |
 | [CLI Wrapper](guides/cli-wrapper.md) | IKilnSession, harness backends, direct API backends via ProviderSession, permission policy, session resume, and config sync |
+| [TUI](guides/tui.md) | Terminal interface: themes, key bindings, provider picker, in-process gateway, session lifecycle |
 | [Hooks](guides/hooks.md) | HookRegistry, lifecycle events, modes, kiln.yaml config |
 | [Skills](guides/skills.md) | SKILL.md format, registry, capture pipeline, CLI commands |
 | [Plan Mode](guides/plan-mode.md) | `kiln plan` command, 3-phase workflow, execution boundaries |
