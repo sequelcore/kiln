@@ -709,6 +709,11 @@ Markdown agent profiles now load from `~/.kiln/agents/*.md` and `<project>/.kiln
 **Tests:** Generation from various config combinations, idempotent re-generation
 **Reference:** ECC finding — AGENTS.md is the universal cross-tool context file standard
 
+#### 11g. Skills Sync
+
+**Status:** COMPLETE
+`kiln sync --skills` (and `kiln sync`) now copies skill directories from `~/.kiln/skills/` + `.kiln/skills/` into Claude Code, Codex, and OpenCode skill directories, with project skills overriding global skills by name.
+
 ---
 
 ## Phase 12 — Runtime Polish & Competitive Parity [URGENT]

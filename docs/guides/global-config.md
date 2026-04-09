@@ -65,3 +65,15 @@ Run `kiln sync --agents` (or `kiln sync` with no flags) to push agent definition
 | OpenCode | `~/.config/opencode/agents/<name>.md` | YAML frontmatter + markdown |
 
 Agent definitions are translated from Kiln's `.md` format automatically. Sync is one-way (Kiln -> CLIs).
+
+## Skills Sync
+
+Run `kiln sync --skills` (or `kiln sync` with no flags) to copy skill directories from `~/.kiln/skills/` and `.kiln/skills/` to all three CLIs.
+
+| Target | Location |
+|--------|----------|
+| Claude Code | `~/.claude/skills/<name>/` |
+| Codex | `~/.codex/skills/<name>/` |
+| OpenCode | `~/.config/opencode/skills/<name>/` |
+
+Project skills override global skills with the same name. Only top-level files within each skill directory are copied. Sync is one-way (Kiln -> CLIs).
