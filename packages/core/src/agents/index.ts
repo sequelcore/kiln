@@ -104,6 +104,14 @@ export { OpenAISttAdapter } from "./infrastructure/openai-stt.js";
 export type { OpenAISttConfig } from "./infrastructure/openai-stt.js";
 export { DeepgramSttAdapter } from "./infrastructure/deepgram-stt.js";
 export type { DeepgramSttConfig } from "./infrastructure/deepgram-stt.js";
+export { CodexOAuthAuth } from "./infrastructure/codex-oauth-auth.js";
+export { CodexOAuthAdapter } from "./infrastructure/codex-oauth.js";
+export type {
+  CodexOAuthAuthOptions,
+  CodexOAuthTokenFile,
+  DeviceAuthorizationResult,
+  PollAuthorizationParams,
+} from "./infrastructure/codex-oauth-auth.js";
 export { classifyToolError } from "./tool-error-classifier.js";
 export { executeWithRetry } from "./tool-execution-engine.js";
 export type { ToolExecutor } from "./tool-execution-engine.js";

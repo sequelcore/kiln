@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.27.0 (2026-04-09) -- Codex OAuth Provider (Phase 11.5a)
+
+### Phase 11.5a: Codex OAuth Provider
+
+- **`codex-oauth` provider**: `CodexOAuthAdapter` targets the OpenAI Responses API at `chatgpt.com/backend-api/codex/responses`. Full engine access (orchestration, safety, knowledge RAG, native tools) at zero marginal cost.
+- **OAuth device code flow + PKCE**: `CodexOAuthAuth` handles device authorization, PKCE challenge generation, token polling, and auto-refresh 120 seconds before expiry. Tokens persisted at `~/.kiln/auth/codex-oauth.json`.
+- **Models**: `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex`, `gpt-5.3-codex-spark` — all catalogued at $0 marginal cost.
+- **Priority 1 in SessionRegistry**: `codex-oauth` is selected before all other providers when valid credentials exist; falls back to direct API providers when credentials are absent.
+- **Provider-scoped capability registry**: `ModelCapabilityRegistry` now keys profiles by `provider/model` composite to support shared model IDs across providers. `getByProvider(provider, model)` added; `get(model)` remains compatible.
+- **`kiln auth` CLI command**: `kiln auth codex login` (device code flow), `kiln auth codex status` (token validity check), `kiln auth codex logout` (credential removal).
+- **KilnError instanceof fix**: `errors.ts` patched for correct `instanceof` resolution across Vitest cross-realm prototype chains.
+
 ## v0.26.0 (2026-04-09) -- Coordination Intelligence (Phase 8.3)
 
 ### Phase 8.1: Plan Mode

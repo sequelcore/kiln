@@ -7,7 +7,7 @@ import type {
   KilnToolPermissionRule,
 } from "./session.js";
 import { debug } from "./debug.js";
-import { getFieldStrength } from "@kilnai/core";
+import { CodexOAuthAuth, getFieldStrength } from "@kilnai/core";
 import { ClaudeSession } from "./claude-code-process.js";
 import { CodexSession } from "./codex-session.js";
 import { OpenCodeSession } from "./opencode-session.js";
@@ -16,16 +16,22 @@ import { WorktreeManager } from "./worktree-manager.js";
 import { normalizePermissionPolicy } from "./permission-normalizer.js";
 
 export type CliHarnessProviderId = "claude" | "codex" | "opencode";
-export type DirectApiProviderId = "anthropic" | "openai" | "deepseek" | "openrouter" | "ollama";
+export type DirectApiProviderId = "codex-oauth" | "anthropic" | "openai" | "deepseek" | "openrouter" | "ollama";
 export type ProviderId = CliHarnessProviderId | DirectApiProviderId;
 
 const DIRECT_API_PROVIDERS = new Set<DirectApiProviderId>([
+  "codex-oauth",
   "anthropic",
   "openai",
   "deepseek",
   "openrouter",
   "ollama",
 ]);
+
+const CODEX_OAUTH_AVAILABLE = await new CodexOAuthAuth().hasValidCredentials().catch((error: unknown) => {
+  debug("[provider:codex-oauth] availability check failed", error instanceof Error ? error.message : String(error));
+  return false;
+});
 
 export function isDirectApiProvider(provider: ProviderId | undefined): provider is DirectApiProviderId {
   if (!provider) return false;
@@ -44,6 +50,7 @@ export interface SessionProviderDescriptor {
   readonly id: ProviderId;
   readonly capabilities: SessionCapabilities;
   readonly costTier: "low" | "medium" | "high";
+  readonly isAvailable?: () => boolean;
   readonly create: (config: ProviderCreateConfig) => IKilnSession;
 }
 
@@ -731,6 +738,10 @@ export class SessionRegistry {
   }
 
   private _isAvailable(id: ProviderId): boolean {
+    const descriptor = this.providers.get(id);
+    if (!descriptor) return false;
+    if (descriptor.isAvailable && !descriptor.isAvailable()) return false;
+
     const cb = this.circuitBreakers.get(id);
     if (!cb) return true;
 
@@ -825,6 +836,39 @@ export function createDefaultRegistry(): {
   });
 
   const providers: SessionProviderDescriptor[] = [
+    {
+      id: "codex-oauth",
+      costTier: "low",
+      capabilities: {
+        mcp: false,
+        streaming: true,
+        resumable: false,
+        resume: false,
+        costTrackingMode: "computed",
+        supportedTools: [],
+        maxContextTokens: null,
+        priority: 1,
+        fallbackTo: null,
+        permissionPolicy: DEFAULT_POLICY,
+      },
+      isAvailable: () => CODEX_OAUTH_AVAILABLE,
+      create: (config) => {
+        const translated = translatePermissionForProvider(config.permissionPolicy, "codex-oauth");
+        for (const warning of translated.warnings) {
+          debug("[provider:codex-oauth]", warning);
+        }
+        return new ProviderSession({
+          provider: "codex-oauth",
+          model: config.model,
+          task: config.task,
+          systemPrompt: config.systemPrompt,
+          cwd: config.cwd,
+          env: config.env,
+          permissionPolicy: config.permissionPolicy,
+          constraintInstructions: translated.constraintInstructions,
+        });
+      },
+    },
     {
       id: "claude",
       costTier: "high",

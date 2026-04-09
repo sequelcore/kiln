@@ -34,6 +34,11 @@ export const MODEL_CATALOG: readonly CatalogPricing[] = [
   { model: "gpt-5.4", provider: "openai", inputPer1M: 2.50, outputPer1M: 15.00, qualityTier: "high", cachedInputRatePer1M: 0.25 },
   { model: "gpt-5.3-codex", provider: "openai", inputPer1M: 1.75, outputPer1M: 14.00, qualityTier: "high", cachedInputRatePer1M: 0.175 },
   { model: "gpt-5.3-codex-spark", provider: "openai", inputPer1M: 1.75, outputPer1M: 14.00, qualityTier: "high", cachedInputRatePer1M: 0.175 },
+  // Codex OAuth (subscription tier)
+  { model: "gpt-5.4", provider: "codex-oauth", inputPer1M: 0, outputPer1M: 0, qualityTier: "high" },
+  { model: "gpt-5.4-mini", provider: "codex-oauth", inputPer1M: 0, outputPer1M: 0, qualityTier: "high" },
+  { model: "gpt-5.3-codex", provider: "codex-oauth", inputPer1M: 0, outputPer1M: 0, qualityTier: "high" },
+  { model: "gpt-5.3-codex-spark", provider: "codex-oauth", inputPer1M: 0, outputPer1M: 0, qualityTier: "high" },
 ];
 
 export const CODEX_DEFAULT_MODEL = "gpt-5.4";

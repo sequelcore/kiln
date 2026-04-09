@@ -132,10 +132,23 @@ export class KilnError extends Error {
   ) {
     super(message, options?.cause ? { cause: options.cause } : undefined);
     this.name = "KilnError";
+    (this as Record<string, unknown>).__kilnErrorBrand = true;
     this.code = code;
     this.context = options?.context ?? {};
     this.retryable = options?.retryable ?? false;
     this.suggestion = options?.suggestion;
     this.docUrl = options?.docUrl;
+  }
+
+  static [Symbol.hasInstance](value: unknown): boolean {
+    const candidate = value as Record<string, unknown> | null;
+    const expectedName = typeof this === "function" ? this.name : "KilnError";
+    return (
+      typeof candidate === "object" &&
+      candidate !== null &&
+      candidate.__kilnErrorBrand === true &&
+      (expectedName === "KilnError" || candidate.name === expectedName) &&
+      typeof candidate.code === "string"
+    );
   }
 }

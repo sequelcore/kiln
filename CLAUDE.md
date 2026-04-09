@@ -1,16 +1,17 @@
-# Kiln - Domain-Agnostic AI Orchestration Engine
+# Kiln - AI Orchestration Engine and Cross-CLI Meta-Orchestrator
 
-Apache-2.0 licensed. YAML-configured AI orchestration with 7 primitives (Agent, Capability, Workflow, Memory, Task, Channel, Trigger) + 3 composites (Team, Router, App). Multi-tenant gateway, 8 channel adapters, provider adapters, cross-app delegation, eval framework, enterprise safety pipeline.
+Apache-2.0 licensed. Two capabilities in one package: (1) domain-agnostic AI orchestration engine — 7 primitives, multi-tenant gateway, 8 channel adapters, safety, memory, knowledge RAG, eval; (2) cross-CLI meta-orchestrator — routes between CLI subscriptions (Claude Code, Codex, OpenCode) and direct API providers, syncs config/permissions/agents/skills across all three tools.
 
 ## Architecture
 
-Bun monorepo with 6 packages:
+Bun monorepo with 7 packages:
 
 | Package | Scope | Purpose |
 |---------|-------|---------|
 | `packages/core` | `@kilnai/core` | Engine primitives, implementations, YAML loader |
 | `packages/runtime` | `@kilnai/runtime` | Gateway server, channel adapters, triggers |
-| `packages/cli` | `@kilnai/cli` | CLI commands, init wizard, dev mode |
+| `packages/cli` | `@kilnai/cli` | CLI commands, init wizard, dev mode, session registry, kiln auth, kiln sync |
+| `packages/tui` | `@kilnai/tui` | Terminal UI — two-column layout, 5 themes, in-process gateway session adapter |
 | `packages/sdk` | `@kilnai/react` | React hooks (KilnProvider, useKilnChat, useKilnWsChat, useKilnEvents, useKilnMemory, useKilnState, useApproval) |
 | `packages/widget` | `@kilnai/widget` | Embeddable chat widget (Shadow DOM, auto-reconnect WS, zero deps) |
 | `packages/studio` | `@kilnai/studio` | Dev UI SPA (private, served at `/studio` in dev mode) |
@@ -21,7 +22,7 @@ Bun monorepo with 6 packages:
 |---------|----------|---------|
 | engine | `core/src/engine/` | 7 primitives + 3 composites + YAML loader + gateway config + cron parser. Zero external deps except `yaml`. |
 | orchestrator | `core/src/orchestrator/` | Phase machine, checkpoint/resume, strategies (sequential, supervisor, swarm). Coordination Intelligence: ThresholdAllocator (ant colony), CascadeController (neural field), TaskChannel (stigmergy), TeamComposer (domain templates), adaptive EMA learning. SwarmStrategy wired to all 5 primitives. |
-| agents | `core/src/agents/` | Provider adapters (Anthropic, OpenAI, DeepSeek, OpenRouter, Ollama), tool cache, MCP client (Streamable HTTP, official SDK), circuit breaker, Tool RAG, model capability registry, complexity scorer, rules router, sliding window rate limiter |
+| agents | `core/src/agents/` | Provider adapters (Anthropic, OpenAI, DeepSeek, OpenRouter, Ollama, Codex OAuth), tool cache, MCP client (Streamable HTTP, official SDK), circuit breaker, Tool RAG, model capability registry (provider-scoped), complexity scorer, rules router, sliding window rate limiter |
 | memory | `core/src/memory/` | Scoped storage (user, agent, team, project, org), SQLite + FTS5, git sync, decay, compaction |
 | tree | `core/src/tree/` | Task tree (scoring, deepen/branch/prune), batch executor |
 | sandbox | `core/src/sandbox/` | Per-agent filesystem + network isolation |
@@ -50,6 +51,7 @@ Bun monorepo with 6 packages:
 | sdk | `sdk/src/` | React hooks (useKilnChat, useKilnWsChat, useKilnEvents, useKilnMemory, useKilnState, useApproval), ApiClient, SseClient. Types-only import from core. |
 | widget | `widget/src/` | Embeddable chat widget: WsClient (auto-reconnect, localStorage persistence, identify frame), KilnWidget (Shadow DOM, pre-chat form, markdown renderer), auto-loader (script tag data-* attrs). Welcome frame, suggestion chips, info bubbles. Zero deps, IIFE bundle. |
 | studio | `studio/src/` | React 19 + Vite + TanStack Query + @xyflow/react. 7 views (Graph, Playground, Timeline, Memory, Eval, Cost, Safety). |
+| tui | `tui/src/` | Terminal UI: two-column layout (chatArea + sidebar), 5 built-in themes (kiln-dark, dracula, catppuccin-mocha, nord, tokyo-night), GatewaySession (WS adapter, clear frame protocol), WsClient, in-process gateway on port 4801. |
 
 ### Dependency Rules (STRICT)
 
@@ -151,6 +153,8 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `agents/infrastructure/deepseek.ts` | DeepSeek adapter |
 | `agents/infrastructure/openrouter.ts` | OpenRouter adapter (free-tier models via OpenAI-compat API) |
 | `agents/infrastructure/ollama.ts` | Ollama adapter (local models) |
+| `agents/infrastructure/codex-oauth-auth.ts` | OAuth device code flow (PKCE), token storage/refresh at `~/.kiln/auth/codex-oauth.json`, auto-refresh 120s before expiry |
+| `agents/infrastructure/codex-oauth.ts` | `CodexOAuthAdapter`: ProviderAdapter for OpenAI Responses API at `chatgpt.com/backend-api/codex/responses`, $0 marginal cost, 401 retry with token refresh |
 | `agents/mcp-client.ts` | MCP client (Streamable HTTP via official SDK, circuit breaker) |
 | `agents/tool-rag.ts` | Embedding-based tool selection |
 | `agents/agent-rag.ts` | Embedding-based agent routing (Tier 2) |
@@ -178,6 +182,8 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `knowledge/infrastructure/pdf-extractor.ts` | PDF extraction via unpdf (optional dep, dynamic import) |
 | `agents/infrastructure/openai-stt.ts` | OpenAI STT adapter (gpt-4o-transcribe, fetch-based, withRetry) |
 | `agents/infrastructure/deepgram-stt.ts` | Deepgram STT adapter (nova-3, fetch-based, withRetry) |
+| `agents/infrastructure/codex-oauth.ts` | `CodexOAuthAdapter`: Responses API adapter targeting `chatgpt.com/backend-api/codex/responses`, full engine access at $0 marginal cost, models: gpt-5.4/gpt-5.4-mini/gpt-5.3-codex/gpt-5.3-codex-spark |
+| `agents/infrastructure/codex-oauth-auth.ts` | `CodexOAuthAuth`: OAuth device code flow + PKCE, token persistence at `~/.kiln/auth/codex-oauth.json`, auto-refresh 120s before expiry |
 | `knowledge/contact-memory.ts` | ContactMemoryServiceImpl: per-user fact extraction (LLM), recall, forget, forgetAll (GDPR) |
 | `knowledge/infrastructure/cohere-reranker.ts` | Cohere Rerank v2 adapter (over-fetch 4x, KnowledgeRerankerConfig) |
 | `domains/routing-templates.ts` | 3 built-in routing templates (service-business, ecommerce, customer-support) |
@@ -280,6 +286,7 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | File | Purpose |
 |------|---------|
 | `index.ts` | Command dispatch (init, run, dev, domain, gateway, skill, memory, config, status, cron, sync) |
+| `commands/auth.ts` | `kiln auth codex login|status|logout` — OAuth device code flow, token status, credential removal |
 | `commands/mcp-config.ts` | `kiln mcp-config` command: `--client claude-code|codex|opencode|all` (default: claude-code); `--name`, `--command`, `--args` overrides; async, writes to disk. |
 | `commands/init.ts` | Interactive wizard: generates app.yaml + gateway.yaml |
 | `commands/dev.ts` | Dev mode with YAML hot-reload |
@@ -315,41 +322,28 @@ Scopes: core, engine, orchestrator, agents, domain, package, skill, memory, tree
 | `sync/agents-md-sync.ts` | `syncAgentsMd(projectPath)` — generates GFM `AGENTS.md` from kiln.yaml + agent definitions; included in `kiln sync` (all) and `kiln sync --agents-md` |
 | `sync/hook-sync.ts` | `syncHooks(projectPath, kilnDir)` — copies `autoformat.sh` from `.kiln/hooks/` to `.claude/hooks/` and `.codex/hooks/` (non-Windows only). Creates default hook if source doesn't exist. Registers hook in `.claude/settings.json` hooks section. |
 | `commands/sync.ts` | `kiln sync [--permissions] [--hooks] [--agents] [--agents-md] [--skills] [--all]` — reads kiln.yaml from project, calls the requested sync operations (or all sync operations when no flags are passed), prints per-backend result table. Exit 0 on partial success, exit 1 only if all backends fail. |
+| `commands/auth.ts` | `kiln auth codex login` (device code flow + PKCE), `kiln auth codex status` (token validity check), `kiln auth codex logout` (credential removal). |
 
 ## Backlog
 
 See [STRATEGY.md](STRATEGY.md) for roadmap and phase status.
 
-### Phase 7 — Kiln TUI (COMPLETE v0.25.0)
+### Phase 11.5 — Subscription Providers
 
-All sub-phases complete: 7a (package scaffold), 7b (conversation shell), 7c (TUI Gateway integration), 7d (budget panel), 7e (routing indicator), 7f (interactive default), 7g (diff/change visibility). Kiln TUI is now a full terminal product surface.
+Three-tier provider system: (1) Subscription Direct ($0 marginal), (2) Direct API (BYOK), (3) Harness (CLI wrapper).
 
-### Integration Runtime Phase 4 (MCP Surface)
+**11.5a — Codex OAuth (COMPLETE v0.27.0)**: `CodexOAuthAdapter` + `kiln auth codex login|status|logout`. Priority 1 in SessionRegistry.
+**11.5b — OpenCode Go Provider (PENDING)**: MiniMax, GLM, Kimi models via OpenCode subscription.
+**11.5c — Credential Pool (PENDING)**: multi-account rotation, quota tracking.
+**11.5d — `kiln auth` extended (PENDING)**: `opencode`, `import` subcommands.
 
-Expose integration adapters as MCP tools (same implementation, two surfaces). Phases 1-3 complete. Phase 4 MCP wiring complete (v0.22.0): `integration_list` and `integration_execute` wired.
+### MCP OAuth 2.1 (Pending)
 
-### MCP-First Orchestration Layer
-
-Kiln as production runtime for CLI agents (Claude Code, Codex CLI, Goose) via MCP. Phase 1 (gateway MCP server, 17 tool schemas) complete. Phase 2 (full wiring of all 17 tools) complete in v0.22.0. Phase 3 complete in v0.23.0: cross-agent memory with teamId scoping, 6 swarm primitives (join/leave/status/broadcast/claim/release), LLM-based eval scorers via ProviderScorerLlmBridge. 25 tools total. OAuth discovery endpoints (RFC 8414 + RFC 9728) added in v0.23.1-v0.23.2 — Claude Code now connects cleanly. Pending: OAuth 2.1 token endpoint + PKCE + Vigil delegation.
-
-### Phase 11.5 — Subscription Providers (CRITICAL PATH)
-
-Third provider tier: OAuth-authenticated direct API access using consumer subscriptions (ChatGPT Plus, OpenCode Go). Full engine integration at zero marginal cost. Three tiers in priority order: (1) Subscription Direct — full engine, $0 marginal, (2) Direct API (BYOK) — full engine, per-token, (3) Harness (CLI wrapper) — limited engine. Sub-phases: 11.5a Codex OAuth (gpt-5.4 via ChatGPT Plus), 11.5b OpenCode Go, 11.5c Credential Pool, 11.5d `kiln auth` CLI. See STRATEGY.md for full blueprint including auth flow, endpoints, and file targets.
+OAuth discovery endpoints done (v0.23.2, RFC 8414 + RFC 9728). Next: POST /oauth/token (API key → JWT) + PKCE + Vigil delegation.
 
 ### OpenKiln (Personal AI Agent)
 
-OpenKiln is a downstream product built on Kiln, not an engine phase.
-See STRATEGY.md Phase 7 for the TUI that powers OpenKiln.
-
-### kiln run v2 (cross-CLI)
-
-kiln run v2 (cross-CLI): See STRATEGY.md Phase 1 — COMPLETE (v0.23.2). Server reuse via `--attach` deferred to Phase 3 (blocked on OpenCode upstream session persistence).
-
-### kiln mcp-config (Phase 2b + 2e)
-
-`kiln mcp-config` (Phase 2b): writes MCP config for all 3 backends from a single command. Targets: `{project}/.mcp.json` (Claude Code), `~/.codex/config.toml` (Codex, smol-toml), `~/.config/opencode/opencode.json` (OpenCode, JSONC-safe). Merge-only semantics — existing keys are preserved. `McpClient = "claude-code" | "codex" | "opencode" | "all"`.
-
-OpenCode runtime MCP (Phase 2e): `OpenCodeSession` calls `client.config.update({ body: { mcp: { kiln: { type: "local", command: ["node", mcpServerEntryPath], enabled: true } } } })` after the permissions PATCH, using `mcpServerEntryPath` from `SessionContext`. Fail-open on both permission and MCP config PATCH. `mcpServerEntryPath` passed from `SessionManager.prepare()` via `run.ts` session config.
+Downstream product built on Kiln. See STRATEGY.md for details.
 
 ## Documentation
 

@@ -6,13 +6,14 @@ describe("MODEL_CATALOG", () => {
     const providers = new Set(MODEL_CATALOG.map((m) => m.provider));
     expect(providers).toContain("anthropic");
     expect(providers).toContain("openai");
+    expect(providers).toContain("codex-oauth");
     expect(providers).toContain("deepseek");
     expect(providers).toContain("openrouter");
     expect(providers).toContain("ollama");
   });
 
-  it("has 20 total entries", () => {
-    expect(MODEL_CATALOG).toHaveLength(20);
+  it("has 24 total entries", () => {
+    expect(MODEL_CATALOG).toHaveLength(24);
   });
 
   it("ollama is free", () => {
@@ -29,6 +30,16 @@ describe("MODEL_CATALOG", () => {
       expect(model.inputPer1M).toBe(0);
       expect(model.outputPer1M).toBe(0);
       expect(model.qualityTier).toBe("medium");
+    }
+  });
+
+  it("codex-oauth subscription models are zero cost", () => {
+    const codexOauth = MODEL_CATALOG.filter((m) => m.provider === "codex-oauth");
+    expect(codexOauth.length).toBe(4);
+    for (const model of codexOauth) {
+      expect(model.inputPer1M).toBe(0);
+      expect(model.outputPer1M).toBe(0);
+      expect(model.qualityTier).toBe("high");
     }
   });
 });

@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import {
   AnthropicAdapter,
+  CodexOAuthAdapter,
+  CodexOAuthAuth,
   OpenAIAdapter,
   DeepSeekAdapter,
   OpenRouterAdapter,
@@ -20,7 +22,7 @@ import { buildProviderSystemPrompt } from "./preamble-builder.js";
 import { ProviderContextTracker } from "./provider-context.js";
 
 export interface ProviderSessionConfig {
-  readonly provider: "anthropic" | "openai" | "deepseek" | "openrouter" | "ollama";
+  readonly provider: "anthropic" | "codex-oauth" | "openai" | "deepseek" | "openrouter" | "ollama";
   readonly model?: string;
   readonly task: string;
   readonly systemPrompt?: string;
@@ -31,6 +33,7 @@ export interface ProviderSessionConfig {
 }
 
 const PROVIDER_PRIORITY: Record<ProviderSessionConfig["provider"], number> = {
+  "codex-oauth": 1,
   anthropic: 4,
   openai: 5,
   openrouter: 6,
@@ -227,6 +230,10 @@ export class ProviderSession implements IKilnSession {
 
   private createAdapter(runtimeEnv?: Record<string, string>): ProviderAdapter {
     const provider = this.config.provider;
+    if (provider === "codex-oauth") {
+      const auth = new CodexOAuthAuth();
+      return new CodexOAuthAdapter({ auth });
+    }
     if (provider === "anthropic") {
       const apiKey = this.resolveRequiredApiKey("ANTHROPIC_API_KEY", runtimeEnv);
       return new AnthropicAdapter({ apiKey, defaultModel: this.config.model });

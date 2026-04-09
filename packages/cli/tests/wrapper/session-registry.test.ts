@@ -46,6 +46,7 @@ const MOCK_CAPA: SessionCapabilities = {
 };
 
 const CAPABILITIES: Record<string, SessionCapabilities> = {
+  "codex-oauth": { ...MOCK_CAPA, priority: 1, mcp: false, costTrackingMode: "computed" },
   claude: { ...MOCK_CAPA, priority: 1, mcp: true },
   opencode: { ...MOCK_CAPA, priority: 2, mcp: true },
   codex: { ...MOCK_CAPA, priority: 3, mcp: false, costTrackingMode: "computed" },
@@ -57,6 +58,7 @@ const CAPABILITIES: Record<string, SessionCapabilities> = {
 };
 
 const COST_TIERS = {
+  "codex-oauth": "low",
   claude: "high",
   opencode: "medium",
   codex: "low",
@@ -68,6 +70,7 @@ const COST_TIERS = {
 } as const;
 
 const ALL_PROVIDER_IDS = [
+  "codex-oauth",
   "claude",
   "codex",
   "opencode",
@@ -96,7 +99,7 @@ function makeRegistry(ids: readonly string[] = ALL_PROVIDER_IDS): SessionRegistr
         id: providerId,
         costTier: COST_TIERS[providerId],
         capabilities: CAPABILITIES[providerId],
-      create: () => makeMockSession(id),
+        create: () => makeMockSession(id),
       };
     }),
   );
@@ -119,10 +122,10 @@ describe("SessionRegistry", () => {
       expect(registry).toBeInstanceOf(SessionRegistry);
     });
 
-    it("list() returns 8 providers with healthy status", () => {
+    it("list() returns 9 providers with healthy status", () => {
       const { registry } = createDefaultRegistry();
       const providers = registry.list();
-      expect(providers).toHaveLength(8);
+      expect(providers).toHaveLength(9);
       const ids = providers.map((p) => p.id).sort();
       expect(ids).toEqual([...ALL_PROVIDER_IDS].sort());
       for (const p of providers) {
@@ -156,7 +159,7 @@ describe("SessionRegistry", () => {
       } catch (err) {
         expect(err).toBeInstanceOf(SessionUnavailableError);
         const e = err as SessionUnavailableError;
-        expect(e.scores).toHaveLength(8);
+        expect(e.scores).toHaveLength(9);
       }
     });
 
@@ -166,10 +169,10 @@ describe("SessionRegistry", () => {
       expect(result.primary).toBe("openrouter");
     });
 
-    it("maxCostTier=low prefers codex among low-tier providers", () => {
+    it("maxCostTier=low prefers codex-oauth among low-tier providers", () => {
       const reg = makeRegistry();
       const result = reg.selectBest({ maxCostTier: "low" });
-      expect(result.primary).toBe("codex");
+      expect(result.primary).toBe("codex-oauth");
     });
 
     it("selectBest iterates dynamic keys", () => {
@@ -193,7 +196,7 @@ describe("SessionRegistry", () => {
       const reg = makeRegistry();
       for (let i = 0; i < 3; i++) reg.reportFailure("claude", false);
       const result = reg.selectBest({});
-      expect(result.primary).toBe("opencode");
+      expect(result.primary).toBe("codex-oauth");
       expect(result.orderedFallbacks).not.toContain("claude");
     });
 

@@ -7,8 +7,8 @@ describe("ModelCapabilityRegistry", () => {
 
   it("has capability profiles for all MODEL_CATALOG entries", () => {
     for (const entry of MODEL_CATALOG) {
-      const profile = registry.get(entry.model);
-      expect(profile, `Missing profile for ${entry.model}`).toBeDefined();
+      const profile = registry.getByProvider(entry.provider, entry.model);
+      expect(profile, `Missing profile for ${entry.provider}/${entry.model}`).toBeDefined();
       expect(profile!.provider).toBe(entry.provider);
       expect(profile!.inputPer1M).toBe(entry.inputPer1M);
       expect(profile!.outputPer1M).toBe(entry.outputPer1M);
@@ -26,6 +26,20 @@ describe("ModelCapabilityRegistry", () => {
     expect(profile!.supportsAudio).toBe(false);
     expect(profile!.maxContextTokens).toBe(200_000);
     expect(profile!.qualityTier).toBe("high");
+  });
+
+  it("getByProvider() returns distinct profiles for duplicate model ids", () => {
+    const openaiProfile = registry.getByProvider("openai", "gpt-5.4");
+    const codexOauthProfile = registry.getByProvider("codex-oauth", "gpt-5.4");
+
+    expect(openaiProfile).toBeDefined();
+    expect(codexOauthProfile).toBeDefined();
+    expect(openaiProfile!.provider).toBe("openai");
+    expect(openaiProfile!.inputPer1M).toBe(2.5);
+    expect(openaiProfile!.outputPer1M).toBe(15);
+    expect(codexOauthProfile!.provider).toBe("codex-oauth");
+    expect(codexOauthProfile!.inputPer1M).toBe(0);
+    expect(codexOauthProfile!.outputPer1M).toBe(0);
   });
 
   it("get() returns undefined for unknown model", () => {

@@ -39,6 +39,7 @@ const MODEL_CAPABILITIES: ReadonlyMap<string, CapabilityFlags> = new Map([
   ["ollama-local", { supportsTools: false, supportsStreaming: true, supportsStructuredOutput: false, supportsVision: false, supportsAudio: false, maxContextTokens: 128_000 }],
   // OpenAI Codex (gpt-5 family)
   ["gpt-5.4", { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: true, supportsVision: true, supportsAudio: false, maxContextTokens: 200_000 }],
+  ["gpt-5.4-mini", { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: true, supportsVision: true, supportsAudio: false, maxContextTokens: 200_000 }],
   ["gpt-5.3-codex", { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: true, supportsVision: true, supportsAudio: false, maxContextTokens: 200_000 }],
   ["gpt-5.3-codex-spark", { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: true, supportsVision: true, supportsAudio: false, maxContextTokens: 200_000 }],
 ]);
@@ -48,7 +49,7 @@ function buildProfiles(): ReadonlyMap<string, ModelCapabilityProfile> {
   for (const entry of MODEL_CATALOG) {
     const caps = MODEL_CAPABILITIES.get(entry.model);
     if (!caps) continue;
-    map.set(entry.model, {
+    map.set(`${entry.provider}/${entry.model}`, {
       provider: entry.provider,
       model: entry.model,
       supportsTools: caps.supportsTools,
@@ -71,7 +72,12 @@ const ALL_PROFILES: readonly ModelCapabilityProfile[] = Array.from(PROFILES.valu
 export class ModelCapabilityRegistry {
   /** Get capability profile for a specific model */
   get(model: string): ModelCapabilityProfile | undefined {
-    return PROFILES.get(model);
+    return PROFILES.get(model) ?? ALL_PROFILES.find((profile) => profile.model === model);
+  }
+
+  /** Get capability profile for an exact provider/model pair */
+  getByProvider(provider: string, model: string): ModelCapabilityProfile | undefined {
+    return PROFILES.get(`${provider}/${model}`);
   }
 
   /** Return models that support the required capabilities */

@@ -36,6 +36,7 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     gateway: "Start persistent Gateway (multi-app hosting)",
     dev: "Start development mode with hot-reload and event streaming (--playground)",
     skill: "Manage skills (list, install, publish)",
+    auth: "Authenticate subscription-backed providers (codex login/status/logout)",
     cron: "Manage scheduled jobs (list, add, remove, run)",
     sync: "Sync permissions and hooks to Claude Code, Codex, and OpenCode (--permissions, --hooks, --all)",
     tools: "Launch native dev tools MCP server over stdio (--mcp)",
@@ -193,6 +194,12 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
   if (command === "skill") {
     const { skillCommand } = await import("./commands/skill.js");
     await skillCommand(config, args[1] ?? "", args.slice(2));
+    return;
+  }
+
+  if (command === "auth") {
+    const { runAuth } = await import("./commands/auth.js");
+    await runAuth(args.slice(1));
     return;
   }
 

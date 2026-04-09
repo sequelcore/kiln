@@ -753,25 +753,24 @@ Markdown agent profiles now load from `~/.kiln/agents/*.md` and `<project>/.kiln
 
 ## Phase 11.5 — Subscription Providers (OAuth Direct Access) [CRITICAL PATH]
 
-**Status:** PLANNED
+**Status:** 11.5a COMPLETE (v0.27.0) — 11.5b–d PLANNED
 **Priority:** CRITICAL — unlocks zero-cost end-to-end testing and full engine integration
 **Source:** Hermes-agent auth.py (Codex OAuth device code flow), OpenClaw openai-codex provider, OpenCode Go subscription API
 **Depends on:** Phase 10 (ProviderSession exists), Phase 11 (config layer exists)
 
 ### Problem
 
-Kiln has two provider tiers today: Direct API (full engine, costs per token) and Harness
-(limited engine, subscription-backed). There is no way to get BOTH full engine access AND
-zero marginal cost. Subscription providers (ChatGPT Plus, OpenCode Go) are only accessible
-through CLI wrappers, which bypass Kiln's orchestration, safety pipeline, knowledge RAG,
-coordination intelligence, and native tools.
+Kiln had two provider tiers: Direct API (full engine, costs per token) and Harness (limited
+engine, subscription-backed). Subscription providers (ChatGPT Plus, OpenCode Go) were only
+accessible through CLI wrappers, bypassing Kiln's orchestration, safety pipeline, knowledge
+RAG, coordination intelligence, and native tools.
 
 ### Solution
 
 Third provider tier: **Subscription Direct** — OAuth-authenticated direct API access using
 existing consumer subscriptions. Same engine integration as Direct API, zero additional cost.
 
-### Provider Tier Priority (documented, enforced in SessionRegistry)
+### Provider Tier Priority (enforced in SessionRegistry)
 
 | Priority | Tier | Engine Access | Cost | Examples |
 |----------|------|---------------|------|----------|
@@ -781,33 +780,37 @@ existing consumer subscriptions. Same engine integration as Direct API, zero add
 
 ### Sub-phases
 
-#### 11.5a: Codex OAuth Provider (gpt-5.4 via ChatGPT Plus/Pro)
+#### 11.5a: Codex OAuth Provider — COMPLETE (v0.27.0)
 
-**Auth flow** (reverse-engineered from hermes-agent `hermes_cli/auth.py`):
+**Auth flow** (device code + PKCE):
 1. `POST https://auth.openai.com/api/accounts/deviceauth/usercode` — client_id `app_EMoamEEZ73f0CkXaXp7hrann`
 2. User visits `https://auth.openai.com/codex/device`, enters displayed code
 3. Poll `POST https://auth.openai.com/api/accounts/deviceauth/token` until 200
 4. Exchange authorization_code + code_verifier at `POST https://auth.openai.com/oauth/token`
-5. Store access_token + refresh_token in `~/.kiln/auth/codex-oauth.json`
+5. Tokens persisted at `~/.kiln/auth/codex-oauth.json`
 6. Auto-refresh 120s before expiry via `POST https://auth.openai.com/oauth/token` (grant_type: refresh_token)
 
 **Inference endpoint:**
 - Base URL: `https://chatgpt.com/backend-api/codex`
 - API: OpenAI Responses API (`/responses` path, NOT /chat/completions)
 - Auth: `Authorization: Bearer {access_token}`
-- Models: gpt-5.4, gpt-5.4-mini, gpt-5.3-codex, gpt-5.3-codex-spark
-- Model discovery: `GET {base_url}/models?client_version=1.0.0`
+- Models: gpt-5.4, gpt-5.4-mini, gpt-5.3-codex, gpt-5.3-codex-spark — all at $0 marginal cost
 
-**Files:**
-- New: `core/src/agents/infrastructure/codex-oauth.ts` — ProviderAdapter with OAuth device code + token refresh
-- New: `core/src/agents/infrastructure/codex-oauth-auth.ts` — Device code flow, token storage, refresh logic
-- New: `cli/src/commands/auth.ts` — `kiln auth codex` interactive login command
-- Modify: `cli/src/wrapper/session-registry.ts` — register codex-oauth as priority 1 subscription provider
-- Modify: `core/src/agents/model-capability-registry.ts` — add codex-oauth model profiles
+**Files delivered:**
+- `core/src/agents/infrastructure/codex-oauth-auth.ts` — device code flow, PKCE helpers, token storage, auto-refresh
+- `core/src/agents/infrastructure/codex-oauth.ts` — `CodexOAuthAdapter`: ProviderAdapter, 401 retry, streaming
+- `cli/src/commands/auth.ts` — `kiln auth codex login|status|logout`
+- `core/src/agents/model-pricing.ts` — 4 codex-oauth catalog entries ($0 cost)
+- `core/src/agents/model-capability-registry.ts` — provider-scoped keys + `getByProvider()`
+- `core/src/agents/index.ts` — barrel exports
+- `cli/src/wrapper/provider-session.ts` — codex-oauth in provider union, Priority 1
+- `cli/src/wrapper/session-registry.ts` — codex-oauth registration, credential-gated availability
+- `cli/src/index.ts` — auth command dispatch
+- `core/src/engine/errors.ts` — KilnError instanceof fix for Vitest
 
-**Rate limits:** 30-150 messages/5hr (Plus), 300-1500 (Pro). Track via response headers.
+**Rate limits:** 30-150 messages/5hr (Plus), 300-1500 (Pro). Tracked via response headers.
 
-**Reference:** hermes-agent `hermes_cli/auth.py:2218-2357` (device code flow), `hermes_cli/codex_models.py` (model discovery), `run_agent.py:598-600` (api_mode=codex_responses)
+**Quality gate:** 3287 tests pass, typecheck clean.
 
 #### 11.5b: OpenCode Go Provider (MiniMax, GLM, Kimi via subscription)
 
