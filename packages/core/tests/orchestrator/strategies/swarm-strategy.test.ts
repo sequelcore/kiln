@@ -6,6 +6,7 @@ import { BatchExecutor } from "../../../src/tree/batch-executor.js";
 import type { StrategyContext, StrategyHandler } from "../../../src/orchestrator/strategies/index.js";
 import type { Team } from "../../../src/engine/composites/team.js";
 import type { HandoffRequestedEvent } from "../../../src/events/index.js";
+import { CascadeController } from "../../../src/orchestrator/cascade-controller.js";
 
 function makeTeam(overrides: Partial<Team> = {}): Team {
   return {
@@ -150,16 +151,13 @@ describe("SwarmStrategy", () => {
     expect(nodes.some(n => n.status === "refuted")).toBe(true);
   });
 
-  it("enforces max handoff depth", async () => {
-    // Team with enough agents to exceed depth 2
+  it("enforces cascade termination when energy depletes", async () => {
     const team = makeTeam();
-    const ctx = makeContext({ team });
+    const cascade = new CascadeController(0.1, { threshold: 0.05, decay: 0.8, baseCost: 0.13, maxDepth: 10 });
+    const ctx = makeContext({ team, cascadeController: cascade });
     ctx.tree.addRoot("task", 1);
 
-    let callCount = 0;
     const handler: StrategyHandler = vi.fn(async (task, _workerIndex, agentName) => {
-      callCount++;
-      // Always try to handoff to next agent (will exceed depth)
       const agents = ["alpha", "beta", "gamma"];
       const currentIdx = agents.indexOf(agentName);
       const nextAgent = agents[(currentIdx + 1) % agents.length]!;
@@ -172,10 +170,10 @@ describe("SwarmStrategy", () => {
       };
     });
 
-    const strategy = new SwarmStrategy({ maxHandoffDepth: 2 });
-    // Cycle/depth limit marks tasks as refuted instead of throwing
+    const strategy = new SwarmStrategy();
     const nodes = await strategy.execute(ctx, handler);
-    expect(nodes.some(n => n.status === "refuted")).toBe(true);
+    const statuses = nodes.map(n => n.status);
+    expect(statuses).toContain("supported");
   });
 
   it("throws when fewer than 2 agents", async () => {

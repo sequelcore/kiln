@@ -50,6 +50,7 @@ export interface RunSessionResult {
   readonly successfulProviderId?: ProviderId;
   readonly transcript: PersistedTranscriptEvent[];
   readonly exactArtifacts: readonly string[];
+  readonly submittedPlan?: string;
 }
 
 export async function runSession(options: RunSessionOptions): Promise<RunSessionResult> {
@@ -75,6 +76,7 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
   let successfulProviderId: ProviderId | undefined;
   const transcript: PersistedTranscriptEvent[] = [];
   const exactArtifacts = new Set<string>();
+  let submittedPlan: string | undefined;
   let transcriptSeq = 0;
   let isFirstDeltaOfTurn = false;
   let awaitingTurnStart = true;
@@ -250,6 +252,12 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
               ts: new Date().toISOString(),
               event: { type: "tool_use", toolName: event.toolName },
             });
+            if (event.toolName === "submit_plan") {
+              const submitted = extractPlanFromToolInput(event.input);
+              if (submitted !== undefined) {
+                submittedPlan = submitted;
+              }
+            }
             console.log(`[tool] ${event.toolName}`);
             toolCallCount++;
             lastToolName = event.toolName;
@@ -336,6 +344,7 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
     successfulProviderId,
     transcript,
     exactArtifacts: [...exactArtifacts],
+    submittedPlan,
   };
 }
 
@@ -351,6 +360,12 @@ function extractFilePathFromToolInput(input: unknown): string | undefined {
   if (typeof withPath.filePath === "string") return withPath.filePath;
   if (typeof withPath.path === "string") return withPath.path;
   return undefined;
+}
+
+function extractPlanFromToolInput(input: unknown): string | undefined {
+  if (typeof input !== "object" || input === null) return undefined;
+  const withPlan = input as { plan?: unknown };
+  return typeof withPlan.plan === "string" ? withPlan.plan : undefined;
 }
 
 async function findToolApprovalMemory(

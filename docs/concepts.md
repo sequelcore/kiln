@@ -409,6 +409,22 @@ See [Multi-Agent Routing](guides/multi-agent.md) for configuration and details.
 
 ---
 
+## Coordination Primitives
+
+Five biologically-grounded primitives enable multi-agent coordination without central messaging:
+
+| Primitive | Mechanism | Purpose |
+|-----------|-----------|---------|
+| `ThresholdAllocator` | Response-threshold (ant colony) | Agent selection based on task demand vs agent threshold |
+| `CascadeController` | Neural field energy model | Handoff chain termination via damped cascade |
+| `TaskChannel` | Stigmergy (shared state) | Publish/claim/complete task lifecycle without direct messaging |
+| `TeamComposer` | Domain templates | Pre-configured team templates by domain (java-spring, react-typescript, python, generic) |
+| Adaptive EMA | Outcome feedback loop | Threshold adaptation: success lowers threshold, failure raises threshold |
+
+All five primitives are wired into `SwarmStrategy` for swarm-mode execution. See [Coordination Intelligence](guides/coordination-intelligence.md) for the full guide.
+
+---
+
 ## Content Model
 
 All messages in Kiln use `ContentPart[]` -- a discriminated union supporting four types:

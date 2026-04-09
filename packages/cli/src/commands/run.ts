@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import readline from "node:readline";
 import { SessionManager } from "../wrapper/session-manager.js";
 import { createDefaultRegistry, isDirectApiProvider } from "../wrapper/session-registry.js";
 import { cleanupRegistry } from "../wrapper/cleanup-registry.js";
@@ -59,6 +61,7 @@ export interface RunFlags {
   readonly outputSchema?: string;
   readonly addDir?: string;
   readonly localProvider?: string;
+  readonly workers?: number;
 }
 
 function resolveMode(flags: RunFlags): SessionMode {
@@ -109,10 +112,92 @@ function normalizeTaskKey(task: string): string {
     .slice(0, 80) || "interactive";
 }
 
+function parseSubmittedPlan(line: string): string | undefined {
+  try {
+    const parsed = JSON.parse(line) as Record<string, unknown>;
+    const direct = extractSubmitPlan(parsed);
+    if (direct) return direct;
+
+    const nestedData = (
+      typeof parsed.data === "object" && parsed.data !== null
+        ? parsed.data as Record<string, unknown>
+        : undefined
+    );
+    if (!nestedData) return undefined;
+    return extractSubmitPlan(nestedData);
+  } catch {
+    return undefined;
+  }
+}
+
+function extractSubmitPlan(event: Record<string, unknown>): string | undefined {
+  if (event.type !== "tool_use") return undefined;
+
+  const toolName = typeof event.name === "string"
+    ? event.name
+    : (typeof event.toolName === "string" ? event.toolName : undefined);
+
+  if (toolName !== "submit_plan") return undefined;
+
+  const input = typeof event.input === "object" && event.input !== null
+    ? event.input as Record<string, unknown>
+    : undefined;
+  const plan = input?.plan;
+  return typeof plan === "string" ? plan : undefined;
+}
+
+async function readSubmittedPlanFromTranscript(projectPath: string, sessionId: string): Promise<string | undefined> {
+  try {
+    const transcriptPath = join(projectPath, ".kiln", "sessions", sessionId, "transcript.jsonl");
+    const content = await readFile(transcriptPath, "utf-8");
+    const lines = content.split("\n").filter((line) => line.trim().length > 0);
+    for (let i = lines.length - 1; i >= 0; i -= 1) {
+      const submittedPlan = parseSubmittedPlan(lines[i]!);
+      if (submittedPlan !== undefined) {
+        return submittedPlan;
+      }
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function promptForPlanApproval(): Promise<boolean> {
+  process.stdout.write("Approve and execute? [y/N]: ");
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  const answer = await new Promise<string>((resolve) => {
+    let settled = false;
+    rl.once("line", (line) => {
+      settled = true;
+      resolve(line);
+    });
+    rl.once("close", () => {
+      if (!settled) {
+        resolve("");
+      }
+    });
+  });
+
+  rl.close();
+  return answer.trim().toLowerCase() === "y";
+}
+
 export async function runCommand(appConfig: KilnAppConfig, task: string, flags: RunFlags): Promise<void> {
   if (!task.trim()) {
     console.error(`Error: No task provided. Usage: kiln run "your task here"`);
     process.exit(1);
+  }
+
+  const workerCount = flags.workers ?? 1;
+  if (workerCount > 1) {
+    await runParallelWorkers(appConfig, task, flags, workerCount);
+    return;
   }
 
   const mode = resolveMode(flags);
@@ -248,6 +333,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     successfulProviderId,
     transcript,
     exactArtifacts,
+    submittedPlan: submittedPlanFromSession,
   } = await runSession({
     registry,
     cleanupRegistry,
@@ -277,6 +363,27 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
   } catch {
     // fail-open
   }
+
+  if (flags.plan && submittedPlanFromSession !== undefined) {
+    try {
+      await transcriptStore.append(sessionId, {
+        seq: transcript.length + 1,
+        ts: new Date().toISOString(),
+        type: "tool_use",
+        data: {
+          type: "tool_use",
+          name: "submit_plan",
+          input: { plan: submittedPlanFromSession },
+        },
+      });
+    } catch {
+      // fail-open
+    }
+  }
+
+  const submittedPlan = flags.plan
+    ? await readSubmittedPlanFromTranscript(cwd, sessionId)
+    : undefined;
 
   if (sessionSucceeded) {
     const completedAt = new Date().toISOString();
@@ -475,4 +582,72 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
   }
 
   await manager.cleanupWorktree(context);
+
+  if (flags.plan && submittedPlan !== undefined) {
+    console.log("═══════════════════════════════");
+    console.log(" PROPOSED PLAN");
+    console.log("═══════════════════════════════");
+    process.stdout.write(submittedPlan.endsWith("\n") ? submittedPlan : `${submittedPlan}\n`);
+    console.log("═══════════════════════════════");
+
+    const approved = await promptForPlanApproval();
+    if (approved) {
+      await runCommand(appConfig, task, { ...flags, plan: false });
+    }
+    return;
+  }
+}
+
+interface WorkerResult {
+  workerIndex: number;
+  success: boolean;
+  error?: string;
+}
+
+export async function runParallelWorkers(
+  appConfig: KilnAppConfig,
+  task: string,
+  flags: RunFlags,
+  workerCount: number,
+  runner: (appConfig: KilnAppConfig, task: string, flags: RunFlags) => Promise<void> = runCommand,
+): Promise<void> {
+  const results = await Promise.allSettled(
+    Array.from({ length: workerCount }, async (_, i) => {
+      await runner(appConfig, task, { ...flags, workers: 1, isolate: true });
+      return { workerIndex: i + 1, success: true };
+    }),
+  );
+
+  const workerResults: WorkerResult[] = results.map((result, index) => {
+    if (result.status === "fulfilled") {
+      return result.value;
+    }
+    return {
+      workerIndex: index + 1,
+      success: false,
+      error: result.reason instanceof Error ? result.reason.message : String(result.reason),
+    };
+  });
+
+  console.log("");
+  console.log("═══════════════════════════════════════");
+  console.log(" PARALLEL WORKERS COMPLETE");
+  console.log("═══════════════════════════════════════");
+
+  for (const wr of workerResults) {
+    if (wr.success) {
+      console.log(` Worker ${wr.workerIndex}: ✓ succeeded`);
+    } else {
+      console.log(` Worker ${wr.workerIndex}: ✗ failed — ${wr.error ?? "unknown error"}`);
+    }
+  }
+
+  console.log("═══════════════════════════════════════");
+
+  const succeededCount = workerResults.filter((wr) => wr.success).length;
+  console.log(`${succeededCount}/${workerCount} workers succeeded`);
+
+  if (succeededCount === 0) {
+    process.exit(1);
+  }
 }

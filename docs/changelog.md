@@ -1,5 +1,70 @@
 # Changelog
 
+## v0.26.0 (2026-04-09) -- Coordination Intelligence (Phase 8.3)
+
+### Phase 8.1: Plan Mode
+
+- **`submit_plan` tool**: Agents in plan mode call `submit_plan` to surface a structured plan for user review instead of executing directly.
+- **Review flow**: Plan output renders as a `PROPOSED PLAN` block with a structured summary and confirmation prompt.
+- **Approve/execute pipeline**: `kiln run --plan` runs in approval mode. On approval, a second session executes the plan with full permissions and sandbox access.
+- **`kiln plan` command**: Standalone `kiln plan <task>` subcommand with a 3-phase workflow (Explore, Intent Chat, Implementation Chat).
+- **Execution boundaries**: Plan mode blocks Edit, Write, and MultiEdit tools. File reads and bash are permitted.
+- **TUI plan mode**: `/plan` command mid-session, `--plan` flag on startup, PLAN badge in sidebar.
+
+### Phase 8.2: Parallel Workers
+
+- **`--workers N` flag**: `kiln run --workers N` spawns N parallel isolated sessions via `runParallelWorkers()`.
+- **`Promise.allSettled`**: All workers run concurrently; failures are collected separately from successes.
+- **Partial success**: Exit 0 if at least one worker succeeds; exit 1 only if all workers fail.
+- **Per-worker summary**: After execution, the CLI prints a table of per-worker outcomes (success/fail, provider, cost, duration).
+- **Session isolation**: Each worker uses `isolate: true` with a fresh session directory, preventing cross-worker state leakage.
+
+### Phase 8.3: Coordination Intelligence
+
+Six sub-phases implementing biologically-grounded multi-agent coordination:
+
+**Phase 8.3a -- ThresholdAllocator** (`packages/core/src/orchestrator/threshold-allocator.ts`)
+- Response-threshold task allocation (ant colony model). Agents with lower thresholds for a category are more likely to claim tasks in that category.
+- Seven `TaskCategory` types: `research`, `code`, `review`, `ops`, `writing`, `triage`, `general`.
+- `allocate()` (strict, returns null if no threshold exceeded) and `allocateWithFallback()` (always returns a result).
+- Initialized from `AgentThresholds[]` config; thresholds can be set per category.
+
+**Phase 8.3b -- CascadeController** (`packages/core/src/orchestrator/cascade-controller.ts`)
+- Damped cascade energy model for handoff chain termination (neural field theory).
+- `A(t+1) = decay * A(t) + gain - cost`. Initial energy seeded from task complexity (0.3-1.0 range).
+- `shouldContinue(gain)` returns whether the chain continues; hard `maxDepth` serves as safety net.
+- `CascadeSnapshot` history tracks every decision for observability.
+
+**Phase 8.3c -- TaskChannel** (`packages/core/src/orchestrator/task-channel.ts`)
+- Stigmergy coordination substrate: publish/claim/complete/fail/release lifecycle.
+- Results-only publishing -- tool call logs are never published, preventing context contamination.
+- Automatic dependency resolution: `unblockDependents()` transitions blocked tasks to `open` when all dependencies complete.
+- Query methods: `open()`, `byStatus()`, `byAssignee()`, `counts()`.
+
+**Phase 8.3d -- TeamComposer** (`packages/core/src/orchestrator/team-composer.ts`)
+- Domain-driven team templates: `java-spring`, `react-typescript`, `python`, `generic`.
+- `compose(domain, complexity)` returns `ComposedTeam` with pre-configured `ThresholdAllocator` + `CascadeController`.
+- Complexity-based role filtering: `complexity < 0.4` keeps only required roles; higher complexity includes optional roles.
+- `registerTemplate()` for custom templates.
+
+**Phase 8.3e -- Adaptive EMA** (`ThresholdAllocator`)
+- Outcome-based threshold adaptation via EMA over task results.
+- `AdaptiveConfig`: `alpha` (smoothing), `successDelta`/`failureDelta` (step size), `floor`/`ceiling` (clamps), `hysteresisWindow` (outcomes before adaptation).
+- Hysteresis prevents premature adaptation -- adaptation begins only after N outcomes recorded.
+- `resetAdaptation(agentId?)` restores initial thresholds.
+
+**Phase 8.3f -- SwarmStrategy Wiring** (`packages/core/src/orchestrator/strategies/swarm-strategy.ts`)
+- `SwarmStrategy` now uses all five primitives: ThresholdAllocator for agent selection, CascadeController for handoff termination, TaskChannel for task lifecycle, adaptive EMA for outcome feedback.
+- `useCoordination: boolean` flag in `SwarmConfig` enables/disables primitives.
+- `StrategyContext` fields: `allocator`, `cascadeController`, `taskChannel`.
+- Fallback to local `CascadeController` and first-agent selection when primitives are unavailable.
+
+**Phase 8.3g -- Demand Signal** (`packages/core/src/orchestrator/demand-signal.ts`)
+- `inferCategory()` maps `ComplexityScore` signals to `TaskCategory`.
+- `buildTaskDemand(complexity, explicitCategory?)` builds a `TaskDemand` for allocation.
+
+---
+
 ## Unreleased -- ProviderSession Direct API Backends (Phase 10)
 
 ### feat(cli): add direct provider sessions alongside CLI harness backends

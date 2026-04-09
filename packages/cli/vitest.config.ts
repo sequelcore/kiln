@@ -6,5 +6,6 @@ export default defineConfig({
       "bun:sqlite": new URL("../../vitest-bun-sqlite-mock.ts", import.meta.url).pathname,
     },
     globals: true,
+    exclude: ["**/node_modules/**", "**/.kiln-worktrees/**"],
   },
 });

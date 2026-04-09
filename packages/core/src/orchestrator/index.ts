@@ -67,3 +67,32 @@ export type { InterruptRequest, ResumeCommand, InterruptState } from "./interrup
 // Guardrails (Phase 2C)
 export { validateJsonSchema, validateOutput, withGuardrail } from "./guardrails.js";
 export type { GuardrailResult } from "./guardrails.js";
+
+// Threshold allocator (Phase 8.3a + 8.3e adaptive)
+export {
+  ThresholdAllocator,
+  DEFAULT_THRESHOLD,
+  DEFAULT_THRESHOLDS,
+  DEFAULT_ADAPTIVE_CONFIG,
+} from "./threshold-allocator.js";
+export type {
+  TaskCategory,
+  TaskDemand,
+  AgentThresholds,
+  AllocationResult,
+  TaskOutcome,
+  AdaptiveConfig,
+} from "./threshold-allocator.js";
+export { inferCategory, buildTaskDemand } from "./demand-signal.js";
+
+// Cascade energy controller (Phase 8.3b)
+export { CascadeController, DEFAULT_CASCADE_CONFIG } from "./cascade-controller.js";
+export type { CascadeConfig, CascadeSnapshot } from "./cascade-controller.js";
+
+// Task channel (Phase 8.3c)
+export { TaskChannel } from "./task-channel.js";
+export type { ChannelTask, ChannelTaskStatus, PublishTaskOptions, CompleteTaskOptions, FailTaskOptions } from "./task-channel.js";
+
+// Team composer (Phase 8.3d)
+export { TeamComposer, BUILTIN_TEMPLATES } from "./team-composer.js";
+export type { TeamRole, TeamTemplate, ComposedTeam } from "./team-composer.js";

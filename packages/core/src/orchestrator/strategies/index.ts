@@ -8,6 +8,9 @@ import type { TaskTree } from "../../tree/task-tree.js";
 import type { BatchExecutor } from "../../tree/batch-executor.js";
 import type { TaskNode } from "../../tree/index.js";
 import type { BatchResult } from "../../tree/index.js";
+import type { ThresholdAllocator } from "../threshold-allocator.js";
+import type { CascadeController } from "../cascade-controller.js";
+import type { TaskChannel } from "../task-channel.js";
 import { SequentialStrategy } from "./sequential-strategy.js";
 import { SupervisorStrategy } from "./supervisor-strategy.js";
 import { SwarmStrategy } from "./swarm-strategy.js";
@@ -19,6 +22,9 @@ export interface StrategyContext {
   readonly tree: TaskTree;
   readonly batchExecutor: BatchExecutor;
   readonly sessionId: string;
+  readonly allocator?: ThresholdAllocator;
+  readonly cascadeController?: CascadeController;
+  readonly taskChannel?: TaskChannel;
 }
 
 /** Handler signature for task execution with agent name routing */

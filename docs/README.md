@@ -22,6 +22,7 @@
 | [Knowledge](guides/knowledge.md) | RAG pipeline, vector stores, STT, contact memory |
 | [Tool Use](guides/tool-use.md) | Tool execution, authorization, webhook/integration tools, native developer tools, and MCP exposure |
 | [Multi-Agent Routing](guides/multi-agent.md) | Multiple agents per tenant, 3-tier routing, handoff briefs |
+| [Coordination Intelligence](guides/coordination-intelligence.md) | Biologically-grounded agent coordination: threshold allocation, cascade energy, stigmergy, team templates |
 | [Model Routing](guides/model-routing.md) | Per-request model selection, complexity scoring, rules |
 | [Enrichment](guides/enrichment.md) | Post-conversation analytics (effort score, sentiment, CSAT) |
 | [Observability](guides/observability.md) | OTel spans, Prometheus metrics, cost tracking |
@@ -53,6 +54,12 @@
 | [ADR-002 TUI](adr/ADR-002-tui-gateway-architecture.md) | Accepted | TUI Gateway Architecture -- thin TUI over gateway-owned orchestration |
 | [ADR-003](adr/ADR-003-meta-orchestrator-model.md) | Accepted | Meta-Orchestrator Model -- why Kiln orchestrates CLIs, not plugins |
 | [ADR-004](adr/ADR-004-budgeted-sufficient-context-orchestration.md) | Proposed | Budgeted Sufficient Context Orchestration -- virtual context window and projected working set |
+
+## Research
+
+| Document | Topic |
+|----------|-------|
+| [Coordination Intelligence](research/coordination-intelligence.md) | Theoretical foundations: ant colony thresholds, neural field theory, stigmergy, and their mapping to Kiln's coordination primitives |
 
 ## Contributing
 

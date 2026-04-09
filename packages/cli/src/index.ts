@@ -64,6 +64,7 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     console.log("  --add-dir  Additional writable directory for Codex (single path)");
     console.log("  --skip-git-repo-check  Allow Codex runs outside a git repo");
     console.log("  --local-provider  Codex local provider name (ollama or lmstudio)");
+    console.log("  --workers N    Run N parallel isolated workers on the same task (default: 1)");
     console.log(`\nRun '${APP_NAME} <command> --help' for command-specific help.\n`);
   }
 
@@ -246,8 +247,8 @@ function parsePort(args: readonly string[]): number {
   return 4800;
 }
 
-function parseRunArgs(rawArgs: readonly string[]): { task: string; flags: { apiKey?: string; provider?: string; model?: string; agent?: string; isolate?: boolean; plan?: boolean; ephemeral?: boolean; profile?: string; skipGitRepoCheck?: boolean; outputSchema?: string; addDir?: string; localProvider?: string } } {
-  const flags: { apiKey?: string; provider?: string; model?: string; agent?: string; isolate?: boolean; plan?: boolean; ephemeral?: boolean; profile?: string; skipGitRepoCheck?: boolean; outputSchema?: string; addDir?: string; localProvider?: string } = {};
+function parseRunArgs(rawArgs: readonly string[]): { task: string; flags: { apiKey?: string; provider?: string; model?: string; agent?: string; isolate?: boolean; plan?: boolean; ephemeral?: boolean; profile?: string; skipGitRepoCheck?: boolean; outputSchema?: string; addDir?: string; localProvider?: string; workers?: number } } {
+  const flags: { apiKey?: string; provider?: string; model?: string; agent?: string; isolate?: boolean; plan?: boolean; ephemeral?: boolean; profile?: string; skipGitRepoCheck?: boolean; outputSchema?: string; addDir?: string; localProvider?: string; workers?: number } = {};
   const taskParts: string[] = [];
   let i = 0;
   while (i < rawArgs.length) {
@@ -287,6 +288,10 @@ function parseRunArgs(rawArgs: readonly string[]): { task: string; flags: { apiK
       i += 2;
     } else if (arg === "--local-provider" && i + 1 < rawArgs.length) {
       flags.localProvider = rawArgs[i + 1];
+      i += 2;
+    } else if (arg === "--workers" && i + 1 < rawArgs.length) {
+      const n = Number(rawArgs[i + 1]);
+      if (!Number.isNaN(n) && n > 0) flags.workers = n;
       i += 2;
     } else {
       taskParts.push(arg);

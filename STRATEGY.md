@@ -545,10 +545,11 @@ Unified terminal interface over all providers (claude/codex/opencode + 5 direct 
 
 ### Swarm Activation
 - feat(cli): activate swarm primitives end-to-end (join/leave/broadcast/claim/release)
-- feat(cli): activate worktree isolation for parallel agents
-  (code exists, isolate flag never wired)
+- feat(cli): `--workers N` flag — parallel isolated sessions ✅ COMPLETE (v0.26.0)
+  `runParallelWorkers()` spawns N sessions with `isolate: true` (separate worktrees),
+  `Promise.allSettled`, per-worker summary, exits 1 only if all fail.
 - feat(core): parallel agent coordination with write serialization
-  (prevent concurrent file conflicts)
+  (each worker has own worktree — no concurrent write conflicts by design)
 
 ### Plan Mode (Phase 8.1 — IN PROGRESS)
 
@@ -612,22 +613,56 @@ Unified terminal interface over all providers (claude/codex/opencode + 5 direct 
 
 #### Item 3: Review Flow
 
-**Status:** PENDING
+**Status:** COMPLETE (v0.26.0)
 **Scope:** plan → review → approve → execute pipeline
-**Key:** approval-gated transition from plan mode to execution mode
+**Key:** approval-gated transition from plan mode to execution mode. After plan session, extracts `submit_plan` tool call from transcript, renders `PROPOSED PLAN` block, prompts `Approve and execute? [y/N]`, re-runs in execute mode on approval.
 
 #### Item 4: PlanExitTool
 
-**Status:** PENDING
-**Scope:** Read-only planning agent equivalent to Codex `update_plan`
+**Status:** COMPLETE (v0.26.0)
+**Scope:** `application/plan-exit-tool.ts` — `planExitToolSchema` (name: `submit_plan`, input: `{ plan: string }`) for the planning agent to signal plan completion. Captured from `run-session.ts` via `submittedPlan` on `RunSessionResult`.
 
 ### Coordination Intelligence
-- feat(core): Conductor-inspired coordination policy —
-  learned task-to-agent assignment (not just priority scoring)
-- feat(core): Workforce hierarchical model —
-  Planner / Coordinator / Worker separation
-- feat(core): EvoMAC-inspired team adaptation —
-  adjust agent composition based on task domain
+
+#### Phase 8.3a: Response-Threshold Task Allocator ✅ COMPLETE (v0.26.0)
+`ThresholdAllocator` — biologically-grounded task allocation (ant colony response-threshold model).
+Each agent has per-category thresholds (0–1). Task demand (from ComplexityScorer) compared against thresholds.
+Lowest-threshold eligible agent wins (emergent specialization). `demand-signal.ts` maps complexity signals
+to 7 task categories. Outcome recording for Phase 8.3e adaptive thresholds.
+Research: `docs/research/coordination-intelligence.md`
+
+#### Phase 8.3b: Cascade Energy Controller ✅ COMPLETE (v0.26.0)
+`CascadeController` — neural-field-theory-inspired handoff chain termination.
+Energy model: `A(t+1) = decay * A(t) + gain - cost`. Subcritical chains self-extinguish;
+supercritical chains caught by hard `maxDepth` safety net. Replaces blunt integer cutoff
+with principled damping while preserving the guardrail.
+
+#### Phase 8.3c: Task Channel ✅ COMPLETE (v0.26.0)
+`TaskChannel` — stigmergy coordination substrate. publish→claim→complete/fail/release lifecycle.
+Dependency resolution (auto-unblock when deps complete). Results-only publishing prevents
+context contamination. Queries: open(), byStatus(), byAssignee(), counts().
+
+#### Phase 8.3d: Domain-Driven Team Templates ✅ COMPLETE (v0.26.0)
+`TeamComposer` — composes agent teams from built-in templates based on detected domain.
+4 built-in templates (java-spring, react-typescript, python, generic) with role-specific
+threshold specializations inspired by ECC's 47-agent taxonomy. Roles are `required` vs `on-demand`
+(filtered by complexity < 0.4). Each `ComposedTeam` includes pre-configured `ThresholdAllocator`
++ `CascadeController`. `pipelineOrder` field enables sequential orchestration chains.
+
+#### Phase 8.3e: Adaptive Threshold EMA ✅ COMPLETE (v0.26.0)
+`ThresholdAllocator` now learns from outcomes via EMA. `AdaptiveConfig` controls alpha (0.1),
+successDelta (-0.05), failureDelta (+0.08), floor/ceiling (0.05/0.95), hysteresisWindow (3).
+Always-on adaptive mode — no backward-compat toggle. `resetAdaptation(agentId?)` restores
+initial thresholds. Produces emergent specialization: agents that succeed at a category
+become more responsive, agents that fail become less responsive.
+
+#### Phase 8.3f: Wire Coordination Primitives into SwarmStrategy ✅ COMPLETE (v0.26.0)
+`SwarmStrategy` now uses all 5 coordination primitives when available via `StrategyContext`.
+ThresholdAllocator selects starting agent (replaces naive agentKeys[0]). CascadeController
+manages handoff chain termination via energy model (replaces hard maxHandoffDepth). TaskChannel
+provides stigmergy substrate (publish/claim/complete lifecycle). Outcomes feed adaptive EMA
+learning loop. Graceful cascade termination (supported, not refuted). Clean fallback to local
+CascadeController when primitives unavailable.
 
 ### Benchmarking
 - feat(runtime): per-harness benchmark runner —

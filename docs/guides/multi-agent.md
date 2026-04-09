@@ -314,6 +314,10 @@ Agent and routing configuration is mutable via the tenant admin API. Update `age
 
 **Monitor handoff events.** The `AGENT_HANDOFF` conversation event provides a clear signal for quality analysis. High handoff rates between specific agent pairs indicate overlapping routing patterns that should be refined.
 
+## Coordination Intelligence
+
+Multi-agent routing (this guide) decides **which agent** handles an inbound message. [Coordination Intelligence](coordination-intelligence.md) governs **how agents coordinate** within a team session -- threshold-based task allocation, cascade energy for handoff termination, stigmergy task channels, and adaptive threshold learning. The two systems complement each other: routing selects agents at the conversation boundary; coordination primitives manage their collaboration during execution.
+
 ---
 
 Related guides: [Concepts](../concepts.md) | [Multi-Tenant](./multi-tenant.md) | [Tool Use](./tool-use.md) | [Channels](./channels.md) | [Gateway Configuration](../configuration/gateway-yaml.md)

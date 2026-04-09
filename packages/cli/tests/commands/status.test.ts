@@ -32,26 +32,26 @@ describe("statusCommand", () => {
     consoleSpy.mockRestore();
   });
 
-  it("prints error when not initialized", () => {
-    statusCommand(MOCK_APP_CONFIG, tempDir);
+  it("prints error when not initialized", async () => {
+    await statusCommand(MOCK_APP_CONFIG, tempDir);
 
     const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
     expect(output).toContain("Not initialized");
     expect(output).toContain("kiln init");
   });
 
-  it("prints domain when initialized", () => {
+  it("prints domain when initialized", async () => {
     const kilnDir = join(tempDir, ".kiln");
     mkdirSync(kilnDir, { recursive: true });
     writeKilnYaml(kilnDir, defaultKilnYaml("python"));
 
-    statusCommand(MOCK_APP_CONFIG, tempDir);
+    await statusCommand(MOCK_APP_CONFIG, tempDir);
 
     const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
     expect(output).toContain("python");
   });
 
-  it("shows all config values", () => {
+  it("shows all config values", async () => {
     const kilnDir = join(tempDir, ".kiln");
     mkdirSync(kilnDir, { recursive: true });
     writeKilnYaml(kilnDir, {
@@ -66,7 +66,7 @@ describe("statusCommand", () => {
       mode: "api-key",
     });
 
-    statusCommand(MOCK_APP_CONFIG, tempDir);
+    await statusCommand(MOCK_APP_CONFIG, tempDir);
 
     const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
     expect(output).toContain("react-typescript");
@@ -77,14 +77,14 @@ describe("statusCommand", () => {
     expect(output).toContain("api-key");
   });
 
-  it("shows memory file count", () => {
+  it("shows memory file count", async () => {
     const kilnDir = join(tempDir, ".kiln");
     mkdirSync(join(kilnDir, "memory"), { recursive: true });
     writeKilnYaml(kilnDir, { ...defaultKilnYaml("python") });
     writeFileSync(join(kilnDir, "memory", "chunk1.jsonl"), "{}");
     writeFileSync(join(kilnDir, "memory", "chunk2.jsonl"), "{}");
 
-    statusCommand(MOCK_APP_CONFIG, tempDir);
+    await statusCommand(MOCK_APP_CONFIG, tempDir);
 
     const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
     expect(output).toContain("Memory files:     2");
