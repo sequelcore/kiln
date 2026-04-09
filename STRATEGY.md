@@ -751,6 +751,103 @@ Markdown agent profiles now load from `~/.kiln/agents/*.md` and `<project>/.kiln
 
 ---
 
+## Phase 11.5 — Subscription Providers (OAuth Direct Access) [CRITICAL PATH]
+
+**Status:** PLANNED
+**Priority:** CRITICAL — unlocks zero-cost end-to-end testing and full engine integration
+**Source:** Hermes-agent auth.py (Codex OAuth device code flow), OpenClaw openai-codex provider, OpenCode Go subscription API
+**Depends on:** Phase 10 (ProviderSession exists), Phase 11 (config layer exists)
+
+### Problem
+
+Kiln has two provider tiers today: Direct API (full engine, costs per token) and Harness
+(limited engine, subscription-backed). There is no way to get BOTH full engine access AND
+zero marginal cost. Subscription providers (ChatGPT Plus, OpenCode Go) are only accessible
+through CLI wrappers, which bypass Kiln's orchestration, safety pipeline, knowledge RAG,
+coordination intelligence, and native tools.
+
+### Solution
+
+Third provider tier: **Subscription Direct** — OAuth-authenticated direct API access using
+existing consumer subscriptions. Same engine integration as Direct API, zero additional cost.
+
+### Provider Tier Priority (documented, enforced in SessionRegistry)
+
+| Priority | Tier | Engine Access | Cost | Examples |
+|----------|------|---------------|------|----------|
+| 1 | Subscription Direct | Full | $0 marginal (monthly sub) | codex-oauth, opencode-go |
+| 2 | Direct API (BYOK) | Full | Per-token | anthropic, openai, deepseek, openrouter, ollama |
+| 3 | Harness (CLI wrapper) | Limited | Varies | ClaudeSession, CodexSession, OpenCodeSession |
+
+### Sub-phases
+
+#### 11.5a: Codex OAuth Provider (gpt-5.4 via ChatGPT Plus/Pro)
+
+**Auth flow** (reverse-engineered from hermes-agent `hermes_cli/auth.py`):
+1. `POST https://auth.openai.com/api/accounts/deviceauth/usercode` — client_id `app_EMoamEEZ73f0CkXaXp7hrann`
+2. User visits `https://auth.openai.com/codex/device`, enters displayed code
+3. Poll `POST https://auth.openai.com/api/accounts/deviceauth/token` until 200
+4. Exchange authorization_code + code_verifier at `POST https://auth.openai.com/oauth/token`
+5. Store access_token + refresh_token in `~/.kiln/auth/codex-oauth.json`
+6. Auto-refresh 120s before expiry via `POST https://auth.openai.com/oauth/token` (grant_type: refresh_token)
+
+**Inference endpoint:**
+- Base URL: `https://chatgpt.com/backend-api/codex`
+- API: OpenAI Responses API (`/responses` path, NOT /chat/completions)
+- Auth: `Authorization: Bearer {access_token}`
+- Models: gpt-5.4, gpt-5.4-mini, gpt-5.3-codex, gpt-5.3-codex-spark
+- Model discovery: `GET {base_url}/models?client_version=1.0.0`
+
+**Files:**
+- New: `core/src/agents/infrastructure/codex-oauth.ts` — ProviderAdapter with OAuth device code + token refresh
+- New: `core/src/agents/infrastructure/codex-oauth-auth.ts` — Device code flow, token storage, refresh logic
+- New: `cli/src/commands/auth.ts` — `kiln auth codex` interactive login command
+- Modify: `cli/src/wrapper/session-registry.ts` — register codex-oauth as priority 1 subscription provider
+- Modify: `core/src/agents/model-capability-registry.ts` — add codex-oauth model profiles
+
+**Rate limits:** 30-150 messages/5hr (Plus), 300-1500 (Pro). Track via response headers.
+
+**Reference:** hermes-agent `hermes_cli/auth.py:2218-2357` (device code flow), `hermes_cli/codex_models.py` (model discovery), `run_agent.py:598-600` (api_mode=codex_responses)
+
+#### 11.5b: OpenCode Go Provider (MiniMax, GLM, Kimi via subscription)
+
+**Research needed:** Identify OpenCode Go's API gateway endpoint and auth mechanism.
+Models: MiniMax M2.5/M2.7, GLM-5/5.1, Kimi K2.5, MiMo-V2-Pro/Omni.
+Limits: $12 equiv/5hr, $30/week, $60/month.
+
+**Files:**
+- New: `core/src/agents/infrastructure/opencode-go.ts` — ProviderAdapter for OpenCode Go subscription
+- Modify: `cli/src/commands/auth.ts` — `kiln auth opencode` login command
+- Modify: `cli/src/wrapper/session-registry.ts` — register opencode-go as subscription provider
+
+#### 11.5c: Credential Pool & Multi-Account
+
+- Multiple subscription accounts per provider (2x ChatGPT Plus = 2x quota)
+- Credential rotation (round-robin, fill-first, least-used strategies)
+- Per-credential quota tracking and exhaustion cooldown
+- Token file isolation: `~/.kiln/auth/codex-oauth-{profile}.json`
+
+**Reference:** hermes-agent `agent/credential_pool.py` (full implementation with strategies, cooldowns, status tracking)
+
+#### 11.5d: `kiln auth` CLI Command
+
+- `kiln auth codex` — device code flow for ChatGPT Plus/Pro
+- `kiln auth opencode` — login for OpenCode Go
+- `kiln auth status` — show all authenticated providers, token expiry, quota
+- `kiln auth logout [provider]` — revoke and clear stored tokens
+- `kiln auth import` — import existing tokens from ~/.codex/auth.json or ~/.config/opencode/
+
+### Why this is critical path
+
+Without subscription providers, testing Kiln's full engine end-to-end requires API credits.
+Every test run, every demo, every iteration costs money. With codex-oauth:
+- gpt-5.4 at zero marginal cost (ChatGPT Plus $20/mo, already paid)
+- Full coordination intelligence (Phase 8), safety pipeline, knowledge RAG, native tools
+- Credential pool enables parallel testing across multiple accounts
+- Unblocks Phase 13 (Terminal-Bench submission) without burning API budget
+
+---
+
 ## Phase 12 — Runtime Polish & Competitive Parity [URGENT]
 
 **Status:** PLANNED — depends on Phases 9-11

@@ -332,6 +332,10 @@ Expose integration adapters as MCP tools (same implementation, two surfaces). Ph
 
 Kiln as production runtime for CLI agents (Claude Code, Codex CLI, Goose) via MCP. Phase 1 (gateway MCP server, 17 tool schemas) complete. Phase 2 (full wiring of all 17 tools) complete in v0.22.0. Phase 3 complete in v0.23.0: cross-agent memory with teamId scoping, 6 swarm primitives (join/leave/status/broadcast/claim/release), LLM-based eval scorers via ProviderScorerLlmBridge. 25 tools total. OAuth discovery endpoints (RFC 8414 + RFC 9728) added in v0.23.1-v0.23.2 — Claude Code now connects cleanly. Pending: OAuth 2.1 token endpoint + PKCE + Vigil delegation.
 
+### Phase 11.5 — Subscription Providers (CRITICAL PATH)
+
+Third provider tier: OAuth-authenticated direct API access using consumer subscriptions (ChatGPT Plus, OpenCode Go). Full engine integration at zero marginal cost. Three tiers in priority order: (1) Subscription Direct — full engine, $0 marginal, (2) Direct API (BYOK) — full engine, per-token, (3) Harness (CLI wrapper) — limited engine. Sub-phases: 11.5a Codex OAuth (gpt-5.4 via ChatGPT Plus), 11.5b OpenCode Go, 11.5c Credential Pool, 11.5d `kiln auth` CLI. See STRATEGY.md for full blueprint including auth flow, endpoints, and file targets.
+
 ### OpenKiln (Personal AI Agent)
 
 OpenKiln is a downstream product built on Kiln, not an engine phase.
