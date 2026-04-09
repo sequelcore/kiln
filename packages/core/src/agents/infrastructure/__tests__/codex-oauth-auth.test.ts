@@ -9,11 +9,9 @@ type CodexOAuthTokenFile = {
 };
 
 type DeviceAuthorizationResult = {
-  deviceCode: string;
+  deviceAuthId: string;
   userCode: string;
-  verificationUri: string;
   intervalSeconds: number;
-  codeVerifier: string;
 };
 
 const mockMkdir = vi.fn();
@@ -97,12 +95,12 @@ afterEach(() => {
 
 describe("CodexOAuthAuth", () => {
   describe("startDeviceAuthorization", () => {
-    it("calls POST https://auth.openai.com/api/accounts/deviceauth/usercode with client_id=app_EMoamEEZ73f0CkXaXp7hrann and code_challenge (S256)", async () => {
+    it("calls POST https://auth.openai.com/api/accounts/deviceauth/usercode with only client_id in JSON", async () => {
       mockFetch.mockResolvedValueOnce(jsonResponse(200, {
-        device_code: "device-code",
+        device_auth_id: "device-auth-id",
         user_code: "USER-CODE",
-        verification_uri: "https://chatgpt.com/auth/device",
-        interval: 5,
+        interval: "5",
+        expires_at: "2026-04-09T01:00:00.000Z",
       }));
 
       const auth = await createAuth();
@@ -112,32 +110,28 @@ describe("CodexOAuthAuth", () => {
       const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
       expect(url).toBe("https://auth.openai.com/api/accounts/deviceauth/usercode");
       expect(init.method).toBe("POST");
-      expect(init.headers).toEqual({ "Content-Type": "application/x-www-form-urlencoded" });
-      const body = String(init.body);
-      expect(body).toContain("client_id=app_EMoamEEZ73f0CkXaXp7hrann");
-      expect(body).toContain("code_challenge=");
-      expect(body).toContain("code_challenge_method=S256");
+      expect(init.headers).toEqual({ "Content-Type": "application/json" });
+      expect(JSON.parse(String(init.body))).toEqual({
+        client_id: "app_EMoamEEZ73f0CkXaXp7hrann",
+      });
     });
 
-    it("returns deviceCode, userCode, verificationUri, intervalSeconds, codeVerifier", async () => {
+    it("returns deviceAuthId, userCode, and intervalSeconds with a minimum of 3 seconds", async () => {
       mockFetch.mockResolvedValueOnce(jsonResponse(200, {
-        device_code: "device-code",
+        device_auth_id: "device-auth-id",
         user_code: "USER-CODE",
-        verification_uri: "https://chatgpt.com/auth/device",
-        interval: 7,
+        interval: "1",
+        expires_at: "2026-04-09T01:00:00.000Z",
       }));
 
       const auth = await createAuth();
       const result = await auth.startDeviceAuthorization() as DeviceAuthorizationResult;
 
-      expect(result).toMatchObject({
-        deviceCode: "device-code",
+      expect(result).toEqual({
+        deviceAuthId: "device-auth-id",
         userCode: "USER-CODE",
-        verificationUri: "https://chatgpt.com/auth/device",
-        intervalSeconds: 7,
+        intervalSeconds: 3,
       });
-      expect(result.codeVerifier).toEqual(expect.any(String));
-      expect(result.codeVerifier.length).toBeGreaterThan(10);
     });
 
     it("throws KilnError on non-200 response", async () => {
@@ -150,11 +144,13 @@ describe("CodexOAuthAuth", () => {
   });
 
   describe("pollForAuthorization", () => {
-    it("retries when response has error='authorization_pending', respecting intervalSeconds", async () => {
+    it("treats 403/404 as pending, waits intervalSeconds before each poll, and exchanges the returned authorization code", async () => {
       mockFetch
-        .mockResolvedValueOnce(jsonResponse(200, { error: "authorization_pending" }))
+        .mockResolvedValueOnce(jsonResponse(403, {}))
+        .mockResolvedValueOnce(jsonResponse(404, {}))
         .mockResolvedValueOnce(jsonResponse(200, {
-          code: "authorization-code",
+          authorization_code: "authorization-code",
+          code_verifier: "server-code-verifier",
         }))
         .mockResolvedValueOnce(jsonResponse(200, {
           access_token: "access-token",
@@ -164,74 +160,85 @@ describe("CodexOAuthAuth", () => {
 
       const auth = await createAuth();
       const pending = auth.pollForAuthorization({
-        deviceCode: "device-code",
+        deviceAuthId: "device-auth-id",
+        userCode: "USER-CODE",
         intervalSeconds: 3,
-        codeVerifier: "verifier",
       });
 
-      await vi.advanceTimersByTimeAsync(3000);
-      await pending;
-
-      expect(mockFetch).toHaveBeenCalledTimes(3);
-      expect(mockFetch.mock.calls[0]?.[0]).toBe("https://auth.openai.com/api/accounts/deviceauth/token");
-      expect(mockFetch.mock.calls[1]?.[0]).toBe("https://auth.openai.com/api/accounts/deviceauth/token");
-      expect(mockFetch.mock.calls[2]?.[0]).toBe("https://auth.openai.com/oauth/token");
-    });
-
-    it("returns CodexOAuthTokenFile on success (exchanges code at /oauth/token with code_verifier)", async () => {
-      mockFetch
-        .mockResolvedValueOnce(jsonResponse(200, { code: "authorization-code" }))
-        .mockResolvedValueOnce(jsonResponse(200, {
-          access_token: "access-token",
-          refresh_token: "refresh-token",
-          expires_in: 7200,
-        }));
-
-      const auth = await createAuth();
-      const token = await auth.pollForAuthorization({
-        deviceCode: "device-code",
-        intervalSeconds: 5,
-        codeVerifier: "pkce-verifier",
-      }) as CodexOAuthTokenFile;
+      await vi.advanceTimersByTimeAsync(9000);
+      const token = await pending as CodexOAuthTokenFile;
 
       expect(token.access_token).toBe("access-token");
-      expect(token.refresh_token).toBe("refresh-token");
-      expect(token.client_id).toBe("app_EMoamEEZ73f0CkXaXp7hrann");
-      expect(new Date(token.expires_at).toISOString()).toBe(token.expires_at);
+      expect(mockFetch).toHaveBeenCalledTimes(4);
+      expect(mockFetch.mock.calls[0]?.[0]).toBe("https://auth.openai.com/api/accounts/deviceauth/token");
+      expect(mockFetch.mock.calls[1]?.[0]).toBe("https://auth.openai.com/api/accounts/deviceauth/token");
+      expect(mockFetch.mock.calls[2]?.[0]).toBe("https://auth.openai.com/api/accounts/deviceauth/token");
+      expect(mockFetch.mock.calls[3]?.[0]).toBe("https://auth.openai.com/oauth/token");
+      expect(JSON.parse(String(mockFetch.mock.calls[0]?.[1]?.body))).toEqual({
+        device_auth_id: "device-auth-id",
+        user_code: "USER-CODE",
+      });
 
-      const [, exchangeInit] = mockFetch.mock.calls[1] as [string, RequestInit];
-      expect(String(exchangeInit.body)).toContain("grant_type=authorization_code");
-      expect(String(exchangeInit.body)).toContain("code=authorization-code");
-      expect(String(exchangeInit.body)).toContain("code_verifier=pkce-verifier");
+      const [, exchangeInit] = mockFetch.mock.calls[3] as [string, RequestInit];
+      expect(exchangeInit.headers).toEqual({ "Content-Type": "application/x-www-form-urlencoded" });
+      const exchangeBody = String(exchangeInit.body);
+      expect(exchangeBody).toContain("grant_type=authorization_code");
+      expect(exchangeBody).toContain("code=authorization-code");
+      expect(exchangeBody).toContain("redirect_uri=https%3A%2F%2Fauth.openai.com%2Fdeviceauth%2Fcallback");
+      expect(exchangeBody).toContain("client_id=app_EMoamEEZ73f0CkXaXp7hrann");
+      expect(exchangeBody).toContain("code_verifier=server-code-verifier");
     });
 
-    it("throws KilnError when error='expired_token'", async () => {
-      mockFetch.mockResolvedValueOnce(jsonResponse(200, { error: "expired_token" }));
+    it("throws KilnError on non-pending polling errors", async () => {
+      mockFetch.mockResolvedValueOnce(jsonResponse(400, { error: "bad_request" }));
 
       const auth = await createAuth();
+      const pending = auth.pollForAuthorization({
+        deviceAuthId: "device-auth-id",
+        userCode: "USER-CODE",
+        intervalSeconds: 3,
+      });
+      const assertion = expect(pending).rejects.toBeInstanceOf(KilnError);
 
-      await expect(auth.pollForAuthorization({
-        deviceCode: "device-code",
-        intervalSeconds: 5,
-        codeVerifier: "verifier",
-      })).rejects.toBeInstanceOf(KilnError);
+      await vi.advanceTimersByTimeAsync(3000);
+      await assertion;
     });
 
-    it("throws KilnError on unexpected error codes", async () => {
-      mockFetch.mockResolvedValueOnce(jsonResponse(200, { error: "slow_down_forever" }));
+    it("throws KilnError when polling succeeds without authorization_code or code_verifier", async () => {
+      mockFetch.mockResolvedValueOnce(jsonResponse(200, {
+        authorization_code: "authorization-code",
+      }));
 
       const auth = await createAuth();
+      const pending = auth.pollForAuthorization({
+        deviceAuthId: "device-auth-id",
+        userCode: "USER-CODE",
+        intervalSeconds: 3,
+      });
+      const assertion = expect(pending).rejects.toBeInstanceOf(KilnError);
 
-      await expect(auth.pollForAuthorization({
-        deviceCode: "device-code",
-        intervalSeconds: 5,
-        codeVerifier: "verifier",
-      })).rejects.toBeInstanceOf(KilnError);
+      await vi.advanceTimersByTimeAsync(3000);
+      await assertion;
+    });
+
+    it("times out after 15 minutes", async () => {
+      mockFetch.mockResolvedValue(jsonResponse(403, {}));
+
+      const auth = await createAuth();
+      const pending = auth.pollForAuthorization({
+        deviceAuthId: "device-auth-id",
+        userCode: "USER-CODE",
+        intervalSeconds: 3,
+      });
+      const assertion = expect(pending).rejects.toBeInstanceOf(KilnError);
+
+      await vi.advanceTimersByTimeAsync(15 * 60 * 1000);
+      await assertion;
     });
   });
 
   describe("refreshToken", () => {
-    it("calls POST /oauth/token with grant_type=refresh_token", async () => {
+    it("calls POST /oauth/token with form-encoded refresh_token grant", async () => {
       mockFetch.mockResolvedValueOnce(jsonResponse(200, {
         access_token: "new-access-token",
         refresh_token: "new-refresh-token",
@@ -245,8 +252,11 @@ describe("CodexOAuthAuth", () => {
       const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
       expect(url).toBe("https://auth.openai.com/oauth/token");
       expect(init.method).toBe("POST");
-      expect(String(init.body)).toContain("grant_type=refresh_token");
-      expect(String(init.body)).toContain("refresh_token=refresh-token");
+      expect(init.headers).toEqual({ "Content-Type": "application/x-www-form-urlencoded" });
+      const body = String(init.body);
+      expect(body).toContain("grant_type=refresh_token");
+      expect(body).toContain("refresh_token=refresh-token");
+      expect(body).toContain("client_id=app_EMoamEEZ73f0CkXaXp7hrann");
     });
 
     it("returns updated CodexOAuthTokenFile with new tokens and expiry", async () => {
@@ -371,7 +381,7 @@ describe("CodexOAuthAuth", () => {
       await expect(auth.hasValidCredentials()).resolves.toBe(false);
     });
 
-    it("returns false when token is expired (even within refresh window — hasValidCredentials just checks existence + basic validity)", async () => {
+    it("returns false when token is expired", async () => {
       mockReadFile.mockResolvedValueOnce(JSON.stringify(futureToken({
         expires_at: "2026-04-08T23:59:00.000Z",
       })));

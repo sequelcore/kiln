@@ -50,12 +50,16 @@ export async function runAuth(args: string[]): Promise<void> {
 async function runCodexLogin(): Promise<void> {
   const auth = new CodexOAuthAuth();
   const authRequest = await auth.startDeviceAuthorization();
-  console.log(`Visit: ${authRequest.verificationUri}`);
-  console.log(`Enter code: ${authRequest.userCode}`);
+  console.log("Prerequisite: Enable device code auth in ChatGPT Settings > Security.");
+  console.log("");
+  console.log("  1. Visit: https://auth.openai.com/codex/device");
+  console.log(`  2. Enter code: ${authRequest.userCode}`);
+  console.log("");
+  console.log("Waiting for sign-in... (Ctrl+C to cancel)");
   const tokenFile = await auth.pollForAuthorization({
-    deviceCode: authRequest.deviceCode,
+    deviceAuthId: authRequest.deviceAuthId,
+    userCode: authRequest.userCode,
     intervalSeconds: authRequest.intervalSeconds,
-    codeVerifier: authRequest.codeVerifier,
   });
   await auth.saveTokenFile(tokenFile);
   console.log("Authenticated successfully");

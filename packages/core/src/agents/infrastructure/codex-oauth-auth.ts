@@ -1,25 +1,28 @@
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
-import { createHash, randomBytes } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { KilnError } from "../../engine/errors.js";
 
 const CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 const AUTH_BASE = "https://auth.openai.com";
+const DEVICE_VERIFICATION_URI = "https://auth.openai.com/codex/device";
+const DEVICE_CALLBACK_URI = "https://auth.openai.com/deviceauth/callback";
 const DEFAULT_TOKEN_PATH = join(homedir(), ".kiln", "auth", "codex-oauth.json");
 const AUTO_REFRESH_BUFFER_SECONDS = 120;
+const POLL_TIMEOUT_MS = 15 * 60 * 1000;
 
 interface DeviceAuthorizationApiResponse {
-  readonly device_code?: string;
+  readonly device_auth_id?: string;
   readonly user_code?: string;
-  readonly verification_uri?: string;
-  readonly interval?: number;
+  readonly interval?: number | string;
+  readonly expires_at?: string;
   readonly error?: string;
 }
 
 interface DeviceTokenPollResponse {
-  readonly code?: string;
-  readonly error?: string;
+  readonly authorization_code?: string;
+  readonly code_verifier?: string;
+  readonly error?: unknown;
 }
 
 interface OAuthTokenResponse {
@@ -37,17 +40,15 @@ export interface CodexOAuthTokenFile {
 }
 
 export interface DeviceAuthorizationResult {
-  readonly deviceCode: string;
+  readonly deviceAuthId: string;
   readonly userCode: string;
-  readonly verificationUri: string;
   readonly intervalSeconds: number;
-  readonly codeVerifier: string;
 }
 
 export interface PollAuthorizationParams {
-  readonly deviceCode: string;
+  readonly deviceAuthId: string;
+  readonly userCode: string;
   readonly intervalSeconds: number;
-  readonly codeVerifier: string;
 }
 
 export interface CodexOAuthAuthOptions {
@@ -62,22 +63,18 @@ export class CodexOAuthAuth {
   }
 
   async startDeviceAuthorization(): Promise<DeviceAuthorizationResult> {
-    const codeVerifier = this.generateCodeVerifier();
-    const codeChallenge = this.generateCodeChallenge(codeVerifier);
-    const body = new URLSearchParams({
+    const body = JSON.stringify({
       client_id: CLIENT_ID,
-      code_challenge: codeChallenge,
-      code_challenge_method: "S256",
     });
 
     const response = await fetch(`${AUTH_BASE}/api/accounts/deviceauth/usercode`, {
       method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      headers: { "Content-Type": "application/json" },
       body,
     });
 
     const data = await this.parseJson<DeviceAuthorizationApiResponse>(response);
-    if (!response.ok || !data.device_code || !data.user_code || !data.verification_uri) {
+    if (!response.ok || !data.device_auth_id || !data.user_code) {
       throw this.authError("Failed to start Codex OAuth device authorization", {
         status: response.status,
         error: data.error,
@@ -85,25 +82,31 @@ export class CodexOAuthAuth {
     }
 
     return {
-      deviceCode: data.device_code,
+      deviceAuthId: data.device_auth_id,
       userCode: data.user_code,
-      verificationUri: data.verification_uri,
-      intervalSeconds: data.interval ?? 5,
-      codeVerifier,
+      intervalSeconds: this.parseIntervalSeconds(data.interval),
     };
   }
 
   async pollForAuthorization(params: PollAuthorizationParams): Promise<CodexOAuthTokenFile> {
-    while (true) {
-      const body = new URLSearchParams({
-        client_id: CLIENT_ID,
-        device_code: params.deviceCode,
+    const deadline = Date.now() + POLL_TIMEOUT_MS;
+
+    while (Date.now() < deadline) {
+      await this.sleep(params.intervalSeconds * 1000);
+
+      const body = JSON.stringify({
+        device_auth_id: params.deviceAuthId,
+        user_code: params.userCode,
       });
       const response = await fetch(`${AUTH_BASE}/api/accounts/deviceauth/token`, {
         method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        headers: { "Content-Type": "application/json" },
         body,
       });
+
+      if (response.status === 403 || response.status === 404) {
+        continue;
+      }
 
       const data = await this.parseJson<DeviceTokenPollResponse>(response);
       if (!response.ok) {
@@ -113,25 +116,19 @@ export class CodexOAuthAuth {
         });
       }
 
-      if (data.code) {
-        return this.exchangeAuthorizationCode(data.code, params.codeVerifier);
-      }
-
-      if (data.error === "authorization_pending") {
-        await this.sleep(params.intervalSeconds * 1000);
-        continue;
-      }
-
-      if (data.error === "expired_token") {
-        throw this.authError("Codex OAuth device code expired", {
+      if (!data.authorization_code || !data.code_verifier) {
+        throw this.authError("Codex OAuth polling response missing authorization code", {
+          status: response.status,
           error: data.error,
         });
       }
 
-      throw this.authError("Unexpected Codex OAuth polling response", {
-        error: data.error,
-      });
+      return this.exchangeAuthorizationCode(data.authorization_code, data.code_verifier);
     }
+
+    throw this.authError("Codex OAuth device authorization timed out", {
+      timeoutMs: POLL_TIMEOUT_MS,
+    });
   }
 
   async refreshToken(tokenFile: CodexOAuthTokenFile): Promise<CodexOAuthTokenFile> {
@@ -222,8 +219,9 @@ export class CodexOAuthAuth {
     const body = new URLSearchParams({
       grant_type: "authorization_code",
       code,
-      code_verifier: codeVerifier,
+      redirect_uri: DEVICE_CALLBACK_URI,
       client_id: CLIENT_ID,
+      code_verifier: codeVerifier,
     });
 
     const response = await fetch(`${AUTH_BASE}/oauth/token`, {
@@ -252,12 +250,19 @@ export class CodexOAuthAuth {
     };
   }
 
-  private generateCodeVerifier(): string {
-    return randomBytes(32).toString("base64url");
-  }
+  private parseIntervalSeconds(interval: number | string | undefined): number {
+    if (typeof interval === "number" && Number.isFinite(interval)) {
+      return Math.max(3, interval);
+    }
 
-  private generateCodeChallenge(codeVerifier: string): string {
-    return createHash("sha256").update(codeVerifier).digest("base64url");
+    if (typeof interval === "string") {
+      const parsed = Number.parseInt(interval, 10);
+      if (Number.isFinite(parsed)) {
+        return Math.max(3, parsed);
+      }
+    }
+
+    return 5;
   }
 
   private expiresWithinBuffer(tokenFile: CodexOAuthTokenFile, bufferSeconds: number): boolean {
@@ -280,3 +285,5 @@ export class CodexOAuthAuth {
     return new KilnError("PROVIDER_AUTH_FAILED", message, { context, cause });
   }
 }
+
+export const CODEX_DEVICE_VERIFICATION_URI = DEVICE_VERIFICATION_URI;
