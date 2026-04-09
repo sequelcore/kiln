@@ -721,10 +721,8 @@ Markdown agent profiles now load from `~/.kiln/agents/*.md` and `<project>/.kiln
 
 #### 11e. AGENTS.md Generation
 
-- `kiln sync --agents-md` generates cross-tool context file at project root
-- Content: agent names, roles, tools, skills — derived from merged kiln.yaml + agents/*.md
-- Readable by Claude Code, Codex, OpenCode, Cursor without any Kiln-specific config
-- Auto-generated, not hand-maintained — single source of truth is kiln.yaml
+**Status:** COMPLETE
+`kiln sync --agents-md` (and `kiln sync` with no flags) now generates a valid GFM `AGENTS.md` at the project root from `kiln.yaml` + markdown agent definitions, readable by Claude Code, Codex, OpenCode, and Cursor without Kiln-specific config.
 
 **Files:** New `cli/src/sync/agents-md-sync.ts`, modifications to `cli/src/commands/sync.ts`
 **Tests:** Generation from various config combinations, idempotent re-generation
