@@ -8,8 +8,11 @@
 
 ## Configuration
 
-- [App YAML](configuration/app-yaml.md) -- Complete `app.yaml` field reference
-- [Gateway YAML](configuration/gateway-yaml.md) -- Gateway config, Mode A/B, billing, triggers
+| Config | Scope |
+|--------|-------|
+| [App YAML](configuration/app-yaml.md) | Complete `app.yaml` field reference |
+| [Gateway YAML](configuration/gateway-yaml.md) | Gateway config, Mode A/B, billing, triggers |
+| [Global Config](guides/global-config.md) | Global defaults: provider, model, permissions, MCP, identity, TUI theme |
 
 ## Guides
 

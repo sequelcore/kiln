@@ -676,17 +676,8 @@ gateway config to run a simple agent loses to one that doesn't.
 
 #### 11a. Global Config (`~/.kiln/config.yaml`)
 
-- Provider + model defaults
-- Global MCP servers
-- TUI preferences (theme, keybinds)
-- Default permission policy
-- Identity (name, timezone — for buildPreamble personalization)
-- Resolution: `~/.kiln/config.yaml` on all platforms (XDG-aware on Linux)
-- Created by first-run wizard or `kiln init --global`
-
-**Files:** New `cli/src/config/global-config.ts`, schema definition, loader
-**Tests:** Load, merge with defaults, missing file handling, first-run creation
-**Reference:** Codex `~/.codex/config.toml`, OpenCode `~/.config/opencode/opencode.json`
+**Status:** COMPLETE
+Global config now lives in `packages/cli/src/config/global-config.ts` with `KilnGlobalConfig`, XDG-aware resolution, YAML read/write helpers, and `defaultGlobalConfig()` defaults for provider + permissions.
 
 #### 11b. Project Config (`./kiln.yaml`) with Merge Semantics
 
