@@ -2,11 +2,13 @@ import { join } from "node:path";
 import { readKilnYaml } from "../kiln-yaml.js";
 import { syncPermissions } from "../sync/security-sync.js";
 import { syncHooks } from "../sync/hook-sync.js";
+import { syncAgentsMd } from "../sync/agents-md-sync.js";
 import type { KilnAppConfig } from "../config.js";
 
 export interface SyncFlags {
   readonly permissions?: boolean;
   readonly hooks?: boolean;
+  readonly agentsMd?: boolean;
   readonly all?: boolean;
 }
 
@@ -17,7 +19,8 @@ export async function syncCommand(
 ): Promise<void> {
   const syncPermissions_ = args.includes("--permissions");
   const syncHooks_ = args.includes("--hooks");
-  const syncAll = !syncPermissions_ && !syncHooks_;
+  const syncAgentsMd_ = args.includes("--agents-md");
+  const syncAll = !syncPermissions_ && !syncHooks_ && !syncAgentsMd_;
 
   const root = process.cwd();
   const kilnDir = join(root, ".kiln");
@@ -30,6 +33,7 @@ export async function syncCommand(
 
   let permResult: Awaited<ReturnType<typeof syncPermissions>> | null = null;
   let hookResult: Awaited<ReturnType<typeof syncHooks>> | null = null;
+  let agentsMdResult: Awaited<ReturnType<typeof syncAgentsMd>> | null = null;
 
   const allErrors: string[] = [];
 
@@ -43,11 +47,16 @@ export async function syncCommand(
     allErrors.push(...hookResult.errors);
   }
 
+  if (syncAll || syncAgentsMd_) {
+    agentsMdResult = await syncAgentsMd(root);
+    allErrors.push(...agentsMdResult.errors);
+  }
+
   const platformNote = process.platform === "win32"
     ? " (Windows: Codex hooks skipped)"
     : "";
 
-  if (permResult || hookResult) {
+  if (permResult || hookResult || agentsMdResult) {
     console.log("\nSync Results:");
     console.log("─".repeat(40));
 
@@ -64,6 +73,10 @@ export async function syncCommand(
       } else {
         console.log(`Codex hook:              ${hookResult.codexHook ? "OK" : "FAIL"}`);
       }
+    }
+
+    if (agentsMdResult) {
+      console.log(`AGENTS.md:              ${agentsMdResult.path} ${agentsMdResult.written ? "OK" : "FAIL"}`);
     }
 
     console.log("─".repeat(40));
@@ -83,9 +96,13 @@ export async function syncCommand(
   const hookAllFailed = hookResult
     ? !hookResult.claudeHook && (!hookResult.codexHook || hookResult.skippedWindows)
     : false;
+  const agentsMdAllFailed = agentsMdResult
+    ? !agentsMdResult.written
+    : false;
 
   const allFailed = (syncAll || syncPermissions_) && permAllFailed
-    && (syncAll || syncHooks_) && hookAllFailed;
+    && (syncAll || syncHooks_) && hookAllFailed
+    && (syncAll || syncAgentsMd_) && agentsMdAllFailed;
 
   if (allFailed) {
     process.exit(1);
