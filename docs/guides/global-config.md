@@ -53,3 +53,15 @@ tui:
 ## Relationship to kiln.yaml
 
 Global config establishes user-level defaults that apply across every Kiln project. Project `kiln.yaml` overrides scalar values such as provider, model, or theme, while MCP server definitions are additive so both global and project servers remain active. The merge is performed by `loadKilnConfig(projectPath)` in `config/config-merger.ts` — use this instead of `readKilnYaml()` in command-level code. `kiln sync` materializes the merged result into native CLI configs; edit Kiln config files, not the generated native configs directly.
+
+## Agent Sync
+
+Run `kiln sync --agents` (or `kiln sync` with no flags) to push agent definitions from `~/.kiln/agents/` and `.kiln/agents/` to all three CLIs:
+
+| Target | Location | Format |
+|--------|----------|--------|
+| Claude Code | `~/.claude/agents/<name>.md` | YAML frontmatter + markdown |
+| Codex | `~/.codex/agents/<name>.toml` | TOML role file |
+| OpenCode | `~/.config/opencode/agents/<name>.md` | YAML frontmatter + markdown |
+
+Agent definitions are translated from Kiln's `.md` format automatically. Sync is one-way (Kiln -> CLIs).
