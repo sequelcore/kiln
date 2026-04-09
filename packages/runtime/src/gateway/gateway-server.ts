@@ -10,6 +10,8 @@ import {
   parseAppYaml,
   AnthropicAdapter,
   OpenAIAdapter,
+  CodexOAuthAdapter,
+  CodexOAuthAuth,
   DeepSeekAdapter,
   OllamaAdapter,
   OpenRouterAdapter,
@@ -1416,6 +1418,8 @@ function createProviderFromConfig(config: ProviderConfig): ProviderAdapter {
   const model = config.model;
 
   switch (config.name) {
+    case "codex-oauth":
+      return new CodexOAuthAdapter({ auth: new CodexOAuthAuth() });
     case "anthropic":
       return new AnthropicAdapter({ apiKey, defaultModel: model });
     case "openai":

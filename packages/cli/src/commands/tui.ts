@@ -36,6 +36,7 @@ interface TuiBootstrapResult {
 const VALID_PROVIDERS = [
   "claude",
   "codex",
+  "codex-oauth",
   "opencode",
   "anthropic",
   "openai",
