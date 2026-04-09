@@ -268,10 +268,36 @@ describe("run command", () => {
         }),
       );
     });
+
+    it("forwards --agent to runCommand flags", async () => {
+      process.argv = [
+        process.argv[0] ?? "bun",
+        process.argv[1] ?? "kiln",
+        "run",
+        "ship",
+        "it",
+        "--provider",
+        "claude",
+        "--agent",
+        "planner",
+      ];
+
+      await createCli(MOCK_APP_CONFIG);
+
+      expect(runCommandMock).toHaveBeenCalledTimes(1);
+      expect(runCommandMock).toHaveBeenCalledWith(
+        MOCK_APP_CONFIG,
+        "ship it",
+        expect.objectContaining({
+          provider: "claude",
+          agent: "planner",
+        }),
+      );
+    });
   });
 
   describe("help output", () => {
-    it("includes direct providers and --model option", async () => {
+    it("includes direct providers and run options", async () => {
       const output: string[] = [];
       const consoleSpy = vi.spyOn(console, "log").mockImplementation((msg: unknown) => {
         output.push(String(msg));
@@ -290,6 +316,7 @@ describe("run command", () => {
 
       const text = output.join("\n");
       expect(text).toContain("--model");
+      expect(text).toContain("--agent");
       expect(text).toContain("openrouter");
       expect(text).toContain("ollama");
 

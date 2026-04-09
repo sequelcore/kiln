@@ -12,6 +12,12 @@ import type {
   KilnPermissionPolicy,
 } from "../wrapper/index.js";
 import type { KilnAppConfig } from "../config.js";
+import { defaultBuildSystemPrompt } from "../config.js";
+import {
+  findAgent,
+  loadAgentDefinitions,
+  type KilnAgentDefinition,
+} from "../application/agent-loader.js";
 import {
   computeEvalScore,
   printContextGovernancePreview,
@@ -40,6 +46,7 @@ export interface RunFlags {
   readonly apiKey?: string;
   readonly provider?: string;
   readonly model?: string;
+  readonly agent?: string;
   readonly permissionPolicy?: KilnPermissionPolicy;
   readonly isolate?: boolean;
   readonly resume?: boolean;
@@ -70,6 +77,27 @@ function buildConfig(flags: RunFlags, mode: SessionMode): WrapperConfig {
   };
 }
 
+function appendAgentInstructionsToSystemPrompt(
+  appConfig: KilnAppConfig,
+  agent?: KilnAgentDefinition,
+): KilnAppConfig {
+  const instructions = agent?.instructions?.trim();
+  if (!instructions) {
+    return appConfig;
+  }
+
+  return {
+    ...appConfig,
+    buildSystemPrompt: (opts) => {
+      const basePrompt = (appConfig.buildSystemPrompt ?? defaultBuildSystemPrompt)(opts);
+      if (basePrompt.trim().length === 0) {
+        return instructions;
+      }
+      return `${basePrompt}\n\n${instructions}`;
+    },
+  };
+}
+
 function normalizeTaskKey(task: string): string {
   return task
     .trim()
@@ -86,18 +114,31 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
   }
 
   const mode = resolveMode(flags);
+  const cwd = process.cwd();
+  let resolvedAgent: KilnAgentDefinition | undefined;
+  if (flags.agent) {
+    const definitions = await loadAgentDefinitions(cwd);
+    resolvedAgent = findAgent(definitions, flags.agent);
+    if (!resolvedAgent) {
+      console.error(`Error: Agent "${flags.agent}" not found in .kiln/agents/ or ~/.kiln/agents/`);
+      process.exit(1);
+    }
+  }
+
+  const effectiveModel = flags.model ?? resolvedAgent?.model;
   const config = buildConfig(flags, mode);
+  const runtimeAppConfig = appendAgentInstructionsToSystemPrompt(appConfig, resolvedAgent);
   const sessionId = randomUUID();
   const { registry, worktreeManager } = createDefaultRegistry();
-  const contextArtifactCache: ContextArtifactCache = await getProjectContextArtifactCache(process.cwd());
-  const manager = new SessionManager(config, appConfig, contextArtifactCache, worktreeManager);
+  const contextArtifactCache: ContextArtifactCache = await getProjectContextArtifactCache(cwd);
+  const manager = new SessionManager(config, runtimeAppConfig, contextArtifactCache, worktreeManager);
   const preferredProvider = config.provider as ProviderId | undefined;
   const resumeSessionId = await resolveResumeSessionId(
-    process.cwd(),
+    cwd,
     flags.resume,
     preferredProvider,
   );
-  const transcriptStore = new TranscriptStore(process.cwd());
+  const transcriptStore = new TranscriptStore(cwd);
   const resumedMeta = resumeSessionId
     ? await transcriptStore.readMeta(resumeSessionId)
     : null;
@@ -109,7 +150,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
   try {
     context = await manager.prepare(
       task,
-      process.cwd(),
+      cwd,
       undefined,
       flags.isolate,
       resumeSessionId,
@@ -168,7 +209,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     task,
     systemPrompt: context.systemPrompt,
     mcpServerEntryPath: context.mcpServerEntryPath,
-    cwd: process.cwd(),
+    cwd,
     env,
     permissionPolicy: config.permissionPolicy,
     resumeSessionId: context.resumeSessionId,
@@ -178,14 +219,14 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     outputSchema: flags.outputSchema,
     addDir: flags.addDir,
     localProvider: flags.localProvider,
-    model: flags.model,
+    model: effectiveModel,
   };
 
   const sessionHooks = new SessionHooks(appConfig.kilnYaml?.hooks, {
     sessionId,
     workingDirectory: context.workingDirectory,
   });
-  const approvalMemoryStore: ApprovalMemoryStore = new ApprovalMemoryStoreImpl(process.cwd());
+  const approvalMemoryStore: ApprovalMemoryStore = new ApprovalMemoryStoreImpl(cwd);
 
   const shutdown = (): void => {
     void cleanupRegistry.runAll();
@@ -212,6 +253,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     requirements,
     sessionConfig,
     permissionPolicy: config.permissionPolicy,
+    permissionAgent: resolvedAgent?.name,
     sessionId: approvalMemorySessionId,
     approvalMemoryStore,
     env,
@@ -278,10 +320,10 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
       };
       contextArtifactCache.set(artifact);
       const projectArtifact: ContextArtifact = {
-        key: `project-summary:${process.cwd()}`,
+        key: `project-summary:${cwd}`,
         kind: "project-summary",
         content: [
-          `Project path: ${process.cwd()}`,
+          `Project path: ${cwd}`,
           `Domain: ${context.domain.displayName}`,
           `Last successful provider: ${successfulProviderId ?? "unknown"}`,
           `Latest task: ${task}`,
@@ -292,7 +334,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
       };
       contextArtifactCache.set(projectArtifact);
       const planArtifact: ContextArtifact = {
-        key: `plan-summary:${process.cwd()}:${normalizeTaskKey(task)}`,
+        key: `plan-summary:${cwd}:${normalizeTaskKey(task)}`,
         kind: "plan-summary",
         content: [
           `Task pattern: ${task}`,
@@ -308,7 +350,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
       contextArtifactCache.set(planArtifact);
       const touchedFiles = extractTouchedFilePaths(exactArtifacts);
       for (const filePath of touchedFiles.slice(0, 5)) {
-        const moduleArtifact = await buildModuleSummaryArtifact(process.cwd(), filePath);
+        const moduleArtifact = await buildModuleSummaryArtifact(cwd, filePath);
         if (moduleArtifact) {
           contextArtifactCache.set(moduleArtifact);
         }
@@ -324,7 +366,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
 
     if (shouldAttemptSkillGeneration && config.apiKey) {
       try {
-        const skillsDir = join(process.cwd(), ".kiln", "skills");
+        const skillsDir = join(cwd, ".kiln", "skills");
         const generator = new SkillGenerator({
           provider: new AnthropicAdapter({ apiKey: config.apiKey }),
           registry: new (await import("@kilnai/core")).SkillRegistry(),
@@ -378,7 +420,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
       description: g.name,
       required: g.required ?? true,
     }));
-    verificationResult = await manager.runVerification(mappedGates, process.cwd());
+    verificationResult = await manager.runVerification(mappedGates, cwd);
   }
 
   const evalScore = (() => {

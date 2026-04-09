@@ -716,24 +716,8 @@ gateway config to run a simple agent loses to one that doesn't.
 
 #### 11d. Agent Definitions as Markdown
 
-- `~/.kiln/agents/*.md` (global) + `.kiln/agents/*.md` (project)
-- Format: YAML frontmatter + markdown body (same as SKILL.md):
-  ```markdown
-  ---
-  name: coder
-  role: Senior TypeScript developer
-  tools: [bash, edit, read, glob, grep]
-  model: claude-sonnet-4-6
-  skills: [sequel-spring, code-reviewer]
-  ---
-  Additional instructions for this agent...
-  ```
-- Loaded by config loader, merged into agent registry
-- Available in TUI agent picker and `kiln run --agent <name>`
-
-**Files:** New `cli/src/config/agent-loader.ts`
-**Tests:** Parse frontmatter, merge with config agents, missing directory handling
-**Reference:** ECC `agents/*.md`, OpenCode `agents/*.md`, OpenClaw `SOUL.md`
+**Status:** COMPLETE
+Markdown agent profiles now load from `~/.kiln/agents/*.md` and `<project>/.kiln/agents/*.md`, with project definitions overriding global ones by `name`. `kiln run --agent <name>` resolves the profile, applies its default `model` when `--model` is absent, and appends the markdown body to the generated system prompt.
 
 #### 11e. AGENTS.md Generation
 

@@ -25,7 +25,7 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
 
   const COMMANDS: Record<string, string> = {
     init: `Initialize ${APP_NAME} in the current project (--force, --non-interactive, --domain, --provider, --channels, --team-mode)`,
-    run: "Start a CLI-only coding session with Claude Code (use --plan for plan mode)",
+    run: "Start a CLI-only coding session with Claude Code (use --plan for plan mode, --agent for agent profile)",
     plan: "Start a planning session before execution (3-phase workflow)",
     status: "Show current phase, tasks, and costs",
     memory: "Browse and search memory layers",
@@ -53,6 +53,7 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     console.log("  --api-key    Anthropic API key (required for Mode A)");
     console.log("  --provider   LLM provider (claude, codex, opencode, anthropic, openai, deepseek, openrouter, ollama)");
     console.log("  --model      Model override for the selected provider");
+    console.log("  --agent      Agent name from .kiln/agents or ~/.kiln/agents");
     console.log("  --port       Port override (dev/gateway)");
     console.log("  --playground Open Studio in browser (dev mode)");
     console.log("  --mcp       Start tools command in MCP stdio mode");
@@ -245,8 +246,8 @@ function parsePort(args: readonly string[]): number {
   return 4800;
 }
 
-function parseRunArgs(rawArgs: readonly string[]): { task: string; flags: { apiKey?: string; provider?: string; model?: string; isolate?: boolean; plan?: boolean; ephemeral?: boolean; profile?: string; skipGitRepoCheck?: boolean; outputSchema?: string; addDir?: string; localProvider?: string } } {
-  const flags: { apiKey?: string; provider?: string; model?: string; isolate?: boolean; plan?: boolean; ephemeral?: boolean; profile?: string; skipGitRepoCheck?: boolean; outputSchema?: string; addDir?: string; localProvider?: string } = {};
+function parseRunArgs(rawArgs: readonly string[]): { task: string; flags: { apiKey?: string; provider?: string; model?: string; agent?: string; isolate?: boolean; plan?: boolean; ephemeral?: boolean; profile?: string; skipGitRepoCheck?: boolean; outputSchema?: string; addDir?: string; localProvider?: string } } {
+  const flags: { apiKey?: string; provider?: string; model?: string; agent?: string; isolate?: boolean; plan?: boolean; ephemeral?: boolean; profile?: string; skipGitRepoCheck?: boolean; outputSchema?: string; addDir?: string; localProvider?: string } = {};
   const taskParts: string[] = [];
   let i = 0;
   while (i < rawArgs.length) {
@@ -259,6 +260,9 @@ function parseRunArgs(rawArgs: readonly string[]): { task: string; flags: { apiK
       i += 2;
     } else if (arg === "--model" && i + 1 < rawArgs.length) {
       flags.model = rawArgs[i + 1];
+      i += 2;
+    } else if (arg === "--agent" && i + 1 < rawArgs.length) {
+      flags.agent = rawArgs[i + 1];
       i += 2;
     } else if (arg === "--isolate") {
       flags.isolate = true;
