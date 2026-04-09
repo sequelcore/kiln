@@ -25,6 +25,15 @@
 | `tui` | `KilnGlobalTuiConfig` | Global TUI preferences. |
 | `tui.theme` | `string` | Default TUI theme name. |
 
+## Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `KILN_PROVIDER` | Default provider — overrides `~/.kiln/config.yaml` provider, overridden by `--provider` flag |
+| `KILN_MODEL` | Default model — overrides `~/.kiln/config.yaml` model, overridden by `--model` flag |
+
+Priority order: CLI flag > environment variable > `~/.kiln/config.yaml` > built-in default.
+
 ## Example
 
 ```yaml

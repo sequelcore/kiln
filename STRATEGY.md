@@ -686,15 +686,9 @@ Project `kiln.yaml` now merges cleanly over `~/.kiln/config.yaml` via `packages/
 
 #### 11c. Zero-Config First Run
 
-- `kiln tui` works with zero files: `--provider openrouter --model deepseek-r1`
-- `KILN_PROVIDER` + `KILN_MODEL` env vars as alternative to flags
-- First-run wizard: interactive provider selection → creates `~/.kiln/config.yaml`
-- `kiln init` creates project `kiln.yaml` from template (existing command, enhanced)
-- Target: < 60 seconds from install to first conversation
-
-**Files:** Modifications to `cli/src/commands/tui.ts`, `cli/src/commands/init.ts`
-**Tests:** Cold start with no files, env var resolution, wizard flow
-**Reference:** OpenClaw first-run wizard, Claude Code zero-config with `ANTHROPIC_API_KEY`
+**Status:** COMPLETE
+Env-aware runtime defaults now resolve through `packages/cli/src/config/env-config.ts`: CLI flag > `KILN_PROVIDER`/`KILN_MODEL` > `~/.kiln/config.yaml` > undefined.
+`packages/cli/src/commands/tui.ts` now resolves provider from env/global config and theme from `tui.theme`; `packages/cli/src/commands/run.ts` resolves model from env/global config.
 
 #### 11d. Agent Definitions as Markdown
 
