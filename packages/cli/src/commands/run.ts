@@ -32,6 +32,8 @@ import { runSession } from "../application/run-session.js";
 import { ApprovalMemoryStore as ApprovalMemoryStoreImpl } from "../wrapper/index.js";
 import { TranscriptStore } from "../wrapper/session-store.js";
 import type { ResumeOutcome } from "../wrapper/index.js";
+import { resolveEffectiveModel } from "../config/env-config.js";
+import { readGlobalConfig } from "../config/global-config.js";
 import {
   SkillGenerator,
   AnthropicAdapter,
@@ -125,7 +127,8 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     }
   }
 
-  const effectiveModel = flags.model ?? resolvedAgent?.model;
+  const globalConfig = readGlobalConfig();
+  const effectiveModel = resolveEffectiveModel(flags.model, globalConfig?.model) ?? resolvedAgent?.model;
   const config = buildConfig(flags, mode);
   const runtimeAppConfig = appendAgentInstructionsToSystemPrompt(appConfig, resolvedAgent);
   const sessionId = randomUUID();

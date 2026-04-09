@@ -1,6 +1,8 @@
 import type { KilnAppConfig } from "../config.js";
 import { inferResumeStrategyFeedback } from "../application/resume-strategy-feedback.js";
 import { collectResumeSignals, decideResumeStrategy } from "../application/resume-strategy-policy.js";
+import { readGlobalConfig } from "../config/global-config.js";
+import { resolveEffectiveProvider } from "../config/env-config.js";
 import { createDefaultRegistry } from "../wrapper/session-registry.js";
 import { SessionStore, TranscriptStore } from "../wrapper/session-store.js";
 import type { ResumeFeedback, ResumeStrategy } from "../wrapper/index.js";
@@ -420,7 +422,8 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   const { registry } = createDefaultRegistry();
 
   const cwd = flags.cwd ?? process.cwd();
-  const provider = parseProvider(flags.provider);
+  const globalConfig = readGlobalConfig();
+  const provider = parseProvider(resolveEffectiveProvider(flags.provider, globalConfig?.provider));
   const contextArtifactCache = await getProjectContextArtifactCache(cwd);
 
   // Resolve domain display name from app config if available
@@ -475,7 +478,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
 
   for (const [ev, handler] of handlers) process.on(ev, handler);
 
-  const resolvedTheme = themes[flags.theme ?? "kiln-dark"] ?? kilnDark;
+  const resolvedTheme = themes[flags.theme ?? globalConfig?.tui?.theme ?? "kiln-dark"] ?? kilnDark;
 
   // Session list loader for sidebar browser
   async function loadSessionList() {
