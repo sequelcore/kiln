@@ -3,11 +3,13 @@ import { loadKilnConfig } from "../config/config-merger.js";
 import { syncPermissions } from "../sync/security-sync.js";
 import { syncHooks } from "../sync/hook-sync.js";
 import { syncAgentsMd } from "../sync/agents-md-sync.js";
+import { syncAgents } from "../sync/agent-sync.js";
 import type { KilnAppConfig } from "../config.js";
 
 export interface SyncFlags {
   readonly permissions?: boolean;
   readonly hooks?: boolean;
+  readonly agents?: boolean;
   readonly agentsMd?: boolean;
   readonly all?: boolean;
 }
@@ -19,8 +21,9 @@ export async function syncCommand(
 ): Promise<void> {
   const syncPermissions_ = args.includes("--permissions");
   const syncHooks_ = args.includes("--hooks");
+  const syncAgents_ = args.includes("--agents");
   const syncAgentsMd_ = args.includes("--agents-md");
-  const syncAll = !syncPermissions_ && !syncHooks_ && !syncAgentsMd_;
+  const syncAll = !syncPermissions_ && !syncHooks_ && !syncAgents_ && !syncAgentsMd_;
 
   const root = process.cwd();
   const kilnDir = join(root, ".kiln");
@@ -33,6 +36,7 @@ export async function syncCommand(
 
   let permResult: Awaited<ReturnType<typeof syncPermissions>> | null = null;
   let hookResult: Awaited<ReturnType<typeof syncHooks>> | null = null;
+  let agentResult: Awaited<ReturnType<typeof syncAgents>> | null = null;
   let agentsMdResult: Awaited<ReturnType<typeof syncAgentsMd>> | null = null;
 
   const allErrors: string[] = [];
@@ -47,6 +51,11 @@ export async function syncCommand(
     allErrors.push(...hookResult.errors);
   }
 
+  if (syncAll || syncAgents_) {
+    agentResult = await syncAgents(root);
+    allErrors.push(...agentResult.errors);
+  }
+
   if (syncAll || syncAgentsMd_) {
     agentsMdResult = await syncAgentsMd(root);
     allErrors.push(...agentsMdResult.errors);
@@ -56,7 +65,7 @@ export async function syncCommand(
     ? " (Windows: Codex hooks skipped)"
     : "";
 
-  if (permResult || hookResult || agentsMdResult) {
+  if (permResult || hookResult || agentResult || agentsMdResult) {
     console.log("\nSync Results:");
     console.log("─".repeat(40));
 
@@ -73,6 +82,12 @@ export async function syncCommand(
       } else {
         console.log(`Codex hook:              ${hookResult.codexHook ? "OK" : "FAIL"}`);
       }
+    }
+
+    if (agentResult) {
+      console.log(`Agent sync (Claude Code): ${agentResult.claude ? "OK" : "FAIL"}`);
+      console.log(`Agent sync (Codex):       ${agentResult.codex ? "OK" : "FAIL"}`);
+      console.log(`Agent sync (OpenCode):    ${agentResult.opencode ? "OK" : "FAIL"}`);
     }
 
     if (agentsMdResult) {
@@ -96,12 +111,16 @@ export async function syncCommand(
   const hookAllFailed = hookResult
     ? !hookResult.claudeHook && (!hookResult.codexHook || hookResult.skippedWindows)
     : false;
+  const agentAllFailed = agentResult
+    ? !agentResult.claude && !agentResult.codex && !agentResult.opencode
+    : false;
   const agentsMdAllFailed = agentsMdResult
     ? !agentsMdResult.written
     : false;
 
   const allFailed = (syncAll || syncPermissions_) && permAllFailed
     && (syncAll || syncHooks_) && hookAllFailed
+    && (syncAll || syncAgents_) && agentAllFailed
     && (syncAll || syncAgentsMd_) && agentsMdAllFailed;
 
   if (allFailed) {
