@@ -681,17 +681,8 @@ Global config now lives in `packages/cli/src/config/global-config.ts` with `Kiln
 
 #### 11b. Project Config (`./kiln.yaml`) with Merge Semantics
 
-- Project-specific overrides committed to git
-- Merge rules (explicit, documented):
-  - Scalar fields: project overrides global (model, provider, theme)
-  - Agent definitions: deep merge (project adds skills/tools to global agent)
-  - MCP servers: additive (both global and project servers active)
-  - Permission rules: project can tighten, never loosen global policy
-- `loadKilnConfig(projectPath)`: returns merged config from global + project
-
-**Files:** New `cli/src/config/config-merger.ts`, modifications to existing `cli/src/config.ts`
-**Tests:** All merge scenarios: override, additive, tighten-only permissions, missing layers
-**Reference:** Codex `ConfigLayerStack` (system > user > project), OpenCode 4-tier precedence
+**Status:** COMPLETE
+Project `kiln.yaml` now merges cleanly over `~/.kiln/config.yaml` via `packages/cli/src/config/config-merger.ts`, with scalar override semantics and additive MCP server merging exposed through `loadKilnConfig(projectPath)`.
 
 #### 11c. Zero-Config First Run
 

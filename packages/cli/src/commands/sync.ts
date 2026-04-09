@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { readKilnYaml } from "../kiln-yaml.js";
+import { loadKilnConfig } from "../config/config-merger.js";
 import { syncPermissions } from "../sync/security-sync.js";
 import { syncHooks } from "../sync/hook-sync.js";
 import { syncAgentsMd } from "../sync/agents-md-sync.js";
@@ -25,7 +25,7 @@ export async function syncCommand(
   const root = process.cwd();
   const kilnDir = join(root, ".kiln");
 
-  const kilnYaml = readKilnYaml(kilnDir);
+  const kilnYaml = await loadKilnConfig(root);
   if (!kilnYaml) {
     console.error("Error: No kiln.yaml found in .kiln directory");
     process.exit(1);

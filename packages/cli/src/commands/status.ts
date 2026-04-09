@@ -1,13 +1,13 @@
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { readKilnYaml } from "../kiln-yaml.js";
+import { loadKilnConfig } from "../config/config-merger.js";
 import type { KilnAppConfig } from "../config.js";
 
-export function statusCommand(_appConfig: KilnAppConfig, projectPath?: string): void {
+export async function statusCommand(_appConfig: KilnAppConfig, projectPath?: string): Promise<void> {
   const root = projectPath ?? process.cwd();
   const kilnDir = join(root, ".kiln");
 
-  const config = readKilnYaml(kilnDir);
+  const config = await loadKilnConfig(root);
   if (!config) {
     console.log(`Not initialized. Run 'kiln init' first.`);
     return;

@@ -1,7 +1,7 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadAgentDefinitions } from "../application/agent-loader.js";
-import { readKilnYaml } from "../kiln-yaml.js";
+import { loadKilnConfig } from "../config/config-merger.js";
 
 export interface AgentsMdSyncResult {
   written: boolean;
@@ -14,7 +14,7 @@ export async function syncAgentsMd(projectPath: string): Promise<AgentsMdSyncRes
 
   try {
     const agents = await loadAgentDefinitions(projectPath);
-    const kilnYaml = readKilnYaml(join(projectPath, ".kiln"));
+    const kilnYaml = await loadKilnConfig(projectPath);
 
     const domain = kilnYaml?.domain ?? "default";
     const provider = kilnYaml?.provider ?? "claude";
