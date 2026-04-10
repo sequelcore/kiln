@@ -12,7 +12,7 @@ The `kiln tui` command currently accepts these flags from `packages/cli/src/comm
 
 | Flag | Purpose |
 |------|---------|
-| `--provider <name>` | Select the initial provider. Supported values are `claude`, `codex`, `opencode`, `anthropic`, `openai`, `deepseek`, `openrouter`, and `ollama`. |
+| `--provider <name>` | Select the initial provider. Supported values are `claude`, `codex`, `opencode`, `codex-oauth`, `anthropic`, `openai`, `deepseek`, `openrouter`, and `ollama`. |
 | `--theme <name>` | Select a named TUI theme. |
 | `--port <number>` | Override the local TUI gateway port when gateway transport is used. |
 | `--plan` | Start the gateway session with plan mode enabled. |
@@ -107,11 +107,12 @@ Printable-first key routing means normal printable characters are appended to th
 The provider picker is split into two sections:
 
 - `Harness`: `claude`, `codex`, `opencode`
-- `Direct API`: `anthropic`, `openai`, `deepseek`, `openrouter`, `ollama`
+- `Direct API`: `codex-oauth`, `anthropic`, `openai`, `deepseek`, `openrouter`, `ollama`
 
-`codex-oauth` is a direct API provider, not a local executable tool backend.
-It can be selected for routing and text generation, but local file-write and
-tool-execution smoke tests must use the harness `codex` path.
+`codex-oauth` is still selected from the direct-provider family, but it is no
+longer text-only. Kiln now routes it through an executable direct-provider
+session, so local tool execution, approvals, and file-change telemetry come
+from Kiln's own runtime rather than from an external harness process.
 
 Selecting a provider in the picker sends a `{ type: "provider", provider, model? }` frame through the WebSocket session. The gateway updates the injected session manager with `setProvider()` and, when present, `setModel()`, then acknowledges with `{ type: "provider_changed", provider }`.
 
@@ -182,8 +183,10 @@ The `done` frame also carries:
 - `runtimeContinuity` sidebar metadata for the active provider
 
 For local-write verification, trust the routed provider shown in the header and
-the file-change events emitted by the runtime. Direct API providers remain text
-providers; harness providers are the ones that exercise Kiln-local execution.
+the file-change events emitted by the runtime. Harness providers and
+`codex-oauth` now exercise Kiln-local execution; the remaining direct API
+providers still stay text-oriented unless they are wired to an executable
+direct-session path.
 
 This path keeps the same safety, session, runtime-summary, and cost-tracking machinery in place instead of adding a second terminal-only orchestration loop.
 

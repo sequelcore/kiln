@@ -7,7 +7,7 @@ user-visible capabilities match real execution behavior.
 
 ## Current Status (2026-04-10)
 
-### Completed and verified
+### Closed and verified
 
 - Approval flow is session-scoped end to end instead of singleton/global.
 - TUI gateway approval wiring now reflects real runtime session state.
@@ -26,53 +26,64 @@ user-visible capabilities match real execution behavior.
 - Context-governance task-shape normalization was centralized and reused.
 - Duplicate CLI/runtime context-artifact cache implementation was removed in
   favor of one authoritative runtime-owned implementation.
-- Verification previously passed for the implemented hotfix slices:
-  - `bun run typecheck`
-  - `bun run test`
+- `codex-oauth` now runs through a Kiln-local executable provider path instead
+  of the old text-only direct-provider route.
+- The `codex-oauth` live-session output freeze was fixed. Multi-turn live turns
+  now produce visible assistant output instead of hanging in `thinking...`.
 
-### Deferred urgent item
+### Verification completed
 
-- `codex-oauth` is still documented and behaving as a direct API provider path,
-  not a Kiln-local executable tool backend.
-- Result: in TUI, a turn routed through `codex-oauth` can generate tool intent
-  in model output, but it cannot complete real local write/edit execution the
-  way harness `codex` can.
-- This is now an explicit remaining hotfix item. It is not resolved in the
-  current branch state and must not be described as resolved in docs or status
-  summaries.
+- `bun run typecheck`
+- `bun run build`
+- Focused runtime, CLI, and core tests for the `codex-oauth` executable path,
+  approval flow, and live-session adapter behavior
 
 ## What This Means Operationally
 
-- Use harness providers (`codex`, `claude`, `opencode`) for live local
-  tool/write verification.
-- Do not treat `codex-oauth` as equivalent to harness `codex` for filesystem
-  execution until the runtime path is actually wired.
+- Harness providers (`codex`, `claude`, `opencode`) remain valid local
+  execution backends.
+- `codex-oauth` is now also a real Kiln-local executable provider path.
+- Other direct API providers (`anthropic`, `openai`, `deepseek`, `openrouter`,
+  `ollama`) still remain direct/text-oriented unless they are explicitly wired
+  to an executable direct session.
 - TUI route labels should still be trusted as route truth; they do not imply
   identical execution substrates across providers.
 
-## Next Required Hotfix Slice
+## Remaining Follow-Up Item
 
-1. Decide whether `codex-oauth` should become a true executable provider path
-   through Kiln-owned tool execution, or remain direct/text-only.
-2. If it remains direct/text-only, keep docs strict and do not expose it as a
-   local tool/write backend.
-3. If it becomes executable, wire it through one real execution substrate, add
-   regression tests, then update docs after behavior is proven.
+The structural hotfix is closed, but one follow-up issue remains and should be
+handled as a separate usability slice:
 
-## Files Most Relevant To The Deferred Item
+- `codex-oauth` tool use still requires overly explicit prompts in some normal
+  conversations.
+- Natural-language requests such as "search it yourself" can still lead to poor
+  tool selection, invalid repeated tool calls, or overly literal requests for
+  user-supplied paths that Kiln already knows.
+- This is no longer a session/runtime-truth bug. It is now a tool-UX and agent
+  behavior problem: prompt guidance, tool mediation, and invalid-call recovery
+  still need improvement.
 
-- `packages/cli/src/wrapper/provider-session.ts`
-- `packages/cli/src/wrapper/session-registry.ts`
+## Next Recommended Slice
+
+1. Improve `codex-oauth` tool guidance for normal workspace-aware requests.
+2. Prevent repeated invalid tool retries for the same malformed call.
+3. Bias file discovery flows toward sensible `glob -> read -> summarize`
+   behavior without requiring API-shaped user prompts.
+4. Re-run manual TUI end-to-end validation after those UX fixes land.
+
+## Files Most Relevant To The Follow-Up
+
 - `packages/core/src/agents/infrastructure/codex-oauth.ts`
+- `packages/cli/src/wrapper/executable-provider-session.ts`
 - `packages/runtime/src/session/mode-b-orchestrator.ts`
-- `packages/runtime/src/gateway/tui-gateway.ts`
+- `packages/cli/src/wrapper/session-registry.ts`
 - `docs/guides/tui.md`
 - `docs/guides/tool-use.md`
-- `docs/changelog.md`
+- `docs/guides/cli-wrapper.md`
 
 ## Guardrails
 
-- Do not claim the hotfix is fully closed while the `codex-oauth` execution gap
-  remains open.
-- Do not restore fake capability language in prompts, docs, or UI.
-- Do not update docs ahead of real behavior.
+- Do not regress `codex-oauth` back to a text-only path.
+- Do not describe all direct API providers as executable; that is still false.
+- Do not claim the natural-language tool-UX follow-up is solved until it is
+  validated with normal prompts in the TUI.

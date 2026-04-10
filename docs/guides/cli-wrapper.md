@@ -4,12 +4,14 @@
 
 Kiln wraps multiple execution backends behind a single `IKilnSession` contract. That keeps the run loop, transcript handling, approval memory, reporting, and provider selection logic independent from any one agent runtime.
 
-There are two backend families:
+There are three backend families:
 
 - harness backends: Claude Code, Codex CLI, OpenCode
-- direct API backends: Anthropic, OpenAI, OpenRouter, DeepSeek, Ollama
+- executable direct backend: `codex-oauth`
+- text-oriented direct API backends: Anthropic, OpenAI, OpenRouter, DeepSeek,
+  Ollama
 
-Sources: `packages/cli/src/wrapper/session.ts`, `packages/cli/src/wrapper/session-registry.ts`, `packages/cli/src/wrapper/provider-session.ts`, `packages/cli/src/wrapper/provider-context.ts`, `packages/cli/src/wrapper/preamble-builder.ts`, `packages/cli/src/commands/run.ts`, `packages/cli/src/commands/tui.ts`
+Sources: `packages/cli/src/wrapper/session.ts`, `packages/cli/src/wrapper/session-registry.ts`, `packages/cli/src/wrapper/provider-session.ts`, `packages/cli/src/wrapper/executable-provider-session.ts`, `packages/cli/src/wrapper/provider-context.ts`, `packages/cli/src/wrapper/preamble-builder.ts`, `packages/cli/src/commands/run.ts`, `packages/cli/src/commands/tui.ts`
 
 ## `IKilnSession`
 
@@ -68,7 +70,7 @@ The harness path shells out to external agent runtimes:
 
 Harness backends are the path to use when you need runtime-native MCP support, provider-owned resume semantics, or the backend's own tool execution surface.
 
-## Direct API backends
+## Text-oriented direct API backends
 
 `ProviderSession` is the direct-API implementation of `IKilnSession`. It talks to Kiln's provider adapters directly instead of launching a subprocess.
 
@@ -279,9 +281,30 @@ Current direct-provider limitation:
 
 - `ProviderSession` does not support session resume
 - `providerSessionId` is unset
-- direct API backends participate in transcript persistence, but not in provider-native reattachment
+- text-oriented direct API backends participate in transcript persistence, but not in provider-native reattachment
 
 Harness backends remain the path for native resume behavior.
+
+## Executable direct backend
+
+`codex-oauth` does not use `ProviderSession`. It is routed through
+`ExecutableProviderSession`, which composes:
+
+- direct model inference through `CodexOAuthAdapter`
+- Kiln's own runtime tool loop for execution, approvals, and file-change events
+
+This keeps transport and execution concerns separated:
+
+- the provider still supplies model output and tool intent
+- Kiln owns concrete local tool execution
+- the session layer composes both into one `IKilnSession` stream
+
+Operationally, that means `codex-oauth` behaves differently from the other
+direct API providers:
+
+- it can execute Kiln-local tools
+- it can emit `tool_use`, `tool_result`, and `file_changed`
+- it still does not become a harness backend or gain provider-native resume
 
 ## System prompt construction
 
@@ -353,7 +376,7 @@ Run `kiln sync --agents-md` (or `kiln sync` with no flags) to generate an `AGENT
 
 ## TUI integration
 
-`kiln tui` can select both harness and direct API providers. The provider picker is split into:
+`kiln tui` can select harness, executable direct, and text-oriented direct API providers. The provider picker is split into:
 
 - Harness
 - Direct API
@@ -372,10 +395,15 @@ In gateway mode, the TUI receives both the selected provider and the final route
 Current direct API backend limitations:
 
 - no MCP support
-- no native tool execution surface in V1
+- text-oriented direct providers do not execute local tools
 - no provider-native session resume
 - computed cost mode reports `usd: 0` in V1
 - `tool_result` events currently do not carry a provider-supplied tool name
+
+Current `codex-oauth` limitation:
+
+- executable local tools work, but natural-language tool selection still needs
+  better guidance and recovery for malformed tool calls
 
 These are implementation boundaries, not documentation gaps.
 
