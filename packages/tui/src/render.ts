@@ -141,12 +141,18 @@ export function renderSidebarProvider(
   ui: UIComponents,
   domain: string
 ): void {
-  const model = state.currentModel;
+  const isResponding = state.status === "running" && !!state.respondingProvider;
+  const provider = isResponding ? (state.respondingProvider ?? state.currentProvider) : state.currentProvider;
+  const model = isResponding ? (state.respondingModel ?? state.currentModel) : state.currentModel;
   const modelStr = model ? ` · ${model}` : "";
   const planBadge = state.planMode ? ` ${fg(theme.warning)("PLAN")}` : "";
-  const routeMode = state.routeMode === "auto" ? " auto" : " via user";
+  const routeMode = isResponding
+    ? " responding"
+    : state.routeMode === "auto"
+      ? " auto"
+      : " via user";
   const routeStr = state.planMode ? "" : fg(theme.textMuted)(routeMode);
-  ui.sidebarProviderText.content = t`${fg(theme.accent)("[" + state.currentProvider + "]")}${planBadge} ${fg(theme.text)(domain + modelStr)}${routeStr}`;
+  ui.sidebarProviderText.content = t`${fg(theme.accent)("[" + provider + "]")}${planBadge} ${fg(theme.text)(domain + modelStr)}${routeStr}`;
 }
 
 /**

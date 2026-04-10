@@ -36,6 +36,8 @@ export interface ReactiveState {
   providerPickerIndex: number;
   currentProvider: string;
   currentModel: string;
+  respondingProvider?: string;
+  respondingModel?: string;
   currentActivity: ActivitySnapshot;
   toolCallCounts: Record<string, number>;
   /** Per-provider cumulative cost in USD. Key: provider name (e.g. "claude"). */
@@ -156,6 +158,8 @@ export function createReactiveState(): ReactiveState {
     providerPickerIndex: 0,
     currentProvider: "claude",
     currentModel: "",
+    respondingProvider: undefined,
+    respondingModel: undefined,
     currentActivity: { phase: "" },
     toolCallCounts: {},
     perProviderCost: {},

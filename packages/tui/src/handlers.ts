@@ -47,6 +47,8 @@ export interface AssistantData {
   node: TextRenderable | MarkdownRenderable | null;
   content: string;
   markdown: MarkdownRenderable | null;
+  provider: string;
+  model: string;
 }
 
 /**
@@ -86,8 +88,8 @@ export async function handleTextDelta(
       ctx.chatScrollBox.content.add(assistantBox);
 
       // Routing header — shows which provider (+ model if known) handled this response
-      const provider = ctx.state.currentProvider;
-      const model = ctx.state.currentModel;
+      const provider = assistantData.provider;
+      const model = assistantData.model;
       const routeLabel = model ? `${provider} · ${model}` : provider;
       const headerNode = new TextRenderable(ctx.renderer, {
         content: t`${fg(ctx.theme.textMuted)("[" + routeLabel + "]")}`,
@@ -222,7 +224,7 @@ export function handleCostUpdate(
   if (outputTokens !== undefined) update(ctx.state, "outputTokens", ctx.state.outputTokens + outputTokens);
 
   // Per-provider attribution
-  const provider = ctx.state.currentProvider;
+  const provider = ctx.state.respondingProvider ?? ctx.state.currentProvider;
   ctx.state.perProviderCost[provider] = (ctx.state.perProviderCost[provider] ?? 0) + usd;
   const prev = ctx.state.perProviderTokens[provider] ?? { input: 0, output: 0 };
   ctx.state.perProviderTokens[provider] = {
@@ -306,6 +308,7 @@ export function handleCompleted(
   thinkingNodeRef: { node: TextRenderable | null },
   renderSidebarCost: () => void,
   renderSidebarTurns: () => void,
+  renderSidebarProvider: () => void,
   renderCommandBarStatus: () => void,
   renderSidebarResume?: () => void
 ): void {
@@ -320,7 +323,8 @@ export function handleCompleted(
   update(ctx.state, "thinking", "");
   update(ctx.state, "turns", ctx.state.turns + 1);
   if (runtimeContinuity?.strategy) {
-    ctx.state.runtimeContinuityByProvider[ctx.state.currentProvider] = runtimeContinuity;
+    const provider = ctx.state.respondingProvider ?? ctx.state.currentProvider;
+    ctx.state.runtimeContinuityByProvider[provider] = runtimeContinuity;
   }
 
   if (spinner.interval) {
@@ -333,8 +337,11 @@ export function handleCompleted(
     thinkingNodeRef.node = null;
   }
 
+  update(ctx.state, "respondingProvider", undefined);
+  update(ctx.state, "respondingModel", undefined);
   renderSidebarCost();
   renderSidebarTurns();
+  renderSidebarProvider();
   renderSidebarResume?.();
   renderCommandBarStatus();
 }
@@ -344,7 +351,8 @@ export function handleCompleted(
  */
 export function handleError(
   ctx: HandlerContext,
-  message: string
+  message: string,
+  renderSidebarProvider?: () => void
 ): void {
   const errMsg = createMessage("error", message);
   const msgBox = new BoxRenderable(ctx.renderer, {
@@ -367,6 +375,9 @@ export function handleError(
   update(ctx.state, "messages", [...ctx.state.messages, errMsg]);
 
   update(ctx.state, "status", "error");
+  update(ctx.state, "respondingProvider", undefined);
+  update(ctx.state, "respondingModel", undefined);
+  renderSidebarProvider?.();
 }
 
 /**
@@ -399,6 +410,7 @@ export async function sendMessage(
   thinkingNodeRef: { node: TextRenderable | null },
   renderSidebarCost: () => void,
   renderSidebarTurns: () => void,
+  renderSidebarProvider: () => void,
   renderSidebarResume: () => void,
   renderCommandBarStatus: () => void,
   startSpinner: () => void,
@@ -434,8 +446,21 @@ export async function sendMessage(
   startSpinner();
   renderCommandBarStatus();
 
+  const respondingProvider = ctx.state.currentProvider;
+  const respondingModel = ctx.state.currentModel;
+  update(ctx.state, "respondingProvider", respondingProvider);
+  update(ctx.state, "respondingModel", respondingModel);
+  renderSidebarProvider();
+
   const session = await ctx.createSession();
-  const assistantData: AssistantData = { msg: null, node: null, content: "", markdown: null };
+  const assistantData: AssistantData = {
+    msg: null,
+    node: null,
+    content: "",
+    markdown: null,
+    provider: respondingProvider,
+    model: respondingModel,
+  };
 
   try {
     for await (const event of session.run({ prompt: text })) {
@@ -477,6 +502,7 @@ export async function sendMessage(
             thinkingNodeRef,
             renderSidebarCost,
             renderSidebarTurns,
+            renderSidebarProvider,
             renderCommandBarStatus,
             renderSidebarResume,
           );
@@ -490,11 +516,11 @@ export async function sendMessage(
           }
           break;
         case "error":
-          if (event.message) handleError(ctx, event.message);
+          if (event.message) handleError(ctx, event.message, renderSidebarProvider);
           break;
       }
     }
   } catch (err) {
-    handleError(ctx, err instanceof Error ? err.message : String(err));
+    handleError(ctx, err instanceof Error ? err.message : String(err), renderSidebarProvider);
   }
 }
