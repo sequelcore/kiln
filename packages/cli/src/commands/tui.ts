@@ -25,6 +25,7 @@ interface TuiBootstrapOptions {
   readonly flags: TuiFlags;
   readonly sessionManager: MultiProviderSessionManager;
   readonly contextArtifactCache: ContextArtifactCache;
+  readonly systemPrompt: string;
 }
 
 interface TuiBootstrapResult {
@@ -32,6 +33,12 @@ interface TuiBootstrapResult {
   readonly providerModelsRef: { current: Record<string, string[]> };
   shutdown(): void;
 }
+type TuiControlSession = SessionLike & {
+  clear?: () => Promise<void>;
+  switchProvider?: (provider: string, model?: string) => Promise<string>;
+  approve?: (sessionId?: string) => void;
+  reject?: (reason: string, sessionId?: string) => void;
+};
 type ProviderSessionState = { resumeSessionId?: string; providerSessionId?: string };
 type CliSessionFactory = (
   systemPrompt: string,
@@ -46,10 +53,10 @@ function parseProvider(p: string | undefined, providerIds: readonly ProviderId[]
 }
 
 function resolveTuiStartupTransport(_flags: TuiFlags): TuiStartupTransport {
-  if (process.env.KILN_TUI_TRANSPORT?.toLowerCase() === 'gateway') {
-    return 'gateway';
+  if (process.env.KILN_TUI_TRANSPORT?.toLowerCase() === "direct") {
+    return "direct";
   }
-  return "direct";
+  return "gateway";
 }
 
 /**
@@ -110,7 +117,9 @@ export async function makeMultiProviderSessionFactory(
         return activeSession?.providerSessionId;
       },
       run: async function* (options) {
-        const state = providerState.get(currentProvider) ?? {};
+        const providerForTurn = currentProvider;
+        const modelForTurn = currentModel || undefined;
+        const state = providerState.get(providerForTurn) ?? {};
         const resumedFrom = state.resumeSessionId;
         const projectArtifactKey = `project-summary:${cwd}`;
         const sessionArtifactKey = resumedFrom ? `session-summary:${resumedFrom}` : undefined;
@@ -120,82 +129,96 @@ export async function makeMultiProviderSessionFactory(
           keys: [sessionArtifactKey, projectArtifactKey, planArtifactKey],
         });
         const feedback = resumedFrom
-          ? await inferResumeStrategyFeedback(transcriptStore, currentProvider)
+          ? await inferResumeStrategyFeedback(transcriptStore, providerForTurn)
           : undefined;
         const decision = decideResumeStrategy({
           resumeSessionId: resumedFrom,
-          preferredProvider: currentProvider,
+          preferredProvider: providerForTurn,
           signals,
           feedback,
         });
         const resumeStrategy: ResumeStrategy = decision.resumeStrategy;
         const resumeFeedback: ResumeFeedback | undefined = decision.resumeFeedback;
 
-        const resumedSession = registry.createSession(currentProvider, {
+        const resumedSession = registry.createSession(providerForTurn, {
           task: "interactive",
           systemPrompt,
           cwd: sessionCwd || cwd,
           permissionPolicy: { approval: "never", sandbox: "workspace-write" },
           resumeSessionId: decision.shouldUseProviderNativeResume ? resumedFrom : undefined,
-          model: currentModel || undefined,
+          model: modelForTurn,
         });
         activeSession = resumedSession;
+        const capturedId = resumedSession.sessionId;
+        if (typeof (transcriptStore as { init?: unknown }).init === "function") {
+          await transcriptStore.init(capturedId, {
+            kilnSessionId: capturedId,
+            provider: providerForTurn,
+            task: "interactive",
+            startedAt: new Date().toISOString(),
+            resumeStrategy,
+            resumeFeedback,
+            sessionLedger: {
+              currentPhase: "interactive",
+              resumedFrom,
+              workingDirectory: sessionCwd || cwd,
+            },
+          });
+        }
 
-        const originalDispose = resumedSession.dispose.bind(resumedSession);
-        resumedSession.dispose = async () => {
-          const capturedId = resumedSession.sessionId;
-          if (typeof (transcriptStore as { init?: unknown }).init === "function") {
-            await transcriptStore.init(capturedId, {
-              kilnSessionId: capturedId,
-              provider: currentProvider,
-              task: "interactive",
-              startedAt: new Date().toISOString(),
-              resumeStrategy,
-              resumeFeedback,
-              sessionLedger: {
-                currentPhase: "interactive",
-                resumedFrom,
-                workingDirectory: sessionCwd || cwd,
-              },
-            });
+        let turnCostUsd = 0;
+        try {
+          for await (const event of resumedSession.run(options)) {
+            if (
+              event
+              && typeof event === "object"
+              && "type" in event
+              && event.type === "completed"
+            ) {
+              turnCostUsd = event.totalUsd;
+            }
+            yield event;
           }
-          await originalDispose();
-          const currentState = providerState.get(currentProvider);
+        } finally {
+          await resumedSession.dispose();
+          const currentState = providerState.get(providerForTurn);
           if (currentState) {
             currentState.resumeSessionId = capturedId;
             currentState.providerSessionId = resumedSession.providerSessionId;
           }
-          await transcriptStore.finalize(capturedId, {
-            completedAt: new Date().toISOString(),
-            providerSessionId: resumedSession.providerSessionId,
-            resumeStrategy,
-            resumeFeedback,
-            sessionLedger: {
-              currentPhase: "completed",
-              resumedFrom,
-              workingDirectory: sessionCwd || cwd,
-              lastProvider: currentProvider,
-            },
-          });
+          if (typeof (transcriptStore as { finalize?: unknown }).finalize === "function") {
+            await transcriptStore.finalize(capturedId, {
+              completedAt: new Date().toISOString(),
+              providerSessionId: resumedSession.providerSessionId,
+              resumeStrategy,
+              resumeFeedback,
+              sessionLedger: {
+                currentPhase: "completed",
+                resumedFrom,
+                workingDirectory: sessionCwd || cwd,
+                lastProvider: providerForTurn,
+              },
+            });
+          }
           await sessionStore.append({
             sessionId: capturedId,
-            provider: currentProvider,
+            provider: providerForTurn,
             task: "interactive",
             completedAt: new Date().toISOString(),
-            cost: 0,
+            cost: turnCostUsd,
             projectPath: cwd,
             providerSessionId: resumedSession.providerSessionId,
             resumeStrategy,
           });
-        };
-
-        for await (const event of resumedSession.run(options)) {
-          yield event;
+          if (activeSession === resumedSession) {
+            activeSession = null;
+          }
         }
       },
       dispose: async () => {
         if (activeSession) {
           await activeSession.dispose();
+          activeSession = null;
         }
       },
     };
@@ -229,6 +252,7 @@ export async function makeMultiProviderSessionFactory(
         const p = provider as ProviderId;
         const state = providerState.get(p);
         if (state) {
+          currentProvider = p;
           state.resumeSessionId = sessionId;
         }
       }
@@ -285,11 +309,12 @@ async function bootstrapGatewaySession(
   options: TuiBootstrapOptions,
 ): Promise<TuiBootstrapResult> {
   const { startTuiGateway } = await import("@kilnai/runtime");
-  const { flags, sessionManager, contextArtifactCache } = options;
+  const { flags, sessionManager, contextArtifactCache, systemPrompt } = options;
 
   const gateway = await startTuiGateway({
     sessionManager,
     port: flags.port,
+    systemPrompt,
     onClear: sessionManager.onClear,
     contextArtifactCache,
     planMode: flags.plan ?? false,
@@ -301,25 +326,37 @@ async function bootstrapGatewaySession(
     current: gateway.models,
   };
 
-  const createSession = async () => new GatewaySession(
-    gateway.url,
-    (models: Record<string, string[]>) => {
-      providerModelsRef.current = models;
-    },
-  );
+  let session: GatewaySession | null = null;
+  const createSession = async (): Promise<SessionLike> => {
+    if (!session) {
+      session = new GatewaySession(
+        gateway.url,
+        (models: Record<string, string[]>) => {
+          providerModelsRef.current = models;
+        },
+      );
+    }
+    return session;
+  };
 
   return {
     createSession,
     providerModelsRef,
-    shutdown: () => gateway.shutdown(),
+    shutdown: () => {
+      void session?.dispose();
+      gateway.shutdown();
+    },
   };
 }
 
-function mapSessionEventToTui(event: unknown):
+function mapSessionEventToTui(
+  event: unknown,
+  route?: { provider: string; model: string },
+):
   | { type: "text_delta"; content: string; isThinking?: boolean }
   | { type: "file_changed"; path: string; changeType: "created" | "modified" | "deleted"; linesAdded?: number; linesRemoved?: number }
   | { type: "cost_update"; usd: number }
-  | { type: "completed"; totalUsd: number }
+  | { type: "completed"; totalUsd: number; routedProvider?: string; routedModel?: string }
   | { type: "error"; message: string }
   | { type: "activity"; activity: string; toolName?: string; output?: string; input?: unknown } {
   const candidate = event as { type?: string; [key: string]: unknown } | undefined;
@@ -346,6 +383,8 @@ function mapSessionEventToTui(event: unknown):
       return {
         type: "completed",
         totalUsd: typeof candidate.totalUsd === "number" ? candidate.totalUsd : 0,
+        routedProvider: route?.provider,
+        routedModel: route?.model || undefined,
       };
     case "error":
       return {
@@ -377,25 +416,44 @@ function mapSessionEventToTui(event: unknown):
 async function bootstrapDirectSession(
   options: TuiBootstrapOptions,
 ): Promise<TuiBootstrapResult> {
-  const { flags, sessionManager } = options;
+  const { flags, sessionManager, systemPrompt } = options;
   const sessionCwd = flags.cwd ?? process.cwd();
+  let session: TuiControlSession | null = null;
 
   const createSession = async (): Promise<SessionLike> => {
+    if (session) {
+      return session;
+    }
+
     const inner = sessionManager.factory(
-      "You are Kiln TUI in direct transport mode.",
+      systemPrompt,
       sessionCwd,
     );
 
-    return {
+    session = {
       async *run(opts: { prompt: string; cwd?: string }) {
+        const providerForTurn = sessionManager.getProvider();
+        const modelForTurn = sessionManager.getModel();
         for await (const event of inner.run(opts)) {
-          yield mapSessionEventToTui(event);
+          yield mapSessionEventToTui(event, {
+            provider: providerForTurn,
+            model: modelForTurn,
+          });
         }
       },
       async dispose() {
         await inner.dispose();
       },
+      async clear() {
+        await sessionManager.onClear(sessionManager.getProvider());
+      },
+      async switchProvider(providerName: string, modelName?: string) {
+        sessionManager.setProvider(providerName);
+        sessionManager.setModel(modelName ?? "");
+        return providerName;
+      },
     };
+    return session;
   };
 
   return {
@@ -428,12 +486,14 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
 
   // Resolve domain display name from app config if available
   let domain = "kiln";
+  let systemPrompt = "You are a helpful assistant.";
   try {
     const { SessionManager } = await import("../wrapper/session-manager.js");
     const wrapperConfig = { mode: "cli-wrapper" as const, permissionPolicy: { approval: "never" as const, sandbox: "workspace-write" as const } };
     const manager = new SessionManager(wrapperConfig, appConfig, contextArtifactCache);
     const context = await manager.prepare("interactive", cwd, undefined, undefined, undefined);
     domain = context.domain.displayName;
+    systemPrompt = context.systemPrompt;
   } catch {
     // Non-fatal — proceed without domain name
   }
@@ -456,6 +516,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     flags,
     sessionManager,
     contextArtifactCache,
+    systemPrompt,
   });
 
   const shutdown = (code = 0, error?: unknown) => {
@@ -492,9 +553,9 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   }
 
   // Session resume handler - sets resume session ID for the selected provider
-  const handleResumeSession = (sessionId: string) => {
-    // Find which provider this session belongs to and set it as the resume target
-    sessionManager.setResumeSession(sessionId, provider);
+  const handleResumeSession = (session: { sessionId: string; provider: string }) => {
+    sessionManager.setProvider(session.provider);
+    sessionManager.setResumeSession(session.sessionId, session.provider);
   };
 
   await startTui(

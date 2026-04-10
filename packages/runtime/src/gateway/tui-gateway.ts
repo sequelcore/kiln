@@ -351,6 +351,8 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
               parts: result.parts,
               inputTokens: result.inputTokens,
               outputTokens: result.outputTokens,
+              routedProvider: result.routingDecision?.provider ?? options.sessionManager.getProvider(),
+              routedModel: result.routingDecision?.model ?? options.sessionManager.getModel(),
               runtimeContinuity: {
                 strategy: runtimeSupport.decision.resumeStrategy,
                 feedbackLabel: formatRuntimeResumeFeedbackLabel(runtimeSupport.decision),

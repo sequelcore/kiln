@@ -1,6 +1,7 @@
 import { spawn, execSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
+import { appendExecutionIdentity, resolveExecutionIdentity } from "@kilnai/core";
 import type {
   SessionEvent,
   SessionCapabilities,
@@ -487,6 +488,13 @@ export class OpenCodeSession implements IKilnSession {
         });
       };
 
+      const promptWithExecutionIdentity = appendExecutionIdentity(
+        options.prompt,
+        resolveExecutionIdentity({
+          configuredProvider: "opencode",
+          configuredModel: this._config.model,
+        }),
+      );
       const promptResult = await client.session
         .prompt(
           {
@@ -494,7 +502,7 @@ export class OpenCodeSession implements IKilnSession {
             parts: [{
               type: "text",
               text: appendConstraintInstructions(
-                options.prompt,
+                promptWithExecutionIdentity,
                 this._config.constraintInstructions,
                 this._config.nativeRules,
               ),

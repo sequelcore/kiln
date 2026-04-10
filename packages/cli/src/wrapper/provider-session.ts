@@ -1,12 +1,14 @@
 import { randomUUID } from "node:crypto";
 import {
   AnthropicAdapter,
+  appendExecutionIdentity,
   CodexOAuthAdapter,
   CodexOAuthAuth,
   OpenAIAdapter,
   DeepSeekAdapter,
   OpenRouterAdapter,
   OllamaAdapter,
+  resolveExecutionIdentity,
   textPart,
   type AgentMessage,
   type ProviderAdapter,
@@ -105,9 +107,15 @@ export class ProviderSession implements IKilnSession {
       const userPrompt = hasStructuredPreamble
         ? this.config.task
         : options.prompt;
-      const systemPrompt = buildProviderSystemPrompt(
-        baseSystemPrompt,
-        this.config.constraintInstructions,
+      const systemPrompt = appendExecutionIdentity(
+        buildProviderSystemPrompt(
+          baseSystemPrompt,
+          this.config.constraintInstructions,
+        ),
+        resolveExecutionIdentity({
+          configuredProvider: this.config.provider,
+          configuredModel: this.config.model,
+        }),
       );
       const messages: AgentMessage[] = [{
         role: "user",
@@ -232,7 +240,7 @@ export class ProviderSession implements IKilnSession {
     const provider = this.config.provider;
     if (provider === "codex-oauth") {
       const auth = new CodexOAuthAuth();
-      return new CodexOAuthAdapter({ auth });
+      return new CodexOAuthAdapter({ auth, defaultModel: this.config.model });
     }
     if (provider === "anthropic") {
       const apiKey = this.resolveRequiredApiKey("ANTHROPIC_API_KEY", runtimeEnv);

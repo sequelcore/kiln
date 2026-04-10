@@ -2,7 +2,7 @@
 
 ## Overview
 
-`kiln tui` is Kiln's terminal chat interface. The TUI package is the rendering layer: it owns layout, input handling, theme application, and WebSocket frame mapping, while orchestration lives outside the renderer. In gateway mode, the runtime flow is TUI -> local gateway on port `4801` by default -> `SessionRegistry` -> provider session execution through Kiln's runtime pipeline. That keeps the same session, safety, memory, and cost machinery in the path instead of duplicating agent-loop logic in the terminal client.
+`kiln tui` is Kiln's terminal chat interface. The TUI package is the rendering layer: it owns layout, input handling, theme application, and WebSocket frame mapping, while orchestration lives outside the renderer. The default runtime flow is TUI -> local gateway on port `4801` by default -> runtime `SessionRegistry` -> provider session execution through Kiln's runtime pipeline. That keeps the same session, safety, memory, routing, and cost machinery in the path instead of duplicating agent-loop logic in the terminal client.
 
 Sources: `packages/tui/src/app.tsx`, `packages/tui/src/theme.ts`, `packages/tui/src/gateway-session.ts`, `packages/tui/src/ws-client.ts`, `packages/tui/src/index.ts`, `packages/cli/src/commands/tui.ts`, `packages/runtime/src/gateway/tui-gateway.ts`
 
@@ -37,7 +37,7 @@ kiln tui --provider openai --theme tokyo-night
 kiln tui --provider claude --port 4900 --plan
 ```
 
-Transport note: `tui.ts` currently resolves startup transport to `direct` by default. The in-process gateway path is enabled when `KILN_TUI_TRANSPORT=gateway` is set.
+Transport note: `tui.ts` now resolves startup transport to `gateway` by default. The direct bootstrap path still exists for debugging and explicit opt-in, and is enabled only when `KILN_TUI_TRANSPORT=direct` is set.
 
 ## Themes
 
@@ -113,6 +113,13 @@ Selecting a provider in the picker sends a `{ type: "provider", provider, model?
 
 On the CLI side, the multi-provider session manager keeps per-provider resume state and passes the active provider into the wrapper `SessionRegistry`. That is the point where Kiln maps the TUI selection onto either a harness-backed session or a direct-provider session.
 
+Important distinction:
+
+- `provider_changed` acknowledges the selected provider and model for the next turn.
+- The assistant route label in chat is finalized from the gateway `done` frame's `routedProvider` and `routedModel`.
+
+That means the header shown above an assistant message reflects the provider/model that actually handled the turn, not just the provider that happened to be selected when the turn started.
+
 ## Session Commands
 
 ### `/clear`
@@ -129,7 +136,16 @@ On the CLI side, the multi-provider session manager keeps per-provider resume st
 
 ## Session Persistence
 
-Session persistence lives in the CLI wrapper, not in the TUI renderer.
+Session persistence lives outside the TUI renderer.
+
+In the default gateway path, continuity is runtime-owned:
+
+- `TuiWsClient` connects with a stable `userId` query param.
+- `startTuiGateway()` uses runtime `SessionRegistry.getOrCreate(...)` keyed by app, tenant, and that `userId`.
+- Multi-turn history therefore stays in one runtime `ModeBSession` instead of creating a fresh session per turn.
+- Reconnects reuse the same `userId`, so the gateway can reattach to the same runtime session state.
+
+The CLI wrapper still persists per-provider resume metadata and transcripts so the TUI sidebar can browse previous sessions and the direct fallback path can keep working.
 
 Kiln stores:
 
@@ -137,11 +153,15 @@ Kiln stores:
 - `.kiln/sessions/<sessionId>/meta.json` for per-session metadata
 - `.kiln/sessions/<sessionId>/transcript.jsonl` for the transcript stream
 
-At startup, `makeMultiProviderSessionFactory()` loads the last persisted record for each provider. The sidebar session browser is populated from the session index, and `/resume` or an empty-input `Enter` on a selected row marks a stored session as the resume target. Clear removes the last matching provider record from the JSONL index through `SessionStore.clearLast()`.
+At startup, `makeMultiProviderSessionFactory()` loads the last persisted record for each provider. The sidebar session browser is populated from the session index, and `/resume` or an empty-input `Enter` on a selected row marks a stored session as the resume target for that provider. Clear removes the last matching provider record from the JSONL index through `SessionStore.clearLast()`.
+
+The direct fallback path still uses this wrapper-managed resume state. The default gateway path adds runtime-side continuity on top of it.
 
 ## In-Process Gateway
 
 `startTuiGateway()` in `packages/runtime/src/gateway/tui-gateway.ts` starts a local WebSocket gateway on port `4801` by default and returns the `ws://localhost:<port>/tui/ws` endpoint used by `GatewaySession`. The gateway builds a `ModeBOrchestrator`, `SessionRegistry`, `ApprovalGateRegistry`, and a `TuiActivityStreamer` so the TUI can reuse the same runtime-side session, approval, activity, and completion flow as the rest of Kiln.
+
+The CLI `tui` command now passes the prepared Kiln system prompt from `SessionManager.prepare(...)` into both gateway and direct bootstrap. That keeps TUI behavior aligned with the rest of the wrapper pipeline instead of falling back to a generic placeholder identity prompt.
 
 The TUI WebSocket adapter handles:
 
@@ -151,6 +171,11 @@ The TUI WebSocket adapter handles:
 - `approve` and `reject` frames for approval flow
 - `exec` frames for plan-mode execution confirmation
 - `welcome`, `thinking`, `activity`, `done`, and `error` inbound frames
+
+The `done` frame also carries:
+
+- `routedProvider` and `routedModel` for the actual execution route used on the turn
+- `runtimeContinuity` sidebar metadata for the active provider
 
 This path keeps the same safety, session, runtime-summary, and cost-tracking machinery in place instead of adding a second terminal-only orchestration loop.
 

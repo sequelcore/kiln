@@ -1,19 +1,27 @@
 # @kilnai/tui
 
-Terminal interface adapter foundation for Kiln.
+Terminal interface package for Kiln.
 
-This package is intentionally minimal at Phase 7 foundation time.
-It exists to provide a clean package boundary for terminal presentation
-without introducing business logic, orchestration rules, or duplicated
-session models.
+`@kilnai/tui` owns terminal rendering, keyboard handling, theme application,
+sidebar state, and the WebSocket session adapter used by `kiln tui`.
+It is still intentionally thin: orchestration, routing, persistence, and
+provider execution stay outside this package.
 
-Non-goals for this package:
+What this package does:
 
-- provider selection
+- render the interactive two-column terminal UI
+- expose built-in themes
+- manage picker state for providers, themes, and session resume
+- adapt gateway WebSocket frames into TUI session events
+- preserve a stable TUI WebSocket user ID across reconnects
+
+What this package does not own:
+
+- provider execution
 - permission translation
-- session persistence
-- orchestration state machine logic
-- backend-specific execution logic
+- runtime orchestration
+- session persistence policy
+- prompt construction
 
 Those responsibilities stay in `@kilnai/core`, `@kilnai/runtime`, and
 `@kilnai/cli`.

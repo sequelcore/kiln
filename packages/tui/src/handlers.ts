@@ -45,6 +45,7 @@ export interface HandlerContext {
 export interface AssistantData {
   msg: Message | null;
   node: TextRenderable | MarkdownRenderable | null;
+  headerNode: TextRenderable | null;
   content: string;
   markdown: MarkdownRenderable | null;
   provider: string;
@@ -96,6 +97,7 @@ export async function handleTextDelta(
         width: "100%",
       });
       assistantBox.add(headerNode);
+      assistantData.headerNode = headerNode;
 
       assistantData.markdown = new MarkdownRenderable(ctx.renderer, {
         content,
@@ -304,6 +306,7 @@ export function handleCompleted(
   inputTokens: number,
   outputTokens: number,
   runtimeContinuity: { strategy: string; feedbackLabel?: string } | undefined,
+  routedProvider: string | undefined,
   spinner: { interval: ReturnType<typeof setInterval> | null },
   thinkingNodeRef: { node: TextRenderable | null },
   renderSidebarCost: () => void,
@@ -323,7 +326,7 @@ export function handleCompleted(
   update(ctx.state, "thinking", "");
   update(ctx.state, "turns", ctx.state.turns + 1);
   if (runtimeContinuity?.strategy) {
-    const provider = ctx.state.respondingProvider ?? ctx.state.currentProvider;
+    const provider = routedProvider ?? ctx.state.respondingProvider ?? ctx.state.currentProvider;
     ctx.state.runtimeContinuityByProvider[provider] = runtimeContinuity;
   }
 
@@ -456,6 +459,7 @@ export async function sendMessage(
   const assistantData: AssistantData = {
     msg: null,
     node: null,
+    headerNode: null,
     content: "",
     markdown: null,
     provider: respondingProvider,
@@ -492,12 +496,25 @@ export async function sendMessage(
           handleThinking(ctx, renderSidebarCost);
           break;
         case "completed":
+          if (event.routedProvider) {
+            assistantData.provider = event.routedProvider;
+          }
+          if (event.routedModel !== undefined) {
+            assistantData.model = event.routedModel;
+          }
+          if (assistantData.headerNode) {
+            const routeLabel = assistantData.model
+              ? `${assistantData.provider} · ${assistantData.model}`
+              : assistantData.provider;
+            assistantData.headerNode.content = t`${fg(ctx.theme.textMuted)("[" + routeLabel + "]")}`;
+          }
           handleCompleted(
             ctx,
             event.totalUsd,
             event.inputTokens ?? 0,
             event.outputTokens ?? 0,
             event.runtimeContinuity,
+            event.routedProvider,
             spinnerRef,
             thinkingNodeRef,
             renderSidebarCost,

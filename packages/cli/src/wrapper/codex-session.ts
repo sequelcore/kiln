@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { spawn, execSync } from "node:child_process";
-import { MODEL_CATALOG, CODEX_DEFAULT_MODEL } from "@kilnai/core";
+import {
+  MODEL_CATALOG,
+  CODEX_DEFAULT_MODEL,
+  appendExecutionIdentity,
+  resolveExecutionIdentity,
+} from "@kilnai/core";
 import type {
   SessionEvent,
   SessionCapabilities,
@@ -212,8 +217,15 @@ export class CodexSession implements IKilnSession {
     if (this.config.ephemeral) {
       args.push("--ephemeral");
     }
-    const promptWithConstraints = appendConstraintInstructions(
+    const promptWithExecutionIdentity = appendExecutionIdentity(
       options.prompt,
+      resolveExecutionIdentity({
+        configuredProvider: this.config.localProvider ?? "codex",
+        configuredModel: model,
+      }),
+    );
+    const promptWithConstraints = appendConstraintInstructions(
+      promptWithExecutionIdentity,
       this._constraintInstructions,
     );
     args.push("--cd", cwd, promptWithConstraints);

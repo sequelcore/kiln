@@ -14,6 +14,8 @@ export type TuiInboundFrame =
       parts?: unknown[];
       inputTokens: number;
       outputTokens: number;
+      routedProvider?: string;
+      routedModel?: string;
       runtimeContinuity?: {
         strategy: string;
         feedbackLabel?: string;

@@ -180,6 +180,8 @@ export class GatewaySession implements SessionLike {
         totalUsd: 0,
         inputTokens: frame.inputTokens,
         outputTokens: frame.outputTokens,
+        routedProvider: frame.routedProvider,
+        routedModel: frame.routedModel,
         runtimeContinuity: frame.runtimeContinuity,
       });
       this.pushStop();

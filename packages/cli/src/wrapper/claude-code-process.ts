@@ -7,6 +7,7 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { appendExecutionIdentity, resolveExecutionIdentity } from "@kilnai/core";
 import type {
   SessionEvent,
   SessionCapabilities,
@@ -153,10 +154,16 @@ export class ClaudeSession implements IKilnSession {
       systemPrompt: {
         type: "preset",
         preset: "claude_code",
-        append: appendConstraintMetadataToSystemPrompt(
-          this.config.systemPrompt,
-          this.config.nativeRules,
-          this.config.constraintInstructions,
+        append: appendExecutionIdentity(
+          appendConstraintMetadataToSystemPrompt(
+            this.config.systemPrompt,
+            this.config.nativeRules,
+            this.config.constraintInstructions,
+          ),
+          resolveExecutionIdentity({
+            configuredProvider: "claude-code",
+            configuredModel: this.config.model,
+          }),
         ),
       },
       mcpServers: this.config.mcpServers,

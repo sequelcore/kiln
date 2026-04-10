@@ -292,6 +292,37 @@ Kiln uses two prompt builders:
 
 That split exists because direct providers do not need harness-specific prompt wrapping and do not receive MCP/runtime metadata in the same way.
 
+## Execution identity
+
+Kiln now appends an explicit execution-identity block at the final invocation boundary instead of relying on the model to infer which backend is active.
+
+Shared helper:
+
+- `packages/core/src/agents/execution-identity.ts`
+
+Behavior:
+
+- harness sessions append the identity block before calling their external runtime
+- direct-provider sessions append the same block before calling the provider adapter
+- runtime `ModeBOrchestrator` can replace configured identity with routed identity when model routing actually changes the provider or model used for the turn
+
+The block has this shape:
+
+```text
+[KILN EXECUTION IDENTITY]
+provider: <provider>
+model: <model>
+source: configured | runtime-routed
+If asked about provider/model, use this identity for this turn.
+```
+
+Important rule:
+
+- `source: runtime-routed` is only used when the routed provider was actually applied
+- if the router suggests a provider that cannot be resolved from the runtime pool, Kiln keeps the configured identity in the prompt
+
+That keeps "which model/provider are you?" answers aligned with the backend that really executed the turn instead of the last optimistic UI selection or a failed routing attempt.
+
 ## CLI usage
 
 Examples:
@@ -328,6 +359,13 @@ Run `kiln sync --agents-md` (or `kiln sync` with no flags) to generate an `AGENT
 - Direct API
 
 That makes the backend tradeoff explicit instead of hiding direct providers behind CLI-specific naming.
+
+Current transport behavior:
+
+- gateway transport is the default for `kiln tui`
+- direct transport is opt-in via `KILN_TUI_TRANSPORT=direct`
+
+In gateway mode, the TUI receives both the selected provider and the final routed provider/model for each completed turn, so the chat header reflects actual execution rather than only the requested provider.
 
 ## Limitations
 

@@ -23,7 +23,7 @@ export type SessionEvent =
   | { type: "tool_result"; toolName: string; output: string }
   | { type: "file_changed"; path: string; changeType: "created" | "modified" | "deleted"; linesAdded?: number; linesRemoved?: number }
   | { type: "cost_update"; usd: number }
-  | { type: "completed"; totalUsd: number }
+  | { type: "completed"; totalUsd: number; routedProvider?: string; routedModel?: string }
   | { type: "error"; message: string }
   | { type: "thinking" }
   | { type: "activity"; activity: string; toolName?: string; output?: string; usd?: number; input?: unknown; details?: string };
@@ -43,6 +43,8 @@ export type SessionEventInternal =
       totalUsd: number;
       inputTokens?: number;
       outputTokens?: number;
+      routedProvider?: string;
+      routedModel?: string;
       runtimeContinuity?: {
         strategy: string;
         feedbackLabel?: string;

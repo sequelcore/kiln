@@ -120,3 +120,9 @@ export { ModelCapabilityRegistry } from "./model-capability-registry.js";
 export { scoreComplexity } from "./complexity-scorer.js";
 export type { ComplexityScorerInput } from "./complexity-scorer.js";
 export { RulesRouter } from "./rules-router.js";
+export {
+  appendExecutionIdentity,
+  formatExecutionIdentity,
+  resolveExecutionIdentity,
+} from "./execution-identity.js";
+export type { ExecutionIdentity, ResolveExecutionIdentityOptions } from "./execution-identity.js";

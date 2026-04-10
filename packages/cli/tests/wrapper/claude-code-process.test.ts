@@ -114,4 +114,22 @@ describe("ClaudeSession implements IKilnSession", () => {
       mcpSelector: "memory_store",
     });
   });
+
+  it("injects execution identity into the SDK system prompt append", async () => {
+    (mockedQuery as unknown as { mockReturnValueOnce: (value: unknown) => void }).mockReturnValueOnce((async function* () {
+      yield { type: "result", total_cost_usd: 0, is_error: false };
+    })());
+
+    const session = new ClaudeSession(baseConfig({ model: "claude-sonnet-4-5-20250929" }));
+    await collectEvents(session.run({ prompt: "test prompt", cwd: process.cwd() }));
+
+    const queryCalls = (mockedQuery as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    const queryCall = queryCalls[queryCalls.length - 1]?.[0] as {
+      options?: { systemPrompt?: { append?: string } };
+    } | undefined;
+    const appendedSystemPrompt = queryCall?.options?.systemPrompt?.append ?? "";
+    expect(appendedSystemPrompt).toContain("[KILN EXECUTION IDENTITY]");
+    expect(appendedSystemPrompt).toContain("provider: claude-code");
+    expect(appendedSystemPrompt).toContain("model: claude-sonnet-4-5-20250929");
+  });
 });

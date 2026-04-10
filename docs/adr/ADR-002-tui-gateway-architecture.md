@@ -1,6 +1,6 @@
 # ADR-002: TUI Gateway Architecture
 
-**Status:** Accepted (amended 2026-04-03)  
+**Status:** Accepted (amended 2026-04-09)  
 **Date:** 2026-04-02  
 **Deciders:** Ricardo Armenta
 
@@ -20,7 +20,7 @@ The gateway must support **subscription-backed CLI execution** for local develop
 
 The TUI will connect to a local Kiln gateway via WebSocket. The TUI becomes a pure rendering layer (OpenTUI) with no orchestration logic. The gateway owns all orchestration, session state, memory, and safety.
 
-For local developer channels (TUI), the gateway uses a **stateless CLI-subscription executor** that spawns CLI binaries (`claude`, `codex`, `opencode`) per turn. For deployed/web channels (widget, WhatsApp, etc.), the gateway uses API-backed `ProviderAdapter` executors. The execution backend is chosen by the runtime based on channel type.
+For local developer channels (TUI), the gateway uses an injected session-manager-backed execution path. Harness providers still execute through CLI subprocesses where appropriate, while direct providers execute through Kiln's provider-session path. For deployed/web channels (widget, WhatsApp, etc.), the gateway uses API-backed `ProviderAdapter` executors. The execution backend is chosen by the runtime based on channel type.
 
 ### Architecture
 
@@ -44,10 +44,10 @@ Local Kiln Gateway (auto-started on port 4801)
   - Enrichment (post-conversation)
         |
   Execution Backend (per-channel)
-  ├── CliSubscriptionExecutor (TUI channel)
-  │     spawns claude/codex/opencode subprocess per turn
-  │     stateless: gateway reconstructs full prompt each turn
-  │     uses flat-rate subscription auth (handled by CLI binary)
+  ├── Session-manager-backed executor (TUI channel)
+  │     wraps harness sessions and direct provider sessions
+  │     gateway remains the owner of session continuity and orchestration
+  │     harness backends may spawn claude/codex/opencode subprocesses per turn
   └── ApiExecutor (widget/web channels)
         direct HTTP to LLM API
         uses API keys (pay-per-token)
@@ -55,16 +55,16 @@ Local Kiln Gateway (auto-started on port 4801)
 
 ### Execution Model
 
-The CLI subprocess is **stateless per turn**:
+The gateway is the sole owner of interactive continuity:
 
 1. Gateway recalls memory, assembles context, runs input safety
 2. Gateway reconstructs full prompt: system prompt + memory + conversation history + user message
-3. Gateway spawns CLI binary in one-shot mode with the full prompt
-4. CLI binary processes the prompt using its subscription auth, returns response
+3. Gateway invokes the selected backend through the injected session manager
+4. Harness backends may spawn a CLI binary in one-shot mode, while direct providers call Kiln adapters directly
 5. Gateway runs output safety, stores turn in session history, tracks cost
 6. Gateway sends response to TUI over WebSocket
 
-The subprocess does NOT own conversation state. The gateway is the sole owner of session history, memory, and context management. This avoids the "two masters of session state" problem.
+The execution backend does NOT own conversation state for the TUI path. The gateway is the sole owner of session history, memory, and context management. This avoids the "two masters of session state" problem.
 
 ### Protocol
 
@@ -73,15 +73,15 @@ TUI-specific WebSocket protocol (not the widget protocol — no widgetId, no ten
 **Outbound (TUI → gateway)**
 - `{ type: "message", content: string }` — user turn
 - `{ type: "clear" }` — reset session; gateway replies `cleared`
-- `{ type: "provider", provider: string }` — switch CLI provider; gateway replies `provider_changed`
+- `{ type: "provider", provider: string, model?: string }` — switch provider/model for the next turn; gateway replies `provider_changed`
 
 **Inbound (gateway → TUI)**
 - `{ type: "thinking" }` — work started (triggers spinner)
 - `{ type: "activity", activity: "tool_use" | "tool_result" | "cost_update", toolName?, output?, usd?, inputTokens?, outputTokens?, input? }` — streamed mid-turn events
-- `{ type: "done", content, inputTokens, outputTokens }` — full response text + token counts
+- `{ type: "done", content, inputTokens, outputTokens, routedProvider?, routedModel? }` — full response text + token counts + actual execution route
 - `{ type: "error", message }` — turn failed
 - `{ type: "cleared" }` — session reset acknowledged
-- `{ type: "provider_changed", provider }` — provider switch acknowledged
+- `{ type: "provider_changed", provider }` — provider selection acknowledged for subsequent turns
 
 **Activity routing in TUI (`handleActivity`)**
 - `tool_use` → `handleToolUse` (renders `⟳ tool [args]` in chat + sidebar counter)
@@ -95,8 +95,9 @@ TUI-specific WebSocket protocol (not the widget protocol — no widgetId, no ten
 ### Migration Path
 
 - **Phase 1 (historical, v0.23.x)**: Direct provider sessions. Useful as the first prototype. No memory, safety, or MCP.
-- **Phase 2 (delivered, Phase 7c / v0.24.2)**: `kiln tui` auto-starts `startTuiGateway()` on port 4801, connects via WS. TUI is now the rendering layer. Gateway uses `CliSubscriptionExecutor` for subscription-backed execution. Full Kiln pipeline.
+- **Phase 2 (delivered, Phase 7c / v0.24.2)**: `kiln tui` auto-starts `startTuiGateway()` on port 4801, connects via WS. TUI is now the rendering layer. Gateway owns the pipeline and invokes execution through the injected session manager. Full Kiln pipeline.
 - **Phase 3 (partially delivered, Phase 7d-7f / v0.24.3-v0.24.5)**: Budget visibility, routing indicator, and interactive-default CLI entrypoint are now shipped. Remaining future work is remote attach and richer streaming, not the base TUI gateway path.
+- **Phase 4 (delivered, 2026-04-09)**: Gateway transport is now the default startup path again, provider/model route labels are derived from actual completion metadata, and execution identity is injected at invocation time so model/provider self-reporting matches the real backend for the turn.
 
 ## Consequences
 
@@ -104,7 +105,7 @@ TUI-specific WebSocket protocol (not the widget protocol — no widgetId, no ten
 - Single orchestration path (gateway) for all clients (widget, TUI, Mode B REST, channels)
 - TUI gets memory, safety, knowledge, MCP, cost tracking, enrichment for free
 - No duplication of session management, provider routing, or tool authorization
-- **Subscription arbitrage preserved** — TUI uses flat-rate CLI subscriptions, not API keys
+- **Subscription arbitrage preserved** — TUI can still use flat-rate CLI subscriptions when the selected backend is harness-backed
 - Multi-turn conversation = ModeBSession (proven, tested)
 - TUI stays thin (~200 lines rendering code)
 - Execution backend is a runtime concern — clean DDD boundary
@@ -117,7 +118,7 @@ TUI-specific WebSocket protocol (not the widget protocol — no widgetId, no ten
 - Done-only frames in Phase 7c (no token-by-token streaming until Phase 7d)
 
 ### Neutral
-- Current prototype code (direct provider sessions) remains useful for `kiln run` (single-task, non-interactive)
+- Direct provider fallback remains useful for `kiln run` and explicit `KILN_TUI_TRANSPORT=direct` debugging
 - Widget WsClient can be adapted for TUI package (remove browser-specific code)
 - `ProviderAdapter` continues to serve deployed/web channels unchanged
 

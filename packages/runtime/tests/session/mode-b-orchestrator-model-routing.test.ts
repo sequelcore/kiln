@@ -75,6 +75,38 @@ describe("ModeBOrchestrator model routing", () => {
     expect(result.routingDecision!.reasoning).toBe("Test rule matched");
   });
 
+  it("injects routed execution identity when router-selected provider is applied", async () => {
+    const routedProvider = makeProvider("routed");
+    const router = makeRouter({
+      provider: "routed",
+      model: "routed-model",
+      reasoning: "Test route",
+      confidence: 1.0,
+      routingTier: "rule",
+    });
+
+    const providerPool = new Map<string, ProviderAdapter>([["routed", routedProvider]]);
+
+    const orchestrator = new ModeBOrchestrator({
+      provider: defaultProvider,
+      model: "configured-model",
+      modelRouter: router,
+      providerPool,
+    });
+    const session = makeSession();
+    await orchestrator.processMessage(session, textParts("hello"));
+
+    const routedCall = (routedProvider.createMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as {
+      system: string;
+    } | undefined;
+
+    expect(routedCall?.system).toContain("[KILN EXECUTION IDENTITY]");
+    expect(routedCall?.system).toContain("provider: routed");
+    expect(routedCall?.system).toContain("model: routed-model");
+    expect(routedCall?.system).toContain("source: runtime-routed");
+    expect(routedCall?.system).not.toContain("model: configured-model");
+  });
+
   it("with modelRouter but unknown provider, falls back to default provider", async () => {
     const router = makeRouter({
       provider: "unknown-provider",
@@ -96,6 +128,35 @@ describe("ModeBOrchestrator model routing", () => {
     expect(defaultProvider.createMessage).toHaveBeenCalled();
     expect(result.routingDecision).toBeDefined();
     expect(result.routingDecision!.provider).toBe("unknown-provider");
+  });
+
+  it("keeps configured execution identity when routed provider cannot be applied", async () => {
+    const router = makeRouter({
+      provider: "unknown-provider",
+      model: "unknown-model",
+      reasoning: "No pool match",
+      confidence: 1.0,
+      routingTier: "default",
+    });
+
+    const orchestrator = new ModeBOrchestrator({
+      provider: defaultProvider,
+      model: "configured-model",
+      modelRouter: router,
+      providerPool: new Map(),
+    });
+    const session = makeSession();
+    await orchestrator.processMessage(session, textParts("hello"));
+
+    const defaultCall = (defaultProvider.createMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as {
+      system: string;
+    } | undefined;
+
+    expect(defaultCall?.system).toContain("[KILN EXECUTION IDENTITY]");
+    expect(defaultCall?.system).toContain("provider: default");
+    expect(defaultCall?.system).toContain("model: configured-model");
+    expect(defaultCall?.system).toContain("source: configured");
+    expect(defaultCall?.system).not.toContain("provider: unknown-provider");
   });
 
   it("modelOverride in perCallConfig takes precedence over router", async () => {

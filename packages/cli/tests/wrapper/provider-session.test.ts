@@ -38,6 +38,39 @@ vi.mock("@kilnai/core", () => ({
   DeepSeekAdapter: makeAdapter("deepseek"),
   OpenRouterAdapter: makeAdapter("openrouter"),
   OllamaAdapter: makeAdapter("ollama"),
+  resolveExecutionIdentity: ({
+    configuredProvider,
+    configuredModel,
+    routedProvider,
+    routedModel,
+  }: {
+    configuredProvider?: string;
+    configuredModel?: string;
+    routedProvider?: string;
+    routedModel?: string;
+  }) => {
+    const provider = routedProvider ?? configuredProvider;
+    const model = routedModel ?? configuredModel;
+    if (!provider && !model) return undefined;
+    return {
+      source: routedProvider || routedModel ? "runtime-routed" : "configured",
+      provider,
+      model,
+    };
+  },
+  appendExecutionIdentity: (
+    basePrompt: string,
+    identity?: { source: string; provider?: string; model?: string },
+  ) => {
+    if (!identity) return basePrompt;
+    const lines = ["[KILN EXECUTION IDENTITY]"];
+    if (identity.provider) lines.push(`provider: ${identity.provider}`);
+    if (identity.model) lines.push(`model: ${identity.model}`);
+    lines.push(`source: ${identity.source}`);
+    lines.push("If asked about provider/model, use this identity for this turn.");
+    const section = lines.join("\n");
+    return basePrompt.trim().length > 0 ? `${basePrompt}\n\n${section}` : section;
+  },
   textPart: (text: string) => ({ type: "text", text }),
 }));
 
@@ -312,6 +345,8 @@ describe("ProviderSession.run()", () => {
     };
     expect(streamCall.system).toContain("Base prompt");
     expect(streamCall.system).toContain("[KILN POLICY CONSTRAINTS]");
+    expect(streamCall.system).toContain("[KILN EXECUTION IDENTITY]");
+    expect(streamCall.system).toContain("provider: openai");
     expect(streamCall.system).toContain("[file-governance] DENY **/.env");
     expect(streamCall.system).toContain("[data-firewall] REDACT logs");
     expect(Array.isArray(streamCall.messages)).toBe(true);
@@ -341,6 +376,8 @@ describe("ProviderSession.run()", () => {
     };
     expect(streamCall.system).toContain("<kiln-preamble><task>governed prompt context</task></kiln-preamble>");
     expect(streamCall.system).toContain("[KILN POLICY CONSTRAINTS]");
+    expect(streamCall.system).toContain("[KILN EXECUTION IDENTITY]");
+    expect(streamCall.system).toContain("provider: openai");
     expect(streamCall.system).not.toContain("legacy system prompt should not be used in preamble mode");
     expect(streamCall.messages).toEqual([{
       role: "user",

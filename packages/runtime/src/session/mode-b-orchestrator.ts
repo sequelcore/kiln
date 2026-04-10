@@ -12,7 +12,7 @@ import type {
   ErrorEvent,
   ModelRoutedEvent,
 } from "@kilnai/core";
-import { MODEL_PRICING, extractText } from "@kilnai/core";
+import { MODEL_PRICING, appendExecutionIdentity, extractText, resolveExecutionIdentity } from "@kilnai/core";
 import type { ModelPricing } from "@kilnai/core";
 import type { Capability, ToolAuthorizer, ToolExecutionResult } from "@kilnai/core";
 import type { AuditLog } from "@kilnai/core";
@@ -295,6 +295,8 @@ export class ModeBOrchestrator {
     // Model routing: select provider per-request
     let effectiveProvider: ProviderAdapter = this.deps.provider;
     let routingDecisionResult: RoutingDecision | undefined;
+    let routedProviderIdentity: string | undefined;
+    let routedModelIdentity: string | undefined;
 
     if (perCallConfig?.modelOverride) {
       // Explicit override takes precedence
@@ -302,6 +304,8 @@ export class ModeBOrchestrator {
       const poolProvider = this.deps.providerPool?.get(override.provider);
       if (poolProvider) {
         effectiveProvider = poolProvider;
+        routedProviderIdentity = override.provider;
+        routedModelIdentity = override.model;
       }
       routingDecisionResult = {
         provider: override.provider,
@@ -332,6 +336,8 @@ export class ModeBOrchestrator {
         const poolProvider = this.deps.providerPool?.get(decision.provider);
         if (poolProvider) {
           effectiveProvider = poolProvider;
+          routedProviderIdentity = decision.provider;
+          routedModelIdentity = decision.model;
         }
 
         // Emit model_routed event
@@ -347,6 +353,15 @@ export class ModeBOrchestrator {
     let totalCacheWrite = 0;
 
     const toolExecutions: ToolExecutionSummary[] = [];
+    const invocationSystem = appendExecutionIdentity(
+      system,
+      resolveExecutionIdentity({
+        configuredProvider: this.deps.provider.name,
+        configuredModel: this.deps.model,
+        routedProvider: routedProviderIdentity,
+        routedModel: routedModelIdentity,
+      }),
+    );
 
     for (let round = 0; round < this.maxToolRounds; round++) {
       // Budget check (skip first round -- let the user's message through)
@@ -365,7 +380,7 @@ export class ModeBOrchestrator {
       const messages = [...session.conversationHistory];
 
       const response = await effectiveProvider.createMessage({
-        system,
+        system: invocationSystem,
         messages,
         tools: hasTools ? effectiveTools : undefined,
         maxTokens: this.deps.maxTokens,
@@ -661,7 +676,7 @@ export class ModeBOrchestrator {
 
     const finalMessages = [...session.conversationHistory];
     const finalResponse = await effectiveProvider.createMessage({
-      system,
+      system: invocationSystem,
       messages: finalMessages,
       maxTokens: this.deps.maxTokens,
     });

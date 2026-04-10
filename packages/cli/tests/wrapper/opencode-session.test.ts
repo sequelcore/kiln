@@ -227,6 +227,8 @@ describe("OpenCodeSession.run() integration", () => {
     } | undefined;
     const promptText = promptCall?.parts?.[0]?.text;
     expect(promptText).toContain("run task");
+    expect(promptText).toContain("[KILN EXECUTION IDENTITY]");
+    expect(promptText).toContain("provider: opencode");
     expect(promptText).toContain("Kiln policy constraints for opencode:");
     expect(promptText).toContain("[data-firewall] DENY logs");
     expect(promptText).toContain("Kiln file governance constraints for opencode:");

@@ -66,6 +66,28 @@ Run a single task:
 kiln run "Implement the login page"
 ```
 
+### `kiln tui`
+
+Start the interactive terminal UI:
+
+```bash
+kiln tui
+```
+
+Useful flags:
+
+- `--provider <name>` to select the initial provider
+- `--theme <name>` to select a theme
+- `--port <number>` to override the local TUI gateway port
+- `--plan` to start in plan mode
+
+Current transport behavior:
+
+- gateway transport is the default path
+- direct transport is available only with `KILN_TUI_TRANSPORT=direct`
+
+The default gateway path keeps TUI conversations on the runtime session pipeline so provider routing, continuity, approvals, and sidebar route labels reflect the actual backend used for each turn.
+
 ### `kiln gateway`
 
 Start the production gateway:

@@ -54,6 +54,18 @@ const APP_CONFIG = {
   },
 };
 
+const PROVIDER_IDS = [
+  "claude",
+  "codex",
+  "codex-oauth",
+  "opencode",
+  "anthropic",
+  "openai",
+  "deepseek",
+  "openrouter",
+  "ollama",
+] as const;
+
 function makeStore(lastRecord: SessionRecord | null = null) {
   const appended: SessionRecord[] = [];
   return {
@@ -127,7 +139,7 @@ describe("makeMultiProviderSessionFactory", () => {
     const transcriptStore = makeTranscriptStore();
     const cache = makeContextArtifactCache();
 
-    const { factory } = await makeMultiProviderSessionFactory("claude", "/p", registry, store as any, transcriptStore, cache);
+    const { factory } = await makeMultiProviderSessionFactory("claude", PROVIDER_IDS, "/p", registry, store as any, transcriptStore, cache);
     const session = factory("sys", "/p");
     
     for await (const _ of session.run({ prompt: "test" } as any)) {}
@@ -141,7 +153,7 @@ describe("makeMultiProviderSessionFactory", () => {
     const transcriptStore = makeTranscriptStore();
     const cache = makeContextArtifactCache();
 
-    const { factory } = await makeMultiProviderSessionFactory("claude", "/p", registry, store as any, transcriptStore, cache);
+    const { factory } = await makeMultiProviderSessionFactory("claude", PROVIDER_IDS, "/p", registry, store as any, transcriptStore, cache);
     const session = factory("sys", "/p");
     
     for await (const _ of session.run({ prompt: "test" } as any)) {}
@@ -155,7 +167,7 @@ describe("makeMultiProviderSessionFactory", () => {
     const transcriptStore = makeTranscriptStore();
     const cache = makeContextArtifactCache();
 
-    const { factory } = await makeMultiProviderSessionFactory("claude", "/proj", registry, store as any, transcriptStore, cache);
+    const { factory } = await makeMultiProviderSessionFactory("claude", PROVIDER_IDS, "/proj", registry, store as any, transcriptStore, cache);
     const session = factory("sys", "/proj");
     
     // The factory implements session persistence - when run() completes,
@@ -174,7 +186,7 @@ describe("makeMultiProviderSessionFactory", () => {
     const transcriptStore = makeTranscriptStore();
     const cache = makeContextArtifactCache();
 
-    const { factory } = await makeMultiProviderSessionFactory("claude", "/proj", registry, store as any, transcriptStore, cache);
+    const { factory } = await makeMultiProviderSessionFactory("claude", PROVIDER_IDS, "/proj", registry, store as any, transcriptStore, cache);
     const first = factory("sys", "/proj");
     for await (const _ of first.run({ prompt: "test" } as any)) {}
     await first.dispose();
@@ -188,7 +200,7 @@ describe("makeMultiProviderSessionFactory", () => {
     const transcriptStore = makeTranscriptStore();
     const cache = makeContextArtifactCache();
 
-    const { factory, onClear } = await makeMultiProviderSessionFactory("claude", "/proj", registry, store as any, transcriptStore, cache);
+    const { factory, onClear } = await makeMultiProviderSessionFactory("claude", PROVIDER_IDS, "/proj", registry, store as any, transcriptStore, cache);
 
     const session = factory("sys", "/proj");
     for await (const _ of session.run({ prompt: "test" } as any)) {}
@@ -205,7 +217,7 @@ describe("makeMultiProviderSessionFactory", () => {
     const transcriptStore = makeTranscriptStore();
     const cache = makeContextArtifactCache();
 
-    const { onClear } = await makeMultiProviderSessionFactory("claude", "/proj", registry, store, transcriptStore, cache);
+    const { onClear } = await makeMultiProviderSessionFactory("claude", PROVIDER_IDS, "/proj", registry, store, transcriptStore, cache);
     await onClear();
 
     expect(store.clearLast).toHaveBeenCalledWith("claude");
@@ -233,13 +245,13 @@ describe("makeMultiProviderSessionFactory", () => {
     }
 
     expect(mockSessionManagerPrepare).toHaveBeenCalled();
-    expect(mockStartTuiGateway).not.toHaveBeenCalled();
-    expect(mockWaitForGateway).not.toHaveBeenCalled();
+    expect(mockStartTuiGateway).toHaveBeenCalledTimes(1);
+    expect(mockWaitForGateway).toHaveBeenCalledTimes(1);
     expect(mockStartTui).toHaveBeenCalledTimes(1);
-    expect(mockGatewaySessionCtor).not.toHaveBeenCalled();
+    expect(mockGatewaySessionCtor).toHaveBeenCalledTimes(1);
   });
 
-  it("tuiCommand uses direct bootstrap by default without env gating", async () => {
+  it("tuiCommand uses gateway bootstrap by default", async () => {
     const previousTransport = process.env.KILN_TUI_TRANSPORT;
     delete process.env.KILN_TUI_TRANSPORT;
 
@@ -263,14 +275,15 @@ describe("makeMultiProviderSessionFactory", () => {
       await rm(cwd, { recursive: true, force: true });
     }
 
-    expect(mockStartTuiGateway).not.toHaveBeenCalled();
-    expect(mockWaitForGateway).not.toHaveBeenCalled();
+    expect(mockStartTuiGateway).toHaveBeenCalledTimes(1);
+    expect(mockWaitForGateway).toHaveBeenCalledTimes(1);
     expect(mockStartTui).toHaveBeenCalledTimes(1);
+    expect(mockGatewaySessionCtor).toHaveBeenCalledTimes(1);
   });
 
-  it("tuiCommand can fallback to gateway bootstrap via env override", async () => {
+  it("tuiCommand can opt into direct bootstrap via env override", async () => {
     const previousTransport = process.env.KILN_TUI_TRANSPORT;
-    process.env.KILN_TUI_TRANSPORT = "gateway";
+    process.env.KILN_TUI_TRANSPORT = "direct";
 
     const { mkdtemp, rm } = await import("node:fs/promises");
     const { tmpdir } = await import("node:os");
@@ -290,9 +303,9 @@ describe("makeMultiProviderSessionFactory", () => {
       await rm(cwd, { recursive: true, force: true });
     }
 
-    expect(mockStartTuiGateway).toHaveBeenCalledTimes(1);
-    expect(mockWaitForGateway).toHaveBeenCalledTimes(1);
+    expect(mockStartTuiGateway).not.toHaveBeenCalled();
+    expect(mockWaitForGateway).not.toHaveBeenCalled();
     expect(mockStartTui).toHaveBeenCalledTimes(1);
-    expect(mockGatewaySessionCtor).toHaveBeenCalledTimes(1);
+    expect(mockGatewaySessionCtor).not.toHaveBeenCalled();
   });
 });

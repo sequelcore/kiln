@@ -51,7 +51,7 @@ export async function startTui(
   refreshResumeInfo?: () => Promise<Record<string, ResumeSidebarInfo>>,
   providerModelsRef?: { current: Record<string, string[]> },
   loadSessions?: () => Promise<SessionListItem[]>,
-  onResumeSession?: (sessionId: string) => void,
+  onResumeSession?: (session: SessionListItem) => void,
 ): Promise<void> {
   const renderer = await createCliRenderer({
     exitOnCtrlC: false,
@@ -104,6 +104,12 @@ export async function startTui(
   let providerModels = Object.fromEntries(
     providerDisplayInfo.map((entry) => [entry.id, [...entry.models]]),
   ) as Record<string, string[]>;
+  update(state, "currentProvider", provider);
+  const initialProviderIndex = validProviders.findIndex((providerName) => providerName === provider);
+  if (initialProviderIndex >= 0) {
+    providerPickerState.providerIndex = initialProviderIndex;
+    update(state, "providerPickerIndex", initialProviderIndex);
+  }
 
   const SLASH_COMMANDS = [
     { id: "clear", trigger: "clear", title: "Clear session", description: "Start a new session", type: "builtin" as const },
@@ -1069,7 +1075,11 @@ export async function startTui(
       if (inputText === "" && state.sessions.length > 0 && state.selectedSessionIndex >= 0) {
         const selectedSession = state.sessions[state.selectedSessionIndex];
         if (selectedSession && onResumeSession) {
-          onResumeSession(selectedSession.sessionId);
+          onResumeSession(selectedSession);
+          update(state, "currentProvider", selectedSession.provider);
+          update(state, "routeMode", "user");
+          renderSidebarProvider(state, currentTheme, ui, domain);
+          renderSidebarResume(state, currentTheme, ui);
           ui.commandBarStatus.content = t`${fg(currentTheme.accent)(`Resuming session ${selectedSession.sessionId.slice(0, 8)}...`)}`;
           return;
         }

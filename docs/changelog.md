@@ -179,6 +179,29 @@ Six sub-phases implementing biologically-grounded multi-agent coordination:
 - Distinct error codes: `TOOL_AUTHORIZATION_DENIED` (hard deny) vs `TOOL_APPROVAL_REQUIRED` (needs approval).
 - Orchestrator emits `tool_called`, `tool_authorized`, `tool_result` with annotations and task context.
 
+## Unreleased -- TUI Route Identity + Continuity
+
+### fix(tui): restore gateway-first continuity and actual route labeling
+- `kiln tui` now starts in gateway mode by default again.
+- Direct bootstrap remains available only via `KILN_TUI_TRANSPORT=direct`.
+- TUI gateway turns now reuse one runtime session keyed by the WebSocket client user ID instead of behaving like fresh disconnected turns.
+- Resuming a session from the sidebar now switches the active provider before assigning the resume target, so the correct provider resume state is used.
+- The assistant route header in TUI is now finalized from the `done` frame's `routedProvider` and `routedModel` instead of trusting optimistic local picker state.
+- Gateway completion frames now carry the routed provider/model and runtime continuity sidebar metadata together.
+
+### fix(cli): pass prepared system prompt through all TUI bootstrap paths
+- The TUI command now forwards `SessionManager.prepare(...).systemPrompt` into both gateway and direct bootstrap.
+- Direct bootstrap no longer hardcodes the placeholder `"You are Kiln TUI in direct transport mode."` prompt.
+- Gateway bootstrap no longer falls back to a generic assistant identity unless no prepared prompt is available.
+
+### fix(core): inject authoritative execution identity at invocation time
+- Added shared helper `packages/core/src/agents/execution-identity.ts`.
+- Harness sessions and direct-provider sessions now append a `[KILN EXECUTION IDENTITY]` block to the final system prompt for the current turn.
+- Runtime routing upgrades that block from `source: configured` to `source: runtime-routed` only when the routed provider/model was actually applied.
+- If routing cannot be applied and Kiln falls back to the configured backend, the injected identity stays aligned with the configured backend instead of the failed route hint.
+
+---
+
 ### feat(core): expose native dev tools as MCP surface (Phase 9e)
 - `DevToolsMcpServer` in `packages/core/src/tools/mcp/dev-tools-server.ts`.
 - Instance-level SDK caching (failed loads are retryable).

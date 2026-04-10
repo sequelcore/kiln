@@ -14,6 +14,39 @@ const mockCatalog = vi.hoisted(() => [
 vi.mock("@kilnai/core", () => ({
   MODEL_CATALOG: mockCatalog,
   CODEX_DEFAULT_MODEL: "gpt-5.4",
+  resolveExecutionIdentity: ({
+    configuredProvider,
+    configuredModel,
+    routedProvider,
+    routedModel,
+  }: {
+    configuredProvider?: string;
+    configuredModel?: string;
+    routedProvider?: string;
+    routedModel?: string;
+  }) => {
+    const provider = routedProvider ?? configuredProvider;
+    const model = routedModel ?? configuredModel;
+    if (!provider && !model) return undefined;
+    return {
+      source: routedProvider || routedModel ? "runtime-routed" : "configured",
+      provider,
+      model,
+    };
+  },
+  appendExecutionIdentity: (
+    basePrompt: string,
+    identity?: { source: string; provider?: string; model?: string },
+  ) => {
+    if (!identity) return basePrompt;
+    const lines = ["[KILN EXECUTION IDENTITY]"];
+    if (identity.provider) lines.push(`provider: ${identity.provider}`);
+    if (identity.model) lines.push(`model: ${identity.model}`);
+    lines.push(`source: ${identity.source}`);
+    lines.push("If asked about provider/model, use this identity for this turn.");
+    const section = lines.join("\n");
+    return basePrompt.trim().length > 0 ? `${basePrompt}\n\n${section}` : section;
+  },
 }));
 
 const mockSpawn = vi.hoisted(() => vi.fn<(...args: unknown[]) => unknown>());
@@ -182,9 +215,13 @@ describe("CodexSession.run() JSONL parsing", () => {
     const spawnCall = vi.mocked(mockSpawn).mock.calls[0];
     const spawnArgs = spawnCall?.[1] as string[] | undefined;
     expect(spawnArgs).toBeDefined();
-    expect(spawnArgs?.[spawnArgs.length - 1]).toBe(
-      "Implement feature X\n\nKiln policy constraints for codex:\n[data-firewall] DENY logs",
-    );
+    const promptArg = spawnArgs?.[spawnArgs.length - 1] ?? "";
+    expect(promptArg).toContain("Implement feature X");
+    expect(promptArg).toContain("[KILN EXECUTION IDENTITY]");
+    expect(promptArg).toContain("provider: codex");
+    expect(promptArg).toContain("model: gpt-5.4");
+    expect(promptArg).toContain("Kiln policy constraints for codex:");
+    expect(promptArg).toContain("[data-firewall] DENY logs");
   });
 
   it("run() passes explicit approval and sandbox args instead of relying on full-auto", async () => {
