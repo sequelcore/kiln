@@ -4,7 +4,7 @@
  */
 
 import type { ComplexityScore } from "../engine/domain/model-router.js";
-import type { TaskCategory, TaskDemand } from "./threshold-allocator.js";
+import type { TaskCategory, TaskDemand } from "./demand-allocator.js";
 
 export function inferCategory(complexity: ComplexityScore): TaskCategory {
   const { hasCodeBlocks, hasTools, hasReasoningMarkers } = complexity.signals;

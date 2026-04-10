@@ -1,5 +1,62 @@
 # Changelog
 
+## Unreleased -- Post-1.0 Architectural Continuation
+
+Kiln `1.0.0` establishes the new control-plane direction and removes the most
+confusing orchestrator-era residue from the active surface.
+
+More breaking changes are expected in upcoming releases as the remaining
+bounded contexts are refactored to match the new architecture, especially
+around runtime/session, engine contracts, memory/knowledge alignment, and
+safety/tool boundaries.
+
+That work is intentionally paused for now while development focus moves to a
+different project built on top of this cleaner base. The next release after
+`1.0.0` should be treated as potentially breaking even if the exact scope is
+not frozen yet.
+
+## v1.0.0 (2026-04-10) -- Control Plane Reset
+
+### Architectural reset
+
+- Kiln's public direction is now explicitly framed as a **cybernetic control
+  plane** rather than an orchestration engine, meta-orchestrator, or literal
+  biological metaphor.
+- Root documentation, architecture docs, and research synthesis were rewritten
+  to make the new doctrine the source of truth.
+- Canonical subsystem language now centers on `IngressGovernor`,
+  `ContextGovernor`, `DemandAllocator`, `ChainGovernor`, `TaskRegistry`,
+  `SafetyKernel`, and related control-plane boundaries.
+
+### Orchestrator refactor
+
+- `Orchestrator` responsibilities were split into focused support modules for:
+  checkpointing, interrupt handling, developer tools, memory sync, and
+  verification.
+- Old orchestrator-era names were replaced in the active code surface:
+  - `ThresholdAllocator` -> `DemandAllocator`
+  - `CascadeController` -> `ChainGovernor`
+  - `TaskChannel` -> `TaskRegistry`
+- `TeamComposer` and `SwarmStrategy` were removed from the active product
+  surface.
+- `swarm` was removed as an official `TeamMode`. Supported team execution modes
+  are now `sequential` and `supervisor`.
+
+### Release surface cleanup
+
+- Package metadata was bumped to `1.0.0` across the workspace to mark the new
+  architectural baseline.
+- Public package descriptions now align with the control-plane identity instead
+  of the old orchestration-engine framing.
+- Legacy tests that referenced removed swarm-era modules were either deleted or
+  rewritten to validate the new active boundaries.
+
+### Verification
+
+- `bun run typecheck` passed
+- `bun run test` passed
+- `bun run build` passed
+
 ## Unreleased -- Hotfix Verification
 
 - `codex-oauth` now runs through an executable direct-provider path instead of

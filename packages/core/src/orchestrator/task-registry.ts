@@ -1,33 +1,32 @@
 /**
- * Task Channel: shared coordination substrate for multi-agent teams.
+ * Task Registry: shared task-state substrate for multi-agent teams.
  *
- * Inspired by Workforce's task channel pattern and ant stigmergy.
- * Agents read the channel to find work. Results are published as concise
+ * Agents query the registry to find work. Results are published as concise
  * summaries, not full tool call logs (prevents context contamination).
  *
  * Design principles (from research):
  * - Publish only results, not process (Workforce isolation)
- * - Channel is the coordination medium (no direct agent-to-agent messaging)
- * - Tasks carry demand signal for threshold-based allocation
+ * - Registry is the coordination medium (no direct agent-to-agent messaging)
+ * - Tasks carry demand signal for demand-based allocation
  */
 
-import type { TaskCategory } from "./threshold-allocator.js";
+import type { TaskCategory } from "./demand-allocator.js";
 
-/** Status of a task in the channel */
-export type ChannelTaskStatus =
+/** Status of a registered task */
+export type RegisteredTaskStatus =
   | "open"        // available for claim
   | "claimed"     // agent is working on it
   | "completed"   // finished successfully
   | "failed"      // agent reported failure
   | "blocked";    // waiting on dependencies
 
-/** A task entry in the channel */
-export interface ChannelTask {
+/** A registered task entry */
+export interface RegisteredTask {
   readonly id: string;
   readonly description: string;
-  readonly category: TaskCategory;  // from threshold-allocator
+  readonly category: TaskCategory;  // from demand-allocator
   readonly demand: number;          // 0-1, demand signal
-  readonly status: ChannelTaskStatus;
+  readonly status: RegisteredTaskStatus;
   readonly assignee?: string;       // agentId of current owner
   readonly dependencies: readonly string[];  // task IDs that must complete first
   readonly result?: string;         // concise result summary (not full logs)
@@ -37,8 +36,8 @@ export interface ChannelTask {
   readonly parentId?: string;       // for subtask hierarchy
 }
 
-/** Options for publishing a new task */
-export interface PublishTaskOptions {
+/** Options for registering a new task */
+export interface RegisterTaskOptions {
   readonly id: string;
   readonly description: string;
   readonly category: TaskCategory;
@@ -57,8 +56,8 @@ export interface FailTaskOptions {
   readonly error: string;
 }
 
-export class TaskChannel {
-  private readonly tasks: Map<string, ChannelTask>;
+export class TaskRegistry {
+  private readonly tasks: Map<string, RegisteredTask>;
 
   constructor() {
     this.tasks = new Map();
@@ -68,7 +67,7 @@ export class TaskChannel {
    * Publish a new task to the channel. Status starts as "open"
    * unless it has unresolved dependencies (then "blocked").
    */
-  publish(options: PublishTaskOptions): ChannelTask {
+  register(options: RegisterTaskOptions): RegisteredTask {
     const deps = options.dependencies ?? [];
     const hasUnresolvedDeps = deps.some((depId) => {
       const dep = this.tasks.get(depId);
@@ -76,7 +75,7 @@ export class TaskChannel {
     });
 
     const now = Date.now();
-    const task: ChannelTask = {
+    const task: RegisteredTask = {
       id: options.id,
       description: options.description,
       category: options.category,
@@ -96,11 +95,11 @@ export class TaskChannel {
    * Claim a task for an agent. Only "open" tasks can be claimed.
    * Returns the updated task, or null if the task is not claimable.
    */
-  claim(taskId: string, agentId: string): ChannelTask | null {
+  claim(taskId: string, agentId: string): RegisteredTask | null {
     const task = this.tasks.get(taskId);
     if (!task || task.status !== "open") return null;
 
-    const updated: ChannelTask = {
+    const updated: RegisteredTask = {
       ...task,
       status: "claimed",
       assignee: agentId,
@@ -115,11 +114,11 @@ export class TaskChannel {
    * Only "claimed" tasks can be completed.
    * After completion, unblocks dependent tasks whose deps are all resolved.
    */
-  complete(taskId: string, options: CompleteTaskOptions): ChannelTask | null {
+  complete(taskId: string, options: CompleteTaskOptions): RegisteredTask | null {
     const task = this.tasks.get(taskId);
     if (!task || task.status !== "claimed") return null;
 
-    const updated: ChannelTask = {
+    const updated: RegisteredTask = {
       ...task,
       status: "completed",
       result: options.result,
@@ -137,11 +136,11 @@ export class TaskChannel {
    * Mark a task as failed with an error description.
    * Only "claimed" tasks can be failed.
    */
-  fail(taskId: string, options: FailTaskOptions): ChannelTask | null {
+  fail(taskId: string, options: FailTaskOptions): RegisteredTask | null {
     const task = this.tasks.get(taskId);
     if (!task || task.status !== "claimed") return null;
 
-    const updated: ChannelTask = {
+    const updated: RegisteredTask = {
       ...task,
       status: "failed",
       error: options.error,
@@ -155,11 +154,11 @@ export class TaskChannel {
    * Release a claimed task back to "open" (agent gave up or was reassigned).
    * Only "claimed" tasks can be released.
    */
-  release(taskId: string): ChannelTask | null {
+  release(taskId: string): RegisteredTask | null {
     const task = this.tasks.get(taskId);
     if (!task || task.status !== "claimed") return null;
 
-    const updated: ChannelTask = {
+    const updated: RegisteredTask = {
       ...task,
       status: "open",
       assignee: undefined,
@@ -170,33 +169,33 @@ export class TaskChannel {
   }
 
   /** Get a task by ID */
-  get(taskId: string): ChannelTask | undefined {
+  get(taskId: string): RegisteredTask | undefined {
     return this.tasks.get(taskId);
   }
 
   /** Get all tasks with a specific status */
-  byStatus(status: ChannelTaskStatus): readonly ChannelTask[] {
+  byStatus(status: RegisteredTaskStatus): readonly RegisteredTask[] {
     return [...this.tasks.values()].filter((t) => t.status === status);
   }
 
   /** Get all open tasks (available for claim) */
-  open(): readonly ChannelTask[] {
+  open(): readonly RegisteredTask[] {
     return this.byStatus("open");
   }
 
   /** Get all tasks assigned to a specific agent */
-  byAssignee(agentId: string): readonly ChannelTask[] {
+  byAssignee(agentId: string): readonly RegisteredTask[] {
     return [...this.tasks.values()].filter((t) => t.assignee === agentId);
   }
 
   /** Get all tasks in the channel */
-  all(): readonly ChannelTask[] {
+  all(): readonly RegisteredTask[] {
     return [...this.tasks.values()];
   }
 
   /** Get count of tasks by status */
-  counts(): Readonly<Record<ChannelTaskStatus, number>> {
-    const counts: Record<ChannelTaskStatus, number> = {
+  counts(): Readonly<Record<RegisteredTaskStatus, number>> {
+    const counts: Record<RegisteredTaskStatus, number> = {
       open: 0,
       claimed: 0,
       completed: 0,

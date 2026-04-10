@@ -1,11 +1,11 @@
 import { describe, it, expect } from "vitest";
 import {
-  ThresholdAllocator,
+  DemandAllocator,
   DEFAULT_ADAPTIVE_CONFIG,
   type TaskDemand,
-} from "../../src/orchestrator/threshold-allocator.js";
+} from "../../src/orchestrator/demand-allocator.js";
 
-describe("ThresholdAllocator Adaptive Mode (8.3e)", () => {
+describe("DemandAllocator Adaptive Mode (8.3e)", () => {
   describe("DEFAULT_ADAPTIVE_CONFIG", () => {
     it("has correct defaults", () => {
       expect(DEFAULT_ADAPTIVE_CONFIG.alpha).toBe(0.1);
@@ -19,7 +19,7 @@ describe("ThresholdAllocator Adaptive Mode (8.3e)", () => {
 
   describe("hysteresis protection", () => {
     it("no adaptation until hysteresisWindow outcomes recorded", () => {
-      const allocator = new ThresholdAllocator([
+      const allocator = new DemandAllocator([
         { agentId: "agent-1", thresholds: { code: 0.5 } },
       ]);
 
@@ -30,7 +30,7 @@ describe("ThresholdAllocator Adaptive Mode (8.3e)", () => {
     });
 
     it("adaptation triggers on outcome after hysteresisWindow", () => {
-      const allocator = new ThresholdAllocator([
+      const allocator = new DemandAllocator([
         { agentId: "agent-1", thresholds: { code: 0.5 } },
       ]);
 
@@ -45,7 +45,7 @@ describe("ThresholdAllocator Adaptive Mode (8.3e)", () => {
 
   describe("successful outcome lowers threshold", () => {
     it("success decreases threshold for that category", () => {
-      const allocator = new ThresholdAllocator([
+      const allocator = new DemandAllocator([
         { agentId: "agent-1", thresholds: { code: 0.5 } },
       ]);
 
@@ -58,7 +58,7 @@ describe("ThresholdAllocator Adaptive Mode (8.3e)", () => {
     });
 
     it("multiple successes compound threshold decrease", () => {
-      const allocator = new ThresholdAllocator([
+      const allocator = new DemandAllocator([
         { agentId: "agent-1", thresholds: { code: 0.5 } },
       ]);
 
@@ -73,7 +73,7 @@ describe("ThresholdAllocator Adaptive Mode (8.3e)", () => {
 
   describe("failed outcome raises threshold", () => {
     it("failure increases threshold for that category", () => {
-      const allocator = new ThresholdAllocator([
+      const allocator = new DemandAllocator([
         { agentId: "agent-1", thresholds: { code: 0.5 } },
       ]);
 
@@ -87,7 +87,7 @@ describe("ThresholdAllocator Adaptive Mode (8.3e)", () => {
 
   describe("floor constraint", () => {
     it("threshold never goes below floor", () => {
-      const allocator = new ThresholdAllocator([
+      const allocator = new DemandAllocator([
         { agentId: "agent-1", thresholds: { code: 0.1 } },
       ], { floor: 0.05 });
 
@@ -102,7 +102,7 @@ describe("ThresholdAllocator Adaptive Mode (8.3e)", () => {
 
   describe("ceiling constraint", () => {
     it("threshold never goes above ceiling", () => {
-      const allocator = new ThresholdAllocator([
+      const allocator = new DemandAllocator([
         { agentId: "agent-1", thresholds: { code: 0.9 } },
       ], { ceiling: 0.95 });
 
@@ -117,11 +117,11 @@ describe("ThresholdAllocator Adaptive Mode (8.3e)", () => {
 
   describe("alpha controls adaptation speed", () => {
     it("higher alpha produces larger threshold changes", () => {
-      const slow = new ThresholdAllocator([
+      const slow = new DemandAllocator([
         { agentId: "agent-1", thresholds: { code: 0.5 } },
       ], { alpha: 0.05 });
 
-      const fast = new ThresholdAllocator([
+      const fast = new DemandAllocator([
         { agentId: "agent-1", thresholds: { code: 0.5 } },
       ], { alpha: 0.3 });
 
@@ -136,7 +136,7 @@ describe("ThresholdAllocator Adaptive Mode (8.3e)", () => {
 
   describe("per-agent per-category isolation", () => {
     it("agent A success on code doesn't affect agent A on review", () => {
-      const allocator = new ThresholdAllocator([
+      const allocator = new DemandAllocator([
         { agentId: "agent-1", thresholds: { code: 0.5, review: 0.5 } },
       ]);
 
@@ -149,7 +149,7 @@ describe("ThresholdAllocator Adaptive Mode (8.3e)", () => {
     });
 
     it("agent A success doesn't affect agent B", () => {
-      const allocator = new ThresholdAllocator([
+      const allocator = new DemandAllocator([
         { agentId: "agent-1", thresholds: { code: 0.5 } },
         { agentId: "agent-2", thresholds: { code: 0.5 } },
       ]);
@@ -165,7 +165,7 @@ describe("ThresholdAllocator Adaptive Mode (8.3e)", () => {
 
   describe("resetAdaptation", () => {
     it("resetAdaptation(agentId) resets specific agent to initial thresholds", () => {
-      const allocator = new ThresholdAllocator([
+      const allocator = new DemandAllocator([
         { agentId: "agent-1", thresholds: { code: 0.5 } },
         { agentId: "agent-2", thresholds: { code: 0.5 } },
       ]);
@@ -184,7 +184,7 @@ describe("ThresholdAllocator Adaptive Mode (8.3e)", () => {
     });
 
     it("resetAdaptation() resets all agents", () => {
-      const allocator = new ThresholdAllocator([
+      const allocator = new DemandAllocator([
         { agentId: "agent-1", thresholds: { code: 0.5 } },
         { agentId: "agent-2", thresholds: { code: 0.5 } },
       ]);
@@ -202,7 +202,7 @@ describe("ThresholdAllocator Adaptive Mode (8.3e)", () => {
     });
 
     it("resetAdaptation respects custom initial thresholds", () => {
-      const allocator = new ThresholdAllocator([
+      const allocator = new DemandAllocator([
         { agentId: "agent-1", thresholds: { code: 0.3 } },
       ]);
 
@@ -218,7 +218,7 @@ describe("ThresholdAllocator Adaptive Mode (8.3e)", () => {
 
   describe("allocate uses adapted thresholds", () => {
     it("agent becomes eligible after threshold lowered by learning", () => {
-      const allocator = new ThresholdAllocator([
+      const allocator = new DemandAllocator([
         { agentId: "agent-1", thresholds: { code: 0.5 } },
       ]);
 
@@ -236,7 +236,7 @@ describe("ThresholdAllocator Adaptive Mode (8.3e)", () => {
     });
 
     it("agent becomes ineligible after threshold raised by failures", () => {
-      const allocator = new ThresholdAllocator([
+      const allocator = new DemandAllocator([
         { agentId: "agent-1", thresholds: { code: 0.5 } },
       ]);
 
@@ -252,7 +252,7 @@ describe("ThresholdAllocator Adaptive Mode (8.3e)", () => {
     });
 
     it("agents with lower adapted thresholds win allocation", () => {
-      const allocator = new ThresholdAllocator([
+      const allocator = new DemandAllocator([
         { agentId: "agent-1", thresholds: { code: 0.3 } },
         { agentId: "agent-2", thresholds: { code: 0.3 } },
       ]);
@@ -271,7 +271,7 @@ describe("ThresholdAllocator Adaptive Mode (8.3e)", () => {
 
   describe("custom adaptiveConfig overrides", () => {
     it("custom alpha", () => {
-      const allocator = new ThresholdAllocator([
+      const allocator = new DemandAllocator([
         { agentId: "agent-1", thresholds: { code: 0.5 } },
       ], { alpha: 0.5 });
 
@@ -283,7 +283,7 @@ describe("ThresholdAllocator Adaptive Mode (8.3e)", () => {
     });
 
     it("custom successDelta and failureDelta", () => {
-      const allocator = new ThresholdAllocator([
+      const allocator = new DemandAllocator([
         { agentId: "agent-1", thresholds: { code: 0.5 } },
       ], { successDelta: -0.1, failureDelta: 0.15 });
 
@@ -297,7 +297,7 @@ describe("ThresholdAllocator Adaptive Mode (8.3e)", () => {
     });
 
     it("custom hysteresisWindow", () => {
-      const allocator = new ThresholdAllocator([
+      const allocator = new DemandAllocator([
         { agentId: "agent-1", thresholds: { code: 0.5 } },
       ], { hysteresisWindow: 5 });
 

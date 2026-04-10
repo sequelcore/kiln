@@ -128,6 +128,8 @@ export interface SessionCapabilities {
 
 export interface SessionRunOptions {
   readonly prompt: string;
+  readonly system?: string;
+  readonly messages?: readonly AgentMessage[];
   readonly cwd?: string;
   readonly env?: Record<string, string>;
   readonly abortSignal?: AbortSignal;
@@ -140,3 +142,4 @@ export interface IKilnSession {
   readonly sessionId: string;
   readonly providerSessionId: string | undefined;
 }
+import type { AgentMessage } from "@kilnai/core";

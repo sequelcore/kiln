@@ -9,6 +9,8 @@ import {
   translatePermissionForProvider,
 } from "../../src/wrapper/session-registry.js";
 import type { SessionCapabilities, IKilnSession, KilnPermissionPolicy } from "../../src/wrapper/session.js";
+import { ExecutableProviderSession } from "../../src/wrapper/executable-provider-session.js";
+import { ProviderSession } from "../../src/wrapper/provider-session.js";
 
 const makeMockSession = (id: string): IKilnSession => ({
   sessionId: id,
@@ -306,6 +308,76 @@ describe("SessionRegistry", () => {
       expect(result.constraintInstructions.length).toBeGreaterThan(1);
       expect(result.constraintInstructions[0]).toContain("Kiln policy constraints for openai");
       expect(result.warnings.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe("codex-oauth executable routing", () => {
+    it("createSession(codex-oauth) returns an ExecutableProviderSession", () => {
+      const { registry } = createDefaultRegistry();
+      const session = registry.createSession("codex-oauth", {
+        task: "test",
+        permissionPolicy: BASE_POLICY,
+      });
+      expect(session).toBeInstanceOf(ExecutableProviderSession);
+    });
+
+    it("createSession(codex-oauth) capabilities.supportedTools is non-empty (executable)", () => {
+      const { registry } = createDefaultRegistry();
+      const session = registry.createSession("codex-oauth", {
+        task: "test",
+        permissionPolicy: BASE_POLICY,
+      });
+      expect(session.capabilities.supportedTools.length).toBeGreaterThan(0);
+    });
+
+    it("createSession(openai) returns a ProviderSession (text-only direct provider)", () => {
+      const { registry } = createDefaultRegistry();
+      const session = registry.createSession("openai", {
+        task: "test",
+        permissionPolicy: BASE_POLICY,
+      });
+      expect(session).toBeInstanceOf(ProviderSession);
+    });
+
+    it("createSession(anthropic) returns a ProviderSession (text-only direct provider)", () => {
+      const { registry } = createDefaultRegistry();
+      const session = registry.createSession("anthropic", {
+        task: "test",
+        permissionPolicy: BASE_POLICY,
+      });
+      expect(session).toBeInstanceOf(ProviderSession);
+    });
+
+    it("createSession(ollama) returns a ProviderSession (text-only direct provider)", () => {
+      const { registry } = createDefaultRegistry();
+      const session = registry.createSession("ollama", {
+        task: "test",
+        permissionPolicy: BASE_POLICY,
+      });
+      expect(session).toBeInstanceOf(ProviderSession);
+    });
+
+    it("codex-oauth supportedTools list excludes MCP (mcp=false)", () => {
+      const { registry } = createDefaultRegistry();
+      const session = registry.createSession("codex-oauth", {
+        task: "test",
+        permissionPolicy: BASE_POLICY,
+      });
+      expect(session.capabilities.mcp).toBe(false);
+      expect(session.capabilities.supportedTools).toContain("bash");
+      expect(session.capabilities.supportedTools).toContain("write");
+      expect(session.capabilities.supportedTools).toContain("read");
+    });
+
+    it("other direct providers still have empty supportedTools (text-only)", () => {
+      const { registry } = createDefaultRegistry();
+      for (const provider of ["openai", "anthropic", "deepseek", "openrouter", "ollama"] as const) {
+        const session = registry.createSession(provider, {
+          task: "test",
+          permissionPolicy: BASE_POLICY,
+        });
+        expect(session.capabilities.supportedTools).toHaveLength(0);
+      }
     });
   });
 });

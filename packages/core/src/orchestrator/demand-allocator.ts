@@ -1,13 +1,13 @@
 /**
- * Response-threshold task allocator.
+ * Demand allocator for task-category specialization.
  *
- * Each agent has a threshold per task category (0–1).
+ * Each agent has an allocation threshold per task category (0-1).
  * When task demand exceeds the agent's threshold for that category, the agent picks it up.
- * Agents with lower thresholds for a category are more likely to claim it — this produces
+ * Agents with lower thresholds for a category are more likely to claim it. This produces
  * emergent specialization without central coordination.
  *
- * Among eligible agents, the one with the LOWEST threshold wins (most specialized).
- * Ties broken by agent order in the team roster.
+ * Among eligible agents, the one with the lowest threshold wins (most specialized).
+ * Ties are broken by agent order in the team roster.
  *
  * Adaptive mode (Phase 8.3e): thresholds evolve via EMA based on task outcomes.
  * Successful outcomes lower thresholds (agent becomes more responsive to that category).
@@ -67,19 +67,19 @@ export const DEFAULT_ADAPTIVE_CONFIG: AdaptiveConfig = Object.freeze({
   hysteresisWindow: 3,
 });
 
-export const DEFAULT_THRESHOLD = 0.5;
+export const DEFAULT_DEMAND_THRESHOLD = 0.5;
 
-export const DEFAULT_THRESHOLDS: Readonly<Record<TaskCategory, number>> = {
-  research: DEFAULT_THRESHOLD,
-  code: DEFAULT_THRESHOLD,
-  review: DEFAULT_THRESHOLD,
-  ops: DEFAULT_THRESHOLD,
-  writing: DEFAULT_THRESHOLD,
-  triage: DEFAULT_THRESHOLD,
-  general: DEFAULT_THRESHOLD,
+export const DEFAULT_DEMAND_THRESHOLDS: Readonly<Record<TaskCategory, number>> = {
+  research: DEFAULT_DEMAND_THRESHOLD,
+  code: DEFAULT_DEMAND_THRESHOLD,
+  review: DEFAULT_DEMAND_THRESHOLD,
+  ops: DEFAULT_DEMAND_THRESHOLD,
+  writing: DEFAULT_DEMAND_THRESHOLD,
+  triage: DEFAULT_DEMAND_THRESHOLD,
+  general: DEFAULT_DEMAND_THRESHOLD,
 };
 
-export class ThresholdAllocator {
+export class DemandAllocator {
   private readonly agents: Map<string, Record<TaskCategory, number>>;
   private readonly initialThresholds: Map<string, Record<TaskCategory, number>>;
   private readonly outcomes: TaskOutcome[];
@@ -95,7 +95,7 @@ export class ThresholdAllocator {
     };
 
     for (const config of agentConfigs) {
-      const merged = { ...DEFAULT_THRESHOLDS, ...config.thresholds };
+      const merged = { ...DEFAULT_DEMAND_THRESHOLDS, ...config.thresholds };
       this.agents.set(config.agentId, { ...merged });
       this.initialThresholds.set(config.agentId, { ...merged });
     }
@@ -150,8 +150,8 @@ export class ThresholdAllocator {
   }
 
   getThresholds(agentId: string): Readonly<Record<TaskCategory, number>> | undefined {
-    const t = this.agents.get(agentId);
-    return t ? { ...t } : undefined;
+    const thresholds = this.agents.get(agentId);
+    return thresholds ? { ...thresholds } : undefined;
   }
 
   getOutcomes(): readonly TaskOutcome[] {
@@ -180,7 +180,7 @@ export class ThresholdAllocator {
 
   private adaptThreshold(agentId: string, category: TaskCategory, success: boolean): void {
     const count = this.outcomes.filter(
-      (o) => o.agentId === agentId && o.category === category
+      (o) => o.agentId === agentId && o.category === category,
     ).length;
 
     if (count < this.adaptive.hysteresisWindow) {

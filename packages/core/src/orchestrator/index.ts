@@ -56,10 +56,9 @@ export {
 } from "./schemas.js";
 
 // Execution strategies (Phase 2)
-export { createStrategy, SequentialStrategy, SupervisorStrategy, SwarmStrategy } from "./strategies/index.js";
+export { createStrategy, SequentialStrategy, SupervisorStrategy } from "./strategies/index.js";
 export type { ExecutionStrategy, StrategyContext, StrategyHandler } from "./strategies/index.js";
 export type { DelegationDecision, ReviewDecision, SupervisorConfig } from "./strategies/supervisor-strategy.js";
-export type { HandoffRequest, SwarmConfig } from "./strategies/swarm-strategy.js";
 
 // Interrupt (Phase 2C)
 export type { InterruptRequest, ResumeCommand, InterruptState } from "./interrupt.js";
@@ -68,13 +67,13 @@ export type { InterruptRequest, ResumeCommand, InterruptState } from "./interrup
 export { validateJsonSchema, validateOutput, withGuardrail } from "./guardrails.js";
 export type { GuardrailResult } from "./guardrails.js";
 
-// Threshold allocator (Phase 8.3a + 8.3e adaptive)
+// Demand allocator (Phase 8.3a + 8.3e adaptive)
 export {
-  ThresholdAllocator,
-  DEFAULT_THRESHOLD,
-  DEFAULT_THRESHOLDS,
+  DemandAllocator,
+  DEFAULT_DEMAND_THRESHOLD,
+  DEFAULT_DEMAND_THRESHOLDS,
   DEFAULT_ADAPTIVE_CONFIG,
-} from "./threshold-allocator.js";
+} from "./demand-allocator.js";
 export type {
   TaskCategory,
   TaskDemand,
@@ -82,17 +81,14 @@ export type {
   AllocationResult,
   TaskOutcome,
   AdaptiveConfig,
-} from "./threshold-allocator.js";
+} from "./demand-allocator.js";
 export { inferCategory, buildTaskDemand } from "./demand-signal.js";
 
-// Cascade energy controller (Phase 8.3b)
-export { CascadeController, DEFAULT_CASCADE_CONFIG } from "./cascade-controller.js";
-export type { CascadeConfig, CascadeSnapshot } from "./cascade-controller.js";
+// Chain governor (Phase 8.3b)
+export { ChainGovernor, DEFAULT_CHAIN_GOVERNOR_CONFIG } from "./chain-governor.js";
+export type { ChainGovernorConfig, ChainGovernorSnapshot } from "./chain-governor.js";
 
-// Task channel (Phase 8.3c)
-export { TaskChannel } from "./task-channel.js";
-export type { ChannelTask, ChannelTaskStatus, PublishTaskOptions, CompleteTaskOptions, FailTaskOptions } from "./task-channel.js";
+// Task registry (Phase 8.3c)
+export { TaskRegistry } from "./task-registry.js";
+export type { RegisteredTask, RegisteredTaskStatus, RegisterTaskOptions, CompleteTaskOptions, FailTaskOptions } from "./task-registry.js";
 
-// Team composer (Phase 8.3d)
-export { TeamComposer, BUILTIN_TEMPLATES } from "./team-composer.js";
-export type { TeamRole, TeamTemplate, ComposedTeam } from "./team-composer.js";

@@ -17,10 +17,13 @@
 
 import type { ProviderAdapter, CreateMessageOptions, AgentResponse, AgentStreamEvent } from "@kilnai/core";
 import { textParts, extractText } from "@kilnai/core";
+import type { AgentMessage } from "@kilnai/core";
 
 /** Minimal session run options — structurally compatible with cli/wrapper/session IKilnSession. */
 export interface CliSessionRunOptions {
   readonly prompt: string;
+  readonly system?: string;
+  readonly messages?: readonly AgentMessage[];
   readonly cwd?: string;
 }
 
@@ -84,7 +87,12 @@ export class CliSubscriptionExecutor implements ProviderAdapter {
     let isError = false;
 
     try {
-      for await (const event of session.run({ prompt, cwd })) {
+      for await (const event of session.run({
+        prompt,
+        cwd,
+        system: options.system,
+        messages: options.messages,
+      })) {
         // Stream event to TUI via callback
         this.onEvent?.(event);
 

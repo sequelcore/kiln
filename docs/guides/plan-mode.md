@@ -1,74 +1,58 @@
-# Plan Mode
+# Planning Mode
 
-> Separate planning phase from execution. Best-of-three synthesis from Claude Code, Codex, and Hermes.
+Planning mode exists to separate diagnosis and design from execution.
 
-## Command
+In Kiln's current architecture, planning is not a product identity or a special
+brand feature. It is a governed operating pattern used when the system should
+pause action, gather enough state, and produce a decision-complete execution
+path before any mutating work begins.
 
-```bash
-kiln plan <task>        # Start a planning session
-kiln run --plan <task>  # Same, via run flag
-```
+For doctrine, start with:
 
-## 3-Phase Workflow
+- [Flows](../architecture/flows.md)
+- [Control Model](../architecture/control-model.md)
+- [Context Governance](../architecture/context-governance.md)
 
-### Phase 1: Explore (ground in environment)
+## Purpose
 
-- Run read-only exploration first — resolve unknowns from repo, not user
-- Use `Read`, `glob`, `grep`, `rg` to discover facts
-- Identify missing information only after exhausting exploration
+Planning mode is appropriate when:
 
-### Phase 2: Intent Chat (clarify what they actually want)
+- the task is ambiguous
+- the blast radius is high
+- multiple bounded contexts may be affected
+- execution would be expensive to undo
+- the system lacks sufficient context to act safely
 
-- Ask until: goal + success criteria + constraints + scope are locked
-- Use `request_user_input` tool for decisions that change the plan
-- Bias toward questions over guessing for high-impact ambiguities
+## Behavioral Rule
 
-### Phase 3: Implementation Chat (design decision-complete solution)
+Planning mode should not mutate the world. Its function is to improve admission,
+context sufficiency, and execution design before action.
 
-- Explore approach, APIs, edge cases, testing
-- Final plan must leave **zero decisions** for implementer
+## Expected Outcome
 
-## Execution Boundaries (Enforced)
+A useful planning pass should produce:
 
-| Allowed (non-mutating) | Not Allowed (mutating) |
-|------------------------|---------------------|
-| `Read`, `glob`, `grep`, `rg` | `Edit`, `Write`, `apply_patch` |
-| Static analysis, type inspection | Formatters, linters that rewrite |
-| Dry-run commands | `Bun`/`npm` commands that mutate |
-| Tests to `target/`, `.cache/` | Commits, pushes, external actions |
+- a precise objective
+- explicit scope boundaries
+- key assumptions
+- execution order
+- verification criteria
+- identified risks or blockers
 
-## Final Output Format
+If those are not produced, the planning pass failed.
 
-```markdown
-<proposed_plan>
-## Summary
-[concise summary — what and why]
+## Relationship to the Control Plane
 
-## Implementation Changes
-[bullets by subsystem, not file-by-file — 3-5 sections max]
+Planning mode is one expression of the broader control logic:
 
-## Test Plan
-[verification steps]
+- admission slows down because ambiguity is high
+- context gathering is prioritized
+- execution is withheld until the plan is decision-complete
+- safety posture remains conservative
 
-## Assumptions
-[defaults chosen where ambiguous]
-</proposed_plan>
-```
+## Transitional Note
 
-## Exit Plan Mode
-
-- User explicitly ends plan mode: "execute this" or "/exec"
-- Or stays in plan mode and continues refining
-
-## Integration with CLI Wrapper
-
-Plan mode uses the existing `permissionMode: "plan"` from the CLI wrapper:
-
-```typescript
-// In wrapper/session-registry.ts
-if (permissionMode === "plan") {
-  return { approval: "untrusted", sandbox: "read-only" };
-}
-```
-
-The orchestrator additionally blocks mutating tool calls at execution time.
+Older versions of this document described a specific cross-backend best-of-three
+planning workflow. That kind of implementation detail should remain secondary to
+the architectural purpose: planning exists to reduce uncertainty before
+execution, not to define Kiln's identity.

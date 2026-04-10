@@ -9,46 +9,34 @@ import { PhaseMachine, phaseMeta } from "./phase-machine.js";
 import { EventBus } from "../events/event-bus.js";
 import { CostTracker } from "../cost/cost-tracker.js";
 import type {
-  InterruptRequestedEvent,
-  InterruptResumedEvent,
   PhaseChangedEvent,
-  ToolAuthorizedEvent,
-  ToolCalledEvent,
-  ToolResultEvent,
   TraceSpanEvent,
 } from "../events/index.js";
 import { createTraceContext, startSpan } from "../events/trace.js";
-import type { TraceSpan, TraceContext } from "../events/trace.js";
+import type { TraceSpan } from "../events/trace.js";
 import type { CostSummary } from "../cost/index.js";
 import { TaskTree, BatchExecutor } from "../tree/index.js";
 import type { TaskNode, TreeAction, TreeConfig } from "../tree/index.js";
-import { GateRunner, VerificationLoop } from "../verification/index.js";
-import type { VerificationResult, VerificationConfig } from "../verification/index.js";
+import type { VerificationResult } from "../verification/index.js";
 import type { FixHandler } from "../verification/index.js";
 import type { QualityGate } from "../engine/composites/team.js";
 import type { Team } from "../engine/composites/team.js";
 import { createStrategy } from "./strategies/index.js";
 import type { StrategyHandler } from "./strategies/index.js";
-import { createPolicy, ROLE_PRESETS } from "../sandbox/index.js";
-import type { SandboxPolicy } from "../sandbox/index.js";
-import { KilnError } from "../engine/errors.js";
 import { ProviderRegistry } from "../agents/provider-registry.js";
 import type { ProviderAdapter, AgentRole } from "../agents/index.js";
-import { GitSyncManager } from "../memory/git-sync-manager.js";
-import type { SyncStatus } from "../memory/git-sync-manager.js";
 import type { ProjectMemoryStore } from "../memory/project-store.js";
 import type { CheckpointStore } from "./checkpoint-store.js";
-import type { Checkpoint, CheckpointOptions, ReplayOverrides } from "./checkpoint-types.js";
-import type { InterruptRequest, ResumeCommand, InterruptState } from "./interrupt.js";
+import type { CheckpointOptions, ReplayOverrides } from "./checkpoint-types.js";
+import type { InterruptRequest, ResumeCommand } from "./interrupt.js";
 import { attachFieldUpdater, startFieldPropagator, startFieldInhibitor, startStabilityMonitor } from "../field/field-service.js";
-import { AnnotationAuthorizer } from "../security/annotation-authorizer.js";
-import { DevToolRegistry } from "../tools/domain/tool-registry.js";
 import type { DevTool } from "../tools/domain/tool.js";
-import {
-  DevToolExecutionBridge,
-  type DevToolExecutionRequest,
-  type DevToolExecutionResult,
-} from "../tools/tool-executor.js";
+import type { DevToolExecutionRequest, DevToolExecutionResult } from "../tools/tool-executor.js";
+import { OrchestratorCheckpointSupport } from "./orchestrator-checkpoint-support.js";
+import { OrchestratorInterruptSupport } from "./orchestrator-interrupt-support.js";
+import { OrchestratorDevToolSupport } from "./orchestrator-dev-tool-support.js";
+import { OrchestratorMemorySyncSupport } from "./orchestrator-memory-sync-support.js";
+import { OrchestratorVerificationSupport } from "./orchestrator-verification-support.js";
 
 const DEFAULT_CONFIG: OrchestratorConfig = {
   requireApproval: true,
@@ -84,52 +72,96 @@ export interface TaskEvaluation {
 export class Orchestrator {
   private readonly _eventBus: EventBus;
   private readonly _phaseMachine: PhaseMachine;
-  private _costTracker: CostTracker;
   private readonly _config: OrchestratorConfig;
+  private _costTracker: CostTracker;
   private readonly _tree: TaskTree;
   private readonly _batchExecutor: BatchExecutor;
   private readonly _providerRegistry: ProviderRegistry;
-  private readonly _devToolRegistry: DevToolRegistry;
-  private readonly _devToolExecutionBridge: DevToolExecutionBridge;
-  private readonly _sandboxPolicies = new Map<string, SandboxPolicy>();
+  private readonly _devToolSupport: OrchestratorDevToolSupport;
+  private readonly _verificationSupport: OrchestratorVerificationSupport;
+  private readonly _memorySyncSupport: OrchestratorMemorySyncSupport;
+  private readonly _checkpointSupport: OrchestratorCheckpointSupport;
+  private readonly _interruptSupport: OrchestratorInterruptSupport;
   private _sessionId: string | null = null;
   private _task: string | null = null;
-  private _lastVerificationResult: VerificationResult | null = null;
-  private _gitSync: GitSyncManager | null = null;
-  private _checkpointStore: CheckpointStore | null = null;
-  private _autoCheckpointUnsubscribe: (() => void) | null = null;
-  private _traceContext: TraceContext | null = null;
-  private _isRestoring = false;
-  private _lastRestoredCheckpointId: string | null = null;
   private _team: Team | null = null;
-  private _interruptState: InterruptState | null = null;
 
   constructor(config?: Partial<OrchestratorConfig>) {
     this._config = { ...DEFAULT_CONFIG, ...config };
     this._eventBus = new EventBus();
-      attachFieldUpdater(this._eventBus);
-      startFieldPropagator();
-      startFieldInhibitor();
-      startStabilityMonitor();
+    attachFieldUpdater(this._eventBus);
+    startFieldPropagator();
+    startFieldInhibitor();
+    startStabilityMonitor();
     this._costTracker = new CostTracker();
     // PhaseMachine is constructed without a sessionId; it gets set in start()
     this._phaseMachine = new PhaseMachine(this._eventBus, this._config);
     this._providerRegistry = new ProviderRegistry();
-    this._devToolRegistry = new DevToolRegistry();
-    this._devToolExecutionBridge = new DevToolExecutionBridge({
-      registry: this._devToolRegistry,
-      authorizer: new AnnotationAuthorizer(),
-    });
 
+    const parallelWorkers = this._config.parallelWorkers;
     const treeConfig: TreeConfig = {
       maxDepth: this._config.maxDepth,
-      batchSize: this._config.parallelWorkers,
+      batchSize: parallelWorkers,
       depthDiscount: 0.8,
     };
     this._tree = new TaskTree({ config: treeConfig, eventBus: this._eventBus });
     this._batchExecutor = new BatchExecutor({
-      concurrency: this._config.parallelWorkers,
+      concurrency: parallelWorkers,
       eventBus: this._eventBus,
+    });
+    this._devToolSupport = new OrchestratorDevToolSupport({
+      eventBus: this._eventBus,
+      getSessionContext: () => ({
+        sessionId: this._sessionId ?? "",
+        taskId: this._task ?? undefined,
+      }),
+    });
+    this._verificationSupport = new OrchestratorVerificationSupport({
+      eventBus: this._eventBus,
+      getSessionId: () => this._sessionId ?? "",
+      getMaxIterations: () => this._config.maxIterations ?? 3,
+    });
+    this._memorySyncSupport = new OrchestratorMemorySyncSupport({
+      eventBus: this._eventBus,
+    });
+    this._checkpointSupport = new OrchestratorCheckpointSupport({
+      phaseMachine: this._phaseMachine,
+      config: this._config,
+      tree: this._tree,
+      batchExecutor: this._batchExecutor,
+      eventBus: this._eventBus,
+      getSessionState: () => ({
+        sessionId: this._sessionId,
+        task: this._task,
+      }),
+      setSessionState: ({ sessionId, task }) => {
+        this._sessionId = sessionId;
+        this._task = task;
+      },
+      getCostSummary: () => this._costTracker.summary,
+      resetCostTrackerFromSummary: (summary) => {
+        this._costTracker = new CostTracker();
+        for (const key of Object.keys(summary.byRoleModel)) {
+          const usage = summary.byRoleModel[key];
+          if (usage) {
+            this._costTracker.record(usage.role, usage.model, {
+              inputTokens: usage.inputTokens,
+              outputTokens: usage.outputTokens,
+              cacheReadTokens: usage.cacheReadTokens,
+              cacheWriteTokens: usage.cacheWriteTokens,
+            });
+          }
+        }
+      },
+    });
+    this._interruptSupport = new OrchestratorInterruptSupport({
+      eventBus: this._eventBus,
+      getSessionId: () => this._sessionId,
+      getCurrentPhase: () => this._phaseMachine.currentPhase,
+      hasCheckpointStore: () => this._checkpointSupport.checkpointStore !== null,
+      checkpoint: (options) => this.checkpoint(options),
+      loadCheckpointMetadata: (checkpointId) => this._checkpointSupport.loadCheckpointMetadata(checkpointId),
+      resume: (checkpointId) => this.resume(checkpointId),
     });
   }
 
@@ -179,7 +211,7 @@ export class Orchestrator {
 
   /** Last verification result (null if no run yet) */
   get verificationResult(): VerificationResult | null {
-    return this._lastVerificationResult;
+    return this._verificationSupport.verificationResult;
   }
 
   /**
@@ -191,21 +223,7 @@ export class Orchestrator {
     cwd: string,
     fixHandler?: FixHandler,
   ): Promise<VerificationResult> {
-    const gateRunner = new GateRunner({ cwd });
-    const verificationConfig: VerificationConfig = {
-      maxIterations: this._config.maxIterations ?? 3,
-      coverageThreshold: 0,
-    };
-    const loop = new VerificationLoop({
-      gateRunner,
-      eventBus: this._eventBus,
-      config: verificationConfig,
-      gates,
-      sessionId: this._sessionId ?? "",
-    });
-    const result = await loop.run(fixHandler);
-    this._lastVerificationResult = result;
-    return result;
+    return this._verificationSupport.runVerification(gates, cwd, fixHandler);
   }
 
   /**
@@ -218,13 +236,8 @@ export class Orchestrator {
     this._sessionId = sessionId;
     this._task = task;
 
-    this._traceContext = createTraceContext(sessionId);
-    const { span: sessionSpan } = startSpan(
-      this._traceContext,
-      "session",
-      "phase",
-      { task },
-    );
+    const traceContext = createTraceContext(sessionId);
+    const { span: sessionSpan } = startSpan(traceContext, "session", "phase", { task });
     this.emitTraceSpan(sessionSpan);
 
     this._phaseMachine.reset();
@@ -279,19 +292,17 @@ export class Orchestrator {
 
   /** Initialize sandbox policies for the given project directory */
   initSandbox(projectPath: string): void {
-    for (const role of Object.keys(ROLE_PRESETS)) {
-      this._sandboxPolicies.set(role, createPolicy(role, projectPath));
-    }
+    this._devToolSupport.initSandbox(projectPath);
   }
 
   /** Get sandbox policy for a specific role */
-  getSandboxPolicy(role: string): SandboxPolicy | undefined {
-    return this._sandboxPolicies.get(role);
+  getSandboxPolicy(role: string) {
+    return this._devToolSupport.getSandboxPolicy(role);
   }
 
   /** Whether sandbox policies have been initialized */
   get sandboxEnabled(): boolean {
-    return this._sandboxPolicies.size > 0;
+    return this._devToolSupport.sandboxEnabled;
   }
 
   /** Expose ProviderRegistry for CLI/MCP configuration */
@@ -300,8 +311,8 @@ export class Orchestrator {
   }
 
   /** Expose native dev tool registry for setup/configuration */
-  get devToolRegistry(): DevToolRegistry {
-    return this._devToolRegistry;
+  get devToolRegistry() {
+    return this._devToolSupport.devToolRegistry;
   }
 
   /** Register a provider adapter by name */
@@ -321,7 +332,7 @@ export class Orchestrator {
 
   /** Register a native developer tool by name */
   registerDevTool(tool: DevTool): void {
-    this._devToolRegistry.register(tool);
+    this._devToolSupport.registerDevTool(tool);
   }
 
   /**
@@ -331,121 +342,22 @@ export class Orchestrator {
   async executeDevTool(
     request: DevToolExecutionRequest & { readonly role?: string; readonly cwd?: string },
   ): Promise<DevToolExecutionResult> {
-    const startedAt = Date.now();
-    const sessionId = this._sessionId ?? "";
-    const taskId = this._task ?? undefined;
-    const registeredTool = this._devToolRegistry.lookup(request.name);
-    const authorization = registeredTool
-      ? this._devToolExecutionBridge.authorizeRequest(request.name)
-      : undefined;
-    const calledEvent: ToolCalledEvent = {
-      type: "tool_called",
-      toolName: request.name,
-      toolInput: request.input,
-      taskId,
-      annotations: registeredTool?.annotations as Record<string, unknown> | undefined,
-      authorizationLevel: authorization?.level,
-      timestamp: new Date(),
-      sessionId,
-    };
-    this._eventBus.emit(calledEvent);
-
-    const roleSandbox = request.role ? this.getSandboxPolicy(request.role) : undefined;
-    const sandbox = request.sandbox ?? (roleSandbox
-      ? {
-          cwd: request.cwd,
-          policy: roleSandbox,
-        }
-      : undefined);
-
-    const resolvedAuthorization = authorization ?? this._devToolExecutionBridge.authorizeRequest(request.name);
-    const authorizedEvent: ToolAuthorizedEvent = {
-      type: "tool_authorized",
-      toolName: resolvedAuthorization.toolName,
-      level: resolvedAuthorization.level,
-      allowed: resolvedAuthorization.allowed,
-      reason: resolvedAuthorization.reason,
-      timestamp: new Date(),
-      sessionId,
-    };
-    this._eventBus.emit(authorizedEvent);
-
-    if (!resolvedAuthorization.allowed || resolvedAuthorization.requiresApproval) {
-      throw new KilnError("TOOL_AUTHORIZATION_DENIED", resolvedAuthorization.reason, {
-        context: {
-          toolName: resolvedAuthorization.toolName,
-          level: resolvedAuthorization.level,
-          requiresApproval: resolvedAuthorization.requiresApproval,
-        },
-        retryable: false,
-      });
-    }
-
-    try {
-      const execution = await this._devToolExecutionBridge.execute({
-        ...request,
-        sandbox,
-      });
-
-      const resultEvent: ToolResultEvent = {
-        type: "tool_result",
-        toolName: request.name,
-        taskId,
-        durationMs: Date.now() - startedAt,
-        success: !execution.result.isError,
-        isError: execution.result.isError,
-        retryAttempt: execution.attempts,
-        resultSummary: execution.result.output.slice(0, 200),
-        timestamp: new Date(),
-        sessionId,
-      };
-      this._eventBus.emit(resultEvent);
-
-      return execution;
-    } catch (error) {
-      if (error instanceof KilnError && error.code === "TOOL_AUTHORIZATION_DENIED") {
-        throw error;
-      }
-
-      const failureSummary = error instanceof Error
-        ? error.message
-        : "Tool execution failed";
-      const resultEvent: ToolResultEvent = {
-        type: "tool_result",
-        toolName: request.name,
-        taskId,
-        durationMs: Date.now() - startedAt,
-        success: false,
-        isError: true,
-        resultSummary: failureSummary.slice(0, 200),
-        timestamp: new Date(),
-        sessionId,
-      };
-      this._eventBus.emit(resultEvent);
-      throw error;
-    }
+    return this._devToolSupport.executeDevTool(request);
   }
 
   /** Initialize git-synced memory and run auto-import */
   initMemorySync(projectPath: string): void {
-    this._gitSync = new GitSyncManager({
-      projectPath,
-      eventBus: this._eventBus,
-    });
-    this._gitSync.autoImport();
+    this._memorySyncSupport.initMemorySync(projectPath);
   }
 
   /** Get memory sync status (null if not initialized) */
-  memorySyncStatus(): SyncStatus | null {
-    return this._gitSync?.syncStatus() ?? null;
+  memorySyncStatus() {
+    return this._memorySyncSupport.memorySyncStatus();
   }
 
   /** Flush project memory with developer attribution */
   async flushMemory(store: ProjectMemoryStore): Promise<void> {
-    if (!this._gitSync) {
-      throw new Error("Memory sync not initialized. Call initMemorySync() first.");
-    }
-    await this._gitSync.flush(store);
+    await this._memorySyncSupport.flushMemory(store);
   }
 
   /** Expose TaskTree for TUI/MCP consumers */
@@ -534,170 +446,28 @@ export class Orchestrator {
   }
 
   attachCheckpointStore(store: CheckpointStore): void {
-    this._checkpointStore = store;
-
-    if (this._autoCheckpointUnsubscribe) {
-      this._autoCheckpointUnsubscribe();
-    }
-
-    const handler = (_event: PhaseChangedEvent): void => {
-      if (this._isRestoring) return;
-      if (this._sessionId && this._task) {
-        this.checkpoint().catch((err) => {
-          console.error("Auto-checkpoint failed:", err);
-        });
-      }
-    };
-
-    this._eventBus.on("phase_changed", handler);
-    this._autoCheckpointUnsubscribe = () => {
-      this._eventBus.off("phase_changed", handler);
-    };
+    this._checkpointSupport.attachStore(store);
   }
 
   async checkpoint(options?: CheckpointOptions): Promise<string> {
-    if (!this._checkpointStore) {
-      throw new Error("No checkpoint store attached. Call attachCheckpointStore() first.");
-    }
-    if (!this._sessionId || !this._task) {
-      throw new Error("No active session. Call start() first.");
-    }
-
-    const checkpointId = randomUUID();
-    const checkpoint: Checkpoint = {
-      id: checkpointId,
-      sessionId: this._sessionId,
-      parentId: this._lastRestoredCheckpointId,
-      phase: this._phaseMachine.currentPhase,
-      phaseIndex: this._config.phases.indexOf(this._phaseMachine.currentPhase),
-      status: this._phaseMachine.status,
-      task: this._task,
-      tree: this._tree.toJSON(),
-      eventHistory: this._eventBus.history(),
-      costSummary: this._costTracker.summary,
-      timestamp: new Date(),
-      metadata: options?.metadata,
-    };
-
-    await this._checkpointStore.save(checkpoint, options);
-    return checkpointId;
+    return this._checkpointSupport.checkpoint(options);
   }
 
   async resume(checkpointId: string): Promise<string> {
-    if (!this._checkpointStore) {
-      throw new Error("No checkpoint store attached. Call attachCheckpointStore() first.");
-    }
-
-    const checkpoint = await this._checkpointStore.load(checkpointId);
-    if (!checkpoint) {
-      throw new Error(`Checkpoint not found: ${checkpointId}`);
-    }
-
-    this._isRestoring = true;
-    try {
-      const newSessionId = randomUUID();
-      this._sessionId = newSessionId;
-      this._task = checkpoint.task;
-      this._lastRestoredCheckpointId = checkpointId;
-
-      this._phaseMachine.reset();
-      this._phaseMachine.restoreState(checkpoint.phaseIndex, checkpoint.status);
-      this._tree.setSessionId(newSessionId);
-      this._batchExecutor.setSessionId(newSessionId);
-      this._tree.loadFromJSON(checkpoint.tree);
-
-      // M4: reset cost tracker before replaying checkpoint costs to avoid double-counting
-      this._costTracker = new CostTracker();
-      for (const key of Object.keys(checkpoint.costSummary.byRoleModel)) {
-        const usage = checkpoint.costSummary.byRoleModel[key];
-        if (usage) {
-          this._costTracker.record(usage.role, usage.model, {
-            inputTokens: usage.inputTokens,
-            outputTokens: usage.outputTokens,
-            cacheReadTokens: usage.cacheReadTokens,
-            cacheWriteTokens: usage.cacheWriteTokens,
-          });
-        }
-      }
-
-      const meta = phaseMeta(this._phaseMachine.currentPhase);
-      const phaseEvent: PhaseChangedEvent = {
-        type: "phase_changed",
-        phase: this._phaseMachine.currentPhase,
-        phaseName: meta.name,
-        phaseDescription: meta.description,
-        timestamp: new Date(),
-        sessionId: newSessionId,
-      };
-      this._eventBus.emit(phaseEvent);
-
-      return newSessionId;
-    } finally {
-      this._isRestoring = false;
-    }
+    return this._checkpointSupport.resume(checkpointId);
   }
 
   async fork(checkpointId: string, options?: CheckpointOptions): Promise<string> {
-    const newSessionId = await this.resume(checkpointId);
-
-    const checkpoint = await this._checkpointStore!.load(checkpointId);
-    if (!checkpoint) {
-      throw new Error(`Checkpoint not found: ${checkpointId}`);
-    }
-
-    const forkCheckpointId = randomUUID();
-    const forkCheckpoint: Checkpoint = {
-      id: forkCheckpointId,
-      sessionId: newSessionId,
-      parentId: checkpointId,
-      phase: this._phaseMachine.currentPhase,
-      phaseIndex: this._config.phases.indexOf(this._phaseMachine.currentPhase),
-      status: this._phaseMachine.status,
-      task: this._task ?? "",
-      tree: this._tree.toJSON(),
-      eventHistory: this._eventBus.history(),
-      costSummary: this._costTracker.summary,
-      timestamp: new Date(),
-      metadata: options?.metadata,
-    };
-
-    await this._checkpointStore!.save(forkCheckpoint, options);
-    return newSessionId;
+    return this._checkpointSupport.fork(checkpointId, options);
   }
 
   async replay(checkpointId: string, overrides?: ReplayOverrides): Promise<string> {
-    if (!this._checkpointStore) {
-      throw new Error("No checkpoint store attached. Call attachCheckpointStore() first.");
-    }
-
-    const checkpoint = await this._checkpointStore.load(checkpointId);
-    if (!checkpoint) {
-      throw new Error(`Checkpoint not found: ${checkpointId}`);
-    }
-
-    // C1: call resume() first so phaseMachine.reset() + restoreState() run before overrides
-    const newSessionId = await this.resume(checkpointId);
-
-    // Apply startPhase override after resume() so it is not overwritten
-    if (overrides?.startPhase) {
-      const phaseIndex = this._config.phases.indexOf(overrides.startPhase);
-      if (phaseIndex === -1) {
-        throw new Error(`Phase not found: ${overrides.startPhase}`);
-      }
-      this._phaseMachine.restoreState(phaseIndex, checkpoint.status);
-    }
-
-    // M1: only apply task override after resume() (dead code before was overwritten)
-    if (overrides?.task) {
-      this._task = overrides.task;
-    }
-
-    return newSessionId;
+    return this._checkpointSupport.replay(checkpointId, overrides);
   }
 
   /** Current interrupt state (null if not interrupted) */
-  get interruptState(): InterruptState | null {
-    return this._interruptState;
+  get interruptState() {
+    return this._interruptSupport.state;
   }
 
   /**
@@ -705,41 +475,7 @@ export class Orchestrator {
    * Returns the checkpoint ID that must be used to resume.
    */
   async interrupt(request: InterruptRequest): Promise<string> {
-    if (!this._checkpointStore) {
-      throw new Error("No checkpoint store attached. Call attachCheckpointStore() first.");
-    }
-    if (!this._sessionId) {
-      throw new Error("No active session. Call start() first.");
-    }
-
-    const interruptState: InterruptState = {
-      reason: request.reason,
-      resumeSchema: request.resumeSchema,
-      requestedAt: new Date().toISOString(),
-      phase: this._phaseMachine.currentPhase,
-    };
-    this._interruptState = interruptState;
-
-    // Create checkpoint with interrupt state in metadata
-    const checkpointId = await this.checkpoint({
-      metadata: {
-        ...request.metadata,
-        interruptState,
-      },
-    });
-
-    // Emit interrupt event
-    const event: InterruptRequestedEvent = {
-      type: "interrupt_requested",
-      checkpointId,
-      reason: request.reason,
-      resumeSchema: request.resumeSchema,
-      timestamp: new Date(),
-      sessionId: this._sessionId,
-    };
-    this._eventBus.emit(event);
-
-    return checkpointId;
+    return this._interruptSupport.interrupt(request);
   }
 
   /**
@@ -748,36 +484,7 @@ export class Orchestrator {
    * Returns the new session ID.
    */
   async resumeInterrupt(command: ResumeCommand): Promise<string> {
-    if (!this._checkpointStore) {
-      throw new Error("No checkpoint store attached. Call attachCheckpointStore() first.");
-    }
-
-    const checkpoint = await this._checkpointStore.load(command.checkpointId);
-    if (!checkpoint) {
-      throw new Error(`Checkpoint not found: ${command.checkpointId}`);
-    }
-
-    // Verify this checkpoint has interrupt state
-    const interruptState = checkpoint.metadata?.interruptState as InterruptState | undefined;
-    if (!interruptState) {
-      throw new Error("Checkpoint does not contain interrupt state");
-    }
-
-    // Resume from checkpoint
-    const newSessionId = await this.resume(command.checkpointId);
-    this._interruptState = null;
-
-    // Emit resume event
-    const event: InterruptResumedEvent = {
-      type: "interrupt_resumed",
-      checkpointId: command.checkpointId,
-      resumeValue: command.value,
-      timestamp: new Date(),
-      sessionId: newSessionId,
-    };
-    this._eventBus.emit(event);
-
-    return newSessionId;
+    return this._interruptSupport.resumeInterrupt(command);
   }
 
   private emitTraceSpan(span: TraceSpan): void {

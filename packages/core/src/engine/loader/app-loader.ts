@@ -623,7 +623,7 @@ function mapTeam(name: string, raw: RawTeam, path: string): { team: Team; errors
   }
 
   // Mode
-  const validModes: TeamMode[] = ["sequential", "supervisor", "swarm"];
+  const validModes: TeamMode[] = ["sequential", "supervisor"];
   let mode: TeamMode | undefined;
   if (raw.mode !== undefined) {
     if (typeof raw.mode !== "string" || !validModes.includes(raw.mode as TeamMode)) {

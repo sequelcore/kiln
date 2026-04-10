@@ -53,6 +53,28 @@ function sseResponse(
   });
 }
 
+function sseResponseWithCrLf(
+  events: ReadonlyArray<{ event: string; data: unknown }>,
+  status = 200,
+): Response {
+  const encoder = new TextEncoder();
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const entry of events) {
+        controller.enqueue(
+          encoder.encode(`event: ${entry.event}\r\ndata: ${JSON.stringify(entry.data)}\r\n\r\n`),
+        );
+      }
+      controller.close();
+    },
+  });
+
+  return new Response(body, {
+    status,
+    headers: { "Content-Type": "text/event-stream" },
+  });
+}
+
 function createOptions(overrides: Partial<CreateMessageOptions> = {}): CreateMessageOptions {
   return {
     system: "You are a Codex agent.",
@@ -285,6 +307,105 @@ describe("CodexOAuthAdapter", () => {
       ]);
     });
 
+    it("serializes tool_result parts as function_call_output input items", async () => {
+      mockFetch.mockResolvedValueOnce(sseResponse([
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_tool_result_1",
+              status: "completed",
+              output: [],
+              usage: { input_tokens: 6, output_tokens: 1 },
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+      await adapter.createMessage(createOptions({
+        messages: [
+          {
+            role: "assistant",
+            parts: [
+              { type: "text", text: "Let me check that." },
+              { type: "tool_use", id: "call_123", name: "read", input: { filePath: "HOTFIX.MD" } },
+            ],
+          },
+          {
+            role: "user",
+            parts: [
+              { type: "tool_result", toolUseId: "call_123", content: "hotfix content" },
+            ],
+          },
+        ],
+      }));
+
+      const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(String(init.body)) as {
+        input: Array<
+          | { role: string; content: string }
+          | { type: string; call_id?: string; output?: string }
+        >;
+      };
+
+      expect(body.input).toEqual([
+        { role: "assistant", content: "Let me check that." },
+        {
+          type: "function_call",
+          call_id: "call_123",
+          name: "read",
+          arguments: "{\"filePath\":\"HOTFIX.MD\"}",
+        },
+        { type: "function_call_output", call_id: "call_123", output: "hotfix content" },
+      ]);
+    });
+
+    it("serializes assistant tool_use parts as function_call input items", async () => {
+      mockFetch.mockResolvedValueOnce(sseResponse([
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_tool_use_1",
+              status: "completed",
+              output: [],
+              usage: { input_tokens: 7, output_tokens: 1 },
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+      await adapter.createMessage(createOptions({
+        messages: [
+          {
+            role: "assistant",
+            parts: [
+              { type: "tool_use", id: "call_456", name: "read", input: { filePath: "HOTFIX.MD" } },
+            ],
+          },
+        ],
+      }));
+
+      const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(String(init.body)) as {
+        input: Array<
+          | { role: string; content: string }
+          | { type: string; call_id?: string; name?: string; arguments?: string }
+        >;
+      };
+
+      expect(body.input).toEqual([
+        {
+          type: "function_call",
+          call_id: "call_456",
+          name: "read",
+          arguments: "{\"filePath\":\"HOTFIX.MD\"}",
+        },
+      ]);
+    });
+
     it("maps response output back to AgentResponse (parts, toolCalls, token counts)", async () => {
       mockFetch.mockResolvedValueOnce(sseResponse([
         { event: "response.output_text.delta", data: { delta: "Adapter " } },
@@ -345,6 +466,100 @@ describe("CodexOAuthAdapter", () => {
         inputPer1M: 0,
         outputPer1M: 0,
       });
+    });
+
+    it("falls back to collected text deltas when response.completed omits message output", async () => {
+      mockFetch.mockResolvedValueOnce(sseResponse([
+        { event: "response.output_text.delta", data: { delta: "Hello " } },
+        { event: "response.output_text.delta", data: { delta: "world" } },
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_delta_fallback_1",
+              status: "completed",
+              output: [],
+              usage: { input_tokens: 8, output_tokens: 2 },
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+      const response = await adapter.createMessage(createOptions());
+
+      expect(response.parts).toEqual([{ type: "text", text: "Hello world" }]);
+      expect(response.inputTokens).toBe(8);
+      expect(response.outputTokens).toBe(2);
+    });
+
+    it("preserves function calls from response.output_item.added when response.completed omits them", async () => {
+      mockFetch.mockResolvedValueOnce(sseResponse([
+        {
+          event: "response.output_item.added",
+          data: {
+            item: {
+              type: "function_call",
+              id: "call_added_1",
+              name: "read",
+              arguments: "{\"filePath\":\"HOTFIX.MD\"}",
+            },
+          },
+        },
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_tool_call_fallback_1",
+              status: "completed",
+              output: [],
+              usage: { input_tokens: 12, output_tokens: 3 },
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+      const response = await adapter.createMessage(createOptions());
+
+      expect(response.toolCalls).toEqual([
+        {
+          id: "call_added_1",
+          name: "read",
+          input: { filePath: "HOTFIX.MD" },
+        },
+      ]);
+      expect(response.parts).toEqual([]);
+    });
+
+    it("parses SSE streams that use CRLF separators", async () => {
+      mockFetch.mockResolvedValueOnce(sseResponseWithCrLf([
+        { event: "response.output_text.delta", data: { delta: "Hello from " } },
+        { event: "response.output_text.delta", data: { delta: "CRLF" } },
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_crlf_1",
+              status: "completed",
+              output: [
+                {
+                  type: "message",
+                  content: [{ type: "output_text", text: "Hello from CRLF" }],
+                },
+              ],
+              usage: { input_tokens: 11, output_tokens: 4 },
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+      const response = await adapter.createMessage(createOptions());
+
+      expect(response.parts).toEqual([{ type: "text", text: "Hello from CRLF" }]);
+      expect(response.inputTokens).toBe(11);
+      expect(response.outputTokens).toBe(4);
     });
 
     it("sets inputPer1M=0, outputPer1M=0 in cost (subscription = zero marginal)", async () => {

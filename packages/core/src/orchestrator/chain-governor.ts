@@ -1,5 +1,5 @@
 /**
- * Cascade energy controller for handoff chain termination.
+ * Chain governor for handoff continuation control.
  *
  * Model: A(t+1) = decay * A(t) + gain - cost
  * - A(0) initialized from task complexity
@@ -10,8 +10,8 @@
  * supercritical systems are caught by the hard limit.
  */
 
-/** Configuration for cascade energy behavior */
-export interface CascadeConfig {
+/** Configuration for chain-governance behavior */
+export interface ChainGovernorConfig {
   /** Decay factor per handoff step (0-1). Lower = faster damping. Default 0.8 */
   readonly decay: number;
   /** Minimum energy to allow continuation. Default 0.2 */
@@ -22,15 +22,15 @@ export interface CascadeConfig {
   readonly baseCost: number;
 }
 
-export const DEFAULT_CASCADE_CONFIG: Readonly<CascadeConfig> = {
+export const DEFAULT_CHAIN_GOVERNOR_CONFIG: Readonly<ChainGovernorConfig> = {
   decay: 0.8,
   threshold: 0.2,
   maxDepth: 10,
   baseCost: 0.15,
 };
 
-/** Snapshot of energy state at a point in the cascade */
-export interface CascadeSnapshot {
+/** Snapshot of energy state at a point in the chain */
+export interface ChainGovernorSnapshot {
   readonly step: number;
   readonly energy: number;
   readonly gain: number;
@@ -38,18 +38,18 @@ export interface CascadeSnapshot {
   readonly allowed: boolean;
 }
 
-export class CascadeController {
-  private readonly config: CascadeConfig;
+export class ChainGovernor {
+  private readonly config: ChainGovernorConfig;
   private energy: number;
   private step: number;
-  private readonly history: CascadeSnapshot[];
+  private readonly history: ChainGovernorSnapshot[];
 
   /**
    * @param initialComplexity - complexity score (0-1) to seed initial energy
-   * @param config - cascade configuration (merged with defaults)
+   * @param config - chain-governance configuration (merged with defaults)
    */
-  constructor(initialComplexity: number, config?: Partial<CascadeConfig>) {
-    this.config = { ...DEFAULT_CASCADE_CONFIG, ...config };
+  constructor(initialComplexity: number, config?: Partial<ChainGovernorConfig>) {
+    this.config = { ...DEFAULT_CHAIN_GOVERNOR_CONFIG, ...config };
     // Initial energy: complexity determines starting fuel
     // Scale to 0.3-1.0 range so even low-complexity tasks get some runway
     this.energy = 0.3 + initialComplexity * 0.7;
@@ -58,7 +58,7 @@ export class CascadeController {
   }
 
   /**
-   * Propose a handoff step. Returns whether the cascade should continue.
+   * Propose a handoff step. Returns whether the chain should continue.
    *
    * @param gain - estimated information gain from this handoff (0-1).
    *   High gain = agent has strong reason to hand off (new capability needed).
@@ -94,19 +94,19 @@ export class CascadeController {
     return this.step;
   }
 
-  /** Full history of cascade decisions */
-  getHistory(): readonly CascadeSnapshot[] {
+  /** Full history of chain decisions */
+  getHistory(): readonly ChainGovernorSnapshot[] {
     return [...this.history];
   }
 
-  /** Whether the cascade has been terminated (last decision was false) */
+  /** Whether the chain has been terminated (last decision was false) */
   isTerminated(): boolean {
     const last = this.history[this.history.length - 1];
     return last !== undefined && !last.allowed;
   }
 
-  /** Returns the active config (may differ from DEFAULT_CASCADE_CONFIG) */
-  getConfig(): Readonly<CascadeConfig> {
+  /** Returns the active config (may differ from DEFAULT_CHAIN_GOVERNOR_CONFIG) */
+  getConfig(): Readonly<ChainGovernorConfig> {
     return this.config;
   }
 }

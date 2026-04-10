@@ -25,8 +25,10 @@ interface CodexOAuthAdapterConfig {
 interface ResponsesInputItem {
   readonly role?: "user" | "assistant";
   readonly content?: string;
-  readonly type?: "function_call_output";
+  readonly type?: "function_call" | "function_call_output";
   readonly call_id?: string;
+  readonly name?: string;
+  readonly arguments?: string;
   readonly output?: string;
 }
 
@@ -52,6 +54,7 @@ interface ResponsesRequestBody {
 interface ResponsesOutputItem {
   readonly type?: string;
   readonly id?: string;
+  readonly call_id?: string;
   readonly name?: string;
   readonly arguments?: string;
   readonly content?: ReadonlyArray<{
@@ -81,6 +84,16 @@ interface CompletedSseEnvelope {
 
 interface OutputItemAddedEnvelope {
   readonly item?: ResponsesOutputItem;
+}
+
+interface FunctionCallArgumentsDeltaEnvelope {
+  readonly item_id?: string;
+  readonly delta?: string;
+}
+
+interface FunctionCallArgumentsDoneEnvelope {
+  readonly item_id?: string;
+  readonly arguments?: string;
 }
 
 export class CodexOAuthAdapter implements ProviderAdapter {
@@ -126,7 +139,7 @@ export class CodexOAuthAdapter implements ProviderAdapter {
           yield {
             type: "tool_use",
             content: JSON.stringify({
-              id: added.item.id ?? "",
+              id: added.item.call_id ?? added.item.id ?? "",
               name: added.item.name ?? "",
               input: this.parseToolInput(added.item.arguments),
             }),
@@ -159,10 +172,7 @@ export class CodexOAuthAdapter implements ProviderAdapter {
     const input: ResponsesInputItem[] = [];
 
     for (const message of options.messages) {
-      input.push({
-        role: message.role,
-        content: this.mapPartsToInputContent(message.parts),
-      });
+      input.push(...this.mapMessageToInputItems(message.role, message.parts));
     }
 
     return {
@@ -181,14 +191,47 @@ export class CodexOAuthAdapter implements ProviderAdapter {
     };
   }
 
-  private mapPartsToInputContent(parts: readonly ContentPart[]): string {
-    return extractText(parts);
+  private mapMessageToInputItems(
+    role: "user" | "assistant",
+    parts: readonly ContentPart[],
+  ): ResponsesInputItem[] {
+    const items: ResponsesInputItem[] = [];
+    const textContent = extractText(parts);
+
+    if (textContent.length > 0) {
+      items.push({
+        role,
+        content: textContent,
+      });
+    }
+
+    for (const part of parts) {
+      if (part.type === "tool_use") {
+        items.push({
+          type: "function_call",
+          call_id: part.id,
+          name: part.name,
+          arguments: JSON.stringify(part.input),
+        });
+        continue;
+      }
+
+      if (part.type === "tool_result") {
+        items.push({
+          type: "function_call_output",
+          call_id: part.toolUseId,
+          output: part.content,
+        });
+      }
+    }
+
+    return items;
   }
 
   private async postWith401Retry(body: ResponsesRequestBody): Promise<Response> {
     const firstResponse = await this.post(body);
     if (firstResponse.status !== 401) {
-      this.ensureOk(firstResponse);
+      await this.ensureOk(firstResponse);
       return firstResponse;
     }
 
@@ -199,7 +242,7 @@ export class CodexOAuthAdapter implements ProviderAdapter {
       });
     }
 
-    this.ensureOk(retryResponse);
+    await this.ensureOk(retryResponse);
     return retryResponse;
   }
 
@@ -215,13 +258,21 @@ export class CodexOAuthAdapter implements ProviderAdapter {
     });
   }
 
-  private ensureOk(response: Response): void {
+  private async ensureOk(response: Response): Promise<void> {
     if (response.ok) {
       return;
     }
 
+    let responseBody = "";
+    try {
+      responseBody = await response.text();
+    } catch {
+      responseBody = "";
+    }
+
     throw this.providerError("Codex OAuth request failed", {
       status: response.status,
+      responseBody,
     });
   }
 
@@ -248,7 +299,7 @@ export class CodexOAuthAdapter implements ProviderAdapter {
 
       if (item.type === "function_call") {
         toolCalls.push({
-          id: item.id ?? "",
+          id: item.call_id ?? item.id ?? "",
           name: item.name ?? "",
           input: this.parseToolInput(item.arguments),
         });
@@ -287,6 +338,8 @@ export class CodexOAuthAdapter implements ProviderAdapter {
 
     let completed: ResponsesResponse | null = null;
     let collectedText = "";
+    const collectedFunctionCalls = new Map<string, ResponsesOutputItem>();
+    const collectedFunctionCallArguments = new Map<string, string>();
 
     for await (const event of this.parseSse(response.body)) {
       if (event.event === "response.output_text.delta") {
@@ -297,13 +350,53 @@ export class CodexOAuthAdapter implements ProviderAdapter {
         continue;
       }
 
+      if (event.event === "response.output_item.added") {
+        const added = this.parseJsonString<OutputItemAddedEnvelope>(event.data);
+        const item = added.item;
+        const functionCallId = item?.call_id ?? item?.id;
+        if (item?.type === "function_call" && functionCallId) {
+          collectedFunctionCalls.set(functionCallId, item);
+        }
+        continue;
+      }
+
+      if (event.event === "response.function_call_arguments.delta") {
+        const delta = this.parseJsonString<FunctionCallArgumentsDeltaEnvelope>(event.data);
+        if (delta.item_id && typeof delta.delta === "string") {
+          const current = collectedFunctionCallArguments.get(delta.item_id) ?? "";
+          collectedFunctionCallArguments.set(delta.item_id, current + delta.delta);
+        }
+        continue;
+      }
+
+      if (event.event === "response.function_call_arguments.done") {
+        const done = this.parseJsonString<FunctionCallArgumentsDoneEnvelope>(event.data);
+        if (done.item_id && typeof done.arguments === "string") {
+          collectedFunctionCallArguments.set(done.item_id, done.arguments);
+        }
+        continue;
+      }
+
       if (event.event === "response.completed") {
         completed = this.parseJsonString<CompletedSseEnvelope>(event.data).response ?? null;
+        if (completed) {
+          return this.applyStreamingFallbacks(
+            completed,
+            collectedText,
+            [...collectedFunctionCalls.values()],
+            collectedFunctionCallArguments,
+          );
+        }
       }
     }
 
     if (completed) {
-      return completed;
+      return this.applyStreamingFallbacks(
+        completed,
+        collectedText,
+        [...collectedFunctionCalls.values()],
+        collectedFunctionCallArguments,
+      );
     }
 
     throw this.providerError("Codex OAuth stream completed without response.completed event", {
@@ -336,13 +429,13 @@ export class CodexOAuthAdapter implements ProviderAdapter {
       buffer += decoder.decode(value, { stream: true });
 
       while (true) {
-        const separatorIndex = buffer.indexOf("\n\n");
-        if (separatorIndex === -1) {
+        const separator = this.findSseSeparator(buffer);
+        if (!separator) {
           break;
         }
 
-        const rawEvent = buffer.slice(0, separatorIndex);
-        buffer = buffer.slice(separatorIndex + 2);
+        const rawEvent = buffer.slice(0, separator.index);
+        buffer = buffer.slice(separator.index + separator.length);
         const parsed = this.parseSseEvent(rawEvent);
         if (parsed) {
           yield parsed;
@@ -380,6 +473,82 @@ export class CodexOAuthAdapter implements ProviderAdapter {
       event: eventName,
       data: dataLines.join("\n"),
     };
+  }
+
+  private applyStreamingFallbacks(
+    response: ResponsesResponse,
+    collectedText: string,
+    collectedFunctionCalls: readonly ResponsesOutputItem[],
+    collectedFunctionCallArguments: ReadonlyMap<string, string>,
+  ): ResponsesResponse {
+    let nextOutput = [...(response.output ?? [])];
+
+    const hasMessageText = nextOutput.some((item) =>
+      item.type === "message"
+      && (item.content ?? []).some((content) => content.type === "output_text" && typeof content.text === "string" && content.text.length > 0),
+    );
+
+    if (!hasMessageText && collectedText.length > 0) {
+      nextOutput = [
+        ...nextOutput,
+        {
+          type: "message",
+          content: [{ type: "output_text", text: collectedText }],
+        },
+      ];
+    }
+
+    const seenFunctionCallIds = new Set(
+      nextOutput
+        .filter((item) => item.type === "function_call" && typeof (item.call_id ?? item.id) === "string" && (item.call_id ?? item.id)!.length > 0)
+        .map((item) => (item.call_id ?? item.id) as string),
+    );
+    const missingFunctionCalls = collectedFunctionCalls.filter((item) => {
+      const functionCallId = item.call_id ?? item.id;
+      return functionCallId && !seenFunctionCallIds.has(functionCallId);
+    });
+    if (missingFunctionCalls.length > 0) {
+      nextOutput = [...nextOutput, ...missingFunctionCalls];
+    }
+
+    nextOutput = nextOutput.map((item) => {
+      if (item.type !== "function_call") {
+        return item;
+      }
+      const functionCallId = item.call_id ?? item.id;
+      if (!functionCallId) {
+        return item;
+      }
+      const argumentsText = collectedFunctionCallArguments.get(functionCallId);
+      if (!argumentsText || (item.arguments && item.arguments.length > 0)) {
+        return item;
+      }
+      return {
+        ...item,
+        arguments: argumentsText,
+      };
+    });
+
+    return {
+      ...response,
+      output: nextOutput,
+    };
+  }
+
+  private findSseSeparator(
+    buffer: string,
+  ): { readonly index: number; readonly length: number } | null {
+    const crlfIndex = buffer.indexOf("\r\n\r\n");
+    if (crlfIndex !== -1) {
+      return { index: crlfIndex, length: 4 };
+    }
+
+    const lfIndex = buffer.indexOf("\n\n");
+    if (lfIndex !== -1) {
+      return { index: lfIndex, length: 2 };
+    }
+
+    return null;
   }
 
   private providerError(message: string, context: Record<string, unknown>, cause?: unknown): KilnError {

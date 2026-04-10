@@ -156,6 +156,10 @@ export class ModeBOrchestrator {
   private readonly maxToolRounds: number;
   private _tools: readonly ToolDefinition[] | undefined;
   private _callBuiltinTools?: ReadonlyMap<string, (input: Record<string, unknown>) => Promise<unknown>>;
+  private readonly pendingApprovals = new Map<string, {
+    resolve: (decision: { approved: boolean; reason?: string }) => void;
+    promise: Promise<{ approved: boolean; reason?: string }>;
+  }>();
 
   constructor(deps: OrchestratorDeps) {
     this.deps = deps;
@@ -190,6 +194,13 @@ export class ModeBOrchestrator {
 
   /** Emit an approval_received event. */
   emitApprovalReceived(approved: boolean, reason?: string, sessionId?: string): void {
+    if (sessionId) {
+      const pending = this.pendingApprovals.get(sessionId);
+      if (pending) {
+        pending.resolve({ approved, reason });
+        this.pendingApprovals.delete(sessionId);
+      }
+    }
     const event: ApprovalReceivedEvent = {
       type: "approval_received",
       taskId: "",
@@ -465,13 +476,29 @@ export class ModeBOrchestrator {
           this.emitToolAuthorized(session.id, tc.name, authResult.level, authResult.allowed, authResult.reason);
 
           if (!authResult.allowed) {
-            resultParts.push({
-              type: "tool_result",
-              toolUseId: tc.id,
-              content: `Authorization denied: ${authResult.reason}`,
-              isError: true,
-            });
-            continue;
+            if (authResult.requiresApproval) {
+              const approval = await this.requestApproval(
+                session.id,
+                `Tool "${tc.name}" requires approval: ${authResult.reason}`,
+              );
+              if (!approval.approved) {
+                resultParts.push({
+                  type: "tool_result",
+                  toolUseId: tc.id,
+                  content: `Approval denied: ${approval.reason ?? authResult.reason}`,
+                  isError: true,
+                });
+                continue;
+              }
+            } else {
+              resultParts.push({
+                type: "tool_result",
+                toolUseId: tc.id,
+                content: `Authorization denied: ${authResult.reason}`,
+                isError: true,
+              });
+              continue;
+            }
           }
         }
 
@@ -939,5 +966,26 @@ export class ModeBOrchestrator {
       sessionId,
     };
     this.deps.eventBus?.emit(event);
+  }
+
+  private requestApproval(
+    sessionId: string,
+    description: string,
+  ): Promise<{ approved: boolean; reason?: string }> {
+    const existing = this.pendingApprovals.get(sessionId);
+    if (existing) {
+      return existing.promise;
+    }
+
+    let resolveApproval!: (decision: { approved: boolean; reason?: string }) => void;
+    const promise = new Promise<{ approved: boolean; reason?: string }>((resolve) => {
+      resolveApproval = resolve;
+    });
+    this.pendingApprovals.set(sessionId, {
+      resolve: resolveApproval,
+      promise,
+    });
+    this.emitApprovalRequested(description, sessionId);
+    return promise;
   }
 }

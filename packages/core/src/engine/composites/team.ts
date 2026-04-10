@@ -20,7 +20,7 @@ export interface TeamKnowledge {
 }
 
 /** Team execution mode */
-export type TeamMode = "sequential" | "supervisor" | "swarm";
+export type TeamMode = "sequential" | "supervisor";
 
 /** A self-contained unit: agents + workflow + capabilities + gates */
 export interface Team {
@@ -41,7 +41,7 @@ export interface TeamValidationError {
 }
 
 /** Valid team modes */
-const VALID_MODES: readonly TeamMode[] = ["sequential", "supervisor", "swarm"];
+const VALID_MODES: readonly TeamMode[] = ["sequential", "supervisor"];
 
 /** Validate a Team composite configuration */
 export function validateTeam(team: Team): TeamValidationError[] {
@@ -78,23 +78,6 @@ export function validateTeam(team: Team): TeamValidationError[] {
   // Manager field only valid with supervisor mode
   if (team.manager && mode !== "supervisor") {
     errors.push({ field: "manager", message: "only valid when mode is 'supervisor'" });
-  }
-
-  // Swarm mode: requires handoff capability and 2+ agents
-  if (mode === "swarm") {
-    const hasHandoff = team.capabilities.some((c) => c.type === "handoff");
-    if (!hasHandoff) {
-      errors.push({
-        field: "capabilities",
-        message: "swarm mode requires at least one capability with type 'handoff'",
-      });
-    }
-    if (agentNames.length < 2) {
-      errors.push({
-        field: "agents",
-        message: "swarm mode requires at least 2 agents",
-      });
-    }
   }
 
   // Workflow must have at least one phase

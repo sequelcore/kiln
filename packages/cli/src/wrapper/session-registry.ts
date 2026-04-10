@@ -12,6 +12,7 @@ import { ClaudeSession } from "./claude-code-process.js";
 import { CodexSession } from "./codex-session.js";
 import { OpenCodeSession } from "./opencode-session.js";
 import { ProviderSession } from "./provider-session.js";
+import { ExecutableProviderSession } from "./executable-provider-session.js";
 import { WorktreeManager } from "./worktree-manager.js";
 import { normalizePermissionPolicy } from "./permission-normalizer.js";
 
@@ -906,7 +907,7 @@ export function createDefaultRegistry(): {
         resumable: false,
         resume: false,
         costTrackingMode: "computed",
-        supportedTools: [],
+        supportedTools: ["bash", "read", "write", "edit", "grep", "glob", "git"],
         maxContextTokens: null,
         priority: 1,
         fallbackTo: null,
@@ -918,7 +919,7 @@ export function createDefaultRegistry(): {
         for (const warning of translated.warnings) {
           debug("[provider:codex-oauth]", warning);
         }
-        return new ProviderSession({
+        return new ExecutableProviderSession({
           provider: "codex-oauth",
           model: config.model,
           task: config.task,

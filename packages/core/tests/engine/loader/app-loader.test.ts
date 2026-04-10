@@ -530,7 +530,7 @@ teams:
     expect(app.teams["dev"]!.manager).toBe("architect");
   });
 
-  it("parses swarm team mode", () => {
+  it("throws AppLoaderError for removed swarm team mode", () => {
     const yaml = `
 name: swarm-app
 channels: [cli]
@@ -566,9 +566,7 @@ teams:
         tags: [swarm]
     qualityGates: []
 `;
-    const app = parseAppYaml(yaml);
-    expect(app.teams["dev"]!.mode).toBe("swarm");
-    expect(app.teams["dev"]!.manager).toBeUndefined();
+    expect(() => parseAppYaml(yaml)).toThrow(AppLoaderError);
   });
 
   it("parses capability with guardrail fields", () => {

@@ -1,1094 +1,316 @@
-# Kiln Strategy & Roadmap
-> Living document. High-level vision and phased plan.
-> Each phase will have its own dedicated research → architecture → 
-> implementation pipeline before execution.
-> Last updated: 2026-04-08
-
-## 1. What Kiln Is
-
-**The end goal in one line:**
-Kiln TUI replaces claude TUI as your primary terminal interface —
-same conversational experience, three CLIs orchestrated underneath,
-zero manual routing decisions.
-
-### 1.1 Today (v0.23.2)
-
-Kiln is a domain-agnostic AI orchestration engine built as a Bun monorepo with 6 packages. License: MIT open source.
-
-| Package | Scope | Purpose |
-|---------|-------|---------|
-| `packages/core` | `@kilnai/core` | Engine primitives, implementations, YAML loader |
-| `packages/runtime` | `@kilnai/runtime` | Gateway server, channel adapters, triggers |
-| `packages/cli` | `@kilnai/cli` | CLI commands, init wizard, dev mode |
-| `packages/sdk` | `@kilnai/react` | React hooks |
-| `packages/widget` | `@kilnai/widget` | Embeddable chat widget |
-| `packages/studio` | `@kilnai/studio` | Dev UI SPA |
-
-**CLI Commands (today):**
-- `kiln run` — Spawns Claude Code subprocess, supports `--apiKey`, `--provider`, `--permissionPolicy`
-- `kiln mcp-config` — Generates MCP config for all backends (`--client claude-code|codex|opencode|all`); writes to `.mcp.json` (Claude Code), `~/.codex/config.toml` (Codex), `~/.config/opencode/opencode.json` (OpenCode); supports `--name`, `--command`, `--args` overrides
-- `kiln skill list|install|publish` — Skill management (3-tier discovery)
-- `kiln init` — Interactive wizard for app.yaml + gateway.yaml
-- `kiln dev` — Dev mode with YAML hot-reload
-- `kiln domain` — Domain kit management
-
-**25 MCP Tools (today):**
-| Category | Tools |
-|----------|-------|
-| Memory | `memory_recall`, `memory_store`, `memory_delete` |
-| Knowledge | `knowledge_search`, `knowledge_sources` |
-| Cost | `cost_summary` |
-| Safety | `safety_metrics` |
-| Integrations | `integration_list`, `integration_execute` |
-| Routing | `routing_test` |
-| Eval | `eval_score` |
-| Enrichment | `enrichment_get`, `enrichment_list` |
-| Cross-agent memory | `cross_agent_memory_recall`, `cross_agent_memory_store`, `cross_agent_memory_list`, `cross_agent_memory_delete` |
-| Budget | `budget_check`, `budget_report` |
-| Swarm primitives | `swarm_join`, `swarm_leave`, `swarm_status`, `swarm_broadcast`, `swarm_claim`, `swarm_release` |
-
-### 1.2 The Problem It Solves
-
-For a developer using Claude Code + Codex CLI + OpenCode simultaneously:
-
-- **Redundant configuration** across 3 tools (hooks, permissions, MCP config duplicated)
-- **No shared state** between CLI sessions
-- **No budget tracking** across subscriptions
-- **No cross-CLI skill sharing**
-- **No active orchestration** — everything manual
-
-### 1.3 The Core Insight
-
-"Every other orchestrator routes between models.
-Kiln routes between subscriptions."
-
-- Claude Code → Anthropic subscription ($20/mo flat)
-- Codex CLI → OpenAI subscription ($20/mo flat)
-- OpenCode → OpenCode subscription ($10/mo flat)
-- Kiln treats three flat-rate subscriptions as a unified resource pool
-- This is the unique differentiator no other tool has
-
-## 1.4 Kiln vs OpenKiln — Two Distinct Products
-
-Kiln is the engine. OpenKiln is an app built on top of Kiln.
-This separation is intentional and architecturally clean.
-
-The parallel in the market:
-- LangChain (engine) → LangSmith (product built on top)
-- LlamaIndex (engine) → LlamaCloud (product built on top)
-- Kiln (engine) → OpenKiln (product built on top)
-
-Kiln already ships example apps in the repo:
-hello-agent/, support-agent/, booking-assistant/,
-whatsapp-bot/, multi-app-gateway/
-OpenKiln is one more — but the most complete and opinionated.
-
-Two distinct launches, two distinct audiences:
-
-Launch 1 — Kiln engine (for developers)
-Target: developers who want to build their own AI orchestration app
-Value: MIT, @kilnai/core + @kilnai/runtime, example templates
-Timing: can happen before OpenKiln is ready
-Differentiator: subscription arbitrage, multi-tenant, domain-agnostic,
-Windows native, no competitor with this combination
-
-Launch 2 — OpenKiln (for end users)
-Target: developers who want a personal AI agent, ready to use
-Value: npx openkiln init, Telegram/Discord/CLI, local-first
-Timing: after Phase 5
-Differentiator: Hermes + OpenClaw + subscription arbitrage
-+ mature engine underneath
-
-## 1.5 What OpenKiln Inherits From Kiln (Day One)
-
-Hermes (the closest competitor) had to build everything from scratch.
-OpenKiln inherits all of this from Kiln without writing a line:
-
-| Capability | Where it exists |
-|------------|----------------|
-| FTS5 memory search | core (BM25, decay, compaction) |
-| Cron scheduler | runtime (drift-free) |
-| Skill registry | core (3-tier discovery) |
-| Channel adapters | runtime: CLI, Web, WhatsApp, Instagram, Messenger, Slack, Email, API |
-| Safety rails | core (PII, 4 policy rails) |
-| Eval scorers | core (23 scorers) |
-| Multi-tenant | core from day one |
-| Studio UI | studio package |
-| Circuit breaker | agent adapters |
-
-Hermes took months to build what OpenKiln has available on day one.
-The engine investment pays forward into the product layer.
-
-## 2. Market Context & Competition
-
-### 2.1 Landscape (March 2026)
-
-| Tier | Tools | Characteristics |
-|------|-------|-----------------|
-| Tier 1 | Claude Code, Cursor | Single interactive agent |
-| Tier 2 | Conductor, OpenClaw, Claude Squad, OMO/Sisyphus | Multi-agent with local dashboard |
-| Tier 3 | Claude Code Web, Codex Web, Jules | Autonomous cloud VMs |
-
-### 2.2 Key Competitors Analyzed
-
-#### Hermes Agent (Nous Research, Feb 2026)
-- Learning loop: auto-generates skills from experience
-- Multi-level memory: MEMORY.md, USER.md, FTS5 SQLite search
-- Cron scheduler in natural language
-- Multi-platform: Telegram, Discord, Slack, WhatsApp, Signal
-- MIT, runs on $5 VPS, successor to OpenClaw
-- **Gap vs Kiln:** no cross-CLI orchestration, no subscription arbitrage, no Windows native, multi-agent still in development (issue #344)
-
-#### OpenClaw → Next Version as MCP
-- Pioneered async messaging agents
-- Next version: native MCP server connecting to wider message providers
-- **Gap vs Kiln:** channel bridge only, not orchestration engine
-
-#### oh-my-opencode (OMO/Sisyphus)
-- 11 specialized agents, 46 hooks in 7 tiers, 26 tools
-- Dynamic prompt builder per agent from single config
-- Single oh-my-opencode.json — no redundancy within OpenCode
-- **Gap vs Kiln:** lives inside OpenCode only, not cross-tool
-
-#### Graphite MCP
-- Stacked PRs: dependent PRs in series, auto-rebase on merge
-- MCP server built into CLI (v1.6.7+)
-- Relevant for Phase 3 migration PRs
-- Not an orchestrator — a code review tool
-
-#### MCPorter (steipete)
-- Calls MCP tools as typed TypeScript API
-- Converts MCP servers to standalone CLIs
-- Imports MCP config from claude-code, codex, opencode, cursor
-- Complementary to kiln mcp-config — opposite direction
-- Use case: mcp-config generates → MCPorter imports
+# Kiln Strategy
+> Living long-term roadmap aligned to the canonical architecture.
+> Last updated: 2026-04-10
 
-#### claude-better
-- Reimplements Claude CLI using GPT-5.4 behind the scenes
-- 73% faster startup, 80% lower memory
-- Masquerades as Claude to every header and analytics call
-- **RISK:** Not Claude — OpenAI model in disguise. TOS violation.
-- **Decision:** Discarded. Never use.
+## 1. Executive Thesis
 
-### 2.3 What Kiln Has That Nobody Else Does
+Kiln's long-term position is now explicit:
 
-1. Cross-CLI subscription arbitrage (Claude+Codex+OpenCode as pool)
-2. kiln config sync — generates config for 3 tools from single source
-3. Swarm primitives cross-provider (already implemented)
-4. Budget tracking cross-platform (already implemented)
-5. Windows native (Hermes requires WSL2)
-6. Domain-agnostic engine (not coding-specific by design)
-7. Kiln TUI — conversational TUI that orchestrates 3 CLIs transparently.
-   Claude Code TUI orchestrates one CLI.
-   Kiln TUI orchestrates three — transparently, with budget tracking,
-   swarm visibility, and subscription arbitrage built in.
-   No other orchestrator has this combination in a TUI.
+- Kiln is a cybernetic control plane for governed AI work
+- Kiln is not an orchestration engine as its primary identity
+- Kiln is not a biological system made literal
+- Kiln is not constrained by backward-compatibility promises to its earlier framing
 
-OpenKiln specific position:
-OpenKiln = Hermes capabilities
-         + OpenClaw async messaging
-         + subscription arbitrage (unique)
-         + cross-CLI orchestration (unique)
-         + mature engine underneath (unique)
-         - months of engine construction time
+The system should be judged by how well it regulates work under uncertainty:
 
-Hermes is the closest competitor to OpenKiln.
-The gap: Hermes has no cross-CLI orchestration, no subscription
-arbitrage, no Windows native, multi-agent still in development.
+- what enters the system
+- what context is exposed
+- what safety posture is active
+- how tasks are allocated and coordinated
+- how failures are contained and recovered
+- how adaptation happens without uncontrolled drift
 
-## 3. Legal & Compliance Constraints
+Everything in this roadmap serves that doctrine.
 
-### 3.1 Anthropic TOS — The Critical Boundary
+## 2. Product Identity
 
-**LEGAL:** spawn("claude", ["-p", task]) as subprocess. The real CLI binary handles its own auth. Same as typing in terminal. This pattern is used by Conductor, GoBot, Antfarm.
+### What Kiln is
 
-**ILLEGAL:** extracting OAuth tokens from Claude Code npm package and using them to make direct API calls to api.anthropic.com
+Kiln is the regulatory layer that governs AI work across local tools, execution surfaces, memory, coordination, safety, and adaptation.
 
-**What triggered enforcement (Jan 9, 2026):** Anthropic deployed server-side blocks on OAuth tokens used outside the official Claude Code CLI. Tools affected: OpenCode, Roo Code, Cline, and others that spoofed Claude Code client identity.
+### What Kiln is not
 
-**Kiln's position:** never touches tokens. Coordinates CLIs as subprocesses. This is architecturally safe, not just legally compliant.
+- not a generic "multi-agent framework"
+- not a wrapper that merely forwards prompts to providers
+- not a collection of unrelated productivity features
+- not a consumer app with architecture inherited accidentally from examples
 
-### 3.2 Subprocess Limitations (Research-Confirmed)
+### Product promise
 
-See [ADR-002: Subprocess Integration](docs/adr/ADR-002-subprocess-integration.md) for 5 confirmed limitations and Kiln's architectural solutions.
+Kiln should let an operator trust that the system can:
 
-### 3.3 Per-User Architecture for OpenKiln (Future)
+- admit only work it can govern
+- expose only the context required for the current task
+- coordinate multiple workers without losing control
+- fail safely when uncertainty or risk rises
+- recover statefully instead of starting from scratch
+- improve by measured adaptation instead of ad hoc hacks
 
-When Kiln becomes a product for others:
-- Each user installs their own CLIs locally
-- Kiln orchestrates local CLIs of each user
-- Each user uses their own subscriptions
-- Kiln gateway is the orchestrator (can be cloud-deployed)
-- No token sharing, no OAuth proxying — legally clean
+## 3. Strategic Laws
 
-## 4. What Already Exists in Kiln (Reality Check)
+These are long-term constraints, not preferences.
 
-### 4.1 Capability Status
+1. No dead code.
+2. No legacy compatibility layers kept only out of sentiment.
+3. No redundant abstractions without active pressure from real use.
+4. No cross-context leakage that weakens bounded contexts.
+5. No silent fail-open behavior in safety-critical paths.
+6. No undocumented control surface that outranks the canonical architecture.
+7. No feature work that bypasses invariants for local convenience.
+8. No roadmap item is complete until the old path is removed.
 
-| Capability | Status | Surface |
-|------------|--------|---------|
-| 25 MCP tools | Active | kiln-gateway localhost:3800 |
-| Cross-agent memory | Active | handoff protocol in all agents |
-| Cost/budget tracking | Active | cost_summary, budget_check |
-| SQLite + FTS5 memory | Built, not MCP-exposed | core |
-| Cron scheduler | Active | kiln cron CLI |
-| Skill registry | Active | kiln skill CLI |
-| 8 channel adapters | Built, not configured for personal use | runtime |
-| Safety rails | Running, not visible in workflow | core |
-| Eval scorers (23) | Built, not used in daily tasks | core |
-| Circuit breaker | Active, not surfaced as metric | agents |
+## 4. Architectural Horizon
 
-### 4.3 Configuration Redundancy (The Problem to Solve)
+Kiln should converge on these stable architectural pillars:
 
-- **Permissions:** `KilnPermissionPolicy` (unified `{approval, sandbox}` contract) translated per-backend via `translatePermission()` — settings.json (Claude) + config.toml:75-173 (Codex) + opencode.json:6-48 (OpenCode) — single source of truth, 3 formats generated
-- **autoformat.sh:** lives in .codex/hooks/ — should be in .claude/hooks/ with symlink (currently inverted)
-- **MCP config:** Claude (.mcp.json) + Codex (config.toml:51-73) + OpenCode (opencode.json via `kiln mcp-config --client all`) ✅
-- **Hooks:** Codex hooks.json + Claude settings.json — both active, partially overlapping
+### 4.1 Control Admission
 
-## 5. Phased Roadmap
+All work must enter through explicit admission control.
 
-### Phase 1 — Cross-CLI Orchestration (kiln run v2)
+Target outcomes:
 
-**Phase 1 — COMPLETE (v0.23.2)**
-See [CLI Wrapper](docs/guides/cli-wrapper.md) and [Changelog](docs/changelog.md).
+- `IngressGovernor` becomes the only legitimate entry regulator
+- fast-path and slow-path handling are first-class
+- unsafe or underspecified work is rejected or downgraded before execution begins
 
----
+### 4.2 Context Governance
 
-### Phase 2 — Config Sync (kiln config sync)
+Context becomes a governed resource, not an accumulated transcript dump.
 
-**Phase 2 — COMPLETE (v0.23.2)**
-See [CLI Wrapper](docs/guides/cli-wrapper.md) and [Changelog](docs/changelog.md).
+Target outcomes:
 
----
+- `ContextGovernor` is responsible for sufficiency, cost, and safety of exposed context
+- context slices are explicit, bounded, and revocable
+- raw replay becomes an implementation detail, not the default operating model
 
-## Sprint 0 — Fix Broken Promises
+### 4.3 Controlled Coordination
 
-**Sprint 0 — COMPLETE (v0.23.2)**
-See [Changelog](docs/changelog.md).
+Coordination must be explicit, inspectable, and recoverable.
 
----
+Target outcomes:
 
-### Phase 3 — Activate Existing Capabilities
+- `DemandAllocator`, `ChainGovernor`, and `TaskRegistry` become the canonical execution triad
+- shared state moves through `CoordinationStore`, not implicit prompt inheritance
+- parallel work is claimed, tracked, reconciled, and closed formally
 
-**Phase 3 — COMPLETE (v0.23.2)**
-See [Changelog](docs/changelog.md).
+### 4.4 Layered Memory
 
----
+Memory must separate fast operational state from durable knowledge.
 
-## Phase 3.5 — Session Power & Observability
+Target outcomes:
 
-**Phase 3.5 — COMPLETE (v0.23.2)**
-See [CLI Wrapper](docs/guides/cli-wrapper.md), [Hooks](docs/guides/hooks.md), [Skills](docs/guides/skills.md), [Observability](docs/guides/observability.md), and [Changelog](docs/changelog.md).
+- working, episodic, and semantic layers are explicit
+- reconsolidation requires provenance, confidence, and topic coherence
+- mutation is revision-aware rather than append-only folklore
 
-Deferred items:
-- Cost dashboard MCP tool, quota tracking (5h window + weekly resets)
-- Compaction preview, ACON-inspired learnable policy (Phase 5+)
-- GET /diff file change tracking, POST /fork session branching, mid-session model switch
-- Skill improvement loop (eval-scored promotion), citation tracking, automatic consolidation
-- Surface provider name + model in session report footer
+### 4.5 Safety as Kernel
 
-**Pending harness flag backlog:** `effort`, `maxTurns`, `maxBudgetUsd` (Claude Code); `--agent`, `--fork`, `--attach` (OpenCode). See [CLI Wrapper](docs/guides/cli-wrapper.md) for current wired flags.
+Safety cannot remain an accessory subsystem.
 
----
+Target outcomes:
 
-### Phase 4 — kiln config sync for Agents
+- `SafetyKernel` is a hard gate, not a recommendation layer
+- dangerous tool use is fail-closed by default
+- policy, execution permissions, and data boundaries converge into one regulatory model
 
-**Goal:** Eliminate kiln-gateway clause from 22 agent files. Replace with dynamic context injection via MCP.
+### 4.6 Adaptive but Bounded Evolution
 
-**Why fourth:** Requires Phase 1 (subprocess) + Phase 3 (memory_search) to be stable first.
+Kiln must improve from telemetry without becoming self-authoring chaos.
 
-**Research needed before execution:**
-- Optimal size of agent_context payload (avoid context bloat)
-- Which parts of kiln clause are static vs dynamic
-- SKILL.md format for kiln-context skill
+Target outcomes:
 
-**Planned work:**
-- kiln-context SKILL.md: static parts of kiln clause (when to use each tool, handoff protocol, cost reporting format) → lives in ~/.claude/skills/kiln-context/ → read automatically by Claude + Codex + OpenCode → replaces hardcoded clause in 22 files
-- agent_context MCP tool (#27): dynamic parts only (budget_remaining, active_swarm, model_override, session_id) → called at agent start, returns 3-4 fields max → not 15 lines of text — just what changes per session
-- Remove kiln clause from all 22 agent MD/TOML files after SKILL.md is confirmed working
+- `AdaptationEngine` only tunes within architectural law
+- drift is detected via telemetry and invariants
+- policy updates are reviewable and attributable
 
-**Additional Phase 4 scope (from competitive intelligence):**
-- feat(core): AGENTS.md support + CLAUDE.md↔AGENTS.md bridge —
-  cross-tool instruction standard (top request in Claude Code community)
-- feat(cli): CodexSession --sandbox flag passthrough (enforce, not ignore) ✅ DONE (2026-04-08)
-- feat(cli): CodexSession --local-provider ollama/lmstudio support ✅ DONE (2026-04-08)
-  (`kiln run --provider codex --local-provider <name> ...` now forwards Codex's native
-  local backend selector for runs targeting providers such as `ollama` or `lmstudio`)
-- feat(cli): CodexSession --profile support for named config sets ✅ DONE (2026-04-08)
-- fix(cli): OpenCodeSession sandbox semantics are explicit ✅ DONE (2026-04-08)
-  (`translatePermission()` and `OpenCodeSession` now surface deterministic warnings
-  that OpenCode does not natively enforce Kiln sandbox modes; Kiln maps sandbox
-  intent to permission prompting semantics only)
-
-**Sub-phases:**
-4a. kiln-context SKILL.md (static parts)
-4b. agent_context tool #27 (dynamic parts)
-4c. Migration: remove clause from 22 files one by one with testing
-
----
-
-## Deferred Decision: KilnAppConfig white-label fields (2026-04-01)
-
-**Context:** `KilnAppConfig` has `appName`, `description`, `dirName`, `mcpServerName`, `version` —
-all configurable, all hardcoded to `"kiln"` in every consumer (tests + mcp-entry). Zero real
-white-label consumers exist today.
-
-**Immediate fix applied:** Added `import.meta.main` guard to `packages/cli/src/index.ts` so the
-binary self-invokes. Uses hardcoded defaults inline. Binary now works standalone.
-
-**Deferred question:** Should `appName`/`description`/`dirName`/`mcpServerName`/`version` be removed
-from `KilnAppConfig` and hardcoded inside `createCli`?
-
-**Arguments for removing:**
-- No real consumers — violates "3 uses before abstracting"
-- All competing CLIs (Claude Code, Codex, OpenCode) hardcode their identity
-- Removes ~15 `config.appName` references replaced with `"kiln"` literals
-- Eliminates dead fields from a public interface
-
-**Arguments for keeping:**
-- Cost is nearly zero — they're strings, no runtime complexity
-- Open source: future contributors may want white-label use case
-- Removing them is a minor breaking change for any external consumers
-
-**Decision needed:** Remove or keep. Revisit when starting Phase 4 cleanup.
-**Owner:** Ricardo. **Effort if removing:** small (4 field removals + ~15 call sites).
-
----
-
-## Research: CLI Integration Philosophy
-
-See [ADR-003: Meta-Orchestrator Model](docs/adr/ADR-003-meta-orchestrator-model.md) for the analysis of plugin vs direct API vs meta-orchestrator approaches.
-
----
-
-## Phase 3.6 — Memory Quality (Post-3.5)
-
-**Status:** COMPLETE
-**Source:** Engram scout (2026-04-01)
-
-- feat(core): topic key upserts — `topic_key` field on memory observations; if provided on
-  `mem_save`, UPDATE increments `revision_count` + `last_seen_at` instead of creating new entry.
-  Family/segment key format (e.g. `architecture/auth-model`). Direct topic_key lookup bypasses
-  FTS5 when query contains `/` — deterministic retrieval for known keys.
-- feat(core): `revision_count` + `last_seen_at` columns on `Observation` schema (SQLite migration)
-- feat(core): Added `deleted_at` column for soft-delete support
-- fix(test): `:memory:` databases in vitest-bun-sqlite-mock now return fresh instances to prevent cross-test state leakage
-
-**Released in:** v0.25.0
-
----
-
-## Phase 4.5 — Permission & Safety
-
-**Status:** STARTED (`4.5a` complete, `4.5b` complete, `4.5c` effectively complete/closable, `4.5d` in progress with multiple landed slices, including runtime pii-detected, security-alert, and policy-evaluated Prometheus propagation)
-**Priority:** HIGH — #1 universal pain point: "no middle ground between approve-all and yolo"
-**Source:** User research across all 3 tools + Claude Code permission/safety scouts
-
-### Current state
-
-- `4.5a` complete: canonical permission decision engine landed in CLI wrapper
-- `4.5b` complete: richer backend translation contract, adapter consumption,
-  and sync-writer persistence landed with explicit Kiln-managed metadata for
-  translated-vs-enforced backend rules
-- `4.5c` effectively complete/closable: approval-memory and enforcement integration is in
-  place, with approval-memory persistence, application-backed context
-  governance, first runtime data-firewall slices underway, and the first
-  execution-time tool-scope, bash-command, and scoped MCP-tool enforcement
-  slices landed in the CLI run loop; MCP-origin event metadata now exists in
-  Codex, Claude, and OpenCode wrapper paths to support honest scoped
-  enforcement, and scoped MCP matching now uses canonical selectors instead of
-  raw backend-emitted tool names; CLI run-loop tool denies now consult
-  approval memory, preserve normal allowed-tool flow on matching grants,
-  consume `once` grants only after later gates pass, and use stable logical
-  Kiln session IDs for session-scoped matching (including resume paths);
-  bash-like command denies now also consult command-surface approval memory
-  with the same stable session semantics and delayed `once` consumption; and
-  file-governance deny decisions are now enforced in the CLI run loop for
-  path-bearing tool inputs (`input.filePath`, `input.path`)
-- `4.5d` started: safety-hardening scout complete and two core slices landed
-  (currently uncommitted): prompt-scanner detection-time normalization for
-  Unicode/homoglyph and invisible-character variants while preserving the
-  original input for audit, plus a new dangerous-command detector contract in
-  engine/domain with deterministic core security implementation and
-  shell-aware `allow | ask | deny` decisions covering Unix destructive,
-  Windows destructive, download-and-exec, and ambiguous ask boundaries; the
-  detector is now enforced in runtime before tool execution via
-  `ModeBOrchestrator`, wired from `gateway-server`, with fail-closed behavior
-  for `deny`/`ask`, detector-error handling, and empty-command blocking;
-  cached tool results now also pass through `ToolResultSanitizer` before
-  reinjection in `ModeBOrchestrator`, and sanitizer failure on cache hit no
-  longer re-executes tools; runtime gateway sanitizer wiring now threads
-  `securityConfig.promptInjection` into `ToolResultSanitizer` construction so
-  indirect reinjection scanning honors runtime prompt-injection configuration
-  and allowlist behavior; runtime observability now also propagates
-  `pii_detected`, `security_alert`, and `policy_evaluated` events into
-  Prometheus via dedicated counters with deterministic fallback labels
-- later sub-phases still pending: full enforcement integration and remaining
-  safety hardening slices
-
-### Granular Permission Policy
-- feat(core): per-tool permission rules (allowlist by tool name/pattern)
-- feat(core): per-command permission rules (allowlist by bash pattern)
-- feat(core): per-agent permission scoping (subagent gets subset of tools)
-- feat(core): non-blocking permission UX — pattern-based auto-approve
-  with audit log (eliminates constant approval prompts)
-- feat(core): scoped MCP tools per subagent — least privilege model
-  (top Claude Code community request)
-
-### Data Governance
-- feat(core): data firewall — policy per destination
-  (prevent accidental exfiltration via small models, logging, CI)
-- feat(core): sensitive file governance — .env, secrets, keys,
-  credentials excluded from agent context by default
-- feat(runtime): CI/PR safety — no env variable leaks in GitHub Actions
-- feat(cli): --safe-defaults flag — privacy-first configuration preset
-- feat(cli): global user config at `~/.kiln/config.yaml` — permission policy,
-  preferred provider, API keys; resolution chain: kiln.yaml (project) >
-  ~/.kiln/config.yaml (global) > hardcoded fallback (read-only/on-request);
-  unblocks `kiln run` outside app repos without needing per-project kiln.yaml.
-  **Known gap:** current DEFAULT_POLICY in run.ts is temporarily set to
-  `workspace-write/never` as a usability fix until global config lands —
-  revert to `read-only/on-request` once ~/.kiln/config.yaml is implemented.
-
-### Safety Pipeline Improvements
-- fix(core): Unicode/homoglyph-safe detection pipeline in prompt scanning
-  (normalization at detection-time, original input retained for audit)
-- feat(core): dangerous-command detector in core security with shell-aware
-  `allow | ask | deny` decisions and explicit ambiguous-boundary asks
-- feat(runtime): dangerous-command detector enforcement before tool execution
-  in `ModeBOrchestrator`, wired from gateway startup with fail-closed
-  handling for `deny`, `ask`, detector errors, and empty commands
-- feat(runtime): cache-hit tool-result sanitization before reinjection in
-  `ModeBOrchestrator`; sanitizer failure keeps cache-hit flow and does not
-  re-execute tools
-- feat(runtime): runtime now wires prompt-injection scanning into
-  `ToolResultSanitizer` construction through a gateway factory
-- feat(runtime): runtime sanitizer now honors
-  `securityConfig.promptInjection` during reinjection
-- test(runtime): regression coverage exists for enabled, disabled, and custom
-  `allowedPatterns` behavior through the runtime tool-result reinjection path
-- feat(runtime): Prometheus collector now emits `pii_detections_total` for
-  `pii_detected` events with stable `direction`, `action`, and `tier` labels
-  plus deterministic `unknown` fallbacks for malformed or missing values
-- feat(runtime): Prometheus collector now emits `security_alerts_total` for
-  `security_alert` events with stable `severity` and `category` labels plus
-  deterministic `unknown` fallbacks for malformed/unsupported category values
-- feat(runtime): Prometheus collector now emits `policy_evaluations_total` for
-  `policy_evaluated` events with stable `rail_type`, `allowed`, and
-  `direction` labels plus deterministic `unknown` fallbacks for malformed or
-  missing values
-- feat(core): reuse tool-result scanning patterns as safety sink controls
-  across prompt and tool-output surfaces
-- feat(core): CROSS_PLATFORM_CODE_EXEC dangerous pattern expansion
-  (align with Claude Code's broader dangerous command/code coverage)
-- feat(core): continue denial propagation and broader metrics/event wiring
-  across governed surfaces (fail-closed semantics + observable counters)
-- verification: targeted core compile passed; focused test execution for this
-  slice remains blocked in the current environment
-- verification: targeted runtime compile passed; focused runtime tests exist
-  for the enforcement path
-- verification: targeted runtime compile passed and focused
-  `mode-b-orchestrator-tools` test passed for cache-hit sanitization slice
-
----
-
-### Downstream Consumer — OpenKiln (Separate Product)
-
-OpenKiln is not a Kiln engine phase. It is a separate product/application that
-consumes Kiln as its engine.
-
-Kiln may still do enabling work that benefits a downstream OpenKiln app, but
-that work should be tracked here only when it is engine-native, for example:
-
-- `feat(runtime)`: session state export — checkpoints, progress artifacts,
-  resumable session snapshots
-- `feat(runtime)`: OpenTelemetry tracing opt-in
-- `feat(runtime)`: Prometheus metrics — circuit breaker health, cost/turn,
-  latency/backend, error rates
-- `feat(cli)`: hook execution pipeline — wire PreToolUse/PostToolUse through
-  all channel adapters
-
-OpenKiln-specific product work belongs in its own roadmap/repo, not as a core
-Kiln implementation phase.
-
-#### Downstream Note — LocalSession / TurboQuant (Future Backend)
-
-- **Status:** backlog — revisit when llama.cpp mainline PR stabilizes (~Q3 2026)
-- **What:** fourth IKilnSession backend that spawns llama-server from TheTom/llama-cpp-turboquant fork with --cache-type-v turbo3
-- **Why:** zero API cost, offline, ~4.6x KV cache compression vs fp16, enables 35B+ models with extended context on consumer hardware (validated: Qwen 3.5 35B-A3B on M5 Max via Metal)
-- **Integration:** fits IKilnSession exactly — one new file, no registry refactor
-- **Context for PreambleBuilder:** local session can advertise larger maxContextTokens in SessionCapabilities; PreambleBuilder can fill aggressively with repo context and memory snapshots
-- **Does NOT help Claude Code, Codex, or OpenCode backends** — TurboQuant only applies to inference processes Kiln owns
-- **Blocked on:** llama.cpp mainline merge (issue #20977), turbo3 Metal quality regression resolution (issue #6)
-- **Reference:** arxiv.org/abs/2504.19874 (Google paper, ICLR 2026), github.com/TheTom/turboquant_plus (indie implementation), github.com/TheTom/llama-cpp-turboquant (llama.cpp fork)
-
----
-
-### Phase 6 — Cloud Deployment
-
-**Phase 6 — COMPLETE (pre-existing)**
-Gateway live at gw.kilvo.app on Coolify. See [Gateway YAML](docs/configuration/gateway-yaml.md).
-
----
-
-### Phase 7 — Kiln TUI [COMPLETE v0.25.0]
-
-Unified terminal interface over all providers (claude/codex/opencode + 5 direct API backends). Two-column layout (chat + sidebar), 5 built-in themes (`--theme`), in-process TUI gateway on port 4801 (`startTuiGateway`), `GatewaySession` WS adapter, `/clear` and `/plan` commands, two-section provider picker (Harness / Direct API), per-provider cost tracking, diff/change visibility. TUI is a pure rendering layer — the Orchestrator owns the agent loop. See [docs/guides/tui.md](docs/guides/tui.md) and [ADR-002](docs/adr/ADR-002-tui-gateway-architecture.md).
-
----
-
-## Phase 8 — Agent Teams
-
-**Status:** IN PROGRESS (8.1 Plan Mode)
-**Priority:** MEDIUM-HIGH — top request across all 3 tools, Kiln already has primitives
-**Source:** Market research + swarm scout + academic findings (Workforce, Conductor)
-
-### Swarm Activation
-- feat(cli): activate swarm primitives end-to-end (join/leave/broadcast/claim/release)
-- feat(cli): `--workers N` flag — parallel isolated sessions ✅ COMPLETE (v0.26.0)
-  `runParallelWorkers()` spawns N sessions with `isolate: true` (separate worktrees),
-  `Promise.allSettled`, per-worker summary, exits 1 only if all fail.
-- feat(core): parallel agent coordination with write serialization
-  (each worker has own worktree — no concurrent write conflicts by design)
-
-### Plan Mode (Phase 8.1 — IN PROGRESS)
-
-**Design:** Best-of-three synthesis from Claude Code, Codex, and Hermes.
-
-#### Item 1: `kiln plan` Command
-
-**Status:** IMPLEMENTING (v0.25.0)
-
-**Prerequisites existing:**
-- `permissionMode: "plan"` in CLI wrapper (read-only permissions)
-- `plan-summary` artifacts in CG4 context governance
-- `context-governor.ts` with `planArtifactKey` handling
-
-**Implementation scope:**
-- CLI command: `kiln plan <task>` — separate planning phase from execution
-- Flags: `--plan` flag on `kiln run`, adds `"plan-mode"` session
-- Execution boundary: block Edit/Write/MultiEdit tools in plan mode
-- 3-phase workflow: Explore → Intent Chat → Implementation Chat
-- Final output: `<proposed_plan>` block rendered to user
-
-**3-phase workflow (from Codex, adapted):**
-
-| Phase | Goal | Agent Behavior |
-|-------|------|--------------|
-| 1. Explore | Ground in environment | Run read-only exploration first — resolve unknowns from repo |
-| 2. Intent Chat | Clarify what they actually want | Ask via `request_user_input` until goal + success criteria + constraints locked |
-| 3. Implementation Chat | Design decision-complete solution | Explore approach, APIs, edge cases, testing |
-
-**Execution boundaries (enforced):**
-
-| Allowed (non-mutating) | Not Allowed (mutating) |
-|------------------------|---------------------|
-| Read, glob, grep, rg | Edit, Write, apply_patch |
-| Static analysis, type inspection | Formatters, linters |
-| Dry-run commands (no file changes) | sed, tee, echo → files |
-| Tests/builds to `target/`, `.cache/` | Commits, pushes, external actions |
-
-**Final plan output format:**
-
-```
-<proposed_plan>
-## Summary
-[concise summary]
-
-## Implementation Changes
-- [bullet by subsystem, not file-by-file]
-
-## Test Plan
-- [verification steps]
-
-## Assumptions
-- [defaults chosen where ambiguous]
-</proposed_plan>
-```
-
-#### Item 2: APC — Agentic Plan Caching
-
-**Status:** COMPLETE (v0.25.0)
-**Implemented:** Context-artifact cache with `plan-summary:{projectPath}:{normalizedTask}` key — already exists in CG4 via `contextGovernor.ts` + `sessionManager.ts`. Plan summaries are cached and retrieved on resume for similar tasks.
-
-#### Item 3: Review Flow
-
-**Status:** COMPLETE (v0.26.0)
-**Scope:** plan → review → approve → execute pipeline
-**Key:** approval-gated transition from plan mode to execution mode. After plan session, extracts `submit_plan` tool call from transcript, renders `PROPOSED PLAN` block, prompts `Approve and execute? [y/N]`, re-runs in execute mode on approval.
-
-#### Item 4: PlanExitTool
-
-**Status:** COMPLETE (v0.26.0)
-**Scope:** `application/plan-exit-tool.ts` — `planExitToolSchema` (name: `submit_plan`, input: `{ plan: string }`) for the planning agent to signal plan completion. Captured from `run-session.ts` via `submittedPlan` on `RunSessionResult`.
-
-### Coordination Intelligence
-
-#### Phase 8.3a: Response-Threshold Task Allocator ✅ COMPLETE (v0.26.0)
-`ThresholdAllocator` — biologically-grounded task allocation (ant colony response-threshold model).
-Each agent has per-category thresholds (0–1). Task demand (from ComplexityScorer) compared against thresholds.
-Lowest-threshold eligible agent wins (emergent specialization). `demand-signal.ts` maps complexity signals
-to 7 task categories. Outcome recording for Phase 8.3e adaptive thresholds.
-Research: `docs/research/coordination-intelligence.md`
-
-#### Phase 8.3b: Cascade Energy Controller ✅ COMPLETE (v0.26.0)
-`CascadeController` — neural-field-theory-inspired handoff chain termination.
-Energy model: `A(t+1) = decay * A(t) + gain - cost`. Subcritical chains self-extinguish;
-supercritical chains caught by hard `maxDepth` safety net. Replaces blunt integer cutoff
-with principled damping while preserving the guardrail.
-
-#### Phase 8.3c: Task Channel ✅ COMPLETE (v0.26.0)
-`TaskChannel` — stigmergy coordination substrate. publish→claim→complete/fail/release lifecycle.
-Dependency resolution (auto-unblock when deps complete). Results-only publishing prevents
-context contamination. Queries: open(), byStatus(), byAssignee(), counts().
-
-#### Phase 8.3d: Domain-Driven Team Templates ✅ COMPLETE (v0.26.0)
-`TeamComposer` — composes agent teams from built-in templates based on detected domain.
-4 built-in templates (java-spring, react-typescript, python, generic) with role-specific
-threshold specializations inspired by ECC's 47-agent taxonomy. Roles are `required` vs `on-demand`
-(filtered by complexity < 0.4). Each `ComposedTeam` includes pre-configured `ThresholdAllocator`
-+ `CascadeController`. `pipelineOrder` field enables sequential orchestration chains.
-
-#### Phase 8.3e: Adaptive Threshold EMA ✅ COMPLETE (v0.26.0)
-`ThresholdAllocator` now learns from outcomes via EMA. `AdaptiveConfig` controls alpha (0.1),
-successDelta (-0.05), failureDelta (+0.08), floor/ceiling (0.05/0.95), hysteresisWindow (3).
-Always-on adaptive mode — no backward-compat toggle. `resetAdaptation(agentId?)` restores
-initial thresholds. Produces emergent specialization: agents that succeed at a category
-become more responsive, agents that fail become less responsive.
-
-#### Phase 8.3f: Wire Coordination Primitives into SwarmStrategy ✅ COMPLETE (v0.26.0)
-`SwarmStrategy` now uses all 5 coordination primitives when available via `StrategyContext`.
-ThresholdAllocator selects starting agent (replaces naive agentKeys[0]). CascadeController
-manages handoff chain termination via energy model (replaces hard maxHandoffDepth). TaskChannel
-provides stigmergy substrate (publish/claim/complete lifecycle). Outcomes feed adaptive EMA
-learning loop. Graceful cascade termination (supported, not refuted). Clean fallback to local
-CascadeController when primitives unavailable.
-
-### Benchmarking
-- feat(runtime): per-harness benchmark runner —
-  measure scaffold decisions (compaction/permissions/tools) independently
-  from model performance (fills gap identified in market research)
-- feat(core): SWE-bench integration for coding task evaluation
-
----
-
----
-
-## Phase 9 — Native Developer Tools (`@kilnai/tools`) [COMPLETE v0.24.0]
-
-Seven native executors (`bash`, `read`, `write`, `edit`, `grep`, `glob`, `git`), `ToolEnvironment` binary detection (vendored → PATH → pure TS), `DevToolExecutionBridge` wired into the Orchestrator event loop, `DevToolsMcpServer` stdio surface (`kiln tools --mcp`), platform vendored binary packages. See [docs/guides/tool-use.md](docs/guides/tool-use.md).
-
----
-
-## Phase 10 — ProviderSession (Direct API Backend) [COMPLETE v0.25.0]
-
-`ProviderSession` implementing `IKilnSession` for 5 direct API providers (anthropic, openai, deepseek, openrouter, ollama), unified `SessionRegistry` pool (8 providers, dynamic priority, shared circuit breaker), `translatePermissionForProvider()`, `buildProviderSystemPrompt()`, `ProviderContextTracker`, CLI `--provider`/`--model` flags, TUI Harness/Direct API picker. See [docs/guides/cli-wrapper.md](docs/guides/cli-wrapper.md).
-
----
-
-## Phase 11 — Layered Runtime Config [URGENT]
-
-**Status:** PLANNED — depends on Phase 10 (config needs backends to configure)
-**Priority:** URGENT — every competitor has layered config; Kiln's config is the #1 adoption barrier
-**Source:** Evolution research (2026-04-07): Codex ConfigLayerStack, OpenCode 4-tier config, Claude Code settings.json scoping
-
-### Problem
-
-Kiln requires `app.yaml` + `gateway.yaml` for any non-trivial use. Competitors require zero
-config (Claude Code), one TOML file (Codex), or one JSON file (OpenCode). The research
-confirmed: developers reward minimal surface area for the 90% case. Any framework requiring
-gateway config to run a simple agent loses to one that doesn't.
-
-### Rules
-
-- Progressive disclosure: complexity scales with ambition
-- No backward compat shims — if config schema changes, it changes cleanly
-- Merge semantics must be explicit and documented — no magic
-- YAML format throughout (consistent with existing kiln.yaml)
-- Test before done: config loading tested with all layer combinations
-
-### Sub-phases
-
-#### 11a. Global Config (`~/.kiln/config.yaml`)
-
-**Status:** COMPLETE
-Global config now lives in `packages/cli/src/config/global-config.ts` with `KilnGlobalConfig`, XDG-aware resolution, YAML read/write helpers, and `defaultGlobalConfig()` defaults for provider + permissions.
-
-#### 11b. Project Config (`./kiln.yaml`) with Merge Semantics
-
-**Status:** COMPLETE
-Project `kiln.yaml` now merges cleanly over `~/.kiln/config.yaml` via `packages/cli/src/config/config-merger.ts`, with scalar override semantics and additive MCP server merging exposed through `loadKilnConfig(projectPath)`.
-
-#### 11c. Zero-Config First Run
-
-**Status:** COMPLETE
-Env-aware runtime defaults now resolve through `packages/cli/src/config/env-config.ts`: CLI flag > `KILN_PROVIDER`/`KILN_MODEL` > `~/.kiln/config.yaml` > undefined.
-`packages/cli/src/commands/tui.ts` now resolves provider from env/global config and theme from `tui.theme`; `packages/cli/src/commands/run.ts` resolves model from env/global config.
-
-#### 11d. Agent Definitions as Markdown
-
-**Status:** COMPLETE
-Markdown agent profiles now load from `~/.kiln/agents/*.md` and `<project>/.kiln/agents/*.md`, with project definitions overriding global ones by `name`. `kiln run --agent <name>` resolves the profile, applies its default `model` when `--model` is absent, and appends the markdown body to the generated system prompt.
-
-#### 11e. AGENTS.md Generation
-
-**Status:** COMPLETE
-`kiln sync --agents-md` (and `kiln sync` with no flags) now generates a valid GFM `AGENTS.md` at the project root from `kiln.yaml` + markdown agent definitions, readable by Claude Code, Codex, OpenCode, and Cursor without Kiln-specific config.
-
-#### 11f. Agent Sync
-
-**Status:** COMPLETE
-`kiln sync --agents` (and `kiln sync`) now translates Kiln markdown agent definitions into native Claude Code `.md`, Codex `.toml`, and OpenCode `.md` agent files, then writes them into each CLI's agents directory.
-
-**Files:** New `cli/src/sync/agents-md-sync.ts`, modifications to `cli/src/commands/sync.ts`
-**Tests:** Generation from various config combinations, idempotent re-generation
-**Reference:** ECC finding — AGENTS.md is the universal cross-tool context file standard
-
-#### 11g. Skills Sync
-
-**Status:** COMPLETE
-`kiln sync --skills` (and `kiln sync`) now copies skill directories from `~/.kiln/skills/` + `.kiln/skills/` into Claude Code, Codex, and OpenCode skill directories, with project skills overriding global skills by name.
-
----
-
-## Phase 11.5 — Subscription Providers (OAuth Direct Access) [CRITICAL PATH]
-
-**Status:** 11.5a COMPLETE (v0.27.0) — 11.5b–d PLANNED
-**Priority:** CRITICAL — unlocks zero-cost end-to-end testing and full engine integration
-**Source:** Hermes-agent auth.py (Codex OAuth device code flow), OpenClaw openai-codex provider, OpenCode Go subscription API
-**Depends on:** Phase 10 (ProviderSession exists), Phase 11 (config layer exists)
-
-### Problem
-
-Kiln had two provider tiers: Direct API (full engine, costs per token) and Harness (limited
-engine, subscription-backed). Subscription providers (ChatGPT Plus, OpenCode Go) were only
-accessible through CLI wrappers, bypassing Kiln's orchestration, safety pipeline, knowledge
-RAG, coordination intelligence, and native tools.
-
-### Solution
+## 5. Scope Discipline
 
-Third provider tier: **Subscription Direct** — OAuth-authenticated direct API access using
-existing consumer subscriptions. Same engine integration as Direct API, zero additional cost.
+### Examples and consumers
 
-### Provider Tier Priority (enforced in SessionRegistry)
-
-| Priority | Tier | Engine Access | Cost | Examples |
-|----------|------|---------------|------|----------|
-| 1 | Subscription Direct | Full | $0 marginal (monthly sub) | codex-oauth, opencode-go |
-| 2 | Direct API (BYOK) | Full | Per-token | anthropic, openai, deepseek, openrouter, ollama |
-| 3 | Harness (CLI wrapper) | Limited | Varies | ClaudeSession, CodexSession, OpenCodeSession |
+Examples remain valid, but they are downstream expressions of the control plane. They do not define Kiln's identity.
 
-### Sub-phases
+That means:
 
-#### 11.5a: Codex OAuth Provider — COMPLETE (v0.27.0)
+- examples should consume the new control-plane concepts, not preserve obsolete ones
+- examples are not a reason to keep old abstractions alive
+- if an example depends on outdated framing, the example should be rewritten
 
-**Auth flow** (device code + PKCE):
-1. `POST https://auth.openai.com/api/accounts/deviceauth/usercode` — client_id `app_EMoamEEZ73f0CkXaXp7hrann`
-2. User visits `https://auth.openai.com/codex/device`, enters displayed code
-3. Poll `POST https://auth.openai.com/api/accounts/deviceauth/token` until 200
-4. Exchange authorization_code + code_verifier at `POST https://auth.openai.com/oauth/token`
-5. Tokens persisted at `~/.kiln/auth/codex-oauth.json`
-6. Auto-refresh 120s before expiry via `POST https://auth.openai.com/oauth/token` (grant_type: refresh_token)
+### Internal versus external promises
 
-**Inference endpoint:**
-- Base URL: `https://chatgpt.com/backend-api/codex`
-- API: OpenAI Responses API (`/responses` path, NOT /chat/completions)
-- Auth: `Authorization: Bearer {access_token}`
-- Models: gpt-5.4, gpt-5.4-mini, gpt-5.3-codex, gpt-5.3-codex-spark — all at $0 marginal cost
+There are effectively no external compatibility constraints strong enough to justify preserving obsolete architecture. Old structures can be removed once the canonical replacement exists.
 
-**Files delivered:**
-- `core/src/agents/infrastructure/codex-oauth-auth.ts` — device code flow, PKCE helpers, token storage, auto-refresh
-- `core/src/agents/infrastructure/codex-oauth.ts` — `CodexOAuthAdapter`: ProviderAdapter, 401 retry, streaming
-- `cli/src/commands/auth.ts` — `kiln auth codex login|status|logout`
-- `core/src/agents/model-pricing.ts` — 4 codex-oauth catalog entries ($0 cost)
-- `core/src/agents/model-capability-registry.ts` — provider-scoped keys + `getByProvider()`
-- `core/src/agents/index.ts` — barrel exports
-- `cli/src/wrapper/provider-session.ts` — codex-oauth in provider union, Priority 1
-- `cli/src/wrapper/session-registry.ts` — codex-oauth registration, credential-gated availability
-- `cli/src/index.ts` — auth command dispatch
-- `core/src/engine/errors.ts` — KilnError instanceof fix for Vitest
+## 6. Long-Term Roadmap
 
-**Rate limits:** 30-150 messages/5hr (Plus), 300-1500 (Pro). Tracked via response headers.
+### Phase A - Documentation Reset
 
-**Quality gate:** 3287 tests pass, typecheck clean.
+Objective:
+Replace the old product narrative with a single coherent doctrine.
 
-#### 11.5b: OpenCode Go Provider (MiniMax, GLM, Kimi via subscription)
+Required results:
 
-**Research needed:** Identify OpenCode Go's API gateway endpoint and auth mechanism.
-Models: MiniMax M2.5/M2.7, GLM-5/5.1, Kimi K2.5, MiMo-V2-Pro/Omni.
-Limits: $12 equiv/5hr, $30/week, $60/month.
+- modular architecture docs become canonical
+- research is synthesized at `docs/research/`
+- root docs stop presenting Kiln as a meta-orchestrator
+- obsolete architecture narrative is removed or reduced to temporary entrypoint scaffolding
 
-**Files:**
-- New: `core/src/agents/infrastructure/opencode-go.ts` — ProviderAdapter for OpenCode Go subscription
-- Modify: `cli/src/commands/auth.ts` — `kiln auth opencode` login command
-- Modify: `cli/src/wrapper/session-registry.ts` — register opencode-go as subscription provider
+Completion standard:
 
-#### 11.5c: Credential Pool & Multi-Account
+- no primary root doc contradicts the new identity
+- research and architecture are navigable without legacy subtree dependency
 
-- Multiple subscription accounts per provider (2x ChatGPT Plus = 2x quota)
-- Credential rotation (round-robin, fill-first, least-used strategies)
-- Per-credential quota tracking and exhaustion cooldown
-- Token file isolation: `~/.kiln/auth/codex-oauth-{profile}.json`
+### Phase B - Taxonomy and Boundary Cleanup
 
-**Reference:** hermes-agent `agent/credential_pool.py` (full implementation with strategies, cooldowns, status tracking)
+Objective:
+Make names, modules, and responsibilities match the new doctrine.
 
-#### 11.5d: `kiln auth` CLI Command
+Required results:
 
-- `kiln auth codex` — device code flow for ChatGPT Plus/Pro
-- `kiln auth opencode` — login for OpenCode Go
-- `kiln auth status` — show all authenticated providers, token expiry, quota
-- `kiln auth logout [provider]` — revoke and clear stored tokens
-- `kiln auth import` — import existing tokens from ~/.codex/auth.json or ~/.config/opencode/
+- canonical terminology used across code and docs
+- obsolete names removed from active surfaces
+- bounded contexts clarified
+- overlapping modules identified for consolidation or deletion
 
-### Why this is critical path
+Completion standard:
 
-Without subscription providers, testing Kiln's full engine end-to-end requires API credits.
-Every test run, every demo, every iteration costs money. With codex-oauth:
-- gpt-5.4 at zero marginal cost (ChatGPT Plus $20/mo, already paid)
-- Full coordination intelligence (Phase 8), safety pipeline, knowledge RAG, native tools
-- Credential pool enables parallel testing across multiple accounts
-- Unblocks Phase 13 (Terminal-Bench submission) without burning API budget
+- one concept has one name
+- one responsibility has one owner
 
----
+### Phase C - Core Control-Plane Refactor
 
-## Phase 12 — Runtime Polish & Competitive Parity [URGENT]
+Objective:
+Make the runtime conform to the architectural model instead of merely describing it.
 
-**Status:** PLANNED — depends on Phases 9-11
-**Priority:** URGENT — competitive parity features that prevent churn
-**Source:** Evolution research (2026-04-07): OpenClaw, Hermes, Aider, Goose, ECC feature analysis
+Required results:
 
-### Rules
+- explicit implementation paths for `IngressGovernor`, `ContextGovernor`, `DemandAllocator`, `ChainGovernor`, and `TaskRegistry`
+- mode handling aligned to `NORMAL`, `SUPERVISED`, `DEGRADED`, `LOCKED`, and `RECOVERING`
+- admission, execution, and recovery flows made explicit
 
-- Each sub-phase is independent — can ship in any order
-- No speculative abstractions — build only what research validated
-- Test before done
+Completion standard:
 
-### Sub-phases
+- canonical flows from the architecture docs map directly to runtime modules
+- execution is explainable in terms of governors and controllers, not accidental call graphs
 
-#### 12a. Provider Fallback Chain
+### Phase D - Safety and Permission Unification
 
-- Config: `providers: [anthropic, openrouter/anthropic, deepseek]` — tries in order
-- Integrates with existing circuit breaker (no new system)
-- Auth rotation for providers with multiple keys
-- Exponential backoff per provider (existing `withRetry` pattern)
+Objective:
+Collapse fragmented permission, policy, and risk handling into one coherent kernel.
 
-**Files:** Modifications to `cli/src/wrapper/session-registry.ts`, `core/src/agents/` adapters
-**Reference:** OpenClaw auth rotation + fallback chain, Aider litellm fallback
+Required results:
 
-#### 12b. External Model Registry
+- dangerous command detection, tool permissioning, and data boundaries share one policy model
+- safety decisions are observable and attributable
+- runtime defaults are fail-closed where risk is ambiguous
 
-- Fetch model catalog from `models.dev/api.json` at startup (cache for 24h)
-- Bundled snapshot as offline fallback
-- Replaces hardcoded 17 `ModelCapabilityProfile` entries in `model-capability-registry.ts`
-- TUI model picker populated from registry (not hardcoded list)
+Completion standard:
 
-**Files:** New `core/src/agents/model-registry.ts`, modifications to `model-capability-registry.ts`
-**Reference:** OpenCode `models.ts:88-99` fetches from `https://models.dev/api.json`
+- no parallel permission model competes with the kernel
+- no important execution path bypasses safety accounting
 
-#### 12c. Session Resume & Fork
+### Phase E - Memory and Context Refactor
 
-- `kiln run --resume` — enhance existing SessionStore resume
-- `kiln run --fork <session-id>` — create new session from checkpoint
-- `kiln sessions list` — browse prior sessions with metadata
-- Session metadata: provider, model, cost, duration, task summary
+Objective:
+Separate operational context from durable memory and make mutation disciplined.
 
-**Files:** Modifications to `cli/src/wrapper/session-store.ts`, new `cli/src/commands/sessions.ts`
-**Reference:** Codex `resume`/`fork`, Claude Code `--resume`
+Required results:
 
-#### 12d. MCP Auto-Discovery
+- memory layers are explicit in code
+- topic-based reconsolidation becomes canonical
+- context assembly is driven by policy, not transcript accumulation
 
-- `kiln mcp search <query>` against MCP registry (mcpregistry.io or similar)
-- `kiln mcp install <name>` auto-configures in kiln.yaml
-- Token budget warning: alert when >80 tools active (context degradation threshold)
-- Reference model list from registry for available servers
+Completion standard:
 
-**Files:** New `cli/src/commands/mcp-search.ts`
-**Reference:** OpenClaw `mcp-hub` skill (1,200+ servers auto-discovered), ECC token budget finding
+- retrieval, mutation, and exposure each have distinct responsibilities
+- memory writes are revision-aware and auditable
 
-#### 12e. Skill Registry Hub
+### Phase F - Coordination Substrate
 
-- `kiln skill search <query>` against public index
-- `kiln skill install <name>` downloads SKILL.md to project `.kiln/skills/`
-- Index starts as GitHub repository (JSON manifest), evolves to hosted registry
-- Skills installable at global (`~/.kiln/skills/`) or project (`.kiln/skills/`) scope
+Objective:
+Move multi-worker behavior from prompt convention to controlled shared-state coordination.
 
-**Files:** New `cli/src/commands/skill-search.ts`, modifications to `cli/src/commands/skill.ts`
-**Reference:** OpenClaw ClawHub (800+ skills, searchable), ECC 181 skills
+Required results:
 
-#### 12f. Subagent Model Routing
+- claims, latches, quorum signals, and handoffs live in `CoordinationStore`
+- task lifecycle is explicit
+- parallel work is bounded by budget and policy
 
-- `KILN_SUBAGENT_MODEL` env var to route subagents to cheaper models
-- Config: `subagentModel: claude-haiku-4-5` in kiln.yaml
-- Applied when spawning subagent sessions (both harness and provider)
-- Surfaces as `CLAUDE_CODE_SUBAGENT_MODEL` for Claude Code harness backend
+Completion standard:
 
-**Files:** Modifications to `cli/src/wrapper/session-manager.ts`, kiln.yaml schema
-**Reference:** ECC finding — `CLAUDE_CODE_SUBAGENT_MODEL` is undocumented Claude Code knob
+- coordination behavior can be inspected from shared state alone
+- recovery does not depend on hidden prompt history
 
----
+### Phase G - Operator Surfaces
 
-### Dependency Chain (Phases 9-13)
+Objective:
+Make CLI, TUI, and other surfaces behave as operator interfaces to the control plane.
 
-```
-Phase 4.5 (permissions, IN PROGRESS) ──┐
-                                        ├── Phase 9 (native tools)
-Phase 8 (agent teams, IN PROGRESS) ────┘       │
-                                          Phase 10 (ProviderSession)
-                                                │
-                                          Phase 11 (layered config)
-                                                │
-                                          Phase 12 (runtime polish)
-                                                │
-                                          Phase 13 (external validation)
-```
+Required results:
 
-Phases 9-12 are all marked [URGENT]. Phase 9 is the critical path — everything depends on it.
-Phase 8 (Agent Teams) and Phase 4.5 (Permissions) continue in parallel — they are prerequisites.
+- surfaces expose system state, mode, safety posture, and task lifecycle clearly
+- tooling stops pretending to be the product core
+- user interaction maps cleanly to control-plane concepts
 
----
+Completion standard:
 
-## Phase 13 — External Validation
+- the interface explains what the system is regulating, not just what command was run
 
-**Status:** PLANNED
-**Timing:** After Phases 9-12 are stable enough to represent the real Kiln experience.
-Do not optimize the roadmap around benchmark chasing.
+### Phase H - Example and Consumer Realignment
 
-### Terminal-Bench Submission
+Objective:
+Rewrite examples and downstream consumers to express the new Kiln power.
 
-- Submit Kiln to Terminal-Bench only after the remaining phases are complete
-  enough that the benchmark reflects the real product, not a benchmark harness
-- Use Terminal-Bench as external validation for terminal task execution quality,
-  not as the primary definition of success
-- Keep internal evaluation broader than Terminal-Bench: orchestration quality,
-  approval UX, observability, session continuity, and multi-backend routing are
-  core Kiln differentiators that Terminal-Bench does not fully measure today
-- If feasible, contribute benchmark scenarios to future Terminal-Bench versions
-  that better capture orchestration, approvals, resumability, and multi-agent
-  coordination
+Required results:
 
-### Readiness Gate Before Submission
+- examples use the control-plane vocabulary and flow model
+- outdated demo patterns are deleted
+- downstream apps inherit regulation, memory, safety, and coordination capabilities intentionally
 
-- Phases 9-12 implemented to a stable standard
-- Kiln TUI is the real primary interface, not a prototype shell
-- Provider sessions work end-to-end with native tools
-- Resume, approvals, routing visibility, and diff visibility are production-ready
-- Internal benchmark and regression suites are already green
+Completion standard:
 
----
+- examples teach the new system rather than memorializing the old one
 
-## 6. What Was Considered and Discarded
+### Phase I - Ruthless Cleanup
 
-### claude-better
-Reimplements Claude CLI using GPT-5.4 behind the scenes. Sends fake headers to appear as Claude to Anthropic analytics. **Decision:** Hard no. It is not Claude — it is OpenAI masquerading as Claude. TOS violation. Architecturally wrong for Kiln.
+Objective:
+Remove obsolete modules, duplicate paths, stale ADR assumptions, and dead documentation.
 
-### stdout parsing for permissions
-Initial hypothesis: parse subprocess stdout to detect permission prompts and auto-respond based on security-rules.yaml. **Why discarded:** fails with stream-json output, fragile across versions, active bugs make bypass flags inconsistent. Better solution: bypassPermissions + scoped sandbox directory.
+Required results:
 
-### task decomposition to avoid classifier
-Initial hypothesis: decompose complex tasks into smaller subtasks to avoid classifier blocks. **Why discarded:** classifier evaluates subagents at 3 independent points (spawn, execution, return). Decomposition does not guarantee evasion. Better solution: bypassPermissions mode eliminates the problem entirely.
+- legacy abstractions deleted
+- dead docs removed
+- old names eradicated from primary paths
 
-### approve_tool as permission-prompt-tool
-Initial hypothesis: Kiln exposes approve_tool MCP endpoint, Claude Code calls it via --permission-prompt-tool. **Why deprioritized:** bypassPermissions + sandbox makes it unnecessary for personal use. May revisit for OpenKiln multi-user scenarios where full bypass is inappropriate.
+Completion standard:
 
-### skillshare (external tool)
-External npm tool that symlinks skills across AI CLIs. **Why not adopted:** ~/.claude/skills/ is already the canonical location read by Claude Code and OpenCode natively. Skillshare solves a problem Kiln already doesn't have for skills. mcp-config handles MCP sync. Hooks need symlinks, not a full tool.
+- the repository reads like one architecture, not three generations stacked together
 
-### Commander (Mac-only)
-Desktop app for coding agents. Mac-only. Not applicable to Windows setup.
+## 7. Execution Principles
 
----
+Every implementation step should follow these rules:
 
-## 7. Launch Comms Reference
+1. Refactor by bounded context, not by scattered edits.
+2. Prefer replacement over shims.
+3. Delete obsolete paths in the same phase that replaces them.
+4. Keep abstractions concrete until at least three real uses justify extraction.
+5. Preserve a short causal chain from doctrine to module to runtime behavior.
+6. If a module cannot be explained in the canonical vocabulary, it is suspect.
 
-### Two-Launch Strategy
+## 8. Success Criteria
 
-**Launch 1 — Kiln engine (for developers):**
-- Hacker News: "Show HN: Kiln — domain-agnostic AI orchestration engine"
-- Focus: MIT, subscription arbitrage concept, example apps
-- Timing: after Phase 1 (kiln run cross-CLI working)
+Kiln reaches strategic coherence when:
 
-**Launch 2 — OpenKiln (for end users):**
-- Reply to @CRudinschi thread (saved in likes)
-- Target Hermes and OpenClaw communities
-- Focus: "Hermes but with subscription arbitrage and cross-CLI"
-- Timing: after Phase 7 (TUI complete, npx openkiln init working)
+- the repository describes one identity consistently
+- architecture docs and runtime structure correspond directly
+- consumers inherit the new doctrine naturally
+- safety, context, coordination, and adaptation operate as one system
+- obsolete code and obsolete narrative are both gone
 
----
+## 9. Immediate Next Steps
 
-### OpenClaw MCP Consolidation Thread (March 2026)
+1. Finish the documentation refactor at the root and remove stale narrative surfaces.
+2. Audit package/module names against the frozen taxonomy.
+3. Map current runtime modules to the canonical subsystems and mark keep, split, merge, or delete.
+4. Sequence the first code refactors around control admission, context governance, safety, and coordination substrate.
+5. Rewrite examples only after the core doctrine is stable in code and docs.
 
-Saved in developer likes on X/Twitter. Context: Thread celebrating OpenClaw moving to MCP-native architecture.
-
-- @CRudinschi: "Consolidating adapters frees teams to focus on AI outcomes"
-- @SlackHookHQ: "Infra maturity becomes the real differentiator over time"
-
-These tweets validate exactly what Phase 2 (config sync) solves.
-
-**Planned action when Phase 2 ships:**
-Reply to @CRudinschi:
-"Been building this for orchestration — one config, three tools (Claude Code + Codex + OpenCode), zero drift."
-Target also: @SlackHookHQ whose "infra maturity" framing is the exact Kiln pitch.
-**Timing:** When Phase 2 (mcp-config --client all) ships.
-
----
-
-## 8. Open Questions (to be resolved per phase)
-
-- **Phase 1:** IKilnSession interface contract — **resolved** (packages/cli/src/wrapper/session.ts defines CostTrackingMode, SessionEvent discriminated union, SessionCapabilities, IKilnSession)
-- **Phase 1:** bypassPermissions sandbox behavior on Windows — **resolved** (tested, bypassPermissions + scoped sandbox dir works reliably)
-- **Phase 1:** OpenCodeSession --attach lifecycle — **deferred to Phase 3** (blocked on OpenCode built-in session persistence: github.com/anomalyco/opencode-sdk-js/issues/26; partial path available: `opencode run --attach` works while server is alive, no restart safety)
-- **Phase 1f:** `KilnPermissionPolicy` design — **resolved** (`packages/cli/src/wrapper/session-registry.ts` defines `translatePermission()`, `packages/cli/src/wrapper/session.ts` defines types)
-- **Phase 2:** MCPorter imports compatibility — evaluate before building
-- **Phase 2b:** `kiln mcp-config --client all` — **resolved** (packages/cli/src/mcp/config-generator.ts + packages/cli/src/commands/mcp-config.ts; smol-toml for Codex TOML; JSONC comment stripping for OpenCode; all 3 configs generated with merge-only semantics)
-- **Phase 2e:** OpenCode runtime MCP — **resolved** (packages/cli/src/wrapper/opencode-session.ts: PATCH /config after permissions with mcpServerEntryPath from SessionContext; fail-open on both permission and MCP config PATCH)
-- **Phase 3:** SkillTrigger complexity filter design — design doc needed
-- **Phase 5:** Channel adapter audit — scout before planning
-- **Phase 5:** Legal review of multi-user orchestration pattern
-- **All phases:** Monitor Claude Code issues #35718, #36192, #37181 (bypassPermissions bugs — version-dependent behavior)
-
----
-
-## Intelligence Sources
-
-**Last updated:** 2026-03-31
-
-This roadmap was enriched with intelligence from:
-
-### Codebase Scouts (2026-03-31)
-- Claude Code — full source reconnaissance (leaked NPM source map)
-- OpenCode (anomalyco/opencode) — full source reconnaissance
-- Codex CLI (openai/codex) — full source reconnaissance
-- Kiln v0.23.2 — full self-reconnaissance
-
-### Market & User Research (2026-03-31)
-- GitHub Issues: claude-code, opencode, codex (top reactions)
-- Reddit: r/ClaudeAI, r/LocalLLaMA, r/ChatGPT
-- Hacker News: Claude Code, OpenCode, Codex discussions
-- Academic: ACON, HippoRAG, GraphRAG, A-MEM, SYNAPSE,
-  Workforce (NeurIPS 2025), Conductor (2026), CodeSim (NAACL 2025),
-  APC, KVFlow (NeurIPS 2025), SWE-EVO (2025)
-
-### Evolution Research (2026-04-07)
-- Local scouts: Claude Code, Codex CLI, OpenCode, Hermes Agent (full source reconnaissance)
-- Web research: Aider, Goose, Claude Code public docs, Codex public docs
-- Market validation: LangGraph, CrewAI, AutoGen/MAF, Bedrock AgentCore, agentgateway.dev, Julep, Letta
-- OpenClaw capabilities analysis (250K+ stars, 800+ skills, 25+ channels)
-- ECC (Everything Claude Code) patterns analysis (47 agents, 181 skills, 14 MCP servers)
-- Tool interface research: Claude Code, Codex, OpenCode, Goose, Aider tool schemas
-- Key finding: two-layer architecture (runtime + gateway) validated by market
-- Key finding: native dev tools are prerequisite for provider-agnostic runtime
-- Key finding: Kiln is the only open, self-hostable product covering both layers
-
-### Key Findings That Shaped This Roadmap
-1. No tool has a middle ground between approve-all and yolo permissions
-2. Cost/quota opacity is universal — users find out too late
-3. Compaction is feared as "lobotomy" — needs transparency + control
-4. Community is building meta-harnesses manually (Gigacode, Sandbox Agent)
-5. AGENTS.md is converging as cross-tool standard
-6. MCP is converging as universal tool/context bus
-7. Graph-based memory outperforms flat vector store for multi-hop reasoning
-8. Scaffold quality (not just model) drives SWE-bench performance significantly
-
----
-
-*This document is the strategic source of truth for Kiln development. Each phase will produce its own dedicated research document, architecture decision record (ADR), and implementation plan before any code is written.*
+This document is the strategic source of truth for long-term direction. Detailed execution belongs in the roadmap documents under `docs/roadmap/` and the modular architecture under `docs/architecture/`.

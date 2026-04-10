@@ -1,29 +1,29 @@
 import { describe, it, expect } from "vitest";
 import {
-  ThresholdAllocator,
-  DEFAULT_THRESHOLD,
-  DEFAULT_THRESHOLDS,
+  DemandAllocator,
+  DEFAULT_DEMAND_THRESHOLD,
+  DEFAULT_DEMAND_THRESHOLDS,
   type AgentThresholds,
   type TaskDemand,
-} from "../../src/orchestrator/threshold-allocator.js";
+} from "../../src/orchestrator/demand-allocator.js";
 
-describe("ThresholdAllocator", () => {
-  describe("DEFAULT_THRESHOLDS", () => {
+describe("DemandAllocator", () => {
+  describe("DEFAULT_DEMAND_THRESHOLDS", () => {
     it("has all 7 categories at 0.5", () => {
-      expect(DEFAULT_THRESHOLD).toBe(0.5);
-      expect(DEFAULT_THRESHOLDS.research).toBe(0.5);
-      expect(DEFAULT_THRESHOLDS.code).toBe(0.5);
-      expect(DEFAULT_THRESHOLDS.review).toBe(0.5);
-      expect(DEFAULT_THRESHOLDS.ops).toBe(0.5);
-      expect(DEFAULT_THRESHOLDS.writing).toBe(0.5);
-      expect(DEFAULT_THRESHOLDS.triage).toBe(0.5);
-      expect(DEFAULT_THRESHOLDS.general).toBe(0.5);
+      expect(DEFAULT_DEMAND_THRESHOLD).toBe(0.5);
+      expect(DEFAULT_DEMAND_THRESHOLDS.research).toBe(0.5);
+      expect(DEFAULT_DEMAND_THRESHOLDS.code).toBe(0.5);
+      expect(DEFAULT_DEMAND_THRESHOLDS.review).toBe(0.5);
+      expect(DEFAULT_DEMAND_THRESHOLDS.ops).toBe(0.5);
+      expect(DEFAULT_DEMAND_THRESHOLDS.writing).toBe(0.5);
+      expect(DEFAULT_DEMAND_THRESHOLDS.triage).toBe(0.5);
+      expect(DEFAULT_DEMAND_THRESHOLDS.general).toBe(0.5);
     });
   });
 
   describe("allocate", () => {
     it("single agent, demand above threshold → allocated", () => {
-      const allocator = new ThresholdAllocator([
+      const allocator = new DemandAllocator([
         { agentId: "agent-1", thresholds: { code: 0.3 } },
       ]);
       const demand: TaskDemand = { category: "code", demand: 0.5 };
@@ -35,7 +35,7 @@ describe("ThresholdAllocator", () => {
     });
 
     it("single agent, demand below threshold → returns null", () => {
-      const allocator = new ThresholdAllocator([
+      const allocator = new DemandAllocator([
         { agentId: "agent-1", thresholds: { code: 0.7 } },
       ]);
       const demand: TaskDemand = { category: "code", demand: 0.5 };
@@ -45,7 +45,7 @@ describe("ThresholdAllocator", () => {
     });
 
     it("two agents, both eligible → agent with lower threshold wins", () => {
-      const allocator = new ThresholdAllocator([
+      const allocator = new DemandAllocator([
         { agentId: "agent-1", thresholds: { code: 0.2 } },
         { agentId: "agent-2", thresholds: { code: 0.4 } },
       ]);
@@ -57,7 +57,7 @@ describe("ThresholdAllocator", () => {
     });
 
     it("two agents, same threshold → first in roster wins", () => {
-      const allocator = new ThresholdAllocator([
+      const allocator = new DemandAllocator([
         { agentId: "agent-1", thresholds: { code: 0.3 } },
         { agentId: "agent-2", thresholds: { code: 0.3 } },
       ]);
@@ -71,7 +71,7 @@ describe("ThresholdAllocator", () => {
 
   describe("allocateWithFallback", () => {
     it("when no agent eligible → returns least-resistant agent", () => {
-      const allocator = new ThresholdAllocator([
+      const allocator = new DemandAllocator([
         { agentId: "agent-1", thresholds: { code: 0.8 } },
         { agentId: "agent-2", thresholds: { code: 0.6 } },
       ]);
@@ -85,7 +85,7 @@ describe("ThresholdAllocator", () => {
 
   describe("recordOutcome", () => {
     it("appends to log", () => {
-      const allocator = new ThresholdAllocator([
+      const allocator = new DemandAllocator([
         { agentId: "agent-1", thresholds: {} },
       ]);
 
@@ -106,7 +106,7 @@ describe("ThresholdAllocator", () => {
 
   describe("getThresholds", () => {
     it("returns copy (mutation-safe)", () => {
-      const allocator = new ThresholdAllocator([
+      const allocator = new DemandAllocator([
         { agentId: "agent-1", thresholds: { code: 0.3 } },
       ]);
 
@@ -120,14 +120,14 @@ describe("ThresholdAllocator", () => {
     });
 
     it("returns undefined for unknown agent", () => {
-      const allocator = new ThresholdAllocator([]);
+      const allocator = new DemandAllocator([]);
       const thresholds = allocator.getThresholds("unknown");
 
       expect(thresholds).toBeUndefined();
     });
 
     it("returns all categories with defaults merged", () => {
-      const allocator = new ThresholdAllocator([
+      const allocator = new DemandAllocator([
         { agentId: "agent-1", thresholds: { code: 0.3 } },
       ]);
 
@@ -146,7 +146,7 @@ describe("ThresholdAllocator", () => {
 
   describe("constructor", () => {
     it("merges with defaults", () => {
-      const allocator = new ThresholdAllocator([
+      const allocator = new DemandAllocator([
         { agentId: "agent-1", thresholds: { code: 0.3 } },
       ]);
 

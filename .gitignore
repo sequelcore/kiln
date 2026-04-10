@@ -9,3 +9,5 @@ dist/
 *.tsbuildinfo
 .claude/
 .kiln/
+packages/cli/.kiln-worktrees/
+packages/cli/config.json

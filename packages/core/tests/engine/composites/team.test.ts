@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { Team, TeamMode, QualityGate, TeamKnowledge } from "../../../src/engine/composites/team.js";
+import type { Team, QualityGate, TeamKnowledge } from "../../../src/engine/composites/team.js";
 import { validateTeam } from "../../../src/engine/composites/team.js";
 import type { Agent } from "../../../src/engine/domain/agent.js";
 import type { Capability } from "../../../src/engine/domain/capability.js";
@@ -193,51 +193,14 @@ describe("Team composite", () => {
       expect(errors.some((e) => e.field === "manager" && e.message.includes("only valid"))).toBe(true);
     });
 
-    it("reports manager field with swarm mode", () => {
-      const team = makeTeam({
+    it("reports unsupported team mode values at the boundary", () => {
+      const invalidTeam = {
+        ...makeTeam(),
         mode: "swarm",
-        manager: "worker",
-        agents: {
-          worker: makeAgent({ tools: ["code_edit"] }),
-          helper: makeAgent({ name: "Helper", tools: ["code_edit"] }),
-        },
-        capabilities: [makeCapability(), makeCapability({ name: "handoff", type: "handoff" })],
-      });
-      const errors = validateTeam(team);
-      expect(errors.some((e) => e.field === "manager" && e.message.includes("only valid"))).toBe(true);
-    });
+      } as Team & { mode: "swarm" };
 
-    it("accepts swarm mode with handoff capability and 2+ agents", () => {
-      const team = makeTeam({
-        mode: "swarm",
-        agents: {
-          alpha: makeAgent({ name: "Alpha", tools: ["code_edit"] }),
-          beta: makeAgent({ name: "Beta", tools: ["code_edit"] }),
-        },
-        capabilities: [makeCapability(), makeCapability({ name: "handoff", type: "handoff" })],
-      });
-      expect(validateTeam(team)).toEqual([]);
-    });
-
-    it("reports swarm mode without handoff capability", () => {
-      const team = makeTeam({
-        mode: "swarm",
-        agents: {
-          alpha: makeAgent({ name: "Alpha", tools: ["code_edit"] }),
-          beta: makeAgent({ name: "Beta", tools: ["code_edit"] }),
-        },
-      });
-      const errors = validateTeam(team);
-      expect(errors.some((e) => e.field === "capabilities" && e.message.includes("handoff"))).toBe(true);
-    });
-
-    it("reports swarm mode with only 1 agent", () => {
-      const team = makeTeam({
-        mode: "swarm",
-        capabilities: [makeCapability(), makeCapability({ name: "handoff", type: "handoff" })],
-      });
-      const errors = validateTeam(team);
-      expect(errors.some((e) => e.field === "agents" && e.message.includes("2 agents"))).toBe(true);
+      const errors = validateTeam(invalidTeam as unknown as Team);
+      expect(errors.some((e) => e.field === "mode" && e.message.includes("sequential"))).toBe(true);
     });
   });
 

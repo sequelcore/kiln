@@ -9,137 +9,85 @@
   <a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache-2.0" /></a>
 </p>
 
-<p align="center">Domain-agnostic AI orchestration engine and cross-CLI meta-orchestrator.</p>
+<p align="center">Cybernetic control plane for governed AI work.</p>
 
 ---
 
-Kiln is two things in one package:
+Kiln is a control plane, not an orchestration engine, agent shell, or biological metaphor made literal.
+It regulates AI work the way a thermostat regulates temperature: sense state, compare it against policy and goals, apply bounded control, and recover safely when conditions drift.
 
-**Engine** (`core` + `runtime`): YAML-configured AI orchestration — 7 primitives, multi-tenant gateway, 8 channel adapters, safety, memory, knowledge RAG, eval, observability. Build conversational AI products without writing orchestration code.
+Its job is to govern execution, context, coordination, safety, and adaptation across tools and agents without letting any single model, prompt, or workflow become the system's source of truth.
 
-**Meta-orchestrator** (`cli` + `tui`): Routes between CLI subscriptions (Claude Code, Codex, OpenCode) and direct API providers from a single interface. Syncs config, permissions, agents, and skills across all three tools. Tracks budget and sessions cross-platform.
+## Thesis
 
-> Every other orchestrator routes between models. Kiln routes between subscriptions.
-> Three flat-rate subscriptions treated as a unified resource pool.
+Kiln exists to answer one question reliably:
 
-## Quick Start
+**Given the current task, state, constraints, and risk posture, what work should be admitted, what context should be exposed, what coordination pattern should be activated, and what actions should be allowed right now?**
 
-```bash
-bun add @kilnai/core @kilnai/runtime @kilnai/cli
-bunx kiln init
-bunx kiln dev
-```
+That framing changes the product boundary:
 
-## Engine
+- Kiln is not "a wrapper around models"
+- Kiln is not "a multi-agent organism"
+- Kiln is not "a bag of orchestration primitives"
+- Kiln is a regulatory layer over AI work
 
-### Primitives & Composites
-- **7 primitives + 3 composites** — Agent, Capability, Workflow, Memory, Task, Channel, Trigger compose into Team, Router, App
-- **YAML-first** — agents, workflows, tools, gates, triggers, and routing defined in configuration
-- **76 error codes** with context-aware suggestions and doc links
+## Architecture
 
-### Channels & Gateway
-- **8 channel adapters** — CLI, Web (WebSocket), WhatsApp, Instagram, Messenger, Slack, Email, REST API
-- **Multi-tenant gateway** — multiple apps in one Bun/Hono process, isolated by memory, sessions, and routes
-- **Human handoff** — session mode state machine (ai_active/queued/human_active/resolved), escalation detection, operator messaging
-- **Embeddable widget** — Shadow DOM chat widget with auto-reconnect WebSocket, zero runtime deps
+The canonical architecture is modular and documented in [`docs/architecture/`](docs/architecture/README.md).
 
-### Intelligence
-- **Coordination Intelligence** — biologically-grounded multi-agent coordination: ThresholdAllocator (ant colony response-threshold model), CascadeController (neural field damped energy), TaskChannel (stigmergy substrate), TeamComposer (4 domain templates), adaptive EMA learning
-- **Multi-agent routing** — 3-tier routing (regex, embedding similarity, fallback), warm handoff briefs, ping-pong guard
-- **Model routing** — per-request LLM selection via complexity scoring (5 signals, <1ms) and rules engine
-- **Native dev tools** — 7 executors (bash, read, write, edit, grep, glob, git), MCP stdio surface, environment-aware binary detection
+Core subsystems:
 
-### Provider Tiers
-- **Subscription Direct** ($0 marginal) — OAuth device code flow + PKCE; `codex-oauth` provider targeting ChatGPT Plus
-- **Direct API (BYOK)** — Anthropic, OpenAI, DeepSeek, OpenRouter, Ollama; 6 adapters, circuit breaker
-- **Harness (CLI wrapper)** — Claude Code, Codex CLI, OpenCode spawned as subprocesses with full session governance
-- **9 providers** in unified SessionRegistry; priority-ordered with circuit breaker and capability filtering
+- **IngressGovernor** admits or rejects work and routes it into the proper control path
+- **ContextGovernor** decides what context is sufficient, affordable, and safe to expose
+- **DemandAllocator** decides whether work stays local, parallelizes, defers, or escalates
+- **ChainGovernor** regulates multi-step execution and prevents unstable chains
+- **TaskRegistry** tracks execution state, ownership, lifecycle, and recovery
+- **CoordinationStore** provides the shared substrate for handoff, signals, claims, and state
+- **SafetyKernel** enforces hard boundaries with fail-closed defaults
+- **ModeController** manages operating modes such as `NORMAL`, `DEGRADED`, and `LOCKED`
+- **TelemetryLoop** closes feedback loops through measurement, anomaly detection, and tuning
+- **AdaptationEngine** updates policy and behavior without letting the system drift into self-corruption
 
-### Safety & Security
-- **Enterprise safety** — PII detection (6 types, Luhn validation), content classification (6 categories), 4 policy rails, grounding rail (LLM judge), prompt injection detection on inputs and tool results
-- **Security** — AES-256-GCM secrets, timing-safe auth, append-only audit log with hash chaining, JWT RS256/HS256 via JWKS
-- **Permission governance** — per-tool/command/file policies, data firewall rules, dangerous-command detection; single `KilnPermissionPolicy` translated to all 3 CLI native formats
+## Documentation
 
-### Operational
-- **Knowledge (RAG)** — chunkers, embedding adapters, PgVector (halfvec + HNSW + RRF hybrid search), Cohere reranking, STT (OpenAI gpt-4o-transcribe, Deepgram nova-3), contact memory with GDPR deletion
-- **5 memory scopes** — user, agent, team, project, org; SQLite + FTS5 with decay curves and auto-compaction
-- **Eval framework** — 23 scorers (11 rule-based + 12 LLM-as-judge), YAML-configured experiments, consistency runner (pass^k)
-- **Observability** — OpenTelemetry spans (gen_ai.* conventions), Prometheus metrics, per-model cache-aware cost tracking
-- **Conversation enrichment** — effort score, sentiment, resolution, CSAT via rule-based + LLM pipeline
+Start here:
 
-## Meta-Orchestrator
+- [Documentation Index](docs/README.md)
+- [Architecture Overview](docs/architecture/README.md)
+- [Research Index](docs/research/README.md)
+- [Roadmap](docs/roadmap/README.md)
 
-### kiln run
-- Unified session runner across 9 providers with priority-ordered circuit breaker fallback
-- **Plan mode** — 3-phase workflow (explore → intent → implement), `submit_plan` approval gate, execution boundaries
-- **Parallel workers** — `--workers N` spawns N isolated sessions via `Promise.allSettled`, partial-success semantics
-- **Skill capture** — auto-generate skills from session transcripts (two-phase: extract summary → generate SKILL.md)
-- Session persistence: `.kiln/sessions/{id}/meta.json` + `transcript.jsonl`
+Most important architecture documents:
 
-### kiln sync
-- `kiln sync` — permissions, agents, skills, AGENTS.md across 3 CLIs from single `kiln.yaml`
-- Merge-only semantics — existing keys in native config files are preserved
+- [Identity](docs/architecture/identity.md)
+- [Control Model](docs/architecture/control-model.md)
+- [Invariants](docs/architecture/invariants.md)
+- [Subsystems](docs/architecture/subsystems.md)
+- [Flows](docs/architecture/flows.md)
+- [Safety](docs/architecture/safety.md)
+- [Coordination](docs/architecture/coordination.md)
+- [Memory](docs/architecture/memory.md)
+- [Context Governance](docs/architecture/context-governance.md)
+- [Adaptation](docs/architecture/adaptation.md)
 
-### kiln auth
-- `kiln auth codex login` — OAuth device code flow + PKCE for ChatGPT Plus subscription
-- Token persistence at `~/.kiln/auth/codex-oauth.json` with auto-refresh 120s before expiry
+Most important research documents:
 
-### kiln tui
-- Two-column terminal interface (chat + sidebar), 5 built-in themes
-- In-process gateway on port 4801, provider picker, plan mode badge
-- `/clear`, `/plan` commands; `--workers` flag
-
-### 25 MCP Tools
-Memory, knowledge, cost, safety, integrations, routing, eval, enrichment, cross-agent memory (teamId-scoped), and 6 swarm primitives (join/leave/status/broadcast/claim/release).
+- [Kiln Research Synthesis](docs/research/kiln-research-synthesis.md)
+- [Cybernetic Foundations](docs/research/cybernetic-foundations.md)
+- [Biological Mechanisms](docs/research/biological-mechanisms.md)
+- [Current State Mapping](docs/research/current-state-mapping.md)
 
 ## Packages
 
 | Package | Description |
 |---------|-------------|
-| [`@kilnai/core`](packages/core) | Engine primitives, YAML loader, provider adapters, memory, orchestrator, knowledge, safety, security, eval, enrichment, observability |
-| [`@kilnai/runtime`](packages/runtime) | Multi-app gateway, 8 channel adapters, tenant management, session registry, triggers, budget middleware, handoff, A2A |
-| [`@kilnai/cli`](packages/cli) | CLI commands (init, dev, run, auth, sync, gateway, skill, domain, cron, tui, mcp-config), session registry with circuit breaker |
-| [`@kilnai/tui`](packages/tui) | Terminal UI — two-column layout, 5 themes, in-process gateway session adapter |
-| [`@kilnai/react`](packages/sdk) | React hooks (KilnProvider, useKilnChat, useKilnWsChat, useKilnEvents, useKilnMemory, useKilnState, useApproval) |
-| [`@kilnai/widget`](packages/widget) | Embeddable chat widget — Shadow DOM, auto-reconnect WebSocket, zero runtime deps, single IIFE bundle |
-| [`@kilnai/studio`](packages/studio) | Dev UI — graph view, playground, timeline, memory, eval, cost, safety (private, served at `/studio`) |
-
-## Examples
-
-| Example | Description | Features |
-|---------|-------------|----------|
-| [hello-agent](examples/hello-agent) | Your first AI agent in 60 seconds | YAML config, web channel, conversation memory |
-| [support-agent](examples/support-agent) | E-commerce support with tools and safety | MCP tools, PII redaction, topic rails |
-| [booking-assistant](examples/booking-assistant) | Appointment booking for a hair salon | Multi-tenant, billing, webhook triggers, chat widget |
-| [multi-app-gateway](examples/multi-app-gateway) | Production gateway hosting multiple apps | Multi-app, Docker, tenant provisioning |
-| [whatsapp-bot](examples/whatsapp-bot) | WhatsApp multi-tenant business bot | WhatsApp Cloud API, builtin tools, persistent memory |
-
-## Documentation
-
-Full documentation at [docs/README.md](docs/README.md).
-
-| Document | Description |
-|----------|-------------|
-| [Getting Started](docs/getting-started.md) | Installation, wizard walkthrough, first app |
-| [Core Concepts](docs/concepts.md) | Primitives, composites, team modes, runtime modes |
-| [App YAML](docs/configuration/app-yaml.md) | Full app.yaml reference |
-| [Gateway YAML](docs/configuration/gateway-yaml.md) | Full gateway.yaml reference |
-| [Channels](docs/guides/channels.md) | 8 channel adapters setup and options |
-| [Knowledge](docs/guides/knowledge.md) | RAG pipeline, vector stores, STT, contact memory |
-| [Tool Use](docs/guides/tool-use.md) | Authorization, webhook tools, rate limiting, ToolRAG |
-| [Multi-Agent Routing](docs/guides/multi-agent.md) | Multiple agents, routing tiers, handoff briefs |
-| [Model Routing](docs/guides/model-routing.md) | Per-request model selection, complexity scoring |
-| [Enrichment](docs/guides/enrichment.md) | Post-conversation analytics (effort score, sentiment, CSAT) |
-| [Observability](docs/guides/observability.md) | OTel spans, Prometheus metrics, cost tracking |
-| [Multi-Tenant](docs/guides/multi-tenant.md) | Tenant isolation, registry, per-tenant config |
-| [Memory](docs/guides/memory.md) | Scopes, decay, compaction, git sync |
-| [Safety](docs/guides/safety.md) | PII scanner, content classifier, policy rails |
-| [CLI Wrapper](docs/guides/cli-wrapper.md) | Session backends, resume policy, config sync, context governance |
-| [Eval](docs/guides/eval.md) | Scorers, datasets, experiments |
-| [TUI Gateway ADR](docs/adr/ADR-002-tui-gateway-architecture.md) | Why the TUI is a thin client over the local gateway |
-| [Context Governance ADR](docs/adr/ADR-004-budgeted-sufficient-context-orchestration.md) | Why Kiln manages a virtual context window instead of replaying raw history |
-| [FAQ](docs/faq.md) | Common questions |
-| [Changelog](docs/changelog.md) | Version history |
+| [`@kilnai/core`](packages/core) | Core control-plane types, policies, safety, memory, routing, evaluation, and runtime contracts |
+| [`@kilnai/runtime`](packages/runtime) | Runtime surfaces, channel handling, registries, triggers, and execution plumbing |
+| [`@kilnai/cli`](packages/cli) | CLI surface for local operation, inspection, and controlled execution |
+| [`@kilnai/tui`](packages/tui) | Terminal interface for interacting with Kiln as an operator-facing control surface |
+| [`@kilnai/react`](packages/sdk) | React integration surface for applications using Kiln capabilities |
+| [`@kilnai/widget`](packages/widget) | Embeddable interface components |
+| [`@kilnai/studio`](packages/studio) | Internal and development-facing inspection tooling |
 
 ## Development
 

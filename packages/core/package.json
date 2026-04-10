@@ -1,7 +1,7 @@
 {
   "name": "@kilnai/core",
-  "version": "0.23.2",
-  "description": "Domain-agnostic AI orchestration engine -- 7 primitives, 3 composites, YAML-configured",
+  "version": "1.0.0",
+  "description": "Cybernetic control plane for agentic systems with governed context, memory, safety, and execution",
   "type": "module",
   "exports": {
     ".": {
@@ -28,8 +28,8 @@
   "homepage": "https://github.com/sequelcore/kiln/tree/main/packages/core",
   "keywords": [
     "ai",
-    "orchestration",
-    "multi-agent",
+    "control-plane",
+    "agentic",
     "yaml",
     "llm",
     "anthropic",

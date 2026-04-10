@@ -147,8 +147,8 @@ describe("ModeBOrchestrator - Tool Execution Enhancements", () => {
         authorize: vi.fn().mockReturnValue({
           level: 4,
           allowed: false,
-          requiresApproval: true,
-          reason: "Destructive tool requires confirmation",
+          requiresApproval: false,
+          reason: "Authorization denied",
         }),
       };
 
@@ -163,6 +163,85 @@ describe("ModeBOrchestrator - Tool Execution Enhancements", () => {
       await orchestrator.processMessage(makeSession(), textParts("delete stuff"));
 
       expect(toolFn).not.toHaveBeenCalled();
+    });
+
+    it("waits for approval and executes tool after continue()", async () => {
+      const provider = makeProvider(1);
+      const eventBus = new EventBus(100);
+      const toolFn = vi.fn().mockResolvedValue("approved result");
+
+      const authorizer: ToolAuthorizer = {
+        authorize: vi.fn().mockReturnValue({
+          level: 4,
+          allowed: false,
+          requiresApproval: true,
+          reason: "Destructive tool requires confirmation",
+        }),
+      };
+
+      const orchestrator = new ModeBOrchestrator({
+        provider,
+        tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
+        builtinTools: new Map([["get_data", toolFn]]),
+        eventBus,
+        capabilityMap: makeCapabilityMap({ annotations: { destructive: true } }),
+        toolAuthorizer: authorizer,
+      });
+
+      const approvalRequested = vi.fn();
+      eventBus.on("approval_requested", approvalRequested);
+
+      const session = makeSession();
+      const pending = orchestrator.processMessage(session, textParts("delete stuff"));
+
+      await vi.waitFor(() => {
+        expect(approvalRequested).toHaveBeenCalledTimes(1);
+      });
+
+      orchestrator.continue(session.id);
+      await pending;
+
+      expect(toolFn).toHaveBeenCalledTimes(1);
+    });
+
+    it("waits for approval and skips tool execution when rejected", async () => {
+      const provider = makeProvider(1);
+      const eventBus = new EventBus(100);
+      const toolFn = vi.fn().mockResolvedValue("should not run");
+
+      const authorizer: ToolAuthorizer = {
+        authorize: vi.fn().mockReturnValue({
+          level: 4,
+          allowed: false,
+          requiresApproval: true,
+          reason: "Destructive tool requires confirmation",
+        }),
+      };
+
+      const orchestrator = new ModeBOrchestrator({
+        provider,
+        tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
+        builtinTools: new Map([["get_data", toolFn]]),
+        eventBus,
+        capabilityMap: makeCapabilityMap({ annotations: { destructive: true } }),
+        toolAuthorizer: authorizer,
+      });
+
+      const approvalRequested = vi.fn();
+      eventBus.on("approval_requested", approvalRequested);
+
+      const session = makeSession();
+      const pending = orchestrator.processMessage(session, textParts("delete stuff"));
+
+      await vi.waitFor(() => {
+        expect(approvalRequested).toHaveBeenCalledTimes(1);
+      });
+
+      orchestrator.emitApprovalReceived(false, "rejected by user", session.id);
+      const result = await pending;
+
+      expect(toolFn).not.toHaveBeenCalled();
+      expect(result.toolExecutions).toBeUndefined();
     });
   });
 

@@ -1,7 +1,7 @@
 {
   "name": "@kilnai/widget",
-  "version": "0.23.2",
-  "description": "Embeddable chat widget for Kiln AI — add AI chat to any website with one script tag",
+  "version": "1.0.0",
+  "description": "Embeddable chat widget for apps built on the Kiln control plane",
   "type": "module",
   "main": "dist/widget.js",
   "files": ["dist"],

@@ -1,7 +1,7 @@
 {
   "name": "@kilnai/cli",
-  "version": "0.23.2",
-  "description": "CLI and MCP server for Kiln AI orchestration engine",
+  "version": "1.0.0",
+  "description": "CLI and MCP surface for the Kiln control plane",
   "type": "module",
   "bin": {
     "kiln": "./dist/index.js"
@@ -34,7 +34,7 @@
     "cli",
     "mcp",
     "claude-code",
-    "orchestration"
+    "control-plane"
   ],
   "publishConfig": {
     "access": "public"

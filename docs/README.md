@@ -1,68 +1,71 @@
 # Kiln Documentation
 
-## Getting Started
+## Entry Points
 
-- [Getting Started](getting-started.md) -- Installation, wizard walkthrough, first app
-- [Core Concepts](concepts.md) -- Primitives, composites, team modes, runtime modes
-- [FAQ](faq.md) -- Common questions and answers
+- [Architecture](architecture/README.md)
+  Canonical architecture doctrine for Kiln as a cybernetic control plane.
+
+- [Research](research/README.md)
+  Synthesized research foundations and mechanism mapping. During refactor, the
+  final root-level research set is still being assembled.
+
+- [Configuration](configuration/app-yaml.md)
+  Runtime configuration reference.
+
+- [Guides](guides/channels.md)
+  Operational and usage documentation. During refactor, guides are still being
+  cleaned to remove doctrinal overlap.
+
+- [Roadmap](roadmap/README.md)
+  Refactor policy, execution sequence, and taxonomy freeze.
+
+## Architecture
+
+Start here for Kiln identity and system design:
+
+- [Architecture Index](architecture/README.md)
+- [Identity](architecture/identity.md)
+- [Control Model](architecture/control-model.md)
+- [Subsystems](architecture/subsystems.md)
+- [Flows](architecture/flows.md)
+- [Memory](architecture/memory.md)
+- [Context Governance](architecture/context-governance.md)
+- [Safety](architecture/safety.md)
+- [Coordination](architecture/coordination.md)
+- [Tool Execution](architecture/tool-execution.md)
+- [Adaptation](architecture/adaptation.md)
+- [Invariants](architecture/invariants.md)
 
 ## Configuration
 
-| Config | Scope |
-|--------|-------|
-| [App YAML](configuration/app-yaml.md) | Complete `app.yaml` field reference |
-| [Gateway YAML](configuration/gateway-yaml.md) | Gateway config, Mode A/B, billing, triggers |
-| [Global Config](guides/global-config.md) | Global defaults: provider, model, permissions, MCP, identity, TUI theme |
+- [App YAML](configuration/app-yaml.md)
+- [Gateway YAML](configuration/gateway-yaml.md)
 
 ## Guides
 
-| Guide | Scope |
-|-------|-------|
-| [Channels](guides/channels.md) | 8 channel adapters (CLI, Web, WhatsApp, Instagram, Messenger, Slack, Email, API) |
-| [Knowledge](guides/knowledge.md) | RAG pipeline, vector stores, STT, contact memory |
-| [Tool Use](guides/tool-use.md) | Tool execution, authorization, webhook/integration tools, native developer tools, and MCP exposure |
-| [Multi-Agent Routing](guides/multi-agent.md) | Multiple agents per tenant, 3-tier routing, handoff briefs |
-| [Coordination Intelligence](guides/coordination-intelligence.md) | Biologically-grounded agent coordination: threshold allocation, cascade energy, stigmergy, team templates |
-| [Model Routing](guides/model-routing.md) | Per-request model selection, complexity scoring, rules |
-| [Enrichment](guides/enrichment.md) | Post-conversation analytics (effort score, sentiment, CSAT) |
-| [Observability](guides/observability.md) | OTel spans, Prometheus metrics, cost tracking |
-| [Multi-Tenant](guides/multi-tenant.md) | Tenant isolation, registry, per-tenant config |
-| [Memory](guides/memory.md) | 5 scopes, decay curves, compaction, git sync |
-| [Safety](guides/safety.md) | PII detection, content classification, policy rails |
-| [Triggers](guides/triggers.md) | Webhooks, event listeners, cron scheduler |
-| [Domains](guides/domains.md) | Domain kits, detection patterns, quality gates |
-| [Eval](guides/eval.md) | Scorers, datasets, experiments, comparator |
-| [Eval Benchmarking](guides/eval-benchmarking.md) | Scorer-to-research mapping, predictive metrics, industry standards |
-| [Delegation](guides/delegation.md) | Cross-app delegation, A2A protocol |
-| [CLI Wrapper](guides/cli-wrapper.md) | IKilnSession, harness backends, direct API backends via ProviderSession, permission policy, session resume, and config sync |
-| [TUI](guides/tui.md) | Terminal interface: themes, key bindings, provider picker, in-process gateway, session lifecycle |
-| [Hooks](guides/hooks.md) | HookRegistry, lifecycle events, modes, kiln.yaml config |
-| [Skills](guides/skills.md) | SKILL.md format, registry, capture pipeline, CLI commands |
-| [Plan Mode](guides/plan-mode.md) | `kiln plan` command, 3-phase workflow, execution boundaries |
+Current operational guides remain under `docs/guides/` and are being aligned to
+the new architecture and terminology.
+
+High-use guides today:
+
+- [Channels](guides/channels.md)
+- [Knowledge](guides/knowledge.md)
+- [Tool Use](guides/tool-use.md)
+- [Observability](guides/observability.md)
+- [TUI](guides/tui.md)
 
 ## SDK
 
-- [React Hooks](sdk/react-hooks.md) -- `@kilnai/react` hooks reference
-- [Studio](sdk/studio.md) -- Dev UI: graph, playground, timeline, memory, eval
+- [React Hooks](sdk/react-hooks.md)
+- [Studio](sdk/studio.md)
 
-## Architecture Decision Records
+## ADR
 
-| ADR | Status | Topic |
-|-----|--------|-------|
-| [ADR-001](adr/ADR-001-neural-field-orchestration.md) | Deferred | Neural Field Orchestration — FieldStore as coordination primitive |
-| [ADR-002](adr/ADR-002-subprocess-integration.md) | Accepted | Subprocess Integration -- 5 limitations and architectural solutions |
-| [ADR-002 TUI](adr/ADR-002-tui-gateway-architecture.md) | Accepted | TUI Gateway Architecture -- thin TUI over gateway-owned orchestration |
-| [ADR-003](adr/ADR-003-meta-orchestrator-model.md) | Accepted | Meta-Orchestrator Model -- why Kiln orchestrates CLIs, not plugins |
-| [ADR-004](adr/ADR-004-budgeted-sufficient-context-orchestration.md) | Proposed | Budgeted Sufficient Context Orchestration -- virtual context window and projected working set |
+Architecture decisions remain under `docs/adr/` and are scheduled for cleanup
+and renumbering during the documentation refactor.
 
-## Research
+## Other
 
-| Document | Topic |
-|----------|-------|
-| [Coordination Intelligence](research/coordination-intelligence.md) | Theoretical foundations: ant colony thresholds, neural field theory, stigmergy, and their mapping to Kiln's coordination primitives |
-
-## Contributing
-
-- [Architecture](architecture.md) -- Bounded contexts, dependency rules, internal design
-- [Contributing](../CONTRIBUTING.md) -- Development setup, code standards, PR checklist
-- [Changelog](changelog.md) -- Version history
+- [FAQ](faq.md)
+- [Changelog](changelog.md)
+- [Contributing](../CONTRIBUTING.md)

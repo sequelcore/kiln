@@ -1,6 +1,6 @@
 {
   "name": "@kilnai/tools",
-  "version": "0.23.2",
+  "version": "1.0.0",
   "description": "Vendored developer tool binary resolver for Kiln",
   "type": "module",
   "exports": {
@@ -37,9 +37,9 @@
     "access": "public"
   },
   "optionalDependencies": {
-    "@kilnai/tools-darwin-arm64": "0.23.2",
-    "@kilnai/tools-darwin-x64": "0.23.2",
-    "@kilnai/tools-linux-x64": "0.23.2",
-    "@kilnai/tools-win32-x64": "0.23.2"
+    "@kilnai/tools-darwin-arm64": "1.0.0",
+    "@kilnai/tools-darwin-x64": "1.0.0",
+    "@kilnai/tools-linux-x64": "1.0.0",
+    "@kilnai/tools-win32-x64": "1.0.0"
   }
 }
