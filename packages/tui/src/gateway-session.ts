@@ -168,8 +168,15 @@ export class GatewaySession implements SessionLike {
         toolName: frame.toolName,
         output: frame.output,
         usd: frame.usd,
+        input: frame.input,
         inputTokens: frame.inputTokens,
         outputTokens: frame.outputTokens,
+        details: frame.details,
+        sessionId: frame.sessionId,
+        path: frame.path,
+        changeType: frame.changeType,
+        linesAdded: frame.linesAdded,
+        linesRemoved: frame.linesRemoved,
       });
     } else if (frame.type === "done") {
       if (frame.content) {
@@ -193,12 +200,14 @@ export class GatewaySession implements SessionLike {
         type: "activity", 
         activity: "approval_requested",
         details: frame.description,
+        sessionId: frame.sessionId,
       });
     } else if (frame.type === "approval_received") {
       this.push({ 
         type: "activity", 
         activity: frame.approved ? "approval_approved" : "approval_rejected",
         details: frame.reason,
+        sessionId: frame.sessionId,
       });
     } else if (frame.type === "welcome") {
       if (frame.models && this.onWelcome) {

@@ -1,4 +1,16 @@
-import type { ContentPart, SessionLimitsConfig, SkillRegistry, GroundingMode, GroundingResult, ProviderAdapter, ModelCapabilityRegistry, EventBus, ContextArtifactCache } from "@kilnai/core";
+import type {
+  ContentPart,
+  SessionLimitsConfig,
+  SkillRegistry,
+  GroundingMode,
+  GroundingResult,
+  ProviderAdapter,
+  ModelCapabilityRegistry,
+  EventBus,
+  ContextArtifactCache,
+  ApprovalRequestedEvent,
+  ApprovalReceivedEvent,
+} from "@kilnai/core";
 import { extractText, textParts, GroundingRail } from "@kilnai/core";
 import type { AbuseDetectionConfig } from "../session/repetitive-abuse-detector.js";
 import { detectRepetitiveAbuse } from "../session/repetitive-abuse-detector.js";
@@ -17,12 +29,9 @@ import {
   formatRuntimeResumeDecision,
   normalizeRuntimeTaskShape,
   readRuntimeSupportArtifactsDetailed,
-  writeRuntimeContinuityOutcomeArtifact,
-  writeRuntimeContextBundleArtifact,
   writeRuntimeHandoffSummaryArtifact,
-  writeRuntimeThreadSummaryArtifact,
-  writeRuntimeToolBundleArtifact,
 } from "../session/context-artifact-summary.js";
+import { applyRuntimeTurnRecord, type RuntimeTurnApprovalTransition } from "../session/runtime-turn-record.js";
 
 type EgressDestination = "webhook";
 type EgressPermissionDecision = "allow" | "deny" | "redact";
@@ -340,14 +349,42 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
     }
   }
 
-  // Process message
-  const result: OrchestrateResult = await ctx.orchestrator.processMessage(
-    session,
-    ctx.userParts,
-    combinedMemory,
-    ctx.callBuiltinTools,
-    perCallConfig,
-  );
+  // Capture real approval state transitions for this turn from runtime events.
+  const approvalTransitions: RuntimeTurnApprovalTransition[] = [];
+  const orchestratorEventBus = ctx.orchestrator.eventBus;
+  const onApprovalRequested = (event: ApprovalRequestedEvent): void => {
+    if (event.sessionId !== session.id) return;
+    approvalTransitions.push({
+      status: "requested",
+      sessionId: event.sessionId,
+      reason: event.description,
+    });
+  };
+  const onApprovalReceived = (event: ApprovalReceivedEvent): void => {
+    if (event.sessionId !== session.id) return;
+    approvalTransitions.push({
+      status: event.approved ? "approved" : "rejected",
+      sessionId: event.sessionId,
+      reason: event.reason,
+    });
+  };
+  orchestratorEventBus?.on("approval_requested", onApprovalRequested);
+  orchestratorEventBus?.on("approval_received", onApprovalReceived);
+
+  let result: OrchestrateResult;
+  try {
+    // Process message
+    result = await ctx.orchestrator.processMessage(
+      session,
+      ctx.userParts,
+      combinedMemory,
+      ctx.callBuiltinTools,
+      perCallConfig,
+    );
+  } finally {
+    orchestratorEventBus?.off("approval_requested", onApprovalRequested);
+    orchestratorEventBus?.off("approval_received", onApprovalReceived);
+  }
 
   // Post-generation grounding verification (Tier 2)
   let groundingResult: GroundingResult | undefined;
@@ -401,36 +438,29 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
     }
   }
 
-  // Accumulate session tokens for limit tracking
-  session.accumulateTokens(result.inputTokens + result.outputTokens);
-  session.updateSessionLedger({
-    currentPhase: result.queued ? "queued" : "responded",
-    lastProvider: result.routingDecision?.provider ?? session.sessionLedger.lastProvider,
-    toolCallCount: result.toolExecutions?.length ?? session.sessionLedger.toolCallCount,
-    turnDepth: session.userTurnCount,
-    lastSummary: result.contextSummary,
+  const fileChanges = result.toolExecutions?.flatMap((exec) => exec.fileChanges ?? []);
+
+  applyRuntimeTurnRecord({
+    session,
+    channel: ctx.channel,
+    taskShape,
+    contextArtifactCache: ctx.contextArtifactCache,
+    continuityDecision: runtimeSupport.decision,
+    queued: result.queued,
+    inputTokens: result.inputTokens,
+    outputTokens: result.outputTokens,
+    contextSummary: result.contextSummary,
+    toolExecutions: result.toolExecutions,
+    routingDecision: result.routingDecision,
+    escalationReason: result.escalation?.reason,
+    groundingBlockedClaims: groundingResult && !groundingResult.grounded
+      ? groundingResult.ungroundedClaims
+      : undefined,
+    activeAgentId: ctx.activeAgentId,
+    routingTierHint: ctx.routingTier,
+    fileChanges: fileChanges && fileChanges.length > 0 ? fileChanges : undefined,
+    approvalTransitions: approvalTransitions.length > 0 ? approvalTransitions : undefined,
   });
-  if (result.routingDecision) {
-    session.addExactArtifact(`Runtime routed provider: ${result.routingDecision.provider}/${result.routingDecision.model}`);
-  }
-  if (result.contextSummary) {
-    session.addExactArtifact(`Runtime context summary: ${result.contextSummary}`);
-  }
-  if (result.toolExecutions) {
-    for (const exec of result.toolExecutions) {
-      session.addExactArtifact(`Tool execution: ${exec.toolName} (${exec.success ? "success" : "error"})`);
-      if (exec.resultSummary.trim() !== "") {
-        session.addExactArtifact(`Tool result summary: ${exec.resultSummary}`);
-      }
-    }
-  }
-  if (groundingResult && !groundingResult.grounded) {
-    session.addExactArtifact(`Grounding blocked: ${groundingResult.ungroundedClaims.join("; ")}`);
-  }
-  if (result.escalation) {
-    session.addExactArtifact(`Escalation detected: ${result.escalation.reason}`);
-  }
-  writeRuntimeThreadSummaryArtifact(ctx.contextArtifactCache, session);
   writeRuntimeHandoffSummaryArtifact(ctx.contextArtifactCache, {
     session,
     handoffBrief: ctx.handoffBrief,
@@ -438,35 +468,6 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
     handoffBlockReason: ctx.pingPongReason,
     escalationReason: result.escalation?.reason,
     escalationDetail: result.escalation?.detail,
-  });
-  writeRuntimeContextBundleArtifact(ctx.contextArtifactCache, {
-    appName: session.appName,
-    tenantId: session.tenantId,
-    channel: ctx.channel,
-    provider: result.routingDecision?.provider ?? session.sessionLedger.lastProvider ?? "unknown",
-    taskShape,
-    activeAgentId: ctx.activeAgentId,
-    routingTier: result.routingDecision?.routingTier ?? ctx.routingTier,
-    contextSummary: result.contextSummary,
-  });
-  writeRuntimeToolBundleArtifact(ctx.contextArtifactCache, {
-    appName: session.appName,
-    tenantId: session.tenantId,
-    channel: ctx.channel,
-    taskShape,
-    toolExecutions: result.toolExecutions,
-  });
-  writeRuntimeContinuityOutcomeArtifact(ctx.contextArtifactCache, {
-    session,
-    channel: ctx.channel,
-    taskShape,
-    decision: runtimeSupport.decision,
-    queued: result.queued,
-    inputTokens: result.inputTokens,
-    outputTokens: result.outputTokens,
-    toolCount: result.toolExecutions?.length,
-    provider: result.routingDecision?.provider ?? session.sessionLedger.lastProvider,
-    model: result.routingDecision?.model,
   });
 
   // Persist mutated session (required for non-reference stores like Redis)

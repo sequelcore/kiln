@@ -43,8 +43,13 @@ import {
   VerificationResult,
   scoreComplexity,
 } from "@kilnai/core";
-import { getProjectContextArtifactCache } from "../application/project-context-cache.js";
+import { getProjectContextArtifactCache } from "@kilnai/runtime";
 import type { ContextArtifactCache } from "@kilnai/core";
+import {
+  buildCliPlanSummaryArtifactKey,
+  buildCliProjectSummaryArtifactKey,
+  buildCliSessionSummaryArtifactKey,
+} from "../application/context-artifact-keys.js";
 
 export interface RunFlags {
   readonly apiKey?: string;
@@ -101,15 +106,6 @@ function appendAgentInstructionsToSystemPrompt(
       return `${basePrompt}\n\n${instructions}`;
     },
   };
-}
-
-function normalizeTaskKey(task: string): string {
-  return task
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 80) || "interactive";
 }
 
 function parseSubmittedPlan(line: string): string | undefined {
@@ -422,7 +418,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
       ];
       const now = new Date();
       const artifact: ContextArtifact = {
-        key: `session-summary:${sessionId}`,
+        key: buildCliSessionSummaryArtifactKey(sessionId),
         kind: "session-summary",
         content: summaryLines.join("\n"),
         createdAt: now,
@@ -430,7 +426,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
       };
       contextArtifactCache.set(artifact);
       const projectArtifact: ContextArtifact = {
-        key: `project-summary:${cwd}`,
+        key: buildCliProjectSummaryArtifactKey(cwd),
         kind: "project-summary",
         content: [
           `Project path: ${cwd}`,
@@ -444,7 +440,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
       };
       contextArtifactCache.set(projectArtifact);
       const planArtifact: ContextArtifact = {
-        key: `plan-summary:${cwd}:${normalizeTaskKey(task)}`,
+        key: buildCliPlanSummaryArtifactKey(cwd, task, 80),
         kind: "plan-summary",
         content: [
           `Task pattern: ${task}`,

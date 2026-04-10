@@ -55,33 +55,10 @@ describe("ApprovalGateRegistry", () => {
   });
 
   describe("approve without sessionId", () => {
-    it("finds the first target in awaiting_approval and approves it", () => {
-      const registry = new ApprovalGateRegistry();
-      const t1 = makeTarget("awaiting_approval");
-      const t2 = makeTarget("awaiting_approval");
-      registry.register("s1", t1);
-      registry.register("s2", t2);
-      const result = registry.approve();
-      expect(result).toEqual({ ok: true });
-      // exactly one of the two is approved
-      const approvedCount = [t1.approveSpy.mock.calls.length, t2.approveSpy.mock.calls.length];
-      expect(approvedCount.filter((n) => n === 1)).toHaveLength(1);
-      expect(approvedCount.filter((n) => n === 0)).toHaveLength(1);
-    });
-
-    it("returns error when no targets are pending", () => {
-      const registry = new ApprovalGateRegistry();
-      const target = makeTarget("running");
-      registry.register("s1", target);
-      const result = registry.approve();
-      expect(result).toEqual({ ok: false, error: "No approval pending" });
-      expect(target.approveSpy).not.toHaveBeenCalled();
-    });
-
-    it("returns error when registry is empty", () => {
+    it("requires sessionId", () => {
       const registry = new ApprovalGateRegistry();
       const result = registry.approve();
-      expect(result).toEqual({ ok: false, error: "No approval pending" });
+      expect(result).toEqual({ ok: false, error: "sessionId is required" });
     });
   });
 
@@ -112,22 +89,10 @@ describe("ApprovalGateRegistry", () => {
   });
 
   describe("reject without sessionId", () => {
-    it("finds the first awaiting target and rejects with reason", () => {
-      const registry = new ApprovalGateRegistry();
-      const t1 = makeTarget("running");
-      const t2 = makeTarget("awaiting_approval");
-      registry.register("s1", t1);
-      registry.register("s2", t2);
-      const result = registry.reject("bad output");
-      expect(result).toEqual({ ok: true });
-      expect(t1.rejectSpy).not.toHaveBeenCalled();
-      expect(t2.rejectSpy).toHaveBeenCalledWith("bad output");
-    });
-
-    it("returns error when no targets are pending", () => {
+    it("requires sessionId", () => {
       const registry = new ApprovalGateRegistry();
       const result = registry.reject("reason");
-      expect(result).toEqual({ ok: false, error: "No approval pending" });
+      expect(result).toEqual({ ok: false, error: "sessionId is required" });
     });
   });
 

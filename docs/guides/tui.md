@@ -109,6 +109,10 @@ The provider picker is split into two sections:
 - `Harness`: `claude`, `codex`, `opencode`
 - `Direct API`: `anthropic`, `openai`, `deepseek`, `openrouter`, `ollama`
 
+`codex-oauth` is a direct API provider, not a local executable tool backend.
+It can be selected for routing and text generation, but local file-write and
+tool-execution smoke tests must use the harness `codex` path.
+
 Selecting a provider in the picker sends a `{ type: "provider", provider, model? }` frame through the WebSocket session. The gateway updates the injected session manager with `setProvider()` and, when present, `setModel()`, then acknowledges with `{ type: "provider_changed", provider }`.
 
 On the CLI side, the multi-provider session manager keeps per-provider resume state and passes the active provider into the wrapper `SessionRegistry`. That is the point where Kiln maps the TUI selection onto either a harness-backed session or a direct-provider session.
@@ -176,6 +180,10 @@ The `done` frame also carries:
 
 - `routedProvider` and `routedModel` for the actual execution route used on the turn
 - `runtimeContinuity` sidebar metadata for the active provider
+
+For local-write verification, trust the routed provider shown in the header and
+the file-change events emitted by the runtime. Direct API providers remain text
+providers; harness providers are the ones that exercise Kiln-local execution.
 
 This path keeps the same safety, session, runtime-summary, and cost-tracking machinery in place instead of adding a second terminal-only orchestration loop.
 

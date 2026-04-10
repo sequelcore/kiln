@@ -117,6 +117,10 @@ export interface ToolExecutionSummary {
   readonly durationMs: number;
   readonly success: boolean;
   readonly resultSummary: string;
+  readonly fileChanges?: readonly {
+    readonly path: string;
+    readonly changeType: "modified";
+  }[];
 }
 
 export interface OrchestrateResult {
@@ -198,8 +202,8 @@ export class ModeBOrchestrator {
   }
 
   /** Continue past an approval gate (for testing/manual triggering). */
-  continue(): void {
-    this.emitApprovalReceived(true, "user approved", "tui-session");
+  continue(sessionId: string): void {
+    this.emitApprovalReceived(true, "user approved", sessionId);
   }
 
   /** Current tool definitions. */
@@ -615,11 +619,13 @@ export class ModeBOrchestrator {
 
           this.emitToolResult(session.id, tc.name, durationMs, true, resultString.slice(0, 200), false, retryAttempt);
 
+          const fileChanges = this.extractFileChangesFromToolResult(tc.name, resultValue);
           toolExecutions.push({
             toolName: tc.name,
             durationMs,
             success: true,
             resultSummary: resultString.slice(0, 200),
+            fileChanges,
           });
 
           // Audit log
@@ -724,6 +730,26 @@ export class ModeBOrchestrator {
 
   private resolveCapability(name: string, perCallConfig?: PerCallToolConfig): Capability | undefined {
     return this.deps.capabilityMap?.get(name) ?? perCallConfig?.perCallCapabilities?.get(name);
+  }
+
+  private extractFileChangesFromToolResult(
+    toolName: string,
+    resultValue: unknown,
+  ): readonly { readonly path: string; readonly changeType: "modified" }[] | undefined {
+    if (toolName !== "write" && toolName !== "edit") {
+      return undefined;
+    }
+    if (!resultValue || typeof resultValue !== "object") {
+      return undefined;
+    }
+    const resultRecord = resultValue as { metadata?: Record<string, unknown> };
+    const filePath = typeof resultRecord.metadata?.filePath === "string"
+      ? resultRecord.metadata.filePath
+      : undefined;
+    if (!filePath || filePath.trim() === "") {
+      return undefined;
+    }
+    return [{ path: filePath, changeType: "modified" }];
   }
 
   private async executeTool(tc: ToolCall): Promise<unknown> {

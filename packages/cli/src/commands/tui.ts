@@ -1,6 +1,11 @@
 import type { KilnAppConfig } from "../config.js";
 import { inferResumeStrategyFeedback } from "../application/resume-strategy-feedback.js";
 import { collectResumeSignals, decideResumeStrategy } from "../application/resume-strategy-policy.js";
+import {
+  buildCliPlanSummaryArtifactKeyFromShape,
+  buildCliProjectSummaryArtifactKey,
+  buildCliSessionSummaryArtifactKey,
+} from "../application/context-artifact-keys.js";
 import { readGlobalConfig } from "../config/global-config.js";
 import { resolveEffectiveProvider } from "../config/env-config.js";
 import { createDefaultRegistry, getProviderDisplayInfo, type ProviderId } from "../wrapper/session-registry.js";
@@ -9,7 +14,7 @@ import type { ResumeFeedback, ResumeStrategy } from "../wrapper/index.js";
 import { GatewaySession, waitForGateway, themes, kilnDark } from "@kilnai/tui";
 import type { SessionLike } from "@kilnai/tui";
 import type { ContextArtifactCache } from "@kilnai/core";
-import { getProjectContextArtifactCache } from "../application/project-context-cache.js";
+import { getProjectContextArtifactCache } from "@kilnai/runtime";
 
 export interface TuiFlags {
   provider?: string;
@@ -121,9 +126,11 @@ export async function makeMultiProviderSessionFactory(
         const modelForTurn = currentModel || undefined;
         const state = providerState.get(providerForTurn) ?? {};
         const resumedFrom = state.resumeSessionId;
-        const projectArtifactKey = `project-summary:${cwd}`;
-        const sessionArtifactKey = resumedFrom ? `session-summary:${resumedFrom}` : undefined;
-        const planArtifactKey = `plan-summary:${cwd}:interactive`;
+        const projectArtifactKey = buildCliProjectSummaryArtifactKey(cwd);
+        const sessionArtifactKey = resumedFrom
+          ? buildCliSessionSummaryArtifactKey(resumedFrom)
+          : undefined;
+        const planArtifactKey = buildCliPlanSummaryArtifactKeyFromShape(cwd, "interactive");
         const signals = collectResumeSignals({
           cache: contextArtifactCache,
           keys: [sessionArtifactKey, projectArtifactKey, planArtifactKey],
@@ -502,6 +509,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   const sessionStore = new SessionStore(cwd);
   const transcriptStore = new TranscriptStore(cwd);
   const initialResumeInfo = await loadInitialResumeInfo(cwd, sessionStore, providerIds);
+  const startupTransport = resolveTuiStartupTransport(flags);
   const sessionManager = await makeMultiProviderSessionFactory(
     provider,
     providerIds,
@@ -564,11 +572,11 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     provider,
     domain,
     resolvedTheme,
-    initialResumeInfo,
+    startupTransport === "direct" ? initialResumeInfo : {},
     () => loadInitialResumeInfo(cwd, sessionStore, providerIds),
     bootstrap.providerModelsRef,
-    loadSessionList,
-    handleResumeSession,
+    startupTransport === "direct" ? loadSessionList : undefined,
+    startupTransport === "direct" ? handleResumeSession : undefined,
   );
 
   bootstrap.shutdown();

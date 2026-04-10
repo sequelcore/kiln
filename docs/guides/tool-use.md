@@ -415,6 +415,11 @@ That means the wrapper can restrict which tool calls a backend should make, whil
 
 For direct API backends, this is advisory rather than native sandbox enforcement. The provider sees policy constraints in the system prompt; the runtime still owns actual tool execution.
 
+`codex-oauth` is part of that direct API category. It can surface tool calls in
+model output, but Kiln does not currently execute local tools through that
+provider path. Use the harness `codex` backend when you need live file writes or
+approval-gated local execution.
+
 ---
 
 ## Per-tenant tool configuration

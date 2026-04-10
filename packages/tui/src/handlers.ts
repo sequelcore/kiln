@@ -256,23 +256,32 @@ export function handleActivity(
   activity: string,
   toolName: string | undefined,
   output: string | undefined,
+  details: string | undefined,
   usd: number | undefined,
   input: unknown | undefined,
   inputTokens: number | undefined,
   outputTokens: number | undefined,
   renderSidebarCost: () => void,
   renderSidebarApprovals?: () => void,
-  event?: { path?: string; changeType?: "created" | "modified" | "deleted"; linesAdded?: number; linesRemoved?: number }
+  event?: { sessionId?: string; path?: string; changeType?: "created" | "modified" | "deleted"; linesAdded?: number; linesRemoved?: number }
 ): void {
   // Ignore late-arriving frames after the turn has completed.
   if (ctx.state.status !== "running") return;
 
-  if (activity === "approval_requested" && output !== undefined) {
-    handleApprovalRequested(ctx, output, "");
+  if (activity === "approval_requested" && (details !== undefined || output !== undefined)) {
+    handleApprovalRequested(ctx, details ?? output ?? "", event?.sessionId ?? "");
     renderSidebarApprovals?.();
   } else if (activity === "approval_approved" || activity === "approval_rejected") {
-    // Clear the first pending approval when we get a response
-    if (ctx.state.pendingApprovals.length > 0) {
+    const sessionId = event?.sessionId;
+    if (sessionId) {
+      update(
+        ctx.state,
+        "pendingApprovals",
+        ctx.state.pendingApprovals.filter((pending) => pending.sessionId !== sessionId),
+      );
+      renderSidebarApprovals?.();
+    } else if (ctx.state.pendingApprovals.length > 0) {
+      // Fallback for older payloads without sessionId.
       update(ctx.state, "pendingApprovals", ctx.state.pendingApprovals.slice(1));
       renderSidebarApprovals?.();
     }
@@ -391,6 +400,9 @@ export function handleApprovalRequested(
   description: string,
   sessionId: string
 ): void {
+  if (!sessionId.trim()) {
+    return;
+  }
   const approval: PendingApproval = {
     sessionId,
     description,
@@ -483,6 +495,7 @@ export async function sendMessage(
             event.activity,
             event.toolName,
             event.output,
+            event.details,
             event.usd,
             event.input,
             event.inputTokens,

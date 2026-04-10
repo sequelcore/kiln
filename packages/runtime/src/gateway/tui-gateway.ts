@@ -8,18 +8,19 @@ import { textParts, extractText, EventBus, type ApprovalRequestedEvent, type App
 import type { ContextArtifactCache } from "@kilnai/core";
 import { CliSubscriptionExecutor } from "../execution/cli-subscription-executor.js";
 import type { CliSessionFactory, CliSessionEvent } from "../execution/cli-subscription-executor.js";
-import { ApprovalGateRegistry, ApprovalTarget } from "./approval-registry.js";
+import { ApprovalGateRegistry } from "./approval-registry.js";
 import {
   classifyRuntimeContextPressure,
   formatRuntimeResumeFeedbackLabel,
   formatRuntimeResumeDecision,
   normalizeRuntimeTaskShape,
   readRuntimeSupportArtifactsDetailed,
-  writeRuntimeContinuityOutcomeArtifact,
-  writeRuntimeContextBundleArtifact,
-  writeRuntimeThreadSummaryArtifact,
-  writeRuntimeToolBundleArtifact,
 } from "../session/context-artifact-summary.js";
+import {
+  applyRuntimeTurnRecord,
+  type RuntimeTurnApprovalTransition,
+  type RuntimeTurnFileChange,
+} from "../session/runtime-turn-record.js";
 
 async function getOpencodeModels(): Promise<string[]> {
   try {
@@ -143,8 +144,10 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
   const providerLabel = options.sessionManager.getProvider();
   const systemPrompt = options.systemPrompt ?? "You are a helpful assistant.";
 
+  const approvalRegistry = new ApprovalGateRegistry();
+
   // Activity streamer: bridges CLI session events to the active WS connection
-  const activityStreamer = new TuiActivityStreamer();
+  const activityStreamer = new TuiActivityStreamer(approvalRegistry);
 
   const executor = new CliSubscriptionExecutor(
     options.sessionManager.factory,
@@ -153,16 +156,11 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
   );
   const eventBus = options.eventBus ?? new EventBus(100);
   const orchestrator = new ModeBOrchestrator({ provider: executor, eventBus });
-  const approvalRegistry = new ApprovalGateRegistry();
   const sessionRegistry = new SessionRegistry();
-
-  // Register orchestrator with approval registry for approval frame handling
-  const approvalTarget: ApprovalTarget = {
-    approve: () => orchestrator.continue?.(),
-    reject: (reason: string) => orchestrator.emitApprovalReceived(false, reason),
-    status: () => "awaiting_approval", // Simplified: always treat as awaiting_approval when approve is called
-  };
-  approvalRegistry.register("tui-session", approvalTarget);
+  activityStreamer.bindApprovalBridge({
+    approve: (sessionId) => orchestrator.continue(sessionId),
+    reject: (sessionId, reason) => orchestrator.emitApprovalReceived(false, reason, sessionId),
+  });
 
   const { upgradeWebSocket, websocket } = createBunWebSocket();
 
@@ -179,7 +177,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
 
       return {
         async onOpen(_event: Event, ws: WSContext) {
-          activityStreamer.register(ws, options.eventBus);
+          activityStreamer.register(ws, eventBus);
           ws.send(JSON.stringify({
             type: "welcome",
             models: {
@@ -268,6 +266,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
               userId,
               systemPrompt,
             });
+            activityStreamer.beginTurnCapture(session.id);
 
             const runtimeSupport = readRuntimeSupportArtifactsDetailed(options.contextArtifactCache, {
               session,
@@ -285,62 +284,29 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
                 recalledRuntimeSummary,
               );
             } catch (err) {
+              activityStreamer.endTurnCapture(session.id);
               ws.send(JSON.stringify({
                 type: "error",
                 message: err instanceof Error ? err.message : String(err),
               }));
               return;
             }
+            const turnCapture = activityStreamer.endTurnCapture(session.id);
 
-            session.accumulateTokens(result.inputTokens + result.outputTokens);
-            session.updateSessionLedger({
-              currentPhase: result.queued ? "queued" : "responded",
-              lastProvider: result.routingDecision?.provider ?? session.sessionLedger.lastProvider,
-              toolCallCount: result.toolExecutions?.length ?? session.sessionLedger.toolCallCount,
-              turnDepth: session.userTurnCount,
-              lastSummary: result.contextSummary,
-            });
-            if (result.routingDecision) {
-              session.addExactArtifact(`Runtime routed provider: ${result.routingDecision.provider}/${result.routingDecision.model}`);
-            }
-            if (result.contextSummary) {
-              session.addExactArtifact(`Runtime context summary: ${result.contextSummary}`);
-            }
-            if (result.toolExecutions) {
-              for (const exec of result.toolExecutions) {
-                session.addExactArtifact(`Tool execution: ${exec.toolName} (${exec.success ? "success" : "error"})`);
-                if (exec.resultSummary.trim() !== "") {
-                  session.addExactArtifact(`Tool result summary: ${exec.resultSummary}`);
-                }
-              }
-            }
-            writeRuntimeThreadSummaryArtifact(options.contextArtifactCache, session);
-            writeRuntimeContextBundleArtifact(options.contextArtifactCache, {
-              appName: session.appName,
-              tenantId: session.tenantId,
-              channel: "tui",
-              provider: result.routingDecision?.provider ?? session.sessionLedger.lastProvider ?? "unknown",
-              taskShape,
-              contextSummary: result.contextSummary,
-            });
-            writeRuntimeToolBundleArtifact(options.contextArtifactCache, {
-              appName: session.appName,
-              tenantId: session.tenantId,
-              channel: "tui",
-              taskShape,
-              toolExecutions: result.toolExecutions,
-            });
-            writeRuntimeContinuityOutcomeArtifact(options.contextArtifactCache, {
+            applyRuntimeTurnRecord({
               session,
               channel: "tui",
               taskShape,
-              decision: runtimeSupport.decision,
+              contextArtifactCache: options.contextArtifactCache,
+              continuityDecision: runtimeSupport.decision,
               queued: result.queued,
               inputTokens: result.inputTokens,
               outputTokens: result.outputTokens,
-              toolCount: result.toolExecutions?.length,
-              provider: result.routingDecision?.provider ?? session.sessionLedger.lastProvider,
-              model: result.routingDecision?.model,
+              contextSummary: result.contextSummary,
+              toolExecutions: result.toolExecutions,
+              routingDecision: result.routingDecision,
+              fileChanges: turnCapture.fileChanges,
+              approvalTransitions: turnCapture.approvalTransitions,
             });
 
             await sessionRegistry.save(session);
@@ -409,10 +375,52 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
  * the CliSubscriptionExecutor.
  */
 class TuiActivityStreamer {
+  private readonly pendingApprovals = new Set<string>();
+  private capture: {
+    sessionId: string;
+    fileChanges: RuntimeTurnFileChange[];
+    approvalTransitions: RuntimeTurnApprovalTransition[];
+  } | null = null;
   private ws: WSContext | null = null;
   private eventBus: EventBus | null = null;
   private approvalHandler: ((event: import("@kilnai/core").KilnEvent) => void) | null = null;
   private receivedHandler: ((event: import("@kilnai/core").KilnEvent) => void) | null = null;
+  private approvalBridge: {
+    approve: (sessionId: string) => void;
+    reject: (sessionId: string, reason: string) => void;
+  } | null = null;
+
+  constructor(private readonly approvalRegistry: ApprovalGateRegistry) {}
+
+  bindApprovalBridge(bridge: {
+    approve: (sessionId: string) => void;
+    reject: (sessionId: string, reason: string) => void;
+  }): void {
+    this.approvalBridge = bridge;
+  }
+
+  beginTurnCapture(sessionId: string): void {
+    this.capture = {
+      sessionId,
+      fileChanges: [],
+      approvalTransitions: [],
+    };
+  }
+
+  endTurnCapture(sessionId: string): {
+    fileChanges: readonly RuntimeTurnFileChange[];
+    approvalTransitions: readonly RuntimeTurnApprovalTransition[];
+  } {
+    if (!this.capture || this.capture.sessionId !== sessionId) {
+      return { fileChanges: [], approvalTransitions: [] };
+    }
+    const captured = {
+      fileChanges: [...this.capture.fileChanges],
+      approvalTransitions: [...this.capture.approvalTransitions],
+    };
+    this.capture = null;
+    return captured;
+  }
 
   register(ws: WSContext, eventBus?: EventBus): void {
     this.ws = ws;
@@ -426,11 +434,27 @@ class TuiActivityStreamer {
     this.approvalHandler = (event: KilnEvent) => {
       if (event.type === "approval_requested") {
         const approvalEvent = event as unknown as ApprovalRequestedEvent;
+        const sessionId = approvalEvent.sessionId;
+        if (sessionId) {
+          this.pendingApprovals.add(sessionId);
+          if (this.capture && this.capture.sessionId === sessionId) {
+            this.capture.approvalTransitions.push({
+              status: "requested",
+              sessionId,
+              reason: approvalEvent.description,
+            });
+          }
+          this.approvalRegistry.register(sessionId, {
+            approve: () => this.approvalBridge?.approve(sessionId),
+            reject: (reason: string) => this.approvalBridge?.reject(sessionId, reason),
+            status: () => (this.pendingApprovals.has(sessionId) ? "awaiting_approval" : "resolved"),
+          });
+        }
         if (this.ws) {
           this.ws.send(JSON.stringify({
             type: "approval_requested",
             description: approvalEvent.description,
-            sessionId: approvalEvent.sessionId,
+            sessionId,
           }));
         }
       }
@@ -440,11 +464,24 @@ class TuiActivityStreamer {
     this.receivedHandler = (event: KilnEvent) => {
       if (event.type === "approval_received") {
         const receivedEvent = event as unknown as ApprovalReceivedEvent;
+        const sessionId = receivedEvent.sessionId;
+        if (sessionId) {
+          this.pendingApprovals.delete(sessionId);
+          if (this.capture && this.capture.sessionId === sessionId) {
+            this.capture.approvalTransitions.push({
+              status: receivedEvent.approved ? "approved" : "rejected",
+              sessionId,
+              reason: receivedEvent.reason,
+            });
+          }
+          this.approvalRegistry.unregister(sessionId);
+        }
         if (this.ws) {
           this.ws.send(JSON.stringify({
             type: "approval_received",
             approved: receivedEvent.approved,
             reason: receivedEvent.reason,
+            sessionId,
           }));
         }
       }
@@ -465,6 +502,7 @@ class TuiActivityStreamer {
       this.receivedHandler = null;
     }
     this.eventBus = null;
+    this.capture = null;
   }
 
   forward(event: CliSessionEvent): void {
@@ -486,6 +524,14 @@ class TuiActivityStreamer {
         output: event.output,
       }));
     } else if (event.type === "file_changed") {
+      if (this.capture) {
+        this.capture.fileChanges.push({
+          path: event.path,
+          changeType: event.changeType,
+          linesAdded: event.linesAdded,
+          linesRemoved: event.linesRemoved,
+        });
+      }
       this.ws.send(JSON.stringify({
         type: "activity",
         activity: "file_changed",

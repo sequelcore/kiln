@@ -36,21 +36,6 @@ describe("useApproval", () => {
     vi.restoreAllMocks();
   });
 
-  it("approve() calls POST /dev/approve with empty body", async () => {
-    mockFetchOk();
-    const { result } = renderHook(() => useApproval(), { wrapper: createWrapper() });
-
-    await act(async () => {
-      await result.current.approve();
-    });
-
-    expect(fetch).toHaveBeenCalledWith("http://localhost:4000/dev/approve", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
-    });
-  });
-
   it("approve(sessionId) calls POST /dev/approve with { sessionId }", async () => {
     mockFetchOk();
     const { result } = renderHook(() => useApproval(), { wrapper: createWrapper() });
@@ -63,21 +48,6 @@ describe("useApproval", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ sessionId: "sess-123" }),
-    });
-  });
-
-  it("reject(reason) calls POST /dev/reject with { reason }", async () => {
-    mockFetchOk();
-    const { result } = renderHook(() => useApproval(), { wrapper: createWrapper() });
-
-    await act(async () => {
-      await result.current.reject("not allowed");
-    });
-
-    expect(fetch).toHaveBeenCalledWith("http://localhost:4000/dev/reject", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ reason: "not allowed" }),
     });
   });
 
@@ -101,7 +71,7 @@ describe("useApproval", () => {
     const { result } = renderHook(() => useApproval(), { wrapper: createWrapper() });
 
     await act(async () => {
-      await result.current.approve();
+      await result.current.approve("sess-123");
     });
 
     expect(result.current.error).toBeInstanceOf(Error);
@@ -134,7 +104,7 @@ describe("useApproval", () => {
 
     let approvePromise!: Promise<void>;
     act(() => {
-      approvePromise = result.current.approve();
+      approvePromise = result.current.approve("sess-123");
     });
 
     expect(result.current.isLoading).toBe(true);
@@ -152,7 +122,7 @@ describe("useApproval", () => {
     const { result } = renderHook(() => useApproval(), { wrapper: createWrapper() });
 
     await act(async () => {
-      await result.current.approve();
+      await result.current.approve("sess-123");
     });
 
     expect(result.current.error).not.toBeNull();
@@ -160,7 +130,7 @@ describe("useApproval", () => {
     mockFetchOk();
 
     await act(async () => {
-      await result.current.approve();
+      await result.current.approve("sess-123");
     });
 
     expect(result.current.error).toBeNull();

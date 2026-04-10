@@ -7,7 +7,22 @@
  */
 export type TuiInboundFrame =
   | { type: "thinking" }
-  | { type: "activity"; activity: string; toolName?: string; output?: string; usd?: number; inputTokens?: number; outputTokens?: number }
+  | {
+      type: "activity";
+      activity: string;
+      toolName?: string;
+      output?: string;
+      usd?: number;
+      input?: unknown;
+      inputTokens?: number;
+      outputTokens?: number;
+      details?: string;
+      sessionId?: string;
+      path?: string;
+      changeType?: "created" | "modified" | "deleted";
+      linesAdded?: number;
+      linesRemoved?: number;
+    }
   | {
       type: "done";
       content: string;
@@ -33,7 +48,7 @@ export type TuiInboundFrame =
   | { type: "cleared" }
   | { type: "provider_changed"; provider: string }
   | { type: "approval_requested"; description: string; sessionId: string }
-  | { type: "approval_received"; approved: boolean; reason?: string };
+  | { type: "approval_received"; approved: boolean; reason?: string; sessionId?: string };
 
 /**
  * Outbound frames the TUI sends to the gateway.

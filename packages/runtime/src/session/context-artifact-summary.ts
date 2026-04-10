@@ -1,14 +1,13 @@
 import {
   collectResumeSignalsFromPresence,
   decideResumePolicy,
+  normalizeTaskShapeKey,
   type ResumeFeedbackSignal,
   type ResumePolicyDecision,
   type ContextArtifact,
   type ContextArtifactCache,
 } from "@kilnai/core";
 import type { ModeBSession } from "./mode-b-session.js";
-
-const TASK_SHAPE_MAX_LENGTH = 48;
 
 function buildRuntimeThreadArtifactKey(session: Pick<ModeBSession, "appName" | "tenantId" | "userId">): string {
   return `runtime-thread-summary:${session.appName}:${session.tenantId}:${session.userId}`;
@@ -158,12 +157,7 @@ function inferRuntimeResumeFeedback(
 }
 
 export function normalizeRuntimeTaskShape(text: string): string {
-  return text
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, TASK_SHAPE_MAX_LENGTH) || "interactive";
+  return normalizeTaskShapeKey(text, 48);
 }
 
 export function readRuntimeSupportArtifacts(

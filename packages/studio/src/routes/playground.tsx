@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, type ReactNode, type FormEvent } from "rea
 import { useKilnWsChat, useKilnEvents, useKilnContext } from "@kilnai/react";
 
 interface ApprovalRequest {
-  taskId: string;
+  sessionId: string;
   description: string;
 }
 
@@ -29,7 +29,7 @@ function ApprovalCard({
     setIsSubmitting(true);
     setSubmitError(null);
     try {
-      await client.post("/dev/approve", {});
+      await client.post("/dev/approve", { sessionId: request.sessionId });
       onResolved();
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : "Approve failed");
@@ -43,7 +43,7 @@ function ApprovalCard({
     setIsSubmitting(true);
     setSubmitError(null);
     try {
-      await client.post("/dev/reject", { reason: reason.trim() || undefined });
+      await client.post("/dev/reject", { sessionId: request.sessionId, reason: reason.trim() || undefined });
       onResolved();
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : "Reject failed");
@@ -168,21 +168,21 @@ export function PlaygroundView(): ReactNode {
     };
   }, null);
 
-  const receivedTaskIds = new Set(
+  const receivedSessionIds = new Set(
     events
       .filter((ev) => ev.type === "approval_received")
-      .map((ev) => ev.data.taskId as string),
+      .map((ev) => ev.data.sessionId as string),
   );
 
   const pendingApprovals = events
     .filter(
       (ev) =>
         ev.type === "approval_requested" &&
-        !receivedTaskIds.has(ev.data.taskId as string) &&
-        !resolvedApprovals.has(ev.data.taskId as string),
+        !receivedSessionIds.has(ev.data.sessionId as string) &&
+        !resolvedApprovals.has(ev.data.sessionId as string),
     )
     .map((ev) => ({
-      taskId: ev.data.taskId as string,
+      sessionId: ev.data.sessionId as string,
       description: ev.data.description as string,
     }));
 
@@ -257,10 +257,10 @@ export function PlaygroundView(): ReactNode {
           ))}
           {pendingApprovals.map((req) => (
             <ApprovalCard
-              key={req.taskId}
+              key={req.sessionId}
               request={req}
               onResolved={() =>
-                setResolvedApprovals((prev) => new Set([...prev, req.taskId]))
+                setResolvedApprovals((prev) => new Set([...prev, req.sessionId]))
               }
             />
           ))}

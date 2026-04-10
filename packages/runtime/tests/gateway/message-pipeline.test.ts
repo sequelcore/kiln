@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { textParts } from "@kilnai/core";
+import { EventBus, textParts } from "@kilnai/core";
 import { processInboundMessage } from "../../src/gateway/message-pipeline.js";
 import type { InboundMessageContext } from "../../src/gateway/message-pipeline.js";
 import type { ModeBOrchestrator, OrchestrateResult } from "../../src/session/mode-b-orchestrator.js";
@@ -36,6 +36,7 @@ function makeMockSession(): ModeBSession {
     addExactArtifact(artifact: string) {
       _exactArtifacts.push(artifact);
     },
+    get exactArtifacts() { return _exactArtifacts; },
   } as unknown as ModeBSession;
   return session;
 }
@@ -406,5 +407,86 @@ describe("processInboundMessage", () => {
     expect(escalationEvent?.summary).toBe("[REDACTED]");
     const toolEvent = emitted.find((event) => event.eventType === "TOOL_EXECUTED");
     expect(toolEvent?.resultSummary).toBe("[REDACTED]");
+  });
+
+  it("captures approval transitions from runtime event bus into canonical turn artifacts", async () => {
+    const session = makeMockSession();
+    const eventBus = new EventBus();
+    const orchestrator = {
+      processMessage: vi.fn().mockImplementation(async () => {
+        eventBus.emit({
+          type: "approval_requested",
+          taskId: "",
+          description: "Need confirmation",
+          timestamp: new Date(),
+          sessionId: session.id,
+        });
+        eventBus.emit({
+          type: "approval_requested",
+          taskId: "",
+          description: "Other session request",
+          timestamp: new Date(),
+          sessionId: "other-session",
+        });
+        eventBus.emit({
+          type: "approval_received",
+          taskId: "",
+          approved: false,
+          reason: "Denied by policy",
+          timestamp: new Date(),
+          sessionId: session.id,
+        });
+        return {
+          parts: textParts("ok"),
+          inputTokens: 7,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          queued: false,
+        } satisfies OrchestrateResult;
+      }),
+      model: "claude-sonnet-4-20250514",
+      eventBus,
+    } as unknown as ModeBOrchestrator;
+    const sessionRegistry = makeMockSessionRegistry(session);
+    const ctx = makeBaseContext({ orchestrator, sessionRegistry });
+
+    const result = await processInboundMessage(ctx);
+
+    expect(result.ok).toBe(true);
+    const artifacts = (session as unknown as { exactArtifacts: string[] }).exactArtifacts;
+    expect(artifacts).toContain(`Approval requested: ${session.id} (Need confirmation)`);
+    expect(artifacts).toContain(`Approval rejected: ${session.id} (Denied by policy)`);
+    expect(artifacts).not.toContain("Approval requested: other-session (Other session request)");
+  });
+
+  it("persists structured file changes from tool executions into canonical turn artifacts", async () => {
+    const session = makeMockSession();
+    const orchestrator = {
+      processMessage: vi.fn().mockResolvedValue({
+        parts: textParts("updated"),
+        inputTokens: 9,
+        outputTokens: 4,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        queued: false,
+        toolExecutions: [{
+          toolName: "write",
+          durationMs: 12,
+          success: true,
+          resultSummary: "Wrote file",
+          fileChanges: [{ path: "C:/workspace/src/demo.txt", changeType: "modified" }],
+        }],
+      } satisfies OrchestrateResult),
+      model: "claude-sonnet-4-20250514",
+    } as unknown as ModeBOrchestrator;
+    const sessionRegistry = makeMockSessionRegistry(session);
+    const ctx = makeBaseContext({ orchestrator, sessionRegistry });
+
+    const result = await processInboundMessage(ctx);
+
+    expect(result.ok).toBe(true);
+    const artifacts = (session as unknown as { exactArtifacts: string[] }).exactArtifacts;
+    expect(artifacts).toContain("File changed: C:/workspace/src/demo.txt");
   });
 });

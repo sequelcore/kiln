@@ -7,6 +7,11 @@ import type { ResumeFeedback, ResumeStrategy, WrapperConfig, SessionContext, Ses
 import type { KilnAppConfig } from "../config.js";
 import { defaultBuildSystemPrompt } from "../config.js";
 import { DefaultContextGovernor } from "../application/context-governor.js";
+import {
+  buildCliPlanSummaryArtifactKey,
+  buildCliProjectSummaryArtifactKey,
+  buildCliSessionSummaryArtifactKey,
+} from "../application/context-artifact-keys.js";
 import { buildModuleArtifactKey, extractTouchedFilePaths } from "../application/repo-summary-cache.js";
 import {
   collectResumeSignals,
@@ -36,15 +41,6 @@ function resolveContextGovernancePolicy(appConfig: KilnAppConfig): {
   };
 }
 
-function normalizeTaskKey(task: string): string {
-  return task
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 80) || "interactive";
-}
-
 function buildResumeProjectionState(input: {
   cache: ContextArtifactCache;
   projectPath: string;
@@ -65,9 +61,11 @@ function buildResumeProjectionState(input: {
   shouldUseProviderNativeResume: boolean;
 } {
   const { cache, projectPath, task, worktreePath, resumeSessionId, resumedMeta, moduleArtifactKeys } = input;
-  const sessionArtifactKey = resumeSessionId ? `session-summary:${resumeSessionId}` : undefined;
-  const projectArtifactKey = `project-summary:${projectPath}`;
-  const planArtifactKey = `plan-summary:${projectPath}:${normalizeTaskKey(task)}`;
+  const sessionArtifactKey = resumeSessionId
+    ? buildCliSessionSummaryArtifactKey(resumeSessionId)
+    : undefined;
+  const projectArtifactKey = buildCliProjectSummaryArtifactKey(projectPath);
+  const planArtifactKey = buildCliPlanSummaryArtifactKey(projectPath, task, 80);
   const signals = collectResumeSignals({
     cache,
     keys: [sessionArtifactKey, projectArtifactKey, planArtifactKey],
@@ -217,9 +215,11 @@ export class SessionManager {
       exactArtifacts,
       cache: governancePolicy.useCache ? this.contextArtifactCache : undefined,
       moduleArtifactKeys,
-      projectArtifactKey: `project-summary:${projectPath}`,
-      planArtifactKey: `plan-summary:${projectPath}:${normalizeTaskKey(task)}`,
-      sessionArtifactKey: resumeSessionId ? `session-summary:${resumeSessionId}` : undefined,
+      projectArtifactKey: buildCliProjectSummaryArtifactKey(projectPath),
+      planArtifactKey: buildCliPlanSummaryArtifactKey(projectPath, task, 80),
+      sessionArtifactKey: resumeSessionId
+        ? buildCliSessionSummaryArtifactKey(resumeSessionId)
+        : undefined,
       tokenBudget: governancePolicy.tokenBudget,
       preferredSources: governancePolicy.preferredSources,
       summaryAggressiveness: governancePolicy.summaryAggressiveness,

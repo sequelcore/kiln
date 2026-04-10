@@ -63,3 +63,4 @@ export { collectResumeSignalsFromPresence } from "./resume-signals.js";
 export type { ResumeSignalSet } from "./resume-signals.js";
 export { decideResumePolicy } from "./resume-policy.js";
 export type { ResumeFeedbackSignal, ResumePolicyDecision, ResumeStrategyKind } from "./resume-policy.js";
+export { normalizeTaskShapeKey } from "./task-shape.js";

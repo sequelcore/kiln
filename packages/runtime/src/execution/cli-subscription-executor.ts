@@ -88,14 +88,6 @@ export class CliSubscriptionExecutor implements ProviderAdapter {
         // Stream event to TUI via callback
         this.onEvent?.(event);
 
-        // Extract file changes from tool_result events
-        if (event.type === "tool_result") {
-          const changedFile = this.extractFileChange(event.toolName, event.output);
-          if (changedFile) {
-            this.onEvent?.(changedFile);
-          }
-        }
-
         if (event.type === "text_delta" && !event.isThinking) {
           content += event.content;
         } else if (event.type === "cost_update") {
@@ -130,34 +122,6 @@ export class CliSubscriptionExecutor implements ProviderAdapter {
     const text = extractText(response.parts);
     yield { type: "text", content: text };
     yield { type: "done", content: "" };
-  }
-
-  /**
-   * Extracts file change metadata from tool_result output.
-   * Looks for patterns like "File X: created/modified/deleted" from CLI tools.
-   */
-  private extractFileChange(toolName: string, output: string): { type: "file_changed"; path: string; changeType: "created" | "modified" | "deleted"; linesAdded?: number; linesRemoved?: number } | null {
-    // Only process file-editing tools
-    const fileEditTools = ["Edit", "Write", "MultiEdit", "write", "edit"];
-    const toolBase = toolName.split(".").pop() ?? toolName;
-    if (!fileEditTools.includes(toolBase)) {
-      return null;
-    }
-
-    // Parse output patterns like "File /path/to/file.ts: modified" or "Wrote file.ts"
-    const filePathMatch = output.match(/[:\s]([^\s]+\.(?:ts|tsx|js|jsx|json|md|yaml|yml|toml)):/);
-    if (filePathMatch) {
-      const changeType = output.includes("created") ? "created" : output.includes("deleted") ? "deleted" : "modified";
-      return { type: "file_changed", path: filePathMatch[1]!, changeType };
-    }
-
-    // Fallback: check for write confirmation
-    const writeMatch = output.match(/(?:Wrote|Created|Updated)\s+([^\s]+\.(?:ts|tsx|js|jsx|json|md|yaml|yml|toml))/i);
-    if (writeMatch) {
-      return { type: "file_changed", path: writeMatch[1]!, changeType: "modified" };
-    }
-
-    return null;
   }
 }
 

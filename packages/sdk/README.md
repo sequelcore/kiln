@@ -15,7 +15,7 @@
 
 ## What is this?
 
-`@kilnai/react` provides React hooks for connecting to a [Kiln](https://github.com/sequelcore/kiln) gateway. Supports both HTTP (SSE) and WebSocket transports, memory management, event streams, and human-in-the-loop approval flows.
+`@kilnai/react` provides React hooks for connecting to a [Kiln](https://github.com/sequelcore/kiln) gateway. Supports both HTTP (SSE) and WebSocket transports, memory management, event streams, and dev-route approval controls.
 
 ## Install
 
@@ -78,7 +78,7 @@ const { messages, send, isConnected, connectionStatus } = useKilnWsChat({
 Subscribe to real-time gateway events via SSE.
 
 ```tsx
-const { events, isConnected } = useKilnEvents();
+const { events, connected } = useKilnEvents();
 ```
 
 ### `useKilnMemory`
@@ -99,10 +99,14 @@ const { state, refresh } = useKilnState();
 
 ### `useApproval`
 
-Human-in-the-loop approval gates for sensitive operations.
+Dev-route approval controls (`/dev/approve`, `/dev/reject`) for tools or playground workflows.
+This is an SDK-facing approval surface; it does not make direct API providers
+locally executable tool backends.
 
 ```tsx
-const { pending, approve, reject } = useApproval();
+const { approve, reject, isLoading, error } = useApproval();
+await approve("session-123");
+await reject("Not safe to run", "session-123");
 ```
 
 ## Clients

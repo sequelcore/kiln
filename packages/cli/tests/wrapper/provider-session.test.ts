@@ -178,19 +178,19 @@ describe("ProviderSession.run()", () => {
     expect(events).toContainEqual({ type: "text_delta", content: "thinking...", isThinking: true });
     expect(events).toContainEqual({ type: "text_delta", content: "hello" });
     expect(events).toContainEqual({
-      type: "tool_use",
-      toolName: "memory_store",
-      input: { key: "k", value: "v" },
+      type: "text_delta",
+      content: JSON.stringify({ name: "memory_store", input: { key: "k", value: "v" } }),
     });
-    expect(events).toContainEqual({ type: "tool_result", toolName: "", output: "stored" });
+    expect(events).toContainEqual({ type: "text_delta", content: "stored" });
     expect(events).toContainEqual({ type: "cost_update", usd: 0, mode: "computed" });
     expect(events).toContainEqual(expect.objectContaining({ type: "completed", isError: false }));
   });
 
-  it("yields error when tool_use content cannot be parsed as JSON", async () => {
+  it("does not emit executable tool events for direct-provider tool frames", async () => {
     adapterMocks.openai.stream.mockReturnValue(
       streamEvents([
         { type: "tool_use", content: "{bad-json}" },
+        { type: "tool_result", content: "tool output" },
         { type: "done", content: "" },
       ]),
     );
@@ -201,12 +201,10 @@ describe("ProviderSession.run()", () => {
     }));
     const events = await collectEvents(session.run({ prompt: "parse test" }));
 
-    expect(events).toContainEqual(expect.objectContaining({
-      type: "error",
-      code: "PROVIDER_TOOL_USE_PARSE_ERROR",
-      isRetryable: false,
-    }));
-    expect(events).toContainEqual(expect.objectContaining({ type: "completed", isError: true }));
+    expect(events.some((event) => event.type === "tool_use" || event.type === "tool_result")).toBe(false);
+    expect(events).toContainEqual({ type: "text_delta", content: "{bad-json}" });
+    expect(events).toContainEqual({ type: "text_delta", content: "tool output" });
+    expect(events).toContainEqual(expect.objectContaining({ type: "completed", isError: false }));
   });
 
   it("yields error and completed when adapter streaming throws", async () => {

@@ -1,4 +1,9 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
+
+vi.mock("@kilnai/runtime", () => ({
+  getProjectContextArtifactCache: vi.fn(),
+}));
+
 import { runParallelWorkers } from "../../src/commands/run.js";
 import type { KilnAppConfig } from "../../src/config.js";
 

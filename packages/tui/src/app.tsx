@@ -996,7 +996,8 @@ export async function startTui(
           const session = await createSession();
           const hasApprove = typeof (session as unknown as { approve?: unknown }).approve === "function";
           if (hasApprove) {
-            (session as unknown as { approve: (sessionId?: string) => void }).approve();
+            const pending = state.pendingApprovals[0];
+            (session as unknown as { approve: (sessionId?: string) => void }).approve(pending?.sessionId);
           }
           update(state, "pendingApprovals", state.pendingApprovals.slice(1));
           renderSidebarApprovals(state, currentTheme, ui);
@@ -1008,7 +1009,8 @@ export async function startTui(
           const session = await createSession();
           const hasReject = typeof (session as unknown as { reject?: unknown }).reject === "function";
           if (hasReject) {
-            (session as unknown as { reject: (reason: string, sessionId?: string) => void }).reject("rejected by user");
+            const pending = state.pendingApprovals[0];
+            (session as unknown as { reject: (reason: string, sessionId?: string) => void }).reject("rejected by user", pending?.sessionId);
           }
           update(state, "pendingApprovals", state.pendingApprovals.slice(1));
           renderSidebarApprovals(state, currentTheme, ui);

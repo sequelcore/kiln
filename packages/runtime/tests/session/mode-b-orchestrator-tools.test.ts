@@ -636,6 +636,60 @@ describe("ModeBOrchestrator - Tool Execution Enhancements", () => {
         resultSummary: "some result data",
       });
     });
+
+    it("captures structured file changes from write/edit tool metadata", async () => {
+      let callCount = 0;
+      const provider: ProviderAdapter = {
+        name: "mock",
+        createMessage: vi.fn().mockImplementation(() => {
+          callCount++;
+          if (callCount === 1) {
+            return {
+              parts: textParts("writing file..."),
+              inputTokens: 100,
+              outputTokens: 50,
+              cacheReadTokens: 0,
+              cacheWriteTokens: 0,
+              toolCalls: [{
+                id: "tc-write-1",
+                name: "write",
+                input: { filePath: "src/demo.txt", content: "updated" },
+              }],
+              stopReason: "tool_use",
+            };
+          }
+          return {
+            parts: textParts("done"),
+            inputTokens: 100,
+            outputTokens: 50,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            toolCalls: [],
+            stopReason: "end_turn",
+          };
+        }),
+        streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+      };
+
+      const orchestrator = new ModeBOrchestrator({
+        provider,
+        tools: [{ name: "write", description: "Writes files", inputSchema: {}, tags: new Set() }],
+        builtinTools: new Map([[
+          "write",
+          vi.fn().mockResolvedValue({
+            output: "Wrote 7 characters",
+            isError: false,
+            metadata: { filePath: "C:/workspace/src/demo.txt" },
+          }),
+        ]]),
+      });
+
+      const result = await orchestrator.processMessage(makeSession(), textParts("write file"));
+
+      expect(result.toolExecutions?.[0]?.fileChanges).toEqual([
+        { path: "C:/workspace/src/demo.txt", changeType: "modified" },
+      ]);
+    });
   });
 
   describe("minimal configuration", () => {

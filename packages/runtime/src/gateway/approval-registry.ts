@@ -18,44 +18,30 @@ export class ApprovalGateRegistry {
   }
 
   approve(sessionId?: string): { ok: boolean; error?: string } {
-    if (sessionId !== undefined) {
-      const target = this.targets.get(sessionId);
-      if (!target) return { ok: false, error: `Session not found: ${sessionId}` };
-      if (target.status() !== "awaiting_approval") {
-        return { ok: false, error: `Session ${sessionId} is not awaiting approval` };
-      }
-      target.approve();
-      return { ok: true };
+    if (!sessionId || sessionId.trim() === "") {
+      return { ok: false, error: "sessionId is required" };
     }
 
-    for (const target of this.targets.values()) {
-      if (target.status() === "awaiting_approval") {
-        target.approve();
-        return { ok: true };
-      }
+    const target = this.targets.get(sessionId);
+    if (!target) return { ok: false, error: `Session not found: ${sessionId}` };
+    if (target.status() !== "awaiting_approval") {
+      return { ok: false, error: `Session ${sessionId} is not awaiting approval` };
     }
-
-    return { ok: false, error: "No approval pending" };
+    target.approve();
+    return { ok: true };
   }
 
   reject(reason: string, sessionId?: string): { ok: boolean; error?: string } {
-    if (sessionId !== undefined) {
-      const target = this.targets.get(sessionId);
-      if (!target) return { ok: false, error: `Session not found: ${sessionId}` };
-      if (target.status() !== "awaiting_approval") {
-        return { ok: false, error: `Session ${sessionId} is not awaiting approval` };
-      }
-      target.reject(reason);
-      return { ok: true };
+    if (!sessionId || sessionId.trim() === "") {
+      return { ok: false, error: "sessionId is required" };
     }
 
-    for (const target of this.targets.values()) {
-      if (target.status() === "awaiting_approval") {
-        target.reject(reason);
-        return { ok: true };
-      }
+    const target = this.targets.get(sessionId);
+    if (!target) return { ok: false, error: `Session not found: ${sessionId}` };
+    if (target.status() !== "awaiting_approval") {
+      return { ok: false, error: `Session ${sessionId} is not awaiting approval` };
     }
-
-    return { ok: false, error: "No approval pending" };
+    target.reject(reason);
+    return { ok: true };
   }
 }

@@ -83,13 +83,13 @@ describe("DevOrchestrator", () => {
 
   it("approvalRegistry.approve() resumes phase loop past gate", async () => {
     const { devOrch, approvalRegistry } = createSetup(true);
-    devOrch.start("Approve me");
+    const sessionId = devOrch.start("Approve me");
 
     await vi.waitFor(() => {
       expect(devOrch.orchestrator.status).toBe("awaiting_approval");
     }, { timeout: 2000 });
 
-    approvalRegistry.approve();
+    approvalRegistry.approve(sessionId);
 
     await vi.waitFor(() => {
       expect(devOrch.isRunning).toBe(false);
@@ -100,13 +100,13 @@ describe("DevOrchestrator", () => {
 
   it("approvalRegistry.reject() stops loop", async () => {
     const { devOrch, approvalRegistry } = createSetup(true);
-    devOrch.start("Reject me");
+    const sessionId = devOrch.start("Reject me");
 
     await vi.waitFor(() => {
       expect(devOrch.orchestrator.status).toBe("awaiting_approval");
     }, { timeout: 2000 });
 
-    approvalRegistry.reject("Bad plan");
+    approvalRegistry.reject("Bad plan", sessionId);
 
     await vi.waitFor(() => {
       expect(devOrch.isRunning).toBe(false);

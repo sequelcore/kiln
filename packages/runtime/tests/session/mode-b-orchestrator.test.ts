@@ -63,26 +63,27 @@ describe("ModeBOrchestrator", () => {
     it("builds correct system prompt from session", async () => {
       const session = makeSession("You are a coding assistant.");
       await orchestrator.processMessage(session, textParts("help me"));
-      expect(provider.createMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ system: "You are a coding assistant." }),
-      );
+      const callArgs = vi.mocked(provider.createMessage).mock.calls[0][0];
+      expect(callArgs.system).toContain("You are a coding assistant.");
+      expect(callArgs.system).toContain("[KILN EXECUTION IDENTITY]");
+      expect(callArgs.system).toContain("provider: mock");
     });
 
     it("appends recalled memory to system prompt", async () => {
       const session = makeSession("Base prompt.");
       await orchestrator.processMessage(session, textParts("help"), "some memory content");
-      expect(provider.createMessage).toHaveBeenCalledWith(
-        expect.objectContaining({
-          system: "Base prompt.\n\n--- Recalled Memory ---\nsome memory content",
-        }),
-      );
+      const callArgs = vi.mocked(provider.createMessage).mock.calls[0][0];
+      expect(callArgs.system).toContain("Base prompt.\n\n--- Recalled Memory ---\nsome memory content");
+      expect(callArgs.system).toContain("[KILN EXECUTION IDENTITY]");
     });
 
     it("does not append recalled memory section when not provided", async () => {
       const session = makeSession("Base prompt.");
       await orchestrator.processMessage(session, textParts("help"));
       const callArgs = vi.mocked(provider.createMessage).mock.calls[0][0];
-      expect(callArgs.system).toBe("Base prompt.");
+      expect(callArgs.system).toContain("Base prompt.");
+      expect(callArgs.system).not.toContain("--- Recalled Memory ---");
+      expect(callArgs.system).toContain("[KILN EXECUTION IDENTITY]");
     });
 
     it("returns token counts from provider response", async () => {
@@ -114,9 +115,9 @@ describe("ModeBOrchestrator", () => {
     it("uses session systemPrompt as system parameter", async () => {
       const session = makeSession("custom system prompt");
       await orchestrator.processMessage(session, textParts("msg"));
-      expect(provider.createMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ system: "custom system prompt" }),
-      );
+      const callArgs = vi.mocked(provider.createMessage).mock.calls[0][0];
+      expect(callArgs.system).toContain("custom system prompt");
+      expect(callArgs.system).toContain("[KILN EXECUTION IDENTITY]");
     });
 
     it("passes maxTokens to provider when configured", async () => {

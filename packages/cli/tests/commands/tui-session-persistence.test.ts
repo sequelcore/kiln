@@ -279,6 +279,9 @@ describe("makeMultiProviderSessionFactory", () => {
     expect(mockWaitForGateway).toHaveBeenCalledTimes(1);
     expect(mockStartTui).toHaveBeenCalledTimes(1);
     expect(mockGatewaySessionCtor).toHaveBeenCalledTimes(1);
+    const startTuiArgs = mockStartTui.mock.calls[0] ?? [];
+    expect(startTuiArgs[8]).toBeUndefined();
+    expect(startTuiArgs[9]).toBeUndefined();
   });
 
   it("tuiCommand can opt into direct bootstrap via env override", async () => {
@@ -307,5 +310,8 @@ describe("makeMultiProviderSessionFactory", () => {
     expect(mockWaitForGateway).not.toHaveBeenCalled();
     expect(mockStartTui).toHaveBeenCalledTimes(1);
     expect(mockGatewaySessionCtor).not.toHaveBeenCalled();
+    const startTuiArgs = mockStartTui.mock.calls[0] ?? [];
+    expect(typeof startTuiArgs[8]).toBe("function");
+    expect(typeof startTuiArgs[9]).toBe("function");
   });
 });

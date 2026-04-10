@@ -155,34 +155,15 @@ export class ProviderSession implements IKilnSession {
         }
 
         if (event.type === "tool_use") {
-          try {
-            const parsed = JSON.parse(event.content) as { name?: string; input?: unknown };
-            if (typeof parsed !== "object" || parsed === null || typeof parsed.name !== "string") {
-              throw new Error("tool_use payload must include a tool name");
-            }
-            yield {
-              type: "tool_use",
-              toolName: parsed.name,
-              input: parsed.input ?? {},
-            };
-          } catch (err) {
-            isError = true;
-            yield {
-              type: "error",
-              code: "PROVIDER_TOOL_USE_PARSE_ERROR",
-              message: err instanceof Error ? err.message : String(err),
-              isRetryable: false,
-            };
-          }
+          // Direct API providers are not wired to Kiln's executable tool substrate.
+          // Surface provider content as text only; do not emit executable tool events.
+          yield { type: "text_delta", content: event.content };
           continue;
         }
 
         if (event.type === "tool_result") {
-          yield {
-            type: "tool_result",
-            toolName: "",
-            output: event.content,
-          };
+          // Same rule as tool_use: no executable tool semantics for direct providers.
+          yield { type: "text_delta", content: event.content };
           continue;
         }
 
