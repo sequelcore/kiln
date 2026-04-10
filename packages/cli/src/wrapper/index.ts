@@ -147,10 +147,12 @@ export type {
 export {
   SessionRegistry,
   createDefaultRegistry,
+  getProviderDisplayInfo,
   translatePermission,
 } from "./session-registry.js";
 export type {
   ProviderId,
+  ProviderDisplayInfo,
   SessionRequirements,
 } from "./session-registry.js";
 

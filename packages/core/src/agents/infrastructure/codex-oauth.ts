@@ -23,25 +23,30 @@ interface CodexOAuthAdapterConfig {
 }
 
 interface ResponsesInputItem {
-  readonly role: "system" | "user" | "assistant";
-  readonly content: string;
+  readonly role?: "user" | "assistant";
+  readonly content?: string;
+  readonly type?: "function_call_output";
+  readonly call_id?: string;
+  readonly output?: string;
 }
 
 interface ResponsesTool {
   readonly type: "function";
-  readonly function: {
-    readonly name: string;
-    readonly description: string;
-    readonly parameters: Record<string, unknown>;
-  };
+  readonly name: string;
+  readonly description: string;
+  readonly parameters: Record<string, unknown>;
+  readonly strict?: boolean;
 }
 
 interface ResponsesRequestBody {
   readonly model: string;
+  readonly instructions: string;
   readonly input: readonly ResponsesInputItem[];
+  readonly store: false;
+  readonly stream: true;
   readonly max_output_tokens?: number;
+  readonly temperature?: number;
   readonly tools?: readonly ResponsesTool[];
-  readonly stream?: boolean;
 }
 
 interface ResponsesOutputItem {
@@ -58,7 +63,9 @@ interface ResponsesOutputItem {
 interface ResponsesUsage {
   readonly input_tokens?: number;
   readonly output_tokens?: number;
-  readonly cached_tokens?: number;
+  readonly input_tokens_details?: {
+    readonly cached_tokens?: number;
+  };
 }
 
 interface ResponsesResponse {
@@ -72,8 +79,8 @@ interface CompletedSseEnvelope {
   readonly response?: ResponsesResponse;
 }
 
-interface FunctionCallDeltaEnvelope {
-  readonly delta?: string;
+interface OutputItemAddedEnvelope {
+  readonly item?: ResponsesOutputItem;
 }
 
 export class CodexOAuthAdapter implements ProviderAdapter {
@@ -90,12 +97,12 @@ export class CodexOAuthAdapter implements ProviderAdapter {
   async createMessage(options: CreateMessageOptions): Promise<AgentResponse> {
     const body = this.buildRequestBody(options);
     const response = await this.postWith401Retry(body);
-    const payload = await this.parseJson(response);
-    return this.mapResponse(payload);
+    const completed = await this.consumeStreamingResponse(response);
+    return this.mapResponse(completed);
   }
 
   async *streamMessage(options: CreateMessageOptions): AsyncGenerator<AgentStreamEvent> {
-    const body = this.buildRequestBody(options, { stream: true });
+    const body = this.buildRequestBody(options);
     const response = await this.postWith401Retry(body);
 
     if (!response.body) {
@@ -113,21 +120,15 @@ export class CodexOAuthAdapter implements ProviderAdapter {
         continue;
       }
 
-      if (event.event === "response.function_call.delta") {
-        const delta = this.parseJsonString<FunctionCallDeltaEnvelope>(event.data);
-        if (delta.delta) {
-          const toolCall = this.parseJsonString<{
-            id?: string;
-            name?: string;
-            arguments?: string;
-          }>(delta.delta);
-
+      if (event.event === "response.output_item.added") {
+        const added = this.parseJsonString<OutputItemAddedEnvelope>(event.data);
+        if (added.item?.type === "function_call") {
           yield {
             type: "tool_use",
             content: JSON.stringify({
-              id: toolCall.id ?? "",
-              name: toolCall.name ?? "",
-              input: this.parseToolInput(toolCall.arguments),
+              id: added.item.id ?? "",
+              name: added.item.name ?? "",
+              input: this.parseToolInput(added.item.arguments),
             }),
           };
         }
@@ -154,13 +155,8 @@ export class CodexOAuthAdapter implements ProviderAdapter {
 
   private buildRequestBody(
     options: CreateMessageOptions,
-    overrides: { readonly stream?: boolean } = {},
   ): ResponsesRequestBody {
     const input: ResponsesInputItem[] = [];
-
-    if (options.system.trim().length > 0) {
-      input.push({ role: "system", content: options.system });
-    }
 
     for (const message of options.messages) {
       input.push({
@@ -171,17 +167,17 @@ export class CodexOAuthAdapter implements ProviderAdapter {
 
     return {
       model: this.model,
+      instructions: options.system,
       input,
+      store: false,
+      stream: true,
       max_output_tokens: options.maxTokens,
       tools: options.tools?.map((tool) => ({
         type: "function",
-        function: {
-          name: tool.name,
-          description: tool.description,
-          parameters: tool.inputSchema,
-        },
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.inputSchema,
       })),
-      ...(overrides.stream ? { stream: true } : {}),
     };
   }
 
@@ -229,16 +225,6 @@ export class CodexOAuthAdapter implements ProviderAdapter {
     });
   }
 
-  private async parseJson(response: Response): Promise<ResponsesResponse> {
-    try {
-      return await response.json() as ResponsesResponse;
-    } catch (error) {
-      throw this.providerError("Failed to parse Codex OAuth JSON response", {
-        status: response.status,
-      }, error);
-    }
-  }
-
   private mapResponse(response: ResponsesResponse): AgentResponse & {
     readonly cost: {
       readonly inputPer1M: number;
@@ -273,7 +259,7 @@ export class CodexOAuthAdapter implements ProviderAdapter {
       parts,
       inputTokens: response.usage?.input_tokens ?? 0,
       outputTokens: response.usage?.output_tokens ?? 0,
-      cacheReadTokens: response.usage?.cached_tokens ?? 0,
+      cacheReadTokens: response.usage?.input_tokens_details?.cached_tokens ?? 0,
       cacheWriteTokens: 0,
       toolCalls,
       stopReason: response.status ?? "completed",
@@ -290,6 +276,40 @@ export class CodexOAuthAdapter implements ProviderAdapter {
     }
 
     return this.parseJsonString<Record<string, unknown>>(argumentsText);
+  }
+
+  private async consumeStreamingResponse(response: Response): Promise<ResponsesResponse> {
+    if (!response.body) {
+      throw this.providerError("Codex OAuth streaming response body was empty", {
+        status: response.status,
+      });
+    }
+
+    let completed: ResponsesResponse | null = null;
+    let collectedText = "";
+
+    for await (const event of this.parseSse(response.body)) {
+      if (event.event === "response.output_text.delta") {
+        const delta = this.parseJsonString<{ delta?: string }>(event.data);
+        if (typeof delta.delta === "string") {
+          collectedText += delta.delta;
+        }
+        continue;
+      }
+
+      if (event.event === "response.completed") {
+        completed = this.parseJsonString<CompletedSseEnvelope>(event.data).response ?? null;
+      }
+    }
+
+    if (completed) {
+      return completed;
+    }
+
+    throw this.providerError("Codex OAuth stream completed without response.completed event", {
+      status: response.status,
+      collectedText,
+    });
   }
 
   private parseJsonString<T>(value: string): T {

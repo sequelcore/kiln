@@ -3,7 +3,7 @@ import { inferResumeStrategyFeedback } from "../application/resume-strategy-feed
 import { collectResumeSignals, decideResumeStrategy } from "../application/resume-strategy-policy.js";
 import { readGlobalConfig } from "../config/global-config.js";
 import { resolveEffectiveProvider } from "../config/env-config.js";
-import { createDefaultRegistry } from "../wrapper/session-registry.js";
+import { createDefaultRegistry, getProviderDisplayInfo, type ProviderId } from "../wrapper/session-registry.js";
 import { SessionStore, TranscriptStore } from "../wrapper/session-store.js";
 import type { ResumeFeedback, ResumeStrategy } from "../wrapper/index.js";
 import { GatewaySession, waitForGateway, themes, kilnDark } from "@kilnai/tui";
@@ -32,30 +32,17 @@ interface TuiBootstrapResult {
   readonly providerModelsRef: { current: Record<string, string[]> };
   shutdown(): void;
 }
-
-const VALID_PROVIDERS = [
-  "claude",
-  "codex",
-  "codex-oauth",
-  "opencode",
-  "anthropic",
-  "openai",
-  "deepseek",
-  "openrouter",
-  "ollama",
-] as const;
-type SupportedProvider = (typeof VALID_PROVIDERS)[number];
 type ProviderSessionState = { resumeSessionId?: string; providerSessionId?: string };
 type CliSessionFactory = (
   systemPrompt: string,
   cwd: string,
 ) => import("../wrapper/session.js").IKilnSession;
 
-function parseProvider(p?: string): SupportedProvider {
-  if (p && VALID_PROVIDERS.includes(p as SupportedProvider)) {
-    return p as SupportedProvider;
+function parseProvider(p: string | undefined, providerIds: readonly ProviderId[]): ProviderId {
+  if (p && providerIds.includes(p as ProviderId)) {
+    return p as ProviderId;
   }
-  return "claude";
+  return providerIds.includes("claude") ? "claude" : providerIds[0] ?? "claude";
 }
 
 function resolveTuiStartupTransport(_flags: TuiFlags): TuiStartupTransport {
@@ -70,37 +57,37 @@ function resolveTuiStartupTransport(_flags: TuiFlags): TuiStartupTransport {
  * Each provider maintains independent session state, allowing seamless switching.
  */
 export async function makeMultiProviderSessionFactory(
-  initialProvider: SupportedProvider,
+  initialProvider: ProviderId,
+  providerIds: readonly ProviderId[],
   cwd: string,
   registry: ReturnType<typeof createDefaultRegistry>["registry"],
   sessionStore: SessionStore,
   transcriptStore: TranscriptStore,
   contextArtifactCache: ContextArtifactCache,
 ): Promise<MultiProviderSessionManager> {
-  const providers = VALID_PROVIDERS;
+  const providers = providerIds;
   
   // Per-provider session state
-  const providerState: Record<SupportedProvider, ProviderSessionState> = Object.fromEntries(
-    VALID_PROVIDERS.map(
-      (provider): [SupportedProvider, ProviderSessionState] => [provider, {}],
-    ),
-  ) as Record<SupportedProvider, ProviderSessionState>;
+  const providerState = new Map<ProviderId, ProviderSessionState>(
+    providers.map((provider) => [provider, {}]),
+  );
   
-  let currentProvider: SupportedProvider = initialProvider;
+  let currentProvider: ProviderId = initialProvider;
   let currentModel: string = "";
 
   // Load last session for each provider
   for (const p of providers) {
     const lastRecord = await sessionStore.last(p);
     if (lastRecord) {
-      providerState[p].resumeSessionId = lastRecord.sessionId;
-      providerState[p].providerSessionId = lastRecord.providerSessionId;
+      const state = providerState.get(p);
+      if (!state) continue;
+      state.resumeSessionId = lastRecord.sessionId;
+      state.providerSessionId = lastRecord.providerSessionId;
     }
   }
 
   const policyAwareFactory: CliSessionFactory = (systemPrompt: string, sessionCwd: string) => {
     let activeSession: import("../wrapper/session.js").IKilnSession | null = null;
-    const state = providerState[currentProvider];
     return {
       get capabilities() {
         return activeSession?.capabilities ?? registry.list().find((provider) => provider.id === currentProvider)?.capabilities ?? {
@@ -123,6 +110,7 @@ export async function makeMultiProviderSessionFactory(
         return activeSession?.providerSessionId;
       },
       run: async function* (options) {
+        const state = providerState.get(currentProvider) ?? {};
         const resumedFrom = state.resumeSessionId;
         const projectArtifactKey = `project-summary:${cwd}`;
         const sessionArtifactKey = resumedFrom ? `session-summary:${resumedFrom}` : undefined;
@@ -172,8 +160,11 @@ export async function makeMultiProviderSessionFactory(
             });
           }
           await originalDispose();
-          providerState[currentProvider].resumeSessionId = capturedId;
-          providerState[currentProvider].providerSessionId = resumedSession.providerSessionId;
+          const currentState = providerState.get(currentProvider);
+          if (currentState) {
+            currentState.resumeSessionId = capturedId;
+            currentState.providerSessionId = resumedSession.providerSessionId;
+          }
           await transcriptStore.finalize(capturedId, {
             completedAt: new Date().toISOString(),
             providerSessionId: resumedSession.providerSessionId,
@@ -214,8 +205,8 @@ export async function makeMultiProviderSessionFactory(
     factory: policyAwareFactory,
     getProvider: () => currentProvider,
     setProvider: (newProvider: string) => {
-      if (VALID_PROVIDERS.includes(newProvider as SupportedProvider)) {
-        currentProvider = newProvider as SupportedProvider;
+      if (providers.includes(newProvider as ProviderId)) {
+        currentProvider = newProvider as ProviderId;
       }
     },
     getModel: () => currentModel,
@@ -223,17 +214,23 @@ export async function makeMultiProviderSessionFactory(
       currentModel = model;
     },
     onClear: async (provider?: string) => {
-      const p = (provider && VALID_PROVIDERS.includes(provider as SupportedProvider)) 
-        ? provider as SupportedProvider 
+      const p = (provider && providers.includes(provider as ProviderId)) 
+        ? provider as ProviderId 
         : currentProvider;
-      providerState[p].resumeSessionId = undefined;
-      providerState[p].providerSessionId = undefined;
+      const state = providerState.get(p);
+      if (state) {
+        state.resumeSessionId = undefined;
+        state.providerSessionId = undefined;
+      }
       await sessionStore.clearLast(p);
     },
     setResumeSession: (sessionId: string, provider: string) => {
-      if (VALID_PROVIDERS.includes(provider as SupportedProvider)) {
-        const p = provider as SupportedProvider;
-        providerState[p].resumeSessionId = sessionId;
+      if (providers.includes(provider as ProviderId)) {
+        const p = provider as ProviderId;
+        const state = providerState.get(p);
+        if (state) {
+          state.resumeSessionId = sessionId;
+        }
       }
     },
   };
@@ -261,12 +258,12 @@ function formatResumeFeedback(feedback: ResumeFeedback | undefined): string | un
 async function loadInitialResumeInfo(
   cwd: string,
   sessionStore: SessionStore,
+  providerIds: readonly ProviderId[],
 ): Promise<Record<string, { strategy?: ResumeStrategy; feedbackLabel?: string }>> {
   const transcriptStore = new TranscriptStore(cwd);
-  const providers = VALID_PROVIDERS;
   const info: Record<string, { strategy?: ResumeStrategy; feedbackLabel?: string }> = {};
 
-  for (const provider of providers) {
+  for (const provider of providerIds) {
     const lastRecord = await sessionStore.last(provider);
     if (!lastRecord) {
       continue;
@@ -421,10 +418,12 @@ async function bootstrapTuiSession(
 export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {}): Promise<void> {
   const { startTui } = await import("@kilnai/tui");
   const { registry } = createDefaultRegistry();
+  const providerDisplayInfo = getProviderDisplayInfo(registry);
+  const providerIds = providerDisplayInfo.map((entry) => entry.id);
 
   const cwd = flags.cwd ?? process.cwd();
   const globalConfig = readGlobalConfig();
-  const provider = parseProvider(resolveEffectiveProvider(flags.provider, globalConfig?.provider));
+  const provider = parseProvider(resolveEffectiveProvider(flags.provider, globalConfig?.provider), providerIds);
   const contextArtifactCache = await getProjectContextArtifactCache(cwd);
 
   // Resolve domain display name from app config if available
@@ -442,9 +441,10 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   // Inject CLI session factory into the gateway (dependency inversion)
   const sessionStore = new SessionStore(cwd);
   const transcriptStore = new TranscriptStore(cwd);
-  const initialResumeInfo = await loadInitialResumeInfo(cwd, sessionStore);
+  const initialResumeInfo = await loadInitialResumeInfo(cwd, sessionStore, providerIds);
   const sessionManager = await makeMultiProviderSessionFactory(
     provider,
+    providerIds,
     cwd,
     registry,
     sessionStore,
@@ -499,11 +499,12 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
 
   await startTui(
     bootstrap.createSession,
+    providerDisplayInfo,
     provider,
     domain,
     resolvedTheme,
     initialResumeInfo,
-    () => loadInitialResumeInfo(cwd, sessionStore),
+    () => loadInitialResumeInfo(cwd, sessionStore, providerIds),
     bootstrap.providerModelsRef,
     loadSessionList,
     handleResumeSession,

@@ -102,12 +102,19 @@ afterEach(() => {
 describe("CodexOAuthAdapter", () => {
   describe("constructor", () => {
     it("name property returns codex-oauth and defaultModel defaults to gpt-5.4", async () => {
-      mockFetch.mockResolvedValueOnce(jsonResponse(200, {
-        id: "resp_1",
-        status: "completed",
-        output: [],
-        usage: { input_tokens: 1, output_tokens: 0 },
-      }));
+      mockFetch.mockResolvedValueOnce(sseResponse([
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_1",
+              status: "completed",
+              output: [],
+              usage: { input_tokens: 1, output_tokens: 0 },
+            },
+          },
+        },
+      ]));
 
       const { adapter } = await createAdapter();
       await adapter.createMessage(createOptions());
@@ -121,12 +128,19 @@ describe("CodexOAuthAdapter", () => {
 
   describe("createMessage", () => {
     it("sends POST to https://chatgpt.com/backend-api/codex/responses with Authorization Bearer token", async () => {
-      mockFetch.mockResolvedValueOnce(jsonResponse(200, {
-        id: "resp_1",
-        status: "completed",
-        output: [],
-        usage: { input_tokens: 4, output_tokens: 2 },
-      }));
+      mockFetch.mockResolvedValueOnce(sseResponse([
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_1",
+              status: "completed",
+              output: [],
+              usage: { input_tokens: 4, output_tokens: 2 },
+            },
+          },
+        },
+      ]));
 
       const { adapter } = await createAdapter("gpt-5.4");
       await adapter.createMessage(createOptions());
@@ -142,12 +156,19 @@ describe("CodexOAuthAdapter", () => {
     });
 
     it("calls auth.getValidAccessToken() before each request", async () => {
-      mockFetch.mockResolvedValueOnce(jsonResponse(200, {
-        id: "resp_2",
-        status: "completed",
-        output: [],
-        usage: { input_tokens: 2, output_tokens: 1 },
-      }));
+      mockFetch.mockResolvedValueOnce(sseResponse([
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_2",
+              status: "completed",
+              output: [],
+              usage: { input_tokens: 2, output_tokens: 1 },
+            },
+          },
+        },
+      ]));
 
       const { adapter, auth } = await createAdapter();
       await adapter.createMessage(createOptions());
@@ -159,12 +180,19 @@ describe("CodexOAuthAdapter", () => {
     });
 
     it("maps Kiln system+messages to Responses API input format", async () => {
-      mockFetch.mockResolvedValueOnce(jsonResponse(200, {
-        id: "resp_3",
-        status: "completed",
-        output: [],
-        usage: { input_tokens: 3, output_tokens: 1 },
-      }));
+      mockFetch.mockResolvedValueOnce(sseResponse([
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_3",
+              status: "completed",
+              output: [],
+              usage: { input_tokens: 3, output_tokens: 1 },
+            },
+          },
+        },
+      ]));
 
       const { adapter } = await createAdapter("gpt-5.4");
       await adapter.createMessage(createOptions({
@@ -178,15 +206,20 @@ describe("CodexOAuthAdapter", () => {
       const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
       const body = JSON.parse(String(init.body)) as {
         model: string;
+        instructions: string;
+        store: boolean;
+        stream: boolean;
         input: Array<{ role: string; content: string }>;
         max_output_tokens: number;
       };
 
       expect(body).toMatchObject({
         model: "gpt-5.4",
+        instructions: "System instruction",
+        store: false,
+        stream: true,
         max_output_tokens: 512,
         input: [
-          { role: "system", content: "System instruction" },
           { role: "user", content: "User prompt" },
           { role: "assistant", content: "Assistant reply" },
         ],
@@ -194,12 +227,19 @@ describe("CodexOAuthAdapter", () => {
     });
 
     it("maps tools from Kiln ToolDefinition[] to Responses API tools format", async () => {
-      mockFetch.mockResolvedValueOnce(jsonResponse(200, {
-        id: "resp_4",
-        status: "completed",
-        output: [],
-        usage: { input_tokens: 5, output_tokens: 1 },
-      }));
+      mockFetch.mockResolvedValueOnce(sseResponse([
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_4",
+              status: "completed",
+              output: [],
+              usage: { input_tokens: 5, output_tokens: 1 },
+            },
+          },
+        },
+      ]));
 
       const { adapter } = await createAdapter();
       await adapter.createMessage(createOptions({
@@ -223,56 +263,63 @@ describe("CodexOAuthAdapter", () => {
       const body = JSON.parse(String(init.body)) as {
         tools?: Array<{
           type: string;
-          function: {
-            name: string;
-            description: string;
-            parameters: Record<string, unknown>;
-          };
+          name: string;
+          description: string;
+          parameters: Record<string, unknown>;
         }>;
       };
 
       expect(body.tools).toEqual([
         {
           type: "function",
-          function: {
-            name: "lookup_weather",
-            description: "Looks up weather for a city",
-            parameters: {
-              type: "object",
-              properties: {
-                city: { type: "string" },
-              },
-              required: ["city"],
+          name: "lookup_weather",
+          description: "Looks up weather for a city",
+          parameters: {
+            type: "object",
+            properties: {
+              city: { type: "string" },
             },
+            required: ["city"],
           },
         },
       ]);
     });
 
     it("maps response output back to AgentResponse (parts, toolCalls, token counts)", async () => {
-      mockFetch.mockResolvedValueOnce(jsonResponse(200, {
-        id: "resp_5",
-        status: "completed",
-        output: [
-          {
-            type: "message",
-            content: [
-              { type: "output_text", text: "Adapter response text" },
-            ],
+      mockFetch.mockResolvedValueOnce(sseResponse([
+        { event: "response.output_text.delta", data: { delta: "Adapter " } },
+        { event: "response.output_text.delta", data: { delta: "response text" } },
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_5",
+              status: "completed",
+              output: [
+                {
+                  type: "message",
+                  content: [
+                    { type: "output_text", text: "Adapter response text" },
+                  ],
+                },
+                {
+                  type: "function_call",
+                  id: "call_1",
+                  name: "lookup_weather",
+                  arguments: "{\"city\":\"Tijuana\"}",
+                },
+              ],
+              usage: {
+                input_tokens: 123,
+                output_tokens: 45,
+                input_tokens_details: {
+                  cached_tokens: 7,
+                },
+              },
+            },
           },
-          {
-            type: "function_call",
-            id: "call_1",
-            name: "lookup_weather",
-            arguments: "{\"city\":\"Tijuana\"}",
-          },
-        ],
-        usage: {
-          input_tokens: 123,
-          output_tokens: 45,
-          cached_tokens: 7,
         },
-      }));
+      ]));
 
       const { adapter } = await createAdapter();
       const response = await adapter.createMessage(createOptions()) as AgentResponse & {
@@ -301,15 +348,22 @@ describe("CodexOAuthAdapter", () => {
     });
 
     it("sets inputPer1M=0, outputPer1M=0 in cost (subscription = zero marginal)", async () => {
-      mockFetch.mockResolvedValueOnce(jsonResponse(200, {
-        id: "resp_6",
-        status: "completed",
-        output: [],
-        usage: {
-          input_tokens: 9,
-          output_tokens: 3,
+      mockFetch.mockResolvedValueOnce(sseResponse([
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_6",
+              status: "completed",
+              output: [],
+              usage: {
+                input_tokens: 9,
+                output_tokens: 3,
+              },
+            },
+          },
         },
-      }));
+      ]));
 
       const { adapter } = await createAdapter();
       const response = await adapter.createMessage(createOptions()) as AgentResponse & {
@@ -328,12 +382,19 @@ describe("CodexOAuthAdapter", () => {
         .mockResolvedValueOnce("fresh-token");
       mockFetch
         .mockResolvedValueOnce(jsonResponse(401, { error: "unauthorized" }))
-        .mockResolvedValueOnce(jsonResponse(200, {
-          id: "resp_7",
-          status: "completed",
-          output: [],
-          usage: { input_tokens: 1, output_tokens: 1 },
-        }));
+        .mockResolvedValueOnce(sseResponse([
+          {
+            event: "response.completed",
+            data: {
+              response: {
+                id: "resp_7",
+                status: "completed",
+                output: [],
+                usage: { input_tokens: 1, output_tokens: 1 },
+              },
+            },
+          },
+        ]));
 
       const { adapter, auth } = await createAdapter();
       await adapter.createMessage(createOptions());
@@ -376,7 +437,7 @@ describe("CodexOAuthAdapter", () => {
   });
 
   describe("streamMessage", () => {
-    it("sends POST with stream:true, returns async generator", async () => {
+    it("sends POST with store:false and stream:true, returns async generator", async () => {
       mockFetch.mockResolvedValueOnce(sseResponse([
         {
           event: "response.completed",
@@ -399,7 +460,8 @@ describe("CodexOAuthAdapter", () => {
       expect(events.at(-1)?.type).toBe("done");
 
       const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
-      const body = JSON.parse(String(init.body)) as { stream: boolean };
+      const body = JSON.parse(String(init.body)) as { store: boolean; stream: boolean };
+      expect(body.store).toBe(false);
       expect(body.stream).toBe(true);
     });
 
@@ -434,12 +496,18 @@ describe("CodexOAuthAdapter", () => {
       ]);
     });
 
-    it("yields tool call events from response.function_call SSE", async () => {
+    it("yields tool call events from response.output_item.added SSE", async () => {
       mockFetch.mockResolvedValueOnce(sseResponse([
         {
-          event: "response.function_call.delta",
+          event: "response.output_item.added",
           data: {
-            delta: "{\"id\":\"call_stream_1\",\"name\":\"lookup_weather\",\"arguments\":\"{\\\"city\\\":\\\"Tijuana\\\"}\"}",
+            item: {
+              type: "function_call",
+              id: "call_stream_1",
+              name: "lookup_weather",
+              arguments: "{\"city\":\"Tijuana\"}",
+              call_id: "call_stream_1",
+            },
           },
         },
         {
@@ -499,7 +567,9 @@ describe("CodexOAuthAdapter", () => {
               usage: {
                 input_tokens: 22,
                 output_tokens: 6,
-                cached_tokens: 3,
+                input_tokens_details: {
+                  cached_tokens: 3,
+                },
               },
             },
           },

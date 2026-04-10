@@ -31,11 +31,19 @@ import {
   renderSlashPopover,
 } from "./render.js";
 
+export interface ProviderDisplayInfo {
+  readonly id: string;
+  readonly group: "subscription" | "harness" | "direct-api";
+  readonly models: readonly string[];
+  readonly free: boolean;
+}
+
 /** Spinner frames for thinking indicator. */
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 export async function startTui(
   createSession: () => Promise<SessionLike>,
+  providerDisplayInfo: readonly ProviderDisplayInfo[],
   provider = "claude",
   domain = "unknown",
   theme: KilnTheme = defaultTheme,
@@ -80,27 +88,22 @@ export async function startTui(
   let providerPickerOpen = false;
   let providerPicker: ReturnType<typeof createProviderPicker> | null = null;
 
+  const validProviders = providerDisplayInfo.map((entry) => entry.id);
+  const providerInfoById = new Map(providerDisplayInfo.map((entry) => [entry.id, entry]));
+  const providerGroups = [
+    { title: "Subscription", providers: providerDisplayInfo.filter((entry) => entry.group === "subscription").map((entry) => entry.id) },
+    { title: "Harness", providers: providerDisplayInfo.filter((entry) => entry.group === "harness").map((entry) => entry.id) },
+    { title: "Direct API", providers: providerDisplayInfo.filter((entry) => entry.group === "direct-api").map((entry) => entry.id) },
+  ].filter((group) => group.providers.length > 0);
+
   let providerPickerState = {
     providerIndex: 0,
     modelIndex: 0,
     mode: "providers" as "providers" | "models",
   };
-
-  const HARNESS_PROVIDERS = ["claude", "codex", "opencode"] as const;
-  const DIRECT_API_PROVIDERS = [
-    "anthropic",
-    "openai",
-    "deepseek",
-    "openrouter",
-    "ollama",
-  ] as const;
-  const VALID_PROVIDERS = [...HARNESS_PROVIDERS, ...DIRECT_API_PROVIDERS] as const;
-  const PROVIDER_GROUPS = [
-    { title: "Harness", providers: HARNESS_PROVIDERS },
-    { title: "Direct API", providers: DIRECT_API_PROVIDERS },
-  ] as const;
-  const FREE_PROVIDERS = new Set<string>(["openrouter", "ollama"]);
-  let PROVIDER_MODELS: Record<string, string[]> = {};
+  let providerModels = Object.fromEntries(
+    providerDisplayInfo.map((entry) => [entry.id, [...entry.models]]),
+  ) as Record<string, string[]>;
 
   const SLASH_COMMANDS = [
     { id: "clear", trigger: "clear", title: "Clear session", description: "Start a new session", type: "builtin" as const },
@@ -115,7 +118,10 @@ export async function startTui(
     const pollModels = () => {
       const models = providerModelsRef.current;
       if (models && Object.keys(models).length > 0) {
-        PROVIDER_MODELS = models;
+        providerModels = {
+          ...providerModels,
+          ...models,
+        };
       }
     };
     setInterval(pollModels, 500);
@@ -274,15 +280,15 @@ export async function startTui(
   // ─────────────────────────────────────────────────────────────────────────
 
   function getCurrentProvider(): string {
-    return VALID_PROVIDERS[providerPickerState.providerIndex] ?? "claude";
+    return validProviders[providerPickerState.providerIndex] ?? provider ?? validProviders[0] ?? "claude";
   }
 
   function getCurrentModels(): string[] {
-    return PROVIDER_MODELS[getCurrentProvider()] ?? [];
+    return providerModels[getCurrentProvider()] ?? [];
   }
 
   function getProviderLabel(providerName: string): string {
-    return FREE_PROVIDERS.has(providerName)
+    return providerInfoById.get(providerName)?.free
       ? `${providerName} (free)`
       : providerName;
   }
@@ -350,7 +356,7 @@ export async function startTui(
       providerPicker.mode = "providers";
       providerPicker.title.content = t`${fg(currentTheme.accent)(" Select Provider ")}`;
 
-      for (const group of PROVIDER_GROUPS) {
+      for (const group of providerGroups) {
         const groupId = group.title.toLowerCase().replace(/\s+/g, "-");
         const headerRow = makePickerRow(
           `provider-group-${groupId}`,
@@ -364,7 +370,7 @@ export async function startTui(
         providerPicker.rows.push(headerRow);
 
         for (const providerName of group.providers) {
-          const selected = VALID_PROVIDERS[providerPickerState.providerIndex] === providerName;
+          const selected = validProviders[providerPickerState.providerIndex] === providerName;
           const label = getProviderLabel(providerName);
           const row = makePickerRow(
             getProviderRowId(providerName),
@@ -419,8 +425,8 @@ export async function startTui(
     const isProviders = providerPickerState.mode === "providers";
 
     if (isProviders) {
-      const prevProvider = VALID_PROVIDERS[prevIdx];
-      const nextProvider = VALID_PROVIDERS[nextIdx];
+      const prevProvider = validProviders[prevIdx];
+      const nextProvider = validProviders[nextIdx];
       if (!prevProvider || !nextProvider) return;
 
       const prevRow = findProviderRow(prevProvider);
@@ -461,7 +467,7 @@ export async function startTui(
 
     const targetRow = (() => {
       if (providerPickerState.mode === "providers") {
-        const selectedProvider = VALID_PROVIDERS[providerPickerState.providerIndex];
+        const selectedProvider = validProviders[providerPickerState.providerIndex];
         return selectedProvider
           ? findProviderRow(selectedProvider)
           : undefined;
@@ -497,7 +503,7 @@ export async function startTui(
   function openProviderPicker(): void {
     if (providerPicker) return;
 
-    const activeProviderIndex = VALID_PROVIDERS.findIndex(
+    const activeProviderIndex = validProviders.findIndex(
       (providerName) => providerName === state.currentProvider,
     );
     providerPickerState.providerIndex =
@@ -613,7 +619,7 @@ export async function startTui(
     if (!providerPicker) return;
 
     const inProviderMode = providerPickerState.mode === "providers";
-    const choices = inProviderMode ? VALID_PROVIDERS : getCurrentModels();
+    const choices = inProviderMode ? validProviders : getCurrentModels();
     if (choices.length === 0) return;
 
     const prevIdx = inProviderMode

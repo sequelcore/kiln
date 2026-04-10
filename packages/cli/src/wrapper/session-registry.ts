@@ -7,7 +7,7 @@ import type {
   KilnToolPermissionRule,
 } from "./session.js";
 import { debug } from "./debug.js";
-import { CodexOAuthAuth, getFieldStrength } from "@kilnai/core";
+import { CodexOAuthAuth, getFieldStrength, MODEL_CATALOG } from "@kilnai/core";
 import { ClaudeSession } from "./claude-code-process.js";
 import { CodexSession } from "./codex-session.js";
 import { OpenCodeSession } from "./opencode-session.js";
@@ -18,6 +18,14 @@ import { normalizePermissionPolicy } from "./permission-normalizer.js";
 export type CliHarnessProviderId = "claude" | "codex" | "opencode";
 export type DirectApiProviderId = "codex-oauth" | "anthropic" | "openai" | "deepseek" | "openrouter" | "ollama";
 export type ProviderId = CliHarnessProviderId | DirectApiProviderId;
+export type ProviderDisplayGroup = "subscription" | "harness" | "direct-api";
+
+export interface ProviderDisplayInfo {
+  readonly id: ProviderId;
+  readonly group: ProviderDisplayGroup;
+  readonly models: readonly string[];
+  readonly free: boolean;
+}
 
 const DIRECT_API_PROVIDERS = new Set<DirectApiProviderId>([
   "codex-oauth",
@@ -27,6 +35,8 @@ const DIRECT_API_PROVIDERS = new Set<DirectApiProviderId>([
   "openrouter",
   "ollama",
 ]);
+const HARNESS_PROVIDERS = new Set<CliHarnessProviderId>(["claude", "codex", "opencode"]);
+const FREE_PROVIDERS = new Set<ProviderId>(["codex-oauth", "openrouter", "ollama"]);
 
 const CODEX_OAUTH_AVAILABLE = await new CodexOAuthAuth().hasValidCredentials().catch((error: unknown) => {
   debug("[provider:codex-oauth] availability check failed", error instanceof Error ? error.message : String(error));
@@ -36,6 +46,57 @@ const CODEX_OAUTH_AVAILABLE = await new CodexOAuthAuth().hasValidCredentials().c
 export function isDirectApiProvider(provider: ProviderId | undefined): provider is DirectApiProviderId {
   if (!provider) return false;
   return DIRECT_API_PROVIDERS.has(provider as DirectApiProviderId);
+}
+
+export function getProviderDisplayInfo(registry: SessionRegistry): ProviderDisplayInfo[] {
+  return registry.list().map((provider) => ({
+    id: provider.id,
+    group: getProviderDisplayGroup(provider.id),
+    models: getProviderModels(provider.id),
+    free: FREE_PROVIDERS.has(provider.id),
+  }));
+}
+
+function getProviderDisplayGroup(provider: ProviderId): ProviderDisplayGroup {
+  if (provider === "codex-oauth") {
+    return "subscription";
+  }
+  if (HARNESS_PROVIDERS.has(provider as CliHarnessProviderId)) {
+    return "harness";
+  }
+  return "direct-api";
+}
+
+function getProviderModels(provider: ProviderId): readonly string[] {
+  const catalogProviders: readonly string[] = (() => {
+    switch (provider) {
+      case "claude":
+        return ["anthropic"];
+      case "codex":
+        return ["codex-oauth", "openai"];
+      case "opencode":
+        return [];
+      default:
+        return [provider];
+    }
+  })();
+
+  const models: string[] = [];
+  for (const entry of MODEL_CATALOG) {
+    if (!catalogProviders.includes(entry.provider)) {
+      continue;
+    }
+    if (provider === "codex" && entry.provider === "openai") {
+      const isCodexModel = entry.model.startsWith("gpt-5.") || entry.model.includes("codex");
+      if (!isCodexModel) {
+        continue;
+      }
+    }
+    if (!models.includes(entry.model)) {
+      models.push(entry.model);
+    }
+  }
+  return models;
 }
 
 export interface SessionRequirements {

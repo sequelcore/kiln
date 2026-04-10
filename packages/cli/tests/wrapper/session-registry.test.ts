@@ -3,6 +3,7 @@ import {
   SessionRegistry,
   createDefaultRegistry,
   SessionUnavailableError,
+  getProviderDisplayInfo,
   isDirectApiProvider,
   translatePermission,
   translatePermissionForProvider,
@@ -137,6 +138,34 @@ describe("SessionRegistry", () => {
       const registry = makeRegistry(["openai", "ollama"]);
       const providers = registry.list();
       expect(providers.map((p) => p.id)).toEqual(["openai", "ollama"]);
+    });
+
+    it("getProviderDisplayInfo derives groups, models, and free flags from registry plus MODEL_CATALOG", () => {
+      const { registry } = createDefaultRegistry();
+      const displayInfo = getProviderDisplayInfo(registry);
+
+      expect(displayInfo[0]?.id).toBe("codex-oauth");
+      expect(displayInfo[0]?.group).toBe("subscription");
+      expect(displayInfo[0]?.free).toBe(true);
+      expect(displayInfo[0]?.models).toContain("gpt-5.4-mini");
+
+      expect(displayInfo.find((entry) => entry.id === "claude")).toMatchObject({
+        group: "harness",
+        free: false,
+      });
+      expect(displayInfo.find((entry) => entry.id === "claude")?.models).toContain("claude-sonnet-4-6");
+
+      expect(displayInfo.find((entry) => entry.id === "codex")).toMatchObject({
+        group: "harness",
+        free: false,
+      });
+      expect(displayInfo.find((entry) => entry.id === "codex")?.models).toContain("gpt-5.3-codex");
+
+      expect(displayInfo.find((entry) => entry.id === "openrouter")).toMatchObject({
+        group: "direct-api",
+        free: true,
+      });
+      expect(displayInfo.find((entry) => entry.id === "openrouter")?.models.length).toBeGreaterThan(0);
     });
   });
 
