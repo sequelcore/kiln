@@ -198,6 +198,7 @@ export function parseGatewayYaml(content: string): GatewayConfig {
     } else {
       const rawAuth = raw.auth as Record<string, unknown>;
       const str = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
+      const int = (v: unknown): number | undefined => (typeof v === "number" ? v : undefined);
       const jwksUri = str(rawAuth["jwksUri"]);
       const parsed: GatewayAuthConfig = {
         algorithm: (str(rawAuth["algorithm"]) ?? "") as GatewayAuthConfig["algorithm"],
@@ -205,6 +206,9 @@ export function parseGatewayYaml(content: string): GatewayConfig {
         ...(str(rawAuth["secretEnv"]) ? { secretEnv: str(rawAuth["secretEnv"]) } : {}),
         ...(str(rawAuth["issuer"]) ? { issuer: str(rawAuth["issuer"]) } : {}),
         ...(str(rawAuth["audience"]) ? { audience: str(rawAuth["audience"]) } : {}),
+        ...(int(rawAuth["clockToleranceSeconds"]) !== undefined
+          ? { clockToleranceSeconds: int(rawAuth["clockToleranceSeconds"]) }
+          : {}),
       };
       const authErrors = validateGatewayAuthConfig(parsed);
       if (authErrors.length > 0) {

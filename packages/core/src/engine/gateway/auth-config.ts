@@ -21,6 +21,8 @@ export interface GatewayAuthConfig {
   readonly issuer?: string;
   /** Optional: expected `aud` claim. Tokens must include this audience. */
   readonly audience?: string;
+  /** Optional: tolerated clock skew in seconds for nbf/iat/exp checks. */
+  readonly clockToleranceSeconds?: number;
 }
 
 /** Validation error for auth configuration */
@@ -55,6 +57,16 @@ export function validateGatewayAuthConfig(config: GatewayAuthConfig): GatewayAut
     if (config.jwksUri) {
       errors.push({ field: "auth.jwksUri", message: "must not be set when algorithm is HS256" });
     }
+  }
+
+  if (
+    config.clockToleranceSeconds !== undefined
+    && (!Number.isInteger(config.clockToleranceSeconds) || config.clockToleranceSeconds < 0)
+  ) {
+    errors.push({
+      field: "auth.clockToleranceSeconds",
+      message: "must be a non-negative integer when provided",
+    });
   }
 
   return errors;

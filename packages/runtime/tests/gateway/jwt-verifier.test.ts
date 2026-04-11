@@ -15,10 +15,6 @@ async function getJose() {
 }
 
 describe("buildJwtVerifier -- RS256", () => {
-  beforeEach(() => {
-    vi.resetModules();
-  });
-
   afterEach(() => {
     vi.resetAllMocks();
   });
@@ -56,14 +52,34 @@ describe("buildJwtVerifier -- RS256", () => {
       jwksUri: "https://auth.example.com/.well-known/jwks.json",
       issuer: "https://auth.example.com",
       audience: "kiln-api",
+      clockToleranceSeconds: 45,
     });
 
     await verify("any.token");
 
     const call = jose.jwtVerify.mock.calls[0] as unknown[];
-    const opts = call[2] as { issuer?: string; audience?: string };
+    const opts = call[2] as { issuer?: string; audience?: string; clockTolerance?: number };
     expect(opts.issuer).toBe("https://auth.example.com");
     expect(opts.audience).toBe("kiln-api");
+    expect(opts.clockTolerance).toBe(45);
+  });
+
+  it("uses default clock tolerance when not configured", async () => {
+    const jose = await getJose();
+    jose.createRemoteJWKSet.mockReturnValue(Symbol("jwks"));
+    jose.jwtVerify.mockResolvedValue({ payload: { sub: "u" } });
+
+    const { buildJwtVerifier } = await import("../../src/gateway/jwt-verifier.js");
+    const verify = await buildJwtVerifier({
+      algorithm: "RS256",
+      jwksUri: "https://auth.example.com/.well-known/jwks.json",
+    });
+
+    await verify("any.token");
+
+    const call = jose.jwtVerify.mock.calls[0] as unknown[];
+    const opts = call[2] as { clockTolerance?: number };
+    expect(opts.clockTolerance).toBe(30);
   });
 
   it("propagates jose errors (expired, invalid signature) to the caller", async () => {
@@ -85,7 +101,6 @@ describe("buildJwtVerifier -- HS256", () => {
   const originalEnv = process.env;
 
   beforeEach(() => {
-    vi.resetModules();
     process.env = { ...originalEnv };
   });
 

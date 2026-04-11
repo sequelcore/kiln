@@ -1,4 +1,4 @@
-import { afterEach, describe, it, expect, vi } from "vitest";
+import { afterEach, describe, it, expect } from "vitest";
 import { parseGatewayYaml, GatewayLoaderError } from "../../../src/engine/gateway/gateway-loader.js";
 
 const VALID_YAML = `
@@ -276,6 +276,7 @@ observability:
 });
 
 describe("parseGatewayYaml -- auth block", () => {
+  const originalEnv = process.env;
   const BASE = `
 port: 4800
 apps:
@@ -287,7 +288,7 @@ apps:
 `;
 
   afterEach(() => {
-    vi.unstubAllEnvs();
+    process.env = { ...originalEnv };
   });
 
   it("omits auth when auth block is absent (backward compat)", () => {
@@ -305,7 +306,7 @@ apps:
   });
 
   it("resolves RS256 jwksUri from environment when prefixed with $", () => {
-    vi.stubEnv("JWT_JWKS_URI", "https://auth.example.com/.well-known/jwks.json");
+    process.env = { ...originalEnv, JWT_JWKS_URI: "https://auth.example.com/.well-known/jwks.json" };
     const yaml = BASE + `auth:\n  algorithm: RS256\n  jwksUri: $JWT_JWKS_URI\n`;
     const config = parseGatewayYaml(yaml);
     expect(config.auth).toBeDefined();
@@ -322,10 +323,11 @@ apps:
   it("parses optional issuer and audience", () => {
     const yaml =
       BASE +
-      `auth:\n  algorithm: RS256\n  jwksUri: "https://auth.example.com/.well-known/jwks.json"\n  issuer: "https://auth.example.com"\n  audience: my-api\n`;
+      `auth:\n  algorithm: RS256\n  jwksUri: "https://auth.example.com/.well-known/jwks.json"\n  issuer: "https://auth.example.com"\n  audience: my-api\n  clockToleranceSeconds: 45\n`;
     const config = parseGatewayYaml(yaml);
     expect(config.auth!.issuer).toBe("https://auth.example.com");
     expect(config.auth!.audience).toBe("my-api");
+    expect(config.auth!.clockToleranceSeconds).toBe(45);
   });
 
   it("throws GatewayLoaderError when auth is not an object", () => {
@@ -339,7 +341,7 @@ apps:
   });
 
   it("throws GatewayLoaderError when RS256 jwksUri env var is missing", () => {
-    vi.stubEnv("JWT_JWKS_URI", "");
+    process.env = { ...originalEnv, JWT_JWKS_URI: "" };
     const yaml = BASE + `auth:\n  algorithm: RS256\n  jwksUri: $JWT_JWKS_URI\n`;
     expect(() => parseGatewayYaml(yaml)).toThrow(GatewayLoaderError);
   });
@@ -351,6 +353,11 @@ apps:
 
   it("throws GatewayLoaderError on unknown algorithm", () => {
     const yaml = BASE + `auth:\n  algorithm: ES256\n`;
+    expect(() => parseGatewayYaml(yaml)).toThrow(GatewayLoaderError);
+  });
+
+  it("throws GatewayLoaderError on negative clock tolerance", () => {
+    const yaml = BASE + `auth:\n  algorithm: RS256\n  jwksUri: "https://auth.example.com/.well-known/jwks.json"\n  clockToleranceSeconds: -1\n`;
     expect(() => parseGatewayYaml(yaml)).toThrow(GatewayLoaderError);
   });
 });

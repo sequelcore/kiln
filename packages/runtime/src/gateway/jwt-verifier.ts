@@ -33,10 +33,12 @@ export type JwtVerifyFn = (token: string) => Promise<JwtPayload>;
 export async function buildJwtVerifier(config: GatewayAuthConfig): Promise<JwtVerifyFn> {
   // Dynamic import: jose loads only when JWT auth is configured.
   const { jwtVerify, createRemoteJWKSet } = await import("jose");
+  const clockTolerance = config.clockToleranceSeconds ?? 30;
 
   const verifyOptions = {
     ...(config.issuer ? { issuer: config.issuer } : {}),
     ...(config.audience ? { audience: config.audience } : {}),
+    clockTolerance,
   };
 
   if (config.algorithm === "RS256") {

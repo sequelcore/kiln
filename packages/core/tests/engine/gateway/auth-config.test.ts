@@ -18,6 +18,7 @@ describe("validateGatewayAuthConfig", () => {
         jwksUri: "https://auth.example.com/.well-known/jwks.json",
         issuer: "https://auth.example.com",
         audience: "my-api",
+        clockToleranceSeconds: 30,
       };
       expect(validateGatewayAuthConfig(config)).toHaveLength(0);
     });
@@ -53,6 +54,7 @@ describe("validateGatewayAuthConfig", () => {
         secretEnv: "JWT_SECRET",
         issuer: "my-service",
         audience: "my-api",
+        clockToleranceSeconds: 30,
       };
       expect(validateGatewayAuthConfig(config)).toHaveLength(0);
     });
@@ -81,5 +83,16 @@ describe("validateGatewayAuthConfig", () => {
     const errors = validateGatewayAuthConfig(config);
     expect(errors).toHaveLength(1);
     expect(errors[0]!.field).toBe("auth.algorithm");
+  });
+
+  it("rejects negative clock tolerance", () => {
+    const config = {
+      algorithm: "RS256",
+      jwksUri: "https://auth.example.com/.well-known/jwks.json",
+      clockToleranceSeconds: -1,
+    } as GatewayAuthConfig;
+    const errors = validateGatewayAuthConfig(config);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]!.field).toBe("auth.clockToleranceSeconds");
   });
 });
