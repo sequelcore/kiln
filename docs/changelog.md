@@ -1,5 +1,29 @@
 # Changelog
 
+## v1.0.3 (2026-04-10) -- Release Line Correction
+
+### Version consistency
+
+- Workspace package versions were bumped to `1.0.3` so the published npm
+  metadata matches the git tag for this release.
+- This supersedes the inconsistent `v1.0.2` tag, which fixed the publish
+  workflow but still published `1.0.1` package versions.
+
+### Publish pipeline state
+
+- The `1.0.1` and `1.0.2` release fixes are now carried forward together:
+  - full package graph publish
+  - build steps for published artifacts
+  - valid `jq` workspace dependency rewriting
+- `1.0.3` is the first release in the `1.x` line intended to be both
+  architecturally aligned and packaging-consistent.
+
+### Verification
+
+- `bun run typecheck` passed
+- `bun run test` passed
+- `bun run build` passed
+
 ## v1.0.1 (2026-04-10) -- Packaging Graph Fix
 
 ### Publish pipeline fix
