@@ -100,6 +100,17 @@ describe("validateTimezone", () => {
 });
 
 describe("nextFireTime", () => {
+  const zonedHourMinute = (date: Date, timezone: string): { hour: number; minute: number } => {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      hour: "numeric",
+      minute: "numeric",
+      hourCycle: "h23",
+    }).formatToParts(date);
+    const get = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((p) => p.type === type)?.value ?? "0");
+    return { hour: get("hour"), minute: get("minute") };
+  };
+
   it("calculates next fire for every-minute cron", () => {
     const expr = parseCronExpression("* * * * *");
     const after = new Date(2024, 0, 15, 10, 30, 0); // local time
@@ -134,13 +145,12 @@ describe("nextFireTime", () => {
     expect(next.getDate()).toBe(1);
   });
 
-  it("with explicit UTC timezone matches behavior without timezone", () => {
+  it("with explicit UTC timezone evaluates against UTC wall clock", () => {
     const expr = parseCronExpression("0 9 * * *"); // 9am daily
     const after = new Date(2024, 0, 15, 10, 0, 0); // after 9am
-    const withoutTz = nextFireTime(expr, after);
     const withUtc = nextFireTime(expr, after, "UTC");
-    expect(withoutTz.getDate()).toBe(withUtc.getDate());
-    expect(withoutTz.getHours()).toBe(withUtc.getHours());
+    expect(withUtc.getUTCHours()).toBe(9);
+    expect(withUtc.getUTCMinutes()).toBe(0);
   });
 
   it("with a named timezone returns correct offset from that timezone", () => {
@@ -150,5 +160,16 @@ describe("nextFireTime", () => {
     const nextNy = nextFireTime(expr, after, "America/New_York");
     const offsetHours = (nextUtc.getTime() - nextNy.getTime()) / (1000 * 60 * 60);
     expect(Math.abs(offsetHours)).toBeGreaterThan(0);
+  });
+
+  it("finds the next fire time for America/Tijuana 4-hour schedules", () => {
+    const expr = parseCronExpression("0 */4 * * *");
+    const after = new Date(Date.UTC(2026, 3, 11, 4, 25, 0));
+
+    const next = nextFireTime(expr, after, "America/Tijuana");
+    const { hour, minute } = zonedHourMinute(next, "America/Tijuana");
+
+    expect(minute).toBe(0);
+    expect(hour % 4).toBe(0);
   });
 });

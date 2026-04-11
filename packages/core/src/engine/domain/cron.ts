@@ -105,75 +105,162 @@ export function validateTimezone(tz: string): string | null {
   }
 }
 
+interface ZonedDateParts {
+  readonly year: number;
+  readonly month: number;
+  readonly day: number;
+  readonly hour: number;
+  readonly minute: number;
+  readonly second: number;
+  readonly dayOfWeek: number;
+}
+
+const zonedFormatterCache = new Map<string, Intl.DateTimeFormat>();
+const WEEKDAY_INDEX: Readonly<Record<string, number>> = {
+  Sun: 0,
+  Mon: 1,
+  Tue: 2,
+  Wed: 3,
+  Thu: 4,
+  Fri: 5,
+  Sat: 6,
+};
+
+function getZonedFormatter(timezone: string): Intl.DateTimeFormat {
+  const cached = zonedFormatterCache.get(timezone);
+  if (cached) return cached;
+
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    weekday: "short",
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "numeric",
+    second: "numeric",
+    hourCycle: "h23",
+  });
+  zonedFormatterCache.set(timezone, formatter);
+  return formatter;
+}
+
+function getDateParts(date: Date, timezone?: string): ZonedDateParts {
+  if (!timezone) {
+    return {
+      year: date.getFullYear(),
+      month: date.getMonth() + 1,
+      day: date.getDate(),
+      hour: date.getHours(),
+      minute: date.getMinutes(),
+      second: date.getSeconds(),
+      dayOfWeek: date.getDay(),
+    };
+  }
+
+  if (timezone === "UTC") {
+    return {
+      year: date.getUTCFullYear(),
+      month: date.getUTCMonth() + 1,
+      day: date.getUTCDate(),
+      hour: date.getUTCHours(),
+      minute: date.getUTCMinutes(),
+      second: date.getUTCSeconds(),
+      dayOfWeek: date.getUTCDay(),
+    };
+  }
+
+  const parts = getZonedFormatter(timezone).formatToParts(date);
+  const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? "";
+  const weekday = get("weekday");
+
+  return {
+    year: Number(get("year")),
+    month: Number(get("month")),
+    day: Number(get("day")),
+    hour: Number(get("hour")),
+    minute: Number(get("minute")),
+    second: Number(get("second")),
+    dayOfWeek: WEEKDAY_INDEX[weekday] ?? 0,
+  };
+}
+
 /** Calculate the next fire time after the given date */
 export function nextFireTime(
   expression: CronExpression,
   after: Date,
   timezone?: string,
 ): Date {
-  let tzOffset = 0;
-  if (timezone && timezone !== "UTC") {
-    try {
-      const formatter = new Intl.DateTimeFormat("en-US", {
-        timeZone: timezone,
-        year: "numeric",
-        month: "numeric",
-        day: "numeric",
-        hour: "numeric",
-        minute: "numeric",
-        second: "numeric",
-        hour12: false,
-      });
-      const parts = formatter.formatToParts(after);
-      const get = (type: string) => Number(parts.find((p) => p.type === type)!.value);
-      const localTzDate = new Date(
-        Date.UTC(
-          get("year"),
-          get("month") - 1,
-          get("day"),
-          get("hour"),
-          get("minute"),
-          get("second"),
-        ),
-      );
-      tzOffset = localTzDate.getTime() - after.getTime();
-    } catch {
-      // Invalid timezone — fall back to local time
+  if (!timezone) {
+    const d = new Date(after.getTime());
+    d.setSeconds(0, 0);
+    d.setMinutes(d.getMinutes() + 1);
+
+    const limit = new Date(after.getTime() + 4 * 365 * 24 * 60 * 60 * 1000);
+
+    while (d < limit) {
+      if (!expression.months.includes(d.getMonth() + 1)) {
+        d.setMonth(d.getMonth() + 1, 1);
+        d.setHours(0, 0, 0, 0);
+        continue;
+      }
+
+      if (
+        !expression.daysOfMonth.includes(d.getDate()) ||
+        !expression.daysOfWeek.includes(d.getDay())
+      ) {
+        d.setDate(d.getDate() + 1);
+        d.setHours(0, 0, 0, 0);
+        continue;
+      }
+
+      if (!expression.hours.includes(d.getHours())) {
+        d.setHours(d.getHours() + 1, 0, 0, 0);
+        continue;
+      }
+
+      if (!expression.minutes.includes(d.getMinutes())) {
+        d.setMinutes(d.getMinutes() + 1);
+        continue;
+      }
+
+      return new Date(d.getTime());
     }
+
+    throw new KilnError("SCHEDULE_PARSE_FAILED", "No matching time found within 4 years", { retryable: false });
   }
 
   const d = new Date(after.getTime());
-  d.setSeconds(0, 0);
-  d.setMinutes(d.getMinutes() + 1);
+  d.setUTCSeconds(0, 0);
+  d.setUTCMinutes(d.getUTCMinutes() + 1);
 
   const limit = new Date(after.getTime() + 4 * 365 * 24 * 60 * 60 * 1000);
 
   while (d < limit) {
-    const targetMs = d.getTime() + tzOffset;
-    const targetDate = new Date(targetMs);
+    const targetDate = getDateParts(d, timezone);
 
-    if (!expression.months.includes(targetDate.getMonth() + 1)) {
-      d.setMonth(d.getMonth() + 1, 1);
-      d.setHours(0, 0, 0, 0);
+    if (!expression.months.includes(targetDate.month)) {
+      d.setUTCMonth(d.getUTCMonth() + 1, 1);
+      d.setUTCHours(0, 0, 0, 0);
       continue;
     }
 
     if (
-      !expression.daysOfMonth.includes(targetDate.getDate()) ||
-      !expression.daysOfWeek.includes(targetDate.getDay())
+      !expression.daysOfMonth.includes(targetDate.day) ||
+      !expression.daysOfWeek.includes(targetDate.dayOfWeek)
     ) {
-      d.setDate(d.getDate() + 1);
-      d.setHours(0, 0, 0, 0);
+      d.setUTCDate(d.getUTCDate() + 1);
+      d.setUTCHours(0, 0, 0, 0);
       continue;
     }
 
-    if (!expression.hours.includes(targetDate.getHours())) {
-      d.setHours(d.getHours() + 1, 0, 0, 0);
+    if (!expression.hours.includes(targetDate.hour)) {
+      d.setUTCHours(d.getUTCHours() + 1, 0, 0, 0);
       continue;
     }
 
-    if (!expression.minutes.includes(targetDate.getMinutes())) {
-      d.setMinutes(d.getMinutes() + 1);
+    if (!expression.minutes.includes(targetDate.minute)) {
+      d.setUTCMinutes(d.getUTCMinutes() + 1);
       continue;
     }
 
