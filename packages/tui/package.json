@@ -1,6 +1,6 @@
 {
   "name": "@kilnai/tui",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Terminal interface for Kiln",
   "type": "module",
   "exports": {
@@ -33,8 +33,8 @@
     "@opentui/core-win32-x64": "0.1.92"
   },
   "peerDependencies": {
-    "@kilnai/core": "workspace:*",
-    "@kilnai/cli": "workspace:*",
+    "@kilnai/core": "^1.0.5",
+    "@kilnai/cli": "^1.0.5",
     "react": "^19.0.0"
   },
   "devDependencies": {

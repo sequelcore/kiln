@@ -1,6 +1,6 @@
 {
   "name": "@kilnai/cli",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "CLI and MCP surface for the Kiln control plane",
   "type": "module",
   "bin": {
@@ -47,9 +47,9 @@
     "yaml": "^2.8.2"
   },
   "peerDependencies": {
-    "@kilnai/core": "workspace:*",
-    "@kilnai/tui": "workspace:*",
-    "@kilnai/runtime": "workspace:*"
+    "@kilnai/core": "^1.0.5",
+    "@kilnai/tui": "^1.0.5",
+    "@kilnai/runtime": "^1.0.5"
   },
   "devDependencies": {
     "yaml": "^2.8.2"

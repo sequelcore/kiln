@@ -1,6 +1,6 @@
 {
   "name": "@kilnai/tools",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Vendored developer tool binary resolver for Kiln",
   "type": "module",
   "exports": {

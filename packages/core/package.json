@@ -1,6 +1,6 @@
 {
   "name": "@kilnai/core",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Cybernetic control plane for agentic systems with governed context, memory, safety, and execution",
   "type": "module",
   "exports": {
@@ -40,7 +40,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@kilnai/tools": "workspace:*",
+    "@kilnai/tools": "^1.0.5",
     "@anthropic-ai/sdk": "^0.74.0",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "yaml": "^2.8.2"
