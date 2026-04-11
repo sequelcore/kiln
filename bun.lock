@@ -22,7 +22,7 @@
     },
     "packages/cli": {
       "name": "@kilnai/cli",
-      "version": "0.23.2",
+      "version": "1.0.5",
       "bin": {
         "kiln": "./dist/index.js",
       },
@@ -44,7 +44,7 @@
     },
     "packages/core": {
       "name": "@kilnai/core",
-      "version": "0.23.2",
+      "version": "1.0.5",
       "dependencies": {
         "@anthropic-ai/sdk": "^0.74.0",
         "@kilnai/tools": "workspace:*",
@@ -67,7 +67,7 @@
     },
     "packages/runtime": {
       "name": "@kilnai/runtime",
-      "version": "0.23.2",
+      "version": "1.0.5",
       "dependencies": {
         "hono": "^4.7.0",
         "jose": "^5.0.0",
@@ -86,7 +86,7 @@
     },
     "packages/sdk": {
       "name": "@kilnai/react",
-      "version": "0.23.2",
+      "version": "1.0.5",
       "devDependencies": {
         "@testing-library/react": "^16.1.0",
         "@types/react": "^19.0.0",
@@ -102,7 +102,7 @@
     },
     "packages/studio": {
       "name": "@kilnai/studio",
-      "version": "0.10.0",
+      "version": "1.0.5",
       "devDependencies": {
         "@kilnai/react": "workspace:*",
         "@tanstack/react-query": "^5.64.0",
@@ -118,33 +118,33 @@
     },
     "packages/tools": {
       "name": "@kilnai/tools",
-      "version": "0.23.2",
+      "version": "1.0.5",
       "optionalDependencies": {
-        "@kilnai/tools-darwin-arm64": "0.23.2",
-        "@kilnai/tools-darwin-x64": "0.23.2",
-        "@kilnai/tools-linux-x64": "0.23.2",
-        "@kilnai/tools-win32-x64": "0.23.2",
+        "@kilnai/tools-darwin-arm64": "1.0.4",
+        "@kilnai/tools-darwin-x64": "1.0.4",
+        "@kilnai/tools-linux-x64": "1.0.4",
+        "@kilnai/tools-win32-x64": "1.0.4",
       },
     },
     "packages/tools-darwin-arm64": {
       "name": "@kilnai/tools-darwin-arm64",
-      "version": "0.23.2",
+      "version": "1.0.5",
     },
     "packages/tools-darwin-x64": {
       "name": "@kilnai/tools-darwin-x64",
-      "version": "0.23.2",
+      "version": "1.0.5",
     },
     "packages/tools-linux-x64": {
       "name": "@kilnai/tools-linux-x64",
-      "version": "0.23.2",
+      "version": "1.0.5",
     },
     "packages/tools-win32-x64": {
       "name": "@kilnai/tools-win32-x64",
-      "version": "0.23.2",
+      "version": "1.0.5",
     },
     "packages/tui": {
       "name": "@kilnai/tui",
-      "version": "0.23.2",
+      "version": "1.0.5",
       "dependencies": {
         "@opentui/core": "0.1.92",
         "@opentui/react": "0.1.92",
@@ -168,7 +168,7 @@
     },
     "packages/widget": {
       "name": "@kilnai/widget",
-      "version": "0.23.2",
+      "version": "1.0.5",
       "devDependencies": {
         "jsdom": "^25.0.0",
         "vitest": "^4.0.18",
@@ -1197,6 +1197,14 @@
     "@jimp/plugin-threshold/zod": ["zod@3.25.76", "", {}, "sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ=="],
 
     "@jimp/types/zod": ["zod@3.25.76", "", {}, "sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ=="],
+
+    "@kilnai/tools/@kilnai/tools-darwin-arm64": ["@kilnai/tools-darwin-arm64@1.0.4", "", { "os": "darwin", "cpu": "arm64" }, "sha512-0Uwkmb8lvkddCXs6Zd+9p4+MgfQ0yf5O5kmnhdQSVMTyF08hU45uT57TtglHf7GqPyhMg92wEUFfYEvvvj1A8g=="],
+
+    "@kilnai/tools/@kilnai/tools-darwin-x64": ["@kilnai/tools-darwin-x64@1.0.4", "", { "os": "darwin", "cpu": "x64" }, "sha512-/NvGB5k9ZDYlVnfpc6MvxY5gp0DIiAKf7PIVeQedFFiDFxYY0LlQ2ITGXbNLrmY8o8zSHYk8Chq03wm23d6NBg=="],
+
+    "@kilnai/tools/@kilnai/tools-linux-x64": ["@kilnai/tools-linux-x64@1.0.4", "", { "os": "linux", "cpu": "x64" }, "sha512-gAk0vYZg0Z8c6UlXBaynY4P9MGmdwS+voTlHM+FbjdQgse+Fl6L9/w6tE3YyD4WF0A7WhGcNRpWNzNeRTtKKCw=="],
+
+    "@kilnai/tools/@kilnai/tools-win32-x64": ["@kilnai/tools-win32-x64@1.0.4", "", { "os": "win32", "cpu": "x64" }, "sha512-z2OuahBt/T6kCwvyYEdZARuhKXENEtl4nWOl+26xaqvX9i/5ecdKGVshjltiZN6bLR+6sRaTx6+vXzjb3z4IhA=="],
 
     "@modelcontextprotocol/sdk/jose": ["jose@6.1.3", "", {}, "sha512-0TpaTfihd4QMNwrz/ob2Bp7X04yuxJkjRGi4aKmOqwhov54i6u79oCv7T+C7lo70MKH6BesI3vscD1yb/yzKXQ=="],
 
