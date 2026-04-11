@@ -73,10 +73,26 @@ jobs:
               continue
             fi
             jq --arg v "^$VERSION" '
-              (.peerDependencies // {}) |= with_entries(if .value == "workspace:*" then .value = $v else . end) |
-              (.dependencies // {}) |= with_entries(if .value == "workspace:*" then .value = $v else . end) |
-              (.optionalDependencies // {}) |= with_entries(if .value == "workspace:*" then .value = $v else . end) |
-              (.devDependencies // {}) |= with_entries(if .value == "workspace:*" then .value = $v else . end)
+              if has("peerDependencies") then
+                .peerDependencies |= with_entries(if .value == "workspace:*" then .value = $v else . end)
+              else
+                .
+              end
+              | if has("dependencies") then
+                  .dependencies |= with_entries(if .value == "workspace:*" then .value = $v else . end)
+                else
+                  .
+                end
+              | if has("optionalDependencies") then
+                  .optionalDependencies |= with_entries(if .value == "workspace:*" then .value = $v else . end)
+                else
+                  .
+                end
+              | if has("devDependencies") then
+                  .devDependencies |= with_entries(if .value == "workspace:*" then .value = $v else . end)
+                else
+                  .
+                end
             ' "$pkg/package.json" > tmp.json && mv tmp.json "$pkg/package.json"
           done
 
