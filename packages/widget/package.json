@@ -1,6 +1,6 @@
 {
   "name": "@kilnai/widget",
-  "version": "1.0.5",
+  "version": "1.0.7",
   "description": "Embeddable chat widget for apps built on the Kiln control plane",
   "type": "module",
   "main": "dist/widget.js",
