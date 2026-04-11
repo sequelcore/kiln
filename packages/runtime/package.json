@@ -1,6 +1,6 @@
 {
   "name": "@kilnai/runtime",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Gateway runtime and channel adapters for the Kiln control plane",
   "type": "module",
   "exports": {

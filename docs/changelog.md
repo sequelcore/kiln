@@ -1,5 +1,42 @@
 # Changelog
 
+## v1.0.1 (2026-04-10) -- Packaging Graph Fix
+
+### Publish pipeline fix
+
+- `publish.yml` now publishes the full npm graph required by the `1.x` line,
+  not just a subset of the workspace.
+- Added publish steps for:
+  - `@kilnai/tools`
+  - `@kilnai/tools-darwin-arm64`
+  - `@kilnai/tools-darwin-x64`
+  - `@kilnai/tools-linux-x64`
+  - `@kilnai/tools-win32-x64`
+  - `@kilnai/tui`
+- Added missing build steps for `@kilnai/tools` and `@kilnai/tui` before
+  publish.
+
+### Workspace version resolution fix
+
+- The publish workflow now resolves `workspace:*` references across all public
+  `packages/*` before `bun publish`, instead of only patching a small subset.
+- This prevents externally published packages from carrying invalid workspace
+  references at install time.
+- The critical case fixed here is `@kilnai/core`, which depends on
+  `@kilnai/tools`.
+
+### Release metadata
+
+- Workspace package versions were bumped from `1.0.0` to `1.0.1`.
+- This is a packaging hotfix release. It does not change the `1.0.0`
+  architectural baseline; it makes that baseline publishable and consumable.
+
+### Verification
+
+- `bun run typecheck` passed
+- `bun run test` passed
+- `bun run build` passed
+
 ## Unreleased -- Post-1.0 Architectural Continuation
 
 Kiln `1.0.0` establishes the new control-plane direction and removes the most

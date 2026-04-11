@@ -1,6 +1,6 @@
 {
   "name": "@kilnai/core",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Cybernetic control plane for agentic systems with governed context, memory, safety, and execution",
   "type": "module",
   "exports": {
