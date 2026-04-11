@@ -1,6 +1,6 @@
 {
   "name": "@kilnai/tui",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Terminal interface for Kiln",
   "type": "module",
   "exports": {

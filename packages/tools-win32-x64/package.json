@@ -1,6 +1,6 @@
 {
   "name": "@kilnai/tools-win32-x64",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Vendored rg/fd/jq binaries for @kilnai/tools (win32-x64)",
   "type": "module",
   "license": "Apache-2.0",

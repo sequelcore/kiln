@@ -1,5 +1,29 @@
 # Changelog
 
+## v1.0.4 (2026-04-10) -- Timezone Scheduling Fix
+
+### Scheduler fix
+
+- Fixed `nextFireTime()` for named IANA timezones so schedules no longer fail
+  to resolve under zones such as `America/Tijuana`.
+- Preserved the original scheduler behavior when no timezone is provided.
+- Added focused cron tests covering:
+  - named timezone evaluation
+  - `America/Tijuana`
+  - deterministic UTC assertions
+
+### Downstream impact
+
+- This fixes the runtime crash that blocked `kiln-gateway` from registering
+  scheduled triggers for `artu`.
+- No temporary config workaround is required in gateway app definitions.
+
+### Verification
+
+- `bun run typecheck` passed
+- `bun run test` passed
+- `bun run build` passed
+
 ## v1.0.3 (2026-04-10) -- Release Line Correction
 
 ### Version consistency

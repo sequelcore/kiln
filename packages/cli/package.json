@@ -1,6 +1,6 @@
 {
   "name": "@kilnai/cli",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "CLI and MCP surface for the Kiln control plane",
   "type": "module",
   "bin": {
