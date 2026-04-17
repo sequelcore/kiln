@@ -1,91 +1,148 @@
-/**
- * Gateway fixture for Playwright e2e tests.
- *
- * FIXTURE PATH: Hono mock server (not the real startGuiGateway).
- *
- * Rationale: startGuiGateway (packages/runtime/src/gateway/gui-gateway.ts) requires
- * Bun.serve, a live EventBus, SessionRegistry, and a full operatorTransport wiring that
- * pulls in @kilnai/core and @kilnai/runtime at runtime — circular in a browser test
- * worker context and too heavy for a first harness pass.
- *
- * The mock responds to GET /health with the same shape the real gateway emits:
- *   { status: "ok", channel: "gui" }
- * and to GET /gui/api/dashboard with a minimal GuiDashboardSnapshot.
- *
- * The Vite dev server proxies /gui-api → http://localhost:4810 (hard-coded in
- * vite.config.ts). The mock therefore binds to port 4810 so the proxy route works
- * during e2e runs. A port-in-use error here means a real gateway is already running;
- * tests can run against that instance too.
- *
- * TODO (ADR-006 parity): replace with a lightweight in-process startGuiGateway call
- * once the gateway factory gains a headless/test mode that does not require Bun.serve.
- * Track under the ADR-006 parity checklist.
- */
-
-import { createServer, type Server } from "node:http";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { createServer } from "node:net";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { test as base } from "@playwright/test";
 
-/** Port the Vite proxy forwards to — must match vite.config.ts proxy target. */
-export const GATEWAY_MOCK_PORT = 4810;
+const READY_TIMEOUT_MS = 30_000;
+const RUNNER_RELATIVE_PATH = "packages/gui/e2e/fixtures/gateway-runner.ts";
 
 interface GatewayFixture {
-  /** HTTP port the mock gateway is listening on (always GATEWAY_MOCK_PORT). */
   gatewayPort: number;
 }
 
-function handleRequest(
-  req: { url?: string },
-  res: {
-    writeHead: (code: number, headers: Record<string, string>) => void;
-    end: (body: string) => void;
-  },
-): void {
-  const url = req.url ?? "/";
-  const json = (code: number, body: unknown) => {
-    const payload = JSON.stringify(body);
-    res.writeHead(code, {
-      "Content-Type": "application/json",
-      "Access-Control-Allow-Origin": "*",
-      "Content-Length": String(Buffer.byteLength(payload)),
-    });
-    res.end(payload);
-  };
+function resolveRepoRoot(): string {
+  return resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
+}
 
-  if (url === "/health") {
-    json(200, { status: "ok", channel: "gui" });
+async function reservePort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((resolveListen, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolveListen);
+  });
+  const address = server.address();
+  await new Promise<void>((resolveClose, reject) => {
+    server.close((err) => (err ? reject(err) : resolveClose()));
+  });
+  if (!address || typeof address === "string") {
+    throw new Error("Could not reserve a gateway port for Playwright.");
+  }
+  return address.port;
+}
+
+function resolveGatewayPortFromEnv(): number | undefined {
+  const raw = process.env.GUI_GATEWAY_PORT;
+  if (!raw) {
+    return undefined;
+  }
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error(`Invalid GUI_GATEWAY_PORT value: ${raw}`);
+  }
+  return parsed;
+}
+
+async function waitForReady(child: ChildProcessWithoutNullStreams): Promise<number> {
+  let stdoutBuffer = "";
+  let stderrBuffer = "";
+
+  return await new Promise<number>((resolveReady, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error(`Gateway runner timed out waiting for READY line. Stderr:\n${stderrBuffer}`));
+    }, READY_TIMEOUT_MS);
+
+    const cleanup = () => {
+      clearTimeout(timeout);
+      child.stdout.off("data", onStdout);
+      child.stderr.off("data", onStderr);
+      child.off("exit", onExit);
+      child.off("error", onError);
+    };
+
+    const rejectWith = (error: Error) => {
+      cleanup();
+      reject(error);
+    };
+
+    const onError = (error: Error) => {
+      rejectWith(error);
+    };
+
+    const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
+      rejectWith(new Error(`Gateway runner exited before READY (code=${code}, signal=${signal}). Stderr:\n${stderrBuffer}`));
+    };
+
+    const onStderr = (chunk: Buffer | string) => {
+      stderrBuffer += chunk.toString();
+    };
+
+    const onStdout = (chunk: Buffer | string) => {
+      stdoutBuffer += chunk.toString();
+      const lines = stdoutBuffer.split(/\r?\n/);
+      stdoutBuffer = lines.pop() ?? "";
+      for (const line of lines) {
+        const match = /^READY\s+(\d+)$/.exec(line.trim());
+        if (!match) {
+          continue;
+        }
+        cleanup();
+        resolveReady(Number.parseInt(match[1], 10));
+        return;
+      }
+    };
+
+    child.stdout.on("data", onStdout);
+    child.stderr.on("data", onStderr);
+    child.on("exit", onExit);
+    child.on("error", onError);
+  });
+}
+
+async function stopRunner(child: ChildProcessWithoutNullStreams): Promise<void> {
+  if (child.exitCode !== null) {
     return;
   }
+  await new Promise<void>((resolveStop) => {
+    const timeout = setTimeout(() => {
+      if (child.exitCode === null) {
+        child.kill("SIGKILL");
+      }
+    }, 3_000);
 
-  if (url === "/gui/api/dashboard") {
-    json(200, {
-      providers: [],
-      sessions: [],
-      telemetry: { status: "idle", dominantRegions: [], saturation: 0, entropy: 0 },
+    child.once("exit", () => {
+      clearTimeout(timeout);
+      resolveStop();
     });
-    return;
-  }
 
-  res.writeHead(404, { "Content-Type": "application/json" });
-  res.end(JSON.stringify({ error: "not_found" }));
+    child.kill("SIGTERM");
+  });
 }
 
 export const test = base.extend<GatewayFixture>({
   // eslint-disable-next-line no-empty-pattern
   gatewayPort: async ({}, use) => {
-    const server: Server = createServer(
-      handleRequest as Parameters<typeof createServer>[0],
+    const repoRoot = resolveRepoRoot();
+    const port = resolveGatewayPortFromEnv() ?? await reservePort();
+    const runner = spawn(
+      "bun",
+      ["run", RUNNER_RELATIVE_PATH],
+      {
+        cwd: repoRoot,
+        env: {
+          ...process.env,
+          GUI_GATEWAY_PORT: String(port),
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+      },
     );
 
-    await new Promise<void>((resolve, reject) => {
-      server.on("error", reject);
-      server.listen(GATEWAY_MOCK_PORT, "127.0.0.1", resolve);
-    });
-
-    await use(GATEWAY_MOCK_PORT);
-
-    await new Promise<void>((resolve, reject) => {
-      server.close((err) => (err ? reject(err) : resolve()));
-    });
+    try {
+      const readyPort = await waitForReady(runner);
+      await use(readyPort);
+    } finally {
+      await stopRunner(runner);
+    }
   },
 });
 

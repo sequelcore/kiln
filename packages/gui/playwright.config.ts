@@ -1,6 +1,9 @@
 import { defineConfig, devices } from "@playwright/test";
+import { createServer } from "node:net";
 
 const CI = process.env["CI"] === "true";
+const gatewayPort = process.env.GUI_GATEWAY_PORT ?? String(await reserveGatewayPort());
+process.env.GUI_GATEWAY_PORT = gatewayPort;
 
 export default defineConfig({
   testDir: "./e2e",
@@ -27,5 +30,25 @@ export default defineConfig({
     url: "http://localhost:5183",
     reuseExistingServer: !CI,
     timeout: 30_000,
+    env: {
+      ...process.env,
+      GUI_GATEWAY_PORT: gatewayPort,
+    },
   },
 });
+
+async function reserveGatewayPort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address();
+  await new Promise<void>((resolve, reject) => {
+    server.close((err) => (err ? reject(err) : resolve()));
+  });
+  if (!address || typeof address === "string") {
+    throw new Error("Could not reserve a GUI gateway port for Playwright.");
+  }
+  return address.port;
+}

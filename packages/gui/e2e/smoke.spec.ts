@@ -2,8 +2,8 @@ import { test, expect } from "./fixtures/gateway.js";
 
 test.describe("GUI smoke", () => {
   test("landing route renders with gateway health status", async ({ page, gatewayPort: _ }) => {
-    // gatewayPort fixture boots the mock gateway on port 4810 before this test runs.
-    // Vite proxies /gui-api → http://localhost:4810, so useGatewayHealth resolves.
+    // gatewayPort fixture boots a real gui-gateway subprocess before this test runs.
+    // Vite proxies /gui-api to that gateway port via GUI_GATEWAY_PORT.
 
     await page.goto("/");
 
