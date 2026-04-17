@@ -4,6 +4,12 @@
 **Paired with:** ADR-005 (freeze TUI, prioritize GUI), ADR-006 (GUI stack & Phase 1 scope).
 **Status:** Accepted (2026-04-17).
 
+## Progress
+
+- 2026-04-17 — ADR-005 + ADR-006 accepted; checklist accepted.
+- 2026-04-17 — `packages/gui/` scaffold landed (commit `54d1d53`): React 19, TanStack Router/Query, Zustand, Tailwind v4, Vitest, ESLint 9 (jsx-a11y strict, no-restricted-imports guard on @kilnai/core|runtime). Pre-spec single-file UI archived under `packages/gui/.reference/` for parity porting. Runtime `gui-gateway.ts` + `operator-gateway.ts` and `kiln gui` CLI command in place. All rows below still `☐` — porting starts next.
+- Outstanding scaffold follow-ups (from ADR-006): extract `@kilnai/gateway-contracts`, add Playwright e2e suite.
+
 ## How to use
 - Each row is a discrete capability currently provided by `@kilnai/tui`.
 - The GUI reaches parity when every row is ✅ in a production build (`@kilnai/gui` shipped to users, not a dev harness).

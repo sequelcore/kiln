@@ -259,6 +259,15 @@ Completion standard:
 - the interface explains what the system is regulating, not just what command was run
 - GUI reaches parity with former TUI scope, unblocking TUI deletion in Phase I
 
+Progress (as of 2026-04-17):
+
+- ADR-005 accepted — TUI frozen
+- ADR-006 accepted — GUI stack decided
+- `docs/roadmap/gui-phase-1-parity-checklist.md` accepted
+- `packages/gui/` scaffold landed at commit `54d1d53` (React 19 + TanStack Router/Query + Zustand + Tailwind v4 + Vitest + ESLint 9); pre-spec UI archived under `.reference/`
+- Runtime `gui-gateway` + `operator-gateway` and `kiln gui` CLI command in place
+- Outstanding: extract `@kilnai/gateway-contracts`, add Playwright e2e, port parity-checklist rows
+
 ### Phase H - Example and Consumer Realignment
 
 Objective:
