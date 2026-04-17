@@ -35,6 +35,7 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     domain: "Manage domain packages (install, list, search, info, remove)",
     gateway: "Start persistent Gateway (multi-app hosting)",
     dev: "Start development mode with hot-reload and event streaming (--playground)",
+    gui: "Start the GUI gateway and open the operator surface",
     skill: "Manage skills (list, install, publish)",
     auth: "Authenticate subscription-backed providers (codex login/status/logout)",
     cron: "Manage scheduled jobs (list, add, remove, run)",
@@ -184,10 +185,21 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
 
   if (command === "dev") {
     const { devCommand } = await import("./commands/dev.js");
-    const port = parsePort(args);
+    const port = parsePort(args, 4800);
     const configPath = findFlag(args, "--config");
     const playground = args.includes("--playground");
     await devCommand(config, { port, configPath, playground });
+    return;
+  }
+
+  if (command === "gui") {
+    const { guiCommand } = await import("./commands/gui.js");
+    const port = parsePort(args, 4810);
+    await guiCommand(config, {
+      port,
+      cwd: findFlag(args, "--cwd"),
+      open: !args.includes("--no-open"),
+    });
     return;
   }
 
@@ -245,13 +257,13 @@ function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-function parsePort(args: readonly string[]): number {
+function parsePort(args: readonly string[], fallbackPort?: number): number | undefined {
   const portIdx = args.indexOf("--port");
   if (portIdx >= 0 && portIdx + 1 < args.length) {
     const parsed = parseInt(args[portIdx + 1]!, 10);
     if (!Number.isNaN(parsed) && parsed > 0) return parsed;
   }
-  return 4800;
+  return fallbackPort;
 }
 
 function parseRunArgs(rawArgs: readonly string[]): { task: string; flags: { apiKey?: string; provider?: string; model?: string; agent?: string; isolate?: boolean; plan?: boolean; ephemeral?: boolean; profile?: string; skipGitRepoCheck?: boolean; outputSchema?: string; addDir?: string; localProvider?: string; workers?: number } } {
