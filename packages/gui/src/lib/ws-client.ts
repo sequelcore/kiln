@@ -1,0 +1,335 @@
+/**
+ * @fileoverview GUI WebSocket client for gateway communication.
+ * @module @kilnai/gui
+ */
+
+import { z } from "zod";
+import type {
+  GuiInboundFrame,
+  GuiOutboundFrame,
+} from "@kilnai/gateway-contracts";
+
+// --- Zod Schemas for frame validation ---
+
+/** Schema for GuiOutboundFrame validation. */
+const GuiOutboundFrameSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("message"), content: z.string() }),
+  z.object({ type: z.literal("clear") }),
+  z.object({ type: z.literal("provider"), provider: z.string(), model: z.string().optional() }),
+  z.object({ type: z.literal("resume"), sessionId: z.string(), provider: z.string() }),
+  z.object({ type: z.literal("approve"), sessionId: z.string().optional() }),
+  z.object({ type: z.literal("reject"), reason: z.string(), sessionId: z.string().optional() }),
+  z.object({ type: z.literal("exec") }),
+]);
+
+/** Schema for GuiInboundFrame validation. */
+const GuiInboundFrameSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("thinking") }),
+  z.object({
+    type: z.literal("activity"),
+    activity: z.string(),
+    toolName: z.string().optional(),
+    output: z.string().optional(),
+    usd: z.number().optional(),
+    input: z.unknown().optional(),
+    inputTokens: z.number().optional(),
+    outputTokens: z.number().optional(),
+    details: z.string().optional(),
+    sessionId: z.string().optional(),
+    path: z.string().optional(),
+    changeType: z.enum(["created", "modified", "deleted"]).optional(),
+    linesAdded: z.number().optional(),
+    linesRemoved: z.number().optional(),
+  }),
+  z.object({
+    type: z.literal("done"),
+    content: z.string(),
+    parts: z.array(z.unknown()).optional(),
+    inputTokens: z.number(),
+    outputTokens: z.number(),
+    routedProvider: z.string().optional(),
+    routedModel: z.string().optional(),
+    runtimeContinuity: z
+      .object({
+        strategy: z.string(),
+        feedbackLabel: z.string().optional(),
+        pressure: z.string().optional(),
+        supportArtifactCount: z.number().optional(),
+        supportArtifactSources: z.array(z.string()).optional(),
+        fallbackLabel: z.string().optional(),
+        usedCachedSupport: z.boolean().optional(),
+        selectionReason: z.string().optional(),
+      })
+      .optional(),
+  }),
+  z.object({ type: z.literal("text_delta"), content: z.string() }),
+  z.object({ type: z.literal("error"), message: z.string(), code: z.string().optional() }),
+  z.object({ type: z.literal("welcome"), greeting: z.string().optional(), models: z.record(z.array(z.string())).optional(), planMode: z.boolean().optional() }),
+  z.object({ type: z.literal("exec_confirmed") }),
+  z.object({ type: z.literal("cleared") }),
+  z.object({ type: z.literal("provider_changed"), provider: z.string() }),
+  z.object({ type: z.literal("resume_selected"), sessionId: z.string(), provider: z.string() }),
+  z.object({ type: z.literal("approval_requested"), description: z.string(), sessionId: z.string() }),
+  z.object({ type: z.literal("approval_received"), approved: z.boolean(), reason: z.string().optional(), sessionId: z.string().optional() }),
+]);
+
+/** Connection lifecycle states for the GUI WebSocket client. */
+export type GuiConnectionState =
+  | "idle"
+  | "connecting"
+  | "open"
+  | "reconnecting"
+  | "closed";
+
+// --- Timing constants ---
+const HEARTBEAT_INTERVAL_MS = 30_000;
+const HEARTBEAT_TIMEOUT_MS = 60_000;
+const RECONNECT_MIN_MS = 1_000;
+const RECONNECT_MAX_MS = 30_000;
+const RECONNECT_JITTER_FRACTION = 0.2;
+const OUTBOUND_QUEUE_MAX = 100;
+
+/**
+ * Configuration options for GuiWsClient.
+ */
+export interface GuiWsClientOptions {
+  readonly baseUrl: string;
+  readonly userId: string;
+  readonly onFrame: (frame: GuiInboundFrame) => void;
+  readonly onStateChange: (state: GuiConnectionState) => void;
+}
+
+/**
+ * GuiWsClient — WebSocket client for the GUI operator surface.
+ *
+ * Manages connection lifecycle, heartbeat, reconnect with exponential backoff,
+ * and outbound message queuing.
+ */
+export class GuiWsClient {
+  private ws: WebSocket | null = null;
+  private _state: GuiConnectionState = "idle";
+  private stopped = false;
+
+  // Backoff state
+  private backoffAttempts = 0;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // Heartbeat state
+  private pingTimer: ReturnType<typeof setInterval> | null = null;
+  private pongWatchdog: ReturnType<typeof setTimeout> | null = null;
+
+  // Outbound queue (bounded)
+  private outboundQueue: GuiOutboundFrame[] = [];
+
+  constructor(private readonly options: GuiWsClientOptions) {}
+
+  /** Current connection state. */
+  get state(): GuiConnectionState {
+    return this._state;
+  }
+
+  /** Whether the WebSocket is currently open. */
+  get isOpen(): boolean {
+    return this._state === "open";
+  }
+
+  /**
+   * Connect to the gateway WebSocket.
+   */
+  connect(): void {
+    if (this.stopped) return;
+
+    this.setState("connecting");
+
+    const wsUrl = `${this.options.baseUrl}?userId=${encodeURIComponent(this.options.userId)}`;
+    this.ws = new WebSocket(wsUrl);
+
+    this.ws.onopen = () => this.handleOpen();
+    this.ws.onmessage = (event) => this.handleMessage(event);
+    this.ws.onclose = (event) => this.handleClose(event);
+    this.ws.onerror = () => this.handleError();
+  }
+
+  /**
+   * Send an outbound frame to the gateway.
+   * Queues the frame if the connection is not open.
+   */
+  send(frame: GuiOutboundFrame): void {
+    // Validate outbound frame schema
+    try {
+      GuiOutboundFrameSchema.parse(frame);
+    } catch {
+      console.warn("[GuiWsClient] Invalid outbound frame:", JSON.stringify(frame));
+      return;
+    }
+
+    if (this._state === "open" && this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(frame));
+    } else {
+      // Queue for later when not open
+      if (this.outboundQueue.length >= OUTBOUND_QUEUE_MAX) {
+        const dropped = this.outboundQueue.shift();
+        console.warn("[GuiWsClient] Queue full, dropping:", JSON.stringify(dropped));
+      }
+      this.outboundQueue.push(frame);
+    }
+  }
+
+  /**
+   * Close the connection permanently.
+   */
+  close(): void {
+    this.stopped = true;
+    this.stopTimers();
+    this.setState("closed");
+
+    if (this.ws) {
+      this.ws.close(1000, "client closed");
+      this.ws = null;
+    }
+  }
+
+  // --- Private handlers ---
+
+  private handleOpen(): void {
+    // Reset backoff on successful connection
+    this.backoffAttempts = 0;
+
+    this.setState("open");
+    this.startHeartbeat();
+
+    // Drain outbound queue
+    this.drainQueue();
+  }
+
+  private handleMessage(event: MessageEvent): void {
+    const raw = typeof event.data === "string" ? event.data : String(event.data);
+
+    // Handle pong (heartbeat response)
+    if (raw === "pong") {
+      this.resetPongWatchdog();
+      return;
+    }
+
+    // Parse and validate inbound frame
+    try {
+      const parsed = JSON.parse(raw);
+      GuiInboundFrameSchema.parse(parsed);
+      this.options.onFrame(parsed as GuiInboundFrame);
+    } catch {
+      console.warn("[GuiWsClient] Invalid inbound frame:", raw);
+    }
+  }
+
+  private handleClose(event: CloseEvent): void {
+    this.stopHeartbeat();
+
+    if (this.stopped) {
+      this.setState("closed");
+      return;
+    }
+
+    // Unexpected close — schedule reconnect
+    if (event.code !== 1000) {
+      this.setState("reconnecting");
+      this.scheduleReconnect();
+    } else {
+      // Client-initiated close (code 1000) — don't reconnect
+      this.setState("closed");
+    }
+  }
+
+  private handleError(): void {
+    this.stopHeartbeat();
+
+    if (!this.stopped) {
+      this.setState("reconnecting");
+      this.scheduleReconnect();
+    }
+  }
+
+  // --- Private state management ---
+
+  private setState(state: GuiConnectionState): void {
+    if (this._state !== state) {
+      this._state = state;
+      this.options.onStateChange(state);
+    }
+  }
+
+  // --- Heartbeat ---
+
+  private startHeartbeat(): void {
+    this.stopHeartbeat();
+
+    this.pingTimer = setInterval(() => {
+      if (this.ws?.readyState === WebSocket.OPEN) {
+        this.ws.send("ping");
+
+        // Set pong watchdog — close if no pong within 60s
+        this.pongWatchdog = setTimeout(() => {
+          console.warn("[GuiWsClient] Pong timeout, closing connection");
+          this.ws?.close(1000, "pong timeout");
+        }, HEARTBEAT_TIMEOUT_MS);
+      }
+    }, HEARTBEAT_INTERVAL_MS);
+  }
+
+  private stopHeartbeat(): void {
+    if (this.pingTimer) {
+      clearInterval(this.pingTimer);
+      this.pingTimer = null;
+    }
+    this.resetPongWatchdog();
+  }
+
+  private resetPongWatchdog(): void {
+    if (this.pongWatchdog) {
+      clearTimeout(this.pongWatchdog);
+      this.pongWatchdog = null;
+    }
+  }
+
+  // --- Reconnect ---
+
+  private scheduleReconnect(): void {
+    // Exponential backoff: 1s → 2s → 4s → ... → 30s, with ±20% jitter
+    const baseDelay = Math.min(
+      RECONNECT_MIN_MS * Math.pow(2, this.backoffAttempts),
+      RECONNECT_MAX_MS
+    );
+
+    const jitter = baseDelay * RECONNECT_JITTER_FRACTION * (Math.random() * 2 - 1);
+    const delay = Math.round(baseDelay + jitter);
+
+    this.backoffAttempts++;
+
+    console.log(`[GuiWsClient] Reconnecting in ${delay}ms (attempt ${this.backoffAttempts})`);
+
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.connect();
+    }, delay);
+  }
+
+  // --- Queue management ---
+
+  private drainQueue(): void {
+    while (this.outboundQueue.length > 0 && this.ws?.readyState === WebSocket.OPEN) {
+      const frame = this.outboundQueue.shift();
+      if (frame) {
+        this.ws.send(JSON.stringify(frame));
+      }
+    }
+  }
+
+  // --- Cleanup ---
+
+  private stopTimers(): void {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.stopHeartbeat();
+  }
+}

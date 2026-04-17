@@ -287,6 +287,11 @@ function wireOperatorTransport(
               ? event.data
               : new TextDecoder().decode(event.data as ArrayBuffer);
 
+            if (raw === "ping") {
+              ws.send("pong");
+              return;
+            }
+
             const frame = JSON.parse(raw) as GuiOutboundFrame | Record<string, unknown>;
 
             if (frame.type === "clear") {
