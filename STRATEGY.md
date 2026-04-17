@@ -273,6 +273,11 @@ Progress (as of 2026-04-17):
 - `cc105f9` — Playwright fixture upgraded to boot a real `gui-gateway` via Bun subprocess runner; Vite proxy reads `GUI_GATEWAY_PORT` env var.
 - `6a4043d` — Pre-existing mock regression for `startOperatorGateway` rename fixed in CLI tests.
 - ADR-006 scaffold follow-ups are complete. Only remaining work before TUI deletion is porting the 51 parity-checklist rows.
+- `637b279` — Slice F (theming pipeline, parity §5 partial): three-theme system (`kiln-dark` default, `kiln-light`, system-follow), accessible radiogroup switcher on landing route, Zustand persist + pre-render guard, 20 semantic tokens wired through Tailwind v4 `@theme`, body-text contrast AAA both themes, Playwright verifies persistence. Rows 5.1, 5.1a, 5.1b, 5.2 ✅.
+- `7903fb3` — Slice G (gateway transport, parity §6 in-scope): `GuiWsClient` with 30s heartbeat, 60s pong watchdog, exponential backoff (1s→30s ±20% jitter), bounded outbound queue, Zod-validated frames via `@kilnai/gateway-contracts`. `waitForGateway`, `stable-user-id` (localStorage), `useGuiWs` hook. Runtime gets pong response. Rows 6.1–6.6 ✅.
+- `919ac91` — test(gui): transport parity coverage (unit + e2e).
+- `bf00904` — fix(gui): e2e fixture port contention; per-worker fixture scope, runner binds port 0 and reports actual port, runtime `startGuiGateway` returns bound port, minimal `/gui/ws` welcome handler. 4/4 e2e green.
+- Parity status: 10/51 rows ✅
 
 ### Phase H - Example and Consumer Realignment
 

@@ -15,6 +15,9 @@
 - 2026-04-17 — `cc105f9` — Playwright fixture upgraded to boot a real `gui-gateway` via Bun subprocess runner; Vite proxy reads `GUI_GATEWAY_PORT` env var.
 - 2026-04-17 — `6a4043d` — Pre-existing mock regression for `startOperatorGateway` rename fixed in CLI tests.
 - All ADR-006 scaffold follow-ups are complete. Porting of the 51 parity rows has not started.
+- 2026-04-17 — Slice F (theming pipeline): commit `637b279` — three-theme system (`kiln-dark` default, `kiln-light`, system-follow), accessible radiogroup switcher on landing route, Zustand persist + pre-render guard, 20 semantic tokens wired through Tailwind v4 `@theme`, body-text contrast AAA both themes, Playwright verifies persistence. Rows 5.1, 5.1a, 5.1b, 5.2 ✅. Rows 5.3–5.6 still ☐ (await slice D for transcript + sidebar).
+- 2026-04-17 — Slice G (gateway transport): commits `7903fb3` (GuiWsClient + useGuiWs hook + waitForGateway + stable-user-id), `919ac91` (transport parity coverage, unit + e2e), `bf00904` (fix e2e fixture port contention, 4/4 e2e green). Rows 6.1, 6.2, 6.3, 6.4, 6.5, 6.6 ✅. Row 6.7 out of scope per checklist.
+- Parity status: 10 of 51 rows ✅ (rows 5.1, 5.1a, 5.1b, 5.2, 6.1–6.6). Next slice: D (session lifecycle) unblocks rows 5.3–5.6 + all of §1 + §2 + §3.
 
 ## How to use
 - Each row is a discrete capability currently provided by `@kilnai/tui`.
