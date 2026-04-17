@@ -8,7 +8,9 @@
 
 - 2026-04-17 — ADR-005 + ADR-006 accepted; checklist accepted.
 - 2026-04-17 — `packages/gui/` scaffold landed (commit `54d1d53`): React 19, TanStack Router/Query, Zustand, Tailwind v4, Vitest, ESLint 9 (jsx-a11y strict, no-restricted-imports guard on @kilnai/core|runtime). Pre-spec single-file UI archived under `packages/gui/.reference/` for parity porting. Runtime `gui-gateway.ts` + `operator-gateway.ts` and `kiln gui` CLI command in place. All rows below still `☐` — porting starts next.
-- Outstanding scaffold follow-ups (from ADR-006): extract `@kilnai/gateway-contracts`, add Playwright e2e suite.
+- 2026-04-17 — `@kilnai/gateway-contracts` package extracted (commit `fbd18dc`). GUI and runtime now share neutral wire-format types. ESLint `no-restricted-imports` guard updated to direct consumers to `@kilnai/gateway-contracts` instead of `@kilnai/runtime`.
+- 2026-04-17 — Playwright e2e harness added in `packages/gui/` (commit `ed6b59a`). One smoke test passing. Fixture uses `node:http` mock gateway because runtime requires `Bun.serve`; TODO in fixture references parity checklist for upgrade to real `gui-gateway`. Root script `bun run test:e2e` delegates to workspace.
+- Outstanding scaffold follow-ups: production mount (gateway serves `packages/gui/dist/*` at `/gui/*`), `kiln gui` polish (auto-start Vite in dev, open browser), upgrade Playwright fixture to real `gui-gateway`. All parity rows still `☐` — feature porting has not started.
 
 ## How to use
 - Each row is a discrete capability currently provided by `@kilnai/tui`.

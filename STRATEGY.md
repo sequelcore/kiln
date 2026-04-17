@@ -266,7 +266,9 @@ Progress (as of 2026-04-17):
 - `docs/roadmap/gui-phase-1-parity-checklist.md` accepted
 - `packages/gui/` scaffold landed at commit `54d1d53` (React 19 + TanStack Router/Query + Zustand + Tailwind v4 + Vitest + ESLint 9); pre-spec UI archived under `.reference/`
 - Runtime `gui-gateway` + `operator-gateway` and `kiln gui` CLI command in place
-- Outstanding: extract `@kilnai/gateway-contracts`, add Playwright e2e, port parity-checklist rows
+- `@kilnai/gateway-contracts` package extracted (commit `fbd18dc`); GUI and runtime now share neutral wire-format types; ESLint guard directs consumers there instead of `@kilnai/runtime`
+- Playwright e2e harness added in `packages/gui/` (commit `ed6b59a`); one smoke test passing; fixture uses `node:http` mock gateway pending upgrade to real `gui-gateway`
+- Outstanding: production mount (gateway serves `packages/gui/dist/*` at `/gui/*`), `kiln gui` polish (auto-start Vite in dev, open browser), upgrade Playwright fixture to real `gui-gateway`, port parity-checklist rows
 
 ### Phase H - Example and Consumer Realignment
 
