@@ -1,8 +1,7 @@
-import { existsSync, readFileSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { join } from "node:path";
 import { Hono } from "hono";
-import { createBunWebSocket, serveStatic } from "hono/bun";
+import { createBunWebSocket } from "hono/bun";
 import type { WSContext } from "hono/ws";
 import {
   EventBus,
@@ -30,6 +29,11 @@ import {
   type RuntimeTurnFileChange,
 } from "../session/runtime-turn-record.js";
 import type { OnProviderSwitch, OnResumeSession, OperatorSessionTransportOptions } from "./operator-gateway.js";
+import {
+  mountGuiStaticAssetsIfPresent,
+  resolveGuiDistCandidates,
+  resolveGuiDistPath,
+} from "./gui-static-assets.js";
 import type {
   GuiDashboardSnapshot,
   GuiInboundFrame,
@@ -145,8 +149,12 @@ async function getCodexModels(): Promise<string[]> {
 export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<GuiGateway> {
   const port = options.port ?? 4810;
   const app = new Hono();
-  const guiDistPath = resolveGuiDistPath(options.guiDistPath);
-  const hasMountedGui = guiDistPath !== undefined;
+  const guiDistPath = resolveGuiDistPath(options.guiDistPath, import.meta.url);
+  const hasMountedGui = mountGuiStaticAssetsIfPresent(app, guiDistPath);
+  if (!hasMountedGui) {
+    const unresolvedGuiDistPath = resolveGuiDistCandidates(options.guiDistPath, import.meta.url)[0] ?? "<unknown>";
+    console.warn(`[gui-gateway] GUI bundle missing at ${join(unresolvedGuiDistPath, "index.html")}; skipping /gui mount.`);
+  }
   const transportOptions = options.operatorTransport;
 
   const { upgradeWebSocket, websocket } = createBunWebSocket();
@@ -201,23 +209,6 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
   }
 
   app.get("/gui", (c) => c.redirect("/gui/"));
-
-  if (guiDistPath) {
-    app.use("/gui/*", serveStatic({
-      root: guiDistPath,
-      rewriteRequestPath: (path) => {
-        const stripped = path.replace(/^\/gui/, "");
-        return stripped === "/" || stripped === "" ? "/index.html" : stripped;
-      },
-    }));
-
-    app.get("/gui/*", (c) => {
-      const html = readFileSync(join(guiDistPath, "index.html"), "utf-8");
-      return c.html(html);
-    });
-  } else {
-    app.get("/gui/", (c) => c.html(renderGuiBootstrapPage(port)));
-  }
 
   const server = Bun.serve({
     port,
@@ -486,63 +477,6 @@ async function applyResumeSelection(
     throw new Error("resume selection unsupported");
   }
   await onResumeSession(sessionId, provider);
-}
-
-function resolveGuiDistPath(configuredPath?: string): string | undefined {
-  const candidate = configuredPath ?? join(process.cwd(), "packages", "gui", "dist");
-  if (existsSync(join(candidate, "index.html"))) {
-    return candidate;
-  }
-  return undefined;
-}
-
-function renderGuiBootstrapPage(port: number): string {
-  return `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Kiln GUI Gateway</title>
-    <style>
-      body {
-        margin: 0;
-        min-height: 100vh;
-        display: grid;
-        place-items: center;
-        background: #101414;
-        color: #edf4ef;
-        font: 16px/1.5 "Segoe UI", sans-serif;
-      }
-      main {
-        width: min(720px, calc(100vw - 32px));
-        padding: 32px;
-        border: 1px solid rgba(136, 216, 192, 0.2);
-        border-radius: 24px;
-        background: rgba(20, 27, 27, 0.92);
-      }
-      code {
-        display: block;
-        margin: 16px 0;
-        padding: 12px 14px;
-        border-radius: 14px;
-        background: rgba(0, 0, 0, 0.2);
-        color: #88d8c0;
-        white-space: pre-wrap;
-      }
-      a { color: #88d8c0; }
-    </style>
-  </head>
-  <body>
-    <main>
-      <p>Kiln GUI gateway is running.</p>
-      <h1>Frontend bundle is not built yet.</h1>
-      <p>For local development, run the GUI Vite server and point it at this gateway.</p>
-      <code>cd C:/Proyectos/Sequel/kiln/packages/gui
-bun run dev</code>
-      <p>The dev client will automatically probe <a href="http://localhost:${port}/gui/api/dashboard">/gui/api/dashboard</a> on port ${port}.</p>
-    </main>
-  </body>
-</html>`;
 }
 
 class GuiActivityStreamer {
