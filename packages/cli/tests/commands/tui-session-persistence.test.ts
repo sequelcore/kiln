@@ -7,6 +7,7 @@ const {
   mockWaitForGateway,
   mockStartTui,
   mockStartTuiGateway,
+  mockStartOperatorGateway,
   mockGetProjectContextArtifactCache,
   mockSessionManagerPrepare,
 } = vi.hoisted(() => ({
@@ -14,6 +15,7 @@ const {
   mockWaitForGateway: vi.fn(),
   mockStartTui: vi.fn(),
   mockStartTuiGateway: vi.fn(),
+  mockStartOperatorGateway: vi.fn(),
   mockGetProjectContextArtifactCache: vi.fn(),
   mockSessionManagerPrepare: vi.fn(),
 }));
@@ -33,6 +35,7 @@ vi.mock("@kilnai/tui", () => ({
 }));
 vi.mock("@kilnai/runtime", () => ({
   startTuiGateway: mockStartTuiGateway,
+  startOperatorGateway: mockStartOperatorGateway,
   getProjectContextArtifactCache: mockGetProjectContextArtifactCache,
 }));
 vi.mock("../../src/wrapper/session-manager.js", () => ({
@@ -125,6 +128,12 @@ describe("makeMultiProviderSessionFactory", () => {
     mockGetProjectContextArtifactCache.mockResolvedValue(new InMemoryContextArtifactCache());
     mockSessionManagerPrepare.mockRejectedValue(new Error("missing gateway config"));
     mockStartTuiGateway.mockResolvedValue({
+      port: 4801,
+      url: "ws://localhost:4801/ws",
+      models: { claude: [], codex: [], opencode: [] },
+      shutdown: vi.fn(),
+    });
+    mockStartOperatorGateway.mockResolvedValue({
       port: 4801,
       url: "ws://localhost:4801/ws",
       models: { claude: [], codex: [], opencode: [] },
@@ -245,7 +254,7 @@ describe("makeMultiProviderSessionFactory", () => {
     }
 
     expect(mockSessionManagerPrepare).toHaveBeenCalled();
-    expect(mockStartTuiGateway).toHaveBeenCalledTimes(1);
+    expect(mockStartOperatorGateway).toHaveBeenCalledTimes(1);
     expect(mockWaitForGateway).toHaveBeenCalledTimes(1);
     expect(mockStartTui).toHaveBeenCalledTimes(1);
     expect(mockGatewaySessionCtor).toHaveBeenCalledTimes(1);
@@ -275,7 +284,7 @@ describe("makeMultiProviderSessionFactory", () => {
       await rm(cwd, { recursive: true, force: true });
     }
 
-    expect(mockStartTuiGateway).toHaveBeenCalledTimes(1);
+    expect(mockStartOperatorGateway).toHaveBeenCalledTimes(1);
     expect(mockWaitForGateway).toHaveBeenCalledTimes(1);
     expect(mockStartTui).toHaveBeenCalledTimes(1);
     expect(mockGatewaySessionCtor).toHaveBeenCalledTimes(1);
