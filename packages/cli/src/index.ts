@@ -57,6 +57,11 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     console.log("  --model      Model override for the selected provider");
     console.log("  --agent      Agent name from .kiln/agents or ~/.kiln/agents");
     console.log("  --port       Port override (dev/gateway)");
+    console.log("  --gui-port   GUI dev server port override (gui command)");
+    console.log("  --dev        Force gui command to run in dev mode");
+    console.log("  --prod       Force gui command to run in prod mode");
+    console.log("  --open       Open GUI URL in default browser");
+    console.log("  --no-open    Do not open browser automatically");
     console.log("  --playground Open Studio in browser (dev mode)");
     console.log("  --mcp       Start tools command in MCP stdio mode");
     console.log("  --plan      Plan mode: read-only exploration before execution");
@@ -194,11 +199,19 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
 
   if (command === "gui") {
     const { guiCommand } = await import("./commands/gui.js");
+    const mode = parseGuiMode(args);
+    if (!mode.ok) {
+      console.error(mode.error);
+      process.exit(1);
+    }
     const port = parsePort(args, 4810);
+    const guiPort = parsePortForFlag(args, "--gui-port", 5183);
     await guiCommand(config, {
       port,
+      guiPort,
+      mode: mode.value,
       cwd: findFlag(args, "--cwd"),
-      open: !args.includes("--no-open"),
+      open: parseOpenFlag(args),
     });
     return;
   }
@@ -258,12 +271,41 @@ function capitalize(s: string): string {
 }
 
 function parsePort(args: readonly string[], fallbackPort?: number): number | undefined {
-  const portIdx = args.indexOf("--port");
+  return parsePortForFlag(args, "--port", fallbackPort);
+}
+
+function parsePortForFlag(args: readonly string[], flag: string, fallbackPort?: number): number | undefined {
+  const portIdx = args.indexOf(flag);
   if (portIdx >= 0 && portIdx + 1 < args.length) {
     const parsed = parseInt(args[portIdx + 1]!, 10);
     if (!Number.isNaN(parsed) && parsed > 0) return parsed;
   }
   return fallbackPort;
+}
+
+function parseGuiMode(args: readonly string[]): { ok: true; value: "dev" | "prod" | undefined } | { ok: false; error: string } {
+  const hasDevFlag = args.includes("--dev");
+  const hasProdFlag = args.includes("--prod");
+  if (hasDevFlag && hasProdFlag) {
+    return { ok: false, error: "Cannot use --dev and --prod together for `kiln gui`." };
+  }
+  if (hasDevFlag) {
+    return { ok: true, value: "dev" };
+  }
+  if (hasProdFlag) {
+    return { ok: true, value: "prod" };
+  }
+  return { ok: true, value: undefined };
+}
+
+function parseOpenFlag(args: readonly string[]): boolean {
+  if (args.includes("--no-open")) {
+    return false;
+  }
+  if (args.includes("--open")) {
+    return true;
+  }
+  return true;
 }
 
 function parseRunArgs(rawArgs: readonly string[]): { task: string; flags: { apiKey?: string; provider?: string; model?: string; agent?: string; isolate?: boolean; plan?: boolean; ephemeral?: boolean; profile?: string; skipGitRepoCheck?: boolean; outputSchema?: string; addDir?: string; localProvider?: string; workers?: number } } {

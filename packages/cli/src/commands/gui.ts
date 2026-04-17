@@ -1,4 +1,6 @@
-import { exec } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import type { KilnAppConfig } from "../config.js";
 import { readGlobalConfig } from "../config/global-config.js";
 import { resolveEffectiveProvider } from "../config/env-config.js";
@@ -19,13 +21,17 @@ import { getFieldStore } from "@kilnai/core";
 
 export interface GuiFlags {
   readonly port?: number;
+  readonly guiPort?: number;
+  readonly mode?: "dev" | "prod";
   readonly cwd?: string;
   readonly open?: boolean;
 }
 
 export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {}): Promise<void> {
   const cwd = flags.cwd ?? process.cwd();
+  const mode = resolveGuiMode(cwd, flags.mode);
   const port = flags.port ?? 4810;
+  const guiPort = flags.guiPort ?? 5183;
   const sessionStore = new SessionStore(cwd);
   const { registry } = createDefaultRegistry();
   const providerDisplay = getProviderDisplayInfo(registry);
@@ -63,17 +69,25 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
     },
   });
 
-  console.log(`GUI gateway started on ${gateway.url}`);
-  console.log(`Dashboard API: ${gateway.apiUrl}`);
-  if (!gateway.hasMountedGui) {
-    console.log("GUI bundle not built; use `bun run dev` in packages/gui for the interactive client.");
+  let viteDevChild: ChildProcess | undefined;
+  if (mode === "dev") {
+    viteDevChild = spawnGuiDevServer(cwd, guiPort);
   }
+
+  const gatewayUrl = `http://localhost:${gateway.port}/gui/`;
+  const guiUrl = mode === "dev" ? `http://localhost:${guiPort}/` : gatewayUrl;
+  printStartupBanner({ mode, gatewayUrl, guiUrl, apiUrl: gateway.apiUrl });
 
   if (flags.open ?? true) {
-    openBrowser(gateway.url);
+    openBrowser(guiUrl);
   }
 
-  await waitForShutdown(() => gateway.shutdown());
+  await waitForShutdown(async () => {
+    if (viteDevChild) {
+      await stopChildProcess(viteDevChild, "gui-dev");
+    }
+    gateway.shutdown();
+  });
 }
 
 function parseProvider(p: string | undefined, providerIds: readonly ProviderId[]): ProviderId {
@@ -193,17 +207,101 @@ function toProviderLabel(provider: string): string {
   }
 }
 
-function openBrowser(url: string): void {
-  const cmd =
-    process.platform === "win32" ? `start "" "${url}"` :
-    process.platform === "darwin" ? `open "${url}"` :
-    `xdg-open "${url}"`;
+function resolveGuiMode(cwd: string, explicitMode: GuiFlags["mode"]): "dev" | "prod" {
+  if (explicitMode) {
+    return explicitMode;
+  }
+  const distIndexPath = join(cwd, "packages", "gui", "dist", "index.html");
+  return existsSync(distIndexPath) ? "prod" : "dev";
+}
 
-  exec(cmd, (error) => {
-    if (error) {
-      console.error(`Could not open browser: ${error.message}`);
+function spawnGuiDevServer(cwd: string, guiPort: number): ChildProcess {
+  const guiWorkspacePath = join(cwd, "packages", "gui");
+  if (!existsSync(join(guiWorkspacePath, "package.json"))) {
+    throw new Error(`GUI workspace not found at ${guiWorkspacePath}`);
+  }
+
+  const child = spawn("bun", ["run", "--cwd", "packages/gui", "dev", "--", "--port", String(guiPort)], {
+    cwd,
+    env: { ...process.env, GUI_PORT: String(guiPort) },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  child.stdout.on("data", (chunk: Buffer | string) => {
+    writePrefixed("gui-dev", chunk, process.stdout);
+  });
+  child.stderr.on("data", (chunk: Buffer | string) => {
+    writePrefixed("gui-dev", chunk, process.stderr);
+  });
+  child.on("error", (error) => {
+    console.error(`[gui-dev] Failed to start: ${error.message}`);
+  });
+
+  return child;
+}
+
+function writePrefixed(prefix: string, chunk: Buffer | string, output: NodeJS.WriteStream): void {
+  const text = chunk.toString();
+  const normalized = text.replace(/\r\n/g, "\n");
+  const lines = normalized.split("\n");
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+    const isLastEmptyLine = index === lines.length - 1 && line.length === 0;
+    if (isLastEmptyLine) {
+      continue;
+    }
+    output.write(`[${prefix}] ${line}\n`);
+  }
+}
+
+async function stopChildProcess(child: ChildProcess, label: string): Promise<void> {
+  if (child.exitCode !== null) {
+    return;
+  }
+  await new Promise<void>((resolve) => {
+    const finish = () => {
+      clearTimeout(forceTimer);
+      resolve();
+    };
+    const forceTimer = setTimeout(() => {
+      if (child.exitCode === null) {
+        child.kill("SIGKILL");
+      }
+    }, 2_000);
+    child.once("exit", finish);
+    if (!child.kill("SIGINT")) {
+      child.kill("SIGTERM");
     }
   });
+  console.log(`[${label}] stopped`);
+}
+
+function printStartupBanner(input: { mode: "dev" | "prod"; gatewayUrl: string; guiUrl: string; apiUrl: string }): void {
+  console.log("Kiln GUI");
+  console.log(`Mode: ${input.mode}`);
+  console.log(`Gateway URL: ${input.gatewayUrl}`);
+  console.log(`GUI URL: ${input.guiUrl}`);
+  console.log(`Dashboard API: ${input.apiUrl}`);
+}
+
+function openBrowser(url: string): void {
+  const command = process.platform === "win32"
+    ? "cmd"
+    : process.platform === "darwin"
+      ? "open"
+      : "xdg-open";
+  const args = process.platform === "win32"
+    ? ["/c", "start", "", url]
+    : [url];
+
+  const child = spawn(command, args, {
+    detached: true,
+    stdio: "ignore",
+  });
+  child.on("error", (error) => {
+    console.error(`Could not open browser: ${error.message}`);
+  });
+  child.unref();
 }
 
 async function readTelemetrySnapshot(): Promise<GuiDashboardSnapshot["telemetry"]> {
@@ -230,13 +328,12 @@ async function readTelemetrySnapshot(): Promise<GuiDashboardSnapshot["telemetry"
   }
 }
 
-async function waitForShutdown(onShutdown: () => void): Promise<void> {
+async function waitForShutdown(onShutdown: () => Promise<void> | void): Promise<void> {
   await new Promise<void>((resolve) => {
     const shutdown = () => {
       process.off("SIGINT", shutdown);
       process.off("SIGTERM", shutdown);
-      onShutdown();
-      resolve();
+      Promise.resolve(onShutdown()).finally(resolve);
     };
 
     process.on("SIGINT", shutdown);
