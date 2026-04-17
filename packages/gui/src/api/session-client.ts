@@ -1,60 +1,10 @@
-export type GuiOutboundFrame =
-  | { type: "message"; content: string }
-  | { type: "clear" }
-  | { type: "provider"; provider: string; model?: string }
-  | { type: "resume"; sessionId: string; provider: string }
-  | { type: "approve"; sessionId?: string }
-  | { type: "reject"; reason: string; sessionId?: string }
-  | { type: "exec" };
+import type {
+  GuiInboundFrame,
+  GuiOutboundFrame,
+  GuiSessionConnectionState,
+} from "@kilnai/gateway-contracts";
 
-export type GuiInboundFrame =
-  | { type: "thinking" }
-  | {
-      type: "activity";
-      activity: string;
-      toolName?: string;
-      output?: string;
-      usd?: number;
-      input?: unknown;
-      inputTokens?: number;
-      outputTokens?: number;
-      details?: string;
-      sessionId?: string;
-      path?: string;
-      changeType?: "created" | "modified" | "deleted";
-      linesAdded?: number;
-      linesRemoved?: number;
-    }
-  | {
-      type: "done";
-      content: string;
-      parts?: unknown[];
-      inputTokens: number;
-      outputTokens: number;
-      routedProvider?: string;
-      routedModel?: string;
-      runtimeContinuity?: {
-        strategy: string;
-        feedbackLabel?: string;
-        pressure?: string;
-        supportArtifactCount?: number;
-        supportArtifactSources?: string[];
-        fallbackLabel?: string;
-        usedCachedSupport?: boolean;
-        selectionReason?: string;
-      };
-    }
-  | { type: "text_delta"; content: string }
-  | { type: "error"; message: string; code?: string }
-  | { type: "welcome"; greeting?: string; models?: Record<string, string[]>; planMode?: boolean }
-  | { type: "exec_confirmed" }
-  | { type: "cleared" }
-  | { type: "provider_changed"; provider: string }
-  | { type: "resume_selected"; sessionId: string; provider: string }
-  | { type: "approval_requested"; description: string; sessionId: string }
-  | { type: "approval_received"; approved: boolean; reason?: string; sessionId?: string };
-
-export type GuiSessionConnectionState = "connecting" | "connected" | "reconnecting" | "disconnected";
+export type { GuiInboundFrame, GuiOutboundFrame, GuiSessionConnectionState };
 
 export interface GuiSessionClientOptions {
   readonly baseUrl?: string;

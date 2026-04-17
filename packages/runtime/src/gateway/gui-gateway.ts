@@ -30,139 +30,24 @@ import {
   type RuntimeTurnFileChange,
 } from "../session/runtime-turn-record.js";
 import type { OnProviderSwitch, OnResumeSession, OperatorSessionTransportOptions } from "./operator-gateway.js";
+import type {
+  GuiDashboardSnapshot,
+  GuiInboundFrame,
+  GuiOutboundFrame,
+  GuiSessionDetail,
+} from "@kilnai/gateway-contracts";
 
-export interface GuiProviderDescriptor {
-  readonly id: string;
-  readonly label: string;
-  readonly group: "subscription" | "harness" | "direct";
-  readonly available: boolean;
-}
-
-export interface GuiSessionSummary {
-  readonly id: string;
-  readonly provider: string;
-  readonly title: string;
-  readonly updatedAt: string;
-  readonly costUsd: number;
-}
-
-export interface GuiTelemetrySnapshot {
-  readonly status: string;
-  readonly dominantRegions: readonly string[];
-  readonly saturation: number;
-  readonly entropy: number;
-}
-
-export interface GuiDashboardSnapshot {
-  readonly providers: readonly GuiProviderDescriptor[];
-  readonly sessions: readonly GuiSessionSummary[];
-  readonly telemetry: GuiTelemetrySnapshot;
-}
-
-export interface GuiSessionMeta {
-  readonly kilnSessionId: string;
-  readonly provider: string;
-  readonly task: string;
-  readonly startedAt: string;
-  readonly completedAt?: string;
-  readonly costUsd?: number;
-  readonly toolCount?: number;
-  readonly turnDepth?: number;
-  readonly providerSessionId?: string;
-  readonly resumeStrategy?: string;
-  readonly resumeFeedback?: {
-    readonly sampleSize: number;
-    readonly preferredStrategy?: string;
-    readonly influencedChoice: boolean;
-  };
-  readonly resumeOutcome?: {
-    readonly succeeded: boolean;
-    readonly finalProvider?: string;
-    readonly costUsd: number;
-    readonly toolCallCount: number;
-    readonly durationMs: number;
-    readonly verificationPassed?: boolean;
-  };
-  readonly sessionLedger?: {
-    readonly currentPhase: string;
-    readonly resumedFrom?: string;
-    readonly workingDirectory?: string;
-    readonly worktreePath?: string;
-    readonly lastError?: string;
-    readonly lastProvider?: string;
-    readonly toolCallCount?: number;
-    readonly turnDepth?: number;
-  };
-  readonly exactArtifacts?: readonly string[];
-}
-
-export interface GuiSessionTranscriptLine {
-  readonly seq: number;
-  readonly ts: string;
-  readonly type: string;
-  readonly data: Record<string, unknown>;
-}
-
-export interface GuiSessionDetail {
-  readonly id: string;
-  readonly meta: GuiSessionMeta;
-  readonly transcript: readonly GuiSessionTranscriptLine[];
-}
-
-export type GuiOutboundFrame =
-  | { type: "message"; content: string }
-  | { type: "clear" }
-  | { type: "provider"; provider: string; model?: string }
-  | { type: "resume"; sessionId: string; provider: string }
-  | { type: "approve"; sessionId?: string }
-  | { type: "reject"; reason: string; sessionId?: string }
-  | { type: "exec" };
-
-export type GuiInboundFrame =
-  | { type: "thinking" }
-  | {
-      type: "activity";
-      activity: string;
-      toolName?: string;
-      output?: string;
-      usd?: number;
-      input?: unknown;
-      inputTokens?: number;
-      outputTokens?: number;
-      details?: string;
-      sessionId?: string;
-      path?: string;
-      changeType?: "created" | "modified" | "deleted";
-      linesAdded?: number;
-      linesRemoved?: number;
-    }
-  | {
-      type: "done";
-      content: string;
-      parts?: readonly unknown[];
-      inputTokens: number;
-      outputTokens: number;
-      routedProvider?: string;
-      routedModel?: string;
-      runtimeContinuity?: {
-        strategy: string;
-        feedbackLabel?: string;
-        pressure?: string;
-        supportArtifactCount?: number;
-        supportArtifactSources?: readonly string[];
-        fallbackLabel?: string;
-        usedCachedSupport?: boolean;
-        selectionReason?: string;
-      };
-    }
-  | { type: "error"; message: string; code?: string }
-  | { type: "welcome"; greeting?: string; models?: Record<string, string[]>; planMode?: boolean }
-  | { type: "exec_confirmed" }
-  | { type: "cleared" }
-  | { type: "provider_changed"; provider: string }
-  | { type: "resume_selected"; sessionId: string; provider: string }
-  | { type: "approval_requested"; description: string; sessionId: string }
-  | { type: "approval_received"; approved: boolean; reason?: string; sessionId?: string };
+export type {
+  GuiDashboardSnapshot,
+  GuiInboundFrame,
+  GuiOutboundFrame,
+  GuiProviderDescriptor,
+  GuiSessionDetail,
+  GuiSessionMeta,
+  GuiSessionSummary,
+  GuiSessionTranscriptLine,
+  GuiTelemetrySnapshot,
+} from "@kilnai/gateway-contracts";
 
 export interface StartGuiGatewayOptions {
   readonly port?: number;

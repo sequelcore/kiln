@@ -27,7 +27,7 @@ export default tseslint.config(
               group: ["@kilnai/runtime", "@kilnai/runtime/*"],
               importNamePattern: "^(?!type ).*",
               message:
-                "Value imports from @kilnai/runtime are forbidden in packages/gui. Use `import type` only.",
+                "Value imports from @kilnai/runtime are forbidden in packages/gui. Import gateway frame types from @kilnai/gateway-contracts instead.",
             },
           ],
         },

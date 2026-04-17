@@ -1,0 +1,45 @@
+{
+  "name": "@kilnai/gateway-contracts",
+  "version": "1.0.7",
+  "description": "Shared HTTP/WebSocket frame contracts between the Kiln runtime gateway and operator surfaces",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sequelcore/kiln.git",
+    "directory": "packages/gateway-contracts"
+  },
+  "homepage": "https://github.com/sequelcore/kiln/tree/main/packages/gateway-contracts",
+  "keywords": [
+    "ai",
+    "gateway",
+    "contracts",
+    "websocket"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "zod": "^3.24.3"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "vitest": "^4.0.18"
+  }
+}

@@ -1,32 +1,17 @@
+import type {
+  GuiDashboardSnapshot,
+  GuiProviderDescriptor,
+  GuiSessionSummary,
+  GuiTelemetrySnapshot,
+} from "@kilnai/gateway-contracts";
 import { GuiSessionClient, type GuiSessionClientOptions } from "./session-client.js";
 
-export interface GuiProviderDescriptor {
-  readonly id: string;
-  readonly label: string;
-  readonly group: "subscription" | "harness" | "direct";
-  readonly available: boolean;
-}
-
-export interface GuiSessionSummary {
-  readonly id: string;
-  readonly provider: string;
-  readonly title: string;
-  readonly updatedAt: string;
-  readonly costUsd: number;
-}
-
-export interface GuiTelemetrySnapshot {
-  readonly status: string;
-  readonly dominantRegions: readonly string[];
-  readonly saturation: number;
-  readonly entropy: number;
-}
-
-export interface GuiDashboardSnapshot {
-  readonly providers: readonly GuiProviderDescriptor[];
-  readonly sessions: readonly GuiSessionSummary[];
-  readonly telemetry: GuiTelemetrySnapshot;
-}
+export type {
+  GuiDashboardSnapshot,
+  GuiProviderDescriptor,
+  GuiSessionSummary,
+  GuiTelemetrySnapshot,
+};
 
 const fallbackSnapshot: GuiDashboardSnapshot = {
   providers: [

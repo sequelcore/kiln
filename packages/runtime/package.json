@@ -39,6 +39,7 @@
     "access": "public"
   },
   "dependencies": {
+    "@kilnai/gateway-contracts": "workspace:*",
     "hono": "^4.7.0",
     "jose": "^5.0.0"
   },

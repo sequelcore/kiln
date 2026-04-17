@@ -14,6 +14,6 @@
   "exclude": [".reference"],
   "references": [
     { "path": "../core" },
-    { "path": "../runtime" }
+    { "path": "../gateway-contracts" }
   ]
 }
