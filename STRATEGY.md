@@ -268,7 +268,11 @@ Progress (as of 2026-04-17):
 - Runtime `gui-gateway` + `operator-gateway` and `kiln gui` CLI command in place
 - `@kilnai/gateway-contracts` package extracted (commit `fbd18dc`); GUI and runtime now share neutral wire-format types; ESLint guard directs consumers there instead of `@kilnai/runtime`
 - Playwright e2e harness added in `packages/gui/` (commit `ed6b59a`); one smoke test passing; fixture uses `node:http` mock gateway pending upgrade to real `gui-gateway`
-- Outstanding: production mount (gateway serves `packages/gui/dist/*` at `/gui/*`), `kiln gui` polish (auto-start Vite in dev, open browser), upgrade Playwright fixture to real `gui-gateway`, port parity-checklist rows
+- `d18a050` — `gui-gateway` statically mounts built GUI at `/gui/*` with SPA fallback; mount is skipped gracefully if `packages/gui/dist/` is absent.
+- `defe8ad` — `kiln gui --dev|--prod` implemented with Vite child-process lifecycle, `--port/--gui-port/--open/--no-open` flags, and cross-platform browser opener.
+- `cc105f9` — Playwright fixture upgraded to boot a real `gui-gateway` via Bun subprocess runner; Vite proxy reads `GUI_GATEWAY_PORT` env var.
+- `6a4043d` — Pre-existing mock regression for `startOperatorGateway` rename fixed in CLI tests.
+- ADR-006 scaffold follow-ups are complete. Only remaining work before TUI deletion is porting the 51 parity-checklist rows.
 
 ### Phase H - Example and Consumer Realignment
 

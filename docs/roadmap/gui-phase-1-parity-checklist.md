@@ -10,7 +10,11 @@
 - 2026-04-17 — `packages/gui/` scaffold landed (commit `54d1d53`): React 19, TanStack Router/Query, Zustand, Tailwind v4, Vitest, ESLint 9 (jsx-a11y strict, no-restricted-imports guard on @kilnai/core|runtime). Pre-spec single-file UI archived under `packages/gui/.reference/` for parity porting. Runtime `gui-gateway.ts` + `operator-gateway.ts` and `kiln gui` CLI command in place. All rows below still `☐` — porting starts next.
 - 2026-04-17 — `@kilnai/gateway-contracts` package extracted (commit `fbd18dc`). GUI and runtime now share neutral wire-format types. ESLint `no-restricted-imports` guard updated to direct consumers to `@kilnai/gateway-contracts` instead of `@kilnai/runtime`.
 - 2026-04-17 — Playwright e2e harness added in `packages/gui/` (commit `ed6b59a`). One smoke test passing. Fixture uses `node:http` mock gateway because runtime requires `Bun.serve`; TODO in fixture references parity checklist for upgrade to real `gui-gateway`. Root script `bun run test:e2e` delegates to workspace.
-- Outstanding scaffold follow-ups: production mount (gateway serves `packages/gui/dist/*` at `/gui/*`), `kiln gui` polish (auto-start Vite in dev, open browser), upgrade Playwright fixture to real `gui-gateway`. All parity rows still `☐` — feature porting has not started.
+- 2026-04-17 — `d18a050` — `gui-gateway` statically mounts built GUI at `/gui/*` with SPA fallback; mount is skipped gracefully if `packages/gui/dist/` is absent.
+- 2026-04-17 — `defe8ad` — `kiln gui --dev|--prod` implemented with Vite child-process lifecycle, `--port/--gui-port/--open/--no-open` flags, and cross-platform browser opener.
+- 2026-04-17 — `cc105f9` — Playwright fixture upgraded to boot a real `gui-gateway` via Bun subprocess runner; Vite proxy reads `GUI_GATEWAY_PORT` env var.
+- 2026-04-17 — `6a4043d` — Pre-existing mock regression for `startOperatorGateway` rename fixed in CLI tests.
+- All ADR-006 scaffold follow-ups are complete. Porting of the 51 parity rows has not started.
 
 ## How to use
 - Each row is a discrete capability currently provided by `@kilnai/tui`.
