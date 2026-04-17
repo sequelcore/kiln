@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useGatewayHealth } from "../lib/use-gateway-health.js";
+import { ThemeSwitcher } from "../components/theme-switcher.js";
 
 export const Route = createFileRoute("/")({
   component: IndexComponent,
@@ -14,13 +15,14 @@ function IndexComponent() {
       <div className="flex items-center gap-2 text-sm text-[var(--color-muted-foreground)]">
         <span>Gateway</span>
         {isLoading && <span>checking...</span>}
-        {isError && <span className="text-[var(--color-kiln-error)]">unreachable</span>}
+        {isError && <span className="text-[var(--color-error)]">unreachable</span>}
         {data && (
-          <span className="text-[var(--color-kiln-success)]">
+          <span className="text-[var(--color-success)]">
             {data.status}
           </span>
         )}
       </div>
+      <ThemeSwitcher />
     </main>
   );
 }
