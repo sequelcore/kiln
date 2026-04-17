@@ -206,6 +206,22 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
         operatorWsUrl = url;
       },
     });
+  } else {
+    // Minimal WebSocket endpoint for environments without an operator transport
+    // (e.g. dashboard-only mode, e2e test fixtures). Accepts connections and
+    // sends a welcome frame so clients can verify connectivity.
+    app.get(
+      "/gui/ws",
+      upgradeWebSocket(() => ({
+        onOpen(_event: Event, ws: WSContext) {
+          ws.send(JSON.stringify({
+            type: "welcome",
+            models: {},
+            planMode: false,
+          } satisfies GuiInboundFrame));
+        },
+      })),
+    );
   }
 
   app.get("/gui", (c) => c.redirect("/gui/"));
@@ -216,10 +232,12 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
     websocket,
   });
 
+  const boundPort = server.port ?? port;
+
   return {
-    port,
-    url: `http://localhost:${port}/gui/`,
-    apiUrl: `http://localhost:${port}/gui/api/dashboard`,
+    port: boundPort,
+    url: `http://localhost:${boundPort}/gui/`,
+    apiUrl: `http://localhost:${boundPort}/gui/api/dashboard`,
     operatorWsUrl,
     operatorModels,
     hasMountedGui,

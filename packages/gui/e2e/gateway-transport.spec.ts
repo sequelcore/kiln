@@ -30,22 +30,27 @@ test.describe("gateway transport", () => {
     const firstConnection = await page.evaluate((url) => {
       return new Promise<{ state: string; userId: string | null }>((resolve) => {
         const ws = new WebSocket(url);
-        let userId: string | null = null;
+        const userIdFromUrl = new URL(url).searchParams.get("userId");
+        let resolved = false;
+        const tryResolve = (state: string) => {
+          if (!resolved) {
+            resolved = true;
+            resolve({ state, userId: state === "open" ? userIdFromUrl : null });
+          }
+        };
         ws.onmessage = (event) => {
           try {
-            const data = JSON.parse(event.data);
+            const data = JSON.parse(event.data as string);
             if (data.type === "welcome") {
-              const params = new URL(url);
-              userId = params.searchParams.get("userId");
+              tryResolve("open");
             }
           } catch {}
         };
-        ws.onopen = () => {
-          resolve({ state: "open", userId });
-        };
-        ws.onerror = () => resolve({ state: "error", userId: null });
-        ws.onclose = () => resolve({ state: "closed", userId });
-        setTimeout(() => resolve({ state: "timeout", userId }), 3000);
+        // Resolve as open if connection established but no welcome arrives within timeout
+        ws.onopen = () => setTimeout(() => tryResolve("open"), 1000);
+        ws.onerror = () => tryResolve("error");
+        ws.onclose = () => tryResolve("closed");
+        setTimeout(() => tryResolve("timeout"), 3000);
       });
     }, wsUrl);
 

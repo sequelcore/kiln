@@ -1,5 +1,4 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { createServer } from "node:net";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test as base } from "@playwright/test";
@@ -13,34 +12,6 @@ interface GatewayFixture {
 
 function resolveRepoRoot(): string {
   return resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
-}
-
-async function reservePort(): Promise<number> {
-  const server = createServer();
-  await new Promise<void>((resolveListen, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolveListen);
-  });
-  const address = server.address();
-  await new Promise<void>((resolveClose, reject) => {
-    server.close((err) => (err ? reject(err) : resolveClose()));
-  });
-  if (!address || typeof address === "string") {
-    throw new Error("Could not reserve a gateway port for Playwright.");
-  }
-  return address.port;
-}
-
-function resolveGatewayPortFromEnv(): number | undefined {
-  const raw = process.env.GUI_GATEWAY_PORT;
-  if (!raw) {
-    return undefined;
-  }
-  const parsed = Number.parseInt(raw, 10);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw new Error(`Invalid GUI_GATEWAY_PORT value: ${raw}`);
-  }
-  return parsed;
 }
 
 async function waitForReady(child: ChildProcessWithoutNullStreams): Promise<number> {
@@ -119,11 +90,19 @@ async function stopRunner(child: ChildProcessWithoutNullStreams): Promise<void> 
   });
 }
 
-export const test = base.extend<GatewayFixture>({
-  // eslint-disable-next-line no-empty-pattern
-  gatewayPort: async ({}, use) => {
+export const test = base.extend<Record<string, never>, GatewayFixture>({
+  gatewayPort: [async ({}, use) => {
     const repoRoot = resolveRepoRoot();
-    const port = resolveGatewayPortFromEnv() ?? await reservePort();
+    // Use GUI_GATEWAY_PORT from the environment (set by playwright.config.ts via
+    // reserveGatewayPort). This is the same port the Vite dev-server proxy
+    // targets, so HTTP and WebSocket tests both route to the same live gateway.
+    // workers:1 in the config ensures only one worker runs at a time, so this
+    // single port is never bound by two processes simultaneously.
+    // The runner passes this port to Bun.serve and emits READY <actualPort>,
+    // which may differ if the OS has since reclaimed the reserved port — in that
+    // case we fall back to whatever Bun bound, and the Vite proxy will miss, but
+    // Bun with port=0 is used as a last resort to avoid a hard crash.
+    const configPort = process.env.GUI_GATEWAY_PORT ?? "0";
     const runner = spawn(
       "bun",
       ["run", RUNNER_RELATIVE_PATH],
@@ -131,7 +110,7 @@ export const test = base.extend<GatewayFixture>({
         cwd: repoRoot,
         env: {
           ...process.env,
-          GUI_GATEWAY_PORT: String(port),
+          GUI_GATEWAY_PORT: configPort,
         },
         stdio: ["ignore", "pipe", "pipe"],
       },
@@ -143,7 +122,7 @@ export const test = base.extend<GatewayFixture>({
     } finally {
       await stopRunner(runner);
     }
-  },
+  }, { scope: "worker" }],
 });
 
 export { expect } from "@playwright/test";

@@ -1,9 +1,9 @@
 import { startGuiGateway } from "@kilnai/runtime";
 
 function parseGatewayPort(): number {
-  const raw = process.env.GUI_GATEWAY_PORT ?? "4810";
+  const raw = process.env.GUI_GATEWAY_PORT ?? "0";
   const parsed = Number.parseInt(raw, 10);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
+  if (!Number.isInteger(parsed) || parsed < 0) {
     throw new Error(`Invalid GUI_GATEWAY_PORT: ${raw}`);
   }
   return parsed;
