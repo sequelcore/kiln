@@ -1,5 +1,11 @@
 # TUI
 
+> **⚠ EXPERIMENTAL — Frozen surface.** Per [ADR-005](../adr/ADR-005-freeze-tui-prioritize-gui.md),
+> the TUI is in maintenance mode. No new features; only critical bug fixes (crashes, data
+> loss, security). The primary operator surface going forward is the GUI (see Phase G in
+> `STRATEGY.md`). Scheduled for deletion in Phase I once GUI reaches parity.
+> 6-month review checkpoint: 2026-10-17.
+
 ## Overview
 
 `kiln tui` is Kiln's terminal chat interface. The TUI package is the rendering layer: it owns layout, input handling, theme application, and WebSocket frame mapping, while orchestration lives outside the renderer. The default runtime flow is TUI -> local gateway on port `4801` by default -> runtime `SessionRegistry` -> provider session execution through Kiln's runtime pipeline. That keeps the same session, safety, memory, routing, and cost machinery in the path instead of duplicating agent-loop logic in the terminal client.
@@ -194,4 +200,4 @@ This path keeps the same safety, session, runtime-summary, and cost-tracking mac
 
 The TUI owns no orchestration logic by design. ADR-002 TUI formalizes the reason: the terminal client should stay a thin rendering surface over gateway-owned session state and execution, so memory, safety, approvals, routing, and provider handling are implemented once and reused consistently across clients.
 
-See [ADR-002 TUI](../adr/ADR-002-tui-gateway-architecture.md).
+See [ADR-007 TUI](../adr/ADR-007-tui-gateway-architecture.md).

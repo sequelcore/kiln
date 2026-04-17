@@ -242,17 +242,22 @@ Completion standard:
 ### Phase G - Operator Surfaces
 
 Objective:
-Make CLI, TUI, and other surfaces behave as operator interfaces to the control plane.
+Make CLI and GUI behave as operator interfaces to the control plane. Per
+ADR-005 (2026-04-17), the TUI is frozen and scheduled for deletion in
+Phase I; GUI is the primary operator surface.
 
 Required results:
 
-- surfaces expose system state, mode, safety posture, and task lifecycle clearly
+- CLI and GUI expose system state, mode, safety posture, and task lifecycle clearly
 - tooling stops pretending to be the product core
 - user interaction maps cleanly to control-plane concepts
+- TUI receives no feature work; critical bug fixes only
+- a follow-up ADR defines the GUI stack, boundaries, and binding contract
 
 Completion standard:
 
 - the interface explains what the system is regulating, not just what command was run
+- GUI reaches parity with former TUI scope, unblocking TUI deletion in Phase I
 
 ### Phase H - Example and Consumer Realignment
 

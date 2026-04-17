@@ -1,8 +1,10 @@
-# ADR-002: TUI Gateway Architecture
+# ADR-007: TUI Gateway Architecture
 
 **Status:** Accepted (amended 2026-04-09)  
 **Date:** 2026-04-02  
 **Deciders:** Ricardo Armenta
+
+> **Number corrected 2026-04-17:** originally filed as ADR-002 in conflict with `ADR-002-subprocess-integration.md`. Renumbered to ADR-007 to resolve the duplication. No content changed except the title and this note. Content substantially informs (and is partially superseded by) ADR-006.
 
 ## Context
 

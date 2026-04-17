@@ -190,7 +190,7 @@ Terms to remove from active framing:
   Disposition: keep with terminology cleanup
   Destination: `docs/adr/ADR-002-subprocess-integration.md`
 
-- `docs/adr/ADR-002-tui-gateway-architecture.md`
+- `docs/adr/ADR-007-tui-gateway-architecture.md`
   Disposition: renumber and keep
   Destination: `docs/adr/ADR-003-tui-gateway-architecture.md`
 
