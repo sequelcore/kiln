@@ -26,6 +26,11 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/gui-ws/, ""),
       },
+      "/gui/ws": {
+        target: `ws://localhost:${resolvedGatewayPort}`,
+        ws: true,
+        changeOrigin: true,
+      },
     },
   },
 });
