@@ -277,7 +277,13 @@ Progress (as of 2026-04-17):
 - `7903fb3` — Slice G (gateway transport, parity §6 in-scope): `GuiWsClient` with 30s heartbeat, 60s pong watchdog, exponential backoff (1s→30s ±20% jitter), bounded outbound queue, Zod-validated frames via `@kilnai/gateway-contracts`. `waitForGateway`, `stable-user-id` (localStorage), `useGuiWs` hook. Runtime gets pong response. Rows 6.1–6.6 ✅.
 - `919ac91` — test(gui): transport parity coverage (unit + e2e).
 - `bf00904` — fix(gui): e2e fixture port contention; per-worker fixture scope, runner binds port 0 and reports actual port, runtime `startGuiGateway` returns bound port, minimal `/gui/ws` welcome handler. 4/4 e2e green.
-- Parity status: 10/51 rows ✅
+- `3f15b12` — feat(gateway): `GET /gui-api/sessions` + lifecycle frames (text_delta forwarding, clear removes runtime state, welcome/provider_changed payload extension, exec_confirmed, WS connection-count health aliases).
+- `77399e9` — feat(gui): session-lifecycle Zustand store + WS state wiring.
+- `e2ee165` — feat(gui): app shell, transcript, composer, session list, connection status, error banner; adds `react-markdown` + `remark-gfm`.
+- `d21bca7` — test(gui): session-store + composer + transcript unit/component coverage.
+- `070798b` — test(gui): e2e parity flows for rows 1.1–1.6.
+- `c6c7d10` — docs(roadmap): flip rows to ✅. Rows landed: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 4.1, 4.4, 5.3, 5.5. Row 5.4 stayed ☐ (no syntax highlighting / progressive-markdown proof). Verified: typecheck, unit, lint, build, e2e 9/9 green.
+- Parity status: 20/51 rows ✅
 
 ### Phase H - Example and Consumer Realignment
 
