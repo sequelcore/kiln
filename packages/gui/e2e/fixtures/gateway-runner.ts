@@ -94,9 +94,9 @@ async function main(): Promise<void> {
     port,
     getSnapshot: async () => ({
       providers: [
-        { id: "claude", label: "Claude", group: "subscription", available: true },
-        { id: "codex", label: "Codex", group: "harness", available: true },
-        { id: "opencode", label: "OpenCode", group: "harness", available: true },
+        { id: "claude", label: "Claude", group: "harness", free: false, models: ["claude-sonnet-4-6", "claude-opus-4-6"], available: true },
+        { id: "codex", label: "Codex", group: "harness", free: false, models: ["o3", "o4-mini"], available: true },
+        { id: "opencode", label: "OpenCode", group: "harness", free: false, models: [], available: true },
       ],
       sessions: sessionSummaries.slice(0, 20),
       telemetry: { status: "idle", dominantRegions: [], saturation: 0, entropy: 0 },

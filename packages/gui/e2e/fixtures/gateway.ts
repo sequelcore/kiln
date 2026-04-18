@@ -122,7 +122,7 @@ export const test = base.extend<Record<string, never>, GatewayFixture>({
     } finally {
       await stopRunner(runner);
     }
-  }, { scope: "worker" }],
+  }, { scope: "worker", auto: true }],
 });
 
 export { expect } from "@playwright/test";
