@@ -1,6 +1,8 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Message } from "../lib/session-store.js";
+import { useSessionStore } from "../lib/session-store.js";
+import { PROVIDER_METADATA } from "../lib/provider-metadata.js";
 
 interface MessageRowProps {
   readonly message: Message;
@@ -38,8 +40,17 @@ function roleClassName(role: Message["role"]): string {
 
 export function MessageRow(props: MessageRowProps) {
   const { message } = props;
+  const activeProvider = useSessionStore((state) => state.activeProvider);
+  const activeModel = useSessionStore((state) => state.activeModel);
   const label = roleLabel(message.role);
   const showMarkdown = message.role === "assistant";
+  const assistantProvider = message.routedProvider
+    ?? (message.streaming ? activeProvider : null);
+  const assistantModel = message.routedModel
+    ?? (message.streaming ? activeModel : null);
+  const assistantProviderLabel = assistantProvider
+    ? (PROVIDER_METADATA[assistantProvider]?.label ?? assistantProvider)
+    : null;
 
   return (
     <article
@@ -48,10 +59,10 @@ export function MessageRow(props: MessageRowProps) {
     >
       <header className="mb-2 flex items-center gap-2 text-xs uppercase tracking-wide text-[var(--color-text-muted)]">
         <span>{label}</span>
-        {message.role === "assistant" && message.routedProvider ? (
+        {message.role === "assistant" && assistantProviderLabel ? (
           <span>
-            {message.routedProvider}
-            {message.routedModel ? ` · ${message.routedModel}` : ""}
+            {assistantProviderLabel}
+            {assistantModel ? ` · ${assistantModel}` : " · —"}
           </span>
         ) : null}
       </header>
