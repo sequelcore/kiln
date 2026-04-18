@@ -55,6 +55,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
   const gateway = await startGuiGateway({
     port,
     getSnapshot: async () => buildDashboardSnapshot(sessionStore, providerDisplay),
+    listSessions: (providerId) => loadSessionSummaries(sessionStore, providerId),
     getSessionDetail: (sessionId) => loadSessionDetail(transcriptStore, sessionId),
     operatorTransport: {
       sessionManager,
@@ -121,13 +122,7 @@ async function buildDashboardSnapshot(
   providers: readonly ReturnType<typeof getProviderDisplayInfo>[number][],
 ): Promise<GuiDashboardSnapshot> {
   const { registry } = createDefaultRegistry();
-  const sessions = (await sessionStore.list()).slice(0, 20).map((session) => ({
-    id: session.sessionId,
-    provider: session.provider,
-    title: buildSessionTitle(session.task, session.provider),
-    updatedAt: session.completedAt,
-    costUsd: session.cost,
-  }));
+  const sessions = await loadSessionSummaries(sessionStore);
 
   const providerHealth = new Map(
     registry.list().map((provider) => [provider.id, provider.health !== "suppressed"] as const),
@@ -180,6 +175,23 @@ function buildSessionTitle(task: string, provider: string): string {
     return task;
   }
   return `${toProviderLabel(provider)} session`;
+}
+
+async function loadSessionSummaries(
+  sessionStore: SessionStore,
+  provider?: string,
+): Promise<GuiDashboardSnapshot["sessions"]> {
+  const sessions = await sessionStore.list();
+  return sessions
+    .filter((session) => !provider || session.provider === provider)
+    .slice(0, 20)
+    .map((session) => ({
+      id: session.sessionId,
+      provider: session.provider,
+      completedAt: session.completedAt,
+      cost: session.cost,
+      taskSummary: buildSessionTitle(session.task, session.provider),
+    }));
 }
 
 function toProviderLabel(provider: string): string {

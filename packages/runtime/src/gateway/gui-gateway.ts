@@ -39,6 +39,7 @@ import type {
   GuiInboundFrame,
   GuiOutboundFrame,
   GuiSessionDetail,
+  GuiSessionSummary,
 } from "@kilnai/gateway-contracts";
 
 export type {
@@ -57,6 +58,7 @@ export interface StartGuiGatewayOptions {
   readonly port?: number;
   readonly guiDistPath?: string;
   readonly getSnapshot: () => Promise<GuiDashboardSnapshot>;
+  readonly listSessions?: (provider?: string) => Promise<readonly GuiSessionSummary[]>;
   readonly getSessionDetail?: (sessionId: string) => Promise<GuiSessionDetail | null>;
   readonly operatorTransport?: OperatorSessionTransportOptions;
 }
@@ -156,6 +158,7 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
     console.warn(`[gui-gateway] GUI bundle missing at ${join(unresolvedGuiDistPath, "index.html")}; skipping /gui mount.`);
   }
   const transportOptions = options.operatorTransport;
+  let activeConnections = 0;
 
   const { upgradeWebSocket, websocket } = createBunWebSocket();
   const operatorModels = transportOptions
@@ -176,11 +179,36 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
     await next();
   });
 
-  app.get("/health", (c) => c.json({ status: "ok", channel: "gui" }));
+  app.get("/health", (c) => c.json({ status: "ok", channel: "gui", connections: activeConnections }));
+  app.get("/gui-api/health", (c) => c.json({ status: "ok", channel: "gui", connections: activeConnections }));
 
   app.get("/gui/api/dashboard", async (c) => {
     const snapshot = await options.getSnapshot();
     return c.json(snapshot);
+  });
+
+  const listSessions = async (providerRaw: string | undefined): Promise<readonly GuiSessionSummary[]> => {
+    if (!options.listSessions) {
+      return [];
+    }
+    const provider = providerRaw?.trim() ? providerRaw.trim() : undefined;
+    const sessions = await options.listSessions(provider);
+    return sessions.slice(0, 20);
+  };
+
+  app.get("/sessions", async (c) => {
+    const sessions = await listSessions(c.req.query("provider"));
+    return c.json({ sessions });
+  });
+
+  app.get("/gui/api/sessions", async (c) => {
+    const sessions = await listSessions(c.req.query("provider"));
+    return c.json({ sessions });
+  });
+
+  app.get("/gui-api/sessions", async (c) => {
+    const sessions = await listSessions(c.req.query("provider"));
+    return c.json({ sessions });
   });
 
   app.get("/gui/api/sessions/:sessionId", async (c) => {
@@ -205,6 +233,12 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
       onReady: (url) => {
         operatorWsUrl = url;
       },
+      onSocketOpen: () => {
+        activeConnections += 1;
+      },
+      onSocketClose: () => {
+        activeConnections = Math.max(0, activeConnections - 1);
+      },
     });
   } else {
     // Minimal WebSocket endpoint for environments without an operator transport
@@ -214,11 +248,18 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
       "/gui/ws",
       upgradeWebSocket(() => ({
         onOpen(_event: Event, ws: WSContext) {
+          activeConnections += 1;
           ws.send(JSON.stringify({
             type: "welcome",
             models: {},
+            providers: [],
+            activeProvider: undefined,
+            activeModel: undefined,
             planMode: false,
           } satisfies GuiInboundFrame));
+        },
+        onClose() {
+          activeConnections = Math.max(0, activeConnections - 1);
         },
       })),
     );
@@ -265,6 +306,8 @@ function wireOperatorTransport(
     transport: OperatorSessionTransportOptions;
     models: Record<string, string[]>;
     onReady: (wsUrl: string) => void;
+    onSocketOpen?: () => void;
+    onSocketClose?: () => void;
   },
 ): void {
   const providerLabel = input.transport.sessionManager.getProvider();
@@ -291,10 +334,16 @@ function wireOperatorTransport(
 
       return {
         async onOpen(_event: Event, ws: WSContext) {
+          input.onSocketOpen?.();
           activityStreamer.register(ws, eventBus);
+          const activeProvider = input.transport.sessionManager.getProvider();
+          const activeModel = input.transport.sessionManager.getModel();
           ws.send(JSON.stringify({
             type: "welcome",
             models: input.models,
+            providers: Object.keys(input.models),
+            activeProvider,
+            activeModel,
             planMode: input.transport.planMode ?? false,
           } satisfies GuiInboundFrame));
         },
@@ -313,6 +362,7 @@ function wireOperatorTransport(
             const frame = JSON.parse(raw) as GuiOutboundFrame | Record<string, unknown>;
 
             if (frame.type === "clear") {
+              await sessionRegistry.remove(GUI_APP_NAME, userId, GUI_TENANT_ID);
               try {
                 await input.transport.onClear?.();
               } catch {
@@ -330,7 +380,11 @@ function wireOperatorTransport(
                 input.transport.sessionManager.setModel(newModel);
               }
               fireAndForgetProviderSwitch(input.transport.onProviderSwitch, newProvider);
-              ws.send(JSON.stringify({ type: "provider_changed", provider: newProvider } satisfies GuiInboundFrame));
+              ws.send(JSON.stringify({
+                type: "provider_changed",
+                provider: newProvider,
+                model: input.transport.sessionManager.getModel(),
+              } satisfies GuiInboundFrame));
               return;
             }
 
@@ -362,10 +416,6 @@ function wireOperatorTransport(
             }
 
             if (frame.type === "exec") {
-              if (!input.transport.planMode) {
-                ws.send(JSON.stringify({ type: "error", message: "Not in plan mode" } satisfies GuiInboundFrame));
-                return;
-              }
               ws.send(JSON.stringify({ type: "exec_confirmed" } satisfies GuiInboundFrame));
               return;
             }
@@ -391,9 +441,32 @@ function wireOperatorTransport(
 
             if (frame.type !== "message") return;
 
-            const userContent = typeof frame.content === "string" ? frame.content : "";
+            const userContent = typeof frame.content === "string"
+              ? frame.content
+              : typeof frame.text === "string"
+                ? frame.text
+                : "";
+            const resumeSessionId = typeof frame.resumeSessionId === "string"
+              ? frame.resumeSessionId.trim()
+              : "";
             if (!userContent.trim()) return;
             const taskShape = normalizeRuntimeTaskShape(userContent);
+
+            if (resumeSessionId && input.transport.onResumeSession) {
+              try {
+                await applyResumeSelection(
+                  input.transport.onResumeSession,
+                  resumeSessionId,
+                  input.transport.sessionManager.getProvider(),
+                );
+              } catch {
+                ws.send(JSON.stringify({
+                  type: "error",
+                  message: "Resume selection failed",
+                } satisfies GuiInboundFrame));
+                return;
+              }
+            }
 
             ws.send(JSON.stringify({ type: "thinking" } satisfies GuiInboundFrame));
 
@@ -475,6 +548,7 @@ function wireOperatorTransport(
         },
 
         onClose(_event: CloseEvent, ws: WSContext) {
+          input.onSocketClose?.();
           activityStreamer.unregister(ws);
         },
       };
@@ -636,7 +710,20 @@ class GuiActivityStreamer {
   forward(event: CliSessionEvent): void {
     if (!this.ws) return;
 
-    if (event.type === "tool_use") {
+    if (event.type === "text_delta") {
+      if (event.isThinking) {
+        this.ws.send(JSON.stringify({
+          type: "activity",
+          activity: "reasoning",
+          details: event.content,
+        } satisfies GuiInboundFrame));
+        return;
+      }
+      this.ws.send(JSON.stringify({
+        type: "text_delta",
+        content: event.content,
+      } satisfies GuiInboundFrame));
+    } else if (event.type === "tool_use") {
       this.ws.send(JSON.stringify({
         type: "activity",
         activity: "tool_use",

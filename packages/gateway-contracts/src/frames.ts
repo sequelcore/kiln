@@ -17,9 +17,13 @@ export interface GuiProviderDescriptor {
 export interface GuiSessionSummary {
   readonly id: string;
   readonly provider: string;
-  readonly title: string;
-  readonly updatedAt: string;
-  readonly costUsd: number;
+  readonly completedAt: string;
+  readonly cost: number;
+  readonly taskSummary: string;
+}
+
+export interface GuiSessionListResponse {
+  readonly sessions: readonly GuiSessionSummary[];
 }
 
 export interface GuiTelemetrySnapshot {
@@ -91,7 +95,13 @@ export interface GuiSessionDetail {
 
 /** Frames sent by the browser (operator) to the gateway. */
 export type GuiOutboundFrame =
-  | { type: "message"; content: string }
+  | {
+      type: "message";
+      content?: string;
+      text?: string;
+      planMode?: boolean;
+      resumeSessionId?: string;
+    }
   | { type: "clear" }
   | { type: "provider"; provider: string; model?: string }
   | { type: "resume"; sessionId: string; provider: string }
@@ -139,10 +149,18 @@ export type GuiInboundFrame =
     }
   | { type: "text_delta"; content: string }
   | { type: "error"; message: string; code?: string }
-  | { type: "welcome"; greeting?: string; models?: Record<string, string[]>; planMode?: boolean }
+  | {
+      type: "welcome";
+      greeting?: string;
+      models?: Record<string, string[]>;
+      providers?: readonly string[];
+      activeProvider?: string;
+      activeModel?: string;
+      planMode?: boolean;
+    }
   | { type: "exec_confirmed" }
   | { type: "cleared" }
-  | { type: "provider_changed"; provider: string }
+  | { type: "provider_changed"; provider: string; model?: string }
   | { type: "resume_selected"; sessionId: string; provider: string }
   | { type: "approval_requested"; description: string; sessionId: string }
   | { type: "approval_received"; approved: boolean; reason?: string; sessionId?: string };

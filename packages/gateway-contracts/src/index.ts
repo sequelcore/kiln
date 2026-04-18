@@ -1,6 +1,7 @@
 export type {
   GuiProviderDescriptor,
   GuiSessionSummary,
+  GuiSessionListResponse,
   GuiTelemetrySnapshot,
   GuiDashboardSnapshot,
   GuiSessionMeta,
