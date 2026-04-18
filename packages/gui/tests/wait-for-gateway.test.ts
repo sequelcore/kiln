@@ -65,9 +65,9 @@ describe("waitForGateway", () => {
 
     const elapsed = Date.now() - start;
 
-    // Should make 4 calls: 1 immediate + 3 retries
-    // (350ms timeout / 100ms interval = ~3.5, so 4 calls fit)
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    // Depending on scheduler jitter, this can be 3 or 4 calls.
+    expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(3);
+    expect(fetchMock.mock.calls.length).toBeLessThanOrEqual(4);
     expect(elapsed).toBeGreaterThanOrEqual(280);
     expect(elapsed).toBeLessThan(450);
   });

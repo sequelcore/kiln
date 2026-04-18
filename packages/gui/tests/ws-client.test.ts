@@ -146,6 +146,7 @@ describe("GuiWsClient", () => {
   describe("reconnection", () => {
     it("Reconnects with backoff after unexpected close; reuses same userId", () => {
       vi.useFakeTimers();
+      vi.spyOn(Math, "random").mockReturnValue(0.5);
       client = createClient("reconnect-user");
       client.connect();
 
