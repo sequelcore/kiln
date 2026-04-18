@@ -292,6 +292,31 @@ Progress (as of 2026-04-17):
 - `d6e0bba` — docs(roadmap): flip rows 2.1–2.5 to ✅. Verified: typecheck, unit, lint (warnings only), build, e2e 2× green. No new deps.
 - Parity status: 25/51 rows ✅
 
+Sequencing decision (2026-04-17):
+
+The work ahead is ordered to maximize daily leverage and let real usage
+inform architectural calls before those calls get locked in.
+
+1. **Dogfood slice** (~1 day) — rows 3.7 (approval queue), 5.4 (markdown + syntax highlighting), 3.8 (tool call log), 3.9 (activity phase indicator). This subset makes the GUI usable for developing Kiln from within Kiln (single-agent sessions). Bar 1.
+2. **Orchestrator refactor Slice O4** — decide and delete fate of Sequential/Supervisor/Swarm strategies. Deliberately sequenced after dogfood so the architectural call is informed by a week of using the tool we're designing around. Doctrine debt; must close before the GUI grows orchestrator surfaces.
+3. **Finish GUI parity** (~3 more days) — remaining rows of §3 telemetry, §4 input polish, §5 remainder, §7 CLI flags. Unblocks TUI deletion.
+4. **Config + Registries Surface ADR** — unify providers, credentials, MCP servers, skills, tools, models, domain packages, UI prefs behind one configuration story with one precedence model and one credential abstraction. Phase I work. See "Configuration scope" below.
+5. **GUI orchestrator surfaces** — spawn teams, route across providers, inspect parallel agents. Net-new feature on top of O4. Bar 2 ("proper multi-provider dev team from the GUI").
+
+Bar 1 ≠ Bar 2. "Develop Kiln from the GUI" (single agent) lands after step 1. "Run a proper multi-provider dev team from the GUI" requires steps 2, 4, 5 and is weeks of feature work beyond parity.
+
+Configuration scope (to be captured in its own ADR before implementation):
+
+- Providers + credentials (9 flows today: OAuth, subscription subprocess, API key, local URL) behind one credential store with per-provider adapters.
+- MCP servers (endpoints, auth, enabled/disabled, per-context).
+- Skills (registry source, capture toggles, generation policy).
+- Tools (registry + enable/disable, approval policy per tool).
+- Models (capability + pricing overrides).
+- Domain packages (`kiln.yaml` loading, overrides, precedence).
+- UI prefs (theme, plan-mode default) — migrates `tui.*` → neutral.
+- Precedence explicitly documented: global `~/.config/kiln/` → workspace `.kiln/` → session overrides. Not three overlapping layers that drift.
+- Registries collapsed: provider-registry, model-capability-registry, model-pricing, tool-registry consumed via one surface by runtime, CLI, and GUI. GUI's current `provider-metadata.ts` fork becomes obsolete.
+
 ### Phase H - Example and Consumer Realignment
 
 Objective:
