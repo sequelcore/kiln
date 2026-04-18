@@ -10,6 +10,8 @@ import { Composer } from "./composer.js";
 import { ErrorBanner } from "./error-banner.js";
 import { ConnectionStatus } from "./connection-status.js";
 import { ThemeSwitcher } from "./theme-switcher.js";
+import { ProviderPicker } from "./provider-picker.js";
+import { ProviderStatus } from "./provider-status.js";
 
 const GATEWAY_BASE = "/gui-api";
 
@@ -41,15 +43,18 @@ export function AppShell() {
   const [gatewayError, setGatewayError] = useState<string | null>(null);
   const [gatewayAttempt, setGatewayAttempt] = useState(0);
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
+  const [isProviderPickerOpen, setIsProviderPickerOpen] = useState(false);
   const [isNarrow, setIsNarrow] = useState(() => window.matchMedia("(max-width: 900px)").matches);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   const status = useSessionStore((state) => state.status);
   const messages = useSessionStore((state) => state.messages);
+  const providers = useSessionStore((state) => state.providers);
   const planMode = useSessionStore((state) => state.planMode);
   const activity = useSessionStore((state) => state.activity);
   const errorBanner = useSessionStore((state) => state.errorBanner);
   const activeProvider = useSessionStore((state) => state.activeProvider);
+  const activeModel = useSessionStore((state) => state.activeModel);
   const sessionList = useSessionStore((state) => state.sessionList);
   const selectedSessionId = useSessionStore((state) => state.selectedSessionId);
   const resumeTargetId = useSessionStore((state) => state.resumeTargetId);
@@ -71,6 +76,7 @@ export function AppShell() {
   const sendMessage = useSessionStore((state) => state.sendMessage);
   const sendClear = useSessionStore((state) => state.sendClear);
   const setPlanMode = useSessionStore((state) => state.setPlanMode);
+  const switchProvider = useSessionStore((state) => state.switchProvider);
   const setResume = useSessionStore((state) => state.setResume);
   const disconnect = useSessionStore((state) => state.disconnect);
 
@@ -115,9 +121,14 @@ export function AppShell() {
         event.preventDefault();
         setIsPaletteOpen((open) => !open);
       }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "p") {
+        event.preventDefault();
+        setIsProviderPickerOpen(true);
+      }
       if (event.key === "Escape") {
         setIsPaletteOpen(false);
         setDrawerOpen(false);
+        setIsProviderPickerOpen(false);
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -257,6 +268,7 @@ export function AppShell() {
         ) : null}
         <p className="text-sm font-semibold">Kiln GUI</p>
         <ConnectionStatus state={wsState} />
+        <ProviderStatus onOpenPicker={() => setIsProviderPickerOpen(true)} />
         <div className="ml-auto flex items-center gap-2">
           <button
             type="button"
@@ -335,6 +347,17 @@ export function AppShell() {
           <div className="h-full w-2/3 min-w-[280px]">{sidebar}</div>
         </div>
       ) : null}
+
+      <ProviderPicker
+        open={isProviderPickerOpen}
+        providers={providers}
+        activeProvider={activeProvider}
+        activeModel={activeModel}
+        onSwitchProvider={(provider, model) => {
+          switchProvider(provider, model);
+        }}
+        onOpenChange={(open) => setIsProviderPickerOpen(open)}
+      />
     </div>
   );
 }
