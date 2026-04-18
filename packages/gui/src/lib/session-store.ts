@@ -3,6 +3,7 @@ import type { GuiInboundFrame, GuiOutboundFrame, GuiSessionSummary } from "@kiln
 
 const PLAN_MODE_KEY = "kiln.gui.planMode";
 const CLEAR_TIMEOUT_MS = 5_000;
+const PROVIDER_SWITCH_TIMEOUT_MS = 5_000;
 
 function resumeStorageKey(provider: string): string {
   return `kiln.gui.resume.${provider}`;
@@ -80,8 +81,14 @@ export interface ActivityState {
 
 export interface ProviderDescriptor {
   readonly id: string;
+  readonly label: string;
+  readonly group: "subscription" | "harness" | "direct-api";
+  readonly free: boolean;
+  readonly available: boolean;
   readonly models: readonly string[];
 }
+
+export type RouteMode = "user" | "auto" | "responding";
 
 interface SessionStoreState {
   readonly status: SessionStatus;
@@ -98,10 +105,16 @@ interface SessionStoreState {
   readonly resumeTargetId: string | null;
   readonly routedProvider: string | null;
   readonly routedModel: string | null;
+  readonly routeMode: RouteMode;
+  readonly respondingProvider: string | null;
+  readonly respondingModel: string | null;
   readonly turnCounter: number;
   readonly clearPending: boolean;
+  readonly providerSwitching: boolean;
+  readonly providerExplicitSelection: boolean;
   readonly outboundSend: ((frame: GuiOutboundFrame) => void) | null;
   readonly clearTimeoutId: ReturnType<typeof setTimeout> | null;
+  readonly providerSwitchTimeoutId: ReturnType<typeof setTimeout> | null;
 }
 
 interface SessionStoreActions {
@@ -119,6 +132,7 @@ interface SessionStoreActions {
   onCleared: () => void;
   onProviderChanged: (frame: Extract<GuiInboundFrame, { type: "provider_changed" }>) => void;
   onExecConfirmed: () => void;
+  switchProvider: (provider: string, model?: string) => boolean;
   sendMessage: (text: string) => boolean;
   sendClear: () => boolean;
   setPlanMode: (enabled: boolean) => void;
@@ -145,10 +159,16 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   resumeTargetId: null,
   routedProvider: null,
   routedModel: null,
+  routeMode: "auto",
+  respondingProvider: null,
+  respondingModel: null,
   turnCounter: 0,
   clearPending: false,
+  providerSwitching: false,
+  providerExplicitSelection: false,
   outboundSend: null,
   clearTimeoutId: null,
+  providerSwitchTimeoutId: null,
 
   setConnectionStatus: (status) => {
     set({ status });
@@ -180,31 +200,64 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   },
 
   onWelcome: (frame) => {
+    const providersFromWelcome: ProviderDescriptor[] = [];
+    for (const provider of frame.providers ?? []) {
+      if (!provider || typeof provider !== "object") continue;
+      const candidate = provider as Partial<ProviderDescriptor>;
+      if (
+        typeof candidate.id !== "string"
+        || typeof candidate.label !== "string"
+        || (candidate.group !== "subscription" && candidate.group !== "harness" && candidate.group !== "direct-api")
+        || typeof candidate.free !== "boolean"
+        || typeof candidate.available !== "boolean"
+        || !Array.isArray(candidate.models)
+      ) {
+        continue;
+      }
+      providersFromWelcome.push({
+        id: candidate.id,
+        label: candidate.label,
+        group: candidate.group,
+        free: candidate.free,
+        available: candidate.available,
+        models: candidate.models.filter((model): model is string => typeof model === "string"),
+      });
+    }
     const providersFromModels = Object.keys(frame.models ?? {});
-    const providers = providersFromModels.map((providerId) => ({
-      id: providerId,
-      models: frame.models?.[providerId] ?? [],
-    }));
+    const providers = providersFromWelcome.length > 0
+      ? providersFromWelcome
+      : providersFromModels.map((providerId) => ({
+          id: providerId,
+          label: providerId,
+          group: "direct-api" as const,
+          free: false,
+          available: true,
+          models: frame.models?.[providerId] ?? [],
+        }));
+    const providerById = new Map(providers.map((provider) => [provider.id, provider] as const));
     const activeProvider =
       frame.activeProvider
-      ?? frame.providers?.[0]
+      ?? providers[0]?.id
       ?? providersFromModels[0]
       ?? get().activeProvider
       ?? null;
     const activeModel =
       frame.activeModel
-      ?? (activeProvider ? (frame.models?.[activeProvider]?.[0] ?? null) : null)
+      ?? (activeProvider ? (providerById.get(activeProvider)?.models[0] ?? frame.models?.[activeProvider]?.[0] ?? null) : null)
       ?? get().activeModel
       ?? null;
     const persistedPlanMode = readStoredPlanMode();
     const resolvedPlanMode = persistedPlanMode ?? frame.planMode ?? get().planMode;
     const persistedResume = readResumeTarget(activeProvider);
+    const explicitSelection = Boolean(frame.activeProvider) || get().providerExplicitSelection;
 
     set({
       providers,
       activeProvider,
       activeModel,
       planMode: resolvedPlanMode,
+      routeMode: explicitSelection ? "user" : "auto",
+      providerExplicitSelection: explicitSelection,
       resumeTargetId: persistedResume,
       status: "ready",
       errorBanner: null,
@@ -251,6 +304,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   },
 
   onActivity: (frame) => {
+    const current = get();
+    const nextRespondingProvider = current.respondingProvider ?? current.activeProvider;
+    const nextRespondingModel = current.respondingModel ?? current.activeModel;
+
     const baseActivity = frame.activity.trim();
     const phase = baseActivity.length > 0 ? baseActivity : undefined;
     set({
@@ -259,6 +316,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         toolName: frame.toolName,
         details: frame.details ?? frame.output,
       },
+      routeMode: "responding",
+      respondingProvider: nextRespondingProvider,
+      respondingModel: nextRespondingModel,
     });
 
     if (frame.activity !== "tool_use") {
@@ -288,6 +348,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   onDone: (frame) => {
     const state = get();
+    const finalizedProvider = frame.routedProvider ?? state.respondingProvider ?? state.activeProvider ?? undefined;
+    const finalizedModel = frame.routedModel ?? state.respondingModel ?? state.activeModel ?? undefined;
     let nextMessages = [...state.messages];
     if (state.currentAssistant) {
       nextMessages = nextMessages.map((message) => (
@@ -295,8 +357,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           ? {
               ...message,
               streaming: false,
-              routedProvider: frame.routedProvider,
-              routedModel: frame.routedModel,
+              routedProvider: finalizedProvider,
+              routedModel: finalizedModel,
             }
           : message
       ));
@@ -309,8 +371,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           content: frame.content,
           createdAt: nowIso(),
           streaming: false,
-          routedProvider: frame.routedProvider,
-          routedModel: frame.routedModel,
+          routedProvider: finalizedProvider,
+          routedModel: finalizedModel,
         },
       ];
     }
@@ -325,8 +387,11 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       currentAssistant: null,
       status: "ready",
       activity: null,
-      routedProvider: frame.routedProvider ?? state.routedProvider,
-      routedModel: frame.routedModel ?? state.routedModel,
+      routedProvider: finalizedProvider ?? state.routedProvider,
+      routedModel: finalizedModel ?? state.routedModel,
+      routeMode: state.providerExplicitSelection ? "user" : "auto",
+      respondingProvider: null,
+      respondingModel: null,
       turnCounter: state.turnCounter + 1,
       clearTimeoutId: null,
       clearPending: false,
@@ -350,6 +415,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       activity: null,
       errorBanner: frame.message,
       currentAssistant: null,
+      routeMode: state.providerExplicitSelection ? "user" : "auto",
+      respondingProvider: null,
+      respondingModel: null,
       clearPending: false,
       clearTimeoutId: null,
     });
@@ -370,25 +438,74 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       resumeTargetId: null,
       routedProvider: null,
       routedModel: null,
+      routeMode: state.providerExplicitSelection ? "user" : "auto",
+      respondingProvider: null,
+      respondingModel: null,
       clearPending: false,
       clearTimeoutId: null,
     });
   },
 
   onProviderChanged: (frame) => {
+    const state = get();
+    if (state.providerSwitchTimeoutId) {
+      clearTimeout(state.providerSwitchTimeoutId);
+    }
     const resumeTargetId = readResumeTarget(frame.provider);
     set({
       activeProvider: frame.provider,
-      activeModel: frame.model ?? get().activeModel,
+      activeModel: frame.model ?? null,
       sessionList: [],
       selectedSessionId: null,
       resumeTargetId,
+      routeMode: "user",
+      providerExplicitSelection: true,
+      providerSwitching: false,
+      providerSwitchTimeoutId: null,
+      respondingProvider: null,
+      respondingModel: null,
     });
   },
 
   onExecConfirmed: () => {
     persistPlanMode(false);
     set({ planMode: false, status: "ready", errorBanner: null });
+  },
+
+  switchProvider: (provider, model) => {
+    const state = get();
+    const outboundSend = state.outboundSend;
+    if (!outboundSend) {
+      return false;
+    }
+
+    if (state.providerSwitchTimeoutId) {
+      clearTimeout(state.providerSwitchTimeoutId);
+    }
+
+    outboundSend({
+      type: "provider",
+      provider,
+      model: model ?? undefined,
+    });
+
+    const timeoutId = setTimeout(() => {
+      const latest = get();
+      if (!latest.providerSwitching) return;
+      set({
+        providerSwitching: false,
+        providerSwitchTimeoutId: null,
+        errorBanner: "Provider switch timed out. Please retry.",
+      });
+    }, PROVIDER_SWITCH_TIMEOUT_MS);
+
+    set({
+      providerSwitching: true,
+      providerSwitchTimeoutId: timeoutId,
+      errorBanner: null,
+    });
+
+    return true;
   },
 
   sendMessage: (text) => {
@@ -412,6 +529,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       messages: [...state.messages, userMessage],
       status: "running",
       activity: { phase: "thinking" },
+      routeMode: "responding",
+      respondingProvider: state.activeProvider,
+      respondingModel: state.activeModel,
       errorBanner: null,
       currentAssistant: null,
     });
@@ -482,11 +602,19 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     if (state.clearTimeoutId) {
       clearTimeout(state.clearTimeoutId);
     }
+    if (state.providerSwitchTimeoutId) {
+      clearTimeout(state.providerSwitchTimeoutId);
+    }
     set({
       status: "idle",
       activity: null,
+      routeMode: state.providerExplicitSelection ? "user" : "auto",
+      respondingProvider: null,
+      respondingModel: null,
       clearPending: false,
       clearTimeoutId: null,
+      providerSwitching: false,
+      providerSwitchTimeoutId: null,
     });
   },
 }));

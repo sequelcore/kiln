@@ -28,6 +28,15 @@ const GuiOutboundFrameSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("exec") }),
 ]);
 
+const GuiProviderDescriptorSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  group: z.enum(["subscription", "harness", "direct-api"]),
+  free: z.boolean(),
+  available: z.boolean(),
+  models: z.array(z.string()),
+});
+
 /** Schema for GuiInboundFrame validation. */
 const GuiInboundFrameSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("thinking") }),
@@ -74,7 +83,7 @@ const GuiInboundFrameSchema = z.discriminatedUnion("type", [
     type: z.literal("welcome"),
     greeting: z.string().optional(),
     models: z.record(z.array(z.string())).optional(),
-    providers: z.array(z.string()).optional(),
+    providers: z.union([z.array(z.string()), z.array(GuiProviderDescriptorSchema)]).optional(),
     activeProvider: z.string().optional(),
     activeModel: z.string().optional(),
     planMode: z.boolean().optional(),

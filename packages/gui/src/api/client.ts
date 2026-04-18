@@ -15,10 +15,10 @@ export type {
 
 const fallbackSnapshot: GuiDashboardSnapshot = {
   providers: [
-    { id: "claude", label: "Claude", group: "subscription", available: true },
-    { id: "codex", label: "Codex", group: "harness", available: true },
-    { id: "opencode", label: "OpenCode", group: "harness", available: true },
-    { id: "openai", label: "OpenAI", group: "direct", available: false },
+    { id: "claude", label: "Claude", group: "harness", free: false, models: [], available: true },
+    { id: "codex", label: "Codex", group: "harness", free: false, models: [], available: true },
+    { id: "opencode", label: "OpenCode", group: "harness", free: false, models: [], available: true },
+    { id: "openai", label: "OpenAI", group: "direct-api", free: false, models: [], available: false },
   ],
   sessions: [],
   telemetry: {
