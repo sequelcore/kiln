@@ -13,7 +13,13 @@ import type {
 
 /** Schema for GuiOutboundFrame validation. */
 const GuiOutboundFrameSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("message"), content: z.string() }),
+  z.object({
+    type: z.literal("message"),
+    content: z.string().optional(),
+    text: z.string().optional(),
+    planMode: z.boolean().optional(),
+    resumeSessionId: z.string().optional(),
+  }),
   z.object({ type: z.literal("clear") }),
   z.object({ type: z.literal("provider"), provider: z.string(), model: z.string().optional() }),
   z.object({ type: z.literal("resume"), sessionId: z.string(), provider: z.string() }),
@@ -64,10 +70,18 @@ const GuiInboundFrameSchema = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("text_delta"), content: z.string() }),
   z.object({ type: z.literal("error"), message: z.string(), code: z.string().optional() }),
-  z.object({ type: z.literal("welcome"), greeting: z.string().optional(), models: z.record(z.array(z.string())).optional(), planMode: z.boolean().optional() }),
+  z.object({
+    type: z.literal("welcome"),
+    greeting: z.string().optional(),
+    models: z.record(z.array(z.string())).optional(),
+    providers: z.array(z.string()).optional(),
+    activeProvider: z.string().optional(),
+    activeModel: z.string().optional(),
+    planMode: z.boolean().optional(),
+  }),
   z.object({ type: z.literal("exec_confirmed") }),
   z.object({ type: z.literal("cleared") }),
-  z.object({ type: z.literal("provider_changed"), provider: z.string() }),
+  z.object({ type: z.literal("provider_changed"), provider: z.string(), model: z.string().optional() }),
   z.object({ type: z.literal("resume_selected"), sessionId: z.string(), provider: z.string() }),
   z.object({ type: z.literal("approval_requested"), description: z.string(), sessionId: z.string() }),
   z.object({ type: z.literal("approval_received"), approved: z.boolean(), reason: z.string().optional(), sessionId: z.string().optional() }),
@@ -178,13 +192,13 @@ export class GuiWsClient {
   /**
    * Close the connection permanently.
    */
-  close(): void {
+  close(code = 1000, reason = "client closed"): void {
     this.stopped = true;
     this.stopTimers();
     this.setState("closed");
 
     if (this.ws) {
-      this.ws.close(1000, "client closed");
+      this.ws.close(code, reason);
       this.ws = null;
     }
   }

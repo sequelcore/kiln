@@ -9,20 +9,12 @@ import type {
   GuiInboundFrame,
   GuiOutboundFrame,
 } from "@kilnai/gateway-contracts";
+import { getStableUserId } from "./stable-user-id.js";
 
 export type { GuiInboundFrame, GuiOutboundFrame };
 export type { GuiConnectionState } from "./ws-client";
 
 // --- Helpers ---
-
-/** Generate or retrieve a stable anonymous user ID from localStorage. */
-function getOrCreateUserId(): string {
-  const stored = localStorage.getItem("kiln.gui.userId");
-  if (stored) return stored;
-  const generated = `anon_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
-  localStorage.setItem("kiln.gui.userId", generated);
-  return generated;
-}
 
 /**
  * Return type for useGuiWs hook.
@@ -36,6 +28,11 @@ export interface UseGuiWsResult {
   readonly lastInbound: GuiInboundFrame | null;
 }
 
+export interface UseGuiWsOptions {
+  readonly onFrame?: (frame: GuiInboundFrame) => void;
+  readonly onStateChange?: (state: GuiConnectionState) => void;
+}
+
 /**
  * React hook for the GUI WebSocket client.
  *
@@ -44,15 +41,22 @@ export interface UseGuiWsResult {
  *
  * @param baseUrl - WebSocket endpoint base URL (e.g., "ws://localhost:3800/gui")
  */
-export function useGuiWs(baseUrl: string): UseGuiWsResult {
+export function useGuiWs(baseUrl: string, options?: UseGuiWsOptions): UseGuiWsResult {
   const [state, setState] = useState<GuiConnectionState>("idle");
   const [lastInbound, setLastInbound] = useState<GuiInboundFrame | null>(null);
+  const onFrameRef = useRef(options?.onFrame);
+  const onStateChangeRef = useRef(options?.onStateChange);
 
   // Store client instance in ref to persist across renders
   const clientRef = useRef<GuiWsClient | null>(null);
 
   // userId — generate a stable anonymous identifier for the session
-  const userIdRef = useRef<string>(getOrCreateUserId());
+  const userIdRef = useRef<string>(getStableUserId());
+
+  useEffect(() => {
+    onFrameRef.current = options?.onFrame;
+    onStateChangeRef.current = options?.onStateChange;
+  }, [options?.onFrame, options?.onStateChange]);
 
   // Initialize client on mount
   useEffect(() => {
@@ -63,17 +67,25 @@ export function useGuiWs(baseUrl: string): UseGuiWsResult {
       userId,
       onFrame: (frame) => {
         setLastInbound(frame);
+        onFrameRef.current?.(frame);
       },
       onStateChange: (newState) => {
         setState(newState);
+        onStateChangeRef.current?.(newState);
       },
     });
 
     clientRef.current = client;
     client.connect();
 
+    const handleBeforeUnload = () => {
+      client.close(1000, "window unload");
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+
     // Cleanup on unmount
     return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
       client.close();
       clientRef.current = null;
     };
