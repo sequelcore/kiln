@@ -131,7 +131,9 @@ async function buildDashboardSnapshot(
   const providerDescriptors: GuiProviderDescriptor[] = providers.map((provider) => ({
     id: provider.id,
     label: toProviderLabel(provider.id),
-    group: normalizeProviderGroup(provider.group),
+    group: provider.group,
+    models: provider.models,
+    free: provider.free,
     available: providerHealth.get(provider.id) ?? true,
   }));
 
@@ -161,13 +163,6 @@ async function loadSessionDetail(transcriptStore: TranscriptStore, sessionId: st
     meta,
     transcript,
   };
-}
-
-function normalizeProviderGroup(group: string): GuiProviderDescriptor["group"] {
-  if (group === "direct-api") {
-    return "direct";
-  }
-  return group as GuiProviderDescriptor["group"];
 }
 
 function buildSessionTitle(task: string, provider: string): string {

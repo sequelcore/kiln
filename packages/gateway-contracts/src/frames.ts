@@ -10,7 +10,9 @@
 export interface GuiProviderDescriptor {
   readonly id: string;
   readonly label: string;
-  readonly group: "subscription" | "harness" | "direct";
+  readonly group: "subscription" | "harness" | "direct-api";
+  readonly models: readonly string[];
+  readonly free: boolean;
   readonly available: boolean;
 }
 
@@ -153,7 +155,7 @@ export type GuiInboundFrame =
       type: "welcome";
       greeting?: string;
       models?: Record<string, string[]>;
-      providers?: readonly string[];
+      providers?: readonly GuiProviderDescriptor[];
       activeProvider?: string;
       activeModel?: string;
       planMode?: boolean;

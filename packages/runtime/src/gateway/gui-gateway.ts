@@ -38,6 +38,7 @@ import type {
   GuiDashboardSnapshot,
   GuiInboundFrame,
   GuiOutboundFrame,
+  GuiProviderDescriptor,
   GuiSessionDetail,
   GuiSessionSummary,
 } from "@kilnai/gateway-contracts";
@@ -77,6 +78,75 @@ const GUI_APP_NAME = "kiln-gui";
 const GUI_TENANT_ID = "_gui";
 const DEFAULT_CLAUDE_MODELS = ["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5-20251001", "sonnet", "opus", "haiku"];
 const DEFAULT_CODEX_MODELS = ["o4-mini", "o3", "o3-mini"];
+
+const PROVIDER_ORDER = [
+  "claude",
+  "codex",
+  "opencode",
+  "codex-oauth",
+  "anthropic",
+  "openai",
+  "deepseek",
+  "openrouter",
+  "ollama",
+] as const;
+
+const PROVIDER_META: Record<string, {
+  readonly label: string;
+  readonly group: GuiProviderDescriptor["group"];
+  readonly free: boolean;
+}> = {
+  claude: { label: "Claude", group: "harness", free: false },
+  codex: { label: "Codex", group: "harness", free: false },
+  opencode: { label: "OpenCode", group: "harness", free: false },
+  "codex-oauth": { label: "Codex OAuth", group: "subscription", free: true },
+  anthropic: { label: "Anthropic", group: "direct-api", free: false },
+  openai: { label: "OpenAI", group: "direct-api", free: false },
+  deepseek: { label: "DeepSeek", group: "direct-api", free: false },
+  openrouter: { label: "OpenRouter", group: "direct-api", free: true },
+  ollama: { label: "Ollama", group: "direct-api", free: true },
+};
+
+function getProviderMeta(providerId: string): {
+  readonly label: string;
+  readonly group: GuiProviderDescriptor["group"];
+  readonly free: boolean;
+} {
+  return PROVIDER_META[providerId] ?? {
+    label: providerId,
+    group: "direct-api",
+    free: false,
+  };
+}
+
+function buildWelcomeProviderDescriptors(models: Record<string, string[]>): GuiProviderDescriptor[] {
+  const knownDescriptors = PROVIDER_ORDER.map((id) => {
+    const meta = getProviderMeta(id);
+    return {
+      id,
+      label: meta.label,
+      group: meta.group,
+      free: meta.free,
+      models: models[id] ?? [],
+      available: true,
+    } satisfies GuiProviderDescriptor;
+  });
+
+  const known = new Set(PROVIDER_ORDER);
+  const extras = Object.keys(models)
+    .filter((id) => !known.has(id as (typeof PROVIDER_ORDER)[number]))
+    .sort((a, b) => a.localeCompare(b))
+    .map((id) => ({
+      id,
+      label: id,
+      group: "direct-api" as const,
+      free: false,
+      models: models[id] ?? [],
+      available: true,
+    } satisfies GuiProviderDescriptor));
+
+  return [...knownDescriptors, ...extras];
+}
 
 async function getOpencodeModels(): Promise<string[]> {
   try {
@@ -341,7 +411,7 @@ function wireOperatorTransport(
           ws.send(JSON.stringify({
             type: "welcome",
             models: input.models,
-            providers: Object.keys(input.models),
+            providers: buildWelcomeProviderDescriptors(input.models),
             activeProvider,
             activeModel,
             planMode: input.transport.planMode ?? false,
@@ -383,7 +453,7 @@ function wireOperatorTransport(
               ws.send(JSON.stringify({
                 type: "provider_changed",
                 provider: newProvider,
-                model: input.transport.sessionManager.getModel(),
+                model: newModel,
               } satisfies GuiInboundFrame));
               return;
             }
