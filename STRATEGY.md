@@ -283,7 +283,14 @@ Progress (as of 2026-04-17):
 - `d21bca7` — test(gui): session-store + composer + transcript unit/component coverage.
 - `070798b` — test(gui): e2e parity flows for rows 1.1–1.6.
 - `c6c7d10` — docs(roadmap): flip rows to ✅. Rows landed: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 4.1, 4.4, 5.3, 5.5. Row 5.4 stayed ☐ (no syntax highlighting / progressive-markdown proof). Verified: typecheck, unit, lint, build, e2e 9/9 green.
-- Parity status: 20/51 rows ✅
+- `0a7ace8` — feat(gateway): welcome frame carries grouped `GuiProviderDescriptor[]` metadata; `provider_changed` ack includes selected model.
+- `3d7e599` — feat(gui): session store `switchProvider` + route mode (`user|auto|responding`) transitions.
+- `b730d09` — feat(gui): provider picker (category-grouped, free badge, keyboard nav) + status pill + Ctrl/Cmd+P shortcut.
+- `0bddfb0` — feat(gui): assistant message header shows routed provider · model from `done` frame.
+- `28cc1d7` — test(gui): provider picker + session-store unit/component coverage.
+- `0819e84` — test(gui): e2e flows for rows 2.1–2.5.
+- `d6e0bba` — docs(roadmap): flip rows 2.1–2.5 to ✅. Verified: typecheck, unit, lint (warnings only), build, e2e 2× green. No new deps.
+- Parity status: 25/51 rows ✅
 
 ### Phase H - Example and Consumer Realignment
 
