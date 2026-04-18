@@ -109,6 +109,7 @@ export type GuiOutboundFrame =
   | { type: "resume"; sessionId: string; provider: string }
   | { type: "approve"; sessionId?: string }
   | { type: "reject"; reason: string; sessionId?: string }
+  | { type: "approval_response"; approved: boolean; reason?: string; sessionId?: string }
   | { type: "exec" };
 
 /** Frames sent by the gateway to the browser (operator). */
@@ -129,6 +130,27 @@ export type GuiInboundFrame =
       changeType?: "created" | "modified" | "deleted";
       linesAdded?: number;
       linesRemoved?: number;
+    }
+  | {
+      type: "tool_call_start";
+      callId: string;
+      toolName: string;
+      input: Record<string, unknown>;
+      timestamp: string;
+    }
+  | {
+      type: "tool_call_result";
+      callId: string;
+      toolName: string;
+      result: string;
+      status: "success" | "error";
+      timestamp: string;
+    }
+  | {
+      type: "activity_phase";
+      phase: "idle" | "thinking" | "tool_running" | "awaiting_approval" | "streaming";
+      toolName?: string;
+      details?: string;
     }
   | {
       type: "done";

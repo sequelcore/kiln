@@ -1,10 +1,14 @@
-import { useMemo, useState } from "react";
-import type { SessionStatus } from "../lib/session-store.js";
+import { useState } from "react";
+import type { ActivityPhase, SessionStatus } from "../lib/session-store.js";
+import { ActivityPhaseIndicator } from "./activity-phase-indicator.js";
 
 interface ComposerProps {
   readonly status: SessionStatus;
   readonly planMode: boolean;
   readonly activityLabel: string | null;
+  readonly activityPhase: ActivityPhase;
+  readonly activityToolName?: string;
+  readonly activityDetails?: string;
   readonly resumeTargetId: string | null;
   readonly onSubmit: (text: string) => void;
   readonly onTogglePlanMode: (enabled: boolean) => void;
@@ -15,20 +19,14 @@ export function Composer(props: ComposerProps) {
   const canSubmit = props.status === "ready" && draft.trim().length > 0;
   const isBusy = props.status === "running" || props.status === "connecting";
 
-  const statusText = useMemo(() => {
-    if (props.activityLabel) {
-      return props.activityLabel;
-    }
-    if (props.status === "running") return "Working...";
-    if (props.status === "connecting") return "Connecting...";
-    if (props.status === "error") return "Recovering...";
-    return "Ready";
-  }, [props.activityLabel, props.status]);
-
   return (
     <section className="border-t border-[var(--color-border)] bg-[var(--color-background-panel)] px-4 py-3">
       <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-[var(--color-text-muted)]">
-        <span>{statusText}</span>
+        <ActivityPhaseIndicator
+          phase={props.activityPhase}
+          toolName={props.activityToolName}
+          details={props.activityDetails}
+        />
         {props.planMode ? (
           <span className="rounded border border-[var(--color-warning)]/60 bg-[var(--color-warning)]/10 px-2 py-0.5 text-[var(--color-warning)]">
             Plan mode

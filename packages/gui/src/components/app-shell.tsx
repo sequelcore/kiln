@@ -12,6 +12,8 @@ import { ConnectionStatus } from "./connection-status.js";
 import { ThemeSwitcher } from "./theme-switcher.js";
 import { ProviderPicker } from "./provider-picker.js";
 import { ProviderStatus } from "./provider-status.js";
+import { ApprovalQueue } from "./approval-queue.js";
+import { ToolCallLog } from "./tool-call-log.js";
 
 const GATEWAY_BASE = "/gui-api";
 
@@ -59,6 +61,9 @@ export function AppShell() {
   const selectedSessionId = useSessionStore((state) => state.selectedSessionId);
   const resumeTargetId = useSessionStore((state) => state.resumeTargetId);
   const turnCounter = useSessionStore((state) => state.turnCounter);
+  const approvalQueue = useSessionStore((state) => state.approvalQueue);
+  const toolCallLog = useSessionStore((state) => state.toolCallLog);
+  const activityPhase = useSessionStore((state) => state.activityPhase);
   const setConnectionStatus = useSessionStore((state) => state.setConnectionStatus);
   const setSender = useSessionStore((state) => state.setSender);
   const setSessionList = useSessionStore((state) => state.setSessionList);
@@ -73,6 +78,12 @@ export function AppShell() {
   const onCleared = useSessionStore((state) => state.onCleared);
   const onProviderChanged = useSessionStore((state) => state.onProviderChanged);
   const onExecConfirmed = useSessionStore((state) => state.onExecConfirmed);
+  const onApprovalRequested = useSessionStore((state) => state.onApprovalRequested);
+  const onApprovalReceived = useSessionStore((state) => state.onApprovalReceived);
+  const onToolCallStart = useSessionStore((state) => state.onToolCallStart);
+  const onToolCallResult = useSessionStore((state) => state.onToolCallResult);
+  const onActivityPhase = useSessionStore((state) => state.onActivityPhase);
+  const sendApprovalResponse = useSessionStore((state) => state.sendApprovalResponse);
   const sendMessage = useSessionStore((state) => state.sendMessage);
   const sendClear = useSessionStore((state) => state.sendClear);
   const setPlanMode = useSessionStore((state) => state.setPlanMode);
@@ -157,6 +168,16 @@ export function AppShell() {
         onExecConfirmed();
       } else if (frame.type === "thinking") {
         setConnectionStatus("running");
+      } else if (frame.type === "approval_requested") {
+        onApprovalRequested(frame);
+      } else if (frame.type === "approval_received") {
+        onApprovalReceived(frame);
+      } else if (frame.type === "tool_call_start") {
+        onToolCallStart(frame);
+      } else if (frame.type === "tool_call_result") {
+        onToolCallResult(frame);
+      } else if (frame.type === "activity_phase") {
+        onActivityPhase(frame);
       }
     },
     onStateChange: (state) => {
@@ -322,11 +343,20 @@ export function AppShell() {
           <div className="w-[320px] min-w-[280px] max-w-[360px]">{sidebar}</div>
         ) : null}
         <main className="flex min-h-0 flex-1 flex-col">
+          <ApprovalQueue
+            queue={approvalQueue}
+            onApprove={(sessionId) => sendApprovalResponse(true, undefined, sessionId)}
+            onDeny={(sessionId) => sendApprovalResponse(false, undefined, sessionId)}
+          />
+          <ToolCallLog entries={toolCallLog} />
           <Transcript messages={messages} />
           <Composer
             status={status}
             planMode={planMode}
             activityLabel={activityLabel}
+            activityPhase={activityPhase}
+            activityToolName={activity?.toolName}
+            activityDetails={activity?.details}
             resumeTargetId={resumeTargetId}
             onSubmit={(text) => {
               sendMessage(text);

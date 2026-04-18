@@ -490,7 +490,7 @@ function wireOperatorTransport(
               return;
             }
 
-            if (frame.type === "approve") {
+            if (frame.type === "approve" || (frame.type === "approval_response" && (frame as { approved?: boolean }).approved === true)) {
               const sessionId = typeof frame.sessionId === "string" ? frame.sessionId : undefined;
               const result = approvalRegistry.approve(sessionId);
               if (!result.ok) {
@@ -499,7 +499,7 @@ function wireOperatorTransport(
               return;
             }
 
-            if (frame.type === "reject") {
+            if (frame.type === "reject" || (frame.type === "approval_response" && (frame as { approved?: boolean }).approved === false)) {
               const sessionId = typeof frame.sessionId === "string" ? frame.sessionId : undefined;
               const reason = typeof frame.reason === "string" ? frame.reason : "rejected by user";
               const result = approvalRegistry.reject(reason, sessionId);
@@ -794,18 +794,40 @@ class GuiActivityStreamer {
         content: event.content,
       } satisfies GuiInboundFrame));
     } else if (event.type === "tool_use") {
+      const callId = `${event.toolName ?? "tool"}_${Date.now()}`;
       this.ws.send(JSON.stringify({
         type: "activity",
         activity: "tool_use",
         toolName: event.toolName,
         input: event.input,
       } satisfies GuiInboundFrame));
+      this.ws.send(JSON.stringify({
+        type: "tool_call_start",
+        callId,
+        toolName: event.toolName ?? "unknown",
+        input: (event.input && typeof event.input === "object" ? event.input : {}) as Record<string, unknown>,
+        timestamp: new Date().toISOString(),
+      } satisfies GuiInboundFrame));
+      this.ws.send(JSON.stringify({
+        type: "activity_phase",
+        phase: "tool_running",
+        toolName: event.toolName,
+      } satisfies GuiInboundFrame));
     } else if (event.type === "tool_result") {
+      const callId = `${event.toolName ?? "tool"}_${Date.now()}`;
       this.ws.send(JSON.stringify({
         type: "activity",
         activity: "tool_result",
         toolName: event.toolName,
         output: event.output,
+      } satisfies GuiInboundFrame));
+      this.ws.send(JSON.stringify({
+        type: "tool_call_result",
+        callId,
+        toolName: event.toolName ?? "unknown",
+        result: event.output ?? "",
+        status: "success",
+        timestamp: new Date().toISOString(),
       } satisfies GuiInboundFrame));
     } else if (event.type === "file_changed") {
       if (this.capture) {

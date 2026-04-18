@@ -297,7 +297,7 @@ Sequencing decision (2026-04-17):
 The work ahead is ordered to maximize daily leverage and let real usage
 inform architectural calls before those calls get locked in.
 
-1. **Dogfood slice** (~1 day) — rows 3.7 (approval queue), 5.4 (markdown + syntax highlighting), 3.8 (tool call log), 3.9 (activity phase indicator). This subset makes the GUI usable for developing Kiln from within Kiln (single-agent sessions). Bar 1.
+1. **Dogfood slice** ✅ (2026-04-17) — rows 3.7 (approval queue), 5.4 (markdown + syntax highlighting), 3.8 (tool call log), 3.9 (activity phase indicator). Shipped: `ApprovalQueue`, `ToolCallLog`, `ActivityPhaseIndicator` components; `tool_call_start`/`tool_call_result`/`activity_phase` frames added to contracts; gateway emits new frames; `react-syntax-highlighter` wired into ReactMarkdown code blocks; `activityPhase` derived from frame stream and replaces binary "thinking…" in Composer. Parity: 29/51 ✅. Bar 1 reached.
 2. **Orchestrator refactor Slice O4** — decide and delete fate of Sequential/Supervisor/Swarm strategies. Deliberately sequenced after dogfood so the architectural call is informed by a week of using the tool we're designing around. Doctrine debt; must close before the GUI grows orchestrator surfaces.
 3. **Finish GUI parity** (~3 more days) — remaining rows of §3 telemetry, §4 input polish, §5 remainder, §7 CLI flags. Unblocks TUI deletion.
 4. **Config + Registries Surface ADR** — unify providers, credentials, MCP servers, skills, tools, models, domain packages, UI prefs behind one configuration story with one precedence model and one credential abstraction. Phase I work. See "Configuration scope" below.

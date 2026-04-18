@@ -1,6 +1,27 @@
 import { create } from "zustand";
 import type { GuiInboundFrame, GuiOutboundFrame, GuiSessionSummary } from "@kilnai/gateway-contracts";
 
+export interface ApprovalRequest {
+  readonly id: string;
+  readonly description: string;
+  readonly sessionId: string;
+  readonly requestedAt: string;
+}
+
+export type ToolCallStatus = "running" | "success" | "error";
+
+export interface ToolCallEntry {
+  readonly callId: string;
+  readonly toolName: string;
+  readonly input: Record<string, unknown>;
+  readonly result?: string;
+  readonly status: ToolCallStatus;
+  readonly startedAt: string;
+  readonly completedAt?: string;
+}
+
+export type ActivityPhase = "idle" | "thinking" | "tool_running" | "awaiting_approval" | "streaming";
+
 const PLAN_MODE_KEY = "kiln.gui.planMode";
 const CLEAR_TIMEOUT_MS = 5_000;
 const PROVIDER_SWITCH_TIMEOUT_MS = 5_000;
@@ -115,6 +136,9 @@ interface SessionStoreState {
   readonly outboundSend: ((frame: GuiOutboundFrame) => void) | null;
   readonly clearTimeoutId: ReturnType<typeof setTimeout> | null;
   readonly providerSwitchTimeoutId: ReturnType<typeof setTimeout> | null;
+  readonly approvalQueue: readonly ApprovalRequest[];
+  readonly toolCallLog: readonly ToolCallEntry[];
+  readonly activityPhase: ActivityPhase;
 }
 
 interface SessionStoreActions {
@@ -138,6 +162,13 @@ interface SessionStoreActions {
   setPlanMode: (enabled: boolean) => void;
   setResume: (sessionId: string | null) => void;
   disconnect: () => void;
+  onApprovalRequested: (frame: Extract<GuiInboundFrame, { type: "approval_requested" }>) => void;
+  onApprovalReceived: (frame: Extract<GuiInboundFrame, { type: "approval_received" }>) => void;
+  onToolCallStart: (frame: Extract<GuiInboundFrame, { type: "tool_call_start" }>) => void;
+  onToolCallResult: (frame: Extract<GuiInboundFrame, { type: "tool_call_result" }>) => void;
+  onActivityPhase: (frame: Extract<GuiInboundFrame, { type: "activity_phase" }>) => void;
+  sendApprovalResponse: (approved: boolean, reason?: string, sessionId?: string) => boolean;
+  clearToolCallLog: () => void;
 }
 
 export type SessionStore = SessionStoreState & SessionStoreActions;
@@ -169,6 +200,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   outboundSend: null,
   clearTimeoutId: null,
   providerSwitchTimeoutId: null,
+  approvalQueue: [],
+  toolCallLog: [],
+  activityPhase: "idle",
 
   setConnectionStatus: (status) => {
     set({ status });
@@ -283,7 +317,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         content: current.content + frame.content,
         streaming: true,
       };
-      set({ messages: messageList, status: "running", errorBanner: null });
+      set({ messages: messageList, status: "running", activityPhase: "streaming", errorBanner: null });
       return;
     }
 
@@ -299,6 +333,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       messages: [...messageList, assistantMessage],
       currentAssistant: assistantId,
       status: "running",
+      activityPhase: "streaming",
       errorBanner: null,
     });
   },
@@ -310,12 +345,21 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
     const baseActivity = frame.activity.trim();
     const phase = baseActivity.length > 0 ? baseActivity : undefined;
+
+    const derivedPhase: ActivityPhase = (() => {
+      if (frame.activity === "tool_use") return "tool_running";
+      if (frame.activity === "reasoning") return "thinking";
+      if (frame.activity === "tool_result") return "idle";
+      return current.activityPhase === "idle" ? "thinking" : current.activityPhase;
+    })();
+
     set({
       activity: {
         phase,
         toolName: frame.toolName,
         details: frame.details ?? frame.output,
       },
+      activityPhase: derivedPhase,
       routeMode: "responding",
       respondingProvider: nextRespondingProvider,
       respondingModel: nextRespondingModel,
@@ -387,6 +431,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       currentAssistant: null,
       status: "ready",
       activity: null,
+      activityPhase: "idle",
       routedProvider: finalizedProvider ?? state.routedProvider,
       routedModel: finalizedModel ?? state.routedModel,
       routeMode: state.providerExplicitSelection ? "user" : "auto",
@@ -434,6 +479,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       currentAssistant: null,
       status: "ready",
       activity: null,
+      activityPhase: "idle",
       errorBanner: null,
       resumeTargetId: null,
       routedProvider: null,
@@ -443,6 +489,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       respondingModel: null,
       clearPending: false,
       clearTimeoutId: null,
+      approvalQueue: [],
+      toolCallLog: [],
     });
   },
 
@@ -529,6 +577,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       messages: [...state.messages, userMessage],
       status: "running",
       activity: { phase: "thinking" },
+      activityPhase: "thinking",
       routeMode: "responding",
       respondingProvider: state.activeProvider,
       respondingModel: state.activeModel,
@@ -608,6 +657,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     set({
       status: "idle",
       activity: null,
+      activityPhase: "idle",
       routeMode: state.providerExplicitSelection ? "user" : "auto",
       respondingProvider: null,
       respondingModel: null,
@@ -616,5 +666,75 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       providerSwitching: false,
       providerSwitchTimeoutId: null,
     });
+  },
+
+  onApprovalRequested: (frame) => {
+    const request: ApprovalRequest = {
+      id: createMessageId(),
+      description: frame.description,
+      sessionId: frame.sessionId,
+      requestedAt: nowIso(),
+    };
+    set((state) => ({
+      approvalQueue: [...state.approvalQueue, request],
+      activityPhase: "awaiting_approval",
+    }));
+  },
+
+  onApprovalReceived: (frame) => {
+    set((state) => {
+      const nextQueue = frame.sessionId
+        ? state.approvalQueue.filter((req) => req.sessionId !== frame.sessionId)
+        : state.approvalQueue.slice(1);
+      const nextPhase: ActivityPhase = nextQueue.length > 0 ? "awaiting_approval" : state.activityPhase === "awaiting_approval" ? "idle" : state.activityPhase;
+      return { approvalQueue: nextQueue, activityPhase: nextPhase };
+    });
+  },
+
+  onToolCallStart: (frame) => {
+    const entry: ToolCallEntry = {
+      callId: frame.callId,
+      toolName: frame.toolName,
+      input: frame.input,
+      status: "running",
+      startedAt: frame.timestamp,
+    };
+    set((state) => ({
+      toolCallLog: [...state.toolCallLog, entry],
+      activityPhase: "tool_running",
+    }));
+  },
+
+  onToolCallResult: (frame) => {
+    set((state) => {
+      const nextLog = state.toolCallLog.map((entry) =>
+        entry.callId === frame.callId
+          ? { ...entry, result: frame.result, status: frame.status, completedAt: frame.timestamp }
+          : entry,
+      );
+      const stillRunning = nextLog.some((entry) => entry.status === "running");
+      const nextPhase: ActivityPhase = stillRunning ? "tool_running" : state.activityPhase === "tool_running" ? "idle" : state.activityPhase;
+      return { toolCallLog: nextLog, activityPhase: nextPhase };
+    });
+  },
+
+  onActivityPhase: (frame) => {
+    set({ activityPhase: frame.phase });
+  },
+
+  sendApprovalResponse: (approved, reason, sessionId) => {
+    const state = get();
+    const outboundSend = state.outboundSend;
+    if (!outboundSend) return false;
+    if (approved) {
+      outboundSend({ type: "approve", sessionId });
+    } else {
+      outboundSend({ type: "reject", reason: reason ?? "rejected by user", sessionId });
+    }
+    return true;
+  },
+
+  clearToolCallLog: () => {
+    set({ toolCallLog: [] });
   },
 }));
