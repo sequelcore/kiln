@@ -5,7 +5,7 @@ Detailed doctrine lives in the modular architecture docs.
 
 ## Primary Frame
 
-Kiln is a cybernetic control plane for governed AI work.
+Kiln is a biocybernetic control plane for governed AI work.
 
 That means the system is organized around regulation:
 
@@ -15,8 +15,9 @@ That means the system is organized around regulation:
 - measuring outcomes
 - correcting drift
 
-This is the canonical frame. Older descriptions based on orchestration-first
-language or biological identity are subordinate at most.
+This is the canonical frame. Kiln's operational contracts are cybernetic, while
+its mechanism lineage is biological and neural. Older descriptions based on
+orchestration-first language are subordinate to that hierarchy.
 
 ## Core Questions
 
@@ -94,8 +95,8 @@ Primary docs:
 
 ## Biological Mechanisms
 
-Biological research remains useful, but as explanatory support rather than
-product identity.
+Biological research remains useful as both mechanism lineage and disciplined
+identity support, not as a substitute for explicit contracts.
 
 Use it this way:
 
@@ -106,8 +107,8 @@ Use it this way:
 
 Do not use it this way:
 
-- not as the system's public identity
 - not as permission to create organism-like abstractions without control logic
+- not as a literal-organism claim
 - not as a substitute for explicit subsystem ownership
 
 See:

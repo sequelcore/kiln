@@ -10,11 +10,12 @@ the architecture.
 
 ## Core Conclusion
 
-The research does not support treating Kiln as an organism, colony, or branded
-biological metaphor.
+The research supports treating Kiln as a biocybernetic control plane: a
+cybernetic control architecture informed by selected biological and neural
+mechanisms.
 
-The strongest result is that Kiln is best understood as a cybernetic control
-plane whose architecture benefits from selected mechanisms drawn from:
+The strongest result is not a literal organism model. It is a disciplined
+architectural synthesis whose mechanisms are drawn from:
 
 - layered memory
 - attention and salience bottlenecks
@@ -24,8 +25,9 @@ plane whose architecture benefits from selected mechanisms drawn from:
 - active shared-medium effects
 - bounded differentiation and inhibition
 
-The control-plane model is primary. The biological mechanisms are supporting
-mechanism families, not a replacement identity.
+The control-plane contract layer remains primary. The biological and neural
+mechanisms are first-class lineage for the architecture, naming, and product
+framing when they remain grounded in explicit behavior.
 
 ## Mechanism Ranking
 
@@ -66,7 +68,8 @@ The research strongly validates:
 
 The research rejects:
 
-- biology as branding
+- literal-organism branding
+- metaphor-first branding detached from mechanism
 - vague organism language
 - uncontrolled emergence as an engineering virtue
 - metaphor without mechanism
@@ -76,10 +79,12 @@ The research rejects:
 
 The architecture consequence is clear:
 
-- Kiln should be described and built as a control plane
+- Kiln should be described and built as a biocybernetic control plane
 - architecture should revolve around governors, control loops, memory policy,
   safety layers, adaptation, and observable corrections
 - downstream product surfaces should not redefine Kiln identity
+- neurotech and cyberpunk framing are valid only when tied back to these
+  mechanism families and the control-plane contract layer
 
 ## Open Research Pressure Points
 

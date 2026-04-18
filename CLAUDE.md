@@ -1,6 +1,11 @@
-# Kiln - Cybernetic Control Plane for Governed AI Work
+# Kiln - Biocybernetic Control Plane for Governed AI Work
 
-Apache-2.0 licensed monorepo. Kiln is a control plane that regulates AI work across execution surfaces, memory layers, coordination patterns, and safety boundaries. It is not an orchestration-first product, not a biological system made literal, and not a legacy compatibility shell for old abstractions.
+Apache-2.0 licensed monorepo. Kiln is a biocybernetic control plane that
+regulates AI work across execution surfaces, memory layers, coordination
+patterns, and safety boundaries. Its contracts are expressed through
+cybernetic control structures, and its architecture is informed by biological
+and neural regulation. It is not an orchestration-first product, not a literal
+biological system, and not a legacy compatibility shell for old abstractions.
 
 ## Canonical References
 
@@ -31,7 +36,8 @@ Read the modular architecture docs first. They are the active source of truth.
 4. Coordination uses explicit shared state and controlled handoff, not folklore multi-agent magic.
 5. Memory is layered and revision-aware; mutation requires provenance and coherence.
 6. Adaptation is constrained by policy and telemetry; self-modification never outranks doctrine.
-7. Biological metaphors may explain mechanisms, but they do not define the product identity.
+7. Biological and neural language may express mechanism lineage and product
+   framing, but contracts remain explicit control-plane definitions.
 
 ## Commands
 
@@ -53,7 +59,7 @@ Always use `bun run test`, not `bun test`.
 
 The repository is being aligned to a single doctrine:
 
-- Kiln is a cybernetic control plane
+- Kiln is a biocybernetic control plane
 - The modular architecture docs are canonical
 - Research is synthesized at `docs/research/`, not buried under legacy subtrees
 - Old identity language should be removed, not carried forward as compatibility narrative

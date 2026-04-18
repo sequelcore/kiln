@@ -2,9 +2,9 @@
 
 ## Purpose
 
-This document records the biological mechanisms that materially informed the
-Kiln architecture and separates them from weaker or mostly metaphorical
-analogies.
+This document records the biological and neural mechanisms that materially
+informed the Kiln architecture and separates them from weaker or mostly
+metaphorical analogies.
 
 ## Nervous System
 
@@ -144,4 +144,6 @@ Use these mechanism families only when they yield:
 - explicit invariants
 - explicit failure modes
 
-Do not use them as identity language or aesthetic framing.
+Use them in identity, naming, and aesthetic framing only when the resulting
+language remains grounded in explicit contracts and does not imply literal
+biological embodiment.

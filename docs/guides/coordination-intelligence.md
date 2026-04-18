@@ -2,7 +2,7 @@
 
 This guide describes coordination in Kiln using the new canonical frame.
 
-Kiln does not treat coordination as a bag of biologically named primitives or a
+Kiln does not treat coordination as metaphor-first folklore or a literal
 "digital organism." Coordination is a regulated control problem: allocate work,
 bound execution chains, track ownership, preserve shared state, and recover
 cleanly when parallel work drifts or fails.
@@ -61,7 +61,8 @@ At a high level, coordination follows this shape:
 
 ## Biological Research, Properly Scoped
 
-Biological research still informs the design, but only as explanatory support.
+Biological research still informs the design as mechanism lineage, but it does
+not replace inspectable control surfaces.
 
 Useful mechanism families:
 
@@ -71,7 +72,7 @@ Useful mechanism families:
 
 What is no longer canonical:
 
-- treating these mechanisms as Kiln's product identity
+- treating these mechanisms as a literal-organism claim
 - presenting specific named primitives as the permanent architecture
 - implying that emergent behavior should replace inspectable control surfaces
 

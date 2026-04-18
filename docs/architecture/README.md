@@ -2,8 +2,10 @@
 
 This directory is the modular architecture source of truth for Kiln.
 
-Kiln is a cybernetic control plane for autonomous agent sessions. The
-architecture is documented by concern, not as a single monolith.
+Kiln is a biocybernetic control plane for autonomous agent sessions. Its
+contracts are expressed through cybernetic control structures, and its
+architecture is informed by biological and neural regulation. The architecture
+is documented by concern, not as a single monolith.
 
 ## Documents
 

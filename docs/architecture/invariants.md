@@ -2,7 +2,7 @@
 
 ## Core Doctrine
 
-Kiln is a cybernetic control plane for autonomous agent sessions.
+Kiln is a biocybernetic control plane for autonomous agent sessions.
 
 Every architectural decision should support one or more of these functions:
 
@@ -10,8 +10,8 @@ Every architectural decision should support one or more of these functions:
 - control
 - actuate
 
-Biological mechanisms may inform the design, but they do not define the code or
-the canonical identity.
+Biological and neural mechanisms inform the design, but they do not replace
+explicit control-plane definitions.
 
 ## Architectural Invariants
 
@@ -25,7 +25,8 @@ the canonical identity.
 7. Every adaptive parameter has bounds and hysteresis.
 8. Operational modes are explicit state machines.
 9. The EventBus is part of the sensor fabric.
-10. No biological metaphor is an implementation contract.
+10. No biological or neural term becomes an implementation contract without an
+    explicit control-plane definition.
 
 ## Naming Rules
 
@@ -37,6 +38,13 @@ Preferred names:
 - `ChainGovernor`
 - `TaskRegistry`
 - `CoordinationStore`
+
+Allowed naming guidance:
+
+- bio-derived and neuro-derived names are allowed when the owning contract is
+  explicit
+- evocative names may describe mechanism lineage, but they do not define
+  behavior on their own
 
 Names to remove from active doctrine:
 
@@ -54,7 +62,7 @@ Names to remove from active doctrine:
 - Kiln is not a code generator.
 - Kiln is not a communication platform.
 - Kiln is not a workflow engine in its primary definition.
-- Kiln is not a biological organism.
+- Kiln is not a literal biological organism.
 
 ## Temporary Extraction Rule
 

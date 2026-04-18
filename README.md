@@ -9,12 +9,18 @@
   <a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache-2.0" /></a>
 </p>
 
-<p align="center">Cybernetic control plane for governed AI work.</p>
+<p align="center">Biocybernetic control plane for governed AI work.</p>
 
 ---
 
-Kiln is a control plane, not an orchestration engine, agent shell, or biological metaphor made literal.
-It regulates AI work the way a thermostat regulates temperature: sense state, compare it against policy and goals, apply bounded control, and recover safely when conditions drift.
+Kiln is a biocybernetic control plane, not an orchestration engine, agent
+shell, or literal organism model. Its contracts are expressed through
+cybernetic control structures, and its architecture is informed by biological
+and neural regulation.
+
+It regulates AI work the way a thermostat regulates temperature: sense state,
+compare it against policy and goals, apply bounded control, and recover safely
+when conditions drift.
 
 Its job is to govern execution, context, coordination, safety, and adaptation across tools and agents without letting any single model, prompt, or workflow become the system's source of truth.
 
@@ -27,9 +33,10 @@ Kiln exists to answer one question reliably:
 That framing changes the product boundary:
 
 - Kiln is not "a wrapper around models"
-- Kiln is not "a multi-agent organism"
+- Kiln is not "a literal multi-agent organism"
 - Kiln is not "a bag of orchestration primitives"
-- Kiln is a regulatory layer over AI work
+- Kiln is a regulatory layer over AI work with biocybernetic and neurotech
+  lineage
 
 ## Architecture
 

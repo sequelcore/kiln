@@ -104,9 +104,9 @@ not frozen yet.
 
 ### Architectural reset
 
-- Kiln's public direction is now explicitly framed as a **cybernetic control
-  plane** rather than an orchestration engine, meta-orchestrator, or literal
-  biological metaphor.
+- Kiln's public direction is now explicitly framed as a
+  **biocybernetic control plane** rather than an orchestration engine,
+  meta-orchestrator, or literal organism model.
 - Root documentation, architecture docs, and research synthesis were rewritten
   to make the new doctrine the source of truth.
 - Canonical subsystem language now centers on `IngressGovernor`,

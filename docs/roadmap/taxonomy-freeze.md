@@ -13,12 +13,12 @@ This file excludes third-party Markdown under `node_modules/`.
 
 ## Canonical Identity
 
-Kiln is a cybernetic control plane for autonomous agent sessions.
+Kiln is a biocybernetic control plane for autonomous agent sessions.
 
 Kiln is not:
 
 - a meta-orchestrator as primary identity
-- an organism
+- a literal organism
 - a consumer application
 - a workflow engine as its canonical definition
 
@@ -38,8 +38,8 @@ Kiln is not:
 Terms to remove from active framing:
 
 - `meta-orchestrator`
-- `organism`
-- `neural field orchestration`
+- `organism` as a literal identity label
+- `neural field orchestration` as a totalizing system identity
 - `Router` as canonical architecture term
 - `ContextFormatter` as canonical architecture term
 - `ThresholdAllocator` as canonical architecture term
