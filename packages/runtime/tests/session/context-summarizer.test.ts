@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import type { ProviderAdapter } from "@kilnai/core";
 import { textParts } from "@kilnai/core";
-import { DefaultContextSummarizer } from "../../src/session/context-summarizer.js";
+import { DefaultContextSummarizer } from "../../src/session/support/summarization/context-summarizer.js";
 import { ModeBSession } from "../../src/session/mode-b-session.js";
 
 function makeProvider(responseText = "Customer needs help with billing."): ProviderAdapter {

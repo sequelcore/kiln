@@ -164,6 +164,19 @@ The first slice is intentionally narrow:
 - Slice 2 (persistence seam extraction): done. `session/persistence/*`
   hosts the persistence implementations while legacy session file paths remain
   as compatibility wrappers.
+- Slice 3 (support-helper extraction): done.
+  - Extracted support helpers to `packages/runtime/src/session/support/*`:
+    - `summarization/context-summarizer.ts`
+    - `summarization/agent-handoff-summarizer.ts`
+    - `escalation/escalation-detector.ts`
+    - `artifacts/context-artifact-cache.ts`
+    - `artifacts/context-artifact-summary.ts`
+  - Updated session and runtime imports to consume the new support paths
+    directly (no legacy wrapper shims were retained).
+  - `runtime-turn-record.ts` remains in session core because it mutates
+    canonical session state (`accumulateTokens`, `updateSessionLedger`,
+    exact-artifact append), while consuming support artifact writers from
+    `support/artifacts/context-artifact-summary.ts`.
 
 ## First Refactor Sequence
 

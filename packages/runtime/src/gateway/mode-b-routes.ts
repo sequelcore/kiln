@@ -12,7 +12,7 @@ import type { BillingConfig } from "./budget-middleware.js";
 import { requireApiKey } from "./auth-middleware.js";
 import { processInboundMessage } from "./message-pipeline.js";
 import { resolveAgentContextAsync } from "../tenant/agent-resolver.js";
-import type { AgentHandoffSummarizer } from "../session/agent-handoff-summarizer.js";
+import type { AgentHandoffSummarizer } from "../session/support/summarization/agent-handoff-summarizer.js";
 import type { EventBus } from "@kilnai/core";
 import type { PerCallToolConfig } from "../session/mode-b-orchestrator.js";
 

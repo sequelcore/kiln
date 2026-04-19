@@ -29,8 +29,8 @@ import type { ToolCache } from "@kilnai/core";
 import type { ModelRouter, RoutingDecision } from "@kilnai/core";
 import { executeWithRetry, scoreComplexity } from "@kilnai/core";
 import type { ModeBSession } from "./mode-b-session.js";
-import type { EscalationDetector, EscalationSignal } from "./escalation-detector.js";
-import type { ContextSummarizer } from "./context-summarizer.js";
+import type { EscalationDetector, EscalationSignal } from "./support/escalation/escalation-detector.js";
+import type { ContextSummarizer } from "./support/summarization/context-summarizer.js";
 
 const DEFAULT_MAX_TOOL_ROUNDS = 10;
 const COMMAND_TOOL_SHELL_BY_NAME = new Map<string, CommandShell>([

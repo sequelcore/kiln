@@ -23,7 +23,7 @@ import {
   formatRuntimeResumeFeedbackLabel,
   normalizeRuntimeTaskShape,
   readRuntimeSupportArtifactsDetailed,
-} from "../session/context-artifact-summary.js";
+} from "../session/support/artifacts/context-artifact-summary.js";
 import {
   applyRuntimeTurnRecord,
   type RuntimeTurnApprovalTransition,

@@ -53,10 +53,11 @@ This is the delivery queue. It is the only priority order in this index.
 
 ## Current Status
 
-As of 2026-04-18:
+As of 2026-04-19:
 
 - the taxonomy freeze and module mapping slices are closed
 - bounded-context decisions now lead the roadmap sequence
+- `packages/runtime/src/session` Slice 3 (support-helper extraction) is complete
 - the orchestrator roadmap has been consolidated into one canonical file
 - GUI parity work is active in `03-gui-phase-1-parity-checklist.md`
 - parity status is 29/51 rows complete

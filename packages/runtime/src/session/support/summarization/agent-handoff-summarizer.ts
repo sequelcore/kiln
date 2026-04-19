@@ -3,7 +3,7 @@
 
 import type { ProviderAdapter, AgentMessage } from "@kilnai/core";
 import { extractText } from "@kilnai/core";
-import type { ModeBSession } from "./mode-b-session.js";
+import type { ModeBSession } from "../../mode-b-session.js";
 
 export interface AgentHandoffSummarizer {
   summarize(session: ModeBSession, fromAgentName: string, toAgentName: string): Promise<string>;

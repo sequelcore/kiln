@@ -3,7 +3,7 @@ import { textParts } from "@kilnai/core";
 import {
   DefaultEscalationDetector,
   wordOverlapSimilarity,
-} from "../../src/session/escalation-detector.js";
+} from "../../src/session/support/escalation/escalation-detector.js";
 import { ModeBSession } from "../../src/session/mode-b-session.js";
 
 function makeSession(): ModeBSession {

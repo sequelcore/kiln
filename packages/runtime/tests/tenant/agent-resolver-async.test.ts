@@ -3,7 +3,7 @@ import type { TenantConfig } from "@kilnai/core";
 import { textParts } from "@kilnai/core";
 import { resolveAgentContextAsync } from "../../src/tenant/agent-resolver.js";
 import { ModeBSession } from "../../src/session/mode-b-session.js";
-import type { AgentHandoffSummarizer } from "../../src/session/agent-handoff-summarizer.js";
+import type { AgentHandoffSummarizer } from "../../src/session/support/summarization/agent-handoff-summarizer.js";
 
 function makeTenant(overrides: Partial<TenantConfig> = {}): TenantConfig {
   return {

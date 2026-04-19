@@ -3,8 +3,8 @@ import type { ProviderAdapter } from "@kilnai/core";
 import { textParts, extractText } from "@kilnai/core";
 import { ModeBOrchestrator } from "../../src/session/mode-b-orchestrator.js";
 import { ModeBSession } from "../../src/session/mode-b-session.js";
-import type { EscalationDetector } from "../../src/session/escalation-detector.js";
-import type { ContextSummarizer } from "../../src/session/context-summarizer.js";
+import type { EscalationDetector } from "../../src/session/support/escalation/escalation-detector.js";
+import type { ContextSummarizer } from "../../src/session/support/summarization/context-summarizer.js";
 
 function makeProvider(): ProviderAdapter {
   return {

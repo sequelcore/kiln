@@ -1,5 +1,5 @@
 import type { ContentPart } from "@kilnai/core";
-import type { ModeBSession } from "./mode-b-session.js";
+import type { ModeBSession } from "../../mode-b-session.js";
 
 export interface EscalationSignal {
   readonly reason: "keyword" | "loop" | "confidence" | "tool_failure" | "custom";

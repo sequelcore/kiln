@@ -7,7 +7,7 @@ import {
   type ContextArtifact,
   type ContextArtifactCache,
 } from "@kilnai/core";
-import type { ModeBSession } from "./mode-b-session.js";
+import type { ModeBSession } from "../../mode-b-session.js";
 
 function buildRuntimeThreadArtifactKey(session: Pick<ModeBSession, "appName" | "tenantId" | "userId">): string {
   return `runtime-thread-summary:${session.appName}:${session.tenantId}:${session.userId}`;

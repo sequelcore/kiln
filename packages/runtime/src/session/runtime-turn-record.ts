@@ -5,7 +5,7 @@ import {
   writeRuntimeContextBundleArtifact,
   writeRuntimeThreadSummaryArtifact,
   writeRuntimeToolBundleArtifact,
-} from "./context-artifact-summary.js";
+} from "./support/artifacts/context-artifact-summary.js";
 import type { ToolExecutionSummary } from "./mode-b-orchestrator.js";
 import type { ModeBSession } from "./mode-b-session.js";
 

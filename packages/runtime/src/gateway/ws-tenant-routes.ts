@@ -10,7 +10,7 @@ import type { ModeBOrchestrator, PerCallToolConfig } from "../session/mode-b-orc
 import type { SessionRegistry } from "../session/session-registry.js";
 import type { TenantRegistry } from "../tenant/tenant-registry.js";
 import { resolveAgentContextAsync } from "../tenant/agent-resolver.js";
-import type { AgentHandoffSummarizer } from "../session/agent-handoff-summarizer.js";
+import type { AgentHandoffSummarizer } from "../session/support/summarization/agent-handoff-summarizer.js";
 import type { EventBus } from "@kilnai/core";
 import { extractSuggestions } from "../tenant/suggestion-parser.js";
 import { checkBudget, reportUsage } from "./budget-middleware.js";

@@ -12,7 +12,7 @@ import { InMemorySessionStore as DirectInMemorySessionStore } from "../../src/se
 import { RedisSessionStore as DirectRedisSessionStore } from "../../src/session/redis-session-store.js";
 import { serializeSession as DirectSerializeSession, deserializeSession as DirectDeserializeSession } from "../../src/session/session-serializer.js";
 import { isValidTransition as DirectIsValidTransition } from "../../src/session/session-mode.js";
-import { DefaultEscalationDetector as DirectDefaultEscalationDetector } from "../../src/session/escalation-detector.js";
+import { DefaultEscalationDetector as DirectDefaultEscalationDetector } from "../../src/session/support/escalation/escalation-detector.js";
 
 describe("session exports", () => {
   it("session barrel exposes the current session boundary", () => {

@@ -19,14 +19,18 @@ export { isValidTransition, transitionSessionMode } from "./session-mode.js";
 export type { SessionMode } from "./session-mode.js";
 
 // Session support helpers
-export { getProjectContextArtifactCache, ProjectContextArtifactCache } from "./context-artifact-cache.js";
-export { DefaultEscalationDetector, wordOverlapSimilarity } from "./escalation-detector.js";
+export {
+  getProjectContextArtifactCache,
+  ProjectContextArtifactCache,
+  DefaultEscalationDetector,
+  wordOverlapSimilarity,
+  DefaultContextSummarizer,
+  DefaultAgentHandoffSummarizer,
+} from "./support/index.js";
 export type {
   EscalationSignal,
   EscalationDetector,
   DefaultEscalationDetectorConfig,
-} from "./escalation-detector.js";
-export { DefaultContextSummarizer } from "./context-summarizer.js";
-export type { ContextSummarizer } from "./context-summarizer.js";
-export { DefaultAgentHandoffSummarizer } from "./agent-handoff-summarizer.js";
-export type { AgentHandoffSummarizer } from "./agent-handoff-summarizer.js";
+  ContextSummarizer,
+  AgentHandoffSummarizer,
+} from "./support/index.js";

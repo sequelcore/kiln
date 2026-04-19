@@ -21,7 +21,7 @@ import type { BillingConfig } from "./budget-middleware.js";
 import { checkBudget, reportUsage } from "./budget-middleware.js";
 import type { ConversationEventEmitter } from "./conversation-event-emitter.js";
 import type { SessionMode } from "../session/session-mode.js";
-import type { EscalationSignal } from "../session/escalation-detector.js";
+import type { EscalationSignal } from "../session/support/escalation/escalation-detector.js";
 import { TraceContext } from "./trace-context.js";
 import { appendGroundingDirective, formatUserContext } from "./context-formatter.js";
 import {
@@ -31,7 +31,7 @@ import {
   normalizeRuntimeTaskShape,
   readRuntimeSupportArtifactsDetailed,
   writeRuntimeHandoffSummaryArtifact,
-} from "../session/context-artifact-summary.js";
+} from "../session/support/artifacts/context-artifact-summary.js";
 import {
   applyRuntimeTurnRecord,
   type RuntimeTurnApprovalTransition,

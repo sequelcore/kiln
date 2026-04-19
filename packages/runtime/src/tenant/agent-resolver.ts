@@ -10,7 +10,7 @@ import { DefaultTenantRouter, EmbeddingTenantRouter } from "./tenant-router.js";
 import type { RoutingResult } from "./tenant-router.js";
 import type { ModeBSession } from "../session/mode-b-session.js";
 import { checkPingPong } from "./ping-pong-guard.js";
-import type { AgentHandoffSummarizer } from "../session/agent-handoff-summarizer.js";
+import type { AgentHandoffSummarizer } from "../session/support/summarization/agent-handoff-summarizer.js";
 
 export interface ResolvedAgentContext {
   readonly systemPrompt: string;
