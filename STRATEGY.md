@@ -1,6 +1,6 @@
 # Kiln Strategy
 > Living long-term roadmap aligned to the canonical architecture.
-> Last updated: 2026-04-10
+> Last updated: 2026-04-18
 
 ## 1. Executive Thesis
 
@@ -271,7 +271,7 @@ Progress (as of 2026-04-17):
 
 - ADR-005 accepted — TUI frozen
 - ADR-006 accepted — GUI stack decided
-- `docs/roadmap/gui-phase-1-parity-checklist.md` accepted
+- `docs/roadmap/06-gui-phase-1-parity-checklist.md` accepted
 - `packages/gui/` scaffold landed at commit `54d1d53` (React 19 + TanStack Router/Query + Zustand + Tailwind v4 + Vitest + ESLint 9); pre-spec UI archived under `.reference/`
 - Runtime `gui-gateway` + `operator-gateway` and `kiln gui` CLI command in place
 - `@kilnai/gateway-contracts` package extracted (commit `fbd18dc`); GUI and runtime now share neutral wire-format types; ESLint guard directs consumers there instead of `@kilnai/runtime`
@@ -298,7 +298,7 @@ Progress (as of 2026-04-17):
 - `28cc1d7` — test(gui): provider picker + session-store unit/component coverage.
 - `0819e84` — test(gui): e2e flows for rows 2.1–2.5.
 - `d6e0bba` — docs(roadmap): flip rows 2.1–2.5 to ✅. Verified: typecheck, unit, lint (warnings only), build, e2e 2× green. No new deps.
-- Parity status: 25/51 rows ✅
+- Parity status: 29/51 rows ✅
 
 Sequencing decision (2026-04-17):
 
@@ -376,12 +376,19 @@ Kiln reaches strategic coherence when:
 - safety, context, coordination, and adaptation operate as one system
 - obsolete code and obsolete narrative are both gone
 
-## 9. Immediate Next Steps
+## 9. Immediate Execution Priority
 
-1. Finish the documentation refactor at the root and remove stale narrative surfaces.
-2. Audit package/module names against the frozen taxonomy.
-3. Map current runtime modules to the canonical subsystems and mark keep, split, merge, or delete.
-4. Sequence the first code refactors around control admission, context governance, safety, and coordination substrate.
-5. Rewrite examples only after the core doctrine is stable in code and docs.
+This section is a delivery queue, not a restatement of the long-term phase
+order above.
+
+1. Finish the remaining orchestrator cleanup after the O4 strategy cuts so
+   export and ownership residue do not leak into the GUI surface.
+2. Finish the remaining GUI parity checklist rows and reach GUI parity with the
+   frozen TUI scope.
+3. Delete the TUI in Phase I once GUI parity is complete and verified.
+4. Write and accept the config and registries surface ADR before broader
+   provider, MCP, skill, tool, and model-management surfaces are implemented.
+5. Build GUI orchestrator surfaces only after the remaining orchestrator
+   cleanup and the config ADR land.
 
 This document is the strategic source of truth for long-term direction. Detailed execution belongs in the roadmap documents under `docs/roadmap/` and the modular architecture under `docs/architecture/`.

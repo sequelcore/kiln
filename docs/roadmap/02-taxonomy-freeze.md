@@ -126,9 +126,13 @@ Terms to remove from active framing:
 ### Roadmap
 
 - `docs/roadmap/README.md`
-- `docs/roadmap/documentation-refactor-plan.md`
-- `docs/roadmap/architecture-refactor-plan.md`
-- `docs/roadmap/taxonomy-freeze.md`
+- `docs/roadmap/01-docs-reset-plan.md`
+- `docs/roadmap/02-taxonomy-freeze.md`
+- `docs/roadmap/03-module-mapping.md`
+- `docs/roadmap/04-bounded-context-decisions.md`
+- `docs/roadmap/05-orchestrator-refactor-roadmap.md`
+- `docs/roadmap/06-gui-phase-1-parity-checklist.md`
+- `docs/roadmap/07-external-benchmark-validation.md`
 
 ## File Inventory And Disposition
 
@@ -390,11 +394,7 @@ Terms to remove from active framing:
 
 ### Roadmap
 
-- `docs/roadmap/documentation-refactor-plan.md`
-  Disposition: keep
-  Destination: current path
-
-- `docs/roadmap/architecture-refactor-plan.md`
+- `docs/roadmap/01-docs-reset-plan.md`
   Disposition: keep
   Destination: current path
 
@@ -402,7 +402,27 @@ Terms to remove from active framing:
   Disposition: keep
   Destination: current path
 
-- `docs/roadmap/taxonomy-freeze.md`
+- `docs/roadmap/02-taxonomy-freeze.md`
+  Disposition: keep
+  Destination: current path
+
+- `docs/roadmap/03-module-mapping.md`
+  Disposition: keep
+  Destination: current path
+
+- `docs/roadmap/04-bounded-context-decisions.md`
+  Disposition: keep
+  Destination: current path
+
+- `docs/roadmap/05-orchestrator-refactor-roadmap.md`
+  Disposition: keep
+  Destination: current path
+
+- `docs/roadmap/06-gui-phase-1-parity-checklist.md`
+  Disposition: keep
+  Destination: current path
+
+- `docs/roadmap/07-external-benchmark-validation.md`
   Disposition: keep
   Destination: current path
 

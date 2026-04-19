@@ -1,4 +1,4 @@
-# Bounded-Context Decision Table
+# Bounded-Context Decisions
 
 This document assigns an explicit refactor disposition to the major Kiln
 packages and modules.
@@ -22,8 +22,8 @@ accidentally preserved through piecemeal edits.
 
 Read first:
 
-- [taxonomy-freeze.md](taxonomy-freeze.md)
-- [current-module-mapping.md](current-module-mapping.md)
+- [02-taxonomy-freeze.md](02-taxonomy-freeze.md)
+- [03-module-mapping.md](03-module-mapping.md)
 
 ## Decision Table
 

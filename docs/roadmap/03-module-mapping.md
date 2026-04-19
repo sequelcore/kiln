@@ -1,4 +1,4 @@
-# Current Module Mapping
+# Module Mapping
 
 This document maps the current package and module structure to the frozen Kiln
 architecture so the code refactor can proceed against a concrete inventory.

@@ -1,101 +1,80 @@
 # Roadmap
 
-This directory contains planning and execution documents for Kiln documentation
-and architecture alignment work.
+This directory is the canonical roadmap set for documentation cleanup, codebase
+realignment, GUI parity, and deferred benchmark work.
 
-## Active Documents
+## Canonical File Set
 
-- `documentation-refactor-plan.md`
-  Policy document for the documentation refactor: target structure,
-  principles, file disposition, and acceptance criteria.
+The roadmap now uses numbered files. The number indicates the default read
+order, not necessarily the active work priority.
 
-- `architecture-refactor-plan.md`
-  Execution sequence for the documentation refactor: slices, dependencies,
-  review gates, deletion gates, audits, and definition of done.
+### Foundation and references
 
-- `taxonomy-freeze.md`
-  Slice 1 artifact: canonical terminology, target doc map, and explicit
-  disposition for active repository Markdown documents.
+- `01-docs-reset-plan.md`
+  Canonical documentation-reset plan. Merges the former policy and execution
+  plan documents.
+- `02-taxonomy-freeze.md`
+  Canonical terminology, target doc map, and Markdown file disposition.
+- `03-module-mapping.md`
+  Translation layer from the current package tree to the target architecture.
+- `04-bounded-context-decisions.md`
+  Explicit keep, split, merge, rename, and delete decisions for major modules.
 
-- `current-module-mapping.md`
-  Translation layer from the existing package/module structure to the canonical
-  control-plane architecture. Use this before planning code refactors.
+### Execution roadmaps
 
-- `bounded-context-decision-table.md`
-  Explicit keep/split/merge/rename/delete decisions for the major packages and
-  modules. Use this to sequence the first real code refactors.
+- `05-orchestrator-refactor-roadmap.md`
+  Canonical orchestrator roadmap. Merges the former overview plus O1, O2, and
+  O4 slice-plan documents.
+- `06-gui-phase-1-parity-checklist.md`
+  Phase I GUI parity checklist. The deletion gate for `packages/tui/`.
 
-- `orchestrator-refactor-plan.md`
-  The first code-refactor execution plan. Breaks `packages/core/src/orchestrator`
-  into file-level decisions, execution slices, and atomic work units.
+### Deferred work
 
-- `orchestrator-o1-plan.md`
-  Atomic implementation plan for Slice O1, focused on shrinking
-  `orchestrator.ts` by extracting support concerns before any broad renaming.
+- `07-external-benchmark-validation.md`
+  Deferred public benchmark milestone after architecture and product work
+  stabilize.
 
-- `orchestrator-o2-plan.md`
-  Atomic implementation plan for Slice O2, focused on replacing the remaining
-  swarm-era mechanism names with control-plane vocabulary.
+## Read Order
 
-- `orchestrator-o4-plan.md`
-  Execution plan for Slice O4, focused on deciding which orchestrator
-  strategies and team-composition surfaces still survive after O2.
+1. Read `01-docs-reset-plan.md` for the documentation system rules.
+2. Read `02-taxonomy-freeze.md` for canonical naming and file disposition.
+3. Read `03-module-mapping.md` before package or subsystem refactors.
+4. Read `04-bounded-context-decisions.md` before sequencing code refactors.
+5. Read `05-orchestrator-refactor-roadmap.md` for the first code refactor track.
+6. Read `06-gui-phase-1-parity-checklist.md` when planning or verifying GUI
+   parity work.
+7. Read `07-external-benchmark-validation.md` only when benchmark work becomes
+   active.
 
-- `external-benchmark-validation.md`
-  Deferred milestone for public benchmark work after the remaining
-  architecture and product work reaches stability.
+## Current Execution Priority
 
-## Usage
+This is the delivery queue. It is the only priority order in this index.
 
-- Read `documentation-refactor-plan.md` first to understand the rules.
-- Read `architecture-refactor-plan.md` second to understand the execution
-  order.
-- Use `taxonomy-freeze.md` as the working inventory and destination map during
-  execution.
-- Use `current-module-mapping.md` before package or subsystem refactors so code
-  changes stay anchored to the frozen taxonomy.
-- Use `bounded-context-decision-table.md` to decide which areas are being
-  preserved, renamed, consolidated, or removed before implementation begins.
-- Use `orchestrator-refactor-plan.md` when starting the first code refactor in
-  `packages/core/src/orchestrator`.
-- Use `orchestrator-o1-plan.md` when executing the first extraction tasks inside
-  `packages/core/src/orchestrator/orchestrator.ts`.
-- Use `orchestrator-o2-plan.md` when executing the first naming and boundary
-  replacement tasks inside `packages/core/src/orchestrator`.
-- Use `orchestrator-o4-plan.md` when deciding which strategy and team-composer
-  surfaces are kept, shrunk, or deleted.
+1. Finish the remaining work in `05-orchestrator-refactor-roadmap.md`,
+   specifically the unresolved export and ownership cleanup after the O4 cuts.
+2. Finish the remaining rows in `06-gui-phase-1-parity-checklist.md` so TUI
+   deletion can proceed.
+3. Write and accept the config and registries surface ADR before broader config
+   and registry UI work starts.
+4. Build GUI orchestrator surfaces only after the orchestrator cleanup and the
+   config ADR land.
+5. Keep `07-external-benchmark-validation.md` deferred until the product
+   surface stabilizes.
 
 ## Current Status
 
-As of 2026-04-10:
+As of 2026-04-18:
 
-- documentation refactor planning and major root/modular docs work are in place
-- guide/config cleanup is in progress
-- module mapping and bounded-context decision artifacts are complete
-- first code-refactor planning package is complete for `packages/core/src/orchestrator`
-- orchestrator O1 support extractions completed:
-  - O1.A checkpoint extraction
-  - O1.B interrupt extraction
-  - O1.C dev-tool execution support extraction
-  - O1.D memory sync support extraction
-  - O1.E verification support extraction
-  - O1.F constructor and field cleanup
-  - verification run: `bun run typecheck` passed
-- orchestrator O1 slice is complete
-- orchestrator O2 completed; demand-allocator, chain-governor, and task-registry migrations completed
-- orchestrator O4 in progress:
-  - O4.A team-composer deletion completed
-  - O4.B swarm strategy demoted from the public strategy barrel
-  - O4.C swarm mode removed from active orchestrator support
-- orchestrator O5 started:
-  - public orchestrator exports no longer expose swarm strategy APIs
-  - final export cleanup completed for the current orchestrator stop point
-- external benchmark validation is now tracked as a deferred strategic
-  milestone in `external-benchmark-validation.md`, not as an active ADR or
-  implementation slice
+- the docs-reset plan, taxonomy freeze, module mapping, and bounded-context
+  decisions are in place
+- the orchestrator roadmap has been consolidated into one canonical file
+- GUI parity work is active in `06-gui-phase-1-parity-checklist.md`
+- parity status is 29/51 rows complete
+- external benchmark validation remains deferred
 
 ## Rules
 
-- Do not add new conceptual docs outside the approved taxonomy.
-- Do not keep old and new doctrine alive in parallel.
-- Replace and delete superseded docs once their content is absorbed.
+- Do not add new conceptual roadmap docs when an existing numbered file can be
+  expanded instead.
+- Do not split one concern across multiple near-duplicate plan files.
+- Delete superseded roadmap docs when their content is absorbed.
