@@ -278,6 +278,111 @@ describe("createModeBRoutes", () => {
       const body = (await res.json()) as { tierRestricted: boolean };
       expect(body.tierRestricted).toBe(true);
     });
+
+    it("forwards tenant tool context into processInboundMessage for tenant-backed requests", async () => {
+      vi.resetModules();
+
+      const processInboundMessageMock = vi.fn().mockResolvedValue({
+        ok: true,
+        result: {
+          parts: textParts("tenant response"),
+          inputTokens: 11,
+          outputTokens: 7,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          queued: false,
+          sessionId: "session-tenant",
+          sessionMode: "ai_active",
+          traceId: "trace-tenant",
+        },
+      });
+
+      const callBuiltinTools = new Map<string, (input: Record<string, unknown>) => Promise<unknown>>([
+        ["mock_tool", vi.fn(async (input) => input)],
+      ]);
+      const toolDefinitions = [{
+        name: "mock_tool",
+        description: "Mock tool for authority forwarding",
+        inputSchema: {
+          type: "object",
+          properties: {
+            value: { type: "string" },
+          },
+        },
+        tags: new Set(["builtin"]),
+      }];
+      const capabilities = new Map([
+        ["mock_tool", { name: "mock_tool" } as unknown],
+      ]);
+      const toolAuthority = new Map([
+        ["mock_tool", {
+          level: 2,
+          allowed: true,
+          requiresApproval: false,
+          reason: "Audited execution",
+        }],
+      ]);
+      const toolAllowlist = new Set(["mock_tool"]);
+      const rateLimiter = {
+        check: vi.fn().mockReturnValue({ allowed: true }),
+        record: vi.fn(),
+      };
+
+      const resolveAgentContextAsyncMock = vi.fn().mockResolvedValue({
+        systemPrompt: "Tenant-specific system prompt",
+        tenantToolContext: {
+          callBuiltinTools,
+          toolDefinitions,
+          capabilities,
+          toolAuthority,
+          toolAllowlist,
+          rateLimiter,
+          maxToolRounds: undefined,
+        },
+        isHandoff: false,
+      });
+
+      vi.doMock("../../src/gateway/message-pipeline.js", () => ({
+        processInboundMessage: processInboundMessageMock,
+      }));
+      vi.doMock("../../src/tenant/agent-resolver.js", () => ({
+        resolveAgentContextAsync: resolveAgentContextAsyncMock,
+      }));
+
+      const { createModeBRoutes: createModeBRoutesWithMocks } = await import("../../src/gateway/mode-b-routes.js");
+
+      const runtime = makeRuntime({
+        tenant: {
+          tenantId: "tenant-1",
+        } as ModeBAppRuntime["tenant"],
+      });
+      const app = createModeBRoutesWithMocks(runtime);
+
+      const res = await app.request("/message", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: "hello tenant", userId: "user-tenant" }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(resolveAgentContextAsyncMock).toHaveBeenCalledTimes(1);
+      expect(processInboundMessageMock).toHaveBeenCalledTimes(1);
+
+      const forwarded = processInboundMessageMock.mock.calls[0]![0];
+      expect(forwarded.callBuiltinTools).toBe(callBuiltinTools);
+      expect(forwarded.perCallConfig?.tenantId).toBe("tenant-1");
+      expect(forwarded.perCallConfig?.toolAuthority).toBe(toolAuthority);
+      expect(forwarded.perCallConfig?.toolAllowlist).toBe(toolAllowlist);
+      expect(forwarded.perCallConfig?.rateLimiter).toBe(rateLimiter);
+      expect(forwarded.perCallConfig?.additionalTools).toBe(toolDefinitions);
+      expect(forwarded.perCallConfig?.perCallCapabilities).toBe(capabilities);
+
+      expect(runtime.orchestrator.tools?.some((t) => t.name === "mock_tool")).toBe(true);
+
+      vi.doUnmock("../../src/gateway/message-pipeline.js");
+      vi.doUnmock("../../src/tenant/agent-resolver.js");
+      vi.resetModules();
+    });
   });
 
   describe("GET /sessions", () => {

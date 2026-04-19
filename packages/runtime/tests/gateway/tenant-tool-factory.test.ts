@@ -1,7 +1,7 @@
-import { describe, it, expect } from "vitest";
-import type { TenantConfig } from "@kilnai/core";
-import { SlidingWindowRateLimiter } from "@kilnai/core";
-import { buildTenantToolContext } from "../../src/gateway/tenant-tool-factory.js";
+import { describe, it, expect, afterEach } from "vitest";
+import type { TenantConfig, IntegrationAdapter, CredentialResolver } from "@kilnai/core";
+import { buildTenantToolContext, clearIntegrationDeps, configureIntegrationDeps } from "../../src/gateway/tenant-tool-factory.js";
+import { IntegrationRegistry } from "../../src/gateway/integration-registry.js";
 
 function makeTenant(overrides: Partial<TenantConfig> = {}): TenantConfig {
   return {
@@ -16,12 +16,19 @@ function makeTenant(overrides: Partial<TenantConfig> = {}): TenantConfig {
 }
 
 describe("buildTenantToolContext", () => {
+  afterEach(() => {
+    clearIntegrationDeps();
+  });
+
   it("returns empty context when tenant has no tool config", () => {
     const tenant = makeTenant();
     const ctx = buildTenantToolContext(tenant);
 
     expect(ctx.callBuiltinTools.size).toBe(0);
     expect(ctx.toolDefinitions).toHaveLength(0);
+    expect(ctx.toolAuthority.size).toBe(0);
+    expect(ctx.toolAuthorityClassification.size).toBe(0);
+    expect(ctx.integrationAuthorityRollup.size).toBe(0);
     expect(ctx.toolAllowlist).toBeUndefined();
     expect(ctx.rateLimiter).toBeUndefined();
     expect(ctx.maxToolRounds).toBeUndefined();
@@ -258,5 +265,286 @@ describe("buildTenantToolContext", () => {
 
     expect(ctx.callBuiltinTools.has("no_timeout_tool")).toBe(true);
     expect(ctx.toolDefinitions).toHaveLength(1);
+  });
+
+  it("derives canonical tool authority from integration capability annotations", () => {
+    const registry = new IntegrationRegistry();
+    const resolver: CredentialResolver = {
+      resolve: async () => ({ type: "bearer", value: "token" }),
+      invalidate: () => undefined,
+    };
+
+    const adapter: IntegrationAdapter = {
+      provider: "stripe",
+      version: "1.0.0",
+      operations: [
+        {
+          name: "list_customers",
+          description: "List customers",
+          inputSchema: {},
+          annotations: { readOnly: true },
+        },
+        {
+          name: "delete_customer",
+          description: "Delete customer",
+          inputSchema: {},
+          annotations: { destructive: true },
+        },
+      ],
+      execute: async () => ({ data: {} }),
+    };
+    registry.register(adapter);
+    configureIntegrationDeps({ registry, credentialResolver: resolver });
+
+    const tenant = makeTenant({
+      integrations: [
+        {
+          provider: "stripe",
+          credentialKey: "stripe_api_key",
+        },
+      ],
+    });
+
+    const ctx = buildTenantToolContext(tenant);
+
+    expect(ctx.toolAuthority.get("stripe_list_customers")).toEqual({
+      level: 1,
+      allowed: true,
+      requiresApproval: false,
+      reason: "Read-only tool, auto-execute",
+    });
+    expect(ctx.toolAuthority.get("stripe_delete_customer")).toEqual({
+      level: 4,
+      allowed: false,
+      requiresApproval: true,
+      reason: 'Destructive tool "stripe_delete_customer" always requires confirmation',
+    });
+  });
+
+  it("derives tool authority classification precedence from integration capability annotations", () => {
+    const registry = new IntegrationRegistry();
+    const resolver: CredentialResolver = {
+      resolve: async () => ({ type: "bearer", value: "token" }),
+      invalidate: () => undefined,
+    };
+
+    const adapter: IntegrationAdapter = {
+      provider: "ops",
+      version: "1.0.0",
+      operations: [
+        {
+          name: "readonly_but_destructive",
+          description: "Conflicting flags to test precedence",
+          inputSchema: {},
+          annotations: { destructive: true, readOnly: true, idempotent: true },
+        },
+        {
+          name: "read_only_op",
+          description: "Read operation",
+          inputSchema: {},
+          annotations: { readOnly: true },
+        },
+        {
+          name: "idempotent_op",
+          description: "Idempotent operation",
+          inputSchema: {},
+          annotations: { idempotent: true },
+        },
+        {
+          name: "audited_default_op",
+          description: "No annotations means audited classification",
+          inputSchema: {},
+          annotations: {},
+        },
+      ],
+      execute: async () => ({ data: {} }),
+    };
+    registry.register(adapter);
+    configureIntegrationDeps({ registry, credentialResolver: resolver });
+
+    const tenant = makeTenant({
+      integrations: [
+        {
+          provider: "ops",
+          credentialKey: "ops_key",
+        },
+      ],
+    });
+
+    const ctx = buildTenantToolContext(tenant);
+
+    expect(ctx.toolAuthorityClassification.get("ops_readonly_but_destructive")).toBe("destructive");
+    expect(ctx.toolAuthorityClassification.get("ops_read_only_op")).toBe("read_only");
+    expect(ctx.toolAuthorityClassification.get("ops_idempotent_op")).toBe("idempotent");
+    expect(ctx.toolAuthorityClassification.get("ops_audited_default_op")).toBe("audited");
+  });
+
+  it("keeps classification precedence consistent with toolAuthority for the same tool", () => {
+    const registry = new IntegrationRegistry();
+    const resolver: CredentialResolver = {
+      resolve: async () => ({ type: "bearer", value: "token" }),
+      invalidate: () => undefined,
+    };
+
+    const adapter: IntegrationAdapter = {
+      provider: "consistency",
+      version: "1.0.0",
+      operations: [
+        {
+          name: "destructive_over_readonly",
+          description: "Conflicting flags to verify precedence consistency",
+          inputSchema: {},
+          annotations: { destructive: true, readOnly: true },
+        },
+      ],
+      execute: async () => ({ data: {} }),
+    };
+    registry.register(adapter);
+    configureIntegrationDeps({ registry, credentialResolver: resolver });
+
+    const tenant = makeTenant({
+      integrations: [
+        {
+          provider: "consistency",
+          credentialKey: "consistency_key",
+        },
+      ],
+    });
+
+    const ctx = buildTenantToolContext(tenant);
+    const toolName = "consistency_destructive_over_readonly";
+
+    expect(ctx.toolAuthorityClassification.get(toolName)).toBe("destructive");
+    expect(ctx.toolAuthority.get(toolName)).toEqual({
+      level: 4,
+      allowed: false,
+      requiresApproval: true,
+      reason: `Destructive tool "${toolName}" always requires confirmation`,
+    });
+  });
+
+  it("derives integration authority rollup across providers with conservative precedence", () => {
+    const registry = new IntegrationRegistry();
+    const resolver: CredentialResolver = {
+      resolve: async () => ({ type: "bearer", value: "token" }),
+      invalidate: () => undefined,
+    };
+
+    registry.register({
+      provider: "ro",
+      version: "1.0.0",
+      operations: [
+        {
+          name: "list",
+          description: "Read-only operation",
+          inputSchema: {},
+          annotations: { readOnly: true },
+        },
+      ],
+      execute: async () => ({ data: {} }),
+    });
+
+    registry.register({
+      provider: "idem",
+      version: "1.0.0",
+      operations: [
+        {
+          name: "get",
+          description: "Read operation",
+          inputSchema: {},
+          annotations: { readOnly: true },
+        },
+        {
+          name: "upsert",
+          description: "Idempotent operation",
+          inputSchema: {},
+          annotations: { idempotent: true },
+        },
+      ],
+      execute: async () => ({ data: {} }),
+    });
+
+    registry.register({
+      provider: "audit",
+      version: "1.0.0",
+      operations: [
+        {
+          name: "default_policy",
+          description: "Annotated but defaults to audited classification",
+          inputSchema: {},
+          annotations: {},
+        },
+      ],
+      execute: async () => ({ data: {} }),
+    });
+
+    registry.register({
+      provider: "dest",
+      version: "1.0.0",
+      operations: [
+        {
+          name: "delete",
+          description: "Destructive operation",
+          inputSchema: {},
+          annotations: { destructive: true },
+        },
+        {
+          name: "list",
+          description: "Read-only companion operation",
+          inputSchema: {},
+          annotations: { readOnly: true },
+        },
+      ],
+      execute: async () => ({ data: {} }),
+    });
+
+    configureIntegrationDeps({ registry, credentialResolver: resolver });
+
+    const tenant = makeTenant({
+      integrations: [
+        { provider: "ro", credentialKey: "k1" },
+        { provider: "idem", credentialKey: "k2" },
+        { provider: "audit", credentialKey: "k3" },
+        { provider: "dest", credentialKey: "k4" },
+      ],
+    });
+
+    const ctx = buildTenantToolContext(tenant);
+
+    expect(ctx.integrationAuthorityRollup.get("ro")).toBe("read_only");
+    expect(ctx.integrationAuthorityRollup.get("idem")).toBe("idempotent");
+    expect(ctx.integrationAuthorityRollup.get("audit")).toBe("audited");
+    expect(ctx.integrationAuthorityRollup.get("dest")).toBe("destructive");
+  });
+
+  it("rolls up to unknown when provider has tool definitions but missing classification", () => {
+    const registry = new IntegrationRegistry();
+    const resolver: CredentialResolver = {
+      resolve: async () => ({ type: "bearer", value: "token" }),
+      invalidate: () => undefined,
+    };
+
+    registry.register({
+      provider: "unknown_case",
+      version: "1.0.0",
+      operations: [
+        {
+          name: "no_annotations",
+          description: "Tool definition exists but no annotations for classification map",
+          inputSchema: {},
+        },
+      ],
+      execute: async () => ({ data: {} }),
+    });
+
+    configureIntegrationDeps({ registry, credentialResolver: resolver });
+
+    const tenant = makeTenant({
+      integrations: [{ provider: "unknown_case", credentialKey: "k" }],
+    });
+
+    const ctx = buildTenantToolContext(tenant);
+
+    expect(ctx.integrationAuthorityRollup.get("unknown_case")).toBe("unknown");
   });
 });

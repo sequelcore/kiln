@@ -24,6 +24,7 @@ export function ProviderStatus(props: ProviderStatusProps) {
   const respondingProvider = useSessionStore((state) => state.respondingProvider);
   const respondingModel = useSessionStore((state) => state.respondingModel);
   const providerSwitching = useSessionStore((state) => state.providerSwitching);
+  const authorityStatus = useSessionStore((state) => state.authorityStatus);
 
   const providerById = new Map(providers.map((provider) => [provider.id, provider] as const));
   const displayProviderId = routeMode === "responding"
@@ -53,6 +54,10 @@ export function ProviderStatus(props: ProviderStatusProps) {
       <span>{displayModel && displayModel.trim().length > 0 ? displayModel : "—"}</span>
       <span aria-hidden="true">·</span>
       <span>{routeText}</span>
+      <span aria-hidden="true">·</span>
+      <span>
+        authority: {authorityStatus?.effective ?? "unknown"} · {authorityStatus?.completeness ?? "partial"}
+      </span>
       {providerSwitching ? (
         <span className="text-[var(--color-warning)]">switching…</span>
       ) : null}

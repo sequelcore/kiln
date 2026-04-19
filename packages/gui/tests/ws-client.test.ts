@@ -260,10 +260,40 @@ describe("GuiWsClient", () => {
       const frames: Array<{ json: object; expected: GuiInboundFrame }> = [
         { json: { type: "thinking" }, expected: { type: "thinking" } },
         { json: { type: "activity", activity: "Running tool", toolName: "bash" }, expected: { type: "activity", activity: "Running tool", toolName: "bash" } },
-        { json: { type: "done", content: "completed", inputTokens: 100, outputTokens: 50 }, expected: { type: "done", content: "completed", inputTokens: 100, outputTokens: 50 } },
+        {
+          json: {
+            type: "done",
+            content: "completed",
+            inputTokens: 100,
+            outputTokens: 50,
+            authorityStatus: { effective: "fail_closed", completeness: "authoritative" },
+          },
+          expected: {
+            type: "done",
+            content: "completed",
+            inputTokens: 100,
+            outputTokens: 50,
+            authorityStatus: { effective: "fail_closed", completeness: "authoritative" },
+          },
+        },
         { json: { type: "text_delta", content: "delta text" }, expected: { type: "text_delta", content: "delta text" } },
         { json: { type: "error", message: "Something went wrong", code: "ERR_001" }, expected: { type: "error", message: "Something went wrong", code: "ERR_001" } },
-        { json: { type: "welcome", greeting: "Welcome!", models: { openai: ["gpt-4"] }, planMode: false }, expected: { type: "welcome", greeting: "Welcome!", models: { openai: ["gpt-4"] }, planMode: false } },
+        {
+          json: {
+            type: "welcome",
+            greeting: "Welcome!",
+            models: { openai: ["gpt-4"] },
+            planMode: false,
+            authorityStatus: { effective: "unknown", completeness: "partial" },
+          },
+          expected: {
+            type: "welcome",
+            greeting: "Welcome!",
+            models: { openai: ["gpt-4"] },
+            planMode: false,
+            authorityStatus: { effective: "unknown", completeness: "partial" },
+          },
+        },
         { json: { type: "exec_confirmed" }, expected: { type: "exec_confirmed" } },
         { json: { type: "cleared" }, expected: { type: "cleared" } },
         { json: { type: "provider_changed", provider: "anthropic" }, expected: { type: "provider_changed", provider: "anthropic" } },

@@ -170,6 +170,10 @@ export type GuiInboundFrame =
         usedCachedSupport?: boolean;
         selectionReason?: string;
       };
+      authorityStatus?: {
+        effective: "fail_closed" | "read_only" | "idempotent" | "audited" | "destructive" | "unknown";
+        completeness: "authoritative" | "partial";
+      };
     }
   | { type: "text_delta"; content: string }
   | { type: "error"; message: string; code?: string }
@@ -181,6 +185,10 @@ export type GuiInboundFrame =
       activeProvider?: string;
       activeModel?: string;
       planMode?: boolean;
+      authorityStatus?: {
+        effective: "fail_closed" | "read_only" | "idempotent" | "audited" | "destructive" | "unknown";
+        completeness: "authoritative" | "partial";
+      };
     }
   | { type: "exec_confirmed" }
   | { type: "cleared" }

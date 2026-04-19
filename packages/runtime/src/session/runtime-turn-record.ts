@@ -28,6 +28,13 @@ export interface RuntimeTurnApprovalTransition {
   readonly reason?: string;
 }
 
+export interface RuntimeTurnAuthorityDecision {
+  readonly toolName: string;
+  readonly level: number;
+  readonly allowed: boolean;
+  readonly reason: string;
+}
+
 export interface RuntimeTurnRecordInput {
   readonly session: ModeBSession;
   readonly channel: string;
@@ -46,6 +53,7 @@ export interface RuntimeTurnRecordInput {
   readonly routingTierHint?: string;
   readonly fileChanges?: readonly RuntimeTurnFileChange[];
   readonly approvalTransitions?: readonly RuntimeTurnApprovalTransition[];
+  readonly authorityDecisions?: readonly RuntimeTurnAuthorityDecision[];
 }
 
 export interface RuntimeTurnRecord {
@@ -64,6 +72,7 @@ export interface RuntimeTurnRecord {
   };
   readonly fileChanges: readonly RuntimeTurnFileChange[];
   readonly approvalTransitions: readonly RuntimeTurnApprovalTransition[];
+  readonly authorityDecisions: readonly RuntimeTurnAuthorityDecision[];
   readonly turnDepth: number;
 }
 
@@ -108,6 +117,7 @@ export function applyRuntimeTurnRecord(input: RuntimeTurnRecordInput): RuntimeTu
   const routingTierForRecord = input.routingDecision?.routingTier ?? input.routingTierHint;
   const fileChangesForRecord = input.fileChanges ?? [];
   const approvalTransitionsForRecord = input.approvalTransitions ?? [];
+  const authorityDecisionsForRecord = input.authorityDecisions ?? [];
 
   session.accumulateTokens(turnTokens);
   session.updateSessionLedger({
@@ -128,6 +138,12 @@ export function applyRuntimeTurnRecord(input: RuntimeTurnRecordInput): RuntimeTu
     for (const transition of approvalTransitionsForRecord.slice(-8)) {
       const reasonSuffix = transition.reason ? ` (${transition.reason})` : "";
       session.addExactArtifact(`Approval ${transition.status}: ${transition.sessionId}${reasonSuffix}`);
+    }
+  }
+  if (authorityDecisionsForRecord.length > 0) {
+    for (const decision of authorityDecisionsForRecord.slice(-8)) {
+      const verdict = decision.allowed ? "allow" : "deny";
+      session.addExactArtifact(`Tool authority: ${decision.toolName} L${decision.level} ${verdict} (${decision.reason})`);
     }
   }
 
@@ -178,6 +194,7 @@ export function applyRuntimeTurnRecord(input: RuntimeTurnRecordInput): RuntimeTu
     },
     fileChanges: fileChangesForRecord,
     approvalTransitions: approvalTransitionsForRecord,
+    authorityDecisions: authorityDecisionsForRecord,
     turnDepth: session.userTurnCount,
   };
 }

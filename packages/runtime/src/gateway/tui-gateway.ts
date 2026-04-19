@@ -3,6 +3,7 @@ import { createBunWebSocket } from "hono/bun";
 import type { WSContext } from "hono/ws";
 import { execSync } from "node:child_process";
 import { ModeBOrchestrator } from "../session/mode-b-orchestrator.js";
+import type { PerCallToolConfig } from "../session/mode-b-orchestrator.js";
 import { SessionRegistry } from "../session/session-registry.js";
 import { textParts, extractText, EventBus, type ApprovalRequestedEvent, type ApprovalReceivedEvent, type KilnEvent } from "@kilnai/core";
 import type { ContextArtifactCache } from "@kilnai/core";
@@ -132,6 +133,99 @@ export interface TuiGateway {
 const TUI_APP_NAME = "kiln-tui";
 const TUI_TENANT_ID = "_tui";
 
+export interface TuiAuthorityStatus {
+  readonly effective: "fail_closed" | "unknown";
+  readonly completeness: "authoritative" | "partial";
+}
+
+export function buildTuiPerCallToolConfig(): PerCallToolConfig {
+  return {
+    tenantId: TUI_TENANT_ID,
+    toolAllowlist: new Set<string>(),
+    toolAuthority: new Map(),
+  };
+}
+
+export function deriveTuiAuthorityStatusFromPerCallConfig(
+  config: PerCallToolConfig,
+): TuiAuthorityStatus {
+  const allowlist = config.toolAllowlist;
+  if (allowlist && allowlist.size === 0) {
+    // TUI currently runs as an attached-runtime surface with explicit fail-closed tool policy.
+    return { effective: "fail_closed", completeness: "partial" };
+  }
+  return { effective: "unknown", completeness: "partial" };
+}
+
+export function buildTuiWelcomeFramePayload(input: {
+  readonly models: Record<string, string[]>;
+  readonly planMode: boolean;
+  readonly authorityStatus: TuiAuthorityStatus;
+}): {
+  readonly type: "welcome";
+  readonly models: Record<string, string[]>;
+  readonly planMode: boolean;
+  readonly authorityStatus: TuiAuthorityStatus;
+} {
+  return {
+    type: "welcome",
+    models: input.models,
+    planMode: input.planMode,
+    authorityStatus: input.authorityStatus,
+  };
+}
+
+export function buildTuiDoneFramePayload(input: {
+  readonly content: string;
+  readonly parts: readonly unknown[];
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly routedProvider: string;
+  readonly routedModel: string;
+  readonly runtimeContinuity: {
+    readonly strategy: string;
+    readonly feedbackLabel?: string;
+    readonly pressure?: string;
+    readonly supportArtifactCount?: number;
+    readonly supportArtifactSources?: readonly string[];
+    readonly fallbackLabel?: string;
+    readonly usedCachedSupport?: boolean;
+    readonly selectionReason?: string;
+  };
+  readonly authorityStatus: TuiAuthorityStatus;
+}): {
+  readonly type: "done";
+  readonly content: string;
+  readonly parts: readonly unknown[];
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly routedProvider: string;
+  readonly routedModel: string;
+  readonly runtimeContinuity: {
+    readonly strategy: string;
+    readonly feedbackLabel?: string;
+    readonly pressure?: string;
+    readonly supportArtifactCount?: number;
+    readonly supportArtifactSources?: readonly string[];
+    readonly fallbackLabel?: string;
+    readonly usedCachedSupport?: boolean;
+    readonly selectionReason?: string;
+  };
+  readonly authorityStatus: TuiAuthorityStatus;
+} {
+  return {
+    type: "done",
+    content: input.content,
+    parts: input.parts,
+    inputTokens: input.inputTokens,
+    outputTokens: input.outputTokens,
+    routedProvider: input.routedProvider,
+    routedModel: input.routedModel,
+    runtimeContinuity: input.runtimeContinuity,
+    authorityStatus: input.authorityStatus,
+  };
+}
+
 /**
  * Start the in-process TUI gateway.
  *
@@ -178,15 +272,16 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
       return {
         async onOpen(_event: Event, ws: WSContext) {
           activityStreamer.register(ws, eventBus);
-          ws.send(JSON.stringify({
-            type: "welcome",
+          const authorityStatus = deriveTuiAuthorityStatusFromPerCallConfig(buildTuiPerCallToolConfig());
+          ws.send(JSON.stringify(buildTuiWelcomeFramePayload({
             models: {
               claude: ["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5-20251001", "sonnet", "opus", "haiku"],
               codex: codexModels.length > 0 ? codexModels : ["o4-mini", "o3", "o3-mini"],
               opencode: opencodeModels,
             },
             planMode: options.planMode ?? false,
-          }));
+            authorityStatus,
+          })));
         },
 
         async onMessage(event: MessageEvent, ws: WSContext) {
@@ -282,6 +377,8 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
                 session,
                 textParts(userContent),
                 recalledRuntimeSummary,
+                undefined,
+                buildTuiPerCallToolConfig(),
               );
             } catch (err) {
               activityStreamer.endTurnCapture(session.id);
@@ -311,8 +408,8 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
 
             await sessionRegistry.save(session);
 
-            ws.send(JSON.stringify({
-              type: "done",
+            const authorityStatus = deriveTuiAuthorityStatusFromPerCallConfig(buildTuiPerCallToolConfig());
+            ws.send(JSON.stringify(buildTuiDoneFramePayload({
               content: extractText(result.parts),
               parts: result.parts,
               inputTokens: result.inputTokens,
@@ -329,7 +426,8 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
                 usedCachedSupport: runtimeSupport.usedCachedSupport,
                 selectionReason: runtimeSupport.selectionReason,
               },
-            }));
+              authorityStatus,
+            })));
           } catch {
             // Discard malformed frames
           }

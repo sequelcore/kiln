@@ -198,6 +198,7 @@ describe("securityMiddleware", () => {
       const call = vi.mocked(auditLog.append).mock.calls[0]![0];
       expect(call.action).toBe("injection_detected");
       expect(call.outcome).toBe("denied");
+      expect(call.metadata?.authorityScope).toBe("none");
     });
 
     it("logs injection_cleared when input is safe", async () => {
@@ -219,6 +220,7 @@ describe("securityMiddleware", () => {
       const call = vi.mocked(auditLog.append).mock.calls[0]![0];
       expect(call.action).toBe("injection_cleared");
       expect(call.outcome).toBe("allowed");
+      expect(call.metadata?.authorityScope).toBe("none");
     });
 
     it("does not log when auditLog not provided", async () => {

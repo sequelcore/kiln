@@ -10,6 +10,24 @@ import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
+const { mockedToolAuthority, mockedResolveAgentContextAsync } = vi.hoisted(() => {
+  const toolAuthority = new Map([["mock_tool", {
+    level: 2,
+    allowed: true,
+    requiresApproval: false,
+    reason: "Audited execution",
+  }]]);
+
+  return {
+    mockedToolAuthority: toolAuthority,
+    mockedResolveAgentContextAsync: vi.fn(),
+  };
+});
+
+vi.mock("../../src/tenant/agent-resolver.js", () => ({
+  resolveAgentContextAsync: mockedResolveAgentContextAsync,
+}));
+
 const originalFetch = globalThis.fetch;
 const originalEnv = { ...process.env };
 
@@ -99,6 +117,20 @@ function makeConfig(overrides: Partial<WhatsAppWebhookConfig> = {}): WhatsAppWeb
 
 describe("createWhatsAppWebhookRoutes", () => {
   beforeEach(() => {
+    mockedResolveAgentContextAsync.mockResolvedValue({
+      systemPrompt: "Mock system prompt",
+      tenantToolContext: {
+        callBuiltinTools: new Map(),
+        toolDefinitions: [],
+        capabilities: new Map(),
+        toolAuthority: mockedToolAuthority,
+        toolAllowlist: undefined,
+        rateLimiter: undefined,
+        maxToolRounds: undefined,
+      },
+      isHandoff: false,
+    });
+
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: () => Promise.resolve({}),
@@ -308,6 +340,26 @@ describe("createWhatsAppWebhookRoutes", () => {
 
       expect(res.status).toBe(200);
       expect(await res.text()).toBe("OK");
+    });
+
+    it("forwards tenant tool authority into per-call config", async () => {
+      const config = makeConfig();
+      config.tenantRegistry.create(makeTenantConfig());
+      const processSpy = vi.spyOn(config.orchestrator, "processMessage");
+      const app = createWhatsAppWebhookRoutes(config);
+
+      const payload = makeWebhookPayload("phone-123", "+5211234567", "Authority check");
+      await app.request("/webhook", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      await new Promise((r) => setTimeout(r, 50));
+
+      expect(processSpy).toHaveBeenCalledTimes(1);
+      const perCallConfig = processSpy.mock.calls[0]![4];
+      expect(perCallConfig?.toolAuthority).toBe(mockedToolAuthority);
     });
   });
 

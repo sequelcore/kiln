@@ -11,6 +11,24 @@ import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
+const { mockedToolAuthority, mockedResolveAgentContextAsync } = vi.hoisted(() => {
+  const toolAuthority = new Map([["mock_tool", {
+    level: 2,
+    allowed: true,
+    requiresApproval: false,
+    reason: "Audited execution",
+  }]]);
+
+  return {
+    mockedToolAuthority: toolAuthority,
+    mockedResolveAgentContextAsync: vi.fn(),
+  };
+});
+
+vi.mock("../../src/tenant/agent-resolver.js", () => ({
+  resolveAgentContextAsync: mockedResolveAgentContextAsync,
+}));
+
 const originalFetch = globalThis.fetch;
 
 interface InboundEmailPayload {
@@ -84,6 +102,20 @@ function makeConfig(overrides: Partial<EmailWebhookConfig> = {}): EmailWebhookCo
 
 describe("createEmailWebhookRoutes", () => {
   beforeEach(() => {
+    mockedResolveAgentContextAsync.mockResolvedValue({
+      systemPrompt: "Mock system prompt",
+      tenantToolContext: {
+        callBuiltinTools: new Map(),
+        toolDefinitions: [],
+        capabilities: new Map(),
+        toolAuthority: mockedToolAuthority,
+        toolAllowlist: undefined,
+        rateLimiter: undefined,
+        maxToolRounds: undefined,
+      },
+      isHandoff: false,
+    });
+
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: () => Promise.resolve({}),
@@ -364,6 +396,29 @@ describe("createEmailWebhookRoutes", () => {
       expect(mockTransport.send).toHaveBeenCalledTimes(1);
       const sentEmail = mockTransport.send.mock.calls[0]![0];
       expect(sentEmail.subject).toBe("Re: Existing thread");
+    });
+
+    it("forwards tenant tool authority into per-call config", async () => {
+      const mockTransport = { send: vi.fn().mockResolvedValue({ messageId: "<r@b.com>" }) };
+      const config = makeConfig({ emailTransport: mockTransport });
+      const tenant = makeTenantConfig();
+      config.tenantRegistry.create(tenant);
+      (config.tenantRegistry as unknown as Record<string, unknown>).resolveByEmailAddress = vi.fn().mockReturnValue(tenant);
+
+      const processSpy = vi.spyOn(config.orchestrator, "processMessage");
+      const app = createEmailWebhookRoutes(config);
+
+      await app.request("/webhook", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(makeEmailPayload()),
+      });
+
+      await new Promise((r) => setTimeout(r, 100));
+
+      expect(processSpy).toHaveBeenCalledTimes(1);
+      const perCallConfig = processSpy.mock.calls[0]![4];
+      expect(perCallConfig?.toolAuthority).toBe(mockedToolAuthority);
     });
   });
 });

@@ -10,6 +10,24 @@ import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
+const { mockedToolAuthority, mockedResolveAgentContextAsync } = vi.hoisted(() => {
+  const toolAuthority = new Map([["mock_tool", {
+    level: 2,
+    allowed: true,
+    requiresApproval: false,
+    reason: "Audited execution",
+  }]]);
+
+  return {
+    mockedToolAuthority: toolAuthority,
+    mockedResolveAgentContextAsync: vi.fn(),
+  };
+});
+
+vi.mock("../../src/tenant/agent-resolver.js", () => ({
+  resolveAgentContextAsync: mockedResolveAgentContextAsync,
+}));
+
 const originalFetch = globalThis.fetch;
 const originalEnv = { ...process.env };
 
@@ -112,6 +130,20 @@ function makeConfig(overrides: Partial<InstagramWebhookConfig> = {}): InstagramW
 
 describe("createInstagramWebhookRoutes", () => {
   beforeEach(() => {
+    mockedResolveAgentContextAsync.mockResolvedValue({
+      systemPrompt: "Mock system prompt",
+      tenantToolContext: {
+        callBuiltinTools: new Map(),
+        toolDefinitions: [],
+        capabilities: new Map(),
+        toolAuthority: mockedToolAuthority,
+        toolAllowlist: undefined,
+        rateLimiter: undefined,
+        maxToolRounds: undefined,
+      },
+      isHandoff: false,
+    });
+
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: () => Promise.resolve({ recipient_id: "user-1", message_id: "mid-1" }),
@@ -290,6 +322,26 @@ describe("createInstagramWebhookRoutes", () => {
       );
       expect(sent).toBeDefined();
       expect(sent![0].channel).toBe("instagram");
+    });
+
+    it("forwards tenant tool authority into per-call config", async () => {
+      const config = makeConfig();
+      config.tenantRegistry.create(makeTenantConfig());
+      const processSpy = vi.spyOn(config.orchestrator, "processMessage");
+      const app = createInstagramWebhookRoutes(config);
+
+      const payload = makeInstagramPayload("user-sender", "page-456", "Authority check");
+      await app.request("/webhook", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      await new Promise((r) => setTimeout(r, 50));
+
+      expect(processSpy).toHaveBeenCalledTimes(1);
+      const perCallConfig = processSpy.mock.calls[0]![4];
+      expect(perCallConfig?.toolAuthority).toBe(mockedToolAuthority);
     });
   });
 });

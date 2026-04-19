@@ -315,6 +315,7 @@ async function processEmailMessage(
     toolAllowlist: tenantToolCtx.toolAllowlist,
     rateLimiter: tenantToolCtx.rateLimiter,
     tenantId: tenant.tenantId,
+    toolAuthority: tenantToolCtx.toolAuthority,
     additionalTools: tenantToolCtx.toolDefinitions.length > 0 ? tenantToolCtx.toolDefinitions : undefined,
     perCallCapabilities: tenantToolCtx.capabilities.size > 0 ? tenantToolCtx.capabilities : undefined,
   };

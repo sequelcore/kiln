@@ -408,6 +408,9 @@ describe("safetyMiddleware", () => {
           action: "pii_detected",
           actor: "safety-middleware",
           outcome: "allowed",
+          metadata: expect.objectContaining({
+            authorityScope: "none",
+          }),
         }),
       );
     });
@@ -436,6 +439,9 @@ describe("safetyMiddleware", () => {
         expect.objectContaining({
           action: "content_classified",
           actor: "safety-middleware",
+          metadata: expect.objectContaining({
+            authorityScope: "none",
+          }),
         }),
       );
     });
@@ -463,6 +469,9 @@ describe("safetyMiddleware", () => {
           action: "policy_evaluated",
           actor: "safety-middleware",
           outcome: "denied",
+          metadata: expect.objectContaining({
+            authorityScope: "none",
+          }),
         }),
       );
     });

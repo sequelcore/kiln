@@ -1,17 +1,33 @@
 // Builds per-request tool infrastructure from a TenantConfig.
 // Called once per inbound message in channel handlers.
 
-import type { TenantConfig, ToolDefinition, RateLimiter, CredentialResolver, Capability } from "@kilnai/core";
+import type {
+  TenantConfig,
+  ToolDefinition,
+  RateLimiter,
+  CredentialResolver,
+  Capability,
+  AuthorityDescriptor,
+} from "@kilnai/core";
 import { SlidingWindowRateLimiter } from "@kilnai/core";
 import { WebhookToolExecutor } from "./webhook-tool-executor.js";
 import type { WebhookToolConfig } from "./webhook-tool-executor.js";
 import type { IntegrationRegistry } from "./integration-registry.js";
 import { IntegrationExecutor } from "./integration-executor.js";
 
+export type ToolAuthorityClassification =
+  | "destructive"
+  | "read_only"
+  | "idempotent"
+  | "audited";
+
 export interface TenantToolContext {
   readonly callBuiltinTools: ReadonlyMap<string, (input: Record<string, unknown>) => Promise<unknown>>;
   readonly toolDefinitions: readonly ToolDefinition[];
   readonly capabilities: ReadonlyMap<string, Capability>;
+  readonly toolAuthority: ReadonlyMap<string, AuthorityDescriptor>;
+  readonly toolAuthorityClassification: ReadonlyMap<string, ToolAuthorityClassification>;
+  readonly integrationAuthorityRollup: ReadonlyMap<string, ToolAuthorityClassification | "unknown">;
   readonly toolAllowlist?: ReadonlySet<string>;
   readonly rateLimiter?: RateLimiter;
   readonly maxToolRounds?: number;
@@ -48,6 +64,9 @@ export function buildTenantToolContext(
   const callBuiltinTools = new Map<string, (input: Record<string, unknown>) => Promise<unknown>>();
   const toolDefinitions: ToolDefinition[] = [];
   const capabilities = new Map<string, Capability>();
+  const toolAuthority = new Map<string, AuthorityDescriptor>();
+  const toolAuthorityClassification = new Map<string, ToolAuthorityClassification>();
+  const integrationAuthorityRollup = new Map<string, ToolAuthorityClassification | "unknown">();
 
   // 1. Build webhook tools
   if (tenant.webhookTools && tenant.webhookTools.length > 0) {
@@ -89,6 +108,31 @@ export function buildTenantToolContext(
       const caps = registry.getCapabilities(integration.provider, integration.operations);
       for (const [name, cap] of caps) {
         capabilities.set(name, cap);
+        toolAuthorityClassification.set(name, classifyAuthorityFromCapability(cap));
+        const authority = authorityFromCapability(name, cap);
+        if (authority) {
+          toolAuthority.set(name, authority);
+        }
+      }
+
+      let hasMissingClassification = false;
+      const classificationsForProvider: ToolAuthorityClassification[] = [];
+      for (const def of defs) {
+        const classification = toolAuthorityClassification.get(def.name);
+        if (!classification) {
+          hasMissingClassification = true;
+          break;
+        }
+        classificationsForProvider.push(classification);
+      }
+
+      if (hasMissingClassification) {
+        integrationAuthorityRollup.set(integration.provider, "unknown");
+      } else if (classificationsForProvider.length > 0) {
+        integrationAuthorityRollup.set(
+          integration.provider,
+          rollupIntegrationAuthority(classificationsForProvider),
+        );
       }
     }
   }
@@ -132,8 +176,86 @@ export function buildTenantToolContext(
     callBuiltinTools,
     toolDefinitions,
     capabilities,
+    toolAuthority,
+    toolAuthorityClassification,
+    integrationAuthorityRollup,
     toolAllowlist,
     rateLimiter,
     maxToolRounds,
+  };
+}
+
+function rollupIntegrationAuthority(
+  classifications: readonly ToolAuthorityClassification[],
+): ToolAuthorityClassification {
+  if (classifications.includes("destructive")) {
+    return "destructive";
+  }
+  if (classifications.includes("audited")) {
+    return "audited";
+  }
+  if (classifications.includes("idempotent")) {
+    return "idempotent";
+  }
+  return "read_only";
+}
+
+function classifyAuthorityFromCapability(
+  capability: Capability | undefined,
+): ToolAuthorityClassification {
+  const annotations = capability?.annotations;
+  if (annotations?.destructive) {
+    return "destructive";
+  }
+  if (annotations?.readOnly) {
+    return "read_only";
+  }
+  if (annotations?.idempotent) {
+    return "idempotent";
+  }
+  return "audited";
+}
+
+function authorityFromCapability(
+  toolName: string,
+  capability: Capability | undefined,
+): AuthorityDescriptor | undefined {
+  const annotations = capability?.annotations;
+  if (!annotations) {
+    return undefined;
+  }
+
+  if (annotations.destructive) {
+    return {
+      level: 4,
+      allowed: false,
+      requiresApproval: true,
+      reason: `Destructive tool "${toolName}" always requires confirmation`,
+    };
+  }
+
+  if (annotations.readOnly) {
+    return {
+      level: 1,
+      allowed: true,
+      requiresApproval: false,
+      reason: "Read-only tool, auto-execute",
+    };
+  }
+
+  if (annotations.idempotent) {
+    return {
+      level: 2,
+      allowed: true,
+      requiresApproval: false,
+      reason: "Audited execution",
+    };
+  }
+
+  return {
+    level: 2,
+    allowed: true,
+    requiresApproval: false,
+    reason: "Audited execution",
   };
 }

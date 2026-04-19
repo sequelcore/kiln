@@ -22,8 +22,10 @@ export type {
   RetryConfig,
   AuthorizationLevel,
   ToolAuthorizationResult,
+  AuthorityDescriptor,
   ToolErrorType,
   ToolAuthorizer,
+  ToolExecutionRequest,
   ToolExecutionResult,
 } from "./domain/tool-execution.js";
 export type {

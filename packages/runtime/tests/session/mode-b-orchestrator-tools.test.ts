@@ -1,10 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { ProviderAdapter, Capability, ToolAuthorizer, ToolAuthorizationResult, CapabilityAnnotations, RateLimiter, ToolDefinition } from "@kilnai/core";
+import type {
+  ProviderAdapter,
+  Capability,
+  ToolAuthorizer,
+  ToolAuthorizationResult,
+  CapabilityAnnotations,
+  RateLimiter,
+  ToolDefinition,
+  AuthorityDescriptor,
+} from "@kilnai/core";
 import { textParts, EventBus } from "@kilnai/core";
 import { ModeBOrchestrator } from "../../src/session/mode-b-orchestrator.js";
 import type { PerCallToolConfig } from "../../src/session/mode-b-orchestrator.js";
 import { ModeBSession } from "../../src/session/mode-b-session.js";
 import type { ToolResultSanitizer, SanitizationResult } from "@kilnai/core";
+import type { AuditLog } from "@kilnai/core";
 
 function makeProvider(toolCallsOnRound?: number): ProviderAdapter {
   let callCount = 0;
@@ -243,6 +253,160 @@ describe("ModeBOrchestrator - Tool Execution Enhancements", () => {
       expect(toolFn).not.toHaveBeenCalled();
       expect(result.toolExecutions).toBeUndefined();
     });
+
+    it("uses per-call authority descriptor before toolAuthorizer fallback", async () => {
+      const provider = makeProvider(1);
+      const toolFn = vi.fn().mockResolvedValue("result");
+
+      const authorizer: ToolAuthorizer = {
+        authorize: vi.fn().mockReturnValue({
+          level: 4,
+          allowed: false,
+          requiresApproval: false,
+          reason: "Denied by fallback authorizer",
+        }),
+      };
+
+      const orchestrator = new ModeBOrchestrator({
+        provider,
+        tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
+        builtinTools: new Map([["get_data", toolFn]]),
+        toolAuthorizer: authorizer,
+      });
+
+      const perCallConfig: PerCallToolConfig = {
+        toolAuthority: new Map<string, AuthorityDescriptor>([[
+          "get_data",
+          {
+            level: 1,
+            allowed: true,
+            requiresApproval: false,
+            reason: "Tenant authority allows this tool",
+          },
+        ]]),
+      };
+
+      await orchestrator.processMessage(
+        makeSession(),
+        textParts("fetch data"),
+        undefined,
+        undefined,
+        perCallConfig,
+      );
+
+      expect(toolFn).toHaveBeenCalledTimes(1);
+      expect(authorizer.authorize).not.toHaveBeenCalled();
+    });
+
+    it("fails closed for malformed per-call authority descriptor", async () => {
+      const provider = makeProvider(1);
+      const toolFn = vi.fn().mockResolvedValue("should not run");
+
+      const orchestrator = new ModeBOrchestrator({
+        provider,
+        tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
+        builtinTools: new Map([["get_data", toolFn]]),
+      });
+
+      const perCallConfig: PerCallToolConfig = {
+        toolAuthority: new Map([
+          ["get_data", {
+            level: 9,
+            allowed: true,
+            requiresApproval: false,
+            reason: "invalid",
+          }],
+        ]) as unknown as ReadonlyMap<string, AuthorityDescriptor>,
+      };
+
+      await orchestrator.processMessage(
+        makeSession(),
+        textParts("fetch data"),
+        undefined,
+        undefined,
+        perCallConfig,
+      );
+
+      expect(toolFn).not.toHaveBeenCalled();
+    });
+
+    it("allowed execution audit append includes authority metadata", async () => {
+      const provider = makeProvider(1);
+      const append = vi.fn();
+      const auditLog: AuditLog = { append };
+
+      const authorizer: ToolAuthorizer = {
+        authorize: vi.fn().mockReturnValue({
+          level: 1,
+          allowed: true,
+          requiresApproval: false,
+          reason: "Read-only tool, auto-execute",
+        }),
+      };
+
+      const orchestrator = new ModeBOrchestrator({
+        provider,
+        tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
+        builtinTools: new Map([["get_data", vi.fn().mockResolvedValue("result")]]),
+        capabilityMap: makeCapabilityMap(),
+        toolAuthorizer: authorizer,
+        auditLog,
+      });
+
+      await orchestrator.processMessage(makeSession(), textParts("fetch data"));
+
+      expect(append).toHaveBeenCalledWith(expect.objectContaining({
+        action: "tool_execution",
+        actor: "orchestrator",
+        outcome: "success",
+        resource: "get_data",
+        metadata: expect.objectContaining({
+          authorityLevel: 1,
+          authorityAllowed: true,
+          authorityRequiresApproval: false,
+          authorityReason: "Read-only tool, auto-execute",
+        }),
+      }));
+    });
+
+    it("execution failure after authorization includes authority metadata in audit", async () => {
+      const provider = makeProvider(1);
+      const append = vi.fn();
+      const auditLog: AuditLog = { append };
+
+      const authorizer: ToolAuthorizer = {
+        authorize: vi.fn().mockReturnValue({
+          level: 2,
+          allowed: true,
+          requiresApproval: false,
+          reason: "Audited execution",
+        }),
+      };
+
+      const orchestrator = new ModeBOrchestrator({
+        provider,
+        tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
+        builtinTools: new Map([["get_data", vi.fn().mockRejectedValue(new Error("boom"))]]),
+        capabilityMap: makeCapabilityMap({ annotations: { idempotent: true } }),
+        toolAuthorizer: authorizer,
+        auditLog,
+      });
+
+      await orchestrator.processMessage(makeSession(), textParts("fetch data"));
+
+      expect(append).toHaveBeenCalledWith(expect.objectContaining({
+        action: "tool_execution",
+        actor: "orchestrator",
+        outcome: "error",
+        resource: "get_data",
+        metadata: expect.objectContaining({
+          authorityLevel: 2,
+          authorityAllowed: true,
+          authorityRequiresApproval: false,
+          authorityReason: "Audited execution",
+        }),
+      }));
+    });
   });
 
   describe("dangerous command enforcement", () => {
@@ -361,6 +525,58 @@ describe("ModeBOrchestrator - Tool Execution Enhancements", () => {
 
       expect(detector.evaluate).toHaveBeenCalledWith({ command: "git status --short", shell: "bash" });
       expect(toolFn).toHaveBeenCalledWith({ command: "git status --short" });
+    });
+
+    it("dangerous blocked path appends audit with authority metadata when authorization exists", async () => {
+      const provider = makeCommandProvider("rm -rf /tmp/cache");
+      const append = vi.fn();
+      const auditLog: AuditLog = { append };
+      const detector = {
+        evaluate: vi.fn().mockReturnValue({
+          action: "deny",
+          reasonCode: "destructive_unix",
+          reason: "Detected destructive Unix command pattern.",
+        }),
+      };
+      const authorizer: ToolAuthorizer = {
+        authorize: vi.fn().mockReturnValue({
+          level: 2,
+          allowed: true,
+          requiresApproval: false,
+          reason: "Audited execution",
+        }),
+      };
+
+      const orchestrator = new ModeBOrchestrator({
+        provider,
+        tools: [{ name: "bash", description: "Runs shell commands", inputSchema: {}, tags: new Set() }],
+        builtinTools: new Map([["bash", vi.fn().mockResolvedValue("should not run")]]),
+        dangerousCommandDetector: detector,
+        toolAuthorizer: authorizer,
+        capabilityMap: new Map([["bash", {
+          name: "bash",
+          description: "Runs shell commands",
+          schema: {},
+          tags: [],
+          annotations: { idempotent: true },
+        }]]),
+        auditLog,
+      });
+
+      await orchestrator.processMessage(makeSession(), textParts("cleanup"));
+
+      expect(append).toHaveBeenCalledWith(expect.objectContaining({
+        action: "tool_execution",
+        actor: "orchestrator",
+        outcome: "error",
+        resource: "bash",
+        metadata: expect.objectContaining({
+          authorityLevel: 2,
+          authorityAllowed: true,
+          authorityRequiresApproval: false,
+          authorityReason: "Audited execution",
+        }),
+      }));
     });
   });
 

@@ -109,6 +109,11 @@ export interface ProviderDescriptor {
   readonly models: readonly string[];
 }
 
+export interface AuthorityStatus {
+  readonly effective: "fail_closed" | "read_only" | "idempotent" | "audited" | "destructive" | "unknown";
+  readonly completeness: "authoritative" | "partial";
+}
+
 export type RouteMode = "user" | "auto" | "responding";
 
 interface SessionStoreState {
@@ -133,6 +138,7 @@ interface SessionStoreState {
   readonly clearPending: boolean;
   readonly providerSwitching: boolean;
   readonly providerExplicitSelection: boolean;
+  readonly authorityStatus: AuthorityStatus | null;
   readonly outboundSend: ((frame: GuiOutboundFrame) => void) | null;
   readonly clearTimeoutId: ReturnType<typeof setTimeout> | null;
   readonly providerSwitchTimeoutId: ReturnType<typeof setTimeout> | null;
@@ -197,6 +203,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   clearPending: false,
   providerSwitching: false,
   providerExplicitSelection: false,
+  authorityStatus: null,
   outboundSend: null,
   clearTimeoutId: null,
   providerSwitchTimeoutId: null,
@@ -289,6 +296,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       providers,
       activeProvider,
       activeModel,
+      authorityStatus: frame.authorityStatus ?? get().authorityStatus,
       planMode: resolvedPlanMode,
       routeMode: explicitSelection ? "user" : "auto",
       providerExplicitSelection: explicitSelection,
@@ -432,6 +440,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       status: "ready",
       activity: null,
       activityPhase: "idle",
+      authorityStatus: frame.authorityStatus ?? state.authorityStatus,
       routedProvider: finalizedProvider ?? state.routedProvider,
       routedModel: finalizedModel ?? state.routedModel,
       routeMode: state.providerExplicitSelection ? "user" : "auto",

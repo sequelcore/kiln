@@ -111,7 +111,7 @@ Target outcomes:
 
 - `SafetyKernel` is a hard gate, not a recommendation layer
 - dangerous tool use is fail-closed by default
-- policy, execution permissions, and data boundaries converge into one regulatory model
+- policy, execution authority, and data boundaries converge into one regulatory model
 
 ### 4.6 Adaptive but Bounded Evolution
 
@@ -191,21 +191,29 @@ Completion standard:
 - canonical flows from the architecture docs map directly to runtime modules
 - execution is explainable in terms of governors and controllers, not accidental call graphs
 
-### Phase D - Safety and Permission Unification
+### Phase D - Safety and Authority Unification
 
 Objective:
-Collapse fragmented permission, policy, and risk handling into one coherent kernel.
+Collapse fragmented authority, policy, and risk handling into one coherent kernel.
 
 Required results:
 
-- dangerous command detection, tool permissioning, and data boundaries share one policy model
+- dangerous command detection, tool authority handling, and data boundaries share one policy model
 - safety decisions are observable and attributable
 - runtime defaults are fail-closed where risk is ambiguous
 
 Completion standard:
 
-- no parallel permission model competes with the kernel
+- no parallel authority model competes with the kernel
 - no important execution path bypasses safety accounting
+
+Current status (2026-04-18):
+
+- functionally complete for the tool-authority foundation in runtime execution
+  paths
+- canonical authority semantics are in place and carried through tool execution,
+  approval handling, and operator visibility projections
+- canonical architectural reference: `docs/architecture/tool-execution.md`
 
 ### Phase E - Memory and Context Refactor
 

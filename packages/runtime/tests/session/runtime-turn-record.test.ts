@@ -66,6 +66,14 @@ describe("applyRuntimeTurnRecord", () => {
           reason: "Needs approval",
         },
       ],
+      authorityDecisions: [
+        {
+          toolName: "read_file",
+          level: 1,
+          allowed: true,
+          reason: "Read-only tool, auto-execute",
+        },
+      ],
     });
 
     expect(record.provider).toBe("mock-provider");
@@ -73,6 +81,13 @@ describe("applyRuntimeTurnRecord", () => {
     expect(record.toolExecutions?.length).toBe(1);
     expect(record.fileChanges).toHaveLength(1);
     expect(record.approvalTransitions).toHaveLength(1);
+    expect(record.authorityDecisions).toHaveLength(1);
+    expect(record.authorityDecisions[0]).toEqual({
+      toolName: "read_file",
+      level: 1,
+      allowed: true,
+      reason: "Read-only tool, auto-execute",
+    });
     expect(record.continuity.strategy).toBe("cache-first");
     expect(session.totalTokens).toBe(52);
     expect(session.sessionLedger.currentPhase).toBe("responded");
@@ -87,6 +102,7 @@ describe("applyRuntimeTurnRecord", () => {
     expect(session.exactArtifacts).toContain("Grounding blocked: unsupported claim");
     expect(session.exactArtifacts).toContain("File changed: src/index.ts");
     expect(session.exactArtifacts).toContain(`Approval requested: ${session.id} (Needs approval)`);
+    expect(session.exactArtifacts).toContain("Tool authority: read_file L1 allow (Read-only tool, auto-execute)");
 
     expect(cache.listByKind("runtime-thread-summary")).toHaveLength(1);
     expect(cache.listByKind("runtime-context-bundle")).toHaveLength(1);
@@ -122,6 +138,7 @@ describe("applyRuntimeTurnRecord", () => {
     expect(record.provider).toBe("existing-provider");
     expect(record.fileChanges).toEqual([]);
     expect(record.approvalTransitions).toEqual([]);
+    expect(record.authorityDecisions).toEqual([]);
     expect(session.sessionLedger.currentPhase).toBe("queued");
     expect(session.sessionLedger.lastProvider).toBe("existing-provider");
     expect(session.sessionLedger.toolCallCount).toBe(4);

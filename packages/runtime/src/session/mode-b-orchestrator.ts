@@ -14,7 +14,13 @@ import type {
 } from "@kilnai/core";
 import { MODEL_PRICING, appendExecutionIdentity, extractText, resolveExecutionIdentity } from "@kilnai/core";
 import type { ModelPricing } from "@kilnai/core";
-import type { Capability, ToolAuthorizer, ToolExecutionResult } from "@kilnai/core";
+import type {
+  Capability,
+  ToolAuthorizer,
+  ToolExecutionResult,
+  AuthorityDescriptor,
+  ToolAuthorizationResult,
+} from "@kilnai/core";
 import type { AuditLog } from "@kilnai/core";
 import type { ToolResultSanitizer } from "@kilnai/core";
 import type { ToolRAG } from "@kilnai/core";
@@ -147,6 +153,7 @@ export interface PerCallToolConfig {
   readonly tenantId?: string;
   readonly additionalTools?: readonly ToolDefinition[];
   readonly perCallCapabilities?: ReadonlyMap<string, Capability>;
+  readonly toolAuthority?: ReadonlyMap<string, AuthorityDescriptor>;
   readonly modelOverride?: { readonly provider: string; readonly model: string };
   readonly skillInstructions?: string;
 }
@@ -471,10 +478,9 @@ export class ModeBOrchestrator {
 
         // Authorization check
         const capability = this.resolveCapability(tc.name, perCallConfig);
-        if (this.deps.toolAuthorizer) {
-          const authResult = this.deps.toolAuthorizer.authorize(tc.name, capability?.annotations);
+        const authResult = this.resolveAuthorization(tc.name, capability, perCallConfig);
+        if (authResult) {
           this.emitToolAuthorized(session.id, tc.name, authResult.level, authResult.allowed, authResult.reason);
-
           if (!authResult.allowed) {
             if (authResult.requiresApproval) {
               const approval = await this.requestApproval(
@@ -533,7 +539,7 @@ export class ModeBOrchestrator {
 
               this.emitToolResult(session.id, tc.name, 0, false, blockMessage.slice(0, 200), true);
               this.emitError(session.id, `Tool "${tc.name}" blocked by dangerous command detector: ${decision.reasonCode}`);
-              this.appendAudit(tc.name, 0, "error");
+              this.appendAudit(tc.name, 0, "error", authResult);
               toolExecutions.push({
                 toolName: tc.name,
                 durationMs: 0,
@@ -656,7 +662,7 @@ export class ModeBOrchestrator {
           });
 
           // Audit log
-          this.appendAudit(tc.name, durationMs, sanitized ? "success_sanitized" : "success");
+          this.appendAudit(tc.name, durationMs, sanitized ? "success_sanitized" : "success", authResult);
 
           resultParts.push({
             type: "tool_result",
@@ -691,7 +697,7 @@ export class ModeBOrchestrator {
           });
 
           this.emitError(session.id, `Tool "${tc.name}" failed: ${err}`);
-          this.appendAudit(tc.name, durationMs, "error");
+          this.appendAudit(tc.name, durationMs, "error", authResult);
 
           resultParts.push({
             type: "tool_result",
@@ -757,6 +763,58 @@ export class ModeBOrchestrator {
 
   private resolveCapability(name: string, perCallConfig?: PerCallToolConfig): Capability | undefined {
     return this.deps.capabilityMap?.get(name) ?? perCallConfig?.perCallCapabilities?.get(name);
+  }
+
+  private resolveAuthorization(
+    toolName: string,
+    capability: Capability | undefined,
+    perCallConfig?: PerCallToolConfig,
+  ): ToolAuthorizationResult | undefined {
+    const authority = perCallConfig?.toolAuthority?.get(toolName);
+    if (authority !== undefined) {
+      if (!this.isAuthorityDescriptor(authority)) {
+        return {
+          level: 4,
+          allowed: false,
+          requiresApproval: false,
+          reason: "Invalid authority descriptor; execution denied",
+        };
+      }
+      return {
+        level: authority.level,
+        allowed: authority.allowed,
+        requiresApproval: authority.requiresApproval,
+        reason: authority.reason,
+      };
+    }
+    if (!this.deps.toolAuthorizer) {
+      return undefined;
+    }
+    return this.deps.toolAuthorizer.authorize(toolName, capability?.annotations);
+  }
+
+  private isAuthorityDescriptor(value: unknown): value is AuthorityDescriptor {
+    if (!value || typeof value !== "object") {
+      return false;
+    }
+
+    const candidate = value as {
+      level?: unknown;
+      allowed?: unknown;
+      requiresApproval?: unknown;
+      reason?: unknown;
+    };
+
+    const validLevel = candidate.level === 1
+      || candidate.level === 2
+      || candidate.level === 3
+      || candidate.level === 4;
+
+    return validLevel
+      && typeof candidate.allowed === "boolean"
+      && typeof candidate.requiresApproval === "boolean"
+      && typeof candidate.reason === "string"
+      && candidate.reason.length > 0;
   }
 
   private extractFileChangesFromToolResult(
@@ -871,16 +929,28 @@ export class ModeBOrchestrator {
     this.deps.eventBus?.emit(event);
   }
 
-  private appendAudit(toolName: string, durationMs: number, outcome: "success" | "success_sanitized" | "error"): void {
+  private appendAudit(
+    toolName: string,
+    durationMs: number,
+    outcome: "success" | "success_sanitized" | "error",
+    authResult?: ToolAuthorizationResult,
+  ): void {
     if (!this.deps.auditLog) return;
     try {
+      const metadata: Record<string, string | number | boolean> = { durationMs };
+      if (authResult) {
+        metadata.authorityLevel = authResult.level;
+        metadata.authorityAllowed = authResult.allowed;
+        metadata.authorityRequiresApproval = authResult.requiresApproval;
+        metadata.authorityReason = authResult.reason;
+      }
       this.deps.auditLog.append({
         timestamp: new Date(),
         action: "tool_execution",
         actor: "orchestrator",
         outcome,
         resource: toolName,
-        metadata: { durationMs },
+        metadata,
       });
     } catch {
       // Non-critical: don't fail tool execution for audit

@@ -24,6 +24,7 @@ function resetSessionStore(): void {
     clearPending: false,
     providerSwitching: false,
     providerExplicitSelection: false,
+    authorityStatus: null,
     outboundSend: null,
     clearTimeoutId: null,
     providerSwitchTimeoutId: null,
@@ -138,5 +139,49 @@ describe("session-store provider selection", () => {
       routedModel: "claude-sonnet-4-6",
     });
     expect(useSessionStore.getState().routeMode).toBe("user");
+  });
+
+  it("stores authorityStatus from welcome and updates it from done", () => {
+    useSessionStore.getState().onWelcome({
+      type: "welcome",
+      providers: [
+        {
+          id: "claude",
+          label: "Claude",
+          group: "harness",
+          free: false,
+          available: true,
+          models: ["claude-sonnet-4-6"],
+        },
+      ],
+      activeProvider: "claude",
+      activeModel: "claude-sonnet-4-6",
+      planMode: false,
+      authorityStatus: {
+        effective: "audited",
+        completeness: "partial",
+      },
+    });
+
+    expect(useSessionStore.getState().authorityStatus).toEqual({
+      effective: "audited",
+      completeness: "partial",
+    });
+
+    useSessionStore.getState().onDone({
+      type: "done",
+      content: "done",
+      inputTokens: 1,
+      outputTokens: 1,
+      authorityStatus: {
+        effective: "fail_closed",
+        completeness: "authoritative",
+      },
+    });
+
+    expect(useSessionStore.getState().authorityStatus).toEqual({
+      effective: "fail_closed",
+      completeness: "authoritative",
+    });
   });
 });

@@ -50,6 +50,7 @@ export function securityMiddleware(
           tier: result.tier,
           threats: result.threats.length,
           inputLength: result.inputLength,
+          authorityScope: "none",
         },
       });
     }

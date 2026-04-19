@@ -147,6 +147,66 @@ describe("DevToolExecutionBridge", () => {
     } satisfies Partial<KilnError>);
   });
 
+  it("uses request-level authority descriptor before authorizer fallback", async () => {
+    const registry = new DevToolRegistry();
+    registry.register(
+      makeTool(
+        "write",
+        async () => ({
+          output: "ok",
+          isError: false,
+        }),
+        { destructive: true },
+      ),
+    );
+
+    const bridge = new DevToolExecutionBridge({
+      registry,
+      authorizer: new AnnotationAuthorizer(),
+    });
+
+    const result = await bridge.execute({
+      name: "write",
+      input: { filePath: "x.txt", content: "x" },
+      authority: {
+        level: 1,
+        allowed: true,
+        requiresApproval: false,
+        reason: "Tenant policy pre-authorized this invocation",
+      },
+    });
+
+    expect(result.result.output).toBe("ok");
+    expect(result.result.isError).toBe(false);
+  });
+
+  it("fails closed when request-level authority descriptor is malformed", async () => {
+    const registry = new DevToolRegistry();
+    registry.register(
+      makeTool("echo", async () => ({
+        output: "ok",
+        isError: false,
+      })),
+    );
+
+    const bridge = new DevToolExecutionBridge({ registry });
+
+    await expect(
+      bridge.execute({
+        name: "echo",
+        input: {},
+        authority: {
+          level: 9 as unknown as 1,
+          allowed: true,
+          requiresApproval: false,
+          reason: "invalid",
+        },
+      }),
+    ).rejects.toMatchObject({
+      code: "TOOL_AUTHORIZATION_DENIED",
+    } satisfies Partial<KilnError>);
+  });
+
   it("retries transient failures with executeWithRetry", async () => {
     const registry = new DevToolRegistry();
     let attempts = 0;

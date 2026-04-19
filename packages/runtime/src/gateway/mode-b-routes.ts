@@ -14,6 +14,7 @@ import { processInboundMessage } from "./message-pipeline.js";
 import { resolveAgentContextAsync } from "../tenant/agent-resolver.js";
 import type { AgentHandoffSummarizer } from "../session/agent-handoff-summarizer.js";
 import type { EventBus } from "@kilnai/core";
+import type { PerCallToolConfig } from "../session/mode-b-orchestrator.js";
 
 /** Runtime configuration for a Mode B App */
 export interface ModeBAppRuntime {
@@ -112,6 +113,8 @@ export function createModeBRoutes(runtime: ModeBAppRuntime): Hono {
     let activeAgentName: string | undefined;
     let routingTier: "rule" | "embedding" | "fallback" | undefined;
     let routingConfidence: number | undefined;
+    let callBuiltinTools: ReadonlyMap<string, (input: Record<string, unknown>) => Promise<unknown>> | undefined;
+    let perCallConfig: PerCallToolConfig | undefined;
     if (runtime.tenant) {
       // Get or create session for ping-pong guard context
       const session = await runtime.sessionRegistry.getOrCreate({
@@ -134,6 +137,24 @@ export function createModeBRoutes(runtime: ModeBAppRuntime): Hono {
       activeAgentName = agentCtx.activeAgentName;
       routingTier = agentCtx.routingResult?.tier;
       routingConfidence = agentCtx.routingResult?.confidence;
+      const tenantToolCtx = agentCtx.tenantToolContext;
+
+      if (tenantToolCtx.toolDefinitions.length > 0) {
+        runtime.orchestrator.registerTools(tenantToolCtx.toolDefinitions);
+      }
+
+      callBuiltinTools = tenantToolCtx.callBuiltinTools.size > 0
+        ? tenantToolCtx.callBuiltinTools
+        : undefined;
+
+      perCallConfig = {
+        tenantId,
+        toolAuthority: tenantToolCtx.toolAuthority,
+        toolAllowlist: tenantToolCtx.toolAllowlist,
+        rateLimiter: tenantToolCtx.rateLimiter,
+        additionalTools: tenantToolCtx.toolDefinitions.length > 0 ? tenantToolCtx.toolDefinitions : undefined,
+        perCallCapabilities: tenantToolCtx.capabilities.size > 0 ? tenantToolCtx.capabilities : undefined,
+      };
 
       // Update session with resolved prompt and agent
       session.setSystemPrompt(agentCtx.systemPrompt);
@@ -157,6 +178,8 @@ export function createModeBRoutes(runtime: ModeBAppRuntime): Hono {
         channel: "api",
         knowledgeContext,
         userContext,
+        callBuiltinTools,
+        perCallConfig,
         groundingMode: runtime.tenant?.groundingMode,
         groundingDeps: runtime.groundingDeps,
         contextArtifactCache: runtime.contextArtifactCache,

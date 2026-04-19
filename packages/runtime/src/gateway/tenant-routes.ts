@@ -8,6 +8,7 @@ import type { ModeBOrchestrator } from "../session/mode-b-orchestrator.js";
 import type { SessionRegistry } from "../session/session-registry.js";
 import type { TenantRegistry } from "../tenant/tenant-registry.js";
 import { buildTenantSystemPrompt } from "../tenant/system-prompt-builder.js";
+import { buildTenantToolContext } from "./tenant-tool-factory.js";
 import type { BillingConfig } from "./budget-middleware.js";
 import { requireApiKey } from "./auth-middleware.js";
 import { processInboundMessage } from "./message-pipeline.js";
@@ -78,6 +79,11 @@ export function createTenantRoutes(runtime: TenantAppRuntime): Hono {
 
     // Build system prompt from tenant config
     const systemPrompt = buildTenantSystemPrompt(tenant);
+    const tenantToolCtx = buildTenantToolContext(tenant);
+
+    if (tenantToolCtx.toolDefinitions.length > 0) {
+      runtime.orchestrator.registerTools(tenantToolCtx.toolDefinitions);
+    }
 
     const processResult = await processInboundMessage({
       orchestrator: runtime.orchestrator,
@@ -89,6 +95,15 @@ export function createTenantRoutes(runtime: TenantAppRuntime): Hono {
       userParts,
       billing: billingConfig,
       channel: "api",
+      callBuiltinTools: tenantToolCtx.callBuiltinTools.size > 0 ? tenantToolCtx.callBuiltinTools : undefined,
+      perCallConfig: {
+        tenantId: body.tenantId,
+        toolAuthority: tenantToolCtx.toolAuthority,
+        toolAllowlist: tenantToolCtx.toolAllowlist,
+        rateLimiter: tenantToolCtx.rateLimiter,
+        additionalTools: tenantToolCtx.toolDefinitions.length > 0 ? tenantToolCtx.toolDefinitions : undefined,
+        perCallCapabilities: tenantToolCtx.capabilities.size > 0 ? tenantToolCtx.capabilities : undefined,
+      },
       idleTimeoutMs: tenant.idleTimeoutMs,
       groundingMode: tenant.groundingMode,
       groundingDeps: runtime.groundingDeps,

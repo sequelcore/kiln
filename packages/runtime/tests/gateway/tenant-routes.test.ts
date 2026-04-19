@@ -284,6 +284,104 @@ describe("createTenantRoutes", () => {
       expect(usageBody.messages).toBe(1);
       expect(usageBody.tokens).toBe(150); // 100 input + 50 output
     });
+
+    it("forwards tenant tool context into processInboundMessage and registers tenant tool definitions", async () => {
+      vi.resetModules();
+
+      const processInboundMessageMock = vi.fn().mockResolvedValue({
+        ok: true,
+        result: {
+          parts: textParts("forwarded response"),
+          inputTokens: 11,
+          outputTokens: 7,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          queued: false,
+          sessionId: "session-tenant",
+          sessionMode: "ai_active",
+          traceId: "trace-tenant",
+        },
+      });
+
+      const callBuiltinTools = new Map<string, (input: Record<string, unknown>) => Promise<unknown>>([
+        ["mock_tool", vi.fn(async (input) => input)],
+      ]);
+      const toolDefinitions = [{
+        name: "mock_tool",
+        description: "Mock tenant tool",
+        inputSchema: {
+          type: "object",
+          properties: {
+            value: { type: "string" },
+          },
+        },
+        tags: new Set(["builtin"]),
+      }];
+      const capabilities = new Map([
+        ["mock_tool", { name: "mock_tool" } as unknown],
+      ]);
+      const toolAuthority = new Map([
+        ["mock_tool", {
+          level: 2,
+          allowed: true,
+          requiresApproval: false,
+          reason: "Audited execution",
+        }],
+      ]);
+      const toolAllowlist = new Set(["mock_tool"]);
+      const rateLimiter = {
+        check: vi.fn().mockReturnValue({ allowed: true }),
+        record: vi.fn(),
+      };
+
+      const buildTenantToolContextMock = vi.fn().mockReturnValue({
+        callBuiltinTools,
+        toolDefinitions,
+        capabilities,
+        toolAuthority,
+        toolAllowlist,
+        rateLimiter,
+        maxToolRounds: undefined,
+      });
+
+      vi.doMock("../../src/gateway/message-pipeline.js", () => ({
+        processInboundMessage: processInboundMessageMock,
+      }));
+      vi.doMock("../../src/gateway/tenant-tool-factory.js", () => ({
+        buildTenantToolContext: buildTenantToolContextMock,
+      }));
+
+      const { createTenantRoutes: createTenantRoutesWithMocks } = await import("../../src/gateway/tenant-routes.js");
+
+      const runtime = makeRuntime();
+      runtime.tenantRegistry.create(makeTenantConfig());
+      const app = createTenantRoutesWithMocks(runtime);
+
+      const res = await app.request("/message", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: "hello", userId: "user-1", tenantId: "test-tenant" }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(buildTenantToolContextMock).toHaveBeenCalledTimes(1);
+      expect(processInboundMessageMock).toHaveBeenCalledTimes(1);
+
+      const forwarded = processInboundMessageMock.mock.calls[0]![0];
+      expect(forwarded.callBuiltinTools).toBe(callBuiltinTools);
+      expect(forwarded.perCallConfig?.tenantId).toBe("test-tenant");
+      expect(forwarded.perCallConfig?.toolAuthority).toBe(toolAuthority);
+      expect(forwarded.perCallConfig?.toolAllowlist).toBe(toolAllowlist);
+      expect(forwarded.perCallConfig?.rateLimiter).toBe(rateLimiter);
+      expect(forwarded.perCallConfig?.additionalTools).toBe(toolDefinitions);
+      expect(forwarded.perCallConfig?.perCallCapabilities).toBe(capabilities);
+
+      expect(runtime.orchestrator.tools?.some((t) => t.name === "mock_tool")).toBe(true);
+
+      vi.doUnmock("../../src/gateway/message-pipeline.js");
+      vi.doUnmock("../../src/gateway/tenant-tool-factory.js");
+      vi.resetModules();
+    });
   });
 
   describe("GET /sessions", () => {

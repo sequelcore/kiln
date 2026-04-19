@@ -1,7 +1,9 @@
 import { executeWithRetry } from "../agents/tool-execution-engine.js";
 import type { CapabilityAnnotations } from "../engine/domain/capability.js";
 import type {
+  AuthorityDescriptor,
   RetryConfig,
+  ToolExecutionRequest,
   ToolAuthorizer,
   ToolExecutionResult,
 } from "../engine/domain/tool-execution.js";
@@ -9,9 +11,7 @@ import { KilnError } from "../engine/errors.js";
 import type { DevTool, ToolResult } from "./domain/tool.js";
 import { DevToolRegistry } from "./domain/tool-registry.js";
 
-export interface DevToolExecutionRequest {
-  readonly name: string;
-  readonly input: Record<string, unknown>;
+export interface DevToolExecutionRequest extends ToolExecutionRequest {
   readonly sandbox?: unknown;
   readonly retry?: RetryConfig;
 }
@@ -50,7 +50,7 @@ export class DevToolExecutionBridge {
         retryable: false,
       });
     }
-    this.authorize(primaryTool);
+    this.authorize(primaryTool, request.authority);
 
     if (request.retry?.fallback && !this.registry.lookup(request.retry.fallback)) {
       throw new KilnError(
@@ -67,7 +67,7 @@ export class DevToolExecutionBridge {
       toolName: string,
       input: Record<string, unknown>,
     ): Promise<ToolResult> => {
-      return await this.executeSingle(toolName, input, request.sandbox);
+      return await this.executeSingle(toolName, input, request.sandbox, request.authority);
     };
 
     const fallbackExecutor = request.retry?.fallback ? executor : undefined;
@@ -101,6 +101,13 @@ export class DevToolExecutionBridge {
   }
 
   authorizeRequest(name: string): DevToolAuthorizationDecision {
+    return this.authorizeRequestWithAuthority(name);
+  }
+
+  authorizeRequestWithAuthority(
+    name: string,
+    authority?: AuthorityDescriptor,
+  ): DevToolAuthorizationDecision {
     const tool = this.registry.lookup(name);
     if (!tool) {
       throw new KilnError("INTERNAL_ERROR", `Tool "${name}" is not registered`, {
@@ -109,13 +116,14 @@ export class DevToolExecutionBridge {
       });
     }
 
-    return this.getAuthorizationDecision(tool);
+    return this.getAuthorizationDecision(tool, authority);
   }
 
   private async executeSingle(
     toolName: string,
     input: Record<string, unknown>,
     sandbox?: unknown,
+    authority?: AuthorityDescriptor,
   ): Promise<ToolResult> {
     const tool = this.registry.lookup(toolName);
     if (!tool) {
@@ -125,12 +133,12 @@ export class DevToolExecutionBridge {
       });
     }
 
-    this.authorize(tool);
+    this.authorize(tool, authority);
     return await tool.execute({ name: toolName, input }, sandbox);
   }
 
-  private authorize(tool: DevTool): void {
-    const decision = this.getAuthorizationDecision(tool);
+  private authorize(tool: DevTool, authority?: AuthorityDescriptor): void {
+    const decision = this.getAuthorizationDecision(tool, authority);
 
     if (!decision.allowed) {
       throw new KilnError("TOOL_AUTHORIZATION_DENIED", decision.reason, {
@@ -154,7 +162,29 @@ export class DevToolExecutionBridge {
     }
   }
 
-  private getAuthorizationDecision(tool: DevTool): DevToolAuthorizationDecision {
+  private getAuthorizationDecision(
+    tool: DevTool,
+    authority?: AuthorityDescriptor,
+  ): DevToolAuthorizationDecision {
+    if (authority !== undefined) {
+      if (!isAuthorityDescriptor(authority)) {
+        return {
+          toolName: tool.name,
+          level: 4,
+          allowed: false,
+          requiresApproval: false,
+          reason: "Invalid authority descriptor; execution denied",
+        };
+      }
+      return {
+        toolName: tool.name,
+        level: authority.level,
+        allowed: authority.allowed,
+        requiresApproval: authority.requiresApproval,
+        reason: authority.reason,
+      };
+    }
+
     if (!this.authorizer) {
       return {
         toolName: tool.name,
@@ -204,4 +234,28 @@ function isToolResult(value: unknown): value is ToolResult {
   }
 
   return true;
+}
+
+function isAuthorityDescriptor(value: unknown): value is AuthorityDescriptor {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const candidate = value as {
+    level?: unknown;
+    allowed?: unknown;
+    requiresApproval?: unknown;
+    reason?: unknown;
+  };
+
+  const validLevel = candidate.level === 1
+    || candidate.level === 2
+    || candidate.level === 3
+    || candidate.level === 4;
+
+  return validLevel
+    && typeof candidate.allowed === "boolean"
+    && typeof candidate.requiresApproval === "boolean"
+    && typeof candidate.reason === "string"
+    && candidate.reason.length > 0;
 }

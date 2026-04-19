@@ -186,7 +186,7 @@ function logAudit(
       actor: "safety-middleware",
       resource,
       outcome: result.allowed ? "allowed" : "denied",
-      metadata: { direction, count: result.pii.matches.length, tier: result.pii.tier },
+      metadata: { direction, count: result.pii.matches.length, tier: result.pii.tier, authorityScope: "none" },
     });
   }
 
@@ -197,7 +197,7 @@ function logAudit(
       actor: "safety-middleware",
       resource,
       outcome: result.allowed ? "allowed" : "denied",
-      metadata: { direction, tier: result.content.tier },
+      metadata: { direction, tier: result.content.tier, authorityScope: "none" },
     });
   }
 
@@ -209,7 +209,7 @@ function logAudit(
         actor: "safety-middleware",
         resource,
         outcome: pr.allowed ? "allowed" : "denied",
-        metadata: { direction, railType: pr.railType, reason: pr.reason },
+        metadata: { direction, railType: pr.railType, reason: pr.reason, authorityScope: "none" },
       });
     }
   }

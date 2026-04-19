@@ -168,4 +168,34 @@ describe("Orchestrator native tool execution path", () => {
       cwd: "C:/workspace",
     });
   });
+
+  it("honors request-level authority descriptor in native execution path", async () => {
+    const orchestrator = new Orchestrator();
+    orchestrator.start("authority descriptor deny");
+    orchestrator.registerDevTool(
+      makeTool(
+        "echo",
+        async (input) => ({
+          output: JSON.stringify(input.input),
+          isError: false,
+        }),
+        { readOnly: true },
+      ),
+    );
+
+    await expect(
+      orchestrator.executeDevTool({
+        name: "echo",
+        input: { message: "hello" },
+        authority: {
+          level: 4,
+          allowed: false,
+          requiresApproval: false,
+          reason: "Tenant policy denies this call",
+        },
+      }),
+    ).rejects.toMatchObject({
+      code: "TOOL_AUTHORIZATION_DENIED",
+    } satisfies Partial<KilnError>);
+  });
 });

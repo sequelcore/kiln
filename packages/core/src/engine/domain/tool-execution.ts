@@ -23,12 +23,30 @@ export interface ToolAuthorizationResult {
   readonly reason: string;
 }
 
+/**
+ * Canonical authority descriptor for a tool invocation.
+ * Uses the same allow/deny/approval semantics as ToolAuthorizationResult.
+ */
+export interface AuthorityDescriptor {
+  readonly level: AuthorizationLevel;
+  readonly allowed: boolean;
+  readonly requiresApproval: boolean;
+  readonly reason: string;
+}
+
 /** Classification of a tool execution error */
 export type ToolErrorType = "validation" | "transient" | "fatal";
 
 /** Interface for authorizing tool execution based on annotations */
 export interface ToolAuthorizer {
   authorize(toolName: string, annotations?: import("./capability.js").CapabilityAnnotations): ToolAuthorizationResult;
+}
+
+/** Canonical request envelope for tool execution. */
+export interface ToolExecutionRequest {
+  readonly name: string;
+  readonly input: Record<string, unknown>;
+  readonly authority?: AuthorityDescriptor;
 }
 
 /** Result of tool execution with retry */

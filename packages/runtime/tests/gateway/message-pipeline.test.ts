@@ -460,6 +460,52 @@ describe("processInboundMessage", () => {
     expect(artifacts).not.toContain("Approval requested: other-session (Other session request)");
   });
 
+  it("captures tool_authorized decisions scoped to current session into canonical turn artifacts", async () => {
+    const session = makeMockSession();
+    const eventBus = new EventBus();
+    const orchestrator = {
+      processMessage: vi.fn().mockImplementation(async () => {
+        eventBus.emit({
+          type: "tool_authorized",
+          toolName: "read_file",
+          level: 1,
+          allowed: true,
+          reason: "Read-only tool, auto-execute",
+          timestamp: new Date(),
+          sessionId: session.id,
+        });
+        eventBus.emit({
+          type: "tool_authorized",
+          toolName: "delete_file",
+          level: 4,
+          allowed: false,
+          reason: "Destructive operation denied",
+          timestamp: new Date(),
+          sessionId: "other-session",
+        });
+        return {
+          parts: textParts("ok"),
+          inputTokens: 7,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          queued: false,
+        } satisfies OrchestrateResult;
+      }),
+      model: "claude-sonnet-4-20250514",
+      eventBus,
+    } as unknown as ModeBOrchestrator;
+    const sessionRegistry = makeMockSessionRegistry(session);
+    const ctx = makeBaseContext({ orchestrator, sessionRegistry });
+
+    const result = await processInboundMessage(ctx);
+
+    expect(result.ok).toBe(true);
+    const artifacts = (session as unknown as { exactArtifacts: string[] }).exactArtifacts;
+    expect(artifacts).toContain("Tool authority: read_file L1 allow (Read-only tool, auto-execute)");
+    expect(artifacts).not.toContain("Tool authority: delete_file L4 deny (Destructive operation denied)");
+  });
+
   it("persists structured file changes from tool executions into canonical turn artifacts", async () => {
     const session = makeMockSession();
     const orchestrator = {

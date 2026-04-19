@@ -37,6 +37,11 @@ const GuiProviderDescriptorSchema = z.object({
   models: z.array(z.string()),
 });
 
+const GuiAuthorityStatusSchema = z.object({
+  effective: z.enum(["fail_closed", "read_only", "idempotent", "audited", "destructive", "unknown"]),
+  completeness: z.enum(["authoritative", "partial"]),
+});
+
 /** Schema for GuiInboundFrame validation. */
 const GuiInboundFrameSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("thinking") }),
@@ -64,6 +69,7 @@ const GuiInboundFrameSchema = z.discriminatedUnion("type", [
     outputTokens: z.number(),
     routedProvider: z.string().optional(),
     routedModel: z.string().optional(),
+    authorityStatus: GuiAuthorityStatusSchema.optional(),
     runtimeContinuity: z
       .object({
         strategy: z.string(),
@@ -87,6 +93,7 @@ const GuiInboundFrameSchema = z.discriminatedUnion("type", [
     activeProvider: z.string().optional(),
     activeModel: z.string().optional(),
     planMode: z.boolean().optional(),
+    authorityStatus: GuiAuthorityStatusSchema.optional(),
   }),
   z.object({ type: z.literal("exec_confirmed") }),
   z.object({ type: z.literal("cleared") }),

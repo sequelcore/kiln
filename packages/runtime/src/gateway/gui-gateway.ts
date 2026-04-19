@@ -14,6 +14,7 @@ import {
 import { CliSubscriptionExecutor } from "../execution/cli-subscription-executor.js";
 import type { CliSessionEvent } from "../execution/cli-subscription-executor.js";
 import { ModeBOrchestrator } from "../session/mode-b-orchestrator.js";
+import type { PerCallToolConfig } from "../session/mode-b-orchestrator.js";
 import { SessionRegistry } from "../session/session-registry.js";
 import { ApprovalGateRegistry } from "./approval-registry.js";
 import {
@@ -106,6 +107,57 @@ const PROVIDER_META: Record<string, {
   openrouter: { label: "OpenRouter", group: "direct-api", free: true },
   ollama: { label: "Ollama", group: "direct-api", free: true },
 };
+
+export function buildGuiPerCallToolConfig(): PerCallToolConfig {
+  return {
+    tenantId: GUI_TENANT_ID,
+    toolAllowlist: new Set<string>(),
+    toolAuthority: new Map(),
+  };
+}
+
+type GuiAuthorityStatus = NonNullable<Extract<GuiInboundFrame, { type: "welcome" }>["authorityStatus"]>;
+
+export function deriveGuiAuthorityStatusFromPerCallConfig(
+  config: PerCallToolConfig,
+): GuiAuthorityStatus {
+  const hasAllowlist = config.toolAllowlist !== undefined;
+  const allowlistSize = config.toolAllowlist?.size ?? 0;
+  const authorityMap = config.toolAuthority;
+  const hasAuthorityMap = authorityMap instanceof Map;
+  const authoritySize = authorityMap?.size ?? 0;
+
+  if (hasAllowlist && allowlistSize === 0) {
+    return { effective: "fail_closed", completeness: "authoritative" };
+  }
+
+  if (!hasAuthorityMap) {
+    return { effective: "unknown", completeness: "partial" };
+  }
+  if (authoritySize === 0) {
+    return { effective: "unknown", completeness: "partial" };
+  }
+
+  let sawReadOnly = false;
+  let sawIdempotent = false;
+  let sawAudited = false;
+  for (const descriptor of authorityMap.values()) {
+    if (!descriptor) {
+      return { effective: "unknown", completeness: "partial" };
+    }
+    if (descriptor.level === 4 || descriptor.requiresApproval || !descriptor.allowed) {
+      return { effective: "destructive", completeness: "authoritative" };
+    }
+    if (descriptor.level === 1) sawReadOnly = true;
+    else if (descriptor.level === 2) sawIdempotent = true;
+    else sawAudited = true;
+  }
+
+  if (sawAudited) return { effective: "audited", completeness: "authoritative" };
+  if (sawIdempotent) return { effective: "idempotent", completeness: "authoritative" };
+  if (sawReadOnly) return { effective: "read_only", completeness: "authoritative" };
+  return { effective: "unknown", completeness: "partial" };
+}
 
 function getProviderMeta(providerId: string): {
   readonly label: string;
@@ -319,6 +371,7 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
       upgradeWebSocket(() => ({
         onOpen(_event: Event, ws: WSContext) {
           activeConnections += 1;
+          const guiAuthorityStatus = deriveGuiAuthorityStatusFromPerCallConfig(buildGuiPerCallToolConfig());
           ws.send(JSON.stringify({
             type: "welcome",
             models: {},
@@ -326,6 +379,7 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
             activeProvider: undefined,
             activeModel: undefined,
             planMode: false,
+            authorityStatus: guiAuthorityStatus,
           } satisfies GuiInboundFrame));
         },
         onClose() {
@@ -408,6 +462,7 @@ function wireOperatorTransport(
           activityStreamer.register(ws, eventBus);
           const activeProvider = input.transport.sessionManager.getProvider();
           const activeModel = input.transport.sessionManager.getModel();
+          const guiAuthorityStatus = deriveGuiAuthorityStatusFromPerCallConfig(buildGuiPerCallToolConfig());
           ws.send(JSON.stringify({
             type: "welcome",
             models: input.models,
@@ -415,6 +470,7 @@ function wireOperatorTransport(
             activeProvider,
             activeModel,
             planMode: input.transport.planMode ?? false,
+            authorityStatus: guiAuthorityStatus,
           } satisfies GuiInboundFrame));
         },
 
@@ -563,6 +619,8 @@ function wireOperatorTransport(
                 session,
                 textParts(userContent),
                 recalledRuntimeSummary,
+                undefined,
+                buildGuiPerCallToolConfig(),
               );
             } catch (err) {
               activityStreamer.endTurnCapture(session.id);
@@ -611,6 +669,7 @@ function wireOperatorTransport(
                 usedCachedSupport: runtimeSupport.usedCachedSupport,
                 selectionReason: runtimeSupport.selectionReason,
               },
+              authorityStatus: deriveGuiAuthorityStatusFromPerCallConfig(buildGuiPerCallToolConfig()),
             } satisfies GuiInboundFrame));
           } catch {
             // discard malformed frames

@@ -6,6 +6,7 @@ import type {
 } from "../events/index.js";
 import { createPolicy, ROLE_PRESETS } from "../sandbox/index.js";
 import type { SandboxPolicy } from "../sandbox/index.js";
+import type { AuthorityDescriptor } from "../engine/domain/tool-execution.js";
 import { KilnError } from "../engine/errors.js";
 import { AnnotationAuthorizer } from "../security/annotation-authorizer.js";
 import { DevToolRegistry } from "../tools/domain/tool-registry.js";
@@ -60,13 +61,17 @@ export class OrchestratorDevToolSupport {
   }
 
   async executeDevTool(
-    request: DevToolExecutionRequest & { readonly role?: string; readonly cwd?: string },
+    request: DevToolExecutionRequest & {
+      readonly role?: string;
+      readonly cwd?: string;
+      readonly authority?: AuthorityDescriptor;
+    },
   ): Promise<DevToolExecutionResult> {
     const startedAt = Date.now();
     const { sessionId, taskId } = this.deps.getSessionContext();
     const registeredTool = this.registry.lookup(request.name);
     const authorization = registeredTool
-      ? this.executionBridge.authorizeRequest(request.name)
+      ? this.executionBridge.authorizeRequestWithAuthority(request.name, request.authority)
       : undefined;
 
     const calledEvent: ToolCalledEvent = {
@@ -89,7 +94,10 @@ export class OrchestratorDevToolSupport {
         }
       : undefined);
 
-    const resolvedAuthorization = authorization ?? this.executionBridge.authorizeRequest(request.name);
+    const resolvedAuthorization = authorization ?? this.executionBridge.authorizeRequestWithAuthority(
+      request.name,
+      request.authority,
+    );
     const authorizedEvent: ToolAuthorizedEvent = {
       type: "tool_authorized",
       toolName: resolvedAuthorization.toolName,

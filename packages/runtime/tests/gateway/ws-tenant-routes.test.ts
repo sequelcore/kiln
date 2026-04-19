@@ -9,6 +9,24 @@ import type { ModeBOrchestrator } from "../../src/session/mode-b-orchestrator.js
 import type { TenantConfig } from "@kilnai/core";
 import { textParts } from "@kilnai/core";
 
+const { mockedToolAuthority, mockedResolveAgentContextAsync } = vi.hoisted(() => {
+  const toolAuthority = new Map([["mock_tool", {
+    level: 2,
+    allowed: true,
+    requiresApproval: false,
+    reason: "Audited execution",
+  }]]);
+
+  return {
+    mockedToolAuthority: toolAuthority,
+    mockedResolveAgentContextAsync: vi.fn(),
+  };
+});
+
+vi.mock("../../src/tenant/agent-resolver.js", () => ({
+  resolveAgentContextAsync: mockedResolveAgentContextAsync,
+}));
+
 const TEST_APP = "kilvo";
 const WIDGET_ID = "widget-uuid-abc";
 
@@ -95,6 +113,20 @@ describe("createWsTenantRoutes", () => {
   let mockSession: { id: string; userId: string; tenantId: string };
 
   beforeEach(() => {
+    mockedResolveAgentContextAsync.mockResolvedValue({
+      systemPrompt: "Mock system prompt",
+      tenantToolContext: {
+        callBuiltinTools: new Map(),
+        toolDefinitions: [],
+        capabilities: new Map(),
+        toolAuthority: mockedToolAuthority,
+        toolAllowlist: undefined,
+        rateLimiter: undefined,
+        maxToolRounds: undefined,
+      },
+      isHandoff: false,
+    });
+
     channel = new WebChannel();
 
     mockTenantRegistry = {
@@ -360,6 +392,25 @@ describe("createWsTenantRoutes", () => {
       expect(mockOrchestrator.processMessage).not.toHaveBeenCalled();
       // No response frames sent (pong is silently consumed)
       expect(mockWs.send).not.toHaveBeenCalled();
+    });
+
+    it("forwards tenant tool authority into per-call config", async () => {
+      const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
+      vi.mocked(mockTenantRegistry.resolveByWidgetId).mockReturnValue(makeTenantConfig());
+
+      createWsTenantRoutes(makeConfig(channel, upgradeWebSocket, mockTenantRegistry, mockSessionRegistry, mockOrchestrator));
+
+      const { handlers, wsCtx } = simulateConnection({ widgetId: WIDGET_ID, userId: "user-1" });
+      handlers.onOpen!(new Event("open"), wsCtx);
+
+      await handlers.onMessage!(
+        new MessageEvent("message", { data: JSON.stringify({ type: "message", content: "authority check" }) }),
+        wsCtx,
+      );
+
+      expect(mockOrchestrator.processMessage).toHaveBeenCalledOnce();
+      const perCallConfig = vi.mocked(mockOrchestrator.processMessage).mock.calls[0]![4];
+      expect(perCallConfig?.toolAuthority).toBe(mockedToolAuthority);
     });
   });
 

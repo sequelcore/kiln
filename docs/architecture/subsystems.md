@@ -145,18 +145,25 @@ enforce gates, manage checkpoints, and emit turn-level events.
 **Responsibility:** Authorize and execute tool calls, enforce allowlists, rate
 limits, sandbox rules, and sanitize results before re-entry.
 
-**Inputs:** `ToolCall`, `ToolExecutionContext`.
+**Inputs:** `ToolCall`, `ToolExecutionRequest`, `AuthorityDescriptor`, `ToolExecutionContext`.
 
-**Outputs:** sanitized `ToolResult`.
+**Outputs:** sanitized `ToolResult`, authority decisions, and runtime-visible
+authority projections consumed by routing, audit, and operator surfaces.
 
 **Owned state:** tool registry, sandbox policy, rate-limit counters.
 
 **Invariants:**
 
 - authorization occurs before execution
+- request authority descriptors take precedence when present and valid
+- malformed authority descriptors are denied (fail closed)
 - destructive actions require approval unless policy explicitly says otherwise
 - rate limits queue or reject, never silently overflow
 - result sanitization happens before reinjection
+- runtime-visible authority projections are derived from execution policy, not
+  independent evaluators
+- operator-attached surfaces default fail-closed when no richer authority
+  source is in scope
 
 **Failure modes:**
 
@@ -206,6 +213,10 @@ events, metrics, traces, and append-only audit records.
 - audit remains append-only with integrity chain
 - active-session event buffering stays available
 - metric cardinality remains bounded
+- tool-execution authority is carried by authority-bearing execution and
+  orchestration records, not by unrelated middleware rows
+- safety and security middleware audit rows must remain explicitly
+  non-authority surfaces
 
 **Failure modes:**
 

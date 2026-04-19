@@ -10,6 +10,7 @@ import type {
   ContextArtifactCache,
   ApprovalRequestedEvent,
   ApprovalReceivedEvent,
+  ToolAuthorizedEvent,
 } from "@kilnai/core";
 import { extractText, textParts, GroundingRail } from "@kilnai/core";
 import type { AbuseDetectionConfig } from "../session/repetitive-abuse-detector.js";
@@ -31,7 +32,11 @@ import {
   readRuntimeSupportArtifactsDetailed,
   writeRuntimeHandoffSummaryArtifact,
 } from "../session/context-artifact-summary.js";
-import { applyRuntimeTurnRecord, type RuntimeTurnApprovalTransition } from "../session/runtime-turn-record.js";
+import {
+  applyRuntimeTurnRecord,
+  type RuntimeTurnApprovalTransition,
+  type RuntimeTurnAuthorityDecision,
+} from "../session/runtime-turn-record.js";
 
 type EgressDestination = "webhook";
 type EgressPermissionDecision = "allow" | "deny" | "redact";
@@ -351,6 +356,7 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
 
   // Capture real approval state transitions for this turn from runtime events.
   const approvalTransitions: RuntimeTurnApprovalTransition[] = [];
+  const authorityDecisions: RuntimeTurnAuthorityDecision[] = [];
   const orchestratorEventBus = ctx.orchestrator.eventBus;
   const onApprovalRequested = (event: ApprovalRequestedEvent): void => {
     if (event.sessionId !== session.id) return;
@@ -368,8 +374,18 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
       reason: event.reason,
     });
   };
+  const onToolAuthorized = (event: ToolAuthorizedEvent): void => {
+    if (event.sessionId !== session.id) return;
+    authorityDecisions.push({
+      toolName: event.toolName,
+      level: event.level,
+      allowed: event.allowed,
+      reason: event.reason,
+    });
+  };
   orchestratorEventBus?.on("approval_requested", onApprovalRequested);
   orchestratorEventBus?.on("approval_received", onApprovalReceived);
+  orchestratorEventBus?.on("tool_authorized", onToolAuthorized);
 
   let result: OrchestrateResult;
   try {
@@ -384,6 +400,7 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
   } finally {
     orchestratorEventBus?.off("approval_requested", onApprovalRequested);
     orchestratorEventBus?.off("approval_received", onApprovalReceived);
+    orchestratorEventBus?.off("tool_authorized", onToolAuthorized);
   }
 
   // Post-generation grounding verification (Tier 2)
@@ -460,6 +477,7 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
     routingTierHint: ctx.routingTier,
     fileChanges: fileChanges && fileChanges.length > 0 ? fileChanges : undefined,
     approvalTransitions: approvalTransitions.length > 0 ? approvalTransitions : undefined,
+    authorityDecisions: authorityDecisions.length > 0 ? authorityDecisions : undefined,
   });
   writeRuntimeHandoffSummaryArtifact(ctx.contextArtifactCache, {
     session,
