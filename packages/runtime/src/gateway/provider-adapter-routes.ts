@@ -1,4 +1,4 @@
-// Gateway: Mode B routes -- Hono sub-app for provider-adapter Apps
+// Gateway: provider-adapter routes -- Hono sub-app for provider-adapter Apps
 // Handles message processing, session listing, and session removal
 
 import { Hono } from "hono";
@@ -16,8 +16,8 @@ import type { AgentHandoffSummarizer } from "../session/support/summarization/ag
 import type { EventBus } from "@kilnai/core";
 import type { PerCallToolConfig } from "../session/runtime-session-orchestrator.js";
 
-/** Runtime configuration for a Mode B App */
-export interface ModeBAppRuntime {
+/** Runtime configuration for a provider-adapter app */
+export interface ProviderAdapterAppRuntime {
   readonly appName: string;
   readonly orchestrator: RuntimeSessionOrchestrator;
   readonly sessionRegistry: SessionRegistry;
@@ -42,7 +42,7 @@ interface MessageRequest {
   readonly context?: Record<string, string>;
 }
 
-export function createModeBRoutes(runtime: ModeBAppRuntime): Hono {
+export function createProviderAdapterRoutes(runtime: ProviderAdapterAppRuntime): Hono {
   const app = new Hono();
   const tenantId = runtime.tenant?.tenantId ?? "_default";
 
@@ -82,7 +82,7 @@ export function createModeBRoutes(runtime: ModeBAppRuntime): Hono {
     }
     const userContext = body.context;
 
-    // Tier enforcement (Mode B specific -- not in the pipeline)
+    // Tier enforcement (provider-adapter specific -- not in the pipeline)
     if (runtime.billing?.tiers && body.plan) {
       const tierResult = checkTier(runtime.billing, body.plan, "fast");
       if (!tierResult.allowed) {

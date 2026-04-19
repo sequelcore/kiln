@@ -61,6 +61,7 @@ As of 2026-04-19:
 - `packages/runtime/src/session` Slice 4 (internal orchestrator decomposition) is complete
 - `packages/runtime/src/session` Slice 5 (runtime session vocabulary rename) is complete
 - `packages/core/src/engine/gateway` runtime-mode config/loader rename is complete
+- `packages/runtime/src/gateway` provider-adapter route terminology cleanup is complete
 - the orchestrator roadmap has been consolidated into one canonical file
 - GUI parity work is active in `03-gui-phase-1-parity-checklist.md`
 - parity status is 29/51 rows complete

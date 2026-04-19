@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { ProviderAdapter } from "@kilnai/core";
 import { textParts } from "@kilnai/core";
-import { createModeBRoutes } from "../../src/gateway/mode-b-routes.js";
-import type { ModeBAppRuntime } from "../../src/gateway/mode-b-routes.js";
+import { createProviderAdapterRoutes } from "../../src/gateway/provider-adapter-routes.js";
+import type { ProviderAdapterAppRuntime } from "../../src/gateway/provider-adapter-routes.js";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { SessionRegistry } from "../../src/session/session-registry.js";
 
@@ -23,7 +23,7 @@ function makeMockProvider(): ProviderAdapter {
   };
 }
 
-function makeRuntime(overrides: Partial<ModeBAppRuntime> = {}): ModeBAppRuntime {
+function makeRuntime(overrides: Partial<ProviderAdapterAppRuntime> = {}): ProviderAdapterAppRuntime {
   const provider = makeMockProvider();
   return {
     appName: "test-app",
@@ -46,7 +46,7 @@ function makeBillingConfig() {
   };
 }
 
-describe("createModeBRoutes", () => {
+describe("createProviderAdapterRoutes", () => {
   beforeEach(() => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
@@ -61,7 +61,7 @@ describe("createModeBRoutes", () => {
   describe("POST /message", () => {
     it("returns response from orchestrator", async () => {
       const runtime = makeRuntime();
-      const app = createModeBRoutes(runtime);
+      const app = createProviderAdapterRoutes(runtime);
 
       const res = await app.request("/message", {
         method: "POST",
@@ -78,7 +78,7 @@ describe("createModeBRoutes", () => {
 
     it("creates session for new user", async () => {
       const runtime = makeRuntime();
-      const app = createModeBRoutes(runtime);
+      const app = createProviderAdapterRoutes(runtime);
 
       await app.request("/message", {
         method: "POST",
@@ -92,7 +92,7 @@ describe("createModeBRoutes", () => {
 
     it("reuses session for existing user", async () => {
       const runtime = makeRuntime();
-      const app = createModeBRoutes(runtime);
+      const app = createProviderAdapterRoutes(runtime);
 
       const res1 = await app.request("/message", {
         method: "POST",
@@ -118,7 +118,7 @@ describe("createModeBRoutes", () => {
       });
 
       const runtime = makeRuntime({ billing: makeBillingConfig() });
-      const app = createModeBRoutes(runtime);
+      const app = createProviderAdapterRoutes(runtime);
 
       const res = await app.request("/message", {
         method: "POST",
@@ -134,7 +134,7 @@ describe("createModeBRoutes", () => {
 
     it("returns 400 for missing message", async () => {
       const runtime = makeRuntime();
-      const app = createModeBRoutes(runtime);
+      const app = createProviderAdapterRoutes(runtime);
 
       const res = await app.request("/message", {
         method: "POST",
@@ -147,7 +147,7 @@ describe("createModeBRoutes", () => {
 
     it("returns 400 for missing userId", async () => {
       const runtime = makeRuntime();
-      const app = createModeBRoutes(runtime);
+      const app = createProviderAdapterRoutes(runtime);
 
       const res = await app.request("/message", {
         method: "POST",
@@ -160,7 +160,7 @@ describe("createModeBRoutes", () => {
 
     it("reports usage after successful message processing", async () => {
       const runtime = makeRuntime({ billing: makeBillingConfig() });
-      const app = createModeBRoutes(runtime);
+      const app = createProviderAdapterRoutes(runtime);
 
       await app.request("/message", {
         method: "POST",
@@ -184,7 +184,7 @@ describe("createModeBRoutes", () => {
 
     it("skips budget check and usage report when no billing configured", async () => {
       const runtime = makeRuntime();
-      const app = createModeBRoutes(runtime);
+      const app = createProviderAdapterRoutes(runtime);
 
       await app.request("/message", {
         method: "POST",
@@ -198,7 +198,7 @@ describe("createModeBRoutes", () => {
 
     it("accepts context object and returns 200", async () => {
       const runtime = makeRuntime();
-      const app = createModeBRoutes(runtime);
+      const app = createProviderAdapterRoutes(runtime);
 
       const res = await app.request("/message", {
         method: "POST",
@@ -211,7 +211,7 @@ describe("createModeBRoutes", () => {
 
     it("returns 400 when context is a number", async () => {
       const runtime = makeRuntime();
-      const app = createModeBRoutes(runtime);
+      const app = createProviderAdapterRoutes(runtime);
 
       const res = await app.request("/message", {
         method: "POST",
@@ -224,7 +224,7 @@ describe("createModeBRoutes", () => {
 
     it("returns 400 when context is an array", async () => {
       const runtime = makeRuntime();
-      const app = createModeBRoutes(runtime);
+      const app = createProviderAdapterRoutes(runtime);
 
       const res = await app.request("/message", {
         method: "POST",
@@ -237,7 +237,7 @@ describe("createModeBRoutes", () => {
 
     it("retains context from first turn when second POST omits context", async () => {
       const runtime = makeRuntime();
-      const app = createModeBRoutes(runtime);
+      const app = createProviderAdapterRoutes(runtime);
 
       // First turn sets context
       await app.request("/message", {
@@ -266,7 +266,7 @@ describe("createModeBRoutes", () => {
         },
       };
       const runtime = makeRuntime({ billing });
-      const app = createModeBRoutes(runtime);
+      const app = createProviderAdapterRoutes(runtime);
 
       const res = await app.request("/message", {
         method: "POST",
@@ -349,14 +349,14 @@ describe("createModeBRoutes", () => {
         resolveAgentContextAsync: resolveAgentContextAsyncMock,
       }));
 
-      const { createModeBRoutes: createModeBRoutesWithMocks } = await import("../../src/gateway/mode-b-routes.js");
+      const { createProviderAdapterRoutes: createProviderAdapterRoutesWithMocks } = await import("../../src/gateway/provider-adapter-routes.js");
 
       const runtime = makeRuntime({
         tenant: {
           tenantId: "tenant-1",
-        } as ModeBAppRuntime["tenant"],
+        } as ProviderAdapterAppRuntime["tenant"],
       });
-      const app = createModeBRoutesWithMocks(runtime);
+      const app = createProviderAdapterRoutesWithMocks(runtime);
 
       const res = await app.request("/message", {
         method: "POST",
@@ -388,7 +388,7 @@ describe("createModeBRoutes", () => {
   describe("GET /sessions", () => {
     it("returns active sessions", async () => {
       const runtime = makeRuntime();
-      const app = createModeBRoutes(runtime);
+      const app = createProviderAdapterRoutes(runtime);
 
       // Create a session first
       await app.request("/message", {
@@ -408,7 +408,7 @@ describe("createModeBRoutes", () => {
   describe("DELETE /sessions/:userId", () => {
     it("removes session", async () => {
       const runtime = makeRuntime();
-      const app = createModeBRoutes(runtime);
+      const app = createProviderAdapterRoutes(runtime);
 
       // Create a session first
       await app.request("/message", {

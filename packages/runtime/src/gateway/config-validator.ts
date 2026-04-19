@@ -11,21 +11,21 @@ export interface ConfigValidationResult {
  * Returns all errors at once -- does not fail on first error.
  */
 export function validateStartupConfig(config: {
-  modeBApps?: readonly { provider: string; apiKeyEnv: string }[];
+  providerAdapterApps?: readonly { provider: string; apiKeyEnv: string }[];
   whatsapp?: { verifyTokenEnv: string; accessTokenEnv: string };
   tenantAdmin?: { adminTokenEnv: string };
 }): ConfigValidationResult {
   const errors: { field: string; message: string }[] = [];
 
-  // Validate app provider API keys for Mode B apps
-  if (config.modeBApps) {
-    for (const modeBApp of config.modeBApps) {
-      if (modeBApp.apiKeyEnv) {
-        const value = process.env[modeBApp.apiKeyEnv];
+  // Validate app provider API keys for provider-adapter apps
+  if (config.providerAdapterApps) {
+    for (const providerAdapterApp of config.providerAdapterApps) {
+      if (providerAdapterApp.apiKeyEnv) {
+        const value = process.env[providerAdapterApp.apiKeyEnv];
         if (!value || value.trim() === "") {
           errors.push({
-            field: `modeBApps.${modeBApp.provider}.apiKeyEnv`,
-            message: `Environment variable '${modeBApp.apiKeyEnv}' is required but not set`,
+            field: `providerAdapterApps.${providerAdapterApp.provider}.apiKeyEnv`,
+            message: `Environment variable '${providerAdapterApp.apiKeyEnv}' is required but not set`,
           });
         }
       }

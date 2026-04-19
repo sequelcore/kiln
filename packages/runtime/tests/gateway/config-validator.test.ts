@@ -24,12 +24,12 @@ describe("validateStartupConfig", () => {
       expect(result.errors).toHaveLength(0);
     });
 
-    it("should return valid=true when all env vars are set for Mode B apps", () => {
+    it("should return valid=true when all env vars are set for provider-adapter apps", () => {
       process.env.ANTHROPIC_API_KEY = "sk-ant-123";
       process.env.OPENAI_API_KEY = "sk-openai-456";
 
       const result = validateStartupConfig({
-        modeBApps: [
+        providerAdapterApps: [
           { provider: "anthropic", apiKeyEnv: "ANTHROPIC_API_KEY" },
           { provider: "openai", apiKeyEnv: "OPENAI_API_KEY" },
         ],
@@ -72,7 +72,7 @@ describe("validateStartupConfig", () => {
       process.env.ADMIN_TOKEN = "admin-secret";
 
       const result = validateStartupConfig({
-        modeBApps: [{ provider: "anthropic", apiKeyEnv: "ANTHROPIC_API_KEY" }],
+        providerAdapterApps: [{ provider: "anthropic", apiKeyEnv: "ANTHROPIC_API_KEY" }],
         whatsapp: {
           verifyTokenEnv: "WHATSAPP_VERIFY_TOKEN",
           accessTokenEnv: "WHATSAPP_ACCESS_TOKEN",
@@ -86,32 +86,32 @@ describe("validateStartupConfig", () => {
   });
 
   describe("missing env vars", () => {
-    it("should report error when Mode B API key is missing", () => {
+    it("should report error when provider-adapter API key is missing", () => {
       // Ensure env var is not set
       delete process.env.ANTHROPIC_API_KEY;
 
       const result = validateStartupConfig({
-        modeBApps: [{ provider: "anthropic", apiKeyEnv: "ANTHROPIC_API_KEY" }],
+        providerAdapterApps: [{ provider: "anthropic", apiKeyEnv: "ANTHROPIC_API_KEY" }],
       });
 
       expect(result.valid).toBe(false);
       expect(result.errors).toHaveLength(1);
       expect(result.errors[0]).toEqual({
-        field: "modeBApps.anthropic.apiKeyEnv",
+        field: "providerAdapterApps.anthropic.apiKeyEnv",
         message: "Environment variable 'ANTHROPIC_API_KEY' is required but not set",
       });
     });
 
-    it("should report error when Mode B API key is empty string", () => {
+    it("should report error when provider-adapter API key is empty string", () => {
       process.env.ANTHROPIC_API_KEY = "";
 
       const result = validateStartupConfig({
-        modeBApps: [{ provider: "anthropic", apiKeyEnv: "ANTHROPIC_API_KEY" }],
+        providerAdapterApps: [{ provider: "anthropic", apiKeyEnv: "ANTHROPIC_API_KEY" }],
       });
 
       expect(result.valid).toBe(false);
       expect(result.errors).toHaveLength(1);
-      expect(result.errors[0]!.field).toBe("modeBApps.anthropic.apiKeyEnv");
+      expect(result.errors[0]!.field).toBe("providerAdapterApps.anthropic.apiKeyEnv");
     });
 
     it("should report error when WhatsApp verify token is missing", () => {
@@ -175,7 +175,7 @@ describe("validateStartupConfig", () => {
       delete process.env.ADMIN_TOKEN;
 
       const result = validateStartupConfig({
-        modeBApps: [
+        providerAdapterApps: [
           { provider: "anthropic", apiKeyEnv: "ANTHROPIC_API_KEY" },
           { provider: "openai", apiKeyEnv: "OPENAI_API_KEY" },
         ],
@@ -189,8 +189,8 @@ describe("validateStartupConfig", () => {
       expect(result.valid).toBe(false);
       expect(result.errors).toHaveLength(5);
       const fields = result.errors.map((e) => e.field);
-      expect(fields).toContain("modeBApps.anthropic.apiKeyEnv");
-      expect(fields).toContain("modeBApps.openai.apiKeyEnv");
+      expect(fields).toContain("providerAdapterApps.anthropic.apiKeyEnv");
+      expect(fields).toContain("providerAdapterApps.openai.apiKeyEnv");
       expect(fields).toContain("whatsapp.verifyTokenEnv");
       expect(fields).toContain("whatsapp.accessTokenEnv");
       expect(fields).toContain("tenantAdmin.adminTokenEnv");
@@ -204,7 +204,7 @@ describe("validateStartupConfig", () => {
       process.env.ANTHROPIC_API_KEY = "sk-ant-123";
 
       const result = validateStartupConfig({
-        modeBApps: [{ provider: "anthropic", apiKeyEnv: "ANTHROPIC_API_KEY" }],
+        providerAdapterApps: [{ provider: "anthropic", apiKeyEnv: "ANTHROPIC_API_KEY" }],
       });
 
       expect(result.valid).toBe(true);
@@ -216,14 +216,14 @@ describe("validateStartupConfig", () => {
       process.env.ANTHROPIC_API_KEY = "sk-ant-123";
 
       const result = validateStartupConfig({
-        modeBApps: [{ provider: "anthropic", apiKeyEnv: "ANTHROPIC_API_KEY" }],
+        providerAdapterApps: [{ provider: "anthropic", apiKeyEnv: "ANTHROPIC_API_KEY" }],
       });
 
       expect(result.valid).toBe(true);
       expect(result.errors).toHaveLength(0);
     });
 
-    it("should skip Mode B validation when modeBApps not provided", () => {
+    it("should skip provider-adapter validation when providerAdapterApps not provided", () => {
       delete process.env.ANTHROPIC_API_KEY;
 
       const result = validateStartupConfig({});
@@ -250,7 +250,7 @@ describe("assertValidStartupConfig", () => {
 
     expect(() => {
       assertValidStartupConfig({
-        modeBApps: [{ provider: "anthropic", apiKeyEnv: "ANTHROPIC_API_KEY" }],
+        providerAdapterApps: [{ provider: "anthropic", apiKeyEnv: "ANTHROPIC_API_KEY" }],
       });
     }).not.toThrow();
   });
@@ -260,7 +260,7 @@ describe("assertValidStartupConfig", () => {
 
     try {
       assertValidStartupConfig({
-        modeBApps: [{ provider: "anthropic", apiKeyEnv: "ANTHROPIC_API_KEY" }],
+        providerAdapterApps: [{ provider: "anthropic", apiKeyEnv: "ANTHROPIC_API_KEY" }],
       });
       expect.fail("Expected error to be thrown");
     } catch (error) {
@@ -278,7 +278,7 @@ describe("assertValidStartupConfig", () => {
 
     try {
       assertValidStartupConfig({
-        modeBApps: [
+        providerAdapterApps: [
           { provider: "anthropic", apiKeyEnv: "ANTHROPIC_API_KEY" },
           { provider: "openai", apiKeyEnv: "OPENAI_API_KEY" },
         ],

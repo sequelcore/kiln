@@ -1,5 +1,5 @@
 // Gateway: Instagram DM webhook routes -- Hono sub-app for Instagram messaging
-// Resolves tenant by Instagram Page ID, processes messages via Mode B orchestrator, replies via Instagram API
+// Resolves tenant by Instagram Page ID, processes messages via provider-adapter runtime orchestrator, replies via Instagram API
 
 import { Hono } from "hono";
 import { join } from "node:path";

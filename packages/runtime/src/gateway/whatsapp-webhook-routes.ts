@@ -1,5 +1,5 @@
 // Gateway: WhatsApp webhook routes -- Hono sub-app for Meta webhook verification and incoming messages
-// Resolves tenant by phone number, processes messages via Mode B orchestrator, replies via Cloud API
+// Resolves tenant by phone number, processes messages via provider-adapter runtime orchestrator, replies via Cloud API
 
 import { Hono } from "hono";
 import { join } from "node:path";

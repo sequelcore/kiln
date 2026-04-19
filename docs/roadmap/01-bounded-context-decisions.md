@@ -108,6 +108,10 @@ Current state of the highest-pressure rows:
   cleanup target.
   The runtime-mode config/loader seam is now partially modernized, but broader
   engine naming and boundary cleanup still remain open.
+- `packages/runtime/src/gateway`: partial
+  The provider-adapter route surface and related runtime-variant vocabulary are
+  now cleaner, but the wider gateway boundary still needs admission, hosting,
+  and transport ownership cleanup.
 - `packages/core/src/safety` + `security` + `sandbox` + `tools`: open
   These boundaries still exist as separate areas and have not yet converged into
   one clearly expressed kernel boundary.
@@ -202,8 +206,8 @@ The first slice is intentionally narrow:
     `mode-b-orchestrator` names are no longer the active boundary.
   - Updated runtime, CLI, gateway, TUI, and test imports to the renamed
     session surface.
-  - Left `mode-b-routes` and `ModeBAppRuntime` untouched because that route/app
-    vocabulary is a separate gateway boundary, not part of the session slice.
+  - Left the provider-adapter gateway route surface for a separate slice because
+    it is a gateway boundary, not part of the session slice.
 
 ## First Refactor Sequence
 

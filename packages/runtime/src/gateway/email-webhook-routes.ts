@@ -1,5 +1,5 @@
 // Gateway: Email webhook routes -- Hono sub-app for inbound email processing
-// Resolves tenant by recipient email address, processes messages via Mode B orchestrator, replies via EmailTransport
+// Resolves tenant by recipient email address, processes messages via provider-adapter runtime orchestrator, replies via EmailTransport
 
 import { Hono } from "hono";
 import { join } from "node:path";

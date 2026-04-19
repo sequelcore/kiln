@@ -16,7 +16,7 @@ describe("Startup config validation integration", () => {
       vi.stubEnv("ADMIN_TOKEN", "");
 
       const result = validateStartupConfig({
-        modeBApps: [
+        providerAdapterApps: [
           { provider: "anthropic", apiKeyEnv: "ANTHROPIC_API_KEY" },
           { provider: "openai", apiKeyEnv: "OPENAI_API_KEY" },
         ],
@@ -31,8 +31,8 @@ describe("Startup config validation integration", () => {
       // All 5 errors collected -- not just the first one
       expect(result.errors).toHaveLength(5);
       const fields = result.errors.map((e) => e.field);
-      expect(fields).toContain("modeBApps.anthropic.apiKeyEnv");
-      expect(fields).toContain("modeBApps.openai.apiKeyEnv");
+      expect(fields).toContain("providerAdapterApps.anthropic.apiKeyEnv");
+      expect(fields).toContain("providerAdapterApps.openai.apiKeyEnv");
       expect(fields).toContain("whatsapp.verifyTokenEnv");
       expect(fields).toContain("whatsapp.accessTokenEnv");
       expect(fields).toContain("tenantAdmin.adminTokenEnv");
@@ -45,7 +45,7 @@ describe("Startup config validation integration", () => {
       vi.stubEnv("ADMIN_TOKEN", "admin-secret");
 
       const result = validateStartupConfig({
-        modeBApps: [{ provider: "anthropic", apiKeyEnv: "ANTHROPIC_API_KEY" }],
+        providerAdapterApps: [{ provider: "anthropic", apiKeyEnv: "ANTHROPIC_API_KEY" }],
         whatsapp: {
           verifyTokenEnv: "WHATSAPP_VERIFY_TOKEN",
           accessTokenEnv: "WHATSAPP_ACCESS_TOKEN",
@@ -70,7 +70,7 @@ describe("Startup config validation integration", () => {
 
       expect(() => {
         assertValidStartupConfig({
-          modeBApps: [{ provider: "anthropic", apiKeyEnv: "ANTHROPIC_API_KEY" }],
+          providerAdapterApps: [{ provider: "anthropic", apiKeyEnv: "ANTHROPIC_API_KEY" }],
         });
       }).not.toThrow();
     });
@@ -81,7 +81,7 @@ describe("Startup config validation integration", () => {
       let thrown: unknown;
       try {
         assertValidStartupConfig({
-          modeBApps: [{ provider: "anthropic", apiKeyEnv: "ANTHROPIC_API_KEY" }],
+          providerAdapterApps: [{ provider: "anthropic", apiKeyEnv: "ANTHROPIC_API_KEY" }],
         });
       } catch (err) {
         thrown = err;
@@ -103,7 +103,7 @@ describe("Startup config validation integration", () => {
       let thrown: unknown;
       try {
         assertValidStartupConfig({
-          modeBApps: [
+          providerAdapterApps: [
             { provider: "anthropic", apiKeyEnv: "ANTHROPIC_API_KEY" },
             { provider: "openai", apiKeyEnv: "OPENAI_API_KEY" },
           ],
@@ -121,8 +121,8 @@ describe("Startup config validation integration", () => {
       const errors = (kilnError.context as { errors: { field: string; message: string }[] }).errors;
       expect(errors.length).toBeGreaterThanOrEqual(3);
       const fields = errors.map((e) => e.field);
-      expect(fields).toContain("modeBApps.anthropic.apiKeyEnv");
-      expect(fields).toContain("modeBApps.openai.apiKeyEnv");
+      expect(fields).toContain("providerAdapterApps.anthropic.apiKeyEnv");
+      expect(fields).toContain("providerAdapterApps.openai.apiKeyEnv");
       expect(fields).toContain("whatsapp.verifyTokenEnv");
     });
   });

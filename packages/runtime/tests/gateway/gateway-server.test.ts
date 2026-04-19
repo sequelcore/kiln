@@ -370,7 +370,7 @@ describe("createGatewayApp multi-tenant wiring", () => {
         sessionRegistry: new SessionRegistry(),
         tenantRegistry,
       },
-      modeBRuntime: {
+      providerAdapterRuntime: {
         appName: "atendia",
         orchestrator: new RuntimeSessionOrchestrator({ provider }),
         sessionRegistry: new SessionRegistry(),

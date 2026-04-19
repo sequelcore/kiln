@@ -1,4 +1,4 @@
-// Context formatting utilities -- shared by WS tenant, WhatsApp webhook, and Mode B routes
+// Context formatting utilities -- shared by WS tenant, WhatsApp webhook, and provider-adapter routes
 
 import type { VectorResult, ContactFact, GroundingMode } from "@kilnai/core";
 

@@ -172,7 +172,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
   const resolvedApps = resolveApps(gatewayConfig, gatewayYamlDir);
 
   // Build startup config validation input from provider-adapter apps
-  const modeBApps: { provider: string; apiKeyEnv: string }[] = [];
+  const providerAdapterApps: { provider: string; apiKeyEnv: string }[] = [];
   let whatsappConfig: { verifyTokenEnv: string; accessTokenEnv: string } | undefined;
   let tenantAdminConfig: { adminTokenEnv: string } | undefined;
 
@@ -181,7 +181,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
       const providerName = resolved.runtimeModeConfig.provider.name;
       const apiKeyEnv = resolved.runtimeModeConfig.provider.apiKeyEnv;
       if (apiKeyEnv) {
-        modeBApps.push({ provider: providerName, apiKeyEnv });
+        providerAdapterApps.push({ provider: providerName, apiKeyEnv });
       }
 
       // Check for WhatsApp channel
@@ -205,7 +205,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
 
   // Validate startup configuration before creating providers
   assertValidStartupConfig({
-    modeBApps: modeBApps.length > 0 ? modeBApps : undefined,
+    providerAdapterApps: providerAdapterApps.length > 0 ? providerAdapterApps : undefined,
     whatsapp: whatsappConfig,
     tenantAdmin: tenantAdminConfig,
   });
@@ -294,7 +294,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
       app: resolved.app,
       binding: resolved.binding,
       registry: new ChannelRegistry(),
-      modeBRuntime: undefined as undefined | import("./mode-b-routes.js").ModeBAppRuntime,
+      providerAdapterRuntime: undefined as undefined | import("./provider-adapter-routes.js").ProviderAdapterAppRuntime,
       tenantRuntime: undefined as undefined | import("./tenant-routes.js").TenantAppRuntime,
       whatsappWebhookConfig: undefined as undefined | import("./whatsapp-webhook-routes.js").WhatsAppWebhookConfig,
       instagramWebhookConfig: undefined as undefined | import("./instagram-webhook-routes.js").InstagramWebhookConfig,
@@ -321,7 +321,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
     }
   }
 
-  // Initialize Mode B runtimes and delegation targets in a single pass
+  // Initialize provider-adapter runtimes and delegation targets in a single pass
   const sessionRegistry = new SessionRegistry();
   const delegationTargets = new Map<string, DelegationTarget>();
 
@@ -667,8 +667,8 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
       const tenantCount = tenantRegistry.list(loaded.name).length;
       console.log(`  ${loaded.name}: multi-tenant mode (${tenantCount} tenants loaded)`);
     } else {
-      // Standard Mode B (non-tenant)
-      loaded.modeBRuntime = {
+      // Standard provider-adapter runtime (non-tenant)
+      loaded.providerAdapterRuntime = {
         appName: loaded.name,
         orchestrator,
         sessionRegistry,

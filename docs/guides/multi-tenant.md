@@ -1,6 +1,6 @@
 # Multi-Tenant
 
-The Gateway hosts multiple Apps in a single process, with each App fully isolated by memory namespace, session registry, agent pool, and channel binding. Multi-tenancy in Kiln operates at two levels: App-level isolation (one App per customer product, enforced at startup) and Mode B session isolation (one session per `userId` per App, enforced at request time).
+The Gateway hosts multiple Apps in a single process, with each App fully isolated by memory namespace, session registry, agent pool, and channel binding. Multi-tenancy in Kiln operates at two levels: App-level isolation (one App per customer product, enforced at startup) and provider-adapter session isolation (one session per `userId` per App, enforced at request time).
 
 ## Tenant Configuration in gateway.yaml
 
@@ -35,15 +35,15 @@ apps:
 |----------|---------------------|
 | Memory | `~/.kiln/gateway/{appName}/` prefix. Same scope name in different Apps maps to different SQLite databases and JSONL files. |
 | Sessions | `SessionRegistry` keys by `{appName}:{userId}`. No session is accessible across Apps. |
-| Agents | Each Mode B App has its own `RuntimeSessionOrchestrator` and `ProviderAdapter` instance. |
+| Agents | Each provider-adapter app has its own `RuntimeSessionOrchestrator` and `ProviderAdapter` instance. |
 | Channel bindings | `ChannelRegistry` is instantiated per App. Messages on one App's channel cannot reach another App. |
 | Delegation memory | Delegation calls write no git-synced memory and have no workspace access. |
 
 Cross-App communication is always explicit: an agent must declare a `type: delegation` capability that names the target App. See [delegation](./delegation.md).
 
-## Mode B Session Management
+## Provider-Adapter Session Management
 
-Mode B Apps support concurrent multi-user sessions managed by `SessionRegistry`. Sessions are created on first message and destroyed on explicit delete or idle timeout.
+provider-adapter apps support concurrent multi-user sessions managed by `SessionRegistry`. Sessions are created on first message and destroyed on explicit delete or idle timeout.
 
 **Session key:** `{appName}:{userId}`
 

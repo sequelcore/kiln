@@ -1,5 +1,5 @@
 // Gateway: Messenger webhook routes -- Hono sub-app for Facebook Messenger Platform
-// Resolves tenant by Messenger Page ID, processes messages via Mode B orchestrator, replies via Messenger Send API
+// Resolves tenant by Messenger Page ID, processes messages via provider-adapter runtime orchestrator, replies via Messenger Send API
 
 import { Hono } from "hono";
 import { join } from "node:path";

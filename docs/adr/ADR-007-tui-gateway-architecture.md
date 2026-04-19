@@ -104,7 +104,7 @@ TUI-specific WebSocket protocol (not the widget protocol — no widgetId, no ten
 ## Consequences
 
 ### Positive
-- Single orchestration path (gateway) for all clients (widget, TUI, Mode B REST, channels)
+- Single orchestration path (gateway) for all clients (widget, TUI, provider-adapter REST, channels)
 - TUI gets memory, safety, knowledge, MCP, cost tracking, enrichment for free
 - No duplication of session management, provider routing, or tool authorization
 - **Subscription arbitrage preserved** — TUI can still use flat-rate CLI subscriptions when the selected backend is harness-backed

@@ -7,8 +7,8 @@ import type { GatewayAppBinding, SecurityConfig, AuditLog, GatewayMcpConfig } fr
 import { PromptScanner } from "@kilnai/core";
 import type { ChannelRegistry } from "../channels/channel-registry.js";
 import type { WebChannel } from "../channels/web-channel.js";
-import type { ModeBAppRuntime } from "./mode-b-routes.js";
-import { createModeBRoutes } from "./mode-b-routes.js";
+import type { ProviderAdapterAppRuntime } from "./provider-adapter-routes.js";
+import { createProviderAdapterRoutes } from "./provider-adapter-routes.js";
 import type { WsRoutesConfig } from "./ws-routes.js";
 import { createWsRoutes } from "./ws-routes.js";
 import { createWsTenantRoutes } from "./ws-tenant-routes.js";
@@ -54,7 +54,7 @@ export interface LoadedApp {
   readonly app: App;
   readonly binding: GatewayAppBinding;
   readonly registry: ChannelRegistry;
-  modeBRuntime?: ModeBAppRuntime;
+  providerAdapterRuntime?: ProviderAdapterAppRuntime;
   tenantRuntime?: TenantAppRuntime;
   whatsappWebhookConfig?: WhatsAppWebhookConfig;
   instagramWebhookConfig?: InstagramWebhookConfig;
@@ -205,13 +205,13 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
 
     for (const channel of loadedApp.binding.channels) {
       if (channel.type === "api" && channel.path) {
-        // Multi-tenant apps use tenant routes; otherwise Mode B or placeholder
+        // Multi-tenant apps use tenant routes; otherwise provider-adapter or placeholder
         if (loadedApp.tenantRuntime) {
           const tenantApp = createTenantRoutes(loadedApp.tenantRuntime);
           app.route(channel.path, tenantApp);
-        } else if (loadedApp.modeBRuntime) {
-          const modeBApp = createModeBRoutes(loadedApp.modeBRuntime);
-          app.route(channel.path, modeBApp);
+        } else if (loadedApp.providerAdapterRuntime) {
+          const providerAdapterApp = createProviderAdapterRoutes(loadedApp.providerAdapterRuntime);
+          app.route(channel.path, providerAdapterApp);
         } else {
           const apiApp = new Hono();
           const appName = loadedApp.name;
@@ -266,8 +266,8 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
             contactMemoryService: loadedApp.contactMemoryService,
           });
           app.route(`/apps/${loadedApp.name}`, wsTenantApp);
-        } else if (loadedApp.modeBRuntime) {
-          const runtime = loadedApp.modeBRuntime;
+        } else if (loadedApp.providerAdapterRuntime) {
+          const runtime = loadedApp.providerAdapterRuntime;
           const wsApp = createWsRoutes({
             webChannel: loadedApp.webChannel,
             upgradeWebSocket: config.upgradeWebSocket,
@@ -302,7 +302,7 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
       app.route(`/outbound/${loadedApp.name}`, outboundApp);
 
       // Handoff routes for multi-tenant apps (operator messaging, session transitions)
-      const sessionRegistry = loadedApp.tenantRuntime?.sessionRegistry ?? loadedApp.modeBRuntime?.sessionRegistry;
+      const sessionRegistry = loadedApp.tenantRuntime?.sessionRegistry ?? loadedApp.providerAdapterRuntime?.sessionRegistry;
       if (sessionRegistry) {
         const handoffApp = createHandoffRoutes({
           sessionRegistry,
