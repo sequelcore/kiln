@@ -22,8 +22,8 @@ accidentally preserved through piecemeal edits.
 
 Read first:
 
-- [02-taxonomy-freeze.md](02-taxonomy-freeze.md)
-- [03-module-mapping.md](03-module-mapping.md)
+- [01-module-mapping.md](01-module-mapping.md)
+- Canonical naming and doctrine are now carried by the modular architecture docs.
 
 ## Decision Table
 

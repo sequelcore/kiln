@@ -271,7 +271,7 @@ Progress (as of 2026-04-17):
 
 - ADR-005 accepted — TUI frozen
 - ADR-006 accepted — GUI stack decided
-- `docs/roadmap/06-gui-phase-1-parity-checklist.md` accepted
+- `docs/roadmap/04-gui-phase-1-parity-checklist.md` accepted
 - `packages/gui/` scaffold landed at commit `54d1d53` (React 19 + TanStack Router/Query + Zustand + Tailwind v4 + Vitest + ESLint 9); pre-spec UI archived under `.reference/`
 - Runtime `gui-gateway` + `operator-gateway` and `kiln gui` CLI command in place
 - `@kilnai/gateway-contracts` package extracted (commit `fbd18dc`); GUI and runtime now share neutral wire-format types; ESLint guard directs consumers there instead of `@kilnai/runtime`
