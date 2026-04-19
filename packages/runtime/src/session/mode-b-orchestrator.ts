@@ -1,239 +1,69 @@
-import type { ProviderAdapter, ContentPart, ToolDefinition, ToolCall } from "@kilnai/core";
-import type { McpClient } from "@kilnai/core";
-import type {
-  EventBus,
-  ApprovalRequestedEvent,
-  ApprovalReceivedEvent,
-  ToolCalledEvent,
-  ToolAuthorizedEvent,
-  ToolResultEvent,
-  ToolCacheHitEvent,
-  CostUpdateEvent,
-  ErrorEvent,
-  ModelRoutedEvent,
-} from "@kilnai/core";
-import { MODEL_PRICING, appendExecutionIdentity, extractText, resolveExecutionIdentity } from "@kilnai/core";
-import type { ModelPricing } from "@kilnai/core";
-import type {
-  Capability,
-  ToolAuthorizer,
-  ToolExecutionResult,
-  AuthorityDescriptor,
-  ToolAuthorizationResult,
-} from "@kilnai/core";
-import type { AuditLog } from "@kilnai/core";
-import type { ToolResultSanitizer } from "@kilnai/core";
-import type { ToolRAG } from "@kilnai/core";
-import type { RateLimiter } from "@kilnai/core";
-import type { ToolCache } from "@kilnai/core";
-import type { ModelRouter, RoutingDecision } from "@kilnai/core";
-import { executeWithRetry, scoreComplexity } from "@kilnai/core";
+import type { ContentPart, ToolDefinition } from "@kilnai/core";
+import type { EventBus } from "@kilnai/core";
+import { extractText } from "@kilnai/core";
 import type { ModeBSession } from "./mode-b-session.js";
-import type { EscalationDetector, EscalationSignal } from "./support/escalation/escalation-detector.js";
-import type { ContextSummarizer } from "./support/summarization/context-summarizer.js";
+import { ModeBApprovalGate } from "./mode-b-orchestrator-approvals.js";
+import { finalizeModeBResponse, requestFinalFallbackResponse } from "./mode-b-orchestrator-response.js";
+import { resolveModeBRouting } from "./mode-b-orchestrator-routing.js";
+import { ModeBExecutionTelemetry } from "./mode-b-orchestrator-telemetry.js";
+import { ModeBToolExecutor } from "./mode-b-orchestrator-tool-executor.js";
+import type {
+  OrchestratorDeps,
+  OrchestrateResult,
+  PerCallToolConfig,
+  ToolExecutionSummary,
+} from "./mode-b-orchestrator.types.js";
 
 const DEFAULT_MAX_TOOL_ROUNDS = 10;
-const COMMAND_TOOL_SHELL_BY_NAME = new Map<string, CommandShell>([
-  ["bash", "bash"],
-  ["sh", "sh"],
-  ["zsh", "zsh"],
-  ["powershell", "powershell"],
-  ["pwsh", "powershell"],
-  ["cmd", "cmd"],
-  ["command_execution", "any"],
-  ["command", "any"],
-  ["shell", "any"],
-]);
 
-type CommandShell = "bash" | "sh" | "zsh" | "powershell" | "cmd" | "any";
-type DangerousCommandAction = "allow" | "ask" | "deny";
-
-interface DangerousCommandRequestLike {
-  readonly command: string;
-  readonly shell?: CommandShell;
-}
-
-interface DangerousCommandDecisionLike {
-  readonly action: DangerousCommandAction;
-  readonly reasonCode: string;
-  readonly reason: string;
-}
-
-interface DangerousCommandDetectorLike {
-  evaluate(request: DangerousCommandRequestLike): DangerousCommandDecisionLike;
-}
-
-function parseCommandShell(value: unknown): CommandShell | undefined {
-  if (typeof value !== "string") return undefined;
-  const normalized = value.trim().toLowerCase();
-  if (
-    normalized === "bash"
-    || normalized === "sh"
-    || normalized === "zsh"
-    || normalized === "powershell"
-    || normalized === "cmd"
-    || normalized === "any"
-  ) {
-    return normalized;
-  }
-  if (normalized === "pwsh") return "powershell";
-  return undefined;
-}
-
-function toDangerousCommandRequest(
-  toolName: string,
-  input: Record<string, unknown>,
-): DangerousCommandRequestLike | undefined {
-  const inferredShell = COMMAND_TOOL_SHELL_BY_NAME.get(toolName.toLowerCase());
-  if (!inferredShell) return undefined;
-  const command = input.command;
-  if (typeof command !== "string") return undefined;
-  const explicitShell = parseCommandShell(input.shell);
-  return {
-    command,
-    shell: explicitShell ?? inferredShell,
-  };
-}
-
-export interface OrchestratorDeps {
-  readonly provider: ProviderAdapter;
-  readonly model?: string;
-  readonly maxTokens?: number;
-  readonly maxToolRounds?: number;
-  readonly tools?: readonly ToolDefinition[];
-  readonly mcpClients?: readonly McpClient[];
-  readonly builtinTools?: ReadonlyMap<string, (input: Record<string, unknown>) => Promise<unknown>>;
-  readonly eventBus?: EventBus;
-  readonly escalationDetector?: EscalationDetector;
-  readonly contextSummarizer?: ContextSummarizer;
-  readonly capabilityMap?: ReadonlyMap<string, Capability>;
-  readonly toolAuthorizer?: ToolAuthorizer;
-  readonly toolResultSanitizer?: ToolResultSanitizer;
-  readonly budgetChecker?: () => Promise<{ allowed: boolean; message?: string }>;
-  readonly auditLog?: AuditLog;
-  readonly toolRAG?: ToolRAG;
-  readonly toolCache?: ToolCache;
-  readonly modelRouter?: ModelRouter;
-  readonly providerPool?: ReadonlyMap<string, ProviderAdapter>;
-  readonly dangerousCommandDetector?: DangerousCommandDetectorLike;
-}
-
-export interface ToolExecutionSummary {
-  readonly toolName: string;
-  readonly durationMs: number;
-  readonly success: boolean;
-  readonly resultSummary: string;
-  readonly fileChanges?: readonly {
-    readonly path: string;
-    readonly changeType: "modified";
-  }[];
-}
-
-export interface OrchestrateResult {
-  readonly parts: readonly ContentPart[];
-  readonly inputTokens: number;
-  readonly outputTokens: number;
-  readonly cacheReadTokens: number;
-  readonly cacheWriteTokens: number;
-  readonly queued: boolean;
-  readonly escalation?: EscalationSignal;
-  readonly contextSummary?: string;
-  readonly toolExecutions?: readonly ToolExecutionSummary[];
-  readonly routingDecision?: {
-    readonly provider: string;
-    readonly model: string;
-    readonly routingTier: string;
-    readonly reasoning: string;
-  };
-}
-
-export interface PerCallToolConfig {
-  readonly toolAllowlist?: ReadonlySet<string>;
-  readonly rateLimiter?: RateLimiter;
-  readonly tenantId?: string;
-  readonly additionalTools?: readonly ToolDefinition[];
-  readonly perCallCapabilities?: ReadonlyMap<string, Capability>;
-  readonly toolAuthority?: ReadonlyMap<string, AuthorityDescriptor>;
-  readonly modelOverride?: { readonly provider: string; readonly model: string };
-  readonly skillInstructions?: string;
-}
+export type {
+  OrchestratorDeps,
+  OrchestrateResult,
+  PerCallToolConfig,
+  ToolExecutionSummary,
+} from "./mode-b-orchestrator.types.js";
 
 export class ModeBOrchestrator {
-  private readonly deps: OrchestratorDeps;
   private readonly maxToolRounds: number;
   private _tools: readonly ToolDefinition[] | undefined;
-  private _callBuiltinTools?: ReadonlyMap<string, (input: Record<string, unknown>) => Promise<unknown>>;
-  private readonly pendingApprovals = new Map<string, {
-    resolve: (decision: { approved: boolean; reason?: string }) => void;
-    promise: Promise<{ approved: boolean; reason?: string }>;
-  }>();
+  private readonly approvalGate: ModeBApprovalGate;
+  private readonly telemetry: ModeBExecutionTelemetry;
 
-  constructor(deps: OrchestratorDeps) {
-    this.deps = deps;
+  constructor(private readonly deps: OrchestratorDeps) {
     this.maxToolRounds = deps.maxToolRounds ?? DEFAULT_MAX_TOOL_ROUNDS;
     this._tools = deps.tools;
-    if (!deps.model) {
-      console.warn("[ModeBOrchestrator] No model specified in deps -- cost tracking will be $0. Pass model to OrchestratorDeps for accurate cost reporting.");
-    }
+    this.approvalGate = new ModeBApprovalGate(deps.eventBus);
+    this.telemetry = new ModeBExecutionTelemetry(deps.model, deps.eventBus);
   }
 
-  /** The model identifier passed to this orchestrator. Used by callers for usage reporting. */
   get model(): string | undefined {
     return this.deps.model;
   }
 
-  /** Get the event bus for emitting events. */
   get eventBus(): EventBus | undefined {
     return this.deps.eventBus;
   }
 
-  /** Emit an approval_requested event. */
   emitApprovalRequested(description: string, sessionId: string): void {
-    const event: ApprovalRequestedEvent = {
-      type: "approval_requested",
-      taskId: "",
-      description,
-      timestamp: new Date(),
-      sessionId,
-    };
-    this.deps.eventBus?.emit(event);
+    this.approvalGate.emitApprovalRequested(description, sessionId);
   }
 
-  /** Emit an approval_received event. */
   emitApprovalReceived(approved: boolean, reason?: string, sessionId?: string): void {
-    if (sessionId) {
-      const pending = this.pendingApprovals.get(sessionId);
-      if (pending) {
-        pending.resolve({ approved, reason });
-        this.pendingApprovals.delete(sessionId);
-      }
-    }
-    const event: ApprovalReceivedEvent = {
-      type: "approval_received",
-      taskId: "",
-      approved,
-      reason,
-      timestamp: new Date(),
-      sessionId: sessionId ?? "",
-    };
-    this.deps.eventBus?.emit(event);
+    this.approvalGate.emitApprovalReceived(approved, reason, sessionId);
   }
 
-  /** Continue past an approval gate (for testing/manual triggering). */
   continue(sessionId: string): void {
-    this.emitApprovalReceived(true, "user approved", sessionId);
+    this.approvalGate.continue(sessionId);
   }
 
-  /** Current tool definitions. */
   get tools(): readonly ToolDefinition[] | undefined {
     return this._tools;
   }
 
-  /** Register additional tool definitions at runtime (e.g. builtin tools discovered per-tenant). */
   registerTools(newTools: readonly ToolDefinition[]): void {
     const existing = this._tools ?? [];
-    const names = new Set(existing.map((t) => t.name));
-    const additions = newTools.filter((t) => !names.has(t.name));
+    const names = new Set(existing.map((tool) => tool.name));
+    const additions = newTools.filter((tool) => !names.has(tool.name));
     if (additions.length > 0) {
       this._tools = [...existing, ...additions];
     }
@@ -246,9 +76,7 @@ export class ModeBOrchestrator {
     callBuiltinTools?: ReadonlyMap<string, (input: Record<string, unknown>) => Promise<unknown>>,
     perCallConfig?: PerCallToolConfig,
   ): Promise<OrchestrateResult> {
-    // AI guard: skip LLM when session is not ai_active
     if (session.sessionMode !== "ai_active") {
-      // Auto-reopen resolved sessions on new user message
       if (session.sessionMode === "resolved") {
         session.setSessionMode("ai_active");
       } else {
@@ -264,16 +92,114 @@ export class ModeBOrchestrator {
       }
     }
 
-    // Pre-LLM escalation check
-    let escalation: EscalationSignal | undefined;
-    if (this.deps.escalationDetector) {
-      const userText = extractText(userParts);
-      const signal = this.deps.escalationDetector.checkPreLLM(userText);
-      if (signal) escalation = signal;
-    }
+    let escalation = this.detectPreLlmEscalation(userParts);
 
     session.addUserMessage(userParts);
 
+    const system = this.buildSystemPrompt(session, recalledMemory, perCallConfig);
+    const routing = await resolveModeBRouting(
+      this.deps,
+      session,
+      userParts,
+      system,
+      this._tools,
+      perCallConfig,
+      (sessionId, decision) => this.telemetry.emitModelRouted(sessionId, decision),
+    );
+
+    const toolExecutions: ToolExecutionSummary[] = [];
+    const toolExecutor = new ModeBToolExecutor(
+      this.deps,
+      this.deps.eventBus,
+      (sessionId, description) => this.approvalGate.requestApproval(sessionId, description),
+      (sessionId, message) => this.telemetry.emitError(sessionId, message),
+      callBuiltinTools,
+    );
+
+    for (let round = 0; round < this.maxToolRounds; round++) {
+      if (round > 0 && !(await this.checkBudget(session.id))) {
+        break;
+      }
+
+      const response = await routing.effectiveProvider.createMessage({
+        system: routing.invocationSystem,
+        messages: [...session.conversationHistory],
+        tools: routing.hasTools ? routing.effectiveTools : undefined,
+        maxTokens: this.deps.maxTokens,
+      });
+
+      const usageTotals = this.telemetry.recordResponse(
+        session.id,
+        {
+          inputTokens: response.inputTokens,
+          outputTokens: response.outputTokens,
+          cacheReadTokens: response.cacheReadTokens,
+          cacheWriteTokens: response.cacheWriteTokens,
+        },
+        session.activeAgentId ?? undefined,
+      );
+
+      if (!routing.hasTools || response.toolCalls.length === 0) {
+        return finalizeModeBResponse({
+          deps: this.deps,
+          session,
+          parts: response.parts,
+          usage: {
+            inputTokens: response.inputTokens,
+            outputTokens: response.outputTokens,
+            cacheReadTokens: response.cacheReadTokens,
+            cacheWriteTokens: response.cacheWriteTokens,
+          },
+          usageTotals,
+          toolExecutions,
+          routingDecision: toPublicRoutingDecision(routing.routingDecision),
+          preLlmEscalation: escalation,
+        });
+      }
+
+      const assistantParts: ContentPart[] = [...response.parts];
+      for (const toolCall of response.toolCalls) {
+        assistantParts.push({
+          type: "tool_use",
+          id: toolCall.id,
+          name: toolCall.name,
+          input: toolCall.input,
+        });
+      }
+      session.addAssistantMessage(assistantParts);
+
+      const execution = await toolExecutor.executeToolCalls(session, response.toolCalls, perCallConfig);
+      toolExecutions.push(...execution.toolExecutions);
+      session.addUserMessage(execution.resultParts);
+    }
+
+    this.telemetry.emitError(session.id, `Max tool rounds (${this.maxToolRounds}) exceeded`);
+
+    const fallback = await requestFinalFallbackResponse(
+      routing.effectiveProvider,
+      routing.invocationSystem,
+      session,
+      this.deps.maxTokens,
+    );
+    const usageTotals = this.telemetry.recordResponse(session.id, fallback.usage, session.activeAgentId ?? undefined);
+
+    return finalizeModeBResponse({
+      deps: this.deps,
+      session,
+      parts: fallback.parts,
+      usage: fallback.usage,
+      usageTotals,
+      toolExecutions,
+      routingDecision: toPublicRoutingDecision(routing.routingDecision),
+      preLlmEscalation: escalation,
+    });
+  }
+
+  private buildSystemPrompt(
+    session: ModeBSession,
+    recalledMemory: string | undefined,
+    perCallConfig: PerCallToolConfig | undefined,
+  ): string {
     let system = session.systemPrompt;
     if (recalledMemory) {
       system += "\n\n--- Recalled Memory ---\n" + recalledMemory;
@@ -281,781 +207,49 @@ export class ModeBOrchestrator {
     if (perCallConfig?.skillInstructions) {
       system += "\n\n--- Active Skills ---\n" + perCallConfig.skillInstructions;
     }
-
-    // Merge dep-level and per-call builtin tools
-    this._callBuiltinTools = callBuiltinTools;
-    const hasBuiltins = (this.deps.builtinTools?.size ?? 0) + (callBuiltinTools?.size ?? 0) > 0;
-    const hasMcp = (this.deps.mcpClients?.length ?? 0) > 0;
-
-    // Merge per-call additional tools (webhook tools, tenant tools)
-    let baseTools = this._tools;
-    if (perCallConfig?.additionalTools && perCallConfig.additionalTools.length > 0) {
-      const existing = baseTools ?? [];
-      const existingNames = new Set(existing.map(t => t.name));
-      const additions = perCallConfig.additionalTools.filter(t => !existingNames.has(t.name));
-      baseTools = additions.length > 0 ? [...existing, ...additions] : existing;
-    }
-
-    const hasTools = (baseTools?.length ?? 0) > 0 && (hasBuiltins || hasMcp);
-
-    // ToolRAG: filter tools once per message (fail-open)
-    let effectiveTools = baseTools;
-    if (this.deps.toolRAG && this.deps.capabilityMap && effectiveTools && effectiveTools.length > 30) {
-      try {
-        const userText = extractText(userParts);
-        const allCapabilities = Array.from(this.deps.capabilityMap.values());
-        const selected = await this.deps.toolRAG.selectTools(userText, allCapabilities);
-        if (selected.length > 0) {
-          const selectedNames = new Set(selected.map((s) => s.name));
-          effectiveTools = effectiveTools.filter((t) => selectedNames.has(t.name));
-        }
-      } catch {
-        // Fail-open: use all tools if ToolRAG fails
-      }
-    }
-
-    // Model routing: select provider per-request
-    let effectiveProvider: ProviderAdapter = this.deps.provider;
-    let routingDecisionResult: RoutingDecision | undefined;
-    let routedProviderIdentity: string | undefined;
-    let routedModelIdentity: string | undefined;
-
-    if (perCallConfig?.modelOverride) {
-      // Explicit override takes precedence
-      const override = perCallConfig.modelOverride;
-      const poolProvider = this.deps.providerPool?.get(override.provider);
-      if (poolProvider) {
-        effectiveProvider = poolProvider;
-        routedProviderIdentity = override.provider;
-        routedModelIdentity = override.model;
-      }
-      routingDecisionResult = {
-        provider: override.provider,
-        model: override.model,
-        reasoning: "Explicit model override",
-        confidence: 1.0,
-        routingTier: "rule",
-      };
-    } else if (this.deps.modelRouter) {
-      try {
-        const userText = extractText(userParts);
-        const complexity = scoreComplexity({
-          messageText: userText,
-          toolCount: effectiveTools?.length ?? 0,
-          turnDepth: session.messageCount,
-        });
-        const routingRequest = {
-          tenantId: perCallConfig?.tenantId ?? "default",
-          complexity,
-          hasTools,
-          toolCount: effectiveTools?.length ?? 0,
-          requiresStreaming: false,
-        };
-        const decision = this.deps.modelRouter.route(routingRequest);
-        routingDecisionResult = decision;
-
-        // Look up provider from pool
-        const poolProvider = this.deps.providerPool?.get(decision.provider);
-        if (poolProvider) {
-          effectiveProvider = poolProvider;
-          routedProviderIdentity = decision.provider;
-          routedModelIdentity = decision.model;
-        }
-
-        // Emit model_routed event
-        this.emitModelRouted(session.id, decision);
-      } catch {
-        // Fail-open: use default provider if routing fails
-      }
-    }
-
-    let totalInputTokens = 0;
-    let totalOutputTokens = 0;
-    let totalCacheRead = 0;
-    let totalCacheWrite = 0;
-
-    const toolExecutions: ToolExecutionSummary[] = [];
-    const invocationSystem = appendExecutionIdentity(
-      system,
-      resolveExecutionIdentity({
-        configuredProvider: this.deps.provider.name,
-        configuredModel: this.deps.model,
-        routedProvider: routedProviderIdentity,
-        routedModel: routedModelIdentity,
-      }),
-    );
-
-    for (let round = 0; round < this.maxToolRounds; round++) {
-      // Budget check (skip first round -- let the user's message through)
-      if (round > 0 && this.deps.budgetChecker) {
-        try {
-          const budget = await this.deps.budgetChecker();
-          if (!budget.allowed) {
-            this.emitError(session.id, budget.message ?? "Budget exhausted");
-            break;
-          }
-        } catch {
-          // Fail-open: continue if budget check fails
-        }
-      }
-
-      const messages = [...session.conversationHistory];
-
-      const response = await effectiveProvider.createMessage({
-        system: invocationSystem,
-        messages,
-        tools: hasTools ? effectiveTools : undefined,
-        maxTokens: this.deps.maxTokens,
-      });
-
-      totalInputTokens += response.inputTokens;
-      totalOutputTokens += response.outputTokens;
-      totalCacheRead += response.cacheReadTokens;
-      totalCacheWrite += response.cacheWriteTokens;
-
-      this.emitCostUpdate(session.id, totalInputTokens, totalOutputTokens, totalCacheRead, totalCacheWrite, session.activeAgentId ?? undefined);
-
-      if (!hasTools || response.toolCalls.length === 0) {
-        session.addAssistantMessage(response.parts);
-
-        // Post-LLM escalation check (only if pre-LLM didn't trigger)
-        if (!escalation && this.deps.escalationDetector) {
-          const postSignal = this.deps.escalationDetector.checkPostLLM(session, response.parts);
-          if (postSignal) escalation = postSignal;
-        }
-
-        // Generate context summary if escalation detected and summarizer available
-        let contextSummary: string | undefined;
-        if (escalation && this.deps.contextSummarizer) {
-          try {
-            contextSummary = await this.deps.contextSummarizer.summarize(session);
-          } catch {
-            // Non-critical: proceed without summary
-          }
-        }
-
-        return {
-          parts: response.parts,
-          inputTokens: totalInputTokens,
-          outputTokens: totalOutputTokens,
-          cacheReadTokens: totalCacheRead,
-          cacheWriteTokens: totalCacheWrite,
-          queued: false,
-          escalation,
-          contextSummary,
-          toolExecutions: toolExecutions.length > 0 ? toolExecutions : undefined,
-          routingDecision: routingDecisionResult
-            ? { provider: routingDecisionResult.provider, model: routingDecisionResult.model, routingTier: routingDecisionResult.routingTier, reasoning: routingDecisionResult.reasoning }
-            : undefined,
-        };
-      }
-
-      // Build assistant message with text + tool_use parts
-      const assistantParts: ContentPart[] = [...response.parts];
-      for (const tc of response.toolCalls) {
-        assistantParts.push({
-          type: "tool_use",
-          id: tc.id,
-          name: tc.name,
-          input: tc.input,
-        });
-      }
-      session.addAssistantMessage(assistantParts);
-
-      // Execute tools and build tool_result parts
-      const resultParts: ContentPart[] = [];
-      for (const tc of response.toolCalls) {
-        // Tool allowlist check
-        if (perCallConfig?.toolAllowlist && !perCallConfig.toolAllowlist.has(tc.name)) {
-          resultParts.push({
-            type: "tool_result",
-            toolUseId: tc.id,
-            content: `Tool "${tc.name}" is not available for this tenant`,
-            isError: true,
-          });
-          continue;
-        }
-
-        // Authorization check
-        const capability = this.resolveCapability(tc.name, perCallConfig);
-        const authResult = this.resolveAuthorization(tc.name, capability, perCallConfig);
-        if (authResult) {
-          this.emitToolAuthorized(session.id, tc.name, authResult.level, authResult.allowed, authResult.reason);
-          if (!authResult.allowed) {
-            if (authResult.requiresApproval) {
-              const approval = await this.requestApproval(
-                session.id,
-                `Tool "${tc.name}" requires approval: ${authResult.reason}`,
-              );
-              if (!approval.approved) {
-                resultParts.push({
-                  type: "tool_result",
-                  toolUseId: tc.id,
-                  content: `Approval denied: ${approval.reason ?? authResult.reason}`,
-                  isError: true,
-                });
-                continue;
-              }
-            } else {
-              resultParts.push({
-                type: "tool_result",
-                toolUseId: tc.id,
-                content: `Authorization denied: ${authResult.reason}`,
-                isError: true,
-              });
-              continue;
-            }
-          }
-        }
-
-        // Dangerous command detection (fail-closed for deny and ask) before execution.
-        if (this.deps.dangerousCommandDetector) {
-          const dangerousRequest = toDangerousCommandRequest(tc.name, tc.input);
-          if (dangerousRequest) {
-            let decision: DangerousCommandDecisionLike;
-            if (dangerousRequest.command.trim().length === 0) {
-              decision = {
-                action: "deny",
-                reasonCode: "empty_command",
-                reason: "Command input cannot be empty.",
-              };
-            } else {
-              try {
-                decision = this.deps.dangerousCommandDetector.evaluate(dangerousRequest);
-              } catch (err) {
-                const detectorError = err instanceof Error ? err.message : String(err);
-                this.emitError(session.id, `Dangerous command detector failed for tool "${tc.name}": ${detectorError}`);
-                decision = {
-                  action: "deny",
-                  reasonCode: "detector_error",
-                  reason: "Dangerous command detector failed; execution blocked by policy.",
-                };
-              }
-            }
-            if (decision.action !== "allow") {
-              const blockMessage = decision.action === "deny"
-                ? `Dangerous command blocked: ${decision.reason} (${decision.reasonCode})`
-                : `Command requires approval: ${decision.reason} (${decision.reasonCode})`;
-
-              this.emitToolResult(session.id, tc.name, 0, false, blockMessage.slice(0, 200), true);
-              this.emitError(session.id, `Tool "${tc.name}" blocked by dangerous command detector: ${decision.reasonCode}`);
-              this.appendAudit(tc.name, 0, "error", authResult);
-              toolExecutions.push({
-                toolName: tc.name,
-                durationMs: 0,
-                success: false,
-                resultSummary: blockMessage.slice(0, 200),
-              });
-              resultParts.push({
-                type: "tool_result",
-                toolUseId: tc.id,
-                content: blockMessage,
-                isError: true,
-              });
-              continue;
-            }
-          }
-        }
-
-        // Rate limit check
-        if (perCallConfig?.rateLimiter && perCallConfig?.tenantId) {
-          const rateResult = perCallConfig.rateLimiter.check(perCallConfig.tenantId, tc.name);
-          if (!rateResult.allowed) {
-            const retryAfterSec = Math.ceil((rateResult.retryAfterMs ?? 60_000) / 1000);
-            resultParts.push({
-              type: "tool_result",
-              toolUseId: tc.id,
-              content: `Rate limit exceeded for tool "${tc.name}". Try again in ${retryAfterSec} seconds.`,
-              isError: true,
-            });
-            continue;
-          }
-        }
-
-        // Resolve cacheTtl before try block so it's accessible for both check and store
-        const cacheTtl = capability?.annotations?.cacheTtl;
-
-        // Cache check (fail-open)
-        if (cacheTtl && this.deps.toolCache) {
-          try {
-            const cached = this.deps.toolCache.get(tc.name, tc.input);
-            if (cached !== undefined) {
-              let resultString = typeof cached === "string" ? cached : JSON.stringify(cached);
-              if (this.deps.toolResultSanitizer) {
-                try {
-                  const sanitizationResult = await this.deps.toolResultSanitizer.sanitize(resultString);
-                  if (sanitizationResult.sanitized) {
-                    resultString = sanitizationResult.content;
-                  }
-                } catch (err) {
-                  const sanitizerError = err instanceof Error ? err.message : String(err);
-                  this.emitError(session.id, `Tool result sanitizer failed for cached tool "${tc.name}": ${sanitizerError}`);
-                }
-              }
-              this.emitToolCacheHit(session.id, tc.name, cacheTtl);
-              resultParts.push({
-                type: "tool_result",
-                toolUseId: tc.id,
-                content: resultString,
-                isError: false,
-              });
-              continue;
-            }
-          } catch {
-            // Fail-open: proceed to execute tool if cache throws
-          }
-        }
-
-        const annotations = capability?.annotations
-          ? { readOnly: capability.annotations.readOnly, destructive: capability.annotations.destructive, idempotent: capability.annotations.idempotent }
-          : undefined;
-        this.emitToolCalled(session.id, tc.name, tc.input, annotations);
-        const startMs = Date.now();
-
-        try {
-          let resultValue: unknown;
-          let retryAttempt: number | undefined;
-
-          // Use executeWithRetry if capability has retry config
-          if (capability?.retry) {
-            const executor = (name: string, input: Record<string, unknown>) =>
-              this.executeTool({ id: tc.id, name, input });
-            const fallbackExecutor = capability.retry.fallback
-              ? (name: string, input: Record<string, unknown>) => this.executeTool({ id: tc.id, name, input })
-              : undefined;
-
-            const execResult: ToolExecutionResult = await executeWithRetry(
-              tc.name,
-              tc.input,
-              executor,
-              capability.retry,
-              fallbackExecutor,
-            );
-            resultValue = execResult.result;
-            retryAttempt = execResult.attempts > 1 ? execResult.attempts : undefined;
-          } else {
-            resultValue = await this.executeTool(tc);
-          }
-
-          const durationMs = Date.now() - startMs;
-          let resultString = typeof resultValue === "string" ? resultValue : JSON.stringify(resultValue);
-
-          // Result sanitization
-          let sanitized = false;
-          if (this.deps.toolResultSanitizer) {
-            const sanitizationResult = await this.deps.toolResultSanitizer.sanitize(resultString);
-            if (sanitizationResult.sanitized) {
-              resultString = sanitizationResult.content;
-              sanitized = true;
-            }
-          }
-
-          this.emitToolResult(session.id, tc.name, durationMs, true, resultString.slice(0, 200), false, retryAttempt);
-
-          const fileChanges = this.extractFileChangesFromToolResult(tc.name, resultValue);
-          toolExecutions.push({
-            toolName: tc.name,
-            durationMs,
-            success: true,
-            resultSummary: resultString.slice(0, 200),
-            fileChanges,
-          });
-
-          // Audit log
-          this.appendAudit(tc.name, durationMs, sanitized ? "success_sanitized" : "success", authResult);
-
-          resultParts.push({
-            type: "tool_result",
-            toolUseId: tc.id,
-            content: resultString,
-            isError: false,
-          });
-
-          // Cache store (fail-open)
-          if (cacheTtl && this.deps.toolCache) {
-            try {
-              this.deps.toolCache.set(tc.name, tc.input, resultValue, cacheTtl);
-            } catch {
-              // Fail-open: don't break execution if cache store fails
-            }
-          }
-
-          // Record rate limit usage after successful execution
-          if (perCallConfig?.rateLimiter && perCallConfig?.tenantId) {
-            perCallConfig.rateLimiter.record(perCallConfig.tenantId, tc.name);
-          }
-        } catch (err) {
-          const durationMs = Date.now() - startMs;
-          const errMsg = err instanceof Error ? err.message : String(err);
-          this.emitToolResult(session.id, tc.name, durationMs, false, errMsg.slice(0, 200), true);
-
-          toolExecutions.push({
-            toolName: tc.name,
-            durationMs,
-            success: false,
-            resultSummary: errMsg.slice(0, 200),
-          });
-
-          this.emitError(session.id, `Tool "${tc.name}" failed: ${err}`);
-          this.appendAudit(tc.name, durationMs, "error", authResult);
-
-          resultParts.push({
-            type: "tool_result",
-            toolUseId: tc.id,
-            content: `Error: ${errMsg}`,
-            isError: true,
-          });
-        }
-      }
-      session.addUserMessage(resultParts);
-    }
-
-    // Safety: max rounds exceeded, return last available response
-    this.emitError(session.id, `Max tool rounds (${this.maxToolRounds}) exceeded`);
-
-    const finalMessages = [...session.conversationHistory];
-    const finalResponse = await effectiveProvider.createMessage({
-      system: invocationSystem,
-      messages: finalMessages,
-      maxTokens: this.deps.maxTokens,
-    });
-
-    totalInputTokens += finalResponse.inputTokens;
-    totalOutputTokens += finalResponse.outputTokens;
-    totalCacheRead += finalResponse.cacheReadTokens;
-    totalCacheWrite += finalResponse.cacheWriteTokens;
-
-    this.emitCostUpdate(session.id, totalInputTokens, totalOutputTokens, totalCacheRead, totalCacheWrite, session.activeAgentId ?? undefined);
-
-    session.addAssistantMessage(finalResponse.parts);
-
-    // Post-LLM escalation check (only if pre-LLM didn't trigger)
-    if (!escalation && this.deps.escalationDetector) {
-      const postSignal = this.deps.escalationDetector.checkPostLLM(session, finalResponse.parts);
-      if (postSignal) escalation = postSignal;
-    }
-
-    // Generate context summary if escalation detected and summarizer available
-    let contextSummary: string | undefined;
-    if (escalation && this.deps.contextSummarizer) {
-      try {
-        contextSummary = await this.deps.contextSummarizer.summarize(session);
-      } catch {
-        // Non-critical: proceed without summary
-      }
-    }
-
-    return {
-      parts: finalResponse.parts,
-      inputTokens: totalInputTokens,
-      outputTokens: totalOutputTokens,
-      cacheReadTokens: totalCacheRead,
-      cacheWriteTokens: totalCacheWrite,
-      queued: false,
-      escalation,
-      contextSummary,
-      toolExecutions: toolExecutions.length > 0 ? toolExecutions : undefined,
-      routingDecision: routingDecisionResult
-        ? { provider: routingDecisionResult.provider, model: routingDecisionResult.model, routingTier: routingDecisionResult.routingTier, reasoning: routingDecisionResult.reasoning }
-        : undefined,
-    };
+    return system;
   }
 
-  private resolveCapability(name: string, perCallConfig?: PerCallToolConfig): Capability | undefined {
-    return this.deps.capabilityMap?.get(name) ?? perCallConfig?.perCallCapabilities?.get(name);
-  }
-
-  private resolveAuthorization(
-    toolName: string,
-    capability: Capability | undefined,
-    perCallConfig?: PerCallToolConfig,
-  ): ToolAuthorizationResult | undefined {
-    const authority = perCallConfig?.toolAuthority?.get(toolName);
-    if (authority !== undefined) {
-      if (!this.isAuthorityDescriptor(authority)) {
-        return {
-          level: 4,
-          allowed: false,
-          requiresApproval: false,
-          reason: "Invalid authority descriptor; execution denied",
-        };
-      }
-      return {
-        level: authority.level,
-        allowed: authority.allowed,
-        requiresApproval: authority.requiresApproval,
-        reason: authority.reason,
-      };
-    }
-    if (!this.deps.toolAuthorizer) {
+  private detectPreLlmEscalation(userParts: readonly ContentPart[]) {
+    if (!this.deps.escalationDetector) {
       return undefined;
     }
-    return this.deps.toolAuthorizer.authorize(toolName, capability?.annotations);
+    const signal = this.deps.escalationDetector.checkPreLLM(extractText(userParts));
+    return signal ?? undefined;
   }
 
-  private isAuthorityDescriptor(value: unknown): value is AuthorityDescriptor {
-    if (!value || typeof value !== "object") {
-      return false;
+  private async checkBudget(sessionId: string): Promise<boolean> {
+    if (!this.deps.budgetChecker) {
+      return true;
     }
-
-    const candidate = value as {
-      level?: unknown;
-      allowed?: unknown;
-      requiresApproval?: unknown;
-      reason?: unknown;
-    };
-
-    const validLevel = candidate.level === 1
-      || candidate.level === 2
-      || candidate.level === 3
-      || candidate.level === 4;
-
-    return validLevel
-      && typeof candidate.allowed === "boolean"
-      && typeof candidate.requiresApproval === "boolean"
-      && typeof candidate.reason === "string"
-      && candidate.reason.length > 0;
-  }
-
-  private extractFileChangesFromToolResult(
-    toolName: string,
-    resultValue: unknown,
-  ): readonly { readonly path: string; readonly changeType: "modified" }[] | undefined {
-    if (toolName !== "write" && toolName !== "edit") {
-      return undefined;
-    }
-    if (!resultValue || typeof resultValue !== "object") {
-      return undefined;
-    }
-    const resultRecord = resultValue as { metadata?: Record<string, unknown> };
-    const filePath = typeof resultRecord.metadata?.filePath === "string"
-      ? resultRecord.metadata.filePath
-      : undefined;
-    if (!filePath || filePath.trim() === "") {
-      return undefined;
-    }
-    return [{ path: filePath, changeType: "modified" }];
-  }
-
-  private async executeTool(tc: ToolCall): Promise<unknown> {
-    // Check per-call builtin tools first, then dep-level builtins
-    const callBuiltin = this._callBuiltinTools?.get(tc.name);
-    if (callBuiltin) return callBuiltin(tc.input);
-
-    const depBuiltin = this.deps.builtinTools?.get(tc.name);
-    if (depBuiltin) return depBuiltin(tc.input);
-
-    // Fall back to MCP clients
-    if (this.deps.mcpClients) {
-      for (const client of this.deps.mcpClients) {
-        try {
-          return await client.executeTool(tc.name, tc.input);
-        } catch {
-          continue;
-        }
-      }
-    }
-
-    throw new Error(`Tool "${tc.name}" not found`);
-  }
-
-  private emitToolCalled(
-    sessionId: string,
-    toolName: string,
-    toolInput?: Record<string, unknown>,
-    annotations?: Record<string, unknown>,
-  ): void {
-    const event: ToolCalledEvent = {
-      type: "tool_called",
-      toolName,
-      timestamp: new Date(),
-      sessionId,
-      ...(toolInput ? { toolInput } : {}),
-      ...(annotations ? { annotations } : {}),
-    };
-    this.deps.eventBus?.emit(event);
-  }
-
-  private emitToolAuthorized(
-    sessionId: string,
-    toolName: string,
-    level: number,
-    allowed: boolean,
-    reason: string,
-  ): void {
-    const event: ToolAuthorizedEvent = {
-      type: "tool_authorized",
-      toolName,
-      level,
-      allowed,
-      reason,
-      timestamp: new Date(),
-      sessionId,
-    };
-    this.deps.eventBus?.emit(event);
-  }
-
-  private emitToolResult(
-    sessionId: string,
-    toolName: string,
-    durationMs: number,
-    success: boolean,
-    resultSummary?: string,
-    isError?: boolean,
-    retryAttempt?: number,
-  ): void {
-    const event: ToolResultEvent = {
-      type: "tool_result",
-      toolName,
-      durationMs,
-      success,
-      timestamp: new Date(),
-      sessionId,
-      ...(resultSummary ? { resultSummary } : {}),
-      ...(isError !== undefined ? { isError } : {}),
-      ...(retryAttempt !== undefined ? { retryAttempt } : {}),
-    };
-    this.deps.eventBus?.emit(event);
-  }
-
-  private emitToolCacheHit(sessionId: string, toolName: string, cacheTtl: number): void {
-    const event: ToolCacheHitEvent = {
-      type: "tool_cache_hit",
-      toolName,
-      cacheTtl,
-      timestamp: new Date(),
-      sessionId,
-    };
-    this.deps.eventBus?.emit(event);
-  }
-
-  private appendAudit(
-    toolName: string,
-    durationMs: number,
-    outcome: "success" | "success_sanitized" | "error",
-    authResult?: ToolAuthorizationResult,
-  ): void {
-    if (!this.deps.auditLog) return;
     try {
-      const metadata: Record<string, string | number | boolean> = { durationMs };
-      if (authResult) {
-        metadata.authorityLevel = authResult.level;
-        metadata.authorityAllowed = authResult.allowed;
-        metadata.authorityRequiresApproval = authResult.requiresApproval;
-        metadata.authorityReason = authResult.reason;
+      const budget = await this.deps.budgetChecker();
+      if (!budget.allowed) {
+        this.telemetry.emitError(sessionId, budget.message ?? "Budget exhausted");
+        return false;
       }
-      this.deps.auditLog.append({
-        timestamp: new Date(),
-        action: "tool_execution",
-        actor: "orchestrator",
-        outcome,
-        resource: toolName,
-        metadata,
-      });
+      return true;
     } catch {
-      // Non-critical: don't fail tool execution for audit
+      return true;
     }
   }
+}
 
-  private computeTotalCostUsd(
-    inputTokens: number,
-    outputTokens: number,
-    cacheReadTokens: number,
-    cacheWriteTokens: number,
-  ): number {
-    const pricing = this.resolvedPricing;
-    if (!pricing) return 0;
-
-    const uncachedInput = Math.max(0, inputTokens - cacheReadTokens - cacheWriteTokens);
-
-    return (
-      (uncachedInput * pricing.inputRate +
-        outputTokens * pricing.outputRate +
-        cacheReadTokens * pricing.inputRate * pricing.cacheReadMultiplier +
-        cacheWriteTokens * pricing.inputRate * pricing.cacheWriteMultiplier) /
-      1_000_000
-    );
+function toPublicRoutingDecision(
+  routingDecision: {
+    readonly provider: string;
+    readonly model: string;
+    readonly routingTier: string;
+    readonly reasoning: string;
+  } | undefined,
+): OrchestrateResult["routingDecision"] {
+  if (!routingDecision) {
+    return undefined;
   }
-
-  private get resolvedPricing(): ModelPricing | undefined {
-    if (!this.deps.model) return undefined;
-    const pricing = MODEL_PRICING.get(this.deps.model);
-    if (!pricing) {
-      console.warn(`[ModeBOrchestrator] Model "${this.deps.model}" not found in MODEL_PRICING -- cost will be $0. Add it to the pricing table or use a known model identifier.`);
-    }
-    return pricing;
-  }
-
-  private emitCostUpdate(
-    sessionId: string,
-    inputTokens: number,
-    outputTokens: number,
-    cacheReadTokens: number,
-    cacheWriteTokens: number,
-    agentId?: string,
-  ): void {
-    const totalCostUsd = this.computeTotalCostUsd(inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens);
-    const model = this.deps.model ?? "unknown";
-
-    const event: CostUpdateEvent = {
-      type: "cost_update",
-      inputTokens,
-      outputTokens,
-      cacheReadTokens,
-      totalCostUsd,
-      byRoleModel: {
-        [`assistant:${model}`]: { model, calls: 1, costUsd: totalCostUsd },
-      },
-      timestamp: new Date(),
-      sessionId,
-      ...(agentId ? { agentId } : {}),
-    };
-    this.deps.eventBus?.emit(event);
-  }
-
-  private emitModelRouted(sessionId: string, decision: RoutingDecision): void {
-    const event: ModelRoutedEvent = {
-      type: "model_routed",
-      model: decision.model,
-      provider: decision.provider,
-      routingTier: decision.routingTier,
-      reason: decision.reasoning,
-      timestamp: new Date(),
-      sessionId,
-    };
-    this.deps.eventBus?.emit(event);
-  }
-
-  private emitError(sessionId: string, message: string): void {
-    const event: ErrorEvent = {
-      type: "error",
-      message,
-      code: "MODE_B_ERROR",
-      taskId: null,
-      timestamp: new Date(),
-      sessionId,
-    };
-    this.deps.eventBus?.emit(event);
-  }
-
-  private requestApproval(
-    sessionId: string,
-    description: string,
-  ): Promise<{ approved: boolean; reason?: string }> {
-    const existing = this.pendingApprovals.get(sessionId);
-    if (existing) {
-      return existing.promise;
-    }
-
-    let resolveApproval!: (decision: { approved: boolean; reason?: string }) => void;
-    const promise = new Promise<{ approved: boolean; reason?: string }>((resolve) => {
-      resolveApproval = resolve;
-    });
-    this.pendingApprovals.set(sessionId, {
-      resolve: resolveApproval,
-      promise,
-    });
-    this.emitApprovalRequested(description, sessionId);
-    return promise;
-  }
+  return {
+    provider: routingDecision.provider,
+    model: routingDecision.model,
+    routingTier: routingDecision.routingTier,
+    reasoning: routingDecision.reasoning,
+  };
 }

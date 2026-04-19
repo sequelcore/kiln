@@ -177,6 +177,19 @@ The first slice is intentionally narrow:
     canonical session state (`accumulateTokens`, `updateSessionLedger`,
     exact-artifact append), while consuming support artifact writers from
     `support/artifacts/context-artifact-summary.ts`.
+- Slice 4 (orchestrator internal decomposition): done.
+  - `ModeBOrchestrator` now coordinates internal collaborators instead of
+    directly owning approvals, routing selection, tool execution, telemetry,
+    and final response assembly in one file.
+  - Added internal collaborators:
+    - `mode-b-orchestrator-approvals.ts`
+    - `mode-b-orchestrator-routing.ts`
+    - `mode-b-orchestrator-tool-executor.ts`
+    - `mode-b-orchestrator-telemetry.ts`
+    - `mode-b-orchestrator-response.ts`
+    - `mode-b-orchestrator.types.ts`
+  - Public `ModeBOrchestrator` naming and external imports remain unchanged for
+    the slice; the decomposition is internal only.
 
 ## First Refactor Sequence
 
