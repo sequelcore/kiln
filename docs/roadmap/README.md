@@ -41,6 +41,10 @@ and architecture alignment work.
   Execution plan for Slice O4, focused on deciding which orchestrator
   strategies and team-composition surfaces still survive after O2.
 
+- `external-benchmark-validation.md`
+  Deferred milestone for public benchmark work after the remaining
+  architecture and product work reaches stability.
+
 ## Usage
 
 - Read `documentation-refactor-plan.md` first to understand the rules.
@@ -86,6 +90,9 @@ As of 2026-04-10:
 - orchestrator O5 started:
   - public orchestrator exports no longer expose swarm strategy APIs
   - final export cleanup completed for the current orchestrator stop point
+- external benchmark validation is now tracked as a deferred strategic
+  milestone in `external-benchmark-validation.md`, not as an active ADR or
+  implementation slice
 
 ## Rules
 
