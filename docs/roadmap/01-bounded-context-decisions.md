@@ -30,7 +30,7 @@ Read first:
 | Area | Decision | Target direction | Why |
 |------|----------|------------------|-----|
 | `packages/core/src/engine` | `split`, `rename`, `keep` | Preserve foundational contracts and validation; extract or rename app/team/workflow-first language that blocks control-plane terminology | It still owns useful structural contracts but carries old identity heavily |
-| `packages/core/src/orchestrator` | `split`, `rename` | Break apart into `IngressGovernor`, `DemandAllocator`, `ChainGovernor`, and related control logic | High-value logic exists here, but the naming and boundaries are obsolete |
+| `packages/core/src/orchestrator` | `split`, `rename` | Continue breaking apart into `IngressGovernor`, `DemandAllocator`, `ChainGovernor`, and related control logic; treat current split artifacts as partial completion, not end state | High-value logic exists here, but the naming and boundaries remain only partially modernized |
 | `packages/core/src/tree` | `split`, `merge`, `delete` | Merge valid task-lifecycle ownership into `TaskRegistry`; delete speculative tree abstractions that do not survive the new model | Task ownership matters; exploration-first tree abstractions may not |
 | `packages/core/src/memory` | `keep`, `split` | Keep storage and recall foundations; split toward layered memory responsibilities | Strategically important and compatible with the new doctrine after restructuring |
 | `packages/core/src/knowledge` | `keep`, `split` | Keep retrieval/source-grounding logic; integrate more explicitly with `ContextGovernor` and layered memory | Useful subsystem, but should no longer overdefine product identity |
@@ -50,7 +50,7 @@ Read first:
 | `packages/core/src/package` | `keep` | Keep if still required for packaging/distribution | Operational area, low architectural pressure |
 | `packages/core/src/presets` | `split`, `delete` | Keep only if presets still serve a concrete runtime purpose; delete stale preset layers | High risk of legacy abstraction residue |
 | `packages/core/src/skill` | `keep` | Keep as operational capability surface | Useful, not architecture-defining |
-| `packages/runtime/src/session` | `split`, `rename` | Extract explicit `ModeController`, execution-flow ownership, session/task lifecycle, and safety interaction boundaries | One of the highest-value refactor targets |
+| `packages/runtime/src/session` | `split`, `rename` | First separate session state/lifecycle, orchestration, persistence, and turn-recording/support helpers into coherent seams; rename toward control-plane vocabulary only after those seams are clean | One of the highest-value refactor targets, but already partially executed |
 | `packages/runtime/src/gateway` | `keep`, `split` | Keep as runtime surface; separate admission, hosting, and transport concerns more clearly | Important, but should not define doctrine |
 | `packages/runtime/src/channels` | `keep` | Keep as runtime I/O surface | Operationally necessary and conceptually stable |
 | `packages/runtime/src/trigger` | `keep`, `split` | Keep trigger mechanics; align trigger admission and execution with governed flows | Useful but currently app/workflow-biased |
@@ -82,6 +82,82 @@ decisions:
 - `swarm` terminology
 - `router` when used as architecture language rather than a narrow implementation detail
 
+Some of these names already survive only as partial implementation residue or
+legacy seams. They should be evaluated against the current exported surface, not
+treated as if all of them remain equally active.
+
+## Current Status
+
+This decision table is no longer pure forward-looking planning. Parts of it have
+already been partially executed by later roadmap work.
+
+Current state of the highest-pressure rows:
+
+- `packages/core/src/orchestrator`: partial
+  Split artifacts such as `demand-allocator.ts`, `chain-governor.ts`, and
+  `task-registry.ts` now exist, but the directory is not yet fully aligned to
+  the target architecture.
+- `packages/runtime/src/session`: partial
+  Current `ModeBSession`, `ModeBOrchestrator`, and `SessionRegistry` surfaces
+  indicate real execution work already landed, but the bounded-context and
+  naming story is not yet settled. The next correct move is to separate state,
+  orchestration, persistence, and support helpers before introducing a new
+  control-plane name.
+- `packages/core/src/engine`: open
+  The engine surface still carries orchestrator-era naming and remains an active
+  cleanup target.
+- `packages/core/src/safety` + `security` + `sandbox` + `tools`: open
+  These boundaries still exist as separate areas and have not yet converged into
+  one clearly expressed kernel boundary.
+- `packages/core/src/memory` + `knowledge` + `field`: open
+  These remain distinct surfaces and still need the layered-memory and
+  context-governance consolidation described here.
+
+### `packages/runtime/src/session` execution slices
+
+The session bounded context should now be executed in these slices:
+
+1. Export freeze + characterization gates
+   Define the public session surface explicitly and add tests that lock current
+   behavior for session mode transitions, serialization, optimistic concurrency,
+   and the runtime session barrel exports.
+2. Persistence seam extraction
+   Keep `SessionRegistry`, `SessionStore`, `InMemorySessionStore`,
+   `RedisSessionStore`, and `session-serializer` conceptually grouped as
+   persistence/identity infrastructure around the session aggregate, not as part
+   of orchestration.
+3. Support-helper extraction
+   Separate continuity, summarization, escalation, artifact, and turn-recording
+   helpers from the core session state and orchestration boundary.
+4. Orchestrator internal decomposition
+   Split `ModeBOrchestrator` into coherent internal collaborators for approvals,
+   tool execution, routing/cost emission, and final response assembly without
+   renaming the public surface yet.
+5. Rename only after seams are clean
+   Re-evaluate `ModeB*` naming only after state, orchestration, persistence, and
+   support helpers are structurally separated.
+
+#### First slice scope
+
+The first slice is intentionally narrow:
+
+- files in scope:
+  - `packages/runtime/src/index.ts`
+  - `packages/runtime/src/session/index.ts`
+  - `packages/runtime/tests/session/session-mode.test.ts`
+  - `packages/runtime/tests/session/session-serializer.test.ts`
+  - `packages/runtime/tests/session/session-registry.test.ts`
+  - any new focused session export/contract test file under
+    `packages/runtime/tests/session/`
+- goals:
+  - make the runtime and session barrels the explicit reference surface for the
+    current session boundary
+  - lock the current session semantics with tests before structural extraction
+- explicit non-goals:
+  - no renaming of `ModeBSession`, `ModeBOrchestrator`, or `SessionRegistry`
+  - no extraction of helpers yet
+  - no behavior changes to routing, approvals, or tool execution
+
 ## First Refactor Sequence
 
 The first code refactor sequence should follow this order:
@@ -100,3 +176,19 @@ to the supporting subsystems.
 No area is considered "refactored" if the new path exists but the obsolete path
 remains active without a concrete reason. Replacement phases must end with old
 names, old abstractions, or dead modules being removed.
+
+## Closure Standard
+
+This bounded-context decision slice is closed when all of the following are
+true:
+
+- the decision table reflects current reality rather than pre-execution intent
+  for the major high-pressure areas
+- rows that have moved into partial execution are marked as such instead of
+  remaining framed as untouched planning
+- target directions use vocabulary that still matches the current codebase and
+  the canonical architecture docs
+- slices that execute these decisions have either landed or been explicitly
+  delegated to later roadmap files
+- the document can be treated as a frozen decision reference rather than as an
+  untracked planning placeholder

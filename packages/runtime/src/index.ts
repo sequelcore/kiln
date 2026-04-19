@@ -90,27 +90,41 @@ export { PrometheusCollector } from "./observability/prometheus-collector.js";
 export type { PrometheusCollectorConfig } from "./observability/prometheus-collector.js";
 
 // Session
-export { ModeBSession } from "./session/mode-b-session.js";
-export type { ModeBSessionConfig, SerializedSessionData, AgentTurnEntry } from "./session/mode-b-session.js";
-export { ModeBOrchestrator } from "./session/mode-b-orchestrator.js";
-export type { OrchestratorDeps, OrchestrateResult, PerCallToolConfig, ToolExecutionSummary } from "./session/mode-b-orchestrator.js";
-export { SessionRegistry } from "./session/session-registry.js";
-export type { SessionStore } from "./session/session-store.js";
-export { InMemorySessionStore } from "./session/in-memory-session-store.js";
-export { RedisSessionStore, createRedisSessionStore } from "./session/redis-session-store.js";
-export type { RedisLike } from "./session/redis-session-store.js";
-export { serializeSession, deserializeSession } from "./session/session-serializer.js";
-export { getProjectContextArtifactCache, ProjectContextArtifactCache } from "./session/context-artifact-cache.js";
-export { isValidTransition, transitionSessionMode } from "./session/session-mode.js";
-export type { SessionMode } from "./session/session-mode.js";
-export { DefaultEscalationDetector, wordOverlapSimilarity } from "./session/escalation-detector.js";
+export {
+  ModeBSession,
+  ModeBOrchestrator,
+  SessionRegistry,
+  InMemorySessionStore,
+  RedisSessionStore,
+  createRedisSessionStore,
+  serializeSession,
+  deserializeSession,
+  getProjectContextArtifactCache,
+  ProjectContextArtifactCache,
+  isValidTransition,
+  transitionSessionMode,
+  DefaultEscalationDetector,
+  wordOverlapSimilarity,
+  DefaultContextSummarizer,
+  DefaultAgentHandoffSummarizer,
+} from "./session/index.js";
 export type {
+  ModeBSessionConfig,
+  SerializedSessionData,
+  AgentTurnEntry,
+  OrchestratorDeps,
+  OrchestrateResult,
+  PerCallToolConfig,
+  ToolExecutionSummary,
+  SessionStore,
+  RedisLike,
+  SessionMode,
   EscalationSignal,
   EscalationDetector,
   DefaultEscalationDetectorConfig,
-} from "./session/escalation-detector.js";
-export { DefaultContextSummarizer } from "./session/context-summarizer.js";
-export type { ContextSummarizer } from "./session/context-summarizer.js";
+  ContextSummarizer,
+  AgentHandoffSummarizer,
+} from "./session/index.js";
 
 // Tenant
 export { TenantRegistry, TenantNotFoundError, TenantValidationFailedError } from "./tenant/tenant-registry.js";
@@ -123,8 +137,6 @@ export { resolveAgentContext, resolveAgentContextAsync, buildAgentSystemPrompt }
 export type { ResolvedAgentContext, AsyncAgentResolverDeps } from "./tenant/agent-resolver.js";
 export { checkPingPong } from "./tenant/ping-pong-guard.js";
 export type { PingPongCheckResult } from "./tenant/ping-pong-guard.js";
-export { DefaultAgentHandoffSummarizer } from "./session/agent-handoff-summarizer.js";
-export type { AgentHandoffSummarizer } from "./session/agent-handoff-summarizer.js";
 export { createRoutingTestRoutes } from "./gateway/routing-test-routes.js";
 export type { RoutingTestRoutesConfig } from "./gateway/routing-test-routes.js";
 
