@@ -13,7 +13,7 @@
 //   4. Gateway stores the response in session history
 //
 // This preserves flat-rate subscription auth (handled inside the CLI binary)
-// while keeping all session state in the gateway's ModeBSession.
+// while keeping all session state in the gateway's RuntimeSession.
 
 import type { ProviderAdapter, CreateMessageOptions, AgentResponse, AgentStreamEvent } from "@kilnai/core";
 import { textParts, extractText } from "@kilnai/core";
@@ -59,7 +59,7 @@ export type CliSessionEventCallback = (event: CliSessionEvent) => void;
 /**
  * CliSubscriptionExecutor — implements ProviderAdapter using CLI subscription binaries.
  *
- * Plugs directly into ModeBOrchestrator as the `provider` dependency.
+ * Plugs directly into RuntimeSessionOrchestrator as the `provider` dependency.
  * The orchestrator sees it as any other ProviderAdapter; it is unaware of subprocess execution.
  *
  * Note: tool calls are not supported in this executor (CLI binaries handle their own tools).
@@ -137,7 +137,7 @@ export class CliSubscriptionExecutor implements ProviderAdapter {
  * Serialize AgentMessage history into a single prompt string.
  *
  * The CLI binary receives one turn of input and processes it statelessly.
- * Multi-turn history is reconstructed from the gateway's ModeBSession each turn.
+ * Multi-turn history is reconstructed from the gateway's RuntimeSession each turn.
  *
  * Format: alternating labelled blocks. The last message must be "user".
  */

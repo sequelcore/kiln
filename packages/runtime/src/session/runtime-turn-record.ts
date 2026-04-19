@@ -6,8 +6,8 @@ import {
   writeRuntimeThreadSummaryArtifact,
   writeRuntimeToolBundleArtifact,
 } from "./support/artifacts/context-artifact-summary.js";
-import type { ToolExecutionSummary } from "./mode-b-orchestrator.js";
-import type { ModeBSession } from "./mode-b-session.js";
+import type { ToolExecutionSummary } from "./runtime-session-orchestrator.js";
+import type { RuntimeSession } from "./runtime-session.js";
 
 interface RuntimeTurnRoutingDecision {
   readonly provider: string;
@@ -36,7 +36,7 @@ export interface RuntimeTurnAuthorityDecision {
 }
 
 export interface RuntimeTurnRecordInput {
-  readonly session: ModeBSession;
+  readonly session: RuntimeSession;
   readonly channel: string;
   readonly taskShape: string;
   readonly contextArtifactCache?: ContextArtifactCache;
@@ -77,7 +77,7 @@ export interface RuntimeTurnRecord {
 }
 
 function appendExactArtifacts(
-  session: ModeBSession,
+  session: RuntimeSession,
   input: Pick<
     RuntimeTurnRecordInput,
     "routingDecision" | "contextSummary" | "toolExecutions" | "groundingBlockedClaims" | "escalationReason"

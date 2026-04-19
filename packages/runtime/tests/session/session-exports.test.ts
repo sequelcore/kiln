@@ -5,8 +5,8 @@ import { join } from "node:path";
 import * as sessionBarrel from "../../src/session/index.js";
 import * as persistenceBarrel from "../../src/session/persistence/index.js";
 
-import { ModeBSession as DirectModeBSession } from "../../src/session/mode-b-session.js";
-import { ModeBOrchestrator as DirectModeBOrchestrator } from "../../src/session/mode-b-orchestrator.js";
+import { RuntimeSession as DirectRuntimeSession } from "../../src/session/runtime-session.js";
+import { RuntimeSessionOrchestrator as DirectRuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { SessionRegistry as DirectSessionRegistry } from "../../src/session/session-registry.js";
 import { InMemorySessionStore as DirectInMemorySessionStore } from "../../src/session/in-memory-session-store.js";
 import { RedisSessionStore as DirectRedisSessionStore } from "../../src/session/redis-session-store.js";
@@ -16,8 +16,8 @@ import { DefaultEscalationDetector as DirectDefaultEscalationDetector } from "..
 
 describe("session exports", () => {
   it("session barrel exposes the current session boundary", () => {
-    expect(sessionBarrel.ModeBSession).toBe(DirectModeBSession);
-    expect(sessionBarrel.ModeBOrchestrator).toBe(DirectModeBOrchestrator);
+    expect(sessionBarrel.RuntimeSession).toBe(DirectRuntimeSession);
+    expect(sessionBarrel.RuntimeSessionOrchestrator).toBe(DirectRuntimeSessionOrchestrator);
     expect(sessionBarrel.SessionRegistry).toBe(DirectSessionRegistry);
     expect(sessionBarrel.InMemorySessionStore).toBe(DirectInMemorySessionStore);
     expect(sessionBarrel.RedisSessionStore).toBe(DirectRedisSessionStore);

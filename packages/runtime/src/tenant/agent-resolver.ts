@@ -8,7 +8,7 @@ import { buildTenantToolContext } from "../gateway/tenant-tool-factory.js";
 import type { TenantToolContext } from "../gateway/tenant-tool-factory.js";
 import { DefaultTenantRouter, EmbeddingTenantRouter } from "./tenant-router.js";
 import type { RoutingResult } from "./tenant-router.js";
-import type { ModeBSession } from "../session/mode-b-session.js";
+import type { RuntimeSession } from "../session/runtime-session.js";
 import { checkPingPong } from "./ping-pong-guard.js";
 import type { AgentHandoffSummarizer } from "../session/support/summarization/agent-handoff-summarizer.js";
 
@@ -61,7 +61,7 @@ export function resolveAgentContext(
   tenant: TenantConfig,
   userParts: readonly ContentPart[],
   channel?: "web" | "whatsapp" | "instagram" | "messenger" | "email",
-  session?: ModeBSession,
+  session?: RuntimeSession,
   existingBuiltins?: ReadonlyMap<string, (input: Record<string, unknown>) => Promise<unknown>>,
   userContext?: UserContext,
 ): ResolvedAgentContext {
@@ -156,7 +156,7 @@ export function resolveAgentContext(
 export async function resolveAgentContextAsync(
   tenant: TenantConfig,
   userParts: readonly ContentPart[],
-  session: ModeBSession,
+  session: RuntimeSession,
   deps?: AsyncAgentResolverDeps,
   channel?: "web" | "whatsapp" | "instagram" | "messenger" | "email",
   existingBuiltins?: ReadonlyMap<string, (input: Record<string, unknown>) => Promise<unknown>>,
@@ -228,7 +228,7 @@ async function resolveAgentContextWithEmbedding(
   tenant: TenantConfig,
   userParts: readonly ContentPart[],
   channel: "web" | "whatsapp" | "instagram" | "messenger" | "email" | undefined,
-  session: ModeBSession,
+  session: RuntimeSession,
   agentRag: AgentRAG,
   existingBuiltins?: ReadonlyMap<string, (input: Record<string, unknown>) => Promise<unknown>>,
   userContext?: UserContext,

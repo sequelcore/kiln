@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { InMemorySessionStore } from "../../src/session/in-memory-session-store.js";
-import { ModeBSession } from "../../src/session/mode-b-session.js";
+import { RuntimeSession } from "../../src/session/runtime-session.js";
 
-function makeSession(userId: string): ModeBSession {
-  return new ModeBSession({
+function makeSession(userId: string): RuntimeSession {
+  return new RuntimeSession({
     appName: "app",
     tenantId: "test-tenant",
     userId,

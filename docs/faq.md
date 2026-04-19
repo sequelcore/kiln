@@ -20,7 +20,7 @@ No. The YAML configuration is the required entry point -- the engine is designed
 
 **How does multi-tenant isolation work?**
 
-Each App loaded by the Gateway receives its own memory namespace (`~/.kiln/gateway/{appName}/`), a separate `SessionRegistry` keyed by `{appName}:{userId}`, its own `ProviderAdapter` and `ModeBOrchestrator` instances, and a separate `ChannelRegistry`. A message arriving on one App's channel cannot reach another App. Cross-App communication is explicit and typed via `type: delegation` capabilities. See [Multi-Tenant](guides/multi-tenant.md) for deployment details.
+Each App loaded by the Gateway receives its own memory namespace (`~/.kiln/gateway/{appName}/`), a separate `SessionRegistry` keyed by `{appName}:{userId}`, its own `ProviderAdapter` and `RuntimeSessionOrchestrator` instances, and a separate `ChannelRegistry`. A message arriving on one App's channel cannot reach another App. Cross-App communication is explicit and typed via `type: delegation` capabilities. See [Multi-Tenant](guides/multi-tenant.md) for deployment details.
 
 ---
 

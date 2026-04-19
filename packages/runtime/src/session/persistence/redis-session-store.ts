@@ -1,4 +1,4 @@
-import type { ModeBSession } from "../mode-b-session.js";
+import type { RuntimeSession } from "../runtime-session.js";
 import type { SessionStore } from "./session-store.js";
 import { serializeSession, deserializeSession } from "./session-serializer.js";
 
@@ -21,13 +21,13 @@ export class RedisSessionStore implements SessionStore {
     this.defaultTtlMs = defaultTtlMs;
   }
 
-  async get(key: string): Promise<ModeBSession | undefined> {
+  async get(key: string): Promise<RuntimeSession | undefined> {
     const json = await this.redis.get(KEY_PREFIX + key);
     if (!json) return undefined;
     return deserializeSession(json);
   }
 
-  async set(key: string, session: ModeBSession): Promise<void> {
+  async set(key: string, session: RuntimeSession): Promise<void> {
     const ttlSeconds = Math.ceil((session.idleTimeoutMs ?? this.defaultTtlMs) / 1000);
     await this.redis.setex(KEY_PREFIX + key, ttlSeconds, serializeSession(session));
   }

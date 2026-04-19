@@ -6,10 +6,10 @@ import type {
   Capability,
 } from "@kilnai/core";
 import { appendExecutionIdentity, extractText, resolveExecutionIdentity, scoreComplexity } from "@kilnai/core";
-import type { ModeBSession } from "./mode-b-session.js";
-import type { OrchestratorDeps, PerCallToolConfig } from "./mode-b-orchestrator.types.js";
+import type { RuntimeSession } from "./runtime-session.js";
+import type { OrchestratorDeps, PerCallToolConfig } from "./runtime-session-orchestrator.types.js";
 
-export interface ModeBRoutingResolution {
+export interface RuntimeSessionRoutingResolution {
   readonly effectiveProvider: ProviderAdapter;
   readonly effectiveTools: readonly ToolDefinition[] | undefined;
   readonly hasTools: boolean;
@@ -17,15 +17,15 @@ export interface ModeBRoutingResolution {
   readonly routingDecision?: RoutingDecision;
 }
 
-export async function resolveModeBRouting(
+export async function resolveRuntimeSessionRouting(
   deps: OrchestratorDeps,
-  session: ModeBSession,
+  session: RuntimeSession,
   userParts: readonly ContentPart[],
   baseSystem: string,
   baseTools: readonly ToolDefinition[] | undefined,
   perCallConfig: PerCallToolConfig | undefined,
   emitModelRouted: (sessionId: string, decision: RoutingDecision) => void,
-): Promise<ModeBRoutingResolution> {
+): Promise<RuntimeSessionRoutingResolution> {
   const hasBuiltins = (deps.builtinTools?.size ?? 0) > 0;
   const hasMcp = (deps.mcpClients?.length ?? 0) > 0;
 

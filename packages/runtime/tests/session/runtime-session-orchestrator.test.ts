@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ProviderAdapter } from "@kilnai/core";
 import { textParts, extractText } from "@kilnai/core";
-import { ModeBOrchestrator } from "../../src/session/mode-b-orchestrator.js";
-import { ModeBSession } from "../../src/session/mode-b-session.js";
+import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
+import { RuntimeSession } from "../../src/session/runtime-session.js";
 import type { EscalationDetector } from "../../src/session/support/escalation/escalation-detector.js";
 import type { ContextSummarizer } from "../../src/session/support/summarization/context-summarizer.js";
 
@@ -21,26 +21,26 @@ function makeProvider(): ProviderAdapter {
   };
 }
 
-function makeSession(systemPrompt = "You are helpful."): ModeBSession {
-  return new ModeBSession({ appName: "app", tenantId: "test-tenant", userId: "user-1", systemPrompt });
+function makeSession(systemPrompt = "You are helpful."): RuntimeSession {
+  return new RuntimeSession({ appName: "app", tenantId: "test-tenant", userId: "user-1", systemPrompt });
 }
 
-describe("ModeBOrchestrator", () => {
+describe("RuntimeSessionOrchestrator", () => {
   describe("constructor", () => {
     it("creates orchestrator with mock provider", () => {
       const provider = makeProvider();
-      const orchestrator = new ModeBOrchestrator({ provider });
+      const orchestrator = new RuntimeSessionOrchestrator({ provider });
       expect(orchestrator).toBeDefined();
     });
   });
 
   describe("processMessage", () => {
     let provider: ProviderAdapter;
-    let orchestrator: ModeBOrchestrator;
+    let orchestrator: RuntimeSessionOrchestrator;
 
     beforeEach(() => {
       provider = makeProvider();
-      orchestrator = new ModeBOrchestrator({ provider });
+      orchestrator = new RuntimeSessionOrchestrator({ provider });
     });
 
     it("adds user message to session", async () => {
@@ -121,7 +121,7 @@ describe("ModeBOrchestrator", () => {
     });
 
     it("passes maxTokens to provider when configured", async () => {
-      const orchWithTokens = new ModeBOrchestrator({ provider, maxTokens: 1024 });
+      const orchWithTokens = new RuntimeSessionOrchestrator({ provider, maxTokens: 1024 });
       const session = makeSession();
       await orchWithTokens.processMessage(session, textParts("msg"));
       expect(provider.createMessage).toHaveBeenCalledWith(
@@ -133,7 +133,7 @@ describe("ModeBOrchestrator", () => {
   describe("AI guard", () => {
     it("returns queued result with empty parts when sessionMode is 'queued'", async () => {
       const provider = makeProvider();
-      const orchestrator = new ModeBOrchestrator({ provider });
+      const orchestrator = new RuntimeSessionOrchestrator({ provider });
       const session = makeSession();
       session.setSessionMode("queued");
 
@@ -150,7 +150,7 @@ describe("ModeBOrchestrator", () => {
 
     it("returns queued result when sessionMode is 'human_active'", async () => {
       const provider = makeProvider();
-      const orchestrator = new ModeBOrchestrator({ provider });
+      const orchestrator = new RuntimeSessionOrchestrator({ provider });
       const session = makeSession();
       session.setSessionMode("queued");
       session.setSessionMode("human_active");
@@ -164,7 +164,7 @@ describe("ModeBOrchestrator", () => {
 
     it("still adds user message to history when queued", async () => {
       const provider = makeProvider();
-      const orchestrator = new ModeBOrchestrator({ provider });
+      const orchestrator = new RuntimeSessionOrchestrator({ provider });
       const session = makeSession();
       session.setSessionMode("queued");
 
@@ -176,7 +176,7 @@ describe("ModeBOrchestrator", () => {
 
     it("processes normally when sessionMode is 'ai_active'", async () => {
       const provider = makeProvider();
-      const orchestrator = new ModeBOrchestrator({ provider });
+      const orchestrator = new RuntimeSessionOrchestrator({ provider });
       const session = makeSession();
 
       const result = await orchestrator.processMessage(session, textParts("hello"));
@@ -188,7 +188,7 @@ describe("ModeBOrchestrator", () => {
 
     it("auto-reopens resolved sessions and processes normally", async () => {
       const provider = makeProvider();
-      const orchestrator = new ModeBOrchestrator({ provider });
+      const orchestrator = new RuntimeSessionOrchestrator({ provider });
       const session = makeSession();
       // Transition to resolved: ai_active -> queued -> human_active -> resolved
       session.setSessionMode("queued");
@@ -216,7 +216,7 @@ describe("ModeBOrchestrator", () => {
         }),
         checkPostLLM: vi.fn().mockReturnValue(null),
       };
-      const orchestrator = new ModeBOrchestrator({ provider, escalationDetector: detector });
+      const orchestrator = new RuntimeSessionOrchestrator({ provider, escalationDetector: detector });
       const session = makeSession();
 
       const result = await orchestrator.processMessage(session, textParts("I want a human"));
@@ -238,7 +238,7 @@ describe("ModeBOrchestrator", () => {
           detail: "Last 3 responses have similarity > 0.85",
         }),
       };
-      const orchestrator = new ModeBOrchestrator({ provider, escalationDetector: detector });
+      const orchestrator = new RuntimeSessionOrchestrator({ provider, escalationDetector: detector });
       const session = makeSession();
 
       const result = await orchestrator.processMessage(session, textParts("hello"));
@@ -254,7 +254,7 @@ describe("ModeBOrchestrator", () => {
         checkPreLLM: vi.fn().mockReturnValue(null),
         checkPostLLM: vi.fn().mockReturnValue(null),
       };
-      const orchestrator = new ModeBOrchestrator({ provider, escalationDetector: detector });
+      const orchestrator = new RuntimeSessionOrchestrator({ provider, escalationDetector: detector });
       const session = makeSession();
 
       const result = await orchestrator.processMessage(session, textParts("hello"));
@@ -264,7 +264,7 @@ describe("ModeBOrchestrator", () => {
 
     it("returns no escalation when no detector is configured", async () => {
       const provider = makeProvider();
-      const orchestrator = new ModeBOrchestrator({ provider });
+      const orchestrator = new RuntimeSessionOrchestrator({ provider });
       const session = makeSession();
 
       const result = await orchestrator.processMessage(session, textParts("I want a human"));
@@ -285,7 +285,7 @@ describe("ModeBOrchestrator", () => {
       const summarizer: ContextSummarizer = {
         summarize: vi.fn().mockResolvedValue("Customer needs billing help."),
       };
-      const orchestrator = new ModeBOrchestrator({
+      const orchestrator = new RuntimeSessionOrchestrator({
         provider,
         escalationDetector: detector,
         contextSummarizer: summarizer,
@@ -311,7 +311,7 @@ describe("ModeBOrchestrator", () => {
       const summarizer: ContextSummarizer = {
         summarize: vi.fn().mockRejectedValue(new Error("Provider unavailable")),
       };
-      const orchestrator = new ModeBOrchestrator({
+      const orchestrator = new RuntimeSessionOrchestrator({
         provider,
         escalationDetector: detector,
         contextSummarizer: summarizer,
@@ -333,7 +333,7 @@ describe("ModeBOrchestrator", () => {
       const summarizer: ContextSummarizer = {
         summarize: vi.fn().mockResolvedValue("Summary"),
       };
-      const orchestrator = new ModeBOrchestrator({
+      const orchestrator = new RuntimeSessionOrchestrator({
         provider,
         escalationDetector: detector,
         contextSummarizer: summarizer,

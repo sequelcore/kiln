@@ -21,7 +21,7 @@ type QueueItem = SessionEventInternal | typeof STOP;
  * GatewaySession — TUI's SessionLike implementation backed by the local gateway WS.
  *
  * One GatewaySession maps to one user conversation.
- * Session history lives in the gateway's ModeBSession; this class is stateless.
+ * Session history lives in the gateway's RuntimeSession; this class is stateless.
  */
 export class GatewaySession implements SessionLike {
   private readonly client: TuiWsClient;

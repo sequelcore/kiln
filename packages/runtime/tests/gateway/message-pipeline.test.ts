@@ -2,15 +2,15 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { EventBus, textParts } from "@kilnai/core";
 import { processInboundMessage } from "../../src/gateway/message-pipeline.js";
 import type { InboundMessageContext } from "../../src/gateway/message-pipeline.js";
-import type { ModeBOrchestrator, OrchestrateResult } from "../../src/session/mode-b-orchestrator.js";
+import type { RuntimeSessionOrchestrator, OrchestrateResult } from "../../src/session/runtime-session-orchestrator.js";
 import type { SessionRegistry } from "../../src/session/session-registry.js";
-import type { ModeBSession } from "../../src/session/mode-b-session.js";
+import type { RuntimeSession } from "../../src/session/runtime-session.js";
 import type { ConversationEventEmitter } from "../../src/gateway/conversation-event-emitter.js";
 import type { BillingConfig } from "../../src/gateway/budget-middleware.js";
 
 const originalFetch = globalThis.fetch;
 
-function makeMockSession(): ModeBSession {
+function makeMockSession(): RuntimeSession {
   let _userContext: Record<string, string> | undefined;
   let _sessionLedger: Record<string, unknown> = {};
   let _exactArtifacts: string[] = [];
@@ -37,11 +37,11 @@ function makeMockSession(): ModeBSession {
       _exactArtifacts.push(artifact);
     },
     get exactArtifacts() { return _exactArtifacts; },
-  } as unknown as ModeBSession;
+  } as unknown as RuntimeSession;
   return session;
 }
 
-function makeMockOrchestrator(): ModeBOrchestrator {
+function makeMockOrchestrator(): RuntimeSessionOrchestrator {
   return {
     processMessage: vi.fn().mockResolvedValue({
       parts: textParts("mock response"),
@@ -52,10 +52,10 @@ function makeMockOrchestrator(): ModeBOrchestrator {
       queued: false,
     } satisfies OrchestrateResult),
     model: "claude-sonnet-4-20250514",
-  } as unknown as ModeBOrchestrator;
+  } as unknown as RuntimeSessionOrchestrator;
 }
 
-function makeMockSessionRegistry(session?: ModeBSession): SessionRegistry {
+function makeMockSessionRegistry(session?: RuntimeSession): SessionRegistry {
   const mockSession = session ?? makeMockSession();
   return {
     getOrCreate: vi.fn().mockResolvedValue(mockSession),
@@ -313,7 +313,7 @@ describe("processInboundMessage", () => {
           queued: false,
         } satisfies OrchestrateResult),
         model: "claude-sonnet-4-20250514",
-      } as unknown as ModeBOrchestrator,
+      } as unknown as RuntimeSessionOrchestrator,
       evaluateEgressPermission: vi.fn().mockResolvedValue("allow"),
     });
 
@@ -347,7 +347,7 @@ describe("processInboundMessage", () => {
           }],
         } satisfies OrchestrateResult),
         model: "claude-sonnet-4-20250514",
-      } as unknown as ModeBOrchestrator,
+      } as unknown as RuntimeSessionOrchestrator,
       evaluateEgressPermission: vi.fn().mockResolvedValue("deny"),
     });
 
@@ -389,7 +389,7 @@ describe("processInboundMessage", () => {
           }],
         } satisfies OrchestrateResult),
         model: "claude-sonnet-4-20250514",
-      } as unknown as ModeBOrchestrator,
+      } as unknown as RuntimeSessionOrchestrator,
       evaluateEgressPermission: vi.fn().mockResolvedValue("redact"),
     });
 
@@ -447,7 +447,7 @@ describe("processInboundMessage", () => {
       }),
       model: "claude-sonnet-4-20250514",
       eventBus,
-    } as unknown as ModeBOrchestrator;
+    } as unknown as RuntimeSessionOrchestrator;
     const sessionRegistry = makeMockSessionRegistry(session);
     const ctx = makeBaseContext({ orchestrator, sessionRegistry });
 
@@ -494,7 +494,7 @@ describe("processInboundMessage", () => {
       }),
       model: "claude-sonnet-4-20250514",
       eventBus,
-    } as unknown as ModeBOrchestrator;
+    } as unknown as RuntimeSessionOrchestrator;
     const sessionRegistry = makeMockSessionRegistry(session);
     const ctx = makeBaseContext({ orchestrator, sessionRegistry });
 
@@ -525,7 +525,7 @@ describe("processInboundMessage", () => {
         }],
       } satisfies OrchestrateResult),
       model: "claude-sonnet-4-20250514",
-    } as unknown as ModeBOrchestrator;
+    } as unknown as RuntimeSessionOrchestrator;
     const sessionRegistry = makeMockSessionRegistry(session);
     const ctx = makeBaseContext({ orchestrator, sessionRegistry });
 

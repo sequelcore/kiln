@@ -7,13 +7,13 @@ import {
   type ContextArtifact,
   type ContextArtifactCache,
 } from "@kilnai/core";
-import type { ModeBSession } from "../../mode-b-session.js";
+import type { RuntimeSession } from "../../runtime-session.js";
 
-function buildRuntimeThreadArtifactKey(session: Pick<ModeBSession, "appName" | "tenantId" | "userId">): string {
+function buildRuntimeThreadArtifactKey(session: Pick<RuntimeSession, "appName" | "tenantId" | "userId">): string {
   return `runtime-thread-summary:${session.appName}:${session.tenantId}:${session.userId}`;
 }
 
-function buildRuntimeHandoffArtifactKey(session: Pick<ModeBSession, "appName" | "tenantId" | "userId">): string {
+function buildRuntimeHandoffArtifactKey(session: Pick<RuntimeSession, "appName" | "tenantId" | "userId">): string {
   return `runtime-handoff-summary:${session.appName}:${session.tenantId}:${session.userId}`;
 }
 
@@ -102,7 +102,7 @@ function buildRuntimeContinuityStats(
 function inferRuntimeResumeFeedback(
   cache: ContextArtifactCache,
   input: {
-    session: Pick<ModeBSession, "appName" | "tenantId" | "userId">;
+    session: Pick<RuntimeSession, "appName" | "tenantId" | "userId">;
     channel: string;
   },
 ): ResumeFeedbackSignal | undefined {
@@ -163,7 +163,7 @@ export function normalizeRuntimeTaskShape(text: string): string {
 export function readRuntimeSupportArtifacts(
   cache: ContextArtifactCache | undefined,
   input: {
-    session: Pick<ModeBSession, "appName" | "tenantId" | "userId" | "exactArtifacts" | "sessionLedger">;
+    session: Pick<RuntimeSession, "appName" | "tenantId" | "userId" | "exactArtifacts" | "sessionLedger">;
     channel: string;
     providerHint?: string;
     taskShape: string;
@@ -175,7 +175,7 @@ export function readRuntimeSupportArtifacts(
 export function readRuntimeSupportArtifactsDetailed(
   cache: ContextArtifactCache | undefined,
   input: {
-    session: Pick<ModeBSession, "appName" | "tenantId" | "userId" | "exactArtifacts" | "sessionLedger">;
+    session: Pick<RuntimeSession, "appName" | "tenantId" | "userId" | "exactArtifacts" | "sessionLedger">;
     channel: string;
     providerHint?: string;
     taskShape: string;
@@ -295,7 +295,7 @@ export function readRuntimeSupportArtifactsDetailed(
 
 export function writeRuntimeThreadSummaryArtifact(
   cache: ContextArtifactCache | undefined,
-  session: Pick<ModeBSession, "appName" | "tenantId" | "userId" | "sessionLedger" | "exactArtifacts">,
+  session: Pick<RuntimeSession, "appName" | "tenantId" | "userId" | "sessionLedger" | "exactArtifacts">,
 ): void {
   if (!cache) return;
 
@@ -326,7 +326,7 @@ export function writeRuntimeThreadSummaryArtifact(
 export function writeRuntimeHandoffSummaryArtifact(
   cache: ContextArtifactCache | undefined,
   input: {
-    session: Pick<ModeBSession, "appName" | "tenantId" | "userId">;
+    session: Pick<RuntimeSession, "appName" | "tenantId" | "userId">;
     handoffBrief?: string;
     handoffBlocked?: boolean;
     handoffBlockReason?: string;
@@ -440,7 +440,7 @@ export function writeRuntimeToolBundleArtifact(
 export function writeRuntimeContinuityOutcomeArtifact(
   cache: ContextArtifactCache | undefined,
   input: {
-    session: Pick<ModeBSession, "appName" | "tenantId" | "userId">;
+    session: Pick<RuntimeSession, "appName" | "tenantId" | "userId">;
     channel: string;
     taskShape: string;
     decision: ResumePolicyDecision;

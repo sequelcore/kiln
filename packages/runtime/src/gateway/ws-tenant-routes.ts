@@ -6,7 +6,7 @@ import type { UpgradeWebSocket, WSContext } from "hono/ws";
 import type { WebChannel } from "../channels/web-channel.js";
 import type { ContentPart, SttAdapter, RetrievalPipeline, ContactMemoryService } from "@kilnai/core";
 import { textParts, extractText, hasModality } from "@kilnai/core";
-import type { ModeBOrchestrator, PerCallToolConfig } from "../session/mode-b-orchestrator.js";
+import type { RuntimeSessionOrchestrator, PerCallToolConfig } from "../session/runtime-session-orchestrator.js";
 import type { SessionRegistry } from "../session/session-registry.js";
 import type { TenantRegistry } from "../tenant/tenant-registry.js";
 import { resolveAgentContextAsync } from "../tenant/agent-resolver.js";
@@ -27,7 +27,7 @@ export interface WsTenantRoutesConfig {
   readonly webChannel: WebChannel;
   readonly upgradeWebSocket: UpgradeWebSocket;
   readonly appName: string;
-  readonly orchestrator: ModeBOrchestrator;
+  readonly orchestrator: RuntimeSessionOrchestrator;
   readonly sessionRegistry: SessionRegistry;
   readonly tenantRegistry: TenantRegistry;
   readonly billing?: BillingConfig;

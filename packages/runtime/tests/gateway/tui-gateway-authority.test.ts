@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ProviderAdapter } from "@kilnai/core";
 import { textParts } from "@kilnai/core";
-import { ModeBOrchestrator } from "../../src/session/mode-b-orchestrator.js";
-import { ModeBSession } from "../../src/session/mode-b-session.js";
+import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
+import { RuntimeSession } from "../../src/session/runtime-session.js";
 
 vi.mock("hono/bun", () => ({
   createBunWebSocket: () => ({
@@ -11,8 +11,8 @@ vi.mock("hono/bun", () => ({
   }),
 }));
 
-function makeSession(): ModeBSession {
-  return new ModeBSession({
+function makeSession(): RuntimeSession {
+  return new RuntimeSession({
     appName: "kiln-tui",
     tenantId: "_tui",
     userId: "operator-1",
@@ -126,7 +126,7 @@ describe("TUI authority forwarding", () => {
       streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
     };
 
-    const orchestrator = new ModeBOrchestrator({
+    const orchestrator = new RuntimeSessionOrchestrator({
       provider,
       tools: [{ name: "danger_tool", description: "Danger tool", inputSchema: {}, tags: new Set() }],
       builtinTools: new Map([["danger_tool", toolFn]]),

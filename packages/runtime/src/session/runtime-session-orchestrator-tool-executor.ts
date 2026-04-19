@@ -11,7 +11,7 @@ import type {
   ToolAuthorizationResult,
 } from "@kilnai/core";
 import { executeWithRetry } from "@kilnai/core";
-import type { ModeBSession } from "./mode-b-session.js";
+import type { RuntimeSession } from "./runtime-session.js";
 import type {
   DangerousCommandDecisionLike,
   DangerousCommandRequestLike,
@@ -19,7 +19,7 @@ import type {
   PerCallToolConfig,
   ToolExecutionSummary,
   CommandShell,
-} from "./mode-b-orchestrator.types.js";
+} from "./runtime-session-orchestrator.types.js";
 
 const COMMAND_TOOL_SHELL_BY_NAME = new Map<string, CommandShell>([
   ["bash", "bash"],
@@ -65,7 +65,7 @@ function toDangerousCommandRequest(
   };
 }
 
-export interface ModeBToolExecutionResult {
+export interface RuntimeSessionToolExecutionResult {
   readonly resultParts: readonly {
     readonly type: "tool_result";
     readonly toolUseId: string;
@@ -75,7 +75,7 @@ export interface ModeBToolExecutionResult {
   readonly toolExecutions: readonly ToolExecutionSummary[];
 }
 
-export class ModeBToolExecutor {
+export class RuntimeSessionToolExecutor {
   constructor(
     private readonly deps: OrchestratorDeps,
     private readonly eventBus: EventBus | undefined,
@@ -88,10 +88,10 @@ export class ModeBToolExecutor {
   ) {}
 
   async executeToolCalls(
-    session: ModeBSession,
+    session: RuntimeSession,
     toolCalls: readonly ToolCall[],
     perCallConfig?: PerCallToolConfig,
-  ): Promise<ModeBToolExecutionResult> {
+  ): Promise<RuntimeSessionToolExecutionResult> {
     const resultParts: Array<{
       readonly type: "tool_result";
       readonly toolUseId: string;

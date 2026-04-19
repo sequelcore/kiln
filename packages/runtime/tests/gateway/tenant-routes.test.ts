@@ -6,7 +6,7 @@ import type { ProviderAdapter, TenantConfig } from "@kilnai/core";
 import { textParts } from "@kilnai/core";
 import { createTenantRoutes } from "../../src/gateway/tenant-routes.js";
 import type { TenantAppRuntime } from "../../src/gateway/tenant-routes.js";
-import { ModeBOrchestrator } from "../../src/session/mode-b-orchestrator.js";
+import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { SessionRegistry } from "../../src/session/session-registry.js";
 import { TenantRegistry } from "../../src/tenant/tenant-registry.js";
 
@@ -48,7 +48,7 @@ function makeRuntime(overrides: Partial<TenantAppRuntime> = {}): TenantAppRuntim
   const tenantRegistry = new TenantRegistry(storageDir);
   return {
     appName: "test-app",
-    orchestrator: new ModeBOrchestrator({ provider }),
+    orchestrator: new RuntimeSessionOrchestrator({ provider }),
     sessionRegistry: new SessionRegistry(),
     tenantRegistry,
     ...overrides,

@@ -3,10 +3,10 @@
 
 import type { ProviderAdapter, AgentMessage } from "@kilnai/core";
 import { extractText } from "@kilnai/core";
-import type { ModeBSession } from "../../mode-b-session.js";
+import type { RuntimeSession } from "../../runtime-session.js";
 
 export interface AgentHandoffSummarizer {
-  summarize(session: ModeBSession, fromAgentName: string, toAgentName: string): Promise<string>;
+  summarize(session: RuntimeSession, fromAgentName: string, toAgentName: string): Promise<string>;
 }
 
 const HANDOFF_MAX_MESSAGES = 10;
@@ -19,7 +19,7 @@ export class DefaultAgentHandoffSummarizer implements AgentHandoffSummarizer {
     this.provider = provider;
   }
 
-  async summarize(session: ModeBSession, fromAgentName: string, toAgentName: string): Promise<string> {
+  async summarize(session: RuntimeSession, fromAgentName: string, toAgentName: string): Promise<string> {
     const history = session.conversationHistory;
     const recent: readonly AgentMessage[] = history.slice(-HANDOFF_MAX_MESSAGES);
 

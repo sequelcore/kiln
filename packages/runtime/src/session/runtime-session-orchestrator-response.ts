@@ -1,12 +1,12 @@
 import type { ContentPart, ProviderAdapter } from "@kilnai/core";
-import type { ModeBSession } from "./mode-b-session.js";
-import type { OrchestratorDeps, OrchestrateResult, ToolExecutionSummary } from "./mode-b-orchestrator.types.js";
-import type { OrchestratorUsageSnapshot, OrchestratorResponseUsage } from "./mode-b-orchestrator-telemetry.js";
+import type { RuntimeSession } from "./runtime-session.js";
+import type { OrchestratorDeps, OrchestrateResult, ToolExecutionSummary } from "./runtime-session-orchestrator.types.js";
+import type { OrchestratorUsageSnapshot, OrchestratorResponseUsage } from "./runtime-session-orchestrator-telemetry.js";
 import type { EscalationSignal } from "./support/escalation/escalation-detector.js";
 
-export interface FinalizeModeBResponseInput {
+export interface FinalizeRuntimeSessionResponseInput {
   readonly deps: OrchestratorDeps;
-  readonly session: ModeBSession;
+  readonly session: RuntimeSession;
   readonly parts: readonly ContentPart[];
   readonly usage: OrchestratorResponseUsage;
   readonly usageTotals: OrchestratorUsageSnapshot;
@@ -20,8 +20,8 @@ export interface FinalizeModeBResponseInput {
   readonly preLlmEscalation?: EscalationSignal;
 }
 
-export async function finalizeModeBResponse(
-  input: FinalizeModeBResponseInput,
+export async function finalizeRuntimeSessionResponse(
+  input: FinalizeRuntimeSessionResponseInput,
 ): Promise<OrchestrateResult> {
   let escalation = input.preLlmEscalation;
 
@@ -55,10 +55,10 @@ export async function finalizeModeBResponse(
   };
 }
 
-export async function requestFinalFallbackResponse(
+export async function requestRuntimeSessionFallbackResponse(
   provider: ProviderAdapter,
   system: string,
-  session: ModeBSession,
+  session: RuntimeSession,
   maxTokens: number | undefined,
 ): Promise<{
   readonly parts: readonly ContentPart[];

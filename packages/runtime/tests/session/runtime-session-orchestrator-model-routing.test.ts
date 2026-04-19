@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ProviderAdapter, ModelRouter, RoutingDecision, RoutingRequest } from "@kilnai/core";
 import { textParts } from "@kilnai/core";
-import { ModeBOrchestrator } from "../../src/session/mode-b-orchestrator.js";
-import { ModeBSession } from "../../src/session/mode-b-session.js";
+import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
+import { RuntimeSession } from "../../src/session/runtime-session.js";
 
 function makeProvider(name = "mock"): ProviderAdapter {
   return {
@@ -20,8 +20,8 @@ function makeProvider(name = "mock"): ProviderAdapter {
   };
 }
 
-function makeSession(systemPrompt = "You are helpful."): ModeBSession {
-  return new ModeBSession({ appName: "app", tenantId: "test-tenant", userId: "user-1", systemPrompt });
+function makeSession(systemPrompt = "You are helpful."): RuntimeSession {
+  return new RuntimeSession({ appName: "app", tenantId: "test-tenant", userId: "user-1", systemPrompt });
 }
 
 function makeRouter(decision: RoutingDecision): ModelRouter {
@@ -30,7 +30,7 @@ function makeRouter(decision: RoutingDecision): ModelRouter {
   };
 }
 
-describe("ModeBOrchestrator model routing", () => {
+describe("RuntimeSessionOrchestrator model routing", () => {
   let defaultProvider: ProviderAdapter;
 
   beforeEach(() => {
@@ -38,7 +38,7 @@ describe("ModeBOrchestrator model routing", () => {
   });
 
   it("without modelRouter, uses default provider", async () => {
-    const orchestrator = new ModeBOrchestrator({ provider: defaultProvider });
+    const orchestrator = new RuntimeSessionOrchestrator({ provider: defaultProvider });
     const session = makeSession();
     const result = await orchestrator.processMessage(session, textParts("hello"));
 
@@ -58,7 +58,7 @@ describe("ModeBOrchestrator model routing", () => {
 
     const providerPool = new Map<string, ProviderAdapter>([["routed", routedProvider]]);
 
-    const orchestrator = new ModeBOrchestrator({
+    const orchestrator = new RuntimeSessionOrchestrator({
       provider: defaultProvider,
       modelRouter: router,
       providerPool,
@@ -87,7 +87,7 @@ describe("ModeBOrchestrator model routing", () => {
 
     const providerPool = new Map<string, ProviderAdapter>([["routed", routedProvider]]);
 
-    const orchestrator = new ModeBOrchestrator({
+    const orchestrator = new RuntimeSessionOrchestrator({
       provider: defaultProvider,
       model: "configured-model",
       modelRouter: router,
@@ -116,7 +116,7 @@ describe("ModeBOrchestrator model routing", () => {
       routingTier: "default",
     });
 
-    const orchestrator = new ModeBOrchestrator({
+    const orchestrator = new RuntimeSessionOrchestrator({
       provider: defaultProvider,
       modelRouter: router,
       providerPool: new Map(),
@@ -139,7 +139,7 @@ describe("ModeBOrchestrator model routing", () => {
       routingTier: "default",
     });
 
-    const orchestrator = new ModeBOrchestrator({
+    const orchestrator = new RuntimeSessionOrchestrator({
       provider: defaultProvider,
       model: "configured-model",
       modelRouter: router,
@@ -175,7 +175,7 @@ describe("ModeBOrchestrator model routing", () => {
       ["override", overrideProvider],
     ]);
 
-    const orchestrator = new ModeBOrchestrator({
+    const orchestrator = new RuntimeSessionOrchestrator({
       provider: defaultProvider,
       modelRouter: router,
       providerPool,
@@ -205,7 +205,7 @@ describe("ModeBOrchestrator model routing", () => {
       routingTier: "rule",
     });
 
-    const orchestrator = new ModeBOrchestrator({
+    const orchestrator = new RuntimeSessionOrchestrator({
       provider: defaultProvider,
       modelRouter: router,
     });
@@ -230,7 +230,7 @@ describe("ModeBOrchestrator model routing", () => {
       routingTier: "complexity",
     });
 
-    const orchestrator = new ModeBOrchestrator({
+    const orchestrator = new RuntimeSessionOrchestrator({
       provider: defaultProvider,
       modelRouter: router,
       eventBus,
@@ -258,7 +258,7 @@ describe("ModeBOrchestrator model routing", () => {
       }),
     };
 
-    const orchestrator = new ModeBOrchestrator({
+    const orchestrator = new RuntimeSessionOrchestrator({
       provider: defaultProvider,
       modelRouter: router,
     });

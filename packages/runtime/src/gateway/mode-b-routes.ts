@@ -5,7 +5,7 @@ import { Hono } from "hono";
 import type { ContentPart, TenantConfig, RetrievalPipeline, ContextArtifactCache } from "@kilnai/core";
 import { textParts, extractText } from "@kilnai/core";
 import { formatKnowledgeContext } from "./context-formatter.js";
-import type { ModeBOrchestrator } from "../session/mode-b-orchestrator.js";
+import type { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
 import type { SessionRegistry } from "../session/session-registry.js";
 import { checkTier } from "./budget-middleware.js";
 import type { BillingConfig } from "./budget-middleware.js";
@@ -14,12 +14,12 @@ import { processInboundMessage } from "./message-pipeline.js";
 import { resolveAgentContextAsync } from "../tenant/agent-resolver.js";
 import type { AgentHandoffSummarizer } from "../session/support/summarization/agent-handoff-summarizer.js";
 import type { EventBus } from "@kilnai/core";
-import type { PerCallToolConfig } from "../session/mode-b-orchestrator.js";
+import type { PerCallToolConfig } from "../session/runtime-session-orchestrator.js";
 
 /** Runtime configuration for a Mode B App */
 export interface ModeBAppRuntime {
   readonly appName: string;
-  readonly orchestrator: ModeBOrchestrator;
+  readonly orchestrator: RuntimeSessionOrchestrator;
   readonly sessionRegistry: SessionRegistry;
   readonly billing?: BillingConfig;
   readonly systemPrompt: string;

@@ -420,7 +420,7 @@ Six sub-phases implementing biologically-grounded multi-agent coordination:
   - Registers orchestrator as `ApprovalTarget` at startup
   - Calls `orchestrator.continue()` on approve, emits `approval_received` on reject
 - Added `emitApprovalRequested()` and `emitApprovalReceived()` methods to
-  `ModeBOrchestrator` for emitting events to the event bus.
+  `RuntimeSessionOrchestrator` for emitting events to the event bus.
 
 ### feat(tui): session history browser in sidebar
 - Added `SessionStore.list()` method to retrieve all session records.
@@ -936,7 +936,7 @@ auth:
 - `IntegrationRegistry.getCapabilities()`: surfaces `CapabilityAnnotations` (readOnly, destructive, idempotent, cacheTtl) from adapter operations as `Capability` objects.
 - `TenantToolContext.capabilities`: populated from integration operations with annotations in `buildTenantToolContext()`.
 - `PerCallToolConfig.perCallCapabilities`: new field carries per-tenant capabilities to the orchestrator.
-- `ModeBOrchestrator.resolveCapability()`: merges dep-level (MCP/app) and per-call (integration) capabilities. Dep-level takes precedence.
+- `RuntimeSessionOrchestrator.resolveCapability()`: merges dep-level (MCP/app) and per-call (integration) capabilities. Dep-level takes precedence.
 - Integration tools now participate in tool authorization, cache TTL, retry/fallback, and audit logging — same as MCP and app-defined tools.
 
 ## v0.16.0 (2026-03-10) -- Zero-Trust Agent Tool Access
@@ -996,7 +996,7 @@ auth:
 - **HUMAN_TAKEOVER event**: New conversation event type with `handoffSource: "whatsapp_coexistence"` for observability. `HANDOFF_RELEASED` is emitted on auto-release.
 - **Session context preservation**: Business messages from the app are injected into session history so the AI has full context when it resumes.
 - **WhatsAppCoexistenceConfig**: New `TenantConfig` field (`enabled`, `autoReleaseMs`). Admin API supports `whatsappCoexistence` as mutable field.
-- **ModeBSession.lastHumanMessageAt**: New timestamp for tracking human activity, persisted across session serialization.
+- **RuntimeSession.lastHumanMessageAt**: New timestamp for tracking human activity, persisted across session serialization.
 - Zero breaking changes. All new fields are optional. Existing tenants see no behavioral change.
 
 ## v0.11.0 (2026-03-09) -- Eval Benchmarking & Abuse Protection
@@ -1022,7 +1022,7 @@ auth:
 - **Per-session turn limit**: `TenantConfig.sessionLimits.maxTurns` enforces max user turns per session.
 - **Repetitive abuse detection**: `detectRepetitiveAbuse()` catches exact repetition, keyword spam ("continue" loops), and sequential counting attacks. Configurable window size and threshold.
 - **SESSION_LIMIT_REACHED event**: New conversation event type with `limitType` (tokens/turns/abuse), `limitValue`, and `limitMax`.
-- **Session token tracking**: `ModeBSession.totalTokens` and `ModeBSession.userTurnCount` persisted across session serialization.
+- **Session token tracking**: `RuntimeSession.totalTokens` and `RuntimeSession.userTurnCount` persisted across session serialization.
 - All protections integrated in `processInboundMessage()` pipeline -- applies to all 6 channels automatically.
 
 ## v0.10.0 (2026-03-09) -- Visitor Identity & Pre-Chat Form

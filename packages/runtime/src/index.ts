@@ -91,8 +91,8 @@ export type { PrometheusCollectorConfig } from "./observability/prometheus-colle
 
 // Session
 export {
-  ModeBSession,
-  ModeBOrchestrator,
+  RuntimeSession,
+  RuntimeSessionOrchestrator,
   SessionRegistry,
   InMemorySessionStore,
   RedisSessionStore,
@@ -109,7 +109,7 @@ export {
   DefaultAgentHandoffSummarizer,
 } from "./session/index.js";
 export type {
-  ModeBSessionConfig,
+  RuntimeSessionConfig,
   SerializedSessionData,
   AgentTurnEntry,
   OrchestratorDeps,

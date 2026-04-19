@@ -1,11 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { textParts, validateTenantConfig } from "@kilnai/core";
 import type { TenantConfig } from "@kilnai/core";
-import { ModeBSession } from "../../src/session/mode-b-session.js";
+import { RuntimeSession } from "../../src/session/runtime-session.js";
 import { serializeSession, deserializeSession } from "../../src/session/session-serializer.js";
 
-function makeSession(): ModeBSession {
-  return new ModeBSession({
+function makeSession(): RuntimeSession {
+  return new RuntimeSession({
     appName: "test-app",
     tenantId: "test-tenant",
     userId: "user-1",
@@ -25,7 +25,7 @@ function baseTenant(overrides: Partial<TenantConfig> = {}): TenantConfig {
   };
 }
 
-describe("ModeBSession token/turn tracking", () => {
+describe("RuntimeSession token/turn tracking", () => {
   it("tracks userTurnCount via addUserMessage", () => {
     const session = makeSession();
     expect(session.userTurnCount).toBe(0);

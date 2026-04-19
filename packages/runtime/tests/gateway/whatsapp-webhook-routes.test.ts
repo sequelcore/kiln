@@ -3,7 +3,7 @@ import type { ProviderAdapter, TenantConfig } from "@kilnai/core";
 import { textParts } from "@kilnai/core";
 import { createWhatsAppWebhookRoutes } from "../../src/gateway/whatsapp-webhook-routes.js";
 import type { WhatsAppWebhookConfig } from "../../src/gateway/whatsapp-webhook-routes.js";
-import { ModeBOrchestrator } from "../../src/session/mode-b-orchestrator.js";
+import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { SessionRegistry } from "../../src/session/session-registry.js";
 import { TenantRegistry } from "../../src/tenant/tenant-registry.js";
 import { mkdtempSync } from "node:fs";
@@ -107,7 +107,7 @@ function makeConfig(overrides: Partial<WhatsAppWebhookConfig> = {}): WhatsAppWeb
   const tenantRegistry = new TenantRegistry(tmpDir);
   return {
     appName: "test-app",
-    orchestrator: new ModeBOrchestrator({ provider }),
+    orchestrator: new RuntimeSessionOrchestrator({ provider }),
     sessionRegistry: new SessionRegistry(),
     tenantRegistry,
     verifyToken: "my-verify-token",

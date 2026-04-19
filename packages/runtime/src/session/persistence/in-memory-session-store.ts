@@ -1,14 +1,14 @@
-import type { ModeBSession } from "../mode-b-session.js";
+import type { RuntimeSession } from "../runtime-session.js";
 import type { SessionStore } from "./session-store.js";
 
 export class InMemorySessionStore implements SessionStore {
-  private readonly store = new Map<string, ModeBSession>();
+  private readonly store = new Map<string, RuntimeSession>();
 
-  async get(key: string): Promise<ModeBSession | undefined> {
+  async get(key: string): Promise<RuntimeSession | undefined> {
     return this.store.get(key);
   }
 
-  async set(key: string, session: ModeBSession): Promise<void> {
+  async set(key: string, session: RuntimeSession): Promise<void> {
     this.store.set(key, session);
   }
 

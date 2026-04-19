@@ -1,10 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { textParts } from "@kilnai/core";
-import { ModeBSession } from "../../src/session/mode-b-session.js";
+import { RuntimeSession } from "../../src/session/runtime-session.js";
 import { serializeSession, deserializeSession } from "../../src/session/session-serializer.js";
 
-function makeSession(): ModeBSession {
-  return new ModeBSession({
+function makeSession(): RuntimeSession {
+  return new RuntimeSession({
     appName: "test",
     tenantId: "test-tenant",
     userId: "user1",
@@ -12,7 +12,7 @@ function makeSession(): ModeBSession {
   });
 }
 
-describe("ModeBSession agent fields", () => {
+describe("RuntimeSession agent fields", () => {
   describe("initial state", () => {
     it("activeAgentId starts null", () => {
       const session = makeSession();
@@ -233,7 +233,7 @@ describe("ModeBSession agent fields", () => {
 
       const json = serializeSession(session);
       const data = JSON.parse(json);
-      const restored = ModeBSession.fromSerialized(data);
+      const restored = RuntimeSession.fromSerialized(data);
 
       expect(restored.activeAgentId).toBe("support-agent");
     });

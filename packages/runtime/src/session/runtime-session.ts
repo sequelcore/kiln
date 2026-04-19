@@ -41,7 +41,7 @@ export interface SerializedSessionData {
   readonly exactArtifacts?: readonly string[];
 }
 
-export interface ModeBSessionConfig {
+export interface RuntimeSessionConfig {
   readonly appName: string;
   readonly tenantId: string;
   readonly userId: string;
@@ -49,7 +49,7 @@ export interface ModeBSessionConfig {
   readonly idleTimeoutMs?: number;
 }
 
-export class ModeBSession {
+export class RuntimeSession {
   readonly id: string;
   readonly appName: string;
   readonly tenantId: string;
@@ -81,7 +81,7 @@ export class ModeBSession {
   } = { currentPhase: "active" };
   private _exactArtifacts: string[] = [];
 
-  constructor(config: ModeBSessionConfig) {
+  constructor(config: RuntimeSessionConfig) {
     this.appName = config.appName;
     this.tenantId = config.tenantId;
     this.userId = config.userId;
@@ -126,8 +126,8 @@ export class ModeBSession {
     return this._loadedVersion;
   }
 
-  static fromSerialized(data: SerializedSessionData): ModeBSession {
-    const session = new ModeBSession({
+  static fromSerialized(data: SerializedSessionData): RuntimeSession {
+    const session = new RuntimeSession({
       appName: data.appName,
       tenantId: data.tenantId,
       userId: data.userId,

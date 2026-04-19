@@ -3,7 +3,7 @@ import type { KilnPermissionPolicy } from "./session.js";
 
 /**
  * Translates a CLI KilnPermissionPolicy into orchestrator ToolAuthorizationResult calls.
- * Implements ToolAuthorizer so ModeBOrchestrator respects CLI permission rules.
+ * Implements ToolAuthorizer so RuntimeSessionOrchestrator respects CLI permission rules.
  */
 export class PermissionPolicyAuthorizer implements ToolAuthorizer {
   private readonly approval: KilnPermissionPolicy["approval"];

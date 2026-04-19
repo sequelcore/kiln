@@ -1,7 +1,7 @@
-export { ModeBSession } from "./mode-b-session.js";
-export type { ModeBSessionConfig, SerializedSessionData, AgentTurnEntry } from "./mode-b-session.js";
-export { ModeBOrchestrator } from "./mode-b-orchestrator.js";
-export type { OrchestratorDeps, OrchestrateResult, PerCallToolConfig, ToolExecutionSummary } from "./mode-b-orchestrator.js";
+export { RuntimeSession } from "./runtime-session.js";
+export type { RuntimeSessionConfig, SerializedSessionData, AgentTurnEntry } from "./runtime-session.js";
+export { RuntimeSessionOrchestrator } from "./runtime-session-orchestrator.js";
+export type { OrchestratorDeps, OrchestrateResult, PerCallToolConfig, ToolExecutionSummary } from "./runtime-session-orchestrator.js";
 
 // Persistence + registry
 export {

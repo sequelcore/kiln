@@ -4,16 +4,16 @@ import { GroundingRail } from "@kilnai/core";
 import type { ModelCapabilityRegistry } from "@kilnai/core";
 import { processInboundMessage } from "../../src/gateway/message-pipeline.js";
 import type { InboundMessageContext } from "../../src/gateway/message-pipeline.js";
-import type { ModeBOrchestrator, OrchestrateResult } from "../../src/session/mode-b-orchestrator.js";
+import type { RuntimeSessionOrchestrator, OrchestrateResult } from "../../src/session/runtime-session-orchestrator.js";
 import type { SessionRegistry } from "../../src/session/session-registry.js";
-import type { ModeBSession } from "../../src/session/mode-b-session.js";
+import type { RuntimeSession } from "../../src/session/runtime-session.js";
 import type { ConversationEventEmitter } from "../../src/gateway/conversation-event-emitter.js";
 
 const originalFetch = globalThis.fetch;
 
 const KNOWLEDGE_CONTEXT = "Chunk one about our product.\n---\nChunk two about pricing.\n---\nChunk three about support.";
 
-function makeMockSession(): ModeBSession {
+function makeMockSession(): RuntimeSession {
   let _userContext: Record<string, string> | undefined;
   let _sessionLedger: Record<string, unknown> = {};
   let _exactArtifacts: string[] = [];
@@ -39,10 +39,10 @@ function makeMockSession(): ModeBSession {
     addExactArtifact(artifact: string) {
       _exactArtifacts.push(artifact);
     },
-  } as unknown as ModeBSession;
+  } as unknown as RuntimeSession;
 }
 
-function makeMockOrchestrator(parts = textParts("mock response"), queued = false): ModeBOrchestrator {
+function makeMockOrchestrator(parts = textParts("mock response"), queued = false): RuntimeSessionOrchestrator {
   return {
     processMessage: vi.fn().mockResolvedValue({
       parts,
@@ -53,10 +53,10 @@ function makeMockOrchestrator(parts = textParts("mock response"), queued = false
       queued,
     } satisfies OrchestrateResult),
     model: "gpt-4o-mini",
-  } as unknown as ModeBOrchestrator;
+  } as unknown as RuntimeSessionOrchestrator;
 }
 
-function makeMockSessionRegistry(session?: ModeBSession): SessionRegistry {
+function makeMockSessionRegistry(session?: RuntimeSession): SessionRegistry {
   const mockSession = session ?? makeMockSession();
   return {
     getOrCreate: vi.fn().mockResolvedValue(mockSession),

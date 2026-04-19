@@ -3,7 +3,7 @@ import type { ProviderAdapter } from "@kilnai/core";
 import { textParts } from "@kilnai/core";
 import { createModeBRoutes } from "../../src/gateway/mode-b-routes.js";
 import type { ModeBAppRuntime } from "../../src/gateway/mode-b-routes.js";
-import { ModeBOrchestrator } from "../../src/session/mode-b-orchestrator.js";
+import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { SessionRegistry } from "../../src/session/session-registry.js";
 
 const originalFetch = globalThis.fetch;
@@ -27,7 +27,7 @@ function makeRuntime(overrides: Partial<ModeBAppRuntime> = {}): ModeBAppRuntime 
   const provider = makeMockProvider();
   return {
     appName: "test-app",
-    orchestrator: new ModeBOrchestrator({ provider }),
+    orchestrator: new RuntimeSessionOrchestrator({ provider }),
     sessionRegistry: new SessionRegistry(),
     systemPrompt: "You are a test assistant.",
     ...overrides,

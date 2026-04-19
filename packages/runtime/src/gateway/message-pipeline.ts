@@ -15,7 +15,7 @@ import type {
 import { extractText, textParts, GroundingRail } from "@kilnai/core";
 import type { AbuseDetectionConfig } from "../session/repetitive-abuse-detector.js";
 import { detectRepetitiveAbuse } from "../session/repetitive-abuse-detector.js";
-import type { ModeBOrchestrator, OrchestrateResult, PerCallToolConfig, ToolExecutionSummary } from "../session/mode-b-orchestrator.js";
+import type { RuntimeSessionOrchestrator, OrchestrateResult, PerCallToolConfig, ToolExecutionSummary } from "../session/runtime-session-orchestrator.js";
 import type { SessionRegistry } from "../session/session-registry.js";
 import type { BillingConfig } from "./budget-middleware.js";
 import { checkBudget, reportUsage } from "./budget-middleware.js";
@@ -52,7 +52,7 @@ interface EgressPermissionRequest {
 }
 
 export interface InboundMessageContext {
-  readonly orchestrator: ModeBOrchestrator;
+  readonly orchestrator: RuntimeSessionOrchestrator;
   readonly sessionRegistry: SessionRegistry;
   readonly appName: string;
   readonly tenantId: string;

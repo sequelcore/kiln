@@ -8,7 +8,7 @@ const mockAddUserMessage = vi.fn();
 const mockAddAssistantMessage = vi.fn();
 
 vi.mock("@kilnai/runtime", () => {
-  class MockModeBSession {
+  class MockRuntimeSession {
     addUserMessage = mockAddUserMessage;
     addAssistantMessage = mockAddAssistantMessage;
     conversationHistory: unknown[] = [];
@@ -17,13 +17,13 @@ vi.mock("@kilnai/runtime", () => {
   }
 
   return {
-    ModeBOrchestrator: class MockModeBOrchestrator {
+    RuntimeSessionOrchestrator: class MockRuntimeSessionOrchestrator {
       constructor(...args: unknown[]) {
         mockOrchestratorConstructor(...args);
       }
       processMessage = mockProcessMessage;
     },
-    ModeBSession: MockModeBSession,
+    RuntimeSession: MockRuntimeSession,
   };
 });
 
@@ -268,7 +268,7 @@ describe("ExecutableProviderSession.run()", () => {
     expect((completed as { isError: boolean }).isError).toBe(false);
   });
 
-  it("passes tool definitions into ModeBOrchestrator so the provider can emit tool calls", async () => {
+  it("passes tool definitions into RuntimeSessionOrchestrator so the provider can emit tool calls", async () => {
     mocks.processMessage.mockResolvedValueOnce({
       parts: [{ type: "text", text: "done" }],
       toolExecutions: [],

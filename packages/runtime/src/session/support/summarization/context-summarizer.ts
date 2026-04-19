@@ -1,9 +1,9 @@
 import type { ProviderAdapter, AgentMessage } from "@kilnai/core";
 import { extractText } from "@kilnai/core";
-import type { ModeBSession } from "../../mode-b-session.js";
+import type { RuntimeSession } from "../../runtime-session.js";
 
 export interface ContextSummarizer {
-  summarize(session: ModeBSession): Promise<string>;
+  summarize(session: RuntimeSession): Promise<string>;
 }
 
 const SUMMARY_SYSTEM_PROMPT = "Summarize this customer conversation in 1-3 sentences for a human agent. Include: what the customer needs, what has been tried, and the current status.";
@@ -17,7 +17,7 @@ export class DefaultContextSummarizer implements ContextSummarizer {
     this.provider = provider;
   }
 
-  async summarize(session: ModeBSession): Promise<string> {
+  async summarize(session: RuntimeSession): Promise<string> {
     const history = session.conversationHistory;
     const recent: readonly AgentMessage[] = history.slice(-SUMMARY_MAX_MESSAGES);
 

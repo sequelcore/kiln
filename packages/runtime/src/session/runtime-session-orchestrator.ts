@@ -1,18 +1,18 @@
 import type { ContentPart, ToolDefinition } from "@kilnai/core";
 import type { EventBus } from "@kilnai/core";
 import { extractText } from "@kilnai/core";
-import type { ModeBSession } from "./mode-b-session.js";
-import { ModeBApprovalGate } from "./mode-b-orchestrator-approvals.js";
-import { finalizeModeBResponse, requestFinalFallbackResponse } from "./mode-b-orchestrator-response.js";
-import { resolveModeBRouting } from "./mode-b-orchestrator-routing.js";
-import { ModeBExecutionTelemetry } from "./mode-b-orchestrator-telemetry.js";
-import { ModeBToolExecutor } from "./mode-b-orchestrator-tool-executor.js";
+import type { RuntimeSession } from "./runtime-session.js";
+import { RuntimeSessionApprovalGate } from "./runtime-session-orchestrator-approvals.js";
+import { finalizeRuntimeSessionResponse, requestRuntimeSessionFallbackResponse } from "./runtime-session-orchestrator-response.js";
+import { resolveRuntimeSessionRouting } from "./runtime-session-orchestrator-routing.js";
+import { RuntimeSessionExecutionTelemetry } from "./runtime-session-orchestrator-telemetry.js";
+import { RuntimeSessionToolExecutor } from "./runtime-session-orchestrator-tool-executor.js";
 import type {
   OrchestratorDeps,
   OrchestrateResult,
   PerCallToolConfig,
   ToolExecutionSummary,
-} from "./mode-b-orchestrator.types.js";
+} from "./runtime-session-orchestrator.types.js";
 
 const DEFAULT_MAX_TOOL_ROUNDS = 10;
 
@@ -21,19 +21,19 @@ export type {
   OrchestrateResult,
   PerCallToolConfig,
   ToolExecutionSummary,
-} from "./mode-b-orchestrator.types.js";
+} from "./runtime-session-orchestrator.types.js";
 
-export class ModeBOrchestrator {
+export class RuntimeSessionOrchestrator {
   private readonly maxToolRounds: number;
   private _tools: readonly ToolDefinition[] | undefined;
-  private readonly approvalGate: ModeBApprovalGate;
-  private readonly telemetry: ModeBExecutionTelemetry;
+  private readonly approvalGate: RuntimeSessionApprovalGate;
+  private readonly telemetry: RuntimeSessionExecutionTelemetry;
 
   constructor(private readonly deps: OrchestratorDeps) {
     this.maxToolRounds = deps.maxToolRounds ?? DEFAULT_MAX_TOOL_ROUNDS;
     this._tools = deps.tools;
-    this.approvalGate = new ModeBApprovalGate(deps.eventBus);
-    this.telemetry = new ModeBExecutionTelemetry(deps.model, deps.eventBus);
+    this.approvalGate = new RuntimeSessionApprovalGate(deps.eventBus);
+    this.telemetry = new RuntimeSessionExecutionTelemetry(deps.model, deps.eventBus);
   }
 
   get model(): string | undefined {
@@ -70,7 +70,7 @@ export class ModeBOrchestrator {
   }
 
   async processMessage(
-    session: ModeBSession,
+    session: RuntimeSession,
     userParts: readonly ContentPart[],
     recalledMemory?: string,
     callBuiltinTools?: ReadonlyMap<string, (input: Record<string, unknown>) => Promise<unknown>>,
@@ -97,7 +97,7 @@ export class ModeBOrchestrator {
     session.addUserMessage(userParts);
 
     const system = this.buildSystemPrompt(session, recalledMemory, perCallConfig);
-    const routing = await resolveModeBRouting(
+    const routing = await resolveRuntimeSessionRouting(
       this.deps,
       session,
       userParts,
@@ -108,7 +108,7 @@ export class ModeBOrchestrator {
     );
 
     const toolExecutions: ToolExecutionSummary[] = [];
-    const toolExecutor = new ModeBToolExecutor(
+    const toolExecutor = new RuntimeSessionToolExecutor(
       this.deps,
       this.deps.eventBus,
       (sessionId, description) => this.approvalGate.requestApproval(sessionId, description),
@@ -140,7 +140,7 @@ export class ModeBOrchestrator {
       );
 
       if (!routing.hasTools || response.toolCalls.length === 0) {
-        return finalizeModeBResponse({
+        return finalizeRuntimeSessionResponse({
           deps: this.deps,
           session,
           parts: response.parts,
@@ -175,7 +175,7 @@ export class ModeBOrchestrator {
 
     this.telemetry.emitError(session.id, `Max tool rounds (${this.maxToolRounds}) exceeded`);
 
-    const fallback = await requestFinalFallbackResponse(
+    const fallback = await requestRuntimeSessionFallbackResponse(
       routing.effectiveProvider,
       routing.invocationSystem,
       session,
@@ -183,7 +183,7 @@ export class ModeBOrchestrator {
     );
     const usageTotals = this.telemetry.recordResponse(session.id, fallback.usage, session.activeAgentId ?? undefined);
 
-    return finalizeModeBResponse({
+    return finalizeRuntimeSessionResponse({
       deps: this.deps,
       session,
       parts: fallback.parts,
@@ -196,7 +196,7 @@ export class ModeBOrchestrator {
   }
 
   private buildSystemPrompt(
-    session: ModeBSession,
+    session: RuntimeSession,
     recalledMemory: string | undefined,
     perCallConfig: PerCallToolConfig | undefined,
   ): string {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { InMemoryContextArtifactCache, type ResumePolicyDecision } from "@kilnai/core";
-import { ModeBSession } from "../../src/session/mode-b-session.js";
+import { RuntimeSession } from "../../src/session/runtime-session.js";
 import { applyRuntimeTurnRecord } from "../../src/session/runtime-turn-record.js";
 
 function makeDecision(
@@ -17,7 +17,7 @@ function makeDecision(
 
 describe("applyRuntimeTurnRecord", () => {
   it("updates ledger, artifacts, and cache from one canonical turn input", () => {
-    const session = new ModeBSession({
+    const session = new RuntimeSession({
       appName: "app",
       tenantId: "tenant",
       userId: "user",
@@ -111,7 +111,7 @@ describe("applyRuntimeTurnRecord", () => {
   });
 
   it("preserves prior provider/tool count when turn has no routing or tools", () => {
-    const session = new ModeBSession({
+    const session = new RuntimeSession({
       appName: "app",
       tenantId: "tenant",
       userId: "user",

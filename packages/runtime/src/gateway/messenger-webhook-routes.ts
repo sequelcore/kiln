@@ -7,7 +7,7 @@ import { mkdirSync } from "node:fs";
 import type { ContentPart, ToolDefinition } from "@kilnai/core";
 import { extractText, SqliteMemoryStore } from "@kilnai/core";
 import { toMessengerFormat } from "../channels/message-formatter.js";
-import type { ModeBOrchestrator, PerCallToolConfig } from "../session/mode-b-orchestrator.js";
+import type { RuntimeSessionOrchestrator, PerCallToolConfig } from "../session/runtime-session-orchestrator.js";
 import type { SessionRegistry } from "../session/session-registry.js";
 import type { TenantRegistry } from "../tenant/tenant-registry.js";
 import { resolveAgentContextAsync } from "../tenant/agent-resolver.js";
@@ -27,7 +27,7 @@ import { formatKnowledgeContext, formatContactContext, mergeContextSources, appe
 
 export interface MessengerWebhookConfig {
   readonly appName: string;
-  readonly orchestrator: ModeBOrchestrator;
+  readonly orchestrator: RuntimeSessionOrchestrator;
   readonly sessionRegistry: SessionRegistry;
   readonly tenantRegistry: TenantRegistry;
   readonly verifyToken: string;

@@ -7,7 +7,7 @@ import { createGatewayApp } from "../../src/gateway/gateway-routes.js";
 import type { LoadedApp, GatewayServerConfig } from "../../src/gateway/gateway-routes.js";
 import { ChannelRegistry } from "../../src/channels/channel-registry.js";
 import { SessionRegistry } from "../../src/session/session-registry.js";
-import { ModeBOrchestrator } from "../../src/session/mode-b-orchestrator.js";
+import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { TenantRegistry } from "../../src/tenant/tenant-registry.js";
 import type { App, ProviderAdapter, TenantConfig } from "@kilnai/core";
 import { textParts } from "@kilnai/core";
@@ -232,7 +232,7 @@ describe("createGatewayApp multi-tenant wiring", () => {
       registry: new ChannelRegistry(),
       tenantRuntime: {
         appName: "atendia",
-        orchestrator: new ModeBOrchestrator({ provider }),
+        orchestrator: new RuntimeSessionOrchestrator({ provider }),
         sessionRegistry: new SessionRegistry(),
         tenantRegistry,
       },
@@ -272,7 +272,7 @@ describe("createGatewayApp multi-tenant wiring", () => {
       registry: new ChannelRegistry(),
       whatsappWebhookConfig: {
         appName: "atendia",
-        orchestrator: new ModeBOrchestrator({ provider }),
+        orchestrator: new RuntimeSessionOrchestrator({ provider }),
         sessionRegistry: new SessionRegistry(),
         tenantRegistry,
         verifyToken: "test-verify-token",
@@ -366,13 +366,13 @@ describe("createGatewayApp multi-tenant wiring", () => {
       // Both set -- tenant should win
       tenantRuntime: {
         appName: "atendia",
-        orchestrator: new ModeBOrchestrator({ provider }),
+        orchestrator: new RuntimeSessionOrchestrator({ provider }),
         sessionRegistry: new SessionRegistry(),
         tenantRegistry,
       },
       modeBRuntime: {
         appName: "atendia",
-        orchestrator: new ModeBOrchestrator({ provider }),
+        orchestrator: new RuntimeSessionOrchestrator({ provider }),
         sessionRegistry: new SessionRegistry(),
         billing: undefined,
         systemPrompt: "test",

@@ -10,7 +10,7 @@
 
 The Kiln TUI (`kiln tui`) needs multi-turn conversation, memory, safety pipeline, MCP tools, knowledge RAG, cost tracking, and multi-provider support. The initial prototype spawns provider sessions directly from the CLI package, bypassing the gateway orchestration layer.
 
-The gateway already provides all of these capabilities through `ModeBOrchestrator`, `ModeBSession`, and the WebSocket protocol proven by `@kilnai/widget`. Building a second orchestration path in the CLI would violate DDD bounded context boundaries and duplicate stable, tested code.
+The gateway already provides all of these capabilities through `RuntimeSessionOrchestrator`, `RuntimeSession`, and the WebSocket protocol proven by `@kilnai/widget`. Building a second orchestration path in the CLI would violate DDD bounded context boundaries and duplicate stable, tested code.
 
 ### Amendment: Subscription-Backed Execution
 
@@ -36,7 +36,7 @@ kiln tui (thin client)
         | WebSocket (widget protocol)
 
 Local Kiln Gateway (auto-started on port 4801)
-  - ModeBOrchestrator (provider routing, tool auth, AI guard)
+  - RuntimeSessionOrchestrator (provider routing, tool auth, AI guard)
   - SessionRegistry (multi-turn, persistence, concurrency)
   - Safety pipeline (PII, content, rails)
   - Memory (SQLite, FTS5, decay, compaction)
@@ -108,7 +108,7 @@ TUI-specific WebSocket protocol (not the widget protocol — no widgetId, no ten
 - TUI gets memory, safety, knowledge, MCP, cost tracking, enrichment for free
 - No duplication of session management, provider routing, or tool authorization
 - **Subscription arbitrage preserved** — TUI can still use flat-rate CLI subscriptions when the selected backend is harness-backed
-- Multi-turn conversation = ModeBSession (proven, tested)
+- Multi-turn conversation = RuntimeSession (proven, tested)
 - TUI stays thin (~200 lines rendering code)
 - Execution backend is a runtime concern — clean DDD boundary
 
@@ -136,11 +136,11 @@ TUI-specific WebSocket protocol (not the widget protocol — no widgetId, no ten
 | `packages/tui/src/ws-client.ts` | WebSocket client (adapted from widget) | ✅ Implemented |
 | `packages/tui/src/gateway-session.ts` | SessionLike over WS (maps frames to events) | ✅ Implemented |
 | `packages/tui/src/theme.ts` | 12 built-in themes | ✅ Implemented |
-| `packages/runtime/src/gateway/tui-gateway.ts` | TUI gateway logic (WS handler, ModeBOrchestrator) | ✅ Implemented |
+| `packages/runtime/src/gateway/tui-gateway.ts` | TUI gateway logic (WS handler, RuntimeSessionOrchestrator) | ✅ Implemented |
 | `packages/runtime/src/execution/cli-subscription-executor.ts` | CLI subprocess execution | ✅ Implemented |
 | `packages/runtime/src/execution/api-executor.ts` | API-backed execution (for web channels) | ✅ Implemented |
 | `packages/runtime/src/execution/model-executor.ts` | ModelExecutor interface | ✅ Implemented |
 | `packages/runtime/src/gateway/gateway-server.ts` | startTuiGateway() entrypoint | ✅ Existing |
-| `packages/runtime/src/session/mode-b-orchestrator.ts` | Multi-turn orchestration | ✅ Existing |
-| `packages/runtime/src/session/mode-b-session.ts` | Session persistence | ✅ Existing |
+| `packages/runtime/src/session/runtime-session-orchestrator.ts` | Multi-turn orchestration | ✅ Existing |
+| `packages/runtime/src/session/runtime-session.ts` | Session persistence | ✅ Existing |
 | `packages/widget/src/ws-client.ts` | Reference WS client implementation | ✅ Existing |

@@ -2,7 +2,7 @@
 // Pure stateless function -- no external deps.
 
 import type { TenantRoutingConfig } from "@kilnai/core";
-import type { ModeBSession } from "../session/mode-b-session.js";
+import type { RuntimeSession } from "../session/runtime-session.js";
 import type { RoutingResult } from "./tenant-router.js";
 
 export interface PingPongCheckResult {
@@ -12,7 +12,7 @@ export interface PingPongCheckResult {
 
 export function checkPingPong(
   routingResult: RoutingResult,
-  session: ModeBSession,
+  session: RuntimeSession,
   config: TenantRoutingConfig,
 ): PingPongCheckResult {
   // Same agent -- not a reroute

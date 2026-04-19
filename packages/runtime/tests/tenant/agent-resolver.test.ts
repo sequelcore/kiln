@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import type { TenantConfig, UserContext } from "@kilnai/core";
 import { textParts } from "@kilnai/core";
 import { resolveAgentContext, buildAgentSystemPrompt } from "../../src/tenant/agent-resolver.js";
-import { ModeBSession } from "../../src/session/mode-b-session.js";
+import { RuntimeSession } from "../../src/session/runtime-session.js";
 
 function makeTenant(overrides: Partial<TenantConfig> = {}): TenantConfig {
   return {
@@ -199,7 +199,7 @@ describe("resolveAgentContext", () => {
     });
 
     it("previousAgentId from session", () => {
-      const session = new ModeBSession({
+      const session = new RuntimeSession({
         appName: "test-app",
         tenantId: "test-tenant",
         userId: "user1",

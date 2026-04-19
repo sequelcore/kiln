@@ -2,8 +2,8 @@ import { Hono } from "hono";
 import { createBunWebSocket } from "hono/bun";
 import type { WSContext } from "hono/ws";
 import { execSync } from "node:child_process";
-import { ModeBOrchestrator } from "../session/mode-b-orchestrator.js";
-import type { PerCallToolConfig } from "../session/mode-b-orchestrator.js";
+import { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
+import type { PerCallToolConfig } from "../session/runtime-session-orchestrator.js";
 import { SessionRegistry } from "../session/session-registry.js";
 import { textParts, extractText, EventBus, type ApprovalRequestedEvent, type ApprovalReceivedEvent, type KilnEvent } from "@kilnai/core";
 import type { ContextArtifactCache } from "@kilnai/core";
@@ -249,7 +249,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
     (event) => activityStreamer.forward(event),
   );
   const eventBus = options.eventBus ?? new EventBus(100);
-  const orchestrator = new ModeBOrchestrator({ provider: executor, eventBus });
+  const orchestrator = new RuntimeSessionOrchestrator({ provider: executor, eventBus });
   const sessionRegistry = new SessionRegistry();
   activityStreamer.bindApprovalBridge({
     approve: (sessionId) => orchestrator.continue(sessionId),

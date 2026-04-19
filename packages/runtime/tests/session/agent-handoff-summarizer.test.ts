@@ -1,10 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
 import { textParts } from "@kilnai/core";
-import { ModeBSession } from "../../src/session/mode-b-session.js";
+import { RuntimeSession } from "../../src/session/runtime-session.js";
 import { DefaultAgentHandoffSummarizer } from "../../src/session/support/summarization/agent-handoff-summarizer.js";
 
-function makeSession(): ModeBSession {
-  return new ModeBSession({ appName: "test", tenantId: "test-tenant", userId: "user-1", systemPrompt: "test" });
+function makeSession(): RuntimeSession {
+  return new RuntimeSession({ appName: "test", tenantId: "test-tenant", userId: "user-1", systemPrompt: "test" });
 }
 
 function makeProvider() {

@@ -1,15 +1,15 @@
 import { describe, it, expect } from "vitest";
 import { textParts } from "@kilnai/core";
 import type { ContentPart } from "@kilnai/core";
-import { ModeBSession } from "../../src/session/mode-b-session.js";
+import { RuntimeSession } from "../../src/session/runtime-session.js";
 import { serializeSession, deserializeSession } from "../../src/session/session-serializer.js";
 import type { SessionMode } from "../../src/session/session-mode.js";
 
 function makeSession(overrides: {
   tenantId?: string;
   idleTimeoutMs?: number;
-} = {}): ModeBSession {
-  return new ModeBSession({
+} = {}): RuntimeSession {
+  return new RuntimeSession({
     appName: "test-app",
     tenantId: "test-tenant",
     userId: "user-1",

@@ -146,8 +146,8 @@ export class ExecutableProviderSession implements IKilnSession {
     }
 
     try {
-      const { ModeBOrchestrator } = await import("@kilnai/runtime");
-      const { ModeBSession } = await import("@kilnai/runtime");
+      const { RuntimeSessionOrchestrator } = await import("@kilnai/runtime");
+      const { RuntimeSession } = await import("@kilnai/runtime");
 
       const hasStructuredPreamble = this.isStructuredPreamble(options.prompt);
       const baseSystemPrompt = options.system ?? (hasStructuredPreamble ? options.prompt : (this.config.systemPrompt ?? ""));
@@ -175,7 +175,7 @@ export class ExecutableProviderSession implements IKilnSession {
       const authorizer = new PermissionPolicyAuthorizer(this.config.permissionPolicy);
       const capabilityMap = buildCapabilityMap();
 
-      const cliSession = new ModeBSession({
+      const cliSession = new RuntimeSession({
         appName: "kiln-cli",
         tenantId: "cli-session",
         userId: this.sessionId,
@@ -183,7 +183,7 @@ export class ExecutableProviderSession implements IKilnSession {
         idleTimeoutMs: 30 * 60 * 1000,
       });
 
-      const orchestrator = new ModeBOrchestrator({
+      const orchestrator = new RuntimeSessionOrchestrator({
         provider: adapter,
         model: this.config.model,
         tools: this.toolDefinitions,

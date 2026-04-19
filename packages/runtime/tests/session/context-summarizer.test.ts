@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import type { ProviderAdapter } from "@kilnai/core";
 import { textParts } from "@kilnai/core";
 import { DefaultContextSummarizer } from "../../src/session/support/summarization/context-summarizer.js";
-import { ModeBSession } from "../../src/session/mode-b-session.js";
+import { RuntimeSession } from "../../src/session/runtime-session.js";
 
 function makeProvider(responseText = "Customer needs help with billing."): ProviderAdapter {
   return {
@@ -19,8 +19,8 @@ function makeProvider(responseText = "Customer needs help with billing."): Provi
   };
 }
 
-function makeSession(): ModeBSession {
-  return new ModeBSession({ appName: "test", tenantId: "test-tenant", userId: "user-1", systemPrompt: "You are helpful." });
+function makeSession(): RuntimeSession {
+  return new RuntimeSession({ appName: "test", tenantId: "test-tenant", userId: "user-1", systemPrompt: "You are helpful." });
 }
 
 describe("DefaultContextSummarizer", () => {

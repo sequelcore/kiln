@@ -4,10 +4,10 @@ import {
   DefaultEscalationDetector,
   wordOverlapSimilarity,
 } from "../../src/session/support/escalation/escalation-detector.js";
-import { ModeBSession } from "../../src/session/mode-b-session.js";
+import { RuntimeSession } from "../../src/session/runtime-session.js";
 
-function makeSession(): ModeBSession {
-  return new ModeBSession({ appName: "test", tenantId: "test-tenant", userId: "user-1", systemPrompt: "You are helpful." });
+function makeSession(): RuntimeSession {
+  return new RuntimeSession({ appName: "test", tenantId: "test-tenant", userId: "user-1", systemPrompt: "You are helpful." });
 }
 
 describe("DefaultEscalationDetector", () => {

@@ -13,8 +13,8 @@ import {
 } from "@kilnai/core";
 import { CliSubscriptionExecutor } from "../execution/cli-subscription-executor.js";
 import type { CliSessionEvent } from "../execution/cli-subscription-executor.js";
-import { ModeBOrchestrator } from "../session/mode-b-orchestrator.js";
-import type { PerCallToolConfig } from "../session/mode-b-orchestrator.js";
+import { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
+import type { PerCallToolConfig } from "../session/runtime-session-orchestrator.js";
 import { SessionRegistry } from "../session/session-registry.js";
 import { ApprovalGateRegistry } from "./approval-registry.js";
 import {
@@ -443,7 +443,7 @@ function wireOperatorTransport(
     (event) => activityStreamer.forward(event),
   );
   const eventBus = input.transport.eventBus ?? new EventBus(100);
-  const orchestrator = new ModeBOrchestrator({ provider: executor, eventBus });
+  const orchestrator = new RuntimeSessionOrchestrator({ provider: executor, eventBus });
   const sessionRegistry = new SessionRegistry();
 
   activityStreamer.bindApprovalBridge({

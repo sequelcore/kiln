@@ -1,6 +1,6 @@
 import { KilnError } from "@kilnai/core";
-import { ModeBSession } from "../mode-b-session.js";
-import type { ModeBSessionConfig } from "../mode-b-session.js";
+import { RuntimeSession } from "../runtime-session.js";
+import type { RuntimeSessionConfig } from "../runtime-session.js";
 import type { ConversationEventEmitter } from "../../gateway/conversation-event-emitter.js";
 import type { SessionStore } from "./session-store.js";
 import { InMemorySessionStore } from "./in-memory-session-store.js";
@@ -9,14 +9,14 @@ export class SessionRegistry {
   private readonly store: SessionStore;
   private readonly defaultIdleTimeoutMs?: number;
   eventEmitter?: ConversationEventEmitter;
-  onSessionExpired?: (session: ModeBSession) => void;
+  onSessionExpired?: (session: RuntimeSession) => void;
 
   constructor(defaultIdleTimeoutMs?: number, store?: SessionStore) {
     this.defaultIdleTimeoutMs = defaultIdleTimeoutMs;
     this.store = store ?? new InMemorySessionStore();
   }
 
-  async getOrCreate(config: ModeBSessionConfig): Promise<ModeBSession> {
+  async getOrCreate(config: RuntimeSessionConfig): Promise<RuntimeSession> {
     await this.cleanup();
     const key = this.sessionKey(config.appName, config.userId, config.tenantId);
     const existing = await this.store.get(key);
@@ -24,11 +24,11 @@ export class SessionRegistry {
       return existing;
     }
 
-    const sessionConfig: ModeBSessionConfig =
+    const sessionConfig: RuntimeSessionConfig =
       this.defaultIdleTimeoutMs !== undefined
         ? { ...config, idleTimeoutMs: config.idleTimeoutMs ?? this.defaultIdleTimeoutMs }
         : config;
-    const session = new ModeBSession(sessionConfig);
+    const session = new RuntimeSession(sessionConfig);
     await this.store.set(key, session);
 
     // Emit SESSION_STARTED for new sessions
@@ -47,7 +47,7 @@ export class SessionRegistry {
     return session;
   }
 
-  async get(appName: string, userId: string, tenantId: string): Promise<ModeBSession | undefined> {
+  async get(appName: string, userId: string, tenantId: string): Promise<RuntimeSession | undefined> {
     const key = this.sessionKey(appName, userId, tenantId);
     return this.store.get(key);
   }
@@ -57,7 +57,7 @@ export class SessionRegistry {
    * Uses optimistic concurrency: checks that the stored version matches the version at load time.
    * Throws CONCURRENT_SESSION_MODIFICATION if the session was modified by another request.
    */
-  async save(session: ModeBSession): Promise<void> {
+  async save(session: RuntimeSession): Promise<void> {
     const key = this.sessionKey(session.appName, session.userId, session.tenantId);
     const stored = await this.store.get(key);
     if (stored && stored !== session && stored.version !== session.loadedVersion) {
@@ -90,9 +90,9 @@ export class SessionRegistry {
     return count;
   }
 
-  async activeSessions(): Promise<readonly ModeBSession[]> {
+  async activeSessions(): Promise<readonly RuntimeSession[]> {
     const allKeys = await this.store.keys();
-    const active: ModeBSession[] = [];
+    const active: RuntimeSession[] = [];
     for (const key of allKeys) {
       const session = await this.store.get(key);
       if (session && !session.isExpired) active.push(session);

@@ -1,6 +1,6 @@
 import type { EventBus, ApprovalRequestedEvent, ApprovalReceivedEvent } from "@kilnai/core";
 
-export class ModeBApprovalGate {
+export class RuntimeSessionApprovalGate {
   private readonly pendingApprovals = new Map<string, {
     resolve: (decision: { approved: boolean; reason?: string }) => void;
     promise: Promise<{ approved: boolean; reason?: string }>;

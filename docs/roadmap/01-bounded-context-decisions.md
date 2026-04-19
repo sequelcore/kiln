@@ -98,7 +98,7 @@ Current state of the highest-pressure rows:
   `task-registry.ts` now exist, but the directory is not yet fully aligned to
   the target architecture.
 - `packages/runtime/src/session`: partial
-  Current `ModeBSession`, `ModeBOrchestrator`, and `SessionRegistry` surfaces
+  Current `RuntimeSession`, `RuntimeSessionOrchestrator`, and `SessionRegistry` surfaces
   indicate real execution work already landed, but the bounded-context and
   naming story is not yet settled. The next correct move is to separate state,
   orchestration, persistence, and support helpers before introducing a new
@@ -130,7 +130,7 @@ The session bounded context should now be executed in these slices:
    Separate continuity, summarization, escalation, artifact, and turn-recording
    helpers from the core session state and orchestration boundary.
 4. Orchestrator internal decomposition
-   Split `ModeBOrchestrator` into coherent internal collaborators for approvals,
+   Split `RuntimeSessionOrchestrator` into coherent internal collaborators for approvals,
    tool execution, routing/cost emission, and final response assembly without
    renaming the public surface yet.
 5. Rename only after seams are clean
@@ -178,18 +178,30 @@ The first slice is intentionally narrow:
     exact-artifact append), while consuming support artifact writers from
     `support/artifacts/context-artifact-summary.ts`.
 - Slice 4 (orchestrator internal decomposition): done.
-  - `ModeBOrchestrator` now coordinates internal collaborators instead of
+  - `RuntimeSessionOrchestrator` now coordinates internal collaborators instead of
     directly owning approvals, routing selection, tool execution, telemetry,
     and final response assembly in one file.
   - Added internal collaborators:
-    - `mode-b-orchestrator-approvals.ts`
-    - `mode-b-orchestrator-routing.ts`
-    - `mode-b-orchestrator-tool-executor.ts`
-    - `mode-b-orchestrator-telemetry.ts`
-    - `mode-b-orchestrator-response.ts`
-    - `mode-b-orchestrator.types.ts`
-  - Public `ModeBOrchestrator` naming and external imports remain unchanged for
-    the slice; the decomposition is internal only.
+    - `runtime-session-orchestrator-approvals.ts`
+    - `runtime-session-orchestrator-routing.ts`
+    - `runtime-session-orchestrator-tool-executor.ts`
+    - `runtime-session-orchestrator-telemetry.ts`
+    - `runtime-session-orchestrator-response.ts`
+    - `runtime-session-orchestrator.types.ts`
+  - Public `ModeBOrchestrator` naming and external imports remained unchanged
+    for the slice itself; the decomposition was internal only.
+- Slice 5 (session vocabulary rename): done.
+  - Replaced the stale `ModeB*` public session names with:
+    - `RuntimeSession`
+    - `RuntimeSessionConfig`
+    - `RuntimeSessionOrchestrator`
+  - Renamed the session source files and orchestrator collaborator files to
+    `runtime-session*` paths so the obsolete `mode-b-session` /
+    `mode-b-orchestrator` names are no longer the active boundary.
+  - Updated runtime, CLI, gateway, TUI, and test imports to the renamed
+    session surface.
+  - Left `mode-b-routes` and `ModeBAppRuntime` untouched because that route/app
+    vocabulary is a separate gateway boundary, not part of the session slice.
 
 ## First Refactor Sequence
 

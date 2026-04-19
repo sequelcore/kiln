@@ -22,7 +22,7 @@ export interface OrchestratorResponseUsage {
   readonly cacheWriteTokens: number;
 }
 
-export class ModeBExecutionTelemetry {
+export class RuntimeSessionExecutionTelemetry {
   private totals: OrchestratorUsageSnapshot = {
     inputTokens: 0,
     outputTokens: 0,
@@ -35,7 +35,7 @@ export class ModeBExecutionTelemetry {
     private readonly eventBus?: EventBus,
   ) {
     if (!model) {
-      console.warn("[ModeBOrchestrator] No model specified in deps -- cost tracking will be $0. Pass model to OrchestratorDeps for accurate cost reporting.");
+      console.warn("[RuntimeSessionOrchestrator] No model specified in deps -- cost tracking will be $0. Pass model to OrchestratorDeps for accurate cost reporting.");
     }
   }
 
@@ -122,7 +122,7 @@ export class ModeBExecutionTelemetry {
     if (!this.model) return undefined;
     const pricing = MODEL_PRICING.get(this.model);
     if (!pricing) {
-      console.warn(`[ModeBOrchestrator] Model "${this.model}" not found in MODEL_PRICING -- cost will be $0. Add it to the pricing table or use a known model identifier.`);
+      console.warn(`[RuntimeSessionOrchestrator] Model "${this.model}" not found in MODEL_PRICING -- cost will be $0. Add it to the pricing table or use a known model identifier.`);
     }
     return pricing;
   }

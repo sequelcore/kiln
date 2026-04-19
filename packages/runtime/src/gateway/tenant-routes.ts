@@ -4,7 +4,7 @@
 import { Hono } from "hono";
 import type { ContentPart, ContextArtifactCache } from "@kilnai/core";
 import { textParts, extractText } from "@kilnai/core";
-import type { ModeBOrchestrator } from "../session/mode-b-orchestrator.js";
+import type { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
 import type { SessionRegistry } from "../session/session-registry.js";
 import type { TenantRegistry } from "../tenant/tenant-registry.js";
 import { buildTenantSystemPrompt } from "../tenant/system-prompt-builder.js";
@@ -16,7 +16,7 @@ import { processInboundMessage } from "./message-pipeline.js";
 /** Runtime configuration for a multi-tenant App */
 export interface TenantAppRuntime {
   readonly appName: string;
-  readonly orchestrator: ModeBOrchestrator;
+  readonly orchestrator: RuntimeSessionOrchestrator;
   readonly sessionRegistry: SessionRegistry;
   readonly tenantRegistry: TenantRegistry;
   readonly billing?: BillingConfig;

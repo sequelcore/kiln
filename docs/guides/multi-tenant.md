@@ -35,7 +35,7 @@ apps:
 |----------|---------------------|
 | Memory | `~/.kiln/gateway/{appName}/` prefix. Same scope name in different Apps maps to different SQLite databases and JSONL files. |
 | Sessions | `SessionRegistry` keys by `{appName}:{userId}`. No session is accessible across Apps. |
-| Agents | Each Mode B App has its own `ModeBOrchestrator` and `ProviderAdapter` instance. |
+| Agents | Each Mode B App has its own `RuntimeSessionOrchestrator` and `ProviderAdapter` instance. |
 | Channel bindings | `ChannelRegistry` is instantiated per App. Messages on one App's channel cannot reach another App. |
 | Delegation memory | Delegation calls write no git-synced memory and have no workspace access. |
 
@@ -90,7 +90,7 @@ Sessions have a `sessionMode` field that controls how messages are processed:
 | `human_active` | Human operator handling the conversation |
 | `resolved` | Conversation closed; auto-reopens on new user message |
 
-The AI guard in `ModeBOrchestrator` checks `sessionMode` before processing. When a session is `queued` or `human_active`, the message is stored and `{ queued: true }` is returned. When a session is `resolved`, it auto-transitions to `ai_active` and processes normally.
+The AI guard in `RuntimeSessionOrchestrator` checks `sessionMode` before processing. When a session is `queued` or `human_active`, the message is stored and `{ queued: true }` is returned. When a session is `resolved`, it auto-transitions to `ai_active` and processes normally.
 
 See [Gateway YAML Reference](../configuration/gateway-yaml.md#session--handoff) for the full handoff API.
 

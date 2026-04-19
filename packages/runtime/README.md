@@ -86,7 +86,7 @@ await startDevServer("app.yaml", { port: 3000 });
 | Module | Exports |
 |--------|---------|
 | Gateway | `startGateway()`, `startDevServer()`, `createGatewayApp()`, `resolveApps()` |
-| Session | `ModeBOrchestrator`, `ModeBSession`, `SessionRegistry`, `SessionMode`, `SessionStore`, `InMemorySessionStore`, `RedisSessionStore`, `serializeSession`, `deserializeSession` |
+| Session | `RuntimeSessionOrchestrator`, `RuntimeSession`, `SessionRegistry`, `SessionMode`, `SessionStore`, `InMemorySessionStore`, `RedisSessionStore`, `serializeSession`, `deserializeSession` |
 | Tenant | `TenantRegistry`, `buildTenantSystemPrompt()`, `extractSuggestions()` |
 | Triggers | `TriggerRegistry`, `createWebhookHandler()`, `EventListener`, `Scheduler` |
 | Channels | `WebChannel`, `WhatsAppChannel`, `InstagramChannel`, `MessengerChannel`, `SlackChannel`, `EmailChannel`, `CliChannel`, `ApiChannel` |

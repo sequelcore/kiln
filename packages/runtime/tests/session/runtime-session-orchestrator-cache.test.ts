@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ProviderAdapter, Capability, ToolDefinition } from "@kilnai/core";
 import { textParts, EventBus, ToolCache } from "@kilnai/core";
-import { ModeBOrchestrator } from "../../src/session/mode-b-orchestrator.js";
-import { ModeBSession } from "../../src/session/mode-b-session.js";
+import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
+import { RuntimeSession } from "../../src/session/runtime-session.js";
 
-function makeSession(): ModeBSession {
-  return new ModeBSession({ appName: "app", tenantId: "test-tenant", userId: "user-1", systemPrompt: "Be helpful." });
+function makeSession(): RuntimeSession {
+  return new RuntimeSession({ appName: "app", tenantId: "test-tenant", userId: "user-1", systemPrompt: "Be helpful." });
 }
 
 function makeProviderWithToolCall(): ProviderAdapter {
@@ -57,7 +57,7 @@ const TOOL_DEF: ToolDefinition = {
   tags: new Set(),
 };
 
-describe("ModeBOrchestrator - Tool Result Caching", () => {
+describe("RuntimeSessionOrchestrator - Tool Result Caching", () => {
   let toolCache: ToolCache;
   let toolFn: ReturnType<typeof vi.fn>;
 
@@ -69,7 +69,7 @@ describe("ModeBOrchestrator - Tool Result Caching", () => {
   it("executes tool normally on first call and caches result", async () => {
     const provider = makeProviderWithToolCall();
 
-    const orchestrator = new ModeBOrchestrator({
+    const orchestrator = new RuntimeSessionOrchestrator({
       provider,
       tools: [TOOL_DEF],
       builtinTools: new Map([["get_weather", toolFn]]),
@@ -93,7 +93,7 @@ describe("ModeBOrchestrator - Tool Result Caching", () => {
 
     const provider = makeProviderWithToolCall();
 
-    const orchestrator = new ModeBOrchestrator({
+    const orchestrator = new RuntimeSessionOrchestrator({
       provider,
       tools: [TOOL_DEF],
       builtinTools: new Map([["get_weather", toolFn]]),
@@ -142,7 +142,7 @@ describe("ModeBOrchestrator - Tool Result Caching", () => {
 
     const parisFn = vi.fn().mockResolvedValue("cloudy, 15C");
 
-    const orchestrator = new ModeBOrchestrator({
+    const orchestrator = new RuntimeSessionOrchestrator({
       provider,
       tools: [TOOL_DEF],
       builtinTools: new Map([["get_weather", parisFn]]),
@@ -165,7 +165,7 @@ describe("ModeBOrchestrator - Tool Result Caching", () => {
     const eventBus = new EventBus(100);
     const emitSpy = vi.spyOn(eventBus, "emit");
 
-    const orchestrator = new ModeBOrchestrator({
+    const orchestrator = new RuntimeSessionOrchestrator({
       provider,
       tools: [TOOL_DEF],
       builtinTools: new Map([["get_weather", toolFn]]),
@@ -188,7 +188,7 @@ describe("ModeBOrchestrator - Tool Result Caching", () => {
   it("does not cache when capability has no cacheTtl", async () => {
     const provider = makeProviderWithToolCall();
 
-    const orchestrator = new ModeBOrchestrator({
+    const orchestrator = new RuntimeSessionOrchestrator({
       provider,
       tools: [TOOL_DEF],
       builtinTools: new Map([["get_weather", toolFn]]),
@@ -205,7 +205,7 @@ describe("ModeBOrchestrator - Tool Result Caching", () => {
   it("works without toolCache", async () => {
     const provider = makeProviderWithToolCall();
 
-    const orchestrator = new ModeBOrchestrator({
+    const orchestrator = new RuntimeSessionOrchestrator({
       provider,
       tools: [TOOL_DEF],
       builtinTools: new Map([["get_weather", toolFn]]),
@@ -226,7 +226,7 @@ describe("ModeBOrchestrator - Tool Result Caching", () => {
     const eventBus = new EventBus(100);
     const emitSpy = vi.spyOn(eventBus, "emit");
 
-    const orchestrator = new ModeBOrchestrator({
+    const orchestrator = new RuntimeSessionOrchestrator({
       provider,
       tools: [TOOL_DEF],
       builtinTools: new Map([["get_weather", toolFn]]),

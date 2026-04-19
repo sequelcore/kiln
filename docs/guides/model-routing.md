@@ -12,7 +12,7 @@ default provider and model are used.
 
 ## Overview
 
-Model routing runs inside `ModeBOrchestrator.processMessage()` before the LLM
+Model routing runs inside `RuntimeSessionOrchestrator.processMessage()` before the LLM
 call. Each routing decision is emitted as both an internal EventBus event
 (`model_routed`) and an external conversation event (`MODEL_ROUTED`).
 

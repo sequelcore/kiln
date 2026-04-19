@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import type { TenantConfig } from "@kilnai/core";
 import { textParts } from "@kilnai/core";
 import { resolveAgentContextAsync } from "../../src/tenant/agent-resolver.js";
-import { ModeBSession } from "../../src/session/mode-b-session.js";
+import { RuntimeSession } from "../../src/session/runtime-session.js";
 import type { AgentHandoffSummarizer } from "../../src/session/support/summarization/agent-handoff-summarizer.js";
 
 function makeTenant(overrides: Partial<TenantConfig> = {}): TenantConfig {
@@ -25,8 +25,8 @@ function makeTenant(overrides: Partial<TenantConfig> = {}): TenantConfig {
   } as TenantConfig;
 }
 
-function makeSession(activeAgentId?: string): ModeBSession {
-  const session = new ModeBSession({ appName: "test-app", tenantId: "test-tenant", userId: "user-1", systemPrompt: "base" });
+function makeSession(activeAgentId?: string): RuntimeSession {
+  const session = new RuntimeSession({ appName: "test-app", tenantId: "test-tenant", userId: "user-1", systemPrompt: "base" });
   if (activeAgentId) {
     session.setActiveAgent(activeAgentId);
     // Add some history turns for the guard to check

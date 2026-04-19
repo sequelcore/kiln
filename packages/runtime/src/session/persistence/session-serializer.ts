@@ -1,8 +1,8 @@
 import type { AgentMessage } from "@kilnai/core";
-import { ModeBSession } from "../mode-b-session.js";
-import type { SerializedSessionData } from "../mode-b-session.js";
+import { RuntimeSession } from "../runtime-session.js";
+import type { SerializedSessionData } from "../runtime-session.js";
 
-export function serializeSession(session: ModeBSession): string {
+export function serializeSession(session: RuntimeSession): string {
   const data: SerializedSessionData = {
     id: session.id,
     appName: session.appName,
@@ -29,7 +29,7 @@ export function serializeSession(session: ModeBSession): string {
   return JSON.stringify(data);
 }
 
-export function deserializeSession(json: string): ModeBSession {
+export function deserializeSession(json: string): RuntimeSession {
   const data = JSON.parse(json) as SerializedSessionData;
-  return ModeBSession.fromSerialized(data);
+  return RuntimeSession.fromSerialized(data);
 }

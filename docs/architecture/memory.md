@@ -27,7 +27,7 @@ claim that Kiln reproduces biological recall or plasticity.
 
 ## Current State
 
-- Working memory is carried by `ModeBSession` and related session state.
+- Working memory is carried by `RuntimeSession` and related session state.
 - Episodic traces exist in transcripts and mutable memory storage.
 - Semantic storage exists through SQLite plus FTS5 and vector-backed knowledge
   retrieval.

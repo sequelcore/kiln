@@ -153,7 +153,7 @@ In the default gateway path, continuity is runtime-owned:
 
 - `TuiWsClient` connects with a stable `userId` query param.
 - `startTuiGateway()` uses runtime `SessionRegistry.getOrCreate(...)` keyed by app, tenant, and that `userId`.
-- Multi-turn history therefore stays in one runtime `ModeBSession` instead of creating a fresh session per turn.
+- Multi-turn history therefore stays in one `RuntimeSession` instead of creating a fresh session per turn.
 - Reconnects reuse the same `userId`, so the gateway can reattach to the same runtime session state.
 
 The CLI wrapper still persists per-provider resume metadata and transcripts so the TUI sidebar can browse previous sessions and the direct fallback path can keep working.
@@ -170,7 +170,7 @@ The direct fallback path still uses this wrapper-managed resume state. The defau
 
 ## In-Process Gateway
 
-`startTuiGateway()` in `packages/runtime/src/gateway/tui-gateway.ts` starts a local WebSocket gateway on port `4801` by default and returns the `ws://localhost:<port>/tui/ws` endpoint used by `GatewaySession`. The gateway builds a `ModeBOrchestrator`, `SessionRegistry`, `ApprovalGateRegistry`, and a `TuiActivityStreamer` so the TUI can reuse the same runtime-side session, approval, activity, and completion flow as the rest of Kiln.
+`startTuiGateway()` in `packages/runtime/src/gateway/tui-gateway.ts` starts a local WebSocket gateway on port `4801` by default and returns the `ws://localhost:<port>/tui/ws` endpoint used by `GatewaySession`. The gateway builds a `RuntimeSessionOrchestrator`, `SessionRegistry`, `ApprovalGateRegistry`, and a `TuiActivityStreamer` so the TUI can reuse the same runtime-side session, approval, activity, and completion flow as the rest of Kiln.
 
 The CLI `tui` command now passes the prepared Kiln system prompt from `SessionManager.prepare(...)` into both gateway and direct bootstrap. That keeps TUI behavior aligned with the rest of the wrapper pipeline instead of falling back to a generic placeholder identity prompt.
 

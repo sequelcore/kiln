@@ -5,7 +5,7 @@ import type { WebSocketLike } from "../../src/channels/web-channel.js";
 import type { UpgradeWebSocket } from "hono/ws";
 import type { TenantRegistry } from "../../src/tenant/tenant-registry.js";
 import type { SessionRegistry } from "../../src/session/session-registry.js";
-import type { ModeBOrchestrator } from "../../src/session/mode-b-orchestrator.js";
+import type { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import type { TenantConfig } from "@kilnai/core";
 import { textParts } from "@kilnai/core";
 
@@ -93,7 +93,7 @@ function makeConfig(
   upgradeWebSocket: UpgradeWebSocket,
   tenantRegistry: TenantRegistry,
   sessionRegistry: SessionRegistry,
-  orchestrator: ModeBOrchestrator,
+  orchestrator: RuntimeSessionOrchestrator,
 ) {
   return {
     webChannel: channel,
@@ -109,7 +109,7 @@ describe("createWsTenantRoutes", () => {
   let channel: WebChannel;
   let mockTenantRegistry: TenantRegistry;
   let mockSessionRegistry: SessionRegistry;
-  let mockOrchestrator: ModeBOrchestrator;
+  let mockOrchestrator: RuntimeSessionOrchestrator;
   let mockSession: { id: string; userId: string; tenantId: string };
 
   beforeEach(() => {
@@ -159,7 +159,7 @@ describe("createWsTenantRoutes", () => {
         inputTokens: 10,
         outputTokens: 20,
       }),
-    } as unknown as ModeBOrchestrator;
+    } as unknown as RuntimeSessionOrchestrator;
   });
 
   afterEach(() => {

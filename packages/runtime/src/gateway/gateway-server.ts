@@ -34,7 +34,7 @@ import { TriggerRegistry } from "../trigger/trigger-registry.js";
 import { resolveApps } from "./app-resolver.js";
 import type { ResolvedApp } from "./app-resolver.js";
 import { createGatewayApp } from "./gateway-routes.js";
-import { ModeBOrchestrator } from "../session/mode-b-orchestrator.js";
+import { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
 import { SessionRegistry } from "../session/session-registry.js";
 import type { DelegationTarget, DelegationRegistry } from "./delegation-handler.js";
 import { TenantRegistry } from "../tenant/tenant-registry.js";
@@ -489,7 +489,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
     });
     const dangerousCommandDetector = new DeterministicDangerousCommandDetector();
 
-    const orchestrator = new ModeBOrchestrator({
+    const orchestrator = new RuntimeSessionOrchestrator({
       provider,
       model: resolved.modeBConfig.provider.model,
       tools: tools.length > 0 ? tools : undefined,

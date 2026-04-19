@@ -1,5 +1,5 @@
 import type { ContentPart } from "@kilnai/core";
-import type { ModeBSession } from "../../mode-b-session.js";
+import type { RuntimeSession } from "../../runtime-session.js";
 
 export interface EscalationSignal {
   readonly reason: "keyword" | "loop" | "confidence" | "tool_failure" | "custom";
@@ -9,7 +9,7 @@ export interface EscalationSignal {
 
 export interface EscalationDetector {
   checkPreLLM(userText: string): EscalationSignal | null;
-  checkPostLLM(session: ModeBSession, responseParts: readonly ContentPart[]): EscalationSignal | null;
+  checkPostLLM(session: RuntimeSession, responseParts: readonly ContentPart[]): EscalationSignal | null;
 }
 
 const DEFAULT_KEYWORDS: readonly string[] = [
@@ -66,7 +66,7 @@ export class DefaultEscalationDetector implements EscalationDetector {
     return null;
   }
 
-  checkPostLLM(session: ModeBSession, _responseParts: readonly ContentPart[]): EscalationSignal | null {
+  checkPostLLM(session: RuntimeSession, _responseParts: readonly ContentPart[]): EscalationSignal | null {
     const recentTexts = session.lastAssistantTexts(this.loopWindowSize);
     if (recentTexts.length < this.loopWindowSize) return null;
 

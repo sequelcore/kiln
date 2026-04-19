@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { KilnError } from "@kilnai/core";
 import { SessionRegistry } from "../../src/session/session-registry.js";
 import type { SessionStore } from "../../src/session/session-store.js";
-import { ModeBSession } from "../../src/session/mode-b-session.js";
+import { RuntimeSession } from "../../src/session/runtime-session.js";
 import { serializeSession, deserializeSession } from "../../src/session/session-serializer.js";
 
 describe("SessionRegistry", () => {
