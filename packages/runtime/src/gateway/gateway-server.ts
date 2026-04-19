@@ -171,15 +171,15 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
 
   const resolvedApps = resolveApps(gatewayConfig, gatewayYamlDir);
 
-  // Build startup config validation input from resolved apps
+  // Build startup config validation input from provider-adapter apps
   const modeBApps: { provider: string; apiKeyEnv: string }[] = [];
   let whatsappConfig: { verifyTokenEnv: string; accessTokenEnv: string } | undefined;
   let tenantAdminConfig: { adminTokenEnv: string } | undefined;
 
   for (const resolved of resolvedApps) {
-    if (resolved.modeBConfig?.runtime === "provider-adapter") {
-      const providerName = resolved.modeBConfig.provider.name;
-      const apiKeyEnv = resolved.modeBConfig.provider.apiKeyEnv;
+    if (resolved.runtimeModeConfig?.runtime === "provider-adapter") {
+      const providerName = resolved.runtimeModeConfig.provider.name;
+      const apiKeyEnv = resolved.runtimeModeConfig.provider.apiKeyEnv;
       if (apiKeyEnv) {
         modeBApps.push({ provider: providerName, apiKeyEnv });
       }
@@ -327,9 +327,9 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
 
   for (const loaded of loadedApps) {
     const resolved = resolvedApps.find((r) => r.name === loaded.name);
-    if (!resolved?.modeBConfig || resolved.modeBConfig.runtime !== "provider-adapter") continue;
+    if (!resolved?.runtimeModeConfig || resolved.runtimeModeConfig.runtime !== "provider-adapter") continue;
 
-    const provider = createProviderFromConfig(resolved.modeBConfig.provider);
+    const provider = createProviderFromConfig(resolved.runtimeModeConfig.provider);
     const systemPrompt = buildSystemPromptFromApp(resolved.app);
 
     // Discover MCP tools if configured
@@ -491,7 +491,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
 
     const orchestrator = new RuntimeSessionOrchestrator({
       provider,
-      model: resolved.modeBConfig.provider.model,
+      model: resolved.runtimeModeConfig.provider.model,
       tools: tools.length > 0 ? tools : undefined,
       mcpClients: mcpClients.length > 0 ? mcpClients : undefined,
       eventBus: gatewayEventBus,
@@ -556,7 +556,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
         orchestrator,
         sessionRegistry,
         tenantRegistry,
-        billing: resolved.modeBConfig.billing,
+        billing: resolved.runtimeModeConfig.billing,
         apiKey: resolvedApiKey,
         groundingDeps,
       };
@@ -573,7 +573,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
           tenantRegistry,
           verifyToken: verifyTokenEnv ? process.env[verifyTokenEnv] ?? "" : "",
           appSecret: appSecretEnv ? process.env[appSecretEnv] ?? undefined : undefined,
-          billing: resolved.modeBConfig.billing,
+          billing: resolved.runtimeModeConfig.billing,
           eventEmitter,
           memoryBasePath: resolved.memoryBasePath,
           sttAdapter: loaded.sttAdapter,
@@ -597,7 +597,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
           tenantRegistry,
           verifyToken: igVerifyTokenEnv ? process.env[igVerifyTokenEnv] ?? "" : "",
           appSecret: igAppSecretEnv ? process.env[igAppSecretEnv] ?? undefined : undefined,
-          billing: resolved.modeBConfig.billing,
+          billing: resolved.runtimeModeConfig.billing,
           eventEmitter,
           memoryBasePath: resolved.memoryBasePath,
           sttAdapter: loaded.sttAdapter,
@@ -620,7 +620,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
           tenantRegistry,
           verifyToken: msgVerifyTokenEnv ? process.env[msgVerifyTokenEnv] ?? "" : "",
           appSecret: msgAppSecretEnv ? process.env[msgAppSecretEnv] ?? undefined : undefined,
-          billing: resolved.modeBConfig.billing,
+          billing: resolved.runtimeModeConfig.billing,
           eventEmitter,
           memoryBasePath: resolved.memoryBasePath,
           sttAdapter: loaded.sttAdapter,
@@ -644,7 +644,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
           sessionRegistry,
           tenantRegistry,
           webhookSecret: emailWebhookSecretEnv ? process.env[emailWebhookSecretEnv] ?? undefined : undefined,
-          billing: resolved.modeBConfig.billing,
+          billing: resolved.runtimeModeConfig.billing,
           eventEmitter,
           memoryBasePath: resolved.memoryBasePath,
           knowledgePipeline: loaded.knowledgePipeline?.pipeline,
@@ -672,7 +672,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
         appName: loaded.name,
         orchestrator,
         sessionRegistry,
-        billing: resolved.modeBConfig.billing,
+        billing: resolved.runtimeModeConfig.billing,
         systemPrompt,
         apiKey: resolvedApiKey,
         knowledgePipeline: loaded.knowledgePipeline?.pipeline,
@@ -717,10 +717,10 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
 
     for (const loaded of loadedApps) {
       const resolved = resolvedApps.find((r) => r.name === loaded.name);
-      if (resolved?.modeBConfig?.runtime === "provider-adapter") {
-        const providerName = resolved.modeBConfig.provider.name;
+      if (resolved?.runtimeModeConfig?.runtime === "provider-adapter") {
+        const providerName = resolved.runtimeModeConfig.provider.name;
         // Provider is considered ok if we have an API key configured
-        const apiKeyEnv = resolved.modeBConfig.provider.apiKeyEnv;
+        const apiKeyEnv = resolved.runtimeModeConfig.provider.apiKeyEnv;
         const hasKey = apiKeyEnv ? Boolean(process.env[apiKeyEnv]) : false;
         providerStatuses[providerName] = hasKey ? "ok" : "error";
         if (!hasKey) hasError = true;
@@ -738,7 +738,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
     // Check if any app has billing configured
     const hasBilling = loadedApps.some((loaded) => {
       const resolved = resolvedApps.find((r) => r.name === loaded.name);
-      return Boolean(resolved?.modeBConfig?.billing);
+      return Boolean(resolved?.runtimeModeConfig?.billing);
     });
 
     if (!hasBilling) {
@@ -1412,7 +1412,7 @@ function hasAllTags(entryTags: readonly string[], requiredTags: readonly string[
   return requiredTags.every((tag) => entryTags.includes(tag));
 }
 
-/** Create a ProviderAdapter from a Mode B provider config */
+/** Create a ProviderAdapter from a provider-adapter runtime config. */
 function createProviderFromConfig(config: ProviderConfig): ProviderAdapter {
   const apiKey = config.apiKeyEnv ? process.env[config.apiKeyEnv] ?? "" : "";
   const model = config.model;

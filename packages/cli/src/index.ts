@@ -52,7 +52,7 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
       console.log(`  ${cmd.padEnd(12)} ${desc}`);
     }
     console.log("\nOptions:");
-    console.log("  --api-key    Anthropic API key (required for Mode A)");
+    console.log("  --api-key    Anthropic API key (required for the subprocess runtime)");
     console.log("  --provider   LLM provider (claude, codex, opencode, anthropic, openai, deepseek, openrouter, ollama)");
     console.log("  --model      Model override for the selected provider");
     console.log("  --agent      Agent name from .kiln/agents or ~/.kiln/agents");

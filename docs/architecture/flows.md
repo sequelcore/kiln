@@ -119,7 +119,7 @@ paths that the control plane governs.
 6. session update
 7. cost update
 
-**Mode A additions:**
+**Subprocess runtime additions:**
 
 - phase transitions
 - checkpoint writes

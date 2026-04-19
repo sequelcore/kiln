@@ -68,7 +68,7 @@ describe("KilnError", () => {
         "APP_YAML_INVALID",
         "PRESET_LOAD_FAILED",
         "GATEWAY_YAML_INVALID",
-        "MODE_B_CONFIG_INVALID",
+        "RUNTIME_MODE_CONFIG_INVALID",
       ] as const;
 
       for (const code of codes) {

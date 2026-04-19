@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import type { ModeBConfig, ModeBValidationError } from "../../../src/engine/gateway/mode-b-config.js";
-import { validateModeBConfig } from "../../../src/engine/gateway/mode-b-config.js";
+import type { RuntimeModeConfig, RuntimeModeValidationError } from "../../../src/engine/gateway/runtime-mode-config.js";
+import { validateRuntimeModeConfig } from "../../../src/engine/gateway/runtime-mode-config.js";
 
 function makeProviderConfig() {
   return { name: "anthropic", model: "claude-haiku-4-5-20251001", apiKeyEnv: "ANTHROPIC_API_KEY" };
@@ -18,7 +18,7 @@ function makeBillingConfig() {
   };
 }
 
-function makeModeBConfig(overrides: Partial<ModeBConfig> = {}): ModeBConfig {
+function makeRuntimeModeConfig(overrides: Partial<RuntimeModeConfig> = {}): RuntimeModeConfig {
   return {
     runtime: "provider-adapter",
     provider: makeProviderConfig(),
@@ -27,69 +27,69 @@ function makeModeBConfig(overrides: Partial<ModeBConfig> = {}): ModeBConfig {
   };
 }
 
-describe("ModeBConfig", () => {
-  describe("validateModeBConfig", () => {
-    it("returns empty array for a valid Mode B config", () => {
-      expect(validateModeBConfig(makeModeBConfig())).toEqual([]);
+describe("RuntimeModeConfig", () => {
+  describe("validateRuntimeModeConfig", () => {
+    it("returns empty array for a valid provider-adapter config", () => {
+      expect(validateRuntimeModeConfig(makeRuntimeModeConfig())).toEqual([]);
     });
 
-    it("returns empty array for valid Mode A config (claude-code)", () => {
-      const config: ModeBConfig = {
+    it("returns empty array for valid subprocess runtime config (claude-code)", () => {
+      const config: RuntimeModeConfig = {
         runtime: "claude-code",
         provider: { name: "" },
       };
-      expect(validateModeBConfig(config)).toEqual([]);
+      expect(validateRuntimeModeConfig(config)).toEqual([]);
     });
 
     it("reports error for invalid runtime value", () => {
-      const config = makeModeBConfig({ runtime: "unknown" as ModeBConfig["runtime"] });
-      const errors = validateModeBConfig(config);
+      const config = makeRuntimeModeConfig({ runtime: "unknown" as RuntimeModeConfig["runtime"] });
+      const errors = validateRuntimeModeConfig(config);
       expect(errors.some((e) => e.field === "runtime")).toBe(true);
     });
 
     it("reports error for missing provider.name when runtime is provider-adapter", () => {
-      const config = makeModeBConfig({ provider: { name: "" } });
-      const errors = validateModeBConfig(config);
+      const config = makeRuntimeModeConfig({ provider: { name: "" } });
+      const errors = validateRuntimeModeConfig(config);
       expect(errors.some((e) => e.field === "provider.name")).toBe(true);
     });
 
     it("reports error for empty budgetEndpoint", () => {
-      const config = makeModeBConfig({
+      const config = makeRuntimeModeConfig({
         billing: { ...makeBillingConfig(), budgetEndpoint: "" },
       });
-      const errors = validateModeBConfig(config);
+      const errors = validateRuntimeModeConfig(config);
       expect(errors.some((e) => e.field === "billing.budgetEndpoint")).toBe(true);
     });
 
     it("reports error for empty usageEndpoint", () => {
-      const config = makeModeBConfig({
+      const config = makeRuntimeModeConfig({
         billing: { ...makeBillingConfig(), usageEndpoint: "" },
       });
-      const errors = validateModeBConfig(config);
+      const errors = validateRuntimeModeConfig(config);
       expect(errors.some((e) => e.field === "billing.usageEndpoint")).toBe(true);
     });
 
     it("reports error for empty overBudgetMessage", () => {
-      const config = makeModeBConfig({
+      const config = makeRuntimeModeConfig({
         billing: { ...makeBillingConfig(), overBudgetMessage: "" },
       });
-      const errors = validateModeBConfig(config);
+      const errors = validateRuntimeModeConfig(config);
       expect(errors.some((e) => e.field === "billing.overBudgetMessage")).toBe(true);
     });
 
     it("reports error for empty tier agents array", () => {
-      const config = makeModeBConfig({
+      const config = makeRuntimeModeConfig({
         billing: {
           ...makeBillingConfig(),
           tiers: { free: { agents: [] } },
         },
       });
-      const errors = validateModeBConfig(config);
+      const errors = validateRuntimeModeConfig(config);
       expect(errors.some((e) => e.field.includes("agents") && e.message.includes("non-empty"))).toBe(true);
     });
 
     it("accumulates multiple validation errors", () => {
-      const config: ModeBConfig = {
+      const config: RuntimeModeConfig = {
         runtime: "provider-adapter",
         provider: { name: "" },
         billing: {
@@ -98,16 +98,16 @@ describe("ModeBConfig", () => {
           overBudgetMessage: "",
         },
       };
-      const errors = validateModeBConfig(config);
+      const errors = validateRuntimeModeConfig(config);
       expect(errors.length).toBeGreaterThanOrEqual(4);
     });
 
-    it("accepts Mode B config without billing (billing is optional)", () => {
-      const config: ModeBConfig = {
+    it("accepts provider-adapter config without billing (billing is optional)", () => {
+      const config: RuntimeModeConfig = {
         runtime: "provider-adapter",
         provider: { name: "anthropic" },
       };
-      expect(validateModeBConfig(config)).toEqual([]);
+      expect(validateRuntimeModeConfig(config)).toEqual([]);
     });
   });
 });

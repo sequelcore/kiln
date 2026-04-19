@@ -49,11 +49,11 @@ Kiln maintains an operational envelope around autonomous agent sessions that is:
 Kiln operates as a control plane that senses state, compares it to configured
 setpoints, and applies corrections through controlled actuators.
 
-Two runtime modes may exist inside the gateway process, but they are runtime
+Two runtime variants may exist inside the gateway process, but they are runtime
 variants, not separate identities:
 
-- Mode A: agent subprocess execution
-- Mode B: direct API session execution
+- subprocess runtime: agent subprocess execution
+- provider-adapter runtime: direct API session execution
 
 Both share the same control responsibilities:
 

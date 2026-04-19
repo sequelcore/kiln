@@ -1,10 +1,10 @@
-// Engine type: ModeBConfig -- provider-adapter runtime configuration
+// Engine type: RuntimeModeConfig -- runtime-variant gateway configuration
 // Parsed from the same App YAML as the App composite, by a separate parser
 
-/** Runtime mode: "claude-code" for Mode A, "provider-adapter" for Mode B */
+/** Runtime variant: subprocess ("claude-code") or provider-adapter runtime. */
 export type RuntimeMode = "claude-code" | "provider-adapter";
 
-/** Provider configuration for Mode B Apps */
+/** Provider configuration for provider-adapter apps. */
 export interface ProviderConfig {
   readonly name: string;
   readonly model?: string;
@@ -41,22 +41,22 @@ export interface UsageReport {
   readonly model: string;
 }
 
-/** Full Mode B configuration parsed from App YAML */
-export interface ModeBConfig {
+/** Runtime-variant configuration parsed from App YAML. */
+export interface RuntimeModeConfig {
   readonly runtime: RuntimeMode;
   readonly provider: ProviderConfig;
   readonly billing?: BillingConfig;
 }
 
-/** Validation error for Mode B configuration */
-export interface ModeBValidationError {
+/** Validation error for runtime-mode configuration. */
+export interface RuntimeModeValidationError {
   readonly field: string;
   readonly message: string;
 }
 
-/** Validate a ModeBConfig. Returns array of errors; empty means valid. */
-export function validateModeBConfig(config: ModeBConfig): ModeBValidationError[] {
-  const errors: ModeBValidationError[] = [];
+/** Validate a RuntimeModeConfig. Returns array of errors; empty means valid. */
+export function validateRuntimeModeConfig(config: RuntimeModeConfig): RuntimeModeValidationError[] {
+  const errors: RuntimeModeValidationError[] = [];
 
   // runtime must be a valid value
   if (config.runtime !== "claude-code" && config.runtime !== "provider-adapter") {

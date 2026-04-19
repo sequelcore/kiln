@@ -1,4 +1,4 @@
-// Budget enforcement middleware for Mode B apps
+// Budget enforcement middleware for provider-adapter apps
 // Checks remaining budget before LLM calls and reports usage after
 //
 // DESIGN RATIONALE (Fail-Closed):
@@ -26,7 +26,7 @@ export interface TierCheckResult {
   readonly allowedTiers: readonly string[];
 }
 
-/** Billing configuration (matches ModeBConfig.billing from @kilnai/core) */
+/** Billing configuration (matches RuntimeModeConfig.billing from @kilnai/core) */
 export interface BillingConfig {
   readonly budgetEndpoint: string;
   readonly usageEndpoint: string;

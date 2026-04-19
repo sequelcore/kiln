@@ -7,7 +7,7 @@ export type KilnErrorCode =
   | "APP_YAML_INVALID"
   | "PRESET_LOAD_FAILED"
   | "GATEWAY_YAML_INVALID"
-  | "MODE_B_CONFIG_INVALID"
+  | "RUNTIME_MODE_CONFIG_INVALID"
   // Domain
   | "DOMAIN_YAML_INVALID"
   // Domain Kits (Phase 4)

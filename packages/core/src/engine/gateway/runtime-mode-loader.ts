@@ -1,22 +1,22 @@
-// Engine loader: ModeBLoader -- parses Mode B config from App YAML
+// Engine loader: RuntimeModeLoader -- parses runtime-variant config from App YAML
 // Extracts runtime, provider, and billing fields from the same YAML as parseAppYaml()
 
 import { parse } from "yaml";
 import { KilnError } from "../errors.js";
-import type { ModeBConfig, ModeBValidationError, ProviderConfig, BillingConfig, BillingTier } from "./mode-b-config.js";
-import { validateModeBConfig } from "./mode-b-config.js";
+import type { RuntimeModeConfig, RuntimeModeValidationError, ProviderConfig, BillingConfig, BillingTier } from "./runtime-mode-config.js";
+import { validateRuntimeModeConfig } from "./runtime-mode-config.js";
 
-/** Error class for Mode B YAML loader failures */
-export class ModeBLoaderError extends KilnError {
-  readonly errors: readonly ModeBValidationError[];
+/** Error class for runtime-mode YAML loader failures. */
+export class RuntimeModeLoaderError extends KilnError {
+  readonly errors: readonly RuntimeModeValidationError[];
 
-  constructor(errors: readonly ModeBValidationError[]) {
+  constructor(errors: readonly RuntimeModeValidationError[]) {
     const msg = errors.map((e) => `  ${e.field}: ${e.message}`).join("\n");
-    super("MODE_B_CONFIG_INVALID", `Invalid Mode B config:\n${msg}`, {
+    super("RUNTIME_MODE_CONFIG_INVALID", `Invalid runtime mode config:\n${msg}`, {
       context: { errors },
       retryable: false,
     });
-    this.name = "ModeBLoaderError";
+    this.name = "RuntimeModeLoaderError";
     this.errors = errors;
   }
 }
@@ -43,7 +43,7 @@ interface RawBilling {
   tiers?: unknown;
 }
 
-interface RawModeB {
+interface RawRuntimeMode {
   runtime?: unknown;
   provider?: unknown;
   billing?: unknown;
@@ -122,28 +122,29 @@ function mapBilling(raw: RawBilling): BillingConfig {
 // ---------------------------------------------------------------------------
 
 /**
- * Parse a YAML string and extract Mode B config fields.
- * Returns null if the YAML does not have runtime: "provider-adapter" (it's a Mode A app).
- * Throws ModeBLoaderError if runtime is "provider-adapter" but config is invalid.
+ * Parse a YAML string and extract runtime-variant config fields.
+ * Returns null if the YAML does not have runtime: "provider-adapter"
+ * (it is using the subprocess runtime variant).
+ * Throws RuntimeModeLoaderError if runtime is "provider-adapter" but config is invalid.
  */
-export function parseModeBConfig(content: string): ModeBConfig | null {
+export function parseRuntimeModeConfig(content: string): RuntimeModeConfig | null {
   let data: unknown;
   try {
     data = parse(content);
   } catch (err) {
-    throw new ModeBLoaderError([{ field: "yaml", message: String(err) }]);
+    throw new RuntimeModeLoaderError([{ field: "yaml", message: String(err) }]);
   }
 
   if (!data || typeof data !== "object" || Array.isArray(data)) {
-    throw new ModeBLoaderError([{ field: "root", message: "must be a YAML object" }]);
+    throw new RuntimeModeLoaderError([{ field: "root", message: "must be a YAML object" }]);
   }
 
-  const raw = data as RawModeB;
+  const raw = data as RawRuntimeMode;
 
-  // runtime defaults to "claude-code"
+  // runtime defaults to the subprocess variant
   const runtime = typeof raw.runtime === "string" ? raw.runtime : "claude-code";
 
-  // if not Mode B, return null
+  // provider-adapter is the only variant with extra runtime config fields
   if (runtime !== "provider-adapter") {
     return null;
   }
@@ -160,14 +161,14 @@ export function parseModeBConfig(content: string): ModeBConfig | null {
     billing = mapBilling(raw.billing as RawBilling);
   }
 
-  const config: ModeBConfig = {
+  const config: RuntimeModeConfig = {
     runtime: "provider-adapter",
     provider,
     ...(billing !== undefined ? { billing } : {}),
   };
 
-  const errors = validateModeBConfig(config);
-  if (errors.length > 0) throw new ModeBLoaderError(errors);
+  const errors = validateRuntimeModeConfig(config);
+  if (errors.length > 0) throw new RuntimeModeLoaderError(errors);
 
   return config;
 }

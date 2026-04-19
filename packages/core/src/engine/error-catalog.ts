@@ -39,10 +39,10 @@ export function getErrorSuggestion(
         docUrl: docUrl(code),
       };
 
-    case "MODE_B_CONFIG_INVALID":
+    case "RUNTIME_MODE_CONFIG_INVALID":
       return {
         suggestion:
-          "Check Mode B configuration. Ensure provider name, model, and apiKeyEnv are set.",
+          "Check runtime-mode configuration. Ensure provider name, model, and apiKeyEnv are set for provider-adapter apps.",
         docUrl: docUrl(code),
       };
 

@@ -106,6 +106,8 @@ Current state of the highest-pressure rows:
 - `packages/core/src/engine`: open
   The engine surface still carries orchestrator-era naming and remains an active
   cleanup target.
+  The runtime-mode config/loader seam is now partially modernized, but broader
+  engine naming and boundary cleanup still remain open.
 - `packages/core/src/safety` + `security` + `sandbox` + `tools`: open
   These boundaries still exist as separate areas and have not yet converged into
   one clearly expressed kernel boundary.

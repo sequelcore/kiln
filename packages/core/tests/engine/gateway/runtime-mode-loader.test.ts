@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { parseModeBConfig, ModeBLoaderError } from "../../../src/engine/gateway/mode-b-loader.js";
+import { parseRuntimeModeConfig, RuntimeModeLoaderError } from "../../../src/engine/gateway/runtime-mode-loader.js";
 
-const VALID_MODE_B_YAML = `
+const VALID_PROVIDER_ADAPTER_YAML = `
 name: test-mode-b
 runtime: provider-adapter
 channels: [api]
@@ -42,15 +42,15 @@ teams:
     qualityGates: []
 `;
 
-describe("parseModeBConfig", () => {
-  it("returns null for YAML without runtime field (default Mode A)", () => {
+describe("parseRuntimeModeConfig", () => {
+  it("returns null for YAML without runtime field (default subprocess runtime)", () => {
     const yaml = `
 name: my-app
 teams:
   assistant:
     agents: {}
 `;
-    expect(parseModeBConfig(yaml)).toBeNull();
+    expect(parseRuntimeModeConfig(yaml)).toBeNull();
   });
 
   it("returns null for YAML with runtime: claude-code", () => {
@@ -61,11 +61,11 @@ teams:
   assistant:
     agents: {}
 `;
-    expect(parseModeBConfig(yaml)).toBeNull();
+    expect(parseRuntimeModeConfig(yaml)).toBeNull();
   });
 
-  it("parses valid Mode B config with provider and billing", () => {
-    const config = parseModeBConfig(VALID_MODE_B_YAML);
+  it("parses valid provider-adapter config with provider and billing", () => {
+    const config = parseRuntimeModeConfig(VALID_PROVIDER_ADAPTER_YAML);
     expect(config).not.toBeNull();
     expect(config!.runtime).toBe("provider-adapter");
     expect(config!.provider.name).toBe("anthropic");
@@ -77,29 +77,29 @@ teams:
     expect(config!.billing!.overBudgetMessage).toBe("Budget exhausted.");
   });
 
-  it("parses Mode B config without billing (billing is optional)", () => {
+  it("parses provider-adapter config without billing (billing is optional)", () => {
     const yaml = `
 runtime: provider-adapter
 provider:
   name: anthropic
   model: claude-haiku-4-5-20251001
 `;
-    const config = parseModeBConfig(yaml);
+    const config = parseRuntimeModeConfig(yaml);
     expect(config).not.toBeNull();
     expect(config!.runtime).toBe("provider-adapter");
     expect(config!.billing).toBeUndefined();
   });
 
-  it("throws ModeBLoaderError on missing provider.name for provider-adapter", () => {
+  it("throws RuntimeModeLoaderError on missing provider.name for provider-adapter", () => {
     const yaml = `
 runtime: provider-adapter
 provider:
   model: claude-haiku-4-5-20251001
 `;
-    expect(() => parseModeBConfig(yaml)).toThrow(ModeBLoaderError);
+    expect(() => parseRuntimeModeConfig(yaml)).toThrow(RuntimeModeLoaderError);
   });
 
-  it("throws ModeBLoaderError on invalid billing fields (empty endpoints)", () => {
+  it("throws RuntimeModeLoaderError on invalid billing fields (empty endpoints)", () => {
     const yaml = `
 runtime: provider-adapter
 provider:
@@ -109,18 +109,18 @@ billing:
   usageEndpoint: ""
   overBudgetMessage: ""
 `;
-    expect(() => parseModeBConfig(yaml)).toThrow(ModeBLoaderError);
+    expect(() => parseRuntimeModeConfig(yaml)).toThrow(RuntimeModeLoaderError);
   });
 
   it("preserves all provider fields (name, model, apiKeyEnv)", () => {
-    const config = parseModeBConfig(VALID_MODE_B_YAML);
+    const config = parseRuntimeModeConfig(VALID_PROVIDER_ADAPTER_YAML);
     expect(config!.provider.name).toBe("anthropic");
     expect(config!.provider.model).toBe("claude-haiku-4-5-20251001");
     expect(config!.provider.apiKeyEnv).toBe("ANTHROPIC_API_KEY");
   });
 
   it("preserves all billing tier definitions", () => {
-    const config = parseModeBConfig(VALID_MODE_B_YAML);
+    const config = parseRuntimeModeConfig(VALID_PROVIDER_ADAPTER_YAML);
     expect(config!.billing!.tiers).toBeDefined();
     expect(config!.billing!.tiers!["free"]).toBeDefined();
     expect(config!.billing!.tiers!["free"]!.agents).toEqual(["fast"]);
@@ -128,35 +128,35 @@ billing:
     expect(config!.billing!.tiers!["pro"]!.agents).toEqual(["fast", "coding"]);
   });
 
-  it("throws ModeBLoaderError on invalid YAML syntax (non-object like an array)", () => {
-    expect(() => parseModeBConfig("- item1\n- item2")).toThrow(ModeBLoaderError);
+  it("throws RuntimeModeLoaderError on invalid YAML syntax (non-object like an array)", () => {
+    expect(() => parseRuntimeModeConfig("- item1\n- item2")).toThrow(RuntimeModeLoaderError);
   });
 
-  it("throws ModeBLoaderError on parse failure and includes yaml field", () => {
+  it("throws RuntimeModeLoaderError on parse failure and includes yaml field", () => {
     const badYaml = `runtime: [\nthis is not valid yaml:::`;
     try {
-      parseModeBConfig(badYaml);
+      parseRuntimeModeConfig(badYaml);
       expect.fail("should have thrown");
     } catch (err) {
-      expect(err).toBeInstanceOf(ModeBLoaderError);
-      const loaderErr = err as ModeBLoaderError;
+      expect(err).toBeInstanceOf(RuntimeModeLoaderError);
+      const loaderErr = err as RuntimeModeLoaderError;
       expect(loaderErr.errors.some((e) => e.field === "yaml")).toBe(true);
     }
   });
 
-  it("ModeBLoaderError message includes field and message", () => {
+  it("RuntimeModeLoaderError message includes field and message", () => {
     const yaml = `
 runtime: provider-adapter
 provider:
   model: claude-haiku-4-5-20251001
 `;
     try {
-      parseModeBConfig(yaml);
+      parseRuntimeModeConfig(yaml);
       expect.fail("should have thrown");
     } catch (err) {
-      expect(err).toBeInstanceOf(ModeBLoaderError);
-      const loaderErr = err as ModeBLoaderError;
-      expect(loaderErr.message).toContain("Mode B config");
+      expect(err).toBeInstanceOf(RuntimeModeLoaderError);
+      const loaderErr = err as RuntimeModeLoaderError;
+      expect(loaderErr.message).toContain("runtime mode config");
       expect(loaderErr.errors.length).toBeGreaterThan(0);
     }
   });

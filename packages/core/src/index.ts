@@ -101,7 +101,7 @@ export { AppLoaderError, parseAppYaml, validateAppGraph } from "./engine/loader/
 // Preset loader re-exported for direct access by tests and tooling
 export { PresetLoaderError, loadPresetConfig } from "./engine/loader/preset-loader.js";
 
-// Mode B config re-exported for direct access by runtime gateway
+// Runtime-mode config re-exported for direct access by the runtime gateway
 export type {
   RuntimeMode,
   ProviderConfig,
@@ -109,11 +109,11 @@ export type {
   BillingTier,
   BudgetResponse,
   UsageReport,
-  ModeBConfig,
-  ModeBValidationError,
-} from "./engine/gateway/mode-b-config.js";
-export { validateModeBConfig } from "./engine/gateway/mode-b-config.js";
-export { ModeBLoaderError, parseModeBConfig } from "./engine/gateway/mode-b-loader.js";
+  RuntimeModeConfig,
+  RuntimeModeValidationError,
+} from "./engine/gateway/runtime-mode-config.js";
+export { validateRuntimeModeConfig } from "./engine/gateway/runtime-mode-config.js";
+export { RuntimeModeLoaderError, parseRuntimeModeConfig } from "./engine/gateway/runtime-mode-loader.js";
 
 // Delegation types re-exported for direct access by runtime gateway
 export type {

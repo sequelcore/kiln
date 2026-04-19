@@ -85,7 +85,7 @@ export type {
 } from "./gateway/mcp-config.js";
 export { validateGatewayMcpConfig } from "./gateway/mcp-config.js";
 
-// Mode B -- provider-adapter runtime config (Phase 23)
+// Runtime mode -- gateway runtime-variant config (Phase 23)
 export type {
   RuntimeMode,
   ProviderConfig,
@@ -93,11 +93,11 @@ export type {
   BillingConfig,
   BudgetResponse,
   UsageReport,
-  ModeBConfig,
-  ModeBValidationError,
-} from "./gateway/mode-b-config.js";
-export { validateModeBConfig } from "./gateway/mode-b-config.js";
-export { ModeBLoaderError, parseModeBConfig } from "./gateway/mode-b-loader.js";
+  RuntimeModeConfig,
+  RuntimeModeValidationError,
+} from "./gateway/runtime-mode-config.js";
+export { validateRuntimeModeConfig } from "./gateway/runtime-mode-config.js";
+export { RuntimeModeLoaderError, parseRuntimeModeConfig } from "./gateway/runtime-mode-loader.js";
 
 // Delegation -- cross-app cognitive delegation (Phase 24)
 export type {

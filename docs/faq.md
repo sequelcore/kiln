@@ -1,14 +1,14 @@
 # FAQ
 
-**What is the difference between Mode A and Mode B?**
+**What is the difference between the subprocess runtime and the provider-adapter runtime?**
 
-Mode A runs phase-gated agentic workflows via a Claude Code subprocess -- it has a phase machine, checkpointing, interrupt/resume, and supports one active session per task. Mode B calls provider adapters directly for conversational, multi-user apps -- it supports concurrent sessions, budget enforcement, and tier-based access control, but has no phase machine. Both modes can run in the same Gateway process on different Apps. See [Core Concepts](concepts.md) for a comparison table.
+The subprocess runtime runs phase-gated agentic workflows via a Claude Code subprocess. It has a phase machine, checkpointing, interrupt/resume, and supports one active session per task. The provider-adapter runtime calls provider adapters directly for conversational, multi-user apps. It supports concurrent sessions, budget enforcement, and tier-based access control, but has no phase machine. Both runtime variants can run in the same Gateway process on different Apps. See [Core Concepts](concepts.md) for a comparison table.
 
 ---
 
 **How do I add a new LLM provider?**
 
-Implement the `ProviderAdapter` interface in `packages/core/src/agents/infrastructure/` following the pattern of the existing adapters (Anthropic, OpenAI, DeepSeek, OpenRouter, Ollama). Register it in the `ProviderRegistry`. Five adapters ship by default; for Mode B apps, set `provider.name` in `app.yaml` to the registered name and set `provider.apiKeyEnv` to the env var holding the key.
+Implement the `ProviderAdapter` interface in `packages/core/src/agents/infrastructure/` following the pattern of the existing adapters (Anthropic, OpenAI, DeepSeek, OpenRouter, Ollama). Register it in the `ProviderRegistry`. Five adapters ship by default; for provider-adapter apps, set `provider.name` in `app.yaml` to the registered name and set `provider.apiKeyEnv` to the env var holding the key.
 
 ---
 
@@ -66,9 +66,9 @@ Domains describe a technology context -- detection patterns, quality gates, few-
 
 ---
 
-**How does human handoff work in Mode B?**
+**How does human handoff work in the provider-adapter runtime?**
 
-Mode B sessions have a `sessionMode` state machine with four states: `ai_active` (default), `queued`, `human_active`, and `resolved`. When escalation is detected (keywords like "talk to agent" or conversational loop detection), the session transitions to `queued` and an `ESCALATION_DETECTED` event is emitted. A human operator can then claim the session via `POST /handoff`, send messages via `POST /operator-message`, and release back to AI via `POST /release`. Resolved sessions auto-reopen to `ai_active` on the next user message. All handoff routes require Bearer authentication. See [Gateway YAML Reference](configuration/gateway-yaml.md#session--handoff) for the full API.
+Provider-adapter sessions have a `sessionMode` state machine with four states: `ai_active` (default), `queued`, `human_active`, and `resolved`. When escalation is detected (keywords like "talk to agent" or conversational loop detection), the session transitions to `queued` and an `ESCALATION_DETECTED` event is emitted. A human operator can then claim the session via `POST /handoff`, send messages via `POST /operator-message`, and release back to AI via `POST /release`. Resolved sessions auto-reopen to `ai_active` on the next user message. All handoff routes require Bearer authentication. See [Gateway YAML Reference](configuration/gateway-yaml.md#session--handoff) for the full API.
 
 ---
 

@@ -18,9 +18,9 @@ kiln dev --playground
 
 ### Two Startup Modes
 
-**With `gateway.yaml`** (Mode B consumers): `kiln dev` calls `startGateway()` with full app loading, channels, providers, and triggers. Studio has access to live sessions and the Playground view.
+**With `gateway.yaml`** (provider-adapter consumers): `kiln dev` calls `startGateway()` with full app loading, channels, providers, and triggers. Studio has access to live sessions and the Playground view.
 
-**Without `gateway.yaml`** (Mode A consumers): `kiln dev` calls `startDevServer()` -- a lightweight Bun/Hono server with Studio + dev API endpoints only. No providers, channels, or sessions. Graph View and YAML editor work from `app.yaml` if present.
+**Without `gateway.yaml`** (subprocess-runtime consumers): `kiln dev` calls `startDevServer()` -- a lightweight Bun/Hono server with Studio + dev API endpoints only. No providers, channels, or sessions. Graph View and YAML editor work from `app.yaml` if present.
 
 Both modes serve the built SPA at `/studio/*` using Hono's `serveStatic` middleware with SPA fallback. The `/dev/` path redirects to `/studio/` when the SPA is available.
 

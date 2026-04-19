@@ -39,7 +39,7 @@ Self-delegation (`fromApp === toApp`) is rejected at validation time.
 
 ### DelegationRegistry
 
-At startup, `startGateway()` builds a `DelegationRegistry` from all Mode B Apps (`runtime: provider-adapter`). Mode A Apps are not eligible as delegation targets. The registry maps each App name to its provider adapter and system prompt. It is built once at startup and is immutable for the lifetime of the process.
+At startup, `startGateway()` builds a `DelegationRegistry` from all provider-adapter apps (`runtime: provider-adapter`). Apps using the subprocess runtime are not eligible as delegation targets. The registry maps each App name to its provider adapter and system prompt. It is built once at startup and is immutable for the lifetime of the process.
 
 ### executeDelegation() Lifecycle
 
