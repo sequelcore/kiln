@@ -6,7 +6,7 @@
 
 Kiln's long-term position is now explicit:
 
-- Kiln is a cybernetic control plane for governed AI work
+- Kiln is a biocybernetic control plane for governed AI work
 - Kiln is not an orchestration engine as its primary identity
 - Kiln is not a biological system made literal
 - Kiln is not constrained by backward-compatibility promises to its earlier framing

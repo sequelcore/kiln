@@ -47,6 +47,10 @@ Terms to remove from active framing:
 - `TaskChannel` as canonical architecture term
 - `SwarmStore` as canonical architecture term
 
+These terms may still appear in migration notes, ADR history, or contrastive
+sentences that explicitly reject the older framing. They must not appear as the
+active doctrine, canonical identity, or current subsystem vocabulary.
+
 ## Target Documentation Map
 
 ### Root
@@ -60,6 +64,13 @@ Terms to remove from active framing:
 ### Docs Index
 
 - `docs/README.md`
+
+### Docs Root
+
+- `docs/changelog.md`
+- `docs/concepts.md`
+- `docs/faq.md`
+- `docs/getting-started.md`
 
 ### Architecture
 
@@ -418,3 +429,15 @@ Terms to remove from active framing:
   repository documentation system.
 - Package READMEs are also excluded from this Slice 1 taxonomy unless they are
   later pulled into the primary docs refactor scope.
+
+## Closure Standard
+
+This taxonomy freeze is closed when all of the following are true:
+
+- the target documentation map and active-file inventory describe the same
+  in-scope documentation set
+- canonical identity wording is consistent across primary docs
+- terms marked for removal no longer appear as active doctrine or canonical
+  subsystem vocabulary
+- transitional entrypoints are reduced to link-preserving stubs only
+- absorbed legacy subtrees have been removed from the active documentation tree

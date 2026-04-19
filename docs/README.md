@@ -3,7 +3,7 @@
 ## Entry Points
 
 - [Architecture](architecture/README.md)
-  Canonical architecture doctrine for Kiln as a cybernetic control plane.
+  Canonical architecture doctrine for Kiln as a biocybernetic control plane.
 
 - [Research](research/README.md)
   Canonical research foundations, mechanism mapping, and implementation gap

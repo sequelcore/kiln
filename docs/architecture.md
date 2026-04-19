@@ -31,7 +31,7 @@ During the documentation refactor:
 
 ## Canonical Summary
 
-Kiln is a cybernetic control plane for autonomous agent sessions.
+Kiln is a biocybernetic control plane for autonomous agent sessions.
 
 Its primary architectural concerns are:
 

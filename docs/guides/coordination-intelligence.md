@@ -3,7 +3,7 @@
 This guide describes coordination in Kiln using the new canonical frame.
 
 Kiln does not treat coordination as metaphor-first folklore or a literal
-"digital organism." Coordination is a regulated control problem: allocate work,
+biological system. Coordination is a regulated control problem: allocate work,
 bound execution chains, track ownership, preserve shared state, and recover
 cleanly when parallel work drifts or fails.
 
@@ -83,7 +83,6 @@ See:
 
 ## Transitional Status
 
-Older references to `ThresholdAllocator`, `CascadeController`, `TaskChannel`, or
-similar mechanism-level abstractions should be interpreted as exploratory or
-historical unless they are explicitly mapped into the current coordination
-architecture.
+Older coordination-specific mechanism names should be interpreted as
+exploratory or historical unless they are explicitly mapped into the current
+coordination architecture.

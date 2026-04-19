@@ -2,7 +2,7 @@
 
 This document is the shortest safe entry into Kiln's current documentation.
 
-Kiln is a cybernetic control plane for governed AI work. If you start from older
+Kiln is a biocybernetic control plane for governed AI work. If you start from older
 material that frames it as an orchestration engine, a meta-orchestrator, or a
 set of biological primitives, you will inherit the wrong model.
 
