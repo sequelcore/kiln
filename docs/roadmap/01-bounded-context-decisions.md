@@ -22,8 +22,8 @@ accidentally preserved through piecemeal edits.
 
 Read first:
 
-- [01-module-mapping.md](01-module-mapping.md)
 - Canonical naming and doctrine are now carried by the modular architecture docs.
+- The prior module-mapping slice is closed and absorbed as completed planning context.
 
 ## Decision Table
 
