@@ -158,6 +158,13 @@ The first slice is intentionally narrow:
   - no extraction of helpers yet
   - no behavior changes to routing, approvals, or tool execution
 
+#### Slice progress
+
+- Slice 1 (export freeze + characterization gates): done.
+- Slice 2 (persistence seam extraction): done. `session/persistence/*`
+  hosts the persistence implementations while legacy session file paths remain
+  as compatibility wrappers.
+
 ## First Refactor Sequence
 
 The first code refactor sequence should follow this order:

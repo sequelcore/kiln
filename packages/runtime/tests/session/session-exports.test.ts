@@ -3,12 +3,14 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import * as sessionBarrel from "../../src/session/index.js";
+import * as persistenceBarrel from "../../src/session/persistence/index.js";
 
 import { ModeBSession as DirectModeBSession } from "../../src/session/mode-b-session.js";
 import { ModeBOrchestrator as DirectModeBOrchestrator } from "../../src/session/mode-b-orchestrator.js";
 import { SessionRegistry as DirectSessionRegistry } from "../../src/session/session-registry.js";
 import { InMemorySessionStore as DirectInMemorySessionStore } from "../../src/session/in-memory-session-store.js";
 import { RedisSessionStore as DirectRedisSessionStore } from "../../src/session/redis-session-store.js";
+import { serializeSession as DirectSerializeSession, deserializeSession as DirectDeserializeSession } from "../../src/session/session-serializer.js";
 import { isValidTransition as DirectIsValidTransition } from "../../src/session/session-mode.js";
 import { DefaultEscalationDetector as DirectDefaultEscalationDetector } from "../../src/session/escalation-detector.js";
 
@@ -21,6 +23,14 @@ describe("session exports", () => {
     expect(sessionBarrel.RedisSessionStore).toBe(DirectRedisSessionStore);
     expect(sessionBarrel.isValidTransition).toBe(DirectIsValidTransition);
     expect(sessionBarrel.DefaultEscalationDetector).toBe(DirectDefaultEscalationDetector);
+  });
+
+  it("persistence seam exports match legacy session wrapper exports", () => {
+    expect(persistenceBarrel.SessionRegistry).toBe(DirectSessionRegistry);
+    expect(persistenceBarrel.InMemorySessionStore).toBe(DirectInMemorySessionStore);
+    expect(persistenceBarrel.RedisSessionStore).toBe(DirectRedisSessionStore);
+    expect(persistenceBarrel.serializeSession).toBe(DirectSerializeSession);
+    expect(persistenceBarrel.deserializeSession).toBe(DirectDeserializeSession);
   });
 
   it("runtime root barrel references the session barrel", () => {

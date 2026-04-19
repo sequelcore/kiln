@@ -4,12 +4,15 @@ export { ModeBOrchestrator } from "./mode-b-orchestrator.js";
 export type { OrchestratorDeps, OrchestrateResult, PerCallToolConfig, ToolExecutionSummary } from "./mode-b-orchestrator.js";
 
 // Persistence + registry
-export { SessionRegistry } from "./session-registry.js";
-export type { SessionStore } from "./session-store.js";
-export { InMemorySessionStore } from "./in-memory-session-store.js";
-export { RedisSessionStore, createRedisSessionStore } from "./redis-session-store.js";
-export type { RedisLike } from "./redis-session-store.js";
-export { serializeSession, deserializeSession } from "./session-serializer.js";
+export {
+  SessionRegistry,
+  InMemorySessionStore,
+  RedisSessionStore,
+  createRedisSessionStore,
+  serializeSession,
+  deserializeSession,
+} from "./persistence/index.js";
+export type { SessionStore, RedisLike } from "./persistence/index.js";
 
 // Session mode + lifecycle transitions
 export { isValidTransition, transitionSessionMode } from "./session-mode.js";
