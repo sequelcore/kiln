@@ -6,8 +6,8 @@
   Canonical architecture doctrine for Kiln as a cybernetic control plane.
 
 - [Research](research/README.md)
-  Synthesized research foundations and mechanism mapping. During refactor, the
-  final root-level research set is still being assembled.
+  Canonical research foundations, mechanism mapping, and implementation gap
+  analysis.
 
 - [Configuration](configuration/app-yaml.md)
   Runtime configuration reference.

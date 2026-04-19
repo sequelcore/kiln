@@ -79,10 +79,16 @@ Terms to remove from active framing:
 ### Research
 
 - `docs/research/README.md`
-- `docs/research/kiln-research-synthesis.md`
-- `docs/research/cybernetic-foundations.md`
-- `docs/research/biological-mechanisms.md`
-- `docs/research/current-state-mapping.md`
+- `docs/research/01-kiln-research-synthesis.md`
+- `docs/research/02-cybernetic-foundations.md`
+- `docs/research/03-biological-mechanisms.md`
+- `docs/research/04-current-state-mapping.md`
+- `docs/research/05-memory-systems.md`
+- `docs/research/06-safety-defense.md`
+- `docs/research/07-regulation-and-adaptation.md`
+- `docs/research/08-context-governance.md`
+- `docs/research/09-tool-execution-and-trust.md`
+- `docs/research/10-coordination-intelligence.md`
 
 ### Guides
 
@@ -308,89 +314,49 @@ Terms to remove from active framing:
 
 ### Research
 
-- `docs/research/coordination-intelligence.md`
-  Disposition: merge and absorb
-  Destination: root-level research docs under `docs/research/*`
+- `docs/research/01-kiln-research-synthesis.md`
+  Disposition: keep
+  Destination: current path
 
-- `docs/research/biological-kiln/PROGRAM.md`
-  Disposition: absorb or delete
-  Destination: no final destination; execution prompt scaffold is not part of the final research taxonomy
+- `docs/research/02-cybernetic-foundations.md`
+  Disposition: keep
+  Destination: current path
 
-- `docs/research/biological-kiln/01-global-framing.md`
-  Disposition: merge and absorb
-  Destination: `docs/research/biological-mechanisms.md` and `docs/research/kiln-research-synthesis.md`
+- `docs/research/03-biological-mechanisms.md`
+  Disposition: keep
+  Destination: current path
 
-- `docs/research/biological-kiln/02-master-kiln-mapping.md`
-  Disposition: merge and absorb
-  Destination: `docs/research/kiln-research-synthesis.md` and `docs/research/current-state-mapping.md`
+- `docs/research/04-current-state-mapping.md`
+  Disposition: keep
+  Destination: current path
 
-- `docs/research/biological-kiln/03-nervous-system-routing-control.md`
-  Disposition: merge and absorb
-  Destination: `docs/research/biological-mechanisms.md`
+- `docs/research/05-memory-systems.md`
+  Disposition: keep
+  Destination: current path
 
-- `docs/research/biological-kiln/04-neuroscience-attention-salience.md`
-  Disposition: merge and absorb
-  Destination: `docs/research/biological-mechanisms.md`
+- `docs/research/06-safety-defense.md`
+  Disposition: keep
+  Destination: current path
 
-- `docs/research/biological-kiln/05-layered-memory-architecture.md`
-  Disposition: merge and absorb
-  Destination: `docs/research/biological-mechanisms.md` and `docs/research/current-state-mapping.md`
+- `docs/research/07-regulation-and-adaptation.md`
+  Disposition: keep
+  Destination: current path
 
-- `docs/research/biological-kiln/06-reconsolidation-mutable-memory.md`
-  Disposition: merge and absorb
-  Destination: `docs/research/biological-mechanisms.md` and `docs/research/current-state-mapping.md`
+- `docs/research/08-context-governance.md`
+  Disposition: keep
+  Destination: current path
 
-- `docs/research/biological-kiln/07-immune-system-safety-threat-detection.md`
-  Disposition: merge and absorb
-  Destination: `docs/research/biological-mechanisms.md` and `docs/research/current-state-mapping.md`
+- `docs/research/09-tool-execution-and-trust.md`
+  Disposition: keep
+  Destination: current path
 
-- `docs/research/biological-kiln/08-homeostasis-resource-regulation.md`
-  Disposition: merge and absorb
-  Destination: `docs/research/cybernetic-foundations.md` and `docs/research/kiln-research-synthesis.md`
+- `docs/research/10-coordination-intelligence.md`
+  Disposition: keep as supporting reference
+  Destination: current path
 
-- `docs/research/biological-kiln/09-swarm-coordination-intelligence.md`
-  Disposition: merge and absorb
-  Destination: `docs/research/biological-mechanisms.md` and `docs/research/current-state-mapping.md`
-
-- `docs/research/biological-kiln/10-fungal-distributed-context-substrate.md`
-  Disposition: merge and absorb
-  Destination: `docs/research/biological-mechanisms.md` and `docs/research/kiln-research-synthesis.md`
-
-- `docs/research/biological-kiln/11-morphogenesis-growth-differentiation.md`
-  Disposition: merge and absorb
-  Destination: `docs/research/biological-mechanisms.md`
-
-- `docs/research/biological-kiln/12-cybernetic-control-loops.md`
-  Disposition: merge and absorb
-  Destination: `docs/research/cybernetic-foundations.md`
-
-- `docs/research/biological-kiln/13-kiln-memory-applied-today.md`
-  Disposition: merge and absorb
-  Destination: `docs/research/current-state-mapping.md`
-
-- `docs/research/biological-kiln/14-kiln-context-governance-applied-today.md`
-  Disposition: merge and absorb
-  Destination: `docs/research/current-state-mapping.md`
-
-- `docs/research/biological-kiln/15-kiln-safety-applied-today.md`
-  Disposition: merge and absorb
-  Destination: `docs/research/current-state-mapping.md`
-
-- `docs/research/biological-kiln/16-kiln-coordination-intelligence-applied-today.md`
-  Disposition: merge and absorb
-  Destination: `docs/research/current-state-mapping.md`
-
-- `docs/research/biological-kiln/17-kiln-tool-execution-applied-today.md`
-  Disposition: merge and absorb
-  Destination: `docs/research/current-state-mapping.md`
-
-- `docs/research/biological-kiln/18-reading-list-generator.md`
-  Disposition: delete after synthesis
-  Destination: none
-
-- `docs/research/biological-kiln/19-research-notes-normalizer.md`
-  Disposition: delete after synthesis
-  Destination: none
+- Former `docs/research/biological-kiln/*`
+  Disposition: absorbed and deleted
+  Destination: content merged into the numbered research docs above
 
 ### Roadmap
 

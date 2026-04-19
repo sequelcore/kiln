@@ -4,7 +4,9 @@
 
 This document maps the research-derived model onto Kiln as it exists today.
 
-It is the bridge between research synthesis and architecture refactor work.
+It is the bridge between the research layer and the modular architecture docs.
+Use it to understand where Kiln already aligns with the research and where the
+remaining doctrine or implementation gaps still exist.
 
 ## Memory
 
@@ -37,6 +39,8 @@ Main gap:
   realized one
 - the active shared medium behavior of context, memory, and coordination is not
   yet modeled explicitly enough
+- salience, inhibition, and overflow rules are still spread across unrelated
+  utilities instead of one coherent context doctrine
 
 ## Safety
 
@@ -82,6 +86,8 @@ Main gap:
 
 - clearer doctrinal separation between tool policy, tool routing, and execution
   behavior
+- approval ownership, interrupt ownership, and fake-capability prevention are
+  still insufficiently explicit
 
 ## Regulation And Adaptation
 
@@ -119,3 +125,9 @@ naming drift, uneven doctrine, and inconsistent ownership across the system.
 
 That is why the current phase is documentation and architecture refactor before
 deeper implementation refactor.
+
+## Reading Rule
+
+When this document and the architecture docs overlap, the architecture docs
+win. This file exists to explain alignment and gaps, not to create a parallel
+source of truth.

@@ -79,10 +79,16 @@ Most important architecture documents:
 
 Most important research documents:
 
-- [Kiln Research Synthesis](docs/research/kiln-research-synthesis.md)
-- [Cybernetic Foundations](docs/research/cybernetic-foundations.md)
-- [Biological Mechanisms](docs/research/biological-mechanisms.md)
-- [Current State Mapping](docs/research/current-state-mapping.md)
+- [Kiln Research Synthesis](docs/research/01-kiln-research-synthesis.md)
+- [Cybernetic Foundations](docs/research/02-cybernetic-foundations.md)
+- [Biological Mechanisms](docs/research/03-biological-mechanisms.md)
+- [Current State Mapping](docs/research/04-current-state-mapping.md)
+- [Memory Systems](docs/research/05-memory-systems.md)
+- [Safety Defense](docs/research/06-safety-defense.md)
+- [Regulation And Adaptation](docs/research/07-regulation-and-adaptation.md)
+- [Context Governance](docs/research/08-context-governance.md)
+- [Tool Execution And Trust](docs/research/09-tool-execution-and-trust.md)
+- [Coordination Intelligence](docs/research/10-coordination-intelligence.md)
 
 ## Packages
 

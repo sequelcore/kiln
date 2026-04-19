@@ -14,7 +14,7 @@ Start in this order:
 2. [Identity](architecture/identity.md)
 3. [Control Model](architecture/control-model.md)
 4. [Invariants](architecture/invariants.md)
-5. [Research Synthesis](research/kiln-research-synthesis.md)
+5. [Research Synthesis](research/01-kiln-research-synthesis.md)
 
 Then continue with the subsystem and flow docs:
 

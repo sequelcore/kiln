@@ -113,8 +113,8 @@ Do not use it this way:
 
 See:
 
-- [Biological Mechanisms](research/biological-mechanisms.md)
-- [Cybernetic Foundations](research/cybernetic-foundations.md)
+- [Biological Mechanisms](research/03-biological-mechanisms.md)
+- [Cybernetic Foundations](research/02-cybernetic-foundations.md)
 
 ## Transitional Note
 
