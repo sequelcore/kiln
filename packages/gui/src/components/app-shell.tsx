@@ -19,6 +19,10 @@ const GATEWAY_BASE = "/gui-api";
 
 function toWsUrl(path: string): string {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const gatewayPort = import.meta.env.VITE_GATEWAY_PORT as string | undefined;
+  if (import.meta.env.DEV && gatewayPort) {
+    return `${protocol}//${window.location.hostname}:${gatewayPort}${path}`;
+  }
   return `${protocol}//${window.location.host}${path}`;
 }
 

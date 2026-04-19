@@ -72,7 +72,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
 
   let viteDevChild: ChildProcess | undefined;
   if (mode === "dev") {
-    viteDevChild = spawnGuiDevServer(cwd, guiPort);
+    viteDevChild = spawnGuiDevServer(cwd, guiPort, gateway.port);
   }
 
   const gatewayUrl = `http://localhost:${gateway.port}/gui/`;
@@ -165,8 +165,8 @@ async function loadSessionDetail(transcriptStore: TranscriptStore, sessionId: st
   };
 }
 
-function buildSessionTitle(task: string, provider: string): string {
-  if (task.trim().length > 0) {
+function buildSessionTitle(task: string | undefined, provider: string): string {
+  if (task && task.trim().length > 0) {
     return task;
   }
   return `${toProviderLabel(provider)} session`;
@@ -222,7 +222,7 @@ function resolveGuiMode(cwd: string, explicitMode: GuiFlags["mode"]): "dev" | "p
   return existsSync(distIndexPath) ? "prod" : "dev";
 }
 
-function spawnGuiDevServer(cwd: string, guiPort: number): ChildProcess {
+function spawnGuiDevServer(cwd: string, guiPort: number, gatewayPort: number): ChildProcess {
   const guiWorkspacePath = join(cwd, "packages", "gui");
   if (!existsSync(join(guiWorkspacePath, "package.json"))) {
     throw new Error(`GUI workspace not found at ${guiWorkspacePath}`);
@@ -230,7 +230,12 @@ function spawnGuiDevServer(cwd: string, guiPort: number): ChildProcess {
 
   const child = spawn("bun", ["run", "--cwd", "packages/gui", "dev", "--", "--port", String(guiPort)], {
     cwd,
-    env: { ...process.env, GUI_PORT: String(guiPort) },
+    env: {
+      ...process.env,
+      GUI_PORT: String(guiPort),
+      GUI_GATEWAY_PORT: String(gatewayPort),
+      VITE_GATEWAY_PORT: String(gatewayPort),
+    },
     stdio: ["ignore", "pipe", "pipe"],
   });
 
