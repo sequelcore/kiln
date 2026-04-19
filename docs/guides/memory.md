@@ -1,36 +1,37 @@
-# Memory
+# Memory Operations
 
-Memory provides persistent, scope-based storage across five isolation boundaries. Agents read from and write to memory automatically during each session; no explicit memory management code is required in application logic.
+Use this guide for memory configuration, runtime behavior, and operator-facing
+API surfaces. For doctrine and system role, start with:
 
-Sources: `packages/core/src/memory/`, `packages/core/src/engine/domain/memory.ts`
+- [Memory](../architecture/memory.md)
+- [Context Governance](../architecture/context-governance.md)
 
----
+Sources: `packages/core/src/memory/`,
+`packages/core/src/engine/domain/memory.ts`
 
-## Overview
+## What This Guide Covers
 
-The `Memory` interface exposes three operations: `store`, `recall`, and `forget`. The engine handles the rest:
+Memory operations answer four practical questions:
 
-- **Auto-capture:** Agents decide what to store after each significant action and write entries to the appropriate scope.
-- **Auto-recall:** All declared scopes are queried with the current task context at the start of each turn. Results are prepended to the agent's context window.
-- **Token budgets:** The `budget` parameter on `recall()` limits the total token count of returned entries, preventing context overflow.
+- which scopes are enabled for an app
+- where those scopes are stored
+- how recall, compaction, and sync behave at runtime
+- which APIs and hooks expose the stored entries
 
----
+## Scope Configuration
 
-## Scopes
-
-| Scope | Pattern | Backend | Sync | Purpose |
-|-------|---------|---------|------|---------|
-| `user` | literal `user` | SQLite at `~/.kiln/memory.db` | Local | User preferences, standards, style |
-| `agent:{name}` | `agent:` + agent name | SQLite at `~/.kiln/agents/{name}.db` | Local | Per-agent patterns with exponential decay |
+| Scope | Pattern | Backend | Sync | Typical use |
+|-------|---------|---------|------|-------------|
+| `user` | literal `user` | SQLite at `~/.kiln/memory.db` | Local | User preferences and operator defaults |
+| `agent:{name}` | `agent:` + agent name | SQLite at `~/.kiln/agents/{name}.db` | Local | Per-agent working patterns |
 | `team:{name}` | `team:` + team name | SQLite at `~/.kiln/teams/{name}.db` | Local | Team conventions |
-| `project:{id}` | `project:` + identifier | Gzipped JSONL in `{projectDir}/` | Git-synced | Project knowledge, shared across developers |
+| `project:{id}` | `project:` + identifier | Gzipped JSONL in `{projectDir}/` | Git-synced | Shared project knowledge |
 | `org` | literal `org` | Gzipped JSONL in `{projectDir}/org/` | Git-synced | Organization-wide standards |
 
-Each scope is physically isolated: two Apps with `agent:architect` scopes use different SQLite databases because each App gets its own memory base path (`~/.kiln/gateway/{appName}/`).
+Each scope is physically isolated. Two apps using `agent:architect` do not
+share a database unless they share the same configured memory base path.
 
----
-
-## YAML Configuration
+## `app.yaml`
 
 ```yaml
 memory:
@@ -46,110 +47,67 @@ memory:
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `scopes` | `string[]` | Yes | Active scopes. Scopes not listed are inaccessible to the App. At least one required. |
-| `backend` | `string` | Yes | Storage backend. See options below. |
-| `sync` | `string` | No | `git` enables push/pull of `project:` and `org` scopes. Omit for local-only deployments. |
+| `scopes` | `string[]` | Yes | Enabled memory scopes. Scopes not listed are inaccessible. |
+| `backend` | `string` | Yes | Storage backend. |
+| `sync` | `string` | No | `git` enables sync for `project:` and `org` scopes. |
 
-**Backends:**
+Supported backends:
 
-| Value | Use Case |
-|-------|---------|
-| `sqlite+fts5` | Default. Local deployments, single-node, full-text search via FTS5. |
-| `postgresql` | Multi-node deployments with shared memory across Gateway instances. |
+- `sqlite+fts5` for local or single-node deployments
+- `postgresql` for shared multi-node deployments
 
----
+## Runtime Behavior
 
-## Auto-Capture and Auto-Recall
+### Auto-capture
 
-**Auto-capture** occurs after each agent action. The agent evaluates the action result and, if it contains useful information, writes a `MemoryEntry` with tags that describe the content category. Entries include an `id`, `content`, `tags`, `createdAt`, and optional `metadata`.
+After a significant action, the agent may persist a `MemoryEntry` with tags and
+metadata. Application code does not manually orchestrate this for normal
+session flow.
 
-**Auto-recall** runs at the start of each turn. The engine queries all declared scopes with the current task context as the query string. Results are returned ordered by relevance (FTS5 BM25 ranking for SQLite stores) and prepended to the agent's context window.
+### Auto-recall
 
-The `budget` parameter on `recall()` specifies a token limit. The store returns entries in relevance order until the budget is reached. This prevents recall from consuming the entire context window on large memory stores.
+At the start of each turn, declared scopes are queried with the current task
+context. Results are ranked and injected subject to budget limits.
 
----
+### Budgets
 
-## Decay Curves
+`recall()` accepts an optional token budget. Results are returned in relevance
+order until the budget is exhausted.
 
-Agent-scoped memories (`agent:{name}`) use configurable exponential decay. Relevance scores degrade over time so that recent patterns carry more weight than old ones.
+### Decay
 
-Three decay curves are available:
+Agent scopes can apply decay during recall scoring so recent patterns outrank
+stale ones. Supported curves are `exponential`, `linear`, and `step`.
 
-| Curve | Formula | Behavior |
-|-------|---------|---------|
-| `exponential` | `score * e^(-λt)` | Continuous, smooth decay. Default for agent scopes. |
-| `linear` | `score * max(0, 1 - λt)` | Linear decay to zero at a fixed horizon. |
-| `step` | `score` if `t < threshold`, else `0` | Binary: full relevance until a cutoff, then zero. |
+### Compaction
 
-The decay rate `λ` and half-life are configurable per store. Decay applies to the recall scoring only; the underlying entry is not modified or deleted by decay.
-
----
-
-## Auto-Compaction
-
-When a memory store exceeds a configurable entry threshold, `MemoryCompactor` runs automatically:
-
-1. Groups entries by tag.
-2. Produces a deterministic summary of each group using an LLM call.
-3. Writes the summary as a new entry with a `compacted` tag.
-4. Archives the original entries (marks them inactive rather than deleting them).
-
-Compaction reduces the number of entries returned by recall, keeping context injection lean as agents accumulate experience over many sessions.
-
----
+When a store exceeds its configured threshold, `MemoryCompactor` can summarize
+tag groups into compacted entries and archive the originals as inactive.
 
 ## Git Sync
 
-`project:{id}` and `org` scopes are stored as gzipped JSONL files in the project directory. When `sync: git` is declared:
+`project:{id}` and `org` scopes can be flushed to gzipped JSONL in the project
+directory when `sync: git` is enabled.
 
-- **On session end:** New entries are flushed to the JSONL file and committed to the local git repository.
-- **On session start:** The latest committed JSONL is loaded, pulling in entries written by other developers.
-
-This mechanism allows teams working on the same codebase to share project knowledge without a centralized server.
-
-**Private tag stripping:** Any entry tagged `<private>` is stripped before writing to a git-synced scope. Use `<private>` for sensitive values (API keys, personal notes) that must stay local.
-
-```typescript
-// Entry with private tag — never written to git
-{
-  content: "Personal API key pattern",
-  tags: ["credentials", "<private>"],
-}
-```
-
----
-
-## Token Budgets
-
-Each `recall()` call accepts an optional `budget` parameter (in tokens). The store returns entries in relevance order, stopping before the budget is exceeded.
-
-Declare budgets at the orchestrator level to control how much memory each agent receives per turn. Without a budget, the store returns all matching entries, which can overflow the context window on long-running projects.
-
----
+- session end writes new entries to the synced store
+- session start loads the latest committed state
+- entries tagged `<private>` are stripped before git-backed persistence
 
 ## Multi-Tenant Isolation
 
-In multi-tenant deployments, `SqliteMemoryStore` automatically tags every entry with the tenant ID at write time and filters by tenant ID at read time. Cross-tenant queries are blocked at the store level; a query from tenant A will never return entries written by tenant B, even if they use the same scope name.
-
-This enforcement is transparent to agents and capabilities — isolation happens inside the store implementation, not in the application layer.
-
----
+Tenant isolation is enforced inside the store implementation. Entries are
+tagged with tenant identity at write time and filtered at read time, so queries
+for one tenant do not surface another tenant's data.
 
 ## Memory API
 
-The Gateway exposes production memory routes at `/api/memory`, available in all modes (dev and production):
+The Gateway exposes memory routes at `/api/memory` in all modes, and mirrors
+them at `/dev/memory` for Studio and debugger surfaces in dev mode.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/memory/:scope` | List memory entries for a scope. Accepts optional `q` (query) and `tags` query params. |
+| `GET` | `/api/memory/:scope` | List memory entries for a scope. Supports `q` and `tags`. |
 | `POST` | `/api/memory` | Create a memory entry. Returns `{ id }`. |
-| `DELETE` | `/api/memory/:id` | Delete a memory entry by ID. Returns `{ ok: true }` or 404. |
+| `DELETE` | `/api/memory/:id` | Delete a memory entry by ID. |
 
-The SDK's `useKilnMemory` hook targets these routes. In dev mode, the same endpoints are also mirrored at `/dev/memory` for Studio and the inline debugger.
-
-The Gateway creates three SQLite stores (one per layer: `user`, `agent`, `project`) under `{memoryBasePath}/`. The memory routes delegate to these stores.
-
-`SqliteMemoryStore` exposes two methods used by the memory API:
-
-- **`listEntries(options?)`** — Scans entries without FTS, ordered by `last_accessed_at DESC`. Accepts optional `limit` and `tags` (comma-separated) filters. Respects tenant isolation when configured.
-- **`hasEntry(id)`** — Checks if an entry exists by primary key. Used by `DELETE /api/memory/:id` to locate which layer store holds the entry.
+The SDK's `useKilnMemory` hook targets the same surface.

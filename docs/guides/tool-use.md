@@ -1,6 +1,14 @@
-# Tool Use
+# Tool Use Operations
 
-Kiln uses the same core pattern for every tool category: publish a schema to the model, authorize the call, execute it inside the runtime boundary, and feed a structured result back into the loop. That keeps tool use inspectable and portable across webhook tools, integration adapters, MCP-connected tools, and the native developer tool stack.
+Use this guide for tool configuration, execution flow, and runtime behavior. For
+the architectural role of tool execution, start with:
+
+- [Tool Execution](../architecture/tool-execution.md)
+- [Safety](../architecture/safety.md)
+
+Kiln uses the same runtime loop for every tool category: publish the schema,
+authorize the call, execute it inside the runtime boundary, and inject the
+structured result back into the session.
 
 Sources: `packages/core/src/engine/domain/capability.ts`, `packages/core/src/engine/domain/tool-execution.ts`, `packages/core/src/orchestrator/orchestrator.ts`, `packages/core/src/security/annotation-authorizer.ts`, `packages/core/src/tools/domain/tool.ts`, `packages/core/src/tools/domain/tool-registry.ts`, `packages/core/src/tools/domain/tool-environment.ts`, `packages/core/src/tools/infrastructure/*.ts`, `packages/core/src/tools/tool-executor.ts`, `packages/core/src/tools/mcp/dev-tools-server.ts`, `packages/cli/src/wrapper/session.ts`, `packages/cli/src/wrapper/session-registry.ts`
 

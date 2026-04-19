@@ -116,8 +116,7 @@ See:
 - [Biological Mechanisms](research/03-biological-mechanisms.md)
 - [Cybernetic Foundations](research/02-cybernetic-foundations.md)
 
-## Transitional Note
+## Guide Relationship
 
-Some older guides still reference primitives, composites, or orchestration-first
-language. Those materials should be treated as historical residue unless they
-are explicitly aligned with the modular architecture docs.
+The conceptual vocabulary lives here and in the modular architecture docs.
+Operational guides should assume this vocabulary rather than redefine it.

@@ -13,8 +13,9 @@
   Runtime configuration reference.
 
 - [Guides](guides/channels.md)
-  Operational and usage documentation. During refactor, guides are still being
-  cleaned to remove doctrinal overlap.
+  Operational and usage documentation. Architecture doctrine lives under
+  `docs/architecture/`; guides focus on configuration, workflows, and runtime
+  behavior.
 
 - [Roadmap](roadmap/README.md)
   Refactor policy, execution sequence, and taxonomy freeze.
@@ -43,8 +44,9 @@ Start here for Kiln identity and system design:
 
 ## Guides
 
-Current operational guides remain under `docs/guides/` and are being aligned to
-the new architecture and terminology.
+Current operational guides remain under `docs/guides/` and are aligned to the
+current architecture and terminology. Use architecture docs for doctrine and
+guides for operator-facing behavior.
 
 High-use guides today:
 
@@ -61,8 +63,7 @@ High-use guides today:
 
 ## ADR
 
-Architecture decisions remain under `docs/adr/` and are scheduled for cleanup
-and renumbering during the documentation refactor.
+Architecture decisions live under `docs/adr/` as the normalized decision log.
 
 ## Other
 

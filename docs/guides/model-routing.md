@@ -1,10 +1,20 @@
-# Model Routing
+# Model Routing Operations
+
+Use this guide for tenant routing rules, complexity scoring, and emitted
+routing events. For doctrine and placement in the control loop, start with:
+
+- [Control Model](../architecture/control-model.md)
+- [Coordination](../architecture/coordination.md)
+
+Kiln selects the model for each request based on complexity, agent tier, budget
+constraints, and tenant-level routing rules. If routing fails, the tenant's
+default provider and model are used.
 
 ## Overview
 
-Kiln selects the optimal LLM model on every request based on query complexity, agent tier, budget constraints, and tenant-level routing rules. The goal is straightforward: use the cheapest model that can handle the query without degrading quality.
-
-Model routing runs inside `ModeBOrchestrator.processMessage()` before the LLM call. It is fail-open -- if routing fails for any reason, the tenant's default provider and model are used. The routing decision is emitted as both an internal EventBus event (`model_routed`) and an external conversation event (`MODEL_ROUTED`).
+Model routing runs inside `ModeBOrchestrator.processMessage()` before the LLM
+call. Each routing decision is emitted as both an internal EventBus event
+(`model_routed`) and an external conversation event (`MODEL_ROUTED`).
 
 ## Model Capability Registry
 

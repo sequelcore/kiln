@@ -92,10 +92,9 @@ Terms to remove from active framing:
 
 ### Guides
 
-- `docs/guides/README.md`
-- `docs/guides/getting-started.md`
-- `docs/guides/cli.md`
 - `docs/guides/channels.md`
+- `docs/guides/cli-wrapper.md`
+- `docs/guides/coordination-intelligence.md`
 - `docs/guides/delegation.md`
 - `docs/guides/domains.md`
 - `docs/guides/enrichment.md`
@@ -104,11 +103,15 @@ Terms to remove from active framing:
 - `docs/guides/global-config.md`
 - `docs/guides/hooks.md`
 - `docs/guides/knowledge.md`
-- `docs/guides/runtime-operations.md`
+- `docs/guides/memory.md`
+- `docs/guides/model-routing.md`
+- `docs/guides/multi-agent.md`
 - `docs/guides/multi-tenant.md`
 - `docs/guides/observability.md`
 - `docs/guides/plan-mode.md`
+- `docs/guides/safety.md`
 - `docs/guides/skills.md`
+- `docs/guides/tool-use.md`
 - `docs/guides/triggers.md`
 - `docs/guides/tui.md`
 
@@ -124,21 +127,23 @@ Terms to remove from active framing:
 
 ### ADR
 
-- `docs/adr/ADR-001-kiln-control-plane-identity.md`
+- `docs/adr/ADR-001-neural-field-orchestration.md`
 - `docs/adr/ADR-002-subprocess-integration.md`
-- `docs/adr/ADR-003-tui-gateway-architecture.md`
-- `docs/adr/ADR-004-budgeted-context-governance.md`
+- `docs/adr/ADR-003-meta-orchestrator-model.md`
+- `docs/adr/ADR-004-budgeted-sufficient-context-orchestration.md`
+- `docs/adr/ADR-005-freeze-tui-prioritize-gui.md`
+- `docs/adr/ADR-006-gui-stack-and-binding-contract.md`
+- `docs/adr/ADR-007-tui-gateway-architecture.md`
 
 ### Roadmap
 
 - `docs/roadmap/README.md`
-- `docs/roadmap/01-docs-reset-plan.md`
-- `docs/roadmap/02-taxonomy-freeze.md`
-- `docs/roadmap/03-module-mapping.md`
-- `docs/roadmap/04-bounded-context-decisions.md`
-- `docs/roadmap/05-orchestrator-refactor-roadmap.md`
-- `docs/roadmap/06-gui-phase-1-parity-checklist.md`
-- `docs/roadmap/07-external-benchmark-validation.md`
+- `docs/roadmap/01-taxonomy-freeze.md`
+- `docs/roadmap/02-module-mapping.md`
+- `docs/roadmap/03-bounded-context-decisions.md`
+- `docs/roadmap/04-orchestrator-refactor-roadmap.md`
+- `docs/roadmap/05-gui-phase-1-parity-checklist.md`
+- `docs/roadmap/06-external-benchmark-validation.md`
 
 ## File Inventory And Disposition
 
@@ -179,38 +184,46 @@ Terms to remove from active framing:
   Destination: keep at `docs/changelog.md`
 
 - `docs/concepts.md`
-  Disposition: rewrite and reduce to a terminology glossary only
-  Destination: keep at `docs/concepts.md` only if it remains a non-doctrinal glossary; otherwise absorb into `docs/architecture/identity.md` and delete
+  Disposition: keep as high-level terminology guide
+  Destination: keep at `docs/concepts.md`
 
 - `docs/faq.md`
   Disposition: keep with terminology cleanup
   Destination: keep at `docs/faq.md`
 
 - `docs/getting-started.md`
-  Disposition: relocate and rewrite
-  Destination: `docs/guides/getting-started.md`
+  Disposition: keep as entry guide
+  Destination: keep at `docs/getting-started.md`
 
 ### ADR
 
 - `docs/adr/ADR-001-neural-field-orchestration.md`
-  Disposition: rewrite into a narrower decision or delete if superseded
-  Destination: likely replaced by a chain-governor or chain-termination ADR
+  Disposition: keep
+  Destination: current path
 
 - `docs/adr/ADR-002-subprocess-integration.md`
-  Disposition: keep with terminology cleanup
+  Disposition: keep
   Destination: `docs/adr/ADR-002-subprocess-integration.md`
 
-- `docs/adr/ADR-007-tui-gateway-architecture.md`
-  Disposition: renumber and keep
-  Destination: `docs/adr/ADR-003-tui-gateway-architecture.md`
-
 - `docs/adr/ADR-003-meta-orchestrator-model.md`
-  Disposition: delete or replace
-  Destination: superseded by control-plane identity ADR
+  Disposition: keep
+  Destination: `docs/adr/ADR-003-meta-orchestrator-model.md`
 
 - `docs/adr/ADR-004-budgeted-sufficient-context-orchestration.md`
-  Disposition: retitle and keep
-  Destination: `docs/adr/ADR-004-budgeted-context-governance.md`
+  Disposition: keep
+  Destination: `docs/adr/ADR-004-budgeted-sufficient-context-orchestration.md`
+
+- `docs/adr/ADR-005-freeze-tui-prioritize-gui.md`
+  Disposition: keep
+  Destination: `docs/adr/ADR-005-freeze-tui-prioritize-gui.md`
+
+- `docs/adr/ADR-006-gui-stack-and-binding-contract.md`
+  Disposition: keep
+  Destination: `docs/adr/ADR-006-gui-stack-and-binding-contract.md`
+
+- `docs/adr/ADR-007-tui-gateway-architecture.md`
+  Disposition: keep
+  Destination: `docs/adr/ADR-007-tui-gateway-architecture.md`
 
 ### Configuration
 
@@ -229,12 +242,12 @@ Terms to remove from active framing:
   Destination: `docs/guides/channels.md`
 
 - `docs/guides/cli-wrapper.md`
-  Disposition: rename or absorb
-  Destination: `docs/guides/cli.md`
+  Disposition: keep
+  Destination: `docs/guides/cli-wrapper.md`
 
 - `docs/guides/coordination-intelligence.md`
-  Disposition: split
-  Destination: architecture detail to `docs/architecture/coordination.md`; operational residue to `docs/guides/runtime-operations.md`
+  Disposition: keep as operational coordination guide
+  Destination: `docs/guides/coordination-intelligence.md`
 
 - `docs/guides/delegation.md`
   Disposition: keep with terminology cleanup
@@ -269,16 +282,16 @@ Terms to remove from active framing:
   Destination: `docs/guides/knowledge.md`
 
 - `docs/guides/memory.md`
-  Disposition: split
-  Destination: doctrine to `docs/architecture/memory.md`; operational content to `docs/guides/runtime-operations.md`
+  Disposition: keep as operational memory guide
+  Destination: `docs/guides/memory.md`
 
 - `docs/guides/model-routing.md`
-  Disposition: rewrite
-  Destination: likely absorbed into `docs/architecture/coordination.md` plus a smaller operational guide if still needed
+  Disposition: keep as operational routing guide
+  Destination: `docs/guides/model-routing.md`
 
 - `docs/guides/multi-agent.md`
-  Disposition: rewrite
-  Destination: operational content to `docs/guides/runtime-operations.md`; doctrine to `docs/architecture/coordination.md`
+  Disposition: keep as operational role-routing guide
+  Destination: `docs/guides/multi-agent.md`
 
 - `docs/guides/multi-tenant.md`
   Disposition: keep with terminology cleanup
@@ -293,16 +306,16 @@ Terms to remove from active framing:
   Destination: `docs/guides/plan-mode.md`
 
 - `docs/guides/safety.md`
-  Disposition: split
-  Destination: doctrine to `docs/architecture/safety.md`; operational residue to `docs/guides/runtime-operations.md`
+  Disposition: keep as operational safety guide
+  Destination: `docs/guides/safety.md`
 
 - `docs/guides/skills.md`
   Disposition: keep with terminology cleanup
   Destination: `docs/guides/skills.md`
 
 - `docs/guides/tool-use.md`
-  Disposition: split
-  Destination: doctrine to `docs/architecture/tool-execution.md`; operational residue to `docs/guides/runtime-operations.md`
+  Disposition: keep as operational tool-use guide
+  Destination: `docs/guides/tool-use.md`
 
 - `docs/guides/triggers.md`
   Disposition: keep with terminology cleanup
@@ -360,35 +373,31 @@ Terms to remove from active framing:
 
 ### Roadmap
 
-- `docs/roadmap/01-docs-reset-plan.md`
-  Disposition: keep
-  Destination: current path
-
 - `docs/roadmap/README.md`
   Disposition: keep
   Destination: current path
 
-- `docs/roadmap/02-taxonomy-freeze.md`
+- `docs/roadmap/01-taxonomy-freeze.md`
   Disposition: keep
   Destination: current path
 
-- `docs/roadmap/03-module-mapping.md`
+- `docs/roadmap/02-module-mapping.md`
   Disposition: keep
   Destination: current path
 
-- `docs/roadmap/04-bounded-context-decisions.md`
+- `docs/roadmap/03-bounded-context-decisions.md`
   Disposition: keep
   Destination: current path
 
-- `docs/roadmap/05-orchestrator-refactor-roadmap.md`
+- `docs/roadmap/04-orchestrator-refactor-roadmap.md`
   Disposition: keep
   Destination: current path
 
-- `docs/roadmap/06-gui-phase-1-parity-checklist.md`
+- `docs/roadmap/05-gui-phase-1-parity-checklist.md`
   Disposition: keep
   Destination: current path
 
-- `docs/roadmap/07-external-benchmark-validation.md`
+- `docs/roadmap/06-external-benchmark-validation.md`
   Disposition: keep
   Destination: current path
 

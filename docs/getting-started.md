@@ -42,9 +42,9 @@ Before touching code, keep these points fixed:
 The architecture and research docs under [`docs/architecture/`](architecture/README.md)
 and [`docs/research/`](research/README.md) are the active source of truth.
 
-Some operational guides under `docs/guides/` still contain older terminology and
-are being rewritten. If a guide conflicts with the modular architecture docs,
-trust the architecture docs.
+Operational guides under `docs/guides/` complement those docs with
+configuration, workflow, and runtime details. If a guide and an architecture
+doc overlap, the architecture doc defines doctrine and the guide defines usage.
 
 ## Where To Go Next
 
