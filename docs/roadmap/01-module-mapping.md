@@ -24,6 +24,8 @@ Top-level packages:
 - `packages/core`
 - `packages/runtime`
 - `packages/cli`
+- `packages/gateway-contracts`
+- `packages/gui`
 - `packages/tui`
 - `packages/sdk`
 - `packages/widget`
@@ -35,6 +37,14 @@ Primary source inventories reviewed:
 - `packages/core/src`
 - `packages/runtime/src`
 - `packages/cli/src`
+
+Additional package-level surfaces present in the repository:
+
+- `packages/gateway-contracts`
+- `packages/gui`
+
+These are real package surfaces, but this mapping remains centered on the core
+control-plane and runtime directories that drove the first refactor sequence.
 
 ## Canonical Target Subsystems
 
@@ -262,7 +272,7 @@ These areas are most likely to produce high architectural leverage first:
 
 ## Renaming Pressure
 
-Current names under the strongest pressure for replacement:
+Historical and residual names under the strongest pressure for replacement:
 
 - `orchestrator`
 - `ThresholdAllocator`
@@ -271,19 +281,35 @@ Current names under the strongest pressure for replacement:
 - `Swarm*`
 - `Router` where used as canonical architecture language
 
-These names may still exist temporarily in code, but they should not survive as
-the long-term public architecture vocabulary unless explicitly justified.
+These names should be treated as migration residue, not as the preferred public
+architecture vocabulary. Some may now survive only in legacy docs, comments, or
+isolated implementation details rather than as active exported symbols.
 
-## Next Mapping Step
+## Current Status
 
-After this inventory, the next useful artifact should be a bounded-context
-decision table per major module:
+This mapping has already been consumed by the next roadmap artifact:
 
-- keep
-- split
-- merge
-- rename
-- delete
+- [02-bounded-context-decisions.md](02-bounded-context-decisions.md)
 
-That table should be created before major code edits begin so refactors do not
-turn into broad uncontrolled churn.
+That file formalizes the keep/split/merge/rename/delete decisions that this
+inventory was meant to enable.
+
+This document remains useful as:
+
+- a path-to-subsystem translation layer
+- a snapshot of where the refactor pressure originated
+- supporting evidence for the bounded-context decisions that follow
+
+## Closure Standard
+
+This module-mapping slice is closed when all of the following are true:
+
+- the package inventory reflects the current repository package set at the level
+  relevant to this slice
+- the mapping overview still points to real module homes in the codebase
+- any follow-up decision artifact it calls for has either been created or the
+  document has been updated to reflect that it already exists
+- residual rename-pressure terms are described as migration residue, not as
+  current canonical architecture
+- the document is treated as a frozen reference for refactor sequencing rather
+  than as an open-ended planning placeholder
