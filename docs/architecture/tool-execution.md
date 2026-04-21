@@ -51,6 +51,23 @@ Current source-of-truth boundary:
 - safety/security middleware audit rows are explicitly non-authority surfaces
 - GUI/TUI operator authority indicators are read-only projections of existing
   authority state, not independent policy evaluators
+- authority evidence and dangerous-command outcomes are recorded through one
+  canonical turn-record shape across admitted surfaces
+- structured file-change evidence from runtime write and edit tools must
+  survive the executor boundary rather than being flattened away
+
+## Execution Boundary
+
+Execution adapters may host transport or session wiring, but they do not own
+execution policy.
+
+Current boundary posture:
+
+- `runtime-session-orchestrator-tool-executor` remains the canonical
+  tool-execution authority path
+- `cli-subscription-executor.ts` is a bounded operator transport adapter, not
+  a hidden execution-policy owner
+- dead executor wrappers should be deleted once no concrete caller set remains
 
 ## Runtime Projections
 

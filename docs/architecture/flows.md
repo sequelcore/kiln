@@ -15,6 +15,7 @@ paths that the control plane governs.
 2. salience classification
 3. routing and target selection
 4. operational mode check
+5. request-contract validation for the selected surface
 
 **Gates:**
 
@@ -22,10 +23,48 @@ paths that the control plane governs.
 - rate limit
 - budget
 - safety Tier 1
+- plan or tier gating when the ingress contract requires it
 
 **State transitions:** authentication state, safety state, budget state.
 
-**Fail-closed behavior:** safety Tier 1 blocks stop the request before routing.
+**Fail-closed behavior:** safety Tier 1 and request-contract failures stop the
+request before routing or session mutation.
+
+## Admitted Turn Handling
+
+**Trigger:** ingress has admitted a runtime turn.
+
+**Stages:**
+
+1. canonical admitted-turn handoff
+2. context projection
+3. turn system-prompt assembly
+4. runtime continuity presentation
+5. model and tool orchestration
+6. canonical turn-record application
+7. session save and telemetry emission
+
+**Canonical boundary:** `processAdmittedTurn(...)`
+
+**Gates:**
+
+- ingress admission must already have resolved auth, rate, budget, and any
+  request-contract tier checks
+- per-turn budget
+- tool authority and safety gates
+
+**Invariants:**
+
+- API, TUI, and GUI admitted turns all enter the same canonical runtime
+  handoff
+- surface-specific code is limited to ingress normalization, transport
+  hosting, framing, and operator activity capture
+- route and surface files must not assemble lasting runtime turn state after
+  the admitted-turn handoff
+
+**Fail-closed behavior:** malformed admitted-turn inputs, authority denial, or
+missing runtime prerequisites stop the turn before tool execution or
+persistence.
 
 ## Context Assembly
 
@@ -112,12 +151,13 @@ paths that the control plane governs.
 **Stages:**
 
 1. session initialization
-2. context assembly
-3. model invocation
-4. tool loop with repeated safety and authorization checks
-5. response assembly
-6. session update
-7. cost update
+2. canonical admitted-turn handoff when the flow is interactive
+3. context assembly
+4. model invocation
+5. tool loop with repeated safety and authorization checks
+6. response assembly
+7. session update
+8. cost update
 
 **Subprocess runtime additions:**
 

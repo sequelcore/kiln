@@ -11,6 +11,16 @@ This is not formatting. It is a control function.
 
 `ContextGovernor` is the intended owner of context assembly.
 
+Current runtime stop point:
+
+- admitted-turn runtime context assembly already converges on explicit
+  runtime-owned seams for context projection, turn system-prompt assembly, and
+  runtime continuity presentation
+- the remaining architectural question is whether a shared cross-package
+  governance contract is worth introducing later
+- runtime bypass is no longer the problem; hidden secondary policy owners are
+  the problem
+
 Context policy should not remain fragmented across:
 
 - prompt builders
@@ -18,6 +28,8 @@ Context policy should not remain fragmented across:
 - loaders
 - session managers
 - orchestration helpers
+- route handlers
+- transport gateways
 
 ## Inputs
 
@@ -59,8 +71,8 @@ selection, not implicit LLM luck.
 
 ## Current Problems
 
-- no single owner today
-- context decisions are spread across multiple files
+- no literal single cross-package owner is implemented end to end yet
+- context decisions are still spread across some legacy seams
 - complexity scoring does not fully govern context allocation
 - tool and knowledge relevance are not yet unified under one bottleneck owner
 
@@ -73,6 +85,15 @@ The target design is:
 - one ranking policy
 - one truncation policy
 - one audit trail for context assembly decisions
+
+## Boundary Rules
+
+- ingress and route layers may normalize input, but they must not own lasting
+  turn context assembly after admission
+- session managers may surface continuity artifacts, but they must not become a
+  second context-policy center
+- runtime support seams should emit context and continuity presentation from
+  dedicated owners, not from local helper formatting
 
 ## Invariants
 

@@ -150,7 +150,7 @@ Before Ricardo approves TUI deletion:
 1. Every row 1.x through 7.x (excluding rows marked out of scope) is ✅ in the current `main` build of `@kilnai/gui`.
 2. A manual walkthrough of all rows is recorded (script or video).
 3. A dedicated e2e suite `packages/gui/tests/parity/` exists with at least one test per category (1 through 6). Category 7 is covered by CLI-integration tests.
-4. `docs/roadmap/02-gui-phase-1-parity-checklist.md` is updated on the PR that flips the last ☐ to ✅, and the PR body references ADR-005 Law 8.
+4. `docs/roadmap/01-gui-phase-1-parity-checklist.md` is updated on the PR that flips the last ☐ to ✅, and the PR body references ADR-005 Law 8.
 5. Deletion PR removes `packages/tui/`, its workspace wiring, the `kiln tui` command in `packages/cli/`, and the TUI gateway if no non-GUI consumer remains. Runtime session/gateway code stays.
 
 ---

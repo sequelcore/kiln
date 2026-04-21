@@ -117,8 +117,9 @@ tool output, and model output.
 
 ## Orchestration
 
-**Responsibility:** Run the agent loop, invoke providers, execute tool loops,
-enforce gates, manage checkpoints, and emit turn-level events.
+**Responsibility:** Run the agent loop, own the canonical admitted-turn
+handoff, invoke providers, execute tool loops, enforce gates, manage
+checkpoints, and emit turn-level events.
 
 **Inputs:** `AssembledContext`, `AgentTarget`, session configuration.
 
@@ -128,10 +129,13 @@ enforce gates, manage checkpoints, and emit turn-level events.
 
 **Invariants:**
 
+- admitted API, TUI, and GUI turns converge on one canonical runtime handoff
 - every tool call goes through authorization and policy
 - safety scans tool results before reinjection
 - deny-by-default tool execution remains in force
 - phase gates block entry instead of retroactive abortion
+- transport gateways do not keep a separate long-lived turn pipeline after
+  admission
 
 **Failure modes:**
 
