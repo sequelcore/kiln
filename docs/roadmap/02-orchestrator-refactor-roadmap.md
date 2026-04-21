@@ -76,11 +76,13 @@ Confirmed architectural findings:
   runtime, but the open problem is no longer runtime bypass; it is whether a
   shared cross-package governance contract is worth introducing later
 - authority-decision capture now includes TUI and GUI turn capture plus
-  first-class dangerous-command outcome evidence in the canonical turn record;
-  the remaining T5 work is final parity review, not a missing evidence lane
+  first-class dangerous-command outcome evidence in the canonical turn record,
+  and the focused final T5 parity review found no remaining non-operator shape
+  drift
 - `packages/runtime/src/execution` no longer has the prior dead wrapper set,
-  but `cli-subscription-executor.ts` still needs a final transport-boundary
-  review after the current hardening cut
+  and the focused T4 transport-boundary review confirmed
+  `cli-subscription-executor.ts` is now a bounded one-shot transport adapter
+  rather than a hidden execution-policy owner
 - T1.A completed: admitted TUI and GUI turns now route through the shared
   `processAdmittedTurn(...)` handoff instead of duplicating local
   `runtimeSupport + orchestrator.processMessage + applyRuntimeTurnRecord +
@@ -139,6 +141,12 @@ Progress recorded:
 - `bun run --cwd packages/runtime vitest run tests/session/runtime-session-orchestrator.test.ts tests/session/runtime-session-orchestrator-tools.test.ts --maxWorkers=1`
   passed after the structured `fileChanges` extraction drift was fixed at the
   runtime tool-executor boundary
+- `bun run --cwd packages/runtime vitest run tests/execution/cli-subscription-executor.test.ts tests/gateway/tui-gateway.test.ts tests/gateway/tui-gateway-authority.test.ts tests/gateway/gui-gateway.test.ts tests/gateway/provider-adapter-routes.test.ts --maxWorkers=1`
+  passed after the final T4 transport-boundary review confirmed the surviving
+  CLI subscription executor is only transport/session orchestration
+- `bun run typecheck && bun run --cwd packages/runtime vitest run tests/session/runtime-turn-record.test.ts tests/gateway/message-pipeline.test.ts tests/gateway/tui-gateway-authority.test.ts tests/gateway/gui-gateway-authority.test.ts --maxWorkers=1`
+  passed after the final T5 parity review confirmed no remaining
+  non-operator authority-evidence shape drift
 - `bun run typecheck` passed after the T4/T5 stop point
 
 ## Constraints
@@ -396,7 +404,7 @@ Closure note:
 
 ### T4: Collapse duplicate execution abstractions
 
-Status: partially complete.
+Status: completed.
 
 Goal:
 
@@ -427,17 +435,20 @@ Completed work:
 - reviewed `runtime/src/gateway/operator-gateway.ts` and kept it intentionally
   as a public alias for now because it still anchors external/runtime entry
   points; no extra shim layer was introduced
+- confirmed by focused review and execution/gateway tests that the surviving
+  `cli-subscription-executor.ts` boundary is already reduced to transport
+  hosting, session lifecycle, and API-shape compatibility rather than hidden
+  execution policy
 
-Remaining intent:
+Closure note:
 
-- verify whether the surviving CLI subscription boundary can be reduced further
-  without hiding execution policy behind a transport adapter
-- keep deleting wrapper-shaped files when they do not have a concrete caller
-  set or ownership reason
+- further extraction from `cli-subscription-executor.ts` would create thinner
+  files without improving ownership, so T4 closes here unless a new concrete
+  caller or policy leak appears later
 
 ### T5: Unify authority and audit recording
 
-Status: partially complete.
+Status: completed.
 
 Goal:
 
@@ -472,11 +483,14 @@ Completed work:
 - structured `fileChanges` metadata for runtime `write` and `edit` tool
   executions now survives the executor boundary and reaches canonical turn
   evidence instead of being dropped by stringification drift
+- focused final parity review confirmed non-operator admitted paths land on the
+  same canonical authority-evidence shape as operator surfaces before turn
+  persistence
 
-Remaining intent:
+Closure note:
 
-- verify whether any non-operator admitted path still emits authority evidence
-  in a shape that diverges from the shared turn-record contract
+- the remaining future work in this area is no longer turn-evidence parity; it
+  is whatever new behavior might be introduced by later product slices
 
 ## Execution Order
 
