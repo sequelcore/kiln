@@ -20,6 +20,10 @@ is documented by concern, not as a single monolith.
   Major architectural subsystems, responsibilities, owned state, invariants,
   and failure modes.
 
+- `bounded-context-decisions.md`
+  Canonical bounded-context keep/split/merge/rename/delete decisions for major
+  packages and modules.
+
 - `flows.md`
   Canonical end-to-end flows and their gates, state transitions, and
   fail-closed or recovery behavior.

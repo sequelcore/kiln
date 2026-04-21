@@ -114,7 +114,7 @@ Progress recorded:
 - public exports no longer expose swarm strategy APIs
 - typecheck passed after the current O1, O2, O4, and O5 cuts
 - bounded-context doctrine for turn-flow unification is now captured in
-  `01-bounded-context-decisions.md`
+  `docs/architecture/bounded-context-decisions.md`
 - `bun run typecheck` passed after the T1.A handoff convergence cut
 - `bun run --filter @kilnai/runtime test -- tests/gateway/provider-adapter-routes.test.ts tests/gateway/message-pipeline.test.ts`
   passed after the T1.B route-thinning cut
