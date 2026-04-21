@@ -1,3 +1,4 @@
+import type { GuiTelemetrySnapshot } from "@kilnai/gateway-contracts";
 import type { ReactNode } from "react";
 import type { ChangedFileEntry, ProviderUsage, RuntimeContinuityInfo, SessionStatus } from "../lib/session-store.js";
 
@@ -11,6 +12,7 @@ interface SessionTelemetryProps {
   readonly perProviderUsage: Readonly<Record<string, ProviderUsage>>;
   readonly runtimeContinuity: RuntimeContinuityInfo | null;
   readonly changedFiles: readonly ChangedFileEntry[];
+  readonly fieldTelemetry: GuiTelemetrySnapshot | null;
 }
 
 function formatCurrency(value: number): string {
@@ -45,10 +47,16 @@ function Section(props: { readonly title: string; readonly children: ReactNode }
 export function SessionTelemetry(props: SessionTelemetryProps) {
   const providerEntries = Object.entries(props.perProviderUsage);
   const showProviderBreakdown = providerEntries.length >= 2;
+  const fieldStatus = props.fieldTelemetry?.status ?? "idle";
+  const dominantRegions = props.fieldTelemetry?.dominantRegions?.length
+    ? props.fieldTelemetry.dominantRegions.slice(0, 3).join(", ")
+    : "--";
+  const saturation = `${Math.round((props.fieldTelemetry?.saturation ?? 0) * 100)}%`;
+  const entropy = (props.fieldTelemetry?.entropy ?? 0).toFixed(2);
 
   return (
     <div className="border-b border-[var(--color-border)] bg-[var(--color-background)] px-4 py-3">
-      <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-5">
         <Section title="Cost">
           {props.status === "running" ? (
             <p className="text-sm text-[var(--color-text-muted)]">thinking...</p>
@@ -85,6 +93,14 @@ export function SessionTelemetry(props: SessionTelemetryProps) {
             <p>why: {props.runtimeContinuity?.fallbackLabel ?? "--"}</p>
             <p>used: {props.runtimeContinuity?.supportArtifactSources?.length ? (props.runtimeContinuity.usedCachedSupport ? "selected" : "available-only") : "--"}</p>
             <p>sel: {props.runtimeContinuity?.selectionReason ?? "--"}</p>
+          </div>
+        </Section>
+
+        <Section title="Field">
+          <div className="space-y-1 text-xs text-[var(--color-text)]">
+            <p>field [{fieldStatus}]</p>
+            <p>dom: {dominantRegions}</p>
+            <p>sat: {saturation}  H: {entropy}</p>
           </div>
         </Section>
 

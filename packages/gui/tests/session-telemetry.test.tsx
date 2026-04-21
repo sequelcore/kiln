@@ -35,6 +35,12 @@ describe("SessionTelemetry", () => {
             recordedAt: "2026-04-21T00:00:00.000Z",
           },
         ]}
+        fieldTelemetry={{
+          status: "stable",
+          dominantRegions: ["routing", "memory", "tools"],
+          saturation: 0.42,
+          entropy: 1.37,
+        }}
       />,
     );
 
@@ -44,6 +50,9 @@ describe("SessionTelemetry", () => {
     expect(screen.getByText("tok: 4.2k/1.1k")).toBeInTheDocument();
     expect(screen.getByText("resume: cache-first · applied")).toBeInTheDocument();
     expect(screen.getByText("srcs: session, project")).toBeInTheDocument();
+    expect(screen.getByText("field [stable]")).toBeInTheDocument();
+    expect(screen.getByText("dom: routing, memory, tools")).toBeInTheDocument();
+    expect(screen.getByText((content) => content.includes("sat: 42%") && content.includes("H: 1.37"))).toBeInTheDocument();
     expect(screen.getByText("~ app-shell.tsx +12-4")).toBeInTheDocument();
   });
 
@@ -59,6 +68,7 @@ describe("SessionTelemetry", () => {
         perProviderUsage={{}}
         runtimeContinuity={null}
         changedFiles={[]}
+        fieldTelemetry={null}
       />,
     );
 

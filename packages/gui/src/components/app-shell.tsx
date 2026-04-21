@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { GuiInboundFrame, GuiSessionListResponse } from "@kilnai/gateway-contracts";
+import { GuiGatewayClient } from "../api/client.js";
 import { useGuiWs } from "../lib/use-gui-ws.js";
 import { waitForGateway } from "../lib/wait-for-gateway.js";
 import { useSessionStore } from "../lib/session-store.js";
@@ -161,6 +162,7 @@ export function AppShell() {
   }, []);
 
   const wsUrl = useMemo(() => toWsUrl("/gui/ws"), []);
+  const gatewayClient = useMemo(() => new GuiGatewayClient(window.location.origin), []);
 
   const { state: wsState, send } = useGuiWs(wsUrl, {
     onFrame: (frame: GuiInboundFrame) => {
@@ -221,6 +223,13 @@ export function AppShell() {
     queryKey: ["gui", "sessions", activeProvider, turnCounter],
     queryFn: () => fetchSessions(activeProvider ?? ""),
     enabled: gatewayReady && Boolean(activeProvider),
+  });
+
+  const dashboardQuery = useQuery({
+    queryKey: ["gui", "dashboard", gatewayReady ? "ready" : "waiting"],
+    queryFn: async () => gatewayClient.loadDashboard(),
+    enabled: gatewayReady,
+    refetchInterval: 2_000,
   });
 
   useEffect(() => {
@@ -367,6 +376,7 @@ export function AppShell() {
             perProviderUsage={perProviderUsage}
             runtimeContinuity={runtimeContinuity}
             changedFiles={changedFiles}
+            fieldTelemetry={dashboardQuery.data?.telemetry ?? null}
           />
           <ApprovalQueue
             queue={approvalQueue}
