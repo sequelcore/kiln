@@ -36,6 +36,7 @@ import {
   applyRuntimeTurnRecord,
   type RuntimeTurnApprovalTransition,
   type RuntimeTurnAuthorityDecision,
+  type RuntimeTurnDangerousCommandOutcome,
   type RuntimeTurnFileChange,
 } from "../session/runtime-turn-record.js";
 import { resolveAgentContextAsync } from "../tenant/agent-resolver.js";
@@ -114,12 +115,14 @@ export interface AdmittedTurnContext {
         readonly fileChanges?: readonly RuntimeTurnFileChange[];
         readonly approvalTransitions?: readonly RuntimeTurnApprovalTransition[];
         readonly authorityDecisions?: readonly RuntimeTurnAuthorityDecision[];
+        readonly dangerousCommandOutcomes?: readonly RuntimeTurnDangerousCommandOutcome[];
       }
       | undefined
       | Promise<{
         readonly fileChanges?: readonly RuntimeTurnFileChange[];
         readonly approvalTransitions?: readonly RuntimeTurnApprovalTransition[];
         readonly authorityDecisions?: readonly RuntimeTurnAuthorityDecision[];
+        readonly dangerousCommandOutcomes?: readonly RuntimeTurnDangerousCommandOutcome[];
       } | undefined>
     );
     readonly abort?: (sessionId: string) => void | Promise<void>;
@@ -221,6 +224,43 @@ function dedupeByStableKey<T>(items: readonly T[], toKey: (item: T) => string): 
     deduped.push(item);
   }
   return deduped;
+}
+
+function dangerousCommandOutcomeFromExecution(
+  execution: ToolExecutionSummary,
+): RuntimeTurnDangerousCommandOutcome | undefined {
+  if (execution.success) {
+    return undefined;
+  }
+  const summary = execution.resultSummary.trim();
+  const denyPrefix = "Dangerous command blocked: ";
+  const askPrefix = "Command requires approval: ";
+  let action: "ask" | "deny";
+  let details: string;
+  if (summary.startsWith(denyPrefix)) {
+    action = "deny";
+    details = summary.slice(denyPrefix.length);
+  } else if (summary.startsWith(askPrefix)) {
+    action = "ask";
+    details = summary.slice(askPrefix.length);
+  } else {
+    return undefined;
+  }
+  const match = /^(.*)\s+\(([^()]+)\)$/.exec(details);
+  if (!match) {
+    return undefined;
+  }
+  const reason = match[1]?.trim();
+  const reasonCode = match[2]?.trim();
+  if (!reason || !reasonCode) {
+    return undefined;
+  }
+  return {
+    toolName: execution.toolName,
+    action,
+    reasonCode,
+    reason,
+  };
 }
 
 interface AdmittedTurnContextProjectionInput {
@@ -629,6 +669,14 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     ...authorityDecisions,
     ...(externalTurnCapture?.authorityDecisions ?? []),
   ], (decision) => `${decision.toolName}|${decision.level}|${decision.allowed}|${decision.reason ?? ""}`);
+  const dangerousCommandOutcomes = result.toolExecutions
+    ?.map((execution) => dangerousCommandOutcomeFromExecution(execution))
+    .filter((outcome): outcome is RuntimeTurnDangerousCommandOutcome => outcome !== undefined)
+    ?? [];
+  const mergedDangerousCommandOutcomes = dedupeByStableKey([
+    ...dangerousCommandOutcomes,
+    ...(externalTurnCapture?.dangerousCommandOutcomes ?? []),
+  ], (outcome) => `${outcome.toolName}|${outcome.action}|${outcome.reasonCode}|${outcome.reason}`);
 
   applyRuntimeTurnRecord({
     session,
@@ -651,6 +699,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     fileChanges: mergedFileChanges.length > 0 ? mergedFileChanges : undefined,
     approvalTransitions: mergedApprovalTransitions.length > 0 ? mergedApprovalTransitions : undefined,
     authorityDecisions: mergedAuthorityDecisions.length > 0 ? mergedAuthorityDecisions : undefined,
+    dangerousCommandOutcomes: mergedDangerousCommandOutcomes.length > 0 ? mergedDangerousCommandOutcomes : undefined,
   });
   writeRuntimeHandoffSummaryArtifact(ctx.contextArtifactCache, {
     session,

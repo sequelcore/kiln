@@ -35,6 +35,13 @@ export interface RuntimeTurnAuthorityDecision {
   readonly reason: string;
 }
 
+export interface RuntimeTurnDangerousCommandOutcome {
+  readonly toolName: string;
+  readonly action: "ask" | "deny";
+  readonly reasonCode: string;
+  readonly reason: string;
+}
+
 export interface RuntimeTurnRecordInput {
   readonly session: RuntimeSession;
   readonly channel: string;
@@ -54,6 +61,7 @@ export interface RuntimeTurnRecordInput {
   readonly fileChanges?: readonly RuntimeTurnFileChange[];
   readonly approvalTransitions?: readonly RuntimeTurnApprovalTransition[];
   readonly authorityDecisions?: readonly RuntimeTurnAuthorityDecision[];
+  readonly dangerousCommandOutcomes?: readonly RuntimeTurnDangerousCommandOutcome[];
 }
 
 export interface RuntimeTurnRecord {
@@ -73,6 +81,7 @@ export interface RuntimeTurnRecord {
   readonly fileChanges: readonly RuntimeTurnFileChange[];
   readonly approvalTransitions: readonly RuntimeTurnApprovalTransition[];
   readonly authorityDecisions: readonly RuntimeTurnAuthorityDecision[];
+  readonly dangerousCommandOutcomes: readonly RuntimeTurnDangerousCommandOutcome[];
   readonly turnDepth: number;
 }
 
@@ -119,6 +128,7 @@ export function applyRuntimeTurnRecord(input: RuntimeTurnRecordInput): RuntimeTu
   const fileChangesForRecord = input.fileChanges ?? [];
   const approvalTransitionsForRecord = input.approvalTransitions ?? [];
   const authorityDecisionsForRecord = input.authorityDecisions ?? [];
+  const dangerousCommandOutcomesForRecord = input.dangerousCommandOutcomes ?? [];
 
   session.accumulateTokens(turnTokens);
   session.updateSessionLedger({
@@ -145,6 +155,13 @@ export function applyRuntimeTurnRecord(input: RuntimeTurnRecordInput): RuntimeTu
     for (const decision of authorityDecisionsForRecord.slice(-8)) {
       const verdict = decision.allowed ? "allow" : "deny";
       session.addExactArtifact(`Tool authority: ${decision.toolName} L${decision.level} ${verdict} (${decision.reason})`);
+    }
+  }
+  if (dangerousCommandOutcomesForRecord.length > 0) {
+    for (const outcome of dangerousCommandOutcomesForRecord.slice(-8)) {
+      session.addExactArtifact(
+        `Dangerous command ${outcome.action}: ${outcome.toolName} (${outcome.reasonCode}) ${outcome.reason}`,
+      );
     }
   }
 
@@ -196,6 +213,7 @@ export function applyRuntimeTurnRecord(input: RuntimeTurnRecordInput): RuntimeTu
     fileChanges: fileChangesForRecord,
     approvalTransitions: approvalTransitionsForRecord,
     authorityDecisions: authorityDecisionsForRecord,
+    dangerousCommandOutcomes: dangerousCommandOutcomesForRecord,
     turnDepth: session.userTurnCount,
   };
 }

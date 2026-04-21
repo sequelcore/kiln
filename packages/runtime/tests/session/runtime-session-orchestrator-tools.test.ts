@@ -428,10 +428,15 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         dangerousCommandDetector: detector,
       });
 
-      await orchestrator.processMessage(makeSession(), textParts("cleanup"));
+      const result = await orchestrator.processMessage(makeSession(), textParts("cleanup"));
 
       expect(detector.evaluate).toHaveBeenCalledWith({ command: "rm -rf /tmp/cache", shell: "bash" });
       expect(toolFn).not.toHaveBeenCalled();
+      expect(result.toolExecutions?.[0]).toMatchObject({
+        toolName: "bash",
+        success: false,
+        resultSummary: "Dangerous command blocked: Detected destructive Unix command pattern. (destructive_unix)",
+      });
     });
 
     it("ask decision blocks ambiguous command before tool execution", async () => {
@@ -452,10 +457,15 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         dangerousCommandDetector: detector,
       });
 
-      await orchestrator.processMessage(makeSession(), textParts("check env"));
+      const result = await orchestrator.processMessage(makeSession(), textParts("check env"));
 
       expect(detector.evaluate).toHaveBeenCalledWith({ command: "echo $(cat .env)", shell: "bash" });
       expect(toolFn).not.toHaveBeenCalled();
+      expect(result.toolExecutions?.[0]).toMatchObject({
+        toolName: "bash",
+        success: false,
+        resultSummary: "Command requires approval: Command contains shell expansion/substitution and requires approval. (ambiguous_expansion)",
+      });
     });
 
     it("detector exception does not crash turn and blocks execution", async () => {

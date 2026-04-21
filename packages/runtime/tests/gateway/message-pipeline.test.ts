@@ -769,4 +769,46 @@ describe("processAdmittedTurn", () => {
     const artifacts = (session as unknown as { exactArtifacts: string[] }).exactArtifacts;
     expect(artifacts).toContain("File changed: C:/workspace/src/demo.txt");
   });
+
+  it("persists dangerous-command outcomes into canonical turn artifacts", async () => {
+    const session = makeMockSession();
+    const orchestrator = {
+      processMessage: vi.fn().mockResolvedValue({
+        parts: textParts("blocked"),
+        inputTokens: 9,
+        outputTokens: 4,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        queued: false,
+        toolExecutions: [
+          {
+            toolName: "bash",
+            durationMs: 0,
+            success: false,
+            resultSummary: "Dangerous command blocked: Detected destructive Unix command pattern. (destructive_unix)",
+          },
+          {
+            toolName: "bash",
+            durationMs: 0,
+            success: false,
+            resultSummary: "Command requires approval: Command contains shell expansion/substitution and requires approval. (ambiguous_expansion)",
+          },
+        ],
+      } satisfies OrchestrateResult),
+      model: "claude-sonnet-4-20250514",
+    } as unknown as RuntimeSessionOrchestrator;
+    const sessionRegistry = makeMockSessionRegistry(session);
+    const ctx = makeBaseContext({ orchestrator, sessionRegistry });
+
+    const result = await processInboundMessage(ctx);
+
+    expect(result.ok).toBe(true);
+    const artifacts = (session as unknown as { exactArtifacts: string[] }).exactArtifacts;
+    expect(artifacts).toContain(
+      "Dangerous command deny: bash (destructive_unix) Detected destructive Unix command pattern.",
+    );
+    expect(artifacts).toContain(
+      "Dangerous command ask: bash (ambiguous_expansion) Command contains shell expansion/substitution and requires approval.",
+    );
+  });
 });

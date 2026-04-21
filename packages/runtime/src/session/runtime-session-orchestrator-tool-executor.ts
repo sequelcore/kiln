@@ -65,6 +65,12 @@ function toDangerousCommandRequest(
   };
 }
 
+function formatDangerousCommandBlockMessage(decision: DangerousCommandDecisionLike): string {
+  return decision.action === "deny"
+    ? `Dangerous command blocked: ${decision.reason} (${decision.reasonCode})`
+    : `Command requires approval: ${decision.reason} (${decision.reasonCode})`;
+}
+
 export interface RuntimeSessionToolExecutionResult {
   readonly resultParts: readonly {
     readonly type: "tool_result";
@@ -335,9 +341,7 @@ export class RuntimeSessionToolExecutor {
       return false;
     }
 
-    const blockMessage = decision.action === "deny"
-      ? `Dangerous command blocked: ${decision.reason} (${decision.reasonCode})`
-      : `Command requires approval: ${decision.reason} (${decision.reasonCode})`;
+    const blockMessage = formatDangerousCommandBlockMessage(decision);
 
     this.emitToolResult(sessionId, toolCall.name, 0, false, blockMessage.slice(0, 200), true);
     this.emitError(sessionId, `Tool "${toolCall.name}" blocked by dangerous command detector: ${decision.reasonCode}`);

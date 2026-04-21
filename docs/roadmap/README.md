@@ -41,9 +41,9 @@ order, not necessarily the active work priority.
 This is the delivery queue. It is the only priority order in this index.
 
 1. Continue `02-orchestrator-refactor-roadmap.md` with the remaining T4/T5
-   cleanup now that T1/T2 are closed, T3 is landed, T4 is materially advanced,
-   and T5 has its first audit-convergence cut: finish the dangerous-command
-   evidence path and any final execution-boundary cleanup before moving on.
+   parity review now that T1/T2 are closed, T3 is landed, T4 is materially
+   advanced, and T5 now includes canonical dangerous-command outcome evidence:
+   close any final audit-shape drift before moving on.
 2. Finish the remaining rows in `03-gui-phase-1-parity-checklist.md` so TUI
    deletion can proceed without preserving architectural drift.
 3. Write and accept the config and registries surface ADR before broader config
@@ -93,6 +93,10 @@ As of 2026-04-21:
   `02-orchestrator-refactor-roadmap.md`; GUI and TUI turn capture now preserve
   `authorityDecisions` in the canonical admitted-turn result, leaving
   dangerous-command outcome evidence as the next runtime audit-convergence cut
+- 2026-04-21: the next T5 slice landed in
+  `02-orchestrator-refactor-roadmap.md`; dangerous-command `ask` and `deny`
+  outcomes now persist as dedicated canonical turn-record evidence instead of
+  remaining implicit in generic blocked tool summaries
 - 2026-04-21: focused T3 validation passed with
   `tests/gateway/message-pipeline.test.ts`,
   `tests/gateway/message-pipeline-grounding.test.ts`,
@@ -104,6 +108,11 @@ As of 2026-04-21:
   `tests/execution/cli-subscription-executor.test.ts`,
   `tests/gateway/gui-gateway-authority.test.ts`,
   `tests/gateway/tui-gateway-authority.test.ts`, and `bun run typecheck`
+- 2026-04-21: focused dangerous-command evidence validation passed with
+  `tests/session/runtime-turn-record.test.ts`,
+  `tests/gateway/message-pipeline.test.ts`, and `bun run typecheck`; the
+  broader `tests/session/runtime-session-orchestrator-tools.test.ts` file still
+  fails on the pre-existing structured `fileChanges` assertion
 - GUI parity work is active in `03-gui-phase-1-parity-checklist.md`
 - parity status is 29/51 rows complete
 - external benchmark validation remains deferred

@@ -75,8 +75,9 @@ Confirmed architectural findings:
 - the repo still does not literally reuse the CLI `DefaultContextGovernor` in
   runtime, but the open problem is no longer runtime bypass; it is whether a
   shared cross-package governance contract is worth introducing later
-- authority-decision capture is no longer missing on TUI and GUI turn capture,
-  but dangerous-command outcome evidence still needs one final canonical path
+- authority-decision capture now includes TUI and GUI turn capture plus
+  first-class dangerous-command outcome evidence in the canonical turn record;
+  the remaining T5 work is final parity review, not a missing evidence lane
 - `packages/runtime/src/execution` no longer has the prior dead wrapper set,
   but `cli-subscription-executor.ts` still needs a final transport-boundary
   review after the current hardening cut
@@ -132,6 +133,9 @@ Progress recorded:
   passed after the T4 executor-collapse hardening cut
 - `bun run --filter @kilnai/runtime test tests/gateway/gui-gateway-authority.test.ts tests/gateway/tui-gateway-authority.test.ts`
   passed after the first T5 authority-decision convergence cut
+- `bun run --cwd packages/runtime vitest run tests/session/runtime-turn-record.test.ts tests/gateway/message-pipeline.test.ts --maxWorkers=1`
+  passed after dangerous-command outcomes were added as canonical turn-record
+  evidence
 - `bun run typecheck` passed after the T4/T5 stop point
 - full `bun run test` is still blocked by
   `packages/runtime/tests/session/runtime-session-orchestrator-tools.test.ts`
@@ -456,10 +460,18 @@ Completed work:
   approval transitions
 - operator transport event handling now preserves `tool_authorized` evidence in
   the same turn-capture result returned by the canonical admitted-turn flow
+- dangerous-command `ask` and `deny` outcomes now persist as a dedicated
+  canonical turn-record evidence lane instead of remaining implicit in generic
+  tool error summaries
+- admitted-turn aggregation now derives dangerous-command outcomes from runtime
+  tool execution results and merges them through the same canonical
+  `applyRuntimeTurnRecord(...)` path used for other turn evidence
+- runtime turn artifacts now record dangerous-command outcomes explicitly so
+  authority evidence is no longer limited to tool-authorization and approval
+  events
 
 Remaining intent:
 
-- converge dangerous-command block outcomes onto the same canonical audit shape
 - verify whether any non-operator admitted path still emits authority evidence
   in a shape that diverges from the shared turn-record contract
 
