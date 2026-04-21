@@ -59,7 +59,7 @@ As of 2026-04-21:
 - O2 completed
 - O3 retired as redundant with completed O2 naming work
 - O4 completed
-- O5 partially complete
+- O5 completed
 - end-to-end turn-flow review completed
 
 Confirmed architectural findings:
@@ -150,6 +150,13 @@ Progress recorded:
   passed after the final T5 parity review confirmed no remaining
   non-operator authority-evidence shape drift
 - `bun run typecheck` passed after the T4/T5 stop point
+- `bun run --filter @kilnai/runtime typecheck`
+  passed after the final O5 public-barrel cleanup removed the remaining
+  operator alias export surface
+- `bun run --filter @kilnai/cli typecheck`
+  passed after CLI TUI bootstrap was switched to `startTuiGateway`
+- `bun x vitest run packages/cli/tests/commands/tui-session-persistence.test.ts`
+  passed after the canonical TUI gateway export was wired through the CLI test
 
 ## Constraints
 
@@ -275,7 +282,7 @@ Current surviving strategy posture:
 
 ### O5: Clean public exports
 
-Status: in progress.
+Status: completed.
 
 Goal:
 
@@ -285,10 +292,14 @@ Completed work:
 
 - O5.A public export cleanup removed swarm strategy APIs from `index.ts`
 - O5.B final export sweep completed for the current stop point
+- O5.C removed the remaining operator alias surface from the public runtime
+  barrel and switched CLI TUI bootstrap/tests to the canonical
+  `startTuiGateway` export
 
-Remaining intent:
+Closure note:
 
-- keep reviewing export surfaces as later control-plane refactors land
+- future export reviews can happen inside later product slices, but there is no
+  remaining orchestrator-roadmap public export debt keeping O5 open
 
 ## Turn-Flow Track
 

@@ -315,10 +315,10 @@ async function loadInitialResumeInfo(
 async function bootstrapGatewaySession(
   options: TuiBootstrapOptions,
 ): Promise<TuiBootstrapResult> {
-  const { startOperatorGateway } = await import("@kilnai/runtime");
+  const { startTuiGateway } = await import("@kilnai/runtime");
   const { flags, sessionManager, contextArtifactCache, systemPrompt } = options;
 
-  const gateway = await startOperatorGateway({
+  const gateway = await startTuiGateway({
     sessionManager,
     port: flags.port,
     systemPrompt,

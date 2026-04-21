@@ -19,14 +19,6 @@ export type {
   GuiOutboundFrame,
   GuiInboundFrame,
 } from "./gateway/gui-gateway.js";
-export { startOperatorGateway } from "./gateway/operator-gateway.js";
-export type {
-  OperatorGateway,
-  OperatorGatewayOptions,
-  OperatorSessionTransportOptions,
-  OnProviderSwitch,
-  OnResumeSession,
-} from "./gateway/operator-gateway.js";
 export { startTuiGateway } from "./gateway/tui-gateway.js";
 export type { TuiGatewayOptions, TuiGateway } from "./gateway/tui-gateway.js";
 export { resolveApps } from "./gateway/app-resolver.js";
