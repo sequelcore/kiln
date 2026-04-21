@@ -6,12 +6,14 @@ import { applyRuntimeTurnRecord } from "../../src/session/runtime-turn-record.js
 function makeDecision(
   strategy: ResumePolicyDecision["resumeStrategy"],
   cachedResumeSignalCount = 1,
+  resumeFeedback?: ResumePolicyDecision["resumeFeedback"],
 ): ResumePolicyDecision {
   return {
     cachedResumeSignalCount,
     hasCachedResumeContext: cachedResumeSignalCount > 0,
     resumeStrategy: strategy,
     shouldUseProviderNativeResume: strategy === "provider-native",
+    resumeFeedback,
   };
 }
 
@@ -31,7 +33,11 @@ describe("applyRuntimeTurnRecord", () => {
       channel: "api",
       taskShape: "diagnostics",
       contextArtifactCache: cache,
-      continuityDecision: makeDecision("cache-first", 3),
+      continuityDecision: makeDecision("cache-first", 3, {
+        preferredStrategy: "cache-first",
+        sampleSize: 4,
+        influencedChoice: false,
+      }),
       queued: false,
       inputTokens: 40,
       outputTokens: 12,
@@ -89,6 +95,7 @@ describe("applyRuntimeTurnRecord", () => {
       reason: "Read-only tool, auto-execute",
     });
     expect(record.continuity.strategy).toBe("cache-first");
+    expect(record.continuity.feedbackLabel).toBe("observed cache-first · 4");
     expect(session.totalTokens).toBe(52);
     expect(session.sessionLedger.currentPhase).toBe("responded");
     expect(session.sessionLedger.lastProvider).toBe("mock-provider");
@@ -139,6 +146,7 @@ describe("applyRuntimeTurnRecord", () => {
     expect(record.fileChanges).toEqual([]);
     expect(record.approvalTransitions).toEqual([]);
     expect(record.authorityDecisions).toEqual([]);
+    expect(record.continuity.feedbackLabel).toBeUndefined();
     expect(session.sessionLedger.currentPhase).toBe("queued");
     expect(session.sessionLedger.lastProvider).toBe("existing-provider");
     expect(session.sessionLedger.toolCallCount).toBe(4);

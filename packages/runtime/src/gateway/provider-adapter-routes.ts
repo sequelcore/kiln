@@ -4,17 +4,14 @@
 import { Hono } from "hono";
 import type { ContentPart, TenantConfig, RetrievalPipeline, ContextArtifactCache } from "@kilnai/core";
 import { textParts, extractText } from "@kilnai/core";
-import { formatKnowledgeContext } from "./context-formatter.js";
 import type { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
 import type { SessionRegistry } from "../session/session-registry.js";
 import { checkTier } from "./budget-middleware.js";
 import type { BillingConfig } from "./budget-middleware.js";
 import { requireApiKey } from "./auth-middleware.js";
-import { processInboundMessage } from "./message-pipeline.js";
-import { resolveAgentContextAsync } from "../tenant/agent-resolver.js";
+import { processAdmittedTurn } from "./message-pipeline.js";
 import type { AgentHandoffSummarizer } from "../session/support/summarization/agent-handoff-summarizer.js";
 import type { EventBus } from "@kilnai/core";
-import type { PerCallToolConfig } from "../session/runtime-session-orchestrator.js";
 
 /** Runtime configuration for a provider-adapter app */
 export interface ProviderAdapterAppRuntime {
@@ -29,7 +26,7 @@ export interface ProviderAdapterAppRuntime {
   readonly tenant?: TenantConfig;
   readonly handoffSummarizer?: AgentHandoffSummarizer;
   readonly eventBus?: EventBus;
-  readonly groundingDeps?: import("./message-pipeline.js").InboundMessageContext["groundingDeps"];
+  readonly groundingDeps?: import("./message-pipeline.js").AdmittedTurnContext["groundingDeps"];
   readonly contextArtifactCache?: ContextArtifactCache;
 }
 
@@ -82,7 +79,9 @@ export function createProviderAdapterRoutes(runtime: ProviderAdapterAppRuntime):
     }
     const userContext = body.context;
 
-    // Tier enforcement (provider-adapter specific -- not in the pipeline)
+    // Tier enforcement stays in ingress admission.
+    // It is request-contract/commercial gating and must fail before the
+    // admitted-turn handoff mutates session state or runs runtime policy.
     if (runtime.billing?.tiers && body.plan) {
       const tierResult = checkTier(runtime.billing, body.plan, "fast");
       if (!tierResult.allowed) {
@@ -93,100 +92,27 @@ export function createProviderAdapterRoutes(runtime: ProviderAdapterAppRuntime):
       }
     }
 
-    // Knowledge retrieval (auto mode)
-    let knowledgeContext: string | undefined;
-    if (runtime.knowledgePipeline && (runtime.knowledgeMode ?? "auto") === "auto") {
-      const queryText = extractText(userParts);
-      if (queryText.length > 0) {
-        try {
-          const results = await runtime.knowledgePipeline.retrieve(queryText, { topK: 5 });
-          knowledgeContext = formatKnowledgeContext(results);
-        } catch {
-          // fail-open
-        }
-      }
-    }
-
-    // Resolve agent context if tenant has multi-agent config
-    let systemPrompt = runtime.systemPrompt;
-    let activeAgentId: string | undefined;
-    let activeAgentName: string | undefined;
-    let routingTier: "rule" | "embedding" | "fallback" | undefined;
-    let routingConfidence: number | undefined;
-    let callBuiltinTools: ReadonlyMap<string, (input: Record<string, unknown>) => Promise<unknown>> | undefined;
-    let perCallConfig: PerCallToolConfig | undefined;
-    if (runtime.tenant) {
-      // Get or create session for ping-pong guard context
-      const session = await runtime.sessionRegistry.getOrCreate({
-        appName: runtime.appName,
-        tenantId,
-        userId: body.userId,
-        systemPrompt: "",
-      });
-      // Apply user context before agent resolution so persona interpolation uses current context
-      if (userContext && Object.keys(userContext).length > 0) {
-        session.updateUserContext(userContext);
-      }
-      const agentCtx = await resolveAgentContextAsync(
-        runtime.tenant, userParts, session,
-        { handoffSummarizer: runtime.handoffSummarizer, eventBus: runtime.eventBus },
-        undefined, undefined, session.userContext,
-      );
-      systemPrompt = agentCtx.systemPrompt;
-      activeAgentId = agentCtx.activeAgentId;
-      activeAgentName = agentCtx.activeAgentName;
-      routingTier = agentCtx.routingResult?.tier;
-      routingConfidence = agentCtx.routingResult?.confidence;
-      const tenantToolCtx = agentCtx.tenantToolContext;
-
-      if (tenantToolCtx.toolDefinitions.length > 0) {
-        runtime.orchestrator.registerTools(tenantToolCtx.toolDefinitions);
-      }
-
-      callBuiltinTools = tenantToolCtx.callBuiltinTools.size > 0
-        ? tenantToolCtx.callBuiltinTools
-        : undefined;
-
-      perCallConfig = {
-        tenantId,
-        toolAuthority: tenantToolCtx.toolAuthority,
-        toolAllowlist: tenantToolCtx.toolAllowlist,
-        rateLimiter: tenantToolCtx.rateLimiter,
-        additionalTools: tenantToolCtx.toolDefinitions.length > 0 ? tenantToolCtx.toolDefinitions : undefined,
-        perCallCapabilities: tenantToolCtx.capabilities.size > 0 ? tenantToolCtx.capabilities : undefined,
-      };
-
-      // Update session with resolved prompt and agent
-      session.setSystemPrompt(agentCtx.systemPrompt);
-      if (agentCtx.activeAgentId) {
-        session.setActiveAgent(agentCtx.activeAgentId, agentCtx.handoffBrief);
-      }
-      await runtime.sessionRegistry.save(session);
-    }
-
     let processResult;
     try {
-      processResult = await processInboundMessage({
+      processResult = await processAdmittedTurn({
         orchestrator: runtime.orchestrator,
         sessionRegistry: runtime.sessionRegistry,
         appName: runtime.appName,
         tenantId,
         userId: body.userId,
-        systemPrompt,
+        systemPrompt: runtime.systemPrompt,
         userParts,
         billing: runtime.billing,
         channel: "api",
-        knowledgeContext,
         userContext,
-        callBuiltinTools,
-        perCallConfig,
+        knowledgePipeline: runtime.knowledgePipeline,
+        knowledgeMode: runtime.knowledgeMode,
+        tenant: runtime.tenant,
+        handoffSummarizer: runtime.handoffSummarizer,
+        eventBus: runtime.eventBus,
         groundingMode: runtime.tenant?.groundingMode,
         groundingDeps: runtime.groundingDeps,
         contextArtifactCache: runtime.contextArtifactCache,
-        activeAgentId,
-        activeAgentName,
-        routingTier,
-        routingConfidence,
       });
     } catch (err) {
       console.error(`[${runtime.appName}] processMessage error:`, err);

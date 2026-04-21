@@ -1,16 +1,41 @@
-# Orchestrator Refactor Roadmap
+# Orchestrator And Turn-Flow Refactor Roadmap
 
-This document is the canonical roadmap for `packages/core/src/orchestrator`.
+This document is the canonical execution roadmap for orchestrator cleanup and
+runtime turn-flow unification.
+
 It replaces the former split between an overview file and separate O1, O2, and
-O4 slice-plan documents.
+O4 slice-plan documents, and it now absorbs the end-to-end turn-flow cleanup
+that should not live in a separate near-duplicate roadmap.
 
 ## Scope
 
 - `packages/core/src/orchestrator`
+- `packages/runtime/src/gateway`
+- `packages/runtime/src/session`
+- `packages/runtime/src/execution`
+- `packages/cli/src/wrapper`
 
 ## Objective
 
-Refactor the orchestrator directory so it stops acting as a dumping ground for:
+Finish the orchestrator cleanup and unify all admitted runtime surfaces on one
+canonical turn flow.
+
+This roadmap exists because the current tree still has a split reality:
+
+- provider-adapter and tenant API traffic now use the canonical handoff
+- TUI and GUI operator turns now use the same canonical handoff
+- context assembly is still fragmented
+- execution and audit behavior still varies by surface
+
+The target state is:
+
+- one canonical runtime turn handoff after ingress admission
+- one governed context assembly owner
+- one tool-execution authority path
+- one audit shape for turn authority and outcomes
+
+The orchestrator directory still needs cleanup so it stops acting as a dumping
+ground for:
 
 - execution flow
 - phase logic
@@ -28,13 +53,51 @@ and instead becomes a bounded migration path toward:
 
 ## Current Status
 
-As of 2026-04-18:
+As of 2026-04-21:
 
 - O1 completed
 - O2 completed
 - O3 retired as redundant with completed O2 naming work
 - O4 completed
-- O5 in progress
+- O5 partially complete
+- end-to-end turn-flow review completed
+
+Confirmed architectural findings:
+
+- API, TUI, and GUI admitted turns now converge on the canonical
+  `processAdmittedTurn(...)` handoff
+- the remaining admission-surface review is no longer about TUI or GUI bypass;
+  it is about finalizing policy ownership and checking for any non-gateway
+  entrypoints that still assemble lasting turn state
+- runtime admitted-turn context assembly now converges on explicit runtime
+  owner seams for context projection, turn system-prompt assembly, and
+  runtime-continuity presentation
+- the repo still does not literally reuse the CLI `DefaultContextGovernor` in
+  runtime, but the open problem is no longer runtime bypass; it is whether a
+  shared cross-package governance contract is worth introducing later
+- authority-decision capture is no longer missing on TUI and GUI turn capture,
+  but dangerous-command outcome evidence still needs one final canonical path
+- `packages/runtime/src/execution` no longer has the prior dead wrapper set,
+  but `cli-subscription-executor.ts` still needs a final transport-boundary
+  review after the current hardening cut
+- T1.A completed: admitted TUI and GUI turns now route through the shared
+  `processAdmittedTurn(...)` handoff instead of duplicating local
+  `runtimeSupport + orchestrator.processMessage + applyRuntimeTurnRecord +
+  save` flow
+- T1.A also merged surface turn-capture hooks into the shared handoff so
+  operator transport can keep file-change and approval evidence without
+  preserving a separate turn pipeline
+- T1.B completed: provider-adapter route no longer owns auto knowledge
+  retrieval or tenant agent/tool preparation; those now execute inside the
+  shared runtime handoff using the canonical session
+- T1.C completed: the canonical handoff boundary and public runtime vocabulary
+  now use admitted-turn naming through `processAdmittedTurn(...)`
+- T1.D completed: tenant API route no longer owns tenant system-prompt/tool
+  preparation and now delegates tenant turn setup to
+  `processAdmittedTurn(...)`
+- T2 completed: admitted TUI and GUI turns now stay on the canonical handoff,
+  with surface-specific work limited to transport hosting, framing, and
+  operator activity capture
 
 Progress recorded:
 
@@ -47,6 +110,32 @@ Progress recorded:
 - swarm mode removed from supported strategy selection
 - public exports no longer expose swarm strategy APIs
 - typecheck passed after the current O1, O2, O4, and O5 cuts
+- bounded-context doctrine for turn-flow unification is now captured in
+  `01-bounded-context-decisions.md`
+- `bun run typecheck` passed after the T1.A handoff convergence cut
+- `bun run --filter @kilnai/runtime test -- tests/gateway/provider-adapter-routes.test.ts tests/gateway/message-pipeline.test.ts`
+  passed after the T1.B route-thinning cut
+- `bun run typecheck` passed after the T1.B route-thinning cut
+- `bun run --filter @kilnai/runtime test -- tests/gateway/provider-adapter-routes.test.ts tests/gateway/tenant-routes.test.ts tests/gateway/message-pipeline.test.ts tests/gateway/message-pipeline-grounding.test.ts`
+  passed after the admission-surface convergence verification
+- `bun run --filter @kilnai/runtime test -- tests/gateway/tui-gateway.test.ts tests/gateway/tui-gateway-clear.test.ts tests/gateway/tui-gateway-authority.test.ts tests/gateway/gui-gateway.test.ts tests/gateway/gui-gateway-authority.test.ts`
+  passed after the T2 surface verification
+- `bun run --filter @kilnai/runtime test -- tests/gateway/message-pipeline.test.ts tests/gateway/message-pipeline-grounding.test.ts`
+  passed after the admitted-turn context projection and runtime-continuity
+  presentation convergence cuts
+- `bun run --filter @kilnai/runtime test -- tests/session/runtime-session-orchestrator.test.ts`
+  passed after the runtime turn system-prompt extraction cut
+- `cd packages/runtime && bun x vitest run tests/session/runtime-turn-record.test.ts`
+  passed after the runtime continuity decision-presentation extraction cut
+- `bun run typecheck` passed after the T3 runtime context-ownership stop point
+- `bun run --cwd packages/runtime vitest run tests/execution/cli-subscription-executor.test.ts --maxWorkers=1`
+  passed after the T4 executor-collapse hardening cut
+- `bun run --filter @kilnai/runtime test tests/gateway/gui-gateway-authority.test.ts tests/gateway/tui-gateway-authority.test.ts`
+  passed after the first T5 authority-decision convergence cut
+- `bun run typecheck` passed after the T4/T5 stop point
+- full `bun run test` is still blocked by
+  `packages/runtime/tests/session/runtime-session-orchestrator-tools.test.ts`
+  expecting structured `fileChanges` from orchestrator tool metadata
 
 ## Constraints
 
@@ -73,6 +162,16 @@ Progress recorded:
 | `schemas.ts` | `split`, `merge`, `delete` | Keep only schemas still tied to surviving flows | Needs narrow follow-up review |
 | `index.ts` | `rewrite` | Export only surviving or transitional APIs | Must stop teaching obsolete architecture |
 | `strategies/` | `split`, `keep` | Retain only strategies that map cleanly to governed execution flows | Swarm residue already demoted |
+| `runtime/src/gateway/message-pipeline.ts` | `keep`, `split`, `rename` | Becomes the canonical admitted turn handoff or is merged into a clearer replacement with the same single-owner role | The role is valid even if the current file name is transitional |
+| `runtime/src/gateway/provider-adapter-routes.ts` | `split`, `merge` | Keep only ingress admission and request normalization; move lasting turn ownership out | Route layer currently prepares too much runtime turn state before handoff |
+| `runtime/src/gateway/tui-gateway.ts` | `split`, `merge` | Preserve transport and hosting concerns only; route admitted turns through the canonical handoff | TUI must not retain a separate long-lived turn pipeline |
+| `runtime/src/gateway/gui-gateway.ts` | `split`, `merge` | Preserve transport and hosting concerns only; route admitted turns through the canonical handoff | GUI must not retain a separate long-lived turn pipeline |
+| `runtime/src/session/runtime-session-orchestrator.ts` | `keep`, `split`, `rename` | Remain the runtime turn core, but with clearer separation between model coordination, tool loop integration, and session persistence | Valid core, but still under naming and boundary pressure |
+| `runtime/src/session/runtime-session-orchestrator-tool-executor.ts` | `keep`, `split`, `rename` | Remain the canonical tool-execution authority path | This is the right home for authorization, dangerous-command blocking, and actuation audit |
+| `runtime/src/execution/cli-subscription-executor.ts` | `merge`, `delete` | Remove or reduce to a transport adapter once operator surfaces use the canonical turn flow | A surface-specific bypass is not an acceptable long-term execution boundary |
+| `runtime/src/execution/api-executor.ts` | `merge`, `delete` | Delete unless a concrete runtime owner and caller set remain | Thin wrappers with no real ownership should not survive |
+| `runtime/src/execution/model-executor.ts` | `merge`, `delete` | Delete unless a concrete runtime owner and caller set remain | Same as above |
+| `cli/src/wrapper/session-manager.ts` | `split`, `merge` | Keep session lifecycle support, but move lasting context assembly authority into the canonical governed owner | Wrapper-local context policy should not survive as a second control center |
 
 ## Strategic Calls
 
@@ -177,20 +276,223 @@ Remaining intent:
 
 - keep reviewing export surfaces as later control-plane refactors land
 
+## Turn-Flow Track
+
+The next active work is no longer just orchestrator naming cleanup. It is
+runtime turn-flow convergence.
+
+### T1: Establish the canonical admitted turn handoff
+
+Status: completed.
+
+Goal:
+
+- define one runtime entrypoint that every admitted surface can call
+- separate ingress-only preparation from lasting turn ownership
+- make the canonical handoff explicit in code and exports
+
+Success criteria:
+
+- one callable boundary owns admitted turn processing
+- route or surface files no longer assemble lasting runtime turn state
+- naming makes it obvious where a turn enters the runtime core
+
+Completed work:
+
+- T1.A moved admitted TUI and GUI message handling onto
+  `processAdmittedTurn(...)`
+- T1.A preserved operator-surface activity capture by adding optional
+  surface-capture hooks to the shared handoff
+- T1.A removed the duplicate TUI/GUI local sequence for runtime support,
+  orchestrator call, turn record application, and session save
+- T1.B moved provider-adapter auto knowledge retrieval into
+  `processAdmittedTurn(...)`
+- T1.B moved tenant agent resolution, tool registration, and tenant
+  per-call execution context into `processAdmittedTurn(...)`
+- T1.B reduced `provider-adapter-routes.ts` to ingress validation, tier
+  enforcement, and handoff invocation
+- T1.C renamed the canonical handoff boundary from
+  `processInboundMessage(...)` to `processAdmittedTurn(...)`
+- T1.C renamed the public boundary vocabulary to admitted-turn semantics in
+  runtime exports and gateway tests
+- T1.D removed remaining lasting turn preparation from
+  `tenant-routes.ts`; tenant prompt/tool context and per-call execution config
+  now resolve inside `processAdmittedTurn(...)`
+- T1.E closed the tier-enforcement ownership decision: plan/tier gating stays
+  in provider-adapter ingress admission because it is request-contract
+  validation that must fail before session mutation or admitted-turn side
+  effects
+
+### T2: Move TUI and GUI onto the canonical turn flow
+
+Status: completed.
+
+Goal:
+
+- stop direct long-lived orchestration bypass from operator surfaces
+- preserve transport-specific behavior without keeping separate turn pipelines
+
+Success criteria:
+
+- TUI uses the canonical admitted handoff
+- GUI uses the canonical admitted handoff
+- transport-specific code is limited to hosting, session transport, and UI
+  framing concerns
+
+Completed work:
+
+- TUI now invokes `processAdmittedTurn(...)` instead of maintaining a
+  separate local orchestration and turn-record sequence
+- GUI now invokes `processAdmittedTurn(...)` instead of maintaining a
+  separate local orchestration and turn-record sequence
+- surface-specific behavior is limited to provider/model selection, WebSocket
+  framing, operator approval bridging, and activity streaming hooks
+
+### T3: Unify runtime admitted-turn context assembly under one explicit owner
+
+Status: completed for the current runtime stop point.
+
+Goal:
+
+- remove lasting context policy from route files and runtime-side prompt and
+  continuity formatting paths
+- make admitted-turn runtime context assembly auditable and governed through one
+  explicit runtime owner chain
+
+Success criteria:
+
+- one explicit runtime owner chain assembles admitted-turn context and
+  continuity presentation
+- route-local context assembly is reduced to ingress input preparation only for
+  admitted runtime paths
+- prompt and continuity presentation formatting are emitted consistently from
+  support-owned seams
+
+Completed work:
+
+- extracted admitted-turn context projection into
+  `projectAdmittedTurnContext(...)` inside
+  `runtime/src/gateway/message-pipeline.ts`
+- extracted runtime turn system-prompt assembly into
+  `runtime/src/session/support/context/runtime-turn-system-prompt.ts`
+- moved runtime continuity presentation formatting into
+  `runtime/src/session/support/artifacts/context-artifact-summary.ts`
+- moved runtime-turn-record continuity feedback-label formatting onto
+  support-owned decision presentation helpers instead of local direct
+  formatting
+- removed the need for runtime-side callers to fabricate synthetic support
+  objects just to obtain continuity labels
+
+Closure note:
+
+- this slice closed runtime admitted-turn context-ownership drift without
+  forcing runtime to reuse the CLI `DefaultContextGovernor`
+- if a shared cross-package governance contract is introduced later, it should
+  be justified as a real architectural simplification, not as name-chasing
+
+### T4: Collapse duplicate execution abstractions
+
+Status: partially complete.
+
+Goal:
+
+- remove executor wrappers that only rename or bypass the real owner
+- keep only the execution boundaries that materially clarify ownership
+
+Success criteria:
+
+- dead or near-dead executor wrappers are deleted
+- any surviving executor file has a concrete caller set and boundary reason
+- operator transport does not own hidden execution policy
+
+Completed work:
+
+- deleted `runtime/src/execution/api-executor.ts`
+- deleted `runtime/src/execution/model-executor.ts`
+- extracted prompt serialization out of
+  `runtime/src/execution/cli-subscription-executor.ts` into
+  `runtime/src/execution/cli-prompt-serializer.ts`
+- extracted response assembly out of
+  `runtime/src/execution/cli-subscription-executor.ts` into
+  `runtime/src/execution/cli-response-assembler.ts`
+- extracted CLI session contract types into
+  `runtime/src/execution/cli-session-contract.ts`
+- kept `cli-subscription-executor.ts` as the surviving operator transport
+  boundary for the current stop point, but narrowed it away from prompt and
+  response policy ownership
+- reviewed `runtime/src/gateway/operator-gateway.ts` and kept it intentionally
+  as a public alias for now because it still anchors external/runtime entry
+  points; no extra shim layer was introduced
+
+Remaining intent:
+
+- verify whether the surviving CLI subscription boundary can be reduced further
+  without hiding execution policy behind a transport adapter
+- keep deleting wrapper-shaped files when they do not have a concrete caller
+  set or ownership reason
+
+### T5: Unify authority and audit recording
+
+Status: partially complete.
+
+Goal:
+
+- ensure every admitted surface records the same authority evidence
+- remove surface-specific audit drift
+
+Success criteria:
+
+- authority decisions are captured uniformly by API, CLI, TUI, and GUI flows
+- tool authorization, approvals, and dangerous-command outcomes share one
+  audit shape
+- parity is measured on enforcement and evidence, not only on user-visible
+  responses
+
+Completed work:
+
+- TUI turn capture now records `authorityDecisions` alongside file changes and
+  approval transitions
+- GUI turn capture now records `authorityDecisions` alongside file changes and
+  approval transitions
+- operator transport event handling now preserves `tool_authorized` evidence in
+  the same turn-capture result returned by the canonical admitted-turn flow
+
+Remaining intent:
+
+- converge dangerous-command block outcomes onto the same canonical audit shape
+- verify whether any non-operator admitted path still emits authority evidence
+  in a shape that diverges from the shared turn-record contract
+
+## Execution Order
+
+Apply the turn-flow track in this order:
+
+1. T1 canonical handoff
+2. T2 TUI/GUI convergence
+3. T3 context-governor unification
+4. T4 executor collapse
+5. T5 audit convergence
+
+Do not invert this order casually. Later slices depend on one explicit runtime
+handoff existing first.
+
 ## Atomic Work Units
 
 Good worker-sized tasks:
 
 1. Extract one cohesive support concern from `orchestrator.ts`.
 2. Rehome one boundary file into a clearer ownership zone.
-3. Narrow one public export surface after a replacement lands.
-4. Delete one isolated residue file once no real caller remains.
+3. Route one admitted surface through the canonical runtime handoff.
+4. Remove one wrapper-local context assembly step after the canonical owner is in place.
+5. Narrow one public export surface after a replacement lands.
+6. Delete one isolated residue file once no real caller remains.
 
 Bad task shapes:
 
 - refactor the whole orchestrator directory
+- unify every runtime surface in one cut
 - rename every swarm-era file in one pass
-- migrate orchestrator and runtime session together
+- migrate gateway, session, wrapper, and execution together
 
 ## Risks
 
@@ -201,12 +503,22 @@ Bad task shapes:
   narrowed
 - task, tree, and checkpoint logic may be more tightly coupled than the file
   boundaries suggest
+- TUI and GUI may depend on behavior that the API-oriented pipeline currently
+  does not surface cleanly
+- context assembly unification may expose hidden prompt-shape dependencies in
+  wrapper flows
+- executor deletion may reveal undocumented coupling in operator subscription
+  paths
 
 ## Definition Of Done
 
 This roadmap is complete only when:
 
 - execution-flow ownership is clear
+- every admitted surface uses one canonical runtime turn handoff
+- `ContextGovernor` is the real owner of context assembly
+- tool authorization and dangerous-command enforcement do not vary by surface
+- authority audit evidence is uniform across surfaces
 - mechanism residue no longer defines directory identity
 - obsolete names are removed after replacement
 - public exports stop teaching the old architecture

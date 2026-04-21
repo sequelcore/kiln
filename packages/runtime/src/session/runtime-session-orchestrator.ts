@@ -7,6 +7,7 @@ import { finalizeRuntimeSessionResponse, requestRuntimeSessionFallbackResponse }
 import { resolveRuntimeSessionRouting } from "./runtime-session-orchestrator-routing.js";
 import { RuntimeSessionExecutionTelemetry } from "./runtime-session-orchestrator-telemetry.js";
 import { RuntimeSessionToolExecutor } from "./runtime-session-orchestrator-tool-executor.js";
+import { buildRuntimeTurnSystemPrompt } from "./support/index.js";
 import type {
   OrchestratorDeps,
   OrchestrateResult,
@@ -96,7 +97,7 @@ export class RuntimeSessionOrchestrator {
 
     session.addUserMessage(userParts);
 
-    const system = this.buildSystemPrompt(session, recalledMemory, perCallConfig);
+    const system = buildRuntimeTurnSystemPrompt(session, recalledMemory, perCallConfig);
     const routing = await resolveRuntimeSessionRouting(
       this.deps,
       session,
@@ -193,21 +194,6 @@ export class RuntimeSessionOrchestrator {
       routingDecision: toPublicRoutingDecision(routing.routingDecision),
       preLlmEscalation: escalation,
     });
-  }
-
-  private buildSystemPrompt(
-    session: RuntimeSession,
-    recalledMemory: string | undefined,
-    perCallConfig: PerCallToolConfig | undefined,
-  ): string {
-    let system = session.systemPrompt;
-    if (recalledMemory) {
-      system += "\n\n--- Recalled Memory ---\n" + recalledMemory;
-    }
-    if (perCallConfig?.skillInstructions) {
-      system += "\n\n--- Active Skills ---\n" + perCallConfig.skillInstructions;
-    }
-    return system;
   }
 
   private detectPreLlmEscalation(userParts: readonly ContentPart[]) {

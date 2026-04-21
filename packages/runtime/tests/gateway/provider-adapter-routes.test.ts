@@ -258,7 +258,30 @@ describe("createProviderAdapterRoutes", () => {
       expect(session!.userContext).toEqual({ role: "admin" });
     });
 
-    it("rejects disallowed tier", async () => {
+    it("rejects disallowed tier before processAdmittedTurn is invoked", async () => {
+      vi.resetModules();
+
+      const processAdmittedTurnMock = vi.fn().mockResolvedValue({
+        ok: true,
+        result: {
+          parts: textParts("should not run"),
+          inputTokens: 1,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          queued: false,
+          sessionId: "session-tier",
+          sessionMode: "ai_active",
+          traceId: "trace-tier",
+        },
+      });
+
+      vi.doMock("../../src/gateway/message-pipeline.js", () => ({
+        processAdmittedTurn: processAdmittedTurnMock,
+      }));
+
+      const { createProviderAdapterRoutes: createProviderAdapterRoutesWithMocks } = await import("../../src/gateway/provider-adapter-routes.js");
+
       const billing = {
         ...makeBillingConfig(),
         tiers: {
@@ -266,7 +289,7 @@ describe("createProviderAdapterRoutes", () => {
         },
       };
       const runtime = makeRuntime({ billing });
-      const app = createProviderAdapterRoutes(runtime);
+      const app = createProviderAdapterRoutesWithMocks(runtime);
 
       const res = await app.request("/message", {
         method: "POST",
@@ -275,14 +298,19 @@ describe("createProviderAdapterRoutes", () => {
       });
 
       expect(res.status).toBe(200);
-      const body = (await res.json()) as { tierRestricted: boolean };
+      const body = (await res.json()) as { tierRestricted: boolean; content: string };
       expect(body.tierRestricted).toBe(true);
+      expect(body.content).toContain('Tier "fast" is not available');
+      expect(processAdmittedTurnMock).not.toHaveBeenCalled();
+
+      vi.doUnmock("../../src/gateway/message-pipeline.js");
+      vi.resetModules();
     });
 
-    it("forwards tenant tool context into processInboundMessage for tenant-backed requests", async () => {
+    it("forwards tenant and knowledge configuration into processAdmittedTurn", async () => {
       vi.resetModules();
 
-      const processInboundMessageMock = vi.fn().mockResolvedValue({
+      const processAdmittedTurnMock = vi.fn().mockResolvedValue({
         ok: true,
         result: {
           parts: textParts("tenant response"),
@@ -297,64 +325,21 @@ describe("createProviderAdapterRoutes", () => {
         },
       });
 
-      const callBuiltinTools = new Map<string, (input: Record<string, unknown>) => Promise<unknown>>([
-        ["mock_tool", vi.fn(async (input) => input)],
-      ]);
-      const toolDefinitions = [{
-        name: "mock_tool",
-        description: "Mock tool for authority forwarding",
-        inputSchema: {
-          type: "object",
-          properties: {
-            value: { type: "string" },
-          },
-        },
-        tags: new Set(["builtin"]),
-      }];
-      const capabilities = new Map([
-        ["mock_tool", { name: "mock_tool" } as unknown],
-      ]);
-      const toolAuthority = new Map([
-        ["mock_tool", {
-          level: 2,
-          allowed: true,
-          requiresApproval: false,
-          reason: "Audited execution",
-        }],
-      ]);
-      const toolAllowlist = new Set(["mock_tool"]);
-      const rateLimiter = {
-        check: vi.fn().mockReturnValue({ allowed: true }),
-        record: vi.fn(),
-      };
-
-      const resolveAgentContextAsyncMock = vi.fn().mockResolvedValue({
-        systemPrompt: "Tenant-specific system prompt",
-        tenantToolContext: {
-          callBuiltinTools,
-          toolDefinitions,
-          capabilities,
-          toolAuthority,
-          toolAllowlist,
-          rateLimiter,
-          maxToolRounds: undefined,
-        },
-        isHandoff: false,
-      });
-
       vi.doMock("../../src/gateway/message-pipeline.js", () => ({
-        processInboundMessage: processInboundMessageMock,
-      }));
-      vi.doMock("../../src/tenant/agent-resolver.js", () => ({
-        resolveAgentContextAsync: resolveAgentContextAsyncMock,
+        processAdmittedTurn: processAdmittedTurnMock,
       }));
 
       const { createProviderAdapterRoutes: createProviderAdapterRoutesWithMocks } = await import("../../src/gateway/provider-adapter-routes.js");
 
+      const knowledgePipeline = {
+        retrieve: vi.fn().mockResolvedValue([]),
+      };
       const runtime = makeRuntime({
         tenant: {
           tenantId: "tenant-1",
         } as ProviderAdapterAppRuntime["tenant"],
+        knowledgePipeline: knowledgePipeline as ProviderAdapterAppRuntime["knowledgePipeline"],
+        knowledgeMode: "auto",
       });
       const app = createProviderAdapterRoutesWithMocks(runtime);
 
@@ -365,22 +350,16 @@ describe("createProviderAdapterRoutes", () => {
       });
 
       expect(res.status).toBe(200);
-      expect(resolveAgentContextAsyncMock).toHaveBeenCalledTimes(1);
-      expect(processInboundMessageMock).toHaveBeenCalledTimes(1);
+      expect(processAdmittedTurnMock).toHaveBeenCalledTimes(1);
 
-      const forwarded = processInboundMessageMock.mock.calls[0]![0];
-      expect(forwarded.callBuiltinTools).toBe(callBuiltinTools);
-      expect(forwarded.perCallConfig?.tenantId).toBe("tenant-1");
-      expect(forwarded.perCallConfig?.toolAuthority).toBe(toolAuthority);
-      expect(forwarded.perCallConfig?.toolAllowlist).toBe(toolAllowlist);
-      expect(forwarded.perCallConfig?.rateLimiter).toBe(rateLimiter);
-      expect(forwarded.perCallConfig?.additionalTools).toBe(toolDefinitions);
-      expect(forwarded.perCallConfig?.perCallCapabilities).toBe(capabilities);
-
-      expect(runtime.orchestrator.tools?.some((t) => t.name === "mock_tool")).toBe(true);
+      const forwarded = processAdmittedTurnMock.mock.calls[0]![0];
+      expect(forwarded.tenant).toEqual(runtime.tenant);
+      expect(forwarded.knowledgePipeline).toBe(knowledgePipeline);
+      expect(forwarded.knowledgeMode).toBe("auto");
+      expect(forwarded.callBuiltinTools).toBeUndefined();
+      expect(forwarded.perCallConfig).toBeUndefined();
 
       vi.doUnmock("../../src/gateway/message-pipeline.js");
-      vi.doUnmock("../../src/tenant/agent-resolver.js");
       vi.resetModules();
     });
   });

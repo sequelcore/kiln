@@ -7,11 +7,9 @@ import { textParts, extractText } from "@kilnai/core";
 import type { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
 import type { SessionRegistry } from "../session/session-registry.js";
 import type { TenantRegistry } from "../tenant/tenant-registry.js";
-import { buildTenantSystemPrompt } from "../tenant/system-prompt-builder.js";
-import { buildTenantToolContext } from "./tenant-tool-factory.js";
 import type { BillingConfig } from "./budget-middleware.js";
 import { requireApiKey } from "./auth-middleware.js";
-import { processInboundMessage } from "./message-pipeline.js";
+import { processAdmittedTurn } from "./message-pipeline.js";
 
 /** Runtime configuration for a multi-tenant App */
 export interface TenantAppRuntime {
@@ -21,7 +19,7 @@ export interface TenantAppRuntime {
   readonly tenantRegistry: TenantRegistry;
   readonly billing?: BillingConfig;
   readonly apiKey?: string;
-  readonly groundingDeps?: import("./message-pipeline.js").InboundMessageContext["groundingDeps"];
+  readonly groundingDeps?: import("./message-pipeline.js").AdmittedTurnContext["groundingDeps"];
   readonly contextArtifactCache?: ContextArtifactCache;
 }
 
@@ -77,33 +75,16 @@ export function createTenantRoutes(runtime: TenantAppRuntime): Hono {
       ? (tenant.billing as unknown as BillingConfig)
       : runtime.billing;
 
-    // Build system prompt from tenant config
-    const systemPrompt = buildTenantSystemPrompt(tenant);
-    const tenantToolCtx = buildTenantToolContext(tenant);
-
-    if (tenantToolCtx.toolDefinitions.length > 0) {
-      runtime.orchestrator.registerTools(tenantToolCtx.toolDefinitions);
-    }
-
-    const processResult = await processInboundMessage({
+    const processResult = await processAdmittedTurn({
       orchestrator: runtime.orchestrator,
       sessionRegistry: runtime.sessionRegistry,
       appName: runtime.appName,
       tenantId: body.tenantId,
       userId: body.userId,
-      systemPrompt,
       userParts,
       billing: billingConfig,
       channel: "api",
-      callBuiltinTools: tenantToolCtx.callBuiltinTools.size > 0 ? tenantToolCtx.callBuiltinTools : undefined,
-      perCallConfig: {
-        tenantId: body.tenantId,
-        toolAuthority: tenantToolCtx.toolAuthority,
-        toolAllowlist: tenantToolCtx.toolAllowlist,
-        rateLimiter: tenantToolCtx.rateLimiter,
-        additionalTools: tenantToolCtx.toolDefinitions.length > 0 ? tenantToolCtx.toolDefinitions : undefined,
-        perCallCapabilities: tenantToolCtx.capabilities.size > 0 ? tenantToolCtx.capabilities : undefined,
-      },
+      tenant,
       idleTimeoutMs: tenant.idleTimeoutMs,
       groundingMode: tenant.groundingMode,
       groundingDeps: runtime.groundingDeps,

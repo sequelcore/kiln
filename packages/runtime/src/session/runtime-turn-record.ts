@@ -1,6 +1,6 @@
 import type { ContextArtifactCache, ResumePolicyDecision } from "@kilnai/core";
 import {
-  formatRuntimeResumeFeedbackLabel,
+  formatRuntimeContinuityDecisionPresentation,
   writeRuntimeContinuityOutcomeArtifact,
   writeRuntimeContextBundleArtifact,
   writeRuntimeThreadSummaryArtifact,
@@ -109,6 +109,7 @@ function appendExactArtifacts(
 
 export function applyRuntimeTurnRecord(input: RuntimeTurnRecordInput): RuntimeTurnRecord {
   const { session } = input;
+  const continuityPresentation = formatRuntimeContinuityDecisionPresentation(input.continuityDecision);
   const turnTokens = input.inputTokens + input.outputTokens;
   const priorProvider = session.sessionLedger.lastProvider;
   const providerForState = input.routingDecision?.provider ?? priorProvider;
@@ -190,7 +191,7 @@ export function applyRuntimeTurnRecord(input: RuntimeTurnRecordInput): RuntimeTu
     continuity: {
       strategy: input.continuityDecision.resumeStrategy,
       cachedResumeSignalCount: input.continuityDecision.cachedResumeSignalCount,
-      feedbackLabel: formatRuntimeResumeFeedbackLabel(input.continuityDecision),
+      feedbackLabel: continuityPresentation.feedbackLabel,
     },
     fileChanges: fileChangesForRecord,
     approvalTransitions: approvalTransitionsForRecord,

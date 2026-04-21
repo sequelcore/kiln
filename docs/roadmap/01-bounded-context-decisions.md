@@ -1,7 +1,32 @@
 # Bounded-Context Decisions
 
-This document assigns an explicit refactor disposition to the major Kiln
-packages and modules.
+This document is the canonical bounded-context decision reference for the major
+Kiln packages and modules.
+
+Its job is narrow:
+
+- declare which areas survive
+- declare which areas must be split, merged, renamed, or deleted
+- map each area to the current architecture doctrine
+
+It is not a changelog, not a slice diary, and not a step-by-step execution
+plan.
+
+## Source Hierarchy
+
+If this document conflicts with the modular architecture docs, the architecture
+docs win.
+
+Read these first:
+
+- `docs/architecture/invariants.md`
+- `docs/architecture/subsystems.md`
+- `docs/architecture/context-governance.md`
+- `docs/architecture/coordination.md`
+- `docs/architecture/tool-execution.md`
+- `docs/roadmap/README.md`
+
+## Decision Vocabulary
 
 Allowed decisions:
 
@@ -11,235 +36,287 @@ Allowed decisions:
 - `rename`
 - `delete`
 
-Multiple actions can apply when a module contains both valuable core logic and
-obsolete framing.
+Definitions:
 
-## Purpose
+- `keep`: retain the area as a valid bounded context or support surface
+- `split`: separate mixed responsibilities into clearer seams
+- `merge`: move ownership into a better canonical boundary
+- `rename`: replace unstable or obsolete architecture language
+- `delete`: remove the area when no valid responsibility remains
 
-Use this table before code refactors begin so each major area has a declared
-fate. This avoids broad churn and prevents the old architecture from being
-accidentally preserved through piecemeal edits.
+Multiple decisions may apply to the same area.
 
-Read first:
+## Reading Rule
 
-- Canonical naming and doctrine are now carried by the modular architecture docs.
-- The prior module-mapping slice is closed and absorbed as completed planning context.
+Each row answers:
+
+- what this area should become
+- what canonical boundary should own it
+- why that decision is correct
+
+Rows are normative. They describe the intended architectural outcome, not the
+historical sequence of how the repo got here.
+
+Existing code is evidence, not authority. A module may already exist and still
+deserve `merge`, `rename`, or `delete` if its quality or boundary shape does
+not meet the current doctrine.
 
 ## Decision Table
 
-| Area | Decision | Target direction | Why |
-|------|----------|------------------|-----|
-| `packages/core/src/engine` | `split`, `rename`, `keep` | Preserve foundational contracts and validation; extract or rename app/team/workflow-first language that blocks control-plane terminology | It still owns useful structural contracts but carries old identity heavily |
-| `packages/core/src/orchestrator` | `split`, `rename` | Continue breaking apart into `IngressGovernor`, `DemandAllocator`, `ChainGovernor`, and related control logic; treat current split artifacts as partial completion, not end state | High-value logic exists here, but the naming and boundaries remain only partially modernized |
-| `packages/core/src/tree` | `split`, `merge`, `delete` | Merge valid task-lifecycle ownership into `TaskRegistry`; delete speculative tree abstractions that do not survive the new model | Task ownership matters; exploration-first tree abstractions may not |
-| `packages/core/src/memory` | `keep`, `split` | Keep storage and recall foundations; split toward layered memory responsibilities | Strategically important and compatible with the new doctrine after restructuring |
-| `packages/core/src/knowledge` | `keep`, `split` | Keep retrieval/source-grounding logic; integrate more explicitly with `ContextGovernor` and layered memory | Useful subsystem, but should no longer overdefine product identity |
-| `packages/core/src/field` | `split`, `merge`, `rename` | Rehome context-pressure and field-like concepts into `ContextGovernor` or `AdaptationEngine` where justified | Currently diffuse and conceptually unstable |
-| `packages/core/src/safety` | `keep`, `merge` | Retain rails, classification, sanitization, and grounding logic under a clear `SafetyKernel` boundary | Strong base exists but ownership is fragmented |
-| `packages/core/src/security` | `keep`, `merge` | Fold command safety, prompt scanning, secrets, audit, and guardian logic into the kernel boundary where possible | Security is real, but too separate from the safety story today |
-| `packages/core/src/sandbox` | `keep`, `merge` | Treat as enforcement infrastructure under `SafetyKernel` rather than a parallel policy system | Important boundary-enforcement substrate |
-| `packages/core/src/tools` | `keep`, `merge`, `rename` | Keep runtime tool execution and MCP exposure; align terminology under tool-execution doctrine | Real capability, but currently documented and owned too loosely |
-| `packages/core/src/events` | `keep` | Keep as telemetry/event substrate under `TelemetryLoop` | Core infrastructure with low naming pressure |
-| `packages/core/src/observability` | `keep` | Keep and clarify as observability segment of `TelemetryLoop` | Already aligned enough |
-| `packages/core/src/cost` | `keep` | Keep under telemetry and control feedback | Important feedback loop input |
-| `packages/core/src/enrichment` | `keep`, `split` | Keep if it remains operationally useful; separate telemetry-grade analytics from product-facing enrichment | Mixed telemetry and product concerns |
-| `packages/core/src/eval` | `keep` | Keep as evaluation and verification support | Valuable and mostly orthogonal |
-| `packages/core/src/verification` | `keep`, `merge` | Keep verification mechanics; merge policy ownership with governed execution flows | Useful but should not float as an isolated concern |
-| `packages/core/src/domain` | `split`, `rename`, `keep` | Preserve only what fits DDD-safe boundaries; avoid letting "domain" become a vague umbrella | The name risks overlap with actual bounded-context language |
-| `packages/core/src/domains` | `keep`, `demote` | Keep only as implementation support for stack-aware defaults | Not architectural center |
-| `packages/core/src/package` | `keep` | Keep if still required for packaging/distribution | Operational area, low architectural pressure |
-| `packages/core/src/presets` | `split`, `delete` | Keep only if presets still serve a concrete runtime purpose; delete stale preset layers | High risk of legacy abstraction residue |
-| `packages/core/src/skill` | `keep` | Keep as operational capability surface | Useful, not architecture-defining |
-| `packages/runtime/src/session` | `split`, `rename` | First separate session state/lifecycle, orchestration, persistence, and turn-recording/support helpers into coherent seams; rename toward control-plane vocabulary only after those seams are clean | One of the highest-value refactor targets, but already partially executed |
-| `packages/runtime/src/gateway` | `keep`, `split` | Keep as runtime surface; separate admission, hosting, and transport concerns more clearly | Important, but should not define doctrine |
-| `packages/runtime/src/channels` | `keep` | Keep as runtime I/O surface | Operationally necessary and conceptually stable |
-| `packages/runtime/src/trigger` | `keep`, `split` | Keep trigger mechanics; align trigger admission and execution with governed flows | Useful but currently app/workflow-biased |
-| `packages/runtime/src/tenant` | `keep`, `split` | Keep tenant isolation and config handling; reduce spillover into routing/identity logic | Important for isolation, but concept boundaries need tightening |
-| `packages/runtime/src/mcp` | `keep`, `merge` | Keep MCP exposure; merge shared-state ownership concerns into future `CoordinationStore` where appropriate | Valuable integration layer with some state overlap |
-| `packages/runtime/src/execution` | `keep`, `merge`, `rename` | Consolidate runtime execution ownership with the canonical flow model | Likely future home for explicit execution control surfaces |
-| `packages/runtime/src/observability` | `keep` | Keep under `TelemetryLoop` | Operationally aligned already |
-| `packages/runtime/src/a2a` | `keep`, `demote` | Keep if still useful, but treat as integration capability rather than identity | Peripheral to the control-plane core |
-| `packages/cli/src/wrapper` | `rename`, `split`, `keep` | Keep as operator/runtime surface; remove meta-orchestrator-era framing from names and boundaries | Important surface with outdated conceptual leakage |
-| `packages/cli/src/commands` | `keep` | Keep as command surface | Operationally necessary |
-| `packages/cli/src/config` | `keep` | Keep as local configuration layer | Low architectural conflict |
-| `packages/cli/src/sync` | `keep`, `demote` | Keep as support tooling, not product identity | Important utility, not doctrine |
-| `packages/tui` | `keep`, `demote` | Keep as operator-facing surface under the control plane | Surface, not identity |
-| `packages/sdk` | `keep` | Keep as integration surface | Stable enough conceptually |
-| `packages/widget` | `keep` | Keep as embeddable surface | Stable enough conceptually |
-| `packages/studio` | `keep` | Keep as inspection/development surface | Useful operator/developer interface |
-| `packages/tools*` | `keep` | Keep as platform packaging support | Infrastructure, low conceptual pressure |
+| Area | Decision | Target boundary | Why |
+|------|----------|-----------------|-----|
+| `packages/core/src/engine` | `keep`, `split`, `rename` | core domain contracts and configuration boundaries that support the control plane without reintroducing app-first identity language | The engine still contains useful foundational contracts, but broad or product-shaped naming should not define doctrine |
+| `packages/core/src/orchestrator` | `split`, `merge`, `rename` | `Orchestration`, `IngressGovernor`, `DemandAllocator`, `ChainGovernor`, `TaskRegistry` | Useful coordination logic exists here, but the directory should stop acting as a catch-all umbrella for unrelated control concerns |
+| `packages/core/src/tree` | `merge`, `delete` | `TaskRegistry` under `Coordination` | Explicit task-state ownership should survive where valid; speculative tree abstractions should not persist as a parallel model |
+| `packages/core/src/memory` | `keep`, `split` | `Memory`, with context assembly owned by `Context Governance` | Memory is canonical, but retrieval, budgeting, and assembly must not stay mixed without a clear owner |
+| `packages/core/src/knowledge` | `keep`, `merge` | `Memory` and `Context Governance` | Retrieval and grounding remain valid, but should serve governed context assembly rather than act as a separate product identity |
+| `packages/core/src/field` | `merge`, `rename`, `delete` | explicit control-plane contracts under `Context Governance`, `Coordination`, or `Adaptation` only where justified | Field language is allowed only when the owning contract is explicit; any residue that remains metaphor-first rather than contract-first should be removed |
+| `packages/core/src/safety` | `keep`, `merge` | `Safety` | Safety is a canonical subsystem and should remain explicit and fail-closed |
+| `packages/core/src/security` | `keep`, `merge` | `Safety` and `Tool Execution` enforcement where applicable | Security should support canonical safety and actuation boundaries rather than drift into a parallel doctrine |
+| `packages/core/src/sandbox` | `keep`, `merge` | `Tool Execution` with safety-aligned enforcement | Sandbox behavior is real, but it exists to constrain actuation, not to define an independent architecture center |
+| `packages/core/src/tools` | `keep`, `split`, `merge`, `rename` | `Tool Execution` | Tool capability is central, but policy, authority, execution, and transport should not remain mixed under a loose tools umbrella |
+| `packages/core/src/events` | `keep` | `Telemetry And Audit` | Event infrastructure aligns with the sensor-fabric doctrine and should stay explicit |
+| `packages/core/src/observability` | `keep` | `Telemetry And Audit` | Metrics and traces are part of the telemetry subsystem, not an independent product concept |
+| `packages/core/src/cost` | `keep`, `merge` | `Telemetry And Audit` feeding `Orchestration` and `Adaptation` | Cost is a feedback input, not a free-floating architecture pillar |
+| `packages/core/src/enrichment` | `split`, `merge`, `delete` | whichever canonical owner is justified by code: `Memory`, `Context Governance`, or support tooling | Enrichment should survive only where concrete ownership is clear; vague augmentation layers should not be preserved out of inertia |
+| `packages/core/src/eval` | `keep`, `merge` | operator and quality support adjacent to `Safety` and `Adaptation` | Evaluation is useful, but should remain clearly subordinate to canonical subsystem ownership |
+| `packages/core/src/verification` | `keep`, `merge` | `Orchestration`, `Safety`, or `Tool Execution` depending on actual owning flow | Verification can survive where concrete, but should not float as an isolated doctrinal island |
+| `packages/core/src/domain` | `keep`, `split`, `rename` | explicit subsystem-owned interfaces only | The name is too broad unless the exports are tightly constrained by real bounded contexts |
+| `packages/core/src/domains` | `keep`, `merge` | support configuration and packaged defaults only | This area should not compete with actual bounded-context language |
+| `packages/core/src/package` | `keep` | packaging and distribution support only | Operationally useful, low doctrine pressure |
+| `packages/core/src/presets` | `merge`, `delete` | `Identity And Policy` only where still justified | Presets should survive only as explicit policy-compilation inputs. Demo YAMLs, stale canned flows, and legacy preset residue should be deleted rather than endlessly reshaped |
+| `packages/core/src/skill` | `keep` | support capability surface under runtime and operator policy | Useful, but not architecture-defining |
+| `packages/runtime/src/session` | `split`, `rename`, `merge` | runtime turn core under `Orchestration`, with one canonical session-turn pipeline | Session state, persistence, lifecycle, and orchestration seams must be explicit. Surface-specific turn assembly must not bypass the canonical runtime turn core |
+| `packages/runtime/src/gateway` | `keep`, `split`, `rename`, `merge` | `Ingress` runtime boundary with explicit `admission/`, `hosting/`, `middleware/`, and `transport/` seams | Gateway remains important, but as a runtime ingress surface. All surfaces must converge on one canonical turn handoff after ingress-specific preparation |
+| `packages/runtime/src/channels` | `keep` | runtime I/O surface | Operationally necessary and conceptually stable |
+| `packages/runtime/src/trigger` | `keep`, `split`, `merge` | `Ingress`, `Identity And Policy`, and `Orchestration` | Trigger mechanics are real, but admission, policy, and execution ownership must be explicit |
+| `packages/runtime/src/tenant` | `keep`, `split`, `merge` | `Identity And Policy` and `Ingress` | Tenant isolation is important, but should not leak into unrelated routing or surface identity |
+| `packages/runtime/src/mcp` | `keep`, `split`, `merge`, `rename` | integration surface coordinated with `CoordinationStore` where shared state becomes real | MCP exposure is a real runtime integration capability, but overlapping shared-state or coordination mechanics should be folded into explicit owners instead of growing as a second hidden model |
+| `packages/runtime/src/execution` | `split`, `merge`, `rename`, `delete` | `Orchestration` and `Tool Execution` with explicit ownership boundaries | Execution is canonical, but thin executor wrappers, subscription bypasses, or duplicated backend abstractions should not survive unless they clarify ownership materially |
+| `packages/runtime/src/observability` | `keep` | `Telemetry And Audit` | Runtime visibility belongs to telemetry and audit, not to a separate runtime identity |
+| `packages/runtime/src/a2a` | `keep`, `merge`, `rename` | delegation and integration capability only | A2A has a concrete runtime role through delegation, but it should remain narrowly scoped as integration capability rather than architecture identity |
+| `packages/cli/src/wrapper` | `keep`, `split`, `rename`, `merge` | operator-facing runtime surface aligned to `Ingress`, `Context Governance`, and `Identity And Policy` | Important surface, but it still risks masking multiple unrelated responsibilities behind one vague name and must not become a second owner of context assembly or turn execution |
+| `packages/cli/src/commands` | `keep` | command surface | Stable operator entrypoint |
+| `packages/cli/src/config` | `keep` | local operator configuration support | Low architectural conflict |
+| `packages/cli/src/sync` | `keep`, `merge` | support tooling only | Useful utility, not doctrine center |
+| `packages/tui` | `keep`, `merge` | operator surface, subject to the separate GUI parity and deletion decision path | The bounded-context call here is subordinate to the explicit GUI/TUI roadmap |
+| `packages/sdk` | `keep` | integration surface | Stable enough conceptually |
+| `packages/widget` | `keep` | embeddable runtime surface | Stable enough conceptually |
+| `packages/studio` | `keep` | inspection and development surface | Useful operator and developer tooling surface |
+| `packages/tools*` | `keep` | infrastructure and packaging support | Low conceptual pressure; should not define doctrine |
+
+## Explicit Boundary Calls
+
+The following boundary calls are intentional and should be treated as doctrine,
+not as incidental file cleanup:
+
+### Runtime Gateway
+
+`packages/runtime/src/gateway` is retained, but only as the runtime ingress
+surface. Its internal ownership should be explicit:
+
+- `admission/`
+  app resolution, config validation, runtime-entry preparation, and related
+  ingress-admission concerns
+- `hosting/`
+  server lifecycle, static mounting, and operator-facing gateway hosting
+- `middleware/`
+  request-time guard and policy layers
+- `transport/`
+  WebSocket, webhook, delegation, and transport-specific mechanics
+
+This split is part of the bounded-context decision itself. It is not merely a
+preferred folder layout.
+
+### Canonical Turn Flow
+
+Kiln gets one canonical runtime turn flow after ingress admission.
+
+The intended backbone is:
+
+- ingress admission and surface-specific normalization
+- one canonical runtime turn handoff
+- governed context assembly under `ContextGovernor`
+- `RuntimeSessionOrchestrator` model and turn coordination
+- `RuntimeSessionToolExecutor` tool loop and actuation control
+- uniform response assembly, audit, and session persistence
+
+The consequence is explicit:
+
+- HTTP, provider-adapter, CLI, TUI, GUI, and future surfaces may differ at the
+  ingress edge
+- they may not fork into separate long-lived turn pipelines once a request is
+  admitted
+- any current surface that calls orchestration directly while bypassing the
+  canonical runtime handoff is transition debt, not a valid end state
+- request-contract gating such as plan or tier eligibility stays in ingress
+  admission and must fail before a turn is considered admitted
+
+### Presets
+
+`packages/core/src/presets` is not entitled to survive as a general-purpose
+architecture surface.
+
+Only two outcomes are acceptable:
+
+- merge the truly necessary policy inputs into explicit `Identity And Policy`
+  ownership
+- delete stale preset examples, canned workflows, and residue that exists only
+  because earlier architectures needed it
+
+### Runtime Execution
+
+`packages/runtime/src/execution` should remain only where it expresses a real
+runtime execution boundary.
+
+It should not become a parking lot for:
+
+- thin naming wrappers around other adapters
+- duplicated executor abstractions with no independent ownership value
+- surface-specific subscription executors that bypass the canonical runtime
+  turn flow
+- backend splits that are better expressed at `Orchestration` or `Tool
+  Execution`
+
+### MCP And A2A
+
+`packages/runtime/src/mcp` and `packages/runtime/src/a2a` are allowed to
+survive, but only as concrete integration capabilities.
+
+They must not quietly become:
+
+- alternate coordination centers
+- hidden policy owners
+- vague architecture identity surfaces
+
+If either area carries stateful or authority-bearing logic, that ownership
+should be made explicit and moved under the canonical subsystem that actually
+owns it.
+
+### Wrapper
+
+`packages/cli/src/wrapper` is allowed to survive functionally, but not as a
+vague umbrella forever.
+
+The likely long-term direction is:
+
+- keep concrete operator-session and provider-session capabilities
+- split context assembly, permission policy, process execution, and worktree
+  concerns into clearer ownership seams
+- merge any surviving turn-execution entrypoints into the canonical runtime
+  handoff instead of preserving wrapper-local flow control
+- rename or shrink the umbrella once the surviving responsibilities are easier
+  to explain without folklore
+
+### Safety And Actuation
+
+Safety, security, sandbox, and tool execution must remain distinguishable in
+code, but their cross-boundary relationships must be explicit:
+
+- safety owns threat detection and enforcement
+- sandbox and command constraints exist to govern actuation
+- tool execution owns authority, rate limits, execution, and result
+  sanitization
+
+No second informal safety model should grow through helper files or middleware
+names alone.
+
+### Context Assembly
+
+Memory, knowledge, and any field-derived context pressure may all contribute to
+context assembly, but the canonical owner of assembly remains one explicit
+context-governance seam such as `ContextGovernor`, not a pile of route, helper,
+or wrapper-local assemblers.
+
+No helper, formatter, loader, or wrapper should silently become the real owner
+of context policy.
+
+That rule also applies to:
+
+- route handlers that pre-assemble runtime context before calling the pipeline
+- wrapper session managers that build their own lasting context policy
+- surface-specific orchestration helpers that append context outside governed
+  budget control
+
+### Wiring Rule
+
+If a control concern is canonical, it must be wired once and observed
+everywhere.
+
+This applies especially to:
+
+- context assembly policy
+- tool authorization and dangerous-command enforcement
+- authority-decision audit recording
+- budget enforcement
+- safety escalation
+
+Commercial plan/tier gating is intentionally separate from runtime turn
+ownership:
+
+- it validates whether a request may enter the admitted-turn pipeline at all
+- it depends on ingress contract fields, not on lasting session state
+- it should fail fast before session creation, context assembly, or turn audit
+  side effects
+- it should not be generalized into `processAdmittedTurn(...)` unless multiple
+  admitted surfaces truly share the same contract and enforcement shape
+
+Surface parity is not achieved when UI outputs match while enforcement,
+auditing, or budget behavior differs by transport.
 
 ## Named Pressure Points
 
-These current names should be treated as unstable unless justified by code-level
-decisions:
+These names remain unstable unless they are justified by a concrete owning
+contract:
 
 - `orchestrator`
-- `demand-allocator`
-- `cascade-controller`
-- `task-channel`
-- `team-composer`
-- `swarm` terminology
-- `router` when used as architecture language rather than a narrow implementation detail
+- `router`
+- `field`
+- `presets`
+- `wrapper`
+- old swarm-era mechanism names
 
-Some of these names already survive only as partial implementation residue or
-legacy seams. They should be evaluated against the current exported surface, not
-treated as if all of them remain equally active.
-
-## Current Status
-
-This decision table is no longer pure forward-looking planning. Parts of it have
-already been partially executed by later roadmap work.
-
-Current state of the highest-pressure rows:
-
-- `packages/core/src/orchestrator`: partial
-  Split artifacts such as `demand-allocator.ts`, `chain-governor.ts`, and
-  `task-registry.ts` now exist, but the directory is not yet fully aligned to
-  the target architecture.
-- `packages/runtime/src/session`: partial
-  Current `RuntimeSession`, `RuntimeSessionOrchestrator`, and `SessionRegistry` surfaces
-  indicate real execution work already landed, but the bounded-context and
-  naming story is not yet settled. The next correct move is to separate state,
-  orchestration, persistence, and support helpers before introducing a new
-  control-plane name.
-- `packages/core/src/engine`: open
-  The engine surface still carries orchestrator-era naming and remains an active
-  cleanup target.
-  The runtime-mode config/loader seam is now partially modernized, but broader
-  engine naming and boundary cleanup still remain open.
-- `packages/runtime/src/gateway`: partial
-  The provider-adapter route surface and related runtime-variant vocabulary are
-  now cleaner, but the wider gateway boundary still needs admission, hosting,
-  and transport ownership cleanup.
-- `packages/core/src/safety` + `security` + `sandbox` + `tools`: open
-  These boundaries still exist as separate areas and have not yet converged into
-  one clearly expressed kernel boundary.
-- `packages/core/src/memory` + `knowledge` + `field`: open
-  These remain distinct surfaces and still need the layered-memory and
-  context-governance consolidation described here.
-
-### `packages/runtime/src/session` execution slices
-
-The session bounded context should now be executed in these slices:
-
-1. Export freeze + characterization gates
-   Define the public session surface explicitly and add tests that lock current
-   behavior for session mode transitions, serialization, optimistic concurrency,
-   and the runtime session barrel exports.
-2. Persistence seam extraction
-   Keep `SessionRegistry`, `SessionStore`, `InMemorySessionStore`,
-   `RedisSessionStore`, and `session-serializer` conceptually grouped as
-   persistence/identity infrastructure around the session aggregate, not as part
-   of orchestration.
-3. Support-helper extraction
-   Separate continuity, summarization, escalation, artifact, and turn-recording
-   helpers from the core session state and orchestration boundary.
-4. Orchestrator internal decomposition
-   Split `RuntimeSessionOrchestrator` into coherent internal collaborators for approvals,
-   tool execution, routing/cost emission, and final response assembly without
-   renaming the public surface yet.
-5. Rename only after seams are clean
-   Re-evaluate `ModeB*` naming only after state, orchestration, persistence, and
-   support helpers are structurally separated.
-
-#### First slice scope
-
-The first slice is intentionally narrow:
-
-- files in scope:
-  - `packages/runtime/src/index.ts`
-  - `packages/runtime/src/session/index.ts`
-  - `packages/runtime/tests/session/session-mode.test.ts`
-  - `packages/runtime/tests/session/session-serializer.test.ts`
-  - `packages/runtime/tests/session/session-registry.test.ts`
-  - any new focused session export/contract test file under
-    `packages/runtime/tests/session/`
-- goals:
-  - make the runtime and session barrels the explicit reference surface for the
-    current session boundary
-  - lock the current session semantics with tests before structural extraction
-- explicit non-goals:
-  - no renaming of `ModeBSession`, `ModeBOrchestrator`, or `SessionRegistry`
-  - no extraction of helpers yet
-  - no behavior changes to routing, approvals, or tool execution
-
-#### Slice progress
-
-- Slice 1 (export freeze + characterization gates): done.
-- Slice 2 (persistence seam extraction): done. `session/persistence/*`
-  hosts the persistence implementations while legacy session file paths remain
-  as compatibility wrappers.
-- Slice 3 (support-helper extraction): done.
-  - Extracted support helpers to `packages/runtime/src/session/support/*`:
-    - `summarization/context-summarizer.ts`
-    - `summarization/agent-handoff-summarizer.ts`
-    - `escalation/escalation-detector.ts`
-    - `artifacts/context-artifact-cache.ts`
-    - `artifacts/context-artifact-summary.ts`
-  - Updated session and runtime imports to consume the new support paths
-    directly (no legacy wrapper shims were retained).
-  - `runtime-turn-record.ts` remains in session core because it mutates
-    canonical session state (`accumulateTokens`, `updateSessionLedger`,
-    exact-artifact append), while consuming support artifact writers from
-    `support/artifacts/context-artifact-summary.ts`.
-- Slice 4 (orchestrator internal decomposition): done.
-  - `RuntimeSessionOrchestrator` now coordinates internal collaborators instead of
-    directly owning approvals, routing selection, tool execution, telemetry,
-    and final response assembly in one file.
-  - Added internal collaborators:
-    - `runtime-session-orchestrator-approvals.ts`
-    - `runtime-session-orchestrator-routing.ts`
-    - `runtime-session-orchestrator-tool-executor.ts`
-    - `runtime-session-orchestrator-telemetry.ts`
-    - `runtime-session-orchestrator-response.ts`
-    - `runtime-session-orchestrator.types.ts`
-  - Public `ModeBOrchestrator` naming and external imports remained unchanged
-    for the slice itself; the decomposition was internal only.
-- Slice 5 (session vocabulary rename): done.
-  - Replaced the stale `ModeB*` public session names with:
-    - `RuntimeSession`
-    - `RuntimeSessionConfig`
-    - `RuntimeSessionOrchestrator`
-  - Renamed the session source files and orchestrator collaborator files to
-    `runtime-session*` paths so the obsolete `mode-b-session` /
-    `mode-b-orchestrator` names are no longer the active boundary.
-  - Updated runtime, CLI, gateway, TUI, and test imports to the renamed
-    session surface.
-  - Left the provider-adapter gateway route surface for a separate slice because
-    it is a gateway boundary, not part of the session slice.
-
-## First Refactor Sequence
-
-The first code refactor sequence should follow this order:
-
-1. `packages/core/src/orchestrator`
-2. `packages/runtime/src/session`
-3. `packages/core/src/engine`
-4. `packages/core/src/safety` + `security` + `sandbox` + `tools`
-5. `packages/core/src/memory` + `knowledge` + `field`
-
-This order is preferred because it moves from the most identity-defining logic
-to the supporting subsystems.
+Use preferred doctrine terms from `docs/architecture/` wherever possible.
 
 ## Deletion Rule
 
-No area is considered "refactored" if the new path exists but the obsolete path
-remains active without a concrete reason. Replacement phases must end with old
-names, old abstractions, or dead modules being removed.
+No area is considered truly refactored if the replacement boundary exists but
+the obsolete path remains active without a concrete reason.
+
+Replacement work must end with old names, old abstractions, or dead modules
+being removed.
+
+Already-implemented but low-quality work does not get grandfathered in. If the
+quality is not good enough, the correct decision can still be `merge`,
+`rename`, or `delete`.
+
+## High-Confidence Delete Targets
+
+The following shapes should be treated as deletion-biased unless a concrete
+owner and use case are demonstrated:
+
+- stale example presets and canned YAML flows under `packages/core/src/presets`
+- thin executor wrappers in `packages/runtime/src/execution` that only rename
+  another abstraction without adding ownership clarity
+- surface-local turn pipelines or subscription executors that bypass the
+  canonical runtime handoff
+- metaphor-first field residue that cannot be defended in explicit
+  control-plane terms
+- duplicate helper layers that shadow canonical owners such as
+  `Context Governance`, `Tool Execution`, or `Identity And Policy`
+- route-local or wrapper-local context assembly that competes with the chosen
+  context-governance owner
+- audit capture paths that record different authority evidence depending on the
+  ingress surface
 
 ## Closure Standard
 
-This bounded-context decision slice is closed when all of the following are
-true:
+This document is in good standing when all of the following are true:
 
-- the decision table reflects current reality rather than pre-execution intent
-  for the major high-pressure areas
-- rows that have moved into partial execution are marked as such instead of
-  remaining framed as untouched planning
-- target directions use vocabulary that still matches the current codebase and
-  the canonical architecture docs
-- slices that execute these decisions have either landed or been explicitly
-  delegated to later roadmap files
-- the document can be treated as a frozen decision reference rather than as an
-  untracked planning placeholder
+- the table reads as one consistent architectural stance
+- target boundaries match the modular architecture docs
+- major runtime and core areas have an explicit fate
+- execution plans live in their own roadmap files instead of being embedded
+  here
+- a reader can use this file to decide what to preserve, split, merge, rename,
+  or delete before starting refactor work

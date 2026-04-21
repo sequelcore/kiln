@@ -73,10 +73,10 @@ export { DevTokenStore } from "./gateway/dev-token-store.js";
 export type { DevToken } from "./gateway/dev-token-store.js";
 
 // Message Pipeline
-export { processInboundMessage } from "./gateway/message-pipeline.js";
+export { processAdmittedTurn } from "./gateway/message-pipeline.js";
 export type {
-  InboundMessageContext,
-  InboundMessageResult,
+  AdmittedTurnContext,
+  AdmittedTurnResult,
   BudgetDeniedResult,
   ProcessResult,
 } from "./gateway/message-pipeline.js";
@@ -233,5 +233,4 @@ export { verifyHmacSha256 } from "./utils/hmac.js";
 // Execution Backends
 export { CliSubscriptionExecutor } from "./execution/cli-subscription-executor.js";
 export type { CliSessionFactory, CliSession, CliSessionEvent, CliSessionRunOptions } from "./execution/cli-subscription-executor.js";
-export { ApiExecutor } from "./execution/api-executor.js";
 

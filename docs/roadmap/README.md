@@ -40,20 +40,20 @@ order, not necessarily the active work priority.
 
 This is the delivery queue. It is the only priority order in this index.
 
-1. Finish the remaining work in `02-orchestrator-refactor-roadmap.md`,
-   specifically the unresolved export and ownership cleanup after the O4 cuts.
+1. Continue `02-orchestrator-refactor-roadmap.md` with the remaining T4/T5
+   cleanup now that T1/T2 are closed, T3 is landed, T4 is materially advanced,
+   and T5 has its first audit-convergence cut: finish the dangerous-command
+   evidence path and any final execution-boundary cleanup before moving on.
 2. Finish the remaining rows in `03-gui-phase-1-parity-checklist.md` so TUI
-   deletion can proceed.
+   deletion can proceed without preserving architectural drift.
 3. Write and accept the config and registries surface ADR before broader config
    and registry UI work starts.
-4. Build GUI orchestrator surfaces only after the orchestrator cleanup and the
-   config ADR land.
-5. Keep `04-external-benchmark-validation.md` deferred until the product
+4. Keep `04-external-benchmark-validation.md` deferred until the product
    surface stabilizes.
 
 ## Current Status
 
-As of 2026-04-19:
+As of 2026-04-21:
 
 - the taxonomy freeze and module mapping slices are closed
 - bounded-context decisions now lead the roadmap sequence
@@ -63,6 +63,47 @@ As of 2026-04-19:
 - `packages/core/src/engine/gateway` runtime-mode config/loader rename is complete
 - `packages/runtime/src/gateway` provider-adapter route terminology cleanup is complete
 - the orchestrator roadmap has been consolidated into one canonical file
+- 2026-04-21: T1.A completed in `02-orchestrator-refactor-roadmap.md`; admitted
+  TUI and GUI turns now route through the shared `processAdmittedTurn(...)`
+  handoff instead of maintaining duplicated local turn-processing sequences
+- 2026-04-21: T1.B completed in `02-orchestrator-refactor-roadmap.md`;
+  provider-adapter route preparation was reduced so auto knowledge retrieval
+  and tenant agent/tool resolution now happen inside the shared runtime
+  handoff instead of the route handler
+- 2026-04-21: T1.C/T1.D completed in `02-orchestrator-refactor-roadmap.md`;
+  the admitted-turn boundary rename landed and tenant route setup now resolves
+  inside `processAdmittedTurn(...)` instead of the route layer
+- 2026-04-21: T2 completed in `02-orchestrator-refactor-roadmap.md`; TUI and
+  GUI now use the canonical admitted-turn handoff and the focused surface test
+  suite passed
+- 2026-04-21: T1 closed fully in `02-orchestrator-refactor-roadmap.md`; the
+  tier-enforcement decision was resolved in favor of ingress admission instead
+  of moving commercial plan gating into `processAdmittedTurn(...)`
+- 2026-04-21: T3 completed for the current runtime stop point in
+  `02-orchestrator-refactor-roadmap.md`; admitted-turn context projection,
+  runtime turn system-prompt assembly, and runtime continuity presentation now
+  converge on explicit runtime-owned seams instead of route-local or
+  turn-record-local formatting paths
+- 2026-04-21: T4 is partially complete in
+  `02-orchestrator-refactor-roadmap.md`; dead execution wrappers
+  `api-executor.ts` and `model-executor.ts` were deleted and
+  `cli-subscription-executor.ts` was narrowed by extracting serializer,
+  response-assembly, and session-contract ownership into dedicated files
+- 2026-04-21: T5 is partially complete in
+  `02-orchestrator-refactor-roadmap.md`; GUI and TUI turn capture now preserve
+  `authorityDecisions` in the canonical admitted-turn result, leaving
+  dangerous-command outcome evidence as the next runtime audit-convergence cut
+- 2026-04-21: focused T3 validation passed with
+  `tests/gateway/message-pipeline.test.ts`,
+  `tests/gateway/message-pipeline-grounding.test.ts`,
+  `tests/session/runtime-session-orchestrator.test.ts`, and
+  `tests/session/runtime-turn-record.test.ts`; full workspace `bun run test`
+  remains blocked by the pre-existing
+  `runtime-session-orchestrator-tools.test.ts` failure
+- 2026-04-21: focused T4/T5 validation passed with
+  `tests/execution/cli-subscription-executor.test.ts`,
+  `tests/gateway/gui-gateway-authority.test.ts`,
+  `tests/gateway/tui-gateway-authority.test.ts`, and `bun run typecheck`
 - GUI parity work is active in `03-gui-phase-1-parity-checklist.md`
 - parity status is 29/51 rows complete
 - external benchmark validation remains deferred

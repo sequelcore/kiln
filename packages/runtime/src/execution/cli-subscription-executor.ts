@@ -16,45 +16,20 @@
 // while keeping all session state in the gateway's RuntimeSession.
 
 import type { ProviderAdapter, CreateMessageOptions, AgentResponse, AgentStreamEvent } from "@kilnai/core";
-import { textParts, extractText } from "@kilnai/core";
-import type { AgentMessage } from "@kilnai/core";
-
-/** Minimal session run options — structurally compatible with cli/wrapper/session IKilnSession. */
-export interface CliSessionRunOptions {
-  readonly prompt: string;
-  readonly system?: string;
-  readonly messages?: readonly AgentMessage[];
-  readonly cwd?: string;
-}
-
-/** Minimal session event union — structurally compatible with cli/wrapper/session SessionEvent. */
-export type CliSessionEvent =
-  | { type: "text_delta"; content: string; isThinking?: boolean }
-  | { type: "tool_use"; toolName: string; input: unknown }
-  | { type: "tool_result"; toolName: string; output: string }
-  | { type: "file_changed"; path: string; changeType: "created" | "modified" | "deleted"; linesAdded?: number; linesRemoved?: number }
-  | { type: "cost_update"; usd: number; inputTokens?: number; outputTokens?: number }
-  | { type: "completed"; totalUsd: number; durationMs: number; isError: boolean; isPreflightCrash: boolean }
-  | { type: "error"; code: string; message: string; isRetryable: boolean };
-
-/** Minimal session interface — structurally compatible with cli/wrapper/session IKilnSession. */
-export interface CliSession {
-  run(options: CliSessionRunOptions): AsyncIterable<CliSessionEvent>;
-  dispose(): Promise<void>;
-}
-
-/**
- * Factory injected by the CLI command. Creates a fresh one-shot CLI session per turn.
- * @param systemPrompt The assembled system prompt (memory + context already injected).
- * @param cwd Working directory for the subprocess.
- */
-export type CliSessionFactory = (systemPrompt: string, cwd: string) => CliSession;
-
-/**
- * Event callback for streaming CLI subprocess events to the TUI.
- * The executor fires this for each event from the CLI session.
- */
-export type CliSessionEventCallback = (event: CliSessionEvent) => void;
+import { extractText } from "@kilnai/core";
+import { buildPromptFromMessages } from "./cli-prompt-serializer.js";
+import { CliResponseAssembler } from "./cli-response-assembler.js";
+import type {
+  CliSessionFactory,
+  CliSessionEventCallback,
+} from "./cli-session-contract.js";
+export type {
+  CliSessionRunOptions,
+  CliSessionEvent,
+  CliSession,
+  CliSessionFactory,
+  CliSessionEventCallback,
+} from "./cli-session-contract.js";
 
 /**
  * CliSubscriptionExecutor — implements ProviderAdapter using CLI subscription binaries.
@@ -81,10 +56,7 @@ export class CliSubscriptionExecutor implements ProviderAdapter {
     const cwd = process.cwd();
 
     const session = this.factory(options.system, cwd);
-    let content = "";
-    let inputTokens = 0;
-    let outputTokens = 0;
-    let isError = false;
+    const assembler = new CliResponseAssembler();
 
     try {
       for await (const event of session.run({
@@ -95,32 +67,13 @@ export class CliSubscriptionExecutor implements ProviderAdapter {
       })) {
         // Stream event to TUI via callback
         this.onEvent?.(event);
-
-        if (event.type === "text_delta" && !event.isThinking) {
-          content += event.content;
-        } else if (event.type === "cost_update") {
-          if (event.inputTokens !== undefined) inputTokens = event.inputTokens;
-          if (event.outputTokens !== undefined) outputTokens = event.outputTokens;
-        } else if (event.type === "completed") {
-          isError = event.isError;
-        } else if (event.type === "error") {
-          isError = true;
-          throw new Error(`[${event.code}] ${event.message}`);
-        }
+        assembler.consume(event);
       }
     } finally {
       await session.dispose();
     }
 
-    return {
-      parts: textParts(content),
-      inputTokens,
-      outputTokens,
-      cacheReadTokens: 0,
-      cacheWriteTokens: 0,
-      toolCalls: [],
-      stopReason: isError ? "error" : "end_turn",
-    };
+    return assembler.toResponse();
   }
 
   async *streamMessage(options: CreateMessageOptions): AsyncGenerator<AgentStreamEvent> {
@@ -131,31 +84,4 @@ export class CliSubscriptionExecutor implements ProviderAdapter {
     yield { type: "text", content: text };
     yield { type: "done", content: "" };
   }
-}
-
-/**
- * Serialize AgentMessage history into a single prompt string.
- *
- * The CLI binary receives one turn of input and processes it statelessly.
- * Multi-turn history is reconstructed from the gateway's RuntimeSession each turn.
- *
- * Format: alternating labelled blocks. The last message must be "user".
- */
-function buildPromptFromMessages(
-  messages: CreateMessageOptions["messages"],
-): string {
-  if (messages.length === 0) return "";
-
-  // Single message: just the content
-  if (messages.length === 1) {
-    return extractText(messages[0]!.parts);
-  }
-
-  // Multi-turn: serialize as labelled conversation
-  return messages
-    .map((m) => {
-      const label = m.role === "user" ? "User" : "Assistant";
-      return `${label}: ${extractText(m.parts)}`;
-    })
-    .join("\n\n");
 }

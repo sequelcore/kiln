@@ -10,6 +10,7 @@ import {
   type ApprovalReceivedEvent,
   type ApprovalRequestedEvent,
   type KilnEvent,
+  type ToolAuthorizedEvent,
 } from "@kilnai/core";
 import { CliSubscriptionExecutor } from "../execution/cli-subscription-executor.js";
 import type { CliSessionEvent } from "../execution/cli-subscription-executor.js";
@@ -17,17 +18,11 @@ import { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestra
 import type { PerCallToolConfig } from "../session/runtime-session-orchestrator.js";
 import { SessionRegistry } from "../session/session-registry.js";
 import { ApprovalGateRegistry } from "./approval-registry.js";
-import {
-  classifyRuntimeContextPressure,
-  formatRuntimeResumeDecision,
-  formatRuntimeResumeFeedbackLabel,
-  normalizeRuntimeTaskShape,
-  readRuntimeSupportArtifactsDetailed,
-} from "../session/support/artifacts/context-artifact-summary.js";
-import {
-  applyRuntimeTurnRecord,
-  type RuntimeTurnApprovalTransition,
-  type RuntimeTurnFileChange,
+import { processAdmittedTurn } from "./message-pipeline.js";
+import type {
+  RuntimeTurnApprovalTransition,
+  RuntimeTurnAuthorityDecision,
+  RuntimeTurnFileChange,
 } from "../session/runtime-turn-record.js";
 import type { OnProviderSwitch, OnResumeSession, OperatorSessionTransportOptions } from "./operator-gateway.js";
 import {
@@ -576,7 +571,6 @@ function wireOperatorTransport(
               ? frame.resumeSessionId.trim()
               : "";
             if (!userContent.trim()) return;
-            const taskShape = normalizeRuntimeTaskShape(userContent);
 
             if (resumeSessionId && input.transport.onResumeSession) {
               try {
@@ -595,35 +589,30 @@ function wireOperatorTransport(
             }
 
             ws.send(JSON.stringify({ type: "thinking" } satisfies GuiInboundFrame));
-
-            const session = await sessionRegistry.getOrCreate({
-              appName: GUI_APP_NAME,
-              tenantId: GUI_TENANT_ID,
-              userId,
-              systemPrompt: input.transport.systemPrompt ?? "You are a helpful assistant.",
-            });
-            activityStreamer.beginTurnCapture(session.id);
-
-            const runtimeSupport = readRuntimeSupportArtifactsDetailed(input.transport.contextArtifactCache, {
-              session,
-              channel: "gui",
-              providerHint: session.sessionLedger.lastProvider,
-              taskShape,
-            });
-
             let result;
             try {
-              const recalledRuntimeSummary = runtimeSupport.content;
-              session.addExactArtifact(formatRuntimeResumeDecision(runtimeSupport.decision));
-              result = await orchestrator.processMessage(
-                session,
-                textParts(userContent),
-                recalledRuntimeSummary,
-                undefined,
-                buildGuiPerCallToolConfig(),
-              );
+              result = await processAdmittedTurn({
+                orchestrator,
+                sessionRegistry,
+                appName: GUI_APP_NAME,
+                tenantId: GUI_TENANT_ID,
+                userId,
+                systemPrompt: input.transport.systemPrompt ?? "You are a helpful assistant.",
+                userParts: textParts(userContent),
+                channel: "gui",
+                contextArtifactCache: input.transport.contextArtifactCache,
+                perCallConfig: buildGuiPerCallToolConfig(),
+                turnCapture: {
+                  start: (sessionId) => {
+                    activityStreamer.beginTurnCapture(sessionId);
+                  },
+                  finish: (sessionId) => activityStreamer.endTurnCapture(sessionId),
+                  abort: (sessionId) => {
+                    activityStreamer.endTurnCapture(sessionId);
+                  },
+                },
+              });
             } catch (err) {
-              activityStreamer.endTurnCapture(session.id);
               ws.send(JSON.stringify({
                 type: "error",
                 message: err instanceof Error ? err.message : String(err),
@@ -631,44 +620,25 @@ function wireOperatorTransport(
               return;
             }
 
-            const turnCapture = activityStreamer.endTurnCapture(session.id);
-
-            applyRuntimeTurnRecord({
-              session,
-              channel: "gui",
-              taskShape,
-              contextArtifactCache: input.transport.contextArtifactCache,
-              continuityDecision: runtimeSupport.decision,
-              queued: result.queued,
-              inputTokens: result.inputTokens,
-              outputTokens: result.outputTokens,
-              contextSummary: result.contextSummary,
-              toolExecutions: result.toolExecutions,
-              routingDecision: result.routingDecision,
-              fileChanges: turnCapture.fileChanges,
-              approvalTransitions: turnCapture.approvalTransitions,
-            });
-
-            await sessionRegistry.save(session);
+            if (!result.ok) {
+              ws.send(JSON.stringify({
+                type: "error",
+                message: result.budgetDenied.message,
+              } satisfies GuiInboundFrame));
+              return;
+            }
+            const output = result.result;
+            const runtimeContinuity = output.runtimeContinuity ?? { strategy: "none" };
 
             ws.send(JSON.stringify({
               type: "done",
-              content: extractText(result.parts),
-              parts: result.parts,
-              inputTokens: result.inputTokens,
-              outputTokens: result.outputTokens,
-              routedProvider: result.routingDecision?.provider ?? input.transport.sessionManager.getProvider(),
-              routedModel: result.routingDecision?.model ?? input.transport.sessionManager.getModel(),
-              runtimeContinuity: {
-                strategy: runtimeSupport.decision.resumeStrategy,
-                feedbackLabel: formatRuntimeResumeFeedbackLabel(runtimeSupport.decision),
-                pressure: classifyRuntimeContextPressure(runtimeSupport.supportArtifactCount),
-                supportArtifactCount: runtimeSupport.supportArtifactCount,
-                supportArtifactSources: runtimeSupport.supportArtifactSources,
-                fallbackLabel: runtimeSupport.fallbackLabel,
-                usedCachedSupport: runtimeSupport.usedCachedSupport,
-                selectionReason: runtimeSupport.selectionReason,
-              },
+              content: extractText(output.parts),
+              parts: output.parts,
+              inputTokens: output.inputTokens,
+              outputTokens: output.outputTokens,
+              routedProvider: output.routingDecision?.provider ?? input.transport.sessionManager.getProvider(),
+              routedModel: output.routingDecision?.model ?? input.transport.sessionManager.getModel(),
+              runtimeContinuity,
               authorityStatus: deriveGuiAuthorityStatusFromPerCallConfig(buildGuiPerCallToolConfig()),
             } satisfies GuiInboundFrame));
           } catch {
@@ -711,11 +681,13 @@ class GuiActivityStreamer {
     sessionId: string;
     fileChanges: RuntimeTurnFileChange[];
     approvalTransitions: RuntimeTurnApprovalTransition[];
+    authorityDecisions: RuntimeTurnAuthorityDecision[];
   } | null = null;
   private ws: WSContext | null = null;
   private eventBus: EventBus | null = null;
   private approvalHandler: ((event: KilnEvent) => void) | null = null;
   private receivedHandler: ((event: KilnEvent) => void) | null = null;
+  private authorizedHandler: ((event: KilnEvent) => void) | null = null;
   private approvalBridge: {
     approve: (sessionId: string) => void;
     reject: (sessionId: string, reason: string) => void;
@@ -735,19 +707,22 @@ class GuiActivityStreamer {
       sessionId,
       fileChanges: [],
       approvalTransitions: [],
+      authorityDecisions: [],
     };
   }
 
   endTurnCapture(sessionId: string): {
     fileChanges: readonly RuntimeTurnFileChange[];
     approvalTransitions: readonly RuntimeTurnApprovalTransition[];
+    authorityDecisions: readonly RuntimeTurnAuthorityDecision[];
   } {
     if (!this.capture || this.capture.sessionId !== sessionId) {
-      return { fileChanges: [], approvalTransitions: [] };
+      return { fileChanges: [], approvalTransitions: [], authorityDecisions: [] };
     }
     const captured = {
       fileChanges: [...this.capture.fileChanges],
       approvalTransitions: [...this.capture.approvalTransitions],
+      authorityDecisions: [...this.capture.authorityDecisions],
     };
     this.capture = null;
     return captured;
@@ -818,6 +793,22 @@ class GuiActivityStreamer {
       }
     };
     this.eventBus.onAny(this.receivedHandler);
+
+    this.authorizedHandler = (event: KilnEvent) => {
+      if (event.type === "tool_authorized") {
+        const authorizedEvent = event as ToolAuthorizedEvent;
+        const sessionId = authorizedEvent.sessionId;
+        if (sessionId && this.capture && this.capture.sessionId === sessionId) {
+          this.capture.authorityDecisions.push({
+            toolName: authorizedEvent.toolName,
+            level: authorizedEvent.level,
+            allowed: authorizedEvent.allowed,
+            reason: authorizedEvent.reason,
+          });
+        }
+      }
+    };
+    this.eventBus.onAny(this.authorizedHandler);
   }
 
   unregister(ws: WSContext): void {
@@ -831,6 +822,10 @@ class GuiActivityStreamer {
     if (this.eventBus && this.receivedHandler) {
       this.eventBus.offAny(this.receivedHandler);
       this.receivedHandler = null;
+    }
+    if (this.eventBus && this.authorizedHandler) {
+      this.eventBus.offAny(this.authorizedHandler);
+      this.authorizedHandler = null;
     }
     this.eventBus = null;
     this.capture = null;

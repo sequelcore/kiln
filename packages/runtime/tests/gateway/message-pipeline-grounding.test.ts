@@ -2,12 +2,14 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { textParts } from "@kilnai/core";
 import { GroundingRail } from "@kilnai/core";
 import type { ModelCapabilityRegistry } from "@kilnai/core";
-import { processInboundMessage } from "../../src/gateway/message-pipeline.js";
-import type { InboundMessageContext } from "../../src/gateway/message-pipeline.js";
+import { processAdmittedTurn } from "../../src/gateway/message-pipeline.js";
+import type { AdmittedTurnContext } from "../../src/gateway/message-pipeline.js";
 import type { RuntimeSessionOrchestrator, OrchestrateResult } from "../../src/session/runtime-session-orchestrator.js";
 import type { SessionRegistry } from "../../src/session/session-registry.js";
 import type { RuntimeSession } from "../../src/session/runtime-session.js";
 import type { ConversationEventEmitter } from "../../src/gateway/conversation-event-emitter.js";
+
+const processInboundMessage = processAdmittedTurn;
 
 const originalFetch = globalThis.fetch;
 
@@ -106,7 +108,7 @@ function makeGroundedDeps(grounded: boolean) {
   return { rail: mockRail, providerPool, modelRegistry, eventBus };
 }
 
-function makeBaseContext(overrides: Partial<InboundMessageContext> = {}): InboundMessageContext {
+function makeBaseContext(overrides: Partial<AdmittedTurnContext> = {}): AdmittedTurnContext {
   return {
     orchestrator: makeMockOrchestrator(),
     sessionRegistry: makeMockSessionRegistry(),
@@ -120,7 +122,7 @@ function makeBaseContext(overrides: Partial<InboundMessageContext> = {}): Inboun
   };
 }
 
-describe("processInboundMessage - grounding", () => {
+describe("processAdmittedTurn - grounding", () => {
   beforeEach(() => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,

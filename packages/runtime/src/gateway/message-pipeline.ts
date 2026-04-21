@@ -11,6 +11,8 @@ import type {
   ApprovalRequestedEvent,
   ApprovalReceivedEvent,
   ToolAuthorizedEvent,
+  TenantConfig,
+  RetrievalPipeline,
 } from "@kilnai/core";
 import { extractText, textParts, GroundingRail } from "@kilnai/core";
 import type { AbuseDetectionConfig } from "../session/repetitive-abuse-detector.js";
@@ -23,11 +25,9 @@ import type { ConversationEventEmitter } from "./conversation-event-emitter.js";
 import type { SessionMode } from "../session/session-mode.js";
 import type { EscalationSignal } from "../session/support/escalation/escalation-detector.js";
 import { TraceContext } from "./trace-context.js";
-import { appendGroundingDirective, formatUserContext } from "./context-formatter.js";
+import { appendGroundingDirective, formatKnowledgeContext, formatUserContext } from "./context-formatter.js";
 import {
-  classifyRuntimeContextPressure,
-  formatRuntimeResumeFeedbackLabel,
-  formatRuntimeResumeDecision,
+  formatRuntimeContinuityPresentation,
   normalizeRuntimeTaskShape,
   readRuntimeSupportArtifactsDetailed,
   writeRuntimeHandoffSummaryArtifact,
@@ -36,7 +36,11 @@ import {
   applyRuntimeTurnRecord,
   type RuntimeTurnApprovalTransition,
   type RuntimeTurnAuthorityDecision,
+  type RuntimeTurnFileChange,
 } from "../session/runtime-turn-record.js";
+import { resolveAgentContextAsync } from "../tenant/agent-resolver.js";
+import { buildTenantSystemPrompt } from "../tenant/system-prompt-builder.js";
+import type { AgentHandoffSummarizer } from "../session/support/summarization/agent-handoff-summarizer.js";
 
 type EgressDestination = "webhook";
 type EgressPermissionDecision = "allow" | "deny" | "redact";
@@ -51,13 +55,13 @@ interface EgressPermissionRequest {
   readonly sessionId: string;
 }
 
-export interface InboundMessageContext {
+export interface AdmittedTurnContext {
   readonly orchestrator: RuntimeSessionOrchestrator;
   readonly sessionRegistry: SessionRegistry;
   readonly appName: string;
   readonly tenantId: string;
   readonly userId: string;
-  readonly systemPrompt: string;
+  readonly systemPrompt?: string;
   readonly userParts: readonly ContentPart[];
   readonly billing?: BillingConfig;
   readonly eventEmitter?: ConversationEventEmitter;
@@ -65,7 +69,12 @@ export interface InboundMessageContext {
   readonly idleTimeoutMs?: number;
   readonly recalledMemory?: string;
   readonly knowledgeContext?: string;
+  readonly knowledgePipeline?: RetrievalPipeline;
+  readonly knowledgeMode?: "auto" | "tool";
   readonly contactContext?: string;
+  readonly tenant?: TenantConfig;
+  readonly handoffSummarizer?: AgentHandoffSummarizer;
+  readonly eventBus?: EventBus;
   readonly callBuiltinTools?: ReadonlyMap<string, (input: Record<string, unknown>) => Promise<unknown>>;
   readonly perCallConfig?: PerCallToolConfig;
   readonly traceId?: string;
@@ -96,9 +105,28 @@ export interface InboundMessageContext {
   readonly evaluateEgressPermission?: (
     request: EgressPermissionRequest,
   ) => EgressPermissionDecision | Promise<EgressPermissionDecision>;
+  readonly turnCapture?: {
+    readonly start?: (sessionId: string) => void | Promise<void>;
+    readonly finish?: (
+      sessionId: string,
+    ) => (
+      | {
+        readonly fileChanges?: readonly RuntimeTurnFileChange[];
+        readonly approvalTransitions?: readonly RuntimeTurnApprovalTransition[];
+        readonly authorityDecisions?: readonly RuntimeTurnAuthorityDecision[];
+      }
+      | undefined
+      | Promise<{
+        readonly fileChanges?: readonly RuntimeTurnFileChange[];
+        readonly approvalTransitions?: readonly RuntimeTurnApprovalTransition[];
+        readonly authorityDecisions?: readonly RuntimeTurnAuthorityDecision[];
+      } | undefined>
+    );
+    readonly abort?: (sessionId: string) => void | Promise<void>;
+  };
 }
 
-export interface InboundMessageResult {
+export interface AdmittedTurnResult {
   readonly parts: readonly ContentPart[];
   readonly inputTokens: number;
   readonly outputTokens: number;
@@ -119,6 +147,16 @@ export interface InboundMessageResult {
   };
   readonly limitReached?: { type: "tokens" | "turns" | "abuse"; value: number; max?: number };
   readonly groundingResult?: GroundingResult;
+  readonly runtimeContinuity?: {
+    readonly strategy: string;
+    readonly feedbackLabel?: string;
+    readonly pressure?: string;
+    readonly supportArtifactCount?: number;
+    readonly supportArtifactSources?: readonly string[];
+    readonly fallbackLabel?: string;
+    readonly usedCachedSupport?: boolean;
+    readonly selectionReason?: string;
+  };
 }
 
 export interface BudgetDeniedResult {
@@ -127,7 +165,7 @@ export interface BudgetDeniedResult {
 }
 
 export type ProcessResult =
-  | { ok: true; result: InboundMessageResult }
+  | { ok: true; result: AdmittedTurnResult }
   | { ok: false; budgetDenied: BudgetDeniedResult };
 
 const EGRESS_DENIED_FALLBACK_TEXT = "I cannot share that response.";
@@ -140,7 +178,8 @@ function mapChannelToEgressDestination(_channel: string): EgressDestination {
 }
 
 async function resolveEgressDecision(
-  ctx: InboundMessageContext,
+  ctx: AdmittedTurnContext,
+  tenantId: string,
   sessionId: string,
   payloadType: EgressPayloadType,
   text: string | undefined,
@@ -149,7 +188,7 @@ async function resolveEgressDecision(
   if (!text || text.trim() === "") return "allow";
   try {
     return await ctx.evaluateEgressPermission({
-      tenantId: ctx.tenantId,
+      tenantId,
       channel: ctx.channel,
       destination: mapChannelToEgressDestination(ctx.channel),
       payloadType,
@@ -172,15 +211,51 @@ function redactAssistantParts(parts: readonly ContentPart[]): readonly ContentPa
   return changed ? redacted : parts;
 }
 
-export async function processInboundMessage(ctx: InboundMessageContext): Promise<ProcessResult> {
+function dedupeByStableKey<T>(items: readonly T[], toKey: (item: T) => string): T[] {
+  const seen = new Set<string>();
+  const deduped: T[] = [];
+  for (const item of items) {
+    const key = toKey(item);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(item);
+  }
+  return deduped;
+}
+
+interface AdmittedTurnContextProjectionInput {
+  readonly userContext: Record<string, string> | undefined;
+  readonly cachedRuntimeSummary: string | undefined;
+  readonly recalledMemory: string | undefined;
+  readonly knowledgeContext: string | undefined;
+  readonly contactContext: string | undefined;
+  readonly groundingMode: GroundingMode | undefined;
+}
+
+function projectAdmittedTurnContext(input: AdmittedTurnContextProjectionInput): string | undefined {
+  const mergedMemory = [
+    formatUserContext(input.userContext),
+    input.cachedRuntimeSummary,
+    input.recalledMemory,
+    input.knowledgeContext,
+    input.contactContext,
+  ].filter(Boolean).join("\n\n") || undefined;
+  return appendGroundingDirective(mergedMemory, input.groundingMode);
+}
+
+export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<ProcessResult> {
   const trace = new TraceContext(ctx.traceId);
   trace.log("pipeline", "Processing inbound message", { appName: ctx.appName, userId: ctx.userId, channel: ctx.channel });
   const userText = extractText(ctx.userParts);
   const taskShape = normalizeRuntimeTaskShape(userText);
+  const effectiveTenantId = ctx.tenant?.tenantId ?? ctx.tenantId;
+  const initialSystemPrompt = ctx.tenant
+    ? buildTenantSystemPrompt(ctx.tenant)
+    : (ctx.systemPrompt ?? "You are a helpful assistant.");
 
   // Budget check
   if (ctx.billing) {
-    const budgetResult = await checkBudget(ctx.billing, ctx.tenantId);
+    const budgetResult = await checkBudget(ctx.billing, effectiveTenantId);
     if (!budgetResult.allowed) {
       trace.log("pipeline", "Budget denied");
       return {
@@ -196,9 +271,9 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
   // Get or create session
   const session = await ctx.sessionRegistry.getOrCreate({
     appName: ctx.appName,
-    tenantId: ctx.tenantId,
+    tenantId: effectiveTenantId,
     userId: ctx.userId,
-    systemPrompt: ctx.systemPrompt,
+    systemPrompt: initialSystemPrompt,
     idleTimeoutMs: ctx.idleTimeoutMs,
   });
   trace.log("pipeline", "Session ready", { sessionId: session.id, sessionMode: session.sessionMode });
@@ -207,6 +282,81 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
   if (ctx.userContext && Object.keys(ctx.userContext).length > 0) {
     session.updateUserContext(ctx.userContext);
   }
+
+  let effectiveKnowledgeContext = ctx.knowledgeContext;
+  if (!effectiveKnowledgeContext && ctx.knowledgePipeline && (ctx.knowledgeMode ?? "auto") === "auto") {
+    if (userText.length > 0) {
+      try {
+        const results = await ctx.knowledgePipeline.retrieve(userText, { topK: 5 });
+        effectiveKnowledgeContext = formatKnowledgeContext(results);
+      } catch {
+        // fail-open
+      }
+    }
+  }
+
+  let effectiveCallBuiltinTools = ctx.callBuiltinTools;
+  let effectivePerCallConfig = ctx.perCallConfig;
+  let effectiveActiveAgentId = ctx.activeAgentId;
+  let effectiveActiveAgentName = ctx.activeAgentName;
+  let effectiveRoutingTier = ctx.routingTier;
+  let effectiveRoutingConfidence = ctx.routingConfidence;
+  let effectiveIsHandoff = ctx.isHandoff;
+  let effectivePreviousAgentId = ctx.previousAgentId;
+  let effectivePreviousAgentName = ctx.previousAgentName;
+  let effectiveHandoffBrief = ctx.handoffBrief;
+  let effectivePingPongBlocked = ctx.pingPongBlocked;
+  let effectivePingPongReason = ctx.pingPongReason;
+
+  if (ctx.tenant) {
+    const agentCtx = await resolveAgentContextAsync(
+      ctx.tenant,
+      ctx.userParts,
+      session,
+      { handoffSummarizer: ctx.handoffSummarizer, eventBus: ctx.eventBus },
+      undefined,
+      effectiveCallBuiltinTools,
+      session.userContext,
+    );
+
+    effectiveActiveAgentId = agentCtx.activeAgentId;
+    effectiveActiveAgentName = agentCtx.activeAgentName;
+    effectiveRoutingTier = agentCtx.routingResult?.tier;
+    effectiveRoutingConfidence = agentCtx.routingResult?.confidence;
+    effectiveIsHandoff = agentCtx.isHandoff;
+    effectivePreviousAgentId = agentCtx.previousAgentId;
+    effectivePreviousAgentName = effectivePreviousAgentId
+      ? ctx.tenant.agents?.find((agent) => agent.id === effectivePreviousAgentId)?.name
+      : undefined;
+    effectiveHandoffBrief = agentCtx.handoffBrief;
+    effectivePingPongBlocked = agentCtx.pingPongBlocked;
+    effectivePingPongReason = agentCtx.pingPongReason;
+
+    const tenantToolCtx = agentCtx.tenantToolContext;
+    if (tenantToolCtx.toolDefinitions.length > 0) {
+      ctx.orchestrator.registerTools(tenantToolCtx.toolDefinitions);
+    }
+
+    if (tenantToolCtx.callBuiltinTools.size > 0) {
+      effectiveCallBuiltinTools = tenantToolCtx.callBuiltinTools;
+    }
+
+    effectivePerCallConfig = {
+      ...effectivePerCallConfig,
+      tenantId: effectiveTenantId,
+      toolAuthority: tenantToolCtx.toolAuthority,
+      toolAllowlist: tenantToolCtx.toolAllowlist,
+      rateLimiter: tenantToolCtx.rateLimiter,
+      additionalTools: tenantToolCtx.toolDefinitions.length > 0 ? tenantToolCtx.toolDefinitions : undefined,
+      perCallCapabilities: tenantToolCtx.capabilities.size > 0 ? tenantToolCtx.capabilities : undefined,
+    };
+
+    session.setSystemPrompt(agentCtx.systemPrompt);
+    if (agentCtx.activeAgentId) {
+      session.setActiveAgent(agentCtx.activeAgentId, agentCtx.handoffBrief);
+    }
+  }
+
   session.updateSessionLedger({
     currentPhase: "processing",
     turnDepth: session.messageCount + 1,
@@ -218,7 +368,7 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
     if (ctx.eventEmitter) {
       ctx.eventEmitter.emit({
         eventType: "SESSION_LIMIT_REACHED",
-        tenantId: ctx.tenantId,
+        tenantId: effectiveTenantId,
         channel: ctx.channel,
         externalUserId: ctx.userId,
         sessionId: session.id,
@@ -252,7 +402,7 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
     if (ctx.eventEmitter) {
       ctx.eventEmitter.emit({
         eventType: "SESSION_LIMIT_REACHED",
-        tenantId: ctx.tenantId,
+        tenantId: effectiveTenantId,
         channel: ctx.channel,
         externalUserId: ctx.userId,
         sessionId: session.id,
@@ -288,7 +438,7 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
       if (ctx.eventEmitter) {
         ctx.eventEmitter.emit({
           eventType: "SESSION_LIMIT_REACHED",
-          tenantId: ctx.tenantId,
+          tenantId: effectiveTenantId,
           channel: ctx.channel,
           externalUserId: ctx.userId,
           sessionId: session.id,
@@ -316,33 +466,39 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
     }
   }
 
-  // Merge recalled memory + knowledge context + contact context (user context goes first)
+  // Project admitted-turn context for orchestrator consumption.
   const runtimeSupport = readRuntimeSupportArtifactsDetailed(ctx.contextArtifactCache, {
     session,
     channel: ctx.channel,
     providerHint: session.sessionLedger.lastProvider,
     taskShape,
   });
+  const runtimeContinuityPresentation = formatRuntimeContinuityPresentation(runtimeSupport);
   const cachedRuntimeSummary = runtimeSupport.content;
-  session.addExactArtifact(formatRuntimeResumeDecision(runtimeSupport.decision));
+  session.addExactArtifact(runtimeContinuityPresentation.decisionSummary);
   trace.log("pipeline", "Runtime continuity decision", {
-    strategy: runtimeSupport.decision.resumeStrategy,
+    strategy: runtimeContinuityPresentation.runtimeContinuity.strategy,
     signals: runtimeSupport.decision.cachedResumeSignalCount,
-    pressure: classifyRuntimeContextPressure(runtimeSupport.supportArtifactCount),
-    sources: runtimeSupport.supportArtifactSources,
-    fallback: runtimeSupport.fallbackLabel,
-    usedSelectedSources: runtimeSupport.usedCachedSupport,
-    selectionReason: runtimeSupport.selectionReason,
-    usedCache: runtimeSupport.decision.resumeStrategy === "cache-first",
-    feedback: formatRuntimeResumeFeedbackLabel(runtimeSupport.decision),
+    pressure: runtimeContinuityPresentation.runtimeContinuity.pressure,
+    sources: runtimeContinuityPresentation.runtimeContinuity.supportArtifactSources,
+    fallback: runtimeContinuityPresentation.runtimeContinuity.fallbackLabel,
+    usedSelectedSources: runtimeContinuityPresentation.runtimeContinuity.usedCachedSupport,
+    selectionReason: runtimeContinuityPresentation.runtimeContinuity.selectionReason,
+    usedCache: runtimeContinuityPresentation.runtimeContinuity.strategy === "cache-first",
+    feedback: runtimeContinuityPresentation.runtimeContinuity.feedbackLabel,
     influenced: runtimeSupport.decision.resumeFeedback?.influencedChoice ?? false,
   });
-  const userCtxBlock = formatUserContext(session.userContext);
-  const mergedMemory = [userCtxBlock, cachedRuntimeSummary, ctx.recalledMemory, ctx.knowledgeContext, ctx.contactContext].filter(Boolean).join("\n\n") || undefined;
-  const combinedMemory = appendGroundingDirective(mergedMemory, ctx.groundingMode);
+  const combinedMemory = projectAdmittedTurnContext({
+    userContext: session.userContext,
+    cachedRuntimeSummary,
+    recalledMemory: ctx.recalledMemory,
+    knowledgeContext: effectiveKnowledgeContext,
+    contactContext: ctx.contactContext,
+    groundingMode: ctx.groundingMode,
+  });
 
   // Resolve active skills
-  let perCallConfig = ctx.perCallConfig;
+  let perCallConfig = effectivePerCallConfig;
   if (ctx.skillRegistry && (ctx.activeSkills?.length || ctx.activeSkillTags?.length)) {
     const resolved = ctx.skillRegistry.resolve(ctx.activeSkills, ctx.activeSkillTags);
     if (resolved.length > 0) {
@@ -386,6 +542,7 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
   orchestratorEventBus?.on("approval_requested", onApprovalRequested);
   orchestratorEventBus?.on("approval_received", onApprovalReceived);
   orchestratorEventBus?.on("tool_authorized", onToolAuthorized);
+  await ctx.turnCapture?.start?.(session.id);
 
   let result: OrchestrateResult;
   try {
@@ -394,14 +551,18 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
       session,
       ctx.userParts,
       combinedMemory,
-      ctx.callBuiltinTools,
+      effectiveCallBuiltinTools,
       perCallConfig,
     );
+  } catch (error) {
+    await ctx.turnCapture?.abort?.(session.id);
+    throw error;
   } finally {
     orchestratorEventBus?.off("approval_requested", onApprovalRequested);
     orchestratorEventBus?.off("approval_received", onApprovalReceived);
     orchestratorEventBus?.off("tool_authorized", onToolAuthorized);
   }
+  const externalTurnCapture = await ctx.turnCapture?.finish?.(session.id);
 
   // Post-generation grounding verification (Tier 2)
   let groundingResult: GroundingResult | undefined;
@@ -409,11 +570,11 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
   if (
     ctx.groundingMode === "verified" &&
     ctx.groundingDeps &&
-    ctx.knowledgeContext &&
+    effectiveKnowledgeContext &&
     !result.queued &&
     extractText(result.parts)
   ) {
-    const chunks = ctx.knowledgeContext.split("\n---\n").filter(Boolean);
+    const chunks = effectiveKnowledgeContext.split("\n---\n").filter(Boolean);
     const responseText = extractText(result.parts);
     try {
       // Select cheapest model with structured output support
@@ -456,6 +617,18 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
   }
 
   const fileChanges = result.toolExecutions?.flatMap((exec) => exec.fileChanges ?? []);
+  const mergedFileChanges = dedupeByStableKey([
+    ...(fileChanges ?? []),
+    ...(externalTurnCapture?.fileChanges ?? []),
+  ], (change) => `${change.path}|${change.changeType}|${"linesAdded" in change ? change.linesAdded ?? "" : ""}|${"linesRemoved" in change ? change.linesRemoved ?? "" : ""}`);
+  const mergedApprovalTransitions = dedupeByStableKey([
+    ...approvalTransitions,
+    ...(externalTurnCapture?.approvalTransitions ?? []),
+  ], (transition) => `${transition.sessionId}|${transition.status}|${transition.reason ?? ""}`);
+  const mergedAuthorityDecisions = dedupeByStableKey([
+    ...authorityDecisions,
+    ...(externalTurnCapture?.authorityDecisions ?? []),
+  ], (decision) => `${decision.toolName}|${decision.level}|${decision.allowed}|${decision.reason ?? ""}`);
 
   applyRuntimeTurnRecord({
     session,
@@ -473,17 +646,17 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
     groundingBlockedClaims: groundingResult && !groundingResult.grounded
       ? groundingResult.ungroundedClaims
       : undefined,
-    activeAgentId: ctx.activeAgentId,
-    routingTierHint: ctx.routingTier,
-    fileChanges: fileChanges && fileChanges.length > 0 ? fileChanges : undefined,
-    approvalTransitions: approvalTransitions.length > 0 ? approvalTransitions : undefined,
-    authorityDecisions: authorityDecisions.length > 0 ? authorityDecisions : undefined,
+    activeAgentId: effectiveActiveAgentId,
+    routingTierHint: effectiveRoutingTier,
+    fileChanges: mergedFileChanges.length > 0 ? mergedFileChanges : undefined,
+    approvalTransitions: mergedApprovalTransitions.length > 0 ? mergedApprovalTransitions : undefined,
+    authorityDecisions: mergedAuthorityDecisions.length > 0 ? mergedAuthorityDecisions : undefined,
   });
   writeRuntimeHandoffSummaryArtifact(ctx.contextArtifactCache, {
     session,
-    handoffBrief: ctx.handoffBrief,
-    handoffBlocked: ctx.pingPongBlocked,
-    handoffBlockReason: ctx.pingPongReason,
+    handoffBrief: effectiveHandoffBrief,
+    handoffBlocked: effectivePingPongBlocked,
+    handoffBlockReason: effectivePingPongReason,
     escalationReason: result.escalation?.reason,
     escalationDetail: result.escalation?.detail,
   });
@@ -494,7 +667,7 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
   // Report usage (fire-and-forget)
   if (ctx.billing) {
     reportUsage(ctx.billing, {
-      tenantId: ctx.tenantId,
+      tenantId: effectiveTenantId,
       messages: 1,
       tokens: result.inputTokens + result.outputTokens,
       model: ctx.orchestrator.model ?? "unknown",
@@ -504,6 +677,7 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
   // Emit events (fire-and-forget)
   const assistantDecision = await resolveEgressDecision(
     ctx,
+    effectiveTenantId,
     session.id,
     "assistant-response",
     extractText(resultParts),
@@ -523,6 +697,7 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
   } else {
     const summaryDecision = await resolveEgressDecision(
       ctx,
+      effectiveTenantId,
       session.id,
       "context-summary",
       result.contextSummary,
@@ -546,6 +721,7 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
       } else {
         summaryDecision = await resolveEgressDecision(
           ctx,
+          effectiveTenantId,
           session.id,
           "tool-result-summary",
           exec.resultSummary,
@@ -566,7 +742,7 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
   if (ctx.eventEmitter) {
     ctx.eventEmitter.emit({
       eventType: "MESSAGE_RECEIVED",
-      tenantId: ctx.tenantId,
+      tenantId: effectiveTenantId,
       channel: ctx.channel,
       externalUserId: ctx.userId,
       sessionId: session.id,
@@ -580,7 +756,7 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
     if (result.queued) {
       ctx.eventEmitter.emit({
         eventType: "HANDOFF_MESSAGE_QUEUED",
-        tenantId: ctx.tenantId,
+        tenantId: effectiveTenantId,
         channel: ctx.channel,
         externalUserId: ctx.userId,
         sessionId: session.id,
@@ -596,7 +772,7 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
       trace.warn("pipeline", "Escalation detected", { reason: result.escalation.reason });
       ctx.eventEmitter.emit({
         eventType: "ESCALATION_DETECTED",
-        tenantId: ctx.tenantId,
+        tenantId: effectiveTenantId,
         channel: ctx.channel,
         externalUserId: ctx.userId,
         sessionId: session.id,
@@ -615,7 +791,7 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
       for (const exec of egressToolExecutions) {
         ctx.eventEmitter.emit({
           eventType: "TOOL_EXECUTED",
-          tenantId: ctx.tenantId,
+          tenantId: effectiveTenantId,
           channel: ctx.channel,
           externalUserId: ctx.userId,
           sessionId: session.id,
@@ -631,39 +807,39 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
     }
 
     // Emit AGENT_ROUTED when multi-agent routing is active
-    if (ctx.activeAgentId) {
+    if (effectiveActiveAgentId) {
       ctx.eventEmitter.emit({
         eventType: "AGENT_ROUTED",
-        tenantId: ctx.tenantId,
+        tenantId: effectiveTenantId,
         channel: ctx.channel,
         externalUserId: ctx.userId,
         sessionId: session.id,
         schemaVersion: "1",
-        activeAgentId: ctx.activeAgentId,
-        activeAgentName: ctx.activeAgentName,
-        routingTier: ctx.routingTier,
-        routingConfidence: ctx.routingConfidence,
+        activeAgentId: effectiveActiveAgentId,
+        activeAgentName: effectiveActiveAgentName,
+        routingTier: effectiveRoutingTier,
+        routingConfidence: effectiveRoutingConfidence,
         traceId: trace.traceId,
         timestamp: new Date().toISOString(),
       });
     }
 
     // Emit AGENT_HANDOFF when an agent switch occurred (or was blocked)
-    if (ctx.isHandoff || ctx.pingPongBlocked) {
+    if (effectiveIsHandoff || effectivePingPongBlocked) {
       ctx.eventEmitter.emit({
         eventType: "AGENT_HANDOFF",
-        tenantId: ctx.tenantId,
+        tenantId: effectiveTenantId,
         channel: ctx.channel,
         externalUserId: ctx.userId,
         sessionId: session.id,
         schemaVersion: "1",
-        fromAgentId: ctx.previousAgentId,
-        fromAgentName: ctx.previousAgentName,
-        toAgentId: ctx.activeAgentId,
-        toAgentName: ctx.activeAgentName,
-        handoffBrief: ctx.handoffBrief,
-        handoffBlocked: ctx.pingPongBlocked,
-        handoffBlockReason: ctx.pingPongReason,
+        fromAgentId: effectivePreviousAgentId,
+        fromAgentName: effectivePreviousAgentName,
+        toAgentId: effectiveActiveAgentId,
+        toAgentName: effectiveActiveAgentName,
+        handoffBrief: effectiveHandoffBrief,
+        handoffBlocked: effectivePingPongBlocked,
+        handoffBlockReason: effectivePingPongReason,
         traceId: trace.traceId,
         timestamp: new Date().toISOString(),
       });
@@ -673,7 +849,7 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
     if (result.routingDecision) {
       ctx.eventEmitter.emit({
         eventType: "MODEL_ROUTED",
-        tenantId: ctx.tenantId,
+        tenantId: effectiveTenantId,
         channel: ctx.channel,
         externalUserId: ctx.userId,
         selectedProvider: result.routingDecision.provider,
@@ -691,7 +867,7 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
   if (groundingResult && !groundingResult.grounded && ctx.eventEmitter) {
     ctx.eventEmitter.emit({
       eventType: "GROUNDING_BLOCKED",
-      tenantId: ctx.tenantId,
+      tenantId: effectiveTenantId,
       channel: ctx.channel,
       externalUserId: ctx.userId,
       sessionId: session.id,
@@ -721,11 +897,12 @@ export async function processInboundMessage(ctx: InboundMessageContext): Promise
       contextSummary: egressContextSummary,
       toolExecutions: egressToolExecutions,
       traceId: trace.traceId,
-      activeAgentId: ctx.activeAgentId,
+      activeAgentId: effectiveActiveAgentId,
       routingDecision: result.routingDecision
         ? { provider: result.routingDecision.provider, model: result.routingDecision.model, routingTier: result.routingDecision.routingTier }
         : undefined,
       groundingResult,
+      runtimeContinuity: runtimeContinuityPresentation.runtimeContinuity,
     },
   };
 }

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { extractText } from "@kilnai/core";
 import { CliSubscriptionExecutor } from "../../src/execution/cli-subscription-executor.js";
 
 type SessionEvent =
@@ -19,6 +20,67 @@ function eventStream(events: readonly SessionEvent[]): AsyncIterable<SessionEven
 }
 
 describe("CliSubscriptionExecutor", () => {
+  it("builds an empty prompt for empty history", async () => {
+    const dispose = vi.fn().mockResolvedValue(undefined);
+    const run = vi.fn().mockImplementation(() =>
+      eventStream([
+        { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+      ]),
+    );
+    const factory = vi.fn().mockReturnValue({ run, dispose });
+    const executor = new CliSubscriptionExecutor(factory, "claude");
+
+    await executor.createMessage({
+      system: "sys",
+      messages: [],
+    });
+
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(run.mock.calls[0]?.[0]?.prompt).toBe("");
+  });
+
+  it("builds a single-message prompt without labels", async () => {
+    const dispose = vi.fn().mockResolvedValue(undefined);
+    const run = vi.fn().mockImplementation(() =>
+      eventStream([
+        { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+      ]),
+    );
+    const factory = vi.fn().mockReturnValue({ run, dispose });
+    const executor = new CliSubscriptionExecutor(factory, "claude");
+
+    await executor.createMessage({
+      system: "sys",
+      messages: [{ role: "user", parts: [{ type: "text", text: "hello" }] }],
+    });
+
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(run.mock.calls[0]?.[0]?.prompt).toBe("hello");
+  });
+
+  it("builds a multi-turn prompt with role labels and blank-line separators", async () => {
+    const dispose = vi.fn().mockResolvedValue(undefined);
+    const run = vi.fn().mockImplementation(() =>
+      eventStream([
+        { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+      ]),
+    );
+    const factory = vi.fn().mockReturnValue({ run, dispose });
+    const executor = new CliSubscriptionExecutor(factory, "claude");
+
+    await executor.createMessage({
+      system: "sys",
+      messages: [
+        { role: "user", parts: [{ type: "text", text: "u1" }] },
+        { role: "assistant", parts: [{ type: "text", text: "a1" }] },
+        { role: "user", parts: [{ type: "text", text: "u2" }] },
+      ],
+    });
+
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(run.mock.calls[0]?.[0]?.prompt).toBe("User: u1\n\nAssistant: a1\n\nUser: u2");
+  });
+
   it("does not infer file_changed from tool_result strings", async () => {
     const dispose = vi.fn().mockResolvedValue(undefined);
     const factory = vi.fn().mockReturnValue({
@@ -71,5 +133,70 @@ describe("CliSubscriptionExecutor", () => {
       linesAdded: 3,
       linesRemoved: 1,
     });
+  });
+
+  it("accumulates non-thinking text deltas and tracks latest token counts", async () => {
+    const dispose = vi.fn().mockResolvedValue(undefined);
+    const factory = vi.fn().mockReturnValue({
+      run: () => eventStream([
+        { type: "text_delta", content: "thinking...", isThinking: true },
+        { type: "text_delta", content: "Hello " },
+        { type: "cost_update", usd: 0.01, inputTokens: 10 },
+        { type: "text_delta", content: "world" },
+        { type: "cost_update", usd: 0.02, outputTokens: 7 },
+        { type: "cost_update", usd: 0.03, inputTokens: 12, outputTokens: 9 },
+        { type: "completed", totalUsd: 0.03, durationMs: 1, isError: false, isPreflightCrash: false },
+      ]),
+      dispose,
+    });
+    const executor = new CliSubscriptionExecutor(factory, "claude");
+
+    const result = await executor.createMessage({
+      system: "sys",
+      messages: [{ role: "user", parts: [{ type: "text", text: "hi" }] }],
+    });
+
+    expect(extractText(result.parts)).toBe("Hello world");
+    expect(result.inputTokens).toBe(12);
+    expect(result.outputTokens).toBe(9);
+    expect(result.toolCalls).toEqual([]);
+    expect(result.stopReason).toBe("end_turn");
+  });
+
+  it("maps completed isError=true to stopReason=error", async () => {
+    const dispose = vi.fn().mockResolvedValue(undefined);
+    const factory = vi.fn().mockReturnValue({
+      run: () => eventStream([
+        { type: "text_delta", content: "partial" },
+        { type: "completed", totalUsd: 0, durationMs: 1, isError: true, isPreflightCrash: false },
+      ]),
+      dispose,
+    });
+    const executor = new CliSubscriptionExecutor(factory, "claude");
+
+    const result = await executor.createMessage({
+      system: "sys",
+      messages: [{ role: "user", parts: [{ type: "text", text: "hi" }] }],
+    });
+
+    expect(extractText(result.parts)).toBe("partial");
+    expect(result.stopReason).toBe("error");
+  });
+
+  it("throws on error events and still disposes in finally", async () => {
+    const dispose = vi.fn().mockResolvedValue(undefined);
+    const factory = vi.fn().mockReturnValue({
+      run: () => eventStream([
+        { type: "error", code: "E_TEST", message: "boom", isRetryable: false },
+      ]),
+      dispose,
+    });
+    const executor = new CliSubscriptionExecutor(factory, "claude");
+
+    await expect(executor.createMessage({
+      system: "sys",
+      messages: [{ role: "user", parts: [{ type: "text", text: "hi" }] }],
+    })).rejects.toThrow("[E_TEST] boom");
+    expect(dispose).toHaveBeenCalledTimes(1);
   });
 });

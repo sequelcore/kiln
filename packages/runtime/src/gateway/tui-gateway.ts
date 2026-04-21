@@ -5,22 +5,16 @@ import { execSync } from "node:child_process";
 import { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
 import type { PerCallToolConfig } from "../session/runtime-session-orchestrator.js";
 import { SessionRegistry } from "../session/session-registry.js";
-import { textParts, extractText, EventBus, type ApprovalRequestedEvent, type ApprovalReceivedEvent, type KilnEvent } from "@kilnai/core";
+import { textParts, extractText, EventBus, type ApprovalRequestedEvent, type ApprovalReceivedEvent, type KilnEvent, type ToolAuthorizedEvent } from "@kilnai/core";
 import type { ContextArtifactCache } from "@kilnai/core";
 import { CliSubscriptionExecutor } from "../execution/cli-subscription-executor.js";
 import type { CliSessionFactory, CliSessionEvent } from "../execution/cli-subscription-executor.js";
 import { ApprovalGateRegistry } from "./approval-registry.js";
-import {
-  classifyRuntimeContextPressure,
-  formatRuntimeResumeFeedbackLabel,
-  formatRuntimeResumeDecision,
-  normalizeRuntimeTaskShape,
-  readRuntimeSupportArtifactsDetailed,
-} from "../session/support/artifacts/context-artifact-summary.js";
-import {
-  applyRuntimeTurnRecord,
-  type RuntimeTurnApprovalTransition,
-  type RuntimeTurnFileChange,
+import { processAdmittedTurn } from "./message-pipeline.js";
+import type {
+  RuntimeTurnApprovalTransition,
+  RuntimeTurnAuthorityDecision,
+  RuntimeTurnFileChange,
 } from "../session/runtime-turn-record.js";
 
 async function getOpencodeModels(): Promise<string[]> {
@@ -350,82 +344,58 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
               : "";
 
             if (!userContent.trim()) return;
-            const taskShape = normalizeRuntimeTaskShape(userContent);
-
             // Send "thinking" status to indicate work has started
             ws.send(JSON.stringify({ type: "thinking" }));
-
-            const session = await sessionRegistry.getOrCreate({
-              appName: TUI_APP_NAME,
-              tenantId: TUI_TENANT_ID,
-              userId,
-              systemPrompt,
-            });
-            activityStreamer.beginTurnCapture(session.id);
-
-            const runtimeSupport = readRuntimeSupportArtifactsDetailed(options.contextArtifactCache, {
-              session,
-              channel: "tui",
-              providerHint: session.sessionLedger.lastProvider,
-              taskShape,
-            });
             let result;
             try {
-              const recalledRuntimeSummary = runtimeSupport.content;
-              session.addExactArtifact(formatRuntimeResumeDecision(runtimeSupport.decision));
-              result = await orchestrator.processMessage(
-                session,
-                textParts(userContent),
-                recalledRuntimeSummary,
-                undefined,
-                buildTuiPerCallToolConfig(),
-              );
+              result = await processAdmittedTurn({
+                orchestrator,
+                sessionRegistry,
+                appName: TUI_APP_NAME,
+                tenantId: TUI_TENANT_ID,
+                userId,
+                systemPrompt,
+                userParts: textParts(userContent),
+                channel: "tui",
+                contextArtifactCache: options.contextArtifactCache,
+                perCallConfig: buildTuiPerCallToolConfig(),
+                turnCapture: {
+                  start: (sessionId) => {
+                    activityStreamer.beginTurnCapture(sessionId);
+                  },
+                  finish: (sessionId) => activityStreamer.endTurnCapture(sessionId),
+                  abort: (sessionId) => {
+                    activityStreamer.endTurnCapture(sessionId);
+                  },
+                },
+              });
             } catch (err) {
-              activityStreamer.endTurnCapture(session.id);
               ws.send(JSON.stringify({
                 type: "error",
                 message: err instanceof Error ? err.message : String(err),
               }));
               return;
             }
-            const turnCapture = activityStreamer.endTurnCapture(session.id);
 
-            applyRuntimeTurnRecord({
-              session,
-              channel: "tui",
-              taskShape,
-              contextArtifactCache: options.contextArtifactCache,
-              continuityDecision: runtimeSupport.decision,
-              queued: result.queued,
-              inputTokens: result.inputTokens,
-              outputTokens: result.outputTokens,
-              contextSummary: result.contextSummary,
-              toolExecutions: result.toolExecutions,
-              routingDecision: result.routingDecision,
-              fileChanges: turnCapture.fileChanges,
-              approvalTransitions: turnCapture.approvalTransitions,
-            });
-
-            await sessionRegistry.save(session);
+            if (!result.ok) {
+              ws.send(JSON.stringify({
+                type: "error",
+                message: result.budgetDenied.message,
+              }));
+              return;
+            }
+            const output = result.result;
+            const runtimeContinuity = output.runtimeContinuity ?? { strategy: "none" };
 
             const authorityStatus = deriveTuiAuthorityStatusFromPerCallConfig(buildTuiPerCallToolConfig());
             ws.send(JSON.stringify(buildTuiDoneFramePayload({
-              content: extractText(result.parts),
-              parts: result.parts,
-              inputTokens: result.inputTokens,
-              outputTokens: result.outputTokens,
-              routedProvider: result.routingDecision?.provider ?? options.sessionManager.getProvider(),
-              routedModel: result.routingDecision?.model ?? options.sessionManager.getModel(),
-              runtimeContinuity: {
-                strategy: runtimeSupport.decision.resumeStrategy,
-                feedbackLabel: formatRuntimeResumeFeedbackLabel(runtimeSupport.decision),
-                pressure: classifyRuntimeContextPressure(runtimeSupport.supportArtifactCount),
-                supportArtifactCount: runtimeSupport.supportArtifactCount,
-                supportArtifactSources: runtimeSupport.supportArtifactSources,
-                fallbackLabel: runtimeSupport.fallbackLabel,
-                usedCachedSupport: runtimeSupport.usedCachedSupport,
-                selectionReason: runtimeSupport.selectionReason,
-              },
+              content: extractText(output.parts),
+              parts: output.parts,
+              inputTokens: output.inputTokens,
+              outputTokens: output.outputTokens,
+              routedProvider: output.routingDecision?.provider ?? options.sessionManager.getProvider(),
+              routedModel: output.routingDecision?.model ?? options.sessionManager.getModel(),
+              runtimeContinuity,
               authorityStatus,
             })));
           } catch {
@@ -478,11 +448,13 @@ class TuiActivityStreamer {
     sessionId: string;
     fileChanges: RuntimeTurnFileChange[];
     approvalTransitions: RuntimeTurnApprovalTransition[];
+    authorityDecisions: RuntimeTurnAuthorityDecision[];
   } | null = null;
   private ws: WSContext | null = null;
   private eventBus: EventBus | null = null;
   private approvalHandler: ((event: import("@kilnai/core").KilnEvent) => void) | null = null;
   private receivedHandler: ((event: import("@kilnai/core").KilnEvent) => void) | null = null;
+  private authorizedHandler: ((event: import("@kilnai/core").KilnEvent) => void) | null = null;
   private approvalBridge: {
     approve: (sessionId: string) => void;
     reject: (sessionId: string, reason: string) => void;
@@ -502,19 +474,22 @@ class TuiActivityStreamer {
       sessionId,
       fileChanges: [],
       approvalTransitions: [],
+      authorityDecisions: [],
     };
   }
 
   endTurnCapture(sessionId: string): {
     fileChanges: readonly RuntimeTurnFileChange[];
     approvalTransitions: readonly RuntimeTurnApprovalTransition[];
+    authorityDecisions: readonly RuntimeTurnAuthorityDecision[];
   } {
     if (!this.capture || this.capture.sessionId !== sessionId) {
-      return { fileChanges: [], approvalTransitions: [] };
+      return { fileChanges: [], approvalTransitions: [], authorityDecisions: [] };
     }
     const captured = {
       fileChanges: [...this.capture.fileChanges],
       approvalTransitions: [...this.capture.approvalTransitions],
+      authorityDecisions: [...this.capture.authorityDecisions],
     };
     this.capture = null;
     return captured;
@@ -585,6 +560,22 @@ class TuiActivityStreamer {
       }
     };
     this.eventBus.onAny(this.receivedHandler);
+
+    this.authorizedHandler = (event: KilnEvent) => {
+      if (event.type === "tool_authorized") {
+        const authorizedEvent = event as ToolAuthorizedEvent;
+        const sessionId = authorizedEvent.sessionId;
+        if (sessionId && this.capture && this.capture.sessionId === sessionId) {
+          this.capture.authorityDecisions.push({
+            toolName: authorizedEvent.toolName,
+            level: authorizedEvent.level,
+            allowed: authorizedEvent.allowed,
+            reason: authorizedEvent.reason,
+          });
+        }
+      }
+    };
+    this.eventBus.onAny(this.authorizedHandler);
   }
 
   unregister(ws: WSContext): void {
@@ -598,6 +589,10 @@ class TuiActivityStreamer {
     if (this.eventBus && this.receivedHandler) {
       this.eventBus.offAny(this.receivedHandler);
       this.receivedHandler = null;
+    }
+    if (this.eventBus && this.authorizedHandler) {
+      this.eventBus.offAny(this.authorizedHandler);
+      this.authorizedHandler = null;
     }
     this.eventBus = null;
     this.capture = null;

@@ -48,6 +48,31 @@ function buildRuntimeContinuityOutcomeKey(input: {
 const RUNTIME_CONTINUITY_HISTORY_LIMIT = 6;
 const MIN_RUNTIME_FEEDBACK_SAMPLES = 2;
 export type RuntimeSupportArtifactSource = "thread" | "handoff" | "context" | "tools";
+export interface RuntimeSupportArtifactsDetailedResult {
+  content?: string;
+  decision: ResumePolicyDecision;
+  supportArtifactCount: number;
+  supportArtifactSources: readonly RuntimeSupportArtifactSource[];
+  fallbackLabel?: string;
+  usedCachedSupport: boolean;
+  selectionReason?: string;
+}
+
+export interface RuntimeContinuityPresentation {
+  strategy: string;
+  feedbackLabel?: string;
+  pressure: "none" | "low" | "medium" | "high";
+  supportArtifactCount: number;
+  supportArtifactSources: readonly RuntimeSupportArtifactSource[];
+  fallbackLabel?: string;
+  usedCachedSupport: boolean;
+  selectionReason?: string;
+}
+
+export interface RuntimeContinuityDecisionPresentation {
+  decisionSummary: string;
+  feedbackLabel?: string;
+}
 
 interface RuntimeContinuityOutcomeSample {
   readonly strategy: "cache-first" | "fallback-replay";
@@ -180,15 +205,7 @@ export function readRuntimeSupportArtifactsDetailed(
     providerHint?: string;
     taskShape: string;
   },
-): {
-  content?: string;
-  decision: ResumePolicyDecision;
-  supportArtifactCount: number;
-  supportArtifactSources: readonly RuntimeSupportArtifactSource[];
-  fallbackLabel?: string;
-  usedCachedSupport: boolean;
-  selectionReason?: string;
-} {
+): RuntimeSupportArtifactsDetailedResult {
   const emptyDecision = decideResumePolicy({
     nativeResumeEligible: false,
     resumeSessionId: undefined,
@@ -524,4 +541,35 @@ export function classifyRuntimeContextPressure(
   if (supportArtifactCount === 1) return "low";
   if (supportArtifactCount === 2) return "medium";
   return "high";
+}
+
+export function formatRuntimeContinuityDecisionPresentation(
+  decision: ResumePolicyDecision,
+): RuntimeContinuityDecisionPresentation {
+  return {
+    decisionSummary: formatRuntimeResumeDecision(decision),
+    feedbackLabel: formatRuntimeResumeFeedbackLabel(decision),
+  };
+}
+
+export function formatRuntimeContinuityPresentation(
+  support: RuntimeSupportArtifactsDetailedResult,
+): {
+  decisionSummary: string;
+  runtimeContinuity: RuntimeContinuityPresentation;
+} {
+  const decisionPresentation = formatRuntimeContinuityDecisionPresentation(support.decision);
+  return {
+    decisionSummary: decisionPresentation.decisionSummary,
+    runtimeContinuity: {
+      strategy: support.decision.resumeStrategy,
+      feedbackLabel: decisionPresentation.feedbackLabel,
+      pressure: classifyRuntimeContextPressure(support.supportArtifactCount),
+      supportArtifactCount: support.supportArtifactCount,
+      supportArtifactSources: support.supportArtifactSources,
+      fallbackLabel: support.fallbackLabel,
+      usedCachedSupport: support.usedCachedSupport,
+      selectionReason: support.selectionReason,
+    },
+  };
 }

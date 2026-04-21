@@ -1,12 +1,18 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { EventBus, textParts } from "@kilnai/core";
-import { processInboundMessage } from "../../src/gateway/message-pipeline.js";
-import type { InboundMessageContext } from "../../src/gateway/message-pipeline.js";
+import type { TenantConfig } from "@kilnai/core";
+import { processAdmittedTurn } from "../../src/gateway/message-pipeline.js";
+import type { AdmittedTurnContext } from "../../src/gateway/message-pipeline.js";
 import type { RuntimeSessionOrchestrator, OrchestrateResult } from "../../src/session/runtime-session-orchestrator.js";
 import type { SessionRegistry } from "../../src/session/session-registry.js";
 import type { RuntimeSession } from "../../src/session/runtime-session.js";
 import type { ConversationEventEmitter } from "../../src/gateway/conversation-event-emitter.js";
 import type { BillingConfig } from "../../src/gateway/budget-middleware.js";
+import * as agentResolver from "../../src/tenant/agent-resolver.js";
+import * as runtimeArtifacts from "../../src/session/support/artifacts/context-artifact-summary.js";
+import { buildTenantSystemPrompt } from "../../src/tenant/system-prompt-builder.js";
+
+const processInboundMessage = processAdmittedTurn;
 
 const originalFetch = globalThis.fetch;
 
@@ -14,6 +20,17 @@ function makeMockSession(): RuntimeSession {
   let _userContext: Record<string, string> | undefined;
   let _sessionLedger: Record<string, unknown> = {};
   let _exactArtifacts: string[] = [];
+  let _systemPrompt = "You are a test assistant.";
+  let _activeAgentId: string | undefined;
+  const setSystemPrompt = vi.fn((prompt: string) => {
+    _systemPrompt = prompt;
+    (session as unknown as { systemPrompt: string }).systemPrompt = prompt;
+  });
+  const setActiveAgent = vi.fn((agentId: string) => {
+    _activeAgentId = agentId;
+    (session as unknown as { activeAgentId?: string }).activeAgentId = agentId;
+  });
+
   const session = {
     id: "test-app:test-tenant:user-1:12345",
     appName: "test-app",
@@ -24,6 +41,8 @@ function makeMockSession(): RuntimeSession {
     userTurnCount: 0,
     conversationHistory: [] as any,
     messageCount: 0,
+    activeAgentId: undefined as string | undefined,
+    systemPrompt: _systemPrompt,
     accumulateTokens: vi.fn(),
     get userContext() { return _userContext; },
     updateUserContext(ctx: Record<string, string>) {
@@ -37,6 +56,11 @@ function makeMockSession(): RuntimeSession {
       _exactArtifacts.push(artifact);
     },
     get exactArtifacts() { return _exactArtifacts; },
+    setSystemPrompt,
+    setActiveAgent,
+    getActiveAgentId() {
+      return _activeAgentId;
+    },
   } as unknown as RuntimeSession;
   return session;
 }
@@ -51,6 +75,7 @@ function makeMockOrchestrator(): RuntimeSessionOrchestrator {
       cacheWriteTokens: 5,
       queued: false,
     } satisfies OrchestrateResult),
+    registerTools: vi.fn(),
     model: "claude-sonnet-4-20250514",
   } as unknown as RuntimeSessionOrchestrator;
 }
@@ -77,7 +102,7 @@ function makeBillingConfig(): BillingConfig {
   };
 }
 
-function makeBaseContext(overrides: Partial<InboundMessageContext> = {}): InboundMessageContext {
+function makeBaseContext(overrides: Partial<AdmittedTurnContext> = {}): AdmittedTurnContext {
   return {
     orchestrator: makeMockOrchestrator(),
     sessionRegistry: makeMockSessionRegistry(),
@@ -91,7 +116,7 @@ function makeBaseContext(overrides: Partial<InboundMessageContext> = {}): Inboun
   };
 }
 
-describe("processInboundMessage", () => {
+describe("processAdmittedTurn", () => {
   beforeEach(() => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
@@ -199,6 +224,35 @@ describe("processInboundMessage", () => {
     });
   });
 
+  it("builds session bootstrap prompt from tenant when systemPrompt is omitted", async () => {
+    const sessionRegistry = makeMockSessionRegistry();
+    const now = new Date().toISOString();
+    const tenant: TenantConfig = {
+      tenantId: "tenant-1",
+      appName: "test-app",
+      name: "Tenant One",
+      enabled: true,
+      tone: "friendly",
+      language: "es-MX",
+      createdAt: now,
+      updatedAt: now,
+    };
+    const ctx = makeBaseContext({
+      sessionRegistry,
+      tenantId: "tenant-1",
+      systemPrompt: undefined,
+      tenant,
+    });
+
+    await processInboundMessage(ctx);
+
+    expect(sessionRegistry.getOrCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        systemPrompt: buildTenantSystemPrompt(tenant),
+      }),
+    );
+  });
+
   it("passes tenantId to sessionRegistry.getOrCreate", async () => {
     const sessionRegistry = makeMockSessionRegistry();
     const ctx = makeBaseContext({ sessionRegistry, tenantId: "tenant-1" });
@@ -253,6 +307,143 @@ describe("processInboundMessage", () => {
     );
   });
 
+  it("retrieves knowledge context in auto mode and appends it to merged memory", async () => {
+    const orchestrator = makeMockOrchestrator();
+    const sessionRegistry = makeMockSessionRegistry();
+    const knowledgePipeline = {
+      retrieve: vi.fn().mockResolvedValue([
+        { content: "Fact A" },
+        { content: "Fact B" },
+      ]),
+    };
+    const ctx = makeBaseContext({
+      orchestrator,
+      sessionRegistry,
+      knowledgePipeline: knowledgePipeline as AdmittedTurnContext["knowledgePipeline"],
+      knowledgeMode: "auto",
+    });
+
+    await processInboundMessage(ctx);
+
+    expect(knowledgePipeline.retrieve).toHaveBeenCalledWith("hello", { topK: 5 });
+    const callArgs = (orchestrator.processMessage as ReturnType<typeof vi.fn>).mock.calls[0];
+    const mergedMemoryArg: string | undefined = callArgs[2];
+    expect(mergedMemoryArg).toContain("[Knowledge context]:");
+    expect(mergedMemoryArg).toContain("Fact A");
+    expect(mergedMemoryArg).toContain("Fact B");
+  });
+
+  it("resolves tenant agent context in pipeline and forwards tenant tool context to orchestrator call", async () => {
+    const session = makeMockSession();
+    const orchestrator = makeMockOrchestrator();
+    const sessionRegistry = makeMockSessionRegistry(session);
+    const emitter = makeMockEventEmitter();
+    const callBuiltinTools = new Map<string, (input: Record<string, unknown>) => Promise<unknown>>([
+      ["mock_tool", vi.fn(async (input) => input)],
+    ]);
+    const toolDefinitions = [{
+      name: "mock_tool",
+      description: "Mock tool",
+      inputSchema: {
+        type: "object",
+        properties: {
+          value: { type: "string" },
+        },
+      },
+      tags: new Set(["builtin"]),
+    }];
+    const capabilities = new Map<string, unknown>([
+      ["mock_tool", { name: "mock_tool" }],
+    ]);
+    const toolAuthority = new Map<string, unknown>([
+      ["mock_tool", {
+        level: 2,
+        allowed: true,
+        requiresApproval: false,
+        reason: "Audited execution",
+      }],
+    ]);
+    const toolAllowlist = new Set(["mock_tool"]);
+    const rateLimiter = {
+      check: vi.fn().mockReturnValue({ allowed: true }),
+      record: vi.fn(),
+    };
+
+    const resolveSpy = vi.spyOn(agentResolver, "resolveAgentContextAsync").mockResolvedValue({
+      systemPrompt: "Tenant-specific system prompt",
+      tenantToolContext: {
+        callBuiltinTools,
+        toolDefinitions,
+        capabilities,
+        toolAuthority,
+        toolAuthorityClassification: undefined,
+        integrationAuthorityRollup: undefined,
+        toolAllowlist,
+        rateLimiter,
+        maxToolRounds: undefined,
+      },
+      activeAgentId: "agent-support",
+      activeAgentName: "Support Agent",
+      routingResult: {
+        agentId: "agent-support",
+        confidence: 0.88,
+        tier: "rule",
+      },
+      previousAgentId: "agent-router",
+      isHandoff: true,
+      handoffBrief: "handoff brief",
+    });
+
+    const tenant = {
+      tenantId: "tenant-1",
+      displayName: "Tenant One",
+    } as AdmittedTurnContext["tenant"];
+    const ctx = makeBaseContext({
+      orchestrator,
+      sessionRegistry,
+      eventEmitter: emitter,
+      tenantId: "_default",
+      tenant,
+    });
+
+    const result = await processInboundMessage(ctx);
+
+    expect(result.ok).toBe(true);
+    expect(resolveSpy).toHaveBeenCalledTimes(1);
+    expect(orchestrator.registerTools).toHaveBeenCalledWith(toolDefinitions);
+    expect(orchestrator.processMessage).toHaveBeenCalledWith(
+      expect.anything(),
+      textParts("hello"),
+      undefined,
+      callBuiltinTools,
+      expect.objectContaining({
+        tenantId: "tenant-1",
+        toolAuthority,
+        toolAllowlist,
+        rateLimiter,
+        additionalTools: toolDefinitions,
+        perCallCapabilities: capabilities,
+      }),
+    );
+    expect(session.setSystemPrompt).toHaveBeenCalledWith("Tenant-specific system prompt");
+    expect(session.setActiveAgent).toHaveBeenCalledWith("agent-support", "handoff brief");
+
+    if (result.ok) {
+      expect(result.result.activeAgentId).toBe("agent-support");
+    }
+    const emitted = (emitter.emit as ReturnType<typeof vi.fn>).mock.calls.map((call) => call[0]);
+    expect(emitted).toContainEqual(expect.objectContaining({
+      eventType: "AGENT_ROUTED",
+      tenantId: "tenant-1",
+      activeAgentId: "agent-support",
+      activeAgentName: "Support Agent",
+      routingTier: "rule",
+      routingConfidence: 0.88,
+    }));
+
+    resolveSpy.mockRestore();
+  });
+
   it("prepends [User Context] block first in mergedMemory when userContext is present", async () => {
     const orchestrator = makeMockOrchestrator();
     const sessionRegistry = makeMockSessionRegistry();
@@ -286,6 +477,49 @@ describe("processInboundMessage", () => {
     const callArgs = (orchestrator.processMessage as ReturnType<typeof vi.fn>).mock.calls[0];
     const mergedMemoryArg: string | undefined = callArgs[2];
     expect(mergedMemoryArg).not.toContain("[User Context]");
+  });
+
+  it("preserves admitted-turn context projection ordering and grounding directive application", async () => {
+    const supportSpy = vi.spyOn(runtimeArtifacts, "readRuntimeSupportArtifactsDetailed").mockReturnValue({
+      content: "cached runtime summary",
+      supportArtifactCount: 0,
+      supportArtifactSources: [],
+      fallbackLabel: undefined,
+      usedCachedSupport: false,
+      selectionReason: "none",
+      decision: {
+        resumeStrategy: "none",
+        cachedResumeSignalCount: 0,
+      },
+    } as ReturnType<typeof runtimeArtifacts.readRuntimeSupportArtifactsDetailed>);
+    const orchestrator = makeMockOrchestrator();
+    const sessionRegistry = makeMockSessionRegistry();
+    const ctx = makeBaseContext({
+      orchestrator,
+      sessionRegistry,
+      userContext: { role: "admin" },
+      recalledMemory: "recalled memory",
+      knowledgeContext: "knowledge context",
+      contactContext: "contact context",
+      groundingMode: "strict",
+    });
+
+    await processInboundMessage(ctx);
+
+    const callArgs = (orchestrator.processMessage as ReturnType<typeof vi.fn>).mock.calls[0];
+    const mergedMemoryArg: string | undefined = callArgs[2];
+    expect(mergedMemoryArg).toBeDefined();
+    expect(mergedMemoryArg).toContain("[User Context]:\nrole: admin");
+    expect(mergedMemoryArg).toContain("cached runtime summary");
+    expect(mergedMemoryArg).toContain("recalled memory");
+    expect(mergedMemoryArg).toContain("knowledge context");
+    expect(mergedMemoryArg).toContain("contact context");
+    expect(mergedMemoryArg).toMatch(
+      /\[User Context\]:\nrole: admin[\s\S]*cached runtime summary[\s\S]*recalled memory[\s\S]*knowledge context[\s\S]*contact context/,
+    );
+    expect(mergedMemoryArg).toContain("--- Grounding Rules ---");
+
+    supportSpy.mockRestore();
   });
 
   it("uses tenantId for billing", async () => {
