@@ -17,10 +17,30 @@ function resetSessionStore(): void {
     resumeTargetId: null,
     routedProvider: null,
     routedModel: null,
+    routeMode: "auto",
+    respondingProvider: null,
+    respondingModel: null,
     turnCounter: 0,
+    sessionCostUsd: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    perProviderUsage: {},
+    runtimeContinuityByProvider: {},
+    changedFiles: [],
+    currentTurnProvider: null,
+    currentTurnTrackedCostUsd: 0,
+    currentTurnTrackedInputTokens: 0,
+    currentTurnTrackedOutputTokens: 0,
     clearPending: false,
+    providerSwitching: false,
+    providerExplicitSelection: false,
+    authorityStatus: null,
+    approvalQueue: [],
+    toolCallLog: [],
+    activityPhase: "idle",
     outboundSend: null,
     clearTimeoutId: null,
+    providerSwitchTimeoutId: null,
   });
 }
 
@@ -80,6 +100,90 @@ describe("session-store", () => {
     expect(state.messages[0]?.streaming).toBe(false);
     expect(state.routedProvider).toBe("claude");
     expect(state.routedModel).toBe("sonnet");
+  });
+
+  it("tracks session telemetry from cost_update activity and file changes", () => {
+    useSessionStore.setState({
+      activeProvider: "claude",
+      activeModel: "sonnet",
+      status: "running",
+      currentTurnProvider: "claude",
+    });
+
+    useSessionStore.getState().onActivity({
+      type: "activity",
+      activity: "cost_update",
+      usd: 0.125,
+      inputTokens: 1200,
+      outputTokens: 340,
+    });
+    useSessionStore.getState().onActivity({
+      type: "activity",
+      activity: "file_changed",
+      path: "packages/gui/src/app.tsx",
+      changeType: "modified",
+      linesAdded: 12,
+      linesRemoved: 4,
+    });
+
+    const state = useSessionStore.getState();
+    expect(state.sessionCostUsd).toBeCloseTo(0.125);
+    expect(state.inputTokens).toBe(1200);
+    expect(state.outputTokens).toBe(340);
+    expect(state.perProviderUsage.claude).toEqual({
+      costUsd: 0.125,
+      inputTokens: 1200,
+      outputTokens: 340,
+    });
+    expect(state.changedFiles).toHaveLength(1);
+    expect(state.changedFiles[0]).toMatchObject({
+      path: "packages/gui/src/app.tsx",
+      changeType: "modified",
+      linesAdded: 12,
+      linesRemoved: 4,
+    });
+  });
+
+  it("stores runtime continuity per finalized provider and reconciles done-token fallback", () => {
+    useSessionStore.setState({
+      activeProvider: "claude",
+      activeModel: "sonnet",
+      status: "running",
+      currentTurnProvider: "claude",
+    });
+
+    useSessionStore.getState().onDone({
+      type: "done",
+      content: "done",
+      inputTokens: 250,
+      outputTokens: 75,
+      routedProvider: "codex",
+      routedModel: "o3",
+      runtimeContinuity: {
+        strategy: "cache-first",
+        feedbackLabel: "applied",
+        pressure: "medium",
+        supportArtifactCount: 2,
+        supportArtifactSources: ["session", "project"],
+        fallbackLabel: "support available",
+        usedCachedSupport: true,
+        selectionReason: "recent continuity",
+      },
+    });
+
+    const state = useSessionStore.getState();
+    expect(state.inputTokens).toBe(250);
+    expect(state.outputTokens).toBe(75);
+    expect(state.perProviderUsage.codex).toEqual({
+      costUsd: 0,
+      inputTokens: 250,
+      outputTokens: 75,
+    });
+    expect(state.runtimeContinuityByProvider.codex).toMatchObject({
+      strategy: "cache-first",
+      feedbackLabel: "applied",
+      pressure: "medium",
+    });
   });
 
   it("onError adds error row and sets banner", () => {
@@ -154,4 +258,3 @@ describe("session-store", () => {
     expect(localStorage.getItem("kiln.gui.resume.claude")).toBe("resume-42");
   });
 });
-

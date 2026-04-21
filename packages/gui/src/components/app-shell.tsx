@@ -14,6 +14,7 @@ import { ProviderPicker } from "./provider-picker.js";
 import { ProviderStatus } from "./provider-status.js";
 import { ApprovalQueue } from "./approval-queue.js";
 import { ToolCallLog } from "./tool-call-log.js";
+import { SessionTelemetry } from "./session-telemetry.js";
 
 const GATEWAY_BASE = "/gui-api";
 
@@ -65,6 +66,15 @@ export function AppShell() {
   const selectedSessionId = useSessionStore((state) => state.selectedSessionId);
   const resumeTargetId = useSessionStore((state) => state.resumeTargetId);
   const turnCounter = useSessionStore((state) => state.turnCounter);
+  const sessionCostUsd = useSessionStore((state) => state.sessionCostUsd);
+  const inputTokens = useSessionStore((state) => state.inputTokens);
+  const outputTokens = useSessionStore((state) => state.outputTokens);
+  const perProviderUsage = useSessionStore((state) => state.perProviderUsage);
+  const runtimeContinuity = useSessionStore((state) => {
+    if (!state.activeProvider) return null;
+    return state.runtimeContinuityByProvider[state.activeProvider] ?? null;
+  });
+  const changedFiles = useSessionStore((state) => state.changedFiles);
   const approvalQueue = useSessionStore((state) => state.approvalQueue);
   const toolCallLog = useSessionStore((state) => state.toolCallLog);
   const activityPhase = useSessionStore((state) => state.activityPhase);
@@ -347,6 +357,17 @@ export function AppShell() {
           <div className="w-[320px] min-w-[280px] max-w-[360px]">{sidebar}</div>
         ) : null}
         <main className="flex min-h-0 flex-1 flex-col">
+          <SessionTelemetry
+            status={status}
+            activeProvider={activeProvider}
+            turnCounter={turnCounter}
+            sessionCostUsd={sessionCostUsd}
+            inputTokens={inputTokens}
+            outputTokens={outputTokens}
+            perProviderUsage={perProviderUsage}
+            runtimeContinuity={runtimeContinuity}
+            changedFiles={changedFiles}
+          />
           <ApprovalQueue
             queue={approvalQueue}
             onApprove={(sessionId) => sendApprovalResponse(true, undefined, sessionId)}

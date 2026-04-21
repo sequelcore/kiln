@@ -22,6 +22,31 @@ export interface ToolCallEntry {
 
 export type ActivityPhase = "idle" | "thinking" | "tool_running" | "awaiting_approval" | "streaming";
 
+export interface ProviderUsage {
+  readonly costUsd: number;
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+}
+
+export interface RuntimeContinuityInfo {
+  readonly strategy: string;
+  readonly feedbackLabel?: string;
+  readonly pressure?: string;
+  readonly supportArtifactCount?: number;
+  readonly supportArtifactSources?: readonly string[];
+  readonly fallbackLabel?: string;
+  readonly usedCachedSupport?: boolean;
+  readonly selectionReason?: string;
+}
+
+export interface ChangedFileEntry {
+  readonly path: string;
+  readonly changeType: "created" | "modified" | "deleted";
+  readonly linesAdded?: number;
+  readonly linesRemoved?: number;
+  readonly recordedAt: string;
+}
+
 const PLAN_MODE_KEY = "kiln.gui.planMode";
 const CLEAR_TIMEOUT_MS = 5_000;
 const PROVIDER_SWITCH_TIMEOUT_MS = 5_000;
@@ -135,6 +160,16 @@ interface SessionStoreState {
   readonly respondingProvider: string | null;
   readonly respondingModel: string | null;
   readonly turnCounter: number;
+  readonly sessionCostUsd: number;
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly perProviderUsage: Readonly<Record<string, ProviderUsage>>;
+  readonly runtimeContinuityByProvider: Readonly<Record<string, RuntimeContinuityInfo>>;
+  readonly changedFiles: readonly ChangedFileEntry[];
+  readonly currentTurnProvider: string | null;
+  readonly currentTurnTrackedCostUsd: number;
+  readonly currentTurnTrackedInputTokens: number;
+  readonly currentTurnTrackedOutputTokens: number;
   readonly clearPending: boolean;
   readonly providerSwitching: boolean;
   readonly providerExplicitSelection: boolean;
@@ -200,6 +235,16 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   respondingProvider: null,
   respondingModel: null,
   turnCounter: 0,
+  sessionCostUsd: 0,
+  inputTokens: 0,
+  outputTokens: 0,
+  perProviderUsage: {},
+  runtimeContinuityByProvider: {},
+  changedFiles: [],
+  currentTurnProvider: null,
+  currentTurnTrackedCostUsd: 0,
+  currentTurnTrackedInputTokens: 0,
+  currentTurnTrackedOutputTokens: 0,
   clearPending: false,
   providerSwitching: false,
   providerExplicitSelection: false,
@@ -348,6 +393,43 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   onActivity: (frame) => {
     const current = get();
+    if (frame.activity === "cost_update" && typeof frame.usd === "number") {
+      const provider = current.currentTurnProvider ?? current.respondingProvider ?? current.activeProvider;
+      const nextUsage = { ...current.perProviderUsage };
+      if (provider) {
+        const previous = nextUsage[provider] ?? { costUsd: 0, inputTokens: 0, outputTokens: 0 };
+        nextUsage[provider] = {
+          costUsd: previous.costUsd + frame.usd,
+          inputTokens: previous.inputTokens + (frame.inputTokens ?? 0),
+          outputTokens: previous.outputTokens + (frame.outputTokens ?? 0),
+        };
+      }
+      set({
+        sessionCostUsd: current.sessionCostUsd + frame.usd,
+        inputTokens: current.inputTokens + (frame.inputTokens ?? 0),
+        outputTokens: current.outputTokens + (frame.outputTokens ?? 0),
+        perProviderUsage: nextUsage,
+        currentTurnTrackedCostUsd: current.currentTurnTrackedCostUsd + frame.usd,
+        currentTurnTrackedInputTokens: current.currentTurnTrackedInputTokens + (frame.inputTokens ?? 0),
+        currentTurnTrackedOutputTokens: current.currentTurnTrackedOutputTokens + (frame.outputTokens ?? 0),
+      });
+      return;
+    }
+
+    if (frame.activity === "file_changed" && frame.path && frame.changeType) {
+      const entry: ChangedFileEntry = {
+        path: frame.path,
+        changeType: frame.changeType,
+        linesAdded: frame.linesAdded,
+        linesRemoved: frame.linesRemoved,
+        recordedAt: nowIso(),
+      };
+      set({
+        changedFiles: [...current.changedFiles, entry],
+      });
+      return;
+    }
+
     const nextRespondingProvider = current.respondingProvider ?? current.activeProvider;
     const nextRespondingModel = current.respondingModel ?? current.activeModel;
 
@@ -402,6 +484,62 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     const state = get();
     const finalizedProvider = frame.routedProvider ?? state.respondingProvider ?? state.activeProvider ?? undefined;
     const finalizedModel = frame.routedModel ?? state.respondingModel ?? state.activeModel ?? undefined;
+    const currentTurnProvider = state.currentTurnProvider;
+    let nextPerProviderUsage = { ...state.perProviderUsage };
+    if (currentTurnProvider && finalizedProvider && currentTurnProvider !== finalizedProvider) {
+      const previousProviderUsage = nextPerProviderUsage[currentTurnProvider];
+      if (previousProviderUsage) {
+        const adjustedPreviousCost = previousProviderUsage.costUsd - state.currentTurnTrackedCostUsd;
+        const adjustedPreviousInput = previousProviderUsage.inputTokens - state.currentTurnTrackedInputTokens;
+        const adjustedPreviousOutput = previousProviderUsage.outputTokens - state.currentTurnTrackedOutputTokens;
+        if (adjustedPreviousCost === 0 && adjustedPreviousInput === 0 && adjustedPreviousOutput === 0) {
+          delete nextPerProviderUsage[currentTurnProvider];
+        } else {
+          nextPerProviderUsage[currentTurnProvider] = {
+            costUsd: adjustedPreviousCost,
+            inputTokens: adjustedPreviousInput,
+            outputTokens: adjustedPreviousOutput,
+          };
+        }
+        const targetUsage = nextPerProviderUsage[finalizedProvider] ?? { costUsd: 0, inputTokens: 0, outputTokens: 0 };
+        nextPerProviderUsage[finalizedProvider] = {
+          costUsd: targetUsage.costUsd + state.currentTurnTrackedCostUsd,
+          inputTokens: targetUsage.inputTokens + state.currentTurnTrackedInputTokens,
+          outputTokens: targetUsage.outputTokens + state.currentTurnTrackedOutputTokens,
+        };
+      }
+    }
+
+    let nextInputTokens = state.inputTokens;
+    let nextOutputTokens = state.outputTokens;
+    if (frame.inputTokens > state.currentTurnTrackedInputTokens) {
+      const delta = frame.inputTokens - state.currentTurnTrackedInputTokens;
+      nextInputTokens += delta;
+      if (finalizedProvider) {
+        const targetUsage = nextPerProviderUsage[finalizedProvider] ?? { costUsd: 0, inputTokens: 0, outputTokens: 0 };
+        nextPerProviderUsage[finalizedProvider] = {
+          ...targetUsage,
+          inputTokens: targetUsage.inputTokens + delta,
+        };
+      }
+    }
+    if (frame.outputTokens > state.currentTurnTrackedOutputTokens) {
+      const delta = frame.outputTokens - state.currentTurnTrackedOutputTokens;
+      nextOutputTokens += delta;
+      if (finalizedProvider) {
+        const targetUsage = nextPerProviderUsage[finalizedProvider] ?? { costUsd: 0, inputTokens: 0, outputTokens: 0 };
+        nextPerProviderUsage[finalizedProvider] = {
+          ...targetUsage,
+          outputTokens: targetUsage.outputTokens + delta,
+        };
+      }
+    }
+
+    const nextRuntimeContinuity = { ...state.runtimeContinuityByProvider };
+    if (finalizedProvider && frame.runtimeContinuity?.strategy) {
+      nextRuntimeContinuity[finalizedProvider] = frame.runtimeContinuity;
+    }
+
     let nextMessages = [...state.messages];
     if (state.currentAssistant) {
       nextMessages = nextMessages.map((message) => (
@@ -440,12 +578,21 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       status: "ready",
       activity: null,
       activityPhase: "idle",
+      sessionCostUsd: state.sessionCostUsd,
+      inputTokens: nextInputTokens,
+      outputTokens: nextOutputTokens,
+      perProviderUsage: nextPerProviderUsage,
+      runtimeContinuityByProvider: nextRuntimeContinuity,
       authorityStatus: frame.authorityStatus ?? state.authorityStatus,
       routedProvider: finalizedProvider ?? state.routedProvider,
       routedModel: finalizedModel ?? state.routedModel,
       routeMode: state.providerExplicitSelection ? "user" : "auto",
       respondingProvider: null,
       respondingModel: null,
+      currentTurnProvider: null,
+      currentTurnTrackedCostUsd: 0,
+      currentTurnTrackedInputTokens: 0,
+      currentTurnTrackedOutputTokens: 0,
       turnCounter: state.turnCounter + 1,
       clearTimeoutId: null,
       clearPending: false,
@@ -496,6 +643,16 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       routeMode: state.providerExplicitSelection ? "user" : "auto",
       respondingProvider: null,
       respondingModel: null,
+      sessionCostUsd: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      perProviderUsage: {},
+      runtimeContinuityByProvider: {},
+      changedFiles: [],
+      currentTurnProvider: null,
+      currentTurnTrackedCostUsd: 0,
+      currentTurnTrackedInputTokens: 0,
+      currentTurnTrackedOutputTokens: 0,
       clearPending: false,
       clearTimeoutId: null,
       approvalQueue: [],
@@ -590,6 +747,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       routeMode: "responding",
       respondingProvider: state.activeProvider,
       respondingModel: state.activeModel,
+      currentTurnProvider: state.activeProvider,
+      currentTurnTrackedCostUsd: 0,
+      currentTurnTrackedInputTokens: 0,
+      currentTurnTrackedOutputTokens: 0,
       errorBanner: null,
       currentAssistant: null,
     });
