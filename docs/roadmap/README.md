@@ -11,8 +11,14 @@ priority.
 
 ### Architecture references
 
-- `docs/architecture/bounded-context-decisions.md`
-  Explicit keep, split, merge, rename, and delete decisions for major modules.
+- `docs/architecture/subsystems.md`
+  Canonical subsystem boundaries, owned responsibilities, and failure modes.
+- `docs/architecture/invariants.md`
+  Architectural laws and non-negotiable rules.
+- `docs/architecture/context-governance.md`
+  Canonical context-assembly ownership and budget doctrine.
+- `docs/architecture/tool-execution.md`
+  Canonical tool authority, execution, and safety boundaries.
 
 ### Execution roadmaps
 
@@ -30,8 +36,9 @@ priority.
 
 ## Read Order
 
-1. Read `docs/architecture/bounded-context-decisions.md` before sequencing
-   code refactors.
+1. Read the relevant architecture docs in `docs/architecture/` before
+   sequencing code refactors, especially `subsystems.md`, `invariants.md`,
+   `context-governance.md`, and `tool-execution.md`.
 2. Read `01-orchestrator-refactor-roadmap.md` for the first code refactor track.
 3. Read `02-gui-phase-1-parity-checklist.md` when planning or verifying GUI
    parity work.
@@ -57,8 +64,8 @@ This is the delivery queue. It is the only priority order in this index.
 As of 2026-04-21:
 
 - the taxonomy freeze and module mapping slices are closed
-- bounded-context decisions now live under `docs/architecture/` as stable
-  reference documentation instead of an active roadmap number
+- bounded-context doctrine now lives only in the stable architecture docs,
+  not in a standalone pseudo-roadmap matrix
 - `packages/runtime/src/session` Slice 3 (support-helper extraction) is complete
 - `packages/runtime/src/session` Slice 4 (internal orchestrator decomposition) is complete
 - `packages/runtime/src/session` Slice 5 (runtime session vocabulary rename) is complete
