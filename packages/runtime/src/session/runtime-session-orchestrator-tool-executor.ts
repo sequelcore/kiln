@@ -187,7 +187,7 @@ export class RuntimeSessionToolExecutor {
           execution.retryAttempt,
         );
 
-        const fileChanges = this.extractFileChangesFromToolResult(toolCall.name, execution.resultValue);
+        const fileChanges = this.extractFileChangesFromToolResult(toolCall.name, execution.resultValueRaw);
         toolExecutions.push({
           toolName: toolCall.name,
           durationMs,

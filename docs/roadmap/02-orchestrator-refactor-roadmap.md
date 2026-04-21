@@ -136,10 +136,10 @@ Progress recorded:
 - `bun run --cwd packages/runtime vitest run tests/session/runtime-turn-record.test.ts tests/gateway/message-pipeline.test.ts --maxWorkers=1`
   passed after dangerous-command outcomes were added as canonical turn-record
   evidence
+- `bun run --cwd packages/runtime vitest run tests/session/runtime-session-orchestrator.test.ts tests/session/runtime-session-orchestrator-tools.test.ts --maxWorkers=1`
+  passed after the structured `fileChanges` extraction drift was fixed at the
+  runtime tool-executor boundary
 - `bun run typecheck` passed after the T4/T5 stop point
-- full `bun run test` is still blocked by
-  `packages/runtime/tests/session/runtime-session-orchestrator-tools.test.ts`
-  expecting structured `fileChanges` from orchestrator tool metadata
 
 ## Constraints
 
@@ -469,6 +469,9 @@ Completed work:
 - runtime turn artifacts now record dangerous-command outcomes explicitly so
   authority evidence is no longer limited to tool-authorization and approval
   events
+- structured `fileChanges` metadata for runtime `write` and `edit` tool
+  executions now survives the executor boundary and reaches canonical turn
+  evidence instead of being dropped by stringification drift
 
 Remaining intent:
 

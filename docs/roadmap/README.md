@@ -112,7 +112,11 @@ As of 2026-04-21:
   `tests/session/runtime-turn-record.test.ts`,
   `tests/gateway/message-pipeline.test.ts`, and `bun run typecheck`; the
   broader `tests/session/runtime-session-orchestrator-tools.test.ts` file still
-  fails on the pre-existing structured `fileChanges` assertion
+  failed at that stop point on the structured `fileChanges` assertion
+- 2026-04-21: the next T5 parity cleanup slice fixed the runtime
+  `fileChanges` extraction drift; `tests/session/runtime-session-orchestrator.test.ts`,
+  `tests/session/runtime-session-orchestrator-tools.test.ts`, and
+  `bun run typecheck` now pass from the current stop point
 - GUI parity work is active in `03-gui-phase-1-parity-checklist.md`
 - parity status is 29/51 rows complete
 - external benchmark validation remains deferred

@@ -942,7 +942,9 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       });
     });
 
-    it("captures structured file changes from write/edit tool metadata", async () => {
+    it.each(["write", "edit"] as const)(
+      "captures structured file changes from %s tool metadata",
+      async (toolName) => {
       let callCount = 0;
       const provider: ProviderAdapter = {
         name: "mock",
@@ -957,7 +959,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
               cacheWriteTokens: 0,
               toolCalls: [{
                 id: "tc-write-1",
-                name: "write",
+                name: toolName,
                 input: { filePath: "src/demo.txt", content: "updated" },
               }],
               stopReason: "tool_use",
@@ -978,9 +980,9 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
 
       const orchestrator = new RuntimeSessionOrchestrator({
         provider,
-        tools: [{ name: "write", description: "Writes files", inputSchema: {}, tags: new Set() }],
+        tools: [{ name: toolName, description: "Writes files", inputSchema: {}, tags: new Set() }],
         builtinTools: new Map([[
-          "write",
+          toolName,
           vi.fn().mockResolvedValue({
             output: "Wrote 7 characters",
             isError: false,
@@ -994,7 +996,8 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       expect(result.toolExecutions?.[0]?.fileChanges).toEqual([
         { path: "C:/workspace/src/demo.txt", changeType: "modified" },
       ]);
-    });
+      },
+    );
   });
 
   describe("minimal configuration", () => {
