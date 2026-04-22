@@ -4,6 +4,7 @@ import type {
   ToolDefinition,
   RoutingDecision,
   Capability,
+  ExecutionIdentity,
 } from "@kilnai/core";
 import { appendExecutionIdentity, extractText, resolveExecutionIdentity, scoreComplexity } from "@kilnai/core";
 import type { RuntimeSession } from "./runtime-session.js";
@@ -14,6 +15,7 @@ export interface RuntimeSessionRoutingResolution {
   readonly effectiveTools: readonly ToolDefinition[] | undefined;
   readonly hasTools: boolean;
   readonly invocationSystem: string;
+  readonly executionIdentity?: ExecutionIdentity;
   readonly routingDecision?: RoutingDecision;
 }
 
@@ -53,15 +55,17 @@ export async function resolveRuntimeSessionRouting(
 
   if (perCallConfig?.modelOverride) {
     const override = perCallConfig.modelOverride;
+    routedProviderIdentity = override.provider;
+    routedModelIdentity = override.model;
     const poolProvider = deps.providerPool?.get(override.provider);
     if (poolProvider) {
       effectiveProvider = poolProvider;
-      routedProviderIdentity = override.provider;
-      routedModelIdentity = override.model;
     }
     routingDecision = {
       provider: override.provider,
       model: override.model,
+      canonicalModel: override.canonicalModel,
+      billingMode: override.billingMode,
       reasoning: "Explicit model override",
       confidence: 1.0,
       routingTier: "rule",
@@ -89,21 +93,38 @@ export async function resolveRuntimeSessionRouting(
         routedProviderIdentity = decision.provider;
         routedModelIdentity = decision.model;
       }
-
-      emitModelRouted(session.id, decision);
     } catch {
       // Fail-open: use default provider if routing fails.
     }
   }
 
+  const executionIdentity = resolveExecutionIdentity({
+    configuredProvider: deps.provider.name,
+    configuredModel: deps.model,
+    routedProvider: routedProviderIdentity,
+    routedModel: routedModelIdentity,
+    routedCanonicalModel: routingDecision?.canonicalModel,
+    routedBillingMode: routingDecision?.billingMode,
+  });
+
+  if (routingDecision) {
+    const routingTargetIdentity = resolveExecutionIdentity({
+      configuredProvider: routingDecision.provider,
+      configuredModel: routingDecision.model,
+      configuredCanonicalModel: routingDecision.canonicalModel,
+      configuredBillingMode: routingDecision.billingMode,
+    });
+    routingDecision = {
+      ...routingDecision,
+      canonicalModel: routingTargetIdentity?.canonicalModel ?? routingDecision.canonicalModel,
+      billingMode: routingTargetIdentity?.billingMode ?? routingDecision.billingMode,
+    };
+    emitModelRouted(session.id, routingDecision);
+  }
+
   const invocationSystem = appendExecutionIdentity(
     baseSystem,
-    resolveExecutionIdentity({
-      configuredProvider: deps.provider.name,
-      configuredModel: deps.model,
-      routedProvider: routedProviderIdentity,
-      routedModel: routedModelIdentity,
-    }),
+    executionIdentity,
   );
 
   return {
@@ -111,6 +132,7 @@ export async function resolveRuntimeSessionRouting(
     effectiveTools: mergedTools,
     hasTools: (mergedTools?.length ?? 0) > 0 && (hasBuiltins || hasMcp),
     invocationSystem,
+    executionIdentity,
     routingDecision,
   };
 }

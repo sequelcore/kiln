@@ -137,6 +137,17 @@ export interface OpenCodeSessionConfig {
 const OPENCODE_SANDBOX_WARNING =
   "OpenCode does not natively enforce Kiln sandbox modes; Kiln maps sandbox intent to permission prompting semantics only.";
 
+function inferOpenCodeBillingMode(
+  model: string | undefined,
+): "free" | "unknown" {
+  const normalized = model?.trim().toLowerCase();
+  if (!normalized) return "unknown";
+  if (normalized.endsWith(":free") || normalized.endsWith("-free")) {
+    return "free";
+  }
+  return "unknown";
+}
+
 function derivePermissionPolicy(
   permissionDefault?: string,
   sandboxMode?: KilnSandboxMode,
@@ -493,6 +504,7 @@ export class OpenCodeSession implements IKilnSession {
         resolveExecutionIdentity({
           configuredProvider: "opencode",
           configuredModel: this._config.model,
+          configuredBillingMode: inferOpenCodeBillingMode(this._config.model),
         }),
       );
       const promptResult = await client.session
@@ -527,11 +539,20 @@ export class OpenCodeSession implements IKilnSession {
           } | undefined;
           if (props?.sessionID !== this._remoteSessionId) continue;
           if (props?.type === "usage_update" && props?.cost?.amount !== undefined) {
+            const executionIdentity = resolveExecutionIdentity({
+              configuredProvider: "opencode",
+              configuredModel: this._config.model,
+              configuredBillingMode: inferOpenCodeBillingMode(this._config.model),
+            });
             this._lastCostUsd = props.cost.amount;
             yield {
               type: "cost_update",
               usd: props.cost.amount,
               mode: "native" as const,
+              provider: executionIdentity?.provider,
+              model: executionIdentity?.model,
+              canonicalModel: executionIdentity?.canonicalModel,
+              billingMode: executionIdentity?.billingMode,
               inputTokens: props.cost.inputTokens,
               outputTokens: props.cost.outputTokens,
               cacheReadTokens: props.cost.cacheReadTokens,

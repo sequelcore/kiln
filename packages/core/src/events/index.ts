@@ -1,3 +1,4 @@
+import type { ExecutionBillingMode } from "../agents/execution-identity.js";
 import type { TraceSpan } from "./trace.js";
 
 /** Streaming granularity levels, from coarsest to finest */
@@ -139,11 +140,22 @@ export interface PhaseChangedEvent extends KilnEvent {
 /** Cost update event */
 export interface CostUpdateEvent extends KilnEvent {
   readonly type: "cost_update";
+  readonly provider?: string;
+  readonly model?: string;
+  readonly canonicalModel?: string;
+  readonly billingMode?: ExecutionBillingMode;
   readonly inputTokens: number;
   readonly outputTokens: number;
   readonly cacheReadTokens: number;
   readonly totalCostUsd: number;
-  readonly byRoleModel: Record<string, { model: string; calls: number; costUsd: number }>;
+  readonly byRoleModel: Record<string, {
+    model: string;
+    provider?: string;
+    canonicalModel?: string;
+    billingMode?: ExecutionBillingMode;
+    calls: number;
+    costUsd: number;
+  }>;
   readonly agentId?: string;
 }
 
@@ -477,6 +489,8 @@ export interface ModelRoutedEvent extends KilnEvent {
   readonly type: "model_routed";
   readonly model: string;
   readonly provider: string;
+  readonly canonicalModel?: string;
+  readonly billingMode?: ExecutionBillingMode;
   readonly previousModel?: string;
   readonly routingTier: "rule" | "complexity" | "cascade" | "default";
   readonly complexityScore?: number;

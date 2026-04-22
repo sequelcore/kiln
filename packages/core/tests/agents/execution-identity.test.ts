@@ -16,6 +16,8 @@ describe("execution identity helpers", () => {
       source: "configured",
       provider: "codex-oauth",
       model: "gpt-5.4",
+      canonicalModel: "gpt-5.4",
+      billingMode: "subscription",
     });
   });
 
@@ -31,6 +33,23 @@ describe("execution identity helpers", () => {
       source: "runtime-routed",
       provider: "openai",
       model: "gpt-4o-mini",
+      canonicalModel: "gpt-4o-mini",
+      billingMode: "metered",
+    });
+  });
+
+  it("derives canonical models from provider-qualified runtime ids", () => {
+    const identity = resolveExecutionIdentity({
+      configuredProvider: "opencode",
+      configuredModel: "opencode/nemotron-3-super-free",
+    });
+
+    expect(identity).toEqual({
+      source: "configured",
+      provider: "opencode",
+      model: "opencode/nemotron-3-super-free",
+      canonicalModel: "nemotron-3-super-free",
+      billingMode: "free",
     });
   });
 
@@ -47,5 +66,6 @@ describe("execution identity helpers", () => {
 
     expect(appended).toContain("Base prompt");
     expect(appended).toContain(formatExecutionIdentity(identity!));
+    expect(appended).toContain("billing-mode: metered");
   });
 });

@@ -1,6 +1,6 @@
 import type { ContentPart, ToolDefinition } from "@kilnai/core";
 import type { EventBus } from "@kilnai/core";
-import { extractText } from "@kilnai/core";
+import { extractText, resolveExecutionIdentity } from "@kilnai/core";
 import type { RuntimeSession } from "./runtime-session.js";
 import { RuntimeSessionApprovalGate } from "./runtime-session-orchestrator-approvals.js";
 import { finalizeRuntimeSessionResponse, requestRuntimeSessionFallbackResponse } from "./runtime-session-orchestrator-response.js";
@@ -34,11 +34,17 @@ export class RuntimeSessionOrchestrator {
     this.maxToolRounds = deps.maxToolRounds ?? DEFAULT_MAX_TOOL_ROUNDS;
     this._tools = deps.tools;
     this.approvalGate = new RuntimeSessionApprovalGate(deps.eventBus);
-    this.telemetry = new RuntimeSessionExecutionTelemetry(deps.model, deps.eventBus);
+    this.telemetry = new RuntimeSessionExecutionTelemetry(
+      resolveExecutionIdentity({
+        configuredProvider: deps.provider.name,
+        configuredModel: deps.model,
+      }),
+      deps.eventBus,
+    );
   }
 
   get model(): string | undefined {
-    return this.deps.model;
+    return this.telemetry.currentModel ?? this.deps.model;
   }
 
   get eventBus(): EventBus | undefined {
@@ -225,6 +231,8 @@ function toPublicRoutingDecision(
   routingDecision: {
     readonly provider: string;
     readonly model: string;
+    readonly canonicalModel?: string;
+    readonly billingMode?: import("@kilnai/core").ExecutionBillingMode;
     readonly routingTier: string;
     readonly reasoning: string;
   } | undefined,
@@ -235,6 +243,8 @@ function toPublicRoutingDecision(
   return {
     provider: routingDecision.provider,
     model: routingDecision.model,
+    canonicalModel: routingDecision.canonicalModel,
+    billingMode: routingDecision.billingMode,
     routingTier: routingDecision.routingTier,
     reasoning: routingDecision.reasoning,
   };

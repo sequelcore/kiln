@@ -77,7 +77,9 @@ describe("OpenCodeSession implements IKilnSession", () => {
 
   it("emits explicit runtime warning when sandboxMode is non-read-only", () => {
     const previousEnv = process.env.NODE_ENV;
+    const previousDebug = process.env.KILN_DEBUG;
     process.env.NODE_ENV = "development";
+    process.env.KILN_DEBUG = "1";
     const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
     try {
       new OpenCodeSession(baseConfig({ sandboxMode: "workspace-write" }));
@@ -90,12 +92,15 @@ describe("OpenCodeSession implements IKilnSession", () => {
     } finally {
       debugSpy.mockRestore();
       process.env.NODE_ENV = previousEnv;
+      process.env.KILN_DEBUG = previousDebug;
     }
   });
 
   it("emits translation warnings when provided", () => {
     const previousEnv = process.env.NODE_ENV;
+    const previousDebug = process.env.KILN_DEBUG;
     process.env.NODE_ENV = "development";
+    process.env.KILN_DEBUG = "1";
     const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
     try {
       new OpenCodeSession(baseConfig({
@@ -108,6 +113,7 @@ describe("OpenCodeSession implements IKilnSession", () => {
     } finally {
       debugSpy.mockRestore();
       process.env.NODE_ENV = previousEnv;
+      process.env.KILN_DEBUG = previousDebug;
     }
   });
 
@@ -571,7 +577,12 @@ describe("OpenCodeSession.run() integration", () => {
       events.push(event);
     }
 
-    expect(events).toContainEqual({ type: "cost_update", usd: 0.05, mode: "native" });
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "cost_update",
+      usd: 0.05,
+      mode: "native",
+      provider: "opencode",
+    }));
     const costUpdateIndex = events.findIndex((e) => "type" in e && (e as { type: string }).type === "cost_update");
     const completedIndex = events.findIndex((e) => "type" in e && (e as { type: string }).type === "completed");
     expect(costUpdateIndex).toBeLessThan(completedIndex);

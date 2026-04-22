@@ -254,7 +254,7 @@ describe("ExecutableProviderSession.run()", () => {
       toolExecutions: [],
       inputTokens: 10,
       outputTokens: 5,
-      cacheReadTokens: 0,
+      cacheReadTokens: 2,
       cacheWriteTokens: 0,
       queued: false,
     });
@@ -262,7 +262,16 @@ describe("ExecutableProviderSession.run()", () => {
     const session = new ExecutableProviderSession(baseConfig());
     const events = await collectEvents(session.run({ prompt: "finish" }));
 
-    expect(events).toContainEqual({ type: "cost_update", usd: 0, mode: "computed" });
+    expect(events).toContainEqual({
+      type: "cost_update",
+      usd: 0,
+      mode: "computed",
+      provider: "codex-oauth",
+      billingMode: "subscription",
+      inputTokens: 10,
+      outputTokens: 5,
+      cacheReadTokens: 2,
+    });
     const completed = events.find((e) => e.type === "completed");
     expect(completed).toBeDefined();
     expect((completed as { isError: boolean }).isError).toBe(false);

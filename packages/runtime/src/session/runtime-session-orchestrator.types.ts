@@ -1,4 +1,4 @@
-import type { ProviderAdapter, ContentPart, ToolDefinition } from "@kilnai/core";
+import type { ExecutionBillingMode, ProviderAdapter, ContentPart, ToolDefinition } from "@kilnai/core";
 import type { McpClient } from "@kilnai/core";
 import type { EventBus } from "@kilnai/core";
 import type {
@@ -62,6 +62,8 @@ export interface OrchestrateResult {
   readonly routingDecision?: {
     readonly provider: string;
     readonly model: string;
+    readonly canonicalModel?: string;
+    readonly billingMode?: ExecutionBillingMode;
     readonly routingTier: string;
     readonly reasoning: string;
   };
@@ -74,7 +76,12 @@ export interface PerCallToolConfig {
   readonly additionalTools?: readonly ToolDefinition[];
   readonly perCallCapabilities?: ReadonlyMap<string, Capability>;
   readonly toolAuthority?: ReadonlyMap<string, AuthorityDescriptor>;
-  readonly modelOverride?: { readonly provider: string; readonly model: string };
+  readonly modelOverride?: {
+    readonly provider: string;
+    readonly model: string;
+    readonly canonicalModel?: string;
+    readonly billingMode?: ExecutionBillingMode;
+  };
   readonly skillInstructions?: string;
 }
 

@@ -8,8 +8,10 @@
  * Design constraints:
  * - Single-turn only. No multi-turn history parameter.
  * - Session continuation is out of scope until OpenCode and Codex capabilities are confirmed.
- * - Pure type definitions. No imports.
+ * - Pure type definitions.
  */
+
+import type { AgentMessage, ExecutionBillingMode } from "@kilnai/core";
 
 export type CostTrackingMode =
   | "native"
@@ -100,6 +102,10 @@ export type SessionEvent =
       type: "cost_update";
       usd: number;
       mode: CostTrackingMode;
+      provider?: string;
+      model?: string;
+      canonicalModel?: string;
+      billingMode?: ExecutionBillingMode;
       inputTokens?: number;
       outputTokens?: number;
       cacheReadTokens?: number;
@@ -142,4 +148,3 @@ export interface IKilnSession {
   readonly sessionId: string;
   readonly providerSessionId: string | undefined;
 }
-import type { AgentMessage } from "@kilnai/core";

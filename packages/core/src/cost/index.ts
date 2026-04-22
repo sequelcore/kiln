@@ -1,9 +1,13 @@
 import type { AgentRole } from "../agents/index.js";
+import type { ExecutionBillingMode } from "../agents/index.js";
 
 /** Per-role usage tracking */
 export interface RoleUsage {
   readonly role: AgentRole;
   readonly model: string;
+  readonly provider?: string;
+  readonly canonicalModel?: string;
+  readonly billingMode?: ExecutionBillingMode;
   readonly inputTokens: number;
   readonly outputTokens: number;
   readonly cacheReadTokens: number;
@@ -41,6 +45,14 @@ export interface CostSummary {
   readonly byRoleModel: Record<string, RoleUsage>;
 }
 
-export { CostTracker, MODEL_PRICING, STT_PRICING, EMBEDDING_PRICING } from "./cost-tracker.js";
+export {
+  CostTracker,
+  MODEL_PRICING,
+  STT_PRICING,
+  EMBEDDING_PRICING,
+  computeUsageCostUsd,
+  resolveExecutionPricing,
+  resolveModelPricing,
+} from "./cost-tracker.js";
 export { ModelDevClient, createModelDevClient } from "./models-dev-client.js";
 export type { ModelDevPricing } from "./models-dev-client.js";

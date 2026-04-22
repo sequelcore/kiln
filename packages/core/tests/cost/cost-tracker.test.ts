@@ -220,6 +220,27 @@ describe("CostTracker", () => {
     expect(tracker.summary.totalToolCalls).toBe(1);
   });
 
+  it("provider-qualified runtime model ids reuse canonical pricing entries", () => {
+    const tracker = new CostTracker();
+
+    tracker.record("worker", {
+      provider: "opencode",
+      model: "opencode/minimax-m2.5-free",
+      canonicalModel: "minimax-m2.5-free",
+      billingMode: "free",
+    }, {
+      inputTokens: 10_000,
+      outputTokens: 5_000,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+    });
+
+    expect(tracker.costForRole("worker")).toBe(0);
+    expect(tracker.summary.byRoleModel["worker:opencode/minimax-m2.5-free"]).toBeDefined();
+    expect(tracker.summary.totalInputTokens).toBe(10_000);
+    expect(tracker.summary.totalOutputTokens).toBe(5_000);
+  });
+
   it("MODEL_PRICING contains all Claude models", () => {
     expect(MODEL_PRICING.has("claude-opus-4-6")).toBe(true);
     expect(MODEL_PRICING.has("claude-sonnet-4-6")).toBe(true);

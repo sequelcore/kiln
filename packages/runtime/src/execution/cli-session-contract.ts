@@ -1,4 +1,4 @@
-import type { AgentMessage } from "@kilnai/core";
+import type { AgentMessage, ExecutionBillingMode } from "@kilnai/core";
 
 /** Minimal session run options — structurally compatible with cli/wrapper/session IKilnSession. */
 export interface CliSessionRunOptions {
@@ -14,7 +14,17 @@ export type CliSessionEvent =
   | { type: "tool_use"; toolName: string; input: unknown }
   | { type: "tool_result"; toolName: string; output: string }
   | { type: "file_changed"; path: string; changeType: "created" | "modified" | "deleted"; linesAdded?: number; linesRemoved?: number }
-  | { type: "cost_update"; usd: number; inputTokens?: number; outputTokens?: number }
+  | {
+      type: "cost_update";
+      usd: number;
+      provider?: string;
+      model?: string;
+      canonicalModel?: string;
+      billingMode?: ExecutionBillingMode;
+      inputTokens?: number;
+      outputTokens?: number;
+      cacheReadTokens?: number;
+    }
   | { type: "completed"; totalUsd: number; durationMs: number; isError: boolean; isPreflightCrash: boolean }
   | { type: "error"; code: string; message: string; isRetryable: boolean };
 

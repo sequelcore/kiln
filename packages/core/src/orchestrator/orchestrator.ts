@@ -144,7 +144,12 @@ export class Orchestrator {
         for (const key of Object.keys(summary.byRoleModel)) {
           const usage = summary.byRoleModel[key];
           if (usage) {
-            this._costTracker.record(usage.role, usage.model, {
+            this._costTracker.record(usage.role, {
+              provider: usage.provider,
+              model: usage.model,
+              canonicalModel: usage.canonicalModel,
+              billingMode: usage.billingMode,
+            }, {
               inputTokens: usage.inputTokens,
               outputTokens: usage.outputTokens,
               cacheReadTokens: usage.cacheReadTokens,

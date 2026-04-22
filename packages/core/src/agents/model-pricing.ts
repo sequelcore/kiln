@@ -28,17 +28,14 @@ export const MODEL_CATALOG: readonly CatalogPricing[] = [
   { model: "google/gemma-3-27b-it:free", provider: "openrouter", inputPer1M: 0, outputPer1M: 0, qualityTier: "medium" },
   { model: "qwen/qwen3-coder-480b-a35b-instruct:free", provider: "openrouter", inputPer1M: 0, outputPer1M: 0, qualityTier: "medium" },
   { model: "mistralai/mistral-small-3.1-24b:free", provider: "openrouter", inputPer1M: 0, outputPer1M: 0, qualityTier: "medium" },
+  { model: "minimax-m2.5-free", provider: "opencode", inputPer1M: 0, outputPer1M: 0, qualityTier: "medium" },
+  { model: "nemotron-3-super-free", provider: "opencode", inputPer1M: 0, outputPer1M: 0, qualityTier: "medium" },
   // Local
   { model: "ollama-local", provider: "ollama", inputPer1M: 0, outputPer1M: 0, qualityTier: "low" },
   // OpenAI Codex
   { model: "gpt-5.4", provider: "openai", inputPer1M: 2.50, outputPer1M: 15.00, qualityTier: "high", cachedInputRatePer1M: 0.25 },
   { model: "gpt-5.3-codex", provider: "openai", inputPer1M: 1.75, outputPer1M: 14.00, qualityTier: "high", cachedInputRatePer1M: 0.175 },
   { model: "gpt-5.3-codex-spark", provider: "openai", inputPer1M: 1.75, outputPer1M: 14.00, qualityTier: "high", cachedInputRatePer1M: 0.175 },
-  // Codex OAuth (subscription tier)
-  { model: "gpt-5.4", provider: "codex-oauth", inputPer1M: 0, outputPer1M: 0, qualityTier: "high" },
-  { model: "gpt-5.4-mini", provider: "codex-oauth", inputPer1M: 0, outputPer1M: 0, qualityTier: "high" },
-  { model: "gpt-5.3-codex", provider: "codex-oauth", inputPer1M: 0, outputPer1M: 0, qualityTier: "high" },
-  { model: "gpt-5.3-codex-spark", provider: "codex-oauth", inputPer1M: 0, outputPer1M: 0, qualityTier: "high" },
 ];
 
 export const CODEX_DEFAULT_MODEL = "gpt-5.4";

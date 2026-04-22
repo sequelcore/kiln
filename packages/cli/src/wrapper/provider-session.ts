@@ -40,6 +40,12 @@ const PROVIDER_PRIORITY: Record<ProviderSessionConfig["provider"], number> = {
   ollama: 8,
 };
 
+function billingModeForDirectProvider(
+  provider: ProviderSessionConfig["provider"],
+): "metered" | "free" {
+  return provider === "ollama" ? "free" : "metered";
+}
+
 export class ProviderSession implements IKilnSession {
   readonly sessionId: string;
 
@@ -112,6 +118,7 @@ export class ProviderSession implements IKilnSession {
         resolveExecutionIdentity({
           configuredProvider: this.config.provider,
           configuredModel: this.config.model,
+          configuredBillingMode: billingModeForDirectProvider(this.config.provider),
         }),
       );
       const messages: AgentMessage[] = [{
@@ -169,7 +176,15 @@ export class ProviderSession implements IKilnSession {
           const inputTokens = typeof doneEvent.inputTokens === "number" ? doneEvent.inputTokens : 0;
           const outputTokens = typeof doneEvent.outputTokens === "number" ? doneEvent.outputTokens : 0;
           this.contextTracker.update(inputTokens, outputTokens);
-          yield { type: "cost_update", usd: 0, mode: "computed" };
+          yield {
+            type: "cost_update",
+            usd: 0,
+            mode: "computed",
+            provider: this.config.provider,
+            model: this.config.model,
+            canonicalModel: this.config.model,
+            billingMode: billingModeForDirectProvider(this.config.provider),
+          };
           yield {
             type: "completed",
             totalUsd: 0,
@@ -181,7 +196,15 @@ export class ProviderSession implements IKilnSession {
         }
       }
 
-      yield { type: "cost_update", usd: 0, mode: "computed" };
+      yield {
+        type: "cost_update",
+        usd: 0,
+        mode: "computed",
+        provider: this.config.provider,
+        model: this.config.model,
+        canonicalModel: this.config.model,
+        billingMode: billingModeForDirectProvider(this.config.provider),
+      };
       yield {
         type: "completed",
         totalUsd: 0,

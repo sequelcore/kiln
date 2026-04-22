@@ -1,4 +1,7 @@
-import type { AgentRole } from "../agents/index.js";
+import type {
+  AgentRole,
+  ExecutionBillingMode,
+} from "../agents/index.js";
 import type { RoleUsage, ModelPricing, CostSummary, SttPricing, EmbeddingPricing } from "./index.js";
 import { MODEL_CATALOG } from "../agents/model-pricing.js";
 
@@ -21,6 +24,29 @@ export const MODEL_PRICING: ReadonlyMap<string, ModelPricing> = new Map(
   ]),
 );
 
+export function resolveModelPricing(model: string | undefined): ModelPricing | undefined {
+  return model ? MODEL_PRICING.get(model) : undefined;
+}
+
+export interface CostedModelRef {
+  readonly provider?: string;
+  readonly model?: string;
+  readonly canonicalModel?: string;
+  readonly billingMode?: ExecutionBillingMode;
+}
+
+export function resolveExecutionPricing(modelRef: CostedModelRef | undefined): ModelPricing | undefined {
+  if (!modelRef) return undefined;
+  if (modelRef.billingMode === "subscription" || modelRef.billingMode === "free") {
+    return undefined;
+  }
+
+  return (
+    resolveModelPricing(modelRef.canonicalModel) ??
+    resolveModelPricing(modelRef.model)
+  );
+}
+
 /** STT pricing: rate per minute of audio */
 export const STT_PRICING: ReadonlyMap<string, SttPricing> = new Map([
   ["gpt-4o-transcribe", { ratePerMinute: 0.006 }],
@@ -40,15 +66,64 @@ interface TokenUsage {
   readonly cacheWriteTokens: number;
 }
 
+interface TrackedModelRef extends CostedModelRef {
+  readonly model: string;
+}
+
 /** Mutable accumulator for per-role usage */
 interface MutableRoleUsage {
   role: AgentRole;
   model: string;
+  provider?: string;
+  canonicalModel?: string;
+  billingMode?: ExecutionBillingMode;
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens: number;
   cacheWriteTokens: number;
   calls: number;
+}
+
+function normalizeTrackedModelRef(model: string | TrackedModelRef): TrackedModelRef {
+  if (typeof model === "string") {
+    return { model };
+  }
+
+  if (typeof model.model !== "string" || model.model.trim().length === 0) {
+    throw new Error("Tracked model references must include a non-empty model identifier");
+  }
+
+  return {
+    provider: model.provider,
+    model: model.model,
+    canonicalModel: model.canonicalModel,
+    billingMode: model.billingMode,
+  };
+}
+
+export function computeUsageCostUsd(
+  usage: TokenUsage,
+  modelRef: CostedModelRef | undefined,
+): number {
+  if (modelRef?.billingMode === "subscription" || modelRef?.billingMode === "free") {
+    return 0;
+  }
+
+  const pricing = resolveExecutionPricing(modelRef);
+  if (!pricing) return 0;
+
+  const uncachedInput = Math.max(
+    0,
+    usage.inputTokens - usage.cacheReadTokens - usage.cacheWriteTokens,
+  );
+
+  return (
+    (uncachedInput * pricing.inputRate +
+      usage.outputTokens * pricing.outputRate +
+      usage.cacheReadTokens * pricing.inputRate * pricing.cacheReadMultiplier +
+      usage.cacheWriteTokens * pricing.inputRate * pricing.cacheWriteMultiplier) /
+    1_000_000
+  );
 }
 
 /**
@@ -63,15 +138,19 @@ export class CostTracker {
   /** Record token usage for a specific role and model */
   record(
     role: AgentRole,
-    model: string,
+    model: string | TrackedModelRef,
     usage: TokenUsage,
   ): void {
-    const key = `${role}:${model}`;
+    const modelRef = normalizeTrackedModelRef(model);
+    const key = `${role}:${modelRef.model}`;
     let entry = this.usageByRoleModel.get(key);
     if (!entry) {
       entry = {
         role,
-        model,
+        provider: modelRef.provider,
+        model: modelRef.model,
+        canonicalModel: modelRef.canonicalModel,
+        billingMode: modelRef.billingMode,
         inputTokens: 0,
         outputTokens: 0,
         cacheReadTokens: 0,
@@ -167,19 +246,5 @@ export class CostTracker {
 
 /** Compute USD cost for a usage entry using MODEL_PRICING */
 function computeCost(entry: MutableRoleUsage): number {
-  const pricing = MODEL_PRICING.get(entry.model);
-  if (!pricing) return 0;
-
-  const uncachedInput = Math.max(
-    0,
-    entry.inputTokens - entry.cacheReadTokens - entry.cacheWriteTokens,
-  );
-
-  return (
-    (uncachedInput * pricing.inputRate +
-      entry.outputTokens * pricing.outputRate +
-      entry.cacheReadTokens * pricing.inputRate * pricing.cacheReadMultiplier +
-      entry.cacheWriteTokens * pricing.inputRate * pricing.cacheWriteMultiplier) /
-    1_000_000
-  );
+  return computeUsageCostUsd(entry, entry);
 }

@@ -182,7 +182,13 @@ describe("ProviderSession.run()", () => {
       content: JSON.stringify({ name: "memory_store", input: { key: "k", value: "v" } }),
     });
     expect(events).toContainEqual({ type: "text_delta", content: "stored" });
-    expect(events).toContainEqual({ type: "cost_update", usd: 0, mode: "computed" });
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "cost_update",
+      usd: 0,
+      mode: "computed",
+      provider: "openai",
+      billingMode: "metered",
+    }));
     expect(events).toContainEqual(expect.objectContaining({ type: "completed", isError: false }));
   });
 

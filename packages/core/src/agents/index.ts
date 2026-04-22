@@ -125,4 +125,8 @@ export {
   formatExecutionIdentity,
   resolveExecutionIdentity,
 } from "./execution-identity.js";
-export type { ExecutionIdentity, ResolveExecutionIdentityOptions } from "./execution-identity.js";
+export type {
+  ExecutionBillingMode,
+  ExecutionIdentity,
+  ResolveExecutionIdentityOptions,
+} from "./execution-identity.js";

@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { CostTracker, MODEL_PRICING, STT_PRICING, EMBEDDING_PRICING } from "../../src/cost/cost-tracker.js";
+import {
+  CostTracker,
+  MODEL_PRICING,
+  STT_PRICING,
+  EMBEDDING_PRICING,
+  resolveExecutionPricing,
+  resolveModelPricing,
+} from "../../src/cost/cost-tracker.js";
 
 describe("CostTracker model-keying", () => {
   it("accumulates by role:model tuple", () => {
@@ -171,5 +178,28 @@ describe("CostTracker model-keying", () => {
     expect(EMBEDDING_PRICING.has("text-embedding-3-large")).toBe(true);
     expect(EMBEDDING_PRICING.get("text-embedding-3-small")!.ratePerMToken).toBe(0.02);
     expect(EMBEDDING_PRICING.get("text-embedding-3-large")!.ratePerMToken).toBe(0.13);
+  });
+
+  it("resolveExecutionPricing uses canonical model metadata instead of provider-qualified aliases", () => {
+    expect(resolveModelPricing("opencode/minimax-m2.5-free")).toBeUndefined();
+    expect(resolveExecutionPricing({
+      provider: "opencode",
+      model: "opencode/minimax-m2.5-free",
+      canonicalModel: "minimax-m2.5-free",
+      billingMode: "free",
+    })).toBeUndefined();
+    expect(resolveExecutionPricing({
+      provider: "opencode",
+      model: "opencode/nemotron-3-super-free",
+      canonicalModel: "nemotron-3-super-free",
+      billingMode: "free",
+    })).toBeUndefined();
+  });
+
+  it("canonical pricing is no longer overridden by subscription provider aliases", () => {
+    expect(resolveModelPricing("gpt-5.4")).toMatchObject({
+      inputRate: 2.5,
+      outputRate: 15,
+    });
   });
 });

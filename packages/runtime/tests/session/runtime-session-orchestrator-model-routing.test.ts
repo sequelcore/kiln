@@ -196,6 +196,139 @@ describe("RuntimeSessionOrchestrator model routing", () => {
     expect(result.routingDecision!.model).toBe("override-model");
   });
 
+  it("uses modelOverride for execution identity and cost telemetry even without a provider pool", async () => {
+    const eventBus = { emit: vi.fn(), on: vi.fn(), off: vi.fn(), clear: vi.fn() };
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider: defaultProvider,
+      eventBus,
+    });
+    const session = makeSession();
+
+    await orchestrator.processMessage(session, textParts("hello"), undefined, undefined, {
+      modelOverride: { provider: "openai", model: "gpt-4o-mini" },
+    });
+
+    const defaultCall = (defaultProvider.createMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as {
+      system: string;
+    } | undefined;
+
+    expect(defaultCall?.system).toContain("[KILN EXECUTION IDENTITY]");
+    expect(defaultCall?.system).toContain("provider: openai");
+    expect(defaultCall?.system).toContain("model: gpt-4o-mini");
+    expect(defaultCall?.system).toContain("source: runtime-routed");
+
+    const modelRoutedEvents = eventBus.emit.mock.calls.filter(
+      (call: unknown[]) => (call[0] as { type: string }).type === "model_routed",
+    );
+    expect(modelRoutedEvents.length).toBe(1);
+    expect(modelRoutedEvents[0]?.[0]).toMatchObject({
+      type: "model_routed",
+      provider: "openai",
+      model: "gpt-4o-mini",
+      canonicalModel: "gpt-4o-mini",
+      billingMode: "metered",
+    });
+
+    const costUpdateEvents = eventBus.emit.mock.calls.filter(
+      (call: unknown[]) => (call[0] as { type: string }).type === "cost_update",
+    );
+    expect(costUpdateEvents.length).toBe(1);
+    expect(costUpdateEvents[0]?.[0]).toMatchObject({
+      type: "cost_update",
+      provider: "openai",
+      model: "gpt-4o-mini",
+      canonicalModel: "gpt-4o-mini",
+      billingMode: "metered",
+      byRoleModel: {
+        "assistant:gpt-4o-mini": {
+          model: "gpt-4o-mini",
+          canonicalModel: "gpt-4o-mini",
+          billingMode: "metered",
+          calls: 1,
+        },
+      },
+    });
+    expect((costUpdateEvents[0]?.[0] as { totalCostUsd: number }).totalCostUsd).toBeGreaterThan(0);
+  });
+
+  it("accepts provider-qualified free-tier runtime model ids without missing-pricing warnings", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const eventBus = { emit: vi.fn(), on: vi.fn(), off: vi.fn(), clear: vi.fn() };
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider: defaultProvider,
+      eventBus,
+    });
+    const session = makeSession();
+
+    await orchestrator.processMessage(session, textParts("hello"), undefined, undefined, {
+      modelOverride: { provider: "opencode", model: "opencode/minimax-m2.5-free" },
+    });
+
+    const costUpdateEvents = eventBus.emit.mock.calls.filter(
+      (call: unknown[]) => (call[0] as { type: string }).type === "cost_update",
+    );
+    expect(costUpdateEvents.length).toBe(1);
+    expect(costUpdateEvents[0]?.[0]).toMatchObject({
+      type: "cost_update",
+      provider: "opencode",
+      model: "opencode/minimax-m2.5-free",
+      canonicalModel: "minimax-m2.5-free",
+      billingMode: "free",
+      byRoleModel: {
+        "assistant:opencode/minimax-m2.5-free": {
+          model: "opencode/minimax-m2.5-free",
+          canonicalModel: "minimax-m2.5-free",
+          billingMode: "free",
+          calls: 1,
+          costUsd: 0,
+        },
+      },
+      totalCostUsd: 0,
+    });
+    expect(warnSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining('Model "opencode/minimax-m2.5-free" not found in MODEL_PRICING'),
+    );
+  });
+
+  it("accepts provider-qualified nemotron runtime model ids without missing-pricing warnings", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const eventBus = { emit: vi.fn(), on: vi.fn(), off: vi.fn(), clear: vi.fn() };
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider: defaultProvider,
+      eventBus,
+    });
+    const session = makeSession();
+
+    await orchestrator.processMessage(session, textParts("hello"), undefined, undefined, {
+      modelOverride: { provider: "opencode", model: "opencode/nemotron-3-super-free" },
+    });
+
+    const costUpdateEvents = eventBus.emit.mock.calls.filter(
+      (call: unknown[]) => (call[0] as { type: string }).type === "cost_update",
+    );
+    expect(costUpdateEvents.length).toBe(1);
+    expect(costUpdateEvents[0]?.[0]).toMatchObject({
+      type: "cost_update",
+      provider: "opencode",
+      model: "opencode/nemotron-3-super-free",
+      canonicalModel: "nemotron-3-super-free",
+      billingMode: "free",
+      byRoleModel: {
+        "assistant:opencode/nemotron-3-super-free": {
+          model: "opencode/nemotron-3-super-free",
+          canonicalModel: "nemotron-3-super-free",
+          billingMode: "free",
+          calls: 1,
+          costUsd: 0,
+        },
+      },
+      totalCostUsd: 0,
+    });
+    expect(warnSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining('Model "opencode/nemotron-3-super-free" not found in MODEL_PRICING'),
+    );
+  });
+
   it("routingDecision is included in OrchestrateResult", async () => {
     const router = makeRouter({
       provider: "anthropic",
@@ -215,6 +348,8 @@ describe("RuntimeSessionOrchestrator model routing", () => {
     expect(result.routingDecision).toEqual({
       provider: "anthropic",
       model: "claude-haiku-4-5-20251001",
+      canonicalModel: "claude-haiku-4-5-20251001",
+      billingMode: "metered",
       routingTier: "rule",
       reasoning: "Budget saving rule",
     });
@@ -246,6 +381,8 @@ describe("RuntimeSessionOrchestrator model routing", () => {
       type: "model_routed",
       model: "gpt-4o-mini",
       provider: "openai",
+      canonicalModel: "gpt-4o-mini",
+      billingMode: "metered",
       routingTier: "complexity",
       reason: "Cost optimization",
     });

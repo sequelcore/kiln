@@ -222,6 +222,8 @@ export class CodexSession implements IKilnSession {
       resolveExecutionIdentity({
         configuredProvider: this.config.localProvider ?? "codex",
         configuredModel: model,
+        configuredCanonicalModel: model,
+        configuredBillingMode: "unknown",
       }),
     );
     const promptWithConstraints = appendConstraintInstructions(
@@ -440,6 +442,9 @@ export class CodexSession implements IKilnSession {
             type: "cost_update",
             usd: computedUsd,
             mode: "computed" as const,
+            provider: this.config.localProvider ?? "codex",
+            model,
+            canonicalModel: model,
             inputTokens: usage.input_tokens,
             outputTokens: usage.output_tokens,
             cacheReadTokens: usage.cached_input_tokens,

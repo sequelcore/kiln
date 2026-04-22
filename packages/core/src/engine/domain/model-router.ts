@@ -1,3 +1,5 @@
+import type { ExecutionBillingMode } from "../../agents/execution-identity.js";
+
 // Engine type: ModelRouter -- per-request model selection
 // Pure TypeScript, zero external dependencies.
 
@@ -52,6 +54,8 @@ export interface RoutingRequest {
 export interface RoutingDecision {
   readonly provider: string;
   readonly model: string;
+  readonly canonicalModel?: string;
+  readonly billingMode?: ExecutionBillingMode;
   readonly reasoning: string;
   readonly confidence: number;
   readonly routingTier: RoutingTier;

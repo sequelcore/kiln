@@ -1,3 +1,4 @@
+import type { ExecutionBillingMode } from "@kilnai/core";
 import type { AgentResponse } from "@kilnai/core";
 import { textParts } from "@kilnai/core";
 
@@ -6,7 +7,17 @@ type CliResponseAssemblerEvent =
   | { type: "tool_use"; toolName: string; input: unknown }
   | { type: "tool_result"; toolName: string; output: string }
   | { type: "file_changed"; path: string; changeType: "created" | "modified" | "deleted"; linesAdded?: number; linesRemoved?: number }
-  | { type: "cost_update"; usd: number; inputTokens?: number; outputTokens?: number }
+  | {
+      type: "cost_update";
+      usd: number;
+      provider?: string;
+      model?: string;
+      canonicalModel?: string;
+      billingMode?: ExecutionBillingMode;
+      inputTokens?: number;
+      outputTokens?: number;
+      cacheReadTokens?: number;
+    }
   | { type: "completed"; totalUsd: number; durationMs: number; isError: boolean; isPreflightCrash: boolean }
   | { type: "error"; code: string; message: string; isRetryable: boolean };
 
@@ -14,6 +25,7 @@ export class CliResponseAssembler {
   private content = "";
   private inputTokens = 0;
   private outputTokens = 0;
+  private cacheReadTokens = 0;
   private isError = false;
 
   consume(event: CliResponseAssemblerEvent): void {
@@ -22,6 +34,7 @@ export class CliResponseAssembler {
     } else if (event.type === "cost_update") {
       if (event.inputTokens !== undefined) this.inputTokens = event.inputTokens;
       if (event.outputTokens !== undefined) this.outputTokens = event.outputTokens;
+      if (event.cacheReadTokens !== undefined) this.cacheReadTokens = event.cacheReadTokens;
     } else if (event.type === "completed") {
       this.isError = event.isError;
     } else if (event.type === "error") {
@@ -35,7 +48,7 @@ export class CliResponseAssembler {
       parts: textParts(this.content),
       inputTokens: this.inputTokens,
       outputTokens: this.outputTokens,
-      cacheReadTokens: 0,
+      cacheReadTokens: this.cacheReadTokens,
       cacheWriteTokens: 0,
       toolCalls: [],
       stopReason: this.isError ? "error" : "end_turn",

@@ -16,6 +16,7 @@ import {
   appendExecutionIdentity,
   resolveExecutionIdentity,
   EventBus,
+  KilnError,
   type Capability,
   type ContentPart,
   type ToolDefinition,
@@ -238,7 +239,28 @@ export class ExecutableProviderSession implements IKilnSession {
         isError = true;
       }
 
-      yield { type: "cost_update", usd: 0, mode: "computed" };
+      const executionIdentity = resolveExecutionIdentity({
+        configuredProvider: "codex-oauth",
+        configuredModel: this.config.model,
+        configuredBillingMode: "subscription",
+        routedProvider: result.routingDecision?.provider,
+        routedModel: result.routingDecision?.model,
+        routedCanonicalModel: result.routingDecision?.canonicalModel,
+        routedBillingMode: result.routingDecision?.billingMode,
+      });
+
+      yield {
+        type: "cost_update",
+        usd: 0,
+        mode: "computed",
+        provider: executionIdentity?.provider,
+        model: executionIdentity?.model,
+        canonicalModel: executionIdentity?.canonicalModel,
+        billingMode: executionIdentity?.billingMode,
+        inputTokens: result.inputTokens,
+        outputTokens: result.outputTokens,
+        cacheReadTokens: result.cacheReadTokens,
+      };
       yield {
         type: "completed",
         totalUsd: 0,
@@ -247,10 +269,11 @@ export class ExecutableProviderSession implements IKilnSession {
         isPreflightCrash: false,
       };
     } catch (err) {
+      const message = formatExecutableSessionError(err);
       yield {
         type: "error",
         code: "EXECUTABLE_SESSION_ERROR",
-        message: err instanceof Error ? err.message : String(err),
+        message,
         isRetryable: false,
       };
       yield {
@@ -288,4 +311,27 @@ export class ExecutableProviderSession implements IKilnSession {
       }
     }
   }
+}
+
+function formatExecutableSessionError(error: unknown): string {
+  if (error instanceof KilnError) {
+    const status = typeof error.context.status === "number" ? error.context.status : undefined;
+    const responseBody = typeof error.context.responseBody === "string"
+      ? error.context.responseBody.trim()
+      : "";
+    const suffixParts: string[] = [];
+    if (status !== undefined) {
+      suffixParts.push(`status ${status}`);
+    }
+    if (responseBody.length > 0) {
+      const compactBody = responseBody.replace(/\s+/g, " ").slice(0, 240);
+      suffixParts.push(compactBody);
+    }
+    if (suffixParts.length === 0) {
+      return error.message;
+    }
+    return `${error.message} (${suffixParts.join(": ")})`;
+  }
+
+  return error instanceof Error ? error.message : String(error);
 }

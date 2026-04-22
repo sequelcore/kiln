@@ -4,8 +4,9 @@ import type {
   ErrorEvent,
   ModelRoutedEvent,
   RoutingDecision,
+  ExecutionIdentity,
 } from "@kilnai/core";
-import { MODEL_PRICING } from "@kilnai/core";
+import { computeUsageCostUsd, resolveExecutionPricing } from "@kilnai/core";
 import type { ModelPricing } from "@kilnai/core";
 
 export interface OrchestratorUsageSnapshot {
@@ -23,6 +24,9 @@ export interface OrchestratorResponseUsage {
 }
 
 export class RuntimeSessionExecutionTelemetry {
+  private executionIdentity: ExecutionIdentity | undefined;
+  private warnedMissingModel = false;
+
   private totals: OrchestratorUsageSnapshot = {
     inputTokens: 0,
     outputTokens: 0,
@@ -31,12 +35,14 @@ export class RuntimeSessionExecutionTelemetry {
   };
 
   constructor(
-    private readonly model: string | undefined,
+    executionIdentity: ExecutionIdentity | undefined,
     private readonly eventBus?: EventBus,
   ) {
-    if (!model) {
-      console.warn("[RuntimeSessionOrchestrator] No model specified in deps -- cost tracking will be $0. Pass model to OrchestratorDeps for accurate cost reporting.");
-    }
+    this.executionIdentity = executionIdentity;
+  }
+
+  get currentModel(): string | undefined {
+    return this.executionIdentity?.model;
   }
 
   recordResponse(
@@ -59,10 +65,19 @@ export class RuntimeSessionExecutionTelemetry {
   }
 
   emitModelRouted(sessionId: string, decision: RoutingDecision): void {
+    this.executionIdentity = {
+      source: "runtime-routed",
+      provider: decision.provider,
+      model: decision.model,
+      canonicalModel: decision.canonicalModel,
+      billingMode: decision.billingMode,
+    };
     const event: ModelRoutedEvent = {
       type: "model_routed",
       model: decision.model,
       provider: decision.provider,
+      canonicalModel: decision.canonicalModel,
+      billingMode: decision.billingMode,
       routingTier: decision.routingTier,
       reason: decision.reasoning,
       timestamp: new Date(),
@@ -85,16 +100,27 @@ export class RuntimeSessionExecutionTelemetry {
 
   private emitCostUpdate(sessionId: string, agentId?: string): void {
     const totalCostUsd = this.computeTotalCostUsd(this.totals);
-    const model = this.model ?? "unknown";
+    const model = this.executionIdentity?.model ?? this.executionIdentity?.canonicalModel ?? "unknown";
 
     const event: CostUpdateEvent = {
       type: "cost_update",
+      provider: this.executionIdentity?.provider,
+      model: this.executionIdentity?.model,
+      canonicalModel: this.executionIdentity?.canonicalModel,
+      billingMode: this.executionIdentity?.billingMode,
       inputTokens: this.totals.inputTokens,
       outputTokens: this.totals.outputTokens,
       cacheReadTokens: this.totals.cacheReadTokens,
       totalCostUsd,
       byRoleModel: {
-        [`assistant:${model}`]: { model, calls: 1, costUsd: totalCostUsd },
+        [`assistant:${model}`]: {
+          model,
+          provider: this.executionIdentity?.provider,
+          canonicalModel: this.executionIdentity?.canonicalModel,
+          billingMode: this.executionIdentity?.billingMode,
+          calls: 1,
+          costUsd: totalCostUsd,
+        },
       },
       timestamp: new Date(),
       sessionId,
@@ -105,24 +131,30 @@ export class RuntimeSessionExecutionTelemetry {
 
   private computeTotalCostUsd(usage: OrchestratorUsageSnapshot): number {
     const pricing = this.resolvedPricing;
-    if (!pricing) return 0;
-
-    const uncachedInput = Math.max(0, usage.inputTokens - usage.cacheReadTokens - usage.cacheWriteTokens);
-
-    return (
-      (uncachedInput * pricing.inputRate +
-        usage.outputTokens * pricing.outputRate +
-        usage.cacheReadTokens * pricing.inputRate * pricing.cacheReadMultiplier +
-        usage.cacheWriteTokens * pricing.inputRate * pricing.cacheWriteMultiplier) /
-      1_000_000
-    );
+    if (!pricing && this.executionIdentity?.billingMode !== "subscription" && this.executionIdentity?.billingMode !== "free") {
+      return 0;
+    }
+    return computeUsageCostUsd(usage, this.executionIdentity);
   }
 
   private get resolvedPricing(): ModelPricing | undefined {
-    if (!this.model) return undefined;
-    const pricing = MODEL_PRICING.get(this.model);
+    if (!this.executionIdentity) {
+      if (!this.warnedMissingModel) {
+        console.warn("[RuntimeSessionOrchestrator] No resolved model available for cost tracking; cost will be $0 until routing/model selection is known.");
+        this.warnedMissingModel = true;
+      }
+      return undefined;
+    }
+    if (
+      this.executionIdentity.billingMode === "subscription" ||
+      this.executionIdentity.billingMode === "free"
+    ) {
+      return undefined;
+    }
+    const pricing = resolveExecutionPricing(this.executionIdentity);
     if (!pricing) {
-      console.warn(`[RuntimeSessionOrchestrator] Model "${this.model}" not found in MODEL_PRICING -- cost will be $0. Add it to the pricing table or use a known model identifier.`);
+      const resolvedModel = this.executionIdentity.canonicalModel ?? this.executionIdentity.model ?? "unknown";
+      console.warn(`[RuntimeSessionOrchestrator] No metered pricing found for execution model "${resolvedModel}" -- cost will be $0 until billing metadata or pricing is known.`);
     }
     return pricing;
   }
