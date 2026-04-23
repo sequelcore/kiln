@@ -9,6 +9,7 @@ import type { ContentPart } from "../../engine/domain/content.js";
 import { textPart, extractText } from "../../engine/domain/content.js";
 import { withRetry } from "./retry.js";
 import type { RetryOptions } from "./retry.js";
+import { normalizeToolInput } from "../tool-call-input.js";
 
 const MAX_RETRIES = 3;
 const BASE_DELAY_MS = 1000;
@@ -173,7 +174,7 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
                 content: JSON.stringify({
                   id: buf.id,
                   name: buf.name,
-                  input: JSON.parse(buf.arguments || "{}"),
+                  input: normalizeToolInput(buf.name, buf.arguments || "{}"),
                 }),
               };
             }
@@ -217,7 +218,7 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
         content: JSON.stringify({
           id: buf.id,
           name: buf.name,
-          input: JSON.parse(buf.arguments || "{}"),
+          input: normalizeToolInput(buf.name, buf.arguments || "{}"),
         }),
       };
     }
@@ -329,7 +330,7 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
       (tc) => ({
         id: tc.id,
         name: tc.function.name,
-        input: JSON.parse(tc.function.arguments) as Record<string, unknown>,
+        input: normalizeToolInput(tc.function.name, tc.function.arguments),
       }),
     );
 

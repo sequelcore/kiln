@@ -32,6 +32,10 @@ is documented by concern, not as a single monolith.
   Context assembly, budget enforcement, attention bottleneck, and context
   policy.
 
+- `session-model.md`
+  Canonical provider-agnostic session identity, provider-thread metadata,
+  resume semantics, and cross-surface invariants.
+
 - `safety.md`
   Safety doctrine, layered threat detection, escalation, and threat memory.
 

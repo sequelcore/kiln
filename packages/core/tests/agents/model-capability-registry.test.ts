@@ -28,18 +28,18 @@ describe("ModelCapabilityRegistry", () => {
     expect(profile!.qualityTier).toBe("high");
   });
 
-  it("getByProvider() returns distinct profiles for duplicate model ids", () => {
+  it("getByProvider() resolves direct-api and wrapper profiles", () => {
     const openaiProfile = registry.getByProvider("openai", "gpt-5.4");
-    const codexOauthProfile = registry.getByProvider("codex-oauth", "gpt-5.4");
+    const opencodeProfile = registry.getByProvider("opencode", "minimax-m2.5-free");
 
     expect(openaiProfile).toBeDefined();
-    expect(codexOauthProfile).toBeDefined();
+    expect(opencodeProfile).toBeDefined();
     expect(openaiProfile!.provider).toBe("openai");
     expect(openaiProfile!.inputPer1M).toBe(2.5);
     expect(openaiProfile!.outputPer1M).toBe(15);
-    expect(codexOauthProfile!.provider).toBe("codex-oauth");
-    expect(codexOauthProfile!.inputPer1M).toBe(0);
-    expect(codexOauthProfile!.outputPer1M).toBe(0);
+    expect(opencodeProfile!.provider).toBe("opencode");
+    expect(opencodeProfile!.inputPer1M).toBe(0);
+    expect(opencodeProfile!.outputPer1M).toBe(0);
   });
 
   it("get() returns undefined for unknown model", () => {

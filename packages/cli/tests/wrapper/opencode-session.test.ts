@@ -695,7 +695,7 @@ describe("OpenCodeSession.run() integration", () => {
   });
 
   describe("resume path", () => {
-    it("calls session.get when providerSessionId exists in store", async () => {
+    it("calls session.get when provider thread metadata exists in store", async () => {
       const mock = {
         session: {
           create: vi.fn().mockResolvedValue({ data: { id: "should-not-be-used" } }),
@@ -718,15 +718,8 @@ describe("OpenCodeSession.run() integration", () => {
       vi.mocked(createOpencodeClient).mockReturnValueOnce(mock as any);
 
       const { SessionStore } = await import("../../src/wrapper/session-store.js");
-      vi.spyOn(SessionStore.prototype, "find").mockResolvedValueOnce({
-        sessionId: "k-123",
-        providerSessionId: "oc-abc",
-        provider: "opencode",
-        task: "test task",
-        completedAt: new Date().toISOString(),
-        cost: 0,
-        projectPath: process.cwd(),
-      });
+      vi.spyOn(SessionStore.prototype, "findProviderThread")
+        .mockResolvedValueOnce({ provider: "opencode", nativeSessionId: "oc-abc" });
       vi.spyOn(SessionStore.prototype, "append").mockResolvedValueOnce(undefined);
 
       const session = new OpenCodeSession(baseConfig({ resumeSessionId: "k-123" }));
@@ -764,7 +757,7 @@ describe("OpenCodeSession.run() integration", () => {
       expect(getFn).not.toHaveBeenCalled();
     });
 
-    it("falls back to session.create when store.find returns null", async () => {
+    it("falls back to session.create when no provider thread exists", async () => {
       const mock = makeMockClient("oc-fallback", [
         {
           directory: "/tmp",
@@ -774,7 +767,7 @@ describe("OpenCodeSession.run() integration", () => {
       vi.mocked(createOpencodeClient).mockReturnValueOnce(mock as any);
 
       const { SessionStore } = await import("../../src/wrapper/session-store.js");
-      vi.spyOn(SessionStore.prototype, "find").mockResolvedValueOnce(null);
+      vi.spyOn(SessionStore.prototype, "findProviderThread").mockResolvedValueOnce(undefined);
       vi.spyOn(SessionStore.prototype, "append").mockResolvedValueOnce(undefined);
 
       const session = new OpenCodeSession(baseConfig({ resumeSessionId: "k-missing" }));

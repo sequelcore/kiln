@@ -24,21 +24,24 @@ function summarizePrompt(prompt: string): string {
 const sessionSummaries: GuiSessionSummary[] = [
   {
     id: "claude-session-1",
-    provider: "claude",
+    providersUsed: ["claude"],
+    lastProvider: "claude",
     completedAt: new Date(Date.now() - 60_000).toISOString(),
     cost: 0.0123,
     taskSummary: "Summarize parity checklist",
   },
   {
     id: "claude-session-2",
-    provider: "claude",
+    providersUsed: ["claude"],
+    lastProvider: "claude",
     completedAt: new Date(Date.now() - 120_000).toISOString(),
     cost: 0.0042,
     taskSummary: "Generate test fixture output",
   },
   {
     id: "codex-session-1",
-    provider: "codex",
+    providersUsed: ["codex"],
+    lastProvider: "codex",
     completedAt: new Date(Date.now() - 180_000).toISOString(),
     cost: 0.0301,
     taskSummary: "Refactor command routing",
@@ -67,7 +70,8 @@ const fakeSessionFactory: CliSessionFactory = (_systemPrompt, _cwd) => ({
 
     sessionSummaries.unshift({
       id: `generated-${Date.now()}`,
-      provider: activeProvider,
+      providersUsed: [activeProvider],
+      lastProvider: activeProvider,
       completedAt: new Date().toISOString(),
       cost: 0.0104,
       taskSummary: summarizePrompt(prompt),
@@ -83,7 +87,7 @@ const fakeSessionFactory: CliSessionFactory = (_systemPrompt, _cwd) => ({
 
 let activeProvider = "claude";
 let activeModel = "claude-sonnet-4-6";
-let resumeByProvider = new Map<string, string>();
+let resumeSessionId: string | null = null;
 
 const contextArtifactCache = new InMemoryContextArtifactCache();
 
@@ -101,12 +105,7 @@ async function main(): Promise<void> {
       sessions: sessionSummaries.slice(0, 20),
       telemetry: { status: "idle", dominantRegions: [], saturation: 0, entropy: 0 },
     }),
-    listSessions: async (provider) => {
-      const filtered = provider
-        ? sessionSummaries.filter((session) => session.provider === provider)
-        : sessionSummaries;
-      return filtered.slice(0, 20);
-    },
+    listSessions: async () => sessionSummaries.slice(0, 20),
     operatorTransport: {
       sessionManager: {
         factory: fakeSessionFactory,
@@ -121,11 +120,10 @@ async function main(): Promise<void> {
       },
       systemPrompt: "You are a deterministic e2e test assistant.",
       onClear: async () => {
-        resumeByProvider.delete(activeProvider);
+        resumeSessionId = null;
       },
-      onResumeSession: async (sessionId, provider) => {
-        resumeByProvider.set(provider, sessionId);
-        activeProvider = provider;
+      onResumeSession: async (sessionId) => {
+        resumeSessionId = sessionId;
       },
       contextArtifactCache,
       planMode: false,

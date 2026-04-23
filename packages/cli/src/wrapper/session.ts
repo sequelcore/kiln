@@ -133,6 +133,7 @@ export interface SessionCapabilities {
 }
 
 export interface SessionRunOptions {
+  readonly kilnSessionId?: string;
   readonly prompt: string;
   readonly system?: string;
   readonly messages?: readonly AgentMessage[];

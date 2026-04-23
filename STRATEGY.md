@@ -308,8 +308,9 @@ inform architectural calls before those calls get locked in.
 1. **Dogfood slice** ✅ (2026-04-17) — rows 3.7 (approval queue), 5.4 (markdown + syntax highlighting), 3.8 (tool call log), 3.9 (activity phase indicator). Shipped: `ApprovalQueue`, `ToolCallLog`, `ActivityPhaseIndicator` components; `tool_call_start`/`tool_call_result`/`activity_phase` frames added to contracts; gateway emits new frames; `react-syntax-highlighter` wired into ReactMarkdown code blocks; `activityPhase` derived from frame stream and replaces binary "thinking…" in Composer. Parity: 29/51 ✅. Bar 1 reached.
 2. **Orchestrator refactor Slice O4** — decide and delete fate of Sequential/Supervisor/Swarm strategies. Deliberately sequenced after dogfood so the architectural call is informed by a week of using the tool we're designing around. Doctrine debt; must close before the GUI grows orchestrator surfaces.
 3. **Finish GUI parity** (~3 more days) — remaining rows of §3 telemetry, §4 input polish, §5 remainder, §7 CLI flags. Unblocks TUI deletion.
-4. **Config + Registries Surface ADR** — unify providers, credentials, MCP servers, skills, tools, models, domain packages, UI prefs behind one configuration story with one precedence model and one credential abstraction. Phase I work. See "Configuration scope" below.
-5. **GUI orchestrator surfaces** — spawn teams, route across providers, inspect parallel agents. Net-new feature on top of O4. Bar 2 ("proper multi-provider dev team from the GUI").
+4. **Shared Tool Surface Unification** — converge direct/OAuth provider tool execution onto one canonical Kiln path, centralize builtin tool registration, and make MCP the shared wrapper integration contract. This closes the `codex-oauth`-style special casing before broader provider and registry surfaces grow around the wrong boundary.
+5. **Config + Registries Surface ADR** — unify providers, credentials, MCP servers, skills, tools, models, domain packages, UI prefs behind one configuration story with one precedence model and one credential abstraction. Phase I work. See "Configuration scope" below.
+6. **GUI orchestrator surfaces** — spawn teams, route across providers, inspect parallel agents. Net-new feature on top of O4. Bar 2 ("proper multi-provider dev team from the GUI").
 
 Bar 1 ≠ Bar 2. "Develop Kiln from the GUI" (single agent) lands after step 1. "Run a proper multi-provider dev team from the GUI" requires steps 2, 4, 5 and is weeks of feature work beyond parity.
 
@@ -386,9 +387,11 @@ order above.
 2. Finish the remaining GUI parity checklist rows and reach GUI parity with the
    frozen TUI scope.
 3. Delete the TUI in Phase I once GUI parity is complete and verified.
-4. Write and accept the config and registries surface ADR before broader
+4. Execute the shared tool-surface unification track so direct/OAuth providers,
+   wrappers, and MCP all converge on one canonical tool contract.
+5. Write and accept the config and registries surface ADR before broader
    provider, MCP, skill, tool, and model-management surfaces are implemented.
-5. Build GUI orchestrator surfaces only after the remaining orchestrator
+6. Build GUI orchestrator surfaces only after the remaining orchestrator
    cleanup and the config ADR land.
 
 This document is the strategic source of truth for long-term direction. Detailed execution belongs in the roadmap documents under `docs/roadmap/` and the modular architecture under `docs/architecture/`.

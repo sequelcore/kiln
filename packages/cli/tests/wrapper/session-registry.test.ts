@@ -7,9 +7,9 @@ import {
   isDirectApiProvider,
   translatePermission,
   translatePermissionForProvider,
+  type ProviderId,
 } from "../../src/wrapper/session-registry.js";
 import type { SessionCapabilities, IKilnSession, KilnPermissionPolicy } from "../../src/wrapper/session.js";
-import { ExecutableProviderSession } from "../../src/wrapper/executable-provider-session.js";
 import { ProviderSession } from "../../src/wrapper/provider-session.js";
 
 const makeMockSession = (id: string): IKilnSession => ({
@@ -108,6 +108,21 @@ function makeRegistry(ids: readonly string[] = ALL_PROVIDER_IDS): SessionRegistr
   );
 }
 
+function getDirectProvidersByExecutionMode(registry: SessionRegistry): {
+  executable: readonly ProviderId[];
+  textOnly: readonly ProviderId[];
+} {
+  const providers = registry.list().filter((provider) => isDirectApiProvider(provider.id));
+  return {
+    executable: providers
+      .filter((provider) => provider.capabilities.supportedTools.length > 0)
+      .map((provider) => provider.id),
+    textOnly: providers
+      .filter((provider) => provider.capabilities.supportedTools.length === 0)
+      .map((provider) => provider.id),
+  };
+}
+
 describe("SessionRegistry", () => {
   describe("provider helpers", () => {
     it("identifies direct API providers", () => {
@@ -146,10 +161,9 @@ describe("SessionRegistry", () => {
       const { registry } = createDefaultRegistry();
       const displayInfo = getProviderDisplayInfo(registry);
 
-      expect(displayInfo[0]?.id).toBe("codex-oauth");
-      expect(displayInfo[0]?.group).toBe("subscription");
-      expect(displayInfo[0]?.free).toBe(true);
-      expect(displayInfo[0]?.models).toContain("gpt-5.4-mini");
+      const subscription = displayInfo.find((entry) => entry.group === "subscription");
+      expect(subscription).toBeDefined();
+      expect(subscription?.free).toBe(true);
 
       expect(displayInfo.find((entry) => entry.id === "claude")).toMatchObject({
         group: "harness",
@@ -200,10 +214,11 @@ describe("SessionRegistry", () => {
       expect(result.primary).toBe("openrouter");
     });
 
-    it("maxCostTier=low prefers codex-oauth among low-tier providers", () => {
+    it("maxCostTier=low selects a provider from the low tier set", () => {
       const reg = makeRegistry();
       const result = reg.selectBest({ maxCostTier: "low" });
-      expect(result.primary).toBe("codex-oauth");
+      const selected = reg.list().find((provider) => provider.id === result.primary);
+      expect(selected?.costTier).toBe("low");
     });
 
     it("selectBest iterates dynamic keys", () => {
@@ -311,72 +326,55 @@ describe("SessionRegistry", () => {
     });
   });
 
-  describe("codex-oauth executable routing", () => {
-    it("createSession(codex-oauth) returns an ExecutableProviderSession", () => {
+  describe("direct-provider execution-mode routing", () => {
+    it("exposes both executable and text-only direct providers via capabilities metadata", () => {
       const { registry } = createDefaultRegistry();
-      const session = registry.createSession("codex-oauth", {
-        task: "test",
-        permissionPolicy: BASE_POLICY,
-      });
-      expect(session).toBeInstanceOf(ExecutableProviderSession);
+      const executionModes = getDirectProvidersByExecutionMode(registry);
+      expect(executionModes.executable.length).toBeGreaterThan(0);
+      expect(executionModes.textOnly.length).toBeGreaterThan(0);
     });
 
-    it("createSession(codex-oauth) capabilities.supportedTools is non-empty (executable)", () => {
+    it("builds executable direct-provider sessions from metadata without hardcoding provider IDs", () => {
       const { registry } = createDefaultRegistry();
-      const session = registry.createSession("codex-oauth", {
-        task: "test",
-        permissionPolicy: BASE_POLICY,
-      });
-      expect(session.capabilities.supportedTools.length).toBeGreaterThan(0);
-    });
-
-    it("createSession(openai) returns a ProviderSession (text-only direct provider)", () => {
-      const { registry } = createDefaultRegistry();
-      const session = registry.createSession("openai", {
-        task: "test",
-        permissionPolicy: BASE_POLICY,
-      });
-      expect(session).toBeInstanceOf(ProviderSession);
-    });
-
-    it("createSession(anthropic) returns a ProviderSession (text-only direct provider)", () => {
-      const { registry } = createDefaultRegistry();
-      const session = registry.createSession("anthropic", {
-        task: "test",
-        permissionPolicy: BASE_POLICY,
-      });
-      expect(session).toBeInstanceOf(ProviderSession);
-    });
-
-    it("createSession(ollama) returns a ProviderSession (text-only direct provider)", () => {
-      const { registry } = createDefaultRegistry();
-      const session = registry.createSession("ollama", {
-        task: "test",
-        permissionPolicy: BASE_POLICY,
-      });
-      expect(session).toBeInstanceOf(ProviderSession);
-    });
-
-    it("codex-oauth supportedTools list excludes MCP (mcp=false)", () => {
-      const { registry } = createDefaultRegistry();
-      const session = registry.createSession("codex-oauth", {
-        task: "test",
-        permissionPolicy: BASE_POLICY,
-      });
-      expect(session.capabilities.mcp).toBe(false);
-      expect(session.capabilities.supportedTools).toContain("bash");
-      expect(session.capabilities.supportedTools).toContain("write");
-      expect(session.capabilities.supportedTools).toContain("read");
-    });
-
-    it("other direct providers still have empty supportedTools (text-only)", () => {
-      const { registry } = createDefaultRegistry();
-      for (const provider of ["openai", "anthropic", "deepseek", "openrouter", "ollama"] as const) {
+      const executionModes = getDirectProvidersByExecutionMode(registry);
+      for (const provider of executionModes.executable) {
         const session = registry.createSession(provider, {
           task: "test",
           permissionPolicy: BASE_POLICY,
         });
+        expect(session).toBeInstanceOf(ProviderSession);
+        expect(session.capabilities.mcp).toBe(false);
+        expect(session.capabilities.supportedTools.length).toBeGreaterThan(0);
+      }
+    });
+
+    it("builds text-only direct-provider sessions when executable capabilities are absent", () => {
+      const { registry } = createDefaultRegistry();
+      const executionModes = getDirectProvidersByExecutionMode(registry);
+      for (const provider of executionModes.textOnly) {
+        const session = registry.createSession(provider, {
+          task: "test",
+          permissionPolicy: BASE_POLICY,
+        });
+        expect(session).toBeInstanceOf(ProviderSession);
         expect(session.capabilities.supportedTools).toHaveLength(0);
+      }
+    });
+
+    it("selection favors preferred provider when chosen within each execution mode", () => {
+      const { registry } = createDefaultRegistry();
+      const executionModes = getDirectProvidersByExecutionMode(registry);
+
+      const preferredExecutable = executionModes.executable[0];
+      if (preferredExecutable) {
+        const result = registry.selectBest({ preferredProvider: preferredExecutable });
+        expect(result.primary).toBe(preferredExecutable);
+      }
+
+      const preferredTextOnly = executionModes.textOnly[0];
+      if (preferredTextOnly) {
+        const result = registry.selectBest({ preferredProvider: preferredTextOnly });
+        expect(result.primary).toBe(preferredTextOnly);
       }
     });
   });

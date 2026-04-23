@@ -22,7 +22,9 @@ function makeSession(): RuntimeSession {
 
 function getReinjectedToolResultFromSecondCall(provider: ProviderAdapter): string {
   const calls = (provider.createMessage as ReturnType<typeof vi.fn>).mock.calls;
-  const secondCall = calls[1]?.[0] as { messages?: Array<{ role?: string; parts?: Array<{ type?: string; content?: unknown }> }> } | undefined;
+  const secondCall = calls[1]?.[0] as {
+    messages?: Array<{ role?: string; parts?: Array<{ type?: string; content?: unknown }> }>;
+  } | undefined;
   const messages = secondCall?.messages ?? [];
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
@@ -37,7 +39,7 @@ function getReinjectedToolResultFromSecondCall(provider: ProviderAdapter): strin
 }
 
 describe("TUI authority forwarding", () => {
-  it("builds explicit fail-closed per-call config for TUI turns", async () => {
+  it("builds explicit fail-closed per-call config when no executable provider is active", async () => {
     const { buildTuiPerCallToolConfig } = await import("../../src/gateway/tui-gateway.js");
     const cfg = buildTuiPerCallToolConfig();
 
@@ -54,19 +56,37 @@ describe("TUI authority forwarding", () => {
 
     expect(deriveTuiAuthorityStatusFromPerCallConfig(cfg)).toEqual({
       effective: "fail_closed",
-      completeness: "partial",
+      completeness: "authoritative",
+    });
+  });
+
+  it("exposes the builtin tool surface for kiln-executable direct providers", async () => {
+    const { buildTuiTurnPerCallConfig, deriveTuiAuthorityStatusFromPerCallConfig } = await import("../../src/gateway/tui-gateway.js");
+    const cfg = buildTuiTurnPerCallConfig("codex-oauth", "gpt-5.4-mini");
+
+    expect(cfg.tenantId).toBe("_tui");
+    expect(cfg.toolAllowlist).toBeInstanceOf(Set);
+    expect(cfg.toolAllowlist?.has("grep")).toBe(true);
+    expect(cfg.additionalTools?.some((tool) => tool.name === "glob")).toBe(true);
+    expect(cfg.perCallCapabilities?.has("read")).toBe(true);
+    expect(cfg.toolAuthority?.has("write")).toBe(true);
+    expect(deriveTuiAuthorityStatusFromPerCallConfig(cfg)).toEqual({
+      effective: "destructive",
+      completeness: "authoritative",
     });
   });
 
   it("includes authorityStatus in welcome and done frame payload helpers", async () => {
     const {
-      buildTuiPerCallToolConfig,
+      buildTuiTurnPerCallConfig,
       deriveTuiAuthorityStatusFromPerCallConfig,
       buildTuiWelcomeFramePayload,
       buildTuiDoneFramePayload,
     } = await import("../../src/gateway/tui-gateway.js");
 
-    const authorityStatus = deriveTuiAuthorityStatusFromPerCallConfig(buildTuiPerCallToolConfig());
+    const authorityStatus = deriveTuiAuthorityStatusFromPerCallConfig(
+      buildTuiTurnPerCallConfig("codex-oauth", "gpt-5.4-mini"),
+    );
     const welcome = buildTuiWelcomeFramePayload({
       models: {},
       planMode: false,
@@ -77,24 +97,24 @@ describe("TUI authority forwarding", () => {
       parts: [],
       inputTokens: 1,
       outputTokens: 1,
-      routedProvider: "claude",
-      routedModel: "claude-sonnet-4-6",
+      routedProvider: "codex-oauth",
+      routedModel: "gpt-5.4-mini",
       runtimeContinuity: { strategy: "none" },
       authorityStatus,
     });
 
     expect(welcome.authorityStatus).toEqual({
-      effective: "fail_closed",
-      completeness: "partial",
+      effective: "destructive",
+      completeness: "authoritative",
     });
     expect(done.authorityStatus).toEqual({
-      effective: "fail_closed",
-      completeness: "partial",
+      effective: "destructive",
+      completeness: "authoritative",
     });
   });
 
-  it("blocks tool execution under TUI fail-closed config", async () => {
-    const { buildTuiPerCallToolConfig } = await import("../../src/gateway/tui-gateway.js");
+  it("executes tools for kiln-executable TUI providers", async () => {
+    const { buildTuiTurnPerCallConfig } = await import("../../src/gateway/tui-gateway.js");
     const toolFn = vi.fn().mockResolvedValue("should not run");
 
     let callCount = 0;
@@ -109,7 +129,7 @@ describe("TUI authority forwarding", () => {
             outputTokens: 5,
             cacheReadTokens: 0,
             cacheWriteTokens: 0,
-            toolCalls: [{ id: "tc-1", name: "danger_tool", input: { action: "write" } }],
+            toolCalls: [{ id: "tc-1", name: "glob", input: { pattern: "kiln-context.md" } }],
             stopReason: "tool_use",
           };
         }
@@ -128,8 +148,8 @@ describe("TUI authority forwarding", () => {
 
     const orchestrator = new RuntimeSessionOrchestrator({
       provider,
-      tools: [{ name: "danger_tool", description: "Danger tool", inputSchema: {}, tags: new Set() }],
-      builtinTools: new Map([["danger_tool", toolFn]]),
+      tools: [{ name: "glob", description: "Match files by glob pattern.", inputSchema: {}, tags: new Set() }],
+      builtinTools: new Map([["glob", toolFn]]),
     });
 
     await orchestrator.processMessage(
@@ -137,11 +157,11 @@ describe("TUI authority forwarding", () => {
       textParts("run dangerous tool"),
       undefined,
       undefined,
-      buildTuiPerCallToolConfig(),
+      buildTuiTurnPerCallConfig("codex-oauth", "gpt-5.4-mini"),
     );
 
-    expect(toolFn).not.toHaveBeenCalled();
+    expect(toolFn).toHaveBeenCalledTimes(1);
     expect((provider.createMessage as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(2);
-    expect(getReinjectedToolResultFromSecondCall(provider)).toContain("not available for this tenant");
+    expect(getReinjectedToolResultFromSecondCall(provider)).toContain("should not run");
   });
 });

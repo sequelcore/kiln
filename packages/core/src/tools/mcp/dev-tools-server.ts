@@ -1,5 +1,5 @@
 import { KilnError } from "../../engine/errors.js";
-import { TOOL_SCHEMAS } from "../domain/tool.js";
+import { projectDevToolSchemas } from "../default-tool-surface.js";
 import { DevToolExecutionBridge } from "../tool-executor.js";
 
 const SERVER_NAME = "kilnai-dev-tools";
@@ -71,11 +71,7 @@ export class DevToolsMcpServer {
   }
 
   listTools(): readonly DevToolsMcpToolSchema[] {
-    return Object.values(TOOL_SCHEMAS).map((tool) => ({
-      name: tool.name,
-      description: tool.description,
-      inputSchema: tool.inputSchema,
-    }));
+    return projectDevToolSchemas(this.bridge.listTools());
   }
 
   async callTool(

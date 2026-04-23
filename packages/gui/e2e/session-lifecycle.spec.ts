@@ -42,7 +42,7 @@ test.describe("session lifecycle parity", () => {
     await composer.press("Enter");
     await expect(page.locator('[data-role="assistant"]').first()).toContainText("users:1", { timeout: 5_000 });
 
-    await page.getByRole("button", { name: "Clear" }).click();
+    await page.getByRole("button", { name: "New Session" }).click();
     await expect(page.getByText("Start a conversation to see the transcript.")).toBeVisible({ timeout: 5_000 });
 
     const sentFrames = await page.evaluate(() => {
@@ -60,7 +60,7 @@ test.describe("session lifecycle parity", () => {
     const sessionItem = page.getByText("Summarize parity checklist");
     await expect(sessionItem).toBeVisible({ timeout: 5_000 });
     await sessionItem.click();
-    await page.getByRole("button", { name: "Set Resume Target" }).click();
+    await page.getByRole("button", { name: "Resume Session" }).click();
 
     const persisted = await page.evaluate(() => localStorage.getItem("kiln.gui.resume.claude"));
     expect(persisted).toBeTruthy();
@@ -97,4 +97,3 @@ test.describe("session lifecycle parity", () => {
     }, { timeout: 5_000 }).toBe(0);
   });
 });
-

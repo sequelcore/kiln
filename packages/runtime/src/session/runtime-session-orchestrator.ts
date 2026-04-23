@@ -1,6 +1,11 @@
 import type { ContentPart, ToolDefinition } from "@kilnai/core";
 import type { EventBus } from "@kilnai/core";
-import { extractText, resolveExecutionIdentity } from "@kilnai/core";
+import {
+  extractText,
+  getInvalidToolInputDetails,
+  normalizeToolCall,
+  resolveExecutionIdentity,
+} from "@kilnai/core";
 import type { RuntimeSession } from "./runtime-session.js";
 import { RuntimeSessionApprovalGate } from "./runtime-session-orchestrator-approvals.js";
 import { finalizeRuntimeSessionResponse, requestRuntimeSessionFallbackResponse } from "./runtime-session-orchestrator-response.js";
@@ -16,6 +21,7 @@ import type {
 } from "./runtime-session-orchestrator.types.js";
 
 const DEFAULT_MAX_TOOL_ROUNDS = 10;
+const MAX_IDENTICAL_INVALID_TOOL_ATTEMPTS = 2;
 
 export type {
   OrchestratorDeps,
@@ -115,6 +121,7 @@ export class RuntimeSessionOrchestrator {
     );
 
     const toolExecutions: ToolExecutionSummary[] = [];
+    const invalidToolCallAttempts = new Map<string, number>();
     const toolExecutor = new RuntimeSessionToolExecutor(
       this.deps,
       this.deps.eventBus,
@@ -129,6 +136,7 @@ export class RuntimeSessionOrchestrator {
       }
 
       const response = await routing.effectiveProvider.createMessage({
+        sessionId: session.id,
         system: routing.invocationSystem,
         messages: [...session.conversationHistory],
         tools: routing.hasTools ? routing.effectiveTools : undefined,
@@ -164,8 +172,9 @@ export class RuntimeSessionOrchestrator {
         });
       }
 
+      const normalizedToolCalls = response.toolCalls.map((toolCall) => normalizeToolCall(toolCall));
       const assistantParts: ContentPart[] = [...response.parts];
-      for (const toolCall of response.toolCalls) {
+      for (const toolCall of normalizedToolCalls) {
         assistantParts.push({
           type: "tool_use",
           id: toolCall.id,
@@ -175,7 +184,57 @@ export class RuntimeSessionOrchestrator {
       }
       session.addAssistantMessage(assistantParts);
 
-      const execution = await toolExecutor.executeToolCalls(session, response.toolCalls, perCallConfig);
+      const repeatedInvalidToolAttempt = this.detectRepeatedInvalidToolAttempt(
+        normalizedToolCalls,
+        invalidToolCallAttempts,
+      );
+      if (repeatedInvalidToolAttempt) {
+        this.telemetry.emitError(session.id, repeatedInvalidToolAttempt.content);
+        session.addAssistantMessage(assistantParts);
+        const repeatedInvalidResultParts = normalizedToolCalls.map((toolCall) => {
+          const content = toolCall.id === repeatedInvalidToolAttempt.toolUseId
+            ? repeatedInvalidToolAttempt.content
+            : `Tool "${toolCall.name}" was not executed because this tool round was aborted after a repeated malformed tool call. Correct the arguments and retry only the necessary tool calls.`;
+          toolExecutions.push({
+            toolName: toolCall.name,
+            durationMs: 0,
+            success: false,
+            resultSummary: content.slice(0, 200),
+          });
+          return {
+            type: "tool_result" as const,
+            toolUseId: toolCall.id,
+            content,
+            isError: true,
+          };
+        });
+        session.addUserMessage(repeatedInvalidResultParts);
+
+        const fallback = await requestRuntimeSessionFallbackResponse(
+          routing.effectiveProvider,
+          routing.invocationSystem,
+          session,
+          this.deps.maxTokens,
+        );
+        const fallbackUsageTotals = this.telemetry.recordResponse(
+          session.id,
+          fallback.usage,
+          session.activeAgentId ?? undefined,
+        );
+
+        return finalizeRuntimeSessionResponse({
+          deps: this.deps,
+          session,
+          parts: fallback.parts,
+          usage: fallback.usage,
+          usageTotals: fallbackUsageTotals,
+          toolExecutions,
+          routingDecision: toPublicRoutingDecision(routing.routingDecision),
+          preLlmEscalation: escalation,
+        });
+      }
+
+      const execution = await toolExecutor.executeToolCalls(session, normalizedToolCalls, perCallConfig);
       toolExecutions.push(...execution.toolExecutions);
       session.addUserMessage(execution.resultParts);
     }
@@ -224,6 +283,46 @@ export class RuntimeSessionOrchestrator {
     } catch {
       return true;
     }
+  }
+
+  private detectRepeatedInvalidToolAttempt(
+    toolCalls: readonly {
+      readonly id: string;
+      readonly name: string;
+      readonly input: Record<string, unknown>;
+    }[],
+    attempts: Map<string, number>,
+  ): {
+    readonly toolUseId: string;
+    readonly toolName: string;
+    readonly content: string;
+  } | undefined {
+    for (const toolCall of toolCalls) {
+      const invalidInput = getInvalidToolInputDetails(toolCall.input);
+      if (!invalidInput) {
+        continue;
+      }
+
+      const fingerprint = JSON.stringify({
+        toolName: toolCall.name,
+        reason: invalidInput.reason,
+        raw: invalidInput.raw,
+      });
+      const nextAttemptCount = (attempts.get(fingerprint) ?? 0) + 1;
+      attempts.set(fingerprint, nextAttemptCount);
+
+      if (nextAttemptCount < MAX_IDENTICAL_INVALID_TOOL_ATTEMPTS) {
+        continue;
+      }
+
+      return {
+        toolUseId: toolCall.id,
+        toolName: toolCall.name,
+        content: `Repeated invalid input for tool "${toolCall.name}". The same malformed call was already rejected. Correct the arguments instead of retrying the unchanged tool call.`,
+      };
+    }
+
+    return undefined;
   }
 }
 

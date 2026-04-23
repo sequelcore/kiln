@@ -10,7 +10,11 @@ import type {
   AuthorityDescriptor,
   ToolAuthorizationResult,
 } from "@kilnai/core";
-import { executeWithRetry } from "@kilnai/core";
+import {
+  executeWithRetry,
+  getInvalidToolInputDetails,
+  normalizeToolCall,
+} from "@kilnai/core";
 import type { RuntimeSession } from "./runtime-session.js";
 import type {
   DangerousCommandDecisionLike,
@@ -107,30 +111,50 @@ export class RuntimeSessionToolExecutor {
     const toolExecutions: ToolExecutionSummary[] = [];
 
     for (const toolCall of toolCalls) {
-      if (perCallConfig?.toolAllowlist && !perCallConfig.toolAllowlist.has(toolCall.name)) {
+      const normalizedToolCall = normalizeToolCall(toolCall);
+      const invalidInput = getInvalidToolInputDetails(normalizedToolCall.input);
+      if (invalidInput) {
+        const content = this.formatInvalidToolInputMessage(normalizedToolCall.name, invalidInput);
         resultParts.push({
           type: "tool_result",
-          toolUseId: toolCall.id,
-          content: `Tool "${toolCall.name}" is not available for this tenant`,
+          toolUseId: normalizedToolCall.id,
+          content,
+          isError: true,
+        });
+        toolExecutions.push({
+          toolName: normalizedToolCall.name,
+          durationMs: 0,
+          success: false,
+          resultSummary: content.slice(0, 200),
+        });
+        this.emitError(session.id, content);
+        continue;
+      }
+
+      if (perCallConfig?.toolAllowlist && !perCallConfig.toolAllowlist.has(normalizedToolCall.name)) {
+        resultParts.push({
+          type: "tool_result",
+          toolUseId: normalizedToolCall.id,
+          content: `Tool "${normalizedToolCall.name}" is not available for this tenant`,
           isError: true,
         });
         continue;
       }
 
-      const capability = this.resolveCapability(toolCall.name, perCallConfig);
-      const authResult = this.resolveAuthorization(toolCall.name, capability, perCallConfig);
+      const capability = this.resolveCapability(normalizedToolCall.name, perCallConfig);
+      const authResult = this.resolveAuthorization(normalizedToolCall.name, capability, perCallConfig);
       if (authResult) {
-        this.emitToolAuthorized(session.id, toolCall.name, authResult.level, authResult.allowed, authResult.reason);
+        this.emitToolAuthorized(session.id, normalizedToolCall.name, authResult.level, authResult.allowed, authResult.reason);
         if (!authResult.allowed) {
           if (authResult.requiresApproval) {
             const approval = await this.requestApproval(
               session.id,
-              `Tool "${toolCall.name}" requires approval: ${authResult.reason}`,
+              `Tool "${normalizedToolCall.name}" requires approval: ${authResult.reason}`,
             );
             if (!approval.approved) {
               resultParts.push({
                 type: "tool_result",
-                toolUseId: toolCall.id,
+                toolUseId: normalizedToolCall.id,
                 content: `Approval denied: ${approval.reason ?? authResult.reason}`,
                 isError: true,
               });
@@ -139,7 +163,7 @@ export class RuntimeSessionToolExecutor {
           } else {
             resultParts.push({
               type: "tool_result",
-              toolUseId: toolCall.id,
+              toolUseId: normalizedToolCall.id,
               content: `Authorization denied: ${authResult.reason}`,
               isError: true,
             });
@@ -148,16 +172,16 @@ export class RuntimeSessionToolExecutor {
         }
       }
 
-      if (await this.handleDangerousCommandBlock(session.id, toolCall, authResult, resultParts, toolExecutions)) {
+      if (await this.handleDangerousCommandBlock(session.id, normalizedToolCall, authResult, resultParts, toolExecutions)) {
         continue;
       }
 
-      if (this.handleRateLimitBlock(toolCall, perCallConfig, resultParts)) {
+      if (this.handleRateLimitBlock(normalizedToolCall, perCallConfig, resultParts)) {
         continue;
       }
 
       const cacheTtl = capability?.annotations?.cacheTtl;
-      const cachedResult = await this.tryCachedToolResult(session.id, toolCall, cacheTtl, resultParts);
+      const cachedResult = await this.tryCachedToolResult(session.id, normalizedToolCall, cacheTtl, resultParts);
       if (cachedResult.hit) {
         continue;
       }
@@ -169,17 +193,17 @@ export class RuntimeSessionToolExecutor {
             idempotent: capability.annotations.idempotent,
           }
         : undefined;
-      this.emitToolCalled(session.id, toolCall.name, toolCall.input, annotations);
+      this.emitToolCalled(session.id, normalizedToolCall.name, normalizedToolCall.input, annotations);
       const startMs = Date.now();
 
       try {
-        const execution = await this.executeToolWithPolicy(toolCall, capability);
+        const execution = await this.executeToolWithPolicy(normalizedToolCall, capability);
         const durationMs = Date.now() - startMs;
         const sanitized = await this.sanitizeToolResult(execution.resultValue);
 
         this.emitToolResult(
           session.id,
-          toolCall.name,
+          normalizedToolCall.name,
           durationMs,
           true,
           sanitized.resultSummary,
@@ -187,49 +211,49 @@ export class RuntimeSessionToolExecutor {
           execution.retryAttempt,
         );
 
-        const fileChanges = this.extractFileChangesFromToolResult(toolCall.name, execution.resultValueRaw);
+        const fileChanges = this.extractFileChangesFromToolResult(normalizedToolCall.name, execution.resultValueRaw);
         toolExecutions.push({
-          toolName: toolCall.name,
+          toolName: normalizedToolCall.name,
           durationMs,
           success: true,
           resultSummary: sanitized.resultSummary,
           fileChanges,
         });
 
-        this.appendAudit(toolCall.name, durationMs, sanitized.sanitized ? "success_sanitized" : "success", authResult);
+        this.appendAudit(normalizedToolCall.name, durationMs, sanitized.sanitized ? "success_sanitized" : "success", authResult);
         resultParts.push({
           type: "tool_result",
-          toolUseId: toolCall.id,
+          toolUseId: normalizedToolCall.id,
           content: sanitized.resultValue,
           isError: false,
         });
 
         if (cacheTtl && this.deps.toolCache) {
           try {
-            this.deps.toolCache.set(toolCall.name, toolCall.input, execution.resultValueRaw, cacheTtl);
+            this.deps.toolCache.set(normalizedToolCall.name, normalizedToolCall.input, execution.resultValueRaw, cacheTtl);
           } catch {
             // Fail-open: do not break execution if cache store fails.
           }
         }
 
         if (perCallConfig?.rateLimiter && perCallConfig.tenantId) {
-          perCallConfig.rateLimiter.record(perCallConfig.tenantId, toolCall.name);
+          perCallConfig.rateLimiter.record(perCallConfig.tenantId, normalizedToolCall.name);
         }
       } catch (err) {
         const durationMs = Date.now() - startMs;
         const errMsg = err instanceof Error ? err.message : String(err);
-        this.emitToolResult(session.id, toolCall.name, durationMs, false, errMsg.slice(0, 200), true);
+        this.emitToolResult(session.id, normalizedToolCall.name, durationMs, false, errMsg.slice(0, 200), true);
         toolExecutions.push({
-          toolName: toolCall.name,
+          toolName: normalizedToolCall.name,
           durationMs,
           success: false,
           resultSummary: errMsg.slice(0, 200),
         });
-        this.emitError(session.id, `Tool "${toolCall.name}" failed: ${err}`);
-        this.appendAudit(toolCall.name, durationMs, "error", authResult);
+        this.emitError(session.id, `Tool "${normalizedToolCall.name}" failed: ${err}`);
+        this.appendAudit(normalizedToolCall.name, durationMs, "error", authResult);
         resultParts.push({
           type: "tool_result",
-          toolUseId: toolCall.id,
+          toolUseId: normalizedToolCall.id,
           content: `Error: ${errMsg}`,
           isError: true,
         });
@@ -237,6 +261,20 @@ export class RuntimeSessionToolExecutor {
     }
 
     return { resultParts, toolExecutions };
+  }
+
+  private formatInvalidToolInputMessage(
+    toolName: string,
+    invalidInput: {
+      readonly reason: string;
+      readonly raw: unknown;
+    },
+  ): string {
+    const rawValue = typeof invalidInput.raw === "string"
+      ? invalidInput.raw
+      : JSON.stringify(invalidInput.raw);
+    const compactRaw = rawValue.length > 160 ? `${rawValue.slice(0, 157)}...` : rawValue;
+    return `Invalid input for tool "${toolName}": ${invalidInput.reason} Raw: ${compactRaw}`;
   }
 
   private resolveCapability(name: string, perCallConfig?: PerCallToolConfig): Capability | undefined {

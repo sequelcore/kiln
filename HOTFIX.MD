@@ -51,31 +51,32 @@ user-visible capabilities match real execution behavior.
 
 ## Remaining Follow-Up Item
 
-The structural hotfix is closed, but one follow-up issue remains and should be
-handled as a separate usability slice:
+The structural hotfix is closed, and the malformed-retry follow-up is now
+partially closed as well:
 
-- `codex-oauth` tool use still requires overly explicit prompts in some normal
-  conversations.
-- Natural-language requests such as "search it yourself" can still lead to poor
-  tool selection, invalid repeated tool calls, or overly literal requests for
-  user-supplied paths that Kiln already knows.
-- This is no longer a session/runtime-truth bug. It is now a tool-UX and agent
-  behavior problem: prompt guidance, tool mediation, and invalid-call recovery
-  still need improvement.
+- executable direct providers now receive explicit workspace/tool guidance
+- unchanged malformed tool calls are no longer retried indefinitely
+
+What still remains should be treated as a separate usability slice:
+
+- `codex-oauth` tool use still needs fresh live validation with normal prompts
+- natural-language requests such as "search it yourself" may still need
+  stronger `glob -> read -> summarize` bias if the new guidance is not enough
+- this is no longer a session/runtime-truth bug. It is now a product-quality
+  tool-UX / mediation follow-up
 
 ## Next Recommended Slice
 
-1. Improve `codex-oauth` tool guidance for normal workspace-aware requests.
-2. Prevent repeated invalid tool retries for the same malformed call.
-3. Bias file discovery flows toward sensible `glob -> read -> summarize`
-   behavior without requiring API-shaped user prompts.
-4. Re-run manual TUI end-to-end validation after those UX fixes land.
+1. Re-run manual GUI/TUI end-to-end validation with normal prompts.
+2. Confirm the repeated-malformed-call loop is actually gone in live use.
+3. Only if live prompts still feel too literal, bias file discovery flows
+   further toward sensible `glob -> read -> summarize` behavior.
 
 ## Files Most Relevant To The Follow-Up
 
-- `packages/core/src/agents/infrastructure/codex-oauth.ts`
-- `packages/cli/src/wrapper/executable-provider-session.ts`
-- `packages/runtime/src/session/mode-b-orchestrator.ts`
+- `packages/cli/src/wrapper/preamble-builder.ts`
+- `packages/cli/src/wrapper/provider-session.ts`
+- `packages/runtime/src/session/runtime-session-orchestrator.ts`
 - `packages/cli/src/wrapper/session-registry.ts`
 - `docs/guides/tui.md`
 - `docs/guides/tool-use.md`
@@ -86,4 +87,4 @@ handled as a separate usability slice:
 - Do not regress `codex-oauth` back to a text-only path.
 - Do not describe all direct API providers as executable; that is still false.
 - Do not claim the natural-language tool-UX follow-up is solved until it is
-  validated with normal prompts in the TUI.
+  validated with normal prompts in the GUI/TUI.

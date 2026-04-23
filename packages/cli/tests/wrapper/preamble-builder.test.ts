@@ -281,4 +281,34 @@ describe("buildProviderSystemPrompt", () => {
     ]);
     expect(result).toBe("[KILN POLICY CONSTRAINTS]\n[file-governance] DENY **/.env");
   });
+
+  it("appends executable tool guidance for kiln-executable direct providers", () => {
+    const result = buildProviderSystemPrompt("Base prompt", undefined, {
+      executionMode: "kiln-executable",
+    });
+
+    expect(result).toContain("Base prompt");
+    expect(result).toContain("[KILN EXECUTABLE TOOL GUIDANCE]");
+    expect(result).toContain("The Kiln-local tool surface is active in this session.");
+    expect(result).toContain("Tool arguments must be a valid JSON object");
+    expect(result).toContain("call glob, grep, or read immediately");
+    expect(result).toContain('{"pattern":"**/*.ts","path":"packages/cli"}');
+    expect(result).toContain(
+      '{"pattern":"buildProviderSystemPrompt","path":"packages/cli","glob":"**/*.ts","outputMode":"content"}',
+    );
+    expect(result).toContain(
+      '{"filePath":"packages/cli/src/wrapper/preamble-builder.ts"}',
+    );
+    expect(result).toContain("discover candidates with glob or grep");
+    expect(result).toContain("Do not repeat the same malformed tool call unchanged.");
+  });
+
+  it("does not append executable tool guidance in text-only mode", () => {
+    const result = buildProviderSystemPrompt("Base prompt", undefined, {
+      executionMode: "text-only",
+    });
+
+    expect(result).toBe("Base prompt");
+    expect(result).not.toContain("[KILN EXECUTABLE TOOL GUIDANCE]");
+  });
 });

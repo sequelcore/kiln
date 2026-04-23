@@ -6,6 +6,12 @@ import type { KilnAppConfig } from "../config.js";
 export async function statusCommand(_appConfig: KilnAppConfig, projectPath?: string): Promise<void> {
   const root = projectPath ?? process.cwd();
   const kilnDir = join(root, ".kiln");
+  const projectConfigPath = join(kilnDir, "kiln.yaml");
+
+  if (!existsSync(projectConfigPath)) {
+    console.log(`Not initialized. Run 'kiln init' first.`);
+    return;
+  }
 
   const config = await loadKilnConfig(root);
   if (!config) {

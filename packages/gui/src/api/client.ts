@@ -1,6 +1,8 @@
 import type {
   GuiDashboardSnapshot,
   GuiProviderDescriptor,
+  GuiResumeInfo,
+  GuiSessionDetail,
   GuiSessionSummary,
   GuiTelemetrySnapshot,
 } from "@kilnai/gateway-contracts";
@@ -27,6 +29,9 @@ const fallbackSnapshot: GuiDashboardSnapshot = {
     saturation: 0,
     entropy: 0,
   },
+  resumeInfoByProvider: {},
+  workingDirectory: undefined,
+  domainLabel: undefined,
 };
 
 export class GuiGatewayClient {
@@ -55,6 +60,9 @@ export class GuiGatewayClient {
           providers: payload.providers ?? fallbackSnapshot.providers,
           sessions: payload.sessions ?? fallbackSnapshot.sessions,
           telemetry: payload.telemetry ?? fallbackSnapshot.telemetry,
+          resumeInfoByProvider: payload.resumeInfoByProvider ?? fallbackSnapshot.resumeInfoByProvider,
+          workingDirectory: payload.workingDirectory ?? fallbackSnapshot.workingDirectory,
+          domainLabel: payload.domainLabel ?? fallbackSnapshot.domainLabel,
         };
       } catch {
         continue;
@@ -62,6 +70,33 @@ export class GuiGatewayClient {
     }
 
     return fallbackSnapshot;
+  }
+
+  async loadSessionDetail(sessionId: string): Promise<GuiSessionDetail | null> {
+    const normalizedSessionId = sessionId.trim();
+    if (!normalizedSessionId) {
+      return null;
+    }
+
+    const candidateBaseUrls = this.resolveCandidateBaseUrls();
+    for (const candidateBaseUrl of candidateBaseUrls) {
+      const url = new URL(`/gui/api/sessions/${encodeURIComponent(normalizedSessionId)}`, candidateBaseUrl);
+      try {
+        const response = await fetch(url, {
+          headers: { accept: "application/json" },
+        });
+        if (!response.ok) {
+          continue;
+        }
+        const payload = (await response.json()) as GuiSessionDetail;
+        this.resolvedBaseUrl = candidateBaseUrl;
+        return payload;
+      } catch {
+        continue;
+      }
+    }
+
+    return null;
   }
 
   createSessionClient(options: Omit<GuiSessionClientOptions, "resolveCandidateBaseUrls">): GuiSessionClient {
@@ -73,6 +108,44 @@ export class GuiGatewayClient {
 
   resolveCandidateBaseUrls(): string[] {
     return resolveCandidateBaseUrls(this.baseUrl, this.resolvedBaseUrl);
+  }
+
+  async saveThemePreference(theme: "kiln-dark" | "kiln-light" | "system-follow"): Promise<void> {
+    const candidateBaseUrls = this.resolveCandidateBaseUrls();
+
+    for (const candidateBaseUrl of candidateBaseUrls) {
+      const url = new URL("/gui/api/preferences/theme", candidateBaseUrl);
+      try {
+        const response = await fetch(url, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            accept: "application/json",
+          },
+          body: JSON.stringify({ theme }),
+        });
+        if (!response.ok) {
+          continue;
+        }
+        this.resolvedBaseUrl = candidateBaseUrl;
+        return;
+      } catch {
+        continue;
+      }
+    }
+  }
+
+  notifyWindowClosed(): void {
+    for (const candidateBaseUrl of this.resolveCandidateBaseUrls()) {
+      const url = new URL("/gui/api/window-closed", candidateBaseUrl);
+      if (typeof navigator.sendBeacon === "function" && navigator.sendBeacon(url)) {
+        continue;
+      }
+      void fetch(url, {
+        method: "POST",
+        keepalive: true,
+      }).catch(() => undefined);
+    }
   }
 }
 
@@ -137,3 +210,5 @@ export {
   type GuiInboundFrame,
   type GuiSessionConnectionState,
 } from "./session-client.js";
+
+export type { GuiResumeInfo, GuiSessionDetail };

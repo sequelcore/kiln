@@ -3,6 +3,7 @@ import { DevToolRegistry } from "../../../src/tools/domain/tool-registry.js";
 import type { DevTool, ToolInput, ToolResult } from "../../../src/tools/domain/tool.js";
 import { DevToolExecutionBridge } from "../../../src/tools/tool-executor.js";
 import { DevToolsMcpServer } from "../../../src/tools/mcp/dev-tools-server.js";
+import { createDefaultBuiltinToolRegistry } from "../../../src/tools/default-tool-surface.js";
 
 function makeTool(
   name: string,
@@ -23,7 +24,7 @@ function makeTool(
 }
 
 function createServer(registry?: DevToolRegistry): DevToolsMcpServer {
-  const localRegistry = registry ?? new DevToolRegistry();
+  const localRegistry = registry ?? createDefaultBuiltinToolRegistry();
   const bridge = new DevToolExecutionBridge({ registry: localRegistry });
   return new DevToolsMcpServer({ bridge });
 }

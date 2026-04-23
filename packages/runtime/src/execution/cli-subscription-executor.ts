@@ -28,6 +28,7 @@ export type {
   CliSessionEvent,
   CliSession,
   CliSessionFactory,
+  CliSessionFactoryContext,
   CliSessionEventCallback,
 } from "./cli-session-contract.js";
 
@@ -55,13 +56,14 @@ export class CliSubscriptionExecutor implements ProviderAdapter {
     const prompt = buildPromptFromMessages(options.messages);
     const cwd = process.cwd();
 
-    const session = this.factory(options.system, cwd);
+    const session = this.factory(options.system, cwd, { kilnSessionId: options.sessionId });
     const assembler = new CliResponseAssembler();
 
     try {
       for await (const event of session.run({
         prompt,
         cwd,
+        kilnSessionId: options.sessionId,
         system: options.system,
         messages: options.messages,
       })) {

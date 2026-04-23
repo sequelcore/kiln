@@ -7,19 +7,47 @@ export const PREAMBLE_CACHE_BOUNDARY = "__KILN_PROMPT_DYNAMIC_BOUNDARY__";
 
 const MEMORY_LINE_LIMIT = 200;
 
+export interface ProviderSystemPromptOptions {
+  readonly executionMode?: "text-only" | "kiln-executable";
+}
+
+function buildExecutableToolGuidanceSection(): string {
+  return [
+    "[KILN EXECUTABLE TOOL GUIDANCE]",
+    "The Kiln-local tool surface is active in this session. Do not claim you lack workspace access when tool definitions are present.",
+    "When Kiln-local tools are available, use them instead of asking the user to manually inspect files or search the workspace for you.",
+    "Tool arguments must be a valid JSON object that matches the tool schema. Never send an empty tool input, blank raw arguments, or malformed JSON.",
+    "For workspace search or inspection requests, call glob, grep, or read immediately with non-empty JSON arguments instead of answering from assumption.",
+    'Use glob with an object like {"pattern":"**/*.ts","path":"packages/cli"} to discover candidate files when the exact path is unknown.',
+    'Use grep with an object like {"pattern":"buildProviderSystemPrompt","path":"packages/cli","glob":"**/*.ts","outputMode":"content"} to search file contents.',
+    'Use read with an object like {"filePath":"packages/cli/src/wrapper/preamble-builder.ts"} before summarizing or editing a file.',
+    "If the user did not provide an exact path, discover candidates with glob or grep before asking for clarification.",
+    "Prefer a discover -> read -> answer/edit flow instead of guessing paths or calling multiple search tools with empty arguments.",
+    "Read relevant files before editing them unless the target file and intended contents are already explicit.",
+    "Use write for full-file creation or replacement. Use edit for targeted in-place replacements in an existing file.",
+    "If a tool call fails because the arguments are invalid or malformed, correct the arguments. Do not repeat the same malformed tool call unchanged.",
+  ].join("\n");
+}
+
 export function buildProviderSystemPrompt(
   basePrompt: string,
   constraintInstructions?: readonly string[],
+  options?: ProviderSystemPromptOptions,
 ): string {
-  if (!constraintInstructions || constraintInstructions.length === 0) {
-    return basePrompt;
+  const sections: string[] = [];
+  if (basePrompt.trim().length > 0) {
+    sections.push(basePrompt);
   }
 
-  const section = `[KILN POLICY CONSTRAINTS]\n${constraintInstructions.join("\n")}`;
-  if (basePrompt.trim().length === 0) {
-    return section;
+  if (options?.executionMode === "kiln-executable") {
+    sections.push(buildExecutableToolGuidanceSection());
   }
-  return `${basePrompt}\n\n${section}`;
+
+  if (constraintInstructions && constraintInstructions.length > 0) {
+    sections.push(`[KILN POLICY CONSTRAINTS]\n${constraintInstructions.join("\n")}`);
+  }
+
+  return sections.join("\n\n");
 }
 
 function trimMemory(memory: string): string {

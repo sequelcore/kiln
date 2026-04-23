@@ -14,12 +14,12 @@ import { WebhookToolExecutor } from "./webhook-tool-executor.js";
 import type { WebhookToolConfig } from "./webhook-tool-executor.js";
 import type { IntegrationRegistry } from "./integration-registry.js";
 import { IntegrationExecutor } from "./integration-executor.js";
-
-export type ToolAuthorityClassification =
-  | "destructive"
-  | "read_only"
-  | "idempotent"
-  | "audited";
+import {
+  authorityFromCapability,
+  classifyAuthorityFromCapability,
+  rollupIntegrationAuthority,
+  type ToolAuthorityClassification,
+} from "./tool-authority.js";
 
 export interface TenantToolContext {
   readonly callBuiltinTools: ReadonlyMap<string, (input: Record<string, unknown>) => Promise<unknown>>;
@@ -185,77 +185,3 @@ export function buildTenantToolContext(
   };
 }
 
-function rollupIntegrationAuthority(
-  classifications: readonly ToolAuthorityClassification[],
-): ToolAuthorityClassification {
-  if (classifications.includes("destructive")) {
-    return "destructive";
-  }
-  if (classifications.includes("audited")) {
-    return "audited";
-  }
-  if (classifications.includes("idempotent")) {
-    return "idempotent";
-  }
-  return "read_only";
-}
-
-function classifyAuthorityFromCapability(
-  capability: Capability | undefined,
-): ToolAuthorityClassification {
-  const annotations = capability?.annotations;
-  if (annotations?.destructive) {
-    return "destructive";
-  }
-  if (annotations?.readOnly) {
-    return "read_only";
-  }
-  if (annotations?.idempotent) {
-    return "idempotent";
-  }
-  return "audited";
-}
-
-function authorityFromCapability(
-  toolName: string,
-  capability: Capability | undefined,
-): AuthorityDescriptor | undefined {
-  const annotations = capability?.annotations;
-  if (!annotations) {
-    return undefined;
-  }
-
-  if (annotations.destructive) {
-    return {
-      level: 4,
-      allowed: false,
-      requiresApproval: true,
-      reason: `Destructive tool "${toolName}" always requires confirmation`,
-    };
-  }
-
-  if (annotations.readOnly) {
-    return {
-      level: 1,
-      allowed: true,
-      requiresApproval: false,
-      reason: "Read-only tool, auto-execute",
-    };
-  }
-
-  if (annotations.idempotent) {
-    return {
-      level: 2,
-      allowed: true,
-      requiresApproval: false,
-      reason: "Audited execution",
-    };
-  }
-
-  return {
-    level: 2,
-    allowed: true,
-    requiresApproval: false,
-    reason: "Audited execution",
-  };
-}

@@ -3,15 +3,83 @@ import { join } from 'node:path';
 import { appendFile, readFile, writeFile, readdir } from 'node:fs/promises';
 import type { ResumeFeedback, ResumeOutcome, ResumeStrategy } from './index.js';
 
+export interface ProviderThreadMeta {
+  provider: string;
+  nativeSessionId: string;
+}
+
 export interface SessionRecord {
   sessionId: string;
   provider: string;
   task: string;
+  canonicalTitle?: string;
+  title?: string;
+  summary?: string;
+  tags?: readonly string[];
+  providersUsed?: readonly string[];
   completedAt: string;
   cost: number;
   projectPath: string;
-  providerSessionId?: string;
+  providerThread?: ProviderThreadMeta;
   resumeStrategy?: ResumeStrategy;
+}
+
+function parseOptionalString(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function parseOptionalStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const normalized = value
+    .flatMap((entry) => typeof entry === 'string' ? [entry.trim()] : [])
+    .filter((entry) => entry.length > 0);
+  if (normalized.length === 0) {
+    return undefined;
+  }
+  return [...new Set(normalized)];
+}
+
+function serializeSessionRecord(record: SessionRecord): string {
+  return JSON.stringify(record);
+}
+
+function parseSessionRecord(line: string): SessionRecord | null {
+  try {
+    const parsed = JSON.parse(line) as Partial<SessionRecord>;
+    if (
+      typeof parsed.sessionId !== 'string'
+      || typeof parsed.provider !== 'string'
+      || typeof parsed.task !== 'string'
+      || typeof parsed.completedAt !== 'string'
+      || typeof parsed.cost !== 'number'
+      || typeof parsed.projectPath !== 'string'
+    ) {
+      return null;
+    }
+    return {
+      sessionId: parsed.sessionId,
+      provider: parsed.provider,
+      task: parsed.task,
+      canonicalTitle: parseOptionalString(parsed.canonicalTitle) ?? parseOptionalString(parsed.title),
+      title: parseOptionalString(parsed.title),
+      summary: parseOptionalString(parsed.summary),
+      tags: parseOptionalStringArray(parsed.tags),
+      providersUsed: parseOptionalStringArray(parsed.providersUsed),
+      completedAt: parsed.completedAt,
+      cost: parsed.cost,
+      projectPath: parsed.projectPath,
+      providerThread: parsed.providerThread,
+      resumeStrategy: parsed.resumeStrategy,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export class SessionStore {
@@ -25,32 +93,38 @@ export class SessionStore {
     try {
       const dir = join(this.filePath, '..');
       await mkdir(dir, { recursive: true });
-      const line = JSON.stringify(record) + '\n';
+      const line = serializeSessionRecord(record) + '\n';
       await appendFile(this.filePath, line, 'utf-8');
     } catch (err) {
       console.error('[SessionStore] Failed to append session record:', err);
     }
   }
 
-  async last(provider?: string): Promise<SessionRecord | null> {
+  private async readRecords(): Promise<SessionRecord[]> {
     try {
       const content = await readFile(this.filePath, 'utf-8');
-      const lines = content.split('\n').filter((line) => line.trim() !== '');
+      return content
+        .split('\n')
+        .filter((line) => line.trim() !== '')
+        .flatMap((line) => {
+          const parsed = parseSessionRecord(line);
+          return parsed ? [parsed] : [];
+        });
+    } catch {
+      return [];
+    }
+  }
+
+  async last(provider?: string): Promise<SessionRecord | null> {
+    try {
+      const records = await this.readRecords();
       const filtered = provider !== undefined
-        ? lines.filter((line) => {
-            try {
-              const record = JSON.parse(line) as SessionRecord;
-              return record.provider === provider;
-            } catch {
-              return false;
-            }
-          })
-        : lines;
+        ? records.filter((record) => record.provider === provider)
+        : records;
       if (filtered.length === 0) {
         return null;
       }
-      const lastLine = filtered[filtered.length - 1]!;
-      return JSON.parse(lastLine) as SessionRecord;
+      return filtered[filtered.length - 1]!;
     } catch {
       return null;
     }
@@ -58,25 +132,24 @@ export class SessionStore {
 
   async clearLast(provider?: string): Promise<void> {
     try {
-      const content = await readFile(this.filePath, 'utf-8');
-      const lines = content.split('\n').filter((line) => line.trim() !== '');
+      const records = await this.readRecords();
       // Find index of the last record matching provider (or any if undefined)
       let lastMatchIndex = -1;
-      for (let i = 0; i < lines.length; i++) {
-        try {
-          const record = JSON.parse(lines[i]!) as SessionRecord;
-          if (provider === undefined || record.provider === provider) {
-            lastMatchIndex = i;
-          }
-        } catch {
-          // Skip malformed lines
+      for (let i = 0; i < records.length; i++) {
+        const record = records[i]!;
+        if (provider === undefined || record.provider === provider) {
+          lastMatchIndex = i;
         }
       }
       if (lastMatchIndex === -1) return;
-      const remaining = lines.filter((_, i) => i !== lastMatchIndex);
+      const remaining = records.filter((_, i) => i !== lastMatchIndex);
       const dir = join(this.filePath, '..');
       await mkdir(dir, { recursive: true });
-      await writeFile(this.filePath, remaining.map((l) => l + '\n').join(''), 'utf-8');
+      await writeFile(
+        this.filePath,
+        remaining.map((record) => `${serializeSessionRecord(record)}\n`).join(''),
+        'utf-8',
+      );
     } catch (err) {
       console.error('[SessionStore] Failed to clearLast:', err);
     }
@@ -84,16 +157,11 @@ export class SessionStore {
 
   async find(sessionId: string): Promise<SessionRecord | null> {
     try {
-      const content = await readFile(this.filePath, 'utf-8');
-      const lines = content.split('\n').filter((line) => line.trim() !== '');
-      for (const line of lines) {
-        try {
-          const record = JSON.parse(line) as SessionRecord;
-          if (record.sessionId === sessionId) {
-            return record;
-          }
-        } catch {
-          continue;
+      const records = await this.readRecords();
+      for (let i = records.length - 1; i >= 0; i -= 1) {
+        const record = records[i];
+        if (record?.sessionId === sessionId) {
+          return record;
         }
       }
       return null;
@@ -102,18 +170,27 @@ export class SessionStore {
     }
   }
 
-  async list(): Promise<SessionRecord[]> {
+  async findProviderThread(sessionId: string, provider: string): Promise<ProviderThreadMeta | undefined> {
     try {
-      const content = await readFile(this.filePath, 'utf-8');
-      const lines = content.split('\n').filter((line) => line.trim() !== '');
-      const records: SessionRecord[] = [];
-      for (const line of lines) {
-        try {
-          records.push(JSON.parse(line) as SessionRecord);
-        } catch {
+      const records = await this.readRecords();
+      for (let i = records.length - 1; i >= 0; i -= 1) {
+        const record = records[i];
+        if (record?.sessionId !== sessionId) {
           continue;
         }
+        if (record.providerThread?.provider === provider) {
+          return record.providerThread;
+        }
       }
+      return undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  async list(): Promise<SessionRecord[]> {
+    try {
+      const records = await this.readRecords();
       return records.reverse();
     } catch {
       return [];
@@ -124,13 +201,18 @@ export class SessionStore {
 export interface PersistedSessionMeta {
   kilnSessionId: string;
   provider: string;
+  canonicalTitle?: string;
+  title?: string;
+  summary?: string;
+  tags?: readonly string[];
+  providersUsed?: readonly string[];
   task: string;
   startedAt: string;
   completedAt?: string;
   costUsd?: number;
   toolCount?: number;
   turnDepth?: number;
-  providerSessionId?: string;
+  providerThread?: ProviderThreadMeta;
   resumeStrategy?: ResumeStrategy;
   resumeFeedback?: ResumeFeedback;
   resumeOutcome?: ResumeOutcome;
@@ -145,6 +227,14 @@ export interface PersistedSessionMeta {
     turnDepth?: number;
   };
   exactArtifacts?: string[];
+}
+
+function serializePersistedMeta(meta: PersistedSessionMeta): string {
+  return JSON.stringify(meta, null, 2);
+}
+
+function encodeSessionPathSegment(sessionId: string): string {
+  return encodeURIComponent(sessionId);
 }
 
 export interface PersistedTranscriptLine {
@@ -162,14 +252,14 @@ export class TranscriptStore {
   }
 
   sessionDir(sessionId: string): string {
-    return join(this.baseDir, sessionId);
+    return join(this.baseDir, encodeSessionPathSegment(sessionId));
   }
 
   async init(sessionId: string, meta: PersistedSessionMeta): Promise<void> {
     try {
       const dir = this.sessionDir(sessionId);
       await mkdir(dir, { recursive: true });
-      await writeFile(join(dir, 'meta.json'), JSON.stringify(meta, null, 2), 'utf-8');
+      await writeFile(join(dir, 'meta.json'), serializePersistedMeta(meta), 'utf-8');
     } catch {
       // fail-open
     }
@@ -193,7 +283,14 @@ export class TranscriptStore {
       if (!existing) {
         return;
       }
-      await writeFile(filePath, JSON.stringify({ ...existing, ...updates }, null, 2), 'utf-8');
+      await writeFile(
+        filePath,
+        serializePersistedMeta({
+          ...existing,
+          ...updates,
+        }),
+        'utf-8',
+      );
     } catch {
       // fail-open
     }
@@ -256,9 +353,19 @@ export class TranscriptStore {
   async listSessions(): Promise<string[]> {
     try {
       const entries = await readdir(this.baseDir, { withFileTypes: true });
-      return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+      return entries
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => decodeSessionPathSegment(entry.name));
     } catch {
       return [];
     }
+  }
+}
+
+function decodeSessionPathSegment(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
   }
 }

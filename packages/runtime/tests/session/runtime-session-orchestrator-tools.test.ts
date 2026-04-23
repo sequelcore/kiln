@@ -9,7 +9,7 @@ import type {
   ToolDefinition,
   AuthorityDescriptor,
 } from "@kilnai/core";
-import { textParts, EventBus } from "@kilnai/core";
+import { textParts, EventBus, normalizeToolInput } from "@kilnai/core";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import type { PerCallToolConfig } from "../../src/session/runtime-session-orchestrator.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
@@ -83,9 +83,13 @@ function makeSession(): RuntimeSession {
 }
 
 function getReinjectedToolResultFromSecondCall(provider: ProviderAdapter): string {
+  return getReinjectedToolResultFromCall(provider, 1);
+}
+
+function getReinjectedToolResultFromCall(provider: ProviderAdapter, callIndex: number): string {
   const calls = (provider.createMessage as ReturnType<typeof vi.fn>).mock.calls;
-  const secondCall = calls[1]?.[0] as { messages?: Array<{ role?: string; parts?: Array<{ type?: string; content?: unknown }> }> } | undefined;
-  const messages = secondCall?.messages ?? [];
+  const targetCall = calls[callIndex]?.[0] as { messages?: Array<{ role?: string; parts?: Array<{ type?: string; content?: unknown }> }> } | undefined;
+  const messages = targetCall?.messages ?? [];
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
     if (msg?.role !== "user") continue;
@@ -95,7 +99,33 @@ function getReinjectedToolResultFromSecondCall(provider: ProviderAdapter): strin
       return toolResult.content;
     }
   }
-  throw new Error("No reinjected tool_result content found in second provider call.");
+  throw new Error(`No reinjected tool_result content found in provider call ${callIndex + 1}.`);
+}
+
+function getLastToolResultPartsFromCall(
+  provider: ProviderAdapter,
+  callIndex: number,
+): Array<{ toolUseId: string; content: string }> {
+  const calls = (provider.createMessage as ReturnType<typeof vi.fn>).mock.calls;
+  const targetCall = calls[callIndex]?.[0] as
+    | { messages?: Array<{ role?: string; parts?: Array<{ type?: string; toolUseId?: string; content?: unknown }> }> }
+    | undefined;
+  const messages = targetCall?.messages ?? [];
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg?.role !== "user") continue;
+    const parts = msg.parts ?? [];
+    const toolResults = parts
+      .filter((part): part is { type: "tool_result"; toolUseId?: string; content?: unknown } => part?.type === "tool_result")
+      .map((part) => ({
+        toolUseId: typeof part.toolUseId === "string" ? part.toolUseId : "",
+        content: typeof part.content === "string" ? part.content : "",
+      }));
+    if (toolResults.length > 0) {
+      return toolResults;
+    }
+  }
+  throw new Error(`No reinjected tool_result parts found in provider call ${callIndex + 1}.`);
 }
 
 function makeCapabilityMap(overrides?: Partial<Capability>): ReadonlyMap<string, Capability> {
@@ -998,6 +1028,253 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       ]);
       },
     );
+
+    it("normalizes write-tool aliases before execution", async () => {
+      let callCount = 0;
+      const toolFn = vi.fn().mockResolvedValue({
+        output: "Wrote 7 characters",
+        isError: false,
+        metadata: { filePath: "C:/workspace/src/demo.txt" },
+      });
+      const provider: ProviderAdapter = {
+        name: "mock",
+        createMessage: vi.fn().mockImplementation(() => {
+          callCount++;
+          if (callCount === 1) {
+            return {
+              parts: textParts("writing file..."),
+              inputTokens: 100,
+              outputTokens: 50,
+              cacheReadTokens: 0,
+              cacheWriteTokens: 0,
+              toolCalls: [{
+                id: "tc-write-alias-1",
+                name: "write",
+                input: { path: "src/demo.txt", text: "updated" },
+              }],
+              stopReason: "tool_use",
+            };
+          }
+          return {
+            parts: textParts("done"),
+            inputTokens: 100,
+            outputTokens: 50,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            toolCalls: [],
+            stopReason: "end_turn",
+          };
+        }),
+        streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+      };
+
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: [{ name: "write", description: "Writes files", inputSchema: {}, tags: new Set() }],
+        builtinTools: new Map([["write", toolFn]]),
+      });
+
+      await orchestrator.processMessage(makeSession(), textParts("write file"));
+
+      expect(toolFn).toHaveBeenCalledWith({
+        filePath: "src/demo.txt",
+        content: "updated",
+      });
+    });
+
+    it("turns malformed tool arguments into a tool error instead of crashing execution", async () => {
+      let callCount = 0;
+      const toolFn = vi.fn().mockResolvedValue("should not run");
+      const provider: ProviderAdapter = {
+        name: "mock",
+        createMessage: vi.fn().mockImplementation(() => {
+          callCount++;
+          if (callCount === 1) {
+            return {
+              parts: textParts("writing file..."),
+              inputTokens: 100,
+              outputTokens: 50,
+              cacheReadTokens: 0,
+              cacheWriteTokens: 0,
+              toolCalls: [{
+                id: "tc-write-invalid-1",
+                name: "write",
+                input: normalizeToolInput("write", "{bad-json}"),
+              }],
+              stopReason: "tool_use",
+            };
+          }
+          return {
+            parts: textParts("done"),
+            inputTokens: 100,
+            outputTokens: 50,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            toolCalls: [],
+            stopReason: "end_turn",
+          };
+        }),
+        streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+      };
+
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: [{ name: "write", description: "Writes files", inputSchema: {}, tags: new Set() }],
+        builtinTools: new Map([["write", toolFn]]),
+      });
+
+      const result = await orchestrator.processMessage(makeSession(), textParts("write file"));
+
+      expect(toolFn).not.toHaveBeenCalled();
+      expect(result.toolExecutions?.[0]).toMatchObject({
+        toolName: "write",
+        success: false,
+      });
+      expect(getReinjectedToolResultFromSecondCall(provider)).toContain("Invalid input for tool \"write\"");
+    });
+
+    it("stops retrying the same malformed tool call and falls back to a final text response", async () => {
+      let callCount = 0;
+      const toolFn = vi.fn().mockResolvedValue("should not run");
+      const provider: ProviderAdapter = {
+        name: "mock",
+        createMessage: vi.fn().mockImplementation(({ tools }: { tools?: readonly ToolDefinition[] }) => {
+          callCount++;
+          if (tools && callCount <= 2) {
+            return {
+              parts: textParts("trying write again..."),
+              inputTokens: 100,
+              outputTokens: 50,
+              cacheReadTokens: 0,
+              cacheWriteTokens: 0,
+              toolCalls: [{
+                id: `tc-write-invalid-${callCount}`,
+                name: "write",
+                input: normalizeToolInput("write", "{bad-json}"),
+              }],
+              stopReason: "tool_use",
+            };
+          }
+          return {
+            parts: textParts("I could not complete the write because the tool arguments were invalid."),
+            inputTokens: 100,
+            outputTokens: 50,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            toolCalls: [],
+            stopReason: "end_turn",
+          };
+        }),
+        streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+      };
+
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: [{ name: "write", description: "Writes files", inputSchema: {}, tags: new Set() }],
+        builtinTools: new Map([["write", toolFn]]),
+      });
+
+      const result = await orchestrator.processMessage(makeSession(), textParts("write file"));
+
+      expect(toolFn).not.toHaveBeenCalled();
+      expect((provider.createMessage as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(3);
+      expect(result.parts).toEqual(textParts("I could not complete the write because the tool arguments were invalid."));
+      expect(result.toolExecutions?.[0]).toMatchObject({
+        toolName: "write",
+        success: false,
+      });
+      expect(result.toolExecutions?.[1]).toMatchObject({
+        toolName: "write",
+        success: false,
+        resultSummary: expect.stringContaining("Repeated invalid input for tool \"write\""),
+      });
+      expect(getReinjectedToolResultFromCall(provider, 2)).toContain("Repeated invalid input for tool \"write\"");
+    });
+
+    it("reinjects a tool_result for every tool call before fallbacking after repeated malformed input", async () => {
+      let callCount = 0;
+      const toolFn = vi.fn().mockResolvedValue("should not run");
+      const provider: ProviderAdapter = {
+        name: "mock",
+        createMessage: vi.fn().mockImplementation(({ tools }: { tools?: readonly ToolDefinition[] }) => {
+          callCount++;
+          if (tools && callCount === 1) {
+            return {
+              parts: textParts("first malformed attempt..."),
+              inputTokens: 100,
+              outputTokens: 50,
+              cacheReadTokens: 0,
+              cacheWriteTokens: 0,
+              toolCalls: [{
+                id: "tc-write-invalid-1",
+                name: "write",
+                input: normalizeToolInput("write", "{bad-json}"),
+              }],
+              stopReason: "tool_use",
+            };
+          }
+          if (tools && callCount === 2) {
+            return {
+              parts: textParts("retrying malformed tools..."),
+              inputTokens: 100,
+              outputTokens: 50,
+              cacheReadTokens: 0,
+              cacheWriteTokens: 0,
+              toolCalls: [
+                {
+                  id: "tc-write-invalid-2",
+                  name: "write",
+                  input: normalizeToolInput("write", "{bad-json}"),
+                },
+                {
+                  id: "tc-read-invalid-2",
+                  name: "read",
+                  input: normalizeToolInput("read", "{bad-json}"),
+                },
+              ],
+              stopReason: "tool_use",
+            };
+          }
+          return {
+            parts: textParts("I could not continue because the tool arguments were invalid."),
+            inputTokens: 100,
+            outputTokens: 50,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            toolCalls: [],
+            stopReason: "end_turn",
+          };
+        }),
+        streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+      };
+
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: [
+          { name: "write", description: "Writes files", inputSchema: {}, tags: new Set() },
+          { name: "read", description: "Reads files", inputSchema: {}, tags: new Set() },
+        ],
+        builtinTools: new Map([
+          ["write", toolFn],
+          ["read", toolFn],
+        ]),
+      });
+
+      await orchestrator.processMessage(makeSession(), textParts("search workspace"));
+
+      expect(toolFn).not.toHaveBeenCalled();
+      expect((provider.createMessage as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(3);
+      const reinjectedToolResults = getLastToolResultPartsFromCall(provider, 2);
+      expect(reinjectedToolResults).toHaveLength(2);
+      expect(reinjectedToolResults[0]).toMatchObject({
+        toolUseId: "tc-write-invalid-2",
+      });
+      expect(reinjectedToolResults[0]?.content).toContain("Repeated invalid input for tool \"write\"");
+      expect(reinjectedToolResults[1]).toMatchObject({
+        toolUseId: "tc-read-invalid-2",
+      });
+      expect(reinjectedToolResults[1]?.content).toContain("was not executed because this tool round was aborted");
+    });
   });
 
   describe("minimal configuration", () => {

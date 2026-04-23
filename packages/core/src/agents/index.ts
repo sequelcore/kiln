@@ -35,6 +35,7 @@ export type ToolChoiceOption =
 
 /** Options for creating a message */
 export interface CreateMessageOptions {
+  readonly sessionId?: string;
   readonly system: string;
   readonly messages: readonly AgentMessage[];
   readonly tools?: readonly ToolDefinition[];
@@ -117,6 +118,18 @@ export { executeWithRetry } from "./tool-execution-engine.js";
 export type { ToolExecutor } from "./tool-execution-engine.js";
 export { SlidingWindowRateLimiter } from "./sliding-window-rate-limiter.js";
 export { ModelCapabilityRegistry } from "./model-capability-registry.js";
+export {
+  normalizeToolCall,
+  normalizeToolInput,
+  getInvalidToolInputDetails,
+} from "./tool-call-input.js";
+export type { InvalidToolInputDetails } from "./tool-call-input.js";
+export {
+  isDirectProviderId,
+  listDirectProviderExecutionProfiles,
+  getDirectProviderExecutionProfile,
+  resolveDirectProviderExecutionProfile,
+} from "./provider-execution-profiles.js";
 export { scoreComplexity } from "./complexity-scorer.js";
 export type { ComplexityScorerInput } from "./complexity-scorer.js";
 export { RulesRouter } from "./rules-router.js";
@@ -130,3 +143,9 @@ export type {
   ExecutionIdentity,
   ResolveExecutionIdentityOptions,
 } from "./execution-identity.js";
+export type {
+  DirectProviderId,
+  DirectProviderExecutionMode,
+  DirectProviderExecutionProfile,
+  ResolvedDirectProviderExecutionProfile,
+} from "./provider-execution-profiles.js";

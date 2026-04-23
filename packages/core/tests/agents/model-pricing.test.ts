@@ -6,14 +6,15 @@ describe("MODEL_CATALOG", () => {
     const providers = new Set(MODEL_CATALOG.map((m) => m.provider));
     expect(providers).toContain("anthropic");
     expect(providers).toContain("openai");
-    expect(providers).toContain("codex-oauth");
+    expect(providers).toContain("opencode");
     expect(providers).toContain("deepseek");
     expect(providers).toContain("openrouter");
     expect(providers).toContain("ollama");
+    expect(providers).not.toContain("codex-oauth");
   });
 
-  it("has 24 total entries", () => {
-    expect(MODEL_CATALOG).toHaveLength(24);
+  it("has 22 total entries", () => {
+    expect(MODEL_CATALOG).toHaveLength(22);
   });
 
   it("ollama is free", () => {
@@ -33,13 +34,18 @@ describe("MODEL_CATALOG", () => {
     }
   });
 
-  it("codex-oauth subscription models are zero cost", () => {
+  it("keeps codex-oauth subscription billing out of the metered pricing catalog", () => {
     const codexOauth = MODEL_CATALOG.filter((m) => m.provider === "codex-oauth");
-    expect(codexOauth.length).toBe(4);
-    for (const model of codexOauth) {
+    expect(codexOauth).toHaveLength(0);
+  });
+
+  it("opencode free wrapper models are zero cost", () => {
+    const opencode = MODEL_CATALOG.filter((m) => m.provider === "opencode");
+    expect(opencode).toHaveLength(2);
+    for (const model of opencode) {
       expect(model.inputPer1M).toBe(0);
       expect(model.outputPer1M).toBe(0);
-      expect(model.qualityTier).toBe("high");
+      expect(model.qualityTier).toBe("medium");
     }
   });
 });

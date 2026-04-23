@@ -8,6 +8,7 @@ import { InMemorySessionStore } from "./in-memory-session-store.js";
 export class SessionRegistry {
   private readonly store: SessionStore;
   private readonly defaultIdleTimeoutMs?: number;
+  private readonly activeSessionIds = new Map<string, string>();
   eventEmitter?: ConversationEventEmitter;
   onSessionExpired?: (session: RuntimeSession) => void;
 
@@ -18,9 +19,11 @@ export class SessionRegistry {
 
   async getOrCreate(config: RuntimeSessionConfig): Promise<RuntimeSession> {
     await this.cleanup();
-    const key = this.sessionKey(config.appName, config.userId, config.tenantId);
-    const existing = await this.store.get(key);
+    const conversationKey = this.sessionKey(config.appName, config.userId, config.tenantId);
+    const targetSessionId = config.sessionId ?? this.activeSessionIds.get(conversationKey);
+    const existing = targetSessionId ? await this.store.get(targetSessionId) : undefined;
     if (existing && !existing.isExpired) {
+      this.activeSessionIds.set(conversationKey, existing.id);
       return existing;
     }
 
@@ -29,7 +32,8 @@ export class SessionRegistry {
         ? { ...config, idleTimeoutMs: config.idleTimeoutMs ?? this.defaultIdleTimeoutMs }
         : config;
     const session = new RuntimeSession(sessionConfig);
-    await this.store.set(key, session);
+    await this.store.set(session.id, session);
+    this.activeSessionIds.set(conversationKey, session.id);
 
     // Emit SESSION_STARTED for new sessions
     if (this.eventEmitter) {
@@ -48,8 +52,8 @@ export class SessionRegistry {
   }
 
   async get(appName: string, userId: string, tenantId: string): Promise<RuntimeSession | undefined> {
-    const key = this.sessionKey(appName, userId, tenantId);
-    return this.store.get(key);
+    const sessionId = this.activeSessionIds.get(this.sessionKey(appName, userId, tenantId));
+    return sessionId ? this.store.get(sessionId) : undefined;
   }
 
   /**
@@ -58,7 +62,7 @@ export class SessionRegistry {
    * Throws CONCURRENT_SESSION_MODIFICATION if the session was modified by another request.
    */
   async save(session: RuntimeSession): Promise<void> {
-    const key = this.sessionKey(session.appName, session.userId, session.tenantId);
+    const key = session.id;
     const stored = await this.store.get(key);
     if (stored && stored !== session && stored.version !== session.loadedVersion) {
       throw new KilnError("CONCURRENT_SESSION_MODIFICATION", `Session ${session.id} was modified concurrently (stored v${stored.version}, loaded v${session.loadedVersion})`, {
@@ -67,16 +71,31 @@ export class SessionRegistry {
       });
     }
     await this.store.set(key, session);
+    this.activeSessionIds.set(this.sessionKey(session.appName, session.userId, session.tenantId), session.id);
   }
 
   async remove(appName: string, userId: string, tenantId: string): Promise<boolean> {
     const key = this.sessionKey(appName, userId, tenantId);
-    return this.store.delete(key);
+    const sessionId = this.activeSessionIds.get(key);
+    this.activeSessionIds.delete(key);
+    return sessionId ? this.store.delete(sessionId) : false;
+  }
+
+  async detachActive(appName: string, userId: string, tenantId: string): Promise<boolean> {
+    const key = this.sessionKey(appName, userId, tenantId);
+    const existed = this.activeSessionIds.has(key);
+    this.activeSessionIds.delete(key);
+    return existed;
   }
 
   /** Remove all sessions for a given tenant. Returns the number of sessions invalidated. */
   async invalidateByTenant(appName: string, tenantId: string): Promise<number> {
     const prefix = `${appName}:${tenantId}:`;
+    for (const key of this.activeSessionIds.keys()) {
+      if (key.startsWith(prefix)) {
+        this.activeSessionIds.delete(key);
+      }
+    }
     return this.store.deleteByPrefix(prefix);
   }
 
@@ -112,6 +131,11 @@ export class SessionRegistry {
         }
 
         await this.store.delete(key);
+        for (const [conversationKey, sessionId] of this.activeSessionIds) {
+          if (sessionId === session.id) {
+            this.activeSessionIds.delete(conversationKey);
+          }
+        }
         removed++;
 
         if (this.eventEmitter) {

@@ -7,7 +7,7 @@ type SessionEvent =
   | { type: "tool_use"; toolName: string; input: unknown }
   | { type: "tool_result"; toolName: string; output: string }
   | { type: "file_changed"; path: string; changeType: "created" | "modified" | "deleted"; linesAdded?: number; linesRemoved?: number }
-  | { type: "cost_update"; usd: number; inputTokens?: number; outputTokens?: number }
+  | { type: "cost_update"; usd: number; inputTokens?: number; outputTokens?: number; cacheReadTokens?: number }
   | { type: "completed"; totalUsd: number; durationMs: number; isError: boolean; isPreflightCrash: boolean }
   | { type: "error"; code: string; message: string; isRetryable: boolean };
 
@@ -37,6 +37,26 @@ describe("CliSubscriptionExecutor", () => {
 
     expect(run).toHaveBeenCalledTimes(1);
     expect(run.mock.calls[0]?.[0]?.prompt).toBe("");
+  });
+
+  it("passes the runtime session id through the factory and run options", async () => {
+    const dispose = vi.fn().mockResolvedValue(undefined);
+    const run = vi.fn().mockImplementation(() =>
+      eventStream([
+        { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+      ]),
+    );
+    const factory = vi.fn().mockReturnValue({ run, dispose });
+    const executor = new CliSubscriptionExecutor(factory, "claude");
+
+    await executor.createMessage({
+      sessionId: "kiln-runtime-session",
+      system: "sys",
+      messages: [],
+    });
+
+    expect(factory.mock.calls[0]?.[2]).toEqual({ kilnSessionId: "kiln-runtime-session" });
+    expect(run.mock.calls[0]?.[0]?.kilnSessionId).toBe("kiln-runtime-session");
   });
 
   it("builds a single-message prompt without labels", async () => {
@@ -143,8 +163,8 @@ describe("CliSubscriptionExecutor", () => {
         { type: "text_delta", content: "Hello " },
         { type: "cost_update", usd: 0.01, inputTokens: 10 },
         { type: "text_delta", content: "world" },
-        { type: "cost_update", usd: 0.02, outputTokens: 7 },
-        { type: "cost_update", usd: 0.03, inputTokens: 12, outputTokens: 9 },
+        { type: "cost_update", usd: 0.02, outputTokens: 7, cacheReadTokens: 3 },
+        { type: "cost_update", usd: 0.03, inputTokens: 12, outputTokens: 9, cacheReadTokens: 4 },
         { type: "completed", totalUsd: 0.03, durationMs: 1, isError: false, isPreflightCrash: false },
       ]),
       dispose,
@@ -159,6 +179,7 @@ describe("CliSubscriptionExecutor", () => {
     expect(extractText(result.parts)).toBe("Hello world");
     expect(result.inputTokens).toBe(12);
     expect(result.outputTokens).toBe(9);
+    expect(result.cacheReadTokens).toBe(4);
     expect(result.toolCalls).toEqual([]);
     expect(result.stopReason).toBe("end_turn");
   });

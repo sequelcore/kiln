@@ -4,11 +4,16 @@ import { join } from "node:path";
 import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 import { mountGuiStaticAssetsIfPresent } from "../../src/gateway/gui-static-assets.js";
+import { buildGuiOperatorModels } from "../../src/gateway/gui-provider-models.js";
 
 function createGuiDist(): string {
   const distDir = mkdtempSync(join(tmpdir(), "gui-gateway-dist-"));
   mkdirSync(join(distDir, "assets"), { recursive: true });
-  writeFileSync(join(distDir, "index.html"), "<!doctype html><html><body><div id=\"app\">GUI Test Build</div></body></html>", "utf-8");
+  writeFileSync(
+    join(distDir, "index.html"),
+    "<!doctype html><html><head><script type=\"module\" src=\"/gui/assets/app.js\"></script></head><body><div id=\"app\">GUI Test Build</div></body></html>",
+    "utf-8",
+  );
   writeFileSync(join(distDir, "assets", "app.js"), "console.log('asset-ok');", "utf-8");
   return distDir;
 }
@@ -36,6 +41,11 @@ describe("startGuiGateway static mount", () => {
       expect(routeResponse.status).toBe(200);
       const routeHtml = await routeResponse.text();
       expect(routeHtml).toContain("GUI Test Build");
+      expect(routeHtml).toContain("/gui/assets/app.js");
+
+      const assetResponse = await app.request("http://localhost/gui/assets/app.js");
+      expect(assetResponse.status).toBe(200);
+      expect(await assetResponse.text()).toContain("asset-ok");
     } finally {
       rmSync(distDir, { recursive: true, force: true });
     }
@@ -55,5 +65,23 @@ describe("startGuiGateway static mount", () => {
     } finally {
       rmSync(distDir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("buildGuiOperatorModels", () => {
+  it("includes codex-oauth subscription models for the GUI welcome payload", () => {
+    const models = buildGuiOperatorModels({
+      opencodeModels: ["openai/gpt-5.4-mini"],
+      codexModels: ["gpt-5.4", "gpt-5.4-mini"],
+    });
+
+    expect(models["codex-oauth"]).toEqual([
+      "gpt-5.4-mini",
+      "gpt-5.4",
+      "gpt-5.3-codex",
+      "gpt-5.3-codex-spark",
+    ]);
+    expect(models.codex).toEqual(["gpt-5.4", "gpt-5.4-mini"]);
+    expect(models.opencode).toEqual(["openai/gpt-5.4-mini"]);
   });
 });

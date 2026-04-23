@@ -35,6 +35,9 @@ const MODEL_CAPABILITIES: ReadonlyMap<string, CapabilityFlags> = new Map([
   ["google/gemma-3-27b-it:free", { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: true, supportsVision: true, supportsAudio: false, maxContextTokens: 131_000 }],
   ["qwen/qwen3-coder-480b-a35b-instruct:free", { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: true, supportsVision: false, supportsAudio: false, maxContextTokens: 262_000 }],
   ["mistralai/mistral-small-3.1-24b:free", { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: false, supportsVision: false, supportsAudio: false, maxContextTokens: 128_000 }],
+  // OpenCode wrappers
+  ["minimax-m2.5-free", { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: false, supportsVision: false, supportsAudio: false, maxContextTokens: 200_000 }],
+  ["nemotron-3-super-free", { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: false, supportsVision: false, supportsAudio: false, maxContextTokens: 200_000 }],
   // Ollama / Local
   ["ollama-local", { supportsTools: false, supportsStreaming: true, supportsStructuredOutput: false, supportsVision: false, supportsAudio: false, maxContextTokens: 128_000 }],
   // OpenAI Codex (gpt-5 family)
@@ -87,6 +90,15 @@ export class ModelCapabilityRegistry {
       if (request.requiresStreaming && !p.supportsStreaming) return false;
       return true;
     });
+  }
+
+  /** Resolve whether a provider/model can call tools in structured mode */
+  supportsTools(provider: string, model: string): boolean {
+    const profile = this.getByProvider(provider, model) ?? this.get(model);
+    if (profile) {
+      return profile.supportsTools;
+    }
+    return MODEL_CAPABILITIES.get(model)?.supportsTools ?? false;
   }
 
   /** Return all known model profiles */

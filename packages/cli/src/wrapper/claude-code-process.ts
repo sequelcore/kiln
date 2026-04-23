@@ -17,6 +17,7 @@ import type {
 } from "./session.js";
 import { normalizeMcpSelector } from "./mcp-selector.js";
 import { SessionStore } from "./session-store.js";
+import { deriveSessionMetadata } from "../application/session-metadata.js";
 
 type Options = import("@anthropic-ai/claude-agent-sdk").Options;
 type Query = import("@anthropic-ai/claude-agent-sdk").Query;
@@ -49,6 +50,7 @@ export interface ClaudeSessionConfig {
   readonly translationWarnings?: readonly string[];
   readonly permissionPolicy?: KilnPermissionPolicy;
   readonly resumeSessionId?: string;
+  readonly sessionLedgerOwner?: "wrapper" | "host";
   readonly model?: string;
 }
 
@@ -183,9 +185,9 @@ export class ClaudeSession implements IKilnSession {
     if (this.config.resumeSessionId !== undefined) {
       try {
         const store = new SessionStore(this.config.cwd);
-        const record = await store.find(this.config.resumeSessionId);
-        if (record) {
-          resumeSessionId = record.sessionId;
+        const providerThread = await store.findProviderThread(this.config.resumeSessionId, "claude");
+        if (providerThread) {
+          resumeSessionId = providerThread.nativeSessionId;
           const resumeOptions: Options = { ...sdkOptions, sessionId: resumeSessionId };
           Object.assign(sdkOptions, resumeOptions);
         }
@@ -277,17 +279,28 @@ export class ClaudeSession implements IKilnSession {
             isError: resultMsg.is_error ?? false,
             isPreflightCrash: !initReceived && totalCostUsd === 0,
           };
-          try {
+          if (this.config.sessionLedgerOwner !== "host") try {
             const store = new SessionStore(this.config.cwd);
             const completedAt = new Date().toISOString();
+            const metadata = deriveSessionMetadata({
+              task: this.config.task,
+              provider: "claude-code",
+              model: this.config.model,
+              hasError: resultMsg.is_error ?? false,
+            });
             await store.append({
               sessionId: resumeSessionId ?? this.sessionId,
               provider: "claude-code",
               task: this.config.task,
+              title: metadata.title,
+              summary: metadata.summary,
+              tags: metadata.tags,
               completedAt,
               cost: totalCostUsd,
               projectPath: this.config.cwd,
-              providerSessionId: this.providerSessionId,
+              providerThread: this.providerSessionId
+                ? { provider: "claude-code", nativeSessionId: this.providerSessionId }
+                : undefined,
             });
           } catch (err) {
             console.error("[SessionStore] Failed to append session record:", err instanceof Error ? err.message : String(err));

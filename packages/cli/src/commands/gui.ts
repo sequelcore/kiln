@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { KilnAppConfig } from "../config.js";
 import { readGlobalConfig } from "../config/global-config.js";
 import { resolveEffectiveProvider } from "../config/env-config.js";
+import { loadResumeSidebarInfo } from "../application/resume-sidebar-info.js";
 import { SessionStore, TranscriptStore } from "../wrapper/session-store.js";
 import {
   createDefaultRegistry,
@@ -18,6 +19,10 @@ import {
   type GuiProviderDescriptor,
 } from "@kilnai/runtime";
 import { getFieldStore } from "@kilnai/core";
+import { buildGuiUrl, persistGuiThemePreference, resolveGuiThemePreference } from "./gui-options.js";
+import { createManagedGuiWindowShutdownMonitor } from "./gui-shutdown-monitor.js";
+import { launchGuiWindow, type GuiWindowSession } from "./gui-window.js";
+import { loadSessionSummaries, toProviderLabel } from "./gui-session-summaries.js";
 
 export interface GuiFlags {
   readonly port?: number;
@@ -25,6 +30,9 @@ export interface GuiFlags {
   readonly mode?: "dev" | "prod";
   readonly cwd?: string;
   readonly open?: boolean;
+  readonly provider?: string;
+  readonly theme?: string;
+  readonly plan?: boolean;
 }
 
 export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {}): Promise<void> {
@@ -37,7 +45,8 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
   const providerDisplay = getProviderDisplayInfo(registry);
   const providerIds = providerDisplay.map((provider) => provider.id);
   const globalConfig = readGlobalConfig();
-  const provider = parseProvider(resolveEffectiveProvider(undefined, globalConfig?.provider), providerIds);
+  const provider = parseProvider(resolveEffectiveProvider(flags.provider, globalConfig?.provider), providerIds);
+  const themePreference = resolveGuiThemePreference(flags.theme, globalConfig);
   const transcriptStore = new TranscriptStore(cwd);
   const contextArtifactCache = await getProjectContextArtifactCache(cwd);
   const sessionManager = await makeMultiProviderSessionFactory(
@@ -49,24 +58,31 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
     transcriptStore,
     contextArtifactCache,
   );
-  const systemPrompt = await resolveGuiSystemPrompt(appConfig, cwd, contextArtifactCache);
+  const bootstrapContext = await resolveGuiBootstrapContext(appConfig, cwd, contextArtifactCache);
+  const managedWindowShutdownMonitor = createManagedGuiWindowShutdownMonitor();
 
   const { startGuiGateway } = await import("@kilnai/runtime");
   const gateway = await startGuiGateway({
     port,
-    getSnapshot: async () => buildDashboardSnapshot(sessionStore, providerDisplay),
-    listSessions: (providerId) => loadSessionSummaries(sessionStore, providerId),
+    getSnapshot: async () => buildDashboardSnapshot(sessionStore, transcriptStore, providerDisplay, cwd, bootstrapContext.domainLabel),
+    listSessions: () => loadSessionSummaries(sessionStore, transcriptStore),
     getSessionDetail: (sessionId) => loadSessionDetail(transcriptStore, sessionId),
+    workingDirectory: cwd,
+    domainLabel: bootstrapContext.domainLabel,
+    updateThemePreference: (theme) => persistGuiThemePreference(theme, globalConfig),
+    onConnectionCountChange: managedWindowShutdownMonitor.onConnectionCountChange,
+    onManagedWindowClose: managedWindowShutdownMonitor.onManagedWindowClose,
     operatorTransport: {
       sessionManager,
-      systemPrompt,
+      systemPrompt: bootstrapContext.systemPrompt,
       onClear: sessionManager.onClear,
-      onResumeSession: (sessionId, providerId) => {
-        sessionManager.setProvider(providerId);
-        sessionManager.setResumeSession(sessionId, providerId);
+      onResumeSession: (sessionId) => {
+        sessionManager.setResumeSession(sessionId);
       },
       contextArtifactCache,
-      planMode: false,
+      planMode: flags.plan ?? false,
+      workingDirectory: cwd,
+      domainLabel: bootstrapContext.domainLabel,
     },
   });
 
@@ -76,19 +92,32 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
   }
 
   const gatewayUrl = `http://localhost:${gateway.port}/gui/`;
-  const guiUrl = mode === "dev" ? `http://localhost:${guiPort}/` : gatewayUrl;
+  const devGuiUrl = `http://localhost:${guiPort}/gui/`;
+  const guiUrl = buildGuiUrl(mode === "dev" ? devGuiUrl : gatewayUrl, themePreference);
   printStartupBanner({ mode, gatewayUrl, guiUrl, apiUrl: gateway.apiUrl });
 
-  if (flags.open ?? true) {
-    openBrowser(guiUrl);
-  }
-
-  await waitForShutdown(async () => {
+  let guiWindow: GuiWindowSession | undefined;
+  try {
+    if (flags.open ?? true) {
+      guiWindow = launchGuiWindow(guiUrl);
+      console.log(`GUI window host: ${guiWindow.browserLabel}`);
+    }
+  } catch (error) {
     if (viteDevChild) {
       await stopChildProcess(viteDevChild, "gui-dev");
     }
     gateway.shutdown();
-  });
+    throw error;
+  }
+
+  await waitForShutdown(async () => {
+    managedWindowShutdownMonitor.dispose();
+    guiWindow?.close();
+    if (viteDevChild) {
+      await stopChildProcess(viteDevChild, "gui-dev");
+    }
+    gateway.shutdown();
+  }, guiWindow, guiWindow ? managedWindowShutdownMonitor.waitForDisconnect() : undefined);
 }
 
 function parseProvider(p: string | undefined, providerIds: readonly ProviderId[]): ProviderId {
@@ -98,11 +127,11 @@ function parseProvider(p: string | undefined, providerIds: readonly ProviderId[]
   return providerIds.includes("claude") ? "claude" : providerIds[0] ?? "claude";
 }
 
-async function resolveGuiSystemPrompt(
+async function resolveGuiBootstrapContext(
   appConfig: KilnAppConfig,
   cwd: string,
   contextArtifactCache: Awaited<ReturnType<typeof getProjectContextArtifactCache>>,
-): Promise<string> {
+): Promise<{ systemPrompt: string; domainLabel: string }> {
   try {
     const { SessionManager } = await import("../wrapper/session-manager.js");
     const wrapperConfig = {
@@ -111,18 +140,27 @@ async function resolveGuiSystemPrompt(
     };
     const manager = new SessionManager(wrapperConfig, appConfig, contextArtifactCache);
     const context = await manager.prepare("interactive", cwd, undefined, undefined, undefined);
-    return context.systemPrompt;
+    return {
+      systemPrompt: context.systemPrompt,
+      domainLabel: context.domain.displayName,
+    };
   } catch {
-    return "You are a helpful assistant.";
+    return {
+      systemPrompt: "You are a helpful assistant.",
+      domainLabel: "kiln",
+    };
   }
 }
 
 async function buildDashboardSnapshot(
   sessionStore: SessionStore,
+  transcriptStore: TranscriptStore,
   providers: readonly ReturnType<typeof getProviderDisplayInfo>[number][],
+  workingDirectory: string,
+  domainLabel: string,
 ): Promise<GuiDashboardSnapshot> {
   const { registry } = createDefaultRegistry();
-  const sessions = await loadSessionSummaries(sessionStore);
+  const sessions = await loadSessionSummaries(sessionStore, transcriptStore);
 
   const providerHealth = new Map(
     registry.list().map((provider) => [provider.id, provider.health !== "suppressed"] as const),
@@ -138,15 +176,33 @@ async function buildDashboardSnapshot(
   }));
 
   const telemetry = await readTelemetrySnapshot();
+  const resumeInfo = await loadResumeSidebarInfo(
+    sessionStore,
+    transcriptStore,
+    providers.map((provider) => provider.id),
+  );
+  const resumeInfoByProvider = Object.fromEntries(
+    Object.entries(resumeInfo).flatMap(([provider, info]) => (
+      info.strategy
+        ? [[provider, { strategy: info.strategy, feedbackLabel: info.feedbackLabel }]]
+        : []
+    )),
+  );
 
   return {
     providers: providerDescriptors,
     sessions,
     telemetry,
+    resumeInfoByProvider,
+    workingDirectory,
+    domainLabel,
   };
 }
 
-async function loadSessionDetail(transcriptStore: TranscriptStore, sessionId: string): Promise<GuiSessionDetail | null> {
+export async function loadSessionDetail(
+  transcriptStore: TranscriptStore,
+  sessionId: string,
+): Promise<GuiSessionDetail | null> {
   const normalizedSessionId = sessionId.trim();
   if (!normalizedSessionId) {
     return null;
@@ -155,63 +211,14 @@ async function loadSessionDetail(transcriptStore: TranscriptStore, sessionId: st
     transcriptStore.readMeta(normalizedSessionId),
     transcriptStore.readTranscript(normalizedSessionId),
   ]);
-  if (!meta) {
-    return null;
+  if (meta) {
+    return {
+      id: normalizedSessionId,
+      meta,
+      transcript,
+    };
   }
-  return {
-    id: normalizedSessionId,
-    meta,
-    transcript,
-  };
-}
-
-function buildSessionTitle(task: string | undefined, provider: string): string {
-  if (task && task.trim().length > 0) {
-    return task;
-  }
-  return `${toProviderLabel(provider)} session`;
-}
-
-async function loadSessionSummaries(
-  sessionStore: SessionStore,
-  provider?: string,
-): Promise<GuiDashboardSnapshot["sessions"]> {
-  const sessions = await sessionStore.list();
-  return sessions
-    .filter((session) => !provider || session.provider === provider)
-    .slice(0, 20)
-    .map((session) => ({
-      id: session.sessionId,
-      provider: session.provider,
-      completedAt: session.completedAt,
-      cost: session.cost,
-      taskSummary: buildSessionTitle(session.task, session.provider),
-    }));
-}
-
-function toProviderLabel(provider: string): string {
-  switch (provider) {
-    case "claude":
-      return "Claude";
-    case "codex":
-      return "Codex";
-    case "opencode":
-      return "OpenCode";
-    case "codex-oauth":
-      return "Codex OAuth";
-    case "openai":
-      return "OpenAI";
-    case "openrouter":
-      return "OpenRouter";
-    case "deepseek":
-      return "DeepSeek";
-    case "ollama":
-      return "Ollama";
-    case "anthropic":
-      return "Anthropic";
-    default:
-      return provider;
-  }
+  return null;
 }
 
 function resolveGuiMode(cwd: string, explicitMode: GuiFlags["mode"]): "dev" | "prod" {
@@ -296,26 +303,6 @@ function printStartupBanner(input: { mode: "dev" | "prod"; gatewayUrl: string; g
   console.log(`Dashboard API: ${input.apiUrl}`);
 }
 
-function openBrowser(url: string): void {
-  const command = process.platform === "win32"
-    ? "cmd"
-    : process.platform === "darwin"
-      ? "open"
-      : "xdg-open";
-  const args = process.platform === "win32"
-    ? ["/c", "start", "", url]
-    : [url];
-
-  const child = spawn(command, args, {
-    detached: true,
-    stdio: "ignore",
-  });
-  child.on("error", (error) => {
-    console.error(`Could not open browser: ${error.message}`);
-  });
-  child.unref();
-}
-
 async function readTelemetrySnapshot(): Promise<GuiDashboardSnapshot["telemetry"]> {
   try {
     const snapshot = await getFieldStore().snapshot();
@@ -340,15 +327,32 @@ async function readTelemetrySnapshot(): Promise<GuiDashboardSnapshot["telemetry"
   }
 }
 
-async function waitForShutdown(onShutdown: () => Promise<void> | void): Promise<void> {
+async function waitForShutdown(
+  onShutdown: () => Promise<void> | void,
+  guiWindow?: GuiWindowSession,
+  managedWindowDisconnect?: Promise<void>,
+): Promise<void> {
   await new Promise<void>((resolve) => {
+    let shuttingDown = false;
     const shutdown = () => {
+      if (shuttingDown) {
+        return;
+      }
+      shuttingDown = true;
       process.off("SIGINT", shutdown);
       process.off("SIGTERM", shutdown);
+      guiWindow?.whenClosed.catch((error) => {
+        console.error(`GUI window exited unexpectedly: ${error instanceof Error ? error.message : String(error)}`);
+      });
       Promise.resolve(onShutdown()).finally(resolve);
     };
 
     process.on("SIGINT", shutdown);
     process.on("SIGTERM", shutdown);
+    void managedWindowDisconnect?.then(shutdown);
+    void guiWindow?.whenClosed.then(shutdown, (error) => {
+      console.error(`Could not launch GUI window: ${error instanceof Error ? error.message : String(error)}`);
+      shutdown();
+    });
   });
 }

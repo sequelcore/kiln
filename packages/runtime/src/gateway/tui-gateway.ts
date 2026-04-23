@@ -11,6 +11,11 @@ import { CliSubscriptionExecutor } from "../execution/cli-subscription-executor.
 import type { CliSessionFactory, CliSessionEvent } from "../execution/cli-subscription-executor.js";
 import { ApprovalGateRegistry } from "./approval-registry.js";
 import { processAdmittedTurn } from "./message-pipeline.js";
+import {
+  buildAttachedRuntimePerCallToolConfig,
+  createAttachedRuntimeBuiltinToolSurface,
+  type AttachedRuntimeBuiltinToolSurface,
+} from "./attached-runtime-tool-surface.js";
 import type {
   RuntimeTurnApprovalTransition,
   RuntimeTurnAuthorityDecision,
@@ -128,26 +133,54 @@ const TUI_APP_NAME = "kiln-tui";
 const TUI_TENANT_ID = "_tui";
 
 export interface TuiAuthorityStatus {
-  readonly effective: "fail_closed" | "unknown";
+  readonly effective: "fail_closed" | "read_only" | "idempotent" | "audited" | "destructive" | "unknown";
   readonly completeness: "authoritative" | "partial";
 }
 
 export function buildTuiPerCallToolConfig(): PerCallToolConfig {
-  return {
+  return buildAttachedRuntimePerCallToolConfig({
     tenantId: TUI_TENANT_ID,
-    toolAllowlist: new Set<string>(),
-    toolAuthority: new Map(),
-  };
+  });
 }
 
 export function deriveTuiAuthorityStatusFromPerCallConfig(
   config: PerCallToolConfig,
 ): TuiAuthorityStatus {
-  const allowlist = config.toolAllowlist;
-  if (allowlist && allowlist.size === 0) {
-    // TUI currently runs as an attached-runtime surface with explicit fail-closed tool policy.
-    return { effective: "fail_closed", completeness: "partial" };
+  const hasAllowlist = config.toolAllowlist !== undefined;
+  const allowlistSize = config.toolAllowlist?.size ?? 0;
+  const authorityMap = config.toolAuthority;
+  const hasAuthorityMap = authorityMap instanceof Map;
+  const authoritySize = authorityMap?.size ?? 0;
+
+  if (hasAllowlist && allowlistSize === 0) {
+    return { effective: "fail_closed", completeness: "authoritative" };
   }
+
+  if (!hasAuthorityMap) {
+    return { effective: "unknown", completeness: "partial" };
+  }
+  if (authoritySize === 0) {
+    return { effective: "unknown", completeness: "partial" };
+  }
+
+  let sawReadOnly = false;
+  let sawIdempotent = false;
+  let sawAudited = false;
+  for (const descriptor of authorityMap.values()) {
+    if (!descriptor) {
+      return { effective: "unknown", completeness: "partial" };
+    }
+    if (descriptor.level === 4 || descriptor.requiresApproval || !descriptor.allowed) {
+      return { effective: "destructive", completeness: "authoritative" };
+    }
+    if (descriptor.level === 1) sawReadOnly = true;
+    else if (descriptor.level === 2) sawIdempotent = true;
+    else sawAudited = true;
+  }
+
+  if (sawAudited) return { effective: "audited", completeness: "authoritative" };
+  if (sawIdempotent) return { effective: "idempotent", completeness: "authoritative" };
+  if (sawReadOnly) return { effective: "read_only", completeness: "authoritative" };
   return { effective: "unknown", completeness: "partial" };
 }
 
@@ -167,6 +200,19 @@ export function buildTuiWelcomeFramePayload(input: {
     planMode: input.planMode,
     authorityStatus: input.authorityStatus,
   };
+}
+
+export function buildTuiTurnPerCallConfig(
+  activeProvider: string,
+  activeModel: string | undefined,
+  builtinToolSurface: AttachedRuntimeBuiltinToolSurface = createAttachedRuntimeBuiltinToolSurface(),
+): PerCallToolConfig {
+  return buildAttachedRuntimePerCallToolConfig({
+    tenantId: TUI_TENANT_ID,
+    activeProvider,
+    activeModel,
+    builtinToolSurface,
+  });
 }
 
 export function buildTuiDoneFramePayload(input: {
@@ -236,6 +282,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
 
   // Activity streamer: bridges CLI session events to the active WS connection
   const activityStreamer = new TuiActivityStreamer(approvalRegistry);
+  const builtinToolSurface = createAttachedRuntimeBuiltinToolSurface();
 
   const executor = new CliSubscriptionExecutor(
     options.sessionManager.factory,
@@ -243,7 +290,11 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
     (event) => activityStreamer.forward(event),
   );
   const eventBus = options.eventBus ?? new EventBus(100);
-  const orchestrator = new RuntimeSessionOrchestrator({ provider: executor, eventBus });
+  const orchestrator = new RuntimeSessionOrchestrator({
+    provider: executor,
+    eventBus,
+    builtinTools: builtinToolSurface.callBuiltinTools,
+  });
   const sessionRegistry = new SessionRegistry();
   activityStreamer.bindApprovalBridge({
     approve: (sessionId) => orchestrator.continue(sessionId),
@@ -266,7 +317,11 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
       return {
         async onOpen(_event: Event, ws: WSContext) {
           activityStreamer.register(ws, eventBus);
-          const authorityStatus = deriveTuiAuthorityStatusFromPerCallConfig(buildTuiPerCallToolConfig());
+          const activeProvider = options.sessionManager.getProvider();
+          const activeModel = options.sessionManager.getModel() || undefined;
+          const authorityStatus = deriveTuiAuthorityStatusFromPerCallConfig(
+            buildTuiTurnPerCallConfig(activeProvider, activeModel, builtinToolSurface),
+          );
           ws.send(JSON.stringify(buildTuiWelcomeFramePayload({
             models: {
               claude: ["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5-20251001", "sonnet", "opus", "haiku"],
@@ -348,6 +403,8 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
             ws.send(JSON.stringify({ type: "thinking" }));
             let result;
             try {
+              const activeProvider = options.sessionManager.getProvider();
+              const activeModel = options.sessionManager.getModel() || undefined;
               result = await processAdmittedTurn({
                 orchestrator,
                 sessionRegistry,
@@ -358,7 +415,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
                 userParts: textParts(userContent),
                 channel: "tui",
                 contextArtifactCache: options.contextArtifactCache,
-                perCallConfig: buildTuiPerCallToolConfig(),
+                perCallConfig: buildTuiTurnPerCallConfig(activeProvider, activeModel, builtinToolSurface),
                 turnCapture: {
                   start: (sessionId) => {
                     activityStreamer.beginTurnCapture(sessionId);
@@ -387,7 +444,13 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
             const output = result.result;
             const runtimeContinuity = output.runtimeContinuity ?? { strategy: "none" };
 
-            const authorityStatus = deriveTuiAuthorityStatusFromPerCallConfig(buildTuiPerCallToolConfig());
+            const authorityStatus = deriveTuiAuthorityStatusFromPerCallConfig(
+              buildTuiTurnPerCallConfig(
+                output.routingDecision?.provider ?? options.sessionManager.getProvider(),
+                output.routingDecision?.model ?? options.sessionManager.getModel(),
+                builtinToolSurface,
+              ),
+            );
             ws.send(JSON.stringify(buildTuiDoneFramePayload({
               content: extractText(output.parts),
               parts: output.parts,

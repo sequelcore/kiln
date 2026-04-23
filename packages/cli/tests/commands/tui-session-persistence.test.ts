@@ -68,11 +68,17 @@ const PROVIDER_IDS = [
 
 function makeStore(lastRecord: SessionRecord | null = null) {
   const appended: SessionRecord[] = [];
+  const bySession = new Map<string, SessionRecord>();
+  if (lastRecord) {
+    bySession.set(lastRecord.sessionId, lastRecord);
+  }
   return {
     store: {
       last: vi.fn().mockResolvedValue(lastRecord),
+      find: vi.fn().mockImplementation(async (sessionId: string) => bySession.get(sessionId) ?? null),
       append: vi.fn().mockImplementation(async (r: SessionRecord) => {
         appended.push(r);
+        bySession.set(r.sessionId, r);
       }),
       clearLast: vi.fn().mockResolvedValue(undefined),
     } as unknown as import("../../src/wrapper/session-store.js").SessionStore,
@@ -82,6 +88,7 @@ function makeStore(lastRecord: SessionRecord | null = null) {
 
 function makeTranscriptStore() {
   return {
+    init: vi.fn().mockResolvedValue(undefined),
     read: vi.fn().mockResolvedValue([]),
     append: vi.fn().mockResolvedValue(undefined),
     finalize: vi.fn().mockResolvedValue(undefined),
@@ -133,7 +140,15 @@ describe("makeMultiProviderSessionFactory", () => {
   });
 
   it("initializes resumeSessionId from store.last() on startup", async () => {
-    const record = { sessionId: "prev-session", provider: "claude", task: "interactive", completedAt: "2026-01-01T00:00:00.000Z", cost: 0, projectPath: "/p", providerSessionId: "prov-1" };
+    const record = {
+      sessionId: "prev-session",
+      provider: "claude",
+      task: "interactive",
+      completedAt: "2026-01-01T00:00:00.000Z",
+      cost: 0,
+      projectPath: "/p",
+      providerThread: { provider: "claude", nativeSessionId: "prov-1" },
+    };
     const { store } = makeStore(record);
     const { registry } = makeRegistry();
     const transcriptStore = makeTranscriptStore();
@@ -178,6 +193,13 @@ describe("makeMultiProviderSessionFactory", () => {
       completed = true;
     }
     expect(completed).toBe(true);
+    expect(appended).toHaveLength(1);
+    expect(appended[0]).toMatchObject({
+      sessionId: "sess-1",
+      provider: "claude",
+      canonicalTitle: "test",
+      providersUsed: ["claude"],
+    });
   });
 
   it("passes captured sessionId as resumeSessionId on next turn", async () => {
@@ -207,10 +229,10 @@ describe("makeMultiProviderSessionFactory", () => {
     await session.dispose();
 
     await onClear();
-    expect(store.clearLast).toHaveBeenCalledWith("claude");
+    expect(store.clearLast).toHaveBeenCalledWith();
   });
 
-  it("onClear calls sessionStore.clearLast with the provider", async () => {
+  it("onClear clears the canonical resume target", async () => {
     const { store } = makeStore(null);
     const { registry } = makeRegistry();
     store.clearLast = vi.fn().mockResolvedValue(undefined);
@@ -220,7 +242,77 @@ describe("makeMultiProviderSessionFactory", () => {
     const { onClear } = await makeMultiProviderSessionFactory("claude", PROVIDER_IDS, "/proj", registry, store, transcriptStore, cache);
     await onClear();
 
-    expect(store.clearLast).toHaveBeenCalledWith("claude");
+    expect(store.clearLast).toHaveBeenCalledWith();
+  });
+
+  it("tracks selected models per provider instead of reusing one global model", async () => {
+    const { store } = makeStore(null);
+    const { registry } = makeRegistry();
+    const transcriptStore = makeTranscriptStore();
+    const cache = makeContextArtifactCache();
+
+    const manager = await makeMultiProviderSessionFactory(
+      "claude",
+      PROVIDER_IDS,
+      "/proj",
+      registry,
+      store as any,
+      transcriptStore,
+      cache,
+    );
+
+    manager.setModel("claude-sonnet-4-6");
+    expect(manager.getModel()).toBe("claude-sonnet-4-6");
+
+    manager.setProvider("codex-oauth");
+    expect(manager.getModel()).toBe("");
+
+    manager.setModel("gpt-5.4");
+    expect(manager.getModel()).toBe("gpt-5.4");
+
+    manager.setProvider("claude");
+    expect(manager.getModel()).toBe("claude-sonnet-4-6");
+
+    manager.setProvider("codex-oauth");
+    expect(manager.getModel()).toBe("gpt-5.4");
+  });
+
+  it("preserves provider history and title metadata across provider switches", async () => {
+    const { store, appended } = makeStore(null);
+    const { registry } = makeRegistry("sess-shared");
+    const transcriptStore = makeTranscriptStore();
+    const cache = makeContextArtifactCache();
+
+    const manager = await makeMultiProviderSessionFactory(
+      "claude",
+      PROVIDER_IDS,
+      "/proj",
+      registry,
+      store as any,
+      transcriptStore,
+      cache,
+    );
+
+    const first = manager.factory("sys", "/proj");
+    for await (const _ of first.run({ prompt: "Design session metadata ledger for resume-aware sessions" } as any)) {}
+    await first.dispose();
+
+    manager.setProvider("codex-oauth");
+    manager.setModel("gpt-5.4");
+    const second = manager.factory("sys", "/proj");
+    for await (const _ of second.run({ prompt: "Keep provider history and canonical summary" } as any)) {}
+    await second.dispose();
+
+    expect(appended).toHaveLength(2);
+    expect(appended[0]).toMatchObject({
+      canonicalTitle: "Design session metadata ledger for resume-aware sessions",
+      providersUsed: ["claude"],
+    });
+    expect(appended[1]).toMatchObject({
+      provider: "codex-oauth",
+      canonicalTitle: "Design session metadata ledger for resume-aware sessions",
+      providersUsed: ["claude", "codex-oauth"],
+    });
   });
 
   it("tuiCommand boots with empty project and no YAML config", async () => {

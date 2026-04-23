@@ -15,6 +15,7 @@ import type {
 } from "./session.js";
 import { normalizeMcpSelector } from "./mcp-selector.js";
 import { SessionStore } from "./session-store.js";
+import { deriveSessionMetadata } from "../application/session-metadata.js";
 
 interface TranslationRuleMetadata {
   readonly category: string;
@@ -43,6 +44,7 @@ export interface CodexSessionConfig {
   readonly translationWarnings?: readonly string[];
   readonly permissionPolicy?: KilnPermissionPolicy;
   readonly resumeSessionId?: string;
+  readonly sessionLedgerOwner?: "wrapper" | "host";
 }
 
 function derivePermissionPolicy(
@@ -176,9 +178,9 @@ export class CodexSession implements IKilnSession {
     if (this.config.resumeSessionId !== undefined) {
       try {
         const store = new SessionStore(cwd);
-        const record = await store.find(this.config.resumeSessionId);
-        if (record?.providerSessionId) {
-          resumeThreadId = record.providerSessionId;
+        const providerThread = await store.findProviderThread(this.config.resumeSessionId, "codex");
+        if (providerThread) {
+          resumeThreadId = providerThread.nativeSessionId;
         }
       } catch {
         console.error("[SessionStore] Resume lookup failed, continuing without resume");
@@ -456,17 +458,23 @@ export class CodexSession implements IKilnSession {
             isError: lastError !== null,
             isPreflightCrash: !initReceived && computedUsd === 0,
           };
-          try {
+          if (this.config.sessionLedgerOwner !== "host") try {
             const store = new SessionStore(cwd);
             const completedAt = new Date().toISOString();
+            const metadata = deriveSessionMetadata({ task: this.config.task, provider: "codex", model });
             await store.append({
               sessionId: this._threadId ?? this.sessionId,
               provider: "codex",
               task: this.config.task,
+              title: metadata.title,
+              summary: metadata.summary,
+              tags: metadata.tags,
               completedAt,
               cost: computedUsd,
               projectPath: cwd,
-              providerSessionId: this._threadId ?? undefined,
+              providerThread: this._threadId
+                ? { provider: "codex", nativeSessionId: this._threadId }
+                : undefined,
             });
           } catch (err) {
             console.error("[SessionStore] Failed to append session record:", err instanceof Error ? err.message : String(err));
@@ -507,17 +515,23 @@ export class CodexSession implements IKilnSession {
               isError: true,
               isPreflightCrash: !initReceived,
             };
-            try {
+            if (this.config.sessionLedgerOwner !== "host") try {
               const store = new SessionStore(cwd);
               const completedAt = new Date().toISOString();
+              const metadata = deriveSessionMetadata({ task: this.config.task, provider: "codex", model, hasError: true });
               await store.append({
                 sessionId: this._threadId ?? this.sessionId,
                 provider: "codex",
                 task: this.config.task,
+                title: metadata.title,
+                summary: metadata.summary,
+                tags: metadata.tags,
                 completedAt,
                 cost: 0,
                 projectPath: cwd,
-                providerSessionId: this._threadId ?? undefined,
+                providerThread: this._threadId
+                  ? { provider: "codex", nativeSessionId: this._threadId }
+                  : undefined,
               });
             } catch (err) {
               console.error("[SessionStore] Failed to append session record:", err instanceof Error ? err.message : String(err));
@@ -547,17 +561,23 @@ export class CodexSession implements IKilnSession {
           isError: true,
           isPreflightCrash: !initReceived,
         };
-        try {
+        if (this.config.sessionLedgerOwner !== "host") try {
           const store = new SessionStore(cwd);
           const completedAt = new Date().toISOString();
+          const metadata = deriveSessionMetadata({ task: this.config.task, provider: "codex", model, hasError: true });
           await store.append({
             sessionId: this._threadId ?? this.sessionId,
             provider: "codex",
             task: this.config.task,
+            title: metadata.title,
+            summary: metadata.summary,
+            tags: metadata.tags,
             completedAt,
             cost: 0,
             projectPath: cwd,
-            providerSessionId: this._threadId ?? undefined,
+            providerThread: this._threadId
+              ? { provider: "codex", nativeSessionId: this._threadId }
+              : undefined,
           });
         } catch (err) {
           console.error("[SessionStore] Failed to append session record:", err instanceof Error ? err.message : String(err));

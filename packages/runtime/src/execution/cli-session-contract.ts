@@ -2,6 +2,7 @@ import type { AgentMessage, ExecutionBillingMode } from "@kilnai/core";
 
 /** Minimal session run options — structurally compatible with cli/wrapper/session IKilnSession. */
 export interface CliSessionRunOptions {
+  readonly kilnSessionId?: string;
   readonly prompt: string;
   readonly system?: string;
   readonly messages?: readonly AgentMessage[];
@@ -34,12 +35,16 @@ export interface CliSession {
   dispose(): Promise<void>;
 }
 
+export interface CliSessionFactoryContext {
+  readonly kilnSessionId?: string;
+}
+
 /**
  * Factory injected by the CLI command. Creates a fresh one-shot CLI session per turn.
  * @param systemPrompt The assembled system prompt (memory + context already injected).
  * @param cwd Working directory for the subprocess.
  */
-export type CliSessionFactory = (systemPrompt: string, cwd: string) => CliSession;
+export type CliSessionFactory = (systemPrompt: string, cwd: string, context?: CliSessionFactoryContext) => CliSession;
 
 /**
  * Event callback for streaming CLI subprocess events to the TUI.

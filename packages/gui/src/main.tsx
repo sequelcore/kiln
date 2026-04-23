@@ -9,11 +9,23 @@ import "./styles.css";
 // Reads persisted store synchronously before first paint so the correct
 // data-theme attribute is set on <html> before CSS is applied.
 (function applyPersistedTheme() {
+  const urlTheme = new URLSearchParams(window.location.search).get("theme");
   try {
+    if (urlTheme === "kiln-dark" || urlTheme === "kiln-light" || urlTheme === "system-follow") {
+      localStorage.setItem("kiln.gui.ui", JSON.stringify({
+        state: { theme: urlTheme },
+        version: 0,
+      }));
+      document.documentElement.dataset.theme = urlTheme === "kiln-light"
+        ? "light"
+        : urlTheme === "kiln-dark"
+          ? "dark"
+          : window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      return;
+    }
     const raw = localStorage.getItem("kiln.gui.ui");
     if (!raw) {
-      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-      document.documentElement.dataset.theme = prefersDark ? "dark" : "light";
+      document.documentElement.dataset.theme = "dark";
       return;
     }
     const parsed = JSON.parse(raw) as { state?: { theme?: string } };
@@ -35,7 +47,10 @@ import "./styles.css";
 
 const queryClient = new QueryClient();
 
-const router = createRouter({ routeTree });
+const router = createRouter({
+  routeTree,
+  basepath: "/gui",
+});
 
 declare module "@tanstack/react-router" {
   interface Register {

@@ -68,7 +68,7 @@ test.describe("provider and model selection parity", () => {
 
     await expect(composerSection.getByText("Ready")).toBeVisible({ timeout: 5_000 });
     const statusBeforeClear = (await providerStatus.textContent()) ?? "";
-    await page.getByRole("button", { name: "Clear" }).click();
+    await page.getByRole("button", { name: "New Session" }).click();
     const sentFrames = await page.evaluate(() => {
       return (window as unknown as { __kilnSentFrames: Array<{ type?: string }> }).__kilnSentFrames;
     });

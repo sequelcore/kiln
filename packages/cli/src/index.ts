@@ -212,6 +212,9 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
       mode: mode.value,
       cwd: findFlag(args, "--cwd"),
       open: parseOpenFlag(args),
+      provider: findFlag(args, "--provider"),
+      theme: findFlag(args, "--theme"),
+      plan: args.includes("--plan"),
     });
     return;
   }

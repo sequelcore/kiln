@@ -42,6 +42,10 @@ export class DevToolExecutionBridge {
     this.authorizer = options.authorizer;
   }
 
+  listTools(): readonly DevTool[] {
+    return this.registry.list();
+  }
+
   async execute(request: DevToolExecutionRequest): Promise<DevToolExecutionResult> {
     const primaryTool = this.registry.lookup(request.name);
     if (!primaryTool) {

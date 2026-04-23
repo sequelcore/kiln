@@ -16,6 +16,10 @@ describe("SessionTelemetry", () => {
           claude: { costUsd: 0.12, inputTokens: 1200, outputTokens: 300 },
           codex: { costUsd: 0.30, inputTokens: 3000, outputTokens: 800 },
         }}
+        resumeInfo={{
+          strategy: "provider-native",
+          feedbackLabel: "observed provider-native · 6",
+        }}
         runtimeContinuity={{
           strategy: "cache-first",
           feedbackLabel: "applied",
@@ -48,7 +52,8 @@ describe("SessionTelemetry", () => {
     expect(screen.getByText("codex")).toBeInTheDocument();
     expect(screen.getByText("turns: 3")).toBeInTheDocument();
     expect(screen.getByText("tok: 4.2k/1.1k")).toBeInTheDocument();
-    expect(screen.getByText("resume: cache-first · applied")).toBeInTheDocument();
+    expect(screen.getByText("resume: provider-native · observed provider-native · 6")).toBeInTheDocument();
+    expect(screen.getByText("runtime: cache-first · applied")).toBeInTheDocument();
     expect(screen.getByText("srcs: session, project")).toBeInTheDocument();
     expect(screen.getByText("field [stable]")).toBeInTheDocument();
     expect(screen.getByText("dom: routing, memory, tools")).toBeInTheDocument();
@@ -66,6 +71,7 @@ describe("SessionTelemetry", () => {
         inputTokens={0}
         outputTokens={0}
         perProviderUsage={{}}
+        resumeInfo={null}
         runtimeContinuity={null}
         changedFiles={[]}
         fieldTelemetry={null}

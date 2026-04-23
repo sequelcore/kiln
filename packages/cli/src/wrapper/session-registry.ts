@@ -7,12 +7,19 @@ import type {
   KilnToolPermissionRule,
 } from "./session.js";
 import { debug } from "./debug.js";
-import { CodexOAuthAuth, getFieldStrength, MODEL_CATALOG } from "@kilnai/core";
+import {
+  CodexOAuthAuth,
+  createDefaultBuiltinTools,
+  getDirectProviderExecutionProfile,
+  getFieldStrength,
+  isDirectProviderId,
+  MODEL_CATALOG,
+  resolveDirectProviderExecutionProfile,
+} from "@kilnai/core";
 import { ClaudeSession } from "./claude-code-process.js";
 import { CodexSession } from "./codex-session.js";
 import { OpenCodeSession } from "./opencode-session.js";
 import { ProviderSession } from "./provider-session.js";
-import { ExecutableProviderSession } from "./executable-provider-session.js";
 import { WorktreeManager } from "./worktree-manager.js";
 import { normalizePermissionPolicy } from "./permission-normalizer.js";
 
@@ -28,16 +35,27 @@ export interface ProviderDisplayInfo {
   readonly free: boolean;
 }
 
-const DIRECT_API_PROVIDERS = new Set<DirectApiProviderId>([
-  "codex-oauth",
-  "anthropic",
-  "openai",
-  "deepseek",
-  "openrouter",
-  "ollama",
-]);
 const HARNESS_PROVIDERS = new Set<CliHarnessProviderId>(["claude", "codex", "opencode"]);
 const FREE_PROVIDERS = new Set<ProviderId>(["codex-oauth", "openrouter", "ollama"]);
+const DIRECT_PROVIDER_TOOL_NAMES = Object.freeze(
+  createDefaultBuiltinTools().map((tool) => tool.name),
+);
+const DIRECT_PROVIDER_COST_TIERS: Record<DirectApiProviderId, "low" | "medium" | "high"> = {
+  "codex-oauth": "low",
+  anthropic: "high",
+  openai: "high",
+  deepseek: "medium",
+  openrouter: "low",
+  ollama: "low",
+};
+const DIRECT_PROVIDER_PRIORITIES: Record<DirectApiProviderId, number> = {
+  "codex-oauth": 1,
+  anthropic: 4,
+  openai: 5,
+  openrouter: 6,
+  deepseek: 7,
+  ollama: 8,
+};
 
 const CODEX_OAUTH_AVAILABLE = await new CodexOAuthAuth().hasValidCredentials().catch((error: unknown) => {
   debug("[provider:codex-oauth] availability check failed", error instanceof Error ? error.message : String(error));
@@ -46,7 +64,7 @@ const CODEX_OAUTH_AVAILABLE = await new CodexOAuthAuth().hasValidCredentials().c
 
 export function isDirectApiProvider(provider: ProviderId | undefined): provider is DirectApiProviderId {
   if (!provider) return false;
-  return DIRECT_API_PROVIDERS.has(provider as DirectApiProviderId);
+  return isDirectProviderId(provider);
 }
 
 export function getProviderDisplayInfo(registry: SessionRegistry): ProviderDisplayInfo[] {
@@ -59,11 +77,11 @@ export function getProviderDisplayInfo(registry: SessionRegistry): ProviderDispl
 }
 
 function getProviderDisplayGroup(provider: ProviderId): ProviderDisplayGroup {
-  if (provider === "codex-oauth") {
-    return "subscription";
-  }
   if (HARNESS_PROVIDERS.has(provider as CliHarnessProviderId)) {
     return "harness";
+  }
+  if (isDirectApiProvider(provider) && getDirectProviderExecutionProfile(provider)?.defaultBillingMode === "subscription") {
+    return "subscription";
   }
   return "direct-api";
 }
@@ -125,6 +143,7 @@ export interface ProviderCreateConfig {
   readonly permissionPolicy: KilnPermissionPolicy;
   readonly model?: string;
   readonly resumeSessionId?: string;
+  readonly sessionLedgerOwner?: "wrapper" | "host";
   readonly ephemeral?: boolean;
   readonly profile?: string;
   readonly skipGitRepoCheck?: boolean;
@@ -888,6 +907,68 @@ export class SessionRegistry {
 
 const DEFAULT_POLICY: KilnPermissionPolicy = { approval: "on-request", sandbox: "read-only" };
 
+function buildDirectProviderCapabilities(provider: DirectApiProviderId): SessionCapabilities {
+  const profile = getDirectProviderExecutionProfile(provider);
+  const supportedTools = profile?.defaultExecutionMode === "kiln-executable"
+    ? [...DIRECT_PROVIDER_TOOL_NAMES]
+    : [];
+  return {
+    mcp: false,
+    streaming: true,
+    resumable: false,
+    resume: false,
+    costTrackingMode: "computed",
+    supportedTools,
+    maxContextTokens: null,
+    priority: DIRECT_PROVIDER_PRIORITIES[provider],
+    fallbackTo: null,
+    permissionPolicy: DEFAULT_POLICY,
+  };
+}
+
+function createDirectProviderSession(
+  provider: DirectApiProviderId,
+  config: ProviderCreateConfig,
+): ProviderSession {
+  const translated = translatePermissionForProvider(config.permissionPolicy, provider);
+  for (const warning of translated.warnings) {
+    debug(`[provider:${provider}]`, warning);
+  }
+
+  const profile = resolveDirectProviderExecutionProfile({
+    provider,
+    model: config.model,
+  });
+  const executionMode = config.model
+    ? profile?.executionMode
+    : getDirectProviderExecutionProfile(provider)?.defaultExecutionMode;
+
+  return new ProviderSession({
+    provider,
+    model: config.model,
+    task: config.task,
+    systemPrompt: config.systemPrompt,
+    cwd: config.cwd,
+    env: config.env,
+    permissionPolicy: config.permissionPolicy,
+    constraintInstructions: translated.constraintInstructions,
+    executionMode,
+  });
+}
+
+function createDirectProviderDescriptor(
+  provider: DirectApiProviderId,
+  isAvailable?: () => boolean,
+): SessionProviderDescriptor {
+  return {
+    id: provider,
+    costTier: DIRECT_PROVIDER_COST_TIERS[provider],
+    capabilities: buildDirectProviderCapabilities(provider),
+    ...(isAvailable ? { isAvailable } : {}),
+    create: (config) => createDirectProviderSession(provider, config),
+  };
+}
+
 export function createDefaultRegistry(): {
   registry: SessionRegistry;
   worktreeManager: WorktreeManager;
@@ -897,40 +978,17 @@ export function createDefaultRegistry(): {
     debug("pruneStale error:", err instanceof Error ? err.message : String(err));
   });
 
+  const codexOauthProvider = createDirectProviderDescriptor("codex-oauth", () => CODEX_OAUTH_AVAILABLE);
+  const directProviders: SessionProviderDescriptor[] = [
+    createDirectProviderDescriptor("anthropic"),
+    createDirectProviderDescriptor("openai"),
+    createDirectProviderDescriptor("deepseek"),
+    createDirectProviderDescriptor("openrouter"),
+    createDirectProviderDescriptor("ollama"),
+  ];
+
   const providers: SessionProviderDescriptor[] = [
-    {
-      id: "codex-oauth",
-      costTier: "low",
-      capabilities: {
-        mcp: false,
-        streaming: true,
-        resumable: false,
-        resume: false,
-        costTrackingMode: "computed",
-        supportedTools: ["bash", "read", "write", "edit", "grep", "glob", "git"],
-        maxContextTokens: null,
-        priority: 1,
-        fallbackTo: null,
-        permissionPolicy: DEFAULT_POLICY,
-      },
-      isAvailable: () => CODEX_OAUTH_AVAILABLE,
-      create: (config) => {
-        const translated = translatePermissionForProvider(config.permissionPolicy, "codex-oauth");
-        for (const warning of translated.warnings) {
-          debug("[provider:codex-oauth]", warning);
-        }
-        return new ExecutableProviderSession({
-          provider: "codex-oauth",
-          model: config.model,
-          task: config.task,
-          systemPrompt: config.systemPrompt,
-          cwd: config.cwd,
-          env: config.env,
-          permissionPolicy: config.permissionPolicy,
-          constraintInstructions: translated.constraintInstructions,
-        });
-      },
-    },
+    codexOauthProvider,
     {
       id: "claude",
       costTier: "high",
@@ -963,6 +1021,7 @@ export function createDefaultRegistry(): {
           constraintInstructions: translated.constraintInstructions,
           translationWarnings: translated.warnings,
           resumeSessionId: config.resumeSessionId,
+          sessionLedgerOwner: config.sessionLedgerOwner,
           model: config.model,
         });
       },
@@ -1004,6 +1063,7 @@ export function createDefaultRegistry(): {
           constraintInstructions: translated.constraintInstructions,
           translationWarnings: translated.warnings,
           resumeSessionId: config.resumeSessionId,
+          sessionLedgerOwner: config.sessionLedgerOwner,
         });
       },
     },
@@ -1044,169 +1104,11 @@ export function createDefaultRegistry(): {
           constraintInstructions: translated.constraintInstructions,
           translationWarnings: translated.warnings,
           resumeSessionId: (config as { resumeSessionId?: string }).resumeSessionId,
+          sessionLedgerOwner: config.sessionLedgerOwner,
         });
       },
     },
-    {
-      id: "anthropic",
-      costTier: "high",
-      capabilities: {
-        mcp: false,
-        streaming: true,
-        resumable: false,
-        resume: false,
-        costTrackingMode: "computed",
-        supportedTools: [],
-        maxContextTokens: null,
-        priority: 4,
-        fallbackTo: null,
-        permissionPolicy: DEFAULT_POLICY,
-      },
-      create: (config) => {
-        const translated = translatePermissionForProvider(config.permissionPolicy, "anthropic");
-        for (const warning of translated.warnings) {
-          debug("[provider:anthropic]", warning);
-        }
-        return new ProviderSession({
-          provider: "anthropic",
-          model: config.model,
-          task: config.task,
-          systemPrompt: config.systemPrompt,
-          cwd: config.cwd,
-          env: config.env,
-          permissionPolicy: config.permissionPolicy,
-          constraintInstructions: translated.constraintInstructions,
-        });
-      },
-    },
-    {
-      id: "openai",
-      costTier: "high",
-      capabilities: {
-        mcp: false,
-        streaming: true,
-        resumable: false,
-        resume: false,
-        costTrackingMode: "computed",
-        supportedTools: [],
-        maxContextTokens: null,
-        priority: 5,
-        fallbackTo: null,
-        permissionPolicy: DEFAULT_POLICY,
-      },
-      create: (config) => {
-        const translated = translatePermissionForProvider(config.permissionPolicy, "openai");
-        for (const warning of translated.warnings) {
-          debug("[provider:openai]", warning);
-        }
-        return new ProviderSession({
-          provider: "openai",
-          model: config.model,
-          task: config.task,
-          systemPrompt: config.systemPrompt,
-          cwd: config.cwd,
-          env: config.env,
-          permissionPolicy: config.permissionPolicy,
-          constraintInstructions: translated.constraintInstructions,
-        });
-      },
-    },
-    {
-      id: "openrouter",
-      costTier: "low",
-      capabilities: {
-        mcp: false,
-        streaming: true,
-        resumable: false,
-        resume: false,
-        costTrackingMode: "computed",
-        supportedTools: [],
-        maxContextTokens: null,
-        priority: 6,
-        fallbackTo: null,
-        permissionPolicy: DEFAULT_POLICY,
-      },
-      create: (config) => {
-        const translated = translatePermissionForProvider(config.permissionPolicy, "openrouter");
-        for (const warning of translated.warnings) {
-          debug("[provider:openrouter]", warning);
-        }
-        return new ProviderSession({
-          provider: "openrouter",
-          model: config.model,
-          task: config.task,
-          systemPrompt: config.systemPrompt,
-          cwd: config.cwd,
-          env: config.env,
-          permissionPolicy: config.permissionPolicy,
-          constraintInstructions: translated.constraintInstructions,
-        });
-      },
-    },
-    {
-      id: "deepseek",
-      costTier: "medium",
-      capabilities: {
-        mcp: false,
-        streaming: true,
-        resumable: false,
-        resume: false,
-        costTrackingMode: "computed",
-        supportedTools: [],
-        maxContextTokens: null,
-        priority: 7,
-        fallbackTo: null,
-        permissionPolicy: DEFAULT_POLICY,
-      },
-      create: (config) => {
-        const translated = translatePermissionForProvider(config.permissionPolicy, "deepseek");
-        for (const warning of translated.warnings) {
-          debug("[provider:deepseek]", warning);
-        }
-        return new ProviderSession({
-          provider: "deepseek",
-          model: config.model,
-          task: config.task,
-          systemPrompt: config.systemPrompt,
-          cwd: config.cwd,
-          env: config.env,
-          permissionPolicy: config.permissionPolicy,
-          constraintInstructions: translated.constraintInstructions,
-        });
-      },
-    },
-    {
-      id: "ollama",
-      costTier: "low",
-      capabilities: {
-        mcp: false,
-        streaming: true,
-        resumable: false,
-        resume: false,
-        costTrackingMode: "computed",
-        supportedTools: [],
-        maxContextTokens: null,
-        priority: 8,
-        fallbackTo: null,
-        permissionPolicy: DEFAULT_POLICY,
-      },
-      create: (config) => {
-        const translated = translatePermissionForProvider(config.permissionPolicy, "ollama");
-        for (const warning of translated.warnings) {
-          debug("[provider:ollama]", warning);
-        }
-        return new ProviderSession({
-          provider: "ollama",
-          model: config.model,
-          task: config.task,
-          systemPrompt: config.systemPrompt,
-          cwd: config.cwd,
-          env: config.env,
-          permissionPolicy: config.permissionPolicy,
-          constraintInstructions: translated.constraintInstructions,
-        });
-      },
-    },
+    ...directProviders,
   ];
 
   const registry = new SessionRegistry(providers);

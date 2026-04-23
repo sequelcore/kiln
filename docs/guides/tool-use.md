@@ -423,15 +423,11 @@ That means the wrapper can restrict which tool calls a backend should make, whil
 
 For direct API backends, this is advisory rather than native sandbox enforcement. The provider sees policy constraints in the system prompt; the runtime still owns actual tool execution.
 
-`codex-oauth` now uses that runtime-owned execution path. The model emits tool
-intent through the OAuth-backed Responses flow, and Kiln executes the concrete
-developer tools locally through its own orchestrator, approval, and file-change
-pipeline.
-
-The remaining direct API backends stay text-oriented in the current
-implementation. They can receive prompt-side permission constraints, but they
-do not gain executable local tools unless Kiln wires them to an executable
-direct-provider session as well.
+OAuth and direct API backends now use the same runtime-owned execution path
+when their provider execution profile advertises tool support. The model emits
+tool intent through the provider-native tool-calling protocol, and Kiln executes
+the concrete developer tools locally through its own orchestrator, approval,
+telemetry, and file-change pipeline.
 
 ---
 

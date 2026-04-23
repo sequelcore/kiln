@@ -8,6 +8,7 @@ import { useSessionStore } from "../lib/session-store.js";
 import { SessionList } from "./session-list.js";
 import { Transcript } from "./transcript.js";
 import { Composer } from "./composer.js";
+import { CommandPalette, type CommandPaletteItem } from "./command-palette.js";
 import { ErrorBanner } from "./error-banner.js";
 import { ConnectionStatus } from "./connection-status.js";
 import { ThemeSwitcher } from "./theme-switcher.js";
@@ -16,8 +17,10 @@ import { ProviderStatus } from "./provider-status.js";
 import { ApprovalQueue } from "./approval-queue.js";
 import { ToolCallLog } from "./tool-call-log.js";
 import { SessionTelemetry } from "./session-telemetry.js";
+import { useUiStore } from "../lib/ui-store.js";
 
 const GATEWAY_BASE = "/gui-api";
+const NARROW_LAYOUT_QUERY = "(max-width: 1024px)";
 
 function toWsUrl(path: string): string {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -35,8 +38,8 @@ function mapActivityLabel(activity: ReturnType<typeof useSessionStore.getState>[
   return `${activity.phase}${tool}${details}`;
 }
 
-async function fetchSessions(provider: string): Promise<GuiSessionListResponse["sessions"]> {
-  const response = await fetch(`${GATEWAY_BASE}/sessions?provider=${encodeURIComponent(provider)}`, {
+async function fetchSessions(): Promise<GuiSessionListResponse["sessions"]> {
+  const response = await fetch(`${GATEWAY_BASE}/sessions`, {
     headers: { accept: "application/json" },
   });
   if (!response.ok) {
@@ -51,8 +54,10 @@ export function AppShell() {
   const [gatewayError, setGatewayError] = useState<string | null>(null);
   const [gatewayAttempt, setGatewayAttempt] = useState(0);
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
+  const [paletteMode, setPaletteMode] = useState<"root" | "theme">("root");
+  const [paletteQuery, setPaletteQuery] = useState("");
   const [isProviderPickerOpen, setIsProviderPickerOpen] = useState(false);
-  const [isNarrow, setIsNarrow] = useState(() => window.matchMedia("(max-width: 900px)").matches);
+  const [isNarrow, setIsNarrow] = useState(() => window.matchMedia(NARROW_LAYOUT_QUERY).matches);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   const status = useSessionStore((state) => state.status);
@@ -83,6 +88,7 @@ export function AppShell() {
   const setSender = useSessionStore((state) => state.setSender);
   const setSessionList = useSessionStore((state) => state.setSessionList);
   const setSelectedSessionId = useSessionStore((state) => state.setSelectedSessionId);
+  const viewSessionDetail = useSessionStore((state) => state.viewSessionDetail);
   const setErrorBanner = useSessionStore((state) => state.setErrorBanner);
   const clearErrorBanner = useSessionStore((state) => state.clearErrorBanner);
   const onWelcome = useSessionStore((state) => state.onWelcome);
@@ -105,6 +111,19 @@ export function AppShell() {
   const switchProvider = useSessionStore((state) => state.switchProvider);
   const setResume = useSessionStore((state) => state.setResume);
   const disconnect = useSessionStore((state) => state.disconnect);
+  const setTheme = useUiStore((state) => state.setTheme);
+
+  const closePalette = () => {
+    setIsPaletteOpen(false);
+    setPaletteMode("root");
+    setPaletteQuery("");
+  };
+
+  const openPalette = (mode: "root" | "theme" = "root") => {
+    setPaletteMode(mode);
+    setPaletteQuery("");
+    setIsPaletteOpen(true);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -128,7 +147,7 @@ export function AppShell() {
   }, [gatewayAttempt]);
 
   useEffect(() => {
-    const media = window.matchMedia("(max-width: 900px)");
+    const media = window.matchMedia(NARROW_LAYOUT_QUERY);
     const handleChange = () => setIsNarrow(media.matches);
     media.addEventListener("change", handleChange);
     handleChange();
@@ -142,27 +161,54 @@ export function AppShell() {
   }, [isNarrow]);
 
   useEffect(() => {
+    if (!isNarrow || !drawerOpen) {
+      return;
+    }
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [drawerOpen, isNarrow]);
+
+  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
-        setIsPaletteOpen((open) => !open);
+        if (isPaletteOpen) {
+          closePalette();
+          return;
+        }
+        openPalette("root");
       }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "p") {
         event.preventDefault();
         setIsProviderPickerOpen(true);
       }
       if (event.key === "Escape") {
-        setIsPaletteOpen(false);
+        closePalette();
         setDrawerOpen(false);
         setIsProviderPickerOpen(false);
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [isPaletteOpen]);
 
   const wsUrl = useMemo(() => toWsUrl("/gui/ws"), []);
   const gatewayClient = useMemo(() => new GuiGatewayClient(window.location.origin), []);
+
+  useEffect(() => {
+    const notifyWindowClosed = () => {
+      gatewayClient.notifyWindowClosed();
+    };
+    window.addEventListener("pagehide", notifyWindowClosed);
+    window.addEventListener("beforeunload", notifyWindowClosed);
+    return () => {
+      window.removeEventListener("pagehide", notifyWindowClosed);
+      window.removeEventListener("beforeunload", notifyWindowClosed);
+    };
+  }, [gatewayClient]);
 
   const { state: wsState, send } = useGuiWs(wsUrl, {
     onFrame: (frame: GuiInboundFrame) => {
@@ -220,9 +266,9 @@ export function AppShell() {
   }, [disconnect, send, setSender]);
 
   const sessionsQuery = useQuery({
-    queryKey: ["gui", "sessions", activeProvider, turnCounter],
-    queryFn: () => fetchSessions(activeProvider ?? ""),
-    enabled: gatewayReady && Boolean(activeProvider),
+    queryKey: ["gui", "sessions", turnCounter],
+    queryFn: fetchSessions,
+    enabled: gatewayReady,
   });
 
   const dashboardQuery = useQuery({
@@ -231,6 +277,23 @@ export function AppShell() {
     enabled: gatewayReady,
     refetchInterval: 2_000,
   });
+  const sessionDetailQuery = useQuery({
+    queryKey: ["gui", "session-detail", selectedSessionId],
+    queryFn: async () => {
+      if (!selectedSessionId) {
+        return null;
+      }
+      return gatewayClient.loadSessionDetail(selectedSessionId);
+    },
+    enabled: gatewayReady && Boolean(selectedSessionId),
+  });
+
+  useEffect(() => {
+    if (!gatewayReady || turnCounter === 0) {
+      return;
+    }
+    void dashboardQuery.refetch();
+  }, [dashboardQuery, gatewayReady, turnCounter]);
 
   useEffect(() => {
     if (sessionsQuery.data) {
@@ -244,7 +307,112 @@ export function AppShell() {
     }
   }, [sessionsQuery.error, setErrorBanner]);
 
+  useEffect(() => {
+    if (sessionDetailQuery.data) {
+      viewSessionDetail(sessionDetailQuery.data);
+    }
+  }, [sessionDetailQuery.data, viewSessionDetail]);
+
+  useEffect(() => {
+    if (sessionDetailQuery.error) {
+      setErrorBanner("Could not load session transcript.");
+    }
+  }, [sessionDetailQuery.error, setErrorBanner]);
+
   const activityLabel = mapActivityLabel(activity);
+  const resumeInfo = activeProvider
+    ? dashboardQuery.data?.resumeInfoByProvider?.[activeProvider] ?? null
+    : null;
+  const workingDirectory = dashboardQuery.data?.workingDirectory;
+  const domainLabel = dashboardQuery.data?.domainLabel;
+  const persistThemePreference = (theme: "kiln-dark" | "kiln-light" | "system-follow") => {
+    void gatewayClient.saveThemePreference(theme);
+    const nextUrl = new URL(window.location.href);
+    nextUrl.searchParams.set("theme", theme);
+    window.history.replaceState({}, "", nextUrl.toString());
+  };
+  const themeCommands: readonly CommandPaletteItem[] = [
+    {
+      id: "theme-dark",
+      trigger: "theme dark",
+      title: "Dark theme",
+      description: "Apply kiln-dark immediately.",
+      keywords: ["dark", "theme", "kiln-dark"],
+    },
+    {
+      id: "theme-light",
+      trigger: "theme light",
+      title: "Light theme",
+      description: "Apply kiln-light immediately.",
+      keywords: ["light", "theme", "kiln-light"],
+    },
+    {
+      id: "theme-system",
+      trigger: "theme system",
+      title: "System theme",
+      description: "Follow the OS preference.",
+      keywords: ["system", "theme", "system-follow"],
+    },
+  ];
+  const rootCommands: readonly CommandPaletteItem[] = [
+    {
+      id: "new-session",
+      trigger: "new session",
+      title: "New Session",
+      description: "Reset the current conversation and start clean.",
+      keywords: ["session", "reset", "new"],
+    },
+    {
+      id: "theme",
+      trigger: "theme",
+      title: "Theme",
+      description: "Open the theme picker commands.",
+      keywords: ["appearance", "dark", "light"],
+    },
+    {
+      id: "provider",
+      trigger: "provider",
+      title: "Provider",
+      description: "Open the provider and model picker.",
+      keywords: ["model", "routing"],
+    },
+  ];
+  const paletteCommands = paletteMode === "theme" ? themeCommands : rootCommands;
+
+  const executePaletteCommand = (command: CommandPaletteItem) => {
+    switch (command.id) {
+      case "new-session":
+        sendClear();
+        setSelectedSessionId(null);
+        closePalette();
+        return;
+      case "theme":
+        setPaletteMode("theme");
+        setPaletteQuery("");
+        return;
+      case "provider":
+        setIsProviderPickerOpen(true);
+        closePalette();
+        return;
+      case "theme-dark":
+        setTheme("kiln-dark");
+        persistThemePreference("kiln-dark");
+        closePalette();
+        return;
+      case "theme-light":
+        setTheme("kiln-light");
+        persistThemePreference("kiln-light");
+        closePalette();
+        return;
+      case "theme-system":
+        setTheme("system-follow");
+        persistThemePreference("system-follow");
+        closePalette();
+        return;
+      default:
+        closePalette();
+    }
+  };
 
   if (!gatewayReady && !gatewayError) {
     return (
@@ -279,14 +447,18 @@ export function AppShell() {
       sessions={sessionList}
       selectedSessionId={selectedSessionId}
       resumeTargetId={resumeTargetId}
-      activeProvider={activeProvider}
       onSelect={(sessionId) => setSelectedSessionId(sessionId)}
-      onConfirmResume={(sessionId) => {
-        setResume(sessionId);
+      onStartNewSession={() => {
+        sendClear();
+        setSelectedSessionId(null);
         setDrawerOpen(false);
       }}
     />
   );
+
+  const closeDrawer = () => {
+    setDrawerOpen(false);
+  };
 
   return (
     <div className="flex h-screen flex-col bg-[var(--color-background)] text-[var(--color-text)]">
@@ -304,62 +476,70 @@ export function AppShell() {
         {isNarrow ? (
           <button
             type="button"
+            aria-controls="session-drawer"
+            aria-expanded={drawerOpen}
+            aria-label={drawerOpen ? "Hide session drawer" : "Open session drawer"}
             onClick={() => setDrawerOpen((open) => !open)}
             className="rounded border border-[var(--color-border)] px-2 py-1 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-active)]"
           >
-            Sessions
+            {drawerOpen ? "Close Sessions" : "Sessions"}
           </button>
         ) : null}
         <p className="text-sm font-semibold">Kiln GUI</p>
         <ConnectionStatus state={wsState} />
-        <ProviderStatus onOpenPicker={() => setIsProviderPickerOpen(true)} />
+        <ProviderStatus
+          onOpenPicker={() => setIsProviderPickerOpen(true)}
+          domainLabel={domainLabel}
+          workingDirectory={workingDirectory}
+        />
         <div className="ml-auto flex items-center gap-2">
           <button
             type="button"
             onClick={() => {
               sendClear();
-              setIsPaletteOpen(false);
+              setSelectedSessionId(null);
+              closePalette();
             }}
             className="rounded border border-[var(--color-border)] px-2 py-1 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-active)]"
           >
-            Clear
+            New Session
           </button>
           <button
             type="button"
-            onClick={() => setIsPaletteOpen((open) => !open)}
+            onClick={() => {
+              if (isPaletteOpen) {
+                closePalette();
+                return;
+              }
+              openPalette("root");
+            }}
             className="rounded border border-[var(--color-border)] px-2 py-1 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-active)]"
           >
             Commands
           </button>
-          <ThemeSwitcher />
+          <ThemeSwitcher onThemeSelected={persistThemePreference} />
         </div>
       </header>
 
-      {isPaletteOpen ? (
-        <div className="absolute right-3 top-14 z-30 w-64 rounded-lg border border-[var(--color-border)] bg-[var(--color-background-panel)] p-2 shadow-lg">
-          <p className="px-2 py-1 text-xs uppercase tracking-wide text-[var(--color-text-muted)]">Command Palette</p>
-          <button
-            type="button"
-            onClick={() => {
-              sendClear();
-              setIsPaletteOpen(false);
-            }}
-            className="mt-1 w-full rounded px-2 py-2 text-left text-sm hover:bg-[var(--color-background-element)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-active)]"
-          >
-            Clear session
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setPlanMode(!planMode);
-              setIsPaletteOpen(false);
-            }}
-            className="mt-1 w-full rounded px-2 py-2 text-left text-sm hover:bg-[var(--color-background-element)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-active)]"
-          >
-            {planMode ? "Disable plan mode" : "Enable plan mode"}
-          </button>
-        </div>
-      ) : null}
+      <CommandPalette
+        open={isPaletteOpen}
+        title={paletteMode === "theme" ? "Theme Commands" : "Command Palette"}
+        placeholder={paletteMode === "theme" ? "Filter themes…" : "Filter commands…"}
+        query={paletteQuery}
+        commands={paletteCommands}
+        canGoBack={paletteMode === "theme"}
+        onQueryChange={setPaletteQuery}
+        onExecute={executePaletteCommand}
+        onOpenChange={(open) => {
+          if (!open) {
+            closePalette();
+          }
+        }}
+        onBack={() => {
+          setPaletteMode("root");
+          setPaletteQuery("");
+        }}
+      />
 
       <div className="flex min-h-0 flex-1">
         {!isNarrow ? (
@@ -374,6 +554,7 @@ export function AppShell() {
             inputTokens={inputTokens}
             outputTokens={outputTokens}
             perProviderUsage={perProviderUsage}
+            resumeInfo={resumeInfo}
             runtimeContinuity={runtimeContinuity}
             changedFiles={changedFiles}
             fieldTelemetry={dashboardQuery.data?.telemetry ?? null}
@@ -396,20 +577,48 @@ export function AppShell() {
             onSubmit={(text) => {
               sendMessage(text);
             }}
+            onEmptySubmit={() => {
+              if (selectedSessionId) {
+                setResume(selectedSessionId);
+              }
+            }}
             onTogglePlanMode={setPlanMode}
+            onOpenCommandPalette={() => openPalette("root")}
           />
         </main>
       </div>
 
       {isNarrow && drawerOpen ? (
-        <div className="absolute inset-0 z-20 flex">
+        <div className="fixed inset-0 z-20 flex bg-black/45">
           <button
             type="button"
-            aria-label="Close session drawer"
-            className="w-1/3 bg-black/40"
-            onClick={() => setDrawerOpen(false)}
+            aria-label="Close session drawer backdrop"
+            className="min-w-0 flex-1"
+            onClick={closeDrawer}
           />
-          <div className="h-full w-2/3 min-w-[280px]">{sidebar}</div>
+          <div
+            id="session-drawer"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Sessions drawer"
+            className="flex h-full w-[min(26rem,calc(100vw-3rem))] max-w-full flex-col border-l border-[var(--color-border)] bg-[var(--color-background-panel)] shadow-2xl"
+          >
+            <div className="flex items-center justify-between border-b border-[var(--color-border)] px-4 py-3">
+              <div>
+                <p className="text-sm font-semibold text-[var(--color-text)]">Sessions</p>
+                <p className="text-xs text-[var(--color-text-muted)]">History moves into a drawer on narrow windows.</p>
+              </div>
+              <button
+                type="button"
+                aria-label="Close session drawer"
+                onClick={closeDrawer}
+                className="rounded border border-[var(--color-border)] px-2 py-1 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-active)]"
+              >
+                Close
+              </button>
+            </div>
+            <div className="min-h-0 flex-1">{sidebar}</div>
+          </div>
         </div>
       ) : null}
 

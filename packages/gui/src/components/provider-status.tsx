@@ -3,6 +3,8 @@ import { PROVIDER_METADATA } from "../lib/provider-metadata.js";
 
 interface ProviderStatusProps {
   readonly onOpenPicker: () => void;
+  readonly domainLabel?: string;
+  readonly workingDirectory?: string;
 }
 
 function resolveProviderLabel(providerId: string | null, fallbackLabel?: string): string {
@@ -14,6 +16,19 @@ function modeLabel(mode: "user" | "auto" | "responding"): string {
   if (mode === "user") return "via user";
   if (mode === "responding") return "responding";
   return "auto";
+}
+
+function formatWorkingDirectory(workingDirectory: string | undefined): string {
+  if (!workingDirectory) {
+    return "—";
+  }
+  const normalized = workingDirectory.replace(/\\/g, "/");
+  if (normalized.length <= 32) {
+    return normalized;
+  }
+  const segments = normalized.split("/").filter(Boolean);
+  const tail = segments.slice(-2).join("/");
+  return tail ? `.../${tail}` : normalized;
 }
 
 export function ProviderStatus(props: ProviderStatusProps) {
@@ -41,6 +56,10 @@ export function ProviderStatus(props: ProviderStatusProps) {
       type="button"
       aria-label="Current provider. Click to change."
       onClick={props.onOpenPicker}
+      title={[
+        `domain: ${props.domainLabel ?? "—"}`,
+        `cwd: ${props.workingDirectory ?? "—"}`,
+      ].join("\n")}
       className={[
         "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-active)]",
@@ -54,6 +73,10 @@ export function ProviderStatus(props: ProviderStatusProps) {
       <span>{displayModel && displayModel.trim().length > 0 ? displayModel : "—"}</span>
       <span aria-hidden="true">·</span>
       <span>{routeText}</span>
+      <span aria-hidden="true">·</span>
+      <span>domain: {props.domainLabel ?? "—"}</span>
+      <span aria-hidden="true">·</span>
+      <span>cwd: {formatWorkingDirectory(props.workingDirectory)}</span>
       <span aria-hidden="true">·</span>
       <span>
         authority: {authorityStatus?.effective ?? "unknown"} · {authorityStatus?.completeness ?? "partial"}

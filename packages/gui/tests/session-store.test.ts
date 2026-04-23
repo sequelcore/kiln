@@ -53,7 +53,7 @@ describe("session-store", () => {
 
   it("onWelcome seeds providers and persisted plan mode wins", () => {
     localStorage.setItem("kiln.gui.planMode", "true");
-    localStorage.setItem("kiln.gui.resume.claude", "session-123");
+    localStorage.setItem("kiln.gui.resumeTarget", "session-123");
 
     useSessionStore.getState().onWelcome({
       type: "welcome",
@@ -199,7 +199,7 @@ describe("session-store", () => {
     expect(state.status).toBe("ready");
   });
 
-  it("onCleared empties transcript and drops resume target for active provider", () => {
+  it("onCleared empties transcript and drops the session-scoped resume target", () => {
     const send = vi.fn();
     useSessionStore.getState().setSender(send);
     useSessionStore.getState().onProviderChanged({
@@ -214,7 +214,7 @@ describe("session-store", () => {
     const state = useSessionStore.getState();
     expect(state.messages).toHaveLength(0);
     expect(state.resumeTargetId).toBeNull();
-    expect(localStorage.getItem("kiln.gui.resume.claude")).toBeNull();
+    expect(localStorage.getItem("kiln.gui.resumeTarget")).toBeNull();
   });
 
   it("sendMessage rejects when status is not ready", () => {
@@ -234,11 +234,7 @@ describe("session-store", () => {
     expect(send).toHaveBeenCalledWith({ type: "exec" });
   });
 
-  it("persists planMode and per-provider resume target and reloads on welcome", () => {
-    useSessionStore.getState().onProviderChanged({
-      type: "provider_changed",
-      provider: "claude",
-    });
+  it("persists planMode and session-scoped resume target and reloads on welcome", () => {
     useSessionStore.getState().setPlanMode(true);
     useSessionStore.getState().setResume("resume-42");
 
@@ -255,6 +251,90 @@ describe("session-store", () => {
     expect(state.planMode).toBe(true);
     expect(state.resumeTargetId).toBe("resume-42");
     expect(localStorage.getItem("kiln.gui.planMode")).toBe("true");
-    expect(localStorage.getItem("kiln.gui.resume.claude")).toBe("resume-42");
+    expect(localStorage.getItem("kiln.gui.resumeTarget")).toBe("resume-42");
+  });
+
+  it("keeps preview selection separate from explicit resume target", () => {
+    useSessionStore.getState().setSelectedSessionId("preview-session");
+    useSessionStore.getState().setResume("resume-session");
+
+    const state = useSessionStore.getState();
+    expect(state.selectedSessionId).toBe("preview-session");
+    expect(state.resumeTargetId).toBe("resume-session");
+  });
+
+  it("loads selected session detail into the chat transcript", () => {
+    useSessionStore.getState().viewSessionDetail({
+      id: "session-77",
+      meta: {
+        kilnSessionId: "session-77",
+        title: "Inspect resume UX",
+        task: "Inspect resume UX",
+        startedAt: "2026-04-21T10:00:00.000Z",
+        completedAt: "2026-04-21T10:05:00.000Z",
+        lastProvider: "codex-oauth",
+      },
+      transcript: [
+        {
+          seq: 1,
+          ts: "2026-04-21T10:01:00.000Z",
+          type: "user",
+          data: { content: "What was this session about?" },
+        },
+        {
+          seq: 2,
+          ts: "2026-04-21T10:02:00.000Z",
+          type: "text_delta",
+          data: { content: "It reviewed " },
+        },
+        {
+          seq: 3,
+          ts: "2026-04-21T10:02:01.000Z",
+          type: "text_delta",
+          data: { content: "resume behavior." },
+        },
+        {
+          seq: 4,
+          ts: "2026-04-21T10:03:00.000Z",
+          type: "tool_use",
+          data: { toolName: "rg" },
+        },
+      ],
+    });
+
+    const state = useSessionStore.getState();
+    expect(state.selectedSessionId).toBe("session-77");
+    expect(state.resumeTargetId).toBe("session-77");
+    expect(localStorage.getItem("kiln.gui.resumeTarget")).toBe("session-77");
+    expect(state.status).toBe("ready");
+    expect(state.messages).toHaveLength(3);
+    expect(state.messages[0]).toMatchObject({
+      role: "user",
+      content: "What was this session about?",
+    });
+    expect(state.messages[1]).toMatchObject({
+      role: "assistant",
+      content: "It reviewed resume behavior.",
+      routedProvider: "codex-oauth",
+    });
+    expect(state.messages[2]).toMatchObject({
+      role: "tool",
+      content: "rg",
+    });
+  });
+
+  it("does not auto-select an old session when refreshing the session list", () => {
+    useSessionStore.getState().setSessionList([
+      {
+        id: "session-1",
+        providersUsed: ["codex-oauth"],
+        lastProvider: "codex-oauth",
+        completedAt: "2026-04-21T10:00:00.000Z",
+        cost: 0,
+        taskSummary: "Old test",
+      },
+    ]);
+
+    expect(useSessionStore.getState().selectedSessionId).toBeNull();
   });
 });

@@ -18,7 +18,11 @@ export interface GuiProviderDescriptor {
 
 export interface GuiSessionSummary {
   readonly id: string;
-  readonly provider: string;
+  readonly title?: string;
+  readonly summary?: string;
+  readonly tags?: readonly string[];
+  readonly providersUsed: readonly string[];
+  readonly lastProvider?: string;
   readonly completedAt: string;
   readonly cost: number;
   readonly taskSummary: string;
@@ -35,24 +39,43 @@ export interface GuiTelemetrySnapshot {
   readonly entropy: number;
 }
 
+export interface GuiResumeInfo {
+  readonly strategy: string;
+  readonly feedbackLabel?: string;
+}
+
+export interface GuiProviderThreadMeta {
+  readonly provider: string;
+  readonly providerSessionId?: string;
+  readonly lastModel?: string;
+  readonly lastUsedAt?: string;
+}
+
 export interface GuiDashboardSnapshot {
   readonly providers: readonly GuiProviderDescriptor[];
   readonly sessions: readonly GuiSessionSummary[];
   readonly telemetry: GuiTelemetrySnapshot;
+  readonly resumeInfoByProvider: Readonly<Record<string, GuiResumeInfo>>;
+  readonly workingDirectory?: string;
+  readonly domainLabel?: string;
 }
 
 // --- Session detail / HTTP response shapes ---
 
 export interface GuiSessionMeta {
   readonly kilnSessionId: string;
-  readonly provider: string;
+  readonly title?: string;
+  readonly summary?: string;
+  readonly tags?: readonly string[];
+  readonly providersUsed?: readonly string[];
+  readonly lastProvider?: string;
+  readonly providerThreads?: readonly GuiProviderThreadMeta[];
   readonly task: string;
   readonly startedAt: string;
   readonly completedAt?: string;
   readonly costUsd?: number;
   readonly toolCount?: number;
   readonly turnDepth?: number;
-  readonly providerSessionId?: string;
   readonly resumeStrategy?: string;
   readonly resumeFeedback?: {
     readonly sampleSize: number;
@@ -106,7 +129,7 @@ export type GuiOutboundFrame =
     }
   | { type: "clear" }
   | { type: "provider"; provider: string; model?: string }
-  | { type: "resume"; sessionId: string; provider: string }
+  | { type: "resume"; sessionId: string }
   | { type: "approve"; sessionId?: string }
   | { type: "reject"; reason: string; sessionId?: string }
   | { type: "approval_response"; approved: boolean; reason?: string; sessionId?: string }
@@ -185,6 +208,8 @@ export type GuiInboundFrame =
       activeProvider?: string;
       activeModel?: string;
       planMode?: boolean;
+      workingDirectory?: string;
+      domainLabel?: string;
       authorityStatus?: {
         effective: "fail_closed" | "read_only" | "idempotent" | "audited" | "destructive" | "unknown";
         completeness: "authoritative" | "partial";
@@ -193,7 +218,7 @@ export type GuiInboundFrame =
   | { type: "exec_confirmed" }
   | { type: "cleared" }
   | { type: "provider_changed"; provider: string; model?: string }
-  | { type: "resume_selected"; sessionId: string; provider: string }
+  | { type: "resume_selected"; sessionId: string }
   | { type: "approval_requested"; description: string; sessionId: string }
   | { type: "approval_received"; approved: boolean; reason?: string; sessionId?: string };
 

@@ -1,4 +1,4 @@
-import type { GuiTelemetrySnapshot } from "@kilnai/gateway-contracts";
+import type { GuiResumeInfo, GuiTelemetrySnapshot } from "@kilnai/gateway-contracts";
 import type { ReactNode } from "react";
 import type { ChangedFileEntry, ProviderUsage, RuntimeContinuityInfo, SessionStatus } from "../lib/session-store.js";
 
@@ -10,6 +10,7 @@ interface SessionTelemetryProps {
   readonly inputTokens: number;
   readonly outputTokens: number;
   readonly perProviderUsage: Readonly<Record<string, ProviderUsage>>;
+  readonly resumeInfo: GuiResumeInfo | null;
   readonly runtimeContinuity: RuntimeContinuityInfo | null;
   readonly changedFiles: readonly ChangedFileEntry[];
   readonly fieldTelemetry: GuiTelemetrySnapshot | null;
@@ -86,7 +87,7 @@ export function SessionTelemetry(props: SessionTelemetryProps) {
 
         <Section title="Continuity">
           <div className="space-y-1 text-xs text-[var(--color-text)]">
-            <p>resume: {props.runtimeContinuity?.strategy ?? "--"}{props.runtimeContinuity?.feedbackLabel ? ` · ${props.runtimeContinuity.feedbackLabel}` : ""}</p>
+            <p>resume: {props.resumeInfo?.strategy ?? "--"}{props.resumeInfo?.feedbackLabel ? ` · ${props.resumeInfo.feedbackLabel}` : ""}</p>
             <p>runtime: {props.runtimeContinuity?.strategy ?? "--"}{props.runtimeContinuity?.feedbackLabel ? ` · ${props.runtimeContinuity.feedbackLabel}` : ""}</p>
             <p>ctx: {props.runtimeContinuity?.pressure ?? "--"}{props.runtimeContinuity?.supportArtifactCount !== undefined ? ` · src ${props.runtimeContinuity.supportArtifactCount}` : ""}</p>
             <p>srcs: {props.runtimeContinuity?.supportArtifactSources?.length ? props.runtimeContinuity.supportArtifactSources.join(", ") : "--"}</p>

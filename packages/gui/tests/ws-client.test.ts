@@ -227,11 +227,12 @@ describe("GuiWsClient", () => {
   });
 
   describe("outbound frame serialization", () => {
-    it("All 6 outbound frame shapes serialize through Zod without error", () => {
+    it("All 7 outbound frame shapes serialize through Zod without error", () => {
       const frames: GuiOutboundFrame[] = [
         { type: "message", content: "hello world" },
         { type: "clear" },
         { type: "provider", provider: "openai", model: "gpt-4" },
+        { type: "resume", sessionId: "session-123" },
         { type: "approve", sessionId: "session-123" },
         { type: "reject", reason: "not approved", sessionId: "session-123" },
         { type: "exec" },
@@ -256,10 +257,56 @@ describe("GuiWsClient", () => {
   });
 
   describe("inbound frame parsing", () => {
-    it("All 11 inbound frame shapes parse correctly", () => {
+    it("All inbound frame shapes parse correctly", () => {
       const frames: Array<{ json: object; expected: GuiInboundFrame }> = [
         { json: { type: "thinking" }, expected: { type: "thinking" } },
         { json: { type: "activity", activity: "Running tool", toolName: "bash" }, expected: { type: "activity", activity: "Running tool", toolName: "bash" } },
+        {
+          json: {
+            type: "tool_call_start",
+            callId: "call-1",
+            toolName: "grep",
+            input: { pattern: "kiln-context", path: "." },
+            timestamp: "2026-04-22T19:37:12.351Z",
+          },
+          expected: {
+            type: "tool_call_start",
+            callId: "call-1",
+            toolName: "grep",
+            input: { pattern: "kiln-context", path: "." },
+            timestamp: "2026-04-22T19:37:12.351Z",
+          },
+        },
+        {
+          json: {
+            type: "tool_call_result",
+            callId: "call-1",
+            toolName: "grep",
+            result: "Invalid input for tool \"grep\"",
+            status: "error",
+            timestamp: "2026-04-22T19:37:12.352Z",
+          },
+          expected: {
+            type: "tool_call_result",
+            callId: "call-1",
+            toolName: "grep",
+            result: "Invalid input for tool \"grep\"",
+            status: "error",
+            timestamp: "2026-04-22T19:37:12.352Z",
+          },
+        },
+        {
+          json: {
+            type: "activity_phase",
+            phase: "tool_running",
+            toolName: "grep",
+          },
+          expected: {
+            type: "activity_phase",
+            phase: "tool_running",
+            toolName: "grep",
+          },
+        },
         {
           json: {
             type: "done",
@@ -297,6 +344,7 @@ describe("GuiWsClient", () => {
         { json: { type: "exec_confirmed" }, expected: { type: "exec_confirmed" } },
         { json: { type: "cleared" }, expected: { type: "cleared" } },
         { json: { type: "provider_changed", provider: "anthropic" }, expected: { type: "provider_changed", provider: "anthropic" } },
+        { json: { type: "resume_selected", sessionId: "sess-1" }, expected: { type: "resume_selected", sessionId: "sess-1" } },
         { json: { type: "approval_requested", description: "Execute sudo rm -rf /?", sessionId: "sess-1" }, expected: { type: "approval_requested", description: "Execute sudo rm -rf /?", sessionId: "sess-1" } },
         { json: { type: "approval_received", approved: true, reason: "Approved by user", sessionId: "sess-1" }, expected: { type: "approval_received", approved: true, reason: "Approved by user", sessionId: "sess-1" } },
       ];

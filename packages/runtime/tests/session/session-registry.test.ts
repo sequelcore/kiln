@@ -45,6 +45,36 @@ describe("SessionRegistry", () => {
       const s2 = await registry.getOrCreate({ appName: "app", tenantId: "t", userId: "u2", systemPrompt: "sys" });
       expect(s2.id).not.toBe(s1.id);
     });
+
+    it("switches active runtime sessions by explicit session id for the same app user", async () => {
+      const registry = new SessionRegistry();
+      const first = await registry.getOrCreate({
+        appName: "app",
+        tenantId: "t",
+        userId: "u1",
+        sessionId: "session-a",
+        systemPrompt: "sys",
+      });
+      const second = await registry.getOrCreate({
+        appName: "app",
+        tenantId: "t",
+        userId: "u1",
+        sessionId: "session-b",
+        systemPrompt: "sys",
+      });
+      const firstAgain = await registry.getOrCreate({
+        appName: "app",
+        tenantId: "t",
+        userId: "u1",
+        sessionId: "session-a",
+        systemPrompt: "sys",
+      });
+
+      expect(first.id).toBe("session-a");
+      expect(second.id).toBe("session-b");
+      expect(firstAgain).toBe(first);
+      expect((await registry.get("app", "u1", "t"))?.id).toBe("session-a");
+    });
   });
 
   describe("get", () => {
@@ -72,6 +102,31 @@ describe("SessionRegistry", () => {
     it("returns false for unknown session", async () => {
       const registry = new SessionRegistry();
       expect(await registry.remove("app", "nobody", "t")).toBe(false);
+    });
+  });
+
+  describe("detachActive", () => {
+    it("detaches the active conversation without deleting the stored runtime session", async () => {
+      const registry = new SessionRegistry();
+      const first = await registry.getOrCreate({
+        appName: "app",
+        tenantId: "t",
+        userId: "u1",
+        sessionId: "session-a",
+        systemPrompt: "sys",
+      });
+
+      expect(await registry.detachActive("app", "u1", "t")).toBe(true);
+      expect(await registry.get("app", "u1", "t")).toBeUndefined();
+
+      const firstAgain = await registry.getOrCreate({
+        appName: "app",
+        tenantId: "t",
+        userId: "u1",
+        sessionId: "session-a",
+        systemPrompt: "sys",
+      });
+      expect(firstAgain).toBe(first);
     });
   });
 

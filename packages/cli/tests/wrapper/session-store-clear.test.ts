@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { SessionStore } from "../../src/wrapper/session-store.js";
-import { mkdtemp, rm } from "node:fs/promises";
+import { SessionStore, TranscriptStore } from "../../src/wrapper/session-store.js";
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { SessionRecord } from "../../src/wrapper/session-store.js";
@@ -80,5 +80,105 @@ describe("SessionStore.clearLast()", () => {
     // Verify a1 is still present
     const found = await store.find("a1");
     expect(found?.sessionId).toBe("a1");
+  });
+
+  it("persists provider-native resume identity under providerThread only", async () => {
+    await store.append(makeRecord({
+      sessionId: "k-1",
+      provider: "codex",
+      providerThread: { provider: "codex", nativeSessionId: "thread-1" },
+    }));
+
+    const raw = await readFile(join(tmpDir, ".kiln", "sessions.jsonl"), "utf-8");
+    const parsed = JSON.parse(raw.trim()) as Record<string, unknown>;
+
+    expect(parsed.providerThread).toEqual({
+      provider: "codex",
+      nativeSessionId: "thread-1",
+    });
+    expect(parsed).not.toHaveProperty("providerSessionId");
+  });
+
+  it("round-trips canonical metadata fields", async () => {
+    await store.append(makeRecord({
+      sessionId: "meta-1",
+      canonicalTitle: "Plan session ledger metadata",
+      summary: "Plan session ledger metadata with provider history.",
+      tags: ["planning", "session-ledger"],
+      providersUsed: ["claude", "codex-oauth"],
+    }));
+
+    const listed = await store.list();
+    expect(listed[0]).toMatchObject({
+      sessionId: "meta-1",
+      canonicalTitle: "Plan session ledger metadata",
+      summary: "Plan session ledger metadata with provider history.",
+      tags: ["planning", "session-ledger"],
+      providersUsed: ["claude", "codex-oauth"],
+    });
+  });
+
+  it("find returns the latest record for a repeated session id", async () => {
+    await store.append(makeRecord({
+      sessionId: "reused-1",
+      canonicalTitle: "Initial title",
+      providersUsed: ["claude"],
+    }));
+    await store.append(makeRecord({
+      sessionId: "reused-1",
+      provider: "codex-oauth",
+      canonicalTitle: "Initial title",
+      providersUsed: ["claude", "codex-oauth"],
+    }));
+
+    const found = await store.find("reused-1");
+    expect(found).toMatchObject({
+      provider: "codex-oauth",
+      providersUsed: ["claude", "codex-oauth"],
+    });
+  });
+});
+
+describe("TranscriptStore", () => {
+  let tmpDir: string;
+  let store: TranscriptStore;
+
+  beforeEach(async () => {
+    tmpDir = await mkdtemp(join(tmpdir(), "kiln-transcript-store-"));
+    store = new TranscriptStore(tmpDir);
+  });
+
+  afterEach(async () => {
+    await rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it("persists canonical GUI session ids that contain Windows-invalid path characters", async () => {
+    const sessionId = "kiln-gui:_gui:user-1:1776916220893";
+
+    await store.init(sessionId, {
+      kilnSessionId: sessionId,
+      provider: "codex-oauth",
+      task: "interactive",
+      startedAt: "2026-04-23T03:50:00.000Z",
+    });
+    await store.append(sessionId, {
+      seq: 1,
+      ts: "2026-04-23T03:50:01.000Z",
+      type: "user",
+      data: { content: "hello" },
+    });
+
+    const listed = await store.listSessions();
+    const meta = await store.readMeta(sessionId);
+    const transcript = await store.readTranscript(sessionId);
+    const dirs = await readdir(join(tmpDir, ".kiln", "sessions"));
+
+    expect(listed).toEqual([sessionId]);
+    expect(meta?.kilnSessionId).toBe(sessionId);
+    expect(transcript[0]).toMatchObject({
+      type: "user",
+      data: { content: "hello" },
+    });
+    expect(dirs[0]).toBe(encodeURIComponent(sessionId));
   });
 });

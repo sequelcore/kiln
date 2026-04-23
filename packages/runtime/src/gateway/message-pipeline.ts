@@ -62,6 +62,7 @@ export interface AdmittedTurnContext {
   readonly appName: string;
   readonly tenantId: string;
   readonly userId: string;
+  readonly sessionId?: string;
   readonly systemPrompt?: string;
   readonly userParts: readonly ContentPart[];
   readonly billing?: BillingConfig;
@@ -313,6 +314,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     appName: ctx.appName,
     tenantId: effectiveTenantId,
     userId: ctx.userId,
+    sessionId: ctx.sessionId,
     systemPrompt: initialSystemPrompt,
     idleTimeoutMs: ctx.idleTimeoutMs,
   });
@@ -719,7 +721,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
       tenantId: effectiveTenantId,
       messages: 1,
       tokens: result.inputTokens + result.outputTokens,
-      model: ctx.orchestrator.model ?? "unknown",
+      model: result.routingDecision?.model ?? ctx.orchestrator.model ?? "unknown",
     });
   }
 

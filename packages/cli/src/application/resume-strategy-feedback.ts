@@ -41,7 +41,8 @@ function collectOutcome(
   meta: PersistedSessionMeta,
   provider: ProviderId | undefined,
 ): { strategy: Extract<ResumeStrategy, "cache-first" | "provider-native">; outcome: ResumeOutcome } | undefined {
-  if (provider !== undefined && meta.provider !== provider) {
+  const metaProvider = meta.providerThread?.provider ?? meta.provider;
+  if (provider !== undefined && metaProvider !== provider) {
     return undefined;
   }
   if (meta.resumeOutcome === undefined) {

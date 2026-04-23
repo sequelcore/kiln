@@ -1,5 +1,11 @@
 import { create } from "zustand";
-import type { GuiInboundFrame, GuiOutboundFrame, GuiSessionSummary } from "@kilnai/gateway-contracts";
+import type {
+  GuiInboundFrame,
+  GuiOutboundFrame,
+  GuiSessionDetail,
+  GuiSessionSummary,
+  GuiSessionTranscriptLine,
+} from "@kilnai/gateway-contracts";
 
 export interface ApprovalRequest {
   readonly id: string;
@@ -48,12 +54,9 @@ export interface ChangedFileEntry {
 }
 
 const PLAN_MODE_KEY = "kiln.gui.planMode";
+const RESUME_TARGET_KEY = "kiln.gui.resumeTarget";
 const CLEAR_TIMEOUT_MS = 5_000;
 const PROVIDER_SWITCH_TIMEOUT_MS = 5_000;
-
-function resumeStorageKey(provider: string): string {
-  return `kiln.gui.resume.${provider}`;
-}
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -84,27 +87,103 @@ function persistPlanMode(value: boolean): void {
   }
 }
 
-function readResumeTarget(provider: string | null): string | null {
-  if (!provider) return null;
+function readResumeTarget(): string | null {
   try {
-    return localStorage.getItem(resumeStorageKey(provider));
+    return localStorage.getItem(RESUME_TARGET_KEY);
   } catch {
     return null;
   }
 }
 
-function writeResumeTarget(provider: string | null, sessionId: string | null): void {
-  if (!provider) return;
+function writeResumeTarget(sessionId: string | null): void {
   try {
-    const key = resumeStorageKey(provider);
     if (!sessionId) {
-      localStorage.removeItem(key);
+      localStorage.removeItem(RESUME_TARGET_KEY);
       return;
     }
-    localStorage.setItem(key, sessionId);
+    localStorage.setItem(RESUME_TARGET_KEY, sessionId);
   } catch {
     // fail-open
   }
+}
+
+function readTranscriptText(line: GuiSessionTranscriptLine): string | null {
+  const value = line.data.content
+    ?? line.data.text
+    ?? line.data.message
+    ?? line.data.output
+    ?? line.data.details
+    ?? line.data.delta
+    ?? line.data.toolName;
+  if (typeof value === "string") {
+    return value.trim().length > 0 ? value : null;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  return null;
+}
+
+function transcriptRole(line: GuiSessionTranscriptLine): Message["role"] | null {
+  if (line.type === "text_delta" || line.type === "assistant" || line.type === "done") {
+    return "assistant";
+  }
+  if (line.type === "user" || line.type === "user_message") {
+    return "user";
+  }
+  if (line.type === "error") {
+    return "error";
+  }
+  if (line.type === "tool_use" || line.type === "tool_result" || line.type.startsWith("tool_")) {
+    return "tool";
+  }
+  return null;
+}
+
+function mapSessionDetailToMessages(detail: GuiSessionDetail): readonly Message[] {
+  const messages: Message[] = [];
+  const transcript = Array.isArray(detail.transcript) ? detail.transcript : [];
+  for (const line of transcript) {
+    const role = transcriptRole(line);
+    const content = readTranscriptText(line);
+    if (!role || !content) {
+      continue;
+    }
+
+    const previous = messages[messages.length - 1];
+    if (line.type === "text_delta" && previous?.role === "assistant") {
+      messages[messages.length - 1] = {
+        ...previous,
+        content: previous.content + content,
+      };
+      continue;
+    }
+
+    messages.push({
+      id: `${detail.id}:${line.seq}`,
+      role,
+      content,
+      createdAt: line.ts,
+      streaming: false,
+      routedProvider: role === "assistant" ? detail.meta?.lastProvider : undefined,
+    });
+  }
+
+  if (messages.length > 0) {
+    return messages;
+  }
+
+  const fallback = detail.meta?.summary ?? detail.meta?.task ?? "";
+  return fallback.trim().length > 0
+    ? [{
+        id: `${detail.id}:summary`,
+        role: "assistant",
+        content: fallback,
+        createdAt: detail.meta?.completedAt ?? detail.meta?.startedAt ?? nowIso(),
+        streaming: false,
+        routedProvider: detail.meta?.lastProvider,
+      }]
+    : [];
 }
 
 export type SessionStatus = "idle" | "connecting" | "ready" | "running" | "error";
@@ -187,6 +266,7 @@ interface SessionStoreActions {
   setSender: (send: ((frame: GuiOutboundFrame) => void) | null) => void;
   setSessionList: (sessions: readonly GuiSessionSummary[]) => void;
   setSelectedSessionId: (sessionId: string | null) => void;
+  viewSessionDetail: (detail: GuiSessionDetail) => void;
   setErrorBanner: (message: string | null) => void;
   clearErrorBanner: () => void;
   onWelcome: (frame: Extract<GuiInboundFrame, { type: "welcome" }>) => void;
@@ -269,12 +349,26 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     const selectedStillExists = selected ? sessions.some((session) => session.id === selected) : false;
     set({
       sessionList: sessions,
-      selectedSessionId: selectedStillExists ? selected : sessions[0]?.id ?? null,
+      selectedSessionId: selectedStillExists ? selected : null,
     });
   },
 
   setSelectedSessionId: (sessionId) => {
     set({ selectedSessionId: sessionId });
+  },
+
+  viewSessionDetail: (detail) => {
+    writeResumeTarget(detail.id);
+    set({
+      selectedSessionId: detail.id,
+      resumeTargetId: detail.id,
+      messages: mapSessionDetailToMessages(detail),
+      currentAssistant: null,
+      status: "ready",
+      activity: null,
+      activityPhase: "idle",
+      errorBanner: null,
+    });
   },
 
   setErrorBanner: (message) => {
@@ -334,7 +428,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       ?? null;
     const persistedPlanMode = readStoredPlanMode();
     const resolvedPlanMode = persistedPlanMode ?? frame.planMode ?? get().planMode;
-    const persistedResume = readResumeTarget(activeProvider);
+    const persistedResume = readResumeTarget();
     const explicitSelection = Boolean(frame.activeProvider) || get().providerExplicitSelection;
 
     set({
@@ -629,7 +723,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     if (state.clearTimeoutId) {
       clearTimeout(state.clearTimeoutId);
     }
-    writeResumeTarget(state.activeProvider, null);
+    writeResumeTarget(null);
     set({
       messages: [],
       currentAssistant: null,
@@ -637,6 +731,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       activity: null,
       activityPhase: "idle",
       errorBanner: null,
+      selectedSessionId: null,
       resumeTargetId: null,
       routedProvider: null,
       routedModel: null,
@@ -665,13 +760,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     if (state.providerSwitchTimeoutId) {
       clearTimeout(state.providerSwitchTimeoutId);
     }
-    const resumeTargetId = readResumeTarget(frame.provider);
     set({
       activeProvider: frame.provider,
       activeModel: frame.model ?? null,
-      sessionList: [],
-      selectedSessionId: null,
-      resumeTargetId,
       routeMode: "user",
       providerExplicitSelection: true,
       providerSwitching: false,
@@ -808,11 +899,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   },
 
   setResume: (sessionId) => {
-    const provider = get().activeProvider;
-    writeResumeTarget(provider, sessionId);
+    writeResumeTarget(sessionId);
     set({
       resumeTargetId: sessionId,
-      selectedSessionId: sessionId,
     });
   },
 

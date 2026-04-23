@@ -14,6 +14,7 @@ import type {
 import { normalizeMcpSelector } from "./mcp-selector.js";
 import { debug } from "./debug.js";
 import { SessionStore } from "./session-store.js";
+import { deriveSessionMetadata } from "../application/session-metadata.js";
 
 interface OpencodeClientShape {
   session: {
@@ -132,6 +133,7 @@ export interface OpenCodeSessionConfig {
   readonly translationWarnings?: readonly string[];
   readonly permissionPolicy?: KilnPermissionPolicy;
   readonly resumeSessionId?: string;
+  readonly sessionLedgerOwner?: "wrapper" | "host";
 }
 
 const OPENCODE_SANDBOX_WARNING =
@@ -348,9 +350,9 @@ export class OpenCodeSession implements IKilnSession {
         if (this._config.resumeSessionId !== undefined) {
           try {
             const store = new SessionStore(this._config.cwd);
-            const record = await store.find(this._config.resumeSessionId);
-            if (record?.providerSessionId) {
-              storedRemoteSessionId = record.providerSessionId;
+            const providerThread = await store.findProviderThread(this._config.resumeSessionId, "opencode");
+            if (providerThread) {
+              storedRemoteSessionId = providerThread.nativeSessionId;
             }
           } catch {
             console.error("[SessionStore] Resume lookup failed, continuing without resume");
@@ -707,17 +709,28 @@ export class OpenCodeSession implements IKilnSession {
         isError,
         isPreflightCrash: false,
       };
-      try {
+      if (this._config.sessionLedgerOwner !== "host") try {
         const store = new SessionStore(this._config.cwd);
         const completedAt = new Date().toISOString();
+        const metadata = deriveSessionMetadata({
+          task: this._config.task,
+          provider: "opencode",
+          model: this._config.model,
+          hasError: isError,
+        });
         await store.append({
           sessionId: this._remoteSessionId ?? this.sessionId,
           provider: "opencode",
           task: this._config.task,
+          title: metadata.title,
+          summary: metadata.summary,
+          tags: metadata.tags,
           completedAt,
           cost: this._lastCostUsd,
           projectPath: this._config.cwd,
-          providerSessionId: this._remoteSessionId ?? undefined,
+          providerThread: this._remoteSessionId
+            ? { provider: "opencode", nativeSessionId: this._remoteSessionId }
+            : undefined,
         });
       } catch (err) {
         console.error("[SessionStore] Failed to append session record:", err instanceof Error ? err.message : String(err));

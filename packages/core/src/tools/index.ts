@@ -20,13 +20,28 @@ export {
 } from "./domain/tool-environment.js";
 
 export type { ToolSandboxContext } from "./infrastructure/tool-helpers.js";
+export type { BashToolOptions } from "./infrastructure/bash-tool.js";
 export { BashTool } from "./infrastructure/bash-tool.js";
 export { ReadTool } from "./infrastructure/read-tool.js";
 export { WriteTool } from "./infrastructure/write-tool.js";
 export { EditTool } from "./infrastructure/edit-tool.js";
+export type { GrepToolOptions } from "./infrastructure/grep-tool.js";
 export { GrepTool } from "./infrastructure/grep-tool.js";
+export type { GlobToolOptions } from "./infrastructure/glob-tool.js";
 export { GlobTool } from "./infrastructure/glob-tool.js";
+export type { GitToolOptions } from "./infrastructure/git-tool.js";
 export { GitTool } from "./infrastructure/git-tool.js";
+export type {
+  DevToolSchemaProjection,
+  DefaultBuiltinToolRegistryOptions,
+} from "./default-tool-surface.js";
+export {
+  createDefaultBuiltinTools,
+  createDefaultBuiltinToolRegistry,
+  projectDevToolSchemas,
+  projectDevToolDefinitions,
+  projectDevToolCapabilities,
+} from "./default-tool-surface.js";
 export type {
   DevToolExecutionBridgeOptions,
   DevToolAuthorizationDecision,

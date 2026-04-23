@@ -63,4 +63,17 @@ describe("ProviderStatus", () => {
 
     expect(screen.getByText("authority: fail_closed · authoritative")).toBeInTheDocument();
   });
+
+  it("renders domain and working directory indicators in the status area", () => {
+    render(
+      <ProviderStatus
+        onOpenPicker={() => undefined}
+        domainLabel="Kiln"
+        workingDirectory="C:/Proyectos/Sequel/kiln"
+      />,
+    );
+
+    expect(screen.getByText("domain: Kiln")).toBeInTheDocument();
+    expect(screen.getByText("cwd: C:/Proyectos/Sequel/kiln")).toBeInTheDocument();
+  });
 });

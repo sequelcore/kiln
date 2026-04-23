@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased -- Provider-Agnostic Session Identity
+
+- GUI, TUI, and CLI resume now treat the Kiln session as the canonical
+  conversation/work unit instead of scoping history to the active provider.
+- Provider/model selection is next-turn routing state. A single Kiln session
+  may contain turns from multiple providers.
+- Provider-native thread/session IDs are persisted as nested provider-thread
+  metadata and are only passed back to the matching provider.
+- GUI resume frames now select only a Kiln session ID; session history is no
+  longer keyed by the active provider.
+- GUI session selection now loads the canonical transcript into the main chat
+  and makes that session the active runtime continuation target immediately.
+- GUI `New Session` detaches the active runtime conversation without deleting
+  canonical stored history.
+- GUI session history now lists only sessions with canonical transcript
+  metadata; ledger-only rows are intentionally hidden instead of used as
+  compatibility fallback history.
+- Added `docs/architecture/session-model.md` as the canonical session identity
+  reference for future provider, GUI, TUI, and CLI work.
+
 ## v1.0.4 (2026-04-10) -- Timezone Scheduling Fix
 
 ### Scheduler fix
@@ -541,9 +561,9 @@ Six sub-phases implementing biologically-grounded multi-agent coordination:
 - CLI reports and persisted session metadata now show whether that feedback
   merely existed or actually influenced the final resume choice, along with the
   bounded sample size considered.
-- The TUI sidebar now shows the last known per-provider resume strategy and
-  feedback summary, so switching providers exposes the same bounded resume
-  policy context interactively.
+- The TUI sidebar now shows resume strategy and feedback summary without
+  making session history provider-owned; switching providers changes the next
+  execution route, not the session namespace.
 - Interactive TUI turns now refresh that sidebar metadata after completion by
   persisting minimal native-resume transcript meta and reloading the per-
   provider view.

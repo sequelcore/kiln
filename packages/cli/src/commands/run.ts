@@ -29,6 +29,7 @@ import {
 import { buildModuleSummaryArtifact, extractTouchedFilePaths } from "../application/repo-summary-cache.js";
 import { inferResumeStrategyFeedback } from "../application/resume-strategy-feedback.js";
 import { resolveResumeSessionId } from "../application/session-resume.js";
+import { deriveSessionMetadata } from "../application/session-metadata.js";
 import { SessionHooks } from "../application/session-hooks.js";
 import { runSession } from "../application/run-session.js";
 import { ApprovalMemoryStore as ApprovalMemoryStoreImpl } from "../wrapper/index.js";
@@ -271,9 +272,17 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
   };
 
   const startedAt = new Date().toISOString();
+  const initialMetadata = deriveSessionMetadata({
+    task,
+    provider: preferredProvider,
+    model: effectiveModel,
+  });
   await transcriptStore.init(sessionId, {
     kilnSessionId: sessionId,
     provider: preferredProvider ?? "unknown",
+    title: initialMetadata.title,
+    summary: initialMetadata.summary,
+    tags: initialMetadata.tags,
     task,
     startedAt,
     resumeStrategy: context.resumeStrategy,
@@ -386,6 +395,14 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     const meta = {
       kilnSessionId: sessionId,
       provider: successfulProviderId ?? "unknown",
+      title: initialMetadata.title,
+      summary: initialMetadata.summary,
+      tags: deriveSessionMetadata({
+        task,
+        provider: successfulProviderId ?? preferredProvider,
+        model: effectiveModel,
+        hasFileChanges: exactArtifacts.some((artifact) => /\b(created|modified|deleted|file)\b/i.test(artifact)),
+      }).tags,
       task,
       startedAt,
       completedAt,
@@ -494,6 +511,9 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
   if (!sessionSucceeded) {
     await transcriptStore.finalize(sessionId, {
       completedAt: new Date().toISOString(),
+      title: initialMetadata.title,
+      summary: initialMetadata.summary,
+      tags: initialMetadata.tags,
       costUsd: finalCostUsd,
       toolCount: toolCallCount,
       turnDepth,

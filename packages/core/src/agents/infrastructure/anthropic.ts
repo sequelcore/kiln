@@ -11,6 +11,7 @@ import { textPart, extractText } from "../../engine/domain/content.js";
 import { KilnError } from "../../engine/errors.js";
 import { withRetry } from "./retry.js";
 import type { RetryOptions } from "./retry.js";
+import { normalizeToolInput } from "../tool-call-input.js";
 
 export const CLAUDE_OPUS = "claude-opus-4-6";
 export const CLAUDE_SONNET = "claude-sonnet-4-6";
@@ -100,7 +101,7 @@ export class AnthropicAdapter implements ProviderAdapter {
               content: JSON.stringify({
                 id: buffer.id,
                 name: buffer.name,
-                input: JSON.parse(buffer.json || "{}"),
+                input: normalizeToolInput(buffer.name, buffer.json || "{}"),
               }),
             };
             toolInputBuffers.delete(event.index);
@@ -257,7 +258,7 @@ export class AnthropicAdapter implements ProviderAdapter {
         toolCalls.push({
           id: block.id,
           name: block.name,
-          input: block.input as Record<string, unknown>,
+          input: normalizeToolInput(block.name, block.input),
         });
       }
     }

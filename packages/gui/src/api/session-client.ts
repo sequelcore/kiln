@@ -19,7 +19,7 @@ export class GuiSessionClient {
   private wsUrlIndex = 0;
   private pendingClear: { timerId: number; resolve: () => void; reject: (err: Error) => void } | null = null;
   private pendingProviderChange: { timerId: number; resolve: (v: string) => void; reject: (err: Error) => void } | null = null;
-  private pendingResumeSelection: { timerId: number; resolve: (v: { sessionId: string; provider: string }) => void; reject: (err: Error) => void } | null = null;
+  private pendingResumeSelection: { timerId: number; resolve: (v: { sessionId: string }) => void; reject: (err: Error) => void } | null = null;
 
   private readonly HEARTBEAT_INTERVAL_MS = 30_000;
   private readonly HEARTBEAT_TIMEOUT_MS = 60_000;
@@ -80,11 +80,11 @@ export class GuiSessionClient {
     });
   }
 
-  selectResumeSession(sessionId: string, provider: string): Promise<{ sessionId: string; provider: string }> {
+  selectResumeSession(sessionId: string): Promise<{ sessionId: string }> {
     if (this.pendingResumeSelection) throw new Error("Resume selection already in flight");
-    if (!sessionId.trim() || !provider.trim()) throw new Error("Resume selection requires sessionId and provider");
-    this.send({ type: "resume", sessionId, provider });
-    return new Promise<{ sessionId: string; provider: string }>((resolve, reject) => {
+    if (!sessionId.trim()) throw new Error("Resume selection requires sessionId");
+    this.send({ type: "resume", sessionId });
+    return new Promise<{ sessionId: string }>((resolve, reject) => {
       const timerId = window.setTimeout(() => {
         this.pendingResumeSelection = null;
         reject(new Error("Resume selection timed out"));
@@ -171,7 +171,7 @@ export class GuiSessionClient {
     }
     if (frame.type === "resume_selected" && this.pendingResumeSelection) {
       window.clearTimeout(this.pendingResumeSelection.timerId);
-      this.pendingResumeSelection.resolve({ sessionId: frame.sessionId, provider: frame.provider });
+      this.pendingResumeSelection.resolve({ sessionId: frame.sessionId });
       this.pendingResumeSelection = null;
     }
     if (frame.type === "error") {

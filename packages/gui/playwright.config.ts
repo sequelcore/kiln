@@ -6,7 +6,7 @@ const gatewayPort = process.env.GUI_GATEWAY_PORT ?? String(await reserveGatewayP
 process.env.GUI_GATEWAY_PORT = gatewayPort;
 
 export default defineConfig({
-  testDir: "./e2e",
+  testDir: "./tests/parity",
   outputDir: "test-results",
   reporter: [["html", { outputFolder: "playwright-report", open: "never" }]],
   // Single worker: the Vite proxy has a fixed gateway target (GUI_GATEWAY_PORT)

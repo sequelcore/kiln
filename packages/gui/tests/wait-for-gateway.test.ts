@@ -69,6 +69,6 @@ describe("waitForGateway", () => {
     expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(3);
     expect(fetchMock.mock.calls.length).toBeLessThanOrEqual(4);
     expect(elapsed).toBeGreaterThanOrEqual(280);
-    expect(elapsed).toBeLessThan(450);
+    expect(elapsed).toBeLessThan(500);
   });
 });

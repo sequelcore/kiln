@@ -18,6 +18,10 @@ export interface KilnGlobalTuiConfig {
   theme?: string;
 }
 
+export interface KilnGlobalGuiConfig {
+  theme?: string;
+}
+
 export interface KilnGlobalConfig {
   version?: "1";
   provider?: string;
@@ -27,6 +31,7 @@ export interface KilnGlobalConfig {
   hooks?: KilnHooksConfig;
   identity?: KilnGlobalIdentity;
   tui?: KilnGlobalTuiConfig;
+  gui?: KilnGlobalGuiConfig;
 }
 
 export function resolveGlobalConfigPath(): string {

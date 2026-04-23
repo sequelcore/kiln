@@ -30,6 +30,12 @@ import {
   resolveGuiDistCandidates,
   resolveGuiDistPath,
 } from "./gui-static-assets.js";
+import { buildGuiOperatorModels } from "./gui-provider-models.js";
+import {
+  buildAttachedRuntimePerCallToolConfig,
+  createAttachedRuntimeBuiltinToolSurface,
+  type AttachedRuntimeBuiltinToolSurface,
+} from "./attached-runtime-tool-surface.js";
 import type {
   GuiDashboardSnapshot,
   GuiInboundFrame,
@@ -55,8 +61,13 @@ export interface StartGuiGatewayOptions {
   readonly port?: number;
   readonly guiDistPath?: string;
   readonly getSnapshot: () => Promise<GuiDashboardSnapshot>;
-  readonly listSessions?: (provider?: string) => Promise<readonly GuiSessionSummary[]>;
+  readonly listSessions?: () => Promise<readonly GuiSessionSummary[]>;
   readonly getSessionDetail?: (sessionId: string) => Promise<GuiSessionDetail | null>;
+  readonly workingDirectory?: string;
+  readonly domainLabel?: string;
+  readonly updateThemePreference?: (theme: string) => Promise<void> | void;
+  readonly onConnectionCountChange?: (count: number) => void;
+  readonly onManagedWindowClose?: () => void;
   readonly operatorTransport?: OperatorSessionTransportOptions;
 }
 
@@ -72,8 +83,6 @@ export interface GuiGateway {
 
 const GUI_APP_NAME = "kiln-gui";
 const GUI_TENANT_ID = "_gui";
-const DEFAULT_CLAUDE_MODELS = ["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5-20251001", "sonnet", "opus", "haiku"];
-const DEFAULT_CODEX_MODELS = ["o4-mini", "o3", "o3-mini"];
 
 const PROVIDER_ORDER = [
   "claude",
@@ -104,11 +113,9 @@ const PROVIDER_META: Record<string, {
 };
 
 export function buildGuiPerCallToolConfig(): PerCallToolConfig {
-  return {
+  return buildAttachedRuntimePerCallToolConfig({
     tenantId: GUI_TENANT_ID,
-    toolAllowlist: new Set<string>(),
-    toolAuthority: new Map(),
-  };
+  });
 }
 
 type GuiAuthorityStatus = NonNullable<Extract<GuiInboundFrame, { type: "welcome" }>["authorityStatus"]>;
@@ -283,11 +290,14 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
     : undefined;
 
   let operatorWsUrl: string | undefined;
+  const updateConnectionCount = (count: number) => {
+    options.onConnectionCountChange?.(count);
+  };
 
   app.use("/gui/api/*", async (c, next) => {
     c.header("Access-Control-Allow-Origin", "*");
     c.header("Access-Control-Allow-Headers", "Content-Type, Accept");
-    c.header("Access-Control-Allow-Methods", "GET, OPTIONS");
+    c.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
 
     if (c.req.method === "OPTIONS") {
       return c.body(null, 204);
@@ -304,27 +314,47 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
     return c.json(snapshot);
   });
 
-  const listSessions = async (providerRaw: string | undefined): Promise<readonly GuiSessionSummary[]> => {
+  app.post("/gui/api/preferences/theme", async (c) => {
+    if (!options.updateThemePreference) {
+      return c.json({ error: "unsupported" }, 404);
+    }
+    const payload = await c.req.json().catch(() => null) as { theme?: unknown } | null;
+    const theme = typeof payload?.theme === "string" ? payload.theme.trim() : "";
+    if (theme !== "kiln-dark" && theme !== "kiln-light" && theme !== "system-follow") {
+      return c.json({ error: "invalid_theme" }, 400);
+    }
+    await options.updateThemePreference(theme);
+    return c.json({ ok: true });
+  });
+
+  const handleManagedWindowClose = (c: { body: (data: null, status: 204) => Response }) => {
+    options.onManagedWindowClose?.();
+    return c.body(null, 204);
+  };
+
+  app.post("/gui/api/window-closed", handleManagedWindowClose);
+  app.post("/gui-api/window-closed", handleManagedWindowClose);
+
+  const listSessions = async (): Promise<readonly GuiSessionSummary[]> => {
     if (!options.listSessions) {
       return [];
     }
-    const provider = providerRaw?.trim() ? providerRaw.trim() : undefined;
-    const sessions = await options.listSessions(provider);
+    const sessions = await options.listSessions();
     return sessions.slice(0, 20);
   };
 
   app.get("/sessions", async (c) => {
-    const sessions = await listSessions(c.req.query("provider"));
+    const sessions = await listSessions();
     return c.json({ sessions });
   });
 
   app.get("/gui/api/sessions", async (c) => {
-    const sessions = await listSessions(c.req.query("provider"));
+    const sessions = await listSessions();
     return c.json({ sessions });
   });
 
   app.get("/gui-api/sessions", async (c) => {
-    const sessions = await listSessions(c.req.query("provider"));
+    const sessions = await listSessions();
     return c.json({ sessions });
   });
 
@@ -352,9 +382,11 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
       },
       onSocketOpen: () => {
         activeConnections += 1;
+        updateConnectionCount(activeConnections);
       },
       onSocketClose: () => {
         activeConnections = Math.max(0, activeConnections - 1);
+        updateConnectionCount(activeConnections);
       },
     });
   } else {
@@ -366,6 +398,7 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
       upgradeWebSocket(() => ({
         onOpen(_event: Event, ws: WSContext) {
           activeConnections += 1;
+          updateConnectionCount(activeConnections);
           const guiAuthorityStatus = deriveGuiAuthorityStatusFromPerCallConfig(buildGuiPerCallToolConfig());
           ws.send(JSON.stringify({
             type: "welcome",
@@ -374,11 +407,14 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
             activeProvider: undefined,
             activeModel: undefined,
             planMode: false,
+            workingDirectory: options.workingDirectory,
+            domainLabel: options.domainLabel,
             authorityStatus: guiAuthorityStatus,
           } satisfies GuiInboundFrame));
         },
         onClose() {
           activeConnections = Math.max(0, activeConnections - 1);
+          updateConnectionCount(activeConnections);
         },
       })),
     );
@@ -410,11 +446,10 @@ async function resolveOperatorModels(): Promise<Record<string, string[]>> {
     getOpencodeModels(),
     getCodexModels(),
   ]);
-  return {
-    claude: [...DEFAULT_CLAUDE_MODELS],
-    codex: codexModels.length > 0 ? codexModels : [...DEFAULT_CODEX_MODELS],
-    opencode: opencodeModels,
-  };
+  return buildGuiOperatorModels({
+    opencodeModels,
+    codexModels,
+  });
 }
 
 function wireOperatorTransport(
@@ -432,13 +467,18 @@ function wireOperatorTransport(
   const providerLabel = input.transport.sessionManager.getProvider();
   const approvalRegistry = new ApprovalGateRegistry();
   const activityStreamer = new GuiActivityStreamer(approvalRegistry);
+  const builtinToolSurface = createAttachedRuntimeBuiltinToolSurface();
   const executor = new CliSubscriptionExecutor(
     input.transport.sessionManager.factory,
     providerLabel,
     (event) => activityStreamer.forward(event),
   );
   const eventBus = input.transport.eventBus ?? new EventBus(100);
-  const orchestrator = new RuntimeSessionOrchestrator({ provider: executor, eventBus });
+  const orchestrator = new RuntimeSessionOrchestrator({
+    provider: executor,
+    eventBus,
+    builtinTools: builtinToolSurface.callBuiltinTools,
+  });
   const sessionRegistry = new SessionRegistry();
 
   activityStreamer.bindApprovalBridge({
@@ -456,8 +496,17 @@ function wireOperatorTransport(
           input.onSocketOpen?.();
           activityStreamer.register(ws, eventBus);
           const activeProvider = input.transport.sessionManager.getProvider();
-          const activeModel = input.transport.sessionManager.getModel();
-          const guiAuthorityStatus = deriveGuiAuthorityStatusFromPerCallConfig(buildGuiPerCallToolConfig());
+          let activeModel = input.transport.sessionManager.getModel();
+          if (!activeModel) {
+            const fallbackModel = input.models[activeProvider]?.[0];
+            if (fallbackModel) {
+              input.transport.sessionManager.setModel(fallbackModel);
+              activeModel = fallbackModel;
+            }
+          }
+          const guiAuthorityStatus = deriveGuiAuthorityStatusFromPerCallConfig(
+            buildGuiTurnPerCallConfig(activeProvider, activeModel, builtinToolSurface),
+          );
           ws.send(JSON.stringify({
             type: "welcome",
             models: input.models,
@@ -465,6 +514,8 @@ function wireOperatorTransport(
             activeProvider,
             activeModel,
             planMode: input.transport.planMode ?? false,
+            workingDirectory: input.transport.workingDirectory,
+            domainLabel: input.transport.domainLabel,
             authorityStatus: guiAuthorityStatus,
           } satisfies GuiInboundFrame));
         },
@@ -483,7 +534,7 @@ function wireOperatorTransport(
             const frame = JSON.parse(raw) as GuiOutboundFrame | Record<string, unknown>;
 
             if (frame.type === "clear") {
-              await sessionRegistry.remove(GUI_APP_NAME, userId, GUI_TENANT_ID);
+              await sessionRegistry.detachActive(GUI_APP_NAME, userId, GUI_TENANT_ID);
               try {
                 await input.transport.onClear?.();
               } catch {
@@ -495,7 +546,9 @@ function wireOperatorTransport(
 
             if (frame.type === "provider") {
               const newProvider = typeof frame.provider === "string" ? frame.provider : "claude";
-              const newModel = typeof frame.model === "string" ? frame.model : undefined;
+              const newModel = typeof frame.model === "string"
+                ? frame.model
+                : input.models[newProvider]?.[0];
               input.transport.sessionManager.setProvider(newProvider);
               if (newModel !== undefined) {
                 input.transport.sessionManager.setModel(newModel);
@@ -511,16 +564,15 @@ function wireOperatorTransport(
 
             if (frame.type === "resume") {
               const sessionId = typeof frame.sessionId === "string" ? frame.sessionId.trim() : "";
-              const provider = typeof frame.provider === "string" ? frame.provider.trim() : "";
-              if (!sessionId || !provider) {
+              if (!sessionId) {
                 ws.send(JSON.stringify({
                   type: "error",
-                  message: "Resume request must include sessionId and provider",
+                  message: "Resume request must include sessionId",
                 } satisfies GuiInboundFrame));
                 return;
               }
               try {
-                await applyResumeSelection(input.transport.onResumeSession, sessionId, provider);
+                await applyResumeSelection(input.transport.onResumeSession, sessionId);
               } catch {
                 ws.send(JSON.stringify({
                   type: "error",
@@ -531,7 +583,6 @@ function wireOperatorTransport(
               ws.send(JSON.stringify({
                 type: "resume_selected",
                 sessionId,
-                provider,
               } satisfies GuiInboundFrame));
               return;
             }
@@ -591,17 +642,20 @@ function wireOperatorTransport(
             ws.send(JSON.stringify({ type: "thinking" } satisfies GuiInboundFrame));
             let result;
             try {
+              const activeProvider = input.transport.sessionManager.getProvider();
+              const activeModel = input.transport.sessionManager.getModel() || undefined;
               result = await processAdmittedTurn({
                 orchestrator,
                 sessionRegistry,
                 appName: GUI_APP_NAME,
                 tenantId: GUI_TENANT_ID,
                 userId,
+                sessionId: resumeSessionId || undefined,
                 systemPrompt: input.transport.systemPrompt ?? "You are a helpful assistant.",
                 userParts: textParts(userContent),
                 channel: "gui",
                 contextArtifactCache: input.transport.contextArtifactCache,
-                perCallConfig: buildGuiPerCallToolConfig(),
+                perCallConfig: buildGuiTurnPerCallConfig(activeProvider, activeModel, builtinToolSurface),
                 turnCapture: {
                   start: (sessionId) => {
                     activityStreamer.beginTurnCapture(sessionId);
@@ -639,7 +693,13 @@ function wireOperatorTransport(
               routedProvider: output.routingDecision?.provider ?? input.transport.sessionManager.getProvider(),
               routedModel: output.routingDecision?.model ?? input.transport.sessionManager.getModel(),
               runtimeContinuity,
-              authorityStatus: deriveGuiAuthorityStatusFromPerCallConfig(buildGuiPerCallToolConfig()),
+              authorityStatus: deriveGuiAuthorityStatusFromPerCallConfig(
+                buildGuiTurnPerCallConfig(
+                  output.routingDecision?.provider ?? input.transport.sessionManager.getProvider(),
+                  output.routingDecision?.model ?? input.transport.sessionManager.getModel(),
+                  builtinToolSurface,
+                ),
+              ),
             } satisfies GuiInboundFrame));
           } catch {
             // discard malformed frames
@@ -664,10 +724,23 @@ function fireAndForgetProviderSwitch(onProviderSwitch: OnProviderSwitch | undefi
   });
 }
 
+export function buildGuiTurnPerCallConfig(
+  activeProvider: string,
+  activeModel: string | undefined,
+  builtinToolSurface: AttachedRuntimeBuiltinToolSurface = createAttachedRuntimeBuiltinToolSurface(),
+): PerCallToolConfig {
+  return buildAttachedRuntimePerCallToolConfig({
+    tenantId: GUI_TENANT_ID,
+    activeProvider,
+    activeModel,
+    builtinToolSurface,
+  });
+}
+
 async function applyResumeSelection(
   onResumeSession: OnResumeSession | undefined,
   sessionId: string,
-  provider: string,
+  provider?: string,
 ): Promise<void> {
   if (!onResumeSession) {
     throw new Error("resume selection unsupported");

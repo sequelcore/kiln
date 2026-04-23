@@ -1,6 +1,11 @@
 import type { KilnAppConfig } from "../config.js";
+import {
+  loadResumeSidebarInfo,
+  type ResumeSidebarInfo,
+} from "../application/resume-sidebar-info.js";
 import { inferResumeStrategyFeedback } from "../application/resume-strategy-feedback.js";
 import { collectResumeSignals, decideResumeStrategy } from "../application/resume-strategy-policy.js";
+import { deriveSessionMetadata } from "../application/session-metadata.js";
 import {
   buildCliPlanSummaryArtifactKeyFromShape,
   buildCliProjectSummaryArtifactKey,
@@ -13,8 +18,9 @@ import { SessionStore, TranscriptStore } from "../wrapper/session-store.js";
 import type { ResumeFeedback, ResumeStrategy } from "../wrapper/index.js";
 import { GatewaySession, waitForGateway, themes, kilnDark } from "@kilnai/tui";
 import type { SessionLike } from "@kilnai/tui";
-import type { ContextArtifactCache } from "@kilnai/core";
+import { extractText, type AgentMessage, type ContextArtifactCache } from "@kilnai/core";
 import { getProjectContextArtifactCache } from "@kilnai/runtime";
+import type { CliSessionFactoryContext, CliSessionRunOptions } from "@kilnai/runtime";
 
 export interface TuiFlags {
   provider?: string;
@@ -48,7 +54,23 @@ type ProviderSessionState = { resumeSessionId?: string; providerSessionId?: stri
 type CliSessionFactory = (
   systemPrompt: string,
   cwd: string,
+  context?: CliSessionFactoryContext,
 ) => import("../wrapper/session.js").IKilnSession;
+
+function latestUserText(messages: readonly AgentMessage[] | undefined): string | undefined {
+  if (!messages) {
+    return undefined;
+  }
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.role !== "user") {
+      continue;
+    }
+    const text = extractText(message.parts).trim();
+    return text.length > 0 ? text : undefined;
+  }
+  return undefined;
+}
 
 function parseProvider(p: string | undefined, providerIds: readonly ProviderId[]): ProviderId {
   if (p && providerIds.includes(p as ProviderId)) {
@@ -83,22 +105,29 @@ export async function makeMultiProviderSessionFactory(
   const providerState = new Map<ProviderId, ProviderSessionState>(
     providers.map((provider) => [provider, {}]),
   );
+  const providerModelState = new Map<ProviderId, string>(
+    providers.map((provider) => [provider, ""]),
+  );
   
   let currentProvider: ProviderId = initialProvider;
-  let currentModel: string = "";
 
-  // Load last session for each provider
-  for (const p of providers) {
-    const lastRecord = await sessionStore.last(p);
-    if (lastRecord) {
+  const lastRecord = await sessionStore.last();
+  if (lastRecord) {
+    for (const p of providers) {
       const state = providerState.get(p);
       if (!state) continue;
       state.resumeSessionId = lastRecord.sessionId;
-      state.providerSessionId = lastRecord.providerSessionId;
+      state.providerSessionId = lastRecord.providerThread?.provider === p
+        ? lastRecord.providerThread.nativeSessionId
+        : (await sessionStore.findProviderThread?.(lastRecord.sessionId, p))?.nativeSessionId;
     }
   }
 
-  const policyAwareFactory: CliSessionFactory = (systemPrompt: string, sessionCwd: string) => {
+  const policyAwareFactory: CliSessionFactory = (
+    systemPrompt: string,
+    sessionCwd: string,
+    context?: CliSessionFactoryContext,
+  ) => {
     let activeSession: import("../wrapper/session.js").IKilnSession | null = null;
     return {
       get capabilities() {
@@ -121,9 +150,9 @@ export async function makeMultiProviderSessionFactory(
       get providerSessionId() {
         return activeSession?.providerSessionId;
       },
-      run: async function* (options) {
+      run: async function* (options: CliSessionRunOptions) {
         const providerForTurn = currentProvider;
-        const modelForTurn = currentModel || undefined;
+        const modelForTurn = providerModelState.get(providerForTurn) || undefined;
         const state = providerState.get(providerForTurn) ?? {};
         const resumedFrom = state.resumeSessionId;
         const projectArtifactKey = buildCliProjectSummaryArtifactKey(cwd);
@@ -153,16 +182,39 @@ export async function makeMultiProviderSessionFactory(
           cwd: sessionCwd || cwd,
           permissionPolicy: { approval: "never", sandbox: "workspace-write" },
           resumeSessionId: decision.shouldUseProviderNativeResume ? resumedFrom : undefined,
+          sessionLedgerOwner: "host",
           model: modelForTurn,
         });
         activeSession = resumedSession;
-        const capturedId = resumedSession.sessionId;
+        const capturedId = options.kilnSessionId ?? context?.kilnSessionId ?? resumedFrom ?? resumedSession.sessionId;
+        const [existingRecord, existingMeta] = await Promise.all([
+          sessionStore.find(capturedId),
+          transcriptStore.readMeta(capturedId),
+        ]);
+        const task = existingMeta?.task ?? existingRecord?.task ?? "interactive";
+        const metadata = deriveSessionMetadata({
+          task,
+          prompt: options.prompt,
+          provider: providerForTurn,
+          model: modelForTurn,
+          canonicalTitle: existingMeta?.canonicalTitle ?? existingRecord?.canonicalTitle,
+          title: existingMeta?.title ?? existingRecord?.title,
+          summary: existingMeta?.summary ?? existingRecord?.summary,
+          tags: existingMeta?.tags ?? existingRecord?.tags,
+          providersUsed: existingMeta?.providersUsed ?? existingRecord?.providersUsed,
+        });
+        const startedAt = existingMeta?.startedAt ?? new Date().toISOString();
         if (typeof (transcriptStore as { init?: unknown }).init === "function") {
           await transcriptStore.init(capturedId, {
             kilnSessionId: capturedId,
             provider: providerForTurn,
-            task: "interactive",
-            startedAt: new Date().toISOString(),
+            canonicalTitle: metadata.canonicalTitle,
+            title: metadata.title,
+            summary: metadata.summary,
+            tags: metadata.tags,
+            providersUsed: metadata.providersUsed,
+            task,
+            startedAt,
             resumeStrategy,
             resumeFeedback,
             sessionLedger: {
@@ -174,8 +226,53 @@ export async function makeMultiProviderSessionFactory(
         }
 
         let turnCostUsd = 0;
+        let transcriptSeq = (await transcriptStore.readTranscript(capturedId)).length;
+        const userText = latestUserText(options.messages);
+        if (userText) {
+          await transcriptStore.append(capturedId, {
+            seq: ++transcriptSeq,
+            ts: new Date().toISOString(),
+            type: "user",
+            data: { content: userText },
+          });
+        }
         try {
           for await (const event of resumedSession.run(options)) {
+            if (event.type === "text_delta" && !event.isThinking) {
+              await transcriptStore.append(capturedId, {
+                seq: ++transcriptSeq,
+                ts: new Date().toISOString(),
+                type: "text_delta",
+                data: { content: event.content },
+              });
+            } else if (event.type === "tool_use") {
+              await transcriptStore.append(capturedId, {
+                seq: ++transcriptSeq,
+                ts: new Date().toISOString(),
+                type: "tool_use",
+                data: {
+                  toolName: event.toolName,
+                  input: event.input,
+                },
+              });
+            } else if (event.type === "tool_result") {
+              await transcriptStore.append(capturedId, {
+                seq: ++transcriptSeq,
+                ts: new Date().toISOString(),
+                type: "tool_result",
+                data: {
+                  toolName: event.toolName,
+                  output: event.output,
+                },
+              });
+            } else if (event.type === "error") {
+              await transcriptStore.append(capturedId, {
+                seq: ++transcriptSeq,
+                ts: new Date().toISOString(),
+                type: "error",
+                data: { message: event.message, code: event.code },
+              });
+            }
             if (
               event
               && typeof event === "object"
@@ -188,15 +285,23 @@ export async function makeMultiProviderSessionFactory(
           }
         } finally {
           await resumedSession.dispose();
-          const currentState = providerState.get(providerForTurn);
-          if (currentState) {
-            currentState.resumeSessionId = capturedId;
-            currentState.providerSessionId = resumedSession.providerSessionId;
+          for (const [providerId, providerRuntimeState] of providerState) {
+            providerRuntimeState.resumeSessionId = capturedId;
+            if (providerId === providerForTurn) {
+              providerRuntimeState.providerSessionId = resumedSession.providerSessionId;
+            }
           }
           if (typeof (transcriptStore as { finalize?: unknown }).finalize === "function") {
             await transcriptStore.finalize(capturedId, {
               completedAt: new Date().toISOString(),
-              providerSessionId: resumedSession.providerSessionId,
+              canonicalTitle: metadata.canonicalTitle,
+              title: metadata.title,
+              summary: metadata.summary,
+              tags: metadata.tags,
+              providersUsed: metadata.providersUsed,
+              providerThread: resumedSession.providerSessionId
+                ? { provider: providerForTurn, nativeSessionId: resumedSession.providerSessionId }
+                : undefined,
               resumeStrategy,
               resumeFeedback,
               sessionLedger: {
@@ -210,11 +315,18 @@ export async function makeMultiProviderSessionFactory(
           await sessionStore.append({
             sessionId: capturedId,
             provider: providerForTurn,
-            task: "interactive",
+            task,
+            canonicalTitle: metadata.canonicalTitle,
+            title: metadata.title,
+            summary: metadata.summary,
+            tags: metadata.tags,
+            providersUsed: metadata.providersUsed,
             completedAt: new Date().toISOString(),
             cost: turnCostUsd,
             projectPath: cwd,
-            providerSessionId: resumedSession.providerSessionId,
+            providerThread: resumedSession.providerSessionId
+              ? { provider: providerForTurn, nativeSessionId: resumedSession.providerSessionId }
+              : undefined,
             resumeStrategy,
           });
           if (activeSession === resumedSession) {
@@ -239,29 +351,24 @@ export async function makeMultiProviderSessionFactory(
         currentProvider = newProvider as ProviderId;
       }
     },
-    getModel: () => currentModel,
+    getModel: () => providerModelState.get(currentProvider) ?? "",
     setModel: (model: string) => {
-      currentModel = model;
+      providerModelState.set(currentProvider, model);
     },
-    onClear: async (provider?: string) => {
-      const p = (provider && providers.includes(provider as ProviderId)) 
-        ? provider as ProviderId 
-        : currentProvider;
-      const state = providerState.get(p);
-      if (state) {
+    onClear: async (_provider?: string) => {
+      for (const state of providerState.values()) {
         state.resumeSessionId = undefined;
         state.providerSessionId = undefined;
       }
-      await sessionStore.clearLast(p);
     },
-    setResumeSession: (sessionId: string, provider: string) => {
-      if (providers.includes(provider as ProviderId)) {
-        const p = provider as ProviderId;
-        const state = providerState.get(p);
-        if (state) {
-          currentProvider = p;
-          state.resumeSessionId = sessionId;
-        }
+    setResumeSession: (sessionId: string, provider?: string) => {
+      const targetProvider = provider && providers.includes(provider as ProviderId)
+        ? provider as ProviderId
+        : currentProvider;
+      const state = providerState.get(targetProvider);
+      if (state) {
+        currentProvider = targetProvider;
+        state.resumeSessionId = sessionId;
       }
     },
   };
@@ -274,42 +381,7 @@ export interface MultiProviderSessionManager {
   getModel: () => string;
   setModel: (model: string) => void;
   onClear: (provider?: string) => Promise<void>;
-  setResumeSession: (sessionId: string, provider: string) => void;
-}
-
-function formatResumeFeedback(feedback: ResumeFeedback | undefined): string | undefined {
-  if (!feedback) {
-    return undefined;
-  }
-  const source = feedback.influencedChoice ? "applied" : "observed";
-  const preferred = feedback.preferredStrategy ? ` ${feedback.preferredStrategy}` : "";
-  return `${source}${preferred} · ${feedback.sampleSize}`;
-}
-
-async function loadInitialResumeInfo(
-  cwd: string,
-  sessionStore: SessionStore,
-  providerIds: readonly ProviderId[],
-): Promise<Record<string, { strategy?: ResumeStrategy; feedbackLabel?: string }>> {
-  const transcriptStore = new TranscriptStore(cwd);
-  const info: Record<string, { strategy?: ResumeStrategy; feedbackLabel?: string }> = {};
-
-  for (const provider of providerIds) {
-    const lastRecord = await sessionStore.last(provider);
-    if (!lastRecord) {
-      continue;
-    }
-    const meta = await transcriptStore.readMeta(lastRecord.sessionId);
-    if (!meta?.resumeStrategy || meta.resumeStrategy === "none") {
-      continue;
-    }
-    info[provider] = {
-      strategy: meta.resumeStrategy,
-      feedbackLabel: formatResumeFeedback(meta.resumeFeedback),
-    };
-  }
-
-  return info;
+  setResumeSession: (sessionId: string, provider?: string) => void;
 }
 
 async function bootstrapGatewaySession(
@@ -508,7 +580,11 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   // Inject CLI session factory into the gateway (dependency inversion)
   const sessionStore = new SessionStore(cwd);
   const transcriptStore = new TranscriptStore(cwd);
-  const initialResumeInfo = await loadInitialResumeInfo(cwd, sessionStore, providerIds);
+  const initialResumeInfo: Record<string, ResumeSidebarInfo> = await loadResumeSidebarInfo(
+    sessionStore,
+    transcriptStore,
+    providerIds,
+  );
   const startupTransport = resolveTuiStartupTransport(flags);
   const sessionManager = await makeMultiProviderSessionFactory(
     provider,
@@ -573,7 +649,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     domain,
     resolvedTheme,
     startupTransport === "direct" ? initialResumeInfo : {},
-    () => loadInitialResumeInfo(cwd, sessionStore, providerIds),
+    () => loadResumeSidebarInfo(sessionStore, transcriptStore, providerIds),
     bootstrap.providerModelsRef,
     startupTransport === "direct" ? loadSessionList : undefined,
     startupTransport === "direct" ? handleResumeSession : undefined,

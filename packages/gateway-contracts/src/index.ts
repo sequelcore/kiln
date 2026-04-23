@@ -3,6 +3,8 @@ export type {
   GuiSessionSummary,
   GuiSessionListResponse,
   GuiTelemetrySnapshot,
+  GuiResumeInfo,
+  GuiProviderThreadMeta,
   GuiDashboardSnapshot,
   GuiSessionMeta,
   GuiSessionTranscriptLine,

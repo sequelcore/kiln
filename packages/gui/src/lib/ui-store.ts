@@ -41,7 +41,7 @@ function setupSystemFollow(active: boolean): void {
 export const useUiStore = create<UiState>()(
   persist(
     (set) => ({
-      theme: "system-follow" as KilnTheme,
+      theme: "kiln-dark" as KilnTheme,
       setTheme: (theme: KilnTheme) => {
         set({ theme });
         setupSystemFollow(theme === "system-follow");

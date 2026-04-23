@@ -18,6 +18,13 @@ const adapterMocks = vi.hoisted(
   }),
 );
 
+const runtimeMocks = vi.hoisted(() => ({
+  processMessage: vi.fn(),
+  orchestratorConstructor: vi.fn(),
+  addUserMessage: vi.fn(),
+  addAssistantMessage: vi.fn(),
+}));
+
 function makeAdapter(name: keyof typeof adapterMocks) {
   return class {
     constructor(config: unknown) {
@@ -32,47 +39,71 @@ function makeAdapter(name: keyof typeof adapterMocks) {
   };
 }
 
-vi.mock("@kilnai/core", () => ({
-  AnthropicAdapter: makeAdapter("anthropic"),
-  OpenAIAdapter: makeAdapter("openai"),
-  DeepSeekAdapter: makeAdapter("deepseek"),
-  OpenRouterAdapter: makeAdapter("openrouter"),
-  OllamaAdapter: makeAdapter("ollama"),
-  resolveExecutionIdentity: ({
-    configuredProvider,
-    configuredModel,
-    routedProvider,
-    routedModel,
-  }: {
-    configuredProvider?: string;
-    configuredModel?: string;
-    routedProvider?: string;
-    routedModel?: string;
-  }) => {
-    const provider = routedProvider ?? configuredProvider;
-    const model = routedModel ?? configuredModel;
-    if (!provider && !model) return undefined;
-    return {
-      source: routedProvider || routedModel ? "runtime-routed" : "configured",
-      provider,
-      model,
-    };
-  },
-  appendExecutionIdentity: (
-    basePrompt: string,
-    identity?: { source: string; provider?: string; model?: string },
-  ) => {
-    if (!identity) return basePrompt;
-    const lines = ["[KILN EXECUTION IDENTITY]"];
-    if (identity.provider) lines.push(`provider: ${identity.provider}`);
-    if (identity.model) lines.push(`model: ${identity.model}`);
-    lines.push(`source: ${identity.source}`);
-    lines.push("If asked about provider/model, use this identity for this turn.");
-    const section = lines.join("\n");
-    return basePrompt.trim().length > 0 ? `${basePrompt}\n\n${section}` : section;
-  },
-  textPart: (text: string) => ({ type: "text", text }),
-}));
+vi.mock("@kilnai/core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@kilnai/core")>();
+  return {
+    ...actual,
+    AnthropicAdapter: makeAdapter("anthropic"),
+    OpenAIAdapter: makeAdapter("openai"),
+    DeepSeekAdapter: makeAdapter("deepseek"),
+    OpenRouterAdapter: makeAdapter("openrouter"),
+    OllamaAdapter: makeAdapter("ollama"),
+    resolveExecutionIdentity: ({
+      configuredProvider,
+      configuredModel,
+      routedProvider,
+      routedModel,
+    }: {
+      configuredProvider?: string;
+      configuredModel?: string;
+      routedProvider?: string;
+      routedModel?: string;
+    }) => {
+      const provider = routedProvider ?? configuredProvider;
+      const model = routedModel ?? configuredModel;
+      if (!provider && !model) return undefined;
+      return {
+        source: routedProvider || routedModel ? "runtime-routed" : "configured",
+        provider,
+        model,
+      };
+    },
+    appendExecutionIdentity: (
+      basePrompt: string,
+      identity?: { source: string; provider?: string; model?: string },
+    ) => {
+      if (!identity) return basePrompt;
+      const lines = ["[KILN EXECUTION IDENTITY]"];
+      if (identity.provider) lines.push(`provider: ${identity.provider}`);
+      if (identity.model) lines.push(`model: ${identity.model}`);
+      lines.push(`source: ${identity.source}`);
+      lines.push("If asked about provider/model, use this identity for this turn.");
+      const section = lines.join("\n");
+      return basePrompt.trim().length > 0 ? `${basePrompt}\n\n${section}` : section;
+    },
+    textPart: (text: string) => ({ type: "text", text }),
+  };
+});
+
+vi.mock("@kilnai/runtime", () => {
+  class MockRuntimeSession {
+    addUserMessage = runtimeMocks.addUserMessage;
+    addAssistantMessage = runtimeMocks.addAssistantMessage;
+    conversationHistory: unknown[] = [];
+    sessionMode = "ai_active" as const;
+    id = "cli-test-session";
+  }
+
+  return {
+    RuntimeSessionOrchestrator: class MockRuntimeSessionOrchestrator {
+      constructor(...args: unknown[]) {
+        runtimeMocks.orchestratorConstructor(...args);
+      }
+      processMessage = runtimeMocks.processMessage;
+    },
+    RuntimeSession: MockRuntimeSession,
+  };
+});
 
 async function* streamEvents(
   events: readonly { type: string; content: string; inputTokens?: number; outputTokens?: number }[],
@@ -152,6 +183,10 @@ describe("ProviderSession.run()", () => {
       mock.ctor.mockReset();
       mock.stream.mockReset();
     }
+    runtimeMocks.processMessage.mockReset();
+    runtimeMocks.orchestratorConstructor.mockReset();
+    runtimeMocks.addUserMessage.mockReset();
+    runtimeMocks.addAssistantMessage.mockReset();
   });
 
   afterEach(() => {
@@ -192,10 +227,16 @@ describe("ProviderSession.run()", () => {
     expect(events).toContainEqual(expect.objectContaining({ type: "completed", isError: false }));
   });
 
-  it("does not emit executable tool events for direct-provider tool frames", async () => {
+  it("degrades direct-provider tool frames to text when running in text-only mode", async () => {
     adapterMocks.openai.stream.mockReturnValue(
       streamEvents([
-        { type: "tool_use", content: "{bad-json}" },
+        {
+          type: "tool_use",
+          content: JSON.stringify({
+            name: "write",
+            input: { path: "src/feature.ts", content: "export const x = 1;" },
+          }),
+        },
         { type: "tool_result", content: "tool output" },
         { type: "done", content: "" },
       ]),
@@ -208,8 +249,59 @@ describe("ProviderSession.run()", () => {
     const events = await collectEvents(session.run({ prompt: "parse test" }));
 
     expect(events.some((event) => event.type === "tool_use" || event.type === "tool_result")).toBe(false);
-    expect(events).toContainEqual({ type: "text_delta", content: "{bad-json}" });
+    expect(events).toContainEqual({
+      type: "text_delta",
+      content: JSON.stringify({
+        name: "write",
+        input: { path: "src/feature.ts", content: "export const x = 1;" },
+      }),
+    });
     expect(events).toContainEqual({ type: "text_delta", content: "tool output" });
+    expect(events).toContainEqual(expect.objectContaining({ type: "completed", isError: false }));
+  });
+
+  it("emits canonical tool_result and file_changed events when executionMode is kiln-executable", async () => {
+    runtimeMocks.processMessage.mockResolvedValueOnce({
+      parts: [{ type: "text", text: "applied changes" }],
+      toolExecutions: [
+        {
+          toolName: "write",
+          durationMs: 20,
+          success: true,
+          resultSummary: "wrote src/feature.ts",
+          fileChanges: [{ path: "src/feature.ts", changeType: "modified" as const }],
+        },
+      ],
+      inputTokens: 11,
+      outputTokens: 9,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      queued: false,
+    });
+
+    const session = new ProviderSession(baseConfig({
+      provider: "openai",
+      env: { OPENAI_API_KEY: "cfg-key" },
+      executionMode: "kiln-executable",
+    }));
+    const events = await collectEvents(session.run({ prompt: "execute tool path" }));
+
+    expect(events).toContainEqual({ type: "text_delta", content: "applied changes" });
+    expect(events).toContainEqual({
+      type: "tool_result",
+      toolName: "write",
+      output: "wrote src/feature.ts",
+    });
+    expect(events).toContainEqual({
+      type: "file_changed",
+      path: "src/feature.ts",
+      changeType: "modified",
+    });
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "cost_update",
+      mode: "computed",
+      provider: "openai",
+    }));
     expect(events).toContainEqual(expect.objectContaining({ type: "completed", isError: false }));
   });
 

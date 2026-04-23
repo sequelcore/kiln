@@ -6,7 +6,7 @@ export interface OperatorGatewayOptions extends TuiGatewayOptions {}
 
 export type { OnProviderSwitch };
 
-export type OnResumeSession = (sessionId: string, provider: string) => void | Promise<void>;
+export type OnResumeSession = (sessionId: string, provider?: string) => void | Promise<void>;
 
 type BaseOperatorSessionTransportOptions = Pick<
   TuiGatewayOptions,
@@ -15,6 +15,8 @@ type BaseOperatorSessionTransportOptions = Pick<
 
 export interface OperatorSessionTransportOptions extends BaseOperatorSessionTransportOptions {
   readonly onResumeSession?: OnResumeSession;
+  readonly workingDirectory?: string;
+  readonly domainLabel?: string;
 }
 
 /**

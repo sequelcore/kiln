@@ -47,6 +47,7 @@ export interface RuntimeSessionConfig {
   readonly userId: string;
   readonly systemPrompt: string;
   readonly idleTimeoutMs?: number;
+  readonly sessionId?: string;
 }
 
 export class RuntimeSession {
@@ -89,7 +90,7 @@ export class RuntimeSession {
     this._idleTimeoutMs = config.idleTimeoutMs ?? 30 * 60 * 1000;
     this.createdAt = new Date();
     this._lastActivityAt = new Date();
-    this.id = `${config.appName}:${config.tenantId}:${config.userId}:${Date.now()}`;
+    this.id = config.sessionId ?? `${config.appName}:${config.tenantId}:${config.userId}:${Date.now()}`;
   }
 
   get lastActivityAt(): Date {

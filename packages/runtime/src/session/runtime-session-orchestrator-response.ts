@@ -65,6 +65,7 @@ export async function requestRuntimeSessionFallbackResponse(
   readonly usage: OrchestratorResponseUsage;
 }> {
   const response = await provider.createMessage({
+    sessionId: session.id,
     system,
     messages: [...session.conversationHistory],
     maxTokens,

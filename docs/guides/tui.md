@@ -5,6 +5,8 @@
 > loss, security). The primary operator surface going forward is the GUI (see Phase G in
 > `STRATEGY.md`). Scheduled for deletion in Phase I once GUI reaches parity.
 > 6-month review checkpoint: 2026-10-17.
+>
+> Deletion execution is tracked in `docs/guides/tui-deletion-checklist.md`.
 
 ## Overview
 
@@ -122,7 +124,10 @@ from Kiln's own runtime rather than from an external harness process.
 
 Selecting a provider in the picker sends a `{ type: "provider", provider, model? }` frame through the WebSocket session. The gateway updates the injected session manager with `setProvider()` and, when present, `setModel()`, then acknowledges with `{ type: "provider_changed", provider }`.
 
-On the CLI side, the multi-provider session manager keeps per-provider resume state and passes the active provider into the wrapper `SessionRegistry`. That is the point where Kiln maps the TUI selection onto either a harness-backed session or a direct-provider session.
+On the CLI side, the multi-provider session manager keeps one canonical Kiln
+continuation target and tracks provider-native thread IDs only as provider-scoped
+metadata. Provider selection chooses the route for the next turn; it does not
+move the operator into a provider-owned session namespace.
 
 Important distinction:
 
@@ -135,7 +140,7 @@ That means the header shown above an assistant message reflects the provider/mod
 
 ### `/clear`
 
-`GatewaySession.clear()` sends `{ type: "clear" }` over the WebSocket connection and waits for `{ type: "cleared" }`. The timeout is `5_000ms`. In the gateway, the `onClear` callback is invoked before the acknowledgement is sent. In the CLI command, that callback clears the last persisted session record for the active provider so the next turn starts from a fresh conversation state.
+`GatewaySession.clear()` sends `{ type: "clear" }` over the WebSocket connection and waits for `{ type: "cleared" }`. The timeout is `5_000ms`. In the gateway, the `onClear` callback is invoked before the acknowledgement is sent. In the CLI command, that callback detaches the active runtime conversation so the next turn starts from a fresh Kiln conversation state without deleting persisted session history.
 
 ### `/plan`
 
@@ -156,7 +161,9 @@ In the default gateway path, continuity is runtime-owned:
 - Multi-turn history therefore stays in one `RuntimeSession` instead of creating a fresh session per turn.
 - Reconnects reuse the same `userId`, so the gateway can reattach to the same runtime session state.
 
-The CLI wrapper still persists per-provider resume metadata and transcripts so the TUI sidebar can browse previous sessions and the direct fallback path can keep working.
+The CLI wrapper persists canonical Kiln session records and stores
+provider-native thread IDs as nested provider-thread metadata. The TUI sidebar
+browses Kiln sessions, not provider-specific session namespaces.
 
 Kiln stores:
 
@@ -164,9 +171,21 @@ Kiln stores:
 - `.kiln/sessions/<sessionId>/meta.json` for per-session metadata
 - `.kiln/sessions/<sessionId>/transcript.jsonl` for the transcript stream
 
-At startup, `makeMultiProviderSessionFactory()` loads the last persisted record for each provider. The sidebar session browser is populated from the session index, and `/resume` or an empty-input `Enter` on a selected row marks a stored session as the resume target for that provider. Clear removes the last matching provider record from the JSONL index through `SessionStore.clearLast()`.
+At startup, `makeMultiProviderSessionFactory()` loads the latest canonical
+persisted Kiln session record and makes it available to every provider route.
+If that record contains provider-thread metadata for the selected provider,
+Kiln may pass the matching provider-native thread ID to that provider. If not,
+Kiln resumes through its own transcript/context continuity without fabricating
+a native provider thread.
 
-The direct fallback path still uses this wrapper-managed resume state. The default gateway path adds runtime-side continuity on top of it.
+The sidebar session browser is populated from the canonical session index.
+`/resume` or an empty-input `Enter` on a selected row marks that Kiln session as
+the active continuation target. Clear detaches the active runtime conversation
+but leaves canonical session records and transcripts available for later
+selection.
+
+The direct fallback path still uses this wrapper-managed resume state. The
+default gateway path adds runtime-side continuity on top of it.
 
 ## In-Process Gateway
 
@@ -186,15 +205,22 @@ The TUI WebSocket adapter handles:
 The `done` frame also carries:
 
 - `routedProvider` and `routedModel` for the actual execution route used on the turn
-- `runtimeContinuity` sidebar metadata for the active provider
+- `runtimeContinuity` sidebar metadata for the current turn
 
 For local-write verification, trust the routed provider shown in the header and
-the file-change events emitted by the runtime. Harness providers and
-`codex-oauth` now exercise Kiln-local execution; the remaining direct API
-providers still stay text-oriented unless they are wired to an executable
-direct-session path.
+the file-change events emitted by the runtime. Harness, OAuth, and direct API
+providers now converge through Kiln's shared tool surface when they advertise
+runtime-owned tool execution; the runtime remains the authority for approval,
+execution, telemetry, and file-change evidence.
 
 This path keeps the same safety, session, runtime-summary, and cost-tracking machinery in place instead of adding a second terminal-only orchestration loop.
+
+## Session Model Reference
+
+The canonical session rules are documented in
+`docs/architecture/session-model.md`. In short: provider/model selection is
+next-turn routing state; the Kiln session owns transcript, tools, approvals,
+cost, changed files, and replay.
 
 ## Architecture Note
 

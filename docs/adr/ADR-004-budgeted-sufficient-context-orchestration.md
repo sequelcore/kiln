@@ -207,9 +207,9 @@ Initial implementation note:
 - The CLI path now persists and reports that feedback signal explicitly,
   including whether local history actually influenced the final strategy choice
   and how many bounded samples were considered.
-- The TUI now surfaces the last known per-provider resume strategy and feedback
-  in its sidebar, making this policy state visible during interactive provider
-  switching instead of only at the end of a CLI session.
+- The TUI now surfaces resume strategy and feedback in its sidebar without
+  making session history provider-owned. Provider switching changes the next
+  execution route, while resume still targets a canonical Kiln session.
 - The interactive TUI path now also refreshes that metadata after completed
   turns by persisting minimal transcript meta for native-resume sessions and
   reloading the per-provider sidebar state.

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { ActivityPhase, SessionStatus } from "../lib/session-store.js";
 import { ActivityPhaseIndicator } from "./activity-phase-indicator.js";
 
@@ -11,13 +11,21 @@ interface ComposerProps {
   readonly activityDetails?: string;
   readonly resumeTargetId: string | null;
   readonly onSubmit: (text: string) => void;
+  readonly onEmptySubmit: () => void;
   readonly onTogglePlanMode: (enabled: boolean) => void;
+  readonly onOpenCommandPalette: () => void;
 }
 
 export function Composer(props: ComposerProps) {
   const [draft, setDraft] = useState("");
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const nextSelectionRef = useRef<number | null>(null);
   const canSubmit = props.status === "ready" && draft.trim().length > 0;
   const isBusy = props.status === "running" || props.status === "connecting";
+
+  function normalizePastedText(value: string): string {
+    return value.replace(/\r\n?/g, "\n").replace(/\n+$/g, "");
+  }
 
   return (
     <section className="border-t border-[var(--color-border)] bg-[var(--color-background-panel)] px-4 py-3">
@@ -34,7 +42,7 @@ export function Composer(props: ComposerProps) {
         ) : null}
         {props.resumeTargetId ? (
           <span className="rounded border border-[var(--color-accent)]/60 bg-[var(--color-accent)]/10 px-2 py-0.5 text-[var(--color-accent)]">
-            Resume set
+            Continuing session
           </span>
         ) : null}
       </div>
@@ -52,10 +60,46 @@ export function Composer(props: ComposerProps) {
         </label>
         <textarea
           id="composer-input"
+          ref={textareaRef}
           value={draft}
           wrap="soft"
           onChange={(event) => setDraft(event.target.value)}
+          onPaste={(event) => {
+            const pasted = event.clipboardData.getData("text");
+            if (!pasted) {
+              return;
+            }
+            const normalized = normalizePastedText(pasted);
+            event.preventDefault();
+            const target = event.currentTarget;
+            const selectionStart = target.selectionStart ?? draft.length;
+            const selectionEnd = target.selectionEnd ?? draft.length;
+            const nextDraft = `${draft.slice(0, selectionStart)}${normalized}${draft.slice(selectionEnd)}`;
+            nextSelectionRef.current = selectionStart + normalized.length;
+            setDraft(nextDraft);
+            queueMicrotask(() => {
+              const nextSelection = nextSelectionRef.current;
+              const textarea = textareaRef.current;
+              if (nextSelection === null || !textarea) {
+                return;
+              }
+              textarea.setSelectionRange(nextSelection, nextSelection);
+              nextSelectionRef.current = null;
+            });
+          }}
           onKeyDown={(event) => {
+            if (
+              event.key === "/"
+              && !event.shiftKey
+              && !event.altKey
+              && !event.ctrlKey
+              && !event.metaKey
+              && draft.trim().length === 0
+            ) {
+              event.preventDefault();
+              props.onOpenCommandPalette();
+              return;
+            }
             if (event.key !== "Enter") return;
             if (event.shiftKey) return;
             event.preventDefault();
@@ -63,6 +107,7 @@ export function Composer(props: ComposerProps) {
               return;
             }
             if (!draft.trim()) {
+              props.onEmptySubmit();
               return;
             }
             props.onSubmit(draft);

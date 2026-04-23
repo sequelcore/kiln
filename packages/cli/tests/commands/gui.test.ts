@@ -1,0 +1,118 @@
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
+import type { KilnAppConfig } from "../../src/config.js";
+import { createManagedGuiWindowShutdownMonitor } from "../../src/commands/gui-shutdown-monitor.js";
+
+const mockGuiCommand = vi.hoisted(() => vi.fn());
+
+vi.mock("../../src/commands/gui.js", () => ({
+  guiCommand: mockGuiCommand,
+}));
+
+const APP_CONFIG: KilnAppConfig = {
+  createRegistry: () => {
+    throw new Error("createRegistry should not be used in gui CLI parse tests");
+  },
+};
+
+describe("gui CLI command wiring", () => {
+  const originalArgv = process.argv;
+  const originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
+  let tmpConfigHome: string;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.argv = [...originalArgv.slice(0, 2)];
+    tmpConfigHome = mkdtempSync(join(tmpdir(), "kiln-gui-config-"));
+    process.env.XDG_CONFIG_HOME = tmpConfigHome;
+  });
+
+  afterEach(() => {
+    process.env.XDG_CONFIG_HOME = originalXdgConfigHome;
+    rmSync(tmpConfigHome, { recursive: true, force: true });
+  });
+
+  it("passes GUI startup flags through createCli", async () => {
+    process.argv = [
+      originalArgv[0] ?? "bun",
+      originalArgv[1] ?? "index.ts",
+      "gui",
+      "--provider", "codex",
+      "--theme", "kiln-light",
+      "--plan",
+      "--cwd", "C:/repo",
+      "--port", "4901",
+      "--gui-port", "5199",
+      "--no-open",
+      "--dev",
+    ];
+
+    const { createCli } = await import("../../src/index.js");
+    await createCli(APP_CONFIG);
+
+    expect(mockGuiCommand).toHaveBeenCalledWith(APP_CONFIG, {
+      port: 4901,
+      guiPort: 5199,
+      mode: "dev",
+      cwd: "C:/repo",
+      open: false,
+      provider: "codex",
+      theme: "kiln-light",
+      plan: true,
+    });
+  });
+
+});
+
+describe("managed GUI shutdown monitor", () => {
+  it("resolves after the managed GUI disconnects following a live connection", async () => {
+    vi.useFakeTimers();
+    try {
+      const monitor = createManagedGuiWindowShutdownMonitor(100);
+      const disconnected = vi.fn();
+      void monitor.waitForDisconnect().then(disconnected);
+
+      monitor.onConnectionCountChange(1);
+      monitor.onConnectionCountChange(0);
+      await vi.advanceTimersByTimeAsync(99);
+      expect(disconnected).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(disconnected).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("resolves immediately when the managed GUI reports that the window is closing", async () => {
+    const monitor = createManagedGuiWindowShutdownMonitor(100);
+    const disconnected = vi.fn();
+    void monitor.waitForDisconnect().then(disconnected);
+
+    monitor.onManagedWindowClose();
+    await Promise.resolve();
+
+    expect(disconnected).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not resolve on a transient disconnect if the GUI reconnects before the grace period", async () => {
+    vi.useFakeTimers();
+    try {
+      const monitor = createManagedGuiWindowShutdownMonitor(100);
+      const disconnected = vi.fn();
+      void monitor.waitForDisconnect().then(disconnected);
+
+      monitor.onConnectionCountChange(1);
+      monitor.onConnectionCountChange(0);
+      await vi.advanceTimersByTimeAsync(50);
+      monitor.onConnectionCountChange(1);
+      await vi.advanceTimersByTimeAsync(100);
+
+      expect(disconnected).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

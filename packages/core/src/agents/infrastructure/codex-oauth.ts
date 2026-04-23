@@ -10,6 +10,7 @@ import type { ContentPart } from "../../engine/domain/content.js";
 import { KilnError } from "../../engine/errors.js";
 import { CodexOAuthAuth } from "./codex-oauth-auth.js";
 import { CODEX_DEFAULT_MODEL } from "../model-pricing.js";
+import { getInvalidToolInputDetails, normalizeToolInput } from "../tool-call-input.js";
 
 const RESPONSES_URL = "https://chatgpt.com/backend-api/codex/responses";
 
@@ -86,6 +87,10 @@ interface OutputItemAddedEnvelope {
   readonly item?: ResponsesOutputItem;
 }
 
+interface OutputItemDoneEnvelope {
+  readonly item?: ResponsesOutputItem;
+}
+
 interface FunctionCallArgumentsDeltaEnvelope {
   readonly item_id?: string;
   readonly delta?: string;
@@ -93,6 +98,8 @@ interface FunctionCallArgumentsDeltaEnvelope {
 
 interface FunctionCallArgumentsDoneEnvelope {
   readonly item_id?: string;
+  readonly call_id?: string;
+  readonly name?: string;
   readonly arguments?: string;
 }
 
@@ -141,7 +148,7 @@ export class CodexOAuthAdapter implements ProviderAdapter {
             content: JSON.stringify({
               id: added.item.call_id ?? added.item.id ?? "",
               name: added.item.name ?? "",
-              input: this.parseToolInput(added.item.arguments),
+              input: normalizeToolInput(added.item.name ?? "", added.item.arguments),
             }),
           };
         }
@@ -186,7 +193,8 @@ export class CodexOAuthAdapter implements ProviderAdapter {
         type: "function",
         name: tool.name,
         description: tool.description,
-        parameters: tool.inputSchema,
+        parameters: toStrictToolSchema(tool.inputSchema),
+        strict: true,
       })),
     };
   }
@@ -231,7 +239,7 @@ export class CodexOAuthAdapter implements ProviderAdapter {
   private async postWith401Retry(body: ResponsesRequestBody): Promise<Response> {
     const firstResponse = await this.post(body);
     if (firstResponse.status !== 401) {
-      await this.ensureOk(firstResponse);
+      await this.ensureOk(firstResponse, body);
       return firstResponse;
     }
 
@@ -242,7 +250,7 @@ export class CodexOAuthAdapter implements ProviderAdapter {
       });
     }
 
-    await this.ensureOk(retryResponse);
+    await this.ensureOk(retryResponse, body);
     return retryResponse;
   }
 
@@ -258,7 +266,7 @@ export class CodexOAuthAdapter implements ProviderAdapter {
     });
   }
 
-  private async ensureOk(response: Response): Promise<void> {
+  private async ensureOk(response: Response, requestBody?: ResponsesRequestBody): Promise<void> {
     if (response.ok) {
       return;
     }
@@ -273,6 +281,7 @@ export class CodexOAuthAdapter implements ProviderAdapter {
     throw this.providerError("Codex OAuth request failed", {
       status: response.status,
       responseBody,
+      toolReplaySummary: requestBody ? this.summarizeToolReplay(requestBody) : undefined,
     });
   }
 
@@ -301,10 +310,12 @@ export class CodexOAuthAdapter implements ProviderAdapter {
         toolCalls.push({
           id: item.call_id ?? item.id ?? "",
           name: item.name ?? "",
-          input: this.parseToolInput(item.arguments),
+          input: normalizeToolInput(item.name ?? "", item.arguments),
         });
       }
     }
+
+    this.repairInvalidToolCallsFromLeadingJson(parts, toolCalls);
 
     return {
       parts,
@@ -321,12 +332,64 @@ export class CodexOAuthAdapter implements ProviderAdapter {
     };
   }
 
-  private parseToolInput(argumentsText?: string): Record<string, unknown> {
-    if (!argumentsText) {
-      return {};
+  private repairInvalidToolCallsFromLeadingJson(
+    parts: ContentPart[],
+    toolCalls: ToolCall[],
+  ): void {
+    if (toolCalls.length === 0 || parts.length === 0) {
+      return;
     }
 
-    return this.parseJsonString<Record<string, unknown>>(argumentsText);
+    const firstTextPartIndex = parts.findIndex((part) => part.type === "text" && typeof part.text === "string");
+    if (firstTextPartIndex === -1) {
+      return;
+    }
+
+    const firstTextPart = parts[firstTextPartIndex];
+    if (!firstTextPart || firstTextPart.type !== "text") {
+      return;
+    }
+
+    const invalidIndexes = toolCalls
+      .map((toolCall, index) => ({ index, invalid: getInvalidToolInputDetails(toolCall.input) !== undefined }))
+      .filter((entry) => entry.invalid)
+      .map((entry) => entry.index);
+    if (invalidIndexes.length === 0) {
+      return;
+    }
+
+    const extracted = extractJsonObjects(firstTextPart.text);
+    if (extracted.length === 0) {
+      return;
+    }
+
+    let repaired = 0;
+    for (const invalidIndex of invalidIndexes) {
+      const candidate = extracted[repaired];
+      if (!candidate) {
+        break;
+      }
+      toolCalls[invalidIndex] = {
+        ...toolCalls[invalidIndex]!,
+        input: candidate.value,
+      };
+      repaired += 1;
+    }
+
+    if (repaired === 0) {
+      return;
+    }
+
+    if (extracted[0]?.start === 0) {
+      const trimStart = extracted[repaired - 1]!.end;
+      const trimmedText = firstTextPart.text.slice(trimStart).trimStart();
+      if (trimmedText.length === 0) {
+        parts.splice(firstTextPartIndex, 1);
+        return;
+      }
+
+      parts[firstTextPartIndex] = textPart(trimmedText);
+    }
   }
 
   private async consumeStreamingResponse(response: Response): Promise<ResponsesResponse> {
@@ -338,7 +401,8 @@ export class CodexOAuthAdapter implements ProviderAdapter {
 
     let completed: ResponsesResponse | null = null;
     let collectedText = "";
-    const collectedFunctionCalls = new Map<string, ResponsesOutputItem>();
+    const collectedFunctionCallsByItemId = new Map<string, ResponsesOutputItem>();
+    const collectedFunctionCallsByCallId = new Map<string, ResponsesOutputItem>();
     const collectedFunctionCallArguments = new Map<string, string>();
 
     for await (const event of this.parseSse(response.body)) {
@@ -353,9 +417,33 @@ export class CodexOAuthAdapter implements ProviderAdapter {
       if (event.event === "response.output_item.added") {
         const added = this.parseJsonString<OutputItemAddedEnvelope>(event.data);
         const item = added.item;
-        const functionCallId = item?.call_id ?? item?.id;
-        if (item?.type === "function_call" && functionCallId) {
-          collectedFunctionCalls.set(functionCallId, item);
+        if (item?.type === "function_call") {
+          if (item.id) {
+            collectedFunctionCallsByItemId.set(item.id, item);
+          }
+          if (item.call_id) {
+            collectedFunctionCallsByCallId.set(item.call_id, item);
+          }
+        }
+        continue;
+      }
+
+      if (event.event === "response.output_item.done") {
+        const done = this.parseJsonString<OutputItemDoneEnvelope>(event.data);
+        const item = done.item;
+        if (item?.type === "function_call") {
+          if (item.id) {
+            collectedFunctionCallsByItemId.set(item.id, item);
+          }
+          if (item.call_id) {
+            collectedFunctionCallsByCallId.set(item.call_id, item);
+          }
+          if (item.id && typeof item.arguments === "string") {
+            collectedFunctionCallArguments.set(item.id, item.arguments);
+          }
+          if (item.call_id && typeof item.arguments === "string") {
+            collectedFunctionCallArguments.set(item.call_id, item.arguments);
+          }
         }
         continue;
       }
@@ -373,6 +461,24 @@ export class CodexOAuthAdapter implements ProviderAdapter {
         const done = this.parseJsonString<FunctionCallArgumentsDoneEnvelope>(event.data);
         if (done.item_id && typeof done.arguments === "string") {
           collectedFunctionCallArguments.set(done.item_id, done.arguments);
+          if (done.call_id) {
+            collectedFunctionCallArguments.set(done.call_id, done.arguments);
+          }
+        }
+        if (done.item_id) {
+          const existing = collectedFunctionCallsByItemId.get(done.item_id);
+          const mergedItem: ResponsesOutputItem = {
+            ...(existing ?? {}),
+            type: "function_call",
+            id: existing?.id ?? done.item_id,
+            call_id: existing?.call_id ?? done.call_id,
+            name: existing?.name ?? done.name,
+            arguments: existing?.arguments ?? done.arguments,
+          };
+          collectedFunctionCallsByItemId.set(done.item_id, mergedItem);
+          if (done.call_id) {
+            collectedFunctionCallsByCallId.set(done.call_id, mergedItem);
+          }
         }
         continue;
       }
@@ -383,7 +489,14 @@ export class CodexOAuthAdapter implements ProviderAdapter {
           return this.applyStreamingFallbacks(
             completed,
             collectedText,
-            [...collectedFunctionCalls.values()],
+            [...new Map(
+              [
+                ...collectedFunctionCallsByItemId.values(),
+                ...collectedFunctionCallsByCallId.values(),
+              ].map((item) => [(item.call_id ?? item.id ?? ""), item]),
+            ).values()],
+            collectedFunctionCallsByItemId,
+            collectedFunctionCallsByCallId,
             collectedFunctionCallArguments,
           );
         }
@@ -394,7 +507,14 @@ export class CodexOAuthAdapter implements ProviderAdapter {
       return this.applyStreamingFallbacks(
         completed,
         collectedText,
-        [...collectedFunctionCalls.values()],
+        [...new Map(
+          [
+            ...collectedFunctionCallsByItemId.values(),
+            ...collectedFunctionCallsByCallId.values(),
+          ].map((item) => [(item.call_id ?? item.id ?? ""), item]),
+        ).values()],
+        collectedFunctionCallsByItemId,
+        collectedFunctionCallsByCallId,
         collectedFunctionCallArguments,
       );
     }
@@ -479,6 +599,8 @@ export class CodexOAuthAdapter implements ProviderAdapter {
     response: ResponsesResponse,
     collectedText: string,
     collectedFunctionCalls: readonly ResponsesOutputItem[],
+    collectedFunctionCallsByItemId: ReadonlyMap<string, ResponsesOutputItem>,
+    collectedFunctionCallsByCallId: ReadonlyMap<string, ResponsesOutputItem>,
     collectedFunctionCallArguments: ReadonlyMap<string, string>,
   ): ResponsesResponse {
     let nextOutput = [...(response.output ?? [])];
@@ -500,8 +622,11 @@ export class CodexOAuthAdapter implements ProviderAdapter {
 
     const seenFunctionCallIds = new Set(
       nextOutput
-        .filter((item) => item.type === "function_call" && typeof (item.call_id ?? item.id) === "string" && (item.call_id ?? item.id)!.length > 0)
-        .map((item) => (item.call_id ?? item.id) as string),
+        .filter((item) => item.type === "function_call")
+        .map((item) => item.call_id
+          ?? (item.id ? collectedFunctionCallsByItemId.get(item.id)?.call_id : undefined)
+          ?? item.id)
+        .filter((functionCallId): functionCallId is string => typeof functionCallId === "string" && functionCallId.length > 0),
     );
     const missingFunctionCalls = collectedFunctionCalls.filter((item) => {
       const functionCallId = item.call_id ?? item.id;
@@ -515,17 +640,23 @@ export class CodexOAuthAdapter implements ProviderAdapter {
       if (item.type !== "function_call") {
         return item;
       }
-      const functionCallId = item.call_id ?? item.id;
-      if (!functionCallId) {
+      const collectedCall = (item.id ? collectedFunctionCallsByItemId.get(item.id) : undefined)
+        ?? (item.call_id ? collectedFunctionCallsByCallId.get(item.call_id) : undefined);
+      const functionCallId = item.call_id ?? collectedCall?.call_id ?? item.id;
+      if (!functionCallId && !collectedCall) {
         return item;
       }
-      const argumentsText = collectedFunctionCallArguments.get(functionCallId);
-      if (!argumentsText || (item.arguments && item.arguments.length > 0)) {
-        return item;
-      }
+      const argumentsText = functionCallId
+        ? collectedFunctionCallArguments.get(functionCallId)
+        : undefined;
       return {
         ...item,
-        arguments: argumentsText,
+        ...(!item.call_id && collectedCall?.call_id ? { call_id: collectedCall.call_id } : {}),
+        ...(!item.name && collectedCall?.name ? { name: collectedCall.name } : {}),
+        ...(!item.arguments && argumentsText ? { arguments: argumentsText } : {}),
+        ...(!item.arguments && !argumentsText && collectedCall?.arguments
+          ? { arguments: collectedCall.arguments }
+          : {}),
       };
     });
 
@@ -554,4 +685,215 @@ export class CodexOAuthAdapter implements ProviderAdapter {
   private providerError(message: string, context: Record<string, unknown>, cause?: unknown): KilnError {
     return new KilnError("PROVIDER_AUTH_FAILED", message, { context, cause });
   }
+
+  private summarizeToolReplay(requestBody: ResponsesRequestBody): string | undefined {
+    const functionCallIds: string[] = [];
+    const functionCallOutputIds: string[] = [];
+
+    for (const item of requestBody.input) {
+      if (item.type === "function_call" && item.call_id) {
+        functionCallIds.push(item.call_id);
+      } else if (item.type === "function_call_output" && item.call_id) {
+        functionCallOutputIds.push(item.call_id);
+      }
+    }
+
+    if (functionCallIds.length === 0 && functionCallOutputIds.length === 0) {
+      return undefined;
+    }
+
+    return `function_calls=[${functionCallIds.join(", ")}]; function_call_outputs=[${functionCallOutputIds.join(", ")}]`;
+  }
+}
+
+function toStrictToolSchema(schema: Record<string, unknown>): Record<string, unknown> {
+  return transformSchemaForStrictMode(schema);
+}
+
+function transformSchemaForStrictMode(schema: Record<string, unknown>): Record<string, unknown> {
+  const typeValue = schema.type;
+
+  if (typeValue === "object") {
+    const propertyEntries = Object.entries(asSchemaMap(schema.properties));
+    const required = new Set(asStringArray(schema.required));
+    const properties = Object.fromEntries(
+      propertyEntries.map(([key, value]) => ([
+        key,
+        required.has(key)
+          ? transformSchemaForStrictMode(value)
+          : makeSchemaNullable(transformSchemaForStrictMode(value)),
+      ])),
+    );
+
+    return {
+      ...schema,
+      properties,
+      required: propertyEntries.map(([key]) => key),
+      additionalProperties: false,
+    };
+  }
+
+  if (typeValue === "array") {
+    const items = schema.items;
+    return {
+      ...schema,
+      ...(isSchemaRecord(items) ? { items: transformSchemaForStrictMode(items) } : {}),
+    };
+  }
+
+  return { ...schema };
+}
+
+function makeSchemaNullable(schema: Record<string, unknown>): Record<string, unknown> {
+  const typeValue = schema.type;
+  if (typeof typeValue === "string") {
+    return {
+      ...schema,
+      type: [typeValue, "null"],
+    };
+  }
+
+  if (Array.isArray(typeValue)) {
+    return {
+      ...schema,
+      type: typeValue.includes("null") ? typeValue : [...typeValue, "null"],
+    };
+  }
+
+  const enumValues = Array.isArray(schema.enum) ? schema.enum : undefined;
+  if (enumValues) {
+    return {
+      ...schema,
+      type: [inferEnumType(enumValues), "null"],
+      enum: enumValues.includes(null) ? enumValues : [...enumValues, null],
+    };
+  }
+
+  return {
+    anyOf: [
+      schema,
+      { type: "null" },
+    ],
+  };
+}
+
+function inferEnumType(values: readonly unknown[]): string {
+  if (values.every((value) => typeof value === "string")) {
+    return "string";
+  }
+  if (values.every((value) => typeof value === "number")) {
+    return "number";
+  }
+  if (values.every((value) => typeof value === "boolean")) {
+    return "boolean";
+  }
+  return "string";
+}
+
+function asSchemaMap(value: unknown): Record<string, Record<string, unknown>> {
+  if (!value || typeof value !== "object") {
+    return {};
+  }
+
+  const out: Record<string, Record<string, unknown>> = {};
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    if (isSchemaRecord(entry)) {
+      out[key] = entry;
+    }
+  }
+  return out;
+}
+
+function asStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
+}
+
+function isSchemaRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function extractJsonObjects(text: string): Array<{
+  readonly value: Record<string, unknown>;
+  readonly start: number;
+  readonly end: number;
+}> {
+  const extracted: Array<{
+    readonly value: Record<string, unknown>;
+    readonly start: number;
+    readonly end: number;
+  }> = [];
+  let cursor = 0;
+
+  while (cursor < text.length) {
+    const start = text.indexOf("{", cursor);
+    if (start === -1) {
+      break;
+    }
+
+    const objectEnd = findJsonObjectEnd(text, start);
+    if (objectEnd === undefined) {
+      cursor = start + 1;
+      continue;
+    }
+
+    const raw = text.slice(start, objectEnd);
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (!isSchemaRecord(parsed)) {
+        cursor = start + 1;
+        continue;
+      }
+      extracted.push({ value: parsed, start, end: objectEnd });
+      cursor = objectEnd;
+    } catch {
+      cursor = start + 1;
+    }
+  }
+
+  return extracted;
+}
+
+function findJsonObjectEnd(text: string, start: number): number | undefined {
+  let depth = 0;
+  let inString = false;
+  let escaping = false;
+
+  for (let index = start; index < text.length; index += 1) {
+    const char = text[index] ?? "";
+
+    if (escaping) {
+      escaping = false;
+      continue;
+    }
+
+    if (char === "\\") {
+      if (inString) {
+        escaping = true;
+      }
+      continue;
+    }
+
+    if (char === "\"") {
+      inString = !inString;
+      continue;
+    }
+
+    if (inString) {
+      continue;
+    }
+
+    if (char === "{") {
+      depth += 1;
+      continue;
+    }
+
+    if (char === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return index + 1;
+      }
+    }
+  }
+
+  return undefined;
 }

@@ -24,6 +24,8 @@
 | `identity.timezone` | `string` | Default timezone identifier for prompt context and scheduling-aware flows. |
 | `tui` | `KilnGlobalTuiConfig` | Global TUI preferences. |
 | `tui.theme` | `string` | Default TUI theme name. |
+| `gui` | `KilnGlobalGuiConfig` | Global GUI preferences. |
+| `gui.theme` | `string` | Default GUI theme name (`kiln-dark`, `kiln-light`, `system-follow`). |
 
 ## Environment Variables
 
@@ -48,6 +50,8 @@ identity:
   timezone: America/Tijuana
 tui:
   theme: nord
+gui:
+  theme: kiln-dark
 ```
 
 ## Relationship to kiln.yaml

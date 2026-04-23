@@ -275,6 +275,7 @@ describe("CodexOAuthAdapter", () => {
                 city: { type: "string" },
               },
               required: ["city"],
+              additionalProperties: false,
             },
             tags: new Set(["weather"]),
           },
@@ -302,6 +303,79 @@ describe("CodexOAuthAdapter", () => {
               city: { type: "string" },
             },
             required: ["city"],
+            additionalProperties: false,
+          },
+          strict: true,
+        },
+      ]);
+    });
+
+    it("converts optional object properties into Codex strict-mode compatible nullable required fields", async () => {
+      mockFetch.mockResolvedValueOnce(sseResponse([
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_4b",
+              status: "completed",
+              output: [],
+              usage: { input_tokens: 5, output_tokens: 1 },
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+      await adapter.createMessage(createOptions({
+        tools: [
+          {
+            name: "glob",
+            description: "Match files by glob pattern.",
+            inputSchema: {
+              type: "object",
+              properties: {
+                pattern: { type: "string" },
+                path: { type: "string" },
+              },
+              required: ["pattern"],
+              additionalProperties: false,
+            },
+            tags: new Set(["search"]),
+          },
+        ],
+      }));
+
+      const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(String(init.body)) as {
+        tools?: Array<{
+          name: string;
+          strict: boolean;
+          parameters: {
+            type: string;
+            required: string[];
+            additionalProperties: boolean;
+            properties: {
+              pattern: { type: string };
+              path: { type: string[] };
+            };
+          };
+        }>;
+      };
+
+      expect(body.tools).toEqual([
+        {
+          type: "function",
+          name: "glob",
+          description: "Match files by glob pattern.",
+          strict: true,
+          parameters: {
+            type: "object",
+            properties: {
+              pattern: { type: "string" },
+              path: { type: ["string", "null"] },
+            },
+            required: ["pattern", "path"],
+            additionalProperties: false,
           },
         },
       ]);
@@ -468,6 +542,139 @@ describe("CodexOAuthAdapter", () => {
       });
     });
 
+    it("repairs invalid tool calls from leading JSON objects emitted as text", async () => {
+      mockFetch.mockResolvedValueOnce(sseResponse([
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_repair_1",
+              status: "completed",
+              output: [
+                {
+                  type: "message",
+                  content: [
+                    {
+                      type: "output_text",
+                      text: "{\"pattern\":\"**/*kiln-context*\",\"path\":\".\",\"outputMode\":\"content\"}I found the right search parameters.",
+                    },
+                  ],
+                },
+                {
+                  type: "function_call",
+                  id: "call_repair_1",
+                  name: "glob",
+                  arguments: "",
+                },
+              ],
+              usage: {
+                input_tokens: 15,
+                output_tokens: 5,
+              },
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+      const response = await adapter.createMessage(createOptions());
+
+      expect(response.toolCalls).toEqual([
+        {
+          id: "call_repair_1",
+          name: "glob",
+          input: {
+            pattern: "**/*kiln-context*",
+            path: ".",
+            outputMode: "content",
+          },
+        },
+      ]);
+      expect(response.parts).toEqual([
+        {
+          type: "text",
+          text: "I found the right search parameters.",
+        },
+      ]);
+    });
+
+    it("normalizes builtin tool aliases in function-call arguments", async () => {
+      mockFetch.mockResolvedValueOnce(sseResponse([
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_alias_1",
+              status: "completed",
+              output: [
+                {
+                  type: "function_call",
+                  id: "call_alias_1",
+                  name: "write",
+                  arguments: "{\"path\":\"HOTFIX.MD\",\"text\":\"hello\"}",
+                },
+              ],
+              usage: {
+                input_tokens: 5,
+                output_tokens: 2,
+              },
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+      const response = await adapter.createMessage(createOptions());
+
+      expect(response.toolCalls).toEqual([
+        {
+          id: "call_alias_1",
+          name: "write",
+          input: {
+            filePath: "HOTFIX.MD",
+            content: "hello",
+          },
+        },
+      ]);
+    });
+
+    it("does not throw when function-call arguments are malformed JSON", async () => {
+      mockFetch.mockResolvedValueOnce(sseResponse([
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_invalid_args_1",
+              status: "completed",
+              output: [
+                {
+                  type: "function_call",
+                  id: "call_invalid_args_1",
+                  name: "write",
+                  arguments: "{bad-json}",
+                },
+              ],
+              usage: {
+                input_tokens: 5,
+                output_tokens: 2,
+              },
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+      const response = await adapter.createMessage(createOptions());
+      const { getInvalidToolInputDetails } = await import("../../tool-call-input.js");
+      const invalidDetails = getInvalidToolInputDetails(response.toolCalls[0]!.input);
+
+      expect(response.toolCalls[0]?.name).toBe("write");
+      expect(invalidDetails).toEqual({
+        reason: "Failed to parse tool arguments as JSON.",
+        raw: "{bad-json}",
+      });
+    });
+
     it("falls back to collected text deltas when response.completed omits message output", async () => {
       mockFetch.mockResolvedValueOnce(sseResponse([
         { event: "response.output_text.delta", data: { delta: "Hello " } },
@@ -530,6 +737,155 @@ describe("CodexOAuthAdapter", () => {
         },
       ]);
       expect(response.parts).toEqual([]);
+    });
+
+    it("restores call_id from streamed function-call items when response.completed only returns the item id", async () => {
+      mockFetch.mockResolvedValueOnce(sseResponse([
+        {
+          event: "response.output_item.added",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_added_1",
+              call_id: "call_added_1",
+              name: "read",
+              arguments: "{\"filePath\":\"kiln-context.md\"}",
+            },
+          },
+        },
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_tool_call_call_id_fallback_1",
+              status: "completed",
+              output: [
+                {
+                  type: "function_call",
+                  id: "fc_added_1",
+                },
+              ],
+              usage: { input_tokens: 13, output_tokens: 4 },
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+      const response = await adapter.createMessage(createOptions());
+
+      expect(response.toolCalls).toEqual([
+        {
+          id: "call_added_1",
+          name: "read",
+          input: { filePath: "kiln-context.md" },
+        },
+      ]);
+    });
+
+    it("restores call_id from response.function_call_arguments.done when output_item.added omits it", async () => {
+      mockFetch.mockResolvedValueOnce(sseResponse([
+        {
+          event: "response.output_item.added",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_done_1",
+            },
+          },
+        },
+        {
+          event: "response.function_call_arguments.done",
+          data: {
+            item_id: "fc_done_1",
+            call_id: "call_done_1",
+            name: "read",
+            arguments: "{\"filePath\":\"kiln-context.md\"}",
+          },
+        },
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_tool_call_arguments_done_fallback_1",
+              status: "completed",
+              output: [
+                {
+                  type: "function_call",
+                  id: "fc_done_1",
+                },
+              ],
+              usage: { input_tokens: 14, output_tokens: 5 },
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+      const response = await adapter.createMessage(createOptions());
+
+      expect(response.toolCalls).toEqual([
+        {
+          id: "call_done_1",
+          name: "read",
+          input: { filePath: "kiln-context.md" },
+        },
+      ]);
+    });
+
+    it("recovers completed function-call arguments from response.output_item.done", async () => {
+      mockFetch.mockResolvedValueOnce(sseResponse([
+        {
+          event: "response.output_item.added",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_done_evt_1",
+              call_id: "call_done_evt_1",
+              name: "read",
+              arguments: "",
+            },
+          },
+        },
+        {
+          event: "response.output_item.done",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_done_evt_1",
+              call_id: "call_done_evt_1",
+              name: "read",
+              arguments: "{\"filePath\":\"kiln-context.md\",\"offset\":0,\"limit\":200}",
+            },
+          },
+        },
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_output_item_done_1",
+              status: "completed",
+              output: [],
+              usage: { input_tokens: 10, output_tokens: 3 },
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+      const response = await adapter.createMessage(createOptions());
+
+      expect(response.toolCalls).toEqual([
+        {
+          id: "call_done_evt_1",
+          name: "read",
+          input: {
+            filePath: "kiln-context.md",
+            offset: 0,
+            limit: 200,
+          },
+        },
+      ]);
     });
 
     it("parses SSE streams that use CRLF separators", async () => {
