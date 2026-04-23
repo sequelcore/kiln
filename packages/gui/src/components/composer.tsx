@@ -1,6 +1,9 @@
 import { useRef, useState } from "react";
 import type { ActivityPhase, SessionStatus } from "../lib/session-store.js";
 import { ActivityPhaseIndicator } from "./activity-phase-indicator.js";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 
 interface ComposerProps {
   readonly status: SessionStatus;
@@ -28,7 +31,7 @@ export function Composer(props: ComposerProps) {
   }
 
   return (
-    <section className="border-t border-[var(--color-border)] bg-[var(--color-background-panel)] px-4 py-3">
+    <section className="border-t border-border bg-card px-4 py-3">
       <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-[var(--color-text-muted)]">
         <ActivityPhaseIndicator
           phase={props.activityPhase}
@@ -36,14 +39,14 @@ export function Composer(props: ComposerProps) {
           details={props.activityDetails}
         />
         {props.planMode ? (
-          <span className="rounded border border-[var(--color-warning)]/60 bg-[var(--color-warning)]/10 px-2 py-0.5 text-[var(--color-warning)]">
+          <Badge variant="outline" className="border-[var(--color-warning)]/60 bg-[var(--color-warning)]/10 text-[var(--color-warning)]">
             Plan mode
-          </span>
+          </Badge>
         ) : null}
         {props.resumeTargetId ? (
-          <span className="rounded border border-[var(--color-accent)]/60 bg-[var(--color-accent)]/10 px-2 py-0.5 text-[var(--color-accent)]">
+          <Badge variant="outline" className="border-[var(--color-accent)]/60 bg-[var(--color-accent)]/10 text-[var(--color-accent)]">
             Continuing session
-          </span>
+          </Badge>
         ) : null}
       </div>
       <form
@@ -58,7 +61,7 @@ export function Composer(props: ComposerProps) {
         <label className="sr-only" htmlFor="composer-input">
           Message
         </label>
-        <textarea
+        <Textarea
           id="composer-input"
           ref={textareaRef}
           value={draft}
@@ -114,30 +117,26 @@ export function Composer(props: ComposerProps) {
             setDraft("");
           }}
           rows={3}
-          className="min-h-[56px] flex-1 resize-y break-words rounded-md border border-[var(--color-border)] bg-[var(--color-background)] px-3 py-2 text-sm text-[var(--color-text)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-active)]"
+          className="min-h-14 flex-1 resize-y break-words bg-background text-foreground"
           placeholder="Send a message (Shift+Enter for newline)"
         />
-        <button
+        <Button
           type="button"
+          variant={props.planMode ? "secondary" : "outline"}
           aria-pressed={props.planMode}
           onClick={() => props.onTogglePlanMode(!props.planMode)}
-          className={[
-            "rounded border px-3 py-2 text-sm",
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-active)]",
-            props.planMode
-              ? "border-[var(--color-warning)] bg-[var(--color-warning)]/10 text-[var(--color-warning)]"
-              : "border-[var(--color-border)] text-[var(--color-text-muted)] hover:text-[var(--color-text)]",
-          ].join(" ")}
+          className={props.planMode ? "border-[var(--color-warning)] bg-[var(--color-warning)]/10 text-[var(--color-warning)]" : undefined}
         >
           Plan
-        </button>
-        <button
+        </Button>
+        <Button
           type="submit"
           disabled={!canSubmit || isBusy}
-          className="rounded border border-[var(--color-border-active)] bg-[var(--color-background-element)] px-4 py-2 text-sm text-[var(--color-text)] disabled:cursor-not-allowed disabled:opacity-50"
+          variant="default"
+          className="px-4"
         >
           Send
-        </button>
+        </Button>
       </form>
     </section>
   );

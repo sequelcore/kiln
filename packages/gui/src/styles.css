@@ -1,4 +1,11 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/geist";
+/*
+ ---break---
+ */
+@custom-variant dark (&:is(.dark *, [data-theme="dark"] *));
 
 /*
  * Kiln GUI — semantic token system
@@ -47,6 +54,39 @@
   --color-foreground:         var(--color-text);
   --color-muted-foreground:   var(--color-text-muted);
 
+  /* shadcn/Base UI contract tokens mapped to Kiln's visual system */
+  --background:               var(--color-background);
+  --foreground:               var(--color-text);
+  --card:                     var(--color-background-panel);
+  --card-foreground:          var(--color-text);
+  --popover:                  var(--color-background-panel);
+  --popover-foreground:       var(--color-text);
+  --primary:                  var(--color-primary);
+  --primary-foreground:       var(--color-background);
+  --secondary:                var(--color-background-element);
+  --secondary-foreground:     var(--color-text);
+  --muted:                    color-mix(in srgb, var(--color-background-element) 82%, transparent);
+  --muted-foreground:         var(--color-text-muted);
+  --accent:                   color-mix(in srgb, var(--color-accent) 16%, var(--color-background-element));
+  --accent-foreground:        var(--color-text);
+  --destructive:              var(--color-error);
+  --border:                   var(--color-border);
+  --input:                    var(--color-border);
+  --ring:                     var(--color-border-active);
+  --chart-1:                  var(--color-primary);
+  --chart-2:                  var(--color-accent);
+  --chart-3:                  var(--color-success);
+  --chart-4:                  var(--color-warning);
+  --chart-5:                  var(--color-info);
+  --sidebar:                  var(--color-background-panel);
+  --sidebar-foreground:       var(--color-text);
+  --sidebar-primary:          var(--color-primary);
+  --sidebar-primary-foreground: var(--color-background);
+  --sidebar-accent:           var(--color-background-element);
+  --sidebar-accent-foreground: var(--color-text);
+  --sidebar-border:           var(--color-border);
+  --sidebar-ring:             var(--color-border-active);
+
   --radius: 0.5rem;
 }
 
@@ -87,6 +127,38 @@
   --color-foreground:         var(--color-text);
   --color-muted-foreground:   var(--color-text-muted);
 
+  --background:               var(--color-background);
+  --foreground:               var(--color-text);
+  --card:                     var(--color-background-panel);
+  --card-foreground:          var(--color-text);
+  --popover:                  var(--color-background-panel);
+  --popover-foreground:       var(--color-text);
+  --primary:                  var(--color-primary);
+  --primary-foreground:       var(--color-background);
+  --secondary:                var(--color-background-element);
+  --secondary-foreground:     var(--color-text);
+  --muted:                    color-mix(in srgb, var(--color-background-element) 86%, transparent);
+  --muted-foreground:         var(--color-text-muted);
+  --accent:                   color-mix(in srgb, var(--color-accent) 12%, var(--color-background-element));
+  --accent-foreground:        var(--color-text);
+  --destructive:              var(--color-error);
+  --border:                   var(--color-border);
+  --input:                    var(--color-border);
+  --ring:                     var(--color-border-active);
+  --chart-1:                  var(--color-primary);
+  --chart-2:                  var(--color-accent);
+  --chart-3:                  var(--color-success);
+  --chart-4:                  var(--color-warning);
+  --chart-5:                  var(--color-info);
+  --sidebar:                  var(--color-background-panel);
+  --sidebar-foreground:       var(--color-text);
+  --sidebar-primary:          var(--color-primary);
+  --sidebar-primary-foreground: var(--color-background);
+  --sidebar-accent:           var(--color-background-element);
+  --sidebar-accent-foreground: var(--color-text);
+  --sidebar-border:           var(--color-border);
+  --sidebar-ring:             var(--color-border-active);
+
   --radius: 0.5rem;
 }
 
@@ -115,6 +187,40 @@
   --color-foreground: var(--color-foreground);
   --color-muted-foreground: var(--color-muted-foreground);
   --radius: var(--radius);
+  --font-heading: var(--font-sans);
+  --font-sans: 'Geist Variable', sans-serif;
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
 }
 
 /* ── Base styles ────────────────────────────────────────────────────── */
@@ -170,4 +276,20 @@ body {
 .markdown-body a {
   color: var(--color-primary);
   text-decoration: underline;
+}
+
+/*
+ ---break---
+ */
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
 }

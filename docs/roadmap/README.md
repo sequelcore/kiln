@@ -102,6 +102,10 @@ As of 2026-04-23:
 - GUI session selection now activates the canonical Kiln session directly:
   the transcript loads into the main chat and the next message continues that
   selected runtime conversation without a separate resume-target step
+- the GUI now has a shadcn/Base UI baseline mapped onto Kiln semantic tokens,
+  and the session rail has moved toward the dense operator-console direction
+  with grouped canonical sessions, compact provider glyphs, and subtle active
+  continuation state
 - the dedicated GUI parity suite now exists at `packages/gui/tests/parity/`
   and passes; category 7 remains covered by CLI integration tests
 - the remaining gate before TUI deletion is operational, not implementation:

@@ -130,6 +130,10 @@ Required focus:
 - provider-agnostic session history and resume
 - selected-session runtime routing, so sidebar/history selection changes the
   active canonical conversation rather than only provider-native continuity
+- shared shadcn/Base UI component baseline mapped onto Kiln semantic tokens,
+  so GUI polish happens through one design system instead of ad hoc styling
+- dense operator-console session rail with grouped canonical sessions, compact
+  provider glyphs, stable cost/date display, and subtle continuation state
 - provider/model identity
 - cost and token telemetry
 - tool-call timeline

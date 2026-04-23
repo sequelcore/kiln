@@ -1,4 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+  CommandShortcut,
+} from "@/components/ui/command";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
 
 export interface CommandPaletteItem {
   readonly id: string;
@@ -66,32 +84,14 @@ export function CommandPalette(props: CommandPaletteProps) {
   const activeCommand = filteredCommands[selectedIndex] ?? null;
 
   return (
-    <div className="absolute right-3 top-14 z-30 w-full max-w-md rounded-lg border border-[var(--color-border)] bg-[var(--color-background-panel)] p-2 shadow-lg">
-      <div className="mb-2 flex items-center justify-between gap-2 px-1">
-        <p className="text-xs uppercase tracking-wide text-[var(--color-text-muted)]">{props.title}</p>
-        <div className="flex items-center gap-2">
-          {props.canGoBack ? (
-            <button
-              type="button"
-              onClick={() => props.onBack?.()}
-              className="rounded border border-[var(--color-border)] px-2 py-1 text-[11px] text-[var(--color-text-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-active)]"
-            >
-              Back
-            </button>
-          ) : null}
-          <button
-            type="button"
-            onClick={() => props.onOpenChange(false)}
-            className="rounded border border-[var(--color-border)] px-2 py-1 text-[11px] text-[var(--color-text-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-active)]"
-          >
-            Close
-          </button>
-        </div>
-      </div>
-      <div
-        role="dialog"
-        aria-modal="false"
+    <Dialog
+      open={props.open}
+      onOpenChange={props.onOpenChange}
+    >
+      <DialogContent
         aria-label={props.title}
+        className="top-1/3 max-w-md translate-y-0 overflow-hidden border border-border bg-card p-0 shadow-2xl"
+        showCloseButton={false}
         onKeyDown={(event) => {
           if (event.key === "Escape") {
             event.preventDefault();
@@ -131,61 +131,73 @@ export function CommandPalette(props: CommandPaletteProps) {
           }
         }}
       >
-        <label className="sr-only" htmlFor="command-palette-input">
-          Filter commands
-        </label>
-        <input
-          id="command-palette-input"
+        <DialogHeader className="sr-only">
+          <DialogTitle>{props.title}</DialogTitle>
+          <DialogDescription>{props.placeholder}</DialogDescription>
+        </DialogHeader>
+      <Command shouldFilter={false}>
+        <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">{props.title}</p>
+          <div className="flex items-center gap-2">
+            {props.canGoBack ? (
+              <Button type="button" size="xs" variant="outline" onClick={() => props.onBack?.()}>
+                Back
+              </Button>
+            ) : null}
+            <Button type="button" size="xs" variant="ghost" onClick={() => props.onOpenChange(false)}>
+              Close
+            </Button>
+          </div>
+        </div>
+        <CommandInput
           ref={inputRef}
           value={props.query}
-          onChange={(event) => props.onQueryChange(event.target.value)}
+          onValueChange={props.onQueryChange}
           placeholder={props.placeholder}
-          className="w-full rounded border border-[var(--color-border)] bg-[var(--color-background)] px-3 py-2 text-sm text-[var(--color-text)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-active)]"
         />
-        <div role="listbox" aria-label={`${props.title} commands`} className="mt-2 max-h-72 space-y-1 overflow-y-auto">
+        <CommandList aria-label={`${props.title} commands`} className="p-2">
           {filteredCommands.length === 0 ? (
-            <p className="rounded border border-dashed border-[var(--color-border)] px-3 py-4 text-sm text-[var(--color-text-muted)]">
+            <CommandEmpty className="rounded-lg border border-dashed border-border bg-background/60 px-3 py-4 text-muted-foreground">
               No commands match.
-            </p>
+            </CommandEmpty>
           ) : (
-            filteredCommands.map((command, index) => {
-              const selected = index === selectedIndex;
-              return (
-                <button
-                  key={command.id}
-                  type="button"
-                  role="option"
-                  aria-selected={selected}
-                  disabled={command.disabled}
-                  onMouseEnter={() => setSelectedIndex(index)}
-                  onClick={() => {
-                    if (!command.disabled) {
-                      props.onExecute(command);
-                    }
-                  }}
-                  className={[
-                    "w-full rounded border px-3 py-2 text-left",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-active)]",
-                    command.disabled
-                      ? "cursor-not-allowed border-[var(--color-border)] bg-[var(--color-background)]/70 text-[var(--color-text-muted)] opacity-60"
-                      : selected
-                        ? "border-[var(--color-border-active)] bg-[var(--color-background-element)]"
-                        : "border-[var(--color-border)] bg-[var(--color-background)] hover:bg-[var(--color-background-element)]",
-                  ].join(" ")}
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-sm text-[var(--color-text)]">{command.title}</span>
-                    <span className="font-mono text-xs text-[var(--color-text-muted)]">/{command.trigger}</span>
-                  </div>
-                  {command.description ? (
-                    <p className="mt-1 text-xs text-[var(--color-text-muted)]">{command.description}</p>
-                  ) : null}
-                </button>
-              );
-            })
+            <CommandGroup>
+              {filteredCommands.map((command, index) => {
+                const selected = index === selectedIndex;
+                return (
+                  <CommandItem
+                    key={command.id}
+                    value={command.id}
+                    aria-selected={selected}
+                    disabled={command.disabled}
+                    onMouseEnter={() => setSelectedIndex(index)}
+                    onSelect={() => {
+                      if (!command.disabled) {
+                        props.onExecute(command);
+                      }
+                    }}
+                    className={cn(
+                      "items-start rounded-lg border border-transparent px-3 py-2",
+                      selected ? "border-ring bg-secondary" : "hover:bg-secondary",
+                    )}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-sm text-foreground">{command.title}</span>
+                        <CommandShortcut>/{command.trigger}</CommandShortcut>
+                      </div>
+                      {command.description ? (
+                        <p className="mt-1 text-xs text-muted-foreground">{command.description}</p>
+                      ) : null}
+                    </div>
+                  </CommandItem>
+                );
+              })}
+            </CommandGroup>
           )}
-        </div>
-      </div>
-    </div>
+        </CommandList>
+      </Command>
+      </DialogContent>
+    </Dialog>
   );
 }

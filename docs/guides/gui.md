@@ -50,6 +50,23 @@ If no supported browser host is available, `kiln gui` fails closed and tells you
 
 GUI theme preference is stored in `~/.kiln/config.yaml` under `gui.theme`. If `gui.theme` is absent, Kiln falls back to `tui.theme` during the transition period, then to `kiln-dark`.
 
+## Design System
+
+The GUI uses shadcn with Base UI primitives as its component baseline. The
+source-owned component files live under `packages/gui/src/components/ui/`, and
+imports use the `@/` alias rooted at `packages/gui/src`.
+
+Kiln's visual tokens remain canonical. shadcn contract tokens such as
+`--background`, `--card`, `--secondary`, `--border`, `--ring`, and sidebar
+tokens are mapped onto the existing Kiln theme variables in
+`packages/gui/src/styles.css`. Do not introduce a parallel palette or raw
+provider colors for normal UI state.
+
+The current session rail follows a dense operator-console pattern: grouped
+canonical sessions, hairline separators, compact provider glyphs, stable cost
+formatting, and a subtle active continuation rail. It intentionally avoids
+card stacks and provider-owned history buckets.
+
 ## Session Model
 
 The GUI session rail shows canonical Kiln sessions. It is not filtered by the

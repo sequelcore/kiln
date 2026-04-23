@@ -12,6 +12,20 @@ bun run lint         # ESLint
 bun run test:run     # Vitest unit/component tests (single run)
 ```
 
+## Design system
+
+The GUI uses shadcn with Base UI primitives. Project configuration lives in
+`components.json`, generated UI components live in `src/components/ui/`, and
+shared class merging lives in `src/lib/utils.ts`.
+
+Use semantic shadcn/Kiln tokens (`bg-card`, `text-muted-foreground`,
+`border-border`, `ring-ring`) rather than raw colors. The global token bridge
+is `src/styles.css`; update it instead of creating a second palette.
+
+The current product direction is a dense operator surface, not a generic
+dashboard: compact rows, hairline dividers, provider glyphs, clear active
+continuation state, and visible telemetry where it helps supervision.
+
 ## E2E tests (Playwright)
 
 Install the browser once:
