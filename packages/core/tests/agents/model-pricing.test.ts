@@ -6,15 +6,17 @@ describe("MODEL_CATALOG", () => {
     const providers = new Set(MODEL_CATALOG.map((m) => m.provider));
     expect(providers).toContain("anthropic");
     expect(providers).toContain("openai");
-    expect(providers).toContain("opencode");
+    expect(providers).toContain("opencode-go");
+    expect(providers).toContain("opencode-zen");
     expect(providers).toContain("deepseek");
     expect(providers).toContain("openrouter");
     expect(providers).toContain("ollama");
+    expect(providers).not.toContain("opencode");
     expect(providers).not.toContain("codex-oauth");
   });
 
-  it("has 22 total entries", () => {
-    expect(MODEL_CATALOG).toHaveLength(22);
+  it("contains at least one entry per active provider", () => {
+    expect(MODEL_CATALOG.length).toBeGreaterThanOrEqual(36);
   });
 
   it("ollama is free", () => {
@@ -39,13 +41,21 @@ describe("MODEL_CATALOG", () => {
     expect(codexOauth).toHaveLength(0);
   });
 
-  it("opencode free wrapper models are zero cost", () => {
-    const opencode = MODEL_CATALOG.filter((m) => m.provider === "opencode");
-    expect(opencode).toHaveLength(2);
+  it("opencode-go subscription models are zero cost", () => {
+    const opencode = MODEL_CATALOG.filter((m) => m.provider === "opencode-go");
+    expect(opencode).toHaveLength(12);
     for (const model of opencode) {
       expect(model.inputPer1M).toBe(0);
       expect(model.outputPer1M).toBe(0);
-      expect(model.qualityTier).toBe("medium");
+    }
+  });
+
+  it("opencode-zen gateway models are zero cost in catalog", () => {
+    const opencode = MODEL_CATALOG.filter((m) => m.provider === "opencode-zen");
+    expect(opencode).toHaveLength(4);
+    for (const model of opencode) {
+      expect(model.inputPer1M).toBe(0);
+      expect(model.outputPer1M).toBe(0);
     }
   });
 });

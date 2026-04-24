@@ -7,6 +7,7 @@ import {
   EventBus,
   extractText,
   textParts,
+  OpenCodeAuth,
   type ApprovalReceivedEvent,
   type ApprovalRequestedEvent,
   type KilnEvent,
@@ -447,10 +448,10 @@ async function resolveOperatorModels(): Promise<Record<string, string[]>> {
     getOpencodeModels(),
     getCodexModels(),
   ]);
-  return buildGuiOperatorModels({
-    opencodeModels,
-    codexModels,
-  });
+  const opencodeAuth = new OpenCodeAuth();
+  const opencodeFile = await opencodeAuth.loadAuthFile();
+  const opencodeTier = opencodeFile?.tier ?? null;
+  return buildGuiOperatorModels({ opencodeModels, codexModels, opencodeTier });
 }
 
 function wireOperatorTransport(
@@ -1078,6 +1079,8 @@ class GuiActivityStreamer {
           changeType: event.changeType,
           linesAdded: event.linesAdded,
           linesRemoved: event.linesRemoved,
+          diffPreview: event.diffPreview,
+          diffTruncated: event.diffTruncated,
         });
       }
       this.emitSessionEvent({
@@ -1089,6 +1092,8 @@ class GuiActivityStreamer {
             changeType: event.changeType === "modified" ? "updated" : event.changeType,
             linesAdded: event.linesAdded,
             linesRemoved: event.linesRemoved,
+            diffPreview: event.diffPreview,
+            diffTruncated: event.diffTruncated,
           },
         },
       });

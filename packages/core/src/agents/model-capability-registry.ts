@@ -35,9 +35,25 @@ const MODEL_CAPABILITIES: ReadonlyMap<string, CapabilityFlags> = new Map([
   ["google/gemma-3-27b-it:free", { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: true, supportsVision: true, supportsAudio: false, maxContextTokens: 131_000 }],
   ["qwen/qwen3-coder-480b-a35b-instruct:free", { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: true, supportsVision: false, supportsAudio: false, maxContextTokens: 262_000 }],
   ["mistralai/mistral-small-3.1-24b:free", { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: false, supportsVision: false, supportsAudio: false, maxContextTokens: 128_000 }],
-  // OpenCode wrappers
-  ["minimax-m2.5-free", { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: false, supportsVision: false, supportsAudio: false, maxContextTokens: 200_000 }],
-  ["nemotron-3-super-free", { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: false, supportsVision: false, supportsAudio: false, maxContextTokens: 200_000 }],
+  // OpenCode Go (subscription) and Zen (metered) — shared gateway at opencode.ai/zen/v1
+  // OpenCode Go — open-source coding models via Zen gateway
+  ["minimax-m2.5",  { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: true,  supportsVision: false, supportsAudio: false, maxContextTokens: 256_000 }],
+  ["minimax-m2.7",  { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: true,  supportsVision: false, supportsAudio: false, maxContextTokens: 256_000 }],
+  ["glm-5",         { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: true,  supportsVision: false, supportsAudio: false, maxContextTokens: 128_000 }],
+  ["glm-5.1",       { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: true,  supportsVision: false, supportsAudio: false, maxContextTokens: 128_000 }],
+  ["kimi-k2.5",     { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: true,  supportsVision: false, supportsAudio: false, maxContextTokens: 256_000 }],
+  ["kimi-k2.6",     { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: true,  supportsVision: false, supportsAudio: false, maxContextTokens: 256_000 }],
+  ["mimo-v2-pro",   { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: false, supportsVision: false, supportsAudio: false, maxContextTokens: 128_000 }],
+  ["mimo-v2-omni",  { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: false, supportsVision: true,  supportsAudio: false, maxContextTokens: 128_000 }],
+  ["mimo-v2.5-pro", { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: false, supportsVision: false, supportsAudio: false, maxContextTokens: 128_000 }],
+  ["mimo-v2.5",     { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: false, supportsVision: false, supportsAudio: false, maxContextTokens: 128_000 }],
+  ["qwen3.5-plus",  { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: true,  supportsVision: false, supportsAudio: false, maxContextTokens: 256_000 }],
+  ["qwen3.6-plus",  { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: true,  supportsVision: false, supportsAudio: false, maxContextTokens: 256_000 }],
+  // OpenCode Zen — proprietary frontier models via gateway
+  ["anthropic/claude-opus-4-6",   { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: true, supportsVision: true, supportsAudio: false, maxContextTokens: 200_000 }],
+  ["anthropic/claude-sonnet-4-6", { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: true, supportsVision: true, supportsAudio: false, maxContextTokens: 200_000 }],
+  ["openai/gpt-5.4",              { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: true, supportsVision: true, supportsAudio: false, maxContextTokens: 200_000 }],
+  ["google/gemini-2.5-pro",       { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: true, supportsVision: true, supportsAudio: false, maxContextTokens: 200_000 }],
   // Ollama / Local
   ["ollama-local", { supportsTools: false, supportsStreaming: true, supportsStructuredOutput: false, supportsVision: false, supportsAudio: false, maxContextTokens: 128_000 }],
   // OpenAI Codex (gpt-5 family)

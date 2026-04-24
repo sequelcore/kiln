@@ -7,7 +7,9 @@ export type DirectProviderId =
   | "openai"
   | "deepseek"
   | "openrouter"
-  | "ollama";
+  | "ollama"
+  | "opencode-go"
+  | "opencode-zen";
 
 export type DirectProviderExecutionMode = "text-only" | "kiln-executable";
 
@@ -33,6 +35,18 @@ const DIRECT_PROVIDER_EXECUTION_PROFILES: ReadonlyMap<DirectProviderId, DirectPr
     provider: "codex-oauth",
     defaultExecutionMode: "kiln-executable",
     defaultBillingMode: "subscription",
+    supportsStructuredToolCalls: true,
+  }],
+  ["opencode-go", {
+    provider: "opencode-go",
+    defaultExecutionMode: "text-only",
+    defaultBillingMode: "subscription",
+    supportsStructuredToolCalls: true,
+  }],
+  ["opencode-zen", {
+    provider: "opencode-zen",
+    defaultExecutionMode: "text-only",
+    defaultBillingMode: "metered",
     supportsStructuredToolCalls: true,
   }],
   ["anthropic", {

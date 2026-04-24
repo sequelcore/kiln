@@ -111,6 +111,13 @@ export function getErrorSuggestion(
       return { suggestion, docUrl: docUrl(code) };
     }
 
+    case "PROVIDER_QUOTA_EXCEEDED":
+      return {
+        suggestion:
+          "Provider quota exhausted. Check your subscription tier and usage limits.",
+        docUrl: docUrl(code),
+      };
+
     case "BUDGET_CHECK_FAILED":
       return {
         suggestion:

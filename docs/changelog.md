@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased -- Native OpenCode Go/Zen Provider
+
+- Added `OpenCodeAuth` API-key store at `~/.kiln/auth/opencode.json` with
+  tier `"go"` or `"zen"`. Supports auto-import from OpenCode's native config
+  (`~/.local/share/opencode/auth.json` on Unix,
+  `%LOCALAPPDATA%\opencode\auth.json` on Windows).
+- Added `OpenCodeAdapter` extending `OpenAICompatAdapter`, targeting
+  `https://opencode.ai/zen/v1`. Both Go and Zen tiers share the gateway; the
+  tier only selects which models are authorized server-side.
+- Added `kiln auth opencode {link,status,logout}` CLI subcommand. `link`
+  supports `--tier go|zen` and `--key <key>` flags, falls back to
+  native-config import, then interactive paste.
+- Extended `DirectProviderId` with `"opencode-go"` (subscription billing) and
+  `"opencode-zen"` (metered billing). GUI model picker surfaces the active
+  tier automatically.
+- Added `OpenCodeRateLimitError` and `OpenCodeQuotaError` with `provider`
+  context and `retryable` flags, shaped for the forthcoming roadmap
+  `06-provider-credential-pool`.
+- Registered 12 OpenCode Go models (MiniMax M2.5/M2.7, GLM-5/5.1, Kimi
+  K2.5/K2.6, MiMo V2 variants, Qwen 3.5/3.6 Plus) and 4 Zen models
+  (Anthropic Claude Opus/Sonnet 4-6, OpenAI GPT-5.4, Google Gemini 2.5 Pro)
+  in `MODEL_CATALOG` and `ModelCapabilityRegistry`.
+- Added `docs/roadmap/06-provider-credential-pool.md` as the forward plan
+  for multi-account rotation, cooldown handling, and cross-process reload
+  across all provider categories.
+
 ## Unreleased -- Provider-Agnostic Session Identity
 
 - GUI, TUI, and CLI resume now treat the Kiln session as the canonical

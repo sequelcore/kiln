@@ -13,16 +13,43 @@ const DEFAULT_CODEX_OAUTH_MODELS = orderPreferredModels(
   CODEX_OAUTH_PREFERRED_MODELS,
 );
 
+const OPENCODE_GO_MODELS = orderPreferredModels(
+  [
+    ...MODEL_CATALOG
+      .filter((entry) => entry.provider === "opencode-go")
+      .map((entry) => entry.model),
+  ],
+  [],
+);
+
+const OPENCODE_ZEN_MODELS = orderPreferredModels(
+  [
+    ...MODEL_CATALOG
+      .filter((entry) => entry.provider === "opencode-zen")
+      .map((entry) => entry.model),
+  ],
+  [],
+);
+
 export function buildGuiOperatorModels(input: {
   readonly opencodeModels: readonly string[];
   readonly codexModels: readonly string[];
+  readonly opencodeTier: "go" | "zen" | null;
 }): Record<string, string[]> {
-  return {
+  const result: Record<string, string[]> = {
     claude: [...DEFAULT_CLAUDE_MODELS],
     codex: input.codexModels.length > 0 ? [...input.codexModels] : [...DEFAULT_CODEX_MODELS],
     opencode: [...input.opencodeModels],
     "codex-oauth": [...DEFAULT_CODEX_OAUTH_MODELS],
   };
+
+  if (input.opencodeTier === "go") {
+    result["opencode-go"] = [...OPENCODE_GO_MODELS];
+  } else if (input.opencodeTier === "zen") {
+    result["opencode-zen"] = [...OPENCODE_ZEN_MODELS];
+  }
+
+  return result;
 }
 
 function orderPreferredModels(

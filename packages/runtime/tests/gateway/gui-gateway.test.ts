@@ -73,6 +73,7 @@ describe("buildGuiOperatorModels", () => {
     const models = buildGuiOperatorModels({
       opencodeModels: ["openai/gpt-5.4-mini"],
       codexModels: ["gpt-5.4", "gpt-5.4-mini"],
+      opencodeTier: null,
     });
 
     expect(models["codex-oauth"]).toEqual([
@@ -83,5 +84,29 @@ describe("buildGuiOperatorModels", () => {
     ]);
     expect(models.codex).toEqual(["gpt-5.4", "gpt-5.4-mini"]);
     expect(models.opencode).toEqual(["openai/gpt-5.4-mini"]);
+  });
+
+  it("adds opencode-go key when tier is 'go'", () => {
+    const models = buildGuiOperatorModels({
+      opencodeModels: [],
+      codexModels: [],
+      opencodeTier: "go",
+    });
+    expect(models["opencode-go"]).toBeDefined();
+    expect(models["opencode-go"]?.length).toBeGreaterThan(0);
+    expect(models["opencode-go"]).toContain("minimax-m2.5");
+    expect(models["opencode-zen"]).toBeUndefined();
+  });
+
+  it("adds opencode-zen key when tier is 'zen'", () => {
+    const models = buildGuiOperatorModels({
+      opencodeModels: [],
+      codexModels: [],
+      opencodeTier: "zen",
+    });
+    expect(models["opencode-zen"]).toBeDefined();
+    expect(models["opencode-zen"]?.length).toBeGreaterThan(0);
+    expect(models["opencode-zen"]).toContain("anthropic/claude-sonnet-4-6");
+    expect(models["opencode-go"]).toBeUndefined();
   });
 });

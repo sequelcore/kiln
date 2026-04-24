@@ -54,6 +54,23 @@ gui:
   theme: kiln-dark
 ```
 
+### Supported providers
+
+The `provider` field and `KILN_PROVIDER` env accept any of the following
+direct-provider identifiers. Harness wrappers (`claude-code`, `codex`,
+`opencode`) are a separate surface and are not listed here.
+
+| Provider ID | Description |
+|-------------|-------------|
+| `anthropic` | Anthropic API (Claude models). Requires `ANTHROPIC_API_KEY` or `~/.kiln/auth/anthropic/`. |
+| `openai` | OpenAI API. Requires `OPENAI_API_KEY` or `~/.kiln/auth/openai/`. |
+| `deepseek` | DeepSeek API. Requires `DEEPSEEK_API_KEY` or `~/.kiln/auth/deepseek/`. |
+| `openrouter` | OpenRouter aggregation gateway. Requires `OPENROUTER_API_KEY` or `~/.kiln/auth/openrouter/`. |
+| `ollama` | Ollama local inference. No key required; configure endpoint in `~/.kiln/auth/ollama/`. |
+| `codex-oauth` | OpenAI Codex via ChatGPT Plus device-code OAuth. Manage with `kiln auth codex-oauth`. |
+| `opencode-go` | OpenCode Go subscription — flat-rate access ($10/mo) to Go-tier model set. Manage with `kiln auth opencode --tier go`. |
+| `opencode-zen` | OpenCode Zen gateway — pay-per-request credits, access to Zen-tier model set. Manage with `kiln auth opencode --tier zen`. |
+
 ## Relationship to kiln.yaml
 
 Global config establishes user-level defaults that apply across every Kiln project. Project `kiln.yaml` overrides scalar values such as provider, model, or theme, while MCP server definitions are additive so both global and project servers remain active. The merge is performed by `loadKilnConfig(projectPath)` in `config/config-merger.ts` — use this instead of `readKilnYaml()` in command-level code. `kiln sync` materializes the merged result into native CLI configs; edit Kiln config files, not the generated native configs directly.

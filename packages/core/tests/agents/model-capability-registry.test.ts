@@ -30,16 +30,16 @@ describe("ModelCapabilityRegistry", () => {
 
   it("getByProvider() resolves direct-api and wrapper profiles", () => {
     const openaiProfile = registry.getByProvider("openai", "gpt-5.4");
-    const opencodeProfile = registry.getByProvider("opencode", "minimax-m2.5-free");
+    const opencodeGoProfile = registry.getByProvider("opencode-go", "minimax-m2.5");
 
     expect(openaiProfile).toBeDefined();
-    expect(opencodeProfile).toBeDefined();
+    expect(opencodeGoProfile).toBeDefined();
     expect(openaiProfile!.provider).toBe("openai");
     expect(openaiProfile!.inputPer1M).toBe(2.5);
     expect(openaiProfile!.outputPer1M).toBe(15);
-    expect(opencodeProfile!.provider).toBe("opencode");
-    expect(opencodeProfile!.inputPer1M).toBe(0);
-    expect(opencodeProfile!.outputPer1M).toBe(0);
+    expect(opencodeGoProfile!.provider).toBe("opencode-go");
+    expect(opencodeGoProfile!.inputPer1M).toBe(0);
+    expect(opencodeGoProfile!.outputPer1M).toBe(0);
   });
 
   it("get() returns undefined for unknown model", () => {

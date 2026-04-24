@@ -113,6 +113,19 @@ export type {
   DeviceAuthorizationResult,
   PollAuthorizationParams,
 } from "./infrastructure/codex-oauth-auth.js";
+export { OpenCodeAuth } from "./infrastructure/opencode-auth.js";
+export type { OpenCodeAuthFile, OpenCodeAuthOptions, OpenCodeTier } from "./infrastructure/opencode-auth.js";
+export {
+  OpenCodeAdapter,
+  OpenCodeRateLimitError,
+  OpenCodeQuotaError,
+  OPENCODE_BASE_URL,
+  OPENCODE_GO_DEFAULT_MODEL,
+  OPENCODE_ZEN_DEFAULT_MODEL,
+  OPENCODE_GO_MODELS,
+  OPENCODE_ZEN_MODELS,
+} from "./infrastructure/opencode-provider.js";
+export type { OpenCodeAdapterConfig } from "./infrastructure/opencode-provider.js";
 export { classifyToolError } from "./tool-error-classifier.js";
 export { executeWithRetry } from "./tool-execution-engine.js";
 export type { ToolExecutor } from "./tool-execution-engine.js";
