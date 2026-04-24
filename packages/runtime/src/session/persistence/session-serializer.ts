@@ -25,6 +25,10 @@ export function serializeSession(session: RuntimeSession): string {
     userContext: session.userContext,
     sessionLedger: session.sessionLedger,
     exactArtifacts: session.exactArtifacts,
+    sessionEvents: session.sessionEvents.map((event) => ({
+      ...event,
+      timestamp: event.timestamp.toISOString(),
+    })),
   };
   return JSON.stringify(data);
 }

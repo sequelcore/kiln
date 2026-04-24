@@ -20,6 +20,7 @@ function makeMockSession(): RuntimeSession {
   let _userContext: Record<string, string> | undefined;
   let _sessionLedger: Record<string, unknown> = {};
   let _exactArtifacts: string[] = [];
+  let _sessionEvents: Array<Record<string, unknown>> = [];
   let _systemPrompt = "You are a test assistant.";
   let _activeAgentId: string | undefined;
   const setSystemPrompt = vi.fn((prompt: string) => {
@@ -56,6 +57,14 @@ function makeMockSession(): RuntimeSession {
       _exactArtifacts.push(artifact);
     },
     get exactArtifacts() { return _exactArtifacts; },
+    get sessionEvents() { return _sessionEvents as any; },
+    nextSessionEventSequence() {
+      const lastEvent = _sessionEvents[_sessionEvents.length - 1];
+      return typeof lastEvent?.sequence === "number" ? (lastEvent.sequence as number) + 1 : 1;
+    },
+    appendSessionEvents(events: readonly Record<string, unknown>[]) {
+      _sessionEvents = [..._sessionEvents, ...events];
+    },
     setSystemPrompt,
     setActiveAgent,
     getActiveAgentId() {
@@ -810,5 +819,125 @@ describe("processAdmittedTurn", () => {
     expect(artifacts).toContain(
       "Dangerous command ask: bash (ambiguous_expansion) Command contains shell expansion/substitution and requires approval.",
     );
+  });
+
+  it("captures canonical session ledger events in turn order from runtime bus emissions", async () => {
+    const session = makeMockSession();
+    const eventBus = new EventBus();
+    const startedAt = new Date("2026-04-23T19:00:00.000Z");
+    const orchestrator = {
+      processMessage: vi.fn().mockImplementation(async () => {
+        eventBus.emit({
+          type: "model_routed",
+          provider: "codex-oauth",
+          model: "gpt-5.4-mini",
+          routingTier: "default",
+          reason: "configured",
+          timestamp: new Date("2026-04-23T19:00:01.000Z"),
+          sessionId: session.id,
+        });
+        eventBus.emit({
+          type: "tool_called",
+          toolName: "write",
+          toolInput: { filePath: "src/demo.txt", content: "hello" },
+          timestamp: new Date("2026-04-23T19:00:02.000Z"),
+          sessionId: session.id,
+        });
+        eventBus.emit({
+          type: "tool_result",
+          toolName: "write",
+          durationMs: 12,
+          success: true,
+          resultSummary: "Wrote src/demo.txt",
+          timestamp: new Date("2026-04-23T19:00:03.000Z"),
+          sessionId: session.id,
+        });
+        eventBus.emit({
+          type: "cost_update",
+          provider: "codex-oauth",
+          model: "gpt-5.4-mini",
+          inputTokens: 10,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          totalCostUsd: 0,
+          byRoleModel: {},
+          timestamp: new Date("2026-04-23T19:00:04.000Z"),
+          sessionId: session.id,
+        });
+        eventBus.emit({
+          type: "error",
+          code: "MODE_B_ERROR",
+          message: "Synthetic runtime error",
+          taskId: null,
+          timestamp: new Date("2026-04-23T19:00:05.000Z"),
+          sessionId: session.id,
+        });
+        return {
+          parts: textParts("done"),
+          inputTokens: 10,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          queued: false,
+          toolExecutions: [{
+            toolName: "write",
+            durationMs: 12,
+            success: true,
+            resultSummary: "Wrote src/demo.txt",
+            fileChanges: [{ path: "src/demo.txt", changeType: "modified", linesAdded: 3, linesRemoved: 1 }],
+          }],
+        } satisfies OrchestrateResult;
+      }),
+      model: "gpt-5.4-mini",
+      eventBus,
+    } as unknown as RuntimeSessionOrchestrator;
+    const sessionRegistry = makeMockSessionRegistry(session);
+    vi.useFakeTimers();
+    vi.setSystemTime(startedAt);
+
+    const result = await processInboundMessage(makeBaseContext({ orchestrator, sessionRegistry }));
+
+    vi.useRealTimers();
+    expect(result.ok).toBe(true);
+    const ledger = (session as unknown as { sessionEvents: Array<Record<string, unknown>> }).sessionEvents;
+    expect(ledger.map((event) => event.kind)).toEqual([
+      "turn_started",
+      "user_message",
+      "continuity_decided",
+      "provider_routed",
+      "tool_call_started",
+      "tool_call_completed",
+      "cost_updated",
+      "error_recorded",
+      "file_changed",
+      "assistant_message",
+      "turn_completed",
+    ]);
+    expect(ledger.map((event) => event.sequence)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    expect(ledger[3]).toMatchObject({
+      kind: "provider_routed",
+      provider: {
+        provider: "codex-oauth",
+        model: "gpt-5.4-mini",
+      },
+    });
+    expect(ledger[4]).toMatchObject({
+      kind: "tool_call_started",
+      toolName: "write",
+      input: { filePath: "src/demo.txt", content: "hello" },
+    });
+    expect(ledger[8]).toMatchObject({
+      kind: "file_changed",
+      change: {
+        path: "src/demo.txt",
+        changeType: "updated",
+        linesAdded: 3,
+        linesRemoved: 1,
+      },
+    });
+    expect(ledger[9]).toMatchObject({
+      kind: "assistant_message",
+      content: "done",
+    });
   });
 });

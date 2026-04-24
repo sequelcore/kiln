@@ -260,39 +260,44 @@ describe("GuiWsClient", () => {
     it("All inbound frame shapes parse correctly", () => {
       const frames: Array<{ json: object; expected: GuiInboundFrame }> = [
         { json: { type: "thinking" }, expected: { type: "thinking" } },
-        { json: { type: "activity", activity: "Running tool", toolName: "bash" }, expected: { type: "activity", activity: "Running tool", toolName: "bash" } },
         {
           json: {
-            type: "tool_call_start",
-            callId: "call-1",
-            toolName: "grep",
-            input: { pattern: "kiln-context", path: "." },
-            timestamp: "2026-04-22T19:37:12.351Z",
+            type: "session_event",
+            event: {
+              eventId: "evt-1",
+              kilnSessionId: "sess-1",
+              sequence: 1,
+              timestamp: "2026-04-23T19:00:00.000Z",
+              kind: "assistant_delta",
+              source: {
+                actor: "assistant",
+                surface: "gui",
+                component: "gui-gateway",
+              },
+              payload: {
+                messageId: "msg-1",
+                delta: "hello",
+              },
+            },
           },
           expected: {
-            type: "tool_call_start",
-            callId: "call-1",
-            toolName: "grep",
-            input: { pattern: "kiln-context", path: "." },
-            timestamp: "2026-04-22T19:37:12.351Z",
-          },
-        },
-        {
-          json: {
-            type: "tool_call_result",
-            callId: "call-1",
-            toolName: "grep",
-            result: "Invalid input for tool \"grep\"",
-            status: "error",
-            timestamp: "2026-04-22T19:37:12.352Z",
-          },
-          expected: {
-            type: "tool_call_result",
-            callId: "call-1",
-            toolName: "grep",
-            result: "Invalid input for tool \"grep\"",
-            status: "error",
-            timestamp: "2026-04-22T19:37:12.352Z",
+            type: "session_event",
+            event: {
+              eventId: "evt-1",
+              kilnSessionId: "sess-1",
+              sequence: 1,
+              timestamp: "2026-04-23T19:00:00.000Z",
+              kind: "assistant_delta",
+              source: {
+                actor: "assistant",
+                surface: "gui",
+                component: "gui-gateway",
+              },
+              payload: {
+                messageId: "msg-1",
+                delta: "hello",
+              },
+            },
           },
         },
         {
@@ -323,7 +328,6 @@ describe("GuiWsClient", () => {
             authorityStatus: { effective: "fail_closed", completeness: "authoritative" },
           },
         },
-        { json: { type: "text_delta", content: "delta text" }, expected: { type: "text_delta", content: "delta text" } },
         { json: { type: "error", message: "Something went wrong", code: "ERR_001" }, expected: { type: "error", message: "Something went wrong", code: "ERR_001" } },
         {
           json: {
@@ -345,8 +349,6 @@ describe("GuiWsClient", () => {
         { json: { type: "cleared" }, expected: { type: "cleared" } },
         { json: { type: "provider_changed", provider: "anthropic" }, expected: { type: "provider_changed", provider: "anthropic" } },
         { json: { type: "resume_selected", sessionId: "sess-1" }, expected: { type: "resume_selected", sessionId: "sess-1" } },
-        { json: { type: "approval_requested", description: "Execute sudo rm -rf /?", sessionId: "sess-1" }, expected: { type: "approval_requested", description: "Execute sudo rm -rf /?", sessionId: "sess-1" } },
-        { json: { type: "approval_received", approved: true, reason: "Approved by user", sessionId: "sess-1" }, expected: { type: "approval_received", approved: true, reason: "Approved by user", sessionId: "sess-1" } },
       ];
 
       client = createClient();

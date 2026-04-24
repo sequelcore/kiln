@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { SessionTelemetry } from "../src/components/session-telemetry.js";
 
@@ -6,16 +6,7 @@ describe("SessionTelemetry", () => {
   it("renders provider breakdown, continuity details, and changed files", () => {
     render(
       <SessionTelemetry
-        status="ready"
         activeProvider="claude"
-        turnCounter={3}
-        sessionCostUsd={0.42}
-        inputTokens={4200}
-        outputTokens={1100}
-        perProviderUsage={{
-          claude: { costUsd: 0.12, inputTokens: 1200, outputTokens: 300 },
-          codex: { costUsd: 0.30, inputTokens: 3000, outputTokens: 800 },
-        }}
         resumeInfo={{
           strategy: "provider-native",
           feedbackLabel: "observed provider-native · 6",
@@ -48,10 +39,8 @@ describe("SessionTelemetry", () => {
       />,
     );
 
-    expect(screen.getByText("claude")).toBeInTheDocument();
-    expect(screen.getByText("codex")).toBeInTheDocument();
-    expect(screen.getByText("turns: 3")).toBeInTheDocument();
-    expect(screen.getByText("tok: 4.2k/1.1k")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Details" }));
+
     expect(screen.getByText("resume: provider-native · observed provider-native · 6")).toBeInTheDocument();
     expect(screen.getByText("runtime: cache-first · applied")).toBeInTheDocument();
     expect(screen.getByText("srcs: session, project")).toBeInTheDocument();
@@ -64,13 +53,7 @@ describe("SessionTelemetry", () => {
   it("shows thinking state and empty changes fallback", () => {
     render(
       <SessionTelemetry
-        status="running"
         activeProvider="claude"
-        turnCounter={0}
-        sessionCostUsd={0}
-        inputTokens={0}
-        outputTokens={0}
-        perProviderUsage={{}}
         resumeInfo={null}
         runtimeContinuity={null}
         changedFiles={[]}
@@ -78,7 +61,8 @@ describe("SessionTelemetry", () => {
       />,
     );
 
-    expect(screen.getByText("thinking...")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Details" }));
+
     expect(screen.getByText("(none)")).toBeInTheDocument();
     expect(screen.getByText("resume: --")).toBeInTheDocument();
   });

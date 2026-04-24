@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { Transcript } from "../src/components/transcript.js";
-import type { Message } from "../src/lib/session-store.js";
+import type { Message, TimelineEntry } from "../src/lib/session-store.js";
 
 function message(id: string, role: Message["role"], content: string, streaming = false): Message {
   return {
@@ -13,15 +13,33 @@ function message(id: string, role: Message["role"], content: string, streaming =
   };
 }
 
+function messageEntry(id: string, role: Message["role"], content: string, streaming = false): TimelineEntry {
+  const entryMessage = message(id, role, content, streaming);
+  return {
+    id: `timeline:${id}`,
+    type: "message",
+    createdAt: entryMessage.createdAt,
+    message: entryMessage,
+  };
+}
+
 describe("Transcript", () => {
   it("renders user, assistant, tool, and error rows with distinct roles", () => {
     render(
       <Transcript
-        messages={[
-          message("1", "user", "hello"),
-          message("2", "assistant", "world"),
-          message("3", "tool", "bash"),
-          message("4", "error", "boom"),
+        entries={[
+          messageEntry("1", "user", "hello"),
+          messageEntry("2", "assistant", "world"),
+          {
+            id: "timeline:event:tool",
+            type: "event",
+            eventKind: "tool_call_started",
+            createdAt: new Date().toISOString(),
+            title: "Tool started: bash",
+            summary: "Execution in progress",
+            tone: "running",
+          },
+          messageEntry("4", "error", "boom"),
         ]}
       />,
     );
@@ -30,15 +48,15 @@ describe("Transcript", () => {
     expect(rows).toHaveLength(4);
     expect(rows[0]).toHaveAttribute("data-role", "user");
     expect(rows[1]).toHaveAttribute("data-role", "assistant");
-    expect(rows[2]).toHaveAttribute("data-role", "tool");
+    expect(rows[2]).toHaveTextContent("Tool started: bash");
     expect(rows[3]).toHaveAttribute("data-role", "error");
   });
 
   it("shows streaming cursor indicator for streaming assistant message", () => {
     render(
       <Transcript
-        messages={[
-          message("1", "assistant", "streaming...", true),
+        entries={[
+          messageEntry("1", "assistant", "streaming...", true),
         ]}
       />,
     );
@@ -47,11 +65,11 @@ describe("Transcript", () => {
 
   it("sticks to bottom unless user scrolled up", () => {
     const firstMessages = [
-      message("1", "assistant", "first"),
-      message("2", "assistant", "second"),
+      messageEntry("1", "assistant", "first"),
+      messageEntry("2", "assistant", "second"),
     ];
 
-    const { rerender } = render(<Transcript messages={firstMessages} />);
+    const { rerender } = render(<Transcript entries={firstMessages} />);
     const container = screen.getByLabelText("Transcript");
 
     Object.defineProperty(container, "clientHeight", { configurable: true, value: 100 });
@@ -62,7 +80,7 @@ describe("Transcript", () => {
 
     rerender(
       <Transcript
-        messages={[...firstMessages, message("3", "assistant", "third")]}
+        entries={[...firstMessages, messageEntry("3", "assistant", "third")]}
       />,
     );
 
@@ -75,11 +93,65 @@ describe("Transcript", () => {
 
     rerender(
       <Transcript
-        messages={[...firstMessages, message("3", "assistant", "third"), message("4", "assistant", "fourth")]}
+        entries={[...firstMessages, messageEntry("3", "assistant", "third"), messageEntry("4", "assistant", "fourth")]}
       />,
     );
 
     expect((container as HTMLDivElement).scrollTop).toBe(0);
   });
-});
 
+  it("renders typed event metadata and approval actions inline", () => {
+    const onApprove = vi.fn();
+    const onDeny = vi.fn();
+
+    render(
+      <Transcript
+        onApprove={onApprove}
+        onDeny={onDeny}
+        entries={[
+          {
+            id: "timeline:event:tool-result",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: new Date().toISOString(),
+            title: "Tool completed: write",
+            summary: "Wrote demo.txt",
+            tone: "success",
+            details: {
+              input: { path: "demo.txt", mode: "overwrite" },
+              result: "Wrote demo.txt",
+              status: "succeeded",
+            },
+          },
+          {
+            id: "timeline:event:approval",
+            type: "event",
+            eventKind: "approval_requested",
+            createdAt: new Date().toISOString(),
+            title: "Approval requested",
+            summary: "Write demo.txt",
+            tone: "warning",
+            sessionId: "session-1",
+            details: {
+              approvalId: "approval-1",
+              action: "Write demo.txt",
+              justification: "Workspace mutation",
+            },
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Show details" })[0]!);
+    expect(screen.getByText("path")).toBeInTheDocument();
+    expect(screen.getByText("demo.txt")).toBeInTheDocument();
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Show details" })[0]!);
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    fireEvent.click(screen.getByRole("button", { name: "Deny" }));
+
+    expect(screen.getByText("Workspace mutation")).toBeInTheDocument();
+    expect(onApprove).toHaveBeenCalledWith("session-1");
+    expect(onDeny).toHaveBeenCalledWith("session-1");
+  });
+});

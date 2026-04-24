@@ -1,5 +1,6 @@
 import { useSessionStore } from "../lib/session-store.js";
 import { PROVIDER_METADATA } from "../lib/provider-metadata.js";
+import { Button } from "@/components/ui/button";
 
 interface ProviderStatusProps {
   readonly onOpenPicker: () => void;
@@ -52,38 +53,42 @@ export function ProviderStatus(props: ProviderStatusProps) {
   const routeText = modeLabel(routeMode);
 
   return (
-    <button
+    <Button
       type="button"
+      variant={routeMode === "responding" ? "secondary" : "outline"}
       aria-label="Current provider. Click to change."
       onClick={props.onOpenPicker}
       title={[
         `domain: ${props.domainLabel ?? "—"}`,
         `cwd: ${props.workingDirectory ?? "—"}`,
       ].join("\n")}
-      className={[
-        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-active)]",
-        routeMode === "responding"
-          ? "border-[var(--color-accent)]/60 bg-[var(--color-accent)]/10 text-[var(--color-text)]"
-          : "border-[var(--color-border)] text-[var(--color-text-muted)] hover:text-[var(--color-text)]",
-      ].join(" ")}
+      className="h-auto min-w-0 justify-start gap-3 rounded-xl border-border/80 bg-background/45 px-3 py-2 text-left hover:bg-secondary/60"
     >
-      <span>{displayLabel}</span>
-      <span aria-hidden="true">·</span>
-      <span>{displayModel && displayModel.trim().length > 0 ? displayModel : "—"}</span>
-      <span aria-hidden="true">·</span>
-      <span>{routeText}</span>
-      <span aria-hidden="true">·</span>
-      <span>domain: {props.domainLabel ?? "—"}</span>
-      <span aria-hidden="true">·</span>
-      <span>cwd: {formatWorkingDirectory(props.workingDirectory)}</span>
-      <span aria-hidden="true">·</span>
-      <span>
-        authority: {authorityStatus?.effective ?? "unknown"} · {authorityStatus?.completeness ?? "partial"}
+      <span
+        aria-hidden="true"
+        className={routeMode === "responding" ? "size-2 rounded-full bg-[var(--color-accent)]" : "size-2 rounded-full bg-muted-foreground/55"}
+      />
+      <span className="grid min-w-0 gap-1">
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className="truncate text-xs font-semibold text-foreground">{displayLabel}</span>
+          <span className="text-muted-foreground/45" aria-hidden="true">·</span>
+          <span className="truncate font-mono text-[11px] text-muted-foreground">
+            {displayModel && displayModel.trim().length > 0 ? displayModel : "—"}
+          </span>
+          <span className="text-muted-foreground/45" aria-hidden="true">·</span>
+          <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">{routeText}</span>
+        </span>
+        <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[10px] text-muted-foreground/75">
+          <span>domain: {props.domainLabel ?? "—"}</span>
+          <span>cwd: {formatWorkingDirectory(props.workingDirectory)}</span>
+          <span>
+            authority: {authorityStatus?.effective ?? "unknown"} · {authorityStatus?.completeness ?? "partial"}
+          </span>
+        </span>
       </span>
       {providerSwitching ? (
-        <span className="text-[var(--color-warning)]">switching…</span>
+        <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--color-warning)]">switching…</span>
       ) : null}
-    </button>
+    </Button>
   );
 }

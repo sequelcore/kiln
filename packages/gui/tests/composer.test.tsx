@@ -64,6 +64,20 @@ describe("Composer", () => {
     expect(onOpenCommandPalette).toHaveBeenCalledTimes(1);
   });
 
+  it("Slash inserted through input change opens the command palette route", () => {
+    const { onOpenCommandPalette } = renderComposer();
+    const textarea = screen.getByLabelText("Message") as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "/" } });
+    expect(onOpenCommandPalette).toHaveBeenCalledTimes(1);
+    expect(textarea.value).toBe("");
+  });
+
+  it("Command chip opens the command palette route", () => {
+    const { onOpenCommandPalette } = renderComposer();
+    fireEvent.click(screen.getByRole("button", { name: "Open command palette" }));
+    expect(onOpenCommandPalette).toHaveBeenCalledTimes(1);
+  });
+
   it("normalizes pasted text to LF and strips trailing newlines", () => {
     renderComposer();
     const textarea = screen.getByLabelText("Message") as HTMLTextAreaElement;

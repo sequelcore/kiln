@@ -41,6 +41,8 @@ import {
   SkillGenerator,
   AnthropicAdapter,
   type ContextArtifact,
+  type CanonicalSessionEventKind,
+  type SessionEventSource,
   VerificationResult,
   scoreComplexity,
 } from "@kilnai/core";
@@ -112,16 +114,13 @@ function appendAgentInstructionsToSystemPrompt(
 function parseSubmittedPlan(line: string): string | undefined {
   try {
     const parsed = JSON.parse(line) as Record<string, unknown>;
-    const direct = extractSubmitPlan(parsed);
-    if (direct) return direct;
-
-    const nestedData = (
-      typeof parsed.data === "object" && parsed.data !== null
-        ? parsed.data as Record<string, unknown>
-        : undefined
-    );
-    if (!nestedData) return undefined;
-    return extractSubmitPlan(nestedData);
+    if (parsed.kind === "tool_call_started") {
+      const payload = typeof parsed.payload === "object" && parsed.payload !== null
+        ? parsed.payload as Record<string, unknown>
+        : undefined;
+      return payload ? extractSubmitPlan(payload) : undefined;
+    }
+    return undefined;
   } catch {
     return undefined;
   }
@@ -358,11 +357,18 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
 
   try {
     for (const [seq, entry] of transcript.entries()) {
+      const timestamp = "ts" in entry && typeof entry.ts === "string"
+        ? entry.ts
+        : new Date().toISOString();
+      const legacyType = typeof entry.event.type === "string" ? entry.event.type : "assistant_message";
       await transcriptStore.append(sessionId, {
-        seq: seq + 1,
-        ts: "ts" in entry && typeof entry.ts === "string" ? entry.ts : new Date().toISOString(),
-        type: entry.event.type,
-        data: entry.event,
+        eventId: randomUUID(),
+        kilnSessionId: sessionId,
+        sequence: seq + 1,
+        timestamp,
+        kind: mapTranscriptTypeToKind(legacyType),
+        source: mapTranscriptTypeToSource(legacyType),
+        payload: entry.event as Record<string, unknown>,
       });
     }
   } catch {
@@ -372,10 +378,13 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
   if (flags.plan && submittedPlanFromSession !== undefined) {
     try {
       await transcriptStore.append(sessionId, {
-        seq: transcript.length + 1,
-        ts: new Date().toISOString(),
-        type: "tool_use",
-        data: {
+        eventId: randomUUID(),
+        kilnSessionId: sessionId,
+        sequence: transcript.length + 1,
+        timestamp: new Date().toISOString(),
+        kind: "tool_call_started",
+        source: { actor: "tool", surface: "cli", component: "run-command" },
+        payload: {
           type: "tool_use",
           name: "submit_plan",
           input: { plan: submittedPlanFromSession },
@@ -618,6 +627,39 @@ interface WorkerResult {
   workerIndex: number;
   success: boolean;
   error?: string;
+}
+
+function mapTranscriptTypeToKind(type: string): CanonicalSessionEventKind {
+  switch (type) {
+    case "user":
+      return "user_message";
+    case "text_delta":
+      return "assistant_delta";
+    case "tool_use":
+      return "tool_call_started";
+    case "tool_result":
+      return "tool_call_completed";
+    case "error":
+      return "error_recorded";
+    default:
+      return "assistant_message";
+  }
+}
+
+function mapTranscriptTypeToSource(type: string): SessionEventSource {
+  switch (type) {
+    case "user":
+      return { actor: "user", surface: "cli", component: "run-command" };
+    case "text_delta":
+      return { actor: "assistant", surface: "cli", component: "run-command" };
+    case "tool_use":
+    case "tool_result":
+      return { actor: "tool", surface: "cli", component: "run-command" };
+    case "error":
+      return { actor: "runtime", surface: "cli", component: "run-command" };
+    default:
+      return { actor: "system", surface: "cli", component: "run-command" };
+  }
 }
 
 export async function runParallelWorkers(

@@ -1,10 +1,12 @@
-import { Moon, Sun, Monitor, Check } from "lucide-react";
+import { Moon, Sun, Monitor, Check, type LucideIcon } from "lucide-react";
 import { useUiStore, type KilnTheme } from "../lib/ui-store.js";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 interface ThemeOption {
   value: KilnTheme;
   label: string;
-  icon: React.ReactNode;
+  icon: LucideIcon;
 }
 
 interface ThemeSwitcherProps {
@@ -12,9 +14,9 @@ interface ThemeSwitcherProps {
 }
 
 const OPTIONS: ThemeOption[] = [
-  { value: "kiln-dark",     label: "Dark",   icon: <Moon    aria-hidden="true" size={14} /> },
-  { value: "kiln-light",    label: "Light",  icon: <Sun     aria-hidden="true" size={14} /> },
-  { value: "system-follow", label: "System", icon: <Monitor aria-hidden="true" size={14} /> },
+  { value: "kiln-dark",     label: "Dark",   icon: Moon },
+  { value: "kiln-light",    label: "Light",  icon: Sun },
+  { value: "system-follow", label: "System", icon: Monitor },
 ];
 
 export function ThemeSwitcher(props: ThemeSwitcherProps) {
@@ -53,27 +55,25 @@ export function ThemeSwitcher(props: ThemeSwitcherProps) {
     >
       {OPTIONS.map((opt, i) => {
         const selected = theme === opt.value;
+        const Icon = opt.icon;
         return (
-          <button
+          <Button
             key={opt.value}
+            type="button"
             role="radio"
+            variant={selected ? "secondary" : "ghost"}
+            size="xs"
             aria-checked={selected}
             aria-label={opt.label}
             tabIndex={selected ? 0 : -1}
             onClick={() => applyThemeSelection(opt.value)}
             onKeyDown={(e) => handleKeyDown(e, i)}
-            className={[
-              "flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors",
-              "focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-active)]",
-              selected
-                ? "bg-[var(--color-background-element)] text-[var(--color-text)] border border-[var(--color-border-active)]"
-                : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] border border-transparent",
-            ].join(" ")}
+            className={cn(selected ? "border border-ring/60" : "text-muted-foreground")}
           >
-            {opt.icon}
+            <Icon data-icon="inline-start" aria-hidden="true" />
             <span>{opt.label}</span>
-            {selected && <Check aria-hidden="true" size={10} className="ml-0.5" />}
-          </button>
+            {selected ? <Check data-icon="inline-end" aria-hidden="true" /> : null}
+          </Button>
         );
       })}
     </div>

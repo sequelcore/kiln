@@ -14,7 +14,7 @@ describe("GuiGatewayClient", () => {
         task: "Inspect preview flow",
         startedAt: "2026-04-21T10:00:00.000Z",
       },
-      transcript: [],
+      events: [],
     }), {
       status: 200,
       headers: { "content-type": "application/json" },

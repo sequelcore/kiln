@@ -4,8 +4,8 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { createInterface } from "node:readline/promises";
 import type { KilnAppConfig } from "../config.js";
 import { SessionStore, TranscriptStore } from "../wrapper/session-store.js";
-import type { PersistedTranscriptLine } from "../wrapper/session-store.js";
-import type { PersistedTranscriptEvent } from "@kilnai/core";
+import type { PersistedTranscriptEvent as StoredTranscriptEvent } from "../wrapper/session-store.js";
+import type { PersistedTranscriptEvent as SkillCaptureTranscriptEvent } from "@kilnai/core";
 
 const MAX_NAME_LENGTH = 40;
 
@@ -121,8 +121,8 @@ export async function skillCaptureCommand(
   const provider = new AnthropicAdapterCtor({ apiKey });
   const service = new SkillCaptureServiceCtor({ provider });
   const transcript = transcriptLines
-    .map(toPersistedTranscriptEvent)
-    .filter((line): line is PersistedTranscriptEvent => line !== null);
+    .map(toSkillCaptureTranscriptEvent)
+    .filter((line): line is SkillCaptureTranscriptEvent => line !== null);
   const summary = await service.extractSummary({
     task,
     transcript,
@@ -213,33 +213,55 @@ function sanitizeName(name: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
-function toPersistedTranscriptEvent(
-  line: PersistedTranscriptLine,
-): PersistedTranscriptEvent | null {
-  switch (line.type) {
+function toSkillCaptureTranscriptEvent(
+  line: StoredTranscriptEvent,
+): SkillCaptureTranscriptEvent | null {
+  const payloadType = line.payload.type;
+  const legacyType = typeof payloadType === "string" && payloadType.trim().length > 0
+    ? payloadType
+    : mapCanonicalKindToLegacyTranscriptType(line.kind);
+
+  switch (legacyType) {
     case "text_delta":
-      return typeof line.data.content === "string"
+      return typeof line.payload.content === "string"
         ? {
-            seq: line.seq,
-            ts: line.ts,
-            event: { type: "text_delta", content: line.data.content },
+            seq: line.sequence,
+            ts: line.timestamp,
+            event: { type: "text_delta", content: line.payload.content },
           }
         : null;
-    case "tool_use":
-      return typeof line.data.toolName === "string"
+    case "tool_use": {
+      const toolName = typeof line.payload.toolName === "string"
+        ? line.payload.toolName
+        : (typeof line.payload.name === "string" ? line.payload.name : undefined);
+      return typeof toolName === "string"
         ? {
-            seq: line.seq,
-            ts: line.ts,
-            event: { type: "tool_use", toolName: line.data.toolName },
+            seq: line.sequence,
+            ts: line.timestamp,
+            event: { type: "tool_use", toolName },
           }
         : null;
+    }
     case "tool_result":
       return {
-        seq: line.seq,
-        ts: line.ts,
+        seq: line.sequence,
+        ts: line.timestamp,
         event: { type: "tool_result" },
       };
     default:
       return null;
+  }
+}
+
+function mapCanonicalKindToLegacyTranscriptType(kind: StoredTranscriptEvent["kind"]): string | undefined {
+  switch (kind) {
+    case "assistant_delta":
+      return "text_delta";
+    case "tool_call_started":
+      return "tool_use";
+    case "tool_call_completed":
+      return "tool_result";
+    default:
+      return undefined;
   }
 }

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { loadSessionSummaries } from "../../src/commands/gui-session-summaries.js";
-import { loadSessionDetail } from "../../src/commands/gui.js";
+import { loadSessionDetail } from "../../src/commands/gui-session-detail.js";
 import { SessionStore, TranscriptStore } from "../../src/wrapper/session-store.js";
 
 describe("GUI session summaries", () => {
@@ -108,19 +108,59 @@ describe("GUI session summaries", () => {
       startedAt: "2026-04-22T18:59:00.000Z",
     });
     await transcriptStore.append(sessionId, {
-      seq: 1,
-      ts: "2026-04-22T18:59:30.000Z",
-      type: "user",
-      data: { content: "load me" },
+      eventId: "evt-1",
+      kilnSessionId: sessionId,
+      sequence: 1,
+      timestamp: "2026-04-22T18:59:30.000Z",
+      kind: "user_message",
+      source: { actor: "user", surface: "gui" },
+      payload: { content: "load me" },
     });
 
     const detail = await loadSessionDetail(transcriptStore, sessionId);
 
     expect(detail?.id).toBe(sessionId);
     expect(detail?.meta.kilnSessionId).toBe(sessionId);
-    expect(detail?.transcript[0]).toMatchObject({
-      type: "user",
-      data: { content: "load me" },
+    expect(detail?.events[0]).toMatchObject({
+      eventId: "evt-1",
+      kilnSessionId: sessionId,
+      sequence: 1,
+      timestamp: "2026-04-22T18:59:30.000Z",
+      kind: "user_message",
+      payload: { content: "load me" },
+    });
+  });
+
+  it("preserves canonical event kind and payload in session detail projection", async () => {
+    tmpDir = mkdtempSync(join(tmpdir(), "kiln-gui-session-detail-events-"));
+    const transcriptStore = new TranscriptStore(tmpDir);
+    const sessionId = "kiln-gui:_gui:user-3:1776916221888";
+
+    await transcriptStore.init(sessionId, {
+      kilnSessionId: sessionId,
+      provider: "codex-oauth",
+      task: "interactive",
+      startedAt: "2026-04-22T18:59:00.000Z",
+    });
+    await transcriptStore.append(sessionId, {
+      eventId: "evt-2",
+      kilnSessionId: sessionId,
+      sequence: 1,
+      timestamp: "2026-04-22T18:59:35.000Z",
+      kind: "assistant_delta",
+      source: { actor: "assistant", surface: "gui" },
+      payload: { messageId: "msg-2", delta: "hello" },
+    });
+
+    const detail = await loadSessionDetail(transcriptStore, sessionId);
+
+    expect(detail?.events[0]).toMatchObject({
+      eventId: "evt-2",
+      kilnSessionId: sessionId,
+      sequence: 1,
+      timestamp: "2026-04-22T18:59:35.000Z",
+      kind: "assistant_delta",
+      payload: { messageId: "msg-2", delta: "hello" },
     });
   });
 

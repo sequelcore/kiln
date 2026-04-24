@@ -42,40 +42,41 @@ const GuiAuthorityStatusSchema = z.object({
   completeness: z.enum(["authoritative", "partial"]),
 });
 
+const GuiSessionEventSchema = z.object({
+  eventId: z.string(),
+  kilnSessionId: z.string(),
+  sequence: z.number().int().min(1),
+  timestamp: z.string(),
+  kind: z.enum([
+    "turn_started",
+    "user_message",
+    "assistant_message",
+    "assistant_delta",
+    "provider_routed",
+    "tool_call_started",
+    "tool_call_completed",
+    "approval_requested",
+    "approval_resolved",
+    "file_changed",
+    "cost_updated",
+    "continuity_decided",
+    "error_recorded",
+    "turn_completed",
+  ]),
+  turnId: z.string().optional(),
+  parentEventId: z.string().optional(),
+  source: z.object({
+    actor: z.enum(["user", "assistant", "system", "tool", "runtime"]),
+    surface: z.enum(["cli", "tui", "gui", "ide", "gateway", "runtime"]),
+    component: z.string().optional(),
+  }).optional(),
+  payload: z.record(z.string(), z.unknown()),
+});
+
 /** Schema for GuiInboundFrame validation. */
 const GuiInboundFrameSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("thinking") }),
-  z.object({
-    type: z.literal("activity"),
-    activity: z.string(),
-    toolName: z.string().optional(),
-    output: z.string().optional(),
-    usd: z.number().optional(),
-    input: z.unknown().optional(),
-    inputTokens: z.number().optional(),
-    outputTokens: z.number().optional(),
-    details: z.string().optional(),
-    sessionId: z.string().optional(),
-    path: z.string().optional(),
-    changeType: z.enum(["created", "modified", "deleted"]).optional(),
-    linesAdded: z.number().optional(),
-    linesRemoved: z.number().optional(),
-  }),
-  z.object({
-    type: z.literal("tool_call_start"),
-    callId: z.string(),
-    toolName: z.string(),
-    input: z.record(z.string(), z.unknown()),
-    timestamp: z.string(),
-  }),
-  z.object({
-    type: z.literal("tool_call_result"),
-    callId: z.string(),
-    toolName: z.string(),
-    result: z.string(),
-    status: z.enum(["success", "error"]),
-    timestamp: z.string(),
-  }),
+  z.object({ type: z.literal("session_event"), event: GuiSessionEventSchema }),
   z.object({
     type: z.literal("activity_phase"),
     phase: z.enum(["idle", "thinking", "tool_running", "awaiting_approval", "streaming"]),
@@ -104,7 +105,6 @@ const GuiInboundFrameSchema = z.discriminatedUnion("type", [
       })
       .optional(),
   }),
-  z.object({ type: z.literal("text_delta"), content: z.string() }),
   z.object({ type: z.literal("error"), message: z.string(), code: z.string().optional() }),
   z.object({
     type: z.literal("welcome"),
@@ -120,8 +120,6 @@ const GuiInboundFrameSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("cleared") }),
   z.object({ type: z.literal("provider_changed"), provider: z.string(), model: z.string().optional() }),
   z.object({ type: z.literal("resume_selected"), sessionId: z.string() }),
-  z.object({ type: z.literal("approval_requested"), description: z.string(), sessionId: z.string() }),
-  z.object({ type: z.literal("approval_received"), approved: z.boolean(), reason: z.string().optional(), sessionId: z.string().optional() }),
 ]);
 
 /** Connection lifecycle states for the GUI WebSocket client. */

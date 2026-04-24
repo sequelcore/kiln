@@ -67,6 +67,55 @@ canonical sessions, hairline separators, compact provider glyphs, stable cost
 formatting, and a subtle active continuation rail. It intentionally avoids
 card stacks and provider-owned history buckets.
 
+## Operator Layout
+
+The GUI shell uses a supervision layout rather than a dashboard layout:
+
+- a narrow left rail owns operator modes such as Sessions, Workspace, Changed
+  files, and Approvals
+- the expanded mode panel owns the selected mode's list or navigation content
+- the main chat column owns conversation, turn composition, and top-level
+  session state
+- the inspector owns deeper runtime details that are useful for diagnosis but
+  should not compete with the chat header
+
+The main chat top bar is the summary layer. It should show the active session
+title/state, turns, tokens, current cost, provider/model route, and connection
+state. Do not duplicate those same summary metrics in the inspector.
+
+The inspector is the detail layer. It should focus on continuity decisions,
+field state, changed files, and future event-backed diagnostics. It is
+collapsed by default so the operator can keep the transcript in focus.
+
+Those inspector sections must be projections of the canonical session
+timeline. Do not maintain separate GUI-only caches for changed files,
+continuity, or approval state when the same facts already exist in
+`session_event` history.
+
+Current mode status:
+
+- `Sessions` is live and loads canonical Kiln conversations into chat
+- `Changed files` is live and renders session-scoped file-change events from
+  the canonical timeline with per-file review, canonical line deltas, and an
+  explicit "diff hunks not emitted yet" state
+- `Workspace` remains gated until a governed workspace/tree contract exists
+- `Approvals` remains gated until a dedicated event-backed panel is built on
+  top of canonical approval events
+
+## Commands and Composer
+
+`Ctrl+K` or `Cmd+K` opens the global command palette as a centered dialog.
+
+Typing `/` in an empty composer, or pressing the `/command` affordance in the
+composer rail, opens a composer-attached command surface above the input. That
+surface is intentionally not the global modal; slash commands are part of the
+message composition flow.
+
+The composer should remain a compact framed control with internal padding, a
+transparent textarea, and a bottom action rail for command, file, approval,
+plan, route, and send affordances. Avoid large detached input cards, duplicate
+status headers, or controls that push the transcript out of view.
+
 ## Session Model
 
 The GUI session rail shows canonical Kiln sessions. It is not filtered by the

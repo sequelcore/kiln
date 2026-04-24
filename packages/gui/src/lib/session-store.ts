@@ -3,8 +3,8 @@ import type {
   GuiInboundFrame,
   GuiOutboundFrame,
   GuiSessionDetail,
+  GuiSessionEvent,
   GuiSessionSummary,
-  GuiSessionTranscriptLine,
 } from "@kilnai/gateway-contracts";
 
 export interface ApprovalRequest {
@@ -28,12 +28,6 @@ export interface ToolCallEntry {
 
 export type ActivityPhase = "idle" | "thinking" | "tool_running" | "awaiting_approval" | "streaming";
 
-export interface ProviderUsage {
-  readonly costUsd: number;
-  readonly inputTokens: number;
-  readonly outputTokens: number;
-}
-
 export interface RuntimeContinuityInfo {
   readonly strategy: string;
   readonly feedbackLabel?: string;
@@ -52,6 +46,23 @@ export interface ChangedFileEntry {
   readonly linesRemoved?: number;
   readonly recordedAt: string;
 }
+
+type StoreTextDeltaFrame = {
+  type: "text_delta";
+  content: string;
+};
+
+type StoreActivityFrame = {
+  type: "activity";
+  activity: string;
+  toolName?: string;
+  output?: string;
+  usd?: number;
+  input?: unknown;
+  inputTokens?: number;
+  outputTokens?: number;
+  details?: string;
+};
 
 const PLAN_MODE_KEY = "kiln.gui.planMode";
 const RESUME_TARGET_KEY = "kiln.gui.resumeTarget";
@@ -107,83 +118,486 @@ function writeResumeTarget(sessionId: string | null): void {
   }
 }
 
-function readTranscriptText(line: GuiSessionTranscriptLine): string | null {
-  const value = line.data.content
-    ?? line.data.text
-    ?? line.data.message
-    ?? line.data.output
-    ?? line.data.details
-    ?? line.data.delta
-    ?? line.data.toolName;
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readString(value: unknown): string | null {
   if (typeof value === "string") {
     return value.trim().length > 0 ? value : null;
   }
-  if (typeof value === "number" || typeof value === "boolean") {
-    return String(value);
+  return null;
+}
+
+function readNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function eventPayloadText(payload: Record<string, unknown>): string | null {
+  const value = payload.content
+    ?? payload.text
+    ?? payload.message
+    ?? payload.output
+    ?? payload.outputSummary
+    ?? payload.details
+    ?? payload.delta
+    ?? payload.toolName;
+  if (typeof value === "string") {
+    return value.trim().length > 0 ? value : null;
   }
   return null;
 }
 
-function transcriptRole(line: GuiSessionTranscriptLine): Message["role"] | null {
-  if (line.type === "text_delta" || line.type === "assistant" || line.type === "done") {
-    return "assistant";
+function providerIdentity(payload: Record<string, unknown>): { provider: string | null; model: string | null } {
+  const provider = isObjectRecord(payload.provider) ? payload.provider : null;
+  return {
+    provider: readString(provider?.provider),
+    model: readString(provider?.model),
+  };
+}
+
+function normalizeLoadedChangeType(value: unknown): ChangedFileEntry["changeType"] | null {
+  if (value === "created" || value === "deleted") {
+    return value;
   }
-  if (line.type === "user" || line.type === "user_message") {
-    return "user";
+  if (value === "updated" || value === "modified" || value === "renamed") {
+    return "modified";
   }
-  if (line.type === "error") {
+  return null;
+}
+
+function toolEntryStatus(value: unknown): ToolCallStatus {
+  if (value === "succeeded" || value === "success") {
+    return "success";
+  }
+  if (value === "failed" || value === "cancelled" || value === "timed_out" || value === "error") {
     return "error";
   }
-  if (line.type === "tool_use" || line.type === "tool_result" || line.type.startsWith("tool_")) {
-    return "tool";
-  }
-  return null;
+  return "running";
 }
 
-function mapSessionDetailToMessages(detail: GuiSessionDetail): readonly Message[] {
+function approvalIdFromDetails(details: unknown): string | null {
+  const record = isObjectRecord(details) ? details : null;
+  if (!record) return null;
+  return readString(record.approvalId);
+}
+
+function toolCallIdFromDetails(details: unknown): string | null {
+  const record = isObjectRecord(details) ? details : null;
+  if (!record) return null;
+  return readString(record.toolCallId);
+}
+
+function formatUsd(value: number): string {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 4,
+    maximumFractionDigits: 4,
+  }).format(value);
+}
+
+function providerFromTimelineDetails(details: unknown): string | null {
+  const record = isObjectRecord(details) ? details : null;
+  if (!record) {
+    return null;
+  }
+  const routedProvider = readString(record.routedProvider);
+  if (routedProvider) {
+    return routedProvider;
+  }
+  const provider = record.provider;
+  if (isObjectRecord(provider)) {
+    return readString(provider.provider);
+  }
+  return readString(record.provider);
+}
+
+function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
+  readonly messages: readonly Message[];
+  readonly timelineEntries: readonly TimelineEntry[];
+  readonly sessionCostUsd: number;
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly turnCounter: number;
+  readonly routedProvider: string | null;
+  readonly routedModel: string | null;
+} {
   const messages: Message[] = [];
-  const transcript = Array.isArray(detail.transcript) ? detail.transcript : [];
-  for (const line of transcript) {
-    const role = transcriptRole(line);
-    const content = readTranscriptText(line);
-    if (!role || !content) {
+  const timelineEntries: TimelineEntry[] = [];
+  const toolCalls = new Map<string, ToolCallEntry>();
+  let sessionCostUsd = 0;
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let turnCounter = 0;
+  let lastRoutedProvider = detail.meta.lastProvider ?? null;
+  let lastRoutedModel: string | null = null;
+
+  for (const event of detail.events) {
+    const payload = isObjectRecord(event.payload) ? event.payload : {};
+
+    if (event.kind === "user_message") {
+      const content = eventPayloadText(payload);
+      if (!content) continue;
+      messages.push({
+        id: `${detail.id}:${event.sequence}`,
+        role: "user",
+        content,
+        createdAt: event.timestamp,
+        streaming: false,
+      });
+      timelineEntries.push({
+        id: `${detail.id}:timeline:${event.sequence}`,
+        type: "message",
+        createdAt: event.timestamp,
+        sequence: event.sequence,
+        message: messages[messages.length - 1]!,
+      });
       continue;
     }
 
-    const previous = messages[messages.length - 1];
-    if (line.type === "text_delta" && previous?.role === "assistant") {
-      messages[messages.length - 1] = {
-        ...previous,
-        content: previous.content + content,
-      };
+    if (event.kind === "assistant_delta") {
+      const delta = eventPayloadText(payload);
+      if (!delta) continue;
+      const messageId = readString(payload.messageId) ?? event.eventId;
+      const previous = messages[messages.length - 1];
+      if (previous?.role === "assistant" && previous.sessionEventMessageId === messageId) {
+        messages[messages.length - 1] = {
+          ...previous,
+          content: previous.content + delta,
+        };
+        const previousTimeline = timelineEntries[timelineEntries.length - 1];
+        if (previousTimeline?.type === "message" && previousTimeline.message.id === previous.id) {
+          timelineEntries[timelineEntries.length - 1] = {
+            ...previousTimeline,
+            message: messages[messages.length - 1]!,
+          };
+        }
+        continue;
+      }
+      messages.push({
+        id: `${detail.id}:${event.sequence}`,
+        role: "assistant",
+        content: delta,
+        createdAt: event.timestamp,
+        streaming: false,
+        routedProvider: lastRoutedProvider ?? undefined,
+        routedModel: lastRoutedModel ?? undefined,
+        sessionEventMessageId: messageId,
+      });
+      timelineEntries.push({
+        id: `${detail.id}:timeline:${event.sequence}`,
+        type: "message",
+        createdAt: event.timestamp,
+        sequence: event.sequence,
+        message: messages[messages.length - 1]!,
+      });
       continue;
     }
 
-    messages.push({
-      id: `${detail.id}:${line.seq}`,
-      role,
-      content,
-      createdAt: line.ts,
-      streaming: false,
-      routedProvider: role === "assistant" ? detail.meta?.lastProvider : undefined,
-    });
+    if (event.kind === "assistant_message") {
+      const content = eventPayloadText(payload);
+      if (!content) continue;
+      const messageId = readString(payload.messageId) ?? event.eventId;
+      const provider = providerIdentity(payload);
+      lastRoutedProvider = provider.provider ?? lastRoutedProvider;
+      lastRoutedModel = provider.model ?? lastRoutedModel;
+      const previous = messages[messages.length - 1];
+      if (previous?.role === "assistant" && previous.sessionEventMessageId === messageId) {
+        messages[messages.length - 1] = {
+          ...previous,
+          content,
+          routedProvider: lastRoutedProvider ?? undefined,
+          routedModel: lastRoutedModel ?? undefined,
+        };
+        const previousTimeline = timelineEntries[timelineEntries.length - 1];
+        if (previousTimeline?.type === "message" && previousTimeline.message.id === previous.id) {
+          timelineEntries[timelineEntries.length - 1] = {
+            ...previousTimeline,
+            message: messages[messages.length - 1]!,
+          };
+        }
+        continue;
+      }
+      messages.push({
+        id: `${detail.id}:${event.sequence}`,
+        role: "assistant",
+        content,
+        createdAt: event.timestamp,
+        streaming: false,
+        routedProvider: lastRoutedProvider ?? undefined,
+        routedModel: lastRoutedModel ?? undefined,
+        sessionEventMessageId: messageId,
+      });
+      timelineEntries.push({
+        id: `${detail.id}:timeline:${event.sequence}`,
+        type: "message",
+        createdAt: event.timestamp,
+        sequence: event.sequence,
+        message: messages[messages.length - 1]!,
+      });
+      continue;
+    }
+
+    if (event.kind === "error_recorded") {
+      const content = eventPayloadText(payload);
+      if (!content) continue;
+      messages.push({
+        id: `${detail.id}:${event.sequence}`,
+        role: "error",
+        content,
+        createdAt: event.timestamp,
+        streaming: false,
+      });
+      timelineEntries.push({
+        id: `${detail.id}:timeline:${event.sequence}`,
+        type: "message",
+        createdAt: event.timestamp,
+        sequence: event.sequence,
+        message: messages[messages.length - 1]!,
+      });
+      continue;
+    }
+
+    if (event.kind === "provider_routed") {
+      const provider = providerIdentity(payload);
+      lastRoutedProvider = provider.provider ?? lastRoutedProvider;
+      lastRoutedModel = provider.model ?? lastRoutedModel;
+      timelineEntries.push({
+        id: `${detail.id}:timeline:${event.sequence}`,
+        type: "event",
+        eventKind: event.kind,
+        createdAt: event.timestamp,
+        sequence: event.sequence,
+        title: "Provider routed",
+        summary: [lastRoutedProvider, lastRoutedModel].filter(Boolean).join(" · ") || readString(payload.reason) || "Provider selected",
+        tone: "info",
+        details: payload,
+      });
+      continue;
+    }
+
+    if (event.kind === "tool_call_started") {
+      const toolCallId = readString(payload.toolCallId) ?? event.eventId;
+      const toolName = readString(payload.toolName) ?? "tool";
+      const input = isObjectRecord(payload.input) ? payload.input : {};
+      toolCalls.set(toolCallId, {
+        callId: toolCallId,
+        toolName,
+        input,
+        status: "running",
+        startedAt: event.timestamp,
+      });
+      timelineEntries.push({
+        id: `${detail.id}:timeline:${event.sequence}`,
+        type: "event",
+        eventKind: event.kind,
+        createdAt: event.timestamp,
+        sequence: event.sequence,
+        title: `Tool started: ${toolName}`,
+        summary: "Execution in progress",
+        tone: "running",
+        details: {
+          toolCallId,
+          ...input,
+        },
+      });
+      continue;
+    }
+
+    if (event.kind === "tool_call_completed") {
+      const toolCallId = readString(payload.toolCallId) ?? event.eventId;
+      const toolName = readString(payload.toolName) ?? toolCalls.get(toolCallId)?.toolName ?? "tool";
+      const status = isObjectRecord(payload.status) ? payload.status : null;
+      toolCalls.set(toolCallId, {
+        callId: toolCallId,
+        toolName,
+        input: toolCalls.get(toolCallId)?.input ?? {},
+        result: eventPayloadText(payload) ?? undefined,
+        status: toolEntryStatus(status?.state),
+        startedAt: toolCalls.get(toolCallId)?.startedAt ?? event.timestamp,
+        completedAt: event.timestamp,
+      });
+      timelineEntries.push({
+        id: `${detail.id}:timeline:${event.sequence}`,
+        type: "event",
+        eventKind: event.kind,
+        createdAt: event.timestamp,
+        sequence: event.sequence,
+        title: `Tool completed: ${toolName}`,
+        summary: eventPayloadText(payload) ?? undefined,
+        tone: toolEntryStatus(status?.state) === "success" ? "success" : "error",
+        details: {
+          toolCallId,
+          input: toolCalls.get(toolCallId)?.input ?? {},
+          result: eventPayloadText(payload) ?? undefined,
+          status: status?.state,
+        },
+      });
+      continue;
+    }
+
+    if (event.kind === "file_changed") {
+      const change = isObjectRecord(payload.change) ? payload.change : null;
+      const path = readString(change?.path);
+      const changeType = normalizeLoadedChangeType(change?.changeType);
+      if (!path || !changeType) continue;
+      timelineEntries.push({
+        id: `${detail.id}:timeline:${event.sequence}`,
+        type: "event",
+        eventKind: event.kind,
+        createdAt: event.timestamp,
+        sequence: event.sequence,
+        title: "File changed",
+        summary: `${changeType}: ${path}`,
+        tone: "info",
+        details: change,
+      });
+      continue;
+    }
+
+    if (event.kind === "cost_updated") {
+      const provider = providerIdentity(payload);
+      const usage = isObjectRecord(payload.usage) ? payload.usage : null;
+      const cost = isObjectRecord(payload.cost) ? payload.cost : null;
+      const deltaUsd = readNumber(cost?.deltaUsd) ?? 0;
+      const inputDelta = readNumber(usage?.inputTokens) ?? 0;
+      const outputDelta = readNumber(usage?.outputTokens) ?? 0;
+      sessionCostUsd += deltaUsd;
+      inputTokens += inputDelta;
+      outputTokens += outputDelta;
+      timelineEntries.push({
+        id: `${detail.id}:timeline:${event.sequence}`,
+        type: "event",
+        eventKind: event.kind,
+        createdAt: event.timestamp,
+        sequence: event.sequence,
+        title: "Cost updated",
+        summary: `${formatUsd(deltaUsd)} · ${inputDelta}↑ ${outputDelta}↓`,
+        tone: "info",
+        details: {
+          provider,
+          usage,
+          cost,
+        },
+      });
+      continue;
+    }
+
+    if (event.kind === "continuity_decided") {
+      if (!lastRoutedProvider) continue;
+      const strategy = readString(payload.decision);
+      if (!strategy) continue;
+      timelineEntries.push({
+        id: `${detail.id}:timeline:${event.sequence}`,
+        type: "event",
+        eventKind: event.kind,
+        createdAt: event.timestamp,
+        sequence: event.sequence,
+        title: "Continuity decided",
+        summary: `${strategy}${readString(payload.reason) ? ` · ${readString(payload.reason)}` : ""}`,
+        tone: "info",
+        details: {
+          ...payload,
+          provider: lastRoutedProvider,
+        },
+      });
+      continue;
+    }
+
+    if (event.kind === "turn_completed") {
+      turnCounter += 1;
+      timelineEntries.push({
+        id: `${detail.id}:timeline:${event.sequence}`,
+        type: "event",
+        eventKind: event.kind,
+        createdAt: event.timestamp,
+        sequence: event.sequence,
+        title: "Turn completed",
+        summary: readString(payload.outcome) ?? undefined,
+        tone: "success",
+        details: payload,
+      });
+      continue;
+    }
+
+    if (event.kind === "approval_requested") {
+      timelineEntries.push({
+        id: `${detail.id}:timeline:${event.sequence}`,
+        type: "event",
+        eventKind: event.kind,
+        createdAt: event.timestamp,
+        sequence: event.sequence,
+        title: "Approval requested",
+        summary: readString(payload.action) ?? readString(payload.justification) ?? "Approval required",
+        tone: "warning",
+        details: payload,
+        sessionId: detail.id,
+      });
+      continue;
+    }
+
+    if (event.kind === "approval_resolved") {
+      const resolution = isObjectRecord(payload.resolution) ? payload.resolution : null;
+      const decision = readString(resolution?.decision) ?? "resolved";
+      timelineEntries.push({
+        id: `${detail.id}:timeline:${event.sequence}`,
+        type: "event",
+        eventKind: event.kind,
+        createdAt: event.timestamp,
+        sequence: event.sequence,
+        title: "Approval resolved",
+        summary: decision,
+        tone: decision === "approved" ? "success" : "error",
+        details: resolution ?? payload,
+        sessionId: detail.id,
+      });
+      continue;
+    }
+
+    if (event.kind === "turn_started") {
+      timelineEntries.push({
+        id: `${detail.id}:timeline:${event.sequence}`,
+        type: "event",
+        eventKind: event.kind,
+        createdAt: event.timestamp,
+        sequence: event.sequence,
+        title: "Turn started",
+        tone: "info",
+      });
+    }
   }
 
-  if (messages.length > 0) {
-    return messages;
-  }
-
-  const fallback = detail.meta?.summary ?? detail.meta?.task ?? "";
-  return fallback.trim().length > 0
-    ? [{
+  if (messages.length === 0) {
+    const fallback = detail.meta?.summary ?? detail.meta?.task ?? "";
+    if (fallback.trim().length > 0) {
+      messages.push({
         id: `${detail.id}:summary`,
         role: "assistant",
         content: fallback,
         createdAt: detail.meta?.completedAt ?? detail.meta?.startedAt ?? nowIso(),
         streaming: false,
         routedProvider: detail.meta?.lastProvider,
-      }]
-    : [];
+      });
+      timelineEntries.push({
+        id: `${detail.id}:timeline:summary`,
+        type: "message",
+        createdAt: detail.meta?.completedAt ?? detail.meta?.startedAt ?? nowIso(),
+        message: messages[messages.length - 1]!,
+      });
+    }
+  }
+
+  return {
+    messages,
+    timelineEntries,
+    sessionCostUsd,
+    inputTokens,
+    outputTokens,
+    turnCounter,
+    routedProvider: lastRoutedProvider,
+    routedModel: lastRoutedModel,
+  };
 }
 
 export type SessionStatus = "idle" | "connecting" | "ready" | "running" | "error";
@@ -196,6 +610,171 @@ export interface Message {
   readonly streaming?: boolean;
   readonly routedProvider?: string;
   readonly routedModel?: string;
+  readonly sessionEventMessageId?: string;
+}
+
+export interface TimelineMessageEntry {
+  readonly id: string;
+  readonly type: "message";
+  readonly createdAt: string;
+  readonly sequence?: number;
+  readonly message: Message;
+}
+
+export interface TimelineEventEntry {
+  readonly id: string;
+  readonly type: "event";
+  readonly eventKind: GuiSessionEvent["kind"];
+  readonly createdAt: string;
+  readonly sequence?: number;
+  readonly title: string;
+  readonly summary?: string;
+  readonly tone: "info" | "running" | "success" | "warning" | "error";
+  readonly details?: unknown;
+  readonly sessionId?: string;
+}
+
+export type TimelineEntry = TimelineMessageEntry | TimelineEventEntry;
+
+export function deriveToolCallLog(entries: readonly TimelineEntry[]): readonly ToolCallEntry[] {
+  const toolCalls = new Map<string, ToolCallEntry>();
+  for (const entry of entries) {
+    if (entry.type !== "event") continue;
+    if (entry.eventKind === "tool_call_started") {
+      const callId = toolCallIdFromDetails(entry.details) ?? entry.id;
+      const input = isObjectRecord(entry.details) ? entry.details : {};
+      const toolName = entry.title.replace(/^Tool started:\s*/, "") || "tool";
+      toolCalls.set(callId, {
+        callId,
+        toolName,
+        input,
+        status: "running",
+        startedAt: entry.createdAt,
+      });
+      continue;
+    }
+    if (entry.eventKind === "tool_call_completed") {
+      const details = isObjectRecord(entry.details) ? entry.details : null;
+      const callId = toolCallIdFromDetails(details) ?? entry.id;
+      const previous = toolCalls.get(callId);
+      toolCalls.set(callId, {
+        callId,
+        toolName: entry.title.replace(/^Tool completed:\s*/, "") || previous?.toolName || "tool",
+        input: isObjectRecord(details?.input) ? details.input : previous?.input ?? {},
+        result: readString(details?.result) ?? entry.summary ?? undefined,
+        status: toolEntryStatus(details?.status) === "running" ? "error" : toolEntryStatus(details?.status),
+        startedAt: previous?.startedAt ?? entry.createdAt,
+        completedAt: entry.createdAt,
+      });
+    }
+  }
+  return [...toolCalls.values()];
+}
+
+export function derivePendingApprovals(entries: readonly TimelineEntry[]): readonly ApprovalRequest[] {
+  const pending = new Map<string, ApprovalRequest>();
+  for (const entry of entries) {
+    if (entry.type !== "event") continue;
+    if (entry.eventKind === "approval_requested") {
+      const approvalId = approvalIdFromDetails(entry.details) ?? entry.id;
+      pending.set(approvalId, {
+        id: approvalId,
+        description: entry.summary ?? entry.title,
+        sessionId: entry.sessionId ?? "",
+        requestedAt: entry.createdAt,
+      });
+      continue;
+    }
+    if (entry.eventKind === "approval_resolved") {
+      const approvalId = approvalIdFromDetails(entry.details);
+      if (approvalId) {
+        pending.delete(approvalId);
+        continue;
+      }
+      if (entry.sessionId) {
+        for (const [key, value] of pending.entries()) {
+          if (value.sessionId === entry.sessionId) {
+            pending.delete(key);
+          }
+        }
+      }
+    }
+  }
+  return [...pending.values()];
+}
+
+export function deriveChangedFiles(entries: readonly TimelineEntry[]): readonly ChangedFileEntry[] {
+  const changedFiles: ChangedFileEntry[] = [];
+  for (const entry of entries) {
+    if (entry.type !== "event" || entry.eventKind !== "file_changed") {
+      continue;
+    }
+    const details = isObjectRecord(entry.details) ? entry.details : null;
+    const path = readString(details?.path);
+    const changeType = normalizeLoadedChangeType(details?.changeType);
+    if (!path || !changeType) {
+      continue;
+    }
+    changedFiles.push({
+      path,
+      changeType,
+      linesAdded: readNumber(details?.linesAdded) ?? undefined,
+      linesRemoved: readNumber(details?.linesRemoved) ?? undefined,
+      recordedAt: entry.createdAt,
+    });
+  }
+  return changedFiles;
+}
+
+export function deriveRuntimeContinuityByProvider(entries: readonly TimelineEntry[]): Readonly<Record<string, RuntimeContinuityInfo>> {
+  const runtimeContinuityByProvider: Record<string, RuntimeContinuityInfo> = {};
+  for (const entry of entries) {
+    if (entry.type !== "event") {
+      continue;
+    }
+    if (entry.eventKind === "continuity_decided") {
+      const details = isObjectRecord(entry.details) ? entry.details : null;
+      const provider = providerFromTimelineDetails(details);
+      const strategy = readString(details?.decision);
+      if (!provider || !strategy) {
+        continue;
+      }
+      runtimeContinuityByProvider[provider] = {
+        strategy,
+        selectionReason: readString(details?.reason) ?? undefined,
+      };
+      continue;
+    }
+    if (entry.eventKind === "turn_completed") {
+      const details = isObjectRecord(entry.details) ? entry.details : null;
+      const provider = providerFromTimelineDetails(details);
+      const runtimeContinuity = isObjectRecord(details?.runtimeContinuity) ? details.runtimeContinuity : null;
+      const strategy = readString(runtimeContinuity?.strategy);
+      if (!provider || !strategy) {
+        continue;
+      }
+      runtimeContinuityByProvider[provider] = {
+        strategy,
+        feedbackLabel: readString(runtimeContinuity?.feedbackLabel) ?? undefined,
+        pressure: readString(runtimeContinuity?.pressure) ?? undefined,
+        supportArtifactCount: readNumber(runtimeContinuity?.supportArtifactCount) ?? undefined,
+        supportArtifactSources: Array.isArray(runtimeContinuity?.supportArtifactSources)
+          ? runtimeContinuity.supportArtifactSources.filter((value): value is string => typeof value === "string")
+          : undefined,
+        fallbackLabel: readString(runtimeContinuity?.fallbackLabel) ?? undefined,
+        usedCachedSupport: typeof runtimeContinuity?.usedCachedSupport === "boolean" ? runtimeContinuity.usedCachedSupport : undefined,
+        selectionReason: readString(runtimeContinuity?.selectionReason) ?? undefined,
+      };
+    }
+  }
+  return runtimeContinuityByProvider;
+}
+
+export function deriveRuntimeContinuity(entries: readonly TimelineEntry[], provider: string | null): RuntimeContinuityInfo | null {
+  if (!provider) {
+    return null;
+  }
+  return deriveRuntimeContinuityByProvider(entries)[provider] ?? null;
 }
 
 export interface ActivityState {
@@ -223,6 +802,7 @@ export type RouteMode = "user" | "auto" | "responding";
 interface SessionStoreState {
   readonly status: SessionStatus;
   readonly messages: readonly Message[];
+  readonly timelineEntries: readonly TimelineEntry[];
   readonly currentAssistant: string | null;
   readonly planMode: boolean;
   readonly activity: ActivityState | null;
@@ -242,11 +822,6 @@ interface SessionStoreState {
   readonly sessionCostUsd: number;
   readonly inputTokens: number;
   readonly outputTokens: number;
-  readonly perProviderUsage: Readonly<Record<string, ProviderUsage>>;
-  readonly runtimeContinuityByProvider: Readonly<Record<string, RuntimeContinuityInfo>>;
-  readonly changedFiles: readonly ChangedFileEntry[];
-  readonly currentTurnProvider: string | null;
-  readonly currentTurnTrackedCostUsd: number;
   readonly currentTurnTrackedInputTokens: number;
   readonly currentTurnTrackedOutputTokens: number;
   readonly clearPending: boolean;
@@ -256,8 +831,6 @@ interface SessionStoreState {
   readonly outboundSend: ((frame: GuiOutboundFrame) => void) | null;
   readonly clearTimeoutId: ReturnType<typeof setTimeout> | null;
   readonly providerSwitchTimeoutId: ReturnType<typeof setTimeout> | null;
-  readonly approvalQueue: readonly ApprovalRequest[];
-  readonly toolCallLog: readonly ToolCallEntry[];
   readonly activityPhase: ActivityPhase;
 }
 
@@ -270,8 +843,9 @@ interface SessionStoreActions {
   setErrorBanner: (message: string | null) => void;
   clearErrorBanner: () => void;
   onWelcome: (frame: Extract<GuiInboundFrame, { type: "welcome" }>) => void;
-  onTextDelta: (frame: Extract<GuiInboundFrame, { type: "text_delta" }>) => void;
-  onActivity: (frame: Extract<GuiInboundFrame, { type: "activity" }>) => void;
+  onSessionEvent: (event: GuiSessionEvent) => void;
+  onTextDelta: (frame: StoreTextDeltaFrame) => void;
+  onActivity: (frame: StoreActivityFrame) => void;
   onDone: (frame: Extract<GuiInboundFrame, { type: "done" }>) => void;
   onError: (frame: Extract<GuiInboundFrame, { type: "error" }>) => void;
   onCleared: () => void;
@@ -283,13 +857,8 @@ interface SessionStoreActions {
   setPlanMode: (enabled: boolean) => void;
   setResume: (sessionId: string | null) => void;
   disconnect: () => void;
-  onApprovalRequested: (frame: Extract<GuiInboundFrame, { type: "approval_requested" }>) => void;
-  onApprovalReceived: (frame: Extract<GuiInboundFrame, { type: "approval_received" }>) => void;
-  onToolCallStart: (frame: Extract<GuiInboundFrame, { type: "tool_call_start" }>) => void;
-  onToolCallResult: (frame: Extract<GuiInboundFrame, { type: "tool_call_result" }>) => void;
   onActivityPhase: (frame: Extract<GuiInboundFrame, { type: "activity_phase" }>) => void;
   sendApprovalResponse: (approved: boolean, reason?: string, sessionId?: string) => boolean;
-  clearToolCallLog: () => void;
 }
 
 export type SessionStore = SessionStoreState & SessionStoreActions;
@@ -299,6 +868,7 @@ const initialPlanMode = readStoredPlanMode() ?? false;
 export const useSessionStore = create<SessionStore>((set, get) => ({
   status: "idle",
   messages: [],
+  timelineEntries: [],
   currentAssistant: null,
   planMode: initialPlanMode,
   activity: null,
@@ -318,11 +888,6 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   sessionCostUsd: 0,
   inputTokens: 0,
   outputTokens: 0,
-  perProviderUsage: {},
-  runtimeContinuityByProvider: {},
-  changedFiles: [],
-  currentTurnProvider: null,
-  currentTurnTrackedCostUsd: 0,
   currentTurnTrackedInputTokens: 0,
   currentTurnTrackedOutputTokens: 0,
   clearPending: false,
@@ -332,8 +897,6 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   outboundSend: null,
   clearTimeoutId: null,
   providerSwitchTimeoutId: null,
-  approvalQueue: [],
-  toolCallLog: [],
   activityPhase: "idle",
 
   setConnectionStatus: (status) => {
@@ -358,16 +921,26 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   },
 
   viewSessionDetail: (detail) => {
+    const loaded = mapSessionDetailToLoadedState(detail);
     writeResumeTarget(detail.id);
     set({
       selectedSessionId: detail.id,
       resumeTargetId: detail.id,
-      messages: mapSessionDetailToMessages(detail),
+      messages: loaded.messages,
+      timelineEntries: loaded.timelineEntries,
       currentAssistant: null,
       status: "ready",
       activity: null,
       activityPhase: "idle",
       errorBanner: null,
+      sessionCostUsd: loaded.sessionCostUsd,
+      inputTokens: loaded.inputTokens,
+      outputTokens: loaded.outputTokens,
+      turnCounter: loaded.turnCounter,
+      routedProvider: loaded.routedProvider,
+      routedModel: loaded.routedModel,
+      currentTurnTrackedInputTokens: 0,
+      currentTurnTrackedOutputTokens: 0,
     });
   },
 
@@ -446,9 +1019,255 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     persistPlanMode(resolvedPlanMode);
   },
 
+  onSessionEvent: (event) => {
+    const state = get();
+    const payload = isObjectRecord(event.payload) ? event.payload : {};
+
+    if (event.kind === "assistant_delta") {
+      const delta = readString(payload.delta) ?? eventPayloadText(payload);
+      if (delta) {
+        state.onTextDelta({ type: "text_delta", content: delta });
+      }
+      return;
+    }
+
+    if (event.kind === "provider_routed") {
+      const provider = providerIdentity(payload);
+        set({
+          timelineEntries: [
+            ...state.timelineEntries,
+            {
+            id: `timeline:${event.eventId}`,
+            type: "event",
+            eventKind: event.kind,
+            createdAt: event.timestamp,
+            sequence: event.sequence,
+              title: "Provider routed",
+              summary: [provider.provider, provider.model].filter(Boolean).join(" · ") || readString(payload.reason) || "Provider selected",
+              tone: "info",
+              details: payload,
+            },
+          ],
+        respondingProvider: provider.provider ?? state.respondingProvider,
+        respondingModel: provider.model ?? state.respondingModel,
+      });
+      return;
+    }
+
+    if (event.kind === "tool_call_started") {
+      const toolName = readString(payload.toolName) ?? "tool";
+      const input = isObjectRecord(payload.input) ? payload.input : {};
+      set({
+        timelineEntries: [
+          ...get().timelineEntries,
+          {
+            id: `timeline:${event.eventId}`,
+            type: "event",
+            eventKind: event.kind,
+            createdAt: event.timestamp,
+            sequence: event.sequence,
+            title: `Tool started: ${toolName}`,
+            summary: "Execution in progress",
+            tone: "running",
+            details: {
+              toolCallId: readString(payload.toolCallId) ?? event.eventId,
+              ...input,
+            },
+          },
+        ],
+        activity: {
+          phase: "tool_running",
+          toolName,
+        },
+      });
+      return;
+    }
+
+    if (event.kind === "tool_call_completed") {
+      const status = isObjectRecord(payload.status) ? payload.status : null;
+      const completedStatus = status?.state === "succeeded" || status?.state === "success" ? "success" : "error";
+      const priorToolCalls = deriveToolCallLog(get().timelineEntries);
+      const priorInput = priorToolCalls.find((entry) => entry.callId === (readString(payload.toolCallId) ?? event.eventId))?.input ?? {};
+      set({
+        timelineEntries: [
+          ...get().timelineEntries,
+          {
+            id: `timeline:${event.eventId}`,
+            type: "event",
+            eventKind: event.kind,
+            createdAt: event.timestamp,
+            sequence: event.sequence,
+            title: `Tool completed: ${readString(payload.toolName) ?? "tool"}`,
+            summary: eventPayloadText(payload) ?? undefined,
+            tone: completedStatus === "success" ? "success" : "error",
+            details: {
+              toolCallId: readString(payload.toolCallId) ?? event.eventId,
+              input: priorInput,
+              result: eventPayloadText(payload) ?? undefined,
+              status: status?.state,
+            },
+          },
+        ],
+        activity: null,
+      });
+      return;
+    }
+
+    if (event.kind === "approval_requested") {
+      set({
+        timelineEntries: [
+          ...get().timelineEntries,
+          {
+            id: `timeline:${event.eventId}`,
+            type: "event",
+            eventKind: event.kind,
+            createdAt: event.timestamp,
+            sequence: event.sequence,
+            title: "Approval requested",
+            summary: readString(payload.action) ?? readString(payload.justification) ?? "Approval required",
+            tone: "warning",
+            details: payload,
+            sessionId: event.kilnSessionId,
+          },
+        ],
+        activity: {
+          phase: "awaiting_approval",
+          details: readString(payload.action) ?? undefined,
+        },
+      });
+      return;
+    }
+
+    if (event.kind === "approval_resolved") {
+      const resolution = isObjectRecord(payload.resolution) ? payload.resolution : null;
+      set({
+        timelineEntries: [
+          ...get().timelineEntries,
+          {
+            id: `timeline:${event.eventId}`,
+            type: "event",
+            eventKind: event.kind,
+            createdAt: event.timestamp,
+            sequence: event.sequence,
+            title: "Approval resolved",
+            summary: readString(resolution?.decision) ?? undefined,
+            tone: resolution?.decision === "approved" ? "success" : "error",
+            details: {
+              approvalId: readString(payload.approvalId) ?? undefined,
+              resolution: resolution ?? undefined,
+            },
+            sessionId: event.kilnSessionId,
+          },
+        ],
+        activity: null,
+      });
+      return;
+    }
+
+    if (event.kind === "file_changed") {
+      const change = isObjectRecord(payload.change) ? payload.change : null;
+      const changeType = normalizeLoadedChangeType(change?.changeType);
+      const path = readString(change?.path);
+      if (!changeType || !path) {
+        return;
+      }
+      set({
+        timelineEntries: [
+          ...get().timelineEntries,
+          {
+            id: `timeline:${event.eventId}`,
+            type: "event",
+            eventKind: event.kind,
+            createdAt: event.timestamp,
+            sequence: event.sequence,
+            title: "File changed",
+            summary: `${changeType}: ${path}`,
+            tone: "info",
+            details: change,
+          },
+        ],
+      });
+      return;
+    }
+
+    if (event.kind === "cost_updated") {
+      const cost = isObjectRecord(payload.cost) ? payload.cost : null;
+      const usage = isObjectRecord(payload.usage) ? payload.usage : null;
+      state.onActivity({
+        type: "activity",
+        activity: "cost_update",
+        usd: readNumber(cost?.deltaUsd) ?? 0,
+        inputTokens: readNumber(usage?.inputTokens) ?? undefined,
+        outputTokens: readNumber(usage?.outputTokens) ?? undefined,
+      });
+      set({
+        timelineEntries: [
+          ...get().timelineEntries,
+          {
+            id: `timeline:${event.eventId}`,
+            type: "event",
+            eventKind: event.kind,
+            createdAt: event.timestamp,
+            sequence: event.sequence,
+            title: "Cost updated",
+            summary: `${formatUsd(readNumber(cost?.deltaUsd) ?? 0)} · ${readNumber(usage?.inputTokens) ?? 0}↑ ${readNumber(usage?.outputTokens) ?? 0}↓`,
+            tone: "info",
+            details: {
+              provider: providerIdentity(payload),
+              usage,
+              cost,
+            },
+          },
+        ],
+      });
+      return;
+    }
+
+    if (event.kind === "continuity_decided") {
+      const provider = state.respondingProvider ?? state.activeProvider;
+      const strategy = readString(payload.decision);
+      if (!provider || !strategy) {
+        return;
+      }
+      set({
+        timelineEntries: [
+          ...get().timelineEntries,
+          {
+            id: `timeline:${event.eventId}`,
+            type: "event",
+            eventKind: event.kind,
+            createdAt: event.timestamp,
+            sequence: event.sequence,
+            title: "Continuity decided",
+            summary: `${strategy}${readString(payload.reason) ? ` · ${readString(payload.reason)}` : ""}`,
+            tone: "info",
+            details: {
+              ...payload,
+              provider,
+            },
+          },
+        ],
+      });
+      return;
+    }
+
+    if (event.kind === "error_recorded") {
+      const message = readString(payload.message);
+      if (message) {
+        state.onError({
+          type: "error",
+          message,
+          code: readString(payload.errorCode) ?? undefined,
+        });
+      }
+      return;
+    }
+  },
+
   onTextDelta: (frame) => {
     const state = get();
     const messageList = [...state.messages];
+    const timelineEntries = [...state.timelineEntries];
     const existingId = state.currentAssistant;
     const targetIndex = existingId
       ? messageList.findIndex((message) => message.id === existingId)
@@ -464,7 +1283,18 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         content: current.content + frame.content,
         streaming: true,
       };
-      set({ messages: messageList, status: "running", activityPhase: "streaming", errorBanner: null });
+      const timelineIndex = timelineEntries.findIndex((entry) => entry.type === "message" && entry.message.id === current.id);
+      if (timelineIndex >= 0) {
+        const currentTimelineEntry = timelineEntries[timelineIndex];
+        if (currentTimelineEntry?.type !== "message") {
+          return;
+        }
+        timelineEntries[timelineIndex] = {
+          ...currentTimelineEntry,
+          message: messageList[targetIndex]!,
+        };
+      }
+      set({ messages: messageList, timelineEntries, status: "running", activityPhase: "streaming", errorBanner: null });
       return;
     }
 
@@ -478,6 +1308,15 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     };
     set({
       messages: [...messageList, assistantMessage],
+      timelineEntries: [
+        ...timelineEntries,
+        {
+          id: `timeline:${assistantId}`,
+          type: "message",
+          createdAt: assistantMessage.createdAt,
+          message: assistantMessage,
+        },
+      ],
       currentAssistant: assistantId,
       status: "running",
       activityPhase: "streaming",
@@ -488,38 +1327,12 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   onActivity: (frame) => {
     const current = get();
     if (frame.activity === "cost_update" && typeof frame.usd === "number") {
-      const provider = current.currentTurnProvider ?? current.respondingProvider ?? current.activeProvider;
-      const nextUsage = { ...current.perProviderUsage };
-      if (provider) {
-        const previous = nextUsage[provider] ?? { costUsd: 0, inputTokens: 0, outputTokens: 0 };
-        nextUsage[provider] = {
-          costUsd: previous.costUsd + frame.usd,
-          inputTokens: previous.inputTokens + (frame.inputTokens ?? 0),
-          outputTokens: previous.outputTokens + (frame.outputTokens ?? 0),
-        };
-      }
       set({
         sessionCostUsd: current.sessionCostUsd + frame.usd,
         inputTokens: current.inputTokens + (frame.inputTokens ?? 0),
         outputTokens: current.outputTokens + (frame.outputTokens ?? 0),
-        perProviderUsage: nextUsage,
-        currentTurnTrackedCostUsd: current.currentTurnTrackedCostUsd + frame.usd,
         currentTurnTrackedInputTokens: current.currentTurnTrackedInputTokens + (frame.inputTokens ?? 0),
         currentTurnTrackedOutputTokens: current.currentTurnTrackedOutputTokens + (frame.outputTokens ?? 0),
-      });
-      return;
-    }
-
-    if (frame.activity === "file_changed" && frame.path && frame.changeType) {
-      const entry: ChangedFileEntry = {
-        path: frame.path,
-        changeType: frame.changeType,
-        linesAdded: frame.linesAdded,
-        linesRemoved: frame.linesRemoved,
-        recordedAt: nowIso(),
-      };
-      set({
-        changedFiles: [...current.changedFiles, entry],
       });
       return;
     }
@@ -578,63 +1391,20 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     const state = get();
     const finalizedProvider = frame.routedProvider ?? state.respondingProvider ?? state.activeProvider ?? undefined;
     const finalizedModel = frame.routedModel ?? state.respondingModel ?? state.activeModel ?? undefined;
-    const currentTurnProvider = state.currentTurnProvider;
-    let nextPerProviderUsage = { ...state.perProviderUsage };
-    if (currentTurnProvider && finalizedProvider && currentTurnProvider !== finalizedProvider) {
-      const previousProviderUsage = nextPerProviderUsage[currentTurnProvider];
-      if (previousProviderUsage) {
-        const adjustedPreviousCost = previousProviderUsage.costUsd - state.currentTurnTrackedCostUsd;
-        const adjustedPreviousInput = previousProviderUsage.inputTokens - state.currentTurnTrackedInputTokens;
-        const adjustedPreviousOutput = previousProviderUsage.outputTokens - state.currentTurnTrackedOutputTokens;
-        if (adjustedPreviousCost === 0 && adjustedPreviousInput === 0 && adjustedPreviousOutput === 0) {
-          delete nextPerProviderUsage[currentTurnProvider];
-        } else {
-          nextPerProviderUsage[currentTurnProvider] = {
-            costUsd: adjustedPreviousCost,
-            inputTokens: adjustedPreviousInput,
-            outputTokens: adjustedPreviousOutput,
-          };
-        }
-        const targetUsage = nextPerProviderUsage[finalizedProvider] ?? { costUsd: 0, inputTokens: 0, outputTokens: 0 };
-        nextPerProviderUsage[finalizedProvider] = {
-          costUsd: targetUsage.costUsd + state.currentTurnTrackedCostUsd,
-          inputTokens: targetUsage.inputTokens + state.currentTurnTrackedInputTokens,
-          outputTokens: targetUsage.outputTokens + state.currentTurnTrackedOutputTokens,
-        };
-      }
-    }
 
     let nextInputTokens = state.inputTokens;
     let nextOutputTokens = state.outputTokens;
     if (frame.inputTokens > state.currentTurnTrackedInputTokens) {
       const delta = frame.inputTokens - state.currentTurnTrackedInputTokens;
       nextInputTokens += delta;
-      if (finalizedProvider) {
-        const targetUsage = nextPerProviderUsage[finalizedProvider] ?? { costUsd: 0, inputTokens: 0, outputTokens: 0 };
-        nextPerProviderUsage[finalizedProvider] = {
-          ...targetUsage,
-          inputTokens: targetUsage.inputTokens + delta,
-        };
-      }
     }
     if (frame.outputTokens > state.currentTurnTrackedOutputTokens) {
       const delta = frame.outputTokens - state.currentTurnTrackedOutputTokens;
       nextOutputTokens += delta;
-      if (finalizedProvider) {
-        const targetUsage = nextPerProviderUsage[finalizedProvider] ?? { costUsd: 0, inputTokens: 0, outputTokens: 0 };
-        nextPerProviderUsage[finalizedProvider] = {
-          ...targetUsage,
-          outputTokens: targetUsage.outputTokens + delta,
-        };
-      }
-    }
-
-    const nextRuntimeContinuity = { ...state.runtimeContinuityByProvider };
-    if (finalizedProvider && frame.runtimeContinuity?.strategy) {
-      nextRuntimeContinuity[finalizedProvider] = frame.runtimeContinuity;
     }
 
     let nextMessages = [...state.messages];
+    let nextTimelineEntries = [...state.timelineEntries];
     if (state.currentAssistant) {
       nextMessages = nextMessages.map((message) => (
         message.id === state.currentAssistant
@@ -646,20 +1416,58 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             }
           : message
       ));
+      nextTimelineEntries = nextTimelineEntries.map((entry) => (
+        entry.type === "message" && entry.message.id === state.currentAssistant
+          ? {
+              ...entry,
+              message: nextMessages.find((message) => message.id === state.currentAssistant) ?? entry.message,
+            }
+          : entry
+      ));
     } else if (frame.content.trim().length > 0) {
+      const assistantMessage: Message = {
+        id: createMessageId(),
+        role: "assistant",
+        content: frame.content,
+        createdAt: nowIso(),
+        streaming: false,
+        routedProvider: finalizedProvider,
+        routedModel: finalizedModel,
+      };
       nextMessages = [
         ...nextMessages,
+        assistantMessage,
+      ];
+      nextTimelineEntries = [
+        ...nextTimelineEntries,
         {
-          id: createMessageId(),
-          role: "assistant",
-          content: frame.content,
-          createdAt: nowIso(),
-          streaming: false,
-          routedProvider: finalizedProvider,
-          routedModel: finalizedModel,
+          id: `timeline:${assistantMessage.id}`,
+          type: "message",
+          createdAt: assistantMessage.createdAt,
+          message: assistantMessage,
         },
       ];
     }
+    nextTimelineEntries = [
+      ...nextTimelineEntries,
+      {
+        id: `timeline:turn-complete:${state.turnCounter + 1}:${Date.now()}`,
+        type: "event",
+        eventKind: "turn_completed",
+        createdAt: nowIso(),
+        title: "Turn completed",
+        summary: finalizedProvider ? [finalizedProvider, finalizedModel].filter(Boolean).join(" · ") : undefined,
+        tone: "success",
+        details: {
+          routedProvider: finalizedProvider,
+          routedModel: finalizedModel,
+          runtimeContinuity: frame.runtimeContinuity,
+          authorityStatus: frame.authorityStatus,
+          inputTokens: frame.inputTokens,
+          outputTokens: frame.outputTokens,
+        },
+      },
+    ];
 
     const clearTimeoutId = state.clearTimeoutId;
     if (clearTimeoutId) {
@@ -668,6 +1476,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
     set({
       messages: nextMessages,
+      timelineEntries: nextTimelineEntries,
       currentAssistant: null,
       status: "ready",
       activity: null,
@@ -675,16 +1484,12 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       sessionCostUsd: state.sessionCostUsd,
       inputTokens: nextInputTokens,
       outputTokens: nextOutputTokens,
-      perProviderUsage: nextPerProviderUsage,
-      runtimeContinuityByProvider: nextRuntimeContinuity,
       authorityStatus: frame.authorityStatus ?? state.authorityStatus,
       routedProvider: finalizedProvider ?? state.routedProvider,
       routedModel: finalizedModel ?? state.routedModel,
       routeMode: state.providerExplicitSelection ? "user" : "auto",
       respondingProvider: null,
       respondingModel: null,
-      currentTurnProvider: null,
-      currentTurnTrackedCostUsd: 0,
       currentTurnTrackedInputTokens: 0,
       currentTurnTrackedOutputTokens: 0,
       turnCounter: state.turnCounter + 1,
@@ -706,6 +1511,15 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     };
     set({
       messages: [...state.messages, errorMessage],
+      timelineEntries: [
+        ...state.timelineEntries,
+        {
+          id: `timeline:${errorMessage.id}`,
+          type: "message",
+          createdAt: errorMessage.createdAt,
+          message: errorMessage,
+        },
+      ],
       status: "ready",
       activity: null,
       errorBanner: frame.message,
@@ -726,6 +1540,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     writeResumeTarget(null);
     set({
       messages: [],
+      timelineEntries: [],
       currentAssistant: null,
       status: "ready",
       activity: null,
@@ -741,17 +1556,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       sessionCostUsd: 0,
       inputTokens: 0,
       outputTokens: 0,
-      perProviderUsage: {},
-      runtimeContinuityByProvider: {},
-      changedFiles: [],
-      currentTurnProvider: null,
-      currentTurnTrackedCostUsd: 0,
       currentTurnTrackedInputTokens: 0,
       currentTurnTrackedOutputTokens: 0,
       clearPending: false,
       clearTimeoutId: null,
-      approvalQueue: [],
-      toolCallLog: [],
     });
   },
 
@@ -832,14 +1640,21 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     };
     set({
       messages: [...state.messages, userMessage],
+      timelineEntries: [
+        ...state.timelineEntries,
+        {
+          id: `timeline:${userMessage.id}`,
+          type: "message",
+          createdAt: userMessage.createdAt,
+          message: userMessage,
+        },
+      ],
       status: "running",
       activity: { phase: "thinking" },
       activityPhase: "thinking",
       routeMode: "responding",
       respondingProvider: state.activeProvider,
       respondingModel: state.activeModel,
-      currentTurnProvider: state.activeProvider,
-      currentTurnTrackedCostUsd: 0,
       currentTurnTrackedInputTokens: 0,
       currentTurnTrackedOutputTokens: 0,
       errorBanner: null,
@@ -927,56 +1742,6 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     });
   },
 
-  onApprovalRequested: (frame) => {
-    const request: ApprovalRequest = {
-      id: createMessageId(),
-      description: frame.description,
-      sessionId: frame.sessionId,
-      requestedAt: nowIso(),
-    };
-    set((state) => ({
-      approvalQueue: [...state.approvalQueue, request],
-      activityPhase: "awaiting_approval",
-    }));
-  },
-
-  onApprovalReceived: (frame) => {
-    set((state) => {
-      const nextQueue = frame.sessionId
-        ? state.approvalQueue.filter((req) => req.sessionId !== frame.sessionId)
-        : state.approvalQueue.slice(1);
-      const nextPhase: ActivityPhase = nextQueue.length > 0 ? "awaiting_approval" : state.activityPhase === "awaiting_approval" ? "idle" : state.activityPhase;
-      return { approvalQueue: nextQueue, activityPhase: nextPhase };
-    });
-  },
-
-  onToolCallStart: (frame) => {
-    const entry: ToolCallEntry = {
-      callId: frame.callId,
-      toolName: frame.toolName,
-      input: frame.input,
-      status: "running",
-      startedAt: frame.timestamp,
-    };
-    set((state) => ({
-      toolCallLog: [...state.toolCallLog, entry],
-      activityPhase: "tool_running",
-    }));
-  },
-
-  onToolCallResult: (frame) => {
-    set((state) => {
-      const nextLog = state.toolCallLog.map((entry) =>
-        entry.callId === frame.callId
-          ? { ...entry, result: frame.result, status: frame.status, completedAt: frame.timestamp }
-          : entry,
-      );
-      const stillRunning = nextLog.some((entry) => entry.status === "running");
-      const nextPhase: ActivityPhase = stillRunning ? "tool_running" : state.activityPhase === "tool_running" ? "idle" : state.activityPhase;
-      return { toolCallLog: nextLog, activityPhase: nextPhase };
-    });
-  },
-
   onActivityPhase: (frame) => {
     set({ activityPhase: frame.phase });
   },
@@ -991,9 +1756,5 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       outboundSend({ type: "reject", reason: reason ?? "rejected by user", sessionId });
     }
     return true;
-  },
-
-  clearToolCallLog: () => {
-    set({ toolCallLog: [] });
   },
 }));

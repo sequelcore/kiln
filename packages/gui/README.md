@@ -26,6 +26,40 @@ The current product direction is a dense operator surface, not a generic
 dashboard: compact rows, hairline dividers, provider glyphs, clear active
 continuation state, and visible telemetry where it helps supervision.
 
+## Layout ownership
+
+The shell is split into a left operator rail, an optional mode panel, and the
+main chat column. Keep ownership boundaries explicit:
+
+- the left rail owns operator mode navigation and collapse state
+- the mode panel owns mode-specific navigation, currently canonical sessions
+  plus the event-backed changed-files review panel
+- the chat top bar owns summary state: title, turns, tokens, cost,
+  provider/model route, connection, and primary actions
+- the inspector owns deeper diagnostics: continuity, field, changed files, and
+  future event-backed details
+- the composer owns draft input, slash commands, file affordances, plan mode,
+  and send behavior
+
+Do not repeat the same summary telemetry in multiple headers. If a value is
+useful at a glance, it belongs in the chat top bar; if it helps diagnose why a
+turn behaved a certain way, it belongs in the inspector.
+
+Inspector data should come from canonical timeline projections, not separate
+GUI-maintained caches for files, approvals, or continuity.
+
+The changed-files mode is intentionally honest about current runtime evidence:
+it can show canonical file-change records and line deltas, but full diff hunks
+must stay gated until the runtime emits structured diff payloads.
+
+## Commands
+
+`Ctrl+K` or `Cmd+K` opens the global command palette. Typing `/` into an empty
+composer opens the composer-attached command surface. Both surfaces should use
+the same command model, but their placement is intentional: global commands are
+navigation/action commands, while slash commands are message-composition
+commands.
+
 ## E2E tests (Playwright)
 
 Install the browser once:

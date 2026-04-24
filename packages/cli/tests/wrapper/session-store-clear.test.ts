@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { SessionStore, TranscriptStore } from "../../src/wrapper/session-store.js";
-import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { SessionRecord } from "../../src/wrapper/session-store.js";
@@ -162,23 +162,81 @@ describe("TranscriptStore", () => {
       startedAt: "2026-04-23T03:50:00.000Z",
     });
     await store.append(sessionId, {
-      seq: 1,
-      ts: "2026-04-23T03:50:01.000Z",
-      type: "user",
-      data: { content: "hello" },
+      eventId: "evt-1",
+      kilnSessionId: sessionId,
+      sequence: 1,
+      timestamp: "2026-04-23T03:50:01.000Z",
+      kind: "user_message",
+      source: { actor: "user", surface: "gui" },
+      payload: { content: "hello" },
     });
 
+    const transcriptPath = join(
+      tmpDir,
+      ".kiln",
+      "sessions",
+      encodeURIComponent(sessionId),
+      "transcript.jsonl",
+    );
+    const persisted = JSON.parse((await readFile(transcriptPath, "utf-8")).trim()) as Record<string, unknown>;
     const listed = await store.listSessions();
     const meta = await store.readMeta(sessionId);
     const transcript = await store.readTranscript(sessionId);
     const dirs = await readdir(join(tmpDir, ".kiln", "sessions"));
 
+    expect(persisted).toMatchObject({
+      eventId: "evt-1",
+      kilnSessionId: sessionId,
+      sequence: 1,
+      timestamp: "2026-04-23T03:50:01.000Z",
+      kind: "user_message",
+      source: { actor: "user", surface: "gui" },
+      payload: { content: "hello" },
+    });
+    expect(persisted).not.toHaveProperty("seq");
+    expect(persisted).not.toHaveProperty("event");
     expect(listed).toEqual([sessionId]);
     expect(meta?.kilnSessionId).toBe(sessionId);
     expect(transcript[0]).toMatchObject({
-      type: "user",
-      data: { content: "hello" },
+      eventId: "evt-1",
+      kilnSessionId: sessionId,
+      sequence: 1,
+      timestamp: "2026-04-23T03:50:01.000Z",
+      kind: "user_message",
+      source: { actor: "user", surface: "gui" },
+      payload: { content: "hello" },
     });
     expect(dirs[0]).toBe(encodeURIComponent(sessionId));
+  });
+
+  it("does not parse legacy wrapped transcript lines", async () => {
+    const sessionId = "kiln-gui:_gui:user-1:1776916220893";
+
+    await store.init(sessionId, {
+      kilnSessionId: sessionId,
+      provider: "codex-oauth",
+      task: "interactive",
+      startedAt: "2026-04-23T03:50:00.000Z",
+    });
+
+    const transcriptPath = join(
+      tmpDir,
+      ".kiln",
+      "sessions",
+      encodeURIComponent(sessionId),
+      "transcript.jsonl",
+    );
+    await writeFile(
+      transcriptPath,
+      `${JSON.stringify({
+        seq: 1,
+        ts: "2026-04-23T03:50:01.000Z",
+        event: { type: "user", content: "hello" },
+      })}\n`,
+      "utf-8",
+    );
+
+    const transcript = await store.readTranscript(sessionId);
+    expect(transcript).toEqual([]);
   });
 });

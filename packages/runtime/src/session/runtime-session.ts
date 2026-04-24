@@ -1,5 +1,9 @@
-import type { AgentMessage, ContentPart } from "@kilnai/core";
-import { extractText } from "@kilnai/core";
+import type {
+  AgentMessage,
+  CanonicalSessionEvent,
+  ContentPart,
+} from "@kilnai/core";
+import { compareSessionEvents, extractText } from "@kilnai/core";
 import type { SessionMode } from "./session-mode.js";
 import { transitionSessionMode } from "./session-mode.js";
 
@@ -39,6 +43,7 @@ export interface SerializedSessionData {
     readonly lastSummary?: string;
   };
   readonly exactArtifacts?: readonly string[];
+  readonly sessionEvents?: ReadonlyArray<Omit<CanonicalSessionEvent, "timestamp"> & { readonly timestamp: string }>;
 }
 
 export interface RuntimeSessionConfig {
@@ -81,6 +86,7 @@ export class RuntimeSession {
     lastSummary?: string;
   } = { currentPhase: "active" };
   private _exactArtifacts: string[] = [];
+  private _sessionEvents: CanonicalSessionEvent[] = [];
 
   constructor(config: RuntimeSessionConfig) {
     this.appName = config.appName;
@@ -170,6 +176,14 @@ export class RuntimeSession {
     }
     if (data.exactArtifacts) {
       (session as unknown as { _exactArtifacts: string[] })._exactArtifacts = [...data.exactArtifacts];
+    }
+    if (data.sessionEvents) {
+      (session as unknown as { _sessionEvents: CanonicalSessionEvent[] })._sessionEvents = data.sessionEvents
+        .map((event) => ({
+          ...event,
+          timestamp: new Date(event.timestamp),
+        }) as CanonicalSessionEvent)
+        .sort((left, right) => compareSessionEvents(left, right));
     }
     // Restore version and record loaded version for conflict detection
     const storedVersion = data.version;
@@ -287,6 +301,37 @@ export class RuntimeSession {
 
   get exactArtifacts(): readonly string[] {
     return this._exactArtifacts;
+  }
+
+  get sessionEvents(): readonly CanonicalSessionEvent[] {
+    return this._sessionEvents;
+  }
+
+  nextSessionEventSequence(): number {
+    const lastEvent = this._sessionEvents[this._sessionEvents.length - 1];
+    return lastEvent ? lastEvent.sequence + 1 : 1;
+  }
+
+  appendSessionEvents(events: readonly CanonicalSessionEvent[]): void {
+    if (events.length === 0) {
+      return;
+    }
+    const expectedStartSequence = this.nextSessionEventSequence();
+    for (let index = 0; index < events.length; index += 1) {
+      const event = events[index];
+      if (!event) {
+        continue;
+      }
+      if (event.kilnSessionId !== this.id) {
+        throw new Error(`Session event kilnSessionId mismatch: expected ${this.id}, received ${event.kilnSessionId}`);
+      }
+      const expectedSequence = expectedStartSequence + index;
+      if (event.sequence !== expectedSequence) {
+        throw new Error(`Session event sequence mismatch: expected ${expectedSequence}, received ${event.sequence}`);
+      }
+    }
+    this._sessionEvents = [...this._sessionEvents, ...events];
+    this._version++;
   }
 
   /** Merges keys from ctx into the stored user context. Empty object is a no-op. */

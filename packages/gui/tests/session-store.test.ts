@@ -1,10 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { useSessionStore } from "../src/lib/session-store.js";
+import {
+  deriveChangedFiles,
+  derivePendingApprovals,
+  deriveRuntimeContinuity,
+  deriveToolCallLog,
+  useSessionStore,
+} from "../src/lib/session-store.js";
 
 function resetSessionStore(): void {
   useSessionStore.setState({
     status: "idle",
     messages: [],
+    timelineEntries: [],
     currentAssistant: null,
     planMode: false,
     activity: null,
@@ -24,19 +31,12 @@ function resetSessionStore(): void {
     sessionCostUsd: 0,
     inputTokens: 0,
     outputTokens: 0,
-    perProviderUsage: {},
-    runtimeContinuityByProvider: {},
-    changedFiles: [],
-    currentTurnProvider: null,
-    currentTurnTrackedCostUsd: 0,
     currentTurnTrackedInputTokens: 0,
     currentTurnTrackedOutputTokens: 0,
     clearPending: false,
     providerSwitching: false,
     providerExplicitSelection: false,
     authorityStatus: null,
-    approvalQueue: [],
-    toolCallLog: [],
     activityPhase: "idle",
     outboundSend: null,
     clearTimeoutId: null,
@@ -77,6 +77,7 @@ describe("session-store", () => {
 
     const state = useSessionStore.getState();
     expect(state.messages).toHaveLength(1);
+    expect(state.timelineEntries).toHaveLength(1);
     expect(state.messages[0]?.role).toBe("assistant");
     expect(state.messages[0]?.content).toBe("Hello world");
     expect(state.messages[0]?.streaming).toBe(true);
@@ -98,16 +99,19 @@ describe("session-store", () => {
     expect(state.status).toBe("ready");
     expect(state.currentAssistant).toBeNull();
     expect(state.messages[0]?.streaming).toBe(false);
+    expect(state.timelineEntries.at(-1)).toMatchObject({
+      type: "event",
+      eventKind: "turn_completed",
+    });
     expect(state.routedProvider).toBe("claude");
     expect(state.routedModel).toBe("sonnet");
   });
 
-  it("tracks session telemetry from cost_update activity and file changes", () => {
+  it("tracks session telemetry from cost updates and canonical file-change events", () => {
     useSessionStore.setState({
       activeProvider: "claude",
       activeModel: "sonnet",
       status: "running",
-      currentTurnProvider: "claude",
     });
 
     useSessionStore.getState().onActivity({
@@ -117,26 +121,33 @@ describe("session-store", () => {
       inputTokens: 1200,
       outputTokens: 340,
     });
-    useSessionStore.getState().onActivity({
-      type: "activity",
-      activity: "file_changed",
-      path: "packages/gui/src/app.tsx",
-      changeType: "modified",
-      linesAdded: 12,
-      linesRemoved: 4,
+    useSessionStore.getState().onSessionEvent({
+      eventId: "evt-file-1",
+      kilnSessionId: "session-1",
+      sequence: 1,
+      timestamp: "2026-04-23T18:00:00.000Z",
+      kind: "file_changed",
+      payload: {
+        change: {
+          path: "packages/gui/src/app.tsx",
+          changeType: "modified",
+          linesAdded: 12,
+          linesRemoved: 4,
+        },
+      },
     });
 
     const state = useSessionStore.getState();
     expect(state.sessionCostUsd).toBeCloseTo(0.125);
     expect(state.inputTokens).toBe(1200);
     expect(state.outputTokens).toBe(340);
-    expect(state.perProviderUsage.claude).toEqual({
-      costUsd: 0.125,
-      inputTokens: 1200,
-      outputTokens: 340,
-    });
-    expect(state.changedFiles).toHaveLength(1);
-    expect(state.changedFiles[0]).toMatchObject({
+    expect(deriveChangedFiles(state.timelineEntries)).toEqual([
+      expect.objectContaining({
+        path: "packages/gui/src/app.tsx",
+        changeType: "modified",
+      }),
+    ]);
+    expect(deriveChangedFiles(state.timelineEntries)[0]).toMatchObject({
       path: "packages/gui/src/app.tsx",
       changeType: "modified",
       linesAdded: 12,
@@ -144,12 +155,169 @@ describe("session-store", () => {
     });
   });
 
+  it("applies live canonical session events to streaming/tool/approval state", () => {
+    useSessionStore.setState({
+      activeProvider: "codex-oauth",
+      activeModel: "gpt-5.4-mini",
+      status: "running",
+    });
+
+    useSessionStore.getState().onSessionEvent({
+      eventId: "evt-provider",
+      kilnSessionId: "session-live",
+      sequence: 1,
+      timestamp: "2026-04-23T19:00:00.000Z",
+      kind: "provider_routed",
+      payload: {
+        provider: {
+          provider: "codex-oauth",
+          model: "gpt-5.4-mini",
+        },
+        reason: "configured",
+      },
+    });
+    useSessionStore.getState().onSessionEvent({
+      eventId: "evt-delta",
+      kilnSessionId: "session-live",
+      sequence: 2,
+      timestamp: "2026-04-23T19:00:01.000Z",
+      kind: "assistant_delta",
+      payload: {
+        messageId: "msg-live",
+        delta: "hello",
+      },
+    });
+    useSessionStore.getState().onSessionEvent({
+      eventId: "evt-tool-start",
+      kilnSessionId: "session-live",
+      sequence: 3,
+      timestamp: "2026-04-23T19:00:02.000Z",
+      kind: "tool_call_started",
+      payload: {
+        toolCallId: "tool-live",
+        toolName: "write",
+        input: { path: "demo.txt" },
+      },
+    });
+    useSessionStore.getState().onSessionEvent({
+      eventId: "evt-approval",
+      kilnSessionId: "session-live",
+      sequence: 4,
+      timestamp: "2026-04-23T19:00:03.000Z",
+      kind: "approval_requested",
+      payload: {
+        approvalId: "approval-live",
+        action: "Write demo.txt",
+      },
+    });
+    useSessionStore.getState().onSessionEvent({
+      eventId: "evt-cost",
+      kilnSessionId: "session-live",
+      sequence: 5,
+      timestamp: "2026-04-23T19:00:04.000Z",
+      kind: "cost_updated",
+      payload: {
+        provider: {
+          provider: "codex-oauth",
+          model: "gpt-5.4-mini",
+        },
+        usage: {
+          inputTokens: 10,
+          outputTokens: 5,
+        },
+        cost: {
+          deltaUsd: 0.02,
+        },
+      },
+    });
+    useSessionStore.getState().onSessionEvent({
+      eventId: "evt-file",
+      kilnSessionId: "session-live",
+      sequence: 6,
+      timestamp: "2026-04-23T19:00:05.000Z",
+      kind: "file_changed",
+      payload: {
+        change: {
+          path: "demo.txt",
+          changeType: "updated",
+          linesAdded: 7,
+          linesRemoved: 2,
+        },
+      },
+    });
+    useSessionStore.getState().onSessionEvent({
+      eventId: "evt-tool-end",
+      kilnSessionId: "session-live",
+      sequence: 7,
+      timestamp: "2026-04-23T19:00:06.000Z",
+      kind: "tool_call_completed",
+      payload: {
+        toolCallId: "tool-live",
+        toolName: "write",
+        outputSummary: "Wrote demo.txt",
+        status: {
+          state: "succeeded",
+        },
+      },
+    });
+    useSessionStore.getState().onSessionEvent({
+      eventId: "evt-approval-end",
+      kilnSessionId: "session-live",
+      sequence: 8,
+      timestamp: "2026-04-23T19:00:07.000Z",
+      kind: "approval_resolved",
+      payload: {
+        approvalId: "approval-live",
+        resolution: {
+          decision: "approved",
+          resolvedBy: "operator",
+        },
+      },
+    });
+
+    const state = useSessionStore.getState();
+    expect(state.messages[0]).toMatchObject({
+      role: "assistant",
+      content: "hello",
+    });
+    expect(state.timelineEntries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "message" }),
+        expect.objectContaining({ type: "event", eventKind: "provider_routed" }),
+        expect.objectContaining({ type: "event", eventKind: "tool_call_started" }),
+        expect.objectContaining({ type: "event", eventKind: "approval_requested" }),
+        expect.objectContaining({ type: "event", eventKind: "cost_updated" }),
+        expect.objectContaining({ type: "event", eventKind: "file_changed" }),
+        expect.objectContaining({ type: "event", eventKind: "tool_call_completed" }),
+        expect.objectContaining({ type: "event", eventKind: "approval_resolved" }),
+      ]),
+    );
+    expect(state.respondingProvider).toBe("codex-oauth");
+    expect(state.respondingModel).toBe("gpt-5.4-mini");
+    expect(deriveToolCallLog(state.timelineEntries)).toEqual([
+      expect.objectContaining({
+        callId: "tool-live",
+        toolName: "write",
+        status: "success",
+      }),
+    ]);
+    expect(derivePendingApprovals(state.timelineEntries)).toHaveLength(0);
+    expect(state.sessionCostUsd).toBeCloseTo(0.02);
+    expect(deriveChangedFiles(state.timelineEntries)).toEqual([
+      expect.objectContaining({
+        path: "demo.txt",
+        changeType: "modified",
+        linesAdded: 7,
+        linesRemoved: 2,
+      }),
+    ]);
+  });
+
   it("stores runtime continuity per finalized provider and reconciles done-token fallback", () => {
     useSessionStore.setState({
       activeProvider: "claude",
       activeModel: "sonnet",
       status: "running",
-      currentTurnProvider: "claude",
     });
 
     useSessionStore.getState().onDone({
@@ -174,12 +342,7 @@ describe("session-store", () => {
     const state = useSessionStore.getState();
     expect(state.inputTokens).toBe(250);
     expect(state.outputTokens).toBe(75);
-    expect(state.perProviderUsage.codex).toEqual({
-      costUsd: 0,
-      inputTokens: 250,
-      outputTokens: 75,
-    });
-    expect(state.runtimeContinuityByProvider.codex).toMatchObject({
+    expect(deriveRuntimeContinuity(state.timelineEntries, "codex")).toMatchObject({
       strategy: "cache-first",
       feedbackLabel: "applied",
       pressure: "medium",
@@ -194,6 +357,7 @@ describe("session-store", () => {
 
     const state = useSessionStore.getState();
     expect(state.messages).toHaveLength(1);
+    expect(state.timelineEntries).toHaveLength(1);
     expect(state.messages[0]?.role).toBe("error");
     expect(state.errorBanner).toBe("Gateway failed");
     expect(state.status).toBe("ready");
@@ -213,6 +377,7 @@ describe("session-store", () => {
 
     const state = useSessionStore.getState();
     expect(state.messages).toHaveLength(0);
+    expect(state.timelineEntries).toHaveLength(0);
     expect(state.resumeTargetId).toBeNull();
     expect(localStorage.getItem("kiln.gui.resumeTarget")).toBeNull();
   });
@@ -263,7 +428,7 @@ describe("session-store", () => {
     expect(state.resumeTargetId).toBe("resume-session");
   });
 
-  it("loads selected session detail into the chat transcript", () => {
+  it("loads selected session detail from canonical session events", () => {
     useSessionStore.getState().viewSessionDetail({
       id: "session-77",
       meta: {
@@ -274,30 +439,126 @@ describe("session-store", () => {
         completedAt: "2026-04-21T10:05:00.000Z",
         lastProvider: "codex-oauth",
       },
-      transcript: [
+      events: [
         {
-          seq: 1,
-          ts: "2026-04-21T10:01:00.000Z",
-          type: "user",
-          data: { content: "What was this session about?" },
+          eventId: "evt-1",
+          kilnSessionId: "session-77",
+          sequence: 1,
+          timestamp: "2026-04-21T10:01:00.000Z",
+          kind: "user_message",
+          payload: { messageId: "msg-user-1", content: "What was this session about?" },
         },
         {
-          seq: 2,
-          ts: "2026-04-21T10:02:00.000Z",
-          type: "text_delta",
-          data: { content: "It reviewed " },
+          eventId: "evt-2",
+          kilnSessionId: "session-77",
+          sequence: 2,
+          timestamp: "2026-04-21T10:01:30.000Z",
+          kind: "provider_routed",
+          payload: {
+            provider: {
+              provider: "codex-oauth",
+              model: "gpt-5.4-mini",
+            },
+            reason: "selected",
+          },
         },
         {
-          seq: 3,
-          ts: "2026-04-21T10:02:01.000Z",
-          type: "text_delta",
-          data: { content: "resume behavior." },
+          eventId: "evt-3",
+          kilnSessionId: "session-77",
+          sequence: 3,
+          timestamp: "2026-04-21T10:02:00.000Z",
+          kind: "assistant_delta",
+          payload: { messageId: "msg-assistant-1", delta: "It reviewed " },
         },
         {
-          seq: 4,
-          ts: "2026-04-21T10:03:00.000Z",
-          type: "tool_use",
-          data: { toolName: "rg" },
+          eventId: "evt-4",
+          kilnSessionId: "session-77",
+          sequence: 4,
+          timestamp: "2026-04-21T10:02:01.000Z",
+          kind: "assistant_message",
+          payload: {
+            messageId: "msg-assistant-1",
+            content: "It reviewed resume behavior.",
+            provider: {
+              provider: "codex-oauth",
+              model: "gpt-5.4-mini",
+            },
+          },
+        },
+        {
+          eventId: "evt-5",
+          kilnSessionId: "session-77",
+          sequence: 5,
+          timestamp: "2026-04-21T10:03:00.000Z",
+          kind: "tool_call_started",
+          payload: { toolCallId: "tool-1", toolName: "rg", input: { pattern: "resume" } },
+        },
+        {
+          eventId: "evt-6",
+          kilnSessionId: "session-77",
+          sequence: 6,
+          timestamp: "2026-04-21T10:03:01.000Z",
+          kind: "tool_call_completed",
+          payload: {
+            toolCallId: "tool-1",
+            toolName: "rg",
+            outputSummary: "1 match",
+            status: { state: "succeeded" },
+          },
+        },
+        {
+          eventId: "evt-7",
+          kilnSessionId: "session-77",
+          sequence: 7,
+          timestamp: "2026-04-21T10:03:30.000Z",
+          kind: "file_changed",
+          payload: {
+            change: {
+              changeType: "updated",
+              path: "packages/gui/src/lib/session-store.ts",
+              linesAdded: 18,
+              linesRemoved: 5,
+            },
+          },
+        },
+        {
+          eventId: "evt-8",
+          kilnSessionId: "session-77",
+          sequence: 8,
+          timestamp: "2026-04-21T10:04:00.000Z",
+          kind: "cost_updated",
+          payload: {
+            provider: {
+              provider: "codex-oauth",
+              model: "gpt-5.4-mini",
+            },
+            usage: {
+              inputTokens: 42,
+              outputTokens: 21,
+            },
+            cost: {
+              deltaUsd: 0.015,
+            },
+          },
+        },
+        {
+          eventId: "evt-9",
+          kilnSessionId: "session-77",
+          sequence: 9,
+          timestamp: "2026-04-21T10:04:10.000Z",
+          kind: "continuity_decided",
+          payload: {
+            decision: "continue",
+            reason: "single-source-cache",
+          },
+        },
+        {
+          eventId: "evt-10",
+          kilnSessionId: "session-77",
+          sequence: 10,
+          timestamp: "2026-04-21T10:05:00.000Z",
+          kind: "turn_completed",
+          payload: { outcome: "completed" },
         },
       ],
     });
@@ -307,7 +568,8 @@ describe("session-store", () => {
     expect(state.resumeTargetId).toBe("session-77");
     expect(localStorage.getItem("kiln.gui.resumeTarget")).toBe("session-77");
     expect(state.status).toBe("ready");
-    expect(state.messages).toHaveLength(3);
+    expect(state.messages).toHaveLength(2);
+    expect(state.timelineEntries).toHaveLength(9);
     expect(state.messages[0]).toMatchObject({
       role: "user",
       content: "What was this session about?",
@@ -316,10 +578,46 @@ describe("session-store", () => {
       role: "assistant",
       content: "It reviewed resume behavior.",
       routedProvider: "codex-oauth",
+      routedModel: "gpt-5.4-mini",
     });
-    expect(state.messages[2]).toMatchObject({
-      role: "tool",
-      content: "rg",
+    expect(deriveToolCallLog(state.timelineEntries)).toEqual([
+      expect.objectContaining({
+        callId: "tool-1",
+        toolName: "rg",
+        status: "success",
+        result: "1 match",
+      }),
+    ]);
+    expect(state.timelineEntries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "event",
+          eventKind: "tool_call_started",
+          title: "Tool started: rg",
+        }),
+        expect.objectContaining({
+          type: "event",
+          eventKind: "tool_call_completed",
+          title: "Tool completed: rg",
+          summary: "1 match",
+        }),
+      ]),
+    );
+    expect(deriveChangedFiles(state.timelineEntries)).toEqual([
+      expect.objectContaining({
+        path: "packages/gui/src/lib/session-store.ts",
+        changeType: "modified",
+        linesAdded: 18,
+        linesRemoved: 5,
+      }),
+    ]);
+    expect(state.sessionCostUsd).toBeCloseTo(0.015);
+    expect(state.inputTokens).toBe(42);
+    expect(state.outputTokens).toBe(21);
+    expect(state.turnCounter).toBe(1);
+    expect(deriveRuntimeContinuity(state.timelineEntries, "codex-oauth")).toMatchObject({
+      strategy: "continue",
+      selectionReason: "single-source-cache",
     });
   });
 

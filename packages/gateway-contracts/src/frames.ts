@@ -103,17 +103,44 @@ export interface GuiSessionMeta {
   readonly exactArtifacts?: readonly string[];
 }
 
-export interface GuiSessionTranscriptLine {
-  readonly seq: number;
-  readonly ts: string;
-  readonly type: string;
-  readonly data: Record<string, unknown>;
+export type GuiSessionEventKind =
+  | "turn_started"
+  | "user_message"
+  | "assistant_message"
+  | "assistant_delta"
+  | "provider_routed"
+  | "tool_call_started"
+  | "tool_call_completed"
+  | "approval_requested"
+  | "approval_resolved"
+  | "file_changed"
+  | "cost_updated"
+  | "continuity_decided"
+  | "error_recorded"
+  | "turn_completed";
+
+export interface GuiSessionEventSource {
+  readonly actor: "user" | "assistant" | "system" | "tool" | "runtime";
+  readonly surface: "cli" | "tui" | "gui" | "ide" | "gateway" | "runtime";
+  readonly component?: string;
+}
+
+export interface GuiSessionEvent {
+  readonly eventId: string;
+  readonly kilnSessionId: string;
+  readonly sequence: number;
+  readonly timestamp: string;
+  readonly kind: GuiSessionEventKind;
+  readonly turnId?: string;
+  readonly parentEventId?: string;
+  readonly source?: GuiSessionEventSource;
+  readonly payload: Record<string, unknown>;
 }
 
 export interface GuiSessionDetail {
   readonly id: string;
   readonly meta: GuiSessionMeta;
-  readonly transcript: readonly GuiSessionTranscriptLine[];
+  readonly events: readonly GuiSessionEvent[];
 }
 
 // --- WebSocket frame shapes ---
@@ -138,37 +165,7 @@ export type GuiOutboundFrame =
 /** Frames sent by the gateway to the browser (operator). */
 export type GuiInboundFrame =
   | { type: "thinking" }
-  | {
-      type: "activity";
-      activity: string;
-      toolName?: string;
-      output?: string;
-      usd?: number;
-      input?: unknown;
-      inputTokens?: number;
-      outputTokens?: number;
-      details?: string;
-      sessionId?: string;
-      path?: string;
-      changeType?: "created" | "modified" | "deleted";
-      linesAdded?: number;
-      linesRemoved?: number;
-    }
-  | {
-      type: "tool_call_start";
-      callId: string;
-      toolName: string;
-      input: Record<string, unknown>;
-      timestamp: string;
-    }
-  | {
-      type: "tool_call_result";
-      callId: string;
-      toolName: string;
-      result: string;
-      status: "success" | "error";
-      timestamp: string;
-    }
+  | { type: "session_event"; event: GuiSessionEvent }
   | {
       type: "activity_phase";
       phase: "idle" | "thinking" | "tool_running" | "awaiting_approval" | "streaming";
@@ -196,9 +193,8 @@ export type GuiInboundFrame =
       authorityStatus?: {
         effective: "fail_closed" | "read_only" | "idempotent" | "audited" | "destructive" | "unknown";
         completeness: "authoritative" | "partial";
-      };
-    }
-  | { type: "text_delta"; content: string }
+        };
+      }
   | { type: "error"; message: string; code?: string }
   | {
       type: "welcome";
@@ -215,12 +211,10 @@ export type GuiInboundFrame =
         completeness: "authoritative" | "partial";
       };
     }
-  | { type: "exec_confirmed" }
-  | { type: "cleared" }
-  | { type: "provider_changed"; provider: string; model?: string }
-  | { type: "resume_selected"; sessionId: string }
-  | { type: "approval_requested"; description: string; sessionId: string }
-  | { type: "approval_received"; approved: boolean; reason?: string; sessionId?: string };
+    | { type: "exec_confirmed" }
+    | { type: "cleared" }
+    | { type: "provider_changed"; provider: string; model?: string }
+    | { type: "resume_selected"; sessionId: string };
 
 /** Connection lifecycle states for the GUI session WebSocket client. */
 export type GuiSessionConnectionState = "connecting" | "connected" | "reconnecting" | "disconnected";

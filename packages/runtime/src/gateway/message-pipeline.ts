@@ -11,6 +11,11 @@ import type {
   ApprovalRequestedEvent,
   ApprovalReceivedEvent,
   ToolAuthorizedEvent,
+  CostUpdateEvent,
+  ErrorEvent,
+  ModelRoutedEvent,
+  ToolCalledEvent,
+  ToolResultEvent,
   TenantConfig,
   RetrievalPipeline,
 } from "@kilnai/core";
@@ -39,6 +44,7 @@ import {
   type RuntimeTurnDangerousCommandOutcome,
   type RuntimeTurnFileChange,
 } from "../session/runtime-turn-record.js";
+import { appendCanonicalTurnEvents } from "../session/runtime-session-event-ledger.js";
 import { resolveAgentContextAsync } from "../tenant/agent-resolver.js";
 import { buildTenantSystemPrompt } from "../tenant/system-prompt-builder.js";
 import type { AgentHandoffSummarizer } from "../session/support/summarization/agent-handoff-summarizer.js";
@@ -108,7 +114,7 @@ export interface AdmittedTurnContext {
     request: EgressPermissionRequest,
   ) => EgressPermissionDecision | Promise<EgressPermissionDecision>;
   readonly turnCapture?: {
-    readonly start?: (sessionId: string) => void | Promise<void>;
+    readonly start?: (sessionId: string, nextSequence: number) => void | Promise<void>;
     readonly finish?: (
       sessionId: string,
     ) => (
@@ -288,6 +294,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
   const trace = new TraceContext(ctx.traceId);
   trace.log("pipeline", "Processing inbound message", { appName: ctx.appName, userId: ctx.userId, channel: ctx.channel });
   const userText = extractText(ctx.userParts);
+  const turnStartedAt = new Date();
   const taskShape = normalizeRuntimeTaskShape(userText);
   const effectiveTenantId = ctx.tenant?.tenantId ?? ctx.tenantId;
   const initialSystemPrompt = ctx.tenant
@@ -555,9 +562,19 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
   // Capture real approval state transitions for this turn from runtime events.
   const approvalTransitions: RuntimeTurnApprovalTransition[] = [];
   const authorityDecisions: RuntimeTurnAuthorityDecision[] = [];
+  const capturedRuntimeEvents: Array<
+    ApprovalRequestedEvent
+    | ApprovalReceivedEvent
+    | CostUpdateEvent
+    | ErrorEvent
+    | ModelRoutedEvent
+    | ToolCalledEvent
+    | ToolResultEvent
+  > = [];
   const orchestratorEventBus = ctx.orchestrator.eventBus;
   const onApprovalRequested = (event: ApprovalRequestedEvent): void => {
     if (event.sessionId !== session.id) return;
+    capturedRuntimeEvents.push(event);
     approvalTransitions.push({
       status: "requested",
       sessionId: event.sessionId,
@@ -566,6 +583,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
   };
   const onApprovalReceived = (event: ApprovalReceivedEvent): void => {
     if (event.sessionId !== session.id) return;
+    capturedRuntimeEvents.push(event);
     approvalTransitions.push({
       status: event.approved ? "approved" : "rejected",
       sessionId: event.sessionId,
@@ -581,10 +599,23 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
       reason: event.reason,
     });
   };
+  const onRuntimeLedgerEvent = (
+    event: CostUpdateEvent | ErrorEvent | ModelRoutedEvent | ToolCalledEvent | ToolResultEvent,
+  ): void => {
+    if (event.sessionId !== session.id) {
+      return;
+    }
+    capturedRuntimeEvents.push(event);
+  };
   orchestratorEventBus?.on("approval_requested", onApprovalRequested);
   orchestratorEventBus?.on("approval_received", onApprovalReceived);
   orchestratorEventBus?.on("tool_authorized", onToolAuthorized);
-  await ctx.turnCapture?.start?.(session.id);
+  orchestratorEventBus?.on("cost_update", onRuntimeLedgerEvent);
+  orchestratorEventBus?.on("error", onRuntimeLedgerEvent);
+  orchestratorEventBus?.on("model_routed", onRuntimeLedgerEvent);
+  orchestratorEventBus?.on("tool_called", onRuntimeLedgerEvent);
+  orchestratorEventBus?.on("tool_result", onRuntimeLedgerEvent);
+  await ctx.turnCapture?.start?.(session.id, session.nextSessionEventSequence());
 
   let result: OrchestrateResult;
   try {
@@ -603,6 +634,11 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     orchestratorEventBus?.off("approval_requested", onApprovalRequested);
     orchestratorEventBus?.off("approval_received", onApprovalReceived);
     orchestratorEventBus?.off("tool_authorized", onToolAuthorized);
+    orchestratorEventBus?.off("cost_update", onRuntimeLedgerEvent);
+    orchestratorEventBus?.off("error", onRuntimeLedgerEvent);
+    orchestratorEventBus?.off("model_routed", onRuntimeLedgerEvent);
+    orchestratorEventBus?.off("tool_called", onRuntimeLedgerEvent);
+    orchestratorEventBus?.off("tool_result", onRuntimeLedgerEvent);
   }
   const externalTurnCapture = await ctx.turnCapture?.finish?.(session.id);
 
@@ -710,6 +746,18 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     handoffBlockReason: effectivePingPongReason,
     escalationReason: result.escalation?.reason,
     escalationDetail: result.escalation?.detail,
+  });
+  appendCanonicalTurnEvents({
+    session,
+    channel: ctx.channel,
+    userMessageContent: userText,
+    assistantMessageContent: extractText(result.parts),
+    queued: result.queued,
+    turnStartedAt,
+    turnCompletedAt: new Date(),
+    continuity: runtimeContinuityPresentation.runtimeContinuity,
+    runtimeEvents: capturedRuntimeEvents,
+    fileChanges: mergedFileChanges.length > 0 ? mergedFileChanges : undefined,
   });
 
   // Persist mutated session (required for non-reference stores like Redis)

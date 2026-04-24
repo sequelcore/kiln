@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { textParts } from "@kilnai/core";
+import { createSessionEvent, textParts } from "@kilnai/core";
 import type { ContentPart } from "@kilnai/core";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import { serializeSession, deserializeSession } from "../../src/session/session-serializer.js";
@@ -145,5 +145,42 @@ describe("serializeSession / deserializeSession", () => {
     const restored = deserializeSession(json);
 
     expect(restored.userContext).toBeUndefined();
+  });
+
+  it("roundtrips canonical session events with timestamp restoration", () => {
+    const session = makeSession();
+    session.appendSessionEvents([
+      createSessionEvent({
+        kilnSessionId: session.id,
+        sequence: 1,
+        kind: "turn_started",
+        turnId: `${session.id}:turn:1`,
+        turnOrdinal: 1,
+        trigger: "user_message",
+      }),
+      createSessionEvent({
+        kilnSessionId: session.id,
+        sequence: 2,
+        kind: "user_message",
+        turnId: `${session.id}:turn:1`,
+        messageId: `${session.id}:turn:1:user`,
+        content: "hello",
+      }),
+    ]);
+
+    const json = serializeSession(session);
+    const restored = deserializeSession(json);
+
+    expect(restored.sessionEvents).toHaveLength(2);
+    expect(restored.sessionEvents[0]).toMatchObject({
+      kind: "turn_started",
+      sequence: 1,
+    });
+    expect(restored.sessionEvents[1]).toMatchObject({
+      kind: "user_message",
+      sequence: 2,
+      content: "hello",
+    });
+    expect(restored.sessionEvents[0]?.timestamp).toBeInstanceOf(Date);
   });
 });

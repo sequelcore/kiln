@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { KilnAppConfig } from "../config.js";
 import {
   loadResumeSidebarInfo,
@@ -15,10 +16,17 @@ import { readGlobalConfig } from "../config/global-config.js";
 import { resolveEffectiveProvider } from "../config/env-config.js";
 import { createDefaultRegistry, getProviderDisplayInfo, type ProviderId } from "../wrapper/session-registry.js";
 import { SessionStore, TranscriptStore } from "../wrapper/session-store.js";
+import type { PersistedTranscriptEvent } from "../wrapper/session-store.js";
 import type { ResumeFeedback, ResumeStrategy } from "../wrapper/index.js";
 import { GatewaySession, waitForGateway, themes, kilnDark } from "@kilnai/tui";
 import type { SessionLike } from "@kilnai/tui";
-import { extractText, type AgentMessage, type ContextArtifactCache } from "@kilnai/core";
+import {
+  extractText,
+  type AgentMessage,
+  type CanonicalSessionEventKind,
+  type ContextArtifactCache,
+  type SessionEventSource,
+} from "@kilnai/core";
 import { getProjectContextArtifactCache } from "@kilnai/runtime";
 import type { CliSessionFactoryContext, CliSessionRunOptions } from "@kilnai/runtime";
 
@@ -77,6 +85,56 @@ function parseProvider(p: string | undefined, providerIds: readonly ProviderId[]
     return p as ProviderId;
   }
   return providerIds.includes("claude") ? "claude" : providerIds[0] ?? "claude";
+}
+
+function mapTranscriptTypeToKind(type: string): CanonicalSessionEventKind {
+  switch (type) {
+    case "user":
+      return "user_message";
+    case "text_delta":
+      return "assistant_delta";
+    case "tool_use":
+      return "tool_call_started";
+    case "tool_result":
+      return "tool_call_completed";
+    case "error":
+      return "error_recorded";
+    default:
+      return "assistant_message";
+  }
+}
+
+function mapTranscriptTypeToSource(type: string): SessionEventSource {
+  switch (type) {
+    case "user":
+      return { actor: "user", surface: "tui", component: "tui-command" };
+    case "text_delta":
+      return { actor: "assistant", surface: "tui", component: "tui-command" };
+    case "tool_use":
+    case "tool_result":
+      return { actor: "tool", surface: "tui", component: "tui-command" };
+    case "error":
+      return { actor: "runtime", surface: "tui", component: "tui-command" };
+    default:
+      return { actor: "system", surface: "tui", component: "tui-command" };
+  }
+}
+
+function toPersistedTranscriptEvent(
+  sessionId: string,
+  sequence: number,
+  type: string,
+  payload: Record<string, unknown>,
+): PersistedTranscriptEvent {
+  return {
+    eventId: randomUUID(),
+    kilnSessionId: sessionId,
+    sequence,
+    timestamp: new Date().toISOString(),
+    kind: mapTranscriptTypeToKind(type),
+    source: mapTranscriptTypeToSource(type),
+    payload,
+  };
 }
 
 function resolveTuiStartupTransport(_flags: TuiFlags): TuiStartupTransport {
@@ -229,49 +287,48 @@ export async function makeMultiProviderSessionFactory(
         let transcriptSeq = (await transcriptStore.readTranscript(capturedId)).length;
         const userText = latestUserText(options.messages);
         if (userText) {
-          await transcriptStore.append(capturedId, {
-            seq: ++transcriptSeq,
-            ts: new Date().toISOString(),
-            type: "user",
-            data: { content: userText },
-          });
+          await transcriptStore.append(
+            capturedId,
+            toPersistedTranscriptEvent(capturedId, ++transcriptSeq, "user", { content: userText }),
+          );
         }
         try {
           for await (const event of resumedSession.run(options)) {
             if (event.type === "text_delta" && !event.isThinking) {
-              await transcriptStore.append(capturedId, {
-                seq: ++transcriptSeq,
-                ts: new Date().toISOString(),
-                type: "text_delta",
-                data: { content: event.content },
-              });
+              await transcriptStore.append(
+                capturedId,
+                toPersistedTranscriptEvent(capturedId, ++transcriptSeq, "text_delta", {
+                  type: "text_delta",
+                  content: event.content,
+                }),
+              );
             } else if (event.type === "tool_use") {
-              await transcriptStore.append(capturedId, {
-                seq: ++transcriptSeq,
-                ts: new Date().toISOString(),
-                type: "tool_use",
-                data: {
+              await transcriptStore.append(
+                capturedId,
+                toPersistedTranscriptEvent(capturedId, ++transcriptSeq, "tool_use", {
+                  type: "tool_use",
                   toolName: event.toolName,
                   input: event.input,
-                },
-              });
+                }),
+              );
             } else if (event.type === "tool_result") {
-              await transcriptStore.append(capturedId, {
-                seq: ++transcriptSeq,
-                ts: new Date().toISOString(),
-                type: "tool_result",
-                data: {
+              await transcriptStore.append(
+                capturedId,
+                toPersistedTranscriptEvent(capturedId, ++transcriptSeq, "tool_result", {
+                  type: "tool_result",
                   toolName: event.toolName,
                   output: event.output,
-                },
-              });
+                }),
+              );
             } else if (event.type === "error") {
-              await transcriptStore.append(capturedId, {
-                seq: ++transcriptSeq,
-                ts: new Date().toISOString(),
-                type: "error",
-                data: { message: event.message, code: event.code },
-              });
+              await transcriptStore.append(
+                capturedId,
+                toPersistedTranscriptEvent(capturedId, ++transcriptSeq, "error", {
+                  type: "error",
+                  message: event.message,
+                  code: event.code,
+                }),
+              );
             }
             if (
               event

@@ -6,6 +6,7 @@ import { readGlobalConfig } from "../config/global-config.js";
 import { resolveEffectiveProvider } from "../config/env-config.js";
 import { loadResumeSidebarInfo } from "../application/resume-sidebar-info.js";
 import { SessionStore, TranscriptStore } from "../wrapper/session-store.js";
+import { loadSessionDetail } from "./gui-session-detail.js";
 import {
   createDefaultRegistry,
   getProviderDisplayInfo,
@@ -15,7 +16,6 @@ import { makeMultiProviderSessionFactory } from "./tui.js";
 import {
   getProjectContextArtifactCache,
   type GuiDashboardSnapshot,
-  type GuiSessionDetail,
   type GuiProviderDescriptor,
 } from "@kilnai/runtime";
 import { getFieldStore } from "@kilnai/core";
@@ -197,28 +197,6 @@ async function buildDashboardSnapshot(
     workingDirectory,
     domainLabel,
   };
-}
-
-export async function loadSessionDetail(
-  transcriptStore: TranscriptStore,
-  sessionId: string,
-): Promise<GuiSessionDetail | null> {
-  const normalizedSessionId = sessionId.trim();
-  if (!normalizedSessionId) {
-    return null;
-  }
-  const [meta, transcript] = await Promise.all([
-    transcriptStore.readMeta(normalizedSessionId),
-    transcriptStore.readTranscript(normalizedSessionId),
-  ]);
-  if (meta) {
-    return {
-      id: normalizedSessionId,
-      meta,
-      transcript,
-    };
-  }
-  return null;
 }
 
 function resolveGuiMode(cwd: string, explicitMode: GuiFlags["mode"]): "dev" | "prod" {

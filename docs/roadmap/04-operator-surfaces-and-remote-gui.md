@@ -95,6 +95,29 @@ canonical runtime session. Separate "preview" or "set resume target" concepts
 are only acceptable if a future surface explicitly needs a read-only browser
 mode.
 
+## Current Agent Invocation Status
+
+Kiln does not yet have a first-class managed agent invocation model in the
+operator surface contract.
+
+Current support:
+
+- `kiln run --agent <name>` can select an agent profile and append its
+  instructions/model preference to a CLI run.
+- `kiln run --workers N` can launch parallel isolated workers for the same
+  task.
+- provider selection routes the next turn through a provider/model.
+
+Those capabilities are not the same as an invokable agent substrate. The GUI,
+TUI, gateway contracts, and session replay model do not yet expose canonical
+agent definitions, agent lifecycle events, agent queues, delegated-task
+records, child-session relationships, or agent-to-agent handoff semantics.
+
+Future agent invocation must be built on the same session event/replay
+backbone as tools, approvals, diffs, and provider telemetry. It must not be
+implemented as GUI-only state, wrapper-specific folklore, or a provider-owned
+session namespace.
+
 ## Market / User Signals
 
 Recent product and user research supports this direction:
@@ -142,6 +165,16 @@ Required focus:
 - runtime continuity and resume visibility
 - keyboard-first operation
 
+Current local GUI shell contract:
+
+- left rail: operator mode navigation and collapse state
+- mode panel: the active mode's list, with Sessions implemented first
+- chat top bar: session title/state, turns, tokens, cost, provider/model route,
+  connection, and primary session actions
+- inspector: deeper continuity, field, changed-file, and future diagnostic
+  details; no duplicate cost/turn/provider summary
+- composer: compact framed input with slash command and file affordances
+
 Native browser-window lifecycle bugs on Windows are product annoyances, not
 architecture blockers. They should be handled safely, but they should not
 consume roadmap priority once the GUI can be closed through documented
@@ -166,6 +199,56 @@ Required operator evidence:
 
 This evidence should be emitted by runtime/session contracts and consumed by
 every surface. The GUI is only the first projection.
+
+### 2a. Grow the left rail into real supervision modes
+
+The local GUI shell now reserves a left rail for operator modes. `Sessions` is
+the first implemented panel. `Workspace`, `Changed files`, and `Approvals` are
+visible as future modes, but they must remain disabled until they are backed by
+canonical runtime/session data.
+
+Target modes:
+
+- `Sessions`: canonical Kiln session history, transcript loading, and active
+  continuation state.
+- `Workspace`: repository tree and file navigation for the active working
+  directory.
+- `Changed files`: session-scoped file changes, diff entrypoints, and review
+  state.
+- `Approvals`: pending approval requests, policy context, approve/deny actions,
+  and links back to the originating turn/tool call.
+
+Rules:
+
+- rail modes are projections of core/runtime events and gateway contracts, not
+  independent GUI state models.
+- collapse/expand behavior belongs to the operator shell and should be
+  preserved across future mode panels.
+- disabled rail buttons are acceptable placeholders only while the underlying
+  panel lacks real data.
+- no panel may invent provider routing, tool authority, approval state, file
+  changes, or session identity locally.
+
+### 2b. Command and input model
+
+The GUI needs two command surfaces with different jobs:
+
+- global command palette: opened by `Ctrl+K` or `Cmd+K`; used for navigation,
+  mode switching, and operator actions that are not tied to a draft message
+- composer command surface: opened by `/` in an empty composer or by the
+  composer `/command` affordance; anchored near the composer and used for
+  message-scoped commands
+
+Rules:
+
+- slash command handling belongs to the composer flow, not to a detached modal
+  that obscures the transcript.
+- command items should execute through the same action contracts regardless of
+  whether they are launched globally or from the composer.
+- the composer should stay compact and padded, with controls in a bottom rail
+  rather than scattered across competing headers.
+- message composition must not duplicate session summary telemetry already
+  owned by the chat top bar.
 
 ### 3. Prioritize IDE extension before native desktop shell
 
@@ -272,12 +355,33 @@ Required results:
 - runtime emits stable event shapes for tool calls, approvals, diffs/file
   changes, provider identity, token/cost deltas, and errors
 - GUI renders those events as a coherent timeline
+- GUI left rail modes for changed files and approvals are backed by those
+  events rather than by local-only UI state
 - event records are suitable for replay and future IDE/cloud projection
 
 Completion standard:
 
 - a user can answer "what happened, why, through which provider, and what
   changed?" from the session record
+
+Scout-backed sequencing rule:
+
+Do not build real `Workspace`, `Changed files`, `Approvals`, or future
+invokable-agent panels before the canonical session event/replay backbone
+exists. Without that backbone, each surface would infer state from partial
+stores such as transcript JSONL, event-bus history, approval memory, session
+metadata, exact-artifact breadcrumbs, or GUI-local state. That would create
+drift and violate the control-plane boundary.
+
+The correct sequence is:
+
+1. define the canonical session event envelope
+2. persist the event stream as durable replay data
+3. emit structured runtime slices from orchestration/tool/approval paths
+4. project those slices through gateway contracts
+5. consume the projection in GUI/TUI/IDE surfaces
+6. add workspace, changed-files, approvals, diffs, and agent panels only when
+   backed by canonical events
 
 ### Phase 3. IDE extension design
 
@@ -352,17 +456,114 @@ Deliverables:
 
 Primary files:
 
+- `packages/core/src/events/`
 - `packages/gateway-contracts/src/frames.ts`
 - `packages/runtime/src/session/`
 - `packages/runtime/src/gateway/gui-gateway.ts`
+- `packages/cli/src/wrapper/session-store.ts`
 - `packages/gui/src/lib/session-store.ts`
 
 Deliverables:
 
-- provider-agnostic session summary and resume frames
-- stable event types for supervision
-- GUI timeline rendering model
+- canonical session event envelope with replay-safe IDs
+- durable session event stream persisted with transcript metadata
+- stable event types for turns, assistant text, tool calls, tool results,
+  approvals, file changes, provider/model/billing identity, token/cost deltas,
+  continuity decisions, errors, and replay metadata
+- gateway projection of the canonical event stream without local inference
+- GUI timeline rendering model that consumes the projection
+- event-backed left rail projections for changed files and approvals
+- inspector diagnostics derived from canonical timeline entries rather than
+  parallel GUI-only caches
 - tests for event projection
+
+Non-goals:
+
+- no workspace tree contract in this slice
+- no structured diff rendering in this slice
+- no real approvals panel in this slice
+- no invokable-agent UI in this slice
+
+### Slice B2. Left rail mode panels
+
+Primary files:
+
+- `packages/gui/src/components/app-shell.tsx`
+- future panel components under `packages/gui/src/components/`
+- `packages/gateway-contracts/src/`
+- runtime session/event projection modules
+
+Deliverables:
+
+- workspace panel reads active working directory/file tree through a governed
+  gateway contract
+- changed-files panel renders session-scoped file changes and diff entrypoints
+- approvals panel renders pending approvals with approve/deny actions tied to
+  the originating tool call
+- rail counts come from canonical state, not duplicated GUI counters
+- collapse/expand behavior remains shell-owned and reusable across modes
+
+Gate:
+
+This slice starts only after Slice B exposes canonical event-backed
+projections. Disabled placeholders are acceptable before then; fake panels with
+local-only inferred state are not.
+
+Current implementation status:
+
+- `Changed files` now exists as a real left-rail mode backed by canonical
+  timeline projections.
+- canonical file-change events now preserve line deltas end to end, and the
+  `Changed files` panel supports per-file review without inventing diff hunks
+  that the runtime does not emit yet.
+- `Workspace` and `Approvals` remain gated because they still need governed
+  contracts and dedicated review flows.
+
+### Slice B3. Chat input and command polish
+
+Primary files:
+
+- `packages/gui/src/components/app-shell.tsx`
+- `packages/gui/src/components/composer.tsx`
+- `packages/gui/src/components/command-palette.tsx`
+- GUI tests under `packages/gui/tests/`
+
+Deliverables:
+
+- global command palette and composer slash commands remain separate surfaces
+  with one shared command model
+- composer has stable padding, bottom action rail, keyboard behavior, and
+  route visibility
+- chat top bar owns summary metrics while inspector owns detailed diagnostics
+- tests cover slash command opening, global command opening, and inspector
+  summary de-duplication
+
+### Slice B4. Future agent invocation model
+
+Primary files:
+
+- future contract modules under `packages/core/src/` and
+  `packages/gateway-contracts/src/`
+- future runtime/session modules under `packages/runtime/src/session/`
+- future GUI/TUI/IDE projection components
+- future architecture doc or ADR if the invocation semantics cross current
+  bounded contexts
+
+Deliverables:
+
+- canonical agent definition and invocation request shape
+- agent lifecycle events tied to the parent Kiln session
+- delegated-task records and child-session or child-turn relationship rules
+- queue/progress/error/cancel semantics
+- provider/model/tool authority inherited through explicit policy, not hidden
+  wrapper behavior
+- GUI/TUI/IDE projections that consume the same event stream
+
+Gate:
+
+This is not active until the governed event/replay backbone exists. Agent
+profile selection via `kiln run --agent` remains a CLI run configuration
+feature, not a managed invokable-agent surface.
 
 ### Slice C. Remote GUI threat model
 

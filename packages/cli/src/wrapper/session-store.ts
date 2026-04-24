@@ -2,6 +2,7 @@ import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { appendFile, readFile, writeFile, readdir } from 'node:fs/promises';
 import type { ResumeFeedback, ResumeOutcome, ResumeStrategy } from './index.js';
+import type { CanonicalSessionEventKind, SessionEventEnvelope, SessionEventSource } from '@kilnai/core';
 
 export interface ProviderThreadMeta {
   provider: string;
@@ -237,11 +238,87 @@ function encodeSessionPathSegment(sessionId: string): string {
   return encodeURIComponent(sessionId);
 }
 
-export interface PersistedTranscriptLine {
-  seq: number;
-  ts: string;
-  type: string;
-  data: Record<string, unknown>;
+type PersistedTranscriptEnvelopeBase = Omit<
+  SessionEventEnvelope<CanonicalSessionEventKind>,
+  'timestamp'
+>;
+
+export interface PersistedTranscriptEvent extends PersistedTranscriptEnvelopeBase {
+  timestamp: string;
+  payload: Record<string, unknown>;
+}
+
+const CANONICAL_SESSION_EVENT_KINDS = new Set<CanonicalSessionEventKind>([
+  'turn_started',
+  'user_message',
+  'assistant_message',
+  'assistant_delta',
+  'provider_routed',
+  'tool_call_started',
+  'tool_call_completed',
+  'approval_requested',
+  'approval_resolved',
+  'file_changed',
+  'cost_updated',
+  'continuity_decided',
+  'error_recorded',
+  'turn_completed',
+]);
+const SESSION_EVENT_ACTORS = new Set(['user', 'assistant', 'system', 'tool', 'runtime']);
+const SESSION_EVENT_SURFACES = new Set(['cli', 'tui', 'gui', 'ide', 'gateway', 'runtime']);
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isSessionEventSource(value: unknown): value is SessionEventSource {
+  if (!isObjectRecord(value)) {
+    return false;
+  }
+  if (!SESSION_EVENT_ACTORS.has(String(value.actor))) {
+    return false;
+  }
+  if (!SESSION_EVENT_SURFACES.has(String(value.surface))) {
+    return false;
+  }
+  return value.component === undefined || typeof value.component === 'string';
+}
+
+function isPersistedTranscriptEvent(value: unknown): value is PersistedTranscriptEvent {
+  if (!isObjectRecord(value)) {
+    return false;
+  }
+  if (typeof value.eventId !== 'string' || value.eventId.trim().length === 0) {
+    return false;
+  }
+  if (typeof value.kilnSessionId !== 'string' || value.kilnSessionId.trim().length === 0) {
+    return false;
+  }
+  if (!Number.isInteger(value.sequence) || (value.sequence as number) < 1) {
+    return false;
+  }
+  if (typeof value.timestamp !== 'string' || value.timestamp.trim().length === 0) {
+    return false;
+  }
+  if (
+    typeof value.kind !== 'string'
+    || !CANONICAL_SESSION_EVENT_KINDS.has(value.kind as CanonicalSessionEventKind)
+  ) {
+    return false;
+  }
+  if (!isObjectRecord(value.payload)) {
+    return false;
+  }
+  if (value.turnId !== undefined && typeof value.turnId !== 'string') {
+    return false;
+  }
+  if (value.parentEventId !== undefined && typeof value.parentEventId !== 'string') {
+    return false;
+  }
+  if (value.source !== undefined && !isSessionEventSource(value.source)) {
+    return false;
+  }
+  return true;
 }
 
 export class TranscriptStore {
@@ -265,11 +342,11 @@ export class TranscriptStore {
     }
   }
 
-  async append(sessionId: string, line: PersistedTranscriptLine): Promise<void> {
+  async append(sessionId: string, event: PersistedTranscriptEvent): Promise<void> {
     try {
       const dir = this.sessionDir(sessionId);
       await mkdir(dir, { recursive: true });
-      await appendFile(join(dir, 'transcript.jsonl'), JSON.stringify(line) + '\n', 'utf-8');
+      await appendFile(join(dir, 'transcript.jsonl'), JSON.stringify(event) + '\n', 'utf-8');
     } catch {
       // fail-open
     }
@@ -305,7 +382,7 @@ export class TranscriptStore {
     }
   }
 
-  async readTranscript(sessionId: string): Promise<PersistedTranscriptLine[]> {
+  async readTranscript(sessionId: string): Promise<PersistedTranscriptEvent[]> {
     try {
       const content = await readFile(join(this.sessionDir(sessionId), 'transcript.jsonl'), 'utf-8');
       return content
@@ -313,32 +390,9 @@ export class TranscriptStore {
         .filter((line) => line.trim() !== '')
         .flatMap((line) => {
           try {
-            const parsed = JSON.parse(line) as
-              | PersistedTranscriptLine
-              | { seq: number; ts: string; event: { type: string } & Record<string, unknown> };
-            if (
-              typeof parsed === 'object'
-              && parsed !== null
-              && 'type' in parsed
-              && 'data' in parsed
-            ) {
-              return [parsed as PersistedTranscriptLine];
-            }
-            if (
-              typeof parsed === 'object'
-              && parsed !== null
-              && 'event' in parsed
-              && typeof parsed.event === 'object'
-              && parsed.event !== null
-              && 'type' in parsed.event
-            ) {
-              const { type, ...data } = parsed.event;
-              return [{
-                seq: parsed.seq,
-                ts: parsed.ts,
-                type,
-                data,
-              }];
+            const parsed = JSON.parse(line) as unknown;
+            if (isPersistedTranscriptEvent(parsed)) {
+              return [parsed];
             }
             return [];
           } catch {

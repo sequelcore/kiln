@@ -88,6 +88,23 @@ function groupSessions(sessions: readonly GuiSessionSummary[]) {
   return [...groups.entries()].map(([label, items]) => ({ label, items }));
 }
 
+function SearchIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+      <circle cx="6" cy="6" r="3.5" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M9 9 L12 12" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function FilterIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+      <path d="M2 3 H12 M4 7 H10 M6 11 H8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export function SessionList(props: SessionListProps) {
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const selectedIndex = useMemo(
@@ -112,17 +129,33 @@ export function SessionList(props: SessionListProps) {
 
   return (
     <aside className="flex h-full min-h-0 flex-col border-r border-border/70 bg-card">
-      <header className="flex items-center gap-3 border-b border-border/70 px-4 py-3">
-        <div className="grid size-5 place-items-center text-foreground" aria-hidden="true">
-          <span className="block h-px w-3 rounded-full bg-current opacity-35" />
-          <span className="block h-px w-2 rounded-full bg-current opacity-75" />
-          <span className="block h-px w-3 rounded-full bg-current opacity-55" />
-          <span className="block h-px w-1.5 rounded-full bg-current" />
-        </div>
-        <p className="text-sm font-semibold tracking-tight text-foreground">kiln</p>
+      <header className="flex items-center gap-2 border-b border-border/70 px-3.5 py-3">
+        <p className="text-sm font-semibold tracking-tight text-foreground">Sessions</p>
         <p className="ml-auto font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-          sessions · {props.sessions.length}
+          {props.sessions.length} total
         </p>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          aria-label="Search sessions"
+          title="Search sessions"
+          disabled
+          className="text-muted-foreground"
+        >
+          <SearchIcon />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          aria-label="Filter sessions"
+          title="Filter sessions"
+          disabled
+          className="text-muted-foreground"
+        >
+          <FilterIcon />
+        </Button>
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -274,8 +307,9 @@ export function SessionList(props: SessionListProps) {
         >
           <span aria-hidden="true" className="text-base leading-none">+</span>
           New Session
-          <span aria-hidden="true" className="ml-auto hidden font-mono text-[10px] text-muted-foreground sm:inline-flex">
-            Ctrl N
+          <span aria-hidden="true" className="ml-auto hidden items-center gap-1 font-mono text-[10px] text-muted-foreground sm:inline-flex">
+            <kbd className="rounded-[3px] border border-border px-1 leading-3">Ctrl</kbd>
+            <kbd className="rounded-[3px] border border-border px-1 leading-3">N</kbd>
           </span>
         </Button>
       </footer>

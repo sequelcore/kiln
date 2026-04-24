@@ -7,6 +7,7 @@ function resetStore(): void {
   useSessionStore.setState({
     status: "ready",
     messages: [],
+    timelineEntries: [],
     currentAssistant: null,
     planMode: false,
     activity: null,
@@ -39,8 +40,6 @@ function resetStore(): void {
     outboundSend: null,
     clearTimeoutId: null,
     providerSwitchTimeoutId: null,
-    approvalQueue: [],
-    toolCallLog: [],
     activityPhase: "idle",
   });
 }

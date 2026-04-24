@@ -6,30 +6,6 @@ import { useSessionStore } from "../src/lib/session-store.js";
 const useQueryMock = vi.fn();
 const waitForGatewayMock = vi.fn();
 const sendMock = vi.fn();
-const sessionsData = [
-  {
-    id: "session-1",
-    providersUsed: ["claude"],
-    lastProvider: "claude",
-    completedAt: "2026-04-21T20:00:00.000Z",
-    cost: 0.1,
-    taskSummary: "First task",
-  },
-] as const;
-const dashboardData = {
-  providers: [],
-  sessions: [],
-  telemetry: {
-    status: "idle" as const,
-    dominantRegions: [],
-    saturation: 0,
-    entropy: 0,
-  },
-  resumeInfoByProvider: {},
-  workingDirectory: "C:/Proyectos/Sequel/kiln",
-  domainLabel: "Kiln",
-};
-const dashboardRefetchMock = vi.fn();
 
 vi.mock("@tanstack/react-query", () => ({
   useQuery: (options: unknown) => useQueryMock(options),
@@ -108,30 +84,22 @@ vi.mock("../src/components/session-list.js", () => ({
   SessionList: () => <div data-testid="session-list">Session list</div>,
 }));
 
+vi.mock("../src/components/changed-files-panel.js", () => ({
+  ChangedFilesPanel: ({ files }: { files: readonly { path: string }[] }) => (
+    <div data-testid="changed-files-panel">Changed files: {files.length}</div>
+  ),
+}));
+
 function installMatchMedia(matches: boolean): void {
-  const listeners = new Set<(event: MediaQueryListEvent) => void>();
-  vi.stubGlobal("matchMedia", (query: string) => ({
+  vi.stubGlobal("matchMedia", () => ({
     matches,
-    media: query,
+    media: "(max-width: 1024px)",
     onchange: null,
-    addEventListener: (_type: string, listener: (event: MediaQueryListEvent) => void) => {
-      listeners.add(listener);
-    },
-    removeEventListener: (_type: string, listener: (event: MediaQueryListEvent) => void) => {
-      listeners.delete(listener);
-    },
-    addListener: (listener: (event: MediaQueryListEvent) => void) => {
-      listeners.add(listener);
-    },
-    removeListener: (listener: (event: MediaQueryListEvent) => void) => {
-      listeners.delete(listener);
-    },
-    dispatchEvent: (event: Event) => {
-      for (const listener of listeners) {
-        listener(event as MediaQueryListEvent);
-      }
-      return true;
-    },
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+    addListener: () => undefined,
+    removeListener: () => undefined,
+    dispatchEvent: () => true,
   }));
 }
 
@@ -139,7 +107,21 @@ function resetStore(): void {
   useSessionStore.setState({
     status: "ready",
     messages: [],
-    timelineEntries: [],
+    timelineEntries: [
+      {
+        id: "event:file-1",
+        type: "event",
+        eventKind: "file_changed",
+        createdAt: "2026-04-23T18:00:00.000Z",
+        title: "File changed",
+        summary: "modified: packages/gui/src/app-shell.tsx",
+        tone: "info",
+        details: {
+          path: "packages/gui/src/app-shell.tsx",
+          changeType: "modified",
+        },
+      },
+    ],
     currentAssistant: null,
     planMode: false,
     activity: null,
@@ -147,7 +129,16 @@ function resetStore(): void {
     providers: [],
     activeProvider: "claude",
     activeModel: "claude-sonnet-4-6",
-    sessionList: [],
+    sessionList: [
+      {
+        id: "session-1",
+        providersUsed: ["claude"],
+        lastProvider: "claude",
+        completedAt: "2026-04-21T20:00:00.000Z",
+        cost: 0.1,
+        taskSummary: "First task",
+      },
+    ],
     selectedSessionId: null,
     resumeTargetId: null,
     routedProvider: null,
@@ -172,17 +163,17 @@ function resetStore(): void {
   });
 }
 
-describe("AppShell responsive sidebar", () => {
+describe("AppShell sidebar modes", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-    installMatchMedia(true);
+    installMatchMedia(false);
     resetStore();
     waitForGatewayMock.mockResolvedValue(undefined);
     useQueryMock.mockImplementation((options: { queryKey?: readonly unknown[] }) => {
       const queryKey = options.queryKey?.join(":") ?? "";
       if (queryKey.includes("sessions")) {
         return {
-          data: sessionsData,
+          data: useSessionStore.getState().sessionList,
           error: null,
         };
       }
@@ -193,32 +184,35 @@ describe("AppShell responsive sidebar", () => {
         };
       }
       return {
-        data: dashboardData,
+        data: {
+          providers: [],
+          sessions: [],
+          telemetry: {
+            status: "idle" as const,
+            dominantRegions: [],
+            saturation: 0,
+            entropy: 0,
+          },
+          resumeInfoByProvider: {},
+          workingDirectory: "C:/Proyectos/Sequel/kiln",
+          domainLabel: "Kiln",
+        },
         error: null,
-        refetch: dashboardRefetchMock,
+        refetch: vi.fn(),
       };
     });
   });
 
-  it("collapses the sidebar into a drawer on narrow viewports", async () => {
+  it("switches the left mode panel from sessions to changed files", async () => {
     render(<AppShell />);
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Open session drawer" })).toBeInTheDocument();
+      expect(screen.getByTestId("session-list")).toBeInTheDocument();
     });
-    expect(screen.getByRole("button", { name: "New Session" })).toBeInTheDocument();
 
-    expect(screen.queryByRole("dialog", { name: "Sessions drawer" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Changed files" }));
 
-    fireEvent.click(screen.getByRole("button", { name: "Open session drawer" }));
-
-    const drawer = await screen.findByRole("dialog", { name: "Sessions drawer" });
-    expect(drawer).toBeInTheDocument();
-    expect(screen.getByTestId("session-list")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Close session drawer" }));
-    await waitFor(() => {
-      expect(screen.queryByRole("dialog", { name: "Sessions drawer" })).not.toBeInTheDocument();
-    });
+    expect(screen.getByTestId("changed-files-panel")).toHaveTextContent("Changed files: 1");
+    expect(screen.queryByTestId("session-list")).not.toBeInTheDocument();
   });
 });
