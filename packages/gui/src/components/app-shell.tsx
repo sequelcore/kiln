@@ -7,7 +7,9 @@ import { waitForGateway } from "../lib/wait-for-gateway.js";
 import { useSessionStore } from "../lib/session-store.js";
 import { deriveChangedFiles, derivePendingApprovals, deriveRuntimeContinuity } from "../lib/session-store.js";
 import { SessionList } from "./session-list.js";
+import { WorkspacePanel } from "./workspace-panel.js";
 import { ChangedFilesPanel } from "./changed-files-panel.js";
+import { ApprovalsPanel } from "./approvals-panel.js";
 import { Transcript } from "./transcript.js";
 import { Composer } from "./composer.js";
 import { CommandPalette, type CommandPaletteItem } from "./command-palette.js";
@@ -158,7 +160,18 @@ function LeftRail(props: {
           props.onSelectMode("sessions");
         }}
       />
-      <SidebarRailButton mode="workspace" label="Workspace" shortcut="Ctrl+2" active={false} disabled onClick={() => undefined} />
+      <SidebarRailButton
+        mode="workspace"
+        label="Workspace"
+        shortcut="Ctrl+2"
+        active={props.activeMode === "workspace"}
+        onClick={() => {
+          if (!props.expanded) {
+            props.onToggleExpanded();
+          }
+          props.onSelectMode("workspace");
+        }}
+      />
       <SidebarRailButton
         mode="changed"
         label="Changed files"
@@ -172,7 +185,19 @@ function LeftRail(props: {
           props.onSelectMode("changed");
         }}
       />
-      <SidebarRailButton mode="approvals" label="Approvals" shortcut="Ctrl+4" active={false} count={props.approvalCount} disabled onClick={() => undefined} />
+      <SidebarRailButton
+        mode="approvals"
+        label="Approvals"
+        shortcut="Ctrl+4"
+        active={props.activeMode === "approvals"}
+        count={props.approvalCount}
+        onClick={() => {
+          if (!props.expanded) {
+            props.onToggleExpanded();
+          }
+          props.onSelectMode("approvals");
+        }}
+      />
       <div className="flex-1" />
       <button
         type="button"
@@ -272,7 +297,8 @@ export function AppShell() {
   const setTheme = useUiStore((state) => state.setTheme);
   const changedFiles = useMemo(() => deriveChangedFiles(timelineEntries), [timelineEntries]);
   const runtimeContinuity = useMemo(() => deriveRuntimeContinuity(timelineEntries, activeProvider), [activeProvider, timelineEntries]);
-  const approvalCount = useMemo(() => derivePendingApprovals(timelineEntries).length, [timelineEntries]);
+  const pendingApprovals = useMemo(() => derivePendingApprovals(timelineEntries), [timelineEntries]);
+  const approvalCount = pendingApprovals.length;
 
   const closePalette = () => {
     setIsPaletteOpen(false);
@@ -354,9 +380,23 @@ export function AppShell() {
           setSidebarExpanded(true);
         }
       }
+      if ((event.ctrlKey || event.metaKey) && event.key === "2") {
+        event.preventDefault();
+        setSidebarMode("workspace");
+        if (!isNarrow) {
+          setSidebarExpanded(true);
+        }
+      }
       if ((event.ctrlKey || event.metaKey) && event.key === "3") {
         event.preventDefault();
         setSidebarMode("changed");
+        if (!isNarrow) {
+          setSidebarExpanded(true);
+        }
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key === "4") {
+        event.preventDefault();
+        setSidebarMode("approvals");
         if (!isNarrow) {
           setSidebarExpanded(true);
         }
@@ -613,21 +653,43 @@ export function AppShell() {
     setSelectedSessionId(null);
     setDrawerOpen(false);
   };
+  const selectedSessionMeta = sessionDetailQuery.data?.meta ?? null;
 
-  const sidebar = sidebarMode === "changed" ? (
-    <ChangedFilesPanel
-      files={changedFiles}
-      onStartNewSession={startNewSession}
-    />
-  ) : (
-    <SessionList
-      sessions={sessionList}
-      selectedSessionId={selectedSessionId}
-      resumeTargetId={resumeTargetId}
-      onSelect={(sessionId) => setSelectedSessionId(sessionId)}
-      onStartNewSession={startNewSession}
-    />
-  );
+  const sidebar = sidebarMode === "sessions"
+    ? (
+      <SessionList
+        sessions={sessionList}
+        selectedSessionId={selectedSessionId}
+        resumeTargetId={resumeTargetId}
+        onSelect={(sessionId) => setSelectedSessionId(sessionId)}
+        onStartNewSession={startNewSession}
+      />
+    ) : sidebarMode === "workspace"
+      ? (
+        <WorkspacePanel
+          domainLabel={domainLabel}
+          gatewayWorkingDirectory={workingDirectory}
+          selectedSessionId={selectedSessionId}
+          sessionMeta={selectedSessionMeta}
+          activeProvider={activeProvider}
+          activeModel={activeModel}
+          onStartNewSession={startNewSession}
+        />
+      ) : sidebarMode === "changed"
+        ? (
+          <ChangedFilesPanel
+            files={changedFiles}
+            onStartNewSession={startNewSession}
+          />
+        )
+        : (
+          <ApprovalsPanel
+            approvals={pendingApprovals}
+            onApprove={(sessionId) => sendApprovalResponse(true, undefined, sessionId)}
+            onDeny={(sessionId) => sendApprovalResponse(false, undefined, sessionId)}
+            onStartNewSession={startNewSession}
+          />
+        );
 
   const closeDrawer = () => {
     setDrawerOpen(false);
@@ -635,11 +697,27 @@ export function AppShell() {
   const activeSession = sessionList.find((session) => session.id === selectedSessionId) ?? null;
   const topBarTitle = activeSession?.title ?? activeSession?.taskSummary ?? "New session";
   const tokenTotal = inputTokens + outputTokens;
-  const drawerTitle = sidebarMode === "changed" ? "Changed Files" : "Sessions";
-  const drawerDescription = sidebarMode === "changed"
-    ? "Changed files move into a drawer on narrow windows."
-    : "History moves into a drawer on narrow windows.";
-  const drawerAriaLabel = sidebarMode === "changed" ? "changed files drawer" : "session drawer";
+  const drawerTitle = sidebarMode === "sessions"
+    ? "Sessions"
+    : sidebarMode === "workspace"
+      ? "Workspace"
+      : sidebarMode === "changed"
+        ? "Changed Files"
+        : "Approvals";
+  const drawerDescription = sidebarMode === "sessions"
+    ? "History moves into a drawer on narrow windows."
+    : sidebarMode === "workspace"
+      ? "Workspace metadata moves into a drawer on narrow windows."
+    : sidebarMode === "changed"
+      ? "Changed files move into a drawer on narrow windows."
+      : "Approval requests move into a drawer on narrow windows.";
+  const drawerAriaLabel = sidebarMode === "sessions"
+    ? "session drawer"
+    : sidebarMode === "workspace"
+      ? "workspace drawer"
+      : sidebarMode === "changed"
+        ? "changed files drawer"
+        : "approvals drawer";
 
   return (
     <div className="relative flex h-screen overflow-hidden bg-background text-foreground">
@@ -824,7 +902,13 @@ export function AppShell() {
             id="session-drawer"
             role="dialog"
             aria-modal="true"
-            aria-label={drawerTitle === "Sessions" ? "Sessions drawer" : "Changed files drawer"}
+            aria-label={drawerTitle === "Sessions"
+              ? "Sessions drawer"
+              : drawerTitle === "Workspace"
+                ? "Workspace drawer"
+                : drawerTitle === "Changed Files"
+                  ? "Changed files drawer"
+                  : "Approvals drawer"}
             className="flex h-full w-[min(26rem,calc(100vw-3rem))] max-w-full flex-col border-l border-border bg-card shadow-2xl"
           >
             <div className="flex items-center justify-between border-b border-border px-4 py-3">

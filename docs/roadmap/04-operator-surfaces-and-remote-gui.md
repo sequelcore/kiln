@@ -202,10 +202,11 @@ every surface. The GUI is only the first projection.
 
 ### 2a. Grow the left rail into real supervision modes
 
-The local GUI shell now reserves a left rail for operator modes. `Sessions` is
-the first implemented panel. `Workspace`, `Changed files`, and `Approvals` are
-visible as future modes, but they must remain disabled until they are backed by
-canonical runtime/session data.
+The local GUI shell now uses a left rail for operator modes. `Sessions`,
+`Changed files`, `Approvals`, and a metadata-first `Workspace` panel are now
+implemented from governed gateway/session data. Repository tree navigation
+inside `Workspace` remains gated until a canonical workspace-tree contract
+exists.
 
 Target modes:
 
@@ -224,7 +225,7 @@ Rules:
   independent GUI state models.
 - collapse/expand behavior belongs to the operator shell and should be
   preserved across future mode panels.
-- disabled rail buttons are acceptable placeholders only while the underlying
+- disabled rail buttons are acceptable placeholders only while an underlying
   panel lacks real data.
 - no panel may invent provider routing, tool authority, approval state, file
   changes, or session identity locally.
@@ -516,8 +517,13 @@ Current implementation status:
 - canonical file-change events now preserve line deltas end to end, and the
   `Changed files` panel supports per-file review without inventing diff hunks
   that the runtime does not emit yet.
-- `Workspace` and `Approvals` remain gated because they still need governed
-  contracts and dedicated review flows.
+- `Approvals` now exists as a real left-rail mode backed by canonical
+  approval-request/approval-resolved events, with explicit approve/deny
+  actions.
+- `Workspace` now exists as a real left-rail mode backed by governed gateway
+  metadata (`workingDirectory`, `domainLabel`, and selected-session ledger
+  fields). Repository tree browsing remains gated until a canonical workspace
+  tree contract is added.
 
 ### Slice B3. Chat input and command polish
 
