@@ -175,6 +175,48 @@ When this roadmap is complete:
   bridges, not by duplicating schemas
 - dead provider-session branches and duplicated tool builders are deleted
 
+## Execution Update (2026-04-10)
+
+The runtime-truth hotfix for direct/OAuth tool execution is structurally
+closed.
+
+Verified results:
+
+- approval flow is session-scoped end to end
+- TUI/runtime continuity now reflects the canonical runtime session and turn
+  record path
+- structured file-change telemetry is preserved through the canonical runtime
+  turn record instead of being inferred from human-readable output
+- CLI projected-context artifact-key construction and context-governance
+  task-shape normalization were centralized and reused
+- duplicate CLI/runtime context-artifact cache logic was removed in favor of
+  the runtime-owned path
+- `codex-oauth` now runs through a Kiln-local executable direct-provider path
+  instead of the old text-only route
+- the `codex-oauth` live-session output freeze was fixed
+
+Verification completed for the hotfix:
+
+- `bun run typecheck`
+- `bun run build`
+- focused runtime, CLI, and core tests for the `codex-oauth` executable path,
+  approval flow, and live-session adapter behavior
+
+Remaining follow-up is no longer a runtime-truth bug. It is a separate product
+quality slice:
+
+- re-run GUI/TUI end-to-end validation with normal prompts
+- confirm repeated malformed tool-call loops are actually gone in live use
+- only if live prompts still feel too literal, bias file discovery further
+  toward `glob -> read -> summarize`
+
+Guardrails:
+
+- do not regress `codex-oauth` back to a text-only path
+- do not describe all direct API providers as executable; that is still false
+- do not claim the natural-language tool-UX follow-up is solved until it is
+  validated with normal prompts in the GUI/TUI
+
 ## Implementation Phases
 
 ### Phase 1. Canonical builtin-tool registry

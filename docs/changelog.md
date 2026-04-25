@@ -194,9 +194,10 @@ not frozen yet.
   the old text-only direct-provider route.
 - The `codex-oauth` live-session freeze was fixed: turns no longer get stuck in
   `thinking...` with no visible assistant output.
-- `HOTFIX.MD`, TUI, tool-use, and CLI-wrapper docs now reflect the verified
-  runtime state: `codex-oauth` is executable, while the remaining follow-up is
-  natural-language tool usability rather than missing execution wiring.
+- The shared-tool-surface roadmap plus TUI, tool-use, and CLI-wrapper docs now
+  reflect the verified runtime state: `codex-oauth` is executable, while the
+  remaining follow-up is natural-language tool usability rather than missing
+  execution wiring.
 
 ## v0.27.0 (2026-04-09) -- Codex OAuth Provider (Phase 11.5a)
 

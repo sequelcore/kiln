@@ -403,7 +403,7 @@ describe("CodexOAuthAdapter", () => {
             role: "assistant",
             parts: [
               { type: "text", text: "Let me check that." },
-              { type: "tool_use", id: "call_123", name: "read", input: { filePath: "HOTFIX.MD" } },
+              { type: "tool_use", id: "call_123", name: "read", input: { filePath: "docs/changelog.md" } },
             ],
           },
           {
@@ -429,7 +429,7 @@ describe("CodexOAuthAdapter", () => {
           type: "function_call",
           call_id: "call_123",
           name: "read",
-          arguments: "{\"filePath\":\"HOTFIX.MD\"}",
+          arguments: "{\"filePath\":\"docs/changelog.md\"}",
         },
         { type: "function_call_output", call_id: "call_123", output: "hotfix content" },
       ]);
@@ -456,7 +456,7 @@ describe("CodexOAuthAdapter", () => {
           {
             role: "assistant",
             parts: [
-              { type: "tool_use", id: "call_456", name: "read", input: { filePath: "HOTFIX.MD" } },
+              { type: "tool_use", id: "call_456", name: "read", input: { filePath: "docs/changelog.md" } },
             ],
           },
         ],
@@ -475,7 +475,7 @@ describe("CodexOAuthAdapter", () => {
           type: "function_call",
           call_id: "call_456",
           name: "read",
-          arguments: "{\"filePath\":\"HOTFIX.MD\"}",
+          arguments: "{\"filePath\":\"docs/changelog.md\"}",
         },
       ]);
     });
@@ -611,7 +611,7 @@ describe("CodexOAuthAdapter", () => {
                   type: "function_call",
                   id: "call_alias_1",
                   name: "write",
-                  arguments: "{\"path\":\"HOTFIX.MD\",\"text\":\"hello\"}",
+                  arguments: "{\"path\":\"docs/changelog.md\",\"text\":\"hello\"}",
                 },
               ],
               usage: {
@@ -631,7 +631,7 @@ describe("CodexOAuthAdapter", () => {
           id: "call_alias_1",
           name: "write",
           input: {
-            filePath: "HOTFIX.MD",
+            filePath: "docs/changelog.md",
             content: "hello",
           },
         },
@@ -709,7 +709,7 @@ describe("CodexOAuthAdapter", () => {
               type: "function_call",
               id: "call_added_1",
               name: "read",
-              arguments: "{\"filePath\":\"HOTFIX.MD\"}",
+              arguments: "{\"filePath\":\"docs/changelog.md\"}",
             },
           },
         },
@@ -733,7 +733,7 @@ describe("CodexOAuthAdapter", () => {
         {
           id: "call_added_1",
           name: "read",
-          input: { filePath: "HOTFIX.MD" },
+          input: { filePath: "docs/changelog.md" },
         },
       ]);
       expect(response.parts).toEqual([]);
