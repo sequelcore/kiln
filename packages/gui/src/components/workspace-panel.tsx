@@ -1,9 +1,10 @@
-import type { GuiSessionMeta } from "@kilnai/gateway-contracts";
+import type { GuiDashboardSnapshot, GuiSessionMeta } from "@kilnai/gateway-contracts";
 import { Button } from "@/components/ui/button";
 
 interface WorkspacePanelProps {
   readonly domainLabel?: string;
   readonly gatewayWorkingDirectory?: string;
+  readonly workspaceTree?: GuiDashboardSnapshot["workspaceTree"];
   readonly selectedSessionId: string | null;
   readonly sessionMeta: GuiSessionMeta | null;
   readonly activeProvider: string | null;
@@ -72,12 +73,48 @@ export function WorkspacePanel(props: WorkspacePanelProps) {
             <PathBlock label="Worktree path" value={worktreePath} />
           ) : null}
 
-          <div className="rounded-md border border-dashed border-border/70 bg-background px-3 py-3">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Tree status</p>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              File-tree browsing is intentionally gated until the gateway exposes a canonical workspace-tree contract.
-            </p>
-          </div>
+          {props.workspaceTree ? (
+            <div className="rounded-md border border-border/60 bg-background px-3 py-3">
+              <div className="flex items-center gap-2">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Workspace tree</p>
+                <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">read-only</p>
+              </div>
+              <p className="mt-2 break-all font-mono text-[11px] leading-5 text-muted-foreground">
+                root: {normalizePath(props.workspaceTree.rootPath)}
+              </p>
+              {props.workspaceTree.entries.length > 0 ? (
+                <ul className="mt-3 space-y-1.5" aria-label="Workspace root entries">
+                  {props.workspaceTree.entries.map((entry) => (
+                    <li
+                      key={entry.path}
+                      className="rounded-md border border-border/60 bg-card/35 px-2.5 py-2"
+                    >
+                      <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
+                        {entry.kind} · {entry.name}
+                      </p>
+                      <p className="mt-1 break-all font-mono text-[11px] leading-5 text-foreground">
+                        {normalizePath(entry.path)}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-3 text-sm leading-6 text-muted-foreground">Workspace root is empty.</p>
+              )}
+              {props.workspaceTree.truncated ? (
+                <p className="mt-3 text-xs text-muted-foreground">
+                  Showing first {props.workspaceTree.entries.length} root entries.
+                </p>
+              ) : null}
+            </div>
+          ) : (
+            <div className="rounded-md border border-dashed border-border/70 bg-background px-3 py-3">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Tree status</p>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                File-tree browsing is intentionally gated until the gateway exposes a canonical workspace-tree contract.
+              </p>
+            </div>
+          )}
         </div>
       </div>
 

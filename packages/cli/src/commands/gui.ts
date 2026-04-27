@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
+import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { KilnAppConfig } from "../config.js";
 import { readGlobalConfig } from "../config/global-config.js";
@@ -34,6 +35,8 @@ export interface GuiFlags {
   readonly theme?: string;
   readonly plan?: boolean;
 }
+
+const DASHBOARD_WORKSPACE_TREE_ENTRY_LIMIT = 128;
 
 export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {}): Promise<void> {
   const cwd = flags.cwd ?? process.cwd();
@@ -188,6 +191,7 @@ async function buildDashboardSnapshot(
         : []
     )),
   );
+  const workspaceTree = await readWorkspaceTreeSnapshot(workingDirectory);
 
   return {
     providers: providerDescriptors,
@@ -196,7 +200,47 @@ async function buildDashboardSnapshot(
     resumeInfoByProvider,
     workingDirectory,
     domainLabel,
+    workspaceTree,
   };
+}
+
+type DashboardWorkspaceTreeSnapshot = NonNullable<GuiDashboardSnapshot["workspaceTree"]>;
+type DashboardWorkspaceTreeEntry = DashboardWorkspaceTreeSnapshot["entries"][number];
+
+function compareWorkspaceTreeEntries(a: DashboardWorkspaceTreeEntry, b: DashboardWorkspaceTreeEntry): number {
+  if (a.kind !== b.kind) {
+    return a.kind === "directory" ? -1 : 1;
+  }
+  const aName = a.name.toLocaleLowerCase("en-US");
+  const bName = b.name.toLocaleLowerCase("en-US");
+  const byFoldedName = aName.localeCompare(bName, "en-US");
+  if (byFoldedName !== 0) {
+    return byFoldedName;
+  }
+  return a.name.localeCompare(b.name, "en-US");
+}
+
+async function readWorkspaceTreeSnapshot(workingDirectory: string): Promise<DashboardWorkspaceTreeSnapshot | undefined> {
+  try {
+    const rootEntries = await readdir(workingDirectory, { withFileTypes: true });
+    const entries = rootEntries
+      .map((entry) => ({
+        path: join(workingDirectory, entry.name),
+        name: entry.name,
+        kind: entry.isDirectory() ? "directory" : "file",
+      } satisfies DashboardWorkspaceTreeEntry))
+      .sort(compareWorkspaceTreeEntries);
+
+    const truncated = entries.length > DASHBOARD_WORKSPACE_TREE_ENTRY_LIMIT;
+    return {
+      rootPath: workingDirectory,
+      entries: truncated ? entries.slice(0, DASHBOARD_WORKSPACE_TREE_ENTRY_LIMIT) : entries,
+      truncated: truncated || undefined,
+      source: "gateway",
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 function resolveGuiMode(cwd: string, explicitMode: GuiFlags["mode"]): "dev" | "prod" {

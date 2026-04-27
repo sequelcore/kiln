@@ -669,6 +669,7 @@ export function AppShell() {
         <WorkspacePanel
           domainLabel={domainLabel}
           gatewayWorkingDirectory={workingDirectory}
+          workspaceTree={dashboardQuery.data?.workspaceTree}
           selectedSessionId={selectedSessionId}
           sessionMeta={selectedSessionMeta}
           activeProvider={activeProvider}

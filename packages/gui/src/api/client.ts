@@ -32,6 +32,7 @@ const fallbackSnapshot: GuiDashboardSnapshot = {
   resumeInfoByProvider: {},
   workingDirectory: undefined,
   domainLabel: undefined,
+  workspaceTree: undefined,
 };
 
 export class GuiGatewayClient {
@@ -63,6 +64,7 @@ export class GuiGatewayClient {
           resumeInfoByProvider: payload.resumeInfoByProvider ?? fallbackSnapshot.resumeInfoByProvider,
           workingDirectory: payload.workingDirectory ?? fallbackSnapshot.workingDirectory,
           domainLabel: payload.domainLabel ?? fallbackSnapshot.domainLabel,
+          workspaceTree: normalizeWorkspaceTreeSnapshot(payload.workspaceTree) ?? fallbackSnapshot.workspaceTree,
         };
       } catch {
         continue;
@@ -153,6 +155,7 @@ const GUI_GATEWAY_FALLBACK_PORTS = [4810, 4800] as const;
 const GUI_API_BASE_QUERY_PARAM = "apiBase";
 const GUI_API_BASE_STORAGE_KEY = "kiln.gui.apiBase";
 const VITE_DEV_SERVER_PORT = "5183";
+type DashboardWorkspaceTreeSnapshot = NonNullable<GuiDashboardSnapshot["workspaceTree"]>;
 
 export function resolveCandidateBaseUrls(baseUrl: string, resolvedBaseUrl?: string | null): string[] {
   const configuredBase = resolveConfiguredBaseUrl();
@@ -203,6 +206,36 @@ function shouldIncludeOriginBase(baseUrl: string | null, configuredBase: string 
   const url = new URL(baseUrl);
   const isLoopbackHost = url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "::1";
   return !(isLoopbackHost && url.port === VITE_DEV_SERVER_PORT);
+}
+
+function normalizeWorkspaceTreeSnapshot(
+  value: GuiDashboardSnapshot["workspaceTree"] | null | undefined,
+): DashboardWorkspaceTreeSnapshot | undefined {
+  if (!value || typeof value.rootPath !== "string" || !Array.isArray(value.entries)) {
+    return undefined;
+  }
+
+  const entries = value.entries.flatMap((entry) => {
+    if (!entry || typeof entry.path !== "string" || typeof entry.name !== "string") {
+      return [];
+    }
+    if (entry.kind !== "directory" && entry.kind !== "file") {
+      return [];
+    }
+    return [{
+      path: entry.path,
+      name: entry.name,
+      kind: entry.kind,
+    }];
+  });
+
+  return {
+    rootPath: value.rootPath,
+    entries,
+    truncated: value.truncated === true ? true : undefined,
+    source: value.source === "gateway" ? "gateway" : undefined,
+    worktreePath: typeof value.worktreePath === "string" ? value.worktreePath : undefined,
+  };
 }
 
 export {
