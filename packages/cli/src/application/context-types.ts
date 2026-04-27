@@ -1,3 +1,5 @@
+import type { ContextAuditEntry } from "@kilnai/core";
+
 export type ProjectedContextBlockKind =
   | "memory"
   | "summary"
@@ -21,6 +23,7 @@ export interface ProjectedContext {
   readonly tokenBudget?: number;
   readonly deferredBlocks?: readonly ProjectedContextBlock[];
   readonly overflow?: boolean;
+  readonly auditTrail?: readonly ContextAuditEntry[];
 }
 
 function compactBlankLines(text: string): string {

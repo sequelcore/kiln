@@ -19,6 +19,17 @@ function formatSourceCounts(counts: Record<string, number>): string {
 }
 
 function inferDeferredReasons(projectedContext: ProjectedContext): string[] {
+  const latestAuditEntry = projectedContext.auditTrail?.[projectedContext.auditTrail.length - 1];
+  if (latestAuditEntry) {
+    return [
+      ...new Set(
+        latestAuditEntry.blocks
+          .filter((block) => block.decision === "deferred")
+          .map((block) => block.reason),
+      ),
+    ];
+  }
+
   const reasons = new Set<string>();
   const deferredBlocks = projectedContext.deferredBlocks ?? [];
 

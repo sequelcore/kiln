@@ -1,5 +1,9 @@
 export { estimateTextTokens, renderProjectedContext } from "./projected-context.js";
 export type {
+  ContextAuditBlock,
+  ContextAuditDecision,
+  ContextAuditEntry,
+  ContextAuditReason,
   ContextCandidate,
   ProjectedContext,
   ProjectedContextBlock,

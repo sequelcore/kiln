@@ -119,8 +119,18 @@ deletion landed.
   instantiate a context policy owner through the wrapper surface.
 - Landed: the CLI wrapper regression test guards against reintroducing
   `../application/context-governor.js` or wrapper-level governor exports.
-- Remaining: finish the unified audit trail shape and remove any surface-local
-  audit logging once the core audit contract is explicit.
+- Landed: the core `ContextAuditEntry` format is explicit and attached to
+  `ProjectedContext.auditTrail`.
+- Landed: the audit entry records admitted block ids, deferred block ids,
+  required and preserved-required block ids, selected and required token
+  counts, token budget, overflow reason, per-block decision, per-block reason,
+  and effective score.
+- Landed: runtime admitted-turn results expose the latest core audit entry as
+  `contextAudit`.
+- Landed: CLI context governance summaries use core audit deferred reasons
+  when an audit entry is present instead of inferring reasons locally.
+- Remaining: Slice 3 ranking adapters for procedural memory and cross-agent
+  coordination state.
 
 **Verification (2026-04-27):**
 
@@ -131,6 +141,8 @@ deletion landed.
   `bun run test -- tests\gateway\message-pipeline.test.ts`.
 - Targeted CLI regression passed:
   `bun run test -- src\wrapper\__tests__\session-manager-context-governor.test.ts`.
+- Targeted CLI audit summary regression passed:
+  `bun run test -- src\application\__tests__\session-report.test.ts`.
 
 ### Slice 3: Skills and coordination under one policy
 

@@ -8,6 +8,7 @@ import type {
   ModelCapabilityRegistry,
   EventBus,
   ContextArtifactCache,
+  ContextAuditEntry,
   ContextCandidate,
   ApprovalRequestedEvent,
   ApprovalReceivedEvent,
@@ -168,6 +169,7 @@ export interface AdmittedTurnResult {
     readonly usedCachedSupport?: boolean;
     readonly selectionReason?: string;
   };
+  readonly contextAudit?: ContextAuditEntry;
 }
 
 export interface BudgetDeniedResult {
@@ -280,7 +282,10 @@ interface AdmittedTurnContextProjectionInput {
   readonly groundingMode: GroundingMode | undefined;
 }
 
-function projectAdmittedTurnContext(input: AdmittedTurnContextProjectionInput): string | undefined {
+function projectAdmittedTurnContext(input: AdmittedTurnContextProjectionInput): {
+  readonly content: string | undefined;
+  readonly audit?: ContextAuditEntry;
+} {
   const candidates: ContextCandidate[] = [];
   const userContext = formatUserContext(input.userContext);
 
@@ -334,7 +339,10 @@ function projectAdmittedTurnContext(input: AdmittedTurnContextProjectionInput): 
     artifacts: candidates,
   });
   const mergedMemory = renderProjectedContext(projectedContext);
-  return appendGroundingDirective(mergedMemory, input.groundingMode);
+  return {
+    content: appendGroundingDirective(mergedMemory, input.groundingMode),
+    audit: projectedContext.auditTrail?.[projectedContext.auditTrail.length - 1],
+  };
 }
 
 export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<ProcessResult> {
@@ -584,7 +592,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     feedback: runtimeContinuityPresentation.runtimeContinuity.feedbackLabel,
     influenced: runtimeSupport.decision.resumeFeedback?.influencedChoice ?? false,
   });
-  const combinedMemory = projectAdmittedTurnContext({
+  const projectedTurnContext = projectAdmittedTurnContext({
     userContext: session.userContext,
     cachedRuntimeSummary,
     recalledMemory: ctx.recalledMemory,
@@ -670,7 +678,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     result = await ctx.orchestrator.processMessage(
       session,
       ctx.userParts,
-      combinedMemory,
+      projectedTurnContext.content,
       effectiveCallBuiltinTools,
       perCallConfig,
     );
@@ -1049,6 +1057,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
         : undefined,
       groundingResult,
       runtimeContinuity: runtimeContinuityPresentation.runtimeContinuity,
+      contextAudit: projectedTurnContext.audit,
     },
   };
 }

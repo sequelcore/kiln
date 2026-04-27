@@ -554,7 +554,7 @@ describe("processAdmittedTurn", () => {
       knowledgeContext: "compact knowledge context",
     });
 
-    await processInboundMessage(ctx);
+    const result = await processInboundMessage(ctx);
 
     const callArgs = (orchestrator.processMessage as ReturnType<typeof vi.fn>).mock.calls[0];
     const mergedMemoryArg: string | undefined = callArgs[2];
@@ -562,6 +562,19 @@ describe("processAdmittedTurn", () => {
     expect(mergedMemoryArg).toContain("cached runtime summary");
     expect(mergedMemoryArg).toContain("compact knowledge context");
     expect(mergedMemoryArg).not.toContain("oversized-memory-");
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.result.contextAudit).toMatchObject({
+        governor: "DefaultContextGovernor",
+        overflow: true,
+        overflowReason: "budget-cap",
+      });
+      expect(result.result.contextAudit?.blocks.some((block) => (
+        block.decision === "deferred"
+        && block.source === "runtime-recalled-memory"
+        && block.reason === "budget-cap"
+      ))).toBe(true);
+    }
 
     supportSpy.mockRestore();
   });

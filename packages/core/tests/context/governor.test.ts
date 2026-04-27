@@ -92,6 +92,88 @@ describe("DefaultContextGovernor", () => {
     expect(result.overflow).toBe(true);
   });
 
+  it("emits a stable audit entry for admitted and deferred blocks", () => {
+    const governor = makeGovernor();
+    const content = "x".repeat(400); // ~100 tokens
+
+    const input: ProjectContextInput<TestLedger, TestSource, TestAggressiveness> = {
+      artifacts: [
+        makeCandidate({ source: "summary", content, score: 80 }),
+        makeCandidate({ source: "memory", content, score: 40 }),
+      ],
+      tokenBudget: 150,
+    };
+
+    const result = governor.project(input);
+    const auditEntry = result.auditTrail?.[0];
+
+    expect(auditEntry).toBeDefined();
+    expect(auditEntry).toMatchObject({
+      governor: "DefaultContextGovernor",
+      selectedBlockIds: ["candidate:0"],
+      deferredBlockIds: ["candidate:1"],
+      selectedTokens: result.estimatedTokens,
+      tokenBudget: 150,
+      overflow: true,
+      overflowReason: "budget-cap",
+    });
+    expect(auditEntry?.blocks.map((block) => block.id)).toEqual([
+      "candidate:0",
+      "candidate:1",
+    ]);
+    expect(auditEntry?.blocks[0]).toMatchObject({
+      id: "candidate:0",
+      decision: "admitted",
+      reason: "within-budget",
+      order: 0,
+    });
+    expect(auditEntry?.blocks[1]).toMatchObject({
+      id: "candidate:1",
+      decision: "deferred",
+      reason: "budget-cap",
+      order: 1,
+    });
+  });
+
+  it("marks required blocks as preserved in the audit even when they exceed budget", () => {
+    const governor = makeGovernor();
+    const requiredContent = "r".repeat(1_200); // ~300 tokens
+    const optionalContent = "o".repeat(400); // ~100 tokens
+
+    const input: ProjectContextInput<TestLedger, TestSource, TestAggressiveness> = {
+      artifacts: [
+        makeCandidate({ source: "ledger", content: requiredContent, score: 100, required: true }),
+        makeCandidate({ source: "memory", content: optionalContent, score: 90 }),
+      ],
+      tokenBudget: 150,
+    };
+
+    const result = governor.project(input);
+    const auditEntry = result.auditTrail?.[0];
+
+    expect(result.blocks.map((block) => block.id)).toEqual(["candidate:0"]);
+    expect(auditEntry).toMatchObject({
+      requiredBlockIds: ["candidate:0"],
+      preservedRequiredBlockIds: ["candidate:0"],
+      selectedBlockIds: ["candidate:0"],
+      deferredBlockIds: ["candidate:1"],
+      requiredTokens: 300,
+      tokenBudget: 150,
+      overflow: true,
+      overflowReason: "required-overflow",
+    });
+    expect(auditEntry?.blocks[0]).toMatchObject({
+      id: "candidate:0",
+      decision: "admitted",
+      reason: "required-preserved",
+    });
+    expect(auditEntry?.blocks[1]).toMatchObject({
+      id: "candidate:1",
+      decision: "deferred",
+      reason: "required-overflow",
+    });
+  });
+
   it("preferredSources raises summary block score over same-base-score memory block", () => {
     const governor = makeGovernor();
     const content = "x".repeat(400); // ~100 tokens

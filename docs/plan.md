@@ -1,33 +1,44 @@
-# Slice 2 Cleanup Plan: CLI Governor Owner Deletion
+# Slice 2 Audit Plan: Unified Context Audit Trail
 
 Date: 2026-04-27
 Owner: `docs/plan.md`
 
 ## Objective
 
-Finish the Slice 2 owner-deletion cleanup for
+Finish the remaining Slice 2 audit-contract work for
 `docs/roadmap/05-context-governor-unification.md`. Runtime admitted-turn
-projection is already governed by the core governor at `HEAD`; this cleanup
-removes the remaining CLI-local governor owner and its wrapper export surface.
+projection and CLI owner deletion are already done; this pass makes the core
+governor emit the single context audit shape and has consumers use that shape
+instead of local deferred-reason inference.
 
 ## Scope Guardrails
 
-- Keep this cleanup to the CLI-local governor deletion and related docs.
-- Do not add a compatibility wrapper or re-export a changed core generic shape
-  through the CLI wrapper package.
+- Keep this pass to the audit shape and its immediate consumer handoff.
 - Do not move skills, procedural memory, or cross-agent coordination into the
   governor yet; those remain Slice 3.
-- Do not redesign summarization, retrieval, runtime persistence, or provider
-  credential pooling.
+- Do not redesign summarization, retrieval, runtime persistence, provider
+  credential pooling, or event schemas.
 - Do not revert unrelated dirty worktree changes.
 
 ## Exact Files
 
-### CLI owner deletion
+### Core audit contract
 
-- `packages/cli/src/application/context-governor.ts`
-- `packages/cli/src/wrapper/index.ts`
-- `packages/cli/src/wrapper/__tests__/session-manager-context-governor.test.ts`
+- `packages/core/src/context/projected-context.ts`
+- `packages/core/src/context/governor.ts`
+- `packages/core/src/context/index.ts`
+- `packages/core/tests/context/governor.test.ts`
+
+### Runtime audit handoff
+
+- `packages/runtime/src/gateway/message-pipeline.ts`
+- `packages/runtime/tests/gateway/message-pipeline.test.ts`
+
+### CLI audit consumption
+
+- `packages/cli/src/application/context-types.ts`
+- `packages/cli/src/application/session-report.ts`
+- `packages/cli/src/application/__tests__/session-report.test.ts`
 
 ### Documentation
 
@@ -36,44 +47,32 @@ removes the remaining CLI-local governor owner and its wrapper export surface.
 
 ## Delegation Assignments
 
-- `Dewey` (`context-scout`): mapped runtime projection seams and confirmed the
-  owner deletion target.
-- `Hal` (`planner`): split Slice 2 into atomic concerns and identified the
-  remaining audit-contract gap.
-- Local LM Studio worker (`qwen/qwen3.5-9b`): smoke-tested local worker
-  workflow with a read-only Slice 2 brief.
-- Orchestrator: delete the CLI-local governor owner, remove its public wrapper
-  exports, update docs, and verify.
-- `Lois` (`code-reviewer`): reviewed the cleanup and blocked the first
-  re-export approach; the fix removes the wrapper governor exports entirely.
+- `Dewey` (`context-scout`): already mapped the Slice 2 runtime and CLI seams.
+- `Hal` (`planner`): identified the missing core audit surface as the remaining
+  Slice 2 contract gap.
+- Orchestrator: add the audit contract, wire runtime result exposure, update
+  CLI summary consumption, update docs, and verify.
+- `Lois` (`code-reviewer`): review this audit pass before commit.
 
 ## Status
 
-- Done: runtime admitted-turn projection is governed by the core governor at
-  `HEAD` and covered by `message-pipeline.test.ts`.
-- Done: `packages/cli/src/application/context-governor.ts` is deleted.
-- Done: `packages/cli/src/wrapper/index.ts` no longer re-exports
-  `DefaultContextGovernor`, `ContextGovernor`, or `ProjectContextInput`.
-- Done: CLI regression test guards against reintroducing the deleted local
-  governor path or wrapper governor exports.
-- Remaining: core audit trail contract is still not explicit enough for the
-  full Slice 2 target. Treat that as the next atomic concern.
+- Done: core `ProjectedContext` includes `auditTrail`.
+- Done: core `ContextAuditEntry` captures admitted block ids, deferred block
+  ids, required/preserved required ids, selected/required tokens, token budget,
+  overflow reason, per-block decision, per-block reason, and effective score.
+- Done: runtime admitted-turn results expose the latest core context audit
+  entry as `contextAudit`.
+- Done: CLI context governance summary uses audit deferred reasons when the
+  core audit entry is present.
+- Remaining after this pass: Slice 3 ranking adapters for procedural memory
+  and cross-agent coordination state.
 
 ## Verification
 
+- `bun run build` from `packages/core`
 - `bun run typecheck`
 - `bun run test -- tests\context\governor.test.ts` from `packages/core`
 - `bun run test -- tests\gateway\message-pipeline.test.ts` from
   `packages/runtime`
-- `bun run test -- src\wrapper\__tests__\session-manager-context-governor.test.ts`
-  from `packages/cli`
-
-## Local Worker Workflow Notes
-
-- `lms status` showed the LM Studio server running on port `1234`.
-- `lms load qwen/qwen3.5-9b` loaded successfully.
-- `lms chat qwen/qwen3.5-9b` responded to the Slice 2 brief but timed out and
-  produced overly broad planning output.
-- `lms unload qwen/qwen3.5-9b` unloaded the model after the smoke test.
-- The workflow is viable for smoke testing, but implementation delegation needs
-  stricter prompts and likely a non-reasoning profile before Kiln integration.
+- `bun run test -- src\application\__tests__\session-report.test.ts` from
+  `packages/cli`

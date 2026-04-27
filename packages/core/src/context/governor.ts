@@ -3,6 +3,8 @@ import type { ContextBudgetCandidate } from "../memory/context-budget.js";
 import type { ContextArtifactCache } from "../memory/context-cache.js";
 import { getFieldStrength } from "../field/field-service.js";
 import type {
+  ContextAuditBlock,
+  ContextAuditEntry,
   ContextCandidate,
   ProjectedContext,
   ProjectedContextBlock,
@@ -14,6 +16,12 @@ export const DEFAULT_SESSION_ARTIFACT_TTL_MS = 1000 * 60 * 60 * 12;
 
 const PREFERRED_SOURCE_SCORE_BONUS = 0.2;
 const FIELD_CATEGORY_BONUS = 0.35;
+
+interface RankedContextBlock {
+  readonly block: ProjectedContextBlock;
+  readonly effectiveScore: number;
+  readonly estimatedTokens: number;
+}
 
 export interface ContextGovernor<
   TLedger,
@@ -79,6 +87,75 @@ function applySummaryAggressiveness<TAggressiveness extends string>(
   if (block.kind === "summary") return adjustment.summaryBonus;
   if (block.kind === "artifact") return -adjustment.artifactPenalty;
   return 0;
+}
+
+function buildContextAuditEntry(input: {
+  readonly selected: readonly RankedContextBlock[];
+  readonly deferred: readonly RankedContextBlock[];
+  readonly requiredTokens: number;
+  readonly selectedTokens: number;
+  readonly tokenBudget: number;
+  readonly overflow: boolean;
+}): ContextAuditEntry {
+  const selectedBlockIds = input.selected.map((candidate) => candidate.block.id);
+  const deferredBlockIds = input.deferred.map((candidate) => candidate.block.id);
+  const requiredBlockIds = [...input.selected, ...input.deferred]
+    .filter((candidate) => candidate.block.required)
+    .map((candidate) => candidate.block.id);
+  const preservedRequiredBlockIds = input.selected
+    .filter((candidate) => candidate.block.required)
+    .map((candidate) => candidate.block.id);
+  const overflowReason = input.requiredTokens > input.tokenBudget
+    ? "required-overflow"
+    : input.deferred.length > 0
+      ? "budget-cap"
+      : undefined;
+
+  const blocks: ContextAuditBlock[] = [];
+
+  for (const [index, candidate] of input.selected.entries()) {
+    blocks.push({
+      id: candidate.block.id,
+      kind: candidate.block.kind,
+      source: candidate.block.source,
+      required: candidate.block.required,
+      estimatedTokens: candidate.estimatedTokens,
+      baseScore: candidate.block.score,
+      effectiveScore: candidate.effectiveScore,
+      decision: "admitted",
+      reason: candidate.block.required ? "required-preserved" : "within-budget",
+      order: index,
+    });
+  }
+
+  for (const [index, candidate] of input.deferred.entries()) {
+    blocks.push({
+      id: candidate.block.id,
+      kind: candidate.block.kind,
+      source: candidate.block.source,
+      required: candidate.block.required,
+      estimatedTokens: candidate.estimatedTokens,
+      baseScore: candidate.block.score,
+      effectiveScore: candidate.effectiveScore,
+      decision: "deferred",
+      reason: overflowReason ?? "budget-cap",
+      order: input.selected.length + index,
+    });
+  }
+
+  return {
+    governor: "DefaultContextGovernor",
+    selectedBlockIds,
+    deferredBlockIds,
+    requiredBlockIds,
+    preservedRequiredBlockIds,
+    selectedTokens: input.selectedTokens,
+    requiredTokens: input.requiredTokens,
+    tokenBudget: input.tokenBudget,
+    overflow: input.overflow || input.deferred.length > 0,
+    overflowReason,
+    blocks,
+  };
 }
 
 export class DefaultContextGovernor<
@@ -214,7 +291,7 @@ export class DefaultContextGovernor<
     const preferredSources = new Set<string>(input.preferredSources ?? []);
     const summaryAggressiveness = input.summaryAggressiveness;
 
-    const candidates: ContextBudgetCandidate<ProjectedContextBlock>[] = blocks.map((block) => {
+    const candidates: ContextBudgetCandidate<RankedContextBlock>[] = blocks.map((block) => {
       const preferredBonus = preferredSources.has(classifyGovernanceSource(block))
         ? PREFERRED_SOURCE_SCORE_BONUS
         : 0;
@@ -230,13 +307,27 @@ export class DefaultContextGovernor<
         required: block.required,
         estimatedTokens: contentTokens,
         score: effectiveScore,
-        meta: block,
+        meta: {
+          block,
+          effectiveScore,
+          estimatedTokens: contentTokens,
+        },
       };
     });
 
     const selection = selectContextWithinBudget(candidates, tokenBudget);
-    const selectedBlocks = selection.selected.map((candidate) => candidate.meta);
-    const deferredBlocks = selection.deferred.map((candidate) => candidate.meta);
+    const selected = selection.selected.map((candidate) => candidate.meta);
+    const deferred = selection.deferred.map((candidate) => candidate.meta);
+    const selectedBlocks = selected.map((candidate) => candidate.block);
+    const deferredBlocks = deferred.map((candidate) => candidate.block);
+    const auditEntry = buildContextAuditEntry({
+      selected,
+      deferred,
+      requiredTokens: selection.requiredTokens,
+      selectedTokens: selection.selectedTokens,
+      tokenBudget,
+      overflow: selection.overflow,
+    });
 
     return {
       blocks: selectedBlocks,
@@ -244,6 +335,7 @@ export class DefaultContextGovernor<
       tokenBudget,
       deferredBlocks,
       overflow: selection.overflow || deferredBlocks.length > 0,
+      auditTrail: [auditEntry],
     };
   }
 }
