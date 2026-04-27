@@ -109,11 +109,6 @@ export interface WrapperConfig {
 }
 
 export { buildPreamble } from "./preamble-builder.js";
-export { DefaultContextGovernor } from "../application/context-governor.js";
-export type {
-  ContextGovernor,
-  ProjectContextInput,
-} from "../application/context-governor.js";
 export type {
   ProjectedContext,
   ProjectedContextBlock,

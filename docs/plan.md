@@ -1,142 +1,79 @@
-# Slice 1 Plan: CLI Consumer Migration to Core ContextGovernor
+# Slice 2 Cleanup Plan: CLI Governor Owner Deletion
 
 Date: 2026-04-27
 Owner: `docs/plan.md`
 
 ## Objective
 
-Migrate only the CLI consumer path to instantiate the core `ContextGovernor`
-from `@kilnai/core` while preserving current projected-context behavior.
-This slice is limited to the consumer seam in `SessionManager.prepare()`.
+Finish the Slice 2 owner-deletion cleanup for
+`docs/roadmap/05-context-governor-unification.md`. Runtime admitted-turn
+projection is already governed by the core governor at `HEAD`; this cleanup
+removes the remaining CLI-local governor owner and its wrapper export surface.
 
 ## Scope Guardrails
 
-- Keep scope to Slice 1 of `docs/roadmap/05-context-governor-unification.md`.
-- Do not delete `packages/cli/src/application/context-governor.ts` in this
-  slice. Its removal remains Slice 2 unless later work proves it is dead.
-- Do not move runtime consumers, public wrapper exports, or other surface
-  packages in this slice.
-- Do not revert unrelated changes in the worktree.
+- Keep this cleanup to the CLI-local governor deletion and related docs.
+- Do not add a compatibility wrapper or re-export a changed core generic shape
+  through the CLI wrapper package.
+- Do not move skills, procedural memory, or cross-agent coordination into the
+  governor yet; those remain Slice 3.
+- Do not redesign summarization, retrieval, runtime persistence, or provider
+  credential pooling.
+- Do not revert unrelated dirty worktree changes.
 
 ## Exact Files
 
-### Implementation target
+### CLI owner deletion
 
-- `packages/cli/src/wrapper/session-manager.ts`
-
-### Tests to add first
-
-- `packages/cli/src/wrapper/__tests__/session-manager-context-governor.test.ts`
-
-### Reference-only files
-
-- `packages/core/src/context/governor.ts`
-- `packages/core/src/context/projected-context.ts`
-- `packages/cli/src/application/session-ledger.ts`
 - `packages/cli/src/application/context-governor.ts`
 - `packages/cli/src/wrapper/index.ts`
+- `packages/cli/src/wrapper/__tests__/session-manager-context-governor.test.ts`
+
+### Documentation
+
+- `docs/roadmap/05-context-governor-unification.md`
+- `docs/plan.md`
 
 ## Delegation Assignments
 
-- `Dewey` (`context-scout`): confirm `packages/cli/src/wrapper/session-manager.ts`
-  is the only live CLI instantiation site for `DefaultContextGovernor`, and
-  confirm `packages/cli/src/wrapper/index.ts` remains out of scope for Slice 1.
-- `Malcolm` (`tdd-guide`): add failing regression tests in
-  `packages/cli/src/wrapper/__tests__/session-manager-context-governor.test.ts`
-  before any source edit.
-- `Reese` (`coder`): update `packages/cli/src/wrapper/session-manager.ts` to
-  instantiate the core governor and translate the existing CLI inputs to the
-  core contract without changing behavior.
-- `Ida` (`ddd-validator`): verify the result keeps contract ownership in
-  `@kilnai/core` and leaves CLI as a consumer only.
-- `Lois` (`code-reviewer`): block the slice if the migration changes behavior,
-  broadens scope, or deletes the legacy CLI governor early.
+- `Dewey` (`context-scout`): mapped runtime projection seams and confirmed the
+  owner deletion target.
+- `Hal` (`planner`): split Slice 2 into atomic concerns and identified the
+  remaining audit-contract gap.
+- Local LM Studio worker (`qwen/qwen3.5-9b`): smoke-tested local worker
+  workflow with a read-only Slice 2 brief.
+- Orchestrator: delete the CLI-local governor owner, remove its public wrapper
+  exports, update docs, and verify.
+- `Lois` (`code-reviewer`): reviewed the cleanup and blocked the first
+  re-export approach; the fix removes the wrapper governor exports entirely.
 
-## TDD Tests To Add
+## Status
 
-1. Add a `prepare()` regression that proves the CLI now uses the core governor
-   path.
-   - Mock or spy on `DefaultContextGovernor` from `@kilnai/core`.
-   - Assert `SessionManager.prepare()` forwards:
-     `artifactCache`, `sessionLedger`, `renderLedger`, `tokenBudget`,
-     `preferredSources`, `summaryAggressiveness`, and the translated
-     `aggressivenessPolicy`.
-   - Assert `ctx.projectedContext` is the projection returned by the mocked
-     core governor.
+- Done: runtime admitted-turn projection is governed by the core governor at
+  `HEAD` and covered by `message-pipeline.test.ts`.
+- Done: `packages/cli/src/application/context-governor.ts` is deleted.
+- Done: `packages/cli/src/wrapper/index.ts` no longer re-exports
+  `DefaultContextGovernor`, `ContextGovernor`, or `ProjectContextInput`.
+- Done: CLI regression test guards against reintroducing the deleted local
+  governor path or wrapper governor exports.
+- Remaining: core audit trail contract is still not explicit enough for the
+  full Slice 2 target. Treat that as the next atomic concern.
 
-2. Add a `prepare()` regression that preserves summary-aggressiveness behavior
-   under a tight turn budget.
-   - Seed `InMemoryContextArtifactCache` with cached summaries.
-   - Configure `kilnYaml.contextGovernance.summaryAggressiveness = "high"` and
-     a constrained `turnBudget`.
-   - Assert the selected blocks still favor summaries over comparable artifact
-     blocks the same way the current CLI governor does.
+## Verification
 
-3. Add a `prepare()` regression that preserves ledger and replay artifact
-   assembly during resume.
-   - Provide `resumeSessionId` and `resumedMeta`.
-   - Assert the projected context still contains the rendered ledger block and
-     the required replay artifacts/worktree hint after the core migration.
+- `bun run typecheck`
+- `bun run test -- tests\context\governor.test.ts` from `packages/core`
+- `bun run test -- tests\gateway\message-pipeline.test.ts` from
+  `packages/runtime`
+- `bun run test -- src\wrapper\__tests__\session-manager-context-governor.test.ts`
+  from `packages/cli`
 
-## Implementation Steps
+## Local Worker Workflow Notes
 
-1. Add the failing tests in
-  `packages/cli/src/wrapper/__tests__/session-manager-context-governor.test.ts`.
-
-2. In `packages/cli/src/wrapper/session-manager.ts`, replace the import of the
-   CLI-local `DefaultContextGovernor` with the core `DefaultContextGovernor`
-   from `@kilnai/core`.
-
-3. Import `renderSessionLedger` from
-   `packages/cli/src/application/session-ledger.ts` and pass it to the core
-   governor through `renderLedger`.
-
-4. Add a Slice 1 adapter constant in
-   `packages/cli/src/wrapper/session-manager.ts` that reproduces the current
-   CLI summary-aggressiveness behavior exactly:
-   - `low`: `summaryBonus = -0.08`, `artifactPenalty = 0`
-   - `medium`: `summaryBonus = 0`, `artifactPenalty = 0`
-   - `high`: `summaryBonus = 0.12`, `artifactPenalty = 0.08`
-
-   Note: the legacy CLI governor stores the high artifact adjustment as `-0.08`,
-   but the core governor subtracts `artifactPenalty` internally. The adapter
-   must pass the positive magnitude `0.08` to preserve behavior.
-
-5. Adapt the `project()` input mapping in
-   `packages/cli/src/wrapper/session-manager.ts`:
-   - `cache` -> `artifactCache`
-   - pass `sessionLedger` and `renderLedger: renderSessionLedger`
-   - preserve `memorySnapshot`
-   - preserve `exactArtifacts`
-   - preserve `moduleArtifactKeys`
-   - preserve `projectArtifactKey`
-   - preserve `planArtifactKey`
-   - preserve `sessionArtifactKey`
-   - preserve `tokenBudget`
-   - preserve `preferredSources`
-   - preserve `summaryAggressiveness`
-   - pass the translated `aggressivenessPolicy`
-
-6. Leave `packages/cli/src/application/context-governor.ts` in place and do
-   not repoint `packages/cli/src/wrapper/index.ts` exports in this slice unless
-   a compile-only type mismatch forces a no-behavior import harmonization.
-
-## Verification Criteria
-
-- `bun run typecheck` passes after the migration.
-- `bun run test` passes after the migration.
-- `packages/cli/src/wrapper/__tests__/session-manager-context-governor.test.ts` covers:
-  core governor wiring, summary-aggressiveness preservation, and resume ledger
-  / replay artifact preservation.
-- `packages/cli/src/wrapper/session-manager.ts` no longer imports
-  `../application/context-governor.js`.
-- `packages/cli/src/application/context-governor.ts` still exists after Slice 1.
-- No source or test files outside the paths listed above are required for the
-  slice to land.
-
-## Primary Risk
-
-The highest regression risk is the `artifactPenalty` sign convention mismatch
-between the legacy CLI governor and the core governor. If the old negative
-value is passed through unchanged, high summary aggressiveness will reward
-artifacts instead of penalizing them.
+- `lms status` showed the LM Studio server running on port `1234`.
+- `lms load qwen/qwen3.5-9b` loaded successfully.
+- `lms chat qwen/qwen3.5-9b` responded to the Slice 2 brief but timed out and
+  produced overly broad planning output.
+- `lms unload qwen/qwen3.5-9b` unloaded the model after the smoke test.
+- The workflow is viable for smoke testing, but implementation delegation needs
+  stricter prompts and likely a non-reasoning profile before Kiln integration.

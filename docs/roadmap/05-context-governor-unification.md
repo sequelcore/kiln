@@ -26,14 +26,16 @@ the existing code to the doctrine already written.
 
 ## Current State
 
-- `packages/cli/src/application/context-governor.ts` still exists as a
-  CLI-scoped governor pending Slice 2 deletion, but the live CLI
-  `SessionManager.prepare()` consumer path now instantiates the core
+- The live CLI `SessionManager.prepare()` consumer path instantiates the core
   governor contract from `@kilnai/core`.
+- `packages/cli/src/application/context-governor.ts` has been deleted. The
+  wrapper public surface no longer re-exports governor symbols; context policy
+  ownership stays in `@kilnai/core`.
 - `packages/runtime/src/session/support/` holds parallel assembly seams:
   `context-artifact-summary.ts`, `context-artifact-cache.ts`,
-  `context-summarizer.ts`, and `trace-context.ts`. These make admission
-  decisions without going through the CLI governor.
+  `context-summarizer.ts`, and `trace-context.ts`. Runtime admitted-turn
+  projection now uses the core governor before forwarding context to the
+  orchestrator.
 - `packages/core/src/memory/context-budget.ts` defines a budget shape but no
   governor contract consumes it uniformly.
 - Procedural memory (skills) is loaded through its own retrieval path and
@@ -79,8 +81,8 @@ the existing code to the doctrine already written.
 - Landed: `packages/cli/src/wrapper/__tests__/session-manager-context-governor.test.ts`
   covers the core governor wiring, core input shape, policy translation, legacy
   default behavior, and resume ledger rendering.
-- The deletion of `packages/cli/src/application/context-governor.ts` remains a
-  Slice 2 responsibility; do not treat owner deletion as part of Slice 1.
+- The deletion of `packages/cli/src/application/context-governor.ts` was
+  intentionally deferred from Slice 1 and completed in Slice 2.
 
 **Verification (2026-04-27):**
 
@@ -101,6 +103,34 @@ the existing code to the doctrine already written.
 - GUI, TUI (until deleted), and CLI surfaces all receive governed context
   from the runtime via the existing gateway and wrapper contracts.
 - Audit trail format is unified. Remove surface-local audit logging.
+
+**Current status (2026-04-27):** Runtime admitted-turn projection and CLI owner
+deletion landed.
+
+- Landed: runtime admitted-turn context projection uses the core
+  `DefaultContextGovernor` and `renderProjectedContext` before calling the
+  orchestrator, so oversized lower-priority recalled memory is deferred instead
+  of blindly replayed.
+- Landed: `packages/runtime/tests/gateway/message-pipeline.test.ts` covers the
+  governed runtime path and preserves existing ordering / grounding behavior.
+- Landed: `packages/cli/src/application/context-governor.ts` was deleted.
+- Landed: `packages/cli/src/wrapper/index.ts` no longer re-exports governor
+  symbols. CLI wrapper consumers must use governed projected context, not
+  instantiate a context policy owner through the wrapper surface.
+- Landed: the CLI wrapper regression test guards against reintroducing
+  `../application/context-governor.js` or wrapper-level governor exports.
+- Remaining: finish the unified audit trail shape and remove any surface-local
+  audit logging once the core audit contract is explicit.
+
+**Verification (2026-04-27):**
+
+- `bun run typecheck` passed.
+- Targeted core regression passed:
+  `bun run test -- tests\context\governor.test.ts`.
+- Targeted runtime regression passed:
+  `bun run test -- tests\gateway\message-pipeline.test.ts`.
+- Targeted CLI regression passed:
+  `bun run test -- src\wrapper\__tests__\session-manager-context-governor.test.ts`.
 
 ### Slice 3: Skills and coordination under one policy
 

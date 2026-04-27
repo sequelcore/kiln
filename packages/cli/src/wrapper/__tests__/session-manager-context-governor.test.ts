@@ -1,14 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
 
 const {
   coreGovernorConstructorMock,
   coreGovernorProjectMock,
-  localGovernorConstructorMock,
   projectedContextFromCore,
 } = vi.hoisted(() => ({
   coreGovernorConstructorMock: vi.fn(),
   coreGovernorProjectMock: vi.fn(),
-  localGovernorConstructorMock: vi.fn(),
   projectedContextFromCore: {
     blocks: [],
     estimatedTokens: 137,
@@ -39,19 +38,6 @@ vi.mock("@kilnai/core", async (importOriginal) => {
     VerificationLoop: class {},
     EventBus: class {},
     DefaultContextGovernor: MockCoreDefaultContextGovernor,
-  };
-});
-
-vi.mock("../../application/context-governor.js", () => {
-  class MockCliDefaultContextGovernor {
-    constructor() {
-      localGovernorConstructorMock();
-      throw new Error("CLI_LOCAL_CONTEXT_GOVERNOR_CONSTRUCTED");
-    }
-  }
-
-  return {
-    DefaultContextGovernor: MockCliDefaultContextGovernor,
   };
 });
 
@@ -92,7 +78,6 @@ describe("SessionManager context governor integration", () => {
       systemPrompt: "system prompt",
     });
 
-    expect(localGovernorConstructorMock).not.toHaveBeenCalled();
     expect(coreGovernorConstructorMock).toHaveBeenCalledTimes(1);
     expect(coreGovernorProjectMock).toHaveBeenCalledTimes(1);
     expect(buildSystemPrompt).toHaveBeenCalledWith(
@@ -236,5 +221,14 @@ describe("SessionManager context governor integration", () => {
       exactArtifacts: expect.any(Array),
     });
     expect(input?.renderLedger?.(input.sessionLedger)).toContain("Resumed from session: resume-123");
+  });
+
+  it("does not re-export the deleted CLI-local governor surface", () => {
+    const wrapperIndex = readFileSync(new URL("../index.ts", import.meta.url), "utf8");
+
+    expect(wrapperIndex).not.toContain("../application/context-governor.js");
+    expect(wrapperIndex).not.toContain("DefaultContextGovernor");
+    expect(wrapperIndex).not.toContain("ContextGovernor");
+    expect(wrapperIndex).not.toContain("ProjectContextInput");
   });
 });
