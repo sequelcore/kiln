@@ -129,7 +129,7 @@ describe("TUI authority forwarding", () => {
             outputTokens: 5,
             cacheReadTokens: 0,
             cacheWriteTokens: 0,
-            toolCalls: [{ id: "tc-1", name: "glob", input: { pattern: "kiln-context.md" } }],
+            toolCalls: [{ id: "tc-1", name: "glob", input: { pattern: "docs/changelog.md" } }],
             stopReason: "tool_use",
           };
         }

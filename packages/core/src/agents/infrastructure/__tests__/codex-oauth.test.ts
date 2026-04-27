@@ -749,7 +749,7 @@ describe("CodexOAuthAdapter", () => {
               id: "fc_added_1",
               call_id: "call_added_1",
               name: "read",
-              arguments: "{\"filePath\":\"kiln-context.md\"}",
+              arguments: "{\"filePath\":\"docs/changelog.md\"}",
             },
           },
         },
@@ -778,7 +778,7 @@ describe("CodexOAuthAdapter", () => {
         {
           id: "call_added_1",
           name: "read",
-          input: { filePath: "kiln-context.md" },
+          input: { filePath: "docs/changelog.md" },
         },
       ]);
     });
@@ -800,7 +800,7 @@ describe("CodexOAuthAdapter", () => {
             item_id: "fc_done_1",
             call_id: "call_done_1",
             name: "read",
-            arguments: "{\"filePath\":\"kiln-context.md\"}",
+            arguments: "{\"filePath\":\"docs/changelog.md\"}",
           },
         },
         {
@@ -828,7 +828,7 @@ describe("CodexOAuthAdapter", () => {
         {
           id: "call_done_1",
           name: "read",
-          input: { filePath: "kiln-context.md" },
+          input: { filePath: "docs/changelog.md" },
         },
       ]);
     });
@@ -855,7 +855,7 @@ describe("CodexOAuthAdapter", () => {
               id: "fc_done_evt_1",
               call_id: "call_done_evt_1",
               name: "read",
-              arguments: "{\"filePath\":\"kiln-context.md\",\"offset\":0,\"limit\":200}",
+              arguments: "{\"filePath\":\"docs/changelog.md\",\"offset\":0,\"limit\":200}",
             },
           },
         },
@@ -880,7 +880,7 @@ describe("CodexOAuthAdapter", () => {
           id: "call_done_evt_1",
           name: "read",
           input: {
-            filePath: "kiln-context.md",
+            filePath: "docs/changelog.md",
             offset: 0,
             limit: 200,
           },

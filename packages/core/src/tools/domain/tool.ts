@@ -187,7 +187,7 @@ export const TOOL_SCHEMAS: Record<
         pattern: {
           type: "string",
           minLength: 1,
-          description: "Glob pattern to match, such as **/*.ts or kiln-context.md.",
+          description: "Glob pattern to match, such as **/*.ts or docs/changelog.md.",
         },
         path: {
           type: "string",

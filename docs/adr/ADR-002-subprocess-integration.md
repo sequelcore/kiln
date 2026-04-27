@@ -14,7 +14,7 @@ Kiln spawns CLIs as subprocesses with --bare mode and compensates for limitation
 ### 1. Stateless Between Calls
 **Problem:** Subprocess calls do not preserve state across invocations.
 **Status:** Partially mitigated. Claude Code has --resume/--session-id. Codex has resume. OpenCode has --session/--continue.
-**Solution:** Hybrid approach: --session-id for intra-CLI chains, kiln-context.md for cross-CLI handoffs, cross_agent_memory_* MCP tools at CLI boundaries only.
+**Solution:** Hybrid approach: --session-id for intra-CLI chains, an explicit handoff artifact for cross-CLI handoffs, cross_agent_memory_* MCP tools at CLI boundaries only.
 
 ### 2. Startup Latency vs Hook/Skill Loss
 **Problem:** --bare flag skips hooks, skills, plugins, auto-memory. Without it, startup is slow.
