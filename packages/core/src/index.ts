@@ -5,6 +5,7 @@ export * from "./domain/index.js";
 export * from "./package/index.js";
 export * from "./skill/index.js";
 export * from "./memory/index.js";
+export * from "./context/index.js";
 export * from "./field/index.js";
 export * from "./tree/index.js";
 export * from "./events/index.js";

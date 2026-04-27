@@ -1,12 +1,11 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Orchestrator, GateRunner, VerificationLoop, EventBus } from "@kilnai/core";
+import { DefaultContextGovernor, Orchestrator, GateRunner, VerificationLoop, EventBus } from "@kilnai/core";
 import type { ContextArtifactCache, DomainConfig, RoleUsage, QualityGate, VerificationResult } from "@kilnai/core";
 import { MODEL_PRICING } from "@kilnai/core";
 import type { ResumeFeedback, ResumeStrategy, WrapperConfig, SessionContext, SessionReport } from "./index.js";
 import type { KilnAppConfig } from "../config.js";
 import { defaultBuildSystemPrompt } from "../config.js";
-import { DefaultContextGovernor } from "../application/context-governor.js";
 import {
   buildCliPlanSummaryArtifactKey,
   buildCliProjectSummaryArtifactKey,
@@ -18,6 +17,7 @@ import {
   decideResumeStrategy,
 } from "../application/resume-strategy-policy.js";
 import type { SessionLedger } from "../application/session-ledger.js";
+import { renderSessionLedger } from "../application/session-ledger.js";
 import type { PersistedSessionMeta } from "./session-store.js";
 import type { ProviderId } from "./session-registry.js";
 import type { WorktreeManager } from "./worktree-manager.js";
@@ -37,9 +37,18 @@ function resolveContextGovernancePolicy(appConfig: KilnAppConfig): {
     tokenBudget: config?.turnBudget,
     useCache: config?.cachePolicy !== "off",
     preferredSources: config?.preferredSources,
-    summaryAggressiveness: config?.summaryAggressiveness,
+    summaryAggressiveness: config?.summaryAggressiveness ?? "medium",
   };
 }
+
+const CLI_CONTEXT_AGGRESSIVENESS_POLICY: Record<
+  KilnContextGovernanceAggressiveness,
+  { readonly summaryBonus: number; readonly artifactPenalty: number }
+> = {
+  low: { summaryBonus: -0.08, artifactPenalty: 0 },
+  medium: { summaryBonus: 0, artifactPenalty: 0 },
+  high: { summaryBonus: 0.12, artifactPenalty: 0.08 },
+};
 
 function buildResumeProjectionState(input: {
   cache: ContextArtifactCache;
@@ -209,11 +218,16 @@ export class SessionManager {
     });
     const governancePolicy = resolveContextGovernancePolicy(this.appConfig);
     const providerResumeSessionId = shouldUseProviderNativeResume ? resumeSessionId : undefined;
-    const projectedContext = new DefaultContextGovernor().project({
+    const projectedContext = new DefaultContextGovernor<
+      SessionLedger,
+      KilnContextGovernanceSource,
+      KilnContextGovernanceAggressiveness
+    >().project({
       memorySnapshot,
       sessionLedger,
+      renderLedger: renderSessionLedger,
       exactArtifacts,
-      cache: governancePolicy.useCache ? this.contextArtifactCache : undefined,
+      artifactCache: governancePolicy.useCache ? this.contextArtifactCache : undefined,
       moduleArtifactKeys,
       projectArtifactKey: buildCliProjectSummaryArtifactKey(projectPath),
       planArtifactKey: buildCliPlanSummaryArtifactKey(projectPath, task, 80),
@@ -223,6 +237,7 @@ export class SessionManager {
       tokenBudget: governancePolicy.tokenBudget,
       preferredSources: governancePolicy.preferredSources,
       summaryAggressiveness: governancePolicy.summaryAggressiveness,
+      aggressivenessPolicy: CLI_CONTEXT_AGGRESSIVENESS_POLICY,
     });
 
     const systemPrompt = (this.appConfig.buildSystemPrompt ?? defaultBuildSystemPrompt)({
