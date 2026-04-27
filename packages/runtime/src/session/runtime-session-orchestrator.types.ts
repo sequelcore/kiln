@@ -1,6 +1,7 @@
 import type { ExecutionBillingMode, ProviderAdapter, ContentPart, ToolDefinition } from "@kilnai/core";
 import type { McpClient } from "@kilnai/core";
 import type { EventBus } from "@kilnai/core";
+import type { ContextAuditEntry } from "@kilnai/core";
 import type {
   Capability,
   ToolAuthorizer,
@@ -73,6 +74,11 @@ export interface OrchestrateResult {
   };
 }
 
+export interface GovernedRuntimeContext {
+  readonly content?: string;
+  readonly audit?: ContextAuditEntry;
+}
+
 export interface PerCallToolConfig {
   readonly toolAllowlist?: ReadonlySet<string>;
   readonly rateLimiter?: RateLimiter;
@@ -86,7 +92,6 @@ export interface PerCallToolConfig {
     readonly canonicalModel?: string;
     readonly billingMode?: ExecutionBillingMode;
   };
-  readonly skillInstructions?: string;
 }
 
 export type CommandShell = "bash" | "sh" | "zsh" | "powershell" | "cmd" | "any";

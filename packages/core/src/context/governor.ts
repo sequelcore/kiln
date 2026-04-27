@@ -68,6 +68,10 @@ function classifyGovernanceSource(block: ProjectedContextBlock): string {
       return "memory";
     case "knowledge":
       return "knowledge";
+    case "procedural":
+      return "procedural";
+    case "coordination":
+      return "coordination";
   }
 }
 

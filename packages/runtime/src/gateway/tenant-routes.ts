@@ -21,6 +21,7 @@ export interface TenantAppRuntime {
   readonly apiKey?: string;
   readonly groundingDeps?: import("./message-pipeline.js").AdmittedTurnContext["groundingDeps"];
   readonly contextArtifactCache?: ContextArtifactCache;
+  readonly coordinationContextProvider?: import("./message-pipeline.js").AdmittedTurnContext["coordinationContextProvider"];
 }
 
 /** Request body for POST /message */
@@ -89,6 +90,7 @@ export function createTenantRoutes(runtime: TenantAppRuntime): Hono {
       groundingMode: tenant.groundingMode,
       groundingDeps: runtime.groundingDeps,
       contextArtifactCache: runtime.contextArtifactCache,
+      coordinationContextProvider: runtime.coordinationContextProvider,
     });
 
     if (!processResult.ok) {

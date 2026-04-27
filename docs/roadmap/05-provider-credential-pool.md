@@ -1,4 +1,4 @@
-# 06 — Provider Credential Pool
+# 05 — Provider Credential Pool
 
 ## Goal
 
@@ -9,7 +9,8 @@ introduces a provider-agnostic layer that manages multiple credentials per
 provider, rotates them, tracks per-credential cooldowns, and presents a single
 adapter surface to upstream callers. It applies equally to subscription-auth
 providers (`codex-oauth`, `opencode-go`, `opencode-zen`), direct API-key
-providers (`anthropic`, `openai`, `deepseek`, `openrouter`, `ollama`), and
+providers (`anthropic`, `openai`, `deepseek`, `openrouter`, `ollama`,
+`lmstudio`), and
 harness-wrapped providers (`claude-code`, `codex`, `opencode`).
 
 ## Scope
@@ -18,7 +19,7 @@ harness-wrapped providers (`claude-code`, `codex`, `opencode`).
 |----------|-------------------|-----------------|---------------|-------|
 | Subscription-auth | `codex-oauth`, `opencode-go`, `opencode-zen` | Stored auth JSON (token or API key) | Rotate on 429/402; cooldown to server-supplied `resetAt` or 1 h default | Multiple accounts = multiple JSON files under `~/.kiln/auth/<provider>/` |
 | Direct API-key | `anthropic`, `openai`, `deepseek`, `openrouter` | API key string | Rotate on 429/402; per-key cooldown tracking | Env-var fallback still valid for single-key mode |
-| Self-hosted / local | `ollama` | Endpoint URL (no key) | Rotate across endpoint replicas; 429 and connection-refused both trigger rotation | Multiple replicas = multiple entries |
+| Self-hosted / local | `ollama`, `lmstudio` | Endpoint URL (no key) | Rotate across endpoint replicas; 429 and connection-refused both trigger rotation | Multiple replicas = multiple entries |
 | Harness wrappers | `claude-code`, `codex`, `opencode` | Wrapper home directory path | Rotate across wrapper home directories; wrapper binary manages its own token refresh inside each home | Pool owns home selection, not token contents |
 
 ## Non-Goals
@@ -153,12 +154,57 @@ status` shows per-entry health.
 
 ### Slice 5 — Direct API-key providers
 
-Wire `anthropic`, `openai`, `deepseek`, `openrouter`, `ollama` through the pool.
+Wire `anthropic`, `openai`, `deepseek`, `openrouter`, `ollama`, and
+`lmstudio` through the pool.
 
 Auth directory per provider: `~/.kiln/auth/<provider>/`. Each file is a
-`{name}.json` containing the API key (and base URL for `ollama`). Env-var
-fallback (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, etc.) remains valid and is
-treated as a synthetic single-entry pool with the name `env`.
+`{name}.json` containing the API key (and base URL for `ollama` and
+`lmstudio`). Env-var fallback (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, etc.)
+remains valid and is treated as a synthetic single-entry pool with the name
+`env`.
+
+Roadmap note (2026-04-25): `lmstudio` should be treated as a distinct local
+provider, not folded into `ollama`. It serves OpenAI-compatible endpoints at
+`http://localhost:1234/v1` by default, commonly requires no API key, and
+matches the current operator setup where Claude Code, Codex, and OpenCode can
+all target the same LM Studio server directly. In Kiln, first-class `lmstudio`
+support means:
+
+- a dedicated provider ID in provider selection, routing, and GUI metadata
+- endpoint-based pool entries like `ollama`, with default base URL
+  `http://localhost:1234/v1`
+- no forced API key requirement for single-machine local use
+- separation from harness projection work: Claude Code reaches LM Studio via
+  Anthropic-compatible `/v1/messages`, while Codex and OpenCode use
+  OpenAI-compatible endpoints; Kiln's direct `lmstudio` provider concerns only
+  Kiln's own provider-adapter/runtime path
+
+Operational note (2026-04-27): local LM Studio support needs explicit model
+profiles, not just a base URL. A real Windows operator setup used:
+
+- `qwen/qwen3.5-9b` (`Q4_K_M`) as the fast/base local worker
+- `qwen/qwen3-coder-30b` (`Q4_K_M`) as the main local coding worker
+- `mistralai/devstral-small-2-2512` (`Q4_K_M`) as the alternate agentic SWE
+  worker
+- `zai-org/glm-4.7-flash` (`Q4_K_M`) as a secondary coding/reasoning option
+
+Kiln should model these as role-based local worker profiles (`fast-local`,
+`coding-local`, `coding-alt-local`) rather than a single `lmstudio.model`
+string. Profile metadata should include model ID, endpoint compatibility
+(`openai-chat`, `openai-responses`, `anthropic-messages`), context length,
+tool-call support, vision support, intended role, and load policy.
+
+Hardware-aware load policy matters. On an 8 GB VRAM / 32 GB RAM Windows
+machine, the reliable operating pattern was load one model, use it, then
+unload it before loading another heavy model. The base 9B model was usable at
+`40960` context for Claude Code prompts, while `16384` was too small for a
+normal Claude Code startup context. Kiln should not assume several local
+models can remain resident simultaneously. It should support:
+
+- manual mode: operator loads the model and Kiln only verifies availability
+- assisted mode: Kiln emits the exact `lms load` / `lms unload` commands
+- future managed mode: Kiln uses LM Studio load/unload APIs when that contract
+  is stable enough for production use
 
 Key point: env-var single-key mode must not require migration. The pool loader
 checks for a directory, then for env-var; it never requires the user to
@@ -277,7 +323,7 @@ provider. Confirmed via integration test.
   per-credential health (from Slice 8) once the observability endpoint is
   wired. This is a read-only display concern; the picker does not own pool
   management.
-- `05-context-governor-unification.md` — independent. The pool does not
+- `docs/architecture/context-governance.md` — independent. The pool does not
   interact with context assembly, budget, or ranking.
 
 ## Rules

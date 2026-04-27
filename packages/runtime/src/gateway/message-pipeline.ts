@@ -21,7 +21,7 @@ import type {
   TenantConfig,
   RetrievalPipeline,
 } from "@kilnai/core";
-import { DefaultContextGovernor, extractText, textParts, GroundingRail, renderProjectedContext } from "@kilnai/core";
+import { DefaultContextGovernor, extractText, textParts, GroundingRail, renderProjectedContext, skillConfigToContextCandidate } from "@kilnai/core";
 import type { AbuseDetectionConfig } from "../session/repetitive-abuse-detector.js";
 import { detectRepetitiveAbuse } from "../session/repetitive-abuse-detector.js";
 import type { RuntimeSessionOrchestrator, OrchestrateResult, PerCallToolConfig, ToolExecutionSummary } from "../session/runtime-session-orchestrator.js";
@@ -112,6 +112,14 @@ export interface AdmittedTurnContext {
     readonly eventBus?: EventBus;
   };
   readonly contextArtifactCache?: ContextArtifactCache;
+  readonly coordinationContextProvider?: (input: {
+    readonly appName: string;
+    readonly tenantId: string;
+    readonly userId: string;
+    readonly sessionId: string;
+    readonly channel: string;
+    readonly activeAgentId?: string;
+  }) => readonly ContextCandidate[] | Promise<readonly ContextCandidate[]>;
   readonly evaluateEgressPermission?: (
     request: EgressPermissionRequest,
   ) => EgressPermissionDecision | Promise<EgressPermissionDecision>;
@@ -136,6 +144,15 @@ export interface AdmittedTurnContext {
     );
     readonly abort?: (sessionId: string) => void | Promise<void>;
   };
+}
+
+export type CoordinationProviderFailureReason = "provider-error" | "provider-validation-error";
+
+export interface RuntimeContextAudit extends ContextAuditEntry {
+  readonly coordinationProviderFailures?: readonly {
+    readonly source: "runtime-coordination-provider";
+    readonly reason: CoordinationProviderFailureReason;
+  }[];
 }
 
 export interface AdmittedTurnResult {
@@ -169,7 +186,7 @@ export interface AdmittedTurnResult {
     readonly usedCachedSupport?: boolean;
     readonly selectionReason?: string;
   };
-  readonly contextAudit?: ContextAuditEntry;
+  readonly contextAudit?: RuntimeContextAudit;
 }
 
 export interface BudgetDeniedResult {
@@ -279,10 +296,13 @@ interface AdmittedTurnContextProjectionInput {
   readonly recalledMemory: string | undefined;
   readonly knowledgeContext: string | undefined;
   readonly contactContext: string | undefined;
+  readonly visitorContext?: string | undefined;
   readonly groundingMode: GroundingMode | undefined;
+  readonly proceduralContextCandidates?: readonly ContextCandidate[];
+  readonly coordinationContextCandidates?: readonly ContextCandidate[];
 }
 
-function projectAdmittedTurnContext(input: AdmittedTurnContextProjectionInput): {
+export function projectAdmittedTurnContext(input: AdmittedTurnContextProjectionInput): {
   readonly content: string | undefined;
   readonly audit?: ContextAuditEntry;
 } {
@@ -330,19 +350,139 @@ function projectAdmittedTurnContext(input: AdmittedTurnContextProjectionInput): 
       score: 0.6,
     });
   }
+  if (input.visitorContext) {
+    candidates.push({
+      kind: "memory",
+      source: "runtime-visitor-context",
+      content: input.visitorContext,
+      score: 0.6,
+    });
+  }
+  candidates.push(...(input.proceduralContextCandidates ?? []));
+  candidates.push(...(input.coordinationContextCandidates ?? []));
 
   const projectedContext = new DefaultContextGovernor<
     never,
-    "memory" | "summary" | "knowledge",
+    "memory" | "summary" | "knowledge" | "procedural" | "coordination",
     never
   >().project({
     artifacts: candidates,
   });
   const mergedMemory = renderProjectedContext(projectedContext);
+  const audit = projectedContext.auditTrail?.[projectedContext.auditTrail.length - 1];
   return {
     content: appendGroundingDirective(mergedMemory, input.groundingMode),
-    audit: projectedContext.auditTrail?.[projectedContext.auditTrail.length - 1],
+    audit,
   };
+}
+
+export interface NormalizedCoordinationContext {
+  readonly candidates: readonly ContextCandidate[];
+  readonly invalidCandidateCount: number;
+}
+
+function sanitizeCoordinationProviderSource(source: unknown): string | undefined {
+  if (typeof source !== "string") return undefined;
+  const artifactId = source.includes(":") ? source.slice(source.lastIndexOf(":") + 1) : source;
+  const sanitized = artifactId
+    .replace(/[^A-Za-z0-9._-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 80);
+  return sanitized === "" ? undefined : sanitized;
+}
+
+export function normalizeCoordinationContextCandidates(candidates: unknown): NormalizedCoordinationContext {
+  if (!Array.isArray(candidates)) {
+    return { candidates: [], invalidCandidateCount: 1 };
+  }
+
+  const normalizedCandidates: ContextCandidate[] = [];
+  let invalidCandidateCount = 0;
+  candidates.forEach((candidate, index) => {
+    if (
+      typeof candidate !== "object"
+      || candidate === null
+      || !("content" in candidate)
+      || typeof candidate.content !== "string"
+    ) {
+      invalidCandidateCount += 1;
+      return;
+    }
+
+    const provenance = sanitizeCoordinationProviderSource("source" in candidate ? candidate.source : undefined);
+    normalizedCandidates.push({
+      kind: "coordination",
+      source: provenance
+        ? `runtime-coordination-provider:${index}:${provenance}`
+        : `runtime-coordination-provider:${index}`,
+      content: candidate.content,
+      score: "score" in candidate && typeof candidate.score === "number" && Number.isFinite(candidate.score)
+        ? Math.max(0, Math.min(1, candidate.score))
+        : undefined,
+      required: false,
+    });
+  });
+
+  return { candidates: normalizedCandidates, invalidCandidateCount };
+}
+
+export async function resolveCoordinationContextCandidates(
+  provider: AdmittedTurnContext["coordinationContextProvider"] | undefined,
+  input: {
+    readonly appName: string;
+    readonly tenantId: string;
+    readonly userId: string;
+    readonly sessionId: string;
+    readonly channel: string;
+    readonly activeAgentId?: string;
+  },
+): Promise<{
+  readonly candidates: readonly ContextCandidate[];
+  readonly failureReason?: CoordinationProviderFailureReason;
+}> {
+  if (!provider) return { candidates: [] };
+  try {
+    const providedCoordinationCandidates = await provider(input);
+    const normalizedCoordinationContext = normalizeCoordinationContextCandidates(providedCoordinationCandidates);
+    return {
+      candidates: normalizedCoordinationContext.candidates,
+      failureReason: normalizedCoordinationContext.invalidCandidateCount > 0
+        ? "provider-validation-error"
+        : undefined,
+    };
+  } catch {
+    return {
+      candidates: [],
+      failureReason: "provider-error",
+    };
+  }
+}
+
+export function appendCoordinationProviderFailureAudit(
+  audit: ContextAuditEntry | undefined,
+  failureReason: CoordinationProviderFailureReason | undefined,
+): ContextAuditEntry | RuntimeContextAudit | undefined {
+  if (!failureReason) return audit;
+  const baseAudit: ContextAuditEntry = audit ?? {
+    governor: "DefaultContextGovernor",
+    selectedBlockIds: [],
+    deferredBlockIds: [],
+    requiredBlockIds: [],
+    preservedRequiredBlockIds: [],
+    selectedTokens: 0,
+    requiredTokens: 0,
+    tokenBudget: 0,
+    overflow: false,
+    blocks: [],
+  };
+  return {
+    ...baseAudit,
+    coordinationProviderFailures: [{
+      source: "runtime-coordination-provider",
+      reason: failureReason,
+    }],
+  } satisfies RuntimeContextAudit;
 }
 
 export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<ProcessResult> {
@@ -592,6 +732,24 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     feedback: runtimeContinuityPresentation.runtimeContinuity.feedbackLabel,
     influenced: runtimeSupport.decision.resumeFeedback?.influencedChoice ?? false,
   });
+  const proceduralContextCandidates: ContextCandidate[] = [];
+  if (ctx.skillRegistry && (ctx.activeSkills?.length || ctx.activeSkillTags?.length)) {
+    const resolved = ctx.skillRegistry.resolve(ctx.activeSkills, ctx.activeSkillTags);
+    for (const skill of resolved) {
+      const loadedSkill = ctx.skillRegistry.load(skill.name);
+      if (loadedSkill) {
+        proceduralContextCandidates.push(skillConfigToContextCandidate(loadedSkill));
+      }
+    }
+  }
+  const coordinationContext = await resolveCoordinationContextCandidates(ctx.coordinationContextProvider, {
+    appName: ctx.appName,
+    tenantId: effectiveTenantId,
+    userId: ctx.userId,
+    sessionId: session.id,
+    channel: ctx.channel,
+    activeAgentId: effectiveActiveAgentId,
+  });
   const projectedTurnContext = projectAdmittedTurnContext({
     userContext: session.userContext,
     cachedRuntimeSummary,
@@ -599,20 +757,15 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     knowledgeContext: effectiveKnowledgeContext,
     contactContext: ctx.contactContext,
     groundingMode: ctx.groundingMode,
+    proceduralContextCandidates,
+    coordinationContextCandidates: coordinationContext.candidates,
   });
+  const projectedContextAudit = appendCoordinationProviderFailureAudit(
+    projectedTurnContext.audit,
+    coordinationContext.failureReason,
+  );
 
-  // Resolve active skills
-  let perCallConfig = effectivePerCallConfig;
-  if (ctx.skillRegistry && (ctx.activeSkills?.length || ctx.activeSkillTags?.length)) {
-    const resolved = ctx.skillRegistry.resolve(ctx.activeSkills, ctx.activeSkillTags);
-    if (resolved.length > 0) {
-      const loaded = resolved.map((s) => ctx.skillRegistry!.load(s.name)).filter(Boolean);
-      if (loaded.length > 0) {
-        const skillInstructions = loaded.map((s) => s!.instructions).join("\n\n---\n\n");
-        perCallConfig = { ...perCallConfig, skillInstructions };
-      }
-    }
-  }
+  const perCallConfig = effectivePerCallConfig;
 
   // Capture real approval state transitions for this turn from runtime events.
   const approvalTransitions: RuntimeTurnApprovalTransition[] = [];
@@ -678,7 +831,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     result = await ctx.orchestrator.processMessage(
       session,
       ctx.userParts,
-      projectedTurnContext.content,
+      projectedTurnContext,
       effectiveCallBuiltinTools,
       perCallConfig,
     );
@@ -1057,7 +1210,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
         : undefined,
       groundingResult,
       runtimeContinuity: runtimeContinuityPresentation.runtimeContinuity,
-      contextAudit: projectedTurnContext.audit,
+      contextAudit: projectedContextAudit,
     },
   };
 }

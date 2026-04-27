@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { EventBus, textParts } from "@kilnai/core";
+import { EventBus, SkillRegistry, coordinationStateToContextCandidates, textParts } from "@kilnai/core";
 import type { TenantConfig } from "@kilnai/core";
-import { processAdmittedTurn } from "../../src/gateway/message-pipeline.js";
+import type { SkillConfig } from "@kilnai/core";
+import { processAdmittedTurn, projectAdmittedTurnContext } from "../../src/gateway/message-pipeline.js";
 import type { AdmittedTurnContext } from "../../src/gateway/message-pipeline.js";
 import type { RuntimeSessionOrchestrator, OrchestrateResult } from "../../src/session/runtime-session-orchestrator.js";
 import type { SessionRegistry } from "../../src/session/session-registry.js";
@@ -111,6 +112,19 @@ function makeBillingConfig(): BillingConfig {
   };
 }
 
+function makeSkillConfig(overrides: Partial<SkillConfig> = {}): SkillConfig {
+  return {
+    name: "runtime-governed-skill",
+    description: "Routes procedural instructions through governed context.",
+    tools: ["lookup_customer"],
+    triggers: [],
+    tags: ["support", "runtime"],
+    filePath: "memory://runtime-governed-skill",
+    instructions: "Always verify the runtime customer record before responding.",
+    ...overrides,
+  };
+}
+
 function makeBaseContext(overrides: Partial<AdmittedTurnContext> = {}): AdmittedTurnContext {
   return {
     orchestrator: makeMockOrchestrator(),
@@ -125,6 +139,12 @@ function makeBaseContext(overrides: Partial<AdmittedTurnContext> = {}): Admitted
   };
 }
 
+function getGovernedContextContent(orchestrator: RuntimeSessionOrchestrator): string {
+  const callArgs = (orchestrator.processMessage as ReturnType<typeof vi.fn>).mock.calls[0];
+  const governedContextArg = callArgs[2] as { readonly content?: string } | undefined;
+  return governedContextArg?.content ?? "";
+}
+
 describe("processAdmittedTurn", () => {
   beforeEach(() => {
     globalThis.fetch = vi.fn().mockResolvedValue({
@@ -135,6 +155,29 @@ describe("processAdmittedTurn", () => {
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
+  });
+
+  it("projects visitor context as a separate governed candidate", () => {
+    const projected = projectAdmittedTurnContext({
+      userContext: undefined,
+      cachedRuntimeSummary: undefined,
+      recalledMemory: undefined,
+      knowledgeContext: undefined,
+      contactContext: "contact profile",
+      visitorContext: "visitor browser state",
+      groundingMode: undefined,
+    });
+
+    expect(projected.content).toContain("contact profile");
+    expect(projected.content).toContain("visitor browser state");
+    expect(projected.audit?.blocks).toContainEqual(expect.objectContaining({
+      source: "runtime-contact-context",
+      decision: "admitted",
+    }));
+    expect(projected.audit?.blocks).toContainEqual(expect.objectContaining({
+      source: "runtime-visitor-context",
+      decision: "admitted",
+    }));
   });
 
   it("returns ok:true with result when budget is allowed", async () => {
@@ -273,7 +316,7 @@ describe("processAdmittedTurn", () => {
     );
   });
 
-  it("passes recalledMemory to orchestrator", async () => {
+  it("passes recalledMemory to orchestrator as governed context", async () => {
     const orchestrator = makeMockOrchestrator();
     const sessionRegistry = makeMockSessionRegistry();
     const ctx = makeBaseContext({
@@ -287,7 +330,10 @@ describe("processAdmittedTurn", () => {
     expect(orchestrator.processMessage).toHaveBeenCalledWith(
       expect.anything(),
       textParts("hello"),
-      "Previous context here.",
+      expect.objectContaining({
+        content: "Previous context here.",
+        audit: expect.objectContaining({ governor: "DefaultContextGovernor" }),
+      }),
       undefined,
       undefined,
     );
@@ -310,13 +356,16 @@ describe("processAdmittedTurn", () => {
     expect(orchestrator.processMessage).toHaveBeenCalledWith(
       expect.anything(),
       textParts("hello"),
-      undefined,
+      expect.objectContaining({
+        content: undefined,
+        audit: expect.objectContaining({ governor: "DefaultContextGovernor" }),
+      }),
       builtinTools,
       undefined,
     );
   });
 
-  it("retrieves knowledge context in auto mode and appends it to merged memory", async () => {
+  it("retrieves knowledge context in auto mode and appends it to governed context", async () => {
     const orchestrator = makeMockOrchestrator();
     const sessionRegistry = makeMockSessionRegistry();
     const knowledgePipeline = {
@@ -335,11 +384,10 @@ describe("processAdmittedTurn", () => {
     await processInboundMessage(ctx);
 
     expect(knowledgePipeline.retrieve).toHaveBeenCalledWith("hello", { topK: 5 });
-    const callArgs = (orchestrator.processMessage as ReturnType<typeof vi.fn>).mock.calls[0];
-    const mergedMemoryArg: string | undefined = callArgs[2];
-    expect(mergedMemoryArg).toContain("[Knowledge context]:");
-    expect(mergedMemoryArg).toContain("Fact A");
-    expect(mergedMemoryArg).toContain("Fact B");
+    const governedContextContent = getGovernedContextContent(orchestrator);
+    expect(governedContextContent).toContain("[Knowledge context]:");
+    expect(governedContextContent).toContain("Fact A");
+    expect(governedContextContent).toContain("Fact B");
   });
 
   it("resolves tenant agent context in pipeline and forwards tenant tool context to orchestrator call", async () => {
@@ -423,7 +471,10 @@ describe("processAdmittedTurn", () => {
     expect(orchestrator.processMessage).toHaveBeenCalledWith(
       expect.anything(),
       textParts("hello"),
-      undefined,
+      expect.objectContaining({
+        content: undefined,
+        audit: expect.objectContaining({ governor: "DefaultContextGovernor" }),
+      }),
       callBuiltinTools,
       expect.objectContaining({
         tenantId: "tenant-1",
@@ -453,7 +504,7 @@ describe("processAdmittedTurn", () => {
     resolveSpy.mockRestore();
   });
 
-  it("prepends [User Context] block first in mergedMemory when userContext is present", async () => {
+  it("prepends [User Context] block first in governed context when userContext is present", async () => {
     const orchestrator = makeMockOrchestrator();
     const sessionRegistry = makeMockSessionRegistry();
     const ctx = makeBaseContext({
@@ -465,14 +516,13 @@ describe("processAdmittedTurn", () => {
 
     await processInboundMessage(ctx);
 
-    const callArgs = (orchestrator.processMessage as ReturnType<typeof vi.fn>).mock.calls[0];
-    const mergedMemoryArg: string | undefined = callArgs[2];
-    expect(mergedMemoryArg).toBeDefined();
-    expect(mergedMemoryArg!.startsWith("[User Context]:")).toBe(true);
-    expect(mergedMemoryArg).toContain("Previous context here.");
+    const governedContextContent = getGovernedContextContent(orchestrator);
+    expect(governedContextContent).toBeDefined();
+    expect(governedContextContent.startsWith("[User Context]:")).toBe(true);
+    expect(governedContextContent).toContain("Previous context here.");
   });
 
-  it("omits [User Context] block from mergedMemory when userContext is absent", async () => {
+  it("omits [User Context] block from governed context when userContext is absent", async () => {
     const orchestrator = makeMockOrchestrator();
     const sessionRegistry = makeMockSessionRegistry();
     const ctx = makeBaseContext({
@@ -483,9 +533,8 @@ describe("processAdmittedTurn", () => {
 
     await processInboundMessage(ctx);
 
-    const callArgs = (orchestrator.processMessage as ReturnType<typeof vi.fn>).mock.calls[0];
-    const mergedMemoryArg: string | undefined = callArgs[2];
-    expect(mergedMemoryArg).not.toContain("[User Context]");
+    const governedContextContent = getGovernedContextContent(orchestrator);
+    expect(governedContextContent).not.toContain("[User Context]");
   });
 
   it("preserves admitted-turn context projection ordering and grounding directive application", async () => {
@@ -515,18 +564,17 @@ describe("processAdmittedTurn", () => {
 
     await processInboundMessage(ctx);
 
-    const callArgs = (orchestrator.processMessage as ReturnType<typeof vi.fn>).mock.calls[0];
-    const mergedMemoryArg: string | undefined = callArgs[2];
-    expect(mergedMemoryArg).toBeDefined();
-    expect(mergedMemoryArg).toContain("[User Context]:\nrole: admin");
-    expect(mergedMemoryArg).toContain("cached runtime summary");
-    expect(mergedMemoryArg).toContain("recalled memory");
-    expect(mergedMemoryArg).toContain("knowledge context");
-    expect(mergedMemoryArg).toContain("contact context");
-    expect(mergedMemoryArg).toMatch(
+    const governedContextContent = getGovernedContextContent(orchestrator);
+    expect(governedContextContent).toBeDefined();
+    expect(governedContextContent).toContain("[User Context]:\nrole: admin");
+    expect(governedContextContent).toContain("cached runtime summary");
+    expect(governedContextContent).toContain("recalled memory");
+    expect(governedContextContent).toContain("knowledge context");
+    expect(governedContextContent).toContain("contact context");
+    expect(governedContextContent).toMatch(
       /\[User Context\]:\nrole: admin[\s\S]*cached runtime summary[\s\S]*recalled memory[\s\S]*knowledge context[\s\S]*contact context/,
     );
-    expect(mergedMemoryArg).toContain("--- Grounding Rules ---");
+    expect(governedContextContent).toContain("--- Grounding Rules ---");
 
     supportSpy.mockRestore();
   });
@@ -556,12 +604,11 @@ describe("processAdmittedTurn", () => {
 
     const result = await processInboundMessage(ctx);
 
-    const callArgs = (orchestrator.processMessage as ReturnType<typeof vi.fn>).mock.calls[0];
-    const mergedMemoryArg: string | undefined = callArgs[2];
-    expect(mergedMemoryArg).toBeDefined();
-    expect(mergedMemoryArg).toContain("cached runtime summary");
-    expect(mergedMemoryArg).toContain("compact knowledge context");
-    expect(mergedMemoryArg).not.toContain("oversized-memory-");
+    const governedContextContent = getGovernedContextContent(orchestrator);
+    expect(governedContextContent).toBeDefined();
+    expect(governedContextContent).toContain("cached runtime summary");
+    expect(governedContextContent).toContain("compact knowledge context");
+    expect(governedContextContent).not.toContain("oversized-memory-");
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.result.contextAudit).toMatchObject({
@@ -577,6 +624,345 @@ describe("processAdmittedTurn", () => {
     }
 
     supportSpy.mockRestore();
+  });
+
+  it("routes active skill instructions through governed context instead of perCallConfig.skillInstructions", async () => {
+    const orchestrator = makeMockOrchestrator();
+    const sessionRegistry = makeMockSessionRegistry();
+    const skillRegistry = new SkillRegistry();
+    skillRegistry.registerFull(makeSkillConfig());
+    const ctx = makeBaseContext({
+      orchestrator,
+      sessionRegistry,
+      skillRegistry,
+      activeSkills: ["runtime-governed-skill"],
+      perCallConfig: {
+        tenantId: "tenant-override",
+      },
+    });
+
+    const result = await processInboundMessage(ctx);
+
+    const callArgs = (orchestrator.processMessage as ReturnType<typeof vi.fn>).mock.calls[0];
+    const governedContextContent = getGovernedContextContent(orchestrator);
+    const perCallConfigArg = callArgs[4] as Record<string, unknown> | undefined;
+
+    expect(governedContextContent).toBeDefined();
+    expect(governedContextContent).toContain("Skill");
+    expect(governedContextContent).toContain("name: runtime-governed-skill");
+    expect(governedContextContent).toContain("Always verify the runtime customer record before responding.");
+    expect(perCallConfigArg).toBeDefined();
+    expect(perCallConfigArg).not.toHaveProperty("skillInstructions");
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.result.contextAudit?.blocks).toContainEqual(expect.objectContaining({
+        kind: "procedural",
+        source: "runtime-skill:memory://runtime-governed-skill",
+      }));
+    }
+  });
+
+  it("defers oversized active skills under budget pressure and records the procedural deferral in contextAudit", async () => {
+    const orchestrator = makeMockOrchestrator();
+    const sessionRegistry = makeMockSessionRegistry();
+    const skillRegistry = new SkillRegistry();
+    const oversizedInstructionMarker = "oversized-runtime-skill-marker";
+    skillRegistry.registerFull(makeSkillConfig({
+      name: "oversized-runtime-skill",
+      filePath: "memory://oversized-runtime-skill",
+      instructions: `${oversizedInstructionMarker}-${"x".repeat(12_000)}`,
+    }));
+    const ctx = makeBaseContext({
+      orchestrator,
+      sessionRegistry,
+      skillRegistry,
+      activeSkills: ["oversized-runtime-skill"],
+      userContext: { role: "admin" },
+      knowledgeContext: "compact knowledge context",
+    });
+
+    const result = await processInboundMessage(ctx);
+
+    const governedContextContent = getGovernedContextContent(orchestrator);
+
+    expect(governedContextContent).toBeDefined();
+    expect(governedContextContent).toContain("[User Context]:");
+    expect(governedContextContent).toContain("compact knowledge context");
+    expect(governedContextContent).not.toContain(oversizedInstructionMarker);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.result.contextAudit).toMatchObject({
+        governor: "DefaultContextGovernor",
+        overflow: true,
+        overflowReason: "budget-cap",
+      });
+      expect(result.result.contextAudit?.blocks).toContainEqual(expect.objectContaining({
+        kind: "procedural",
+        source: "runtime-skill:memory://oversized-runtime-skill",
+        decision: "deferred",
+        reason: "budget-cap",
+      }));
+    }
+  });
+
+  it("injects coordination provider candidates into governed context and audits them as coordination blocks", async () => {
+    const orchestrator = makeMockOrchestrator();
+    const sessionRegistry = makeMockSessionRegistry();
+    const coordinationContextProvider = vi.fn().mockResolvedValue(
+      coordinationStateToContextCandidates({
+        crossAgentMemory: [{
+          id: "handoff-1",
+          agentId: "agent-ops",
+          role: "ops",
+          summary: "Escalation stays with billing specialist.",
+          updatedAt: "2026-04-27T10:00:00.000Z",
+        }],
+      }),
+    );
+    const ctx = {
+      ...makeBaseContext({
+        orchestrator,
+        sessionRegistry,
+      }),
+      coordinationContextProvider,
+    } as AdmittedTurnContext;
+
+    const result = await processInboundMessage(ctx);
+
+    expect(coordinationContextProvider).toHaveBeenCalledTimes(1);
+    const governedContextContent = getGovernedContextContent(orchestrator);
+    expect(governedContextContent).toBeDefined();
+    expect(governedContextContent).toContain("Cross-agent memory");
+    expect(governedContextContent).toContain("summary: Escalation stays with billing specialist.");
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const coordinationBlock = result.result.contextAudit?.blocks.find((block) => block.kind === "coordination");
+      expect(coordinationBlock).toEqual(expect.objectContaining({
+        decision: "admitted",
+      }));
+      expect(coordinationBlock?.source).toContain("runtime-coordination-provider:0");
+    }
+  });
+
+  it("defers oversized coordination candidates under budget pressure while preserving user and knowledge context", async () => {
+    const orchestrator = makeMockOrchestrator();
+    const sessionRegistry = makeMockSessionRegistry();
+    const oversizedCoordinationMarker = "oversized-coordination-marker";
+    const coordinationContextProvider = vi.fn().mockResolvedValue([
+      {
+        kind: "coordination" as const,
+        source: "runtime-cross-agent-memory:oversized-handoff",
+        content: `Cross-agent memory\nsummary: ${oversizedCoordinationMarker}-${"x".repeat(12_000)}`,
+        score: 0.5,
+      },
+    ]);
+    const ctx = {
+      ...makeBaseContext({
+        orchestrator,
+        sessionRegistry,
+        userContext: { role: "admin" },
+        knowledgeContext: "compact knowledge context",
+      }),
+      coordinationContextProvider,
+    } as AdmittedTurnContext;
+
+    const result = await processInboundMessage(ctx);
+
+    expect(coordinationContextProvider).toHaveBeenCalledTimes(1);
+    const governedContextContent = getGovernedContextContent(orchestrator);
+
+    expect(governedContextContent).toBeDefined();
+    expect(governedContextContent).toContain("[User Context]:");
+    expect(governedContextContent).toContain("compact knowledge context");
+    expect(governedContextContent).not.toContain(oversizedCoordinationMarker);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.result.contextAudit).toMatchObject({
+        governor: "DefaultContextGovernor",
+        overflow: true,
+        overflowReason: "budget-cap",
+      });
+      const coordinationBlock = result.result.contextAudit?.blocks.find((block) => block.kind === "coordination");
+      expect(coordinationBlock).toEqual(expect.objectContaining({
+        decision: "deferred",
+        reason: "budget-cap",
+      }));
+      expect(coordinationBlock?.source).toContain("runtime-coordination-provider:0");
+    }
+  });
+
+  it("normalizes coordination provider candidates so they cannot force admission or relabel audit kind", async () => {
+    const orchestrator = makeMockOrchestrator();
+    const sessionRegistry = makeMockSessionRegistry();
+    const forcedAdmissionMarker = "forced-coordination-admission-marker";
+    const coordinationContextProvider = vi.fn().mockResolvedValue([
+      {
+        kind: "memory" as const,
+        source: "runtime-cross-agent-memory:spoofed-first-party-source",
+        content: `Cross-agent memory\nsummary: ${forcedAdmissionMarker}-${"x".repeat(12_000)}`,
+        required: true,
+        score: 1,
+        estimatedTokens: 1,
+      },
+    ]);
+    const ctx = {
+      ...makeBaseContext({
+        orchestrator,
+        sessionRegistry,
+        knowledgeContext: "compact knowledge context",
+      }),
+      coordinationContextProvider,
+    } as AdmittedTurnContext;
+
+    const result = await processInboundMessage(ctx);
+
+    const governedContextContent = getGovernedContextContent(orchestrator);
+    expect(governedContextContent).toContain("compact knowledge context");
+    expect(governedContextContent).not.toContain(forcedAdmissionMarker);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const coordinationBlock = result.result.contextAudit?.blocks.find((block) => block.kind === "coordination");
+      expect(coordinationBlock).toEqual(expect.objectContaining({
+        required: false,
+        decision: "deferred",
+      }));
+      expect(coordinationBlock?.source).toContain("runtime-coordination-provider:0");
+    }
+  });
+
+  it("drops non-finite coordination provider scores before governor ranking", async () => {
+    const orchestrator = makeMockOrchestrator();
+    const sessionRegistry = makeMockSessionRegistry();
+    const coordinationContextProvider = vi.fn().mockResolvedValue([
+      {
+        kind: "coordination" as const,
+        source: "runtime-cross-agent-memory:bad-score",
+        content: "Cross-agent memory\nsummary: Provider score must not bypass ranking.",
+        score: Number.POSITIVE_INFINITY,
+      },
+    ]);
+    const ctx = {
+      ...makeBaseContext({
+        orchestrator,
+        sessionRegistry,
+      }),
+      coordinationContextProvider,
+    } as AdmittedTurnContext;
+
+    const result = await processInboundMessage(ctx);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const coordinationBlock = result.result.contextAudit?.blocks.find((block) => block.kind === "coordination");
+      expect(coordinationBlock).toEqual(expect.objectContaining({
+        baseScore: 0,
+        effectiveScore: 0,
+      }));
+    }
+  });
+
+  it("fails closed when the coordination provider throws without leaking fallback text into model context", async () => {
+    const orchestrator = makeMockOrchestrator();
+    const sessionRegistry = makeMockSessionRegistry();
+    const rawFailureMarker = "coordination provider raw failure text";
+    const coordinationContextProvider = vi.fn().mockRejectedValue(new Error(rawFailureMarker));
+    const ctx = {
+      ...makeBaseContext({
+        orchestrator,
+        sessionRegistry,
+        recalledMemory: "safe recalled memory",
+      }),
+      coordinationContextProvider,
+    } as AdmittedTurnContext;
+
+    const result = await processInboundMessage(ctx);
+
+    expect(coordinationContextProvider).toHaveBeenCalledTimes(1);
+    expect(orchestrator.processMessage).toHaveBeenCalledTimes(1);
+    const governedContextContent = getGovernedContextContent(orchestrator);
+    expect(governedContextContent).toContain("safe recalled memory");
+    expect(governedContextContent).not.toContain(rawFailureMarker);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.result.contextAudit?.blocks.some((block) => block.kind === "coordination")).toBe(false);
+      expect(result.result.contextAudit?.coordinationProviderFailures).toContainEqual({
+        source: "runtime-coordination-provider",
+        reason: "provider-error",
+      });
+    }
+  });
+
+  it("fails closed when the coordination provider returns malformed candidates without leaking raw markers into model context", async () => {
+    const orchestrator = makeMockOrchestrator();
+    const sessionRegistry = makeMockSessionRegistry();
+    const rawFailureMarker = "coordination-provider-raw-marker";
+    const coordinationContextProvider = vi.fn().mockResolvedValue([
+      {
+        kind: "coordination" as const,
+        source: `runtime-cross-agent-memory:${rawFailureMarker}`,
+        content: { summary: rawFailureMarker },
+        score: 0.9,
+      },
+    ]);
+    const ctx = {
+      ...makeBaseContext({
+        orchestrator,
+        sessionRegistry,
+        recalledMemory: "safe recalled memory",
+      }),
+      coordinationContextProvider,
+    } as AdmittedTurnContext;
+
+    const result = await processInboundMessage(ctx);
+
+    expect(coordinationContextProvider).toHaveBeenCalledTimes(1);
+    expect(orchestrator.processMessage).toHaveBeenCalledTimes(1);
+    const governedContextContent = getGovernedContextContent(orchestrator);
+    expect(governedContextContent).toContain("safe recalled memory");
+    expect(governedContextContent).not.toContain(rawFailureMarker);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.result.contextAudit?.blocks.some((block) => block.kind === "coordination")).toBe(false);
+      expect(result.result.contextAudit?.coordinationProviderFailures).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          source: "runtime-coordination-provider",
+          reason: expect.stringMatching(/validation|error/),
+        }),
+      ]));
+      expect(JSON.stringify(result.result.contextAudit?.coordinationProviderFailures)).not.toContain(rawFailureMarker);
+    }
+  });
+
+  it("preserves sanitized coordination provenance in the audit block without trusting provider source strings", async () => {
+    const orchestrator = makeMockOrchestrator();
+    const sessionRegistry = makeMockSessionRegistry();
+    const coordinationContextProvider = vi.fn().mockResolvedValue([
+      {
+        kind: "coordination" as const,
+        source: "runtime-cross-agent-memory:handoff-123",
+        content: "Cross-agent memory\nsummary: Billing handoff remains active.",
+        score: 0.7,
+      },
+    ]);
+    const ctx = {
+      ...makeBaseContext({
+        orchestrator,
+        sessionRegistry,
+      }),
+      coordinationContextProvider,
+    } as AdmittedTurnContext;
+
+    const result = await processInboundMessage(ctx);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const coordinationBlock = result.result.contextAudit?.blocks.find((block) => block.kind === "coordination");
+      expect(coordinationBlock).toBeDefined();
+      expect(coordinationBlock?.decision).toBe("admitted");
+      expect(coordinationBlock?.source).toContain("runtime-coordination-provider:0");
+      expect(coordinationBlock?.source).toContain("handoff-123");
+      expect(coordinationBlock?.source).not.toBe("runtime-cross-agent-memory:handoff-123");
+    }
   });
 
   it("uses tenantId for billing", async () => {

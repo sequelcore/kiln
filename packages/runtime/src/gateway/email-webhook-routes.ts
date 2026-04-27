@@ -18,7 +18,8 @@ import type { ConversationEventEmitter } from "./conversation-event-emitter.js";
 import { requireWebhookSignature } from "./auth-middleware.js";
 import { TraceContext } from "./trace-context.js";
 import type { RetrievalPipeline, ContactMemoryService } from "@kilnai/core";
-import { formatKnowledgeContext, formatContactContext, mergeContextSources, appendGroundingDirective } from "./context-formatter.js";
+import { formatKnowledgeContext, formatContactContext } from "./context-formatter.js";
+import { projectAdmittedTurnContext } from "./message-pipeline.js";
 import { shouldRejectEmail } from "./email-loop-guard.js";
 import type { EmailThreadStore, EmailThread } from "./email-thread-store.js";
 import { InMemoryEmailThreadStore } from "./email-thread-store.js";
@@ -260,11 +261,6 @@ async function processEmailMessage(
     }
   }
 
-  const combinedMemory = appendGroundingDirective(
-    mergeContextSources(recalledMemory, knowledgeContext, contactContext),
-    tenant.groundingMode,
-  );
-
   // --- Tools: build per-call builtin tools ---
   const callTools = new Map<string, (input: Record<string, unknown>) => Promise<unknown>>();
 
@@ -303,6 +299,15 @@ async function processEmailMessage(
   if (agentCtx.activeAgentId) {
     session.setActiveAgent(agentCtx.activeAgentId, agentCtx.handoffBrief);
   }
+
+  const projectedTurnContext = projectAdmittedTurnContext({
+    userContext: session.userContext,
+    cachedRuntimeSummary: undefined,
+    recalledMemory,
+    knowledgeContext,
+    contactContext,
+    groundingMode: tenant.groundingMode,
+  });
 
   const tenantToolCtx = agentCtx.tenantToolContext;
 
@@ -352,7 +357,7 @@ async function processEmailMessage(
     const result = await config.orchestrator.processMessage(
       session,
       messageParts,
-      combinedMemory,
+      projectedTurnContext,
       tenantToolCtx.callBuiltinTools.size > 0 ? tenantToolCtx.callBuiltinTools : undefined,
       perCallConfig,
     );

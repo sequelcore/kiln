@@ -28,6 +28,7 @@ export interface ProviderAdapterAppRuntime {
   readonly eventBus?: EventBus;
   readonly groundingDeps?: import("./message-pipeline.js").AdmittedTurnContext["groundingDeps"];
   readonly contextArtifactCache?: ContextArtifactCache;
+  readonly coordinationContextProvider?: import("./message-pipeline.js").AdmittedTurnContext["coordinationContextProvider"];
 }
 
 /** Request body for POST /message */
@@ -113,6 +114,7 @@ export function createProviderAdapterRoutes(runtime: ProviderAdapterAppRuntime):
         groundingMode: runtime.tenant?.groundingMode,
         groundingDeps: runtime.groundingDeps,
         contextArtifactCache: runtime.contextArtifactCache,
+        coordinationContextProvider: runtime.coordinationContextProvider,
       });
     } catch (err) {
       console.error(`[${runtime.appName}] processMessage error:`, err);

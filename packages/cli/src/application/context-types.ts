@@ -1,30 +1,12 @@
-import type { ContextAuditEntry } from "@kilnai/core";
+import type {
+  ProjectedContext as CoreProjectedContext,
+  ProjectedContextBlock as CoreProjectedContextBlock,
+  ProjectedContextBlockKind as CoreProjectedContextBlockKind,
+} from "@kilnai/core";
 
-export type ProjectedContextBlockKind =
-  | "memory"
-  | "summary"
-  | "artifact"
-  | "knowledge"
-  | "ledger";
-
-export interface ProjectedContextBlock {
-  readonly id: string;
-  readonly kind: ProjectedContextBlockKind;
-  readonly source: string;
-  readonly content: string;
-  readonly required: boolean;
-  readonly score: number;
-  readonly estimatedTokens?: number;
-}
-
-export interface ProjectedContext {
-  readonly blocks: readonly ProjectedContextBlock[];
-  readonly estimatedTokens: number;
-  readonly tokenBudget?: number;
-  readonly deferredBlocks?: readonly ProjectedContextBlock[];
-  readonly overflow?: boolean;
-  readonly auditTrail?: readonly ContextAuditEntry[];
-}
+export type ProjectedContextBlockKind = CoreProjectedContextBlockKind;
+export type ProjectedContextBlock = CoreProjectedContextBlock;
+export type ProjectedContext = CoreProjectedContext;
 
 function compactBlankLines(text: string): string {
   return text

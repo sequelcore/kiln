@@ -9,17 +9,12 @@ This is not formatting. It is a control function.
 
 ## Canonical Owner
 
-`ContextGovernor` is the intended owner of context assembly.
+`ContextGovernor` is the owner of admitted-turn context assembly.
 
-Current runtime stop point:
-
-- admitted-turn runtime context assembly already converges on explicit
-  runtime-owned seams for context projection, turn system-prompt assembly, and
-  runtime continuity presentation
-- the remaining architectural question is whether a shared cross-package
-  governance contract is worth introducing later
-- runtime bypass is no longer the problem; hidden secondary policy owners are
-  the problem
+Runtime, CLI, gateway routes, and surface adapters may collect or normalize
+context inputs, but they do not decide what the model sees. They submit context
+candidates to the governor and consume the governed projection plus audit
+record.
 
 Context policy should not remain fragmented across:
 
@@ -37,6 +32,9 @@ Context policy should not remain fragmented across:
 - episodic memory
 - semantic knowledge
 - skill and procedural context
+- cross-agent coordination state
+- contact and visitor context
+- runtime continuity summaries
 - complexity signals
 - token budget
 - operational mode
@@ -48,6 +46,7 @@ Context policy should not remain fragmented across:
 - merge blocks in governed order
 - enforce truncation and compression rules
 - preserve safety-critical context
+- emit an audit trail for admitted and deferred blocks
 
 ## Attention And Salience
 
@@ -69,16 +68,48 @@ selection, not implicit LLM luck.
 - safety-critical context is protected from arbitrary truncation
 - lower-priority layers should be reduced before higher-priority control data
 
-## Current Problems
+## Governed Layers
 
-- no literal single cross-package owner is implemented end to end yet
-- context decisions are still spread across some legacy seams
-- complexity scoring does not fully govern context allocation
-- tool and knowledge relevance are not yet unified under one bottleneck owner
+The governor ranks these context layers under one policy:
+
+- `memory`: scoped user/session memory and contact context
+- `summary`: runtime continuity and compacted turn state
+- `knowledge`: retrieval and grounding context
+- `procedural`: active skills and reusable execution recipes
+- `coordination`: cross-agent memory, handoff state, and swarm state
+
+Storage and retrieval remain owned by their subsystems. Context admission is
+owned by the governor.
+
+## Runtime Contract
+
+An admitted runtime turn passes a `GovernedRuntimeContext` to the orchestrator.
+If governed content is present, it must carry a `DefaultContextGovernor` audit.
+Raw object-wrapped strings are rejected at the prompt assembly seam.
+
+Direct API, webhook, WebSocket, CLI, GUI, and TUI paths must not assemble raw
+prompt memory such as `combinedMemory` after admission. Route-local retrieval
+may remain as input collection, but model admission goes through the governed
+projection.
+
+## Coordination Provider Failures
+
+Coordination providers are runtime dependencies because they read operational
+state. Their output is normalized before projection:
+
+- provider-supplied kind, source, required flags, and estimated token counts do
+  not override governor policy
+- scores must be finite and bounded
+- malformed provider output is dropped
+- provider exceptions do not inject fallback text into model context
+- sanitized provider failure metadata is recorded in runtime-local audit data
+
+The shared core audit contract stays provider-agnostic. Runtime-specific
+failure labels do not move into `@kilnai/core`.
 
 ## Target Design
 
-The target design is:
+The current target is:
 
 - one `ContextGovernor`
 - one explicit per-turn `ContextBudget`
@@ -94,6 +125,10 @@ The target design is:
   second context-policy center
 - runtime support seams should emit context and continuity presentation from
   dedicated owners, not from local helper formatting
+- skills are procedural context candidates, not a parallel system-prompt
+  injection path
+- coordination state is a coordination context candidate source, not a hidden
+  shared-memory paste into the prompt
 
 ## Invariants
 
@@ -101,3 +136,4 @@ The target design is:
 - truncation follows declared order
 - memory sparsity or retrieval failure is explicit
 - context policy is not hidden in helper utilities
+- admitted/deferred context decisions are auditable

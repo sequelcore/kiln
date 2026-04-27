@@ -49,6 +49,8 @@ export interface ProviderSessionConfig {
 
 const PROVIDER_PRIORITY: Record<ProviderSessionConfig["provider"], number> = {
   "codex-oauth": 1,
+  "opencode-go": 2,
+  "opencode-zen": 3,
   anthropic: 4,
   openai: 5,
   openrouter: 6,

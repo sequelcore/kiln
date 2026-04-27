@@ -19,7 +19,13 @@ import type { ConversationEventEmitter } from "./conversation-event-emitter.js";
 import { isOriginAllowed } from "./auth-middleware.js";
 import { TraceContext } from "./trace-context.js";
 import { preprocessAudio, createGenericMediaDownloader } from "./audio-preprocessor.js";
-import { formatKnowledgeContext, formatContactContext, mergeContextSources, appendGroundingDirective } from "./context-formatter.js";
+import { formatKnowledgeContext, formatContactContext } from "./context-formatter.js";
+import {
+  appendCoordinationProviderFailureAudit,
+  projectAdmittedTurnContext,
+  resolveCoordinationContextCandidates,
+} from "./message-pipeline.js";
+import type { AdmittedTurnContext } from "./message-pipeline.js";
 import { sanitizeVisitorInfo, formatVisitorContext } from "./visitor-sanitizer.js";
 import type { SanitizedVisitorInfo } from "./visitor-sanitizer.js";
 
@@ -39,6 +45,7 @@ export interface WsTenantRoutesConfig {
   readonly contactMemoryService?: ContactMemoryService;
   readonly handoffSummarizer?: AgentHandoffSummarizer;
   readonly eventBus?: EventBus;
+  readonly coordinationContextProvider?: AdmittedTurnContext["coordinationContextProvider"];
 }
 
 /** Heartbeat state tracked per WebSocket connection */
@@ -239,11 +246,33 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
                   }
                 }
 
+                const coordinationContext = await resolveCoordinationContextCandidates(config.coordinationContextProvider, {
+                  appName: config.appName,
+                  tenantId: tenant.tenantId,
+                  userId,
+                  sessionId: session.id,
+                  channel: "web",
+                  activeAgentId: agentCtx.activeAgentId,
+                });
+
                 const visitorContext = visitor ? formatVisitorContext(visitor) : undefined;
-                const combinedMemory = appendGroundingDirective(
-                  mergeContextSources(knowledgeContext, contactContext, visitorContext),
-                  tenant.groundingMode,
-                );
+                const baseProjectedTurnContext = projectAdmittedTurnContext({
+                  userContext: session.userContext,
+                  cachedRuntimeSummary: undefined,
+                  recalledMemory: undefined,
+                  knowledgeContext,
+                  contactContext,
+                  visitorContext,
+                  groundingMode: tenant.groundingMode,
+                  coordinationContextCandidates: coordinationContext.candidates,
+                });
+                const projectedTurnContext = {
+                  ...baseProjectedTurnContext,
+                  audit: appendCoordinationProviderFailureAudit(
+                    baseProjectedTurnContext.audit,
+                    coordinationContext.failureReason,
+                  ),
+                };
 
                 const tenantToolCtx = agentCtx.tenantToolContext;
 
@@ -264,7 +293,7 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
                 const result = await config.orchestrator.processMessage(
                   session,
                   userParts,
-                  combinedMemory,
+                  projectedTurnContext,
                   tenantToolCtx.callBuiltinTools.size > 0 ? tenantToolCtx.callBuiltinTools : undefined,
                   perCallConfig,
                 );

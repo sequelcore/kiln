@@ -23,7 +23,8 @@ import { TraceContext } from "./trace-context.js";
 import type { WebhookDedup } from "./webhook-dedup.js";
 import type { SttAdapter, RetrievalPipeline, ContactMemoryService } from "@kilnai/core";
 import { preprocessAudio, createGenericMediaDownloader } from "./audio-preprocessor.js";
-import { formatKnowledgeContext, formatContactContext, mergeContextSources, appendGroundingDirective } from "./context-formatter.js";
+import { formatKnowledgeContext, formatContactContext } from "./context-formatter.js";
+import { projectAdmittedTurnContext } from "./message-pipeline.js";
 
 export interface MessengerWebhookConfig {
   readonly appName: string;
@@ -274,11 +275,6 @@ async function processMessengerMessage(
     }
   }
 
-  const combinedMemory = appendGroundingDirective(
-    mergeContextSources(recalledMemory, knowledgeContext, contactContext),
-    tenant.groundingMode,
-  );
-
   // --- Tools: build per-call builtin tools ---
   const callTools = new Map<string, (input: Record<string, unknown>) => Promise<unknown>>();
 
@@ -317,6 +313,15 @@ async function processMessengerMessage(
   if (agentCtx.activeAgentId) {
     session.setActiveAgent(agentCtx.activeAgentId, agentCtx.handoffBrief);
   }
+
+  const projectedTurnContext = projectAdmittedTurnContext({
+    userContext: session.userContext,
+    cachedRuntimeSummary: undefined,
+    recalledMemory,
+    knowledgeContext,
+    contactContext,
+    groundingMode: tenant.groundingMode,
+  });
 
   const tenantToolCtx = agentCtx.tenantToolContext;
 
@@ -372,7 +377,7 @@ async function processMessengerMessage(
     const result = await config.orchestrator.processMessage(
       session,
       processedParts,
-      combinedMemory,
+      projectedTurnContext,
       tenantToolCtx.callBuiltinTools.size > 0 ? tenantToolCtx.callBuiltinTools : undefined,
       perCallConfig,
     );

@@ -24,7 +24,8 @@ import { TraceContext } from "./trace-context.js";
 import type { WebhookDedup } from "./webhook-dedup.js";
 import type { SttAdapter, RetrievalPipeline, ContactMemoryService } from "@kilnai/core";
 import { preprocessAudio, createWhatsAppMediaDownloader } from "./audio-preprocessor.js";
-import { formatKnowledgeContext, formatContactContext, mergeContextSources, appendGroundingDirective } from "./context-formatter.js";
+import { formatKnowledgeContext, formatContactContext } from "./context-formatter.js";
+import { projectAdmittedTurnContext } from "./message-pipeline.js";
 
 export interface WhatsAppWebhookConfig {
   readonly appName: string;
@@ -359,11 +360,6 @@ async function processWhatsAppMessage(
   }
 
   // Merge recalled memory + knowledge context + contact context
-  const combinedMemory = appendGroundingDirective(
-    mergeContextSources(recalledMemory, knowledgeContext, contactContext),
-    tenant.groundingMode,
-  );
-
   // --- Tools: build per-call builtin tools ---
   const callTools = new Map<string, (input: Record<string, unknown>) => Promise<unknown>>();
 
@@ -449,6 +445,15 @@ async function processWhatsAppMessage(
     session.setActiveAgent(agentCtx.activeAgentId, agentCtx.handoffBrief);
   }
 
+  const projectedTurnContext = projectAdmittedTurnContext({
+    userContext: session.userContext,
+    cachedRuntimeSummary: undefined,
+    recalledMemory,
+    knowledgeContext,
+    contactContext,
+    groundingMode: tenant.groundingMode,
+  });
+
   const tenantToolCtx = agentCtx.tenantToolContext;
 
   // Register webhook tool definitions on the orchestrator
@@ -506,7 +511,7 @@ async function processWhatsAppMessage(
     const result = await config.orchestrator.processMessage(
       session,
       processedParts,
-      combinedMemory,
+      projectedTurnContext,
       tenantToolCtx.callBuiltinTools.size > 0 ? tenantToolCtx.callBuiltinTools : undefined,
       perCallConfig,
     );

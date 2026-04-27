@@ -16,6 +16,7 @@ import { buildRuntimeTurnSystemPrompt } from "./support/index.js";
 import type {
   OrchestratorDeps,
   OrchestrateResult,
+  GovernedRuntimeContext,
   PerCallToolConfig,
   ToolExecutionSummary,
 } from "./runtime-session-orchestrator.types.js";
@@ -26,6 +27,7 @@ const MAX_IDENTICAL_INVALID_TOOL_ATTEMPTS = 2;
 export type {
   OrchestratorDeps,
   OrchestrateResult,
+  GovernedRuntimeContext,
   PerCallToolConfig,
   ToolExecutionSummary,
 } from "./runtime-session-orchestrator.types.js";
@@ -85,7 +87,7 @@ export class RuntimeSessionOrchestrator {
   async processMessage(
     session: RuntimeSession,
     userParts: readonly ContentPart[],
-    recalledMemory?: string,
+    governedContext?: GovernedRuntimeContext,
     callBuiltinTools?: ReadonlyMap<string, (input: Record<string, unknown>) => Promise<unknown>>,
     perCallConfig?: PerCallToolConfig,
   ): Promise<OrchestrateResult> {
@@ -109,7 +111,7 @@ export class RuntimeSessionOrchestrator {
 
     session.addUserMessage(userParts);
 
-    const system = buildRuntimeTurnSystemPrompt(session, recalledMemory, perCallConfig);
+    const system = buildRuntimeTurnSystemPrompt(session, governedContext);
     const routing = await resolveRuntimeSessionRouting(
       this.deps,
       session,

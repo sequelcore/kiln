@@ -1,17 +1,16 @@
 import type { RuntimeSession } from "../../runtime-session.js";
-import type { PerCallToolConfig } from "../../runtime-session-orchestrator.types.js";
+import type { GovernedRuntimeContext } from "../../runtime-session-orchestrator.types.js";
 
 export function buildRuntimeTurnSystemPrompt(
   session: RuntimeSession,
-  recalledMemory: string | undefined,
-  perCallConfig: PerCallToolConfig | undefined,
+  governedContext: GovernedRuntimeContext | undefined,
 ): string {
   let system = session.systemPrompt;
-  if (recalledMemory) {
-    system += "\n\n--- Recalled Memory ---\n" + recalledMemory;
-  }
-  if (perCallConfig?.skillInstructions) {
-    system += "\n\n--- Active Skills ---\n" + perCallConfig.skillInstructions;
+  if (governedContext?.content) {
+    if (governedContext.audit?.governor !== "DefaultContextGovernor") {
+      throw new Error("Governed runtime context must include a DefaultContextGovernor audit");
+    }
+    system += "\n\n--- Governed Context ---\n" + governedContext.content;
   }
   return system;
 }

@@ -31,16 +31,17 @@ claim that Kiln reproduces biological recall or plasticity.
 - Episodic traces exist in transcripts and mutable memory storage.
 - Semantic storage exists through SQLite plus FTS5 and vector-backed knowledge
   retrieval.
-- Procedural memory exists through the skill system.
-- Cross-agent coordination state exists, but it is still fragmented from the
-  main memory model.
+- Procedural memory exists through the skill system and enters admitted-turn
+  model context as governed `procedural` candidates.
+- Cross-agent coordination state exists through coordination primitives and can
+  enter admitted-turn model context as governed `coordination` candidates.
 
-## Current Fragmentation
+## Current Boundaries
 
-- Context assembly and memory assembly are split across multiple owners.
 - Memory and knowledge use different access patterns with overlapping concerns.
-- Skills are not governed by the same retrieval policy.
 - Coordination state uses its own naming and scope conventions.
+- Storage and mutation APIs are not context policy. They produce or retrieve
+  state; `ContextGovernor` decides admitted-turn model context.
 
 ## Target Layer Model
 
@@ -67,7 +68,14 @@ claim that Kiln reproduces biological recall or plasticity.
 ### Procedural Memory
 
 - skills and execution recipes
-- separate subsystem with its own retrieval path
+- retrieved through the skill subsystem
+- admitted to model context only as governed procedural candidates
+
+### Coordination Context
+
+- cross-agent memory, handoff state, and swarm state
+- owned by coordination subsystems for storage and mutation
+- admitted to model context only as governed coordination candidates
 
 ### Audit Memory
 
@@ -108,6 +116,7 @@ Recall is governed by:
 - recency
 - frequency
 - token budget
+- governor audit policy
 
 Cue-based recall remains important. Queries should act as retrieval cues, not
 just raw text matches.
@@ -119,3 +128,4 @@ just raw text matches.
 - explicit GDPR delete path
 - explicit mutation rules
 - audit memory is never rewritten
+- model-context admission goes through `ContextGovernor`

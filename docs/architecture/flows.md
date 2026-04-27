@@ -37,12 +37,13 @@ request before routing or session mutation.
 **Stages:**
 
 1. canonical admitted-turn handoff
-2. context projection
-3. turn system-prompt assembly
-4. runtime continuity presentation
-5. model and tool orchestration
-6. canonical turn-record application
-7. session save and telemetry emission
+2. context input collection
+3. governed context projection
+4. turn system-prompt assembly
+5. runtime continuity presentation
+6. model and tool orchestration
+7. canonical turn-record application
+8. session save and telemetry emission
 
 **Canonical boundary:** `processAdmittedTurn(...)`
 
@@ -61,6 +62,8 @@ request before routing or session mutation.
   hosting, framing, and operator activity capture
 - route and surface files must not assemble lasting runtime turn state after
   the admitted-turn handoff
+- direct webhook and WebSocket entry points must pass governed context objects,
+  not raw prompt-memory strings, to the orchestrator
 
 **Fail-closed behavior:** malformed admitted-turn inputs, authority denial, or
 missing runtime prerequisites stop the turn before tool execution or
@@ -74,18 +77,24 @@ persistence.
 
 1. complexity scoring
 2. attention budget allocation
-3. Layer 0 recall
-4. Layer 1 recall
-5. Layer 2 recall
-6. merge and ordering
-7. truncation or summary if needed
+3. user/session memory candidate collection
+4. runtime continuity summary candidate collection
+5. semantic knowledge candidate collection
+6. procedural skill candidate collection
+7. coordination state candidate collection
+8. governed merge and ordering
+9. truncation, deferral, or summary if needed
+10. audit emission
 
 **Gates:**
 
 - token budget
 - retrieval timeout handling
+- governor audit requirement before prompt assembly
 
 **Fail-closed behavior:** abnormal memory sparsity must be explicit, not silent.
+Malformed coordination provider output or provider failure must not inject
+fallback text into model context.
 
 ## Memory Write
 

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createWsTenantRoutes } from "../../src/gateway/ws-tenant-routes.js";
+import type { WsTenantRoutesConfig } from "../../src/gateway/ws-tenant-routes.js";
 import { WebChannel } from "../../src/channels/web-channel.js";
 import type { WebSocketLike } from "../../src/channels/web-channel.js";
 import type { UpgradeWebSocket } from "hono/ws";
@@ -94,7 +95,8 @@ function makeConfig(
   tenantRegistry: TenantRegistry,
   sessionRegistry: SessionRegistry,
   orchestrator: RuntimeSessionOrchestrator,
-) {
+  overrides: Partial<WsTenantRoutesConfig> = {},
+): WsTenantRoutesConfig {
   return {
     webChannel: channel,
     upgradeWebSocket,
@@ -102,6 +104,7 @@ function makeConfig(
     orchestrator,
     sessionRegistry,
     tenantRegistry,
+    ...overrides,
   };
 }
 
@@ -275,9 +278,12 @@ describe("createWsTenantRoutes", () => {
       );
 
       expect(mockOrchestrator.processMessage).toHaveBeenCalledOnce();
-      const [session, parts] = vi.mocked(mockOrchestrator.processMessage).mock.calls[0]!;
+      const [session, parts, governedContext] = vi.mocked(mockOrchestrator.processMessage).mock.calls[0]!;
       expect(session).toBe(mockSession);
       expect(parts).toEqual(textParts("hello"));
+      expect(governedContext).toEqual(expect.objectContaining({
+        audit: expect.objectContaining({ governor: "DefaultContextGovernor" }),
+      }));
     });
 
     it("passes systemPrompt and tenantId when creating session", async () => {
@@ -409,8 +415,148 @@ describe("createWsTenantRoutes", () => {
       );
 
       expect(mockOrchestrator.processMessage).toHaveBeenCalledOnce();
+      const governedContext = vi.mocked(mockOrchestrator.processMessage).mock.calls[0]![2];
+      expect(governedContext).toEqual(expect.objectContaining({
+        audit: expect.objectContaining({ governor: "DefaultContextGovernor" }),
+      }));
       const perCallConfig = vi.mocked(mockOrchestrator.processMessage).mock.calls[0]![4];
       expect(perCallConfig?.toolAuthority).toBe(mockedToolAuthority);
+    });
+
+    it("projects coordination provider candidates into tenant WebSocket governed context", async () => {
+      const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
+      vi.mocked(mockTenantRegistry.resolveByWidgetId).mockReturnValue(makeTenantConfig());
+      mockedResolveAgentContextAsync.mockResolvedValue({
+        systemPrompt: "Mock system prompt",
+        activeAgentId: "billing-specialist",
+        tenantToolContext: {
+          callBuiltinTools: new Map(),
+          toolDefinitions: [],
+          capabilities: new Map(),
+          toolAuthority: mockedToolAuthority,
+          toolAllowlist: undefined,
+          rateLimiter: undefined,
+          maxToolRounds: undefined,
+        },
+        isHandoff: false,
+      });
+      const coordinationContextProvider = vi.fn().mockResolvedValue([
+        {
+          kind: "coordination" as const,
+          source: "runtime-cross-agent-memory:handoff-123",
+          content: "Cross-agent memory\nsummary: Billing handoff stays active.",
+          score: 0.8,
+        },
+      ]);
+
+      createWsTenantRoutes(makeConfig(
+        channel,
+        upgradeWebSocket,
+        mockTenantRegistry,
+        mockSessionRegistry,
+        mockOrchestrator,
+        { coordinationContextProvider },
+      ));
+
+      const { handlers, wsCtx } = simulateConnection({ widgetId: WIDGET_ID, userId: "user-1" });
+      handlers.onOpen!(new Event("open"), wsCtx);
+
+      await handlers.onMessage!(
+        new MessageEvent("message", { data: JSON.stringify({ type: "message", content: "handoff status" }) }),
+        wsCtx,
+      );
+
+      expect(coordinationContextProvider).toHaveBeenCalledWith({
+        appName: TEST_APP,
+        tenantId: "salon-test",
+        userId: "user-1",
+        sessionId: "sess-1",
+        channel: "web",
+        activeAgentId: "billing-specialist",
+      });
+      const governedContext = vi.mocked(mockOrchestrator.processMessage).mock.calls[0]![2];
+      expect(governedContext?.content).toContain("Cross-agent memory");
+      expect(governedContext?.content).toContain("Billing handoff stays active.");
+      expect(governedContext?.audit?.blocks.find((block) => block.kind === "coordination")).toEqual(
+        expect.objectContaining({
+          decision: "admitted",
+          source: expect.stringContaining("runtime-coordination-provider:0:handoff-123"),
+        }),
+      );
+    });
+
+    it("records sanitized coordination provider validation failures in tenant WebSocket audit", async () => {
+      const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
+      vi.mocked(mockTenantRegistry.resolveByWidgetId).mockReturnValue(makeTenantConfig());
+      const rawFailureMarker = "raw-provider-marker";
+      const coordinationContextProvider = vi.fn().mockResolvedValue([
+        {
+          kind: "coordination" as const,
+          source: `runtime-cross-agent-memory:${rawFailureMarker}`,
+          content: { summary: rawFailureMarker },
+          score: 0.9,
+        },
+      ]);
+
+      createWsTenantRoutes(makeConfig(
+        channel,
+        upgradeWebSocket,
+        mockTenantRegistry,
+        mockSessionRegistry,
+        mockOrchestrator,
+        { coordinationContextProvider },
+      ));
+
+      const { handlers, wsCtx } = simulateConnection({ widgetId: WIDGET_ID, userId: "user-1" });
+      handlers.onOpen!(new Event("open"), wsCtx);
+
+      await handlers.onMessage!(
+        new MessageEvent("message", { data: JSON.stringify({ type: "message", content: "handoff status" }) }),
+        wsCtx,
+      );
+
+      const governedContext = vi.mocked(mockOrchestrator.processMessage).mock.calls[0]![2];
+      expect(governedContext?.content ?? "").not.toContain(rawFailureMarker);
+      expect(governedContext?.audit?.blocks.some((block) => block.kind === "coordination")).toBe(false);
+      expect(JSON.stringify(governedContext?.audit)).not.toContain(rawFailureMarker);
+      expect((governedContext?.audit as { coordinationProviderFailures?: unknown[] })?.coordinationProviderFailures)
+        .toContainEqual({
+          source: "runtime-coordination-provider",
+          reason: "provider-validation-error",
+        });
+    });
+
+    it("records coordination provider exceptions in tenant WebSocket audit without leaking error text", async () => {
+      const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
+      vi.mocked(mockTenantRegistry.resolveByWidgetId).mockReturnValue(makeTenantConfig());
+      const rawFailureMarker = "coordination-provider-exception-marker";
+      const coordinationContextProvider = vi.fn().mockRejectedValue(new Error(rawFailureMarker));
+
+      createWsTenantRoutes(makeConfig(
+        channel,
+        upgradeWebSocket,
+        mockTenantRegistry,
+        mockSessionRegistry,
+        mockOrchestrator,
+        { coordinationContextProvider },
+      ));
+
+      const { handlers, wsCtx } = simulateConnection({ widgetId: WIDGET_ID, userId: "user-1" });
+      handlers.onOpen!(new Event("open"), wsCtx);
+
+      await handlers.onMessage!(
+        new MessageEvent("message", { data: JSON.stringify({ type: "message", content: "handoff status" }) }),
+        wsCtx,
+      );
+
+      const governedContext = vi.mocked(mockOrchestrator.processMessage).mock.calls[0]![2];
+      expect(governedContext?.content ?? "").not.toContain(rawFailureMarker);
+      expect(JSON.stringify(governedContext?.audit)).not.toContain(rawFailureMarker);
+      expect((governedContext?.audit as { coordinationProviderFailures?: unknown[] })?.coordinationProviderFailures)
+        .toContainEqual({
+          source: "runtime-coordination-provider",
+          reason: "provider-error",
+        });
     });
   });
 

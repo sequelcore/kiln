@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ProviderAdapter } from "@kilnai/core";
 import { textParts, extractText } from "@kilnai/core";
+import type { ContextAuditEntry } from "@kilnai/core";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import type { EscalationDetector } from "../../src/session/support/escalation/escalation-detector.js";
@@ -23,6 +24,24 @@ function makeProvider(): ProviderAdapter {
 
 function makeSession(systemPrompt = "You are helpful."): RuntimeSession {
   return new RuntimeSession({ appName: "app", tenantId: "test-tenant", userId: "user-1", systemPrompt });
+}
+
+function makeGovernedContext(content: string) {
+  return {
+    content,
+    audit: {
+      governor: "DefaultContextGovernor",
+      selectedBlockIds: [],
+      deferredBlockIds: [],
+      requiredBlockIds: [],
+      preservedRequiredBlockIds: [],
+      selectedTokens: 0,
+      requiredTokens: 0,
+      tokenBudget: 0,
+      overflow: false,
+      blocks: [],
+    } satisfies ContextAuditEntry,
+  };
 }
 
 describe("RuntimeSessionOrchestrator", () => {
@@ -69,20 +88,27 @@ describe("RuntimeSessionOrchestrator", () => {
       expect(callArgs.system).toContain("provider: mock");
     });
 
-    it("appends recalled memory to system prompt", async () => {
+    it("appends governed context to system prompt", async () => {
       const session = makeSession("Base prompt.");
-      await orchestrator.processMessage(session, textParts("help"), "some memory content");
+      await orchestrator.processMessage(session, textParts("help"), makeGovernedContext("some governed context"));
       const callArgs = vi.mocked(provider.createMessage).mock.calls[0][0];
-      expect(callArgs.system).toContain("Base prompt.\n\n--- Recalled Memory ---\nsome memory content");
+      expect(callArgs.system).toContain("Base prompt.\n\n--- Governed Context ---\nsome governed context");
       expect(callArgs.system).toContain("[KILN EXECUTION IDENTITY]");
     });
 
-    it("does not append recalled memory section when not provided", async () => {
+    it("rejects unaudited governed context content", async () => {
+      const session = makeSession("Base prompt.");
+      await expect(orchestrator.processMessage(session, textParts("help"), { content: "raw context" }))
+        .rejects
+        .toThrow("Governed runtime context must include a DefaultContextGovernor audit");
+    });
+
+    it("does not append governed context section when not provided", async () => {
       const session = makeSession("Base prompt.");
       await orchestrator.processMessage(session, textParts("help"));
       const callArgs = vi.mocked(provider.createMessage).mock.calls[0][0];
       expect(callArgs.system).toContain("Base prompt.");
-      expect(callArgs.system).not.toContain("--- Recalled Memory ---");
+      expect(callArgs.system).not.toContain("--- Governed Context ---");
       expect(callArgs.system).toContain("[KILN EXECUTION IDENTITY]");
     });
 

@@ -36,6 +36,8 @@ generic “orchestration.”
 - task publication and claim lifecycle exists
 - shared coordination state exists
 - team composition exists
+- coordination state can enter admitted-turn model context only as governed
+  `coordination` candidates
 
 ## Current Gaps
 
@@ -55,6 +57,18 @@ generic “orchestration.”
 - expose coordination telemetry
 - treat distributed substrate as an architecture concern even before full
   infrastructure distribution
+
+## Context Admission Boundary
+
+Coordination storage is not prompt assembly. Coordination primitives may record
+cross-agent memory, handoff state, claims, broadcasts, and swarm state. When
+that information is useful for a model turn, runtime supplies it as
+coordination context candidates and the `ContextGovernor` decides what is
+admitted or deferred.
+
+Provider output is normalized before projection. Malformed records and
+provider exceptions fail closed for model context and are recorded through
+sanitized runtime-local audit metadata.
 
 ## Active Shared Medium
 
@@ -77,3 +91,5 @@ feature.
 - task ownership and claim semantics must be explicit
 - stale coordination state must expire by policy
 - no hidden second coordination model should grow outside these primitives
+- coordination state must not bypass context governance when entering a model
+  prompt

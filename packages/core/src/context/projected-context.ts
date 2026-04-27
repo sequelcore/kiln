@@ -3,7 +3,9 @@ export type ProjectedContextBlockKind =
   | "summary"
   | "artifact"
   | "knowledge"
-  | "ledger";
+  | "ledger"
+  | "procedural"
+  | "coordination";
 
 export interface ProjectedContextBlock {
   readonly id: string;

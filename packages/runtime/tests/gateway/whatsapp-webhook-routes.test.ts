@@ -358,6 +358,10 @@ describe("createWhatsAppWebhookRoutes", () => {
       await new Promise((r) => setTimeout(r, 50));
 
       expect(processSpy).toHaveBeenCalledTimes(1);
+      const governedContext = processSpy.mock.calls[0]![2];
+      expect(governedContext).toEqual(expect.objectContaining({
+        audit: expect.objectContaining({ governor: "DefaultContextGovernor" }),
+      }));
       const perCallConfig = processSpy.mock.calls[0]![4];
       expect(perCallConfig?.toolAuthority).toBe(mockedToolAuthority);
     });

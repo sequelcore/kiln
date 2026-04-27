@@ -48,6 +48,11 @@ import type { ConversationEventEmitter } from "./conversation-event-emitter.js";
 import type { KnowledgePipelineResult } from "./knowledge-factory.js";
 import type { JwtVerifyFn } from "./jwt-verifier.js";
 import { requireJwt } from "./auth-middleware.js";
+import {
+  appendCoordinationProviderFailureAudit,
+  projectAdmittedTurnContext,
+  resolveCoordinationContextCandidates,
+} from "./message-pipeline.js";
 
 export interface LoadedApp {
   readonly name: string;
@@ -264,6 +269,7 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
             knowledgePipeline: loadedApp.knowledgePipeline?.pipeline,
             knowledgeMode: loadedApp.app.knowledge?.mode,
             contactMemoryService: loadedApp.contactMemoryService,
+            coordinationContextProvider: tenantRuntime.coordinationContextProvider,
           });
           app.route(`/apps/${loadedApp.name}`, wsTenantApp);
         } else if (loadedApp.providerAdapterRuntime) {
@@ -280,7 +286,30 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
                 userId,
                 systemPrompt: runtime.systemPrompt,
               });
-              return runtime.orchestrator.processMessage(session, parts);
+              const coordinationContext = await resolveCoordinationContextCandidates(runtime.coordinationContextProvider, {
+                appName: loadedApp.name,
+                tenantId: "_default",
+                userId,
+                sessionId: session.id,
+                channel: "web",
+              });
+              const baseProjectedTurnContext = projectAdmittedTurnContext({
+                userContext: session.userContext,
+                cachedRuntimeSummary: undefined,
+                recalledMemory: undefined,
+                knowledgeContext: undefined,
+                contactContext: undefined,
+                groundingMode: undefined,
+                coordinationContextCandidates: coordinationContext.candidates,
+              });
+              const projectedTurnContext = {
+                ...baseProjectedTurnContext,
+                audit: appendCoordinationProviderFailureAudit(
+                  baseProjectedTurnContext.audit,
+                  coordinationContext.failureReason,
+                ),
+              };
+              return runtime.orchestrator.processMessage(session, parts, projectedTurnContext);
             },
           });
           app.route(`/apps/${loadedApp.name}`, wsApp);

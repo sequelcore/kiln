@@ -119,9 +119,14 @@ export class SkillRegistry {
 }
 ```
 
-## Runtime Injection
+## Runtime Context Admission
 
-Skills are injected into agent context at call time via PerCallToolConfig.skillInstructions. In bare mode (subprocess), skills are included as an XML block in the system prompt, subject to the 2000-token cap.
+Runtime active skills are resolved by `SkillRegistry`, converted into
+procedural context candidates, and admitted through the core
+`ContextGovernor`. They are ranked and deferred under the same turn budget as
+memory, knowledge, summaries, and coordination state. Runtime code must not
+inject skills through `PerCallToolConfig` or another parallel system-prompt
+path.
 
 ```typescript
 // packages/core/src/skill/types.ts
@@ -223,5 +228,7 @@ Skills can be triggered by events. The supported event types are defined in `pac
 
 ## Related
 
+- [Context Governance](../architecture/context-governance.md) -- context
+  admission, budget, and audit policy
 - [CLI Wrapper](cli-wrapper.md) -- session lifecycle and transcript persistence
 - [Tool Use](tool-use.md) -- PerCallToolConfig and runtime tool injection

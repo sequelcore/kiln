@@ -3,9 +3,12 @@ import { Hono } from "hono";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
+import type { UpgradeWebSocket } from "hono/ws";
 import { createGatewayApp } from "../../src/gateway/gateway-routes.js";
 import type { LoadedApp, GatewayServerConfig } from "../../src/gateway/gateway-routes.js";
 import { ChannelRegistry } from "../../src/channels/channel-registry.js";
+import { WebChannel } from "../../src/channels/web-channel.js";
+import type { WebSocketLike } from "../../src/channels/web-channel.js";
 import { SessionRegistry } from "../../src/session/session-registry.js";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { TenantRegistry } from "../../src/tenant/tenant-registry.js";
@@ -62,6 +65,41 @@ function makeMockProvider(): ProviderAdapter {
     }),
     streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
   };
+}
+
+function makeUpgradeWebSocket() {
+  type HandlerFactory = Parameters<UpgradeWebSocket>[0];
+  let capturedFactory: HandlerFactory | null = null;
+
+  const upgradeWebSocket: UpgradeWebSocket = (factory) => {
+    capturedFactory = factory;
+    return async (_c, next) => next();
+  };
+
+  function simulateConnection(queryParams: Record<string, string> = {}) {
+    if (!capturedFactory) throw new Error("upgradeWebSocket not called yet");
+
+    const url = new URL("http://localhost/ws");
+    for (const [key, value] of Object.entries(queryParams)) {
+      url.searchParams.set(key, value);
+    }
+
+    const ctx = {
+      req: {
+        query: (key: string) => url.searchParams.get(key) ?? undefined,
+      },
+    } as Parameters<HandlerFactory>[0];
+
+    const handlers = capturedFactory(ctx);
+    const mockWs: WebSocketLike & { close: ReturnType<typeof vi.fn> } = {
+      send: vi.fn(),
+      readyState: 1,
+      close: vi.fn(),
+    };
+    return { handlers, mockWs, wsCtx: mockWs as unknown as Parameters<typeof handlers.onOpen>[1] };
+  }
+
+  return { upgradeWebSocket, simulateConnection };
 }
 
 function makeTenantConfig(overrides: Partial<TenantConfig> = {}): TenantConfig {
@@ -390,6 +428,134 @@ describe("createGatewayApp multi-tenant wiring", () => {
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: string };
     expect(body.error).toBe("tenantId is required");
+  });
+
+  it("projects provider-adapter WebSocket messages through the governed context seam", async () => {
+    const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
+    const session = {
+      id: "sess-web-1",
+      userContext: { plan: "enterprise" },
+    };
+    const sessionRegistry = {
+      getOrCreate: vi.fn().mockResolvedValue(session),
+    } as unknown as SessionRegistry;
+    const orchestrator = {
+      processMessage: vi.fn().mockResolvedValue({
+        parts: textParts("mock response"),
+        inputTokens: 1,
+        outputTokens: 1,
+      }),
+    } as unknown as RuntimeSessionOrchestrator;
+    const loadedApp: LoadedApp = {
+      name: "standard",
+      app: makeApp("standard"),
+      binding: {
+        name: "standard",
+        config: "apps/standard.yaml",
+        channels: [{ type: "web" }],
+      },
+      registry: new ChannelRegistry(),
+      webChannel: new WebChannel(),
+      providerAdapterRuntime: {
+        appName: "standard",
+        orchestrator,
+        sessionRegistry,
+        billing: undefined,
+        systemPrompt: "test",
+      },
+    };
+
+    createGatewayApp({
+      ...makeConfig([loadedApp]),
+      upgradeWebSocket,
+    });
+
+    const { handlers, wsCtx } = simulateConnection({ userId: "user-1" });
+    await handlers.onMessage!(
+      new MessageEvent("message", { data: JSON.stringify({ type: "message", content: "hello" }) }),
+      wsCtx,
+    );
+
+    expect(orchestrator.processMessage).toHaveBeenCalledOnce();
+    const [calledSession, parts, governedContext] = vi.mocked(orchestrator.processMessage).mock.calls[0]!;
+    expect(calledSession).toBe(session);
+    expect(parts).toEqual(textParts("hello"));
+    expect(governedContext).toEqual(expect.objectContaining({
+      content: expect.stringContaining("plan: enterprise"),
+      audit: expect.objectContaining({ governor: "DefaultContextGovernor" }),
+    }));
+  });
+
+  it("projects provider-adapter WebSocket coordination context through the governed seam", async () => {
+    const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
+    const session = {
+      id: "sess-web-2",
+      userContext: {},
+    };
+    const sessionRegistry = {
+      getOrCreate: vi.fn().mockResolvedValue(session),
+    } as unknown as SessionRegistry;
+    const orchestrator = {
+      processMessage: vi.fn().mockResolvedValue({
+        parts: textParts("mock response"),
+        inputTokens: 1,
+        outputTokens: 1,
+      }),
+    } as unknown as RuntimeSessionOrchestrator;
+    const coordinationContextProvider = vi.fn().mockResolvedValue([
+      {
+        kind: "coordination" as const,
+        source: "runtime-cross-agent-memory:adapter-handoff",
+        content: "Cross-agent memory\nsummary: Adapter handoff is active.",
+        score: 0.8,
+      },
+    ]);
+    const loadedApp: LoadedApp = {
+      name: "standard",
+      app: makeApp("standard"),
+      binding: {
+        name: "standard",
+        config: "apps/standard.yaml",
+        channels: [{ type: "web" }],
+      },
+      registry: new ChannelRegistry(),
+      webChannel: new WebChannel(),
+      providerAdapterRuntime: {
+        appName: "standard",
+        orchestrator,
+        sessionRegistry,
+        billing: undefined,
+        systemPrompt: "test",
+        coordinationContextProvider,
+      },
+    };
+
+    createGatewayApp({
+      ...makeConfig([loadedApp]),
+      upgradeWebSocket,
+    });
+
+    const { handlers, wsCtx } = simulateConnection({ userId: "user-2" });
+    await handlers.onMessage!(
+      new MessageEvent("message", { data: JSON.stringify({ type: "message", content: "hello" }) }),
+      wsCtx,
+    );
+
+    expect(coordinationContextProvider).toHaveBeenCalledWith({
+      appName: "standard",
+      tenantId: "_default",
+      userId: "user-2",
+      sessionId: "sess-web-2",
+      channel: "web",
+    });
+    const governedContext = vi.mocked(orchestrator.processMessage).mock.calls[0]![2];
+    expect(governedContext?.content).toContain("Adapter handoff is active.");
+    expect(governedContext?.audit?.blocks.find((block) => block.kind === "coordination")).toEqual(
+      expect.objectContaining({
+        decision: "admitted",
+        source: expect.stringContaining("runtime-coordination-provider:0:adapter-handoff"),
+      }),
+    );
   });
 });
 
