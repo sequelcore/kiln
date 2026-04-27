@@ -84,9 +84,21 @@ vi.mock("../src/components/session-list.js", () => ({
   SessionList: () => <div data-testid="session-list">Session list</div>,
 }));
 
+vi.mock("../src/components/workspace-panel.js", () => ({
+  WorkspacePanel: ({ selectedSessionId }: { selectedSessionId: string | null }) => (
+    <div data-testid="workspace-panel">Workspace panel: {selectedSessionId ?? "none"}</div>
+  ),
+}));
+
 vi.mock("../src/components/changed-files-panel.js", () => ({
   ChangedFilesPanel: ({ files }: { files: readonly { path: string }[] }) => (
     <div data-testid="changed-files-panel">Changed files: {files.length}</div>
+  ),
+}));
+
+vi.mock("../src/components/approvals-panel.js", () => ({
+  ApprovalsPanel: ({ approvals }: { approvals: readonly { id: string }[] }) => (
+    <div data-testid="approvals-panel">Approvals: {approvals.length}</div>
   ),
 }));
 
@@ -120,6 +132,20 @@ function resetStore(): void {
           path: "packages/gui/src/app-shell.tsx",
           changeType: "modified",
         },
+      },
+      {
+        id: "event:approval-1",
+        type: "event",
+        eventKind: "approval_requested",
+        createdAt: "2026-04-23T18:01:00.000Z",
+        title: "Approval requested",
+        summary: "Write file",
+        tone: "warning",
+        details: {
+          approvalId: "approval-1",
+          action: "Write file",
+        },
+        sessionId: "session-1",
       },
     ],
     currentAssistant: null,
@@ -213,6 +239,32 @@ describe("AppShell sidebar modes", () => {
     fireEvent.click(screen.getByRole("button", { name: "Changed files" }));
 
     expect(screen.getByTestId("changed-files-panel")).toHaveTextContent("Changed files: 1");
+    expect(screen.queryByTestId("session-list")).not.toBeInTheDocument();
+  });
+
+  it("switches the left mode panel from sessions to workspace", async () => {
+    render(<AppShell />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-list")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Workspace" }));
+
+    expect(screen.getByTestId("workspace-panel")).toHaveTextContent("Workspace panel: none");
+    expect(screen.queryByTestId("session-list")).not.toBeInTheDocument();
+  });
+
+  it("switches the left mode panel from sessions to approvals", async () => {
+    render(<AppShell />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-list")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Approvals" }));
+
+    expect(screen.getByTestId("approvals-panel")).toHaveTextContent("Approvals: 1");
     expect(screen.queryByTestId("session-list")).not.toBeInTheDocument();
   });
 });

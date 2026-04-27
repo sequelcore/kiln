@@ -78,6 +78,14 @@ describe("Composer", () => {
     expect(onOpenCommandPalette).toHaveBeenCalledTimes(1);
   });
 
+  it("shows selected route and continuation marker when resuming a target", () => {
+    renderComposer({ resumeTargetId: "session-42" });
+
+    expect(screen.getByText("Continuing")).toBeInTheDocument();
+    expect(screen.getByText("selected")).toBeInTheDocument();
+    expect(screen.queryByText("new")).not.toBeInTheDocument();
+  });
+
   it("normalizes pasted text to LF and strips trailing newlines", () => {
     renderComposer();
     const textarea = screen.getByLabelText("Message") as HTMLTextAreaElement;

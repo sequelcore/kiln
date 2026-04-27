@@ -82,6 +82,8 @@ The GUI shell uses a supervision layout rather than a dashboard layout:
 The main chat top bar is the summary layer. It should show the active session
 title/state, turns, tokens, current cost, provider/model route, and connection
 state. Do not duplicate those same summary metrics in the inspector.
+Regression coverage now explicitly locks this behavior: turns/tokens/cost stay
+in the top bar and are not duplicated in `SessionTelemetry`.
 
 The inspector is the detail layer. It should focus on continuity decisions,
 field state, changed files, and future event-backed diagnostics. It is
@@ -109,7 +111,11 @@ Current mode status:
 Typing `/` in an empty composer, or pressing the `/command` affordance in the
 composer rail, opens a composer-attached command surface above the input. That
 surface is intentionally not the global modal; slash commands are part of the
-message composition flow.
+message composition flow. Regression coverage locks this separation through the
+`placement="composer"` path versus the global palette path.
+
+Composer command placement remains a non-modal inline dialog path; it is not a
+fallback into the centered global modal.
 
 The composer should remain a compact framed control with internal padding, a
 transparent textarea, and a bottom action rail for command, file, approval,

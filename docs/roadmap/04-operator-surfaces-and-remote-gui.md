@@ -544,6 +544,20 @@ Deliverables:
 - tests cover slash command opening, global command opening, and inspector
   summary de-duplication
 
+Current implementation status:
+
+- B3 landed as a narrow hardening slice; it was not a GUI redesign.
+- regression coverage in `AppShell` now locks global palette opening on both
+  `Ctrl+K` and `Cmd+K`.
+- regression coverage now locks composer-triggered command placement as a
+  distinct surface (`placement="composer"`), separate from the global palette.
+- composer bottom-rail route visibility is covered when `resumeTargetId` is
+  set.
+- inspector regression coverage now locks turns/tokens/cost summary metrics to
+  the chat top bar and prevents duplication in `SessionTelemetry`.
+- `CommandPalette` composer placement remains the non-modal inline dialog path,
+  with regression protection.
+
 ### Slice B4. Future agent invocation model
 
 Primary files:

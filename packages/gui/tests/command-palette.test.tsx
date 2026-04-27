@@ -60,4 +60,23 @@ describe("CommandPalette", () => {
 
     expect(onExecute).toHaveBeenCalledWith(commands[1]);
   });
+
+  it("renders the composer placement as a non-modal inline dialog", () => {
+    render(
+      <CommandPalette
+        open
+        placement="composer"
+        title="Command Palette"
+        placeholder="Filter commands…"
+        query=""
+        commands={commands}
+        onQueryChange={() => {}}
+        onExecute={() => {}}
+        onOpenChange={() => {}}
+      />,
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "Command Palette" });
+    expect(dialog).toHaveAttribute("aria-modal", "false");
+  });
 });
