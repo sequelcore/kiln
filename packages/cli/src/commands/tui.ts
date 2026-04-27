@@ -294,6 +294,10 @@ export async function makeMultiProviderSessionFactory(
         }
         try {
           for await (const event of resumedSession.run(options)) {
+            if (!event || typeof event !== "object" || !("type" in event)) {
+              yield event;
+              continue;
+            }
             if (event.type === "text_delta" && !event.isThinking) {
               await transcriptStore.append(
                 capturedId,
@@ -330,12 +334,7 @@ export async function makeMultiProviderSessionFactory(
                 }),
               );
             }
-            if (
-              event
-              && typeof event === "object"
-              && "type" in event
-              && event.type === "completed"
-            ) {
+            if (event.type === "completed") {
               turnCostUsd = event.totalUsd;
             }
             yield event;
@@ -412,10 +411,15 @@ export async function makeMultiProviderSessionFactory(
     setModel: (model: string) => {
       providerModelState.set(currentProvider, model);
     },
-    onClear: async (_provider?: string) => {
+    onClear: async (provider?: string) => {
       for (const state of providerState.values()) {
         state.resumeSessionId = undefined;
         state.providerSessionId = undefined;
+      }
+      if (provider === undefined) {
+        await sessionStore.clearLast();
+      } else {
+        await sessionStore.clearLast(provider);
       }
     },
     setResumeSession: (sessionId: string, provider?: string) => {

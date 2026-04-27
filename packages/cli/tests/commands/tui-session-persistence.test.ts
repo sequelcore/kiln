@@ -89,7 +89,7 @@ function makeStore(lastRecord: SessionRecord | null = null) {
 function makeTranscriptStore() {
   return {
     init: vi.fn().mockResolvedValue(undefined),
-    read: vi.fn().mockResolvedValue([]),
+    readTranscript: vi.fn().mockResolvedValue([]),
     append: vi.fn().mockResolvedValue(undefined),
     finalize: vi.fn().mockResolvedValue(undefined),
     readMeta: vi.fn().mockResolvedValue(null),

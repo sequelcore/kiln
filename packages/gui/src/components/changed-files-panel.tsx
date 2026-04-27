@@ -164,10 +164,30 @@ export function ChangedFilesPanel(props: ChangedFilesPanelProps) {
               </div>
 
               <div className="rounded-md border border-dashed border-border/70 bg-background px-3 py-3">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Diff status</p>
-                <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                  Canonical diff hunks are not available for this event yet. This panel is ready to consume them once the runtime emits structured diff payloads.
-                </p>
+                {selectedFile.diffPreview ? (
+                  <>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Diff preview</p>
+                    <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded border border-border/50 bg-secondary/25 px-2.5 py-2 text-[11px] leading-5 text-foreground">
+                      {selectedFile.diffPreview.split(/\r?\n/).map((line, index) => (
+                        <span key={`${index}:${line}`} className="block">
+                          {line.length > 0 ? line : " "}
+                        </span>
+                      ))}
+                    </pre>
+                    {selectedFile.diffTruncated ? (
+                      <p className="mt-2 text-[11px] leading-5 text-muted-foreground">
+                        Preview truncated to keep timeline events bounded.
+                      </p>
+                    ) : null}
+                  </>
+                ) : (
+                  <>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Diff status</p>
+                    <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                      Diff preview is not available for this file-change event.
+                    </p>
+                  </>
+                )}
               </div>
             </section>
           ) : (

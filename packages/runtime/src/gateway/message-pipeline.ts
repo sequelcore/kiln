@@ -8,6 +8,7 @@ import type {
   ModelCapabilityRegistry,
   EventBus,
   ContextArtifactCache,
+  ContextCandidate,
   ApprovalRequestedEvent,
   ApprovalReceivedEvent,
   ToolAuthorizedEvent,
@@ -19,7 +20,7 @@ import type {
   TenantConfig,
   RetrievalPipeline,
 } from "@kilnai/core";
-import { extractText, textParts, GroundingRail } from "@kilnai/core";
+import { DefaultContextGovernor, extractText, textParts, GroundingRail, renderProjectedContext } from "@kilnai/core";
 import type { AbuseDetectionConfig } from "../session/repetitive-abuse-detector.js";
 import { detectRepetitiveAbuse } from "../session/repetitive-abuse-detector.js";
 import type { RuntimeSessionOrchestrator, OrchestrateResult, PerCallToolConfig, ToolExecutionSummary } from "../session/runtime-session-orchestrator.js";
@@ -280,13 +281,59 @@ interface AdmittedTurnContextProjectionInput {
 }
 
 function projectAdmittedTurnContext(input: AdmittedTurnContextProjectionInput): string | undefined {
-  const mergedMemory = [
-    formatUserContext(input.userContext),
-    input.cachedRuntimeSummary,
-    input.recalledMemory,
-    input.knowledgeContext,
-    input.contactContext,
-  ].filter(Boolean).join("\n\n") || undefined;
+  const candidates: ContextCandidate[] = [];
+  const userContext = formatUserContext(input.userContext);
+
+  if (userContext) {
+    candidates.push({
+      kind: "memory",
+      source: "runtime-user-context",
+      content: userContext,
+      required: true,
+      score: 1,
+    });
+  }
+  if (input.cachedRuntimeSummary) {
+    candidates.push({
+      kind: "summary",
+      source: "runtime-continuity",
+      content: input.cachedRuntimeSummary,
+      score: 0.9,
+    });
+  }
+  if (input.recalledMemory) {
+    candidates.push({
+      kind: "memory",
+      source: "runtime-recalled-memory",
+      content: input.recalledMemory,
+      score: 0.8,
+    });
+  }
+  if (input.knowledgeContext) {
+    candidates.push({
+      kind: "knowledge",
+      source: "runtime-knowledge-context",
+      content: input.knowledgeContext,
+      score: 0.7,
+    });
+  }
+  if (input.contactContext) {
+    candidates.push({
+      kind: "memory",
+      source: "runtime-contact-context",
+      content: input.contactContext,
+      score: 0.6,
+    });
+  }
+
+  const projectedContext = new DefaultContextGovernor<
+    never,
+    "memory" | "summary" | "knowledge",
+    never
+  >().project({
+    artifacts: candidates,
+  });
+  const mergedMemory = renderProjectedContext(projectedContext);
   return appendGroundingDirective(mergedMemory, input.groundingMode);
 }
 
@@ -698,7 +745,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
   const mergedFileChanges = dedupeByStableKey([
     ...(fileChanges ?? []),
     ...(externalTurnCapture?.fileChanges ?? []),
-  ], (change) => `${change.path}|${change.changeType}|${"linesAdded" in change ? change.linesAdded ?? "" : ""}|${"linesRemoved" in change ? change.linesRemoved ?? "" : ""}`);
+  ], (change) => `${change.path}|${change.changeType}|${"linesAdded" in change ? change.linesAdded ?? "" : ""}|${"linesRemoved" in change ? change.linesRemoved ?? "" : ""}|${"diffPreview" in change ? change.diffPreview ?? "" : ""}|${"diffTruncated" in change ? String(change.diffTruncated ?? "") : ""}`);
   const mergedApprovalTransitions = dedupeByStableKey([
     ...approvalTransitions,
     ...(externalTurnCapture?.approvalTransitions ?? []),

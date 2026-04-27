@@ -45,7 +45,11 @@ export interface ToolExecutionSummary {
   readonly resultSummary: string;
   readonly fileChanges?: readonly {
     readonly path: string;
-    readonly changeType: "modified";
+    readonly changeType: "created" | "modified" | "deleted";
+    readonly linesAdded?: number;
+    readonly linesRemoved?: number;
+    readonly diffPreview?: string;
+    readonly diffTruncated?: boolean;
   }[];
 }
 

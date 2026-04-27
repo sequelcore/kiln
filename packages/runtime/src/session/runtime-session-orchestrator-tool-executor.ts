@@ -75,6 +75,71 @@ function formatDangerousCommandBlockMessage(decision: DangerousCommandDecisionLi
     : `Command requires approval: ${decision.reason} (${decision.reasonCode})`;
 }
 
+function countLines(value: string): number {
+  if (value.length === 0) {
+    return 0;
+  }
+  return value.split(/\r?\n/).length;
+}
+
+function clipDiffPreview(value: string): { readonly preview: string; readonly truncated: boolean } {
+  const MAX_LINES = 24;
+  const MAX_CHARS = 1200;
+  const normalized = value.replace(/\r\n/g, "\n").trimEnd();
+  if (normalized.length === 0) {
+    return { preview: "", truncated: false };
+  }
+
+  const lines = normalized.split("\n");
+  const keptLines = lines.slice(0, MAX_LINES);
+  let preview = keptLines.join("\n");
+  let truncated = lines.length > MAX_LINES;
+
+  if (preview.length > MAX_CHARS) {
+    preview = `${preview.slice(0, MAX_CHARS)}\n...`;
+    truncated = true;
+  }
+
+  return { preview, truncated };
+}
+
+function normalizeFileChangeType(value: unknown): "created" | "modified" | "deleted" {
+  if (value === "created") {
+    return "created";
+  }
+  if (value === "deleted") {
+    return "deleted";
+  }
+  return "modified";
+}
+
+function maybeNumber(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return undefined;
+  }
+  return value;
+}
+
+function maybeString(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  return value;
+}
+
+function buildWritePreview(content: string): string {
+  if (content.length === 0) {
+    return "+ (empty file)";
+  }
+  return content.split(/\r?\n/).map((line) => `+ ${line}`).join("\n");
+}
+
+function buildEditPreview(oldString: string, newString: string): string {
+  const removed = oldString.length > 0 ? oldString.split(/\r?\n/).map((line) => `- ${line}`) : ["- (empty)"];
+  const added = newString.length > 0 ? newString.split(/\r?\n/).map((line) => `+ ${line}`) : ["+ (empty)"];
+  return [...removed, ...added].join("\n");
+}
+
 export interface RuntimeSessionToolExecutionResult {
   readonly resultParts: readonly {
     readonly type: "tool_result";
@@ -211,7 +276,11 @@ export class RuntimeSessionToolExecutor {
           execution.retryAttempt,
         );
 
-        const fileChanges = this.extractFileChangesFromToolResult(normalizedToolCall.name, execution.resultValueRaw);
+        const fileChanges = this.extractFileChangesFromToolResult(
+          normalizedToolCall.name,
+          normalizedToolCall.input,
+          execution.resultValueRaw,
+        );
         toolExecutions.push({
           toolName: normalizedToolCall.name,
           durationMs,
@@ -532,22 +601,90 @@ export class RuntimeSessionToolExecutor {
 
   private extractFileChangesFromToolResult(
     toolName: string,
+    toolInput: Record<string, unknown>,
     resultValue: unknown,
-  ): readonly { readonly path: string; readonly changeType: "modified" }[] | undefined {
+  ): readonly {
+    readonly path: string;
+    readonly changeType: "created" | "modified" | "deleted";
+    readonly linesAdded?: number;
+    readonly linesRemoved?: number;
+    readonly diffPreview?: string;
+    readonly diffTruncated?: boolean;
+  }[] | undefined {
     if (toolName !== "write" && toolName !== "edit") {
       return undefined;
     }
-    if (!resultValue || typeof resultValue !== "object") {
-      return undefined;
-    }
-    const resultRecord = resultValue as { metadata?: Record<string, unknown> };
-    const filePath = typeof resultRecord.metadata?.filePath === "string"
-      ? resultRecord.metadata.filePath
+
+    const resultRecord = resultValue && typeof resultValue === "object"
+      ? resultValue as { metadata?: Record<string, unknown> }
       : undefined;
+    const metadata = resultRecord?.metadata && typeof resultRecord.metadata === "object"
+      ? resultRecord.metadata
+      : undefined;
+
+    const filePath = maybeString(metadata?.filePath)
+      ?? maybeString(metadata?.path)
+      ?? maybeString(toolInput.filePath)
+      ?? maybeString(toolInput.path);
     if (!filePath || filePath.trim() === "") {
       return undefined;
     }
-    return [{ path: filePath, changeType: "modified" }];
+
+    const changeType = normalizeFileChangeType(metadata?.changeType);
+
+    const metadataLinesAdded = maybeNumber(metadata?.linesAdded);
+    const metadataLinesRemoved = maybeNumber(metadata?.linesRemoved);
+    const metadataPreview = maybeString(metadata?.diffPreview);
+    const metadataTruncated = typeof metadata?.diffTruncated === "boolean" ? metadata.diffTruncated : undefined;
+
+    let linesAdded = metadataLinesAdded;
+    let linesRemoved = metadataLinesRemoved;
+    let diffPreview = metadataPreview;
+    let diffTruncated = metadataTruncated;
+
+    if (!diffPreview) {
+      if (toolName === "write") {
+        const content = maybeString(toolInput.content) ?? maybeString(toolInput.text);
+        if (content !== undefined) {
+          linesAdded = linesAdded ?? countLines(content);
+          const preview = clipDiffPreview(buildWritePreview(content));
+          diffPreview = preview.preview;
+          diffTruncated = preview.truncated;
+        }
+      } else if (toolName === "edit") {
+        const oldString = maybeString(toolInput.oldString) ?? maybeString(toolInput.old_string);
+        const newString = maybeString(toolInput.newString) ?? maybeString(toolInput.new_string);
+        if (oldString !== undefined && newString !== undefined) {
+          const replacements = Math.max(1, Math.trunc(maybeNumber(metadata?.replacements) ?? 1));
+          linesAdded = linesAdded ?? (countLines(newString) * replacements);
+          linesRemoved = linesRemoved ?? (countLines(oldString) * replacements);
+          const preview = clipDiffPreview(buildEditPreview(oldString, newString));
+          diffPreview = preview.preview;
+          diffTruncated = preview.truncated;
+        } else {
+          const content = maybeString(toolInput.content) ?? maybeString(toolInput.text);
+          if (content !== undefined) {
+            linesAdded = linesAdded ?? countLines(content);
+            const preview = clipDiffPreview(buildWritePreview(content));
+            diffPreview = preview.preview;
+            diffTruncated = preview.truncated;
+          }
+        }
+      }
+    } else {
+      const clipped = clipDiffPreview(diffPreview);
+      diffPreview = clipped.preview;
+      diffTruncated = clipped.truncated || (diffTruncated ?? false);
+    }
+
+    return [{
+      path: filePath,
+      changeType,
+      ...(linesAdded !== undefined ? { linesAdded } : {}),
+      ...(linesRemoved !== undefined ? { linesRemoved } : {}),
+      ...(diffPreview !== undefined && diffPreview.length > 0 ? { diffPreview } : {}),
+      ...(diffTruncated !== undefined ? { diffTruncated } : {}),
+    }];
   }
 
   private async executeTool(toolCall: ToolCall): Promise<unknown> {

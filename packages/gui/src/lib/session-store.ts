@@ -44,6 +44,8 @@ export interface ChangedFileEntry {
   readonly changeType: "created" | "modified" | "deleted";
   readonly linesAdded?: number;
   readonly linesRemoved?: number;
+  readonly diffPreview?: string;
+  readonly diffTruncated?: boolean;
   readonly recordedAt: string;
 }
 
@@ -195,6 +197,24 @@ function formatUsd(value: number): string {
     minimumFractionDigits: 4,
     maximumFractionDigits: 4,
   }).format(value);
+}
+
+function areSessionSummariesEqual(
+  current: readonly GuiSessionSummary[],
+  next: readonly GuiSessionSummary[],
+): boolean {
+  if (current === next) {
+    return true;
+  }
+  if (current.length !== next.length) {
+    return false;
+  }
+  for (let index = 0; index < current.length; index += 1) {
+    if (JSON.stringify(current[index]) !== JSON.stringify(next[index])) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function providerFromTimelineDetails(details: unknown): string | null {
@@ -720,6 +740,8 @@ export function deriveChangedFiles(entries: readonly TimelineEntry[]): readonly 
       changeType,
       linesAdded: readNumber(details?.linesAdded) ?? undefined,
       linesRemoved: readNumber(details?.linesRemoved) ?? undefined,
+      diffPreview: readString(details?.diffPreview) ?? undefined,
+      diffTruncated: typeof details?.diffTruncated === "boolean" ? details.diffTruncated : undefined,
       recordedAt: entry.createdAt,
     });
   }
@@ -908,11 +930,19 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   },
 
   setSessionList: (sessions) => {
-    const selected = get().selectedSessionId;
+    const state = get();
+    const selected = state.selectedSessionId;
     const selectedStillExists = selected ? sessions.some((session) => session.id === selected) : false;
+    const nextSelectedSessionId = selectedStillExists ? selected : null;
+    if (
+      state.selectedSessionId === nextSelectedSessionId
+      && areSessionSummariesEqual(state.sessionList, sessions)
+    ) {
+      return;
+    }
     set({
       sessionList: sessions,
-      selectedSessionId: selectedStillExists ? selected : null,
+      selectedSessionId: nextSelectedSessionId,
     });
   },
 

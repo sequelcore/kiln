@@ -531,6 +531,41 @@ describe("processAdmittedTurn", () => {
     supportSpy.mockRestore();
   });
 
+  it("governs admitted-turn context under the core budget instead of replaying oversized memory", async () => {
+    const supportSpy = vi.spyOn(runtimeArtifacts, "readRuntimeSupportArtifactsDetailed").mockReturnValue({
+      content: "cached runtime summary",
+      supportArtifactCount: 0,
+      supportArtifactSources: [],
+      fallbackLabel: undefined,
+      usedCachedSupport: false,
+      selectionReason: "none",
+      decision: {
+        resumeStrategy: "none",
+        cachedResumeSignalCount: 0,
+      },
+    } as ReturnType<typeof runtimeArtifacts.readRuntimeSupportArtifactsDetailed>);
+    const orchestrator = makeMockOrchestrator();
+    const sessionRegistry = makeMockSessionRegistry();
+    const oversizedMemory = `oversized-memory-${"x".repeat(12_000)}`;
+    const ctx = makeBaseContext({
+      orchestrator,
+      sessionRegistry,
+      recalledMemory: oversizedMemory,
+      knowledgeContext: "compact knowledge context",
+    });
+
+    await processInboundMessage(ctx);
+
+    const callArgs = (orchestrator.processMessage as ReturnType<typeof vi.fn>).mock.calls[0];
+    const mergedMemoryArg: string | undefined = callArgs[2];
+    expect(mergedMemoryArg).toBeDefined();
+    expect(mergedMemoryArg).toContain("cached runtime summary");
+    expect(mergedMemoryArg).toContain("compact knowledge context");
+    expect(mergedMemoryArg).not.toContain("oversized-memory-");
+
+    supportSpy.mockRestore();
+  });
+
   it("uses tenantId for billing", async () => {
     const ctx = makeBaseContext({
       billing: makeBillingConfig(),

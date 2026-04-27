@@ -133,6 +133,8 @@ describe("session-store", () => {
           changeType: "modified",
           linesAdded: 12,
           linesRemoved: 4,
+          diffPreview: "- old\n+ new",
+          diffTruncated: false,
         },
       },
     });
@@ -152,6 +154,8 @@ describe("session-store", () => {
       changeType: "modified",
       linesAdded: 12,
       linesRemoved: 4,
+      diffPreview: "- old\n+ new",
+      diffTruncated: false,
     });
   });
 
@@ -242,6 +246,8 @@ describe("session-store", () => {
           changeType: "updated",
           linesAdded: 7,
           linesRemoved: 2,
+          diffPreview: "- previous\n+ current",
+          diffTruncated: true,
         },
       },
     });
@@ -309,6 +315,8 @@ describe("session-store", () => {
         changeType: "modified",
         linesAdded: 7,
         linesRemoved: 2,
+        diffPreview: "- previous\n+ current",
+        diffTruncated: true,
       }),
     ]);
   });

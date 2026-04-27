@@ -20,6 +20,8 @@ export interface RuntimeTurnFileChange {
   readonly changeType?: string;
   readonly linesAdded?: number;
   readonly linesRemoved?: number;
+  readonly diffPreview?: string;
+  readonly diffTruncated?: boolean;
 }
 
 export interface RuntimeTurnApprovalTransition {

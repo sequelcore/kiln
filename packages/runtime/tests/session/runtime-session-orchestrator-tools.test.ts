@@ -1024,7 +1024,11 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       const result = await orchestrator.processMessage(makeSession(), textParts("write file"));
 
       expect(result.toolExecutions?.[0]?.fileChanges).toEqual([
-        { path: "C:/workspace/src/demo.txt", changeType: "modified" },
+        expect.objectContaining({
+          path: "C:/workspace/src/demo.txt",
+          changeType: "modified",
+          linesAdded: 1,
+        }),
       ]);
       },
     );

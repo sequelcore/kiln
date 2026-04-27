@@ -19,6 +19,7 @@ function makeMockSession(): RuntimeSession {
   let _userContext: Record<string, string> | undefined;
   let _sessionLedger: Record<string, unknown> = {};
   let _exactArtifacts: string[] = [];
+  let _sessionEvents: Array<{ sequence?: number; kilnSessionId?: string }> = [];
   return {
     id: "test-app:test-tenant:user-1:12345",
     appName: "test-app",
@@ -40,6 +41,15 @@ function makeMockSession(): RuntimeSession {
     get sessionLedger() { return _sessionLedger as any; },
     addExactArtifact(artifact: string) {
       _exactArtifacts.push(artifact);
+    },
+    get exactArtifacts() { return _exactArtifacts; },
+    get sessionEvents() { return _sessionEvents as any; },
+    nextSessionEventSequence() {
+      const lastEvent = _sessionEvents[_sessionEvents.length - 1];
+      return typeof lastEvent?.sequence === "number" ? lastEvent.sequence + 1 : 1;
+    },
+    appendSessionEvents(events: readonly { sequence?: number; kilnSessionId?: string }[]) {
+      _sessionEvents = [..._sessionEvents, ...events];
     },
   } as unknown as RuntimeSession;
 }

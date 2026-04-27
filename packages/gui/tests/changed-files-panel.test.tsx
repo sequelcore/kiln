@@ -13,6 +13,7 @@ describe("ChangedFilesPanel", () => {
             changeType: "modified",
             linesAdded: 24,
             linesRemoved: 9,
+            diffPreview: "- old line\n+ new line",
             recordedAt: "2026-04-23T18:00:00.000Z",
           },
           {
@@ -27,10 +28,11 @@ describe("ChangedFilesPanel", () => {
 
     const review = screen.getByLabelText("Selected file review");
     expect(within(review).getByText("packages/gui/src/components/app-shell.tsx")).toBeInTheDocument();
+    expect(within(review).getByText("- old line")).toBeInTheDocument();
+    expect(within(review).getByText("+ new line")).toBeInTheDocument();
+    expect(within(review).queryByText("Diff preview is not available for this file-change event.")).not.toBeInTheDocument();
     expect(
-      within(review).getByText(
-        "Canonical diff hunks are not available for this event yet. This panel is ready to consume them once the runtime emits structured diff payloads.",
-      ),
+      within(review).getByText("Diff preview"),
     ).toBeInTheDocument();
     expect(within(review).getByText("+24-9")).toBeInTheDocument();
 
@@ -39,6 +41,7 @@ describe("ChangedFilesPanel", () => {
     expect(within(review).getByText("packages/gui/src/components/transcript.tsx")).toBeInTheDocument();
     expect(within(review).getByText("Created")).toBeInTheDocument();
     expect(within(review).getByText("+120")).toBeInTheDocument();
+    expect(within(review).getByText("Diff preview is not available for this file-change event.")).toBeInTheDocument();
   });
 
   it("exposes the new-session action from the review panel", () => {
