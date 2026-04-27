@@ -51,6 +51,20 @@ export interface GuiProviderThreadMeta {
   readonly lastUsedAt?: string;
 }
 
+export interface GuiWorkspaceTreeEntry {
+  readonly path: string;
+  readonly name: string;
+  readonly kind: "file" | "directory";
+}
+
+export interface GuiWorkspaceTreeSnapshot {
+  readonly rootPath: string;
+  readonly entries: readonly GuiWorkspaceTreeEntry[];
+  readonly truncated?: boolean;
+  readonly source?: "gateway";
+  readonly worktreePath?: string;
+}
+
 export interface GuiDashboardSnapshot {
   readonly providers: readonly GuiProviderDescriptor[];
   readonly sessions: readonly GuiSessionSummary[];
@@ -58,6 +72,7 @@ export interface GuiDashboardSnapshot {
   readonly resumeInfoByProvider: Readonly<Record<string, GuiResumeInfo>>;
   readonly workingDirectory?: string;
   readonly domainLabel?: string;
+  readonly workspaceTree?: GuiWorkspaceTreeSnapshot;
 }
 
 // --- Session detail / HTTP response shapes ---
@@ -115,6 +130,11 @@ export type GuiSessionEventKind =
   | "approval_resolved"
   | "file_changed"
   | "cost_updated"
+  | "agent_invocation_requested"
+  | "agent_invocation_started"
+  | "agent_invocation_completed"
+  | "agent_invocation_failed"
+  | "agent_invocation_cancelled"
   | "continuity_decided"
   | "error_recorded"
   | "turn_completed";

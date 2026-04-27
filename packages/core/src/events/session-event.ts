@@ -12,6 +12,11 @@ export type CanonicalSessionEventKind =
   | "approval_resolved"
   | "file_changed"
   | "cost_updated"
+  | "agent_invocation_requested"
+  | "agent_invocation_started"
+  | "agent_invocation_completed"
+  | "agent_invocation_failed"
+  | "agent_invocation_cancelled"
   | "continuity_decided"
   | "error_recorded"
   | "turn_completed";
@@ -66,6 +71,8 @@ export interface SessionFileChange {
   readonly previousPath?: string;
   readonly linesAdded?: number;
   readonly linesRemoved?: number;
+  readonly diffPreview?: string;
+  readonly diffTruncated?: boolean;
   readonly bytesDelta?: number;
   readonly language?: string;
 }
@@ -153,6 +160,40 @@ export interface CanonicalCostUpdatedEvent extends SessionEventEnvelope<"cost_up
   readonly cost: SessionCost;
 }
 
+export interface SessionAgentInvocationIdentity {
+  readonly invocationId: string;
+  readonly agentId: string;
+  readonly agentName?: string;
+  readonly parentSessionId?: string;
+  readonly requestedBy?: string;
+  readonly requestSource?: string;
+}
+
+export interface CanonicalAgentInvocationRequestedEvent extends SessionEventEnvelope<"agent_invocation_requested">, SessionAgentInvocationIdentity {
+  readonly inputSummary?: string;
+}
+
+export interface CanonicalAgentInvocationStartedEvent extends SessionEventEnvelope<"agent_invocation_started">, SessionAgentInvocationIdentity {
+  readonly attempt?: number;
+}
+
+export interface CanonicalAgentInvocationCompletedEvent extends SessionEventEnvelope<"agent_invocation_completed">, SessionAgentInvocationIdentity {
+  readonly durationMs?: number;
+  readonly resultSummary?: string;
+  readonly outputMessageId?: string;
+}
+
+export interface CanonicalAgentInvocationFailedEvent extends SessionEventEnvelope<"agent_invocation_failed">, SessionAgentInvocationIdentity {
+  readonly errorCode?: string;
+  readonly errorMessage: string;
+  readonly retriable?: boolean;
+}
+
+export interface CanonicalAgentInvocationCancelledEvent extends SessionEventEnvelope<"agent_invocation_cancelled">, SessionAgentInvocationIdentity {
+  readonly reason?: string;
+  readonly cancelledBy?: string;
+}
+
 export interface CanonicalContinuityDecidedEvent extends SessionEventEnvelope<"continuity_decided"> {
   readonly decision: SessionContinuityDecision;
   readonly reason: string;
@@ -184,6 +225,11 @@ export interface CanonicalSessionEventMap {
   approval_resolved: CanonicalApprovalResolvedEvent;
   file_changed: CanonicalFileChangedEvent;
   cost_updated: CanonicalCostUpdatedEvent;
+  agent_invocation_requested: CanonicalAgentInvocationRequestedEvent;
+  agent_invocation_started: CanonicalAgentInvocationStartedEvent;
+  agent_invocation_completed: CanonicalAgentInvocationCompletedEvent;
+  agent_invocation_failed: CanonicalAgentInvocationFailedEvent;
+  agent_invocation_cancelled: CanonicalAgentInvocationCancelledEvent;
   continuity_decided: CanonicalContinuityDecidedEvent;
   error_recorded: CanonicalErrorRecordedEvent;
   turn_completed: CanonicalTurnCompletedEvent;

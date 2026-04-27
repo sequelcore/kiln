@@ -686,6 +686,8 @@ class TuiActivityStreamer {
           changeType: event.changeType,
           linesAdded: event.linesAdded,
           linesRemoved: event.linesRemoved,
+          diffPreview: event.diffPreview,
+          diffTruncated: event.diffTruncated,
         });
       }
       this.ws.send(JSON.stringify({
@@ -695,6 +697,8 @@ class TuiActivityStreamer {
         changeType: event.changeType,
         linesAdded: event.linesAdded,
         linesRemoved: event.linesRemoved,
+        diffPreview: event.diffPreview,
+        diffTruncated: event.diffTruncated,
       }));
     } else if (event.type === "cost_update") {
       this.ws.send(JSON.stringify({

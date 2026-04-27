@@ -166,20 +166,78 @@ describe("serializeSession / deserializeSession", () => {
         messageId: `${session.id}:turn:1:user`,
         content: "hello",
       }),
+      createSessionEvent({
+        kilnSessionId: session.id,
+        sequence: 3,
+        kind: "agent_invocation_requested",
+        turnId: `${session.id}:turn:1`,
+        invocationId: "inv-1",
+        agentId: "agent-planner",
+        agentName: "Planner",
+        requestedBy: "user",
+        requestSource: "manual",
+      }),
+      createSessionEvent({
+        kilnSessionId: session.id,
+        sequence: 4,
+        kind: "agent_invocation_started",
+        turnId: `${session.id}:turn:1`,
+        invocationId: "inv-1",
+        agentId: "agent-planner",
+        attempt: 1,
+      }),
+      createSessionEvent({
+        kilnSessionId: session.id,
+        sequence: 5,
+        kind: "agent_invocation_completed",
+        turnId: `${session.id}:turn:1`,
+        invocationId: "inv-1",
+        agentId: "agent-planner",
+        durationMs: 950,
+        resultSummary: "Plan generated",
+      }),
+      createSessionEvent({
+        kilnSessionId: session.id,
+        sequence: 6,
+        kind: "agent_invocation_failed",
+        turnId: `${session.id}:turn:1`,
+        invocationId: "inv-2",
+        agentId: "agent-coder",
+        errorCode: "ENGINE_TIMEOUT",
+        errorMessage: "Timed out",
+      }),
+      createSessionEvent({
+        kilnSessionId: session.id,
+        sequence: 7,
+        kind: "agent_invocation_cancelled",
+        turnId: `${session.id}:turn:1`,
+        invocationId: "inv-3",
+        agentId: "agent-reviewer",
+        reason: "Cancelled by operator",
+      }),
     ]);
 
     const json = serializeSession(session);
     const restored = deserializeSession(json);
 
-    expect(restored.sessionEvents).toHaveLength(2);
-    expect(restored.sessionEvents[0]).toMatchObject({
-      kind: "turn_started",
-      sequence: 1,
-    });
+    expect(restored.sessionEvents).toHaveLength(7);
+    expect(restored.sessionEvents.map((event) => event.kind)).toEqual([
+      "turn_started",
+      "user_message",
+      "agent_invocation_requested",
+      "agent_invocation_started",
+      "agent_invocation_completed",
+      "agent_invocation_failed",
+      "agent_invocation_cancelled",
+    ]);
     expect(restored.sessionEvents[1]).toMatchObject({
       kind: "user_message",
       sequence: 2,
       content: "hello",
+    });
+    expect(restored.sessionEvents[4]).toMatchObject({
+      kind: "agent_invocation_completed",
+      resultSummary: "Plan generated",
     });
     expect(restored.sessionEvents[0]?.timestamp).toBeInstanceOf(Date);
   });

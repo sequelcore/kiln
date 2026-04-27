@@ -158,6 +158,50 @@ function providerIdentity(payload: Record<string, unknown>): { provider: string 
   };
 }
 
+function invocationLabel(payload: Record<string, unknown>): string {
+  return readString(payload.agentName) ?? readString(payload.agentId) ?? "agent";
+}
+
+function invocationRequestedSummary(payload: Record<string, unknown>): string {
+  const label = invocationLabel(payload);
+  const invocationId = readString(payload.invocationId);
+  const requestedBy = readString(payload.requestedBy);
+  const requestSource = readString(payload.requestSource);
+  const by = [requestedBy, requestSource].filter((value): value is string => Boolean(value)).join(" · ");
+  return [label, invocationId ? `#${invocationId}` : null, by ? `by ${by}` : null]
+    .filter((value): value is string => Boolean(value))
+    .join(" · ") || "Invocation requested";
+}
+
+function invocationStartedSummary(payload: Record<string, unknown>): string {
+  const base = invocationRequestedSummary(payload);
+  const attempt = readNumber(payload.attempt);
+  return attempt !== null ? `${base} · attempt ${attempt}` : base;
+}
+
+function invocationCompletedSummary(payload: Record<string, unknown>): string {
+  const resultSummary = readString(payload.resultSummary);
+  if (resultSummary) {
+    return resultSummary;
+  }
+  const durationMs = readNumber(payload.durationMs);
+  return durationMs !== null
+    ? `${invocationLabel(payload)} · ${durationMs}ms`
+    : invocationLabel(payload);
+}
+
+function invocationFailedSummary(payload: Record<string, unknown>): string {
+  return readString(payload.errorMessage)
+    ?? readString(payload.errorCode)
+    ?? `${invocationLabel(payload)} failed`;
+}
+
+function invocationCancelledSummary(payload: Record<string, unknown>): string {
+  return readString(payload.reason)
+    ?? readString(payload.cancelledBy)
+    ?? `${invocationLabel(payload)} cancelled`;
+}
+
 function normalizeLoadedChangeType(value: unknown): ChangedFileEntry["changeType"] | null {
   if (value === "created" || value === "deleted") {
     return value;
@@ -500,6 +544,81 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
           usage,
           cost,
         },
+      });
+      continue;
+    }
+
+    if (event.kind === "agent_invocation_requested") {
+      timelineEntries.push({
+        id: `${detail.id}:timeline:${event.sequence}`,
+        type: "event",
+        eventKind: event.kind,
+        createdAt: event.timestamp,
+        sequence: event.sequence,
+        title: "Agent invocation requested",
+        summary: invocationRequestedSummary(payload),
+        tone: "info",
+        details: payload,
+      });
+      continue;
+    }
+
+    if (event.kind === "agent_invocation_started") {
+      timelineEntries.push({
+        id: `${detail.id}:timeline:${event.sequence}`,
+        type: "event",
+        eventKind: event.kind,
+        createdAt: event.timestamp,
+        sequence: event.sequence,
+        title: "Agent invocation started",
+        summary: invocationStartedSummary(payload),
+        tone: "running",
+        details: payload,
+      });
+      continue;
+    }
+
+    if (event.kind === "agent_invocation_completed") {
+      timelineEntries.push({
+        id: `${detail.id}:timeline:${event.sequence}`,
+        type: "event",
+        eventKind: event.kind,
+        createdAt: event.timestamp,
+        sequence: event.sequence,
+        title: "Agent invocation completed",
+        summary: invocationCompletedSummary(payload),
+        tone: "success",
+        details: payload,
+      });
+      continue;
+    }
+
+    if (event.kind === "agent_invocation_failed") {
+      timelineEntries.push({
+        id: `${detail.id}:timeline:${event.sequence}`,
+        type: "event",
+        eventKind: event.kind,
+        createdAt: event.timestamp,
+        sequence: event.sequence,
+        title: "Agent invocation failed",
+        summary: invocationFailedSummary(payload),
+        tone: "error",
+        details: payload,
+      });
+      continue;
+    }
+
+    if (event.kind === "agent_invocation_cancelled") {
+      timelineEntries.push({
+        id: `${detail.id}:timeline:${event.sequence}`,
+        type: "event",
+        eventKind: event.kind,
+        createdAt: event.timestamp,
+        sequence: event.sequence,
+        title: "Agent invocation cancelled",
+        summary: invocationCancelledSummary(payload),
+        tone: "warning",
+        details: payload,
       });
       continue;
     }
@@ -1249,6 +1368,119 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             },
           },
         ],
+      });
+      return;
+    }
+
+    if (event.kind === "agent_invocation_requested") {
+      const summary = invocationRequestedSummary(payload);
+      set({
+        timelineEntries: [
+          ...get().timelineEntries,
+          {
+            id: `timeline:${event.eventId}`,
+            type: "event",
+            eventKind: event.kind,
+            createdAt: event.timestamp,
+            sequence: event.sequence,
+            title: "Agent invocation requested",
+            summary,
+            tone: "info",
+            details: payload,
+          },
+        ],
+        activity: {
+          phase: "thinking",
+          details: summary,
+        },
+      });
+      return;
+    }
+
+    if (event.kind === "agent_invocation_started") {
+      const summary = invocationStartedSummary(payload);
+      set({
+        timelineEntries: [
+          ...get().timelineEntries,
+          {
+            id: `timeline:${event.eventId}`,
+            type: "event",
+            eventKind: event.kind,
+            createdAt: event.timestamp,
+            sequence: event.sequence,
+            title: "Agent invocation started",
+            summary,
+            tone: "running",
+            details: payload,
+          },
+        ],
+        activity: {
+          phase: "thinking",
+          details: summary,
+        },
+      });
+      return;
+    }
+
+    if (event.kind === "agent_invocation_completed") {
+      set({
+        timelineEntries: [
+          ...get().timelineEntries,
+          {
+            id: `timeline:${event.eventId}`,
+            type: "event",
+            eventKind: event.kind,
+            createdAt: event.timestamp,
+            sequence: event.sequence,
+            title: "Agent invocation completed",
+            summary: invocationCompletedSummary(payload),
+            tone: "success",
+            details: payload,
+          },
+        ],
+        activity: null,
+      });
+      return;
+    }
+
+    if (event.kind === "agent_invocation_failed") {
+      set({
+        timelineEntries: [
+          ...get().timelineEntries,
+          {
+            id: `timeline:${event.eventId}`,
+            type: "event",
+            eventKind: event.kind,
+            createdAt: event.timestamp,
+            sequence: event.sequence,
+            title: "Agent invocation failed",
+            summary: invocationFailedSummary(payload),
+            tone: "error",
+            details: payload,
+          },
+        ],
+        activity: null,
+      });
+      return;
+    }
+
+    if (event.kind === "agent_invocation_cancelled") {
+      set({
+        timelineEntries: [
+          ...get().timelineEntries,
+          {
+            id: `timeline:${event.eventId}`,
+            type: "event",
+            eventKind: event.kind,
+            createdAt: event.timestamp,
+            sequence: event.sequence,
+            title: "Agent invocation cancelled",
+            summary: invocationCancelledSummary(payload),
+            tone: "warning",
+            details: payload,
+          },
+        ],
+        activity: null,
       });
       return;
     }

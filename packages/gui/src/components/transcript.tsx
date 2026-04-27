@@ -108,6 +108,8 @@ function ApprovalEventDetails(props: { readonly entry: TimelineEventEntry; reado
 function FileChangedDetails(props: { readonly entry: TimelineEventEntry; readonly open: boolean }) {
   const details = asRecord(props.entry.details);
   if (!details) return null;
+  const diffPreview = readString(details.diffPreview);
+  const diffTruncated = details.diffTruncated === true;
   const items = [
     readString(details.path) ? { label: "Path", value: readString(details.path)! } : null,
     readString(details.changeType) ? { label: "Change", value: readString(details.changeType)! } : null,
@@ -117,6 +119,17 @@ function FileChangedDetails(props: { readonly entry: TimelineEventEntry; readonl
   return (
     <>
       <MetaList items={items} />
+      {diffPreview ? (
+        <div className="mt-2 rounded border border-[var(--color-border)] bg-[var(--color-background-element)] p-2.5">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--color-text-dim)]">Diff preview</p>
+          <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded border border-[var(--color-border)] bg-[var(--color-background)] px-2 py-1.5 text-[11px] leading-5 text-[var(--color-text)]">
+            {diffPreview}
+          </pre>
+          {diffTruncated ? (
+            <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">Preview truncated.</p>
+          ) : null}
+        </div>
+      ) : null}
       <JsonDetails open={props.open} details={props.entry.details} />
     </>
   );

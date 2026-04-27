@@ -238,6 +238,8 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
         path: fileChange.path,
         linesAdded: fileChange.linesAdded,
         linesRemoved: fileChange.linesRemoved,
+        diffPreview: fileChange.diffPreview,
+        diffTruncated: fileChange.diffTruncated,
       },
       source: makeSource("tool", "runtime", "message-pipeline"),
       timestamp: input.turnCompletedAt,

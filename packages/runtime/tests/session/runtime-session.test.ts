@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { textParts } from "@kilnai/core";
+import { createSessionEvent, textParts } from "@kilnai/core";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 
 describe("RuntimeSession", () => {
@@ -390,6 +390,128 @@ describe("RuntimeSession", () => {
       });
 
       expect(restored.lastHumanMessageAt).toBe(timestamp);
+    });
+  });
+
+  describe("sessionEvents", () => {
+    it("appends agent invocation lifecycle events", () => {
+      const session = new RuntimeSession({
+        appName: "app",
+        tenantId: "t1",
+        userId: "u1",
+        systemPrompt: "sys",
+      });
+
+      session.appendSessionEvents([
+        createSessionEvent({
+          kind: "agent_invocation_requested",
+          kilnSessionId: session.id,
+          sequence: 1,
+          turnId: `${session.id}:turn:1`,
+          invocationId: "inv-1",
+          agentId: "agent-planner",
+          agentName: "Planner",
+          requestedBy: "user",
+          requestSource: "manual",
+        }),
+        createSessionEvent({
+          kind: "agent_invocation_started",
+          kilnSessionId: session.id,
+          sequence: 2,
+          turnId: `${session.id}:turn:1`,
+          invocationId: "inv-1",
+          agentId: "agent-planner",
+          agentName: "Planner",
+          attempt: 1,
+        }),
+        createSessionEvent({
+          kind: "agent_invocation_completed",
+          kilnSessionId: session.id,
+          sequence: 3,
+          turnId: `${session.id}:turn:1`,
+          invocationId: "inv-1",
+          agentId: "agent-planner",
+          durationMs: 1200,
+          resultSummary: "Planner delivered plan",
+        }),
+      ]);
+
+      expect(session.sessionEvents).toHaveLength(3);
+      expect(session.sessionEvents.map((event) => event.kind)).toEqual([
+        "agent_invocation_requested",
+        "agent_invocation_started",
+        "agent_invocation_completed",
+      ]);
+    });
+
+    it("restores and sorts persisted agent invocation events", () => {
+      const session = new RuntimeSession({
+        appName: "app",
+        tenantId: "t1",
+        userId: "u1",
+        systemPrompt: "sys",
+      });
+
+      const requested = createSessionEvent({
+        kind: "agent_invocation_requested",
+        kilnSessionId: session.id,
+        sequence: 1,
+        turnId: `${session.id}:turn:1`,
+        invocationId: "inv-9",
+        agentId: "agent-coder",
+        requestedBy: "runtime",
+        requestSource: "policy",
+      });
+      const failed = createSessionEvent({
+        kind: "agent_invocation_failed",
+        kilnSessionId: session.id,
+        sequence: 2,
+        turnId: `${session.id}:turn:1`,
+        invocationId: "inv-9",
+        agentId: "agent-coder",
+        errorCode: "ENGINE_UNAVAILABLE",
+        errorMessage: "No worker available",
+        retriable: true,
+      });
+
+      const restored = RuntimeSession.fromSerialized({
+        id: session.id,
+        appName: session.appName,
+        tenantId: session.tenantId,
+        userId: session.userId,
+        systemPrompt: session.systemPrompt,
+        idleTimeoutMs: session.idleTimeoutMs,
+        sessionMode: "ai_active",
+        version: 0,
+        createdAt: session.createdAt.toISOString(),
+        lastActivityAt: session.lastActivityAt.toISOString(),
+        history: [],
+        activeAgentId: null,
+        agentTurnHistory: [],
+        handoffCount: 0,
+        lastRouteChangeAt: 0,
+        sessionEvents: [
+          {
+            ...failed,
+            timestamp: failed.timestamp.toISOString(),
+          },
+          {
+            ...requested,
+            timestamp: requested.timestamp.toISOString(),
+          },
+        ],
+      });
+
+      expect(restored.sessionEvents).toHaveLength(2);
+      expect(restored.sessionEvents.map((event) => event.kind)).toEqual([
+        "agent_invocation_requested",
+        "agent_invocation_failed",
+      ]);
+      expect(restored.sessionEvents[0]?.timestamp).toBeInstanceOf(Date);
+      expect(restored.sessionEvents[1]).toMatchObject({
+        invocationId: "inv-9",
+        errorMessage: "No worker available",
+      });
     });
   });
 });

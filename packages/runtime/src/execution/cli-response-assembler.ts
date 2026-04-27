@@ -6,7 +6,15 @@ type CliResponseAssemblerEvent =
   | { type: "text_delta"; content: string; isThinking?: boolean }
   | { type: "tool_use"; toolName: string; input: unknown }
   | { type: "tool_result"; toolName: string; output: string }
-  | { type: "file_changed"; path: string; changeType: "created" | "modified" | "deleted"; linesAdded?: number; linesRemoved?: number }
+  | {
+      type: "file_changed";
+      path: string;
+      changeType: "created" | "modified" | "deleted";
+      linesAdded?: number;
+      linesRemoved?: number;
+      diffPreview?: string;
+      diffTruncated?: boolean;
+    }
   | {
       type: "cost_update";
       usd: number;

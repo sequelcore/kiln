@@ -321,6 +321,122 @@ describe("session-store", () => {
     ]);
   });
 
+  it("projects agent invocation lifecycle events into timeline entries", () => {
+    useSessionStore.setState({
+      activeProvider: "codex-oauth",
+      activeModel: "gpt-5.4",
+      status: "running",
+    });
+
+    useSessionStore.getState().onSessionEvent({
+      eventId: "evt-inv-requested",
+      kilnSessionId: "session-live",
+      sequence: 1,
+      timestamp: "2026-04-24T00:00:01.000Z",
+      kind: "agent_invocation_requested",
+      payload: {
+        invocationId: "inv-1",
+        agentId: "agent-planner",
+        agentName: "Planner",
+        requestedBy: "user",
+        requestSource: "manual",
+      },
+    });
+    useSessionStore.getState().onSessionEvent({
+      eventId: "evt-inv-started",
+      kilnSessionId: "session-live",
+      sequence: 2,
+      timestamp: "2026-04-24T00:00:02.000Z",
+      kind: "agent_invocation_started",
+      payload: {
+        invocationId: "inv-1",
+        agentId: "agent-planner",
+        agentName: "Planner",
+        attempt: 1,
+      },
+    });
+    useSessionStore.getState().onSessionEvent({
+      eventId: "evt-inv-completed",
+      kilnSessionId: "session-live",
+      sequence: 3,
+      timestamp: "2026-04-24T00:00:03.000Z",
+      kind: "agent_invocation_completed",
+      payload: {
+        invocationId: "inv-1",
+        agentId: "agent-planner",
+        resultSummary: "Planner returned focused steps",
+      },
+    });
+    useSessionStore.getState().onSessionEvent({
+      eventId: "evt-inv-failed",
+      kilnSessionId: "session-live",
+      sequence: 4,
+      timestamp: "2026-04-24T00:00:04.000Z",
+      kind: "agent_invocation_failed",
+      payload: {
+        invocationId: "inv-2",
+        agentId: "agent-coder",
+        errorCode: "ENGINE_TIMEOUT",
+        errorMessage: "Worker timed out",
+      },
+    });
+    useSessionStore.getState().onSessionEvent({
+      eventId: "evt-inv-cancelled",
+      kilnSessionId: "session-live",
+      sequence: 5,
+      timestamp: "2026-04-24T00:00:05.000Z",
+      kind: "agent_invocation_cancelled",
+      payload: {
+        invocationId: "inv-3",
+        agentId: "agent-reviewer",
+        reason: "cancelled by operator",
+      },
+    });
+
+    const state = useSessionStore.getState();
+    const invocationEntries = state.timelineEntries.filter(
+      (entry) => entry.type === "event" && entry.eventKind.startsWith("agent_invocation_"),
+    );
+
+    expect(invocationEntries).toHaveLength(5);
+    expect(invocationEntries[0]).toMatchObject({
+      type: "event",
+      eventKind: "agent_invocation_requested",
+      title: "Agent invocation requested",
+      tone: "info",
+      summary: expect.stringContaining("Planner"),
+    });
+    expect(invocationEntries[1]).toMatchObject({
+      type: "event",
+      eventKind: "agent_invocation_started",
+      title: "Agent invocation started",
+      tone: "running",
+      summary: expect.stringContaining("attempt 1"),
+    });
+    expect(invocationEntries[2]).toMatchObject({
+      type: "event",
+      eventKind: "agent_invocation_completed",
+      title: "Agent invocation completed",
+      tone: "success",
+      summary: "Planner returned focused steps",
+    });
+    expect(invocationEntries[3]).toMatchObject({
+      type: "event",
+      eventKind: "agent_invocation_failed",
+      title: "Agent invocation failed",
+      tone: "error",
+      summary: "Worker timed out",
+    });
+    expect(invocationEntries[4]).toMatchObject({
+      type: "event",
+      eventKind: "agent_invocation_cancelled",
+      title: "Agent invocation cancelled",
+      tone: "warning",
+      summary: "cancelled by operator",
+    });
+    expect(state.activity).toBeNull();
+  });
+
   it("stores runtime continuity per finalized provider and reconciles done-token fallback", () => {
     useSessionStore.setState({
       activeProvider: "claude",
