@@ -498,11 +498,14 @@ export function AppShell() {
 
   useEffect(() => {
     setSender(wsState === "open" ? send : null);
+  }, [send, setSender, wsState]);
+
+  useEffect(() => {
     return () => {
       setSender(null);
       disconnect();
     };
-  }, [disconnect, send, setSender, wsState]);
+  }, [disconnect, setSender]);
 
   const sessionsQuery = useQuery({
     queryKey: ["gui", "sessions", turnCounter],

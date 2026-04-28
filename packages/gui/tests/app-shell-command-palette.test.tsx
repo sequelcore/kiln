@@ -318,6 +318,31 @@ describe("AppShell command palette and telemetry regressions", () => {
     expect(useSessionStore.getState().outboundSend).toBeNull();
   });
 
+  it("does not disconnect the session store during websocket state transitions", async () => {
+    const originalDisconnect = useSessionStore.getState().disconnect;
+    const disconnectMock = vi.fn();
+    useSessionStore.setState({ disconnect: disconnectMock });
+
+    try {
+      wsState = "open";
+      const { rerender, unmount } = render(<AppShell />);
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: "New Session" })).toBeInTheDocument();
+      });
+
+      wsState = "reconnecting";
+      rerender(<AppShell />);
+
+      expect(disconnectMock).not.toHaveBeenCalled();
+
+      unmount();
+      expect(disconnectMock).toHaveBeenCalledOnce();
+    } finally {
+      useSessionStore.setState({ disconnect: originalDisconnect });
+    }
+  });
+
   it("keeps the dashboard error banner while cached dashboard data is present and only clears it after the error becomes null", async () => {
     dashboardQueryResult = {
       data: null,

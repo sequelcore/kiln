@@ -201,6 +201,56 @@ describe("ProviderPicker", () => {
     expect(screen.getByRole("option", { name: "o3" })).toBeInTheDocument();
   });
 
+  it("single-clicks through provider and model selection", async () => {
+    const onSwitchProvider = vi.fn().mockResolvedValue(undefined);
+    renderPickerHarness({ onSwitchProvider });
+
+    fireEvent.click(screen.getByRole("option", { name: /Codex/ }));
+    expect(screen.getByRole("listbox", { name: "Models" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("option", { name: "o4-mini" }));
+
+    await waitFor(() => {
+      expect(onSwitchProvider).toHaveBeenCalledWith("codex", "o4-mini");
+    });
+  });
+
+  it("preserves the active pane and selected provider when the provider catalog refreshes", () => {
+    const onOpenChange = vi.fn();
+    const onSwitchProvider = vi.fn().mockResolvedValue(undefined);
+    const { rerender } = render(
+      <ProviderPicker
+        open
+        providers={baseProviders}
+        activeProvider="claude"
+        activeModel="claude-sonnet-4-6"
+        onSwitchProvider={onSwitchProvider}
+        onOpenChange={onOpenChange}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("option", { name: /Codex/ }));
+    expect(screen.getByRole("listbox", { name: "Models" })).toBeInTheDocument();
+
+    rerender(
+      <ProviderPicker
+        open
+        providers={baseProviders.map((provider) => ({
+          ...provider,
+          models: [...provider.models],
+        }))}
+        activeProvider="claude"
+        activeModel="claude-sonnet-4-6"
+        onSwitchProvider={onSwitchProvider}
+        onOpenChange={onOpenChange}
+      />,
+    );
+
+    expect(screen.getByRole("listbox", { name: "Models" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "o3" })).toBeInTheDocument();
+    expect(screen.queryByRole("listbox", { name: "Providers" })).not.toBeInTheDocument();
+  });
+
   it("empty model list does not switch provider", () => {
     const { onSwitchProvider } = renderPickerHarness();
     const dialog = screen.getByRole("dialog", { name: "Switch provider" });

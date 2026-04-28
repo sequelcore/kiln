@@ -103,6 +103,7 @@ function conciseUnavailableReason(reason: string): string {
 
 export function ProviderPicker(props: ProviderPickerProps) {
   const dialogRef = useRef<HTMLDivElement | null>(null);
+  const initializedOpenRef = useRef(false);
   const [pane, setPane] = useState<"providers" | "models">("providers");
   const [providerIndex, setProviderIndex] = useState(0);
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
@@ -138,7 +139,14 @@ export function ProviderPicker(props: ProviderPickerProps) {
   }, [modelSearch, models]);
 
   useEffect(() => {
-    if (!props.open) return;
+    if (!props.open) {
+      initializedOpenRef.current = false;
+      return;
+    }
+    if (initializedOpenRef.current) {
+      return;
+    }
+    initializedOpenRef.current = true;
     const activeIndex = props.activeProvider
       ? providerIds.indexOf(props.activeProvider)
       : -1;
@@ -155,6 +163,33 @@ export function ProviderPicker(props: ProviderPickerProps) {
     setRefreshInFlight(false);
     setSwitchError(null);
   }, [props.activeProvider, props.open, providerItems, providerIds]);
+
+  useEffect(() => {
+    if (!props.open || !initializedOpenRef.current) return;
+    if (providerItems.length === 0) {
+      setProviderIndex(0);
+      setSelectedProviderId(null);
+      setModelIndex(0);
+      return;
+    }
+
+    setProviderIndex((previous) => Math.min(previous, providerItems.length - 1));
+    setSelectedProviderId((previous) => {
+      if (previous && providersById.has(previous)) {
+        return previous;
+      }
+      return providerItems[Math.min(providerIndex, providerItems.length - 1)]?.id ?? providerItems[0]?.id ?? null;
+    });
+  }, [props.open, providerIndex, providerItems, providersById]);
+
+  useEffect(() => {
+    if (!props.open || pane !== "models") return;
+    if (filteredModels.length === 0) {
+      setModelIndex(0);
+      return;
+    }
+    setModelIndex((previous) => Math.min(previous, filteredModels.length - 1));
+  }, [filteredModels.length, pane, props.open]);
 
   useEffect(() => {
     if (!props.open) return;
@@ -221,11 +256,11 @@ export function ProviderPicker(props: ProviderPickerProps) {
     setPane("models");
   };
 
-  const commitModelSelection = async () => {
+  const commitModelSelection = async (targetModel?: string) => {
     if (switchInFlight || refreshInFlight) return;
     if (!selectedProviderId) return;
     if (!providersById.get(selectedProviderId)?.available) return;
-    const selectedModel = filteredModels[modelIndex];
+    const selectedModel = targetModel ?? filteredModels[modelIndex];
     if (!selectedModel) return;
     setSwitchError(null);
     setSwitchInFlight(true);
@@ -434,6 +469,7 @@ export function ProviderPicker(props: ProviderPickerProps) {
                             setProviderIndex(index);
                             setSelectedProviderId(provider.id);
                             setSwitchError(null);
+                            void openModelsOrCommit(provider.id);
                           }}
                           onDoubleClick={() => {
                             void openModelsOrCommit(provider.id);
@@ -520,9 +556,12 @@ export function ProviderPicker(props: ProviderPickerProps) {
                     type="button"
                     role="option"
                     aria-selected={selected}
-                    onClick={() => setModelIndex(index)}
+                    onClick={() => {
+                      setModelIndex(index);
+                      void commitModelSelection(model);
+                    }}
                     onDoubleClick={() => {
-                      void commitModelSelection();
+                      void commitModelSelection(model);
                     }}
                     disabled={switchInFlight}
                     className={[
