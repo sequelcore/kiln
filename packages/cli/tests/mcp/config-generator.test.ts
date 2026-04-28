@@ -4,21 +4,23 @@ import { join } from "node:path";
 import os from "node:os";
 import { generateMcpConfig, generateConfig } from "../../src/mcp/config-generator.js";
 
-const serverDef = { name: "kiln", command: "node", args: [".kiln/mcp/index.js"] };
+const serverDef = { name: "kiln", command: "kiln", args: ["tools", "--mcp"] };
 
 describe("generateConfig (backward compat)", () => {
   it("claude-code + stdio produces valid JSON with mcpServers", () => {
     const result = generateConfig({ client: "claude-code", transport: "stdio", mcpServerName: "kiln", appName: "kiln" });
     const parsed = JSON.parse(result);
     expect(parsed.mcpServers["kiln"]).toBeDefined();
-    expect(parsed.mcpServers["kiln"].command).toBe("kiln-mcp");
+    expect(parsed.mcpServers["kiln"].command).toBe("kiln");
+    expect(parsed.mcpServers["kiln"].args).toEqual(["tools", "--mcp"]);
   });
 
   it("cursor + stdio produces valid JSON", () => {
     const result = generateConfig({ client: "cursor", transport: "stdio", mcpServerName: "kiln", appName: "kiln" });
     const parsed = JSON.parse(result);
     expect(parsed.mcpServers["kiln"]).toBeDefined();
-    expect(parsed.mcpServers["kiln"].command).toBe("kiln-mcp");
+    expect(parsed.mcpServers["kiln"].command).toBe("kiln");
+    expect(parsed.mcpServers["kiln"].args).toEqual(["tools", "--mcp"]);
   });
 
   it("generic + sse includes url and port", () => {
@@ -47,8 +49,8 @@ describe("generateMcpConfig", () => {
       expect(readFileSync(target, "utf-8")).toBeTruthy();
       const parsed = JSON.parse(readFileSync(target, "utf-8"));
       expect(parsed.mcpServers.kiln).toBeDefined();
-      expect(parsed.mcpServers.kiln.command).toBe("node");
-      expect(parsed.mcpServers.kiln.args).toEqual([".kiln/mcp/index.js"]);
+      expect(parsed.mcpServers.kiln.command).toBe("kiln");
+      expect(parsed.mcpServers.kiln.args).toEqual(["tools", "--mcp"]);
     });
 
     it("merges into existing .mcp.json preserving other keys", async () => {
@@ -64,7 +66,7 @@ describe("generateMcpConfig", () => {
       writeFileSync(join(tmpDir, ".mcp.json"), JSON.stringify({ mcpServers: { kiln: { command: "old" } } }), "utf-8");
       await generateMcpConfig("claude-code", serverDef, tmpDir);
       const parsed = JSON.parse(readFileSync(join(tmpDir, ".mcp.json"), "utf-8"));
-      expect(parsed.mcpServers.kiln.command).toBe("node");
+      expect(parsed.mcpServers.kiln.command).toBe("kiln");
     });
   });
 
@@ -95,7 +97,7 @@ describe("generateMcpConfig", () => {
       const parsed = JSON.parse(readFileSync(target, "utf-8"));
       expect(parsed.mcp).toBeDefined();
       expect(parsed.mcp.kiln.type).toBe("local");
-      expect(parsed.mcp.kiln.command).toEqual(["node", ".kiln/mcp/index.js"]);
+      expect(parsed.mcp.kiln.command).toEqual(["kiln", "tools", "--mcp"]);
       expect(parsed.mcp.kiln.enabled).toBe(true);
     });
 

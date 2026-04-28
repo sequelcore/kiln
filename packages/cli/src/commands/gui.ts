@@ -10,6 +10,7 @@ import { SessionStore, TranscriptStore } from "../wrapper/session-store.js";
 import { loadSessionDetail } from "./gui-session-detail.js";
 import {
   createDefaultRegistry,
+  getRuntimeProviderAvailability,
   getProviderDisplayInfo,
   type ProviderId,
 } from "../wrapper/session-registry.js";
@@ -24,6 +25,7 @@ import { buildGuiUrl, persistGuiThemePreference, resolveGuiThemePreference } fro
 import { createManagedGuiWindowShutdownMonitor } from "./gui-shutdown-monitor.js";
 import { launchGuiWindow, type GuiWindowSession } from "./gui-window.js";
 import { loadSessionSummaries, toProviderLabel } from "./gui-session-summaries.js";
+import { isGuiProviderModeless, type GuiProviderDiscoveryResult } from "@kilnai/gateway-contracts";
 
 export interface GuiFlags {
   readonly port?: number;
@@ -63,11 +65,20 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
   );
   const bootstrapContext = await resolveGuiBootstrapContext(appConfig, cwd, contextArtifactCache);
   const managedWindowShutdownMonitor = createManagedGuiWindowShutdownMonitor();
-
   const { startGuiGateway } = await import("@kilnai/runtime");
   const gateway = await startGuiGateway({
     port,
-    getSnapshot: async () => buildDashboardSnapshot(sessionStore, transcriptStore, providerDisplay, cwd, bootstrapContext.domainLabel),
+    getProviderAvailability: () => getRuntimeProviderAvailability(registry),
+    getSnapshot: async (context) => buildDashboardSnapshot(
+      registry,
+      sessionStore,
+      transcriptStore,
+      providerDisplay,
+      context?.operatorModels ?? {},
+      context?.operatorDiscovery ?? [],
+      cwd,
+      bootstrapContext.domainLabel,
+    ),
     listSessions: () => loadSessionSummaries(sessionStore, transcriptStore),
     getSessionDetail: (sessionId) => loadSessionDetail(transcriptStore, sessionId),
     workingDirectory: cwd,
@@ -123,11 +134,17 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
   }, guiWindow, guiWindow ? managedWindowShutdownMonitor.waitForDisconnect() : undefined);
 }
 
-function parseProvider(p: string | undefined, providerIds: readonly ProviderId[]): ProviderId {
-  if (p && providerIds.includes(p as ProviderId)) {
-    return p as ProviderId;
+function parseProvider(p: string | undefined, providerIds: readonly ProviderId[]): ProviderId | null {
+  const provider = typeof p === "string" ? p.trim() : "";
+  if (provider.length === 0) {
+    return null;
   }
-  return providerIds.includes("claude") ? "claude" : providerIds[0] ?? "claude";
+  if (providerIds.includes(provider as ProviderId)) {
+    return provider as ProviderId;
+  }
+  throw new Error(
+    `Unknown GUI provider '${provider}'. Configure one of: ${providerIds.join(", ")}`,
+  );
 }
 
 async function resolveGuiBootstrapContext(
@@ -156,27 +173,51 @@ async function resolveGuiBootstrapContext(
 }
 
 async function buildDashboardSnapshot(
+  registry: ReturnType<typeof createDefaultRegistry>["registry"],
   sessionStore: SessionStore,
   transcriptStore: TranscriptStore,
   providers: readonly ReturnType<typeof getProviderDisplayInfo>[number][],
+  runtimeProviderModels: Record<string, string[]>,
+  runtimeProviderDiscovery: readonly GuiProviderDiscoveryResult[],
   workingDirectory: string,
   domainLabel: string,
 ): Promise<GuiDashboardSnapshot> {
-  const { registry } = createDefaultRegistry();
   const sessions = await loadSessionSummaries(sessionStore, transcriptStore);
 
   const providerHealth = new Map(
-    registry.list().map((provider) => [provider.id, provider.health !== "suppressed"] as const),
+    Object.entries(getRuntimeProviderAvailability(registry)),
   );
 
-  const providerDescriptors: GuiProviderDescriptor[] = providers.map((provider) => ({
-    id: provider.id,
-    label: toProviderLabel(provider.id),
-    group: provider.group,
-    models: provider.models,
-    free: provider.free,
-    available: providerHealth.get(provider.id) ?? true,
-  }));
+  const discoveryByProvider = new Map(runtimeProviderDiscovery.map((entry) => [entry.provider, entry] as const));
+  const providerDescriptors: GuiProviderDescriptor[] = providers.map((provider) => {
+    const discovery = discoveryByProvider.get(provider.id);
+    if (discovery) {
+      return {
+        id: provider.id,
+        label: toProviderLabel(provider.id),
+        group: provider.group,
+        models: [...discovery.models],
+        free: provider.free,
+        available: discovery.available,
+        status: discovery.status,
+        reason: discovery.reason,
+        authState: discovery.authState,
+        lastCheckedAt: discovery.lastCheckedAt,
+      };
+    }
+    const hasRuntimeModelEntry = Object.prototype.hasOwnProperty.call(runtimeProviderModels, provider.id);
+    const models = runtimeProviderModels[provider.id] ?? [];
+    const available = (providerHealth.get(provider.id) ?? false)
+      && (models.length > 0 || (hasRuntimeModelEntry && isGuiProviderModeless(provider.id)));
+    return {
+      id: provider.id,
+      label: toProviderLabel(provider.id),
+      group: provider.group,
+      models: available ? models : [],
+      free: provider.free,
+      available,
+    };
+  });
 
   const telemetry = await readTelemetrySnapshot();
   const resumeInfo = await loadResumeSidebarInfo(

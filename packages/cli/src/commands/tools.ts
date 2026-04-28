@@ -1,15 +1,7 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
-  BashTool,
-  DevToolExecutionBridge,
-  DevToolRegistry,
+  createDefaultBuiltinToolSurface,
   DevToolsMcpServer,
-  EditTool,
-  GitTool,
-  GlobTool,
-  GrepTool,
-  ReadTool,
-  WriteTool,
 } from "@kilnai/core";
 import type { KilnAppConfig } from "../config.js";
 
@@ -30,9 +22,8 @@ export async function toolsCommand(
     return;
   }
 
-  const registry = createDefaultDevToolRegistry();
-  const bridge = new DevToolExecutionBridge({ registry });
-  const server = new DevToolsMcpServer({ bridge });
+  const surface = createDefaultBuiltinToolSurface();
+  const server = new DevToolsMcpServer({ bridge: surface.bridge });
 
   await server.initialize();
 
@@ -41,16 +32,4 @@ export async function toolsCommand(
   await mcpServer.connect(transport);
 
   console.error("kiln dev tools MCP server running (stdio)");
-}
-
-function createDefaultDevToolRegistry(): DevToolRegistry {
-  const registry = new DevToolRegistry();
-  registry.register(new BashTool());
-  registry.register(new ReadTool());
-  registry.register(new WriteTool());
-  registry.register(new EditTool());
-  registry.register(new GrepTool());
-  registry.register(new GlobTool());
-  registry.register(new GitTool());
-  return registry;
 }

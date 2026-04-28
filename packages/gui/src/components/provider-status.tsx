@@ -1,5 +1,5 @@
+import { getGuiProviderMetadata } from "@kilnai/gateway-contracts";
 import { useSessionStore } from "../lib/session-store.js";
-import { PROVIDER_METADATA } from "../lib/provider-metadata.js";
 import { Button } from "@/components/ui/button";
 
 interface ProviderStatusProps {
@@ -10,7 +10,7 @@ interface ProviderStatusProps {
 
 function resolveProviderLabel(providerId: string | null, fallbackLabel?: string): string {
   if (!providerId) return "—";
-  return PROVIDER_METADATA[providerId]?.label ?? fallbackLabel ?? providerId;
+  return getGuiProviderMetadata(providerId)?.label ?? fallbackLabel ?? providerId;
 }
 
 function modeLabel(mode: "user" | "auto" | "responding"): string {

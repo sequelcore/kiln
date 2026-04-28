@@ -47,6 +47,10 @@ is documented by concern, not as a single monolith.
   Tool policy, execution flow, timeout/retry/fallback behavior, and command
   safety boundaries.
 
+- `provider-model-discovery.md`
+  Runtime provider availability, model discovery, operator diagnostics, and
+  provider/model selection invariants.
+
 - `adaptation.md`
   Operational modes, allostatic load, predictive regulation, adaptation, and
   anti-drift rules.

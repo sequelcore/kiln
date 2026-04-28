@@ -1,30 +1,10 @@
 import type { GuiDashboardSnapshot } from "@kilnai/runtime";
+import { getGuiProviderMetadata } from "@kilnai/gateway-contracts";
 import { resolveSessionSummary, mergeProvidersUsed } from "../application/session-metadata.js";
 import type { SessionStore, TranscriptStore } from "../wrapper/session-store.js";
 
 export function toProviderLabel(provider: string): string {
-  switch (provider) {
-    case "claude":
-      return "Claude";
-    case "codex":
-      return "Codex";
-    case "opencode":
-      return "OpenCode";
-    case "codex-oauth":
-      return "Codex OAuth";
-    case "openai":
-      return "OpenAI";
-    case "openrouter":
-      return "OpenRouter";
-    case "deepseek":
-      return "DeepSeek";
-    case "ollama":
-      return "Ollama";
-    case "anthropic":
-      return "Anthropic";
-    default:
-      return provider;
-  }
+  return getGuiProviderMetadata(provider)?.label ?? provider;
 }
 
 function buildSessionSummary(input: {

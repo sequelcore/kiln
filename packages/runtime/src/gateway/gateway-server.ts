@@ -1416,10 +1416,19 @@ function hasAllTags(entryTags: readonly string[], requiredTags: readonly string[
 function createProviderFromConfig(config: ProviderConfig): ProviderAdapter {
   const apiKey = config.apiKeyEnv ? process.env[config.apiKeyEnv] ?? "" : "";
   const model = config.model;
+  const requireModel = (): string => {
+    const selectedModel = model?.trim();
+    if (!selectedModel) {
+      throw new KilnError("CONFIG_INVALID", `Provider ${config.name} requires a model`, {
+        context: { provider: config.name },
+      });
+    }
+    return selectedModel;
+  };
 
   switch (config.name) {
     case "codex-oauth":
-      return new CodexOAuthAdapter({ auth: new CodexOAuthAuth() });
+      return new CodexOAuthAdapter({ auth: new CodexOAuthAuth(), defaultModel: requireModel() });
     case "anthropic":
       return new AnthropicAdapter({ apiKey, defaultModel: model });
     case "openai":

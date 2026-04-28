@@ -17,8 +17,16 @@ export class GuiSessionClient {
   private stopped = true;
   private wsUrls: readonly string[] = [];
   private wsUrlIndex = 0;
+  private providerSwitchRequestOrdinal = 0;
   private pendingClear: { timerId: number; resolve: () => void; reject: (err: Error) => void } | null = null;
-  private pendingProviderChange: { timerId: number; resolve: (v: string) => void; reject: (err: Error) => void } | null = null;
+  private pendingProviderChange: {
+    provider: string;
+    model: string | null;
+    requestId: string;
+    timerId: number;
+    resolve: (v: string) => void;
+    reject: (err: Error) => void;
+  } | null = null;
   private pendingResumeSelection: { timerId: number; resolve: (v: { sessionId: string }) => void; reject: (err: Error) => void } | null = null;
 
   private readonly HEARTBEAT_INTERVAL_MS = 30_000;
@@ -70,13 +78,29 @@ export class GuiSessionClient {
 
   switchProvider(provider: string, model?: string): Promise<string> {
     if (this.pendingProviderChange) throw new Error("Provider switch already in flight");
-    this.send({ type: "provider", provider, ...(model ? { model } : {}) });
+    const requestedModel = normalizeModel(model);
+    const requestId = this.nextProviderSwitchRequestId();
     return new Promise<string>((resolve, reject) => {
       const timerId = window.setTimeout(() => {
         this.pendingProviderChange = null;
         reject(new Error("Provider switch timed out"));
       }, this.ACK_TIMEOUT_MS);
-      this.pendingProviderChange = { timerId, resolve, reject };
+      const pending = { provider, model: requestedModel, requestId, timerId, resolve, reject };
+      this.pendingProviderChange = pending;
+      try {
+        this.send({
+          type: "provider",
+          provider,
+          ...(requestedModel ? { model: requestedModel } : {}),
+          requestId,
+        });
+      } catch (error) {
+        if (this.pendingProviderChange === pending) {
+          window.clearTimeout(timerId);
+          this.pendingProviderChange = null;
+          reject(toError(error, "Provider switch failed"));
+        }
+      }
     });
   }
 
@@ -165,9 +189,20 @@ export class GuiSessionClient {
       this.pendingClear = null;
     }
     if (frame.type === "provider_changed" && this.pendingProviderChange) {
-      window.clearTimeout(this.pendingProviderChange.timerId);
-      this.pendingProviderChange.resolve(frame.provider);
-      this.pendingProviderChange = null;
+      const frameModel = normalizeModel(frame.model);
+      if (
+        frame.provider === this.pendingProviderChange.provider
+        && frame.requestId === this.pendingProviderChange.requestId
+        && frameModel === this.pendingProviderChange.model
+      ) {
+        window.clearTimeout(this.pendingProviderChange.timerId);
+        this.pendingProviderChange.resolve(frame.provider);
+        this.pendingProviderChange = null;
+      } else {
+        window.clearTimeout(this.pendingProviderChange.timerId);
+        this.pendingProviderChange.reject(new Error("Provider switch acknowledgement did not match the pending request"));
+        this.pendingProviderChange = null;
+      }
     }
     if (frame.type === "resume_selected" && this.pendingResumeSelection) {
       window.clearTimeout(this.pendingResumeSelection.timerId);
@@ -204,9 +239,11 @@ export class GuiSessionClient {
     this.heartbeatIntervalId = window.setInterval(() => {
       if (this.ws?.readyState !== WebSocket.OPEN) return;
       this.ws.send("ping");
-      this.heartbeatTimeoutId = window.setTimeout(() => {
-        this.ws?.close();
-      }, this.HEARTBEAT_TIMEOUT_MS - this.HEARTBEAT_INTERVAL_MS);
+      if (this.heartbeatTimeoutId === null) {
+        this.heartbeatTimeoutId = window.setTimeout(() => {
+          this.ws?.close(4000, "pong timeout");
+        }, this.HEARTBEAT_TIMEOUT_MS - this.HEARTBEAT_INTERVAL_MS);
+      }
     }, this.HEARTBEAT_INTERVAL_MS);
   }
 
@@ -290,6 +327,11 @@ export class GuiSessionClient {
       this.pendingResumeSelection = null;
     }
   }
+
+  private nextProviderSwitchRequestId(): string {
+    this.providerSwitchRequestOrdinal += 1;
+    return `provider-switch:${Date.now()}:${this.providerSwitchRequestOrdinal}`;
+  }
 }
 
 function toWebSocketUrl(baseUrl: string): string {
@@ -303,6 +345,12 @@ function toError(error: unknown, fallbackMessage: string): Error {
   if (error instanceof Error) return error;
   if (typeof error === "string" && error.length > 0) return new Error(error);
   return new Error(fallbackMessage);
+}
+
+function normalizeModel(model: unknown): string | null {
+  if (typeof model !== "string") return null;
+  const trimmed = model.trim();
+  return trimmed.length > 0 ? trimmed : null;
 }
 
 export interface GuiSessionClientOptions {

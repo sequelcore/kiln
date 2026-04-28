@@ -35,6 +35,7 @@ function resetSessionStore(): void {
     currentTurnTrackedOutputTokens: 0,
     clearPending: false,
     providerSwitching: false,
+    providerSwitchTarget: null,
     providerExplicitSelection: false,
     authorityStatus: null,
     activityPhase: "idle",
@@ -57,7 +58,24 @@ describe("session-store", () => {
 
     useSessionStore.getState().onWelcome({
       type: "welcome",
-      models: { claude: ["sonnet"], codex: ["o3"] },
+      providers: [
+        {
+          id: "claude",
+          label: "Claude",
+          group: "harness",
+          free: false,
+          available: true,
+          models: ["sonnet"],
+        },
+        {
+          id: "codex",
+          label: "Codex",
+          group: "harness",
+          free: false,
+          available: true,
+          models: ["o3"],
+        },
+      ],
       activeProvider: "claude",
       activeModel: "sonnet",
       planMode: false,

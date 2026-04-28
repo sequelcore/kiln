@@ -10,16 +10,20 @@ export interface McpConfigFlags {
   readonly args?: string;
 }
 
+const DEFAULT_MCP_SERVER_NAME = "kiln";
+const DEFAULT_MCP_COMMAND = "kiln";
+const DEFAULT_MCP_ARGS = ["tools", "--mcp"] as const;
+
 export async function mcpConfigCommand(
   _appConfig: KilnAppConfig,
   flags: McpConfigFlags,
 ): Promise<void> {
   const client = (flags.client ?? "claude-code") as McpClient;
-  const name = flags.name ?? "kiln";
-  const command = flags.command ?? "node";
+  const name = flags.name ?? DEFAULT_MCP_SERVER_NAME;
+  const command = flags.command ?? DEFAULT_MCP_COMMAND;
   const args = flags.args
     ? flags.args.split(" ").filter(Boolean)
-    : [join(process.cwd(), ".kiln", "mcp", "index.js")];
+    : [...DEFAULT_MCP_ARGS];
 
   const serverDef: McpServerDef = { name, command, args };
 

@@ -7,6 +7,7 @@ import type {
 import { extractText, textParts } from "../../../src/engine/domain/content.js";
 import { OpenAIAdapter, GPT4O, GPT4O_MINI, O3, O3_MINI } from "../../../src/agents/infrastructure/openai.js";
 import { DeepSeekAdapter, DEEPSEEK_CHAT, DEEPSEEK_REASONER } from "../../../src/agents/infrastructure/deepseek.js";
+import { getInvalidToolInputDetails } from "../../../src/agents/tool-call-input.js";
 
 function makeOptions(
   overrides: Partial<CreateMessageOptions> = {},
@@ -166,6 +167,38 @@ describe("OpenAIAdapter", () => {
     expect(response.toolCalls).toEqual([
       { id: "call_123", name: "search", input: { query: "test" } },
     ]);
+  });
+
+  it("preserves malformed function-call arguments as invalid tool input", async () => {
+    const body = makeOpenAIResponse({
+      choices: [
+        {
+          message: {
+            content: "Let me write.",
+            tool_calls: [
+              {
+                id: "call_invalid",
+                type: "function",
+                function: {
+                  name: "write",
+                  arguments: "{bad-json}",
+                },
+              },
+            ],
+          },
+        },
+      ],
+    });
+    vi.stubGlobal("fetch", mockFetchResponse(body));
+
+    const response = await adapter.createMessage(makeOptions());
+    const invalidDetails = getInvalidToolInputDetails(response.toolCalls[0]!.input);
+
+    expect(response.toolCalls[0]?.name).toBe("write");
+    expect(invalidDetails).toEqual({
+      reason: "Failed to parse tool arguments as JSON.",
+      raw: "{bad-json}",
+    });
   });
 
   it("retries on 429", async () => {

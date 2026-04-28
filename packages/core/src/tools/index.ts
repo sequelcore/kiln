@@ -32,12 +32,15 @@ export { GlobTool } from "./infrastructure/glob-tool.js";
 export type { GitToolOptions } from "./infrastructure/git-tool.js";
 export { GitTool } from "./infrastructure/git-tool.js";
 export type {
+  DefaultBuiltinToolRegistryView,
+  DefaultBuiltinToolSurface,
   DevToolSchemaProjection,
   DefaultBuiltinToolRegistryOptions,
 } from "./default-tool-surface.js";
 export {
   createDefaultBuiltinTools,
   createDefaultBuiltinToolRegistry,
+  createDefaultBuiltinToolSurface,
   projectDevToolSchemas,
   projectDevToolDefinitions,
   projectDevToolCapabilities,

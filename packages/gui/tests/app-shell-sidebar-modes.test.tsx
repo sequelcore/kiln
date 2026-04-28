@@ -24,6 +24,14 @@ vi.mock("../src/lib/wait-for-gateway.js", () => ({
 
 vi.mock("../src/api/client.js", () => ({
   GuiGatewayClient: class {
+    async waitForHealth() {
+      return undefined;
+    }
+
+    async loadSessions() {
+      return useSessionStore.getState().sessionList;
+    }
+
     async loadDashboard() {
       return {
         providers: [],

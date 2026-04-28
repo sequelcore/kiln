@@ -19,30 +19,42 @@ describe("OpenCodeAdapter", () => {
   });
 
   describe("constructor", () => {
-    it("tier 'go' uses providerName 'opencode-go' and defaultModel OPENCODE_GO_DEFAULT_MODEL", async () => {
-      const { OpenCodeAdapter, OPENCODE_GO_DEFAULT_MODEL } = await import("../opencode-provider.js");
+    it("tier 'go' uses providerName 'opencode-go' and the selected model", async () => {
+      const { OpenCodeAdapter } = await import("../opencode-provider.js");
 
       const adapter = new OpenCodeAdapter({
         apiKey: "sk-test",
         tier: "go",
+        defaultModel: "minimax-m2.5",
       });
 
       expect(adapter.name).toBe("opencode-go");
       expect(adapter.tier).toBe("go");
-      expect(adapter.defaultModel).toBe(OPENCODE_GO_DEFAULT_MODEL);
+      expect(adapter.defaultModel).toBe("minimax-m2.5");
     });
 
-    it("tier 'zen' uses providerName 'opencode-zen' and defaultModel OPENCODE_ZEN_DEFAULT_MODEL", async () => {
-      const { OpenCodeAdapter, OPENCODE_ZEN_DEFAULT_MODEL } = await import("../opencode-provider.js");
+    it("tier 'zen' uses providerName 'opencode-zen' and the selected model", async () => {
+      const { OpenCodeAdapter } = await import("../opencode-provider.js");
 
       const adapter = new OpenCodeAdapter({
         apiKey: "sk-test",
         tier: "zen",
+        defaultModel: "anthropic/claude-sonnet-4-6",
       });
 
       expect(adapter.name).toBe("opencode-zen");
       expect(adapter.tier).toBe("zen");
-      expect(adapter.defaultModel).toBe(OPENCODE_ZEN_DEFAULT_MODEL);
+      expect(adapter.defaultModel).toBe("anthropic/claude-sonnet-4-6");
+    });
+
+    it("fails fast when the selected model is blank", async () => {
+      const { OpenCodeAdapter } = await import("../opencode-provider.js");
+
+      expect(() => new OpenCodeAdapter({
+        apiKey: "sk-test",
+        tier: "go",
+        defaultModel: "   ",
+      })).toThrow("OpenCode adapter requires a selected model");
     });
 
     it("explicit defaultModel override is honored for tier 'go'", async () => {
@@ -86,6 +98,25 @@ describe("OpenCodeAdapter", () => {
       ).rejects.toThrow();
     });
 
+    it("fails fast when fromAuth receives a blank selected model", async () => {
+      const { OpenCodeAdapter } = await import("../opencode-provider.js");
+      const { OpenCodeAuth } = await import("../opencode-auth.js");
+
+      const authFile: OpenCodeAuthFile = {
+        api_key: "sk-from-test",
+        tier: "go",
+        created_at: "2026-04-09T12:00:00.000Z",
+      };
+
+      await writeFile(tokenPath, JSON.stringify(authFile), "utf8");
+
+      const auth = new OpenCodeAuth({ tokenPath });
+
+      await expect(
+        OpenCodeAdapter.fromAuth({ auth, defaultModel: "   " }),
+      ).rejects.toThrow("OpenCode adapter requires a selected model");
+    });
+
     it("with a saved auth file returns an adapter whose tier matches the stored tier", async () => {
       const { OpenCodeAdapter } = await import("../opencode-provider.js");
       const { OpenCodeAuth } = await import("../opencode-auth.js");
@@ -99,7 +130,7 @@ describe("OpenCodeAdapter", () => {
       await writeFile(tokenPath, JSON.stringify(authFile), "utf8");
 
       const auth = new OpenCodeAuth({ tokenPath });
-      const adapter = await OpenCodeAdapter.fromAuth({ auth });
+      const adapter = await OpenCodeAdapter.fromAuth({ auth, defaultModel: "anthropic/claude-sonnet-4-6" });
 
       expect(adapter.tier).toBe("zen");
     });
@@ -117,26 +148,10 @@ describe("OpenCodeAdapter", () => {
       await writeFile(tokenPath, JSON.stringify(authFile), "utf8");
 
       const auth = new OpenCodeAuth({ tokenPath });
-      const adapter = await OpenCodeAdapter.fromAuth({ auth });
+      const adapter = await OpenCodeAdapter.fromAuth({ auth, defaultModel: "minimax-m2.5" });
 
       expect(adapter.tier).toBe("go");
       expect(adapter.name).toBe("opencode-go");
-    });
-  });
-
-  describe("model arrays", () => {
-    it("OPENCODE_GO_MODELS is a non-empty array", async () => {
-      const { OPENCODE_GO_MODELS } = await import("../opencode-provider.js");
-
-      expect(OPENCODE_GO_MODELS.length).toBeGreaterThan(0);
-      expect(OPENCODE_GO_MODELS).toContain("minimax-m2.5");
-    });
-
-    it("OPENCODE_ZEN_MODELS is a non-empty array", async () => {
-      const { OPENCODE_ZEN_MODELS } = await import("../opencode-provider.js");
-
-      expect(OPENCODE_ZEN_MODELS.length).toBeGreaterThan(0);
-      expect(OPENCODE_ZEN_MODELS).toContain("anthropic/claude-sonnet-4-6");
     });
   });
 });

@@ -5,6 +5,7 @@ import type {
 } from "../../../src/agents/index.js";
 import { textParts } from "../../../src/engine/domain/content.js";
 import { OpenAIAdapter } from "../../../src/agents/infrastructure/openai.js";
+import { getInvalidToolInputDetails } from "../../../src/agents/tool-call-input.js";
 
 function makeOptions(
   overrides: Partial<CreateMessageOptions> = {},
@@ -300,6 +301,27 @@ describe("OpenAIAdapter streaming", () => {
       expect(toolEvent).toBeDefined();
       const parsed = JSON.parse(toolEvent!.content);
       expect(parsed.input).toEqual(complexInput);
+    });
+
+    it("emits malformed streamed tool arguments as invalid tool input", async () => {
+      const chunks = [
+        makeToolCallChunk(0, { id: "call_bad", name: "write", arguments: "{bad" }),
+        makeToolCallChunk(0, { arguments: "-json}" }),
+      ];
+
+      vi.stubGlobal("fetch", mockFetchStreamResponse(mockSSEStream(chunks)));
+
+      const events = await collectEvents(adapter.streamMessage(makeOptions()));
+      const toolEvent = events.find((event) => event.type === "tool_use");
+      expect(toolEvent).toBeDefined();
+      const parsed = JSON.parse(toolEvent!.content);
+
+      expect(parsed.name).toBe("write");
+      expect(getInvalidToolInputDetails(parsed.input)).toEqual({
+        reason: "Failed to parse tool arguments as JSON.",
+        raw: "{bad-json}",
+      });
+      expect(events).toContainEqual({ type: "done", content: "" });
     });
   });
 

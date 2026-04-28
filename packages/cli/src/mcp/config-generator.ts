@@ -164,14 +164,15 @@ export interface McpClientConfig {
 
 export function generateConfig(config: McpClientConfig): string {
   const serverName = config.mcpServerName;
-  const mcpBin = `${config.appName}-mcp`;
+  const command = config.appName;
+  const args = ["tools", "--mcp"];
 
   if (config.client === "claude-code" && config.transport === "stdio") {
     return JSON.stringify({
       mcpServers: {
         [serverName]: {
-          command: mcpBin,
-          args: [],
+          command,
+          args,
           env: {},
         },
       },
@@ -182,8 +183,8 @@ export function generateConfig(config: McpClientConfig): string {
     return JSON.stringify({
       mcpServers: {
         [serverName]: {
-          command: mcpBin,
-          args: [],
+          command,
+          args,
           transportType: "stdio",
         },
       },
@@ -205,8 +206,8 @@ export function generateConfig(config: McpClientConfig): string {
   return JSON.stringify({
     mcpServers: {
       [serverName]: {
-        command: mcpBin,
-        args: [],
+        command,
+        args,
         transportType: "stdio",
       },
     },

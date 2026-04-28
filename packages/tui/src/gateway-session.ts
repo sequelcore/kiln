@@ -4,6 +4,7 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { isGuiProviderModeless, type GuiProviderDiscoveryResult } from "@kilnai/gateway-contracts";
 import type { SessionLike } from "./types.js";
 import type { SessionEventInternal } from "./types.js";
 import { TuiWsClient } from "./ws-client.js";
@@ -12,10 +13,27 @@ import type { TuiInboundFrame } from "./ws-client.js";
 const CONNECT_TIMEOUT_MS = 10_000;
 const SEND_CONNECTED_TIMEOUT_MS = 5_000;
 const CLEAR_TIMEOUT_MS = 5_000;
+const PROVIDER_REFRESH_TIMEOUT_MS = 5_000;
 
 const STOP = Symbol("STOP");
+let providerSwitchRequestOrdinal = 0;
 
 type QueueItem = SessionEventInternal | typeof STOP;
+
+function nextProviderSwitchRequestId(): string {
+  providerSwitchRequestOrdinal += 1;
+  return `provider-switch:${Date.now()}:${providerSwitchRequestOrdinal}`;
+}
+
+function normalizeModel(model: unknown): string | null {
+  if (typeof model !== "string") return null;
+  const trimmed = model.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function providerRequiresSelectedModelMessage(provider: string): string {
+  return `Provider '${provider}' requires a selected model.`;
+}
 
 /**
  * GatewaySession — TUI's SessionLike implementation backed by the local gateway WS.
@@ -33,7 +51,10 @@ export class GatewaySession implements SessionLike {
   }
 
   /** Callback invoked when a welcome frame is received. */
-  private onWelcome: ((models: Record<string, string[]>) => void) | null = null;
+  private onWelcome: ((
+    models: Record<string, string[]>,
+    providerDiscovery?: readonly GuiProviderDiscoveryResult[],
+  ) => void) | null = null;
 
   /** Pending queue items for the current turn. Set while a turn is in flight. */
   private queue: QueueItem[] = [];
@@ -44,9 +65,24 @@ export class GatewaySession implements SessionLike {
   private clearCallbacks: { resolve: () => void; reject: (err: Error) => void } | null = null;
 
   /** Pending provider change callbacks — set while waiting for "provider_changed" frame. */
-  private providerChangeCallbacks: { resolve: (provider: string) => void; reject: (err: Error) => void } | null = null;
+  private providerChangeCallbacks: {
+    provider: string;
+    model: string | null;
+    requestId: string;
+    resolve: (provider: string) => void;
+    reject: (err: Error) => void;
+  } | null = null;
 
-  constructor(wsUrl: string, onWelcome?: (models: Record<string, string[]>) => void) {
+  /** Pending provider refresh callbacks — set while waiting for "providers_refreshed" frame. */
+  private providerRefreshCallbacks: { resolve: () => void; reject: (err: Error) => void } | null = null;
+
+  constructor(
+    wsUrl: string,
+    onWelcome?: (
+      models: Record<string, string[]>,
+      providerDiscovery?: readonly GuiProviderDiscoveryResult[],
+    ) => void,
+  ) {
     this.userId = `kiln-tui-${randomUUID()}`;
     this.onWelcome = onWelcome ?? null;
 
@@ -114,14 +150,27 @@ export class GatewaySession implements SessionLike {
    * Resolves with the new provider name. Rejects after timeout.
    */
   async switchProvider(provider: string, model?: string): Promise<string> {
-    await this.waitForConnection();
+    if (!this.connected || !this.client.isConnected) {
+      throw new Error("Provider switch requires an active TUI gateway connection");
+    }
+    const requestedModel = normalizeModel(model);
+    if (!requestedModel && !isGuiProviderModeless(provider)) {
+      throw new Error(providerRequiresSelectedModelMessage(provider));
+    }
+    const frame = requestedModel
+      ? { type: "provider" as const, provider, model: requestedModel, requestId: "" }
+      : { type: "provider" as const, provider, requestId: "" };
     return new Promise<string>((resolve, reject) => {
+      const requestId = nextProviderSwitchRequestId();
       const timeout = setTimeout(() => {
         this.providerChangeCallbacks = null;
         reject(new Error("Provider switch timed out"));
       }, CLEAR_TIMEOUT_MS);
 
       this.providerChangeCallbacks = {
+        provider,
+        model: requestedModel,
+        requestId,
         resolve: (newProvider: string) => {
           clearTimeout(timeout);
           this.providerChangeCallbacks = null;
@@ -134,7 +183,36 @@ export class GatewaySession implements SessionLike {
         },
       };
 
-      this.client.send({ type: "provider", provider, ...(model ? { model } : {}) });
+      this.client.send({ ...frame, requestId });
+    });
+  }
+
+  /**
+   * Refresh provider model discovery without reconnecting the gateway session.
+   * Not part of SessionLike — duck-typed in app.tsx.
+   */
+  async refreshProviders(): Promise<void> {
+    await this.waitForConnection();
+    return new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.providerRefreshCallbacks = null;
+        reject(new Error("Provider refresh timed out"));
+      }, PROVIDER_REFRESH_TIMEOUT_MS);
+
+      this.providerRefreshCallbacks = {
+        resolve: () => {
+          clearTimeout(timeout);
+          this.providerRefreshCallbacks = null;
+          resolve();
+        },
+        reject: (err) => {
+          clearTimeout(timeout);
+          this.providerRefreshCallbacks = null;
+          reject(err);
+        },
+      };
+
+      this.client.send({ type: "refresh_providers" });
     });
   }
 
@@ -193,6 +271,16 @@ export class GatewaySession implements SessionLike {
       });
       this.pushStop();
     } else if (frame.type === "error") {
+      const pendingProviderSwitch = this.providerChangeCallbacks;
+      if (pendingProviderSwitch) {
+        this.providerChangeCallbacks = null;
+        pendingProviderSwitch.reject(new Error(frame.message));
+      }
+      const pendingProviderRefresh = this.providerRefreshCallbacks;
+      if (pendingProviderRefresh) {
+        this.providerRefreshCallbacks = null;
+        pendingProviderRefresh.reject(new Error(frame.message));
+      }
       this.push({ type: "error", message: frame.message });
       this.pushStop();
     } else if (frame.type === "approval_requested") {
@@ -211,17 +299,30 @@ export class GatewaySession implements SessionLike {
       });
     } else if (frame.type === "welcome") {
       if (frame.models && this.onWelcome) {
-        this.onWelcome(frame.models);
+        this.onWelcome(frame.models, frame.providerDiscovery as readonly GuiProviderDiscoveryResult[] | undefined);
       }
       if ("planMode" in frame) {
         this._planMode = frame.planMode ?? false;
       }
+    } else if (frame.type === "providers_refreshed") {
+      this.onWelcome?.(frame.models, frame.providerDiscovery as readonly GuiProviderDiscoveryResult[]);
+      this.providerRefreshCallbacks?.resolve();
     } else if (frame.type === "exec_confirmed") {
       this._planMode = false;
     } else if (frame.type === "cleared") {
       this.clearCallbacks?.resolve();
     } else if (frame.type === "provider_changed") {
-      this.providerChangeCallbacks?.resolve(frame.provider);
+      const pending = this.providerChangeCallbacks;
+      if (
+        pending
+        && frame.provider === pending.provider
+        && normalizeModel(frame.model) === pending.model
+        && frame.requestId === pending.requestId
+      ) {
+        pending.resolve(frame.provider);
+      } else if (pending) {
+        pending.reject(new Error("Provider switch acknowledgement did not match the pending request"));
+      }
     }
   }
 

@@ -2,7 +2,7 @@
 
 **Status:** Product architecture track  
 **Owner:** Kiln runtime / GUI / operator surfaces  
-**Depends on:** `docs/adr/ADR-006-gui-stack-and-binding-contract.md`, `docs/roadmap/01-gui-phase-1-parity-checklist.md`, `docs/roadmap/03-shared-tool-surface-unification.md`  
+**Depends on:** `docs/adr/ADR-006-gui-stack-and-binding-contract.md`, `docs/roadmap/01-gui-phase-1-parity-checklist.md`, `docs/architecture/tool-execution.md`, `docs/architecture/provider-model-discovery.md`
 **Related:** `STRATEGY.md`, `docs/roadmap/README.md`
 
 ## Purpose
@@ -55,12 +55,13 @@ not imply Kiln should fork its runtime into a desktop shell.
 This roadmap covers where humans operate Kiln work.
 
 It does not redefine how tools execute. Tool execution, provider integration,
-and MCP convergence are tracked in
-`docs/roadmap/03-shared-tool-surface-unification.md`.
+MCP convergence, and provider model discovery are canonical architecture
+concerns documented in `docs/architecture/tool-execution.md` and
+`docs/architecture/provider-model-discovery.md`.
 
 Correct separation:
 
-- `03`: how agents/providers/wrappers access governed Kiln tools
+- `tool-execution`: how agents/providers/wrappers access governed Kiln tools
 - `04`: how humans supervise sessions, approvals, diffs, telemetry, and replay
   across surfaces
 

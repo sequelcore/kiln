@@ -1,14 +1,12 @@
 import type {
   AuthorityDescriptor,
   Capability,
-  DevTool,
+  DefaultBuiltinToolSurface,
   ToolDefinition,
 } from "@kilnai/core";
 import {
-  createDefaultBuiltinTools,
+  createDefaultBuiltinToolSurface,
   isDirectProviderId,
-  projectDevToolCapabilities,
-  projectDevToolDefinitions,
   resolveDirectProviderExecutionProfile,
 } from "@kilnai/core";
 import type { PerCallToolConfig } from "../session/runtime-session-orchestrator.js";
@@ -21,11 +19,11 @@ export interface AttachedRuntimeBuiltinToolSurface {
   readonly toolAuthority: ReadonlyMap<string, AuthorityDescriptor>;
 }
 
-const DEFAULT_BUILTIN_TOOLS = createDefaultBuiltinTools();
-const DEFAULT_TOOL_CAPABILITIES = projectDevToolCapabilities(DEFAULT_BUILTIN_TOOLS);
+const DEFAULT_CORE_BUILTIN_TOOL_SURFACE = createDefaultBuiltinToolSurface();
+const DEFAULT_TOOL_CAPABILITIES = DEFAULT_CORE_BUILTIN_TOOL_SURFACE.capabilities;
 const DEFAULT_BUILTIN_TOOL_SURFACE: AttachedRuntimeBuiltinToolSurface = {
-  callBuiltinTools: buildBuiltinToolExecutors(DEFAULT_BUILTIN_TOOLS),
-  toolDefinitions: projectDevToolDefinitions(DEFAULT_BUILTIN_TOOLS),
+  callBuiltinTools: buildBuiltinToolExecutors(DEFAULT_CORE_BUILTIN_TOOL_SURFACE),
+  toolDefinitions: DEFAULT_CORE_BUILTIN_TOOL_SURFACE.toolDefinitions,
   capabilities: DEFAULT_TOOL_CAPABILITIES,
   toolAuthority: buildBuiltinToolAuthority(DEFAULT_TOOL_CAPABILITIES),
 };
@@ -40,18 +38,6 @@ export function buildAttachedRuntimePerCallToolConfig(input: {
   readonly activeModel?: string;
   readonly builtinToolSurface?: AttachedRuntimeBuiltinToolSurface;
 }): PerCallToolConfig {
-  const config: PerCallToolConfig = input.activeProvider && input.activeModel
-    ? {
-        tenantId: input.tenantId,
-        modelOverride: {
-          provider: input.activeProvider,
-          model: input.activeModel,
-        },
-      }
-    : {
-        tenantId: input.tenantId,
-      };
-
   const provider = isDirectProviderId(input.activeProvider)
     ? input.activeProvider
     : undefined;
@@ -59,6 +45,16 @@ export function buildAttachedRuntimePerCallToolConfig(input: {
     provider,
     model: input.activeModel,
   });
+  const modelOverride = provider && profile
+    ? {
+        provider,
+        model: profile.model,
+      }
+    : undefined;
+  const config: PerCallToolConfig = {
+    tenantId: input.tenantId,
+    ...(modelOverride ? { modelOverride } : {}),
+  };
 
   if (profile?.executionMode !== "kiln-executable") {
     return {
@@ -79,12 +75,13 @@ export function buildAttachedRuntimePerCallToolConfig(input: {
 }
 
 function buildBuiltinToolExecutors(
-  tools: readonly DevTool[],
+  surface: DefaultBuiltinToolSurface,
 ): ReadonlyMap<string, (input: Record<string, unknown>) => Promise<unknown>> {
   const executors = new Map<string, (input: Record<string, unknown>) => Promise<unknown>>();
-  for (const tool of tools) {
-    executors.set(tool.name, async (input: Record<string, unknown>) => {
-      const result = await tool.execute({ name: tool.name, input });
+  for (const toolName of surface.toolNames) {
+    executors.set(toolName, async (input: Record<string, unknown>) => {
+      const execution = await surface.bridge.execute({ name: toolName, input });
+      const result = execution.result;
       return { output: result.output, isError: result.isError, metadata: result.metadata };
     });
   }

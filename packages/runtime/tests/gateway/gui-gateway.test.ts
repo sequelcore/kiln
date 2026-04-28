@@ -1,10 +1,110 @@
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { execSync, spawn } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { CodexOAuthAuth, GPT4O, OpenCodeAuth, OPENCODE_BASE_URL } from "@kilnai/core";
+import type { GuiProviderDescriptor } from "@kilnai/gateway-contracts";
 import { Hono } from "hono";
-import { describe, expect, it } from "vitest";
+import type { UpgradeWebSocket } from "hono/ws";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { processAdmittedTurn } from "../../src/gateway/message-pipeline.js";
 import { mountGuiStaticAssetsIfPresent } from "../../src/gateway/gui-static-assets.js";
-import { buildGuiOperatorModels } from "../../src/gateway/gui-provider-models.js";
+import * as guiProviderModelsModule from "../../src/gateway/gui-provider-models.js";
+import {
+  buildGuiOperatorDiscoveryResults,
+  buildWelcomeProviderDescriptors,
+  discoverCodexCliModelDiscovery,
+  discoverGuiDirectProviderModelDiscovery,
+  discoverOpencodeCliModelDiscovery,
+  projectGuiOperatorModels,
+  resolveGuiProviderSwitch,
+  type GuiCliProviderModelDiscovery,
+} from "../../src/gateway/gui-provider-models.js";
+
+const guiSocketHarness = vi.hoisted(() => {
+  type HandlerFactory = Parameters<UpgradeWebSocket>[0];
+  let capturedFactory: HandlerFactory | null = null;
+
+  const upgradeWebSocket: UpgradeWebSocket = (factory) => {
+    capturedFactory = factory;
+    return async (_c, next) => next();
+  };
+
+  function simulateConnection(queryParams: Record<string, string> = {}) {
+    if (!capturedFactory) throw new Error("upgradeWebSocket not called yet");
+
+    const url = new URL("http://localhost/gui/ws");
+    for (const [key, value] of Object.entries(queryParams)) {
+      url.searchParams.set(key, value);
+    }
+
+    const ctx = {
+      req: {
+        query: (key: string) => url.searchParams.get(key) ?? undefined,
+      },
+    } as Parameters<HandlerFactory>[0];
+
+    const handlers = capturedFactory(ctx);
+    const mockWs = {
+      send: vi.fn(),
+      readyState: 1,
+      close: vi.fn(),
+    };
+
+    return { handlers, mockWs, wsCtx: mockWs as unknown as Parameters<typeof handlers.onOpen>[1] };
+  }
+
+  function reset(): void {
+    capturedFactory = null;
+  }
+
+  return {
+    upgradeWebSocket,
+    simulateConnection,
+    reset,
+  };
+});
+
+vi.mock("hono/bun", () => ({
+  createBunWebSocket: () => ({
+    upgradeWebSocket: guiSocketHarness.upgradeWebSocket,
+    websocket: {},
+  }),
+}));
+
+vi.mock("../../src/gateway/message-pipeline.js", () => ({
+  processAdmittedTurn: vi.fn(),
+}));
+
+vi.mock("node:child_process", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:child_process")>();
+  const { EventEmitter } = await import("node:events");
+
+  return {
+    ...actual,
+    execSync: vi.fn(() => ""),
+    spawn: vi.fn(() => {
+      const proc = new EventEmitter() as EventEmitter & {
+        stdout: EventEmitter;
+        stdin: { write: ReturnType<typeof vi.fn> };
+        kill: () => void;
+      };
+
+      proc.stdout = new EventEmitter();
+      proc.stdin = { write: vi.fn() };
+      proc.kill = () => {
+        proc.emit("close");
+      };
+
+      queueMicrotask(() => {
+        proc.emit("close");
+      });
+
+      return proc;
+    }),
+  };
+});
 
 function createGuiDist(): string {
   const distDir = mkdtempSync(join(tmpdir(), "gui-gateway-dist-"));
@@ -21,6 +121,77 @@ function createGuiDist(): string {
 function createTempDir(): string {
   return mkdtempSync(join(tmpdir(), "gui-gateway-empty-"));
 }
+
+type GuiOperatorDiscoveryBuilderInput = Parameters<typeof buildGuiOperatorDiscoveryResults>[0];
+
+const AVAILABLE_CANONICAL_PROVIDERS: Record<string, boolean> = {
+  anthropic: true,
+  openai: true,
+  deepseek: true,
+  openrouter: true,
+  ollama: true,
+  "opencode-go": true,
+  "opencode-zen": true,
+  "codex-oauth": true,
+};
+
+function makeGuiOperatorDiscoveryBuilderInput(
+  overrides: Partial<GuiOperatorDiscoveryBuilderInput> = {},
+): GuiOperatorDiscoveryBuilderInput {
+  return {
+    opencodeModels: [],
+    codexModels: [],
+    ...overrides,
+  };
+}
+
+function projectGuiOperatorDiscoveryInput(input: GuiOperatorDiscoveryBuilderInput): Record<string, string[]> {
+  return projectGuiOperatorModels(buildGuiOperatorDiscoveryResults(input));
+}
+
+function makeGuiOperatorDiscoveryFromModels(
+  models: Readonly<Record<string, readonly string[]>>,
+) {
+  const directProviderDiscovery: Record<string, GuiCliProviderModelDiscovery> = Object.fromEntries(
+    Object.entries(models).flatMap(([provider, providerModels]) => (
+      provider === "claude" || provider === "codex" || provider === "opencode" || providerModels.length === 0
+        ? []
+        : [[provider, {
+            models: [...providerModels],
+            status: "available",
+            reason: `${provider} models discovered.`,
+            authState: "authenticated",
+          }]]
+    )),
+  );
+  return buildGuiOperatorDiscoveryResults({
+    opencodeModels: models.opencode ?? [],
+    codexModels: models.codex ?? [],
+    providerAvailability: Object.fromEntries(
+      Object.keys(models).map((provider) => [provider, true]),
+    ),
+    directProviderDiscovery,
+    lastCheckedAt: "2026-04-28T12:00:00.000Z",
+  });
+}
+
+function projectDirectProviderDiscoveryForTest(
+  directProviderDiscovery: Awaited<ReturnType<typeof discoverGuiDirectProviderModelDiscovery>>,
+  providerAvailability: Readonly<Record<string, boolean>>,
+): Record<string, string[]> {
+  return projectGuiOperatorModels(buildGuiOperatorDiscoveryResults({
+    opencodeModels: [],
+    codexModels: [],
+    providerAvailability,
+    directProviderDiscovery,
+  }));
+}
+
+afterEach(() => {
+  guiSocketHarness.reset();
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+});
 
 describe("startGuiGateway static mount", () => {
   it("serves /gui/index.html and falls back to index.html for unknown /gui routes", async () => {
@@ -51,6 +222,118 @@ describe("startGuiGateway static mount", () => {
     }
   });
 
+  it("builds structured provider discovery results with unavailable reasons", () => {
+    const checkedAt = "2026-04-28T12:00:00.000Z";
+    const discovery = buildGuiOperatorDiscoveryResults({
+      opencodeModels: [],
+      codexModels: ["gpt-5.4"],
+      providerAvailability: {
+        claude: true,
+        codex: true,
+        openai: true,
+        "codex-oauth": false,
+      },
+      lastCheckedAt: checkedAt,
+    });
+
+    expect(discovery.find((entry) => entry.provider === "claude")).toMatchObject({
+      provider: "claude",
+      available: true,
+      models: [],
+      status: "model_selection_not_required",
+      reason: "Claude CLI is available. Model selection is not required.",
+      authState: "not_required",
+      lastCheckedAt: checkedAt,
+    });
+    expect(discovery.find((entry) => entry.provider === "codex")).toMatchObject({
+      provider: "codex",
+      available: true,
+      models: ["gpt-5.4"],
+      status: "available",
+    });
+    expect(discovery.find((entry) => entry.provider === "openai")).toMatchObject({
+      provider: "openai",
+      available: false,
+      models: [],
+      status: "empty_model_list",
+      reason: "No models were discovered for OpenAI.",
+    });
+    expect(discovery.find((entry) => entry.provider === "codex-oauth")).toMatchObject({
+      provider: "codex-oauth",
+      available: false,
+      models: [],
+      status: "missing_auth",
+      reason: "Codex OAuth is unavailable in this runtime.",
+    });
+
+    expect(projectGuiOperatorModels(discovery)).toEqual({
+      claude: [],
+      codex: ["gpt-5.4"],
+    });
+    expect(buildWelcomeProviderDescriptors(discovery).find((entry) => entry.id === "openai")).toMatchObject({
+      id: "openai",
+      available: false,
+      models: [],
+      status: "empty_model_list",
+      reason: "No models were discovered for OpenAI.",
+    });
+  });
+
+  it("uses structured discovery reasons when rejecting provider switches", () => {
+    const discovery = buildGuiOperatorDiscoveryResults({
+      opencodeModels: [],
+      codexModels: [],
+      providerAvailability: { openai: true },
+      lastCheckedAt: "2026-04-28T12:00:00.000Z",
+    });
+
+    expect(resolveGuiProviderSwitch({
+      provider: "openai",
+      model: "gpt-5.4",
+      discovery,
+    })).toEqual({
+      ok: false,
+      error: "No models were discovered for OpenAI.",
+    });
+  });
+
+  it("uses one provider readiness wording path for switches and prompt execution", () => {
+    const resolution = resolveGuiProviderSwitch({
+      provider: "openai",
+      model: undefined,
+      models: {
+        openai: ["gpt-5.4"],
+      },
+    });
+    expect(resolution).toMatchObject({
+      ok: false,
+      error: "Provider 'openai' requires a selected model.",
+    });
+  });
+
+  it("keeps Claude model-less when availability says it is live", () => {
+    const discovery = buildGuiOperatorDiscoveryResults({
+      opencodeModels: [],
+      codexModels: [],
+      providerAvailability: { claude: true },
+      lastCheckedAt: "2026-04-28T12:00:00.000Z",
+    });
+
+    expect(discovery.find((entry) => entry.provider === "claude")).toMatchObject({
+      provider: "claude",
+      available: true,
+      models: [],
+      status: "model_selection_not_required",
+      reason: "Claude CLI is available. Model selection is not required.",
+    });
+    expect(projectGuiOperatorModels(discovery).claude).toEqual([]);
+    expect(buildWelcomeProviderDescriptors(discovery).find((entry) => entry.id === "claude")).toMatchObject({
+      id: "claude",
+      models: [],
+      available: true,
+    });
+  });
+
   it("skips the /gui mount when dist index.html is missing", async () => {
     const distDir = createTempDir();
     const app = new Hono();
@@ -66,47 +349,2560 @@ describe("startGuiGateway static mount", () => {
       rmSync(distDir, { recursive: true, force: true });
     }
   });
-});
 
-describe("buildGuiOperatorModels", () => {
-  it("includes codex-oauth subscription models for the GUI welcome payload", () => {
-    const models = buildGuiOperatorModels({
-      opencodeModels: ["openai/gpt-5.4-mini"],
-      codexModels: ["gpt-5.4", "gpt-5.4-mini"],
-      opencodeTier: null,
+  it("omits stale active provider/model selections from the welcome frame when they are absent from the authoritative models map", async () => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
+        port: port ?? 4810,
+        stop,
+      })),
     });
 
-    expect(models["codex-oauth"]).toEqual([
-      "gpt-5.4-mini",
-      "gpt-5.4",
-      "gpt-5.3-codex",
-      "gpt-5.3-codex-spark",
-    ]);
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+
+    try {
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        getSnapshot: async () => ({ } as never),
+        operatorTransport: {
+          sessionManager: {
+            factory: vi.fn() as never,
+            getProvider: () => "claude",
+            setProvider: vi.fn(),
+            getModel: () => "claude-sonnet-4-6",
+            setModel: vi.fn(),
+          },
+        },
+      });
+
+      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
+      await handlers.onOpen!(new Event("open"), wsCtx);
+
+      expect(mockWs.send).toHaveBeenCalledTimes(1);
+
+      const welcomeFrame = JSON.parse(mockWs.send.mock.calls[0][0] as string) as {
+        type: string;
+        activeProvider?: string;
+        activeModel?: string;
+      };
+
+      expect(welcomeFrame.type).toBe("welcome");
+      expect(welcomeFrame.activeProvider).toBeUndefined();
+      expect(welcomeFrame.activeModel).toBeUndefined();
+    } finally {
+      gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
+
+  it("omits stale active provider/model selections from the welcome frame when the authoritative provider model list is empty", async () => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    const resolveGuiOperatorDiscoverySpy = vi
+      .spyOn(guiProviderModelsModule, "resolveGuiOperatorDiscoveryResults")
+      .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [] }));
+    let activeProvider = "openai";
+    let activeModel = "gpt-4o";
+    const factory = vi.fn() as never;
+    const setProvider = vi.fn((provider: string) => {
+      activeProvider = provider;
+    });
+    const setModel = vi.fn((model: string) => {
+      activeModel = model;
+    });
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
+        port: port ?? 4810,
+        stop,
+      })),
+    });
+
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+
+    try {
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        getSnapshot: async () => ({ } as never),
+        operatorTransport: {
+          sessionManager: {
+            factory,
+            getProvider: () => activeProvider,
+            setProvider,
+            getModel: () => activeModel,
+            setModel,
+          },
+        },
+      });
+
+      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
+      await handlers.onOpen!(new Event("open"), wsCtx);
+
+      expect(mockWs.send).toHaveBeenCalledTimes(1);
+
+      const welcomeFrame = JSON.parse(mockWs.send.mock.calls[0][0] as string) as {
+        type: string;
+        activeProvider?: string;
+        activeModel?: string;
+      };
+
+      expect(welcomeFrame.type).toBe("welcome");
+      expect(welcomeFrame.activeProvider).toBeUndefined();
+      expect(welcomeFrame.activeModel).toBeUndefined();
+      expect(setModel).toHaveBeenCalledWith("");
+      expect(setProvider).toHaveBeenCalledWith("");
+      expect(activeProvider).toBe("");
+      expect(activeModel).toBe("");
+      expect(factory).not.toHaveBeenCalled();
+    } finally {
+      vi.mocked(processAdmittedTurn).mockReset();
+      resolveGuiOperatorDiscoverySpy.mockRestore();
+      gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ["blank", ""],
+    ["stale", "gpt-4o-stale"],
+  ])("does not fall back to providerModels[0] in the welcome frame when the stored model is %s", async (_kind, storedModel) => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    const resolveGuiOperatorDiscoverySpy = vi
+      .spyOn(guiProviderModelsModule, "resolveGuiOperatorDiscoveryResults")
+      .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
+    let activeProvider = "openai";
+    let activeModel = storedModel;
+    const factory = vi.fn() as never;
+    const setProvider = vi.fn((provider: string) => {
+      activeProvider = provider;
+    });
+    const setModel = vi.fn((model: string) => {
+      activeModel = model;
+    });
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
+        port: port ?? 4810,
+        stop,
+      })),
+    });
+
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+
+    try {
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        getSnapshot: async () => ({ } as never),
+        operatorTransport: {
+          sessionManager: {
+            factory,
+            getProvider: () => activeProvider,
+            setProvider,
+            getModel: () => activeModel,
+            setModel,
+          },
+        },
+      });
+
+      expect(gateway.operatorModels?.openai).toEqual([GPT4O]);
+
+      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
+      await handlers.onOpen!(new Event("open"), wsCtx);
+
+      expect(mockWs.send).toHaveBeenCalledTimes(1);
+
+      const welcomeFrame = JSON.parse(mockWs.send.mock.calls[0][0] as string) as {
+        type: string;
+        activeProvider?: string;
+        activeModel?: string;
+      };
+
+      expect(welcomeFrame.type).toBe("welcome");
+      expect(welcomeFrame.activeProvider).toBeUndefined();
+      expect(welcomeFrame.activeModel).toBeUndefined();
+      expect(setProvider).toHaveBeenCalledWith("");
+      expect(setModel).toHaveBeenCalledWith("");
+      expect(activeProvider).toBe("");
+      expect(activeModel).toBe("");
+      expect(factory).not.toHaveBeenCalled();
+    } finally {
+      resolveGuiOperatorDiscoverySpy.mockRestore();
+      gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects turn execution when the active provider is advertised with an empty model list", async () => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    const resolveGuiOperatorDiscoverySpy = vi
+      .spyOn(guiProviderModelsModule, "resolveGuiOperatorDiscoveryResults")
+      .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [] }));
+    const factory = vi.fn() as never;
+    vi.mocked(processAdmittedTurn).mockReset();
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
+        port: port ?? 4810,
+        stop,
+      })),
+    });
+
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+
+    try {
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        getSnapshot: async () => ({ } as never),
+        operatorTransport: {
+          sessionManager: {
+            factory,
+            getProvider: () => "openai",
+            setProvider: vi.fn(),
+            getModel: () => "gpt-4o",
+            setModel: vi.fn(),
+          },
+        },
+      });
+
+      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
+      await handlers.onMessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({ type: "message", content: "hello from gui" }),
+        }),
+        wsCtx,
+      );
+
+      const outboundFrames = mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string) as { type: string; message?: string });
+
+      expect(outboundFrames).toContainEqual({ type: "thinking" });
+      expect(outboundFrames).toContainEqual({
+        type: "error",
+        message: "No models were discovered for OpenAI.",
+      });
+      expect(processAdmittedTurn).not.toHaveBeenCalled();
+      expect(factory).not.toHaveBeenCalled();
+    } finally {
+      resolveGuiOperatorDiscoverySpy.mockRestore();
+      gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects turn execution with a clear error when no provider is selected", async () => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    const resolveGuiOperatorDiscoverySpy = vi
+      .spyOn(guiProviderModelsModule, "resolveGuiOperatorDiscoveryResults")
+      .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
+    const factory = vi.fn() as never;
+    vi.mocked(processAdmittedTurn).mockReset();
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
+        port: port ?? 4810,
+        stop,
+      })),
+    });
+
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+
+    try {
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        getSnapshot: async () => ({ } as never),
+        operatorTransport: {
+          sessionManager: {
+            factory,
+            getProvider: () => "",
+            setProvider: vi.fn(),
+            getModel: () => "",
+            setModel: vi.fn(),
+          },
+        },
+      });
+
+      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
+      await handlers.onMessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({ type: "message", content: "hello from gui" }),
+        }),
+        wsCtx,
+      );
+
+      const outboundFrames = mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string) as { type: string; message?: string });
+
+      expect(outboundFrames).toContainEqual({
+        type: "error",
+        message: "No provider selected. Choose a provider before sending a message.",
+      });
+      expect(processAdmittedTurn).not.toHaveBeenCalled();
+      expect(factory).not.toHaveBeenCalled();
+    } finally {
+      resolveGuiOperatorDiscoverySpy.mockRestore();
+      gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
+
+  it("admits model-less Claude turns without leaking a stale stored model", async () => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    const resolveGuiOperatorDiscoverySpy = vi
+      .spyOn(guiProviderModelsModule, "resolveGuiOperatorDiscoveryResults")
+      .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ claude: [] }));
+    const setModel = vi.fn();
+    vi.mocked(processAdmittedTurn).mockReset();
+    vi.mocked(processAdmittedTurn).mockResolvedValue({
+      ok: true,
+      result: {
+        parts: [{ type: "text", text: "hello" }],
+        inputTokens: 1,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        queued: false,
+        sessionId: "session-1",
+        sessionMode: "mode-a",
+        traceId: "trace-1",
+      },
+    } as never);
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
+        port: port ?? 4810,
+        stop,
+      })),
+    });
+
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+
+    try {
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        getSnapshot: async () => ({ } as never),
+        operatorTransport: {
+          sessionManager: {
+            factory: vi.fn() as never,
+            getProvider: () => "claude",
+            setProvider: vi.fn(),
+            getModel: () => "stale-model",
+            setModel,
+          },
+        },
+      });
+
+      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
+      await handlers.onMessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({ type: "message", content: "hello from gui" }),
+        }),
+        wsCtx,
+      );
+
+      const outboundFrames = mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string) as { type: string; routedProvider?: string; routedModel?: string });
+
+      expect(setModel).toHaveBeenCalledWith("");
+      expect(outboundFrames).toContainEqual(expect.objectContaining({
+        type: "done",
+        routedProvider: "claude",
+        routedModel: "",
+      }));
+    } finally {
+      resolveGuiOperatorDiscoverySpy.mockRestore();
+      gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
+
+  it("omits model from model-less Claude provider switch acknowledgements", async () => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    const resolveGuiOperatorDiscoverySpy = vi
+      .spyOn(guiProviderModelsModule, "resolveGuiOperatorDiscoveryResults")
+      .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ claude: [] }));
+    const setProvider = vi.fn();
+    const setModel = vi.fn();
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
+        port: port ?? 4810,
+        stop,
+      })),
+    });
+
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+
+    try {
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        getSnapshot: async () => ({ } as never),
+        operatorTransport: {
+          sessionManager: {
+            factory: vi.fn() as never,
+            getProvider: () => "",
+            setProvider,
+            getModel: () => "",
+            setModel,
+          },
+        },
+      });
+
+      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
+      await handlers.onMessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({ type: "provider", provider: "claude", requestId: "request-claude" }),
+        }),
+        wsCtx,
+      );
+
+      expect(setProvider).toHaveBeenCalledWith("claude");
+      expect(setModel).toHaveBeenCalledWith("");
+      expect(mockWs.send).toHaveBeenCalledWith(JSON.stringify({
+        type: "provider_changed",
+        provider: "claude",
+        requestId: "request-claude",
+      }));
+    } finally {
+      resolveGuiOperatorDiscoverySpy.mockRestore();
+      gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
+
+  it("refreshes provider models before accepting a provider switch", async () => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    const resolveGuiOperatorDiscoverySpy = vi
+      .spyOn(guiProviderModelsModule, "resolveGuiOperatorDiscoveryResults")
+      .mockResolvedValueOnce(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }))
+      .mockResolvedValueOnce(makeGuiOperatorDiscoveryFromModels({ openai: ["gpt-5.4"] }));
+    const setProvider = vi.fn();
+    const setModel = vi.fn();
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
+        port: port ?? 4810,
+        stop,
+      })),
+    });
+
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+
+    try {
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        getSnapshot: async () => ({ } as never),
+        operatorTransport: {
+          sessionManager: {
+            factory: vi.fn() as never,
+            getProvider: () => "",
+            setProvider,
+            getModel: () => "",
+            setModel,
+          },
+        },
+      });
+
+      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
+
+      await handlers.onMessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({ type: "provider", provider: "openai", model: GPT4O, requestId: "request-drift" }),
+        }),
+        wsCtx,
+      );
+
+      expect(mockWs.send).toHaveBeenCalledWith(JSON.stringify({
+        type: "error",
+        message: `Provider 'openai' does not advertise model '${GPT4O}'`,
+      }));
+      expect(setProvider).not.toHaveBeenCalled();
+      expect(setModel).not.toHaveBeenCalled();
+    } finally {
+      resolveGuiOperatorDiscoverySpy.mockRestore();
+      gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
+
+  it("refreshes GUI provider discovery on request without reconnecting", async () => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    let openAiAvailable = false;
+    const resolveGuiOperatorDiscoverySpy = vi
+      .spyOn(guiProviderModelsModule, "resolveGuiOperatorDiscoveryResults")
+      .mockImplementation(async () => [
+        {
+          provider: "openai",
+          available: openAiAvailable,
+          models: openAiAvailable ? [GPT4O] : [],
+          status: openAiAvailable ? "available" : "missing_auth",
+          reason: openAiAvailable ? "OpenAI models discovered." : "OPENAI_API_KEY is missing.",
+          authState: openAiAvailable ? "authenticated" : "missing",
+          lastCheckedAt: openAiAvailable ? "2026-04-28T12:01:00.000Z" : "2026-04-28T12:00:00.000Z",
+        },
+      ]);
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
+        port: port ?? 4810,
+        stop,
+      })),
+    });
+
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+    try {
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        getSnapshot: async () => ({ } as never),
+        getProviderAvailability: () => ({ openai: true }),
+        operatorTransport: {
+          sessionManager: {
+            factory: vi.fn() as never,
+            getProvider: () => "",
+            setProvider: vi.fn(),
+            getModel: () => "",
+            setModel: vi.fn(),
+          },
+        },
+      });
+
+      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
+      await handlers.onOpen?.(new Event("open"), wsCtx);
+
+      openAiAvailable = true;
+      await handlers.onMessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({ type: "refresh_providers" }),
+        }),
+        wsCtx,
+      );
+
+      const outboundFrames = mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string) as { type: string });
+      expect(outboundFrames).toContainEqual(expect.objectContaining({
+        type: "providers_refreshed",
+        models: { openai: [GPT4O] },
+        providers: [
+          expect.objectContaining({
+            id: "openai",
+            available: true,
+            models: [GPT4O],
+          }),
+        ],
+      }));
+    } finally {
+      resolveGuiOperatorDiscoverySpy.mockRestore();
+      gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
+
+  it("refreshes provider models before admitting a turn", async () => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    const resolveGuiOperatorDiscoverySpy = vi
+      .spyOn(guiProviderModelsModule, "resolveGuiOperatorDiscoveryResults")
+      .mockResolvedValueOnce(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }))
+      .mockResolvedValueOnce(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }))
+      .mockResolvedValueOnce(makeGuiOperatorDiscoveryFromModels({ openai: [] }));
+    const factory = vi.fn() as never;
+    vi.mocked(processAdmittedTurn).mockReset();
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
+        port: port ?? 4810,
+        stop,
+      })),
+    });
+
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+
+    try {
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        getSnapshot: async () => ({ } as never),
+        operatorTransport: {
+          sessionManager: {
+            factory,
+            getProvider: () => "openai",
+            setProvider: vi.fn(),
+            getModel: () => GPT4O,
+            setModel: vi.fn(),
+          },
+        },
+      });
+
+      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
+      await handlers.onOpen!(new Event("open"), wsCtx);
+      await handlers.onMessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({ type: "message", content: "hello from gui" }),
+        }),
+        wsCtx,
+      );
+
+      const outboundFrames = mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string) as { type: string; message?: string });
+
+      expect(outboundFrames).toContainEqual({ type: "thinking" });
+      expect(outboundFrames).toContainEqual({
+        type: "error",
+        message: "No models were discovered for OpenAI.",
+      });
+      expect(processAdmittedTurn).not.toHaveBeenCalled();
+      expect(factory).not.toHaveBeenCalled();
+    } finally {
+      resolveGuiOperatorDiscoverySpy.mockRestore();
+      gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ["blank", ""],
+    ["stale", "gpt-4o-stale"],
+  ])("does not fall back to providerModels[0] in the message path when the stored model is %s", async (_kind, storedModel) => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    const resolveGuiOperatorDiscoverySpy = vi
+      .spyOn(guiProviderModelsModule, "resolveGuiOperatorDiscoveryResults")
+      .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
+    const factory = vi.fn() as never;
+    const setModel = vi.fn();
+    vi.mocked(processAdmittedTurn).mockReset();
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
+        port: port ?? 4810,
+        stop,
+      })),
+    });
+
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+
+    try {
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        getSnapshot: async () => ({ } as never),
+        operatorTransport: {
+          sessionManager: {
+            factory,
+            getProvider: () => "openai",
+            setProvider: vi.fn(),
+            getModel: () => storedModel,
+            setModel,
+          },
+        },
+      });
+
+      expect(gateway.operatorModels?.openai).toEqual([GPT4O]);
+
+      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
+      await handlers.onMessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({ type: "message", content: "hello from gui" }),
+        }),
+        wsCtx,
+      );
+
+      const outboundFrames = mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string) as { type: string });
+
+      expect(outboundFrames).toContainEqual({ type: "thinking" });
+      expect(outboundFrames).toContainEqual({
+        type: "error",
+        message: storedModel
+          ? `Provider 'openai' does not advertise model '${storedModel}'`
+          : "Provider 'openai' requires a selected model.",
+      });
+      expect(setModel).not.toHaveBeenCalled();
+      expect(processAdmittedTurn).not.toHaveBeenCalled();
+      expect(factory).not.toHaveBeenCalled();
+    } finally {
+      resolveGuiOperatorDiscoverySpy.mockRestore();
+      gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects provider switch frames without a nonblank requestId before mutating provider state", async () => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    const resolveGuiOperatorDiscoverySpy = vi
+      .spyOn(guiProviderModelsModule, "resolveGuiOperatorDiscoveryResults")
+      .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
+    const setProvider = vi.fn();
+    const setModel = vi.fn();
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
+        port: port ?? 4810,
+        stop,
+      })),
+    });
+
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+
+    try {
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        getSnapshot: async () => ({ } as never),
+        operatorTransport: {
+          sessionManager: {
+            factory: vi.fn() as never,
+            getProvider: () => "",
+            setProvider,
+            getModel: () => "",
+            setModel,
+          },
+        },
+      });
+
+      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
+
+      await handlers.onMessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({ type: "provider", provider: "openai", model: GPT4O, requestId: "   " }),
+        }),
+        wsCtx,
+      );
+
+      expect(mockWs.send).toHaveBeenCalledWith(JSON.stringify({
+        type: "error",
+        message: "Provider switch requestId is required",
+      }));
+      expect(setProvider).not.toHaveBeenCalled();
+      expect(setModel).not.toHaveBeenCalled();
+    } finally {
+      resolveGuiOperatorDiscoverySpy.mockRestore();
+      gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
+
+  it("publishes no provider descriptors in the fallback websocket welcome frame when no operator transport is available", async () => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
+        port: port ?? 4810,
+        stop,
+      })),
+    });
+
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+
+    try {
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        getSnapshot: async () => ({ } as never),
+      });
+
+      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection();
+      await handlers.onOpen!(new Event("open"), wsCtx);
+
+      expect(mockWs.send).toHaveBeenCalledTimes(1);
+
+      const welcomeFrame = JSON.parse(mockWs.send.mock.calls[0][0] as string) as {
+        type: string;
+        providers: unknown[];
+      };
+
+      expect(welcomeFrame.type).toBe("welcome");
+      expect(welcomeFrame.providers).toEqual([]);
+    } finally {
+      gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
+
+
+  it("refreshes provider availability before welcome and omits drifted direct provider models", async () => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    let providerAvailability: Record<string, boolean> = { openai: true };
+    vi.stubEnv("OPENAI_API_KEY", "test-openai-key");
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ data: [{ id: GPT4O }] }),
+    })));
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
+        port: port ?? 4810,
+        stop,
+      })),
+    });
+
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+
+    try {
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        getSnapshot: async () => ({ } as never),
+        getProviderAvailability: () => providerAvailability,
+        operatorTransport: {
+          sessionManager: {
+            factory: vi.fn() as never,
+            getProvider: () => "",
+            setProvider: vi.fn(),
+            getModel: () => "",
+            setModel: vi.fn(),
+          },
+        },
+      });
+
+      expect(gateway.operatorModels?.openai).toContain(GPT4O);
+      providerAvailability = { openai: false };
+
+      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
+      await handlers.onOpen!(new Event("open"), wsCtx);
+
+      const welcomeFrame = JSON.parse(mockWs.send.mock.calls[0][0] as string) as {
+        type: string;
+        models: Record<string, string[]>;
+        providers: GuiProviderDescriptor[];
+      };
+
+      expect(welcomeFrame.type).toBe("welcome");
+      expect(welcomeFrame.models.openai).toBeUndefined();
+      expect(welcomeFrame.providers.find((descriptor) => descriptor.id === "openai")).toMatchObject({
+        id: "openai",
+        available: false,
+        models: [],
+        reason: "OpenAI is unavailable in this runtime.",
+      });
+    } finally {
+      gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
+
+  it("uses the runtime operator model resolver to advertise codex-oauth models", async () => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    const resolveGuiOperatorDiscoverySpy = vi
+      .spyOn(guiProviderModelsModule, "resolveGuiOperatorDiscoveryResults")
+      .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({
+        "codex-oauth": ["gpt-5.4-mini"],
+      }));
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
+        port: port ?? 4810,
+        stop,
+      })),
+    });
+
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+
+    try {
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        getSnapshot: async () => ({ } as never),
+        getProviderAvailability: () => ({ "codex-oauth": true }),
+        operatorTransport: {
+          sessionManager: {
+            factory: vi.fn() as never,
+            getProvider: () => "",
+            setProvider: vi.fn(),
+            getModel: () => "",
+            setModel: vi.fn(),
+          },
+        },
+      });
+
+      expect(resolveGuiOperatorDiscoverySpy).toHaveBeenCalledWith({ "codex-oauth": true });
+      expect(gateway.operatorModels?.["codex-oauth"]).toEqual(["gpt-5.4-mini"]);
+    } finally {
+      resolveGuiOperatorDiscoverySpy.mockRestore();
+      gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("projectGuiOperatorModels", () => {
+  it("includes discovered codex-oauth subscription models from direct OAuth discovery", () => {
+    const models = projectGuiOperatorDiscoveryInput(makeGuiOperatorDiscoveryBuilderInput({
+      opencodeModels: ["openai/gpt-5.4-mini"],
+      codexModels: ["gpt-5.4", "gpt-5.4-mini"],
+      providerAvailability: AVAILABLE_CANONICAL_PROVIDERS,
+      directProviderDiscovery: {
+        "codex-oauth": {
+          models: ["gpt-5.4-mini"],
+          status: "available",
+          reason: "Codex OAuth models discovered.",
+          authState: "authenticated",
+        },
+      },
+    }));
+
+    expect(models["codex-oauth"]).toEqual(["gpt-5.4-mini"]);
     expect(models.codex).toEqual(["gpt-5.4", "gpt-5.4-mini"]);
     expect(models.opencode).toEqual(["openai/gpt-5.4-mini"]);
   });
 
-  it("adds opencode-go key when tier is 'go'", () => {
-    const models = buildGuiOperatorModels({
-      opencodeModels: [],
-      codexModels: [],
-      opencodeTier: "go",
-    });
-    expect(models["opencode-go"]).toBeDefined();
-    expect(models["opencode-go"]?.length).toBeGreaterThan(0);
-    expect(models["opencode-go"]).toContain("minimax-m2.5");
-    expect(models["opencode-zen"]).toBeUndefined();
+  it("does not expose codex-oauth when only local Codex CLI models are discovered", () => {
+    const models = projectGuiOperatorDiscoveryInput(makeGuiOperatorDiscoveryBuilderInput({
+      codexModels: ["gpt-5.4"],
+    }));
+
+    expect(models.codex).toEqual(["gpt-5.4"]);
+    expect(models["codex-oauth"]).toBeUndefined();
   });
 
-  it("adds opencode-zen key when tier is 'zen'", () => {
-    const models = buildGuiOperatorModels({
+  it("publishes only directly discovered codex-oauth models when direct OAuth discovery is present", () => {
+    const models = projectGuiOperatorDiscoveryInput(makeGuiOperatorDiscoveryBuilderInput({
+      codexModels: ["gpt-5.4"],
+      providerAvailability: AVAILABLE_CANONICAL_PROVIDERS,
+      directProviderDiscovery: {
+        "codex-oauth": {
+          models: ["gpt-5.4-mini"],
+          status: "available",
+          reason: "Codex OAuth models discovered.",
+          authState: "authenticated",
+        },
+      },
+    }));
+
+    expect(models["codex-oauth"]).toEqual(["gpt-5.4-mini"]);
+    expect(models["codex-oauth"]).not.toContain("gpt-5.4");
+  });
+
+  it("uses structured codex-oauth discovery instead of local Codex CLI discovery", () => {
+    const discovery = buildGuiOperatorDiscoveryResults({
       opencodeModels: [],
-      codexModels: [],
-      opencodeTier: "zen",
+      codexModels: ["gpt-5.4"],
+      codexDiscovery: {
+        models: ["gpt-5.4"],
+        status: "available",
+        reason: "Codex CLI models discovered.",
+        authState: "authenticated",
+      },
+      providerAvailability: AVAILABLE_CANONICAL_PROVIDERS,
+      directProviderDiscovery: {
+        "codex-oauth": {
+          models: ["gpt-5.4-mini"],
+          status: "available",
+          reason: "Codex OAuth models discovered.",
+          authState: "authenticated",
+        },
+      },
+      lastCheckedAt: "2026-04-28T12:00:00.000Z",
     });
-    expect(models["opencode-zen"]).toBeDefined();
-    expect(models["opencode-zen"]?.length).toBeGreaterThan(0);
-    expect(models["opencode-zen"]).toContain("anthropic/claude-sonnet-4-6");
-    expect(models["opencode-go"]).toBeUndefined();
+
+    expect(discovery.find((entry) => entry.provider === "codex")).toMatchObject({
+      provider: "codex",
+      available: true,
+      models: ["gpt-5.4"],
+      reason: "Codex CLI models discovered.",
+    });
+    expect(discovery.find((entry) => entry.provider === "codex-oauth")).toMatchObject({
+      provider: "codex-oauth",
+      available: true,
+      models: ["gpt-5.4-mini"],
+      reason: "Codex OAuth models discovered.",
+    });
+    expect(projectGuiOperatorModels(discovery)["codex-oauth"]).not.toContain("gpt-5.4");
+  });
+
+  it("publishes discovered direct provider models when discovery and availability agree", () => {
+    const models = projectGuiOperatorDiscoveryInput(makeGuiOperatorDiscoveryBuilderInput({
+      providerAvailability: AVAILABLE_CANONICAL_PROVIDERS,
+      directProviderDiscovery: {
+        anthropic: {
+          models: ["claude-sonnet-4-6"],
+          status: "available",
+          reason: "Anthropic models discovered.",
+          authState: "authenticated",
+        },
+        openai: {
+          models: [GPT4O],
+          status: "available",
+          reason: "OpenAI models discovered.",
+          authState: "authenticated",
+        },
+        deepseek: {
+          models: ["deepseek-chat"],
+          status: "available",
+          reason: "DeepSeek models discovered.",
+          authState: "authenticated",
+        },
+        openrouter: {
+          models: ["nvidia/nemotron-3-nano-30b-a3b:free"],
+          status: "available",
+          reason: "OpenRouter models discovered.",
+          authState: "authenticated",
+        },
+        "opencode-go": {
+          models: ["minimax-m2.5"],
+          status: "available",
+          reason: "OpenCode Go models discovered.",
+          authState: "authenticated",
+        },
+        "opencode-zen": {
+          models: ["openai/gpt-5.4"],
+          status: "available",
+          reason: "OpenCode Zen models discovered.",
+          authState: "authenticated",
+        },
+        ollama: {
+          models: ["ollama-local"],
+          status: "available",
+          reason: "Ollama models discovered.",
+          authState: "not_required",
+        },
+      },
+    }));
+
+    expect(models.anthropic).toContain("claude-sonnet-4-6");
+    expect(models.openai).toContain(GPT4O);
+    expect(models.deepseek).toContain("deepseek-chat");
+    expect(models.openrouter).toContain("nvidia/nemotron-3-nano-30b-a3b:free");
+    expect(models["opencode-go"]).toContain("minimax-m2.5");
+    expect(models["opencode-zen"]).toContain("openai/gpt-5.4");
+    expect(models.ollama).toContain("ollama-local");
+    expect(models.claude).toBeUndefined();
+  });
+
+  it("keeps OpenCode CLI wrapper models separate from OpenCode subscription models", () => {
+    const discovery = buildGuiOperatorDiscoveryResults({
+      opencodeModels: ["opencode/wrapper-model"],
+      codexModels: [],
+      opencodeDiscovery: {
+        models: ["opencode/wrapper-model"],
+        status: "available",
+        reason: "OpenCode CLI models discovered.",
+        authState: "authenticated",
+      },
+      providerAvailability: AVAILABLE_CANONICAL_PROVIDERS,
+      directProviderDiscovery: {
+        "opencode-go": {
+          models: ["opencode/go-model"],
+          status: "available",
+          reason: "OpenCode Go models discovered.",
+          authState: "authenticated",
+        },
+        "opencode-zen": {
+          models: ["opencode/zen-model"],
+          status: "available",
+          reason: "OpenCode Zen models discovered.",
+          authState: "authenticated",
+        },
+      },
+    });
+
+    const models = projectGuiOperatorModels(discovery);
+
+    expect(models.opencode).toEqual(["opencode/wrapper-model"]);
+    expect(models["opencode-go"]).toEqual(["opencode/go-model"]);
+    expect(models["opencode-zen"]).toEqual(["opencode/zen-model"]);
+    expect(models.opencode).not.toContain("opencode/go-model");
+    expect(models.opencode).not.toContain("opencode/zen-model");
+    expect(models["opencode-go"]).not.toContain("opencode/wrapper-model");
+    expect(models["opencode-zen"]).not.toContain("opencode/wrapper-model");
+  });
+
+  it("publishes Claude as a model-less operator provider when availability says it is live", () => {
+    const models = projectGuiOperatorDiscoveryInput(makeGuiOperatorDiscoveryBuilderInput({
+      providerAvailability: {
+        claude: true,
+      },
+    }));
+
+    expect(models.claude).toEqual([]);
+  });
+
+  it("does not expose codex-oauth when codex discovery returns no models", () => {
+    const models = projectGuiOperatorDiscoveryInput(makeGuiOperatorDiscoveryBuilderInput({
+      providerAvailability: AVAILABLE_CANONICAL_PROVIDERS,
+      directProviderDiscovery: {
+        openai: {
+          models: [GPT4O],
+          status: "available",
+          reason: "OpenAI models discovered.",
+          authState: "authenticated",
+        },
+      },
+    }));
+
+    expect(models.codex).toBeUndefined();
+    expect(models["codex-oauth"]).toBeUndefined();
+    expect(models.openai).toContain(GPT4O);
+  });
+});
+
+describe("discoverOpencodeCliModelDiscovery", () => {
+  afterEach(() => {
+    vi.mocked(execSync).mockReturnValue("");
+  });
+
+  it("discovers local OpenCode CLI models from the models command", async () => {
+    vi.mocked(execSync).mockImplementation((command) => {
+      const text = String(command);
+      if (text.includes("--version")) {
+        return "opencode 1.0.0";
+      }
+      if (text.includes(" models")) {
+        return "opencode/big-pickle\nanthropic/claude-sonnet-4-6\n";
+      }
+      return "";
+    });
+
+    await expect(discoverOpencodeCliModelDiscovery()).resolves.toMatchObject({
+      models: ["opencode/big-pickle", "anthropic/claude-sonnet-4-6"],
+      status: "available",
+      reason: "OpenCode CLI models discovered.",
+      authState: "authenticated",
+    });
+  });
+
+  it("diagnoses missing OpenCode CLI executable", async () => {
+    vi.mocked(execSync).mockImplementation(() => {
+      throw new Error("missing opencode");
+    });
+
+    await expect(discoverOpencodeCliModelDiscovery()).resolves.toMatchObject({
+      models: [],
+      status: "cli_missing",
+      reason: "OpenCode CLI executable was not found.",
+      authState: "not_required",
+    });
+  });
+
+  it("diagnoses OpenCode CLI models command failure after the executable is found", async () => {
+    vi.mocked(execSync).mockImplementation((command) => {
+      const text = String(command);
+      if (text.includes("--version")) {
+        return "opencode 1.0.0";
+      }
+      if (text.includes(" models")) {
+        throw new Error("models failed");
+      }
+      return "";
+    });
+
+    await expect(discoverOpencodeCliModelDiscovery()).resolves.toMatchObject({
+      models: [],
+      status: "endpoint_error",
+      reason: "OpenCode CLI models command failed.",
+      authState: "unknown",
+    });
+  });
+
+  it("diagnoses an empty OpenCode CLI model list", async () => {
+    vi.mocked(execSync).mockImplementation((command) => {
+      const text = String(command);
+      if (text.includes("--version")) {
+        return "opencode 1.0.0";
+      }
+      if (text.includes(" models")) {
+        return "\n  \n";
+      }
+      return "";
+    });
+
+    await expect(discoverOpencodeCliModelDiscovery()).resolves.toMatchObject({
+      models: [],
+      status: "empty_model_list",
+      reason: "OpenCode CLI returned an empty model list.",
+      authState: "unknown",
+    });
+  });
+});
+
+describe("discoverCodexCliModelDiscovery", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.mocked(execSync).mockReturnValue("");
+  });
+
+  it("initializes Codex app-server before requesting local models", async () => {
+    const writes: unknown[] = [];
+    vi.mocked(spawn).mockImplementationOnce(() => {
+      const proc = new EventEmitter() as EventEmitter & {
+        stdout: EventEmitter;
+        stdin: { write: ReturnType<typeof vi.fn> };
+        kill: ReturnType<typeof vi.fn>;
+      };
+      proc.stdout = new EventEmitter();
+      proc.stdin = {
+        write: vi.fn((payload: string) => {
+          const message = JSON.parse(payload.trim()) as Record<string, unknown>;
+          writes.push(message);
+          if (message.method === "initialize") {
+            queueMicrotask(() => {
+              proc.stdout.emit("data", Buffer.from(JSON.stringify({
+                id: message.id,
+                result: {
+                  userAgent: "codex-test",
+                  codexHome: "C:/tmp/codex",
+                  platformFamily: "windows",
+                  platformOs: "windows",
+                },
+              }) + "\n"));
+            });
+          }
+          if (message.method === "model/list") {
+            queueMicrotask(() => {
+              proc.stdout.emit("data", Buffer.from(JSON.stringify({
+                id: message.id,
+                result: {
+                  data: [
+                    { id: "gpt-5.4" },
+                    { id: "gpt-5.4-mini" },
+                  ],
+                },
+              }) + "\n"));
+            });
+          }
+          return true;
+        }),
+      };
+      proc.kill = vi.fn(() => {
+        proc.emit("close");
+      });
+      return proc as never;
+    });
+
+    const discovery = await discoverCodexCliModelDiscovery();
+
+    expect(spawn).toHaveBeenCalledWith(expect.any(String), ["app-server"], {
+      stdio: ["pipe", "pipe", "ignore"],
+    });
+    expect(writes).toEqual([
+      expect.objectContaining({
+        method: "initialize",
+        id: 1,
+      }),
+      { method: "initialized" },
+      expect.objectContaining({
+        method: "model/list",
+        id: 2,
+        params: { limit: 100, includeHidden: false },
+      }),
+    ]);
+    expect(discovery).toMatchObject({
+      models: ["gpt-5.4", "gpt-5.4-mini"],
+      status: "available",
+      reason: "Codex CLI models discovered.",
+      authState: "authenticated",
+    });
+  });
+
+  it("diagnoses missing Codex CLI executable", async () => {
+    vi.mocked(execSync).mockImplementation(() => {
+      throw new Error("missing codex");
+    });
+
+    await expect(discoverCodexCliModelDiscovery()).resolves.toMatchObject({
+      models: [],
+      status: "cli_missing",
+      reason: "Codex CLI executable was not found.",
+      authState: "not_required",
+    });
+  });
+
+  it("diagnoses Codex app-server timeout", async () => {
+    vi.useFakeTimers();
+    vi.mocked(spawn).mockImplementationOnce(() => {
+      const proc = new EventEmitter() as EventEmitter & {
+        stdout: EventEmitter;
+        stdin: { write: ReturnType<typeof vi.fn> };
+        kill: ReturnType<typeof vi.fn>;
+      };
+      proc.stdout = new EventEmitter();
+      proc.stdin = { write: vi.fn(() => true) };
+      proc.kill = vi.fn(() => {
+        proc.emit("close");
+      });
+      return proc as never;
+    });
+
+    const discoveryPromise = discoverCodexCliModelDiscovery();
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    await expect(discoveryPromise).resolves.toMatchObject({
+      models: [],
+      status: "endpoint_timeout",
+      reason: "Codex app-server did not return models before timeout.",
+      authState: "unknown",
+    });
+  });
+
+  it("diagnoses Codex app-server auth failures", async () => {
+    vi.mocked(spawn).mockImplementationOnce(() => {
+      const proc = new EventEmitter() as EventEmitter & {
+        stdout: EventEmitter;
+        stdin: { write: ReturnType<typeof vi.fn> };
+        kill: ReturnType<typeof vi.fn>;
+      };
+      proc.stdout = new EventEmitter();
+      proc.stdin = {
+        write: vi.fn((payload: string) => {
+          const message = JSON.parse(payload.trim()) as Record<string, unknown>;
+          if (message.method === "initialize") {
+            queueMicrotask(() => {
+              proc.stdout.emit("data", Buffer.from(JSON.stringify({ id: message.id, result: {} }) + "\n"));
+            });
+          }
+          if (message.method === "model/list") {
+            queueMicrotask(() => {
+              proc.stdout.emit("data", Buffer.from(JSON.stringify({
+                id: message.id,
+                error: { code: -32000, message: "OpenAI authentication required" },
+              }) + "\n"));
+            });
+          }
+          return true;
+        }),
+      };
+      proc.kill = vi.fn(() => {
+        proc.emit("close");
+      });
+      return proc as never;
+    });
+
+    await expect(discoverCodexCliModelDiscovery()).resolves.toMatchObject({
+      models: [],
+      status: "missing_auth",
+      reason: "Codex CLI authentication is missing or expired.",
+      authState: "missing",
+    });
+  });
+
+  it("diagnoses an empty Codex app-server model list", async () => {
+    vi.mocked(spawn).mockImplementationOnce(() => {
+      const proc = new EventEmitter() as EventEmitter & {
+        stdout: EventEmitter;
+        stdin: { write: ReturnType<typeof vi.fn> };
+        kill: ReturnType<typeof vi.fn>;
+      };
+      proc.stdout = new EventEmitter();
+      proc.stdin = {
+        write: vi.fn((payload: string) => {
+          const message = JSON.parse(payload.trim()) as Record<string, unknown>;
+          if (message.method === "initialize") {
+            queueMicrotask(() => {
+              proc.stdout.emit("data", Buffer.from(JSON.stringify({ id: message.id, result: {} }) + "\n"));
+            });
+          }
+          if (message.method === "model/list") {
+            queueMicrotask(() => {
+              proc.stdout.emit("data", Buffer.from(JSON.stringify({
+                id: message.id,
+                result: { data: [] },
+              }) + "\n"));
+            });
+          }
+          return true;
+        }),
+      };
+      proc.kill = vi.fn(() => {
+        proc.emit("close");
+      });
+      return proc as never;
+    });
+
+    await expect(discoverCodexCliModelDiscovery()).resolves.toMatchObject({
+      models: [],
+      status: "empty_model_list",
+      reason: "Codex app-server returned an empty model list.",
+      authState: "unknown",
+    });
+  });
+});
+
+describe("discoverGuiDirectProviderModelDiscovery", () => {
+  it("discovers OpenAI chat-capable models and filters clearly incompatible model families", async () => {
+    const fetchSpy = vi.fn(async (url: string) => ({
+      ok: url === "https://api.openai.com/v1/models",
+      json: async () => ({
+        data: [
+          { id: "gpt-5.4" },
+          { id: "gpt-4o-mini" },
+          { id: "o3" },
+          { id: "ft:gpt-4o-mini:sequel:custom:abc123" },
+          { id: "text-embedding-3-large" },
+          { id: "omni-moderation-latest" },
+          { id: "tts-1" },
+          { id: "whisper-1" },
+          { id: "gpt-image-1" },
+          { id: "dall-e-3" },
+          { id: "gpt-realtime" },
+          { id: "gpt-audio" },
+          { id: "computer-use-preview" },
+        ],
+      }),
+    }));
+    vi.stubEnv("OPENAI_API_KEY", "test-openai-key");
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const providerAvailability = { openai: true };
+    const discovered = await discoverGuiDirectProviderModelDiscovery(providerAvailability);
+    const models = projectDirectProviderDiscoveryForTest(discovered, providerAvailability);
+
+    expect(discovered.openai).toMatchObject({
+      status: "available",
+      reason: "OpenAI models discovered.",
+      authState: "authenticated",
+    });
+    expect(models.openai).toEqual([
+      "gpt-5.4",
+      "gpt-4o-mini",
+      "o3",
+      "ft:gpt-4o-mini:sequel:custom:abc123",
+    ]);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "https://api.openai.com/v1/models",
+      expect.objectContaining({
+        headers: { Authorization: "Bearer test-openai-key" },
+      }),
+    );
+  });
+
+  it("diagnoses missing OpenAI API credentials", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const discovered = await discoverGuiDirectProviderModelDiscovery({
+      openai: true,
+    });
+
+    expect(discovered.openai).toMatchObject({
+      models: [],
+      status: "missing_auth",
+      reason: "OPENAI_API_KEY is missing.",
+      authState: "missing",
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("diagnoses OpenAI model endpoint failures", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-openai-key");
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 503 })));
+
+    const discovered = await discoverGuiDirectProviderModelDiscovery({
+      openai: true,
+    });
+
+    expect(discovered.openai).toMatchObject({
+      models: [],
+      status: "endpoint_error",
+      reason: "OpenAI model endpoint failed.",
+      authState: "unknown",
+    });
+  });
+
+  it("diagnoses empty OpenAI model lists", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-openai-key");
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ data: [] }),
+    })));
+
+    const discovered = await discoverGuiDirectProviderModelDiscovery({
+      openai: true,
+    });
+
+    expect(discovered.openai).toMatchObject({
+      models: [],
+      status: "empty_model_list",
+      reason: "OpenAI model endpoint returned an empty model list.",
+      authState: "unknown",
+    });
+  });
+
+  it("diagnoses OpenAI lists with no usable chat models after filtering", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-openai-key");
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        data: [
+          { id: "text-embedding-3-large" },
+          { id: "omni-moderation-latest" },
+          { id: "gpt-image-1" },
+        ],
+      }),
+    })));
+
+    const discovered = await discoverGuiDirectProviderModelDiscovery({
+      openai: true,
+    });
+
+    expect(discovered.openai).toMatchObject({
+      models: [],
+      status: "empty_model_list",
+      reason: "OpenAI model endpoint returned no usable chat models.",
+      authState: "unknown",
+    });
+  });
+
+  it("discovers Anthropic message-capable models from the Models API", async () => {
+    const fetchSpy = vi.fn(async (url: string) => ({
+      ok: url === "https://api.anthropic.com/v1/models",
+      json: async () => ({
+        data: [
+          {
+            id: "claude-opus-4-7",
+            type: "model",
+            max_input_tokens: 1_000_000,
+            max_tokens: 128_000,
+            capabilities: {
+              messages: { supported: true },
+            },
+          },
+          {
+            id: "claude-sonnet-4-6",
+            type: "model",
+            max_input_tokens: 1_000_000,
+            max_tokens: 64_000,
+            capabilities: {
+              messages: { supported: true },
+            },
+          },
+          {
+            id: "claude-embedding-preview",
+            type: "model",
+            capabilities: {
+              messages: { supported: false },
+            },
+          },
+        ],
+      }),
+    }));
+    vi.stubEnv("ANTHROPIC_API_KEY", "test-anthropic-key");
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const providerAvailability = { anthropic: true };
+    const discovered = await discoverGuiDirectProviderModelDiscovery(providerAvailability);
+    const models = projectDirectProviderDiscoveryForTest(discovered, providerAvailability);
+
+    expect(discovered.anthropic).toMatchObject({
+      status: "available",
+      reason: "Anthropic models discovered.",
+      authState: "authenticated",
+    });
+    expect(models.anthropic).toEqual([
+      "claude-opus-4-7",
+      "claude-sonnet-4-6",
+    ]);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "https://api.anthropic.com/v1/models",
+      expect.objectContaining({
+        headers: {
+          "anthropic-version": "2023-06-01",
+          "x-api-key": "test-anthropic-key",
+        },
+      }),
+    );
+  });
+
+  it("keeps Anthropic Claude IDs when the provider omits capability metadata", async () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "test-anthropic-key");
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        data: [
+          { id: "claude-haiku-4-5-20251001", type: "model" },
+          { id: "not-claude-experimental", type: "model" },
+        ],
+      }),
+    })));
+
+    const providerAvailability = { anthropic: true };
+    const discovered = await discoverGuiDirectProviderModelDiscovery(providerAvailability);
+    const models = projectDirectProviderDiscoveryForTest(discovered, providerAvailability);
+
+    expect(models.anthropic).toEqual(["claude-haiku-4-5-20251001"]);
+  });
+
+  it("diagnoses missing Anthropic API credentials", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const discovered = await discoverGuiDirectProviderModelDiscovery({
+      anthropic: true,
+    });
+
+    expect(discovered.anthropic).toMatchObject({
+      models: [],
+      status: "missing_auth",
+      reason: "ANTHROPIC_API_KEY is missing.",
+      authState: "missing",
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("diagnoses Anthropic model endpoint failures", async () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "test-anthropic-key");
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 503 })));
+
+    const discovered = await discoverGuiDirectProviderModelDiscovery({
+      anthropic: true,
+    });
+
+    expect(discovered.anthropic).toMatchObject({
+      models: [],
+      status: "endpoint_error",
+      reason: "Anthropic model endpoint failed.",
+      authState: "unknown",
+    });
+  });
+
+  it("diagnoses empty Anthropic model lists", async () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "test-anthropic-key");
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ data: [] }),
+    })));
+
+    const discovered = await discoverGuiDirectProviderModelDiscovery({
+      anthropic: true,
+    });
+
+    expect(discovered.anthropic).toMatchObject({
+      models: [],
+      status: "empty_model_list",
+      reason: "Anthropic model endpoint returned an empty model list.",
+      authState: "unknown",
+    });
+  });
+
+  it("diagnoses Anthropic lists with no message-capable models after filtering", async () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "test-anthropic-key");
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        data: [
+          {
+            id: "claude-embedding-preview",
+            type: "model",
+            capabilities: {
+              messages: { supported: false },
+            },
+          },
+          {
+            id: "non-claude-model",
+            type: "model",
+          },
+        ],
+      }),
+    })));
+
+    const discovered = await discoverGuiDirectProviderModelDiscovery({
+      anthropic: true,
+    });
+
+    expect(discovered.anthropic).toMatchObject({
+      models: [],
+      status: "empty_model_list",
+      reason: "Anthropic model endpoint returned no message-capable models.",
+      authState: "unknown",
+    });
+  });
+
+  it("discovers DeepSeek chat and reasoner models from the Models API", async () => {
+    const fetchSpy = vi.fn(async (url: string) => ({
+      ok: url === "https://api.deepseek.com/models",
+      json: async () => ({
+        object: "list",
+        data: [
+          { id: "deepseek-v4-flash", object: "model", owned_by: "deepseek" },
+          { id: "deepseek-v4-pro", object: "model", owned_by: "deepseek" },
+          { id: "deepseek-chat", object: "model", owned_by: "deepseek" },
+          { id: "deepseek-reasoner", object: "model", owned_by: "deepseek" },
+          { id: "deepseek-embedding-preview", object: "model", owned_by: "deepseek" },
+          { id: "not-deepseek-chat", object: "model", owned_by: "third-party" },
+        ],
+      }),
+    }));
+    vi.stubEnv("DEEPSEEK_API_KEY", "test-deepseek-key");
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const providerAvailability = { deepseek: true };
+    const discovered = await discoverGuiDirectProviderModelDiscovery(providerAvailability);
+    const models = projectDirectProviderDiscoveryForTest(discovered, providerAvailability);
+
+    expect(discovered.deepseek).toMatchObject({
+      status: "available",
+      reason: "DeepSeek models discovered.",
+      authState: "authenticated",
+    });
+    expect(models.deepseek).toEqual([
+      "deepseek-v4-flash",
+      "deepseek-v4-pro",
+      "deepseek-chat",
+      "deepseek-reasoner",
+    ]);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "https://api.deepseek.com/models",
+      expect.objectContaining({
+        headers: { Authorization: "Bearer test-deepseek-key" },
+      }),
+    );
+  });
+
+  it("diagnoses missing DeepSeek API credentials", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const discovered = await discoverGuiDirectProviderModelDiscovery({
+      deepseek: true,
+    });
+
+    expect(discovered.deepseek).toMatchObject({
+      models: [],
+      status: "missing_auth",
+      reason: "DEEPSEEK_API_KEY is missing.",
+      authState: "missing",
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("diagnoses DeepSeek model endpoint failures", async () => {
+    vi.stubEnv("DEEPSEEK_API_KEY", "test-deepseek-key");
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 503 })));
+
+    const discovered = await discoverGuiDirectProviderModelDiscovery({
+      deepseek: true,
+    });
+
+    expect(discovered.deepseek).toMatchObject({
+      models: [],
+      status: "endpoint_error",
+      reason: "DeepSeek model endpoint failed.",
+      authState: "unknown",
+    });
+  });
+
+  it("diagnoses empty DeepSeek model lists", async () => {
+    vi.stubEnv("DEEPSEEK_API_KEY", "test-deepseek-key");
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ object: "list", data: [] }),
+    })));
+
+    const discovered = await discoverGuiDirectProviderModelDiscovery({
+      deepseek: true,
+    });
+
+    expect(discovered.deepseek).toMatchObject({
+      models: [],
+      status: "empty_model_list",
+      reason: "DeepSeek model endpoint returned an empty model list.",
+      authState: "unknown",
+    });
+  });
+
+  it("diagnoses DeepSeek lists with no usable chat models after filtering", async () => {
+    vi.stubEnv("DEEPSEEK_API_KEY", "test-deepseek-key");
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        data: [
+          { id: "deepseek-embedding-preview" },
+          { id: "deepseek-audio-preview" },
+          { id: "not-deepseek-chat" },
+        ],
+      }),
+    })));
+
+    const discovered = await discoverGuiDirectProviderModelDiscovery({
+      deepseek: true,
+    });
+
+    expect(discovered.deepseek).toMatchObject({
+      models: [],
+      status: "empty_model_list",
+      reason: "DeepSeek model endpoint returned no usable chat models.",
+      authState: "unknown",
+    });
+  });
+
+  it("discovers OpenRouter text chat models and filters incompatible modalities", async () => {
+    const fetchSpy = vi.fn(async (url: string) => ({
+      ok: url === "https://openrouter.ai/api/v1/models",
+      json: async () => ({
+        data: [
+          {
+            id: "openai/gpt-4.1",
+            architecture: {
+              modality: "text->text",
+              input_modalities: ["text"],
+              output_modalities: ["text"],
+            },
+            supported_parameters: ["tools", "temperature"],
+          },
+          {
+            id: "anthropic/claude-sonnet-4.5",
+            architecture: {
+              input_modalities: ["text"],
+              output_modalities: ["text"],
+            },
+            context_length: 200_000,
+          },
+          {
+            id: "openai/text-embedding-3-large",
+            architecture: {
+              modality: "text->embedding",
+              input_modalities: ["text"],
+              output_modalities: ["embedding"],
+            },
+          },
+          {
+            id: "google/gemini-image-preview",
+            architecture: {
+              modality: "text->image",
+              input_modalities: ["text"],
+              output_modalities: ["image"],
+            },
+          },
+          {
+            id: "unscoped-model",
+            architecture: {
+              input_modalities: ["text"],
+              output_modalities: ["text"],
+            },
+          },
+        ],
+      }),
+    }));
+    vi.stubEnv("OPENROUTER_API_KEY", "test-openrouter-key");
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const providerAvailability = { openrouter: true };
+    const discovered = await discoverGuiDirectProviderModelDiscovery(providerAvailability);
+    const models = projectDirectProviderDiscoveryForTest(discovered, providerAvailability);
+
+    expect(discovered.openrouter).toMatchObject({
+      status: "available",
+      reason: "OpenRouter models discovered.",
+      authState: "authenticated",
+    });
+    expect(models.openrouter).toEqual([
+      "openai/gpt-4.1",
+      "anthropic/claude-sonnet-4.5",
+    ]);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "https://openrouter.ai/api/v1/models",
+      expect.objectContaining({
+        headers: { Authorization: "Bearer test-openrouter-key" },
+      }),
+    );
+  });
+
+  it("diagnoses missing OpenRouter API credentials", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const discovered = await discoverGuiDirectProviderModelDiscovery({
+      openrouter: true,
+    });
+
+    expect(discovered.openrouter).toMatchObject({
+      models: [],
+      status: "missing_auth",
+      reason: "OPENROUTER_API_KEY is missing.",
+      authState: "missing",
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("diagnoses OpenRouter model endpoint failures", async () => {
+    vi.stubEnv("OPENROUTER_API_KEY", "test-openrouter-key");
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 503 })));
+
+    const discovered = await discoverGuiDirectProviderModelDiscovery({
+      openrouter: true,
+    });
+
+    expect(discovered.openrouter).toMatchObject({
+      models: [],
+      status: "endpoint_error",
+      reason: "OpenRouter model endpoint failed.",
+      authState: "unknown",
+    });
+  });
+
+  it("diagnoses empty OpenRouter model lists", async () => {
+    vi.stubEnv("OPENROUTER_API_KEY", "test-openrouter-key");
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ data: [] }),
+    })));
+
+    const discovered = await discoverGuiDirectProviderModelDiscovery({
+      openrouter: true,
+    });
+
+    expect(discovered.openrouter).toMatchObject({
+      models: [],
+      status: "empty_model_list",
+      reason: "OpenRouter model endpoint returned an empty model list.",
+      authState: "unknown",
+    });
+  });
+
+  it("diagnoses OpenRouter lists with no usable text chat models after filtering", async () => {
+    vi.stubEnv("OPENROUTER_API_KEY", "test-openrouter-key");
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        data: [
+          {
+            id: "openai/text-embedding-3-large",
+            architecture: { output_modalities: ["embedding"] },
+          },
+          {
+            id: "google/gemini-image-preview",
+            architecture: { output_modalities: ["image"] },
+          },
+        ],
+      }),
+    })));
+
+    const discovered = await discoverGuiDirectProviderModelDiscovery({
+      openrouter: true,
+    });
+
+    expect(discovered.openrouter).toMatchObject({
+      models: [],
+      status: "empty_model_list",
+      reason: "OpenRouter model endpoint returned no usable text chat models.",
+      authState: "unknown",
+    });
+  });
+
+  it("discovers locally installed Ollama models from the daemon without remote auth", async () => {
+    const fetchSpy = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        models: [
+          { name: "llama3.1:8b", digest: "sha256-local-a" },
+          { model: "qwen2.5-coder:7b", digest: "sha256-local-b" },
+          { id: "remote/library-model" },
+          { name: "  " },
+        ],
+      }),
+    }));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const providerAvailability = { ollama: true };
+    const discovered = await discoverGuiDirectProviderModelDiscovery(providerAvailability);
+    const models = projectDirectProviderDiscoveryForTest(discovered, providerAvailability);
+
+    expect(discovered.ollama).toMatchObject({
+      models: ["llama3.1:8b", "qwen2.5-coder:7b"],
+      status: "available",
+      reason: "Ollama models discovered.",
+      authState: "not_required",
+    });
+    expect(models.ollama).toEqual(["llama3.1:8b", "qwen2.5-coder:7b"]);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://localhost:11434/api/tags",
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+  });
+
+  it("diagnoses an unreachable Ollama daemon separately from no installed models", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new Error("connect ECONNREFUSED");
+    }));
+
+    const discovered = await discoverGuiDirectProviderModelDiscovery({
+      ollama: true,
+    });
+
+    expect(discovered.ollama).toMatchObject({
+      models: [],
+      status: "daemon_unreachable",
+      reason: "Ollama daemon is not reachable at http://localhost:11434.",
+      authState: "not_required",
+    });
+  });
+
+  it("diagnoses an Ollama daemon with no installed models", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ models: [] }),
+    })));
+
+    const discovered = await discoverGuiDirectProviderModelDiscovery({
+      ollama: true,
+    });
+
+    expect(discovered.ollama).toMatchObject({
+      models: [],
+      status: "empty_model_list",
+      reason: "Ollama daemon returned no installed models.",
+      authState: "not_required",
+    });
+  });
+
+  it.each([
+    ["go", "opencode-go", "https://opencode.ai/zen/go/v1/models"],
+    ["zen", "opencode-zen", `${OPENCODE_BASE_URL}/models`],
+  ])("discovers %s tier OpenCode models from live auth and /models endpoint", async (tier, providerId, modelsUrl) => {
+    const openCodeAuthSpy = vi
+      .spyOn(OpenCodeAuth.prototype, "loadAuthFile")
+      .mockResolvedValue({
+        api_key: "test-opencode-key",
+        tier: tier as "go" | "zen",
+        created_at: "2026-01-01T00:00:00.000Z",
+      });
+    const fetchSpy = vi.fn(async (url: string) => ({
+      ok: url === modelsUrl,
+      json: async () => ({ data: [{ id: "opencode/live-model" }] }),
+    }));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    try {
+      const providerAvailability = {
+        [providerId]: true,
+      };
+      const discovered = await discoverGuiDirectProviderModelDiscovery(providerAvailability);
+      const models = projectDirectProviderDiscoveryForTest(discovered, providerAvailability);
+      expect(models[providerId]).toEqual(["opencode/live-model"]);
+      expect(models[tier === "go" ? "opencode-zen" : "opencode-go"]).toBeUndefined();
+      expect(fetchSpy).toHaveBeenCalledWith(
+        modelsUrl,
+        expect.objectContaining({
+          headers: { Authorization: "Bearer test-opencode-key" },
+        }),
+      );
+    } finally {
+      openCodeAuthSpy.mockRestore();
+    }
+  });
+
+  it("uses OPENCODE_API_KEY to discover both OpenCode Go and Zen requested tiers", async () => {
+    const openCodeAuthSpy = vi
+      .spyOn(OpenCodeAuth.prototype, "loadAuthFile")
+      .mockResolvedValue(null);
+    const fetchSpy = vi.fn(async (url: string) => ({
+      ok: true,
+      json: async () => ({
+        data: [
+          { id: url.includes("/go/") ? "go-model" : "zen-model" },
+        ],
+      }),
+    }));
+    vi.stubEnv("OPENCODE_API_KEY", "env-opencode-key");
+    vi.stubGlobal("fetch", fetchSpy);
+
+    try {
+      const providerAvailability = {
+        "opencode-go": true,
+        "opencode-zen": true,
+      };
+      const discovered = await discoverGuiDirectProviderModelDiscovery(providerAvailability);
+      const models = projectDirectProviderDiscoveryForTest(discovered, providerAvailability);
+
+      expect(models["opencode-go"]).toEqual(["go-model"]);
+      expect(models["opencode-zen"]).toEqual(["zen-model"]);
+      expect(fetchSpy).toHaveBeenCalledWith(
+        "https://opencode.ai/zen/go/v1/models",
+        expect.objectContaining({ headers: { Authorization: "Bearer env-opencode-key" } }),
+      );
+      expect(fetchSpy).toHaveBeenCalledWith(
+        `${OPENCODE_BASE_URL}/models`,
+        expect.objectContaining({ headers: { Authorization: "Bearer env-opencode-key" } }),
+      );
+    } finally {
+      openCodeAuthSpy.mockRestore();
+    }
+  });
+
+  it("diagnoses missing OpenCode API credentials for requested subscription tiers", async () => {
+    const openCodeAuthSpy = vi
+      .spyOn(OpenCodeAuth.prototype, "loadAuthFile")
+      .mockResolvedValue(null);
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    try {
+      const discovered = await discoverGuiDirectProviderModelDiscovery({
+        "opencode-go": true,
+        "opencode-zen": true,
+      });
+
+      expect(discovered["opencode-go"]).toMatchObject({
+        models: [],
+        status: "missing_auth",
+        reason: "OpenCode API key is missing.",
+        authState: "missing",
+      });
+      expect(discovered["opencode-zen"]).toMatchObject({
+        models: [],
+        status: "missing_auth",
+        reason: "OpenCode API key is missing.",
+        authState: "missing",
+      });
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      openCodeAuthSpy.mockRestore();
+    }
+  });
+
+  it("diagnoses stored OpenCode auth tier mismatch without probing the wrong tier endpoint", async () => {
+    const openCodeAuthSpy = vi
+      .spyOn(OpenCodeAuth.prototype, "loadAuthFile")
+      .mockResolvedValue({
+        api_key: "test-opencode-key",
+        tier: "go",
+        created_at: "2026-01-01T00:00:00.000Z",
+      });
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    try {
+      const discovered = await discoverGuiDirectProviderModelDiscovery({
+        "opencode-zen": true,
+      });
+
+      expect(discovered["opencode-zen"]).toMatchObject({
+        models: [],
+        status: "missing_auth",
+        reason: "Stored OpenCode auth is for OpenCode Go, not OpenCode Zen.",
+        authState: "missing",
+      });
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      openCodeAuthSpy.mockRestore();
+    }
+  });
+
+  it("diagnoses OpenCode subscription model endpoint failures", async () => {
+    const openCodeAuthSpy = vi
+      .spyOn(OpenCodeAuth.prototype, "loadAuthFile")
+      .mockResolvedValue({
+        api_key: "test-opencode-key",
+        tier: "go",
+        created_at: "2026-01-01T00:00:00.000Z",
+      });
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 503 })));
+
+    try {
+      const discovered = await discoverGuiDirectProviderModelDiscovery({
+        "opencode-go": true,
+      });
+
+      expect(discovered["opencode-go"]).toMatchObject({
+        models: [],
+        status: "endpoint_error",
+        reason: "OpenCode Go model endpoint failed.",
+        authState: "unknown",
+      });
+    } finally {
+      openCodeAuthSpy.mockRestore();
+    }
+  });
+
+  it("diagnoses empty OpenCode subscription model responses", async () => {
+    const openCodeAuthSpy = vi
+      .spyOn(OpenCodeAuth.prototype, "loadAuthFile")
+      .mockResolvedValue({
+        api_key: "test-opencode-key",
+        tier: "zen",
+        created_at: "2026-01-01T00:00:00.000Z",
+      });
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ data: [] }),
+    })));
+
+    try {
+      const discovered = await discoverGuiDirectProviderModelDiscovery({
+        "opencode-zen": true,
+      });
+
+      expect(discovered["opencode-zen"]).toMatchObject({
+        models: [],
+        status: "empty_model_list",
+        reason: "OpenCode Zen model endpoint returned an empty model list.",
+        authState: "unknown",
+      });
+    } finally {
+      openCodeAuthSpy.mockRestore();
+    }
+  });
+
+  it("discovers codex-oauth models from live OAuth auth and the Codex models endpoint", async () => {
+    const codexAuthSpy = vi
+      .spyOn(CodexOAuthAuth.prototype, "getValidAccessToken")
+      .mockResolvedValue("test-codex-token");
+    const fetchSpy = vi.fn(async (url: string) => ({
+      ok: url === "https://chatgpt.com/backend-api/codex/models",
+      json: async () => ({
+        models: [
+          { slug: "gpt-5.4" },
+          { slug: "gpt-5.4-mini" },
+        ],
+      }),
+    }));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    try {
+      const providerAvailability = {
+        "codex-oauth": true,
+      };
+      const discovered = await discoverGuiDirectProviderModelDiscovery(providerAvailability);
+      const models = projectDirectProviderDiscoveryForTest(discovered, providerAvailability);
+      expect(models["codex-oauth"]).toEqual(["gpt-5.4", "gpt-5.4-mini"]);
+      expect(fetchSpy).toHaveBeenCalledWith(
+        "https://chatgpt.com/backend-api/codex/models",
+        expect.objectContaining({
+          headers: { Authorization: "Bearer test-codex-token" },
+        }),
+      );
+    } finally {
+      codexAuthSpy.mockRestore();
+    }
+  });
+
+  it("diagnoses missing codex-oauth OAuth credentials", async () => {
+    const codexAuthSpy = vi
+      .spyOn(CodexOAuthAuth.prototype, "getValidAccessToken")
+      .mockResolvedValue("");
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    try {
+      const discovered = await discoverGuiDirectProviderModelDiscovery({
+        "codex-oauth": true,
+      });
+      expect(discovered["codex-oauth"]).toMatchObject({
+        models: [],
+        status: "missing_auth",
+        reason: "Codex OAuth authentication is missing.",
+        authState: "missing",
+      });
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      codexAuthSpy.mockRestore();
+    }
+  });
+
+  it("diagnoses expired codex-oauth OAuth credentials", async () => {
+    const codexAuthSpy = vi
+      .spyOn(CodexOAuthAuth.prototype, "getValidAccessToken")
+      .mockRejectedValue(new Error("refresh token expired"));
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    try {
+      const discovered = await discoverGuiDirectProviderModelDiscovery({
+        "codex-oauth": true,
+      });
+      expect(discovered["codex-oauth"]).toMatchObject({
+        models: [],
+        status: "auth_expired",
+        reason: "Codex OAuth authentication is expired.",
+        authState: "expired",
+      });
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      codexAuthSpy.mockRestore();
+    }
+  });
+
+  it("diagnoses codex-oauth model endpoint failure", async () => {
+    const codexAuthSpy = vi
+      .spyOn(CodexOAuthAuth.prototype, "getValidAccessToken")
+      .mockResolvedValue("test-codex-token");
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 503 })));
+
+    try {
+      const discovered = await discoverGuiDirectProviderModelDiscovery({
+        "codex-oauth": true,
+      });
+      expect(discovered["codex-oauth"]).toMatchObject({
+        models: [],
+        status: "endpoint_error",
+        reason: "Codex OAuth model endpoint failed.",
+        authState: "unknown",
+      });
+    } finally {
+      codexAuthSpy.mockRestore();
+    }
+  });
+
+  it("diagnoses an empty codex-oauth model response", async () => {
+    const codexAuthSpy = vi
+      .spyOn(CodexOAuthAuth.prototype, "getValidAccessToken")
+      .mockResolvedValue("test-codex-token");
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ models: [] }),
+    })));
+
+    try {
+      const discovered = await discoverGuiDirectProviderModelDiscovery({
+        "codex-oauth": true,
+      });
+      expect(discovered["codex-oauth"]).toMatchObject({
+        models: [],
+        status: "empty_model_list",
+        reason: "Codex OAuth model endpoint returned an empty model list.",
+        authState: "unknown",
+      });
+    } finally {
+      codexAuthSpy.mockRestore();
+    }
+  });
+
+  it("does not expose opencode-go/opencode-zen without live OpenCode auth and /models discovery", async () => {
+    const openCodeAuthSpy = vi
+      .spyOn(OpenCodeAuth.prototype, "loadAuthFile")
+      .mockResolvedValue(null);
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    try {
+      const providerAvailability = {
+        "opencode-go": true,
+        "opencode-zen": true,
+      };
+      const discovered = await discoverGuiDirectProviderModelDiscovery(providerAvailability);
+      const models = projectDirectProviderDiscoveryForTest(discovered, providerAvailability);
+      expect(models["opencode-go"]).toBeUndefined();
+      expect(models["opencode-zen"]).toBeUndefined();
+      expect(fetchSpy).not.toHaveBeenCalledWith(
+        `${OPENCODE_BASE_URL}/models`,
+        expect.anything(),
+      );
+    } finally {
+      openCodeAuthSpy.mockRestore();
+    }
+  });
+});
+
+describe("buildWelcomeProviderDescriptors", () => {
+  it("includes live modeled providers and strips stale model lists from model-less providers", () => {
+    const descriptors = buildWelcomeProviderDescriptors({
+      claude: ["claude-sonnet-4-6"],
+      "opencode-go": ["minimax-m2.5"],
+      openai: ["gpt-5.4"],
+    });
+
+    expect(descriptors).toEqual([
+      expect.objectContaining({
+        id: "claude",
+        models: [],
+        available: true,
+      }),
+      expect.objectContaining({
+        id: "opencode-go",
+        models: ["minimax-m2.5"],
+        available: true,
+      }),
+      expect.objectContaining({
+        id: "openai",
+        models: ["gpt-5.4"],
+        available: true,
+      }),
+    ]);
+  });
+
+  it("omits metadata-only providers when they are absent from the live model map", () => {
+    const descriptors = buildWelcomeProviderDescriptors({
+      claude: ["claude-sonnet-4-6"],
+      "codex-oauth": ["gpt-5.4-mini"],
+    });
+
+    expect(descriptors.map((descriptor) => descriptor.id)).toEqual([
+      "claude",
+      "codex-oauth",
+    ]);
+    expect(descriptors.find((descriptor) => descriptor.id === "opencode-go")).toBeUndefined();
+    expect(descriptors.find((descriptor) => descriptor.id === "opencode-zen")).toBeUndefined();
+    expect(descriptors.find((descriptor) => descriptor.id === "openai")).toBeUndefined();
+    expect(descriptors.find((descriptor) => descriptor.id === "anthropic")).toBeUndefined();
+  });
+
+  it("omits providers whose advertised model lists are empty instead of surfacing unavailable static descriptors", () => {
+    const descriptors = buildWelcomeProviderDescriptors({
+      openai: [],
+      anthropic: ["claude-sonnet-4-6"],
+      "opencode-go": [],
+      "opencode-zen": [],
+    });
+
+    expect(descriptors.map((descriptor) => descriptor.id)).toEqual(["anthropic"]);
+    expect(descriptors.find((descriptor) => descriptor.id === "openai")).toBeUndefined();
+    expect(descriptors.find((descriptor) => descriptor.id === "opencode-go")).toBeUndefined();
+    expect(descriptors.find((descriptor) => descriptor.id === "opencode-zen")).toBeUndefined();
+  });
+
+  it("includes model-less Claude as an available welcome provider descriptor", () => {
+    const descriptors = buildWelcomeProviderDescriptors({
+      claude: [],
+    });
+
+    expect(descriptors).toEqual([
+      expect.objectContaining({
+        id: "claude",
+        available: true,
+        models: [],
+      }),
+    ]);
+  });
+
+  it("does not expose codex-oauth when codex discovery returns no models", () => {
+    const descriptors = buildWelcomeProviderDescriptors(
+      projectGuiOperatorDiscoveryInput(makeGuiOperatorDiscoveryBuilderInput()),
+    );
+
+    expect(descriptors.find((descriptor) => descriptor.id === "codex-oauth")?.available ?? false).toBe(false);
+  });
+
+  it("does not expose codex or codex-oauth when codex discovery returns no models", () => {
+    const models = projectGuiOperatorDiscoveryInput(makeGuiOperatorDiscoveryBuilderInput());
+
+    expect(models.codex).toBeUndefined();
+    expect(models["codex-oauth"]).toBeUndefined();
+
+    const descriptors = buildWelcomeProviderDescriptors(models);
+
+    expect(descriptors.find((descriptor) => descriptor.id === "codex")?.available ?? false).toBe(false);
+    expect(descriptors.find((descriptor) => descriptor.id === "codex-oauth")?.available ?? false).toBe(false);
+  });
+
+  it("does not expose opencode as available when discovery returns no models", () => {
+    const descriptors = buildWelcomeProviderDescriptors(
+      projectGuiOperatorDiscoveryInput(makeGuiOperatorDiscoveryBuilderInput()),
+    );
+
+    expect(descriptors.find((descriptor) => descriptor.id === "opencode")?.available ?? false).toBe(false);
+  });
+
+  it("does not surface unknown provider ids from the operator models map", () => {
+    const descriptors = buildWelcomeProviderDescriptors({
+      claude: ["claude-sonnet-4-6"],
+      unknown: ["mystery-model"],
+    });
+
+    expect(descriptors.map((descriptor) => descriptor.id)).not.toContain("unknown");
+  });
+});
+
+describe("resolveGuiProviderSwitch", () => {
+  it("rejects unavailable providers", () => {
+    const resolution = resolveGuiProviderSwitch({
+      provider: "openai",
+      model: undefined,
+      models: {
+        claude: ["claude-sonnet-4-6"],
+      },
+    });
+
+    expect(resolution.ok).toBe(false);
+    if (resolution.ok) {
+      throw new Error("expected unavailable provider resolution failure");
+    }
+    expect(resolution.error).toContain("openai");
+  });
+
+  it("rejects providers whose advertised model list is empty", () => {
+    const resolution = resolveGuiProviderSwitch({
+      provider: "opencode",
+      model: undefined,
+      models: {
+        opencode: [],
+      },
+    });
+
+    expect(resolution.ok).toBe(false);
+    if (resolution.ok) {
+      throw new Error("expected empty-provider-model resolution failure");
+    }
+    expect(resolution.error).toContain("opencode");
+  });
+
+  it("accepts model-less Claude switches without requiring a fake model id", () => {
+    const resolution = resolveGuiProviderSwitch({
+      provider: "claude",
+      model: undefined,
+      models: {
+        claude: [],
+      },
+    });
+
+    expect(resolution.ok).toBe(true);
+    if (!resolution.ok) {
+      throw new Error(`expected model-less Claude switch to resolve: ${resolution.error}`);
+    }
+    expect(resolution.modelForSessionManager).toBe("");
+    expect(resolution.modelForAck).toBeUndefined();
+  });
+
+  it("rejects provider switches without an explicit model", () => {
+    const resolution = resolveGuiProviderSwitch({
+      provider: "anthropic",
+      model: undefined,
+      models: {
+        anthropic: ["claude-sonnet-4-6"],
+      },
+    });
+
+    expect(resolution.ok).toBe(false);
+    if (resolution.ok) {
+      throw new Error("expected missing model resolution failure");
+    }
+    expect(resolution.error).toContain("model");
+  });
+
+  it("rejects requested models that are not advertised by the selected provider", () => {
+    const resolution = resolveGuiProviderSwitch({
+      provider: "anthropic",
+      model: "gpt-5.4",
+      models: {
+        anthropic: ["claude-sonnet-4-6"],
+      },
+    });
+
+    expect(resolution.ok).toBe(false);
+    if (resolution.ok) {
+      throw new Error("expected invalid provider-model resolution failure");
+    }
+    expect(resolution.error).toContain("anthropic");
+    expect(resolution.error).toContain("gpt-5.4");
+  });
+
+  it("rejects unknown providers even when the models map contains them", () => {
+    const resolution = resolveGuiProviderSwitch({
+      provider: "unknown",
+      model: "mystery-model",
+      models: {
+        unknown: ["mystery-model"],
+      },
+    });
+
+    expect(resolution.ok).toBe(false);
+    if (resolution.ok) {
+      throw new Error("expected unknown provider resolution failure");
+    }
+    expect(resolution.error).toContain("unknown");
   });
 });

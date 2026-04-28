@@ -171,4 +171,63 @@ describe("applyRuntimeTurnRecord", () => {
     expect(session.sessionLedger.toolCallCount).toBe(4);
     expect(cache.listByKind("runtime-tool-bundle")).toHaveLength(0);
   });
+
+  it("records live provider validation results provider by provider", () => {
+    const session = new RuntimeSession({
+      appName: "app",
+      tenantId: "tenant",
+      userId: "user",
+      systemPrompt: "system",
+    });
+    session.addUserMessage([{ type: "text", text: "hello" }]);
+
+    const record = applyRuntimeTurnRecord({
+      session,
+      channel: "gui",
+      taskShape: "interactive",
+      continuityDecision: makeDecision("fallback-replay", 0),
+      queued: false,
+      inputTokens: 1,
+      outputTokens: 1,
+      providerValidation: [
+        {
+          provider: "openai",
+          available: false,
+          models: [],
+          status: "missing_auth",
+          reason: "OPENAI_API_KEY is missing.",
+          authState: "missing",
+          lastCheckedAt: "2026-04-28T12:00:00.000Z",
+        },
+        {
+          provider: "ollama",
+          available: true,
+          models: ["llama3.1:8b"],
+          status: "available",
+          reason: "Ollama models discovered.",
+          authState: "not_required",
+          lastCheckedAt: "2026-04-28T12:00:00.000Z",
+        },
+      ],
+    });
+
+    expect(record.providerValidation).toEqual([
+      expect.objectContaining({
+        provider: "openai",
+        available: false,
+        status: "missing_auth",
+      }),
+      expect.objectContaining({
+        provider: "ollama",
+        available: true,
+        models: ["llama3.1:8b"],
+      }),
+    ]);
+    expect(session.exactArtifacts).toContain(
+      "Provider validation: openai unavailable (missing_auth) OPENAI_API_KEY is missing.",
+    );
+    expect(session.exactArtifacts).toContain(
+      "Provider validation: ollama available (available) Ollama models discovered.",
+    );
+  });
 });

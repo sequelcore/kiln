@@ -8,12 +8,8 @@ import type {
 } from "./session.js";
 import { debug } from "./debug.js";
 import {
-  CodexOAuthAuth,
-  createDefaultBuiltinTools,
-  getDirectProviderExecutionProfile,
   getFieldStrength,
   isDirectProviderId,
-  MODEL_CATALOG,
   resolveDirectProviderExecutionProfile,
 } from "@kilnai/core";
 import { ClaudeSession } from "./claude-code-process.js";
@@ -22,9 +18,18 @@ import { OpenCodeSession } from "./opencode-session.js";
 import { ProviderSession } from "./provider-session.js";
 import { WorktreeManager } from "./worktree-manager.js";
 import { normalizePermissionPolicy } from "./permission-normalizer.js";
+import { getGuiProviderMetadata } from "@kilnai/gateway-contracts";
 
 export type CliHarnessProviderId = "claude" | "codex" | "opencode";
-export type DirectApiProviderId = "codex-oauth" | "anthropic" | "openai" | "deepseek" | "openrouter" | "ollama";
+export type DirectApiProviderId =
+  | "codex-oauth"
+  | "opencode-go"
+  | "opencode-zen"
+  | "anthropic"
+  | "openai"
+  | "deepseek"
+  | "openrouter"
+  | "ollama";
 export type ProviderId = CliHarnessProviderId | DirectApiProviderId;
 export type ProviderDisplayGroup = "subscription" | "harness" | "direct-api";
 
@@ -35,13 +40,10 @@ export interface ProviderDisplayInfo {
   readonly free: boolean;
 }
 
-const HARNESS_PROVIDERS = new Set<CliHarnessProviderId>(["claude", "codex", "opencode"]);
-const FREE_PROVIDERS = new Set<ProviderId>(["codex-oauth", "openrouter", "ollama"]);
-const DIRECT_PROVIDER_TOOL_NAMES = Object.freeze(
-  createDefaultBuiltinTools().map((tool) => tool.name),
-);
 const DIRECT_PROVIDER_COST_TIERS: Record<DirectApiProviderId, "low" | "medium" | "high"> = {
   "codex-oauth": "low",
+  "opencode-go": "low",
+  "opencode-zen": "medium",
   anthropic: "high",
   openai: "high",
   deepseek: "medium",
@@ -50,17 +52,24 @@ const DIRECT_PROVIDER_COST_TIERS: Record<DirectApiProviderId, "low" | "medium" |
 };
 const DIRECT_PROVIDER_PRIORITIES: Record<DirectApiProviderId, number> = {
   "codex-oauth": 1,
+  "opencode-go": 2,
+  "opencode-zen": 3,
   anthropic: 4,
   openai: 5,
   openrouter: 6,
   deepseek: 7,
   ollama: 8,
 };
+const RUNTIME_MODEL_DISCOVERY_PROVIDER_IDS = new Set<ProviderId>([
+  "codex-oauth",
+  "opencode-go",
+  "opencode-zen",
+]);
 
-const CODEX_OAUTH_AVAILABLE = await new CodexOAuthAuth().hasValidCredentials().catch((error: unknown) => {
-  debug("[provider:codex-oauth] availability check failed", error instanceof Error ? error.message : String(error));
-  return false;
-});
+function hasNonEmptyEnv(name: string): boolean {
+  const value = process.env[name];
+  return typeof value === "string" && value.trim().length > 0;
+}
 
 export function isDirectApiProvider(provider: ProviderId | undefined): provider is DirectApiProviderId {
   if (!provider) return false;
@@ -68,54 +77,38 @@ export function isDirectApiProvider(provider: ProviderId | undefined): provider 
 }
 
 export function getProviderDisplayInfo(registry: SessionRegistry): ProviderDisplayInfo[] {
-  return registry.list().map((provider) => ({
-    id: provider.id,
-    group: getProviderDisplayGroup(provider.id),
-    models: getProviderModels(provider.id),
-    free: FREE_PROVIDERS.has(provider.id),
-  }));
-}
-
-function getProviderDisplayGroup(provider: ProviderId): ProviderDisplayGroup {
-  if (HARNESS_PROVIDERS.has(provider as CliHarnessProviderId)) {
-    return "harness";
-  }
-  if (isDirectApiProvider(provider) && getDirectProviderExecutionProfile(provider)?.defaultBillingMode === "subscription") {
-    return "subscription";
-  }
-  return "direct-api";
-}
-
-function getProviderModels(provider: ProviderId): readonly string[] {
-  const catalogProviders: readonly string[] = (() => {
-    switch (provider) {
-      case "claude":
-        return ["anthropic"];
-      case "codex":
-        return ["codex-oauth", "openai"];
-      case "opencode":
-        return [];
-      default:
-        return [provider];
+  return registry.list().map((provider) => {
+    const metadata = getGuiProviderMetadata(provider.id);
+    if (!metadata) {
+      throw new Error(`Missing GUI provider metadata for ${provider.id}`);
     }
-  })();
+    return {
+      id: provider.id,
+      group: metadata.group,
+      models: [],
+      free: metadata.free,
+    };
+  });
+}
 
-  const models: string[] = [];
-  for (const entry of MODEL_CATALOG) {
-    if (!catalogProviders.includes(entry.provider)) {
+export function getRuntimeProviderAvailability(registry: SessionRegistry): Record<string, boolean> {
+  const availability: Record<string, boolean> = {};
+  for (const provider of registry.list()) {
+    if (provider.health === "suppressed") {
+      availability[provider.id] = false;
       continue;
     }
-    if (provider === "codex" && entry.provider === "openai") {
-      const isCodexModel = entry.model.startsWith("gpt-5.") || entry.model.includes("codex");
-      if (!isCodexModel) {
-        continue;
-      }
+    if (RUNTIME_MODEL_DISCOVERY_PROVIDER_IDS.has(provider.id)) {
+      availability[provider.id] = true;
+      continue;
     }
-    if (!models.includes(entry.model)) {
-      models.push(entry.model);
+    try {
+      availability[provider.id] = provider.isAvailable?.() !== false;
+    } catch {
+      availability[provider.id] = false;
     }
   }
-  return models;
+  return availability;
 }
 
 export interface SessionRequirements {
@@ -755,6 +748,9 @@ export class SessionRegistry {
     if (!descriptor) {
       throw new Error(`Unknown provider: ${id}`);
     }
+    if (!this._isAvailable(id)) {
+      throw new Error(`Provider unavailable: ${id}`);
+    }
     return descriptor.create(config);
   }
 
@@ -908,17 +904,13 @@ export class SessionRegistry {
 const DEFAULT_POLICY: KilnPermissionPolicy = { approval: "on-request", sandbox: "read-only" };
 
 function buildDirectProviderCapabilities(provider: DirectApiProviderId): SessionCapabilities {
-  const profile = getDirectProviderExecutionProfile(provider);
-  const supportedTools = profile?.defaultExecutionMode === "kiln-executable"
-    ? [...DIRECT_PROVIDER_TOOL_NAMES]
-    : [];
   return {
     mcp: false,
     streaming: true,
     resumable: false,
     resume: false,
     costTrackingMode: "computed",
-    supportedTools,
+    supportedTools: [],
     maxContextTokens: null,
     priority: DIRECT_PROVIDER_PRIORITIES[provider],
     fallbackTo: null,
@@ -939,9 +931,9 @@ function createDirectProviderSession(
     provider,
     model: config.model,
   });
-  const executionMode = config.model
-    ? profile?.executionMode
-    : getDirectProviderExecutionProfile(provider)?.defaultExecutionMode;
+  if (!profile) {
+    throw new Error(`Direct provider '${provider}' requires a non-empty configured model`);
+  }
 
   return new ProviderSession({
     provider,
@@ -952,7 +944,7 @@ function createDirectProviderSession(
     env: config.env,
     permissionPolicy: config.permissionPolicy,
     constraintInstructions: translated.constraintInstructions,
-    executionMode,
+    executionProfile: profile,
   });
 }
 
@@ -978,17 +970,21 @@ export function createDefaultRegistry(): {
     debug("pruneStale error:", err instanceof Error ? err.message : String(err));
   });
 
-  const codexOauthProvider = createDirectProviderDescriptor("codex-oauth", () => CODEX_OAUTH_AVAILABLE);
+  const codexOauthProvider = createDirectProviderDescriptor("codex-oauth");
+  const opencodeGoProvider = createDirectProviderDescriptor("opencode-go");
+  const opencodeZenProvider = createDirectProviderDescriptor("opencode-zen");
   const directProviders: SessionProviderDescriptor[] = [
-    createDirectProviderDescriptor("anthropic"),
-    createDirectProviderDescriptor("openai"),
-    createDirectProviderDescriptor("deepseek"),
-    createDirectProviderDescriptor("openrouter"),
+    createDirectProviderDescriptor("anthropic", () => hasNonEmptyEnv("ANTHROPIC_API_KEY")),
+    createDirectProviderDescriptor("openai", () => hasNonEmptyEnv("OPENAI_API_KEY")),
+    createDirectProviderDescriptor("deepseek", () => hasNonEmptyEnv("DEEPSEEK_API_KEY")),
+    createDirectProviderDescriptor("openrouter", () => hasNonEmptyEnv("OPENROUTER_API_KEY")),
     createDirectProviderDescriptor("ollama"),
   ];
 
   const providers: SessionProviderDescriptor[] = [
     codexOauthProvider,
+    opencodeGoProvider,
+    opencodeZenProvider,
     {
       id: "claude",
       costTier: "high",

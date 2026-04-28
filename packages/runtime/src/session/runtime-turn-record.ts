@@ -44,6 +44,16 @@ export interface RuntimeTurnDangerousCommandOutcome {
   readonly reason: string;
 }
 
+export interface RuntimeTurnProviderValidation {
+  readonly provider: string;
+  readonly available: boolean;
+  readonly models: readonly string[];
+  readonly status: string;
+  readonly reason: string;
+  readonly authState: string;
+  readonly lastCheckedAt: string;
+}
+
 export interface RuntimeTurnRecordInput {
   readonly session: RuntimeSession;
   readonly channel: string;
@@ -64,6 +74,7 @@ export interface RuntimeTurnRecordInput {
   readonly approvalTransitions?: readonly RuntimeTurnApprovalTransition[];
   readonly authorityDecisions?: readonly RuntimeTurnAuthorityDecision[];
   readonly dangerousCommandOutcomes?: readonly RuntimeTurnDangerousCommandOutcome[];
+  readonly providerValidation?: readonly RuntimeTurnProviderValidation[];
 }
 
 export interface RuntimeTurnRecord {
@@ -84,6 +95,7 @@ export interface RuntimeTurnRecord {
   readonly approvalTransitions: readonly RuntimeTurnApprovalTransition[];
   readonly authorityDecisions: readonly RuntimeTurnAuthorityDecision[];
   readonly dangerousCommandOutcomes: readonly RuntimeTurnDangerousCommandOutcome[];
+  readonly providerValidation?: readonly RuntimeTurnProviderValidation[];
   readonly turnDepth: number;
 }
 
@@ -131,6 +143,7 @@ export function applyRuntimeTurnRecord(input: RuntimeTurnRecordInput): RuntimeTu
   const approvalTransitionsForRecord = input.approvalTransitions ?? [];
   const authorityDecisionsForRecord = input.authorityDecisions ?? [];
   const dangerousCommandOutcomesForRecord = input.dangerousCommandOutcomes ?? [];
+  const providerValidationForRecord = input.providerValidation;
 
   session.accumulateTokens(turnTokens);
   session.updateSessionLedger({
@@ -163,6 +176,14 @@ export function applyRuntimeTurnRecord(input: RuntimeTurnRecordInput): RuntimeTu
     for (const outcome of dangerousCommandOutcomesForRecord.slice(-8)) {
       session.addExactArtifact(
         `Dangerous command ${outcome.action}: ${outcome.toolName} (${outcome.reasonCode}) ${outcome.reason}`,
+      );
+    }
+  }
+  if (providerValidationForRecord && providerValidationForRecord.length > 0) {
+    for (const validation of providerValidationForRecord) {
+      const availability = validation.available ? "available" : "unavailable";
+      session.addExactArtifact(
+        `Provider validation: ${validation.provider} ${availability} (${validation.status}) ${validation.reason}`,
       );
     }
   }
@@ -216,6 +237,7 @@ export function applyRuntimeTurnRecord(input: RuntimeTurnRecordInput): RuntimeTu
     approvalTransitions: approvalTransitionsForRecord,
     authorityDecisions: authorityDecisionsForRecord,
     dangerousCommandOutcomes: dangerousCommandOutcomesForRecord,
+    ...(providerValidationForRecord ? { providerValidation: providerValidationForRecord } : {}),
     turnDepth: session.userTurnCount,
   };
 }

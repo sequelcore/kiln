@@ -1,0 +1,164 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { GatewaySession } from "../src/gateway-session.js";
+
+let wsInstances: MockWebSocket[] = [];
+
+class MockWebSocket {
+  static readonly CONNECTING = 0;
+  static readonly OPEN = 1;
+  static readonly CLOSED = 3;
+
+  readyState = MockWebSocket.CONNECTING;
+  onopen: ((this: MockWebSocket, ev: Event) => void) | null = null;
+  onmessage: ((this: MockWebSocket, ev: MessageEvent) => void) | null = null;
+  onclose: ((this: MockWebSocket, ev: CloseEvent) => void) | null = null;
+  onerror: ((this: MockWebSocket, ev: Event) => void) | null = null;
+
+  readonly send = vi.fn();
+  readonly close = vi.fn();
+
+  constructor(readonly url: string) {
+    wsInstances.push(this);
+  }
+
+  simulateOpen(): void {
+    this.readyState = MockWebSocket.OPEN;
+    this.onopen?.call(this, new Event("open"));
+  }
+
+  simulateMessage(data: string): void {
+    this.onmessage?.call(this, new MessageEvent("message", { data }));
+  }
+}
+
+function sentProviderFrame(ws: MockWebSocket): { provider: string; model?: string; requestId: string } {
+  const providerCall = ws.send.mock.calls.find(([payload]) => {
+    if (typeof payload !== "string" || payload === "ping") return false;
+    return (JSON.parse(payload) as { type?: string }).type === "provider";
+  });
+  expect(providerCall).toBeDefined();
+  const frame = JSON.parse(providerCall?.[0] as string) as { type?: string; provider?: string; model?: string; requestId?: string };
+  expect(frame.type).toBe("provider");
+  expect(typeof frame.provider).toBe("string");
+  expect(typeof frame.requestId).toBe("string");
+  expect(frame.requestId?.trim()).not.toBe("");
+  return frame as { provider: string; model?: string; requestId: string };
+}
+
+describe("GatewaySession provider switching", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    wsInstances = [];
+    (globalThis as unknown as { WebSocket: typeof MockWebSocket }).WebSocket = MockWebSocket;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("rejects immediately when provider_changed does not match the pending request", async () => {
+    const session = new GatewaySession("ws://localhost:4801/tui/ws");
+    const ws = wsInstances[0];
+    ws.simulateOpen();
+
+    const promise = session.switchProvider("openai", "gpt-5");
+    await Promise.resolve();
+
+    const frame = sentProviderFrame(ws);
+    expect(frame).toMatchObject({
+      provider: "openai",
+      model: "gpt-5",
+    });
+
+    ws.simulateMessage(JSON.stringify({
+      type: "provider_changed",
+      provider: "openai",
+      requestId: "stale-request",
+      model: "gpt-5",
+    }));
+
+    await expect(promise).rejects.toThrow("Provider switch acknowledgement did not match the pending request");
+    await session.dispose();
+  });
+
+  it("sends a requestId and resolves the matching provider_changed acknowledgement", async () => {
+    const session = new GatewaySession("ws://localhost:4801/tui/ws");
+    const ws = wsInstances[0];
+    ws.simulateOpen();
+
+    const promise = session.switchProvider("openai", "gpt-5");
+    await Promise.resolve();
+
+    const frame = sentProviderFrame(ws);
+    ws.simulateMessage(JSON.stringify({
+      type: "provider_changed",
+      provider: "openai",
+      requestId: frame.requestId,
+      model: "gpt-5",
+    }));
+
+    await expect(promise).resolves.toBe("openai");
+    await session.dispose();
+  });
+
+  it("rejects a pending provider switch immediately when the gateway returns an error frame", async () => {
+    const session = new GatewaySession("ws://localhost:4801/tui/ws");
+    const ws = wsInstances[0];
+    ws.simulateOpen();
+
+    const promise = session.switchProvider("openai", "gpt-5");
+    await Promise.resolve();
+
+    sentProviderFrame(ws);
+
+    let rejection: Error | null = null;
+    promise.catch((error: Error) => {
+      rejection = error;
+      return "";
+    });
+
+    ws.simulateMessage(JSON.stringify({
+      type: "error",
+      message: "Provider switch failed",
+    }));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(rejection).toBeInstanceOf(Error);
+    expect(rejection?.message).toBe("Provider switch failed");
+    await expect(promise).rejects.toThrow("Provider switch failed");
+    await session.dispose();
+  });
+
+  it("rejects missing models for non-modeless providers and allows modeless provider-only switches", async () => {
+    const disconnectedSession = new GatewaySession("ws://localhost:4801/tui/ws");
+    const disconnectedWs = wsInstances[0];
+
+    await expect(disconnectedSession.switchProvider("openai", "gpt-5")).rejects.toThrow("active TUI gateway connection");
+    expect(disconnectedWs.send).not.toHaveBeenCalled();
+
+    disconnectedWs.simulateOpen();
+
+    await expect(disconnectedSession.switchProvider("openai")).rejects.toThrow("Provider 'openai' requires a selected model.");
+    expect(disconnectedWs.send).not.toHaveBeenCalledWith(expect.stringContaining("\\\"type\\\":\\\"provider\\\""));
+
+    const modelessSwitch = disconnectedSession.switchProvider("claude");
+    await Promise.resolve();
+
+    const modelessFrame = sentProviderFrame(disconnectedWs);
+    expect(modelessFrame).toMatchObject({
+      provider: "claude",
+    });
+    expect(modelessFrame).not.toHaveProperty("model");
+
+    disconnectedWs.simulateMessage(JSON.stringify({
+      type: "provider_changed",
+      provider: "claude",
+      requestId: modelessFrame.requestId,
+    }));
+
+    await expect(modelessSwitch).resolves.toBe("claude");
+    await disconnectedSession.dispose();
+  });
+});

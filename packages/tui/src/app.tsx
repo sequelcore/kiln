@@ -6,6 +6,7 @@
 import { execSync } from "node:child_process";
 import { createCliRenderer, TextRenderable } from "@opentui/core";
 import { getFieldStore } from "@kilnai/core";
+import { isGuiProviderModeless, type GuiProviderDiscoveryResult } from "@kilnai/gateway-contracts";
 import type { SessionLike } from "./types.js";
 import type { Message, ResumeSidebarInfo, SessionListItem } from "./state.js";
 import { createReactiveState, update } from "./state.js";
@@ -36,6 +37,8 @@ export interface ProviderDisplayInfo {
   readonly group: "subscription" | "harness" | "direct-api";
   readonly models: readonly string[];
   readonly free: boolean;
+  readonly available?: boolean;
+  readonly reason?: string;
 }
 
 /** Spinner frames for thinking indicator. */
@@ -44,14 +47,16 @@ const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", 
 export async function startTui(
   createSession: () => Promise<SessionLike>,
   providerDisplayInfo: readonly ProviderDisplayInfo[],
-  provider = "claude",
+  provider: string,
   domain = "unknown",
   theme: KilnTheme = defaultTheme,
   initialResumeInfo: Record<string, ResumeSidebarInfo> = {},
   refreshResumeInfo?: () => Promise<Record<string, ResumeSidebarInfo>>,
   providerModelsRef?: { current: Record<string, string[]> },
+  providerDiscoveryRef?: { current: readonly GuiProviderDiscoveryResult[] },
   loadSessions?: () => Promise<SessionListItem[]>,
   onResumeSession?: (session: SessionListItem) => void,
+  refreshProviders?: () => Promise<void> | void,
 ): Promise<void> {
   const renderer = await createCliRenderer({
     exitOnCtrlC: false,
@@ -104,11 +109,16 @@ export async function startTui(
   let providerModels = Object.fromEntries(
     providerDisplayInfo.map((entry) => [entry.id, [...entry.models]]),
   ) as Record<string, string[]>;
+  let providerDiscovery = providerDiscoveryRef?.current ?? [];
   update(state, "currentProvider", provider);
   const initialProviderIndex = validProviders.findIndex((providerName) => providerName === provider);
   if (initialProviderIndex >= 0) {
     providerPickerState.providerIndex = initialProviderIndex;
     update(state, "providerPickerIndex", initialProviderIndex);
+    const initialModel = providerModels[provider]?.[0];
+    if (initialModel) {
+      update(state, "currentModel", initialModel);
+    }
   }
 
   const SLASH_COMMANDS = [
@@ -123,11 +133,14 @@ export async function startTui(
   if (providerModelsRef) {
     const pollModels = () => {
       const models = providerModelsRef.current;
-      if (models && Object.keys(models).length > 0) {
-        providerModels = {
-          ...providerModels,
-          ...models,
-        };
+      if (models) {
+        providerModels = Object.fromEntries(
+          validProviders.map((providerName) => [providerName, models[providerName] ?? []]),
+        );
+        providerDiscovery = providerDiscoveryRef?.current ?? providerDiscovery;
+        if (providerPicker) {
+          renderProviderPicker();
+        }
       }
     };
     setInterval(pollModels, 500);
@@ -287,11 +300,53 @@ export async function startTui(
   // ─────────────────────────────────────────────────────────────────────────
 
   function getCurrentProvider(): string {
-    return validProviders[providerPickerState.providerIndex] ?? provider ?? validProviders[0] ?? "claude";
+    return validProviders[providerPickerState.providerIndex] ?? "";
   }
 
   function getCurrentModels(): string[] {
     return providerModels[getCurrentProvider()] ?? [];
+  }
+
+  function getProviderDiscovery(providerName: string): GuiProviderDiscoveryResult | undefined {
+    return providerDiscovery.find((entry) => entry.provider === providerName);
+  }
+
+  function providerIsSelectable(providerName: string): boolean {
+    const discovery = getProviderDiscovery(providerName);
+    if (discovery) {
+      return discovery.available;
+    }
+    const info = providerInfoById.get(providerName);
+    if (info?.available === false) {
+      return false;
+    }
+    const models = providerModels[providerName] ?? [];
+    return models.length > 0 || isGuiProviderModeless(providerName);
+  }
+
+  function getProviderReason(providerName: string): string | undefined {
+    const reason = getProviderDiscovery(providerName)?.reason ?? providerInfoById.get(providerName)?.reason;
+    return reason ? conciseUnavailableReason(reason) : undefined;
+  }
+
+  function conciseUnavailableReason(reason: string): string {
+    const normalized = reason.trim();
+    if (normalized.length === 0) {
+      return "";
+    }
+    if (/auth|api[_ -]?key|credential/i.test(normalized)) {
+      return "Auth is missing.";
+    }
+    if (/daemon.*not reachable|not reachable|connection|ECONNREFUSED/i.test(normalized)) {
+      return "Local service is unreachable.";
+    }
+    if (/empty model list|no installed models|no models/i.test(normalized)) {
+      return "No models found.";
+    }
+    if (/endpoint.*failed|request failed/i.test(normalized)) {
+      return "Model endpoint failed.";
+    }
+    return normalized.length > 72 ? `${normalized.slice(0, 69).trimEnd()}...` : normalized;
   }
 
   function getProviderLabel(providerName: string): string {
@@ -379,9 +434,11 @@ export async function startTui(
         for (const providerName of group.providers) {
           const selected = validProviders[providerPickerState.providerIndex] === providerName;
           const label = getProviderLabel(providerName);
+          const reason = getProviderReason(providerName);
+          const selectable = providerIsSelectable(providerName);
           const row = makePickerRow(
             getProviderRowId(providerName),
-            label,
+            selectable || !reason ? label : `${label} - ${reason}`,
             selected,
             currentTheme.accent,
             currentTheme.textMuted,
@@ -392,7 +449,7 @@ export async function startTui(
         }
       }
 
-      providerPicker.hint.content = t`${fg(currentTheme.textMuted)("↑↓ navigate  Enter models  Esc cancel")}`;
+      providerPicker.hint.content = t`${fg(currentTheme.textMuted)("↑↓ navigate  Enter models  r refresh  Esc cancel")}`;
       return;
     }
 
@@ -440,10 +497,18 @@ export async function startTui(
       const nextRow = findProviderRow(nextProvider);
 
       if (prevRow) {
-        prevRow.content = t`${fg(currentTheme.textMuted)(`○ ${getProviderLabel(prevProvider)}`)}`;
+        const reason = getProviderReason(prevProvider);
+        const label = providerIsSelectable(prevProvider) || !reason
+          ? getProviderLabel(prevProvider)
+          : `${getProviderLabel(prevProvider)} - ${reason}`;
+        prevRow.content = t`${fg(currentTheme.textMuted)(`○ ${label}`)}`;
       }
       if (nextRow) {
-        nextRow.content = t`${fg(currentTheme.accent)(`● ${getProviderLabel(nextProvider)}`)}`;
+        const reason = getProviderReason(nextProvider);
+        const label = providerIsSelectable(nextProvider) || !reason
+          ? getProviderLabel(nextProvider)
+          : `${getProviderLabel(nextProvider)} - ${reason}`;
+        nextRow.content = t`${fg(currentTheme.accent)(`● ${label}`)}`;
       }
       return;
     }
@@ -529,7 +594,6 @@ export async function startTui(
     );
 
     update(state, "providerPickerOpen", true);
-    update(state, "currentProvider", getCurrentProvider());
 
     renderProviderPicker();
     providerPicker.scrollBox.scrollTo(0);
@@ -538,11 +602,27 @@ export async function startTui(
     });
   }
 
-  function closeProviderPicker(apply: boolean): void {
+  async function closeProviderPicker(apply: boolean): Promise<void> {
     if (!providerPicker) return;
 
-    if (apply) {
+    const destroyPicker = () => {
+      if (!providerPicker) return;
+      destroyProviderPicker(providerPicker);
+      providerPicker = null;
+      providerPickerOpen = false;
+      update(state, "providerPickerOpen", false);
+    };
+
+    if (!apply) {
+      destroyPicker();
+      return;
+    }
+
+    try {
       const selectedProvider = getCurrentProvider();
+      if (!providerIsSelectable(selectedProvider)) {
+        throw new Error(getProviderReason(selectedProvider) ?? `Provider '${selectedProvider}' is unavailable`);
+      }
       const models = getCurrentModels();
       const selectedModel =
         providerPickerState.mode === "models"
@@ -550,6 +630,28 @@ export async function startTui(
           : state.currentProvider === selectedProvider
             ? state.currentModel
             : "";
+      const canSwitchWithoutModel = isGuiProviderModeless(selectedProvider);
+      if (!selectedModel && !canSwitchWithoutModel) {
+        throw new Error(`Provider '${selectedProvider}' requires a selected model.`);
+      }
+
+      const session = await createSession();
+      const switchProvider =
+        (
+          session as unknown as {
+            switchProvider?: unknown;
+          }
+        ).switchProvider;
+      if (typeof switchProvider !== "function") {
+        throw new Error("Active session does not support provider switching");
+      }
+
+      await (
+        switchProvider as (
+          providerName: string,
+          modelName?: string,
+        ) => Promise<string>
+      )(selectedProvider, selectedModel || undefined);
 
       update(state, "currentProvider", selectedProvider);
       update(state, "currentModel", selectedModel);
@@ -557,39 +659,46 @@ export async function startTui(
       update(state, "providerPickerIndex", providerPickerState.providerIndex);
       renderSidebarProvider(state, currentTheme, ui, domain);
       renderSidebarResume(state, currentTheme, ui);
-
-      void (async () => {
-        try {
-          const session = await createSession();
-          const hasSwitchProvider =
-            typeof (
-              session as unknown as {
-                switchProvider?: unknown;
-              }
-            ).switchProvider === "function";
-          if (hasSwitchProvider) {
-            await (
-              session as unknown as {
-                switchProvider: (
-                  providerName: string,
-                  modelName?: string,
-                ) => Promise<string>;
-              }
-            ).switchProvider(
-              selectedProvider,
-              selectedModel ? selectedModel : undefined,
-            );
-          }
-        } catch {
-          // fail-open
-        }
-      })();
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message.trim().length > 0
+          ? error.message
+          : "Provider switch failed";
+      ui.commandBarStatus.content = t`${fg(currentTheme.error)(`Provider switch failed: ${message}`)}`;
+    } finally {
+      destroyPicker();
     }
+  }
 
-    destroyProviderPicker(providerPicker);
-    providerPicker = null;
-    providerPickerOpen = false;
-    update(state, "providerPickerOpen", false);
+  async function refreshProviderDiscoveryFromPicker(): Promise<void> {
+    if (!providerPicker) return;
+    try {
+      const session = await createSession();
+      const sessionRefreshProviders = (
+        session as unknown as { refreshProviders?: unknown }
+      ).refreshProviders;
+      if (typeof sessionRefreshProviders === "function") {
+        await (sessionRefreshProviders as () => Promise<void>).call(session);
+      }
+      await refreshProviders?.();
+      providerDiscovery = providerDiscoveryRef?.current ?? providerDiscovery;
+      const refreshedModels = providerModelsRef?.current;
+      if (refreshedModels) {
+        providerModels = Object.fromEntries(
+          validProviders.map((providerName) => [providerName, refreshedModels[providerName] ?? []]),
+        );
+      }
+      renderProviderPicker();
+      process.nextTick(() => {
+        scrollToSelectedRow(false);
+      });
+      ui.commandBarStatus.content = t`${fg(currentTheme.accent)("Provider discovery refreshed")}`;
+    } catch (error) {
+      const message = error instanceof Error && error.message.trim().length > 0
+        ? error.message
+        : "Provider discovery refresh failed";
+      ui.commandBarStatus.content = t`${fg(currentTheme.error)(`Provider discovery refresh failed: ${message}`)}`;
+    }
   }
 
   function returnToProviderMode(): void {
@@ -608,7 +717,6 @@ export async function startTui(
     if (!providerPicker) return;
     const models = getCurrentModels();
     if (models.length === 0) {
-      closeProviderPicker(true);
       return;
     }
 
@@ -925,16 +1033,30 @@ export async function startTui(
           returnToProviderMode();
           return;
         }
-        closeProviderPicker(false);
+        void closeProviderPicker(false);
         return;
       }
 
       if (key.sequence === "\r" || key.sequence === "\n") {
         if (providerPickerState.mode === "providers") {
+          const selectedProvider = getCurrentProvider();
+          if (
+            getCurrentModels().length === 0
+            && isGuiProviderModeless(selectedProvider)
+            && providerIsSelectable(selectedProvider)
+          ) {
+            void closeProviderPicker(true);
+            return;
+          }
           enterModelMode();
           return;
         }
-        closeProviderPicker(true);
+        void closeProviderPicker(true);
+        return;
+      }
+
+      if (providerPickerState.mode === "providers" && key.name === "r") {
+        void refreshProviderDiscoveryFromPicker();
         return;
       }
 

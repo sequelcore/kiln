@@ -142,6 +142,33 @@ Tool names follow `{provider}_{operation}`, such as `google_calendar_check_avail
 
 The native developer tool stack lives under `packages/core/src/tools/`. It exists so Kiln can execute coding tasks without depending on an external harness backend.
 
+### External runtime contract
+
+MCP is Kiln's shared external runtime contract for native developer tools. Any
+agent host, wrapper, plugin, or installer that needs Kiln tools should consume
+the MCP projection or another projection from the canonical registry. It should
+not copy tool schemas, own a private executor, or invent a second authorization
+surface.
+
+Packaging layers can describe how tools are used. They may provide:
+
+- prompt or instruction payload
+- policy hints for the host
+- allowed tool groups
+- workflow steps
+- host installation metadata
+
+They cannot own:
+
+- authorization decisions
+- tool execution
+- telemetry or audit records
+- result sanitization
+- private tool executors for Kiln builtin tools
+
+The canonical path remains: registry schema, runtime authorization, execution
+bridge, telemetry, audit, and structured result reinjection.
+
 ### Domain contracts
 
 `packages/core/src/tools/domain/tool.ts` defines the core types:
@@ -363,15 +390,17 @@ Those events include authorization level, annotations, duration, success, and a 
 
 ## DevToolsMcpServer
 
-`DevToolsMcpServer` exposes the same registered developer tools as MCP tools.
+`DevToolsMcpServer` exposes the registered developer tools as MCP tools.
 
 ### Why it exists
 
-Kiln's developer tools are useful beyond Kiln's own orchestrator. By projecting them through MCP, external agents can consume the same tool implementations over stdio.
+Kiln's developer tools are useful beyond Kiln's own orchestrator. By
+projecting the canonical registry through MCP, external agents can consume the
+same tool implementations over stdio.
 
 ### How it works
 
-- `listTools()` maps `TOOL_SCHEMAS` into MCP tool descriptors
+- `listTools()` maps canonical developer tool definitions into MCP tool descriptors
 - `callTool()` delegates to `DevToolExecutionBridge`
 - successful calls return JSON-formatted text content
 - failed calls return `isError: true`

@@ -162,6 +162,13 @@ export class CodexOAuthAuth {
         tokenPath: this.tokenPath,
       });
     }
+    const tokenValidationError = this.validateStoredCredentials(tokenFile);
+    if (tokenValidationError) {
+      throw this.authError("Codex OAuth token file has invalid credentials", {
+        tokenPath: this.tokenPath,
+        reason: tokenValidationError,
+      });
+    }
 
     if (!this.expiresWithinBuffer(tokenFile, AUTO_REFRESH_BUFFER_SECONDS)) {
       return tokenFile.access_token;
@@ -209,7 +216,7 @@ export class CodexOAuthAuth {
       return false;
     }
 
-    return new Date(tokenFile.expires_at).getTime() > Date.now();
+    return this.validateStoredCredentials(tokenFile) === null;
   }
 
   private async exchangeAuthorizationCode(
@@ -267,6 +274,27 @@ export class CodexOAuthAuth {
 
   private expiresWithinBuffer(tokenFile: CodexOAuthTokenFile, bufferSeconds: number): boolean {
     return new Date(tokenFile.expires_at).getTime() <= Date.now() + bufferSeconds * 1000;
+  }
+
+  private validateStoredCredentials(tokenFile: CodexOAuthTokenFile): string | null {
+    if (!this.isNonEmptyTokenString(tokenFile.access_token)) {
+      return "access_token must be a non-empty string";
+    }
+    if (!this.isNonEmptyTokenString(tokenFile.refresh_token)) {
+      return "refresh_token must be a non-empty string";
+    }
+    const expiresAtMs = new Date(tokenFile.expires_at).getTime();
+    if (!Number.isFinite(expiresAtMs)) {
+      return "expires_at must be a valid timestamp";
+    }
+    if (expiresAtMs <= Date.now()) {
+      return "expires_at must be in the future";
+    }
+    return null;
+  }
+
+  private isNonEmptyTokenString(value: unknown): value is string {
+    return typeof value === "string" && value.trim().length > 0;
   }
 
   private async parseJson<T>(response: Response): Promise<T> {

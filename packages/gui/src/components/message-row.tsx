@@ -3,9 +3,9 @@ import remarkGfm from "remark-gfm";
 import SyntaxHighlighter from "react-syntax-highlighter";
 import { atomOneDark } from "react-syntax-highlighter/dist/esm/styles/hljs";
 import type { Components } from "react-markdown";
+import { getGuiProviderMetadata } from "@kilnai/gateway-contracts";
 import type { Message } from "../lib/session-store.js";
 import { useSessionStore } from "../lib/session-store.js";
-import { PROVIDER_METADATA } from "../lib/provider-metadata.js";
 
 const markdownComponents: Components = {
   code({ className, children, ...rest }) {
@@ -77,7 +77,7 @@ export function MessageRow(props: MessageRowProps) {
   const assistantModel = message.routedModel
     ?? (message.streaming ? activeModel : null);
   const assistantProviderLabel = assistantProvider
-    ? (PROVIDER_METADATA[assistantProvider]?.label ?? assistantProvider)
+    ? (getGuiProviderMetadata(assistantProvider)?.label ?? assistantProvider)
     : null;
 
   return (

@@ -316,9 +316,11 @@ provider. Confirmed via integration test.
 
 ## Relation to Other Roadmaps
 
-- `03-shared-tool-surface-unification.md` — the pool sits beneath the unified
-  tool surface. Tool calls flow through the adapter, which talks to the pool.
-  The tool surface does not need to know about pool internals.
+- `docs/architecture/tool-execution.md` and
+  `docs/architecture/provider-model-discovery.md` — the pool sits beneath the
+  unified tool and discovery surfaces. Tool calls flow through the adapter,
+  which talks to the pool. The tool surface does not need to know about pool
+  internals.
 - `04-operator-surfaces-and-remote-gui.md` — GUI model picker should display
   per-credential health (from Slice 8) once the observability endpoint is
   wired. This is a read-only display concern; the picker does not own pool

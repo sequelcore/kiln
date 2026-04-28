@@ -1,27 +1,21 @@
 import { randomUUID } from "node:crypto";
 import {
-  AnthropicAdapter,
-  CodexOAuthAdapter,
-  CodexOAuthAuth,
-  DeepSeekAdapter,
   EventBus,
   KilnError,
   appendExecutionIdentity,
   type ContentPart,
-  OpenAIAdapter,
-  OpenRouterAdapter,
-  OllamaAdapter,
-  createDefaultBuiltinTools,
+  createDefaultBuiltinToolSurface,
   getDirectProviderExecutionProfile,
-  projectDevToolCapabilities,
-  projectDevToolDefinitions,
   resolveExecutionIdentity,
   textPart,
   type AgentMessage,
+  type Capability,
+  type DefaultBuiltinToolSurface,
   type DirectProviderExecutionMode,
   type DirectProviderId,
+  type ResolvedDirectProviderExecutionProfile,
   type ToolDefinition,
-  type ProviderAdapter,
+  resolveDirectProviderExecutionProfile,
 } from "@kilnai/core";
 import type { OrchestrateResult } from "@kilnai/runtime";
 import type {
@@ -34,6 +28,7 @@ import type {
 import { buildProviderSystemPrompt } from "./preamble-builder.js";
 import { PermissionPolicyAuthorizer } from "./permission-policy-authorizer.js";
 import { ProviderContextTracker } from "./provider-context.js";
+import { createDirectProviderAdapter } from "./direct-provider-adapter-factory.js";
 
 export interface ProviderSessionConfig {
   readonly provider: DirectProviderId;
@@ -45,6 +40,7 @@ export interface ProviderSessionConfig {
   readonly permissionPolicy: KilnPermissionPolicy;
   readonly constraintInstructions?: readonly string[];
   readonly executionMode?: DirectProviderExecutionMode;
+  readonly executionProfile?: ResolvedDirectProviderExecutionProfile;
 }
 
 const PROVIDER_PRIORITY: Record<ProviderSessionConfig["provider"], number> = {
@@ -57,10 +53,6 @@ const PROVIDER_PRIORITY: Record<ProviderSessionConfig["provider"], number> = {
   deepseek: 7,
   ollama: 8,
 };
-
-const DEFAULT_BUILTIN_TOOL_NAMES = Object.freeze(
-  createDefaultBuiltinTools().map((tool) => tool.name),
-);
 
 function getDefaultBillingMode(
   provider: ProviderSessionConfig["provider"],
@@ -77,12 +69,13 @@ function getDefaultBillingMode(
 }
 
 function buildBuiltinToolExecutors(
-  tools: readonly ReturnType<typeof createDefaultBuiltinTools>[number][],
-): Map<string, (input: Record<string, unknown>) => Promise<unknown>> {
+  surface: DefaultBuiltinToolSurface,
+): ReadonlyMap<string, (input: Record<string, unknown>) => Promise<unknown>> {
   const executors = new Map<string, (input: Record<string, unknown>) => Promise<unknown>>();
-  for (const tool of tools) {
-    executors.set(tool.name, async (input: Record<string, unknown>) => {
-      const result = await tool.execute({ name: tool.name, input });
+  for (const toolName of surface.toolNames) {
+    executors.set(toolName, async (input: Record<string, unknown>) => {
+      const execution = await surface.bridge.execute({ name: toolName, input });
+      const result = execution.result;
       return { output: result.output, isError: result.isError, metadata: result.metadata };
     });
   }
@@ -90,17 +83,27 @@ function buildBuiltinToolExecutors(
 }
 
 function resolveExecutionMode(config: ProviderSessionConfig): DirectProviderExecutionMode {
-  if (config.executionMode) {
-    return config.executionMode;
-  }
-  const profile = getDirectProviderExecutionProfile(config.provider);
-  return profile?.defaultExecutionMode ?? "text-only";
+  const profile = resolveProfile(config);
+  return profile?.executionMode ?? "text-only";
 }
 
-function deriveCapabilities(config: ProviderSessionConfig): SessionCapabilities {
+function resolveProfile(
+  config: ProviderSessionConfig,
+): ResolvedDirectProviderExecutionProfile | undefined {
+  return config.executionProfile ?? resolveDirectProviderExecutionProfile({
+    provider: config.provider,
+    model: config.model,
+    requestedExecutionMode: config.executionMode,
+  });
+}
+
+function deriveCapabilities(
+  config: ProviderSessionConfig,
+  builtinToolNames: readonly string[],
+): SessionCapabilities {
   const executionMode = resolveExecutionMode(config);
   const supportedTools = executionMode === "kiln-executable"
-    ? [...DEFAULT_BUILTIN_TOOL_NAMES]
+    ? [...builtinToolNames]
     : [];
   return {
     mcp: false,
@@ -120,26 +123,30 @@ export class ProviderSession implements IKilnSession {
   readonly sessionId: string;
 
   private readonly _capabilities: SessionCapabilities;
+  private readonly executionProfile?: ResolvedDirectProviderExecutionProfile;
   private readonly executionMode: DirectProviderExecutionMode;
+  private readonly resolvedModel?: string;
   private readonly contextTracker: ProviderContextTracker;
-  private readonly builtinTools: Map<string, (input: Record<string, unknown>) => Promise<unknown>>;
+  private readonly builtinTools: ReadonlyMap<string, (input: Record<string, unknown>) => Promise<unknown>>;
   private readonly toolDefinitions: readonly ToolDefinition[];
-  private readonly capabilityMap: ReturnType<typeof projectDevToolCapabilities>;
+  private readonly capabilityMap: ReadonlyMap<string, Capability>;
   private readonly eventBus: EventBus;
 
   constructor(readonly config: ProviderSessionConfig) {
     this.sessionId = randomUUID();
-    this.executionMode = resolveExecutionMode(config);
+    this.executionProfile = resolveProfile(config);
+    this.executionMode = this.executionProfile?.executionMode ?? "text-only";
+    this.resolvedModel = this.executionProfile?.model ?? config.model;
     this.contextTracker = new ProviderContextTracker({
       maxContextTokens: 128000,
       compactionThreshold: 0.85,
     });
-    const builtinTools = createDefaultBuiltinTools();
-    this.builtinTools = buildBuiltinToolExecutors(builtinTools);
-    this.toolDefinitions = projectDevToolDefinitions(builtinTools);
-    this.capabilityMap = projectDevToolCapabilities(builtinTools);
+    const builtinToolSurface = createDefaultBuiltinToolSurface();
+    this.builtinTools = buildBuiltinToolExecutors(builtinToolSurface);
+    this.toolDefinitions = builtinToolSurface.toolDefinitions;
+    this.capabilityMap = builtinToolSurface.capabilities;
     this.eventBus = new EventBus(100);
-    this._capabilities = deriveCapabilities(config);
+    this._capabilities = deriveCapabilities(config, builtinToolSurface.toolNames);
   }
 
   get capabilities(): SessionCapabilities {
@@ -192,55 +199,6 @@ export class ProviderSession implements IKilnSession {
     // Stateless direct-provider session; no process/socket lifecycle to tear down.
   }
 
-  private resolveEnv(name: string, runtimeEnv?: Record<string, string>): string | undefined {
-    return runtimeEnv?.[name] ?? this.config.env?.[name] ?? process.env[name];
-  }
-
-  private createAdapter(runtimeEnv?: Record<string, string>): ProviderAdapter {
-    const provider = this.config.provider;
-    if (provider === "codex-oauth") {
-      const auth = new CodexOAuthAuth();
-      return new CodexOAuthAdapter({ auth, defaultModel: this.config.model });
-    }
-    if (provider === "anthropic") {
-      const apiKey = this.resolveRequiredApiKey("ANTHROPIC_API_KEY", runtimeEnv);
-      return new AnthropicAdapter({ apiKey, defaultModel: this.config.model });
-    }
-    if (provider === "openai") {
-      const apiKey = this.resolveRequiredApiKey("OPENAI_API_KEY", runtimeEnv);
-      return new OpenAIAdapter({ apiKey, defaultModel: this.config.model });
-    }
-    if (provider === "deepseek") {
-      const apiKey = this.resolveRequiredApiKey("DEEPSEEK_API_KEY", runtimeEnv);
-      return new DeepSeekAdapter({ apiKey, defaultModel: this.config.model });
-    }
-    if (provider === "openrouter") {
-      const apiKey = this.resolveRequiredApiKey("OPENROUTER_API_KEY", runtimeEnv);
-      const appUrl = this.resolveEnv("OPENROUTER_APP_URL", runtimeEnv);
-      const appName = this.resolveEnv("OPENROUTER_APP_NAME", runtimeEnv);
-      return new OpenRouterAdapter({
-        apiKey,
-        defaultModel: this.config.model,
-        appUrl,
-        appName,
-      });
-    }
-
-    const baseUrl = this.resolveEnv("OLLAMA_BASE_URL", runtimeEnv);
-    return new OllamaAdapter({
-      baseUrl,
-      defaultModel: this.config.model,
-    });
-  }
-
-  private resolveRequiredApiKey(name: string, runtimeEnv?: Record<string, string>): string {
-    const apiKey = this.resolveEnv(name, runtimeEnv);
-    if (!apiKey || apiKey.trim().length === 0) {
-      throw new Error(`Missing required API key: ${name}`);
-    }
-    return apiKey;
-  }
-
   private isStructuredPreamble(prompt: string): boolean {
     return prompt.trimStart().startsWith("<kiln-preamble>");
   }
@@ -260,7 +218,7 @@ export class ProviderSession implements IKilnSession {
       ),
       resolveExecutionIdentity({
         configuredProvider: this.config.provider,
-        configuredModel: this.config.model,
+        configuredModel: this.resolvedModel,
         configuredBillingMode: getDefaultBillingMode(this.config.provider),
       }),
     );
@@ -304,7 +262,12 @@ export class ProviderSession implements IKilnSession {
 
   private async *runTextOnly(options: SessionRunOptions, startedAt: number): AsyncIterable<SessionEvent> {
     let isError = false;
-    const adapter = this.createAdapter(options.env);
+    const adapter = await createDirectProviderAdapter({
+      provider: this.config.provider,
+      model: this.resolvedModel,
+      configEnv: this.config.env,
+      runtimeEnv: options.env,
+    });
     const { systemPrompt, userPrompt } = this.buildSystemAndPrompt(options);
     const messages = this.buildConversationMessages(userPrompt, options.messages);
 
@@ -334,8 +297,8 @@ export class ProviderSession implements IKilnSession {
           usd: 0,
           mode: "computed",
           provider: this.config.provider,
-          model: this.config.model,
-          canonicalModel: this.config.model,
+          model: this.resolvedModel,
+          canonicalModel: this.resolvedModel,
           billingMode: getDefaultBillingMode(this.config.provider),
           inputTokens,
           outputTokens,
@@ -350,8 +313,8 @@ export class ProviderSession implements IKilnSession {
       usd: 0,
       mode: "computed",
       provider: this.config.provider,
-      model: this.config.model,
-      canonicalModel: this.config.model,
+      model: this.resolvedModel,
+      canonicalModel: this.resolvedModel,
       billingMode: getDefaultBillingMode(this.config.provider),
     };
     yield { type: "completed", totalUsd: 0, durationMs: Date.now() - startedAt, isError, isPreflightCrash: false };
@@ -361,7 +324,12 @@ export class ProviderSession implements IKilnSession {
     const { RuntimeSessionOrchestrator, RuntimeSession } = await import("@kilnai/runtime");
 
     const { systemPrompt, userPrompt } = this.buildSystemAndPrompt(options);
-    const adapter = this.createAdapter(options.env);
+    const adapter = await createDirectProviderAdapter({
+      provider: this.config.provider,
+      model: this.resolvedModel,
+      configEnv: this.config.env,
+      runtimeEnv: options.env,
+    });
     const authorizer = new PermissionPolicyAuthorizer(this.config.permissionPolicy);
 
     const cliSession = new RuntimeSession({
@@ -374,7 +342,7 @@ export class ProviderSession implements IKilnSession {
 
     const orchestrator = new RuntimeSessionOrchestrator({
       provider: adapter,
-      model: this.config.model,
+      model: this.resolvedModel,
       tools: this.toolDefinitions,
       builtinTools: this.builtinTools,
       eventBus: this.eventBus,
@@ -419,7 +387,7 @@ export class ProviderSession implements IKilnSession {
     this.contextTracker.update(result.inputTokens ?? 0, result.outputTokens ?? 0);
     const executionIdentity = resolveExecutionIdentity({
       configuredProvider: this.config.provider,
-      configuredModel: this.config.model,
+      configuredModel: this.resolvedModel,
       configuredBillingMode: getDefaultBillingMode(this.config.provider),
       routedProvider: result.routingDecision?.provider,
       routedModel: result.routingDecision?.model,

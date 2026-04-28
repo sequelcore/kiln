@@ -6,6 +6,16 @@ export type { StartGatewayOptions } from "./gateway/gateway-server.js";
 export { startDevServer } from "./gateway/gateway-server.js";
 export type { DevServerOptions } from "./gateway/gateway-server.js";
 export { startGuiGateway } from "./gateway/gui-gateway.js";
+export {
+  buildGuiOperatorDiscoveryResults,
+  buildWelcomeProviderDescriptors,
+  discoverGuiCliOperatorModels,
+  discoverGuiDirectProviderModelDiscovery,
+  projectGuiOperatorModels,
+  providerRequiresSelectedModelMessage,
+  resolveGuiOperatorDiscoveryResults,
+  resolveGuiProviderSwitch,
+} from "./gateway/gui-provider-models.js";
 export type {
   StartGuiGatewayOptions,
   GuiGateway,

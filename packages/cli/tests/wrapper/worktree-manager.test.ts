@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { resolve } from "node:path";
 import { WorktreeManager, WorktreeError, type GitRunner } from "../../src/wrapper/worktree-manager.js";
 
@@ -61,6 +61,7 @@ describe("WorktreeManager", () => {
     });
 
     it("stores verbatim path from git list output", async () => {
+      const mockedNow = vi.spyOn(Date, "now").mockReturnValue(1234567890);
       const timestamp = Date.now();
       const branch = `refs/heads/kiln/session-x-${timestamp}`;
       const { runner } = makeFakeRunner([
@@ -72,6 +73,7 @@ describe("WorktreeManager", () => {
       const handle = await manager.allocate("session-x");
 
       expect(handle.path).toBe("/real/git/worktree/path");
+      mockedNow.mockRestore();
     });
 
     it("falls back to input path when list output has no matching branch", async () => {
@@ -111,6 +113,7 @@ describe("WorktreeManager", () => {
 
   describe("release()", () => {
     it("calls git worktree remove with handle.path and cwd = repoRoot", async () => {
+      const mockedNow = vi.spyOn(Date, "now").mockReturnValue(1234567890);
       const timestamp = Date.now();
       const branch = `refs/heads/kiln/session-r-${timestamp}`;
       const { runner, calls } = makeFakeRunner([
@@ -127,9 +130,11 @@ describe("WorktreeManager", () => {
       const removeCall = calls.find((c) => c.args.includes("remove"))!;
       expect(removeCall.args).toContain("/the/verbatim/path");
       expect(removeCall.cwd).toBe("/repo");
+      mockedNow.mockRestore();
     });
 
     it("calls git branch -D with the correct branch name", async () => {
+      const mockedNow = vi.spyOn(Date, "now").mockReturnValue(1234567890);
       const timestamp = Date.now();
       const branch = `refs/heads/kiln/session-b-${timestamp}`;
       const { runner, calls } = makeFakeRunner([
@@ -146,6 +151,7 @@ describe("WorktreeManager", () => {
       const branchCall = calls.find((c) => c.args.includes("-D"))!;
       expect(branchCall.args).toContain(handle.branch);
       expect(branchCall.cwd).toBe("/repo");
+      mockedNow.mockRestore();
     });
 
     it("does not throw when session not in registry", async () => {
@@ -155,6 +161,7 @@ describe("WorktreeManager", () => {
     });
 
     it("removes session from registry so second release is no-op", async () => {
+      const mockedNow = vi.spyOn(Date, "now").mockReturnValue(1234567890);
       const timestamp = Date.now();
       const branch = `refs/heads/kiln/session-reg-${timestamp}`;
       const { runner } = makeFakeRunner([
@@ -168,7 +175,9 @@ describe("WorktreeManager", () => {
       const handle = await manager.allocate("session-reg");
       await manager.release(handle.sessionId);
       await expect(manager.release(handle.sessionId)).resolves.toBeUndefined();
+      mockedNow.mockRestore();
     });
+
   });
 
   describe("pruneStale()", () => {

@@ -48,6 +48,13 @@ class MockWebSocket {
     }
   }
 
+  // Helper to simulate socket error
+  simulateError(): void {
+    if (this.onerror) {
+      this.onerror(new Event("error"));
+    }
+  }
+
   // Helper to simulate close
   simulateClose(code: number = 1000): void {
     this.readyState = MockWebSocket.CLOSED;
@@ -120,8 +127,9 @@ describe("GuiWsClient", () => {
       vi.useRealTimers();
     });
 
-    it("Closes when pong not received within 60s", () => {
+    it("reconnects when pong is not received within 60s", () => {
       vi.useFakeTimers();
+      vi.spyOn(Math, "random").mockReturnValue(0.5);
       client = createClient();
       client.connect();
 
@@ -136,8 +144,36 @@ describe("GuiWsClient", () => {
       // Advance past the 60s watchdog timeout (30 + 60 = 90s total)
       vi.advanceTimersByTime(60_000);
 
-      // Should have closed due to pong timeout
-      expect(wsInstance.close).toHaveBeenCalledWith(1000, "pong timeout");
+      expect(wsInstance.close).toHaveBeenCalledWith(4000, "pong timeout");
+
+      wsInstance.simulateClose(4000);
+      expect(onStateChange).toHaveBeenCalledWith("reconnecting");
+
+      vi.advanceTimersByTime(1_000);
+      const newWsInstance = wsInstances[wsInstances.length - 1];
+      expect(newWsInstance).not.toBe(wsInstance);
+
+      vi.useRealTimers();
+    });
+
+    it("does not close after a pong clears the outstanding heartbeat watchdog", () => {
+      vi.useFakeTimers();
+      client = createClient();
+      client.connect();
+
+      const wsInstance = wsInstances[wsInstances.length - 1];
+      wsInstance.simulateOpen();
+
+      vi.advanceTimersByTime(30_000);
+      expect(wsInstance.send).toHaveBeenCalledTimes(1);
+
+      vi.advanceTimersByTime(30_000);
+      expect(wsInstance.send).toHaveBeenCalledTimes(2);
+
+      wsInstance.simulateMessage("pong");
+      vi.advanceTimersByTime(30_000);
+
+      expect(wsInstance.close).not.toHaveBeenCalledWith(4000, "pong timeout");
 
       vi.useRealTimers();
     });
@@ -170,6 +206,30 @@ describe("GuiWsClient", () => {
 
       vi.useRealTimers();
     });
+
+    it("does not schedule duplicate reconnects when error is followed by close", () => {
+      vi.useFakeTimers();
+      vi.spyOn(Math, "random").mockReturnValue(0.5);
+      client = createClient("single-reconnect-user");
+      client.connect();
+
+      const wsInstance = wsInstances[wsInstances.length - 1];
+      wsInstance.simulateOpen();
+
+      wsInstance.simulateError();
+      wsInstance.simulateClose(1006);
+
+      vi.advanceTimersByTime(1_000);
+
+      expect(wsInstances).toHaveLength(2);
+      expect(wsInstances[1]?.url).toContain("userId=single-reconnect-user");
+
+      vi.advanceTimersByTime(2_000);
+
+      expect(wsInstances).toHaveLength(2);
+
+      vi.useRealTimers();
+    });
   });
 
   describe("outbound queue", () => {
@@ -191,6 +251,30 @@ describe("GuiWsClient", () => {
       );
 
       vi.useRealTimers();
+    });
+
+    it("does not queue provider switches while disconnected", () => {
+      client = createClient();
+
+      expect(() => client.send({
+        type: "provider",
+        provider: "openai",
+        model: "gpt-5",
+        requestId: "provider-switch-1",
+      })).toThrow("Cannot send provider switch while WebSocket is not open");
+
+      client.connect();
+      const wsInstance = wsInstances[wsInstances.length - 1];
+      wsInstance.simulateOpen();
+
+      expect(wsInstance.send).not.toHaveBeenCalledWith(
+        JSON.stringify({
+          type: "provider",
+          provider: "openai",
+          model: "gpt-5",
+          requestId: "provider-switch-1",
+        }),
+      );
     });
   });
 
@@ -224,14 +308,43 @@ describe("GuiWsClient", () => {
 
       consoleWarnSpy.mockRestore();
     });
+
+    it("rejects legacy welcome provider string arrays", () => {
+      const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      client = createClient();
+      client.connect();
+
+      const wsInstance = wsInstances[wsInstances.length - 1];
+      wsInstance.simulateOpen();
+
+      wsInstance.simulateMessage(JSON.stringify({
+        type: "welcome",
+        providers: ["claude"],
+        models: { claude: ["claude-sonnet-4-6"] },
+      }));
+
+      expect(onFrame).not.toHaveBeenCalled();
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        "[GuiWsClient] Invalid inbound frame:",
+        JSON.stringify({
+          type: "welcome",
+          providers: ["claude"],
+          models: { claude: ["claude-sonnet-4-6"] },
+        }),
+      );
+
+      consoleWarnSpy.mockRestore();
+    });
   });
 
   describe("outbound frame serialization", () => {
-    it("All 7 outbound frame shapes serialize through Zod without error", () => {
+    it("All outbound frame shapes serialize through Zod without error", () => {
       const frames: GuiOutboundFrame[] = [
         { type: "message", content: "hello world" },
         { type: "clear" },
-        { type: "provider", provider: "openai", model: "gpt-4" },
+        { type: "provider", provider: "openai", model: "gpt-4", requestId: "provider-switch-1" },
+        { type: "provider", provider: "claude", requestId: "provider-switch-2" },
         { type: "resume", sessionId: "session-123" },
         { type: "approve", sessionId: "session-123" },
         { type: "reject", reason: "not approved", sessionId: "session-123" },
@@ -248,11 +361,43 @@ describe("GuiWsClient", () => {
         
         // This will validate the frame through the Zod schema
         // If invalid, it would log a warning and return early
+        if (frame.type === "provider") {
+          const wsInstance = wsInstances[wsInstances.length - 1];
+          wsInstance.simulateOpen();
+        }
         testClient.send(frame);
       }
       
       // If we get here, all frames validated successfully
       expect(true).toBe(true);
+    });
+
+    it("rejects legacy outbound text and approval_response frames", () => {
+      const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      client = createClient();
+      client.connect();
+      const wsInstance = wsInstances[wsInstances.length - 1];
+      wsInstance.simulateOpen();
+
+      client.send({ type: "message", text: "legacy text" } as unknown as GuiOutboundFrame);
+      client.send({
+        type: "approval_response",
+        approved: true,
+        sessionId: "session-123",
+      } as unknown as GuiOutboundFrame);
+
+      expect(wsInstance.send).not.toHaveBeenCalledWith(expect.stringContaining("legacy text"));
+      expect(wsInstance.send).not.toHaveBeenCalledWith(expect.stringContaining("approval_response"));
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        "[GuiWsClient] Invalid outbound frame:",
+        JSON.stringify({ type: "message", text: "legacy text" }),
+      );
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        "[GuiWsClient] Invalid outbound frame:",
+        JSON.stringify({ type: "approval_response", approved: true, sessionId: "session-123" }),
+      );
+
+      consoleWarnSpy.mockRestore();
     });
   });
 
@@ -347,7 +492,32 @@ describe("GuiWsClient", () => {
         },
         { json: { type: "exec_confirmed" }, expected: { type: "exec_confirmed" } },
         { json: { type: "cleared" }, expected: { type: "cleared" } },
-        { json: { type: "provider_changed", provider: "anthropic" }, expected: { type: "provider_changed", provider: "anthropic" } },
+        {
+          json: {
+            type: "provider_changed",
+            provider: "anthropic",
+            model: "claude-sonnet-4-6",
+            requestId: "provider-switch-1",
+          },
+          expected: {
+            type: "provider_changed",
+            provider: "anthropic",
+            model: "claude-sonnet-4-6",
+            requestId: "provider-switch-1",
+          },
+        },
+        {
+          json: {
+            type: "provider_changed",
+            provider: "claude",
+            requestId: "provider-switch-2",
+          },
+          expected: {
+            type: "provider_changed",
+            provider: "claude",
+            requestId: "provider-switch-2",
+          },
+        },
         { json: { type: "resume_selected", sessionId: "sess-1" }, expected: { type: "resume_selected", sessionId: "sess-1" } },
       ];
 
@@ -362,6 +532,26 @@ describe("GuiWsClient", () => {
         wsInstance.simulateMessage(JSON.stringify(json));
         expect(onFrame).toHaveBeenCalledWith(expected);
       }
+    });
+
+    it("rejects provider_changed frames with an empty model instead of hanging model-less switch semantics", () => {
+      client = createClient();
+      client.connect();
+
+      const wsInstance = wsInstances[wsInstances.length - 1];
+      wsInstance.simulateOpen();
+
+      wsInstance.simulateMessage(JSON.stringify({
+        type: "provider_changed",
+        provider: "claude",
+        model: "",
+        requestId: "provider-switch-empty-model",
+      }));
+
+      expect(onFrame).not.toHaveBeenCalledWith(expect.objectContaining({
+        type: "provider_changed",
+        provider: "claude",
+      }));
     });
   });
 });

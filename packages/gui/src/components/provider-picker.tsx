@@ -1,75 +1,104 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import {
+  GUI_PROVIDER_DISPLAY_ORDER,
+  getGuiProviderMetadata,
+  isGuiProviderModeless,
+  type GuiProviderGroup,
+} from "@kilnai/gateway-contracts";
 import type { ProviderDescriptor } from "../lib/session-store.js";
-import { PROVIDER_DISPLAY_ORDER, PROVIDER_METADATA, type ProviderCategory } from "../lib/provider-metadata.js";
 
 interface ProviderPickerProps {
   readonly open: boolean;
   readonly providers: readonly ProviderDescriptor[];
   readonly activeProvider: string | null;
   readonly activeModel: string | null;
-  readonly onSwitchProvider: (provider: string, model?: string) => void;
+  readonly onSwitchProvider: (provider: string, model?: string) => Promise<void>;
+  readonly onRefreshProviders?: () => void | Promise<void>;
   readonly onOpenChange: (open: boolean) => void;
 }
 
 type PickerKeyEvent = Pick<KeyboardEvent, "key" | "shiftKey" | "preventDefault">;
 
-type PickerCategory = ProviderCategory | "other";
+type PickerCategory = GuiProviderGroup;
 
 interface PickerProvider {
   readonly id: string;
   readonly label: string;
   readonly category: PickerCategory;
   readonly free: boolean;
+  readonly available: boolean;
   readonly models: readonly string[];
+  readonly reason?: string;
 }
 
-const GROUP_ORDER: readonly PickerCategory[] = ["subscription", "harness", "direct-api", "other"];
+const GROUP_ORDER: readonly PickerCategory[] = ["subscription", "harness", "direct-api"];
 
 const GROUP_LABEL: Record<PickerCategory, string> = {
   subscription: "Subscription",
   harness: "Harness",
   "direct-api": "Direct API",
-  other: "Other",
 };
 
 function asFocusable(element: Element | null): HTMLElement | null {
   return element instanceof HTMLElement ? element : null;
 }
 
+function providerDisplayIndex(providerId: string): number {
+  const index = GUI_PROVIDER_DISPLAY_ORDER.indexOf(providerId);
+  return index >= 0 ? index : Number.MAX_SAFE_INTEGER;
+}
+
 function normalizeProviders(providers: readonly ProviderDescriptor[]): PickerProvider[] {
-  const byId = new Map(providers.map((provider) => [provider.id, provider] as const));
-
-  const known = PROVIDER_DISPLAY_ORDER.map((providerId) => {
-    const fromWelcome = byId.get(providerId);
-    const meta = PROVIDER_METADATA[providerId] ?? {
-      id: providerId,
-      label: providerId,
-      category: "direct-api" as const,
-      free: false,
-    };
-    return {
-      id: providerId,
-      label: fromWelcome?.label ?? meta.label,
-      category: fromWelcome?.group ?? meta.category,
-      free: fromWelcome?.free ?? Boolean(meta.free),
-      models: fromWelcome?.models ?? [],
-    } satisfies PickerProvider;
-  });
-
-  const knownIds = new Set(PROVIDER_DISPLAY_ORDER);
-  const unknown = providers
-    .filter((provider) => !knownIds.has(provider.id))
-    .sort((left, right) => left.id.localeCompare(right.id))
-    .map((provider) => ({
+  const byId = new Map<string, PickerProvider>();
+  for (const provider of providers) {
+    const meta = getGuiProviderMetadata(provider.id);
+    if (!meta) {
+      continue;
+    }
+    const models = provider.models
+      .map((model) => model.trim())
+      .filter((model) => model.length > 0);
+    byId.set(provider.id, {
       id: provider.id,
-      label: provider.label || provider.id,
-      category: "other" as const,
-      free: provider.free,
-      models: provider.models,
-    }));
+      label: meta.label,
+      category: meta.group,
+      free: meta.free,
+      available: provider.available && (models.length > 0 || isGuiProviderModeless(provider.id)),
+      models,
+      reason: provider.reason,
+    });
+  }
+  return Array.from(byId.values()).sort((left, right) => (
+    providerDisplayIndex(left.id) - providerDisplayIndex(right.id)
+  ));
+}
 
-  return [...known, ...unknown];
+function providerModelSummary(provider: PickerProvider): string {
+  if (isGuiProviderModeless(provider.id)) {
+    return "No model selection";
+  }
+  return provider.models.length > 0 ? `${provider.models.length} models` : "No models";
+}
+
+function conciseUnavailableReason(reason: string): string {
+  const normalized = reason.trim();
+  if (normalized.length === 0) {
+    return "";
+  }
+  if (/auth|api[_ -]?key|credential/i.test(normalized)) {
+    return "Auth is missing.";
+  }
+  if (/daemon.*not reachable|not reachable|connection|ECONNREFUSED/i.test(normalized)) {
+    return "Local service is unreachable.";
+  }
+  if (/empty model list|no installed models|no models/i.test(normalized)) {
+    return "No models found.";
+  }
+  if (/endpoint.*failed|request failed/i.test(normalized)) {
+    return "Model endpoint failed.";
+  }
+  return normalized.length > 72 ? `${normalized.slice(0, 69).trimEnd()}...` : normalized;
 }
 
 export function ProviderPicker(props: ProviderPickerProps) {
@@ -78,6 +107,10 @@ export function ProviderPicker(props: ProviderPickerProps) {
   const [providerIndex, setProviderIndex] = useState(0);
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
   const [modelIndex, setModelIndex] = useState(0);
+  const [modelSearch, setModelSearch] = useState("");
+  const [switchInFlight, setSwitchInFlight] = useState(false);
+  const [refreshInFlight, setRefreshInFlight] = useState(false);
+  const [switchError, setSwitchError] = useState<string | null>(null);
 
   const providerItems = useMemo(
     () => normalizeProviders(props.providers),
@@ -91,22 +124,37 @@ export function ProviderPicker(props: ProviderPickerProps) {
     () => new Map(providerItems.map((provider) => [provider.id, provider] as const)),
     [providerItems],
   );
-  const currentProviderId = providerIds[providerIndex] ?? null;
+  const currentProvider = providerItems[providerIndex] ?? null;
+  const currentProviderId = currentProvider?.id ?? null;
   const models = selectedProviderId
     ? (providersById.get(selectedProviderId)?.models ?? [])
     : [];
+  const filteredModels = useMemo(() => {
+    const query = modelSearch.trim().toLowerCase();
+    if (query.length === 0) {
+      return models;
+    }
+    return models.filter((model) => model.toLowerCase().includes(query));
+  }, [modelSearch, models]);
 
   useEffect(() => {
     if (!props.open) return;
     const activeIndex = props.activeProvider
       ? providerIds.indexOf(props.activeProvider)
       : -1;
-    const resolvedIndex = activeIndex >= 0 ? activeIndex : 0;
+    const firstAvailableIndex = providerItems.findIndex((provider) => provider.available);
+    const resolvedIndex = activeIndex >= 0
+      ? (providerItems[activeIndex]?.available ? activeIndex : (firstAvailableIndex >= 0 ? firstAvailableIndex : activeIndex))
+      : (firstAvailableIndex >= 0 ? firstAvailableIndex : 0);
     setPane("providers");
     setProviderIndex(resolvedIndex);
-    setSelectedProviderId(providerIds[resolvedIndex] ?? providerIds[0] ?? null);
+    setSelectedProviderId(providerItems[resolvedIndex]?.id ?? providerItems[0]?.id ?? null);
     setModelIndex(0);
-  }, [props.activeProvider, props.open, providerIds]);
+    setModelSearch("");
+    setSwitchInFlight(false);
+    setRefreshInFlight(false);
+    setSwitchError(null);
+  }, [props.activeProvider, props.open, providerItems, providerIds]);
 
   useEffect(() => {
     if (!props.open) return;
@@ -120,35 +168,90 @@ export function ProviderPicker(props: ProviderPickerProps) {
     focusFirst();
   }, [props.open, pane]);
 
-  const close = () => {
+  const close = (force = false) => {
+    if ((switchInFlight || refreshInFlight) && !force) return;
     props.onOpenChange(false);
     setPane("providers");
   };
 
-  const openModelsOrCommit = () => {
-    const providerId = currentProviderId;
-    if (!providerId) return;
+  const refreshProviders = async () => {
+    if (!props.onRefreshProviders || refreshInFlight || switchInFlight) {
+      return;
+    }
+    setSwitchError(null);
+    setRefreshInFlight(true);
+    try {
+      await props.onRefreshProviders();
+    } catch (error) {
+      setSwitchError(error instanceof Error ? error.message : "Provider refresh failed. Please retry.");
+    } finally {
+      setRefreshInFlight(false);
+    }
+  };
 
-    const providerModels = providersById.get(providerId)?.models ?? [];
-    if (providerModels.length === 0) {
-      props.onSwitchProvider(providerId);
-      close();
+  const openModelsOrCommit = async (targetProviderId?: string) => {
+    const providerId = targetProviderId ?? currentProviderId;
+    if (!providerId) return;
+    const provider = providersById.get(providerId);
+    if (!provider?.available) {
       return;
     }
 
+    const providerModels = provider.models;
+    if (providerModels.length === 0) {
+      setSwitchError(null);
+      setSwitchInFlight(true);
+      try {
+        await props.onSwitchProvider(providerId, undefined);
+        close(true);
+      } catch (error) {
+        setSwitchError(error instanceof Error ? error.message : "Provider switch failed. Please retry.");
+      } finally {
+        setSwitchInFlight(false);
+      }
+      return;
+    }
     const defaultIndex = providerId === props.activeProvider && props.activeModel
       ? providerModels.indexOf(props.activeModel)
       : -1;
+    setSwitchError(null);
     setSelectedProviderId(providerId);
     setModelIndex(defaultIndex >= 0 ? defaultIndex : 0);
+    setModelSearch("");
     setPane("models");
   };
 
-  const commitModelSelection = () => {
+  const commitModelSelection = async () => {
+    if (switchInFlight || refreshInFlight) return;
     if (!selectedProviderId) return;
-    const selectedModel = models[modelIndex];
-    props.onSwitchProvider(selectedProviderId, selectedModel);
-    close();
+    if (!providersById.get(selectedProviderId)?.available) return;
+    const selectedModel = filteredModels[modelIndex];
+    if (!selectedModel) return;
+    setSwitchError(null);
+    setSwitchInFlight(true);
+    try {
+      await props.onSwitchProvider(selectedProviderId, selectedModel);
+      close(true);
+    } catch (error) {
+      setSwitchError(error instanceof Error ? error.message : "Provider switch failed. Please retry.");
+    } finally {
+      setSwitchInFlight(false);
+    }
+  };
+
+  const moveProviderIndex = (direction: 1 | -1) => {
+    if (providerItems.length === 0) return;
+    setProviderIndex((previous) => {
+      const total = providerItems.length;
+      let next = previous;
+      for (let scanned = 0; scanned < total; scanned += 1) {
+        next = (next + direction + total) % total;
+        if (providerItems[next]?.available) {
+          return next;
+        }
+      }
+      return previous;
+    });
   };
 
   const onDialogKeyDown = useCallback((event: PickerKeyEvent) => {
@@ -191,6 +294,9 @@ export function ProviderPicker(props: ProviderPickerProps) {
 
     if (event.key === "Escape") {
       event.preventDefault();
+      if (switchInFlight || refreshInFlight) {
+        return;
+      }
       if (pane === "models") {
         setPane("providers");
         return;
@@ -200,46 +306,47 @@ export function ProviderPicker(props: ProviderPickerProps) {
     }
 
     if (pane === "providers") {
+      if (event.key.toLowerCase() === "r") {
+        event.preventDefault();
+        void refreshProviders();
+        return;
+      }
       if (event.key === "ArrowDown") {
         event.preventDefault();
-        setProviderIndex((previous) => (previous + 1) % Math.max(providerIds.length, 1));
+        moveProviderIndex(1);
         return;
       }
       if (event.key === "ArrowUp") {
         event.preventDefault();
-        setProviderIndex((previous) => (
-          previous <= 0
-            ? Math.max(providerIds.length - 1, 0)
-            : previous - 1
-        ));
+        moveProviderIndex(-1);
         return;
       }
       if (event.key === "Enter") {
         event.preventDefault();
-        openModelsOrCommit();
+        void openModelsOrCommit();
       }
       return;
     }
 
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      setModelIndex((previous) => (previous + 1) % Math.max(models.length, 1));
+      setModelIndex((previous) => (previous + 1) % Math.max(filteredModels.length, 1));
       return;
     }
     if (event.key === "ArrowUp") {
       event.preventDefault();
       setModelIndex((previous) => (
         previous <= 0
-          ? Math.max(models.length - 1, 0)
+          ? Math.max(filteredModels.length - 1, 0)
           : previous - 1
       ));
       return;
     }
     if (event.key === "Enter") {
       event.preventDefault();
-      commitModelSelection();
+      void commitModelSelection();
     }
-  }, [close, commitModelSelection, models.length, openModelsOrCommit, pane, providerIds.length]);
+  }, [close, commitModelSelection, filteredModels.length, moveProviderIndex, openModelsOrCommit, pane, refreshProviders, switchInFlight, refreshInFlight]);
 
   useEffect(() => {
     if (!props.open) return;
@@ -279,13 +386,29 @@ export function ProviderPicker(props: ProviderPickerProps) {
               {pane === "providers" ? "Choose provider" : "Choose model"}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={close}
-            className="rounded border border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-text-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-active)]"
-          >
-            Close
-          </button>
+          <div className="flex items-center gap-2">
+            {props.onRefreshProviders ? (
+              <button
+                type="button"
+                aria-label="Refresh providers"
+                onClick={() => {
+                  void refreshProviders();
+                }}
+                className="rounded border border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-text-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-active)]"
+                disabled={switchInFlight || refreshInFlight}
+              >
+                {refreshInFlight ? "Refreshing..." : "Refresh"}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => close()}
+              className="rounded border border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-text-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-active)]"
+              disabled={switchInFlight || refreshInFlight}
+            >
+              Close
+            </button>
+          </div>
         </header>
 
         {pane === "providers" ? (
@@ -310,29 +433,45 @@ export function ProviderPicker(props: ProviderPickerProps) {
                           onClick={() => {
                             setProviderIndex(index);
                             setSelectedProviderId(provider.id);
+                            setSwitchError(null);
                           }}
-                          onDoubleClick={openModelsOrCommit}
+                          onDoubleClick={() => {
+                            void openModelsOrCommit(provider.id);
+                          }}
+                          disabled={!provider.available || switchInFlight || refreshInFlight}
+                          aria-disabled={!provider.available || switchInFlight || refreshInFlight}
                           className={[
                             "flex w-full items-center justify-between rounded border px-3 py-2 text-left text-sm",
                             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-active)]",
+                            !provider.available
+                              ? "cursor-not-allowed border-[var(--color-border)] bg-[var(--color-background)] opacity-60"
+                              : null,
                             selected
                               ? "border-[var(--color-border-active)] bg-[var(--color-background-element)]"
                               : "border-[var(--color-border)] bg-[var(--color-background)] hover:bg-[var(--color-background-element)]",
                           ].join(" ")}
                         >
-                          <span className="flex items-center gap-2">
-                            <span className="text-[var(--color-text)]">{provider.label}</span>
-                            {provider.free ? (
-                              <span className="rounded border border-[var(--color-success)]/60 bg-[var(--color-success)]/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[var(--color-success)]">
-                                Free
-                              </span>
-                            ) : null}
-                            {active ? (
-                              <span className="text-[11px] text-[var(--color-text-muted)]">Current</span>
+                          <span className="flex min-w-0 flex-col gap-1">
+                            <span className="flex items-center gap-2">
+                              <span className="text-[var(--color-text)]">{provider.label}</span>
+                              {provider.free ? (
+                                <span className="rounded border border-[var(--color-success)]/60 bg-[var(--color-success)]/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[var(--color-success)]">
+                                  Free
+                                </span>
+                              ) : null}
+                              {active ? (
+                                <span className="text-[11px] text-[var(--color-text-muted)]">Current</span>
+                              ) : null}
+                              {!provider.available ? (
+                                <span className="text-[11px] text-[var(--color-text-muted)]">Unavailable</span>
+                              ) : null}
+                            </span>
+                            {!provider.available && provider.reason ? (
+                              <span className="text-xs text-[var(--color-text-muted)]">{conciseUnavailableReason(provider.reason)}</span>
                             ) : null}
                           </span>
                           <span className="text-xs text-[var(--color-text-muted)]">
-                            {provider.models.length > 0 ? `${provider.models.length} models` : "provider-only"}
+                            {providerModelSummary(provider)}
                           </span>
                         </button>
                       );
@@ -347,8 +486,12 @@ export function ProviderPicker(props: ProviderPickerProps) {
             <div className="flex items-center justify-between">
               <button
                 type="button"
-                onClick={() => setPane("providers")}
+                onClick={() => {
+                  setModelSearch("");
+                  setPane("providers");
+                }}
                 className="rounded border border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-text-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-active)]"
+                disabled={switchInFlight || refreshInFlight}
               >
                 Back
               </button>
@@ -356,8 +499,20 @@ export function ProviderPicker(props: ProviderPickerProps) {
                 {selectedProviderId ? resolveProviderLabel(selectedProviderId, providersById) : "Provider"}
               </p>
             </div>
+            <input
+              type="search"
+              aria-label="Filter models"
+              value={modelSearch}
+              onChange={(event) => {
+                setModelSearch(event.target.value);
+                setModelIndex(0);
+              }}
+              placeholder="Filter models"
+              className="w-full rounded border border-[var(--color-border)] bg-[var(--color-background)] px-3 py-2 text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-active)]"
+              disabled={switchInFlight || refreshInFlight}
+            />
             <div role="listbox" aria-label="Models" className="max-h-[50vh] space-y-1 overflow-y-auto pr-1">
-              {models.map((model, index) => {
+              {filteredModels.map((model, index) => {
                 const selected = index === modelIndex;
                 return (
                   <button
@@ -366,7 +521,10 @@ export function ProviderPicker(props: ProviderPickerProps) {
                     role="option"
                     aria-selected={selected}
                     onClick={() => setModelIndex(index)}
-                    onDoubleClick={commitModelSelection}
+                    onDoubleClick={() => {
+                      void commitModelSelection();
+                    }}
+                    disabled={switchInFlight}
                     className={[
                       "w-full rounded border px-3 py-2 text-left text-sm",
                       "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-active)]",
@@ -380,23 +538,39 @@ export function ProviderPicker(props: ProviderPickerProps) {
                 );
               })}
             </div>
+            {filteredModels.length === 0 ? (
+              <p className="rounded border border-[var(--color-border)] bg-[var(--color-background)] px-3 py-2 text-sm text-[var(--color-text-muted)]">
+                No models match the filter.
+              </p>
+            ) : null}
+            {switchError ? (
+              <p className="text-xs text-[var(--color-danger)]">{switchError}</p>
+            ) : null}
           </div>
         )}
 
         <footer className="mt-4 flex items-center justify-end gap-2 border-t border-[var(--color-border)] pt-3">
           <button
             type="button"
-            onClick={close}
+            onClick={() => close()}
             className="rounded border border-[var(--color-border)] px-3 py-1.5 text-sm text-[var(--color-text-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-active)]"
+            disabled={switchInFlight || refreshInFlight}
           >
             Cancel
           </button>
           <button
             type="button"
-            onClick={pane === "providers" ? openModelsOrCommit : commitModelSelection}
+            onClick={() => {
+              if (pane === "providers") {
+                openModelsOrCommit();
+                return;
+              }
+              void commitModelSelection();
+            }}
+            disabled={switchInFlight || refreshInFlight || (pane === "providers" ? !Boolean(currentProvider?.available) : !Boolean(filteredModels[modelIndex]))}
             className="rounded border border-[var(--color-border-active)] bg-[var(--color-background-element)] px-3 py-1.5 text-sm text-[var(--color-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-active)]"
           >
-            {pane === "providers" ? "Next" : "Switch"}
+            {pane === "providers" ? "Next" : (switchInFlight ? "Switching..." : "Switch")}
           </button>
         </footer>
       </div>
@@ -406,5 +580,5 @@ export function ProviderPicker(props: ProviderPickerProps) {
 }
 
 function resolveProviderLabel(providerId: string, providersById: Map<string, PickerProvider>): string {
-  return providersById.get(providerId)?.label ?? PROVIDER_METADATA[providerId]?.label ?? providerId;
+  return providersById.get(providerId)?.label ?? providerId;
 }

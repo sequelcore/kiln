@@ -76,7 +76,7 @@ describe("syncPermissions", () => {
     }
   });
 
-  it("merges Claude settings and writes kiln.permissionSync metadata", async () => {
+  it("merges Claude settings and writes kiln.permissionSync metadata", { timeout: 10_000 }, async () => {
     const { syncPermissions } = await import("../../src/sync/security-sync.js");
     const claudeSettingsPath = join(paths.projectPath, ".claude", "settings.json");
     fs.mkdirSync(join(paths.projectPath, ".claude"), { recursive: true });

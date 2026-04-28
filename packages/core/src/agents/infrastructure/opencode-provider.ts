@@ -4,35 +4,10 @@ import { KilnError } from "../../engine/errors.js";
 
 export const OPENCODE_BASE_URL = "https://opencode.ai/zen/v1";
 
-export const OPENCODE_GO_DEFAULT_MODEL = "minimax-m2.5";
-export const OPENCODE_ZEN_DEFAULT_MODEL = "anthropic/claude-sonnet-4-6";
-
-export const OPENCODE_GO_MODELS = [
-  "minimax-m2.5",
-  "minimax-m2.7",
-  "glm-5",
-  "glm-5.1",
-  "kimi-k2.5",
-  "kimi-k2.6",
-  "mimo-v2-pro",
-  "mimo-v2-omni",
-  "mimo-v2.5-pro",
-  "mimo-v2.5",
-  "qwen3.5-plus",
-  "qwen3.6-plus",
-] as const;
-
-export const OPENCODE_ZEN_MODELS = [
-  "anthropic/claude-opus-4-6",
-  "anthropic/claude-sonnet-4-6",
-  "openai/gpt-5.4",
-  "google/gemini-2.5-pro",
-] as const;
-
 export interface OpenCodeAdapterConfig {
   readonly apiKey: string;
   readonly tier: OpenCodeTier;
-  readonly defaultModel?: string;
+  readonly defaultModel: string;
 }
 
 export class OpenCodeAdapter extends OpenAICompatAdapter {
@@ -40,9 +15,10 @@ export class OpenCodeAdapter extends OpenAICompatAdapter {
   readonly defaultModel: string;
 
   constructor(config: OpenCodeAdapterConfig) {
-    const defaultModel =
-      config.defaultModel ??
-      (config.tier === "zen" ? OPENCODE_ZEN_DEFAULT_MODEL : OPENCODE_GO_DEFAULT_MODEL);
+    const defaultModel = config.defaultModel.trim();
+    if (defaultModel.length === 0) {
+      throw new KilnError("CONFIG_INVALID", "OpenCode adapter requires a selected model");
+    }
     super({
       apiKey: config.apiKey,
       baseUrl: OPENCODE_BASE_URL,
@@ -53,11 +29,11 @@ export class OpenCodeAdapter extends OpenAICompatAdapter {
     this.defaultModel = defaultModel;
   }
 
-  static async fromAuth(opts?: {
+  static async fromAuth(opts: {
     auth?: OpenCodeAuth;
-    defaultModel?: string;
+    defaultModel: string;
   }): Promise<OpenCodeAdapter> {
-    const auth = opts?.auth ?? new OpenCodeAuth();
+    const auth = opts.auth ?? new OpenCodeAuth();
     const file = await auth.loadAuthFile();
     if (!file) {
       throw new KilnError("PROVIDER_AUTH_FAILED", "OpenCode auth file not found", {
@@ -67,7 +43,7 @@ export class OpenCodeAdapter extends OpenAICompatAdapter {
     return new OpenCodeAdapter({
       apiKey: file.api_key,
       tier: file.tier,
-      defaultModel: opts?.defaultModel,
+      defaultModel: opts.defaultModel,
     });
   }
 }

@@ -15,13 +15,18 @@ import type {
 const GuiOutboundFrameSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("message"),
-    content: z.string().optional(),
-    text: z.string().optional(),
+    content: z.string(),
     planMode: z.boolean().optional(),
     resumeSessionId: z.string().optional(),
   }),
   z.object({ type: z.literal("clear") }),
-  z.object({ type: z.literal("provider"), provider: z.string(), model: z.string().optional() }),
+  z.object({ type: z.literal("refresh_providers") }),
+  z.object({
+    type: z.literal("provider"),
+    provider: z.string(),
+    model: z.string().trim().min(1).optional(),
+    requestId: z.string().trim().min(1),
+  }),
   z.object({ type: z.literal("resume"), sessionId: z.string() }),
   z.object({ type: z.literal("approve"), sessionId: z.string().optional() }),
   z.object({ type: z.literal("reject"), reason: z.string(), sessionId: z.string().optional() }),
@@ -35,6 +40,40 @@ const GuiProviderDescriptorSchema = z.object({
   free: z.boolean(),
   available: z.boolean(),
   models: z.array(z.string()),
+  status: z.enum([
+    "available",
+    "missing_auth",
+    "auth_expired",
+    "cli_missing",
+    "endpoint_timeout",
+    "endpoint_error",
+    "empty_model_list",
+    "daemon_unreachable",
+    "model_selection_not_required",
+  ]).optional(),
+  reason: z.string().optional(),
+  authState: z.enum(["authenticated", "missing", "expired", "not_required", "unknown"]).optional(),
+  lastCheckedAt: z.string().optional(),
+});
+
+const GuiProviderDiscoveryResultSchema = z.object({
+  provider: z.string(),
+  available: z.boolean(),
+  models: z.array(z.string()),
+  status: z.enum([
+    "available",
+    "missing_auth",
+    "auth_expired",
+    "cli_missing",
+    "endpoint_timeout",
+    "endpoint_error",
+    "empty_model_list",
+    "daemon_unreachable",
+    "model_selection_not_required",
+  ]),
+  reason: z.string(),
+  authState: z.enum(["authenticated", "missing", "expired", "not_required", "unknown"]),
+  lastCheckedAt: z.string(),
 });
 
 const GuiAuthorityStatusSchema = z.object({
@@ -115,7 +154,8 @@ const GuiInboundFrameSchema = z.discriminatedUnion("type", [
     type: z.literal("welcome"),
     greeting: z.string().optional(),
     models: z.record(z.array(z.string())).optional(),
-    providers: z.union([z.array(z.string()), z.array(GuiProviderDescriptorSchema)]).optional(),
+    providerDiscovery: z.array(GuiProviderDiscoveryResultSchema).optional(),
+    providers: z.array(GuiProviderDescriptorSchema).optional(),
     activeProvider: z.string().optional(),
     activeModel: z.string().optional(),
     planMode: z.boolean().optional(),
@@ -123,7 +163,18 @@ const GuiInboundFrameSchema = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("exec_confirmed") }),
   z.object({ type: z.literal("cleared") }),
-  z.object({ type: z.literal("provider_changed"), provider: z.string(), model: z.string().optional() }),
+  z.object({
+    type: z.literal("providers_refreshed"),
+    models: z.record(z.array(z.string())),
+    providerDiscovery: z.array(GuiProviderDiscoveryResultSchema),
+    providers: z.array(GuiProviderDescriptorSchema),
+  }),
+  z.object({
+    type: z.literal("provider_changed"),
+    provider: z.string(),
+    model: z.string().trim().min(1).optional(),
+    requestId: z.string().trim().min(1),
+  }),
   z.object({ type: z.literal("resume_selected"), sessionId: z.string() }),
 ]);
 
@@ -206,7 +257,7 @@ export class GuiWsClient {
 
   /**
    * Send an outbound frame to the gateway.
-   * Queues the frame if the connection is not open.
+   * Queues non-provider frames if the connection is not open.
    */
   send(frame: GuiOutboundFrame): void {
     // Validate outbound frame schema
@@ -219,6 +270,8 @@ export class GuiWsClient {
 
     if (this._state === "open" && this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(frame));
+    } else if (frame.type === "provider") {
+      throw new Error("Cannot send provider switch while WebSocket is not open");
     } else {
       // Queue for later when not open
       if (this.outboundQueue.length >= OUTBOUND_QUEUE_MAX) {
@@ -321,10 +374,12 @@ export class GuiWsClient {
         this.ws.send("ping");
 
         // Set pong watchdog — close if no pong within 60s
-        this.pongWatchdog = setTimeout(() => {
-          console.warn("[GuiWsClient] Pong timeout, closing connection");
-          this.ws?.close(1000, "pong timeout");
-        }, HEARTBEAT_TIMEOUT_MS);
+        if (!this.pongWatchdog) {
+          this.pongWatchdog = setTimeout(() => {
+            console.warn("[GuiWsClient] Pong timeout, closing connection");
+            this.ws?.close(4000, "pong timeout");
+          }, HEARTBEAT_TIMEOUT_MS);
+        }
       }
     }, HEARTBEAT_INTERVAL_MS);
   }
@@ -347,6 +402,10 @@ export class GuiWsClient {
   // --- Reconnect ---
 
   private scheduleReconnect(): void {
+    if (this.reconnectTimer) {
+      return;
+    }
+
     // Exponential backoff: 1s → 2s → 4s → ... → 30s, with ±20% jitter
     const baseDelay = Math.min(
       RECONNECT_MIN_MS * Math.pow(2, this.backoffAttempts),

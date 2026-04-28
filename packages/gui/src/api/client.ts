@@ -3,6 +3,7 @@ import type {
   GuiProviderDescriptor,
   GuiResumeInfo,
   GuiSessionDetail,
+  GuiSessionListResponse,
   GuiSessionSummary,
   GuiTelemetrySnapshot,
 } from "@kilnai/gateway-contracts";
@@ -15,26 +16,6 @@ export type {
   GuiTelemetrySnapshot,
 };
 
-const fallbackSnapshot: GuiDashboardSnapshot = {
-  providers: [
-    { id: "claude", label: "Claude", group: "harness", free: false, models: [], available: true },
-    { id: "codex", label: "Codex", group: "harness", free: false, models: [], available: true },
-    { id: "opencode", label: "OpenCode", group: "harness", free: false, models: [], available: true },
-    { id: "openai", label: "OpenAI", group: "direct-api", free: false, models: [], available: false },
-  ],
-  sessions: [],
-  telemetry: {
-    status: "idle",
-    dominantRegions: [],
-    saturation: 0,
-    entropy: 0,
-  },
-  resumeInfoByProvider: {},
-  workingDirectory: undefined,
-  domainLabel: undefined,
-  workspaceTree: undefined,
-};
-
 export class GuiGatewayClient {
   private resolvedBaseUrl: string | null = null;
 
@@ -42,6 +23,7 @@ export class GuiGatewayClient {
 
   async loadDashboard(): Promise<GuiDashboardSnapshot> {
     const candidateBaseUrls = this.resolveCandidateBaseUrls();
+    const failures: string[] = [];
 
     for (const candidateBaseUrl of candidateBaseUrls) {
       const url = new URL("/gui/api/dashboard", candidateBaseUrl);
@@ -52,26 +34,77 @@ export class GuiGatewayClient {
         });
 
         if (!response.ok) {
+          failures.push(`${candidateBaseUrl}: status ${response.status}`);
           continue;
         }
 
-        const payload = (await response.json()) as Partial<GuiDashboardSnapshot>;
+        const payload = parseDashboardSnapshot(await response.json());
         this.resolvedBaseUrl = candidateBaseUrl;
-        return {
-          providers: payload.providers ?? fallbackSnapshot.providers,
-          sessions: payload.sessions ?? fallbackSnapshot.sessions,
-          telemetry: payload.telemetry ?? fallbackSnapshot.telemetry,
-          resumeInfoByProvider: payload.resumeInfoByProvider ?? fallbackSnapshot.resumeInfoByProvider,
-          workingDirectory: payload.workingDirectory ?? fallbackSnapshot.workingDirectory,
-          domainLabel: payload.domainLabel ?? fallbackSnapshot.domainLabel,
-          workspaceTree: normalizeWorkspaceTreeSnapshot(payload.workspaceTree) ?? fallbackSnapshot.workspaceTree,
-        };
-      } catch {
+        return payload;
+      } catch (error) {
+        failures.push(`${candidateBaseUrl}: ${errorMessage(error)}`);
         continue;
       }
     }
 
-    return fallbackSnapshot;
+    throw new Error(
+      failures.length > 0
+        ? `Dashboard fetch failed (${failures.join(" | ")})`
+        : "Dashboard fetch failed.",
+    );
+  }
+
+  async waitForHealth({ intervalMs = 200, timeoutMs = 10_000 }: { intervalMs?: number; timeoutMs?: number } = {}): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      for (const candidateBaseUrl of this.resolveCandidateBaseUrls()) {
+        const url = new URL("/health", candidateBaseUrl);
+        try {
+          const response = await fetch(url, {
+            headers: { accept: "application/json" },
+            signal: AbortSignal.timeout(intervalMs),
+          });
+          if (!response.ok) {
+            continue;
+          }
+          this.resolvedBaseUrl = candidateBaseUrl;
+          return;
+        } catch {
+          continue;
+        }
+      }
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    }
+    throw new Error(`Gateway did not become ready within ${timeoutMs}ms`);
+  }
+
+  async loadSessions(): Promise<readonly GuiSessionSummary[]> {
+    const candidateBaseUrls = this.resolveCandidateBaseUrls();
+    const failures: string[] = [];
+
+    for (const candidateBaseUrl of candidateBaseUrls) {
+      const url = new URL("/gui/api/sessions", candidateBaseUrl);
+      try {
+        const response = await fetch(url, {
+          headers: { accept: "application/json" },
+        });
+        if (!response.ok) {
+          failures.push(`${candidateBaseUrl}: status ${response.status}`);
+          continue;
+        }
+        const payload = parseSessionListResponse(await response.json());
+        this.resolvedBaseUrl = candidateBaseUrl;
+        return payload.sessions;
+      } catch (error) {
+        failures.push(`${candidateBaseUrl}: ${errorMessage(error)}`);
+      }
+    }
+
+    throw new Error(
+      failures.length > 0
+        ? `Session list fetch failed (${failures.join(" | ")})`
+        : "Session list fetch failed.",
+    );
   }
 
   async loadSessionDetail(sessionId: string): Promise<GuiSessionDetail | null> {
@@ -151,91 +184,149 @@ export class GuiGatewayClient {
   }
 }
 
-const GUI_GATEWAY_FALLBACK_PORTS = [4810, 4800] as const;
-const GUI_API_BASE_QUERY_PARAM = "apiBase";
-const GUI_API_BASE_STORAGE_KEY = "kiln.gui.apiBase";
-const VITE_DEV_SERVER_PORT = "5183";
 type DashboardWorkspaceTreeSnapshot = NonNullable<GuiDashboardSnapshot["workspaceTree"]>;
 
 export function resolveCandidateBaseUrls(baseUrl: string, resolvedBaseUrl?: string | null): string[] {
-  const configuredBase = resolveConfiguredBaseUrl();
-  const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
-  const candidates = [
-    configuredBase,
-    normalizeBaseUrl(resolvedBaseUrl ?? undefined),
-    ...GUI_GATEWAY_FALLBACK_PORTS.map((port) => `http://localhost:${port}`),
-    shouldIncludeOriginBase(normalizedBaseUrl, configuredBase) ? normalizedBaseUrl : undefined,
-  ];
-  return [...new Set(candidates.filter((value): value is string => Boolean(value)))];
+  const candidates: string[] = [];
+
+  const pushCandidate = (value: string | null) => {
+    if (!value || candidates.includes(value)) {
+      return;
+    }
+    candidates.push(value);
+  };
+
+  pushCandidate(normalizeBaseUrl(resolvedBaseUrl));
+  pushCandidate(normalizeBaseUrl(baseUrl));
+  return candidates;
 }
 
-function resolveConfiguredBaseUrl(): string | undefined {
-  const queryBase = new URLSearchParams(window.location.search).get(GUI_API_BASE_QUERY_PARAM);
-  const configuredBase = queryBase ?? readStoredApiBase();
-  return normalizeBaseUrl(configuredBase ?? undefined) ?? undefined;
-}
-
-function readStoredApiBase(): string | null {
-  try {
-    return window.localStorage.getItem(GUI_API_BASE_STORAGE_KEY);
-  } catch {
+function normalizeBaseUrl(baseUrl: string | null | undefined): string | null {
+  if (typeof baseUrl !== "string") {
     return null;
   }
-}
-
-function normalizeBaseUrl(baseUrl: string | undefined): string | null {
-  if (!baseUrl) {
+  const normalized = baseUrl.trim();
+  if (!normalized) {
     return null;
   }
 
   try {
-    return new URL(baseUrl, window.location.origin).origin;
+    return new URL(normalized).origin;
   } catch {
     return null;
   }
-}
-
-function shouldIncludeOriginBase(baseUrl: string | null, configuredBase: string | undefined): boolean {
-  if (!baseUrl) {
-    return false;
-  }
-  if (configuredBase === baseUrl) {
-    return true;
-  }
-
-  const url = new URL(baseUrl);
-  const isLoopbackHost = url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "::1";
-  return !(isLoopbackHost && url.port === VITE_DEV_SERVER_PORT);
 }
 
 function normalizeWorkspaceTreeSnapshot(
   value: GuiDashboardSnapshot["workspaceTree"] | null | undefined,
 ): DashboardWorkspaceTreeSnapshot | undefined {
-  if (!value || typeof value.rootPath !== "string" || !Array.isArray(value.entries)) {
+  if (!value) {
     return undefined;
   }
+  if (!isRecord(value)) {
+    throw new Error("Invalid dashboard workspace tree payload.");
+  }
+  if (typeof value.rootPath !== "string") {
+    throw new Error("Invalid dashboard workspace tree rootPath.");
+  }
+  if (!Array.isArray(value.entries)) {
+    throw new Error("Invalid dashboard workspace tree entries payload.");
+  }
 
-  const entries = value.entries.flatMap((entry) => {
+  const entries = value.entries.map((entry) => {
     if (!entry || typeof entry.path !== "string" || typeof entry.name !== "string") {
-      return [];
+      throw new Error("Invalid dashboard workspace tree entry.");
     }
     if (entry.kind !== "directory" && entry.kind !== "file") {
-      return [];
+      throw new Error("Invalid dashboard workspace tree entry kind.");
     }
-    return [{
+    return {
       path: entry.path,
       name: entry.name,
       kind: entry.kind,
-    }];
+    };
   });
+
+  if (value.truncated !== undefined && typeof value.truncated !== "boolean") {
+    throw new Error("Invalid dashboard workspace tree truncated flag.");
+  }
+  if (value.source !== undefined && value.source !== "gateway") {
+    throw new Error("Invalid dashboard workspace tree source.");
+  }
+  if (value.worktreePath !== undefined && typeof value.worktreePath !== "string") {
+    throw new Error("Invalid dashboard workspace tree worktreePath.");
+  }
 
   return {
     rootPath: value.rootPath,
     entries,
-    truncated: value.truncated === true ? true : undefined,
-    source: value.source === "gateway" ? "gateway" : undefined,
-    worktreePath: typeof value.worktreePath === "string" ? value.worktreePath : undefined,
+    truncated: value.truncated,
+    source: value.source,
+    worktreePath: value.worktreePath,
   };
+}
+
+function parseDashboardSnapshot(value: unknown): GuiDashboardSnapshot {
+  if (!isRecord(value)) {
+    throw new Error("Invalid dashboard response body.");
+  }
+  const snapshot = value as Partial<GuiDashboardSnapshot>;
+  if (!Array.isArray(snapshot.providers)) {
+    throw new Error("Invalid dashboard providers payload.");
+  }
+  if (!Array.isArray(snapshot.sessions)) {
+    throw new Error("Invalid dashboard sessions payload.");
+  }
+  if (!isTelemetrySnapshot(snapshot.telemetry)) {
+    throw new Error("Invalid dashboard telemetry payload.");
+  }
+  if (!isRecord(snapshot.resumeInfoByProvider)) {
+    throw new Error("Invalid dashboard resume payload.");
+  }
+
+  return {
+    providers: snapshot.providers,
+    sessions: snapshot.sessions,
+    telemetry: snapshot.telemetry,
+    resumeInfoByProvider: snapshot.resumeInfoByProvider as Record<string, GuiResumeInfo>,
+    workingDirectory: typeof snapshot.workingDirectory === "string" ? snapshot.workingDirectory : undefined,
+    domainLabel: typeof snapshot.domainLabel === "string" ? snapshot.domainLabel : undefined,
+    workspaceTree: normalizeWorkspaceTreeSnapshot(snapshot.workspaceTree),
+  };
+}
+
+function parseSessionListResponse(value: unknown): GuiSessionListResponse {
+  if (!isRecord(value)) {
+    throw new Error("Invalid session list response body.");
+  }
+  const payload = value as Partial<GuiSessionListResponse>;
+  if (!Array.isArray(payload.sessions)) {
+    throw new Error("Invalid session list payload.");
+  }
+  return {
+    sessions: payload.sessions,
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "unknown error";
+}
+
+function isTelemetrySnapshot(value: unknown): value is GuiTelemetrySnapshot {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return (
+    typeof value.status === "string"
+    && Array.isArray(value.dominantRegions)
+    && value.dominantRegions.every((region) => typeof region === "string")
+    && typeof value.saturation === "number"
+    && typeof value.entropy === "number"
+  );
 }
 
 export {

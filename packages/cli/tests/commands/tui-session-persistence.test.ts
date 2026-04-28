@@ -9,6 +9,9 @@ const {
   mockStartTuiGateway,
   mockGetProjectContextArtifactCache,
   mockSessionManagerPrepare,
+  mockResolveGuiOperatorDiscoveryResults,
+  mockProjectGuiOperatorModels,
+  mockResolveGuiProviderSwitch,
 } = vi.hoisted(() => ({
   mockGatewaySessionCtor: vi.fn(),
   mockWaitForGateway: vi.fn(),
@@ -16,6 +19,63 @@ const {
   mockStartTuiGateway: vi.fn(),
   mockGetProjectContextArtifactCache: vi.fn(),
   mockSessionManagerPrepare: vi.fn(),
+  mockResolveGuiOperatorDiscoveryResults: vi.fn(async () => {
+    const models: Record<string, string[]> = {
+      "opencode-go": ["minimax-m2.5"],
+      "opencode-zen": ["anthropic/claude-sonnet-4-6"],
+      claude: [],
+      anthropic: ["claude-sonnet-4-6"],
+      openai: ["gpt-5.4"],
+      deepseek: ["deepseek-chat"],
+      openrouter: ["nvidia/nemotron-3-nano-30b-a3b:free"],
+    };
+    return Object.entries(models).map(([provider, providerModels]) => ({
+      provider,
+      available: true,
+      models: providerModels,
+      status: provider === "claude" ? "model_selection_not_required" : "available",
+      reason: provider === "claude"
+        ? "Claude CLI is available. Model selection is not required."
+        : `${provider} models discovered.`,
+      authState: provider === "claude" ? "not_required" : "authenticated",
+      lastCheckedAt: "2026-04-28T12:00:00.000Z",
+    }));
+  }),
+  mockProjectGuiOperatorModels: vi.fn((discovery: Array<{ provider: string; available: boolean; models: string[] }>) => (
+    Object.fromEntries(discovery.flatMap((entry) => (
+      entry.available ? [[entry.provider, entry.models]] : []
+    )))
+  )),
+  mockResolveGuiProviderSwitch: vi.fn((input: {
+    provider: string;
+    model?: string;
+    models: Record<string, string[]>;
+  }) => {
+    const provider = input.provider.trim();
+    const providerModels = input.models[provider];
+    if (!providerModels) {
+      return { ok: false, error: `Provider '${provider}' is unavailable` } as const;
+    }
+    if (providerModels.length === 0 && provider === "claude") {
+      return { ok: true, provider, modelForSessionManager: "", modelForAck: "" } as const;
+    }
+    if (providerModels.length === 0) {
+      return { ok: false, error: `Provider '${provider}' has no available models` } as const;
+    }
+    const model = input.model?.trim() ?? "";
+    if (!model) {
+      return { ok: false, error: `Provider '${provider}' requires a selected model.` } as const;
+    }
+    if (!providerModels.includes(model)) {
+      return { ok: false, error: `Provider '${provider}' does not advertise model '${model}'` } as const;
+    }
+    return {
+      ok: true,
+      provider,
+      modelForSessionManager: model,
+      modelForAck: model,
+    } as const;
+  }),
 }));
 
 vi.mock("@kilnai/tui", () => ({
@@ -34,6 +94,10 @@ vi.mock("@kilnai/tui", () => ({
 vi.mock("@kilnai/runtime", () => ({
   startTuiGateway: mockStartTuiGateway,
   getProjectContextArtifactCache: mockGetProjectContextArtifactCache,
+  resolveGuiOperatorDiscoveryResults: mockResolveGuiOperatorDiscoveryResults,
+  projectGuiOperatorModels: mockProjectGuiOperatorModels,
+  providerRequiresSelectedModelMessage: (provider: string) => `Provider '${provider}' requires a selected model.`,
+  resolveGuiProviderSwitch: mockResolveGuiProviderSwitch,
 }));
 vi.mock("../../src/wrapper/session-manager.js", () => ({
   SessionManager: class MockSessionManager {
@@ -134,7 +198,11 @@ describe("makeMultiProviderSessionFactory", () => {
     mockStartTuiGateway.mockResolvedValue({
       port: 4801,
       url: "ws://localhost:4801/ws",
-      models: { claude: [], codex: [], opencode: [] },
+      models: {
+        claude: ["claude-sonnet-4-6"],
+        codex: ["gpt-5.3-codex"],
+        opencode: ["minimax-m2.5"],
+      },
       shutdown: vi.fn(),
     });
   });
@@ -372,11 +440,43 @@ describe("makeMultiProviderSessionFactory", () => {
     expect(mockStartTui).toHaveBeenCalledTimes(1);
     expect(mockGatewaySessionCtor).toHaveBeenCalledTimes(1);
     const startTuiArgs = mockStartTui.mock.calls[0] ?? [];
-    expect(startTuiArgs[8]).toBeUndefined();
+    expect(startTuiArgs[8]).toEqual({ current: [] });
     expect(startTuiArgs[9]).toBeUndefined();
   });
 
-  it("tuiCommand can opt into direct bootstrap via env override", async () => {
+  it("rejects startup when the requested provider is absent from the runtime-advertised gateway catalogue", async () => {
+    const previousTransport = process.env.KILN_TUI_TRANSPORT;
+    delete process.env.KILN_TUI_TRANSPORT;
+
+    const { mkdtemp, rm } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const cwd = await mkdtemp(join(tmpdir(), "kiln-tui-runtime-provider-"));
+
+    mockStartTuiGateway.mockResolvedValue({
+      port: 4801,
+      url: "ws://localhost:4801/ws",
+      models: {
+        claude: ["claude-sonnet-4-6"],
+      },
+      shutdown: vi.fn(),
+    });
+
+    try {
+      await expect(
+        tuiCommand(APP_CONFIG, { cwd, provider: "openai" }),
+      ).rejects.toThrow(
+        "Provider 'openai' is not available in the runtime TUI model catalog. Available providers: claude",
+      );
+    } finally {
+      process.env.KILN_TUI_TRANSPORT = previousTransport;
+      await rm(cwd, { recursive: true, force: true });
+    }
+
+    expect(mockStartTui).not.toHaveBeenCalled();
+  });
+
+  it("rejects direct bootstrap when a direct-api provider is absent from the runtime TUI model catalog", async () => {
     const previousTransport = process.env.KILN_TUI_TRANSPORT;
     process.env.KILN_TUI_TRANSPORT = "direct";
 
@@ -391,8 +491,10 @@ describe("makeMultiProviderSessionFactory", () => {
 
     try {
       await expect(
-        tuiCommand(APP_CONFIG, { cwd, provider: "claude" }),
-      ).resolves.toBeUndefined();
+        tuiCommand(APP_CONFIG, { cwd, provider: "ollama" }),
+      ).rejects.toThrow(
+        "Provider 'ollama' is not available in the runtime TUI model catalog. Available providers: opencode-go, opencode-zen, claude, anthropic, openai, deepseek, openrouter",
+      );
     } finally {
       process.env.KILN_TUI_TRANSPORT = previousTransport;
       await rm(cwd, { recursive: true, force: true });
@@ -400,10 +502,45 @@ describe("makeMultiProviderSessionFactory", () => {
 
     expect(mockStartTuiGateway).not.toHaveBeenCalled();
     expect(mockWaitForGateway).not.toHaveBeenCalled();
-    expect(mockStartTui).toHaveBeenCalledTimes(1);
+    expect(mockStartTui).not.toHaveBeenCalled();
     expect(mockGatewaySessionCtor).not.toHaveBeenCalled();
-    const startTuiArgs = mockStartTui.mock.calls[0] ?? [];
-    expect(typeof startTuiArgs[8]).toBe("function");
-    expect(typeof startTuiArgs[9]).toBe("function");
+  });
+
+  it("direct bootstrap switch path allows model-less registry harness providers and rejects direct API switches without discovered models", async () => {
+    const previousTransport = process.env.KILN_TUI_TRANSPORT;
+    process.env.KILN_TUI_TRANSPORT = "direct";
+    const { mkdtemp, rm } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const cwd = await mkdtemp(join(tmpdir(), "kiln-tui-direct-switch-"));
+    let switchToModelessProviderResult: string | undefined;
+    let directApiSwitchError = "";
+
+    mockStartTui.mockImplementation(async (createSession: () => Promise<unknown>) => {
+      const session = await createSession() as { switchProvider?: (provider: string, model?: string) => Promise<string> };
+      if (typeof session.switchProvider !== "function") {
+        throw new Error("direct session did not expose switchProvider");
+      }
+      switchToModelessProviderResult = await session.switchProvider("claude", undefined);
+      try {
+        await session.switchProvider("openai", undefined);
+      } catch (error) {
+        directApiSwitchError = error instanceof Error ? error.message : String(error);
+      }
+    });
+
+    try {
+      await expect(
+        tuiCommand(APP_CONFIG, { cwd, provider: "openai" }),
+      ).resolves.toBeUndefined();
+    } finally {
+      process.env.KILN_TUI_TRANSPORT = previousTransport;
+      await rm(cwd, { recursive: true, force: true });
+    }
+
+    expect(switchToModelessProviderResult).toBe("claude");
+    expect(directApiSwitchError).toContain("model");
+    expect(mockResolveGuiOperatorDiscoveryResults).toHaveBeenCalled();
+    expect(mockProjectGuiOperatorModels).toHaveBeenCalled();
   });
 });

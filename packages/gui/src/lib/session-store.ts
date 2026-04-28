@@ -6,6 +6,7 @@ import type {
   GuiSessionEvent,
   GuiSessionSummary,
 } from "@kilnai/gateway-contracts";
+import { isGuiProviderModeless } from "@kilnai/gateway-contracts";
 
 export interface ApprovalRequest {
   readonly id: string;
@@ -70,6 +71,7 @@ const PLAN_MODE_KEY = "kiln.gui.planMode";
 const RESUME_TARGET_KEY = "kiln.gui.resumeTarget";
 const CLEAR_TIMEOUT_MS = 5_000;
 const PROVIDER_SWITCH_TIMEOUT_MS = 5_000;
+let providerSwitchRequestOrdinal = 0;
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -108,6 +110,15 @@ function readResumeTarget(): string | null {
   }
 }
 
+function nextProviderSwitchRequestId(): string {
+  providerSwitchRequestOrdinal += 1;
+  return `provider-switch:${Date.now()}:${providerSwitchRequestOrdinal}`;
+}
+
+function providerRequiresSelectedModelMessage(provider: string): string {
+  return `Provider '${provider}' requires a selected model.`;
+}
+
 function writeResumeTarget(sessionId: string | null): void {
   try {
     if (!sessionId) {
@@ -137,8 +148,6 @@ function readNumber(value: unknown): number | null {
 
 function eventPayloadText(payload: Record<string, unknown>): string | null {
   const value = payload.content
-    ?? payload.text
-    ?? payload.message
     ?? payload.output
     ?? payload.outputSummary
     ?? payload.details
@@ -931,11 +940,111 @@ export interface ProviderDescriptor {
   readonly free: boolean;
   readonly available: boolean;
   readonly models: readonly string[];
+  readonly status?: string;
+  readonly reason?: string;
+  readonly authState?: string;
+  readonly lastCheckedAt?: string;
 }
 
 export interface AuthorityStatus {
   readonly effective: "fail_closed" | "read_only" | "idempotent" | "audited" | "destructive" | "unknown";
   readonly completeness: "authoritative" | "partial";
+}
+
+function normalizeProviderDescriptors(
+  providers: readonly Partial<ProviderDescriptor>[],
+): ProviderDescriptor[] {
+  const providersById = new Map<string, ProviderDescriptor>();
+  for (const provider of providers) {
+    if (!provider || typeof provider !== "object") continue;
+    const candidate = provider as Partial<ProviderDescriptor>;
+    if (
+      typeof candidate.id !== "string"
+      || typeof candidate.label !== "string"
+      || (candidate.group !== "subscription" && candidate.group !== "harness" && candidate.group !== "direct-api")
+      || typeof candidate.free !== "boolean"
+      || typeof candidate.available !== "boolean"
+      || !Array.isArray(candidate.models)
+    ) {
+      continue;
+    }
+    const models = candidate.models.flatMap((model) => {
+      if (typeof model !== "string") {
+        return [];
+      }
+      const normalized = model.trim();
+      return normalized.length > 0 ? [normalized] : [];
+    });
+    providersById.set(candidate.id, {
+      id: candidate.id,
+      label: candidate.label,
+      group: candidate.group,
+      free: candidate.free,
+      available: candidate.available && (models.length > 0 || isGuiProviderModeless(candidate.id)),
+      models,
+      ...(typeof candidate.status === "string" ? { status: candidate.status } : {}),
+      ...(typeof candidate.reason === "string" ? { reason: candidate.reason } : {}),
+      ...(typeof candidate.authState === "string" ? { authState: candidate.authState } : {}),
+      ...(typeof candidate.lastCheckedAt === "string" ? { lastCheckedAt: candidate.lastCheckedAt } : {}),
+    });
+  }
+  return Array.from(providersById.values());
+}
+
+function providerSupportsSelection(provider: ProviderDescriptor, model: string | null): boolean {
+  if (!providerHasSelectableSurface(provider)) {
+    return false;
+  }
+  if (provider.models.length === 0) {
+    return isGuiProviderModeless(provider.id) && model === null;
+  }
+  return model !== null && provider.models.includes(model);
+}
+
+function providerHasSelectableSurface(provider: ProviderDescriptor): boolean {
+  return provider.available && (provider.models.length > 0 || isGuiProviderModeless(provider.id));
+}
+
+function areProviderDescriptorsEqual(
+  current: readonly ProviderDescriptor[],
+  next: readonly ProviderDescriptor[],
+): boolean {
+  if (current.length !== next.length) {
+    return false;
+  }
+  for (let index = 0; index < current.length; index += 1) {
+    const left = current[index];
+    const right = next[index];
+    if (!left || !right) {
+      return false;
+    }
+    if (
+      left.id !== right.id
+      || left.label !== right.label
+      || left.group !== right.group
+      || left.free !== right.free
+      || left.available !== right.available
+      || left.status !== right.status
+      || left.reason !== right.reason
+      || left.authState !== right.authState
+      || left.lastCheckedAt !== right.lastCheckedAt
+      || left.models.length !== right.models.length
+    ) {
+      return false;
+    }
+    for (let modelIndex = 0; modelIndex < left.models.length; modelIndex += 1) {
+      if (left.models[modelIndex] !== right.models[modelIndex]) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+interface ProviderSwitchTarget {
+  readonly provider: string;
+  readonly model: string | null;
+  readonly requestId: string;
 }
 
 export type RouteMode = "user" | "auto" | "responding";
@@ -967,6 +1076,7 @@ interface SessionStoreState {
   readonly currentTurnTrackedOutputTokens: number;
   readonly clearPending: boolean;
   readonly providerSwitching: boolean;
+  readonly providerSwitchTarget: ProviderSwitchTarget | null;
   readonly providerExplicitSelection: boolean;
   readonly authorityStatus: AuthorityStatus | null;
   readonly outboundSend: ((frame: GuiOutboundFrame) => void) | null;
@@ -984,6 +1094,7 @@ interface SessionStoreActions {
   setErrorBanner: (message: string | null) => void;
   clearErrorBanner: () => void;
   onWelcome: (frame: Extract<GuiInboundFrame, { type: "welcome" }>) => void;
+  onProvidersRefreshed: (providers: readonly ProviderDescriptor[]) => void;
   onSessionEvent: (event: GuiSessionEvent) => void;
   onTextDelta: (frame: StoreTextDeltaFrame) => void;
   onActivity: (frame: StoreActivityFrame) => void;
@@ -1033,6 +1144,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   currentTurnTrackedOutputTokens: 0,
   clearPending: false,
   providerSwitching: false,
+  providerSwitchTarget: null,
   providerExplicitSelection: false,
   authorityStatus: null,
   outboundSend: null,
@@ -1102,70 +1214,79 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   },
 
   onWelcome: (frame) => {
-    const providersFromWelcome: ProviderDescriptor[] = [];
-    for (const provider of frame.providers ?? []) {
-      if (!provider || typeof provider !== "object") continue;
-      const candidate = provider as Partial<ProviderDescriptor>;
-      if (
-        typeof candidate.id !== "string"
-        || typeof candidate.label !== "string"
-        || (candidate.group !== "subscription" && candidate.group !== "harness" && candidate.group !== "direct-api")
-        || typeof candidate.free !== "boolean"
-        || typeof candidate.available !== "boolean"
-        || !Array.isArray(candidate.models)
-      ) {
-        continue;
-      }
-      providersFromWelcome.push({
-        id: candidate.id,
-        label: candidate.label,
-        group: candidate.group,
-        free: candidate.free,
-        available: candidate.available,
-        models: candidate.models.filter((model): model is string => typeof model === "string"),
-      });
+    const current = get();
+    if (current.providerSwitchTimeoutId) {
+      clearTimeout(current.providerSwitchTimeoutId);
     }
-    const providersFromModels = Object.keys(frame.models ?? {});
-    const providers = providersFromWelcome.length > 0
-      ? providersFromWelcome
-      : providersFromModels.map((providerId) => ({
-          id: providerId,
-          label: providerId,
-          group: "direct-api" as const,
-          free: false,
-          available: true,
-          models: frame.models?.[providerId] ?? [],
-        }));
-    const providerById = new Map(providers.map((provider) => [provider.id, provider] as const));
-    const activeProvider =
-      frame.activeProvider
-      ?? providers[0]?.id
-      ?? providersFromModels[0]
-      ?? get().activeProvider
-      ?? null;
-    const activeModel =
-      frame.activeModel
-      ?? (activeProvider ? (providerById.get(activeProvider)?.models[0] ?? frame.models?.[activeProvider]?.[0] ?? null) : null)
-      ?? get().activeModel
-      ?? null;
+    const providers = normalizeProviderDescriptors(frame.providers ?? []);
+    const explicitActiveProvider = readString(frame.activeProvider);
+    const explicitActiveModel = readString(frame.activeModel);
+    const requestedModel = explicitActiveModel ?? null;
+    const activeProviderDescriptor = explicitActiveProvider
+      ? providers.find((provider) => (
+        provider.id === explicitActiveProvider
+          && providerSupportsSelection(provider, requestedModel)
+      ))
+      : undefined;
+    const activeProvider = activeProviderDescriptor ? explicitActiveProvider ?? null : null;
+    const activeModel = activeProviderDescriptor ? requestedModel : null;
     const persistedPlanMode = readStoredPlanMode();
-    const resolvedPlanMode = persistedPlanMode ?? frame.planMode ?? get().planMode;
+    const resolvedPlanMode = persistedPlanMode ?? frame.planMode ?? current.planMode;
     const persistedResume = readResumeTarget();
-    const explicitSelection = Boolean(frame.activeProvider) || get().providerExplicitSelection;
+    const explicitSelection = Boolean(activeProvider);
 
     set({
       providers,
       activeProvider,
       activeModel,
-      authorityStatus: frame.authorityStatus ?? get().authorityStatus,
+      authorityStatus: frame.authorityStatus ?? current.authorityStatus,
       planMode: resolvedPlanMode,
       routeMode: explicitSelection ? "user" : "auto",
       providerExplicitSelection: explicitSelection,
       resumeTargetId: persistedResume,
       status: "ready",
       errorBanner: null,
+      providerSwitching: false,
+      providerSwitchTarget: null,
+      providerSwitchTimeoutId: null,
     });
     persistPlanMode(resolvedPlanMode);
+  },
+
+  onProvidersRefreshed: (nextProviders) => {
+    const current = get();
+    const providers = normalizeProviderDescriptors(nextProviders);
+    const activeProvider = current.activeProvider;
+    const activeModel = current.activeModel;
+    const requestedModel = activeModel ?? null;
+    const activeStillAvailable = activeProvider
+      ? providers.some((provider) => (
+        provider.id === activeProvider
+          && providerSupportsSelection(provider, requestedModel)
+      ))
+      : false;
+    const nextActiveProvider = activeStillAvailable ? activeProvider : null;
+    const nextActiveModel = activeStillAvailable ? activeModel : null;
+    const nextProviderExplicitSelection = activeStillAvailable && current.providerExplicitSelection;
+    const nextRouteMode = nextProviderExplicitSelection ? "user" : "auto";
+
+    if (
+      areProviderDescriptorsEqual(current.providers, providers)
+      && current.activeProvider === nextActiveProvider
+      && current.activeModel === nextActiveModel
+      && current.providerExplicitSelection === nextProviderExplicitSelection
+      && current.routeMode === nextRouteMode
+    ) {
+      return;
+    }
+
+    set({
+      providers,
+      activeProvider: nextActiveProvider,
+      activeModel: nextActiveModel,
+      routeMode: nextRouteMode,
+      providerExplicitSelection: nextProviderExplicitSelection,
+    });
   },
 
   onSessionEvent: (event) => {
@@ -1765,6 +1886,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     if (state.clearTimeoutId) {
       clearTimeout(state.clearTimeoutId);
     }
+    if (state.providerSwitchTimeoutId) {
+      clearTimeout(state.providerSwitchTimeoutId);
+    }
     const errorMessage: Message = {
       id: createMessageId(),
       role: "error",
@@ -1791,6 +1915,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       respondingModel: null,
       clearPending: false,
       clearTimeoutId: null,
+      providerSwitching: false,
+      providerSwitchTarget: null,
+      providerSwitchTimeoutId: null,
     });
   },
 
@@ -1798,6 +1925,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     const state = get();
     if (state.clearTimeoutId) {
       clearTimeout(state.clearTimeoutId);
+    }
+    if (state.providerSwitchTimeoutId) {
+      clearTimeout(state.providerSwitchTimeoutId);
     }
     writeResumeTarget(null);
     set({
@@ -1822,20 +1952,49 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       currentTurnTrackedOutputTokens: 0,
       clearPending: false,
       clearTimeoutId: null,
+      providerSwitching: false,
+      providerSwitchTarget: null,
+      providerSwitchTimeoutId: null,
     });
   },
 
   onProviderChanged: (frame) => {
     const state = get();
+    const nextModel = readString(frame.model) ?? null;
+    if (
+      !state.providerSwitching
+      || !state.providerSwitchTarget
+    ) {
+      return;
+    }
+    if (
+      state.providerSwitchTarget.provider !== frame.provider
+      || state.providerSwitchTarget.model !== nextModel
+      || state.providerSwitchTarget.requestId !== frame.requestId
+    ) {
+      if (state.providerSwitchTimeoutId) {
+        clearTimeout(state.providerSwitchTimeoutId);
+      }
+      set({
+        providerSwitching: false,
+        providerSwitchTarget: null,
+        providerSwitchTimeoutId: null,
+        errorBanner: "Provider switch acknowledgement did not match the pending request.",
+      });
+      return;
+    }
+    // The pending switch target was validated before sending. Dashboard provider
+    // discovery can refresh while the runtime acknowledgement is in flight.
     if (state.providerSwitchTimeoutId) {
       clearTimeout(state.providerSwitchTimeoutId);
     }
     set({
       activeProvider: frame.provider,
-      activeModel: frame.model ?? null,
+      activeModel: nextModel,
       routeMode: "user",
       providerExplicitSelection: true,
       providerSwitching: false,
+      providerSwitchTarget: null,
       providerSwitchTimeoutId: null,
       respondingProvider: null,
       respondingModel: null,
@@ -1854,21 +2013,45 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       return false;
     }
 
+    const targetProvider = state.providers.find((candidate) => candidate.id === provider);
+    if (!targetProvider || !providerHasSelectableSurface(targetProvider)) {
+      if (!state.providerSwitching) {
+        set({
+          providerSwitching: false,
+          providerSwitchTarget: null,
+          providerSwitchTimeoutId: null,
+          errorBanner: `${targetProvider?.label ?? provider} is unavailable.`,
+        });
+      }
+      return false;
+    }
+    const normalizedModel = readString(model) ?? null;
+    if (!providerSupportsSelection(targetProvider, normalizedModel)) {
+      if (!state.providerSwitching) {
+        const message = normalizedModel === null && targetProvider.models.length > 0
+          ? providerRequiresSelectedModelMessage(provider)
+          : `${targetProvider.label} does not advertise the requested model.`;
+        set({
+          providerSwitching: false,
+          providerSwitchTarget: null,
+          providerSwitchTimeoutId: null,
+          errorBanner: message,
+        });
+      }
+      return false;
+    }
+
     if (state.providerSwitchTimeoutId) {
       clearTimeout(state.providerSwitchTimeoutId);
     }
 
-    outboundSend({
-      type: "provider",
-      provider,
-      model: model ?? undefined,
-    });
-
+    const requestId = nextProviderSwitchRequestId();
     const timeoutId = setTimeout(() => {
       const latest = get();
       if (!latest.providerSwitching) return;
       set({
         providerSwitching: false,
+        providerSwitchTarget: null,
         providerSwitchTimeoutId: null,
         errorBanner: "Provider switch timed out. Please retry.",
       });
@@ -1876,9 +2059,28 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
     set({
       providerSwitching: true,
+      providerSwitchTarget: { provider, model: normalizedModel, requestId },
       providerSwitchTimeoutId: timeoutId,
       errorBanner: null,
     });
+
+    try {
+      outboundSend({
+        type: "provider",
+        provider,
+        ...(normalizedModel ? { model: normalizedModel } : {}),
+        requestId,
+      });
+    } catch (error) {
+      clearTimeout(timeoutId);
+      set({
+        providerSwitching: false,
+        providerSwitchTarget: null,
+        providerSwitchTimeoutId: null,
+        errorBanner: error instanceof Error ? error.message : "Provider switch failed.",
+      });
+      return false;
+    }
 
     return true;
   },
@@ -1925,7 +2127,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
     outboundSend({
       type: "message",
-      text: normalized,
+      content: normalized,
       planMode: state.planMode,
       resumeSessionId: state.resumeTargetId ?? undefined,
     });
@@ -2000,6 +2202,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       clearPending: false,
       clearTimeoutId: null,
       providerSwitching: false,
+      providerSwitchTarget: null,
       providerSwitchTimeoutId: null,
     });
   },

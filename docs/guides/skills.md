@@ -4,6 +4,18 @@
 
 Skills are reusable knowledge packages that give agents specialized capabilities without hardcoding domain knowledge into agent definitions. Skills use the SKILL.md format (markdown with YAML frontmatter) and are discovered through a 3-tier registry.
 
+Skills package intent over canonical tools. They can tell an agent when to use
+tools, which tool groups are appropriate, what workflow to follow, and what
+policy hints or host installation metadata should travel with the package.
+They do not define a private execution path for Kiln tools.
+
+The external runtime contract for wrapper and host integrations is MCP. A
+skill may reference MCP-exposed Kiln tools by name, but authorization,
+execution, telemetry, audit, and result sanitization stay in the canonical
+tool runtime. If a wrapper plugin installs a skill or exposes host UX around
+it, that plugin is a projection layer over MCP or the canonical registry, not
+a new tool executor.
+
 ## SKILL.md Format
 
 A skill file is a markdown document with YAML frontmatter. The parser is in `packages/core/src/skill/md-parser.ts`.
@@ -14,7 +26,7 @@ A skill file is a markdown document with YAML frontmatter. The parser is in `pac
 |-------|------|----------|-------------|
 | `name` | string | Yes | Kebab-case identifier (max 40 chars) |
 | `description` | string | Yes | One-sentence description |
-| `tools` | string[] | No | List of tool names this skill uses |
+| `tools` | string[] | No | Canonical tool names or tool groups this skill may use |
 | `tags` | string[] | No | Tags for discovery (e.g., "database", "testing") |
 | `triggers` | array | No | Event triggers that activate the skill |
 | `handler` | string | No | Custom handler reference |
@@ -128,6 +140,10 @@ memory, knowledge, summaries, and coordination state. Runtime code must not
 inject skills through `PerCallToolConfig` or another parallel system-prompt
 path.
 
+Runtime admission is not tool authorization. A skill can make instructions
+available to the model, but the concrete tool call still passes through the
+same runtime authorization and execution path as any other Kiln tool call.
+
 ```typescript
 // packages/core/src/skill/types.ts
 export interface SkillConfig extends SkillIndex {
@@ -231,4 +247,5 @@ Skills can be triggered by events. The supported event types are defined in `pac
 - [Context Governance](../architecture/context-governance.md) -- context
   admission, budget, and audit policy
 - [CLI Wrapper](cli-wrapper.md) -- session lifecycle and transcript persistence
-- [Tool Use](tool-use.md) -- PerCallToolConfig and runtime tool injection
+- [Tool Use](tool-use.md) -- canonical tool surface, MCP projection, and
+  execution policy

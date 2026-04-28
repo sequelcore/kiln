@@ -9,8 +9,7 @@ import { textPart, extractText } from "../../engine/domain/content.js";
 import type { ContentPart } from "../../engine/domain/content.js";
 import { KilnError } from "../../engine/errors.js";
 import { CodexOAuthAuth } from "./codex-oauth-auth.js";
-import { CODEX_DEFAULT_MODEL } from "../model-pricing.js";
-import { getInvalidToolInputDetails, normalizeToolInput } from "../tool-call-input.js";
+import { normalizeToolInput } from "../tool-call-input.js";
 
 const RESPONSES_URL = "https://chatgpt.com/backend-api/codex/responses";
 
@@ -20,7 +19,7 @@ interface AccessTokenProvider {
 
 interface CodexOAuthAdapterConfig {
   readonly auth?: AccessTokenProvider;
-  readonly defaultModel?: string;
+  readonly defaultModel: string;
 }
 
 interface ResponsesInputItem {
@@ -109,9 +108,12 @@ export class CodexOAuthAdapter implements ProviderAdapter {
   private readonly auth: AccessTokenProvider;
   private readonly model: string;
 
-  constructor(config: CodexOAuthAdapterConfig = {}) {
+  constructor(config: CodexOAuthAdapterConfig) {
     this.auth = config.auth ?? new CodexOAuthAuth();
-    this.model = config.defaultModel ?? CODEX_DEFAULT_MODEL;
+    this.model = config.defaultModel.trim();
+    if (this.model.length === 0) {
+      throw new KilnError("CONFIG_INVALID", "Codex OAuth adapter requires a selected model");
+    }
   }
 
   async createMessage(options: CreateMessageOptions): Promise<AgentResponse> {
@@ -315,8 +317,6 @@ export class CodexOAuthAdapter implements ProviderAdapter {
       }
     }
 
-    this.repairInvalidToolCallsFromLeadingJson(parts, toolCalls);
-
     return {
       parts,
       inputTokens: response.usage?.input_tokens ?? 0,
@@ -330,66 +330,6 @@ export class CodexOAuthAdapter implements ProviderAdapter {
         outputPer1M: 0,
       },
     };
-  }
-
-  private repairInvalidToolCallsFromLeadingJson(
-    parts: ContentPart[],
-    toolCalls: ToolCall[],
-  ): void {
-    if (toolCalls.length === 0 || parts.length === 0) {
-      return;
-    }
-
-    const firstTextPartIndex = parts.findIndex((part) => part.type === "text" && typeof part.text === "string");
-    if (firstTextPartIndex === -1) {
-      return;
-    }
-
-    const firstTextPart = parts[firstTextPartIndex];
-    if (!firstTextPart || firstTextPart.type !== "text") {
-      return;
-    }
-
-    const invalidIndexes = toolCalls
-      .map((toolCall, index) => ({ index, invalid: getInvalidToolInputDetails(toolCall.input) !== undefined }))
-      .filter((entry) => entry.invalid)
-      .map((entry) => entry.index);
-    if (invalidIndexes.length === 0) {
-      return;
-    }
-
-    const extracted = extractJsonObjects(firstTextPart.text);
-    if (extracted.length === 0) {
-      return;
-    }
-
-    let repaired = 0;
-    for (const invalidIndex of invalidIndexes) {
-      const candidate = extracted[repaired];
-      if (!candidate) {
-        break;
-      }
-      toolCalls[invalidIndex] = {
-        ...toolCalls[invalidIndex]!,
-        input: candidate.value,
-      };
-      repaired += 1;
-    }
-
-    if (repaired === 0) {
-      return;
-    }
-
-    if (extracted[0]?.start === 0) {
-      const trimStart = extracted[repaired - 1]!.end;
-      const trimmedText = firstTextPart.text.slice(trimStart).trimStart();
-      if (trimmedText.length === 0) {
-        parts.splice(firstTextPartIndex, 1);
-        return;
-      }
-
-      parts[firstTextPartIndex] = textPart(trimmedText);
-    }
   }
 
   private async consumeStreamingResponse(response: Response): Promise<ResponsesResponse> {
@@ -810,90 +750,4 @@ function asStringArray(value: unknown): string[] {
 
 function isSchemaRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-function extractJsonObjects(text: string): Array<{
-  readonly value: Record<string, unknown>;
-  readonly start: number;
-  readonly end: number;
-}> {
-  const extracted: Array<{
-    readonly value: Record<string, unknown>;
-    readonly start: number;
-    readonly end: number;
-  }> = [];
-  let cursor = 0;
-
-  while (cursor < text.length) {
-    const start = text.indexOf("{", cursor);
-    if (start === -1) {
-      break;
-    }
-
-    const objectEnd = findJsonObjectEnd(text, start);
-    if (objectEnd === undefined) {
-      cursor = start + 1;
-      continue;
-    }
-
-    const raw = text.slice(start, objectEnd);
-    try {
-      const parsed = JSON.parse(raw) as unknown;
-      if (!isSchemaRecord(parsed)) {
-        cursor = start + 1;
-        continue;
-      }
-      extracted.push({ value: parsed, start, end: objectEnd });
-      cursor = objectEnd;
-    } catch {
-      cursor = start + 1;
-    }
-  }
-
-  return extracted;
-}
-
-function findJsonObjectEnd(text: string, start: number): number | undefined {
-  let depth = 0;
-  let inString = false;
-  let escaping = false;
-
-  for (let index = start; index < text.length; index += 1) {
-    const char = text[index] ?? "";
-
-    if (escaping) {
-      escaping = false;
-      continue;
-    }
-
-    if (char === "\\") {
-      if (inString) {
-        escaping = true;
-      }
-      continue;
-    }
-
-    if (char === "\"") {
-      inString = !inString;
-      continue;
-    }
-
-    if (inString) {
-      continue;
-    }
-
-    if (char === "{") {
-      depth += 1;
-      continue;
-    }
-
-    if (char === "}") {
-      depth -= 1;
-      if (depth === 0) {
-        return index + 1;
-      }
-    }
-  }
-
-  return undefined;
 }

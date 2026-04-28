@@ -14,6 +14,38 @@ export interface GuiProviderDescriptor {
   readonly models: readonly string[];
   readonly free: boolean;
   readonly available: boolean;
+  readonly status?: GuiProviderDiscoveryStatus;
+  readonly reason?: string;
+  readonly authState?: GuiProviderAuthState;
+  readonly lastCheckedAt?: string;
+}
+
+export type GuiProviderDiscoveryStatus =
+  | "available"
+  | "missing_auth"
+  | "auth_expired"
+  | "cli_missing"
+  | "endpoint_timeout"
+  | "endpoint_error"
+  | "empty_model_list"
+  | "daemon_unreachable"
+  | "model_selection_not_required";
+
+export type GuiProviderAuthState =
+  | "authenticated"
+  | "missing"
+  | "expired"
+  | "not_required"
+  | "unknown";
+
+export interface GuiProviderDiscoveryResult {
+  readonly provider: string;
+  readonly available: boolean;
+  readonly models: readonly string[];
+  readonly status: GuiProviderDiscoveryStatus;
+  readonly reason: string;
+  readonly authState: GuiProviderAuthState;
+  readonly lastCheckedAt: string;
 }
 
 export interface GuiSessionSummary {
@@ -169,17 +201,16 @@ export interface GuiSessionDetail {
 export type GuiOutboundFrame =
   | {
       type: "message";
-      content?: string;
-      text?: string;
+      content: string;
       planMode?: boolean;
       resumeSessionId?: string;
     }
   | { type: "clear" }
-  | { type: "provider"; provider: string; model?: string }
+  | { type: "refresh_providers" }
+  | { type: "provider"; provider: string; model?: string; requestId: string }
   | { type: "resume"; sessionId: string }
   | { type: "approve"; sessionId?: string }
   | { type: "reject"; reason: string; sessionId?: string }
-  | { type: "approval_response"; approved: boolean; reason?: string; sessionId?: string }
   | { type: "exec" };
 
 /** Frames sent by the gateway to the browser (operator). */
@@ -220,6 +251,7 @@ export type GuiInboundFrame =
       type: "welcome";
       greeting?: string;
       models?: Record<string, string[]>;
+      providerDiscovery?: readonly GuiProviderDiscoveryResult[];
       providers?: readonly GuiProviderDescriptor[];
       activeProvider?: string;
       activeModel?: string;
@@ -233,7 +265,13 @@ export type GuiInboundFrame =
     }
     | { type: "exec_confirmed" }
     | { type: "cleared" }
-    | { type: "provider_changed"; provider: string; model?: string }
+    | {
+      type: "providers_refreshed";
+      models: Record<string, string[]>;
+      providerDiscovery: readonly GuiProviderDiscoveryResult[];
+      providers: readonly GuiProviderDescriptor[];
+    }
+    | { type: "provider_changed"; provider: string; model?: string; requestId: string }
     | { type: "resume_selected"; sessionId: string };
 
 /** Connection lifecycle states for the GUI session WebSocket client. */

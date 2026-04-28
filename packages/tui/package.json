@@ -14,13 +14,14 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "echo 'No tests yet'"
+    "test": "vitest run --config vitest.config.ts tests"
   },
   "license": "Apache-2.0",
   "publishConfig": {
     "access": "public"
   },
   "dependencies": {
+    "@kilnai/gateway-contracts": "workspace:*",
     "@opentui/core": "0.1.92",
     "@opentui/react": "0.1.92"
   },

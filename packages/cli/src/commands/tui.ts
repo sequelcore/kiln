@@ -14,12 +14,18 @@ import {
 } from "../application/context-artifact-keys.js";
 import { readGlobalConfig } from "../config/global-config.js";
 import { resolveEffectiveProvider } from "../config/env-config.js";
-import { createDefaultRegistry, getProviderDisplayInfo, type ProviderId } from "../wrapper/session-registry.js";
+import {
+  createDefaultRegistry,
+  getProviderDisplayInfo,
+  getRuntimeProviderAvailability,
+  type ProviderId,
+} from "../wrapper/session-registry.js";
 import { SessionStore, TranscriptStore } from "../wrapper/session-store.js";
 import type { PersistedTranscriptEvent } from "../wrapper/session-store.js";
 import type { ResumeFeedback, ResumeStrategy } from "../wrapper/index.js";
 import { GatewaySession, waitForGateway, themes, kilnDark } from "@kilnai/tui";
 import type { SessionLike } from "@kilnai/tui";
+import { GUI_PROVIDER_DISPLAY_ORDER, isGuiProviderModeless, type GuiProviderDiscoveryResult } from "@kilnai/gateway-contracts";
 import {
   extractText,
   type AgentMessage,
@@ -28,6 +34,12 @@ import {
   type SessionEventSource,
 } from "@kilnai/core";
 import { getProjectContextArtifactCache } from "@kilnai/runtime";
+import {
+  projectGuiOperatorModels,
+  providerRequiresSelectedModelMessage,
+  resolveGuiOperatorDiscoveryResults,
+  resolveGuiProviderSwitch,
+} from "@kilnai/runtime";
 import type { CliSessionFactoryContext, CliSessionRunOptions } from "@kilnai/runtime";
 
 export interface TuiFlags {
@@ -43,6 +55,7 @@ type TuiStartupTransport = "gateway" | "direct";
 interface TuiBootstrapOptions {
   readonly flags: TuiFlags;
   readonly sessionManager: MultiProviderSessionManager;
+  readonly registry: ReturnType<typeof createDefaultRegistry>["registry"];
   readonly contextArtifactCache: ContextArtifactCache;
   readonly systemPrompt: string;
 }
@@ -50,10 +63,12 @@ interface TuiBootstrapOptions {
 interface TuiBootstrapResult {
   readonly createSession: () => Promise<SessionLike>;
   readonly providerModelsRef: { current: Record<string, string[]> };
+  readonly providerDiscoveryRef: { current: readonly GuiProviderDiscoveryResult[] };
   shutdown(): void;
 }
 type TuiControlSession = SessionLike & {
   clear?: () => Promise<void>;
+  refreshProviders?: () => Promise<void>;
   switchProvider?: (provider: string, model?: string) => Promise<string>;
   approve?: (sessionId?: string) => void;
   reject?: (reason: string, sessionId?: string) => void;
@@ -64,6 +79,84 @@ type CliSessionFactory = (
   cwd: string,
   context?: CliSessionFactoryContext,
 ) => import("../wrapper/session.js").IKilnSession;
+type CliProviderDisplayInfo = ReturnType<typeof getProviderDisplayInfo>[number];
+
+function normalizeProviderModels(models: readonly string[] | undefined): string[] {
+  const unique = new Set<string>();
+  for (const model of models ?? []) {
+    const trimmed = model.trim();
+    if (trimmed.length > 0) {
+      unique.add(trimmed);
+    }
+  }
+  return [...unique];
+}
+
+function buildTuiStartupProviderDisplayInfo(input: {
+  readonly providerDisplayInfo: readonly CliProviderDisplayInfo[];
+  readonly runtimeModels: Record<string, string[]>;
+  readonly includeModelessProviders?: boolean;
+}): CliProviderDisplayInfo[] {
+  const providerById = new Map<string, CliProviderDisplayInfo>();
+  for (const provider of input.providerDisplayInfo) {
+    providerById.set(provider.id, provider);
+  }
+
+  const orderedProviderIds: string[] = [];
+  const seen = new Set<string>();
+  const addOrderedProviderId = (providerId: string): void => {
+    if (seen.has(providerId) || !providerById.has(providerId)) {
+      return;
+    }
+    seen.add(providerId);
+    orderedProviderIds.push(providerId);
+  };
+
+  for (const provider of input.providerDisplayInfo) {
+    addOrderedProviderId(provider.id);
+  }
+  for (const providerId of GUI_PROVIDER_DISPLAY_ORDER) {
+    addOrderedProviderId(providerId);
+  }
+
+  return orderedProviderIds.flatMap((providerId) => {
+    const provider = providerById.get(providerId);
+    if (!provider) {
+      return [];
+    }
+    const runtimeModels = normalizeProviderModels(input.runtimeModels[providerId]);
+    const models = runtimeModels;
+    const runtimeCatalogContainsProvider = Object.prototype.hasOwnProperty.call(input.runtimeModels, providerId);
+    if (models.length === 0) {
+      const includeModelessProvider = input.includeModelessProviders === true
+        && runtimeCatalogContainsProvider
+        && isGuiProviderModeless(providerId);
+      if (!includeModelessProvider) {
+        return [];
+      }
+    }
+    return [{ ...provider, models }];
+  });
+}
+
+function assertTuiProviderAvailableInStartupCatalog(
+  provider: ProviderId,
+  startupProviderDisplayInfo: readonly CliProviderDisplayInfo[],
+): void {
+  const startupProvider = startupProviderDisplayInfo.find((entry) => entry.id === provider);
+  if (startupProvider && (startupProvider.models.length > 0 || isGuiProviderModeless(provider))) {
+    return;
+  }
+
+  const runtimeProviderIds = startupProviderDisplayInfo
+    .filter((entry) => entry.models.length > 0 || isGuiProviderModeless(entry.id))
+    .map((entry) => entry.id);
+  const availableProviders =
+    runtimeProviderIds.length > 0 ? runtimeProviderIds.join(", ") : "none";
+  throw new Error(
+    `Provider '${provider}' is not available in the runtime TUI model catalog. Available providers: ${availableProviders}`,
+  );
+}
 
 function latestUserText(messages: readonly AgentMessage[] | undefined): string | undefined {
   if (!messages) {
@@ -80,11 +173,18 @@ function latestUserText(messages: readonly AgentMessage[] | undefined): string |
   return undefined;
 }
 
-function parseProvider(p: string | undefined, providerIds: readonly ProviderId[]): ProviderId {
-  if (p && providerIds.includes(p as ProviderId)) {
-    return p as ProviderId;
+function parseProvider(
+  p: string | undefined,
+  providerIds: readonly ProviderId[],
+): ProviderId {
+  const requestedProvider = p?.trim() ?? "";
+  if (requestedProvider.length === 0) {
+    throw new Error("No provider configured. Set --provider, KILN_PROVIDER, or global provider.");
   }
-  return providerIds.includes("claude") ? "claude" : providerIds[0] ?? "claude";
+  if (providerIds.includes(requestedProvider as ProviderId)) {
+    return requestedProvider as ProviderId;
+  }
+  throw new Error(`Unknown provider: ${requestedProvider}`);
 }
 
 function mapTranscriptTypeToKind(type: string): CanonicalSessionEventKind {
@@ -149,7 +249,7 @@ function resolveTuiStartupTransport(_flags: TuiFlags): TuiStartupTransport {
  * Each provider maintains independent session state, allowing seamless switching.
  */
 export async function makeMultiProviderSessionFactory(
-  initialProvider: ProviderId,
+  initialProvider: ProviderId | null,
   providerIds: readonly ProviderId[],
   cwd: string,
   registry: ReturnType<typeof createDefaultRegistry>["registry"],
@@ -167,7 +267,7 @@ export async function makeMultiProviderSessionFactory(
     providers.map((provider) => [provider, ""]),
   );
   
-  let currentProvider: ProviderId = initialProvider;
+  let currentProvider: ProviderId | null = initialProvider;
 
   const lastRecord = await sessionStore.last();
   if (lastRecord) {
@@ -210,6 +310,9 @@ export async function makeMultiProviderSessionFactory(
       },
       run: async function* (options: CliSessionRunOptions) {
         const providerForTurn = currentProvider;
+        if (!providerForTurn) {
+          throw new Error("No provider selected for this turn.");
+        }
         const modelForTurn = providerModelState.get(providerForTurn) || undefined;
         const state = providerState.get(providerForTurn) ?? {};
         const resumedFrom = state.resumeSessionId;
@@ -401,15 +504,17 @@ export async function makeMultiProviderSessionFactory(
 
   return {
     factory: policyAwareFactory,
-    getProvider: () => currentProvider,
+    getProvider: () => currentProvider ?? "",
     setProvider: (newProvider: string) => {
       if (providers.includes(newProvider as ProviderId)) {
         currentProvider = newProvider as ProviderId;
       }
     },
-    getModel: () => providerModelState.get(currentProvider) ?? "",
+    getModel: () => currentProvider ? providerModelState.get(currentProvider) ?? "" : "",
     setModel: (model: string) => {
-      providerModelState.set(currentProvider, model);
+      if (currentProvider) {
+        providerModelState.set(currentProvider, model);
+      }
     },
     onClear: async (provider?: string) => {
       for (const state of providerState.values()) {
@@ -426,6 +531,9 @@ export async function makeMultiProviderSessionFactory(
       const targetProvider = provider && providers.includes(provider as ProviderId)
         ? provider as ProviderId
         : currentProvider;
+      if (!targetProvider) {
+        return;
+      }
       const state = providerState.get(targetProvider);
       if (state) {
         currentProvider = targetProvider;
@@ -456,6 +564,7 @@ async function bootstrapGatewaySession(
     port: flags.port,
     systemPrompt,
     onClear: sessionManager.onClear,
+    getProviderAvailability: () => getRuntimeProviderAvailability(options.registry),
     contextArtifactCache,
     planMode: flags.plan ?? false,
   });
@@ -465,14 +574,18 @@ async function bootstrapGatewaySession(
   const providerModelsRef: { current: Record<string, string[]> } = {
     current: gateway.models,
   };
+  const providerDiscoveryRef: { current: readonly GuiProviderDiscoveryResult[] } = {
+    current: gateway.providerDiscovery ?? [],
+  };
 
   let session: GatewaySession | null = null;
   const createSession = async (): Promise<SessionLike> => {
     if (!session) {
       session = new GatewaySession(
         gateway.url,
-        (models: Record<string, string[]>) => {
+        (models: Record<string, string[]>, discovery?: readonly GuiProviderDiscoveryResult[]) => {
           providerModelsRef.current = models;
+          providerDiscoveryRef.current = discovery ?? [];
         },
       );
     }
@@ -482,6 +595,7 @@ async function bootstrapGatewaySession(
   return {
     createSession,
     providerModelsRef,
+    providerDiscoveryRef,
     shutdown: () => {
       void session?.dispose();
       gateway.shutdown();
@@ -559,6 +673,15 @@ async function bootstrapDirectSession(
   const { flags, sessionManager, systemPrompt } = options;
   const sessionCwd = flags.cwd ?? process.cwd();
   let session: TuiControlSession | null = null;
+  const providerModelsRef: { current: Record<string, string[]> } = { current: {} };
+  const providerDiscoveryRef: { current: readonly GuiProviderDiscoveryResult[] } = { current: [] };
+  const refreshProviderModels = async (): Promise<Record<string, string[]>> => {
+    const providerAvailability = getRuntimeProviderAvailability(options.registry);
+    providerDiscoveryRef.current = await resolveGuiOperatorDiscoveryResults(providerAvailability);
+    providerModelsRef.current = projectGuiOperatorModels(providerDiscoveryRef.current);
+    return providerModelsRef.current;
+  };
+  await refreshProviderModels();
 
   const createSession = async (): Promise<SessionLike> => {
     if (session) {
@@ -573,7 +696,36 @@ async function bootstrapDirectSession(
     session = {
       async *run(opts: { prompt: string; cwd?: string }) {
         const providerForTurn = sessionManager.getProvider();
-        const modelForTurn = sessionManager.getModel();
+        let modelForTurn = sessionManager.getModel();
+        const providerModels = await refreshProviderModels();
+        const advertisedModels = providerModels[providerForTurn];
+        if (!advertisedModels || (advertisedModels.length === 0 && !isGuiProviderModeless(providerForTurn))) {
+          yield {
+            type: "error",
+            message: `Provider '${providerForTurn}' is unavailable`,
+          };
+          return;
+        }
+        if (advertisedModels.length === 0 && isGuiProviderModeless(providerForTurn)) {
+          if (modelForTurn.trim().length > 0) {
+            sessionManager.setModel("");
+          }
+          modelForTurn = "";
+        }
+        if (advertisedModels?.length && modelForTurn.trim().length === 0) {
+          yield {
+            type: "error",
+            message: providerRequiresSelectedModelMessage(providerForTurn),
+          };
+          return;
+        }
+        if (advertisedModels?.length && !advertisedModels.includes(modelForTurn)) {
+          yield {
+            type: "error",
+            message: `Provider '${providerForTurn}' does not advertise model '${modelForTurn}'`,
+          };
+          return;
+        }
         for await (const event of inner.run(opts)) {
           yield mapSessionEventToTui(event, {
             provider: providerForTurn,
@@ -587,10 +739,23 @@ async function bootstrapDirectSession(
       async clear() {
         await sessionManager.onClear(sessionManager.getProvider());
       },
+      async refreshProviders() {
+        await refreshProviderModels();
+      },
       async switchProvider(providerName: string, modelName?: string) {
-        sessionManager.setProvider(providerName);
-        sessionManager.setModel(modelName ?? "");
-        return providerName;
+        const provider = providerName.trim() as ProviderId;
+        const requestedModel = typeof modelName === "string" ? modelName.trim() : "";
+        const resolution = resolveGuiProviderSwitch({
+          provider,
+          model: requestedModel,
+          models: await refreshProviderModels(),
+        });
+        if (!resolution.ok) {
+          throw new Error(resolution.error);
+        }
+        sessionManager.setProvider(resolution.provider);
+        sessionManager.setModel(resolution.modelForSessionManager);
+        return resolution.provider;
       },
     };
     return session;
@@ -598,7 +763,8 @@ async function bootstrapDirectSession(
 
   return {
     createSession,
-    providerModelsRef: { current: {} },
+    providerModelsRef,
+    providerDiscoveryRef,
     shutdown: () => {},
   };
 }
@@ -621,7 +787,9 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
 
   const cwd = flags.cwd ?? process.cwd();
   const globalConfig = readGlobalConfig();
+  const startupTransport = resolveTuiStartupTransport(flags);
   const provider = parseProvider(resolveEffectiveProvider(flags.provider, globalConfig?.provider), providerIds);
+  const startupProviderIds = providerIds;
   const contextArtifactCache = await getProjectContextArtifactCache(cwd);
 
   // Resolve domain display name from app config if available
@@ -644,12 +812,11 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   const initialResumeInfo: Record<string, ResumeSidebarInfo> = await loadResumeSidebarInfo(
     sessionStore,
     transcriptStore,
-    providerIds,
+    startupProviderIds,
   );
-  const startupTransport = resolveTuiStartupTransport(flags);
   const sessionManager = await makeMultiProviderSessionFactory(
     provider,
-    providerIds,
+    startupProviderIds,
     cwd,
     registry,
     sessionStore,
@@ -660,6 +827,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   const bootstrap = await bootstrapTuiSession({
     flags,
     sessionManager,
+    registry,
     contextArtifactCache,
     systemPrompt,
   });
@@ -703,15 +871,27 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     sessionManager.setResumeSession(session.sessionId, session.provider);
   };
 
+  const startupProviderDisplayInfo = buildTuiStartupProviderDisplayInfo({
+    providerDisplayInfo,
+    runtimeModels: bootstrap.providerModelsRef.current,
+    includeModelessProviders: true,
+  });
+  assertTuiProviderAvailableInStartupCatalog(provider, startupProviderDisplayInfo);
+  const startupProvider = startupProviderDisplayInfo.find((entry) => entry.id === provider);
+  if (startupProvider?.models[0] && sessionManager.getModel().trim().length === 0) {
+    sessionManager.setModel(startupProvider.models[0]);
+  }
+
   await startTui(
     bootstrap.createSession,
-    providerDisplayInfo,
+    startupProviderDisplayInfo,
     provider,
     domain,
     resolvedTheme,
     startupTransport === "direct" ? initialResumeInfo : {},
-    () => loadResumeSidebarInfo(sessionStore, transcriptStore, providerIds),
+    () => loadResumeSidebarInfo(sessionStore, transcriptStore, startupProviderIds),
     bootstrap.providerModelsRef,
+    bootstrap.providerDiscoveryRef,
     startupTransport === "direct" ? loadSessionList : undefined,
     startupTransport === "direct" ? handleResumeSession : undefined,
   );

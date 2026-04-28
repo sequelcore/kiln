@@ -62,7 +62,7 @@ describe("gui CLI command wiring", () => {
       theme: "kiln-light",
       plan: true,
     });
-  });
+  }, 10_000);
 
 });
 

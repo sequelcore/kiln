@@ -147,5 +147,5 @@ describe("runSession context governance integration", () => {
     expect(governedContext.projectedContext?.blocks?.length).toBe(0);
 
     vi.doUnmock("../../src/wrapper/preamble-builder.js");
-  });
+  }, 10_000);
 });

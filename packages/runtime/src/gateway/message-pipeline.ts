@@ -45,6 +45,7 @@ import {
   type RuntimeTurnAuthorityDecision,
   type RuntimeTurnDangerousCommandOutcome,
   type RuntimeTurnFileChange,
+  type RuntimeTurnProviderValidation,
 } from "../session/runtime-turn-record.js";
 import { appendCanonicalTurnEvents } from "../session/runtime-session-event-ledger.js";
 import { resolveAgentContextAsync } from "../tenant/agent-resolver.js";
@@ -104,6 +105,7 @@ export interface AdmittedTurnContext {
   readonly activeSkills?: readonly string[];
   readonly activeSkillTags?: readonly string[];
   readonly userContext?: Record<string, string>;
+  readonly providerValidation?: readonly RuntimeTurnProviderValidation[];
   readonly groundingMode?: GroundingMode;
   readonly groundingDeps?: {
     readonly rail: GroundingRail;
@@ -946,6 +948,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     approvalTransitions: mergedApprovalTransitions.length > 0 ? mergedApprovalTransitions : undefined,
     authorityDecisions: mergedAuthorityDecisions.length > 0 ? mergedAuthorityDecisions : undefined,
     dangerousCommandOutcomes: mergedDangerousCommandOutcomes.length > 0 ? mergedDangerousCommandOutcomes : undefined,
+    providerValidation: ctx.providerValidation,
   });
   writeRuntimeHandoffSummaryArtifact(ctx.contextArtifactCache, {
     session,

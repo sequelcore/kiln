@@ -4,6 +4,7 @@ import type {
   AgentStreamEvent,
 } from "../../../src/agents/index.js";
 import { textParts } from "../../../src/engine/domain/content.js";
+import { getInvalidToolInputDetails } from "../../../src/agents/tool-call-input.js";
 
 const mockCreate = vi.fn();
 
@@ -239,6 +240,42 @@ describe("AnthropicAdapter streaming", () => {
 
       const tool2 = JSON.parse(toolEvents[1]!.content);
       expect(tool2).toEqual({ id: "toolu_2", name: "calculate", input: { expr: "2+2" } });
+    });
+
+    it("emits malformed streamed tool input as invalid tool input", async () => {
+      const streamEvents = [
+        {
+          type: "content_block_start",
+          index: 0,
+          content_block: { type: "tool_use", id: "toolu_bad", name: "write", input: {} },
+        },
+        {
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "input_json_delta", partial_json: "{bad" },
+        },
+        {
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "input_json_delta", partial_json: "-json}" },
+        },
+        { type: "content_block_stop", index: 0 },
+        { type: "message_stop" },
+      ];
+
+      mockCreate.mockResolvedValueOnce(createAsyncIterable(streamEvents));
+
+      const events = await collectEvents(adapter.streamMessage(makeOptions()));
+      const toolEvent = events.find((event) => event.type === "tool_use");
+      expect(toolEvent).toBeDefined();
+      const parsed = JSON.parse(toolEvent!.content);
+
+      expect(parsed.name).toBe("write");
+      expect(getInvalidToolInputDetails(parsed.input)).toEqual({
+        reason: "Failed to parse tool arguments as JSON.",
+        raw: "{bad-json}",
+      });
+      expect(events).toContainEqual({ type: "done", content: "" });
     });
 
     it("emits tool_use with empty object when no input JSON deltas arrive", async () => {

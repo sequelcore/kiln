@@ -22,6 +22,7 @@ export interface DirectProviderExecutionProfile {
 
 export interface ResolvedDirectProviderExecutionProfile {
   readonly provider: DirectProviderId;
+  readonly model: string;
   readonly defaultExecutionMode: DirectProviderExecutionMode;
   readonly executionMode: DirectProviderExecutionMode;
   readonly defaultBillingMode: ExecutionBillingMode;
@@ -83,6 +84,10 @@ const DIRECT_PROVIDER_EXECUTION_PROFILES: ReadonlyMap<DirectProviderId, DirectPr
 
 const MODEL_CAPABILITIES = new ModelCapabilityRegistry();
 
+function providerUsesDynamicToolCapableModels(provider: DirectProviderId): boolean {
+  return provider === "opencode-go" || provider === "opencode-zen";
+}
+
 export function isDirectProviderId(provider: string | undefined): provider is DirectProviderId {
   if (!provider) return false;
   return DIRECT_PROVIDER_EXECUTION_PROFILES.has(provider as DirectProviderId);
@@ -102,23 +107,30 @@ export function getDirectProviderExecutionProfile(
 export function resolveDirectProviderExecutionProfile(options: {
   readonly provider: string | undefined;
   readonly model?: string;
+  readonly requestedExecutionMode?: DirectProviderExecutionMode;
   readonly capabilityRegistry?: ModelCapabilityRegistry;
 }): ResolvedDirectProviderExecutionProfile | undefined {
   const profile = getDirectProviderExecutionProfile(options.provider);
   if (!profile) return undefined;
 
-  const model = options.model?.trim();
+  const selectedModel = options.model?.trim();
+  if (!selectedModel || selectedModel.length === 0) {
+    return undefined;
+  }
+  const model = selectedModel;
   const capabilities = options.capabilityRegistry ?? MODEL_CAPABILITIES;
-  const modelSupportsTools = model
-    ? capabilities.supportsTools(profile.provider, model)
-    : profile.defaultExecutionMode === "kiln-executable";
+  const modelSupportsTools =
+    capabilities.supportsTools(profile.provider, model)
+    || providerUsesDynamicToolCapableModels(profile.provider);
   const supportsKilnExecutableTools = profile.supportsStructuredToolCalls && modelSupportsTools;
-  const executionMode = profile.defaultExecutionMode === "kiln-executable" && supportsKilnExecutableTools
-    ? "kiln-executable"
-    : "text-only";
+  const executionMode = resolveExecutionMode({
+    requestedExecutionMode: options.requestedExecutionMode,
+    supportsKilnExecutableTools,
+  });
 
   return {
     provider: profile.provider,
+    model,
     defaultExecutionMode: profile.defaultExecutionMode,
     executionMode,
     defaultBillingMode: profile.defaultBillingMode,
@@ -126,4 +138,14 @@ export function resolveDirectProviderExecutionProfile(options: {
     modelSupportsTools,
     supportsKilnExecutableTools,
   };
+}
+
+function resolveExecutionMode(options: {
+  readonly requestedExecutionMode?: DirectProviderExecutionMode;
+  readonly supportsKilnExecutableTools: boolean;
+}): DirectProviderExecutionMode {
+  if (options.requestedExecutionMode === "text-only") {
+    return "text-only";
+  }
+  return options.supportsKilnExecutableTools ? "kiln-executable" : "text-only";
 }

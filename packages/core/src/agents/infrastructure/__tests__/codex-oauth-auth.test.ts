@@ -326,6 +326,30 @@ describe("CodexOAuthAuth", () => {
 
       await expect(auth.getValidAccessToken()).rejects.toBeInstanceOf(KilnError);
     });
+
+    it("throws KilnError when the persisted token file has a blank access_token", async () => {
+      mockReadFile.mockResolvedValueOnce(JSON.stringify(futureToken({
+        access_token: "   ",
+        expires_at: "2026-04-09T02:00:00.000Z",
+      })));
+
+      const auth = await createAuth("/tmp/auth.json");
+
+      await expect(auth.getValidAccessToken()).rejects.toBeInstanceOf(KilnError);
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it("throws KilnError when the persisted token file has a blank refresh_token even if expires_at is in the future", async () => {
+      mockReadFile.mockResolvedValueOnce(JSON.stringify(futureToken({
+        refresh_token: "   ",
+        expires_at: "2026-04-09T02:00:00.000Z",
+      })));
+
+      const auth = await createAuth("/tmp/auth.json");
+
+      await expect(auth.getValidAccessToken()).rejects.toBeInstanceOf(KilnError);
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
   });
 
   describe("loadTokenFile / saveTokenFile / clearTokenFile", () => {
@@ -384,6 +408,28 @@ describe("CodexOAuthAuth", () => {
     it("returns false when token is expired", async () => {
       mockReadFile.mockResolvedValueOnce(JSON.stringify(futureToken({
         expires_at: "2026-04-08T23:59:00.000Z",
+      })));
+
+      const auth = await createAuth("/tmp/auth.json");
+
+      await expect(auth.hasValidCredentials()).resolves.toBe(false);
+    });
+
+    it("returns false when access_token is blank even if the token is not expired", async () => {
+      mockReadFile.mockResolvedValueOnce(JSON.stringify(futureToken({
+        access_token: "   ",
+        expires_at: "2026-04-09T03:00:00.000Z",
+      })));
+
+      const auth = await createAuth("/tmp/auth.json");
+
+      await expect(auth.hasValidCredentials()).resolves.toBe(false);
+    });
+
+    it("returns false when refresh_token is blank even if the token is not expired", async () => {
+      mockReadFile.mockResolvedValueOnce(JSON.stringify(futureToken({
+        refresh_token: "   ",
+        expires_at: "2026-04-09T03:00:00.000Z",
       })));
 
       const auth = await createAuth("/tmp/auth.json");

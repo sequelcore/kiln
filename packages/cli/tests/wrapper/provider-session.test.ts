@@ -9,7 +9,8 @@ type MockAdapter = {
 };
 
 const adapterMocks = vi.hoisted(
-  (): Record<"anthropic" | "openai" | "deepseek" | "openrouter" | "ollama", MockAdapter> => ({
+  (): Record<"codex-oauth" | "anthropic" | "openai" | "deepseek" | "openrouter" | "ollama", MockAdapter> => ({
+    "codex-oauth": { ctor: vi.fn(), stream: vi.fn() },
     anthropic: { ctor: vi.fn(), stream: vi.fn() },
     openai: { ctor: vi.fn(), stream: vi.fn() },
     deepseek: { ctor: vi.fn(), stream: vi.fn() },
@@ -23,6 +24,11 @@ const runtimeMocks = vi.hoisted(() => ({
   orchestratorConstructor: vi.fn(),
   addUserMessage: vi.fn(),
   addAssistantMessage: vi.fn(),
+}));
+
+const coreSurfaceMocks = vi.hoisted(() => ({
+  createDefaultBuiltinToolSurface: vi.fn(),
+  bridgeExecute: vi.fn(),
 }));
 
 function makeAdapter(name: keyof typeof adapterMocks) {
@@ -41,13 +47,58 @@ function makeAdapter(name: keyof typeof adapterMocks) {
 
 vi.mock("@kilnai/core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@kilnai/core")>();
+  const mockToolDefinitions = [{
+    name: "mock_builtin",
+    description: "Mock builtin tool",
+    inputSchema: { type: "object", properties: {}, required: [] },
+    tags: new Set<string>(),
+  }];
+  const mockCapabilities = new Map([[
+    "mock_builtin",
+    {
+      name: "mock_builtin",
+      description: "Mock builtin tool",
+      schema: { type: "object", properties: {}, required: [] },
+      tags: [],
+      annotations: { readOnly: true },
+    },
+  ]]);
+
   return {
     ...actual,
+    CodexOAuthAdapter: makeAdapter("codex-oauth"),
+    CodexOAuthAuth: vi.fn(function MockCodexOAuthAuth() {
+      return {
+        getValidAccessToken: vi.fn(),
+      };
+    }),
     AnthropicAdapter: makeAdapter("anthropic"),
     OpenAIAdapter: makeAdapter("openai"),
     DeepSeekAdapter: makeAdapter("deepseek"),
     OpenRouterAdapter: makeAdapter("openrouter"),
     OllamaAdapter: makeAdapter("ollama"),
+    createDefaultBuiltinToolSurface: coreSurfaceMocks.createDefaultBuiltinToolSurface.mockImplementation(() => ({
+      tools: [],
+      toolNames: ["mock_builtin"],
+      registry: {
+        lookup: vi.fn(),
+        list: vi.fn(() => []),
+        has: vi.fn((name: string) => name === "mock_builtin"),
+        size: 1,
+      },
+      toolDefinitions: mockToolDefinitions,
+      capabilities: mockCapabilities,
+      bridge: {
+        execute: coreSurfaceMocks.bridgeExecute.mockResolvedValue({
+          result: { output: "mock output", isError: false },
+          attempts: 1,
+          fallbackUsed: false,
+        }),
+        listTools: vi.fn(() => []),
+        authorizeRequest: vi.fn(),
+        authorizeRequestWithAuthority: vi.fn(),
+      },
+    })),
     resolveExecutionIdentity: ({
       configuredProvider,
       configuredModel,
@@ -187,6 +238,8 @@ describe("ProviderSession.run()", () => {
     runtimeMocks.orchestratorConstructor.mockReset();
     runtimeMocks.addUserMessage.mockReset();
     runtimeMocks.addAssistantMessage.mockReset();
+    coreSurfaceMocks.createDefaultBuiltinToolSurface.mockClear();
+    coreSurfaceMocks.bridgeExecute.mockClear();
   });
 
   afterEach(() => {
@@ -206,7 +259,9 @@ describe("ProviderSession.run()", () => {
 
     const session = new ProviderSession(baseConfig({
       provider: "openai",
+      model: "gpt-4o",
       env: { OPENAI_API_KEY: "cfg-key" },
+      executionMode: "text-only",
     }));
     const events = await collectEvents(session.run({ prompt: "test prompt" }));
 
@@ -222,13 +277,39 @@ describe("ProviderSession.run()", () => {
       usd: 0,
       mode: "computed",
       provider: "openai",
+      model: "gpt-4o",
+      canonicalModel: "gpt-4o",
       billingMode: "metered",
     }));
     expect(events).toContainEqual(expect.objectContaining({ type: "completed", isError: false }));
   });
 
-  it("degrades direct-provider tool frames to text when running in text-only mode", async () => {
-    adapterMocks.openai.stream.mockReturnValue(
+  it.each([
+    {
+      provider: "codex-oauth",
+      config: { model: "gpt-5.4", executionMode: "text-only" as const },
+    },
+    {
+      provider: "anthropic",
+      config: {
+        model: "claude-sonnet-4-6",
+        env: { ANTHROPIC_API_KEY: "cfg-key" },
+        executionMode: "text-only" as const,
+      },
+    },
+    {
+      provider: "openai",
+      config: {
+        model: "gpt-5.4",
+        env: { OPENAI_API_KEY: "cfg-key" },
+        executionMode: "text-only" as const,
+      },
+    },
+  ] satisfies Array<{
+    readonly provider: ProviderSessionConfig["provider"];
+    readonly config: Partial<ProviderSessionConfig>;
+  }>)("degrades $provider tool frames to text in text-only mode", async ({ provider, config }) => {
+    adapterMocks[provider].stream.mockReturnValue(
       streamEvents([
         {
           type: "tool_use",
@@ -243,11 +324,12 @@ describe("ProviderSession.run()", () => {
     );
 
     const session = new ProviderSession(baseConfig({
-      provider: "openai",
-      env: { OPENAI_API_KEY: "cfg-key" },
+      provider,
+      ...config,
     }));
     const events = await collectEvents(session.run({ prompt: "parse test" }));
 
+    expect(session.capabilities.supportedTools).toHaveLength(0);
     expect(events.some((event) => event.type === "tool_use" || event.type === "tool_result")).toBe(false);
     expect(events).toContainEqual({
       type: "text_delta",
@@ -260,7 +342,23 @@ describe("ProviderSession.run()", () => {
     expect(events).toContainEqual(expect.objectContaining({ type: "completed", isError: false }));
   });
 
-  it("emits canonical tool_result and file_changed events when executionMode is kiln-executable", async () => {
+  it.each([
+    {
+      provider: "codex-oauth",
+      config: { model: "gpt-5.4" },
+    },
+    {
+      provider: "anthropic",
+      config: { model: "claude-sonnet-4-6", env: { ANTHROPIC_API_KEY: "cfg-key" } },
+    },
+    {
+      provider: "openai",
+      config: { model: "gpt-5.4", env: { OPENAI_API_KEY: "cfg-key" } },
+    },
+  ] satisfies Array<{
+    readonly provider: ProviderSessionConfig["provider"];
+    readonly config: Partial<ProviderSessionConfig>;
+  }>)("emits canonical tool_result and file_changed events for executable $provider sessions", async ({ provider, config }) => {
     runtimeMocks.processMessage.mockResolvedValueOnce({
       parts: [{ type: "text", text: "applied changes" }],
       toolExecutions: [
@@ -280,12 +378,12 @@ describe("ProviderSession.run()", () => {
     });
 
     const session = new ProviderSession(baseConfig({
-      provider: "openai",
-      env: { OPENAI_API_KEY: "cfg-key" },
-      executionMode: "kiln-executable",
+      provider,
+      ...config,
     }));
     const events = await collectEvents(session.run({ prompt: "execute tool path" }));
 
+    expect(session.capabilities.supportedTools).toEqual(["mock_builtin"]);
     expect(events).toContainEqual({ type: "text_delta", content: "applied changes" });
     expect(events).toContainEqual({
       type: "tool_result",
@@ -300,9 +398,126 @@ describe("ProviderSession.run()", () => {
     expect(events).toContainEqual(expect.objectContaining({
       type: "cost_update",
       mode: "computed",
-      provider: "openai",
+      provider,
     }));
     expect(events).toContainEqual(expect.objectContaining({ type: "completed", isError: false }));
+  });
+
+  it("builds executable sessions from the canonical core builtin tool surface", async () => {
+    runtimeMocks.processMessage.mockResolvedValueOnce({
+      parts: [],
+      toolExecutions: [],
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      queued: false,
+    });
+
+    const session = new ProviderSession(baseConfig({
+      provider: "openai",
+      model: "gpt-5.4",
+      env: { OPENAI_API_KEY: "cfg-key" },
+      executionMode: "kiln-executable",
+    }));
+
+    expect(session.capabilities.supportedTools).toEqual(["mock_builtin"]);
+
+    await collectEvents(session.run({ prompt: "execute with canonical surface" }));
+
+    expect(coreSurfaceMocks.createDefaultBuiltinToolSurface).toHaveBeenCalledTimes(1);
+    expect(runtimeMocks.orchestratorConstructor).toHaveBeenCalledWith(expect.objectContaining({
+      tools: expect.arrayContaining([
+        expect.objectContaining({ name: "mock_builtin" }),
+      ]),
+      capabilityMap: expect.any(Map),
+      builtinTools: expect.any(Map),
+    }));
+  });
+
+  it("normalizes direct-provider builtin tool executor results before runtime execution", async () => {
+    coreSurfaceMocks.bridgeExecute.mockResolvedValueOnce({
+      result: {
+        output: "normalized builtin output",
+        isError: false,
+        metadata: {
+          filePath: "src/demo.ts",
+          source: "provider-session-test",
+        },
+        result: {
+          output: "nested tool result should not leak",
+          isError: true,
+          metadata: { leaked: true },
+        },
+      },
+      attempts: 2,
+      fallbackUsed: true,
+    });
+    runtimeMocks.processMessage.mockResolvedValueOnce({
+      parts: [],
+      toolExecutions: [],
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      queued: false,
+    });
+
+    const session = new ProviderSession(baseConfig({
+      provider: "openai",
+      model: "gpt-5.4",
+      env: { OPENAI_API_KEY: "cfg-key" },
+      executionMode: "kiln-executable",
+    }));
+
+    await collectEvents(session.run({ prompt: "normalize builtin tool result" }));
+
+    const orchestratorConfig = runtimeMocks.orchestratorConstructor.mock.calls[0]?.[0] as {
+      builtinTools: ReadonlyMap<string, (input: Record<string, unknown>) => Promise<unknown>>;
+    };
+    const builtinExecutor = orchestratorConfig.builtinTools.get("mock_builtin");
+    expect(builtinExecutor).toBeDefined();
+
+    const result = await builtinExecutor!({ filePath: "src/demo.ts" });
+
+    expect(result).toEqual({
+      output: "normalized builtin output",
+      isError: false,
+      metadata: {
+        filePath: "src/demo.ts",
+        source: "provider-session-test",
+      },
+    });
+  });
+
+  it("does not let explicit executable mode bypass an unsupported model profile", () => {
+    const session = new ProviderSession(baseConfig({
+      provider: "deepseek",
+      model: "deepseek-reasoner",
+      env: { DEEPSEEK_API_KEY: "cfg-key" },
+      executionMode: "kiln-executable",
+    }));
+
+    expect(session.capabilities.supportedTools).toHaveLength(0);
+  });
+
+  it("derives executable mode from the resolved provider model profile", () => {
+    const session = new ProviderSession(baseConfig({
+      provider: "openai",
+      model: "gpt-5.4",
+      env: { OPENAI_API_KEY: "cfg-key" },
+    }));
+
+    expect(session.capabilities.supportedTools).toEqual(["mock_builtin"]);
+  });
+
+  it("does not derive executable mode when no model is selected", () => {
+    const session = new ProviderSession(baseConfig({
+      provider: "openai",
+      env: { OPENAI_API_KEY: "cfg-key" },
+    }));
+
+    expect(session.capabilities.supportedTools).toHaveLength(0);
   });
 
   it("yields error and completed when adapter streaming throws", async () => {
@@ -314,6 +529,7 @@ describe("ProviderSession.run()", () => {
     const session = new ProviderSession(baseConfig({
       provider: "openai",
       env: { OPENAI_API_KEY: "cfg-key" },
+      executionMode: "text-only",
     }));
     const events = await collectEvents(session.run({ prompt: "error test" }));
 
@@ -332,6 +548,7 @@ describe("ProviderSession.run()", () => {
     const session = new ProviderSession(baseConfig({
       provider: "openai",
       env: { OPENAI_API_KEY: "cfg-key" },
+      executionMode: "text-only",
     }));
 
     const events = await collectEvents(session.run({
@@ -354,7 +571,9 @@ describe("ProviderSession.run()", () => {
 
     const session = new ProviderSession(baseConfig({
       provider: "openai",
+      model: "gpt-4o",
       env: { OPENAI_API_KEY: "config-key" },
+      executionMode: "text-only",
     }));
 
     await collectEvents(session.run({
@@ -364,7 +583,7 @@ describe("ProviderSession.run()", () => {
 
     expect(adapterMocks.openai.ctor).toHaveBeenCalledWith({
       apiKey: "options-key",
-      defaultModel: undefined,
+      defaultModel: "gpt-4o",
     });
   });
 
@@ -374,14 +593,16 @@ describe("ProviderSession.run()", () => {
 
     const session = new ProviderSession(baseConfig({
       provider: "openai",
+      model: "gpt-4o",
       env: { OPENAI_API_KEY: "config-key" },
+      executionMode: "text-only",
     }));
 
     await collectEvents(session.run({ prompt: "config key" }));
 
     expect(adapterMocks.openai.ctor).toHaveBeenCalledWith({
       apiKey: "config-key",
-      defaultModel: undefined,
+      defaultModel: "gpt-4o",
     });
   });
 
@@ -391,13 +612,15 @@ describe("ProviderSession.run()", () => {
 
     const session = new ProviderSession(baseConfig({
       provider: "openai",
+      model: "gpt-4o",
+      executionMode: "text-only",
     }));
 
     await collectEvents(session.run({ prompt: "process key" }));
 
     expect(adapterMocks.openai.ctor).toHaveBeenCalledWith({
       apiKey: "process-key",
-      defaultModel: undefined,
+      defaultModel: "gpt-4o",
     });
   });
 
@@ -431,6 +654,7 @@ describe("ProviderSession.run()", () => {
         "[file-governance] DENY **/.env",
         "[data-firewall] REDACT logs",
       ],
+      executionMode: "text-only",
     }));
 
     await collectEvents(session.run({ prompt: "constraint prompt" }));
@@ -460,6 +684,7 @@ describe("ProviderSession.run()", () => {
       task: "Ship provider session implementation",
       systemPrompt: "legacy system prompt should not be used in preamble mode",
       constraintInstructions: ["[file-governance] DENY **/.env"],
+      executionMode: "text-only",
     }));
 
     await collectEvents(session.run({
@@ -491,6 +716,7 @@ describe("ProviderSession.run()", () => {
     const session = new ProviderSession(baseConfig({
       provider: "openai",
       env: { OPENAI_API_KEY: "cfg-key" },
+      executionMode: "text-only",
     }));
 
     await collectEvents(session.run({ prompt: "token tracking" }));

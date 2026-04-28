@@ -64,10 +64,34 @@ describe("GUI authority forwarding", () => {
     expect(cfg.additionalTools?.some((tool) => tool.name === "glob")).toBe(true);
     expect(cfg.perCallCapabilities?.has("read")).toBe(true);
     expect(cfg.toolAuthority?.has("write")).toBe(true);
+    expect(cfg.modelOverride).toEqual({
+      provider: "codex-oauth",
+      model: "gpt-5.4-mini",
+    });
     expect(deriveGuiAuthorityStatusFromPerCallConfig(cfg)).toEqual({
       effective: "destructive",
       completeness: "authoritative",
     });
+  });
+
+  it("fails closed for executable direct providers without an explicit active model", async () => {
+    const { buildGuiTurnPerCallConfig } = await import("../../src/gateway/gui-gateway.js");
+    const cfg = buildGuiTurnPerCallConfig("openai", undefined);
+
+    expect(cfg.modelOverride).toBeUndefined();
+    expect(cfg.toolAllowlist?.size).toBe(0);
+    expect(cfg.toolAuthority?.size).toBe(0);
+  });
+
+  it("uses the explicit active model for executable direct providers", async () => {
+    const { buildGuiTurnPerCallConfig } = await import("../../src/gateway/gui-gateway.js");
+    const cfg = buildGuiTurnPerCallConfig("openai", "gpt-4o");
+
+    expect(cfg.modelOverride).toEqual({
+      provider: "openai",
+      model: "gpt-4o",
+    });
+    expect(cfg.toolAllowlist?.has("read")).toBe(true);
   });
 
   it("includes authorityStatus in both welcome and done frame payload shapes", async () => {

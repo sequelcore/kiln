@@ -1,34 +1,31 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { KilnAppConfig } from "../src/config.js";
 
-const mockRegister = vi.fn();
-const mockInitialize = vi.fn().mockResolvedValue(undefined);
-const mockConnect = vi.fn().mockResolvedValue(undefined);
-const mockCreateServer = vi.fn(() => ({ connect: mockConnect }));
+const coreMocks = vi.hoisted(() => {
+  const connect = vi.fn().mockResolvedValue(undefined);
+  const bridge = { source: "core-default-bridge" };
+  return {
+    bridge,
+    createDefaultBuiltinToolSurface: vi.fn(() => ({ bridge })),
+    initialize: vi.fn().mockResolvedValue(undefined),
+    connect,
+    createServer: vi.fn(() => ({ connect })),
+  };
+});
 
 vi.mock("@modelcontextprotocol/sdk/server/stdio.js", () => ({
   StdioServerTransport: class MockStdioServerTransport {},
 }));
 
 vi.mock("@kilnai/core", () => ({
-  DevToolRegistry: class MockDevToolRegistry {
-    register = mockRegister;
-  },
-  DevToolExecutionBridge: class MockDevToolExecutionBridge {
-    constructor(_options: unknown) {}
-  },
+  createDefaultBuiltinToolSurface: coreMocks.createDefaultBuiltinToolSurface,
   DevToolsMcpServer: class MockDevToolsMcpServer {
-    constructor(_options: unknown) {}
-    initialize = mockInitialize;
-    createServer = mockCreateServer;
+    constructor(options: unknown) {
+      expect(options).toEqual({ bridge: coreMocks.bridge });
+    }
+    initialize = coreMocks.initialize;
+    createServer = coreMocks.createServer;
   },
-  BashTool: class MockBashTool {},
-  ReadTool: class MockReadTool {},
-  WriteTool: class MockWriteTool {},
-  EditTool: class MockEditTool {},
-  GrepTool: class MockGrepTool {},
-  GlobTool: class MockGlobTool {},
-  GitTool: class MockGitTool {},
 }));
 
 import { createCli } from "../src/index.js";
@@ -58,10 +55,10 @@ describe("tools command", () => {
 
     await toolsCommand(APP_CONFIG, { mcp: true });
 
-    expect(mockRegister).toHaveBeenCalledTimes(7);
-    expect(mockInitialize).toHaveBeenCalledTimes(1);
-    expect(mockCreateServer).toHaveBeenCalledTimes(1);
-    expect(mockConnect).toHaveBeenCalledTimes(1);
+    expect(coreMocks.createDefaultBuiltinToolSurface).toHaveBeenCalledTimes(1);
+    expect(coreMocks.initialize).toHaveBeenCalledTimes(1);
+    expect(coreMocks.createServer).toHaveBeenCalledTimes(1);
+    expect(coreMocks.connect).toHaveBeenCalledTimes(1);
     expect(stderrSpy).toHaveBeenCalledWith(
       "kiln dev tools MCP server running (stdio)",
     );

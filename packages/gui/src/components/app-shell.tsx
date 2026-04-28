@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type { GuiInboundFrame, GuiSessionListResponse } from "@kilnai/gateway-contracts";
+import type { GuiInboundFrame } from "@kilnai/gateway-contracts";
 import { GuiGatewayClient } from "../api/client.js";
 import { useGuiWs } from "../lib/use-gui-ws.js";
-import { waitForGateway } from "../lib/wait-for-gateway.js";
 import { useSessionStore } from "../lib/session-store.js";
 import { deriveChangedFiles, derivePendingApprovals, deriveRuntimeContinuity } from "../lib/session-store.js";
 import { SessionList } from "./session-list.js";
@@ -22,8 +21,8 @@ import { SessionTelemetry } from "./session-telemetry.js";
 import { useUiStore } from "../lib/ui-store.js";
 import { Button } from "@/components/ui/button";
 
-const GATEWAY_BASE = "/gui-api";
 const NARROW_LAYOUT_QUERY = "(max-width: 1024px)";
+const PROVIDER_SWITCH_WAIT_TIMEOUT_MS = 5_500;
 
 function KilnMark() {
   return (
@@ -231,15 +230,46 @@ function mapActivityLabel(activity: ReturnType<typeof useSessionStore.getState>[
   return `${activity.phase}${tool}${details}`;
 }
 
-async function fetchSessions(): Promise<GuiSessionListResponse["sessions"]> {
-  const response = await fetch(`${GATEWAY_BASE}/sessions`, {
-    headers: { accept: "application/json" },
+function waitForProviderSwitchResolution(provider: string, model: string | null): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const deadline = Date.now() + PROVIDER_SWITCH_WAIT_TIMEOUT_MS;
+    let pollTimeoutId: ReturnType<typeof setTimeout> | null = null;
+    let settled = false;
+
+    const settle = (callback: () => void) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (pollTimeoutId) {
+        clearTimeout(pollTimeoutId);
+      }
+      callback();
+    };
+
+    const poll = () => {
+      const state = useSessionStore.getState();
+      if (!state.providerSwitching) {
+        if (state.activeProvider === provider && state.activeModel === model) {
+          settle(resolve);
+          return;
+        }
+        settle(() => {
+          reject(new Error(state.errorBanner ?? "Provider switch failed."));
+        });
+        return;
+      }
+      if (Date.now() >= deadline) {
+        settle(() => {
+          reject(new Error("Provider switch timed out. Please retry."));
+        });
+        return;
+      }
+      pollTimeoutId = setTimeout(poll, 50);
+    };
+
+    poll();
   });
-  if (!response.ok) {
-    throw new Error(`Session list fetch failed (${response.status})`);
-  }
-  const payload = await response.json() as GuiSessionListResponse;
-  return payload.sessions ?? [];
 }
 
 export function AppShell() {
@@ -280,6 +310,7 @@ export function AppShell() {
   const setErrorBanner = useSessionStore((state) => state.setErrorBanner);
   const clearErrorBanner = useSessionStore((state) => state.clearErrorBanner);
   const onWelcome = useSessionStore((state) => state.onWelcome);
+  const onProvidersRefreshed = useSessionStore((state) => state.onProvidersRefreshed);
   const onSessionEvent = useSessionStore((state) => state.onSessionEvent);
   const onDone = useSessionStore((state) => state.onDone);
   const onError = useSessionStore((state) => state.onError);
@@ -295,6 +326,7 @@ export function AppShell() {
   const setResume = useSessionStore((state) => state.setResume);
   const disconnect = useSessionStore((state) => state.disconnect);
   const setTheme = useUiStore((state) => state.setTheme);
+  const gatewayClient = useMemo(() => new GuiGatewayClient(window.location.origin), []);
   const changedFiles = useMemo(() => deriveChangedFiles(timelineEntries), [timelineEntries]);
   const runtimeContinuity = useMemo(() => deriveRuntimeContinuity(timelineEntries, activeProvider), [activeProvider, timelineEntries]);
   const pendingApprovals = useMemo(() => derivePendingApprovals(timelineEntries), [timelineEntries]);
@@ -317,7 +349,7 @@ export function AppShell() {
     let cancelled = false;
     setGatewayReady(false);
     setGatewayError(null);
-    void waitForGateway(GATEWAY_BASE, { timeoutMs: 3_000 })
+    void gatewayClient.waitForHealth({ timeoutMs: 3_000 })
       .then(() => {
         if (!cancelled) {
           setGatewayReady(true);
@@ -332,7 +364,7 @@ export function AppShell() {
     return () => {
       cancelled = true;
     };
-  }, [gatewayAttempt]);
+  }, [gatewayAttempt, gatewayClient]);
 
   useEffect(() => {
     const media = window.matchMedia(NARROW_LAYOUT_QUERY);
@@ -412,7 +444,6 @@ export function AppShell() {
   }, [isNarrow, isPaletteOpen]);
 
   const wsUrl = useMemo(() => toWsUrl("/gui/ws"), []);
-  const gatewayClient = useMemo(() => new GuiGatewayClient(window.location.origin), []);
 
   useEffect(() => {
     const notifyWindowClosed = () => {
@@ -440,6 +471,8 @@ export function AppShell() {
         onCleared();
       } else if (frame.type === "provider_changed") {
         onProviderChanged(frame);
+      } else if (frame.type === "providers_refreshed") {
+        onProvidersRefreshed(frame.providers);
       } else if (frame.type === "exec_confirmed") {
         onExecConfirmed();
         } else if (frame.type === "thinking") {
@@ -464,16 +497,16 @@ export function AppShell() {
   });
 
   useEffect(() => {
-    setSender(send);
+    setSender(wsState === "open" ? send : null);
     return () => {
       setSender(null);
       disconnect();
     };
-  }, [disconnect, send, setSender]);
+  }, [disconnect, send, setSender, wsState]);
 
   const sessionsQuery = useQuery({
     queryKey: ["gui", "sessions", turnCounter],
-    queryFn: fetchSessions,
+    queryFn: async () => gatewayClient.loadSessions(),
     enabled: gatewayReady,
   });
 
@@ -525,12 +558,31 @@ export function AppShell() {
     }
   }, [sessionDetailQuery.error, setErrorBanner]);
 
+  useEffect(() => {
+    if (dashboardQuery.error) {
+      setErrorBanner("Could not load dashboard state.");
+    }
+  }, [dashboardQuery.error, setErrorBanner]);
+
+  useEffect(() => {
+    if (!dashboardQuery.error && dashboardQuery.data && errorBanner === "Could not load dashboard state.") {
+      clearErrorBanner();
+    }
+  }, [clearErrorBanner, dashboardQuery.data, dashboardQuery.error, errorBanner]);
+
+  useEffect(() => {
+    if (!dashboardQuery.error && dashboardQuery.data) {
+      onProvidersRefreshed(dashboardQuery.data.providers);
+    }
+  }, [dashboardQuery.data, dashboardQuery.error, onProvidersRefreshed]);
+
   const activityLabel = mapActivityLabel(activity);
+  const dashboardData = dashboardQuery.error ? undefined : dashboardQuery.data;
   const resumeInfo = activeProvider
-    ? dashboardQuery.data?.resumeInfoByProvider?.[activeProvider] ?? null
+    ? dashboardData?.resumeInfoByProvider?.[activeProvider] ?? null
     : null;
-  const workingDirectory = dashboardQuery.data?.workingDirectory;
-  const domainLabel = dashboardQuery.data?.domainLabel;
+  const workingDirectory = dashboardData?.workingDirectory;
+  const domainLabel = dashboardData?.domainLabel;
   const persistThemePreference = (theme: "kiln-dark" | "kiln-light" | "system-follow") => {
     void gatewayClient.saveThemePreference(theme);
     const nextUrl = new URL(window.location.href);
@@ -669,7 +721,7 @@ export function AppShell() {
         <WorkspacePanel
           domainLabel={domainLabel}
           gatewayWorkingDirectory={workingDirectory}
-          workspaceTree={dashboardQuery.data?.workspaceTree}
+          workspaceTree={dashboardData?.workspaceTree}
           selectedSessionId={selectedSessionId}
           sessionMeta={selectedSessionMeta}
           activeProvider={activeProvider}
@@ -862,7 +914,7 @@ export function AppShell() {
             resumeInfo={resumeInfo}
             runtimeContinuity={runtimeContinuity}
             changedFiles={changedFiles}
-            fieldTelemetry={dashboardQuery.data?.telemetry ?? null}
+            fieldTelemetry={dashboardData?.telemetry ?? null}
           />
           <Transcript
             entries={timelineEntries}
@@ -937,8 +989,31 @@ export function AppShell() {
         providers={providers}
         activeProvider={activeProvider}
         activeModel={activeModel}
-        onSwitchProvider={(provider, model) => {
-          switchProvider(provider, model);
+        onSwitchProvider={async (provider, model) => {
+          const normalizedModel = typeof model === "string" && model.trim().length > 0
+            ? model.trim()
+            : null;
+
+          const started = switchProvider(provider, normalizedModel ?? undefined);
+          if (!started) {
+            const message = useSessionStore.getState().errorBanner ?? "Provider switch failed.";
+            setErrorBanner(message);
+            throw new Error(message);
+          }
+
+          try {
+            await waitForProviderSwitchResolution(provider, normalizedModel);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "Provider switch failed.";
+            setErrorBanner(message);
+            throw (error instanceof Error ? error : new Error(message));
+          }
+        }}
+        onRefreshProviders={async () => {
+          if (wsState === "open") {
+            send({ type: "refresh_providers" });
+          }
+          await dashboardQuery.refetch();
         }}
         onOpenChange={(open) => setIsProviderPickerOpen(open)}
       />

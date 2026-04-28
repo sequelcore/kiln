@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { createBunWebSocket } from "hono/bun";
 import type { WSContext } from "hono/ws";
-import { execSync } from "node:child_process";
+import { isGuiProviderModeless, type GuiProviderDiscoveryResult } from "@kilnai/gateway-contracts";
 import { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
 import type { PerCallToolConfig } from "../session/runtime-session-orchestrator.js";
 import { SessionRegistry } from "../session/session-registry.js";
@@ -16,72 +16,16 @@ import {
   createAttachedRuntimeBuiltinToolSurface,
   type AttachedRuntimeBuiltinToolSurface,
 } from "./attached-runtime-tool-surface.js";
+import {
+  projectGuiOperatorModels,
+  providerRequiresSelectedModelMessage,
+  resolveGuiOperatorDiscoveryResults,
+} from "./gui-provider-models.js";
 import type {
   RuntimeTurnApprovalTransition,
   RuntimeTurnAuthorityDecision,
   RuntimeTurnFileChange,
 } from "../session/runtime-turn-record.js";
-
-async function getOpencodeModels(): Promise<string[]> {
-  try {
-    const output = execSync("opencode models", { encoding: "utf8" });
-    return output
-      .split("\n")
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0);
-  } catch {
-    return [];
-  }
-}
-
-async function getCodexModels(): Promise<string[]> {
-  try {
-    const { spawn } = await import("node:child_process");
-    return await new Promise<string[]>((resolve) => {
-      const proc = spawn("codex", ["app-server"], {
-        stdio: ["pipe", "pipe", "ignore"],
-      });
-      let buffer = "";
-      const timer = setTimeout(() => {
-        proc.kill();
-        resolve([]);
-      }, 5_000);
-      proc.stdout.on("data", (chunk: Buffer) => {
-        buffer += chunk.toString();
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed) continue;
-          try {
-            const msg = JSON.parse(trimmed) as Record<string, unknown>;
-            if (msg.id === 1 && msg.result) {
-              clearTimeout(timer);
-              proc.kill();
-              const data = (msg.result as { data?: Array<{ id: string }> }).data ?? [];
-              resolve(data.map((m) => m.id).filter(Boolean));
-              return;
-            }
-          } catch {
-            // not JSON yet, keep buffering
-          }
-        }
-      });
-      proc.on("error", () => { clearTimeout(timer); resolve([]); });
-      proc.on("close", () => { clearTimeout(timer); resolve([]); });
-      // Send model/list request once process is ready
-      setTimeout(() => {
-        try {
-          proc.stdin.write(JSON.stringify({ method: "model/list", id: 1, params: { limit: 100, includeHidden: false } }) + "\n");
-        } catch {
-          // process may have exited
-        }
-      }, 300);
-    });
-  } catch {
-    return [];
-  }
-}
 
 /**
  * Provider switch handler - called by the gateway when user switches provider.
@@ -118,6 +62,7 @@ export interface TuiGatewayOptions {
   readonly eventBus?: EventBus;
   /** Whether plan mode is active (read-only planning). */
   readonly planMode?: boolean;
+  readonly getProviderAvailability?: () => Promise<Record<string, boolean>> | Record<string, boolean>;
 }
 
 export interface TuiGateway {
@@ -125,6 +70,7 @@ export interface TuiGateway {
   readonly url: string;
   readonly port: number;
   readonly models: Record<string, string[]>;
+  readonly providerDiscovery: readonly GuiProviderDiscoveryResult[];
   /** Gracefully stop the gateway server. */
   shutdown(): void;
 }
@@ -186,17 +132,20 @@ export function deriveTuiAuthorityStatusFromPerCallConfig(
 
 export function buildTuiWelcomeFramePayload(input: {
   readonly models: Record<string, string[]>;
+  readonly providerDiscovery?: readonly GuiProviderDiscoveryResult[];
   readonly planMode: boolean;
   readonly authorityStatus: TuiAuthorityStatus;
 }): {
   readonly type: "welcome";
   readonly models: Record<string, string[]>;
+  readonly providerDiscovery?: readonly GuiProviderDiscoveryResult[];
   readonly planMode: boolean;
   readonly authorityStatus: TuiAuthorityStatus;
 } {
   return {
     type: "welcome",
     models: input.models,
+    ...(input.providerDiscovery ? { providerDiscovery: input.providerDiscovery } : {}),
     planMode: input.planMode,
     authorityStatus: input.authorityStatus,
   };
@@ -318,16 +267,23 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
         async onOpen(_event: Event, ws: WSContext) {
           activityStreamer.register(ws, eventBus);
           const activeProvider = options.sessionManager.getProvider();
-          const activeModel = options.sessionManager.getModel() || undefined;
+          const storedModel = options.sessionManager.getModel().trim();
+          const currentDiscovery = await refreshDiscovery();
+          const currentModels = projectGuiOperatorModels(currentDiscovery);
+          const providerModels = currentModels[activeProvider];
+          let activeModel = storedModel.length > 0 ? storedModel : undefined;
+          if (providerModels?.length === 0 && isGuiProviderModeless(activeProvider)) {
+            if (activeModel) {
+              options.sessionManager.setModel("");
+            }
+            activeModel = undefined;
+          }
           const authorityStatus = deriveTuiAuthorityStatusFromPerCallConfig(
             buildTuiTurnPerCallConfig(activeProvider, activeModel, builtinToolSurface),
           );
           ws.send(JSON.stringify(buildTuiWelcomeFramePayload({
-            models: {
-              claude: ["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5-20251001", "sonnet", "opus", "haiku"],
-              codex: codexModels.length > 0 ? codexModels : ["o4-mini", "o3", "o3-mini"],
-              opencode: opencodeModels,
-            },
+            models: currentModels,
+            providerDiscovery: currentDiscovery,
             planMode: options.planMode ?? false,
             authorityStatus,
           })));
@@ -351,15 +307,44 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
               return;
             }
 
+            if (frame.type === "refresh_providers") {
+              const currentDiscovery = await refreshDiscovery();
+              ws.send(JSON.stringify({
+                type: "providers_refreshed",
+                models: projectGuiOperatorModels(currentDiscovery),
+                providerDiscovery: currentDiscovery,
+              }));
+              return;
+            }
+
             if (frame.type === "provider") {
-              const newProvider: string = typeof frame.provider === "string" ? frame.provider : "claude";
-              const newModel: string | undefined = typeof frame.model === "string" ? frame.model : undefined;
-              options.sessionManager.setProvider(newProvider);
-              if (newModel !== undefined) {
-                options.sessionManager.setModel(newModel);
+              const requestId = typeof frame.requestId === "string" && frame.requestId.trim().length > 0
+                ? frame.requestId.trim()
+                : undefined;
+              if (!requestId) {
+                ws.send(JSON.stringify({ type: "error", message: "Provider switch requestId is required" }));
+                return;
               }
-              options.onProviderSwitch?.(newProvider);
-              ws.send(JSON.stringify({ type: "provider_changed", provider: newProvider }));
+              const currentDiscovery = await refreshDiscovery();
+              const resolution = resolveTuiProviderSwitch({
+                provider: frame.provider,
+                model: frame.model,
+                discovery: currentDiscovery,
+              });
+              if (!resolution.ok) {
+                ws.send(JSON.stringify({ type: "error", message: resolution.error }));
+                return;
+              }
+              options.sessionManager.setProvider(resolution.provider);
+              options.sessionManager.setModel(resolution.model);
+              options.onProviderSwitch?.(resolution.provider);
+              const providerChangedFrame = {
+                type: "provider_changed",
+                provider: resolution.provider,
+                requestId,
+                ...(resolution.model ? { model: resolution.model } : {}),
+              };
+              ws.send(JSON.stringify(providerChangedFrame));
               return;
             }
 
@@ -403,8 +388,39 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
             ws.send(JSON.stringify({ type: "thinking" }));
             let result;
             try {
+              const currentDiscovery = await refreshDiscovery();
               const activeProvider = options.sessionManager.getProvider();
-              const activeModel = options.sessionManager.getModel() || undefined;
+              const activeDiscovery = currentDiscovery.find((entry) => entry.provider === activeProvider);
+              const providerModels = activeDiscovery?.available ? activeDiscovery.models : undefined;
+              if (!providerModels || (providerModels.length === 0 && !isGuiProviderModeless(activeProvider))) {
+                ws.send(JSON.stringify({
+                  type: "error",
+                  message: activeDiscovery?.reason ?? `Provider '${activeProvider}' is unavailable`,
+                }));
+                return;
+              }
+              const storedModel = options.sessionManager.getModel().trim();
+              let activeModel = storedModel.length > 0 ? storedModel : undefined;
+              if (providerModels.length === 0 && isGuiProviderModeless(activeProvider)) {
+                if (activeModel) {
+                  options.sessionManager.setModel("");
+                }
+                activeModel = undefined;
+              }
+              if (providerModels.length > 0 && !activeModel) {
+                ws.send(JSON.stringify({
+                  type: "error",
+                  message: providerRequiresSelectedModelMessage(activeProvider),
+                }));
+                return;
+              }
+              if (activeModel && !providerModels.includes(activeModel)) {
+                ws.send(JSON.stringify({
+                  type: "error",
+                  message: `Provider '${activeProvider}' does not advertise model '${activeModel}'`,
+                }));
+                return;
+              }
               result = await processAdmittedTurn({
                 orchestrator,
                 sessionRegistry,
@@ -414,6 +430,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
                 systemPrompt,
                 userParts: textParts(userContent),
                 channel: "tui",
+                providerValidation: currentDiscovery,
                 contextArtifactCache: options.contextArtifactCache,
                 perCallConfig: buildTuiTurnPerCallConfig(activeProvider, activeModel, builtinToolSurface),
                 turnCapture: {
@@ -443,11 +460,16 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
             }
             const output = result.result;
             const runtimeContinuity = output.runtimeContinuity ?? { strategy: "none" };
+            const routedProvider = output.routingDecision?.provider ?? options.sessionManager.getProvider();
+            const fallbackRoutedModel = isGuiProviderModeless(routedProvider)
+              ? ""
+              : options.sessionManager.getModel();
+            const routedModel = output.routingDecision?.model ?? fallbackRoutedModel;
 
             const authorityStatus = deriveTuiAuthorityStatusFromPerCallConfig(
               buildTuiTurnPerCallConfig(
-                output.routingDecision?.provider ?? options.sessionManager.getProvider(),
-                output.routingDecision?.model ?? options.sessionManager.getModel(),
+                routedProvider,
+                routedModel || undefined,
                 builtinToolSurface,
               ),
             );
@@ -456,8 +478,8 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
               parts: output.parts,
               inputTokens: output.inputTokens,
               outputTokens: output.outputTokens,
-              routedProvider: output.routingDecision?.provider ?? options.sessionManager.getProvider(),
-              routedModel: output.routingDecision?.model ?? options.sessionManager.getModel(),
+              routedProvider,
+              routedModel,
               runtimeContinuity,
               authorityStatus,
             })));
@@ -474,10 +496,13 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
     }),
   );
 
-  const [opencodeModels, codexModels] = await Promise.all([
-    getOpencodeModels(),
-    getCodexModels(),
-  ]);
+  let providerDiscovery = await resolveTuiProviderDiscovery(options.getProviderAvailability);
+  let models = projectGuiOperatorModels(providerDiscovery);
+  const refreshDiscovery = async (): Promise<readonly GuiProviderDiscoveryResult[]> => {
+    providerDiscovery = await resolveTuiProviderDiscovery(options.getProviderAvailability);
+    models = projectGuiOperatorModels(providerDiscovery);
+    return providerDiscovery;
+  };
 
   const server = Bun.serve({
     port,
@@ -488,11 +513,8 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
   return {
     url: `ws://localhost:${port}/tui/ws`,
     port,
-    models: {
-      claude: ["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5-20251001", "sonnet", "opus", "haiku"],
-      codex: codexModels.length > 0 ? codexModels : ["o4-mini", "o3", "o3-mini"],
-      opencode: opencodeModels,
-    },
+    models,
+    providerDiscovery,
     shutdown: () => server.stop(),
   };
 }
@@ -712,4 +734,59 @@ class TuiActivityStreamer {
     // text_delta, completed, error are handled by the gateway's done frame
     // approval_requested/approval_received come via eventBus, not CliSessionEvent
   }
+}
+
+async function resolveTuiProviderDiscovery(
+  getProviderAvailability?: () => Promise<Record<string, boolean>> | Record<string, boolean>,
+): Promise<GuiProviderDiscoveryResult[]> {
+  const providerAvailability = getProviderAvailability
+    ? await Promise.resolve(getProviderAvailability()).catch(() => ({}))
+    : {};
+  return resolveGuiOperatorDiscoveryResults(providerAvailability);
+}
+
+function resolveTuiProviderSwitch(input: {
+  readonly provider: unknown;
+  readonly model: unknown;
+  readonly models?: Record<string, string[]>;
+  readonly discovery?: readonly GuiProviderDiscoveryResult[];
+}):
+  | { readonly ok: true; readonly provider: string; readonly model: string }
+  | { readonly ok: false; readonly error: string } {
+  const provider = typeof input.provider === "string" ? input.provider.trim() : "";
+  if (!provider) {
+    return { ok: false, error: "Provider switch request must include a provider id" };
+  }
+
+  const discoveryResult = input.discovery?.find((entry) => entry.provider === provider);
+  if (discoveryResult && !discoveryResult.available) {
+    return { ok: false, error: discoveryResult.reason };
+  }
+  const discoveredProviderModels = discoveryResult
+    ? [...discoveryResult.models]
+    : input.models?.[provider];
+  if (!discoveredProviderModels) {
+    return { ok: false, error: `Provider '${provider}' is unavailable` };
+  }
+  const providerModels = isGuiProviderModeless(provider) ? [] : discoveredProviderModels;
+  if (providerModels.length === 0) {
+    if (!isGuiProviderModeless(provider)) {
+      return { ok: false, error: `Provider '${provider}' is unavailable` };
+    }
+    const requestedModel = typeof input.model === "string" ? input.model.trim() : "";
+    if (requestedModel.length > 0) {
+      return { ok: false, error: `Provider '${provider}' does not advertise model '${requestedModel}'` };
+    }
+    return { ok: true, provider, model: "" };
+  }
+
+  const model = typeof input.model === "string" ? input.model.trim() : "";
+  if (!model) {
+    return { ok: false, error: providerRequiresSelectedModelMessage(provider) };
+  }
+  if (!providerModels.includes(model)) {
+    return { ok: false, error: `Provider '${provider}' does not advertise model '${model}'` };
+  }
+
+  return { ok: true, provider, model };
 }

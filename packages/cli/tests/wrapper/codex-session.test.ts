@@ -5,14 +5,7 @@ import type { CodexSessionConfig } from "../../src/wrapper/codex-session.js";
 import type { IKilnSession } from "../../src/wrapper/session.js";
 import type { SessionEvent } from "../../src/wrapper/session.js";
 
-const mockCatalog = vi.hoisted(() => [
-  { model: "gpt-5.4", provider: "openai", inputPer1M: 2.50, outputPer1M: 15.00, qualityTier: "high", cachedInputRatePer1M: 0.25 },
-  { model: "gpt-5.3-codex", provider: "openai", inputPer1M: 1.75, outputPer1M: 14.00, qualityTier: "high", cachedInputRatePer1M: 0.175 },
-  { model: "gpt-5.3-codex-spark", provider: "openai", inputPer1M: 1.75, outputPer1M: 14.00, qualityTier: "high", cachedInputRatePer1M: 0.175 },
-]);
-
 vi.mock("@kilnai/core", () => ({
-  MODEL_CATALOG: mockCatalog,
   CODEX_DEFAULT_MODEL: "gpt-5.4",
   resolveExecutionIdentity: ({
     configuredProvider,
@@ -250,6 +243,63 @@ describe("CodexSession.run() JSONL parsing", () => {
     expect(spawnArgs).toContain("untrusted");
     expect(spawnArgs).toContain("--sandbox");
     expect(spawnArgs).toContain("read-only");
+  });
+
+  it("run() passes configured model to codex CLI via -m", async () => {
+    const { proc, emitLine, resolveExit } = makeMockProc();
+    vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
+    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
+
+    const session = new CodexSession(baseConfig({
+      model: "gpt-5.3-codex",
+    }));
+    const collectPromise = collectEvents(session.run({ prompt: "Inspect the repo" }));
+
+    emitLine({ type: "thread.started", thread_id: "t1" });
+    emitLine({ type: "turn.started" });
+    emitLine({ type: "turn.completed", usage: { input_tokens: 10, cached_input_tokens: 0, output_tokens: 5 } });
+    resolveExit(0);
+
+    await collectPromise;
+
+    const spawnCall = vi.mocked(mockSpawn).mock.calls[0];
+    const spawnArgs = spawnCall?.[1] as string[] | undefined;
+    expect(spawnArgs).toBeDefined();
+    const modelFlagIndex = spawnArgs?.indexOf("-m");
+    expect(modelFlagIndex).toBeGreaterThanOrEqual(0);
+    expect(spawnArgs?.[modelFlagIndex! + 1]).toBe("gpt-5.3-codex");
+  });
+
+  it("run() uses CODEX_MODEL env override for identity without forcing -m", async () => {
+    const { proc, emitLine, resolveExit } = makeMockProc();
+    vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
+    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
+
+    const session = new CodexSession(baseConfig());
+    const collectPromise = collectEvents(session.run({
+      prompt: "Inspect the repo",
+      env: {
+        CODEX_MODEL: "experimental-model-alpha",
+        FOO: "bar",
+      },
+    }));
+
+    emitLine({ type: "thread.started", thread_id: "t1" });
+    emitLine({ type: "turn.started" });
+    emitLine({ type: "turn.completed", usage: { input_tokens: 10, cached_input_tokens: 0, output_tokens: 5 } });
+    resolveExit(0);
+
+    await collectPromise;
+
+    const spawnCall = vi.mocked(mockSpawn).mock.calls[0];
+    const spawnArgs = spawnCall?.[1] as string[] | undefined;
+    const spawnOptions = spawnCall?.[2] as { env?: Record<string, string> } | undefined;
+    expect(spawnArgs).toBeDefined();
+    expect(spawnArgs).not.toContain("-m");
+    const promptArg = spawnArgs?.[spawnArgs.length - 1] ?? "";
+    expect(promptArg).toContain("model: experimental-model-alpha");
+    expect(spawnOptions?.env?.CODEX_MODEL).toBeUndefined();
+    expect(spawnOptions?.env?.FOO).toBe("bar");
   });
 
   it("run() appends --ephemeral when configured", async () => {
@@ -546,12 +596,12 @@ describe("CodexSession.run() cost", () => {
     expect((costUpdate as { mode: string }).mode).toBe("computed");
   });
 
-  it("cost_update usd is computed correctly from token counts", async () => {
+  it("cost_update usd defaults to 0 without static catalog pricing", async () => {
     const { proc, emitLine, resolveExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
     vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
 
-    const session = new CodexSession(baseConfig({ model: "gpt-5.4" }));
+    const session = new CodexSession(baseConfig({ model: "unknown-model-xyz" }));
     const collectPromise = collectEvents(session.run({ prompt: "test" }));
 
     emitLine({ type: "thread.started", thread_id: "t1" });
@@ -560,26 +610,11 @@ describe("CodexSession.run() cost", () => {
     resolveExit(0);
 
     const events = await collectPromise;
-    const costUpdate = events.find((e) => "type" in e && (e as { type: string }).type === "cost_update") as { usd: number } | undefined;
-    expect(costUpdate?.usd).toBeCloseTo(10.0, 4);
-  });
-
-  it("cost_update uses cached rate when cached_input_tokens is present", async () => {
-    const { proc, emitLine, resolveExit } = makeMockProc();
-    vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
-    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
-
-    const session = new CodexSession(baseConfig({ model: "gpt-5.4" }));
-    const collectPromise = collectEvents(session.run({ prompt: "test" }));
-
-    emitLine({ type: "thread.started", thread_id: "t1" });
-    emitLine({ type: "turn.started" });
-    emitLine({ type: "turn.completed", usage: { input_tokens: 1_000_000, cached_input_tokens: 500_000, output_tokens: 200_000 } });
-    resolveExit(0);
-
-    const events = await collectPromise;
-    const costUpdate = events.find((e) => "type" in e && (e as { type: string }).type === "cost_update") as { usd: number } | undefined;
-    expect(costUpdate?.usd).toBeCloseTo(4.375, 3);
+    const costUpdate = events.find((e) => "type" in e && (e as { type: string }).type === "cost_update") as
+      | { usd: number; model?: string }
+      | undefined;
+    expect(costUpdate?.usd).toBe(0);
+    expect(costUpdate?.model).toBe("unknown-model-xyz");
   });
 
   it("cost_update is yielded before completed event", async () => {
@@ -747,23 +782,28 @@ describe("CodexSession.run() error handling", () => {
     expect(completed?.isError).toBe(true);
   });
 
-  it("run() yields error with code UNKNOWN_MODEL for unknown model", async () => {
-    const { proc, resolveExit } = makeMockProc();
+  it("run() does not emit UNKNOWN_MODEL error for unknown model", async () => {
+    const { proc, emitLine, resolveExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
     vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
 
     const session = new CodexSession(baseConfig({ model: "unknown-model-xyz" }));
     const collectPromise = collectEvents(session.run({ prompt: "test" }));
 
+    emitLine({ type: "thread.started", thread_id: "t1" });
+    emitLine({ type: "turn.started" });
+    emitLine({ type: "turn.completed", usage: { input_tokens: 10, cached_input_tokens: 0, output_tokens: 5 } });
     resolveExit(0);
 
     const events = await collectPromise;
-    expect(events).toContainEqual({
-      type: "error",
-      code: "UNKNOWN_MODEL",
-      message: "No pricing data for model: unknown-model-xyz",
-      isRetryable: false,
-    });
+    expect(vi.mocked(mockSpawn)).toHaveBeenCalledTimes(1);
+    const unknownModelError = events.find(
+      (event) =>
+        "type" in event
+        && (event as { type: string }).type === "error"
+        && (event as { code?: string }).code === "UNKNOWN_MODEL",
+    );
+    expect(unknownModelError).toBeUndefined();
   });
 
   it("run() respects abortSignal and kills subprocess", async () => {

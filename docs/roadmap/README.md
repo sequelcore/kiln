@@ -25,15 +25,13 @@ indicates the default read order, not necessarily the active work priority.
   rules.
 - `docs/architecture/tool-execution.md`
   Canonical tool authority, execution, and safety boundaries.
+- `docs/architecture/provider-model-discovery.md`
+  Canonical provider/model discovery, diagnostics, and selection rules.
 
 ### Active roadmaps
 
 - `01-gui-phase-1-parity-checklist.md`
   Phase I GUI parity checklist. The deletion gate for `packages/tui/`.
-
-- `03-shared-tool-surface-unification.md`
-  Converges direct/OAuth provider tool execution onto one canonical Kiln tool
-  surface and establishes MCP as the shared wrapper integration contract.
 
 - `04-operator-surfaces-and-remote-gui.md`
   Defines Kiln's long-term human operator surface strategy: web-first local GUI,
@@ -64,8 +62,9 @@ indicates the default read order, not necessarily the active work priority.
    `session-model.md`, and `tool-execution.md`.
 2. Read `01-gui-phase-1-parity-checklist.md` when planning or verifying GUI
    parity work.
-3. Read `03-shared-tool-surface-unification.md` when planning provider,
-   wrapper, MCP, or builtin-tool execution changes.
+3. Read `docs/architecture/tool-execution.md` and
+   `docs/architecture/provider-model-discovery.md` when planning provider,
+   wrapper, MCP, builtin-tool execution, or model-discovery changes.
 4. Read `04-operator-surfaces-and-remote-gui.md` when planning GUI, IDE,
    desktop, remote GUI, cloud dashboard, or operator supervision work.
 5. Read `05-provider-credential-pool.md` when planning any provider-auth
@@ -83,26 +82,24 @@ This is the delivery queue. It is the only priority order in this index.
 1. Record the GUI parity manual walkthrough using
    `docs/guides/gui-parity-walkthrough.md`, then prepare the TUI deletion PR
    using `docs/guides/tui-deletion-checklist.md`.
-2. Execute `03-shared-tool-surface-unification.md` to remove the hardcoded
-   direct-provider tool split and make MCP the canonical shared-tool contract.
-3. Use `04-operator-surfaces-and-remote-gui.md` to sequence post-parity
+2. Use `04-operator-surfaces-and-remote-gui.md` to sequence post-parity
    surface work. The first post-parity backbone slice is the canonical session
    event/replay envelope; real Workspace, Changed Files, Approvals, diffs,
    replay, and future invokable-agent panels must project from that contract
    instead of GUI-local state.
-4. Execute `05-provider-credential-pool.md` to close the single-credential
+3. Execute `05-provider-credential-pool.md` to close the single-credential
    limitation and generalize pool semantics across all provider categories.
    This slice unblocks multi-account scaling for opencode-go, codex-oauth,
    and direct API-key providers without special-casing any of them.
-5. Execute `06-config-projection-unification.md` after the provider credential
+4. Execute `06-config-projection-unification.md` after the provider credential
    pool and config/registry ADR sequencing is clear. It owns harness config
    projection, drift detection, engine registry, and config lifecycle commands.
-6. Keep `02-external-benchmark-validation.md` deferred until the product
+5. Keep `02-external-benchmark-validation.md` deferred until the product
    surface stabilizes.
 
 ## Current Status
 
-As of 2026-04-27:
+As of 2026-04-28:
 
 - the taxonomy freeze and module mapping slices are closed
 - bounded-context doctrine now lives only in the stable architecture docs,
@@ -132,8 +129,10 @@ As of 2026-04-27:
   and passes; category 7 remains covered by CLI integration tests
 - the remaining gate before TUI deletion is operational, not implementation:
   record the manual walkthrough, then cut the deletion PR
-- shared direct/OAuth provider tool execution is now an active roadmap concern
-  in `03-shared-tool-surface-unification.md`
+- shared direct/OAuth provider tool execution is complete and its stable
+  doctrine lives in `docs/architecture/tool-execution.md`
+- provider model-discovery diagnostics are complete and their stable doctrine
+  lives in `docs/architecture/provider-model-discovery.md`
 - operator surface strategy now lives in
   `04-operator-surfaces-and-remote-gui.md`, keeping human supervision surfaces
   separate from tool execution/provider integration concerns

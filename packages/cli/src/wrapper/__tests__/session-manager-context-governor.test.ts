@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 const {
   coreGovernorConstructorMock,
@@ -224,7 +224,11 @@ describe("SessionManager context governor integration", () => {
   });
 
   it("does not re-export the deleted CLI-local governor surface", () => {
-    const wrapperIndex = readFileSync(new URL("../index.ts", import.meta.url), "utf8");
+    const sourceIndexUrl = new URL("../index.ts", import.meta.url);
+    const wrapperIndexUrl = existsSync(sourceIndexUrl)
+      ? sourceIndexUrl
+      : new URL("../../../src/wrapper/index.ts", import.meta.url);
+    const wrapperIndex = readFileSync(wrapperIndexUrl, "utf8");
 
     expect(wrapperIndex).not.toContain("../application/context-governor.js");
     expect(wrapperIndex).not.toContain("DefaultContextGovernor");

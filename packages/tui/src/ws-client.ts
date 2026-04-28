@@ -43,10 +43,37 @@ export type TuiInboundFrame =
       };
     }
   | { type: "error"; message: string; code?: string }
-  | { type: "welcome"; greeting?: string; models?: Record<string, string[]>; planMode?: boolean }
+  | {
+      type: "welcome";
+      greeting?: string;
+      models?: Record<string, string[]>;
+      providerDiscovery?: Array<{
+        provider: string;
+        available: boolean;
+        models: string[];
+        status: string;
+        reason: string;
+        authState: string;
+        lastCheckedAt: string;
+      }>;
+      planMode?: boolean;
+    }
   | { type: "exec_confirmed" } // Plan mode exit confirmed, execution can proceed
   | { type: "cleared" }
-  | { type: "provider_changed"; provider: string }
+  | {
+      type: "providers_refreshed";
+      models: Record<string, string[]>;
+      providerDiscovery: Array<{
+        provider: string;
+        available: boolean;
+        models: string[];
+        status: string;
+        reason: string;
+        authState: string;
+        lastCheckedAt: string;
+      }>;
+    }
+  | { type: "provider_changed"; provider: string; model?: string; requestId: string }
   | { type: "approval_requested"; description: string; sessionId: string }
   | { type: "approval_received"; approved: boolean; reason?: string; sessionId?: string };
 
@@ -56,7 +83,8 @@ export type TuiInboundFrame =
 export type TuiOutboundFrame =
   | { type: "message"; content: string }
   | { type: "clear" }
-  | { type: "provider"; provider: string; model?: string }
+  | { type: "refresh_providers" }
+  | { type: "provider"; provider: string; model?: string; requestId: string }
   | { type: "approve"; sessionId?: string }
   | { type: "reject"; reason: string; sessionId?: string }
   | { type: "exec" }; // Exit plan mode and execute
@@ -155,10 +183,12 @@ export class TuiWsClient {
     this.heartbeatTimer = setInterval(() => {
       if (this.ws?.readyState === WebSocket.OPEN) {
         this.ws.send("ping");
-        this.heartbeatTimeoutTimer = setTimeout(() => {
-          // No pong received — close and reconnect
-          this.ws?.close();
-        }, HEARTBEAT_TIMEOUT_MS - HEARTBEAT_INTERVAL_MS);
+        if (!this.heartbeatTimeoutTimer) {
+          this.heartbeatTimeoutTimer = setTimeout(() => {
+            // No pong received — close and reconnect
+            this.ws?.close(4000, "pong timeout");
+          }, HEARTBEAT_TIMEOUT_MS - HEARTBEAT_INTERVAL_MS);
+        }
       }
     }, HEARTBEAT_INTERVAL_MS);
   }
@@ -182,6 +212,9 @@ export class TuiWsClient {
   }
 
   private scheduleReconnect(): void {
+    if (this.reconnectTimer) {
+      return;
+    }
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.connect();

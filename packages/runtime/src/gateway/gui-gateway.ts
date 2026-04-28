@@ -1,4 +1,3 @@
-import { execSync } from "node:child_process";
 import { join } from "node:path";
 import { Hono } from "hono";
 import { createBunWebSocket } from "hono/bun";
@@ -7,7 +6,6 @@ import {
   EventBus,
   extractText,
   textParts,
-  OpenCodeAuth,
   type ApprovalReceivedEvent,
   type ApprovalRequestedEvent,
   type KilnEvent,
@@ -32,19 +30,26 @@ import {
   resolveGuiDistCandidates,
   resolveGuiDistPath,
 } from "./gui-static-assets.js";
-import { buildGuiOperatorModels } from "./gui-provider-models.js";
+import {
+  buildWelcomeProviderDescriptors,
+  projectGuiOperatorModels,
+  providerRequiresSelectedModelMessage,
+  resolveGuiOperatorDiscoveryResults,
+  resolveGuiProviderSwitch,
+} from "./gui-provider-models.js";
 import {
   buildAttachedRuntimePerCallToolConfig,
   createAttachedRuntimeBuiltinToolSurface,
   type AttachedRuntimeBuiltinToolSurface,
 } from "./attached-runtime-tool-surface.js";
-import type {
-  GuiDashboardSnapshot,
-  GuiInboundFrame,
-  GuiOutboundFrame,
-  GuiProviderDescriptor,
-  GuiSessionDetail,
-  GuiSessionSummary,
+import {
+  isGuiProviderModeless,
+  type GuiDashboardSnapshot,
+  type GuiInboundFrame,
+  type GuiOutboundFrame,
+  type GuiProviderDiscoveryResult,
+  type GuiSessionDetail,
+  type GuiSessionSummary,
 } from "@kilnai/gateway-contracts";
 
 export type {
@@ -62,7 +67,11 @@ export type {
 export interface StartGuiGatewayOptions {
   readonly port?: number;
   readonly guiDistPath?: string;
-  readonly getSnapshot: () => Promise<GuiDashboardSnapshot>;
+  readonly getSnapshot: (context?: {
+    readonly operatorModels?: Record<string, string[]>;
+    readonly operatorDiscovery?: readonly GuiProviderDiscoveryResult[];
+  }) => Promise<GuiDashboardSnapshot>;
+  readonly getProviderAvailability?: () => Promise<Record<string, boolean>> | Record<string, boolean>;
   readonly listSessions?: () => Promise<readonly GuiSessionSummary[]>;
   readonly getSessionDetail?: (sessionId: string) => Promise<GuiSessionDetail | null>;
   readonly workingDirectory?: string;
@@ -79,40 +88,13 @@ export interface GuiGateway {
   readonly apiUrl: string;
   readonly operatorWsUrl?: string;
   readonly operatorModels?: Record<string, string[]>;
+  readonly operatorDiscovery?: readonly GuiProviderDiscoveryResult[];
   readonly hasMountedGui: boolean;
   shutdown(): void;
 }
 
 const GUI_APP_NAME = "kiln-gui";
 const GUI_TENANT_ID = "_gui";
-
-const PROVIDER_ORDER = [
-  "claude",
-  "codex",
-  "opencode",
-  "codex-oauth",
-  "anthropic",
-  "openai",
-  "deepseek",
-  "openrouter",
-  "ollama",
-] as const;
-
-const PROVIDER_META: Record<string, {
-  readonly label: string;
-  readonly group: GuiProviderDescriptor["group"];
-  readonly free: boolean;
-}> = {
-  claude: { label: "Claude", group: "harness", free: false },
-  codex: { label: "Codex", group: "harness", free: false },
-  opencode: { label: "OpenCode", group: "harness", free: false },
-  "codex-oauth": { label: "Codex OAuth", group: "subscription", free: true },
-  anthropic: { label: "Anthropic", group: "direct-api", free: false },
-  openai: { label: "OpenAI", group: "direct-api", free: false },
-  deepseek: { label: "DeepSeek", group: "direct-api", free: false },
-  openrouter: { label: "OpenRouter", group: "direct-api", free: true },
-  ollama: { label: "Ollama", group: "direct-api", free: true },
-};
 
 export function buildGuiPerCallToolConfig(): PerCallToolConfig {
   return buildAttachedRuntimePerCallToolConfig({
@@ -163,117 +145,6 @@ export function deriveGuiAuthorityStatusFromPerCallConfig(
   return { effective: "unknown", completeness: "partial" };
 }
 
-function getProviderMeta(providerId: string): {
-  readonly label: string;
-  readonly group: GuiProviderDescriptor["group"];
-  readonly free: boolean;
-} {
-  return PROVIDER_META[providerId] ?? {
-    label: providerId,
-    group: "direct-api",
-    free: false,
-  };
-}
-
-function buildWelcomeProviderDescriptors(models: Record<string, string[]>): GuiProviderDescriptor[] {
-  const knownDescriptors = PROVIDER_ORDER.map((id) => {
-    const meta = getProviderMeta(id);
-    return {
-      id,
-      label: meta.label,
-      group: meta.group,
-      free: meta.free,
-      models: models[id] ?? [],
-      available: true,
-    } satisfies GuiProviderDescriptor;
-  });
-
-  const known = new Set(PROVIDER_ORDER);
-  const extras = Object.keys(models)
-    .filter((id) => !known.has(id as (typeof PROVIDER_ORDER)[number]))
-    .sort((a, b) => a.localeCompare(b))
-    .map((id) => ({
-      id,
-      label: id,
-      group: "direct-api" as const,
-      free: false,
-      models: models[id] ?? [],
-      available: true,
-    } satisfies GuiProviderDescriptor));
-
-  return [...knownDescriptors, ...extras];
-}
-
-async function getOpencodeModels(): Promise<string[]> {
-  try {
-    const output = execSync("opencode models", { encoding: "utf8" });
-    return output
-      .split("\n")
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0);
-  } catch {
-    return [];
-  }
-}
-
-async function getCodexModels(): Promise<string[]> {
-  try {
-    const { spawn } = await import("node:child_process");
-    return await new Promise<string[]>((resolve) => {
-      const proc = spawn("codex", ["app-server"], {
-        stdio: ["pipe", "pipe", "ignore"],
-      });
-      let buffer = "";
-      const timer = setTimeout(() => {
-        proc.kill();
-        resolve([]);
-      }, 5_000);
-      proc.stdout.on("data", (chunk: Buffer) => {
-        buffer += chunk.toString();
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed) continue;
-          try {
-            const msg = JSON.parse(trimmed) as Record<string, unknown>;
-            if (msg.id === 1 && msg.result) {
-              clearTimeout(timer);
-              proc.kill();
-              const data = (msg.result as { data?: Array<{ id: string }> }).data ?? [];
-              resolve(data.map((model) => model.id).filter(Boolean));
-              return;
-            }
-          } catch {
-            // ignore malformed json while bootstrapping app-server
-          }
-        }
-      });
-      proc.on("error", () => {
-        clearTimeout(timer);
-        resolve([]);
-      });
-      proc.on("close", () => {
-        clearTimeout(timer);
-        resolve([]);
-      });
-      setTimeout(() => {
-        try {
-          proc.stdin.write(JSON.stringify({
-            method: "model/list",
-            id: 1,
-            params: { limit: 100, includeHidden: false },
-          }) + "\n");
-        } catch {
-          // process may already be closed
-        }
-      }, 300);
-    });
-  } catch {
-    return [];
-  }
-}
-
 export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<GuiGateway> {
   const port = options.port ?? 4810;
   const app = new Hono();
@@ -287,9 +158,18 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
   let activeConnections = 0;
 
   const { upgradeWebSocket, websocket } = createBunWebSocket();
-  const operatorModels = transportOptions
-    ? await resolveOperatorModels()
+  let operatorDiscovery = transportOptions
+    ? await resolveOperatorDiscovery(options.getProviderAvailability)
     : undefined;
+  let operatorModels = operatorDiscovery ? projectGuiOperatorModels(operatorDiscovery) : undefined;
+  const refreshOperatorDiscovery = async (): Promise<readonly GuiProviderDiscoveryResult[] | undefined> => {
+    if (!transportOptions) {
+      return undefined;
+    }
+    operatorDiscovery = await resolveOperatorDiscovery(options.getProviderAvailability);
+    operatorModels = projectGuiOperatorModels(operatorDiscovery);
+    return operatorDiscovery;
+  };
 
   let operatorWsUrl: string | undefined;
   const updateConnectionCount = (count: number) => {
@@ -312,7 +192,11 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
   app.get("/gui-api/health", (c) => c.json({ status: "ok", channel: "gui", connections: activeConnections }));
 
   app.get("/gui/api/dashboard", async (c) => {
-    const snapshot = await options.getSnapshot();
+    const nextDiscovery = await refreshOperatorDiscovery();
+    const snapshot = await options.getSnapshot({
+      operatorModels: nextDiscovery ? projectGuiOperatorModels(nextDiscovery) : undefined,
+      operatorDiscovery: nextDiscovery,
+    });
     return c.json(snapshot);
   });
 
@@ -374,11 +258,12 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
     return c.json(sessionDetail);
   });
 
-  if (transportOptions && operatorModels) {
+  if (transportOptions) {
     wireOperatorTransport(app, upgradeWebSocket, {
       port,
       transport: transportOptions,
-      models: operatorModels,
+      initialDiscovery: operatorDiscovery ?? [],
+      getDiscovery: async () => (await refreshOperatorDiscovery()) ?? [],
       onReady: (url) => {
         operatorWsUrl = url;
       },
@@ -438,20 +323,19 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
     apiUrl: `http://localhost:${boundPort}/gui/api/dashboard`,
     operatorWsUrl,
     operatorModels,
+    operatorDiscovery,
     hasMountedGui,
     shutdown: () => server.stop(),
   };
 }
 
-async function resolveOperatorModels(): Promise<Record<string, string[]>> {
-  const [opencodeModels, codexModels] = await Promise.all([
-    getOpencodeModels(),
-    getCodexModels(),
-  ]);
-  const opencodeAuth = new OpenCodeAuth();
-  const opencodeFile = await opencodeAuth.loadAuthFile();
-  const opencodeTier = opencodeFile?.tier ?? null;
-  return buildGuiOperatorModels({ opencodeModels, codexModels, opencodeTier });
+async function resolveOperatorDiscovery(
+  getProviderAvailability?: () => Promise<Record<string, boolean>> | Record<string, boolean>,
+): Promise<GuiProviderDiscoveryResult[]> {
+  const providerAvailability = getProviderAvailability
+    ? await Promise.resolve(getProviderAvailability()).catch(() => ({}))
+    : {};
+  return resolveGuiOperatorDiscoveryResults(providerAvailability);
 }
 
 function wireOperatorTransport(
@@ -460,7 +344,8 @@ function wireOperatorTransport(
   input: {
     port: number;
     transport: OperatorSessionTransportOptions;
-    models: Record<string, string[]>;
+    initialDiscovery: readonly GuiProviderDiscoveryResult[];
+    getDiscovery: () => Promise<readonly GuiProviderDiscoveryResult[]>;
     onReady: (wsUrl: string) => void;
     onSocketOpen?: () => void;
     onSocketClose?: () => void;
@@ -492,27 +377,46 @@ function wireOperatorTransport(
     "/gui/ws",
     upgradeWebSocket((c) => {
       const userId = c.req.query("userId") ?? crypto.randomUUID();
+      let discovery = [...input.initialDiscovery];
+      const refreshDiscovery = async (): Promise<readonly GuiProviderDiscoveryResult[]> => {
+        discovery = [...await input.getDiscovery().catch(() => [])];
+        return discovery;
+      };
 
       return {
         async onOpen(_event: Event, ws: WSContext) {
           input.onSocketOpen?.();
           activityStreamer.register(ws, eventBus);
-          const activeProvider = input.transport.sessionManager.getProvider();
-          let activeModel = input.transport.sessionManager.getModel();
-          if (!activeModel) {
-            const fallbackModel = input.models[activeProvider]?.[0];
-            if (fallbackModel) {
-              input.transport.sessionManager.setModel(fallbackModel);
-              activeModel = fallbackModel;
+          const currentDiscovery = await refreshDiscovery();
+          const currentModels = projectGuiOperatorModels(currentDiscovery);
+          const storedProvider = input.transport.sessionManager.getProvider();
+          const providerModels = currentModels[storedProvider];
+          let activeProvider: string | undefined;
+          let activeModel: string | undefined;
+          if (providerModels && providerModels.length > 0) {
+            const storedModel = input.transport.sessionManager.getModel().trim();
+            if (storedModel.length > 0 && providerModels.includes(storedModel)) {
+              activeProvider = storedProvider;
+              activeModel = storedModel;
+            } else {
+              input.transport.sessionManager.setModel("");
+              input.transport.sessionManager.setProvider("");
             }
+          } else if (providerModels && isGuiProviderModeless(storedProvider)) {
+            activeProvider = storedProvider;
+            input.transport.sessionManager.setModel("");
+          } else {
+            input.transport.sessionManager.setModel("");
+            input.transport.sessionManager.setProvider("");
           }
           const guiAuthorityStatus = deriveGuiAuthorityStatusFromPerCallConfig(
-            buildGuiTurnPerCallConfig(activeProvider, activeModel, builtinToolSurface),
+            buildGuiTurnPerCallConfig(activeProvider ?? "", activeModel, builtinToolSurface),
           );
           ws.send(JSON.stringify({
             type: "welcome",
-            models: input.models,
-            providers: buildWelcomeProviderDescriptors(input.models),
+            models: currentModels,
+            providerDiscovery: currentDiscovery,
+            providers: buildWelcomeProviderDescriptors(currentDiscovery),
             activeProvider,
             activeModel,
             planMode: input.transport.planMode ?? false,
@@ -546,21 +450,52 @@ function wireOperatorTransport(
               return;
             }
 
-            if (frame.type === "provider") {
-              const newProvider = typeof frame.provider === "string" ? frame.provider : "claude";
-              const newModel = typeof frame.model === "string"
-                ? frame.model
-                : input.models[newProvider]?.[0];
-              input.transport.sessionManager.setProvider(newProvider);
-              if (newModel !== undefined) {
-                input.transport.sessionManager.setModel(newModel);
-              }
-              fireAndForgetProviderSwitch(input.transport.onProviderSwitch, newProvider);
+            if (frame.type === "refresh_providers") {
+              const currentDiscovery = await refreshDiscovery();
               ws.send(JSON.stringify({
-                type: "provider_changed",
-                provider: newProvider,
-                model: newModel,
+                type: "providers_refreshed",
+                models: projectGuiOperatorModels(currentDiscovery),
+                providerDiscovery: currentDiscovery,
+                providers: buildWelcomeProviderDescriptors(currentDiscovery),
               } satisfies GuiInboundFrame));
+              return;
+            }
+
+            if (frame.type === "provider") {
+              const requestId = typeof frame.requestId === "string" && frame.requestId.trim().length > 0
+                ? frame.requestId.trim()
+                : undefined;
+              if (!requestId) {
+                ws.send(JSON.stringify({
+                  type: "error",
+                  message: "Provider switch requestId is required",
+                } satisfies GuiInboundFrame));
+                return;
+              }
+              const currentDiscovery = await refreshDiscovery();
+              const resolution = resolveGuiProviderSwitch({
+                provider: frame.provider,
+                model: frame.model,
+                discovery: currentDiscovery,
+              });
+              if (!resolution.ok) {
+                ws.send(JSON.stringify({
+                  type: "error",
+                  message: resolution.error,
+                } satisfies GuiInboundFrame));
+                return;
+              }
+
+              input.transport.sessionManager.setProvider(resolution.provider);
+              input.transport.sessionManager.setModel(resolution.modelForSessionManager);
+              fireAndForgetProviderSwitch(input.transport.onProviderSwitch, resolution.provider);
+              const providerChangedFrame = {
+                type: "provider_changed",
+                provider: resolution.provider,
+                requestId,
+                ...(resolution.modelForAck ? { model: resolution.modelForAck } : {}),
+              } satisfies GuiInboundFrame;
+              ws.send(JSON.stringify(providerChangedFrame));
               return;
             }
 
@@ -594,7 +529,7 @@ function wireOperatorTransport(
               return;
             }
 
-            if (frame.type === "approve" || (frame.type === "approval_response" && (frame as { approved?: boolean }).approved === true)) {
+            if (frame.type === "approve") {
               const sessionId = typeof frame.sessionId === "string" ? frame.sessionId : undefined;
               const result = approvalRegistry.approve(sessionId);
               if (!result.ok) {
@@ -603,7 +538,7 @@ function wireOperatorTransport(
               return;
             }
 
-            if (frame.type === "reject" || (frame.type === "approval_response" && (frame as { approved?: boolean }).approved === false)) {
+            if (frame.type === "reject") {
               const sessionId = typeof frame.sessionId === "string" ? frame.sessionId : undefined;
               const reason = typeof frame.reason === "string" ? frame.reason : "rejected by user";
               const result = approvalRegistry.reject(reason, sessionId);
@@ -617,9 +552,7 @@ function wireOperatorTransport(
 
             const userContent = typeof frame.content === "string"
               ? frame.content
-              : typeof frame.text === "string"
-                ? frame.text
-                : "";
+              : "";
             const resumeSessionId = typeof frame.resumeSessionId === "string"
               ? frame.resumeSessionId.trim()
               : "";
@@ -644,8 +577,46 @@ function wireOperatorTransport(
             ws.send(JSON.stringify({ type: "thinking" } satisfies GuiInboundFrame));
             let result;
             try {
-              const activeProvider = input.transport.sessionManager.getProvider();
-              const activeModel = input.transport.sessionManager.getModel() || undefined;
+              const currentDiscovery = await refreshDiscovery();
+              const activeProvider = input.transport.sessionManager.getProvider().trim();
+              if (activeProvider.length === 0) {
+                ws.send(JSON.stringify({
+                  type: "error",
+                  message: "No provider selected. Choose a provider before sending a message.",
+                } satisfies GuiInboundFrame));
+                return;
+              }
+              const activeDiscovery = currentDiscovery.find((entry) => entry.provider === activeProvider);
+              const providerModels = activeDiscovery?.available ? activeDiscovery.models : undefined;
+              if (!providerModels || (providerModels.length === 0 && !isGuiProviderModeless(activeProvider))) {
+                ws.send(JSON.stringify({
+                  type: "error",
+                  message: activeDiscovery?.reason ?? `Provider '${activeProvider}' is unavailable`,
+                } satisfies GuiInboundFrame));
+                return;
+              }
+              const storedModel = input.transport.sessionManager.getModel().trim();
+              let activeModel = storedModel.length > 0 ? storedModel : undefined;
+              if (providerModels.length === 0 && isGuiProviderModeless(activeProvider)) {
+                if (activeModel) {
+                  input.transport.sessionManager.setModel("");
+                }
+                activeModel = undefined;
+              }
+              if (providerModels.length > 0 && !activeModel) {
+                ws.send(JSON.stringify({
+                  type: "error",
+                  message: providerRequiresSelectedModelMessage(activeProvider),
+                } satisfies GuiInboundFrame));
+                return;
+              }
+              if (activeModel && !providerModels.includes(activeModel)) {
+                ws.send(JSON.stringify({
+                  type: "error",
+                  message: `Provider '${activeProvider}' does not advertise model '${activeModel}'`,
+                } satisfies GuiInboundFrame));
+                return;
+              }
               result = await processAdmittedTurn({
                 orchestrator,
                 sessionRegistry,
@@ -656,6 +627,7 @@ function wireOperatorTransport(
                 systemPrompt: input.transport.systemPrompt ?? "You are a helpful assistant.",
                 userParts: textParts(userContent),
                 channel: "gui",
+                providerValidation: currentDiscovery,
                 contextArtifactCache: input.transport.contextArtifactCache,
                 perCallConfig: buildGuiTurnPerCallConfig(activeProvider, activeModel, builtinToolSurface),
                 turnCapture: {
@@ -685,6 +657,11 @@ function wireOperatorTransport(
             }
             const output = result.result;
             const runtimeContinuity = output.runtimeContinuity ?? { strategy: "none" };
+            const routedProvider = output.routingDecision?.provider ?? input.transport.sessionManager.getProvider();
+            const fallbackRoutedModel = isGuiProviderModeless(routedProvider)
+              ? ""
+              : input.transport.sessionManager.getModel();
+            const routedModel = output.routingDecision?.model ?? fallbackRoutedModel;
 
             ws.send(JSON.stringify({
               type: "done",
@@ -692,13 +669,13 @@ function wireOperatorTransport(
               parts: output.parts,
               inputTokens: output.inputTokens,
               outputTokens: output.outputTokens,
-              routedProvider: output.routingDecision?.provider ?? input.transport.sessionManager.getProvider(),
-              routedModel: output.routingDecision?.model ?? input.transport.sessionManager.getModel(),
+              routedProvider,
+              routedModel,
               runtimeContinuity,
               authorityStatus: deriveGuiAuthorityStatusFromPerCallConfig(
                 buildGuiTurnPerCallConfig(
-                  output.routingDecision?.provider ?? input.transport.sessionManager.getProvider(),
-                  output.routingDecision?.model ?? input.transport.sessionManager.getModel(),
+                  routedProvider,
+                  routedModel || undefined,
                   builtinToolSurface,
                 ),
               ),

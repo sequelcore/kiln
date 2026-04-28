@@ -120,10 +120,6 @@ export {
   OpenCodeRateLimitError,
   OpenCodeQuotaError,
   OPENCODE_BASE_URL,
-  OPENCODE_GO_DEFAULT_MODEL,
-  OPENCODE_ZEN_DEFAULT_MODEL,
-  OPENCODE_GO_MODELS,
-  OPENCODE_ZEN_MODELS,
 } from "./infrastructure/opencode-provider.js";
 export type { OpenCodeAdapterConfig } from "./infrastructure/opencode-provider.js";
 export { classifyToolError } from "./tool-error-classifier.js";

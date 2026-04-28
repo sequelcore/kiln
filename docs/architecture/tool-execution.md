@@ -56,6 +56,37 @@ Current source-of-truth boundary:
 - structured file-change evidence from runtime write and edit tools must
   survive the executor boundary rather than being flattened away
 
+## Shared Provider Tool Surface
+
+Kiln has one builtin developer-tool surface. The default builtin registry lives
+in `@kilnai/core` and every runtime-facing projection is derived from that
+registry.
+
+Projection rules:
+
+- direct and OAuth providers receive tool definitions from the canonical
+  builtin surface when their execution profile supports Kiln-local tool
+  execution
+- MCP exposes the same builtin registry rather than a parallel schema list
+- CLI, GUI, TUI, and runtime adapters consume projections instead of rebuilding
+  tool schemas locally
+- wrapper-specific install, plugin, or prompt layers remain packaging and host
+  UX; they do not own private execution loops for Kiln builtin tools
+
+Direct and OAuth providers share one direct-provider session family. Execution
+mode is declared by provider/profile capability rather than by hardcoded
+provider-name branches:
+
+- `text-only`: model output is treated as text and tool proposals are not
+  executed by Kiln
+- `kiln-executable`: structured provider tool calls are routed through the
+  runtime orchestrator, canonical authority, execution bridge, telemetry, and
+  turn-record evidence
+
+`codex-oauth` is not a special session class. It is one provider profile using
+the same executable direct-provider path as any other provider that advertises
+the required structured tool capability.
+
 ## Execution Boundary
 
 Execution adapters may host transport or session wiring, but they do not own
@@ -68,6 +99,34 @@ Current boundary posture:
 - `cli-subscription-executor.ts` is a bounded operator transport adapter, not
   a hidden execution-policy owner
 - dead executor wrappers should be deleted once no concrete caller set remains
+
+## MCP-First Packaging Boundary
+
+MCP is the shared external runtime contract for Kiln developer tools. External
+hosts and wrappers consume Kiln tools through MCP or through projections of the
+canonical registry. Skills, rules, workflows, prompts, and wrapper plugins are
+packaging layers above that contract.
+
+Packaging layers may define:
+
+- prompt payload and reusable instructions
+- policy hints for a host
+- allowed tool groups
+- workflow steps
+- host-specific installation metadata
+
+Packaging layers must not define:
+
+- independent authorization semantics
+- private execution loops for Kiln builtin tools
+- telemetry or audit ownership
+- result sanitization bypasses
+- copied tool schemas that drift from the canonical registry
+
+Wrapper-specific plugins or installers are thin projections. They can install
+MCP configuration, register host metadata, or package instructions, but the
+concrete tool call still resolves through the canonical runtime authority and
+execution path before any local action happens.
 
 ## Runtime Projections
 
@@ -122,3 +181,8 @@ Authority behavior differs by surface:
 - explicit error classification
 - no silent fallback that bypasses safety or policy
 - no parallel authority DSL outside `AuthorityDescriptor` + existing authorizer
+- no packaging-owned execution substrate outside the canonical runtime path
+- no duplicated builtin-tool schema or execution registry outside the canonical
+  core tool surface
+- no provider-specific direct-provider session branch when execution profile
+  metadata can express the behavior

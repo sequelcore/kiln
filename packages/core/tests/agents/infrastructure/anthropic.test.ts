@@ -5,6 +5,7 @@ import type {
   AgentStreamEvent,
 } from "../../../src/agents/index.js";
 import { extractText, textParts } from "../../../src/engine/domain/content.js";
+import { getInvalidToolInputDetails } from "../../../src/agents/tool-call-input.js";
 
 const mockCreate = vi.fn();
 
@@ -224,6 +225,30 @@ describe("AnthropicAdapter", () => {
       expect(response.toolCalls).toEqual([
         { id: "toolu_123", name: "search", input: { query: "test" } },
       ]);
+    });
+
+    it("preserves malformed tool_use input as invalid tool input", async () => {
+      mockCreate.mockResolvedValueOnce(
+        makeMessageResponse({
+          content: [
+            {
+              type: "tool_use",
+              id: "toolu_invalid",
+              name: "write",
+              input: "{bad-json}",
+            },
+          ],
+        }),
+      );
+
+      const response = await adapter.createMessage(makeOptions());
+      const invalidDetails = getInvalidToolInputDetails(response.toolCalls[0]!.input);
+
+      expect(response.toolCalls[0]?.name).toBe("write");
+      expect(invalidDetails).toEqual({
+        reason: "Failed to parse tool arguments as JSON.",
+        raw: "{bad-json}",
+      });
     });
 
     it("handles null cache token counts", async () => {

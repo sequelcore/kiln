@@ -1,9 +1,98 @@
-import { describe, expect, it } from "vitest";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
+
+const osMockState = vi.hoisted(() => ({
+  mockedHomedir: `${(process.env.TEMP ?? process.cwd()).replace(/\\/g, "/")}/kiln-session-registry-home-${process.pid}-${Date.now()}`,
+}));
+const TEST_HOME_DIR = osMockState.mockedHomedir;
+
+vi.mock("node:os", async () => {
+  const actual = await vi.importActual<typeof import("node:os")>("node:os");
+  const mocked = {
+    ...actual,
+    homedir: () => osMockState.mockedHomedir || actual.homedir(),
+  };
+  return {
+    ...mocked,
+    default: mocked,
+  };
+});
+
+type MockOpenCodeAuthFile = {
+  tier: "go" | "zen";
+  api_key?: string | null;
+} | null;
+
+const DEFAULT_OPENCODE_API_KEY = "test-opencode-key";
+const DEFAULT_OPENCODE_AUTH_FILE: Exclude<MockOpenCodeAuthFile, null> = {
+  tier: "go",
+  api_key: "stored-opencode-key",
+};
+const DEFAULT_CODEX_OAUTH_AVAILABLE = true;
+const DIRECT_API_ENV_KEYS = [
+  "ANTHROPIC_API_KEY",
+  "OPENAI_API_KEY",
+  "DEEPSEEK_API_KEY",
+  "OPENROUTER_API_KEY",
+] as const;
+const DIRECT_PROVIDER_MODELS = {
+  "codex-oauth": "gpt-5.4",
+  "opencode-go": "minimax-m2.5",
+  "opencode-zen": "anthropic/claude-sonnet-4-6",
+  anthropic: "claude-sonnet-4-6",
+  openai: "gpt-4o",
+  deepseek: "deepseek-chat",
+  openrouter: "nvidia/nemotron-3-nano-30b-a3b:free",
+  ollama: "llama3.1",
+} as const satisfies Record<
+  Exclude<ProviderId, "claude" | "codex" | "opencode">,
+  string
+>;
+const DEFAULT_DIRECT_API_ENV = Object.fromEntries(
+  DIRECT_API_ENV_KEYS.map((key) => [key, process.env[key]]),
+) as Record<(typeof DIRECT_API_ENV_KEYS)[number], string | undefined>;
+const OPENCODE_AUTH_FILE_PATH = join(TEST_HOME_DIR, ".kiln", "auth", "opencode.json");
+const CODEX_OAUTH_FILE_PATH = join(TEST_HOME_DIR, ".kiln", "auth", "codex-oauth.json");
+
+const coreSurfaceMocks = vi.hoisted(() => {
+  process.env.OPENCODE_API_KEY = "test-opencode-key";
+  return {
+    codexOauthAvailable: true,
+    toolNames: ["MockRead", "MockWrite"],
+    opencodeAuthFile: { tier: "go", api_key: "stored-opencode-key" } as MockOpenCodeAuthFile,
+  };
+});
+
+vi.mock("@kilnai/core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@kilnai/core")>();
+  return {
+    ...actual,
+    CodexOAuthAuth: class {
+      async hasValidCredentials(): Promise<boolean> {
+        return coreSurfaceMocks.codexOauthAvailable;
+      }
+    },
+    OpenCodeAuth: class {
+      async loadAuthFile(): Promise<MockOpenCodeAuthFile> {
+        return coreSurfaceMocks.opencodeAuthFile
+          ? { ...coreSurfaceMocks.opencodeAuthFile }
+          : null;
+      }
+    },
+    createDefaultBuiltinToolSurface: vi.fn(() => ({
+      ...actual.createDefaultBuiltinToolSurface(),
+      toolNames: coreSurfaceMocks.toolNames,
+    })),
+  };
+});
+
 import {
   SessionRegistry,
   createDefaultRegistry,
   SessionUnavailableError,
   getProviderDisplayInfo,
+  getRuntimeProviderAvailability,
   isDirectApiProvider,
   translatePermission,
   translatePermissionForProvider,
@@ -53,6 +142,8 @@ const CAPABILITIES: Record<string, SessionCapabilities> = {
   claude: { ...MOCK_CAPA, priority: 1, mcp: true },
   opencode: { ...MOCK_CAPA, priority: 2, mcp: true },
   codex: { ...MOCK_CAPA, priority: 3, mcp: false, costTrackingMode: "computed" },
+  "opencode-go": { ...MOCK_CAPA, priority: 2, mcp: false, costTrackingMode: "computed" },
+  "opencode-zen": { ...MOCK_CAPA, priority: 3, mcp: false, costTrackingMode: "computed" },
   anthropic: { ...MOCK_CAPA, priority: 4, mcp: false, costTrackingMode: "computed" },
   openai: { ...MOCK_CAPA, priority: 5, mcp: false, costTrackingMode: "computed" },
   openrouter: { ...MOCK_CAPA, priority: 6, mcp: false, costTrackingMode: "computed" },
@@ -65,6 +156,8 @@ const COST_TIERS = {
   claude: "high",
   opencode: "medium",
   codex: "low",
+  "opencode-go": "low",
+  "opencode-zen": "medium",
   anthropic: "high",
   openai: "high",
   openrouter: "low",
@@ -74,6 +167,8 @@ const COST_TIERS = {
 
 const ALL_PROVIDER_IDS = [
   "codex-oauth",
+  "opencode-go",
+  "opencode-zen",
   "claude",
   "codex",
   "opencode",
@@ -108,20 +203,87 @@ function makeRegistry(ids: readonly string[] = ALL_PROVIDER_IDS): SessionRegistr
   );
 }
 
-function getDirectProvidersByExecutionMode(registry: SessionRegistry): {
-  executable: readonly ProviderId[];
-  textOnly: readonly ProviderId[];
-} {
-  const providers = registry.list().filter((provider) => isDirectApiProvider(provider.id));
-  return {
-    executable: providers
-      .filter((provider) => provider.capabilities.supportedTools.length > 0)
-      .map((provider) => provider.id),
-    textOnly: providers
-      .filter((provider) => provider.capabilities.supportedTools.length === 0)
-      .map((provider) => provider.id),
-  };
+async function importSessionRegistryWithOpenCodeAuth(options: {
+  readonly envApiKey?: string;
+  readonly authFile: MockOpenCodeAuthFile;
+}) {
+  writeOpenCodeAuthFile(options.authFile ? { ...options.authFile } : null);
+  if (options.envApiKey === undefined) {
+    delete process.env.OPENCODE_API_KEY;
+  } else {
+    process.env.OPENCODE_API_KEY = options.envApiKey;
+  }
+  vi.resetModules();
+  return import("../../src/wrapper/session-registry.js");
 }
+
+function restoreOpenCodeAuthDefaults(): void {
+  process.env.OPENCODE_API_KEY = DEFAULT_OPENCODE_API_KEY;
+  coreSurfaceMocks.codexOauthAvailable = DEFAULT_CODEX_OAUTH_AVAILABLE;
+  coreSurfaceMocks.opencodeAuthFile = { ...DEFAULT_OPENCODE_AUTH_FILE };
+  writeOpenCodeAuthFile({ ...DEFAULT_OPENCODE_AUTH_FILE });
+  writeCodexOauthFile(true);
+}
+
+function writeOpenCodeAuthFile(authFile: MockOpenCodeAuthFile): void {
+  mkdirSync(join(TEST_HOME_DIR, ".kiln", "auth"), { recursive: true });
+  if (!authFile) {
+    rmSync(OPENCODE_AUTH_FILE_PATH, { force: true });
+    return;
+  }
+  writeFileSync(OPENCODE_AUTH_FILE_PATH, JSON.stringify(authFile), "utf8");
+}
+
+function writeCodexOauthFile(available: boolean): void {
+  mkdirSync(join(TEST_HOME_DIR, ".kiln", "auth"), { recursive: true });
+  if (!available) {
+    rmSync(CODEX_OAUTH_FILE_PATH, { force: true });
+    return;
+  }
+  writeFileSync(CODEX_OAUTH_FILE_PATH, JSON.stringify({
+    access_token: "access-token",
+    refresh_token: "refresh-token",
+    expires_at: "2099-01-01T00:00:00.000Z",
+  }), "utf8");
+}
+
+function restoreDirectApiEnvDefaults(): void {
+  for (const key of DIRECT_API_ENV_KEYS) {
+    const value = DEFAULT_DIRECT_API_ENV[key];
+    if (value === undefined) {
+      delete process.env[key];
+      continue;
+    }
+    process.env[key] = value;
+  }
+}
+
+async function importSessionRegistryWithDirectApiEnv(
+  env: Partial<Record<(typeof DIRECT_API_ENV_KEYS)[number], string | undefined>>,
+) {
+  restoreDirectApiEnvDefaults();
+  for (const [key, value] of Object.entries(env) as Array<
+    [(typeof DIRECT_API_ENV_KEYS)[number], string | undefined]
+  >) {
+    if (value === undefined) {
+      delete process.env[key];
+      continue;
+    }
+    process.env[key] = value;
+  }
+  vi.resetModules();
+  return import("../../src/wrapper/session-registry.js");
+}
+
+afterEach(() => {
+  restoreOpenCodeAuthDefaults();
+  restoreDirectApiEnvDefaults();
+});
+
+afterAll(() => {
+  osMockState.mockedHomedir = "";
+  rmSync(TEST_HOME_DIR, { recursive: true, force: true });
+});
 
 describe("SessionRegistry", () => {
   describe("provider helpers", () => {
@@ -140,10 +302,10 @@ describe("SessionRegistry", () => {
       expect(registry).toBeInstanceOf(SessionRegistry);
     });
 
-    it("list() returns 9 providers with healthy status", () => {
+    it("list() returns all providers with healthy status", () => {
       const { registry } = createDefaultRegistry();
       const providers = registry.list();
-      expect(providers).toHaveLength(9);
+      expect(providers).toHaveLength(11);
       const ids = providers.map((p) => p.id).sort();
       expect(ids).toEqual([...ALL_PROVIDER_IDS].sort());
       for (const p of providers) {
@@ -157,7 +319,7 @@ describe("SessionRegistry", () => {
       expect(providers.map((p) => p.id)).toEqual(["openai", "ollama"]);
     });
 
-    it("getProviderDisplayInfo derives groups, models, and free flags from registry plus MODEL_CATALOG", () => {
+    it("getProviderDisplayInfo derives display metadata without owning provider models", () => {
       const { registry } = createDefaultRegistry();
       const displayInfo = getProviderDisplayInfo(registry);
 
@@ -167,21 +329,76 @@ describe("SessionRegistry", () => {
 
       expect(displayInfo.find((entry) => entry.id === "claude")).toMatchObject({
         group: "harness",
+        models: [],
         free: false,
       });
-      expect(displayInfo.find((entry) => entry.id === "claude")?.models).toContain("claude-sonnet-4-6");
 
       expect(displayInfo.find((entry) => entry.id === "codex")).toMatchObject({
         group: "harness",
+        models: [],
         free: false,
       });
-      expect(displayInfo.find((entry) => entry.id === "codex")?.models).toContain("gpt-5.3-codex");
 
       expect(displayInfo.find((entry) => entry.id === "openrouter")).toMatchObject({
         group: "direct-api",
+        models: [],
         free: true,
       });
-      expect(displayInfo.find((entry) => entry.id === "openrouter")?.models.length).toBeGreaterThan(0);
+      expect(displayInfo.find((entry) => entry.id === "opencode-go")).toMatchObject({
+        group: "subscription",
+        models: [],
+        free: true,
+      });
+      expect(displayInfo.find((entry) => entry.id === "opencode-zen")).toMatchObject({
+        group: "direct-api",
+        models: [],
+        free: false,
+      });
+    });
+
+    it("runtime availability honors descriptor availability for env-gated direct providers", () => {
+      const registry = new SessionRegistry([{
+        id: "openai",
+        costTier: "high",
+        capabilities: CAPABILITIES.openai,
+        isAvailable: () => false,
+        create: () => makeMockSession("openai"),
+      }]);
+
+      expect(getRuntimeProviderAvailability(registry)).toEqual({ openai: false });
+    });
+
+    it.each(["codex-oauth", "opencode-go", "opencode-zen"] as const)(
+      "runtime availability leaves %s auth state to runtime model discovery",
+      (provider) => {
+        const registry = new SessionRegistry([{
+          id: provider,
+          costTier: COST_TIERS[provider],
+          capabilities: CAPABILITIES[provider],
+          isAvailable: () => false,
+          create: () => makeMockSession(provider),
+        }]);
+
+        expect(getRuntimeProviderAvailability(registry)).toEqual({ [provider]: true });
+      },
+    );
+
+    it("runtime availability suppresses providers before descriptor availability checks", () => {
+      const isAvailable = vi.fn(() => true);
+      const registry = new SessionRegistry([{
+        id: "openai",
+        costTier: "high",
+        capabilities: CAPABILITIES.openai,
+        isAvailable,
+        create: () => makeMockSession("openai"),
+      }]);
+
+      registry.reportFailure("openai", false);
+      registry.reportFailure("openai", false);
+      registry.reportFailure("openai", false);
+
+      expect(getRuntimeProviderAvailability(registry)).toEqual({ openai: false });
+      expect(isAvailable).not.toHaveBeenCalled();
     });
   });
 
@@ -204,7 +421,7 @@ describe("SessionRegistry", () => {
       } catch (err) {
         expect(err).toBeInstanceOf(SessionUnavailableError);
         const e = err as SessionUnavailableError;
-        expect(e.scores).toHaveLength(9);
+        expect(e.scores).toHaveLength(ALL_PROVIDER_IDS.length);
       }
     });
 
@@ -266,11 +483,17 @@ describe("SessionRegistry", () => {
     it("registers direct provider descriptors with expected priority and cost tiers", () => {
       const { registry } = createDefaultRegistry();
       const anthropic = registry.list().find((p) => p.id === "anthropic");
+      const opencodeGo = registry.list().find((p) => p.id === "opencode-go");
+      const opencodeZen = registry.list().find((p) => p.id === "opencode-zen");
       const openai = registry.list().find((p) => p.id === "openai");
       const openrouter = registry.list().find((p) => p.id === "openrouter");
       const deepseek = registry.list().find((p) => p.id === "deepseek");
       const ollama = registry.list().find((p) => p.id === "ollama");
 
+      expect(opencodeGo?.costTier).toBe("low");
+      expect(opencodeGo?.capabilities.priority).toBe(2);
+      expect(opencodeZen?.costTier).toBe("medium");
+      expect(opencodeZen?.capabilities.priority).toBe(3);
       expect(anthropic?.costTier).toBe("high");
       expect(anthropic?.capabilities.priority).toBe(4);
       expect(openai?.costTier).toBe("high");
@@ -283,9 +506,23 @@ describe("SessionRegistry", () => {
       expect(ollama?.capabilities.priority).toBe(8);
     });
 
-    it("createSession(openai) returns an IKilnSession", () => {
+    it("keeps default direct-provider metadata free of model-dependent tool support", () => {
       const { registry } = createDefaultRegistry();
+      const directProviders = registry.list().filter((provider) => isDirectApiProvider(provider.id));
+
+      expect(directProviders.length).toBeGreaterThan(0);
+      for (const provider of directProviders) {
+        expect(provider.capabilities.supportedTools).toHaveLength(0);
+      }
+    });
+
+    it("createSession(openai) returns an IKilnSession when OPENAI_API_KEY is present", async () => {
+      const { createDefaultRegistry: createRegistryWithOpenAiAuth } = await importSessionRegistryWithDirectApiEnv({
+        OPENAI_API_KEY: "test-openai-key",
+      });
+      const { registry } = createRegistryWithOpenAiAuth();
       const session = registry.createSession("openai", {
+        model: DIRECT_PROVIDER_MODELS.openai,
         task: "test",
         permissionPolicy: BASE_POLICY,
       });
@@ -293,18 +530,164 @@ describe("SessionRegistry", () => {
       expect(typeof session.dispose).toBe("function");
     });
 
-    it("passes translated provider constraints into direct provider session", () => {
-      const { registry } = createDefaultRegistry();
+    it("rejects createSession when a descriptor reports unavailable", () => {
+      const create = vi.fn(() => makeMockSession("openai"));
+      const registry = new SessionRegistry([{
+        id: "openai",
+        costTier: "high",
+        capabilities: CAPABILITIES.openai,
+        isAvailable: () => false,
+        create,
+      }]);
+
+      expect(() => registry.createSession("openai", {
+        task: "test",
+        permissionPolicy: BASE_POLICY,
+      })).toThrow("Provider unavailable: openai");
+      expect(create).not.toHaveBeenCalled();
+    });
+
+    it("creates direct provider sessions with the requested granular policy", async () => {
+      const { createDefaultRegistry: createRegistryWithOpenAiAuth } = await importSessionRegistryWithDirectApiEnv({
+        OPENAI_API_KEY: "test-openai-key",
+      });
+      const { registry } = createRegistryWithOpenAiAuth();
       const session = registry.createSession("openai", {
+        model: DIRECT_PROVIDER_MODELS.openai,
         task: "test",
         permissionPolicy: GRANULAR_POLICY,
       });
-      const internal = session as unknown as {
-        config?: { constraintInstructions?: readonly string[] };
-      };
-      expect(internal.config?.constraintInstructions?.length).toBeGreaterThan(0);
-      expect(internal.config?.constraintInstructions?.[0]).toContain("Kiln policy constraints for openai");
+
+      expect(session.constructor.name).toBe("ProviderSession");
+      expect(session.capabilities.permissionPolicy).toBe(GRANULAR_POLICY);
     });
+
+    it.each([
+      { provider: "codex-oauth", envKey: undefined },
+      { provider: "opencode-go", envKey: undefined },
+      { provider: "opencode-zen", envKey: undefined },
+      { provider: "anthropic", envKey: "ANTHROPIC_API_KEY" },
+      { provider: "openai", envKey: "OPENAI_API_KEY" },
+      { provider: "deepseek", envKey: "DEEPSEEK_API_KEY" },
+      { provider: "openrouter", envKey: "OPENROUTER_API_KEY" },
+      { provider: "ollama", envKey: undefined },
+    ] satisfies Array<{
+      readonly provider: keyof typeof DIRECT_PROVIDER_MODELS;
+      readonly envKey?: (typeof DIRECT_API_ENV_KEYS)[number];
+    }>)(
+      "$provider fails closed when the configured model is missing or blank",
+      async ({ provider, envKey }) => {
+        const module = envKey
+          ? await importSessionRegistryWithDirectApiEnv({ [envKey]: `test-${provider}-key` })
+          : await import("../../src/wrapper/session-registry.js");
+        const { registry } = module.createDefaultRegistry();
+
+        expect(() => registry.createSession(provider, {
+          task: "test",
+          permissionPolicy: BASE_POLICY,
+        })).toThrow(`Direct provider '${provider}' requires a non-empty configured model`);
+        expect(() => registry.createSession(provider, {
+          model: "   ",
+          task: "test",
+          permissionPolicy: BASE_POLICY,
+        })).toThrow(`Direct provider '${provider}' requires a non-empty configured model`);
+      },
+    );
+
+    it.each([
+      { provider: "anthropic", envKey: "ANTHROPIC_API_KEY" },
+      { provider: "openai", envKey: "OPENAI_API_KEY" },
+      { provider: "deepseek", envKey: "DEEPSEEK_API_KEY" },
+      { provider: "openrouter", envKey: "OPENROUTER_API_KEY" },
+    ] as const)(
+      "$provider is unavailable when $envKey is absent",
+      async ({ provider, envKey }) => {
+        const { createDefaultRegistry: createRegistryWithoutAuth } = await importSessionRegistryWithDirectApiEnv({
+          [envKey]: undefined,
+        });
+
+        const { registry } = createRegistryWithoutAuth();
+        const descriptor = registry.list().find((candidate) => candidate.id === provider);
+
+        expect(descriptor?.isAvailable?.()).toBe(false);
+      },
+    );
+
+    it.each([
+      { provider: "anthropic", envKey: "ANTHROPIC_API_KEY" },
+      { provider: "openai", envKey: "OPENAI_API_KEY" },
+      { provider: "deepseek", envKey: "DEEPSEEK_API_KEY" },
+      { provider: "openrouter", envKey: "OPENROUTER_API_KEY" },
+    ] as const)(
+      "$provider is unavailable when $envKey is blank",
+      async ({ provider, envKey }) => {
+        const { createDefaultRegistry: createRegistryWithoutAuth } = await importSessionRegistryWithDirectApiEnv({
+          [envKey]: "   ",
+        });
+
+        const { registry } = createRegistryWithoutAuth();
+        const descriptor = registry.list().find((candidate) => candidate.id === provider);
+
+        expect(descriptor?.isAvailable?.()).toBe(false);
+      },
+    );
+
+    it("createSession(openai) fails closed when OPENAI_API_KEY is absent", async () => {
+      const { createDefaultRegistry: createRegistryWithoutOpenAiAuth } = await importSessionRegistryWithDirectApiEnv({
+        OPENAI_API_KEY: undefined,
+      });
+      const { registry } = createRegistryWithoutOpenAiAuth();
+
+      expect(() => registry.createSession("openai", {
+        task: "test",
+        permissionPolicy: BASE_POLICY,
+      })).toThrow("Provider unavailable: openai");
+    });
+
+    it("ollama remains available when API-key-backed direct provider env vars are absent", async () => {
+      const { createDefaultRegistry: createRegistryWithoutDirectApiKeys } = await importSessionRegistryWithDirectApiEnv({
+        ANTHROPIC_API_KEY: undefined,
+        OPENAI_API_KEY: undefined,
+        DEEPSEEK_API_KEY: undefined,
+        OPENROUTER_API_KEY: undefined,
+      });
+      const { registry } = createRegistryWithoutDirectApiKeys();
+
+      const descriptor = registry.list().find((candidate) => candidate.id === "ollama");
+      const session = registry.createSession("ollama", {
+        model: DIRECT_PROVIDER_MODELS.ollama,
+        task: "test",
+        permissionPolicy: BASE_POLICY,
+      });
+
+      expect(descriptor?.health).toBe("healthy");
+      expect(typeof session.run).toBe("function");
+    });
+
+    it.each(["codex-oauth", "opencode-go", "opencode-zen"] as const)(
+      "%s leaves auth-backed availability to runtime model discovery instead of CLI registry snapshots",
+      async (provider) => {
+        try {
+          delete process.env.OPENCODE_API_KEY;
+          writeCodexOauthFile(false);
+          writeOpenCodeAuthFile(null);
+          vi.resetModules();
+          const sessionRegistryModule = await import("../../src/wrapper/session-registry.js");
+          const { registry } = sessionRegistryModule.createDefaultRegistry();
+          const descriptor = registry.list().find((candidate) => candidate.id === provider);
+
+          expect(descriptor?.isAvailable).toBeUndefined();
+          const session = registry.createSession(provider, {
+            model: DIRECT_PROVIDER_MODELS[provider],
+            task: "test",
+            permissionPolicy: BASE_POLICY,
+          });
+          expect(session.constructor.name).toBe("ProviderSession");
+        } finally {
+          restoreOpenCodeAuthDefaults();
+        }
+      },
+    );
   });
 
   describe("translation contracts", () => {
@@ -327,55 +710,76 @@ describe("SessionRegistry", () => {
   });
 
   describe("direct-provider execution-mode routing", () => {
-    it("exposes both executable and text-only direct providers via capabilities metadata", () => {
-      const { registry } = createDefaultRegistry();
-      const executionModes = getDirectProvidersByExecutionMode(registry);
-      expect(executionModes.executable.length).toBeGreaterThan(0);
-      expect(executionModes.textOnly.length).toBeGreaterThan(0);
-    });
-
-    it("builds executable direct-provider sessions from metadata without hardcoding provider IDs", () => {
-      const { registry } = createDefaultRegistry();
-      const executionModes = getDirectProvidersByExecutionMode(registry);
-      for (const provider of executionModes.executable) {
+    it.each([
+      { provider: "anthropic", model: "claude-sonnet-4-6", envKey: "ANTHROPIC_API_KEY" },
+      { provider: "codex-oauth", model: "gpt-5.4", envKey: undefined },
+      { provider: "opencode-go", model: "minimax-m2.5", envKey: undefined },
+      { provider: "opencode-zen", model: "anthropic/claude-sonnet-4-6", envKey: undefined },
+      { provider: "openai", model: "gpt-4o", envKey: "OPENAI_API_KEY" },
+      { provider: "deepseek", model: "deepseek-chat", envKey: "DEEPSEEK_API_KEY" },
+      { provider: "openrouter", model: "nvidia/nemotron-3-nano-30b-a3b:free", envKey: "OPENROUTER_API_KEY" },
+    ] satisfies Array<{
+      readonly provider: ProviderId;
+      readonly model?: string;
+      readonly envKey?: (typeof DIRECT_API_ENV_KEYS)[number];
+    }>)(
+      "uses one ProviderSession path for executable $provider sessions",
+      async ({ provider, model, envKey }) => {
+        const module = envKey
+          ? await importSessionRegistryWithDirectApiEnv({ [envKey]: `test-${provider}-key` })
+          : await import("../../src/wrapper/session-registry.js");
+        const { registry } = module.createDefaultRegistry();
         const session = registry.createSession(provider, {
           task: "test",
+          ...(model ? { model } : {}),
           permissionPolicy: BASE_POLICY,
         });
-        expect(session).toBeInstanceOf(ProviderSession);
-        expect(session.capabilities.mcp).toBe(false);
+
+        expect(session.constructor.name).toBe("ProviderSession");
         expect(session.capabilities.supportedTools.length).toBeGreaterThan(0);
-      }
-    });
+      },
+    );
 
-    it("builds text-only direct-provider sessions when executable capabilities are absent", () => {
-      const { registry } = createDefaultRegistry();
-      const executionModes = getDirectProvidersByExecutionMode(registry);
-      for (const provider of executionModes.textOnly) {
+    it.each([
+      { provider: "deepseek", model: "deepseek-reasoner", envKey: "DEEPSEEK_API_KEY" },
+      { provider: "ollama", model: "llama3.1", envKey: undefined },
+    ] satisfies Array<{
+      readonly provider: ProviderId;
+      readonly model?: string;
+      readonly envKey?: (typeof DIRECT_API_ENV_KEYS)[number];
+    }>)(
+      "keeps $provider sessions text-only when the selected model profile cannot execute tools",
+      async ({ provider, model, envKey }) => {
+        const module = envKey
+          ? await importSessionRegistryWithDirectApiEnv({ [envKey]: `test-${provider}-key` })
+          : await import("../../src/wrapper/session-registry.js");
+        const { registry } = module.createDefaultRegistry();
         const session = registry.createSession(provider, {
           task: "test",
+          ...(model ? { model } : {}),
           permissionPolicy: BASE_POLICY,
         });
-        expect(session).toBeInstanceOf(ProviderSession);
+
+        expect(session.constructor.name).toBe("ProviderSession");
         expect(session.capabilities.supportedTools).toHaveLength(0);
-      }
-    });
+      },
+    );
 
-    it("selection favors preferred provider when chosen within each execution mode", () => {
-      const { registry } = createDefaultRegistry();
-      const executionModes = getDirectProvidersByExecutionMode(registry);
+    it.each([
+      "codex-oauth",
+      "opencode-go",
+      "opencode-zen",
+      "anthropic",
+      "openai",
+      "deepseek",
+      "openrouter",
+      "ollama",
+    ] satisfies ProviderId[])("selection favors preferred direct provider %s without encoding execution mode", (provider) => {
+      const registry = makeRegistry();
 
-      const preferredExecutable = executionModes.executable[0];
-      if (preferredExecutable) {
-        const result = registry.selectBest({ preferredProvider: preferredExecutable });
-        expect(result.primary).toBe(preferredExecutable);
-      }
+      const result = registry.selectBest({ preferredProvider: provider });
 
-      const preferredTextOnly = executionModes.textOnly[0];
-      if (preferredTextOnly) {
-        const result = registry.selectBest({ preferredProvider: preferredTextOnly });
-        expect(result.primary).toBe(preferredTextOnly);
-      }
+      expect(result.primary).toBe(provider);
     });
   });
 });

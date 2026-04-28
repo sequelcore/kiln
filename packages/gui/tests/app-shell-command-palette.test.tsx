@@ -6,7 +6,28 @@ import { useSessionStore } from "../src/lib/session-store.js";
 const useQueryMock = vi.fn();
 const waitForGatewayMock = vi.fn();
 const sendMock = vi.fn();
+let wsState: "idle" | "connecting" | "open" | "reconnecting" | "closed" = "open";
 const commandPalettePropsLog: Array<{ open: boolean; placement?: "global" | "composer" }> = [];
+const dashboardRefetchMock = vi.fn();
+const dashboardData = {
+  providers: [],
+  sessions: [],
+  telemetry: {
+    status: "idle" as const,
+    dominantRegions: [],
+    saturation: 0,
+    entropy: 0,
+  },
+  resumeInfoByProvider: {},
+  workingDirectory: "C:/Proyectos/Sequel/kiln",
+  domainLabel: "Kiln",
+};
+let dashboardQueryResult: {
+  data: typeof dashboardData | null;
+  error: Error | null;
+  isSuccess: boolean;
+  refetch: typeof dashboardRefetchMock;
+};
 
 vi.mock("@tanstack/react-query", () => ({
   useQuery: (options: unknown) => useQueryMock(options),
@@ -14,7 +35,7 @@ vi.mock("@tanstack/react-query", () => ({
 
 vi.mock("../src/lib/use-gui-ws.js", () => ({
   useGuiWs: () => ({
-    state: "open",
+    state: wsState,
     send: sendMock,
   }),
 }));
@@ -25,6 +46,14 @@ vi.mock("../src/lib/wait-for-gateway.js", () => ({
 
 vi.mock("../src/api/client.js", () => ({
   GuiGatewayClient: class {
+    async waitForHealth() {
+      return undefined;
+    }
+
+    async loadSessions() {
+      return [];
+    }
+
     async loadDashboard() {
       return {
         providers: [],
@@ -90,7 +119,12 @@ vi.mock("../src/components/session-list.js", () => ({
 }));
 
 vi.mock("../src/components/workspace-panel.js", () => ({
-  WorkspacePanel: () => <div>Workspace</div>,
+  WorkspacePanel: (props: { gatewayWorkingDirectory?: string }) => (
+    <div>
+      <span>Workspace</span>
+      <span>{props.gatewayWorkingDirectory ?? "no dashboard working directory"}</span>
+    </div>
+  ),
 }));
 
 vi.mock("../src/components/changed-files-panel.js", () => ({
@@ -172,10 +206,18 @@ function latestPaletteProps(): { open: boolean; placement?: "global" | "composer
 describe("AppShell command palette and telemetry regressions", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    wsState = "open";
     commandPalettePropsLog.length = 0;
     installMatchMedia(false);
     resetStore();
     waitForGatewayMock.mockResolvedValue(undefined);
+    dashboardRefetchMock.mockReset();
+    dashboardQueryResult = {
+      data: dashboardData,
+      error: null,
+      isSuccess: true,
+      refetch: dashboardRefetchMock,
+    };
     useQueryMock.mockImplementation((options: { queryKey?: readonly unknown[] }) => {
       const queryKey = options.queryKey?.join(":") ?? "";
       if (queryKey.includes("sessions")) {
@@ -190,23 +232,7 @@ describe("AppShell command palette and telemetry regressions", () => {
           error: null,
         };
       }
-      return {
-        data: {
-          providers: [],
-          sessions: [],
-          telemetry: {
-            status: "idle" as const,
-            dominantRegions: [],
-            saturation: 0,
-            entropy: 0,
-          },
-          resumeInfoByProvider: {},
-          workingDirectory: "C:/Proyectos/Sequel/kiln",
-          domainLabel: "Kiln",
-        },
-        error: null,
-        refetch: vi.fn(),
-      };
+      return dashboardQueryResult;
     });
   });
 
@@ -278,5 +304,104 @@ describe("AppShell command palette and telemetry regressions", () => {
     expect(inspector.queryByText(/turns/i)).not.toBeInTheDocument();
     expect(inspector.queryByText(/tokens/i)).not.toBeInTheDocument();
     expect(inspector.queryByText(/cost/i)).not.toBeInTheDocument();
+  });
+
+  it("does not install an outbound sender while the websocket is reconnecting", async () => {
+    wsState = "reconnecting";
+
+    render(<AppShell />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "New Session" })).toBeInTheDocument();
+    });
+
+    expect(useSessionStore.getState().outboundSend).toBeNull();
+  });
+
+  it("keeps the dashboard error banner while cached dashboard data is present and only clears it after the error becomes null", async () => {
+    dashboardQueryResult = {
+      data: null,
+      error: new Error("dashboard failed"),
+      isSuccess: false,
+      refetch: dashboardRefetchMock,
+    };
+
+    const { rerender } = render(<AppShell />);
+
+    expect(await screen.findByText("Could not load dashboard state.")).toBeInTheDocument();
+
+    const staleDashboardData = {
+      ...dashboardData,
+      telemetry: {
+        status: "active",
+        dominantRegions: ["stale-region"],
+        saturation: 0.91,
+        entropy: 0.77,
+      },
+    };
+    dashboardQueryResult = {
+      data: staleDashboardData,
+      error: new Error("dashboard still failed"),
+      isSuccess: true,
+      refetch: dashboardRefetchMock,
+    };
+
+    rerender(<AppShell />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Could not load dashboard state.")).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Workspace" }));
+    expect(screen.queryByText("C:/Proyectos/Sequel/kiln")).not.toBeInTheDocument();
+    expect(screen.getByText("no dashboard working directory")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Details" }));
+    expect(screen.getByText("field [idle]")).toBeInTheDocument();
+    expect(screen.queryByText("dom: stale-region")).not.toBeInTheDocument();
+
+    dashboardQueryResult = {
+      data: dashboardData,
+      error: null,
+      isSuccess: true,
+      refetch: dashboardRefetchMock,
+    };
+
+    rerender(<AppShell />);
+
+    await waitFor(() => {
+      expect(screen.queryByText("Could not load dashboard state.")).not.toBeInTheDocument();
+    });
+  });
+
+  it("applies fresh dashboard providers to the provider store", async () => {
+    dashboardQueryResult = {
+      data: {
+        ...dashboardData,
+        providers: [
+          {
+            id: "openai",
+            label: "OpenAI",
+            group: "direct-api" as const,
+            free: false,
+            available: true,
+            models: ["gpt-5.4"],
+          },
+        ],
+      },
+      error: null,
+      isSuccess: true,
+      refetch: dashboardRefetchMock,
+    };
+
+    render(<AppShell />);
+
+    await waitFor(() => {
+      expect(useSessionStore.getState().providers).toEqual([
+        expect.objectContaining({
+          id: "openai",
+          available: true,
+          models: ["gpt-5.4"],
+        }),
+      ]);
+    });
   });
 });

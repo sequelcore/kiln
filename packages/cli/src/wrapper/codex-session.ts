@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { spawn, execSync } from "node:child_process";
 import {
-  MODEL_CATALOG,
   CODEX_DEFAULT_MODEL,
   appendExecutionIdentity,
   resolveExecutionIdentity,
@@ -160,17 +159,6 @@ export class CodexSession implements IKilnSession {
       (options.env as Record<string, string> | undefined)?.CODEX_MODEL ??
       this.config.model ??
       CODEX_DEFAULT_MODEL;
-
-    const catalogEntry = MODEL_CATALOG.find((e) => e.model === model);
-    if (!catalogEntry) {
-      yield {
-        type: "error",
-        code: "UNKNOWN_MODEL",
-        message: `No pricing data for model: ${model}`,
-        isRetryable: false,
-      };
-      return;
-    }
 
     const cwd = options.cwd ?? this.config.cwd ?? process.cwd();
 
@@ -432,13 +420,7 @@ export class CodexSession implements IKilnSession {
         case "turn.completed": {
           turnCompleted = true;
           const usage = line.usage ?? {};
-          const uncachedInput = (usage.input_tokens ?? 0) - (usage.cached_input_tokens ?? 0);
-          const computedUsd =
-            (uncachedInput * catalogEntry.inputPer1M +
-              (usage.cached_input_tokens ?? 0) *
-                (catalogEntry.cachedInputRatePer1M ?? catalogEntry.inputPer1M * 0.1) +
-              (usage.output_tokens ?? 0) * catalogEntry.outputPer1M) /
-            1_000_000;
+          const computedUsd = 0;
 
           yield {
             type: "cost_update",

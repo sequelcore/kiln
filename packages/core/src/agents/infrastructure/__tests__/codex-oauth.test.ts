@@ -5,6 +5,7 @@ import type {
   AgentStreamEvent,
   CreateMessageOptions,
 } from "../../index.js";
+import { getInvalidToolInputDetails } from "../../tool-call-input.js";
 
 const mockFetch = vi.fn();
 const mockGetValidAccessToken = vi.fn();
@@ -95,7 +96,7 @@ async function collectEvents(stream: AsyncGenerator<AgentStreamEvent>): Promise<
   return events;
 }
 
-async function createAdapter(defaultModel?: string) {
+async function createAdapter(defaultModel = "gpt-5.4") {
   const { CodexOAuthAdapter } = await import("../codex-oauth.js");
   const { CodexOAuthAuth } = await import("../codex-oauth-auth.js");
   const auth = new CodexOAuthAuth() as unknown as {
@@ -103,7 +104,7 @@ async function createAdapter(defaultModel?: string) {
   };
   const adapter = new CodexOAuthAdapter({
     auth,
-    ...(defaultModel ? { defaultModel } : {}),
+    defaultModel,
   });
   return { adapter, auth };
 }
@@ -123,7 +124,7 @@ afterEach(() => {
 
 describe("CodexOAuthAdapter", () => {
   describe("constructor", () => {
-    it("name property returns codex-oauth and defaultModel defaults to gpt-5.4", async () => {
+    it("name property returns codex-oauth and sends the selected model", async () => {
       mockFetch.mockResolvedValueOnce(sseResponse([
         {
           event: "response.completed",
@@ -145,6 +146,14 @@ describe("CodexOAuthAdapter", () => {
       const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
       const body = JSON.parse(String(init.body)) as { model: string };
       expect(body.model).toBe("gpt-5.4");
+    });
+
+    it("fails fast when the selected model is blank", async () => {
+      const { CodexOAuthAdapter } = await import("../codex-oauth.js");
+
+      expect(() => new CodexOAuthAdapter({
+        defaultModel: "   ",
+      })).toThrow("Codex OAuth adapter requires a selected model");
     });
   });
 
@@ -542,7 +551,7 @@ describe("CodexOAuthAdapter", () => {
       });
     });
 
-    it("repairs invalid tool calls from leading JSON objects emitted as text", async () => {
+    it("preserves invalid tool calls even when leading text contains JSON", async () => {
       mockFetch.mockResolvedValueOnce(sseResponse([
         {
           event: "response.completed",
@@ -578,22 +587,18 @@ describe("CodexOAuthAdapter", () => {
 
       const { adapter } = await createAdapter();
       const response = await adapter.createMessage(createOptions());
+      const invalidDetails = getInvalidToolInputDetails(response.toolCalls[0]!.input);
 
-      expect(response.toolCalls).toEqual([
-        {
-          id: "call_repair_1",
-          name: "glob",
-          input: {
-            pattern: "**/*kiln-context*",
-            path: ".",
-            outputMode: "content",
-          },
-        },
-      ]);
+      expect(response.toolCalls[0]?.id).toBe("call_repair_1");
+      expect(response.toolCalls[0]?.name).toBe("glob");
+      expect(invalidDetails).toEqual({
+        reason: "Failed to parse tool arguments as JSON.",
+        raw: "",
+      });
       expect(response.parts).toEqual([
         {
           type: "text",
-          text: "I found the right search parameters.",
+          text: "{\"pattern\":\"**/*kiln-context*\",\"path\":\".\",\"outputMode\":\"content\"}I found the right search parameters.",
         },
       ]);
     });
