@@ -280,11 +280,13 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
   // Activity streamer: bridges CLI session events to the active WS connection
   const activityStreamer = new TuiActivityStreamer(approvalRegistry);
   const builtinToolSurface = createAttachedRuntimeBuiltinToolSurface();
+  let activeOperatorSurface: { theme: { setTheme: ReturnType<typeof createOperatorThemeBridge>["request"] } } | undefined;
 
   const executor = new CliSubscriptionExecutor(
     options.sessionManager.factory,
     providerLabel,
     (event) => activityStreamer.forward(event),
+    () => activeOperatorSurface,
   );
   const eventBus = options.eventBus ?? new EventBus(100);
   const orchestrator = new RuntimeSessionOrchestrator({
@@ -314,6 +316,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
       const operatorThemeBridge = createOperatorThemeBridge((frame) => {
         operatorSocket?.send(JSON.stringify(frame));
       });
+      activeOperatorSurface = { theme: { setTheme: operatorThemeBridge.request } };
 
       return {
         async onOpen(_event: Event, ws: WSContext) {
@@ -675,6 +678,9 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
         onClose(_event: CloseEvent, ws: WSContext) {
           if (operatorSocket === ws) {
             operatorSocket = null;
+          }
+          if (activeOperatorSurface?.theme.setTheme === operatorThemeBridge.request) {
+            activeOperatorSurface = undefined;
           }
           operatorThemeBridge.rejectAll("Operator surface disconnected before applying the theme.");
           activityStreamer.unregister(ws);

@@ -25,9 +25,11 @@ export {
 export type {
   AttachedRuntimeBuiltinToolSurface,
   AttachedRuntimeBuiltinToolSurfaceOptions,
+} from "./gateway/attached-runtime-tool-surface.js";
+export type {
   OperatorSurfaceController,
   OperatorSurfaceThemeController,
-} from "./gateway/attached-runtime-tool-surface.js";
+} from "./operator/operator-surface-controller.js";
 export type {
   StartGuiGatewayOptions,
   GuiGateway,

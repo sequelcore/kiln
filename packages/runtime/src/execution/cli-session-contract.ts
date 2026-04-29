@@ -1,4 +1,5 @@
 import type { AgentMessage, ExecutionBillingMode, ReasoningEffort } from "@kilnai/core";
+import type { OperatorSurfaceController } from "../operator/operator-surface-controller.js";
 
 /** Minimal session run options — structurally compatible with cli/wrapper/session IKilnSession. */
 export interface CliSessionRunOptions {
@@ -46,6 +47,7 @@ export interface CliSession {
 
 export interface CliSessionFactoryContext {
   readonly kilnSessionId?: string;
+  readonly operatorSurface?: OperatorSurfaceController;
 }
 
 /**

@@ -13,6 +13,7 @@ import {
   resolveDirectProviderExecutionProfile,
   type ReasoningEffort,
 } from "@kilnai/core";
+import type { OperatorSurfaceController } from "@kilnai/runtime";
 import { ClaudeSession } from "./claude-code-process.js";
 import { CodexSession } from "./codex-session.js";
 import { OpenCodeSession } from "./opencode-session.js";
@@ -145,6 +146,7 @@ export interface ProviderCreateConfig {
   readonly outputSchema?: string;
   readonly addDir?: string;
   readonly localProvider?: string;
+  readonly operatorSurface?: OperatorSurfaceController;
 }
 
 export interface ClaudeBackendConfig {
@@ -947,6 +949,7 @@ function createDirectProviderSession(
     permissionPolicy: config.permissionPolicy,
     constraintInstructions: translated.constraintInstructions,
     executionProfile: profile,
+    ...(config.operatorSurface ? { operatorSurface: config.operatorSurface } : {}),
   });
 }
 

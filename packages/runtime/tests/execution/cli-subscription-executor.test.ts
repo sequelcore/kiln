@@ -59,6 +59,33 @@ describe("CliSubscriptionExecutor", () => {
     expect(run.mock.calls[0]?.[0]?.kilnSessionId).toBe("kiln-runtime-session");
   });
 
+  it("passes the active operator surface through the factory context", async () => {
+    const dispose = vi.fn().mockResolvedValue(undefined);
+    const run = vi.fn().mockImplementation(() =>
+      eventStream([
+        { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+      ]),
+    );
+    const factory = vi.fn().mockReturnValue({ run, dispose });
+    const operatorSurface = {
+      theme: {
+        setTheme: vi.fn(),
+      },
+    };
+    const executor = new CliSubscriptionExecutor(factory, "codex-oauth", undefined, () => operatorSurface);
+
+    await executor.createMessage({
+      sessionId: "kiln-runtime-session",
+      system: "sys",
+      messages: [],
+    });
+
+    expect(factory.mock.calls[0]?.[2]).toEqual({
+      kilnSessionId: "kiln-runtime-session",
+      operatorSurface,
+    });
+  });
+
   it("passes requested reasoning effort through to the subscription session", async () => {
     const dispose = vi.fn().mockResolvedValue(undefined);
     const run = vi.fn().mockImplementation(() =>

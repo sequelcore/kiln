@@ -23,6 +23,7 @@ import type {
   CliSessionFactory,
   CliSessionEventCallback,
 } from "./cli-session-contract.js";
+import type { OperatorSurfaceController } from "../operator/operator-surface-controller.js";
 export type {
   CliSessionRunOptions,
   CliSessionEvent,
@@ -48,6 +49,7 @@ export class CliSubscriptionExecutor implements ProviderAdapter {
     private readonly factory: CliSessionFactory,
     providerLabel: string,
     private readonly onEvent?: CliSessionEventCallback,
+    private readonly getOperatorSurface?: () => OperatorSurfaceController | undefined,
   ) {
     this.name = `cli-subscription:${providerLabel}`;
   }
@@ -56,7 +58,11 @@ export class CliSubscriptionExecutor implements ProviderAdapter {
     const prompt = buildPromptFromMessages(options.messages);
     const cwd = process.cwd();
 
-    const session = this.factory(options.system, cwd, { kilnSessionId: options.sessionId });
+    const operatorSurface = this.getOperatorSurface?.();
+    const session = this.factory(options.system, cwd, {
+      kilnSessionId: options.sessionId,
+      ...(operatorSurface ? { operatorSurface } : {}),
+    });
     const assembler = new CliResponseAssembler();
 
     try {

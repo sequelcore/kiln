@@ -18,6 +18,7 @@ import {
 } from "@kilnai/core";
 import {
   createAttachedRuntimeBuiltinToolSurface,
+  type OperatorSurfaceController,
   type OrchestrateResult,
 } from "@kilnai/runtime";
 import type {
@@ -45,6 +46,7 @@ export interface ProviderSessionConfig {
   readonly constraintInstructions?: readonly string[];
   readonly executionMode?: DirectProviderExecutionMode;
   readonly executionProfile?: ResolvedDirectProviderExecutionProfile;
+  readonly operatorSurface?: OperatorSurfaceController;
 }
 
 const PROVIDER_PRIORITY: Record<ProviderSessionConfig["provider"], number> = {
@@ -131,10 +133,11 @@ export class ProviderSession implements IKilnSession {
       maxContextTokens: 128000,
       compactionThreshold: 0.85,
     });
+    const operatorSurface = config.operatorSurface ?? {
+      theme: createCliOperatorThemeController(),
+    };
     const builtinToolSurface = createAttachedRuntimeBuiltinToolSurface({
-      operatorSurface: {
-        theme: createCliOperatorThemeController(),
-      },
+      operatorSurface,
     });
     this.builtinTools = builtinToolSurface.callBuiltinTools;
     this.toolDefinitions = builtinToolSurface.toolDefinitions;

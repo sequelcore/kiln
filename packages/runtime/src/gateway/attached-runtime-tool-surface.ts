@@ -15,6 +15,10 @@ import {
   isOperatorThemeName,
   type OperatorThemeScope,
 } from "@kilnai/gateway-contracts";
+import type {
+  OperatorSurfaceController,
+  OperatorSurfaceThemeController,
+} from "../operator/operator-surface-controller.js";
 import type { PerCallToolConfig } from "../session/runtime-session-orchestrator.js";
 import { authorityFromCapability } from "./tool-authority.js";
 
@@ -23,18 +27,6 @@ export interface AttachedRuntimeBuiltinToolSurface {
   readonly toolDefinitions: readonly ToolDefinition[];
   readonly capabilities: ReadonlyMap<string, Capability>;
   readonly toolAuthority: ReadonlyMap<string, AuthorityDescriptor>;
-}
-
-export interface OperatorSurfaceThemeController {
-  readonly setTheme: (input: {
-    readonly theme: string;
-    readonly scope: OperatorThemeScope;
-    readonly reason?: string;
-  }) => Promise<{ readonly ok: boolean; readonly appliedTheme?: string; readonly error?: string }>;
-}
-
-export interface OperatorSurfaceController {
-  readonly theme?: OperatorSurfaceThemeController;
 }
 
 export interface AttachedRuntimeBuiltinToolSurfaceOptions {

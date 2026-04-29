@@ -368,10 +368,12 @@ function wireOperatorTransport(
   const approvalRegistry = new ApprovalGateRegistry();
   const activityStreamer = new GuiActivityStreamer(approvalRegistry);
   const builtinToolSurface = createAttachedRuntimeBuiltinToolSurface();
+  let activeOperatorSurface: { theme: { setTheme: ReturnType<typeof createOperatorThemeBridge>["request"] } } | undefined;
   const executor = new CliSubscriptionExecutor(
     input.transport.sessionManager.factory,
     providerLabel,
     (event) => activityStreamer.forward(event),
+    () => activeOperatorSurface,
   );
   const eventBus = input.transport.eventBus ?? new EventBus(100);
   const orchestrator = new RuntimeSessionOrchestrator({
@@ -399,6 +401,7 @@ function wireOperatorTransport(
       const operatorThemeBridge = createOperatorThemeBridge((frame) => {
         operatorSocket?.send(JSON.stringify(frame satisfies GuiInboundFrame));
       });
+      activeOperatorSurface = { theme: { setTheme: operatorThemeBridge.request } };
 
       return {
         async onOpen(_event: Event, ws: WSContext) {
@@ -832,6 +835,9 @@ function wireOperatorTransport(
         onClose(_event: CloseEvent, ws: WSContext) {
           if (operatorSocket === ws) {
             operatorSocket = null;
+          }
+          if (activeOperatorSurface?.theme.setTheme === operatorThemeBridge.request) {
+            activeOperatorSurface = undefined;
           }
           input.onSocketClose?.();
           operatorThemeBridge.rejectAll("Operator surface disconnected before applying the theme.");

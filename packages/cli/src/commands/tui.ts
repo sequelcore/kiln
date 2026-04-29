@@ -373,6 +373,7 @@ export async function makeMultiProviderSessionFactory(
           sessionLedgerOwner: "host",
           model: modelForTurn,
           reasoningEffort: options.reasoningEffort,
+          ...(context?.operatorSurface ? { operatorSurface: context.operatorSurface } : {}),
         });
         activeSession = resumedSession;
         const capturedId = options.kilnSessionId ?? context?.kilnSessionId ?? resumedFrom ?? resumedSession.sessionId;
