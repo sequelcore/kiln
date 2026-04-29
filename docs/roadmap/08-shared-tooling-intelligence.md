@@ -340,6 +340,7 @@ Implemented in Slice 18:
 ## Current Priority
 
 Shared Tooling Intelligence Slices 11-18 are implemented. The next roadmap
-should plan deeper resource pagination, workspace-file resource templates,
-artifact update notifications, and resource links from high-volume tool
-outputs.
+is `docs/roadmap/09-context-resource-plane.md`; it owns deeper resource
+pagination, workspace-file resource templates, artifact namespaces, update
+notifications, resource links from high-volume tool outputs, consumer
+projection, and resource evaluations.

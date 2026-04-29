@@ -51,6 +51,7 @@ path for CLI, GUI, TUI, SDK, and MCP consumers.
 - Roadmap: `docs/roadmap/07-shared-developer-tools.md`
 - Research basis: `docs/research/11-agent-tooling-surface.md`
 - Next roadmap: `docs/roadmap/08-shared-tooling-intelligence.md`
+- Resource follow-up roadmap: `docs/roadmap/09-context-resource-plane.md`
 - Next research basis: `docs/research/12-agent-tooling-next-surface.md`
 
 ## Closed Phase 10: Web Provider Configuration And Runtime Policy Wiring
@@ -358,6 +359,72 @@ Verification:
 - `bun run build`
 
 ## Phase 9 Design Record
+
+## New Program: Context Resource Plane
+
+The next plan is documented in
+`docs/roadmap/09-context-resource-plane.md`. It starts from the completed
+`ToolResourceRegistry` and MCP resource projection in Slice 18.
+
+### Slice 19: Resource Pagination And Stable Cursors
+
+Add cursor-based pagination to core resource and template listing before
+workspace and artifact namespaces increase cardinality.
+
+Status: planned.
+
+Planned contract:
+
+- core `ToolResourceRegistry.list({ cursor?, limit? })`
+- core `ToolResourceRegistry.listTemplates({ cursor?, limit? })`
+- MCP `resources/list` cursor support
+- MCP `resources/templates/list` cursor support
+- deterministic opaque cursors with explicit invalid/stale behavior
+
+### Slice 20: Workspace File Resource Templates
+
+Expose read-only workspace tree, file, and preview resources through stable
+`kiln://workspace/...` URIs using existing sandbox and path validation.
+
+Status: planned.
+
+### Slice 21: Artifact Namespace Registry
+
+Introduce a core artifact resource store for generated context packets, tool
+results, monitor output, test results, plans, and summaries.
+
+Status: planned.
+
+### Slice 22: Resource Subscriptions And Update Notifications
+
+Add MCP-compliant `resources/subscribe`, `resources/unsubscribe`,
+`notifications/resources/updated`, and
+`notifications/resources/list_changed` behavior with per-connection
+subscription ownership.
+
+Status: planned.
+
+### Slice 23: Resource Links From High-Volume Tools
+
+Let tools such as `read_many`, `tree`, `monitor_read`, `web_fetch`, and
+`code_intelligence` return resource links for full outputs and artifacts while
+keeping compact `ToolResult.output` stable.
+
+Status: planned.
+
+### Slice 24: Consumer Projection And Resource UX
+
+Make CLI, GUI, TUI, SDK, and MCP consumers use the shared resource projection
+instead of private browse/read protocols.
+
+Status: planned.
+
+### Slice 25: Resource Evaluation Harness
+
+Add read-only evaluations proving resource discovery, template resolution, and
+resource reads improve realistic coding workflows without context bloat.
+
+Status: planned.
 
 Research basis:
 

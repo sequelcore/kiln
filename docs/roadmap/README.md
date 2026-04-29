@@ -58,6 +58,11 @@ indicates the default read order, not necessarily the active work priority.
   discovery, LSP-backed code intelligence, bulk context ingestion, monitors,
   task state, elicitation, and MCP resources.
 
+- `09-context-resource-plane.md`
+  Owns the follow-up MCP resource program: pagination, workspace-file resource
+  templates, artifact namespaces, resource update notifications, resource links
+  from high-volume tools, consumer projection, and resource evaluations.
+
 ### Deferred work
 
 - `02-external-benchmark-validation.md`
@@ -85,7 +90,10 @@ indicates the default read order, not necessarily the active work priority.
 7. Read `07-shared-developer-tools.md` when planning builtin developer tools,
    MCP projections, runtime-attached tool surfaces, patch/image/web tools, or
    tool output contracts.
-8. Read `02-external-benchmark-validation.md` only when benchmark work becomes
+8. Read `09-context-resource-plane.md` when planning MCP resources, resource
+   pagination, workspace-file resources, artifact namespaces, or resource
+   update notifications.
+9. Read `02-external-benchmark-validation.md` only when benchmark work becomes
    active.
 
 ## Current Execution Priority
@@ -107,9 +115,10 @@ This is the delivery queue. It is the only priority order in this index.
 4. Execute `06-config-projection-unification.md` after the provider credential
    pool and config/registry ADR sequencing is clear. It owns harness config
    projection, drift detection, engine registry, and config lifecycle commands.
-5. `07-shared-developer-tools.md` is complete as of 2026-04-29. Use
-   `08-shared-tooling-intelligence.md` for the next shared-tooling expansion,
-   starting with structured output schemas.
+5. `07-shared-developer-tools.md` and `08-shared-tooling-intelligence.md` are
+   complete as of 2026-04-29. Use `09-context-resource-plane.md` for the next
+   shared-tooling expansion, starting with resource pagination and stable
+   cursors.
 6. Keep `02-external-benchmark-validation.md` deferred until the product
    surface stabilizes.
 

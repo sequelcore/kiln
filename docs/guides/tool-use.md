@@ -227,6 +227,11 @@ These resources read from the same catalog, task-state store, and monitor
 registry used by the builtin tools. They return JSON content and never mutate
 state, run commands, stop monitors, or bypass tool authorization.
 
+The deeper resource-plane roadmap is
+`docs/roadmap/09-context-resource-plane.md`. It covers pagination,
+workspace-file resources, artifact namespaces, update notifications, resource
+links from high-volume tools, and consumer UX.
+
 ### Domain contracts
 
 `packages/core/src/tools/domain/tool.ts` defines the core types:

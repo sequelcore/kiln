@@ -194,6 +194,12 @@ snapshots. They must not execute commands, mutate files, update tasks, stop
 monitors, grant approval, or bypass canonical tool authority. If a consumer
 needs to act, it must call the appropriate tool through the execution bridge.
 
+The next resource-plane work is tracked in
+`docs/roadmap/09-context-resource-plane.md`. That roadmap owns pagination,
+workspace-file templates, artifact namespaces, resource subscriptions,
+notifications, and resource links from high-volume tool outputs. Those features
+extend the read-only context plane; they do not change the action boundary.
+
 ## Runtime Projections
 
 Several runtime-visible structures project authority state without becoming new
