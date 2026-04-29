@@ -15,6 +15,10 @@ export type {
   FileToolOperation,
   FileToolResultMetadata,
   GrepOutputMode,
+  InspectionEntryType,
+  InspectionToolName,
+  InspectionToolOperation,
+  InspectionToolResultMetadata,
   SearchToolName,
   SearchToolResultMetadata,
   SearchToolStrategy,
@@ -23,6 +27,7 @@ export type {
 export {
   commandToolMetadata,
   fileToolMetadata,
+  inspectionToolMetadata,
   isFileToolResultMetadata,
   searchToolMetadata,
 } from "./domain/tool-result-metadata.js";
@@ -46,6 +51,8 @@ export { ReadTool } from "./infrastructure/read-tool.js";
 export { WriteTool } from "./infrastructure/write-tool.js";
 export { EditTool } from "./infrastructure/edit-tool.js";
 export { PatchTool } from "./infrastructure/patch-tool.js";
+export { StatTool } from "./infrastructure/stat-tool.js";
+export { TreeTool } from "./infrastructure/tree-tool.js";
 export type { GrepToolOptions } from "./infrastructure/grep-tool.js";
 export { GrepTool } from "./infrastructure/grep-tool.js";
 export type { GlobToolOptions } from "./infrastructure/glob-tool.js";

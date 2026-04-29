@@ -35,19 +35,21 @@ function createServer(registry?: DevToolRegistry): DevToolsMcpServer {
 }
 
 describe("DevToolsMcpServer", () => {
-  it("lists the 8 native tool schemas", () => {
+  it("lists the 10 native tool schemas", () => {
     const server = createServer();
 
     const tools = server.listTools();
     const names = tools.map((tool) => tool.name);
 
-    expect(tools).toHaveLength(8);
+    expect(tools).toHaveLength(10);
     expect(names).toEqual([
       "bash",
       "read",
       "write",
       "edit",
       "patch",
+      "stat",
+      "tree",
       "grep",
       "glob",
       "git",
@@ -79,6 +81,37 @@ describe("DevToolsMcpServer", () => {
         properties: {
           patch: expect.objectContaining({ type: "string" }),
           dryRun: expect.objectContaining({ type: "boolean" }),
+        },
+      },
+    });
+  });
+
+  it("exposes stat and tree as read-only MCP tools", async () => {
+    const server = createServer();
+
+    const statSchema = server.listTools().find((tool) => tool.name === "stat");
+    const treeSchema = server.listTools().find((tool) => tool.name === "tree");
+
+    expect(statSchema).toMatchObject({
+      name: "stat",
+      inputSchema: {
+        type: "object",
+        required: ["path"],
+        properties: {
+          path: expect.objectContaining({ type: "string" }),
+          hash: expect.objectContaining({ enum: ["none", "sha256"] }),
+        },
+      },
+    });
+    expect(treeSchema).toMatchObject({
+      name: "tree",
+      inputSchema: {
+        type: "object",
+        required: [],
+        properties: {
+          path: expect.objectContaining({ type: "string" }),
+          depth: expect.objectContaining({ type: "number" }),
+          includeFiles: expect.objectContaining({ type: "boolean" }),
         },
       },
     });

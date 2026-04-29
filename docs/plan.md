@@ -17,6 +17,10 @@ Closed slices:
    notifications.
 7. Core `patch({ patch, dryRun? })` tool with structured parsing, path
    validation, dry-run planning, per-file metadata, and shared projections.
+8. Core `stat({ path, hash? })` and
+   `tree({ path?, depth?, includeFiles? })` tools with sandbox validation,
+   bounded deterministic output, shared `inspection` metadata, and shared
+   projections.
 
 ## Active Objective
 
@@ -32,23 +36,6 @@ execution path for CLI, GUI, TUI, and MCP consumers.
 - Research basis: `docs/research/11-agent-tooling-surface.md`
 
 ## Remaining Phases
-
-### Phase 6: Tree And Stat
-
-Add:
-
-```ts
-stat({ path: string, hash?: "none" | "sha256" })
-tree({ path?: string, depth?: number, includeFiles?: boolean })
-```
-
-Core requirements:
-
-- bounded output
-- deterministic ordering
-- sandbox validation
-- nuisance-directory handling
-- metadata for size, modified time, type, and optional hash
 
 ### Phase 7: Image Viewer And OCR
 

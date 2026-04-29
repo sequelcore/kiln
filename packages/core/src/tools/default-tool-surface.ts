@@ -9,6 +9,8 @@ import { GlobTool, type GlobToolOptions } from "./infrastructure/glob-tool.js";
 import { GrepTool, type GrepToolOptions } from "./infrastructure/grep-tool.js";
 import { PatchTool } from "./infrastructure/patch-tool.js";
 import { ReadTool } from "./infrastructure/read-tool.js";
+import { StatTool } from "./infrastructure/stat-tool.js";
+import { TreeTool } from "./infrastructure/tree-tool.js";
 import { WriteTool } from "./infrastructure/write-tool.js";
 import { DevToolExecutionBridge } from "./tool-executor.js";
 
@@ -50,6 +52,8 @@ export function createDefaultBuiltinTools(
     new WriteTool(),
     new EditTool(),
     new PatchTool(),
+    new StatTool(),
+    new TreeTool(),
     new GrepTool(options.grep),
     new GlobTool(options.glob),
     new GitTool(options.git),

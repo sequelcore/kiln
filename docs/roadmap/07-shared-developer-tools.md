@@ -58,6 +58,15 @@ changes, supports dry-run validation, emits per-file metadata, and projects
 through MCP, runtime-attached sessions, and CLI startup from the canonical
 builtin surface.
 
+### Slice 6: File Metadata And Directory Tree Tools
+
+`stat({ path, hash? })` and `tree({ path?, depth?, includeFiles? })` are now
+core developer tools. `stat` reports read-only path metadata and optional
+SHA-256 hashes. `tree` reports compact deterministic directory shape with
+bounded depth, bounded entry count, sandbox validation, and nuisance-directory
+filtering. Both tools emit shared `inspection` metadata and project through the
+canonical builtin surface.
+
 ## Consumer Contract
 
 All current consumers use the shared surface:
@@ -73,36 +82,6 @@ All current consumers use the shared surface:
   define separate metadata contracts for builtin tools.
 
 ## Remaining Tool Phases
-
-### Phase 6: File Metadata And Directory Tree Tools
-
-Goal: provide cheap orientation tools so agents do not abuse shell, broad grep,
-or recursive reads for simple workspace inspection.
-
-Target contracts:
-
-```ts
-stat({ path: string, hash?: "none" | "sha256" })
-tree({ path?: string, depth?: number, includeFiles?: boolean })
-```
-
-Design requirements:
-
-- `stat` returns type, size, modified time, and optional checksum.
-- `tree` returns a compact, bounded representation with deterministic ordering.
-- Both tools must respect sandbox path validation and ignore nuisance
-  directories by default where appropriate.
-- Both tools should support raw/structured projection once output verbosity is
-  implemented.
-
-Research basis:
-
-- Gemini CLI exposes `list_directory`, `glob`, `search_file_content`, and
-  file metadata-style behavior as first-class tools instead of forcing shell
-  commands for orientation.
-- Claude Code has dedicated `Glob`, `Grep`, and `Read` tools; user complaints
-  show regressions when dedicated search/orientation tools disappear or drift
-  from model instructions.
 
 ### Phase 7: Image Viewer And OCR
 

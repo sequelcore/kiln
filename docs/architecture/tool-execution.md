@@ -245,18 +245,27 @@ The shared metadata families are:
 
 - `command`: shell-like execution evidence for `bash` and `git`
 - `file`: file operation evidence for `read`, `write`, `edit`, and `patch`
+- `inspection`: workspace orientation evidence for `stat` and `tree`
 - `search`: workspace search evidence for `grep` and `glob`
 
 Every builtin metadata object includes:
 
 - `toolName`: the canonical builtin tool name
-- `kind`: one of `command`, `file`, or `search`
+- `kind`: one of `command`, `file`, `inspection`, or `search`
 
 Existing metadata keys such as `cwd`, `command`, `filePath`, `bytesWritten`,
-`replacements`, `path`, `strategy`, `timedOut`, and `truncated` are preserved.
-The normalized fields are additive and come from
+`replacements`, `path`, `type`, `size`, `modifiedTime`, `strategy`,
+`timedOut`, and `truncated` are preserved. The normalized fields are additive
+and come from
 `packages/core/src/tools/domain/tool-result-metadata.ts`; consumers must not
 create private metadata contracts for builtin tools.
+
+Inspection metadata is read-only orientation state. `stat` can report type,
+size, modified time, and an optional checksum. `tree` can report bounded
+directory shape, entry count, truncation state, and ignored nuisance
+directories. Runtime file-change evidence must continue to come from shared
+`file` metadata only; `inspection` metadata must not be treated as a write,
+edit, or patch signal.
 
 `patch` is the multi-file member of the file metadata family. Its top-level
 metadata uses `operation: "patch"`, `dryRun`, and `operationCount`, and its

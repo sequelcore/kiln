@@ -4,10 +4,12 @@ import { TOOL_SCHEMAS } from "../../../src/tools/domain/tool.js";
 import {
   commandToolMetadata,
   fileToolMetadata,
+  inspectionToolMetadata,
   isFileToolResultMetadata,
   searchToolMetadata,
   type CommandToolResultMetadata,
   type FileToolResultMetadata,
+  type InspectionToolResultMetadata,
   type SearchToolResultMetadata,
 } from "../../../src/tools/domain/tool-result-metadata.js";
 
@@ -46,6 +48,8 @@ describe("tool domain types", () => {
       "write",
       "edit",
       "patch",
+      "stat",
+      "tree",
       "grep",
       "glob",
       "git",
@@ -62,6 +66,14 @@ describe("tool domain types", () => {
       idempotent: true,
     });
     expect(TOOL_SCHEMAS.glob.annotations).toEqual({
+      readOnly: true,
+      idempotent: true,
+    });
+    expect(TOOL_SCHEMAS.stat.annotations).toEqual({
+      readOnly: true,
+      idempotent: true,
+    });
+    expect(TOOL_SCHEMAS.tree.annotations).toEqual({
       readOnly: true,
       idempotent: true,
     });
@@ -85,6 +97,8 @@ describe("tool domain types", () => {
       "newString",
     ]);
     expect(TOOL_SCHEMAS.patch.inputSchema.required).toEqual(["patch"]);
+    expect(TOOL_SCHEMAS.stat.inputSchema.required).toEqual(["path"]);
+    expect(TOOL_SCHEMAS.tree.inputSchema.required).toEqual([]);
     expect(TOOL_SCHEMAS.git.inputSchema.required).toEqual(["subcommand"]);
   });
 
@@ -154,6 +168,28 @@ describe("tool domain types", () => {
       strategy: "rg",
       outputMode: "content",
       noMatches: true,
+    });
+  });
+
+  it("builds inspection metadata for workspace orientation tools", () => {
+    const metadata: InspectionToolResultMetadata<"stat"> = inspectionToolMetadata("stat", {
+      operation: "stat",
+      path: "C:/workspace/out.txt",
+      type: "file",
+      size: 7,
+      modifiedTime: "2026-04-29T00:00:00.000Z",
+      hashAlgorithm: "none",
+    });
+
+    expect(metadata).toEqual({
+      toolName: "stat",
+      kind: "inspection",
+      operation: "stat",
+      path: "C:/workspace/out.txt",
+      type: "file",
+      size: 7,
+      modifiedTime: "2026-04-29T00:00:00.000Z",
+      hashAlgorithm: "none",
     });
   });
 });

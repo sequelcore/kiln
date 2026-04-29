@@ -33,6 +33,8 @@ export type DevToolName =
   | "write"
   | "edit"
   | "patch"
+  | "stat"
+  | "tree"
   | "grep"
   | "glob"
   | "git";
@@ -171,6 +173,57 @@ export const TOOL_SCHEMAS: Record<
     },
     annotations: {
       destructive: true,
+    },
+  },
+  stat: {
+    name: "stat",
+    description: "Return file or directory metadata. Always pass a JSON object with path and optional hash.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: {
+          type: "string",
+          minLength: 1,
+          description: "Path to inspect.",
+        },
+        hash: {
+          enum: ["none", "sha256"],
+          description: "Optional checksum mode. sha256 is only produced for files.",
+        },
+      },
+      required: ["path"],
+      additionalProperties: false,
+    },
+    annotations: {
+      readOnly: true,
+      idempotent: true,
+    },
+  },
+  tree: {
+    name: "tree",
+    description: "Return a compact directory tree. Always pass a JSON object with optional path, depth, and includeFiles.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: {
+          type: "string",
+          description: "Optional directory root. Defaults to the current workspace.",
+        },
+        depth: {
+          type: "number",
+          description: "Maximum directory depth to include. Defaults to 2.",
+        },
+        includeFiles: {
+          type: "boolean",
+          description: "When false, only directories are shown. Defaults to true.",
+        },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+    annotations: {
+      readOnly: true,
+      idempotent: true,
     },
   },
   grep: {

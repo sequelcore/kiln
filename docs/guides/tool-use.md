@@ -200,13 +200,15 @@ export interface DevTool {
 }
 ```
 
-The eight built-in tool names are:
+The ten built-in tool names are:
 
 - `bash`
 - `read`
 - `write`
 - `edit`
 - `patch`
+- `stat`
+- `tree`
 - `grep`
 - `glob`
 - `git`
@@ -240,13 +242,19 @@ Builtin developer tools return one core-owned metadata contract from
 Every metadata object includes:
 
 - `toolName`: canonical builtin tool name
-- `kind`: `command`, `file`, or `search`
+- `kind`: `command`, `file`, `inspection`, or `search`
 
 File metadata also includes `operation`, which is `read`, `write`, `edit`, or
 `patch`. Runtime file-change evidence is derived from shared `file` metadata
 for `write`, `edit`, and `patch`; `read` metadata is not file-change evidence.
 Patch metadata carries a `files` array so one tool result can report every
 created, modified, deleted, or moved path.
+
+Inspection metadata covers `stat` and `tree`. `stat` reports the inspected path,
+entry type, size, modified time, and optional hash. `tree` reports the root path,
+depth, file-inclusion mode, entry count, truncation state, and ignored
+directories. Inspection metadata is orientation evidence, not file-change
+evidence.
 
 ### Tool reference
 
@@ -257,6 +265,8 @@ created, modified, deleted, or moved path.
 | `write` | Replace full file contents | `filePath`, `content` | `output` is a confirmation string; metadata includes `filePath`, `bytesWritten` |
 | `edit` | Replace one or all string matches in a file | `filePath`, `oldString`, `newString`, `replaceAll` | `output` is a replacement summary or an error; metadata includes `filePath`, `replacements`, `replaceAll` |
 | `patch` | Apply a structured multi-file patch | `patch`, `dryRun` | `output` is an apply or dry-run summary; metadata includes `operationCount`, `dryRun`, and per-file change entries |
+| `stat` | Inspect file, directory, symlink, or other path metadata | `path`, `hash` | `output` is compact JSON metadata; metadata includes `path`, `type`, `size`, `modifiedTime`, and optional `hash` |
+| `tree` | Produce a compact bounded directory tree | `path`, `depth`, `includeFiles` | `output` is an indented deterministic tree; metadata includes `path`, `depth`, `includeFiles`, `entryCount`, `truncated`, and ignored directories |
 | `grep` | Search file content by regex | `pattern`, optional file-or-directory `path`, `glob`, `outputMode` | `output` is newline-delimited matches, file paths, or counts; metadata includes `path`, `strategy`, `outputMode` |
 | `glob` | Match files by glob pattern | `pattern`, `path` | `output` is newline-delimited relative file paths; metadata includes `path`, `strategy`, `count` |
 | `git` | Run a git subcommand | `subcommand`, `args` | `output` is combined stdout+stderr; metadata includes `cwd`, `command` |
@@ -285,11 +295,13 @@ The built-in executors are intentionally small and predictable:
 - `ReadTool` uses line-based slicing, not byte offsets.
 - `WriteTool` creates parent directories before writing.
 - `EditTool` supports single replacement and `replaceAll`, and fails if the target string is not found.
+- `StatTool` validates the target path, reports `lstat` metadata, and computes SHA-256 only when requested for files.
+- `TreeTool` validates the root path, bounds depth and entry count, sorts directories before files, and skips nuisance directories by default.
 - `GrepTool` uses `rg` when available and falls back to a recursive file walk plus JavaScript `RegExp`.
 - `GlobTool` uses `fd` when available and falls back to the same recursive walker plus glob matching helpers.
 - `GitTool` executes `git` directly and validates the reconstructed command string before running it.
 
-All seven tools return `ToolResult`; failures are regular tool results when possible, not uncaught process exceptions.
+All ten tools return `ToolResult`; failures are regular tool results when possible, not uncaught process exceptions.
 
 For MCP consumers, long-running calls have two coordinated timeout layers:
 

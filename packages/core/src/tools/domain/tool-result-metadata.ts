@@ -1,8 +1,11 @@
 export type CommandToolName = "bash" | "git";
 export type FileToolName = "read" | "write" | "edit" | "patch";
+export type InspectionToolName = "stat" | "tree";
 export type SearchToolName = "grep" | "glob";
 
 export type FileToolOperation = "read" | "write" | "edit" | "patch";
+export type InspectionToolOperation = "stat" | "tree";
+export type InspectionEntryType = "file" | "directory" | "symlink" | "other";
 export type SearchToolStrategy = "rg" | "fd" | "fallback";
 export type GrepOutputMode = "content" | "files_with_matches" | "count";
 
@@ -69,9 +72,28 @@ export interface SearchToolResultMetadata<TToolName extends SearchToolName = Sea
   readonly noMatches?: boolean;
 }
 
+export interface InspectionToolResultMetadata<TToolName extends InspectionToolName = InspectionToolName> {
+  readonly toolName: TToolName;
+  readonly kind: "inspection";
+  readonly operation: InspectionToolOperation;
+  readonly path: string;
+  readonly type?: InspectionEntryType;
+  readonly size?: number;
+  readonly modifiedTime?: string;
+  readonly hashAlgorithm?: "none" | "sha256";
+  readonly hash?: string;
+  readonly depth?: number;
+  readonly includeFiles?: boolean;
+  readonly entryCount?: number;
+  readonly truncated?: boolean;
+  readonly ignoredDirectories?: readonly string[];
+  readonly code?: number | string;
+}
+
 export type ToolResultMetadata =
   | CommandToolResultMetadata
   | FileToolResultMetadata
+  | InspectionToolResultMetadata
   | SearchToolResultMetadata;
 
 export function commandToolMetadata<TToolName extends CommandToolName>(
@@ -135,6 +157,17 @@ export function searchToolMetadata<TToolName extends SearchToolName>(
   return {
     toolName,
     kind: "search",
+    ...metadata,
+  };
+}
+
+export function inspectionToolMetadata<TToolName extends InspectionToolName>(
+  toolName: TToolName,
+  metadata: Omit<InspectionToolResultMetadata<TToolName>, "toolName" | "kind">,
+): InspectionToolResultMetadata<TToolName> {
+  return {
+    toolName,
+    kind: "inspection",
     ...metadata,
   };
 }
