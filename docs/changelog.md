@@ -14,6 +14,10 @@
 - MCP dev-tools listing can now use the projected surface while `callTool`
   continues through the canonical bridge, and attached runtime consumers inherit
   the same projection.
+- Added the read-only `code_intelligence` builtin tool and
+  `CodeIntelligenceAdapter` boundary for language-server-backed definitions,
+  references, hover, symbols, diagnostics, implementations, and call hierarchy.
+  The default fails closed when no adapter is configured.
 
 ## Unreleased -- Operator Workspace Explorer
 

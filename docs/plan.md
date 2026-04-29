@@ -148,6 +148,32 @@ Add a provider-neutral `code_intelligence` tool backed by language-server
 adapters for definitions, references, hover, symbols, diagnostics,
 implementations, and call hierarchy.
 
+Status: implemented.
+
+Implemented contract:
+
+- `CodeIntelligenceAdapter` is the provider-neutral core boundary for
+  language-server-backed navigation and diagnostics.
+- `code_intelligence` supports definition, references, hover,
+  document symbols, workspace symbols, diagnostics, implementation, and call
+  hierarchy operations.
+- The tool validates workspace paths before adapter calls, requires positions
+  for position-scoped operations, bounds results, and emits stable
+  `code_intelligence` metadata.
+- The default tool fails closed with `adapter_not_configured` when no language
+  server adapter is supplied.
+- The tool is registered in the canonical builtin surface, indexed in the tool
+  catalog, projected through MCP, and available to runtime consumers through the
+  same core projection model.
+
+Verification:
+
+- `bun run typecheck`
+- `bun run test`
+- `bun run build`
+- `bun run --cwd packages/core test tests/tools/infrastructure/code-intelligence-tool.test.ts tests/tools/domain/tool-catalog.test.ts tests/tools/default-tool-surface.test.ts tests/tools/mcp/dev-tools-server.test.ts tests/tools/domain/tool.test.ts`
+- `bun run --cwd packages/runtime test tests/gateway/attached-runtime-tool-surface.test.ts`
+
 ### Slice 14: Bulk Context Ingestion
 
 Add `read_many` for bounded, deterministic multi-file context packets with

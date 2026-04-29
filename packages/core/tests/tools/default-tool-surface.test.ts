@@ -24,6 +24,7 @@ const BUILTIN_TOOL_NAMES = [
   "grep",
   "glob",
   "git",
+  "code_intelligence",
   "tool_catalog_search",
 ];
 
@@ -184,6 +185,7 @@ describe("default builtin tool surface", () => {
     expect(surface.toolDefinitions.map((tool) => tool.name)).toEqual(["read", "tool_catalog_search"]);
     expect(Array.from(surface.capabilities.keys())).toEqual(["read", "tool_catalog_search"]);
     expect(surface.registry.has("glob")).toBe(true);
+    expect(surface.registry.has("code_intelligence")).toBe(true);
     expect(surface.bridge.listTools().map((tool) => tool.name)).toEqual(BUILTIN_TOOL_NAMES);
 
     await expect(surface.bridge.execute({

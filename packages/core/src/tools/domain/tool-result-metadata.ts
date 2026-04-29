@@ -5,6 +5,7 @@ export type MediaToolName = "view_image" | "ocr_image";
 export type WebToolName = "web_search" | "web_fetch";
 export type SearchToolName = "grep" | "glob";
 export type CatalogToolName = "tool_catalog_search";
+export type CodeToolName = "code_intelligence";
 
 export type FileToolOperation = "read" | "write" | "edit" | "patch";
 export type InspectionToolOperation = "stat" | "tree";
@@ -24,6 +25,21 @@ export type WebToolErrorCode =
 export type SearchToolStrategy = "rg" | "fd" | "fallback";
 export type GrepOutputMode = "content" | "files_with_matches" | "count";
 export type CatalogToolOperation = "search";
+export type CodeIntelligenceOperation =
+  | "definition"
+  | "references"
+  | "hover"
+  | "document_symbols"
+  | "workspace_symbols"
+  | "diagnostics"
+  | "implementation"
+  | "call_hierarchy";
+export type CodeIntelligenceErrorCode =
+  | "invalid_input"
+  | "adapter_not_configured"
+  | "unsupported_language"
+  | "adapter_error"
+  | "read_denied";
 
 export interface CommandToolResultMetadata<TToolName extends CommandToolName = CommandToolName> {
   readonly toolName: TToolName;
@@ -172,6 +188,19 @@ export interface CatalogToolResultMetadata<TToolName extends CatalogToolName = C
   readonly verbosity?: ToolOutputVerbosity;
 }
 
+export interface CodeToolResultMetadata<TToolName extends CodeToolName = CodeToolName> {
+  readonly toolName: TToolName;
+  readonly kind: "code";
+  readonly operation: CodeIntelligenceOperation;
+  readonly path?: string;
+  readonly workspaceRoot?: string;
+  readonly adapter?: string;
+  readonly language?: string;
+  readonly resultCount: number;
+  readonly errorCode?: CodeIntelligenceErrorCode;
+  readonly verbosity?: ToolOutputVerbosity;
+}
+
 export type ToolResultMetadata =
   | CommandToolResultMetadata
   | FileToolResultMetadata
@@ -179,7 +208,8 @@ export type ToolResultMetadata =
   | MediaToolResultMetadata
   | WebToolResultMetadata
   | SearchToolResultMetadata
-  | CatalogToolResultMetadata;
+  | CatalogToolResultMetadata
+  | CodeToolResultMetadata;
 
 export function commandToolMetadata<TToolName extends CommandToolName>(
   toolName: TToolName,
@@ -286,6 +316,17 @@ export function catalogToolMetadata<TToolName extends CatalogToolName>(
   return {
     toolName,
     kind: "catalog",
+    ...metadata,
+  };
+}
+
+export function codeToolMetadata<TToolName extends CodeToolName>(
+  toolName: TToolName,
+  metadata: Omit<CodeToolResultMetadata<TToolName>, "toolName" | "kind">,
+): CodeToolResultMetadata<TToolName> {
+  return {
+    toolName,
+    kind: "code",
     ...metadata,
   };
 }

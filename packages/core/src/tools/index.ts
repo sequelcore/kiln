@@ -9,9 +9,23 @@ export type {
 export { TOOL_SCHEMAS } from "./domain/tool.js";
 
 export type {
+  CodeIntelligenceAdapter,
+  CodeIntelligenceEntry,
+  CodeIntelligenceOperation as CodeIntelligenceDomainOperation,
+  CodeIntelligencePosition,
+  CodeIntelligenceRange,
+  CodeIntelligenceRequest,
+  CodeIntelligenceResult,
+} from "./domain/code-intelligence.js";
+
+export type {
   CatalogToolName,
   CatalogToolOperation,
   CatalogToolResultMetadata,
+  CodeIntelligenceErrorCode,
+  CodeIntelligenceOperation,
+  CodeToolName,
+  CodeToolResultMetadata,
   CommandToolName,
   CommandToolResultMetadata,
   FileToolChangeMetadata,
@@ -40,6 +54,7 @@ export type {
 } from "./domain/tool-result-metadata.js";
 export {
   catalogToolMetadata,
+  codeToolMetadata,
   commandToolMetadata,
   fileToolMetadata,
   inspectionToolMetadata,
@@ -78,6 +93,8 @@ export type { ToolSandboxContext } from "./infrastructure/tool-helpers.js";
 export { DEV_TOOL_OUTPUT_SCHEMA } from "./domain/tool.js";
 export type { BashToolOptions } from "./infrastructure/bash-tool.js";
 export { BashTool } from "./infrastructure/bash-tool.js";
+export type { CodeIntelligenceToolOptions } from "./infrastructure/code-intelligence-tool.js";
+export { CodeIntelligenceTool } from "./infrastructure/code-intelligence-tool.js";
 export { ReadTool } from "./infrastructure/read-tool.js";
 export { WriteTool } from "./infrastructure/write-tool.js";
 export { EditTool } from "./infrastructure/edit-tool.js";

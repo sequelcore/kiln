@@ -4,6 +4,7 @@ import { ToolCatalogIndex } from "./domain/tool-catalog.js";
 import { DevToolRegistry } from "./domain/tool-registry.js";
 import { DEV_TOOL_OUTPUT_SCHEMA, type DevTool, type DevToolAnnotations } from "./domain/tool.js";
 import { BashTool, type BashToolOptions } from "./infrastructure/bash-tool.js";
+import { CodeIntelligenceTool, type CodeIntelligenceToolOptions } from "./infrastructure/code-intelligence-tool.js";
 import { EditTool } from "./infrastructure/edit-tool.js";
 import { GitTool, type GitToolOptions } from "./infrastructure/git-tool.js";
 import { GlobTool, type GlobToolOptions } from "./infrastructure/glob-tool.js";
@@ -34,6 +35,7 @@ export interface DefaultBuiltinToolRegistryOptions {
   readonly webFetch?: WebFetchToolOptions;
   readonly webSearch?: WebSearchToolOptions;
   readonly git?: GitToolOptions;
+  readonly codeIntelligence?: CodeIntelligenceToolOptions;
   readonly toolProjection?: DefaultBuiltinToolProjectionOptions;
 }
 
@@ -78,6 +80,7 @@ export function createDefaultBuiltinTools(
     new GrepTool(options.grep),
     new GlobTool(options.glob),
     new GitTool(options.git),
+    new CodeIntelligenceTool(options.codeIntelligence),
     new ToolCatalogSearchTool(() => catalog),
   ];
   catalog = ToolCatalogIndex.fromTools(tools);

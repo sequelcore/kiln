@@ -119,6 +119,16 @@ Requirements:
   unsupported
 - project through MCP and runtime-attached sessions from the canonical surface
 
+Implemented in Slice 13:
+
+- core `CodeIntelligenceAdapter` request/result boundary
+- shared `code_intelligence` read-only builtin tool
+- path validation before adapter execution
+- required position validation for position-scoped operations
+- bounded raw, structured, and summary outputs with `code` metadata
+- fail-closed default when no adapter is configured
+- catalog, MCP, and attached-runtime projection through the canonical surface
+
 ## Slice 14: Bulk Context Ingestion
 
 Goal: collect bounded multi-file context packets without forcing the model to

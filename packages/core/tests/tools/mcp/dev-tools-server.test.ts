@@ -41,13 +41,13 @@ function createServer(registry?: DevToolRegistry): DevToolsMcpServer {
 }
 
 describe("DevToolsMcpServer", () => {
-  it("lists the 15 native tool schemas", () => {
+  it("lists the 16 native tool schemas", () => {
     const server = createServer();
 
     const tools = server.listTools();
     const names = tools.map((tool) => tool.name);
 
-    expect(tools).toHaveLength(15);
+    expect(tools).toHaveLength(16);
     expect(names).toEqual([
       "bash",
       "read",
@@ -63,6 +63,7 @@ describe("DevToolsMcpServer", () => {
       "grep",
       "glob",
       "git",
+      "code_intelligence",
       "tool_catalog_search",
     ]);
 
@@ -103,7 +104,40 @@ describe("DevToolsMcpServer", () => {
           toolName: "tool_catalog_search",
           kind: "catalog",
           resultCount: 1,
-          totalIndexed: 15,
+          totalIndexed: 16,
+        },
+      },
+    });
+  });
+
+  it("exposes code intelligence as a read-only MCP tool", async () => {
+    const server = createServer();
+
+    const schema = server.listTools().find((tool) => tool.name === "code_intelligence");
+
+    expect(schema).toMatchObject({
+      name: "code_intelligence",
+      inputSchema: {
+        type: "object",
+        required: ["operation"],
+        properties: {
+          operation: expect.objectContaining({
+            enum: [
+              "definition",
+              "references",
+              "hover",
+              "document_symbols",
+              "workspace_symbols",
+              "diagnostics",
+              "implementation",
+              "call_hierarchy",
+            ],
+          }),
+          path: expect.objectContaining({ type: "string" }),
+          position: expect.objectContaining({ type: "object" }),
+          query: expect.objectContaining({ type: "string" }),
+          symbol: expect.objectContaining({ type: "string" }),
+          verbosity: expect.objectContaining({ enum: ["raw", "structured", "summary"] }),
         },
       },
     });

@@ -8,7 +8,7 @@ describe("ToolCatalogIndex", () => {
 
     const result = catalog.search({ exact: "read" });
 
-    expect(result.totalIndexed).toBe(15);
+    expect(result.totalIndexed).toBe(16);
     expect(result.entries).toHaveLength(1);
     expect(result.entries[0]).toMatchObject({
       name: "read",
@@ -53,10 +53,23 @@ describe("ToolCatalogIndex", () => {
     const catalog = ToolCatalogIndex.fromTools(createDefaultBuiltinTools());
 
     expect(catalog.search({ exact: "missing_tool" })).toMatchObject({
-      totalIndexed: 15,
+      totalIndexed: 16,
       entries: [],
       stale: true,
       reason: "tool_not_found",
     });
+  });
+
+  it("indexes code intelligence as a semantic code tool", () => {
+    const catalog = ToolCatalogIndex.fromTools(createDefaultBuiltinTools());
+
+    expect(catalog.search({ exact: "code_intelligence" }).entries[0]).toMatchObject({
+      name: "code_intelligence",
+      sourcePackage: "@kilnai/core",
+      authority: "read_only",
+      tags: expect.arrayContaining(["code", "semantic", "read-only"]),
+      inputFields: expect.arrayContaining(["operation", "path", "position", "query", "symbol", "verbosity"]),
+    });
+    expect(catalog.search({ tags: ["code"] }).entries.map((entry) => entry.name)).toContain("code_intelligence");
   });
 });

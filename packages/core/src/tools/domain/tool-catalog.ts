@@ -162,6 +162,10 @@ function tagsForTool(tool: DevTool): readonly string[] {
   if (tool.name === "bash" || tool.name === "git") {
     tags.add("command");
   }
+  if (tool.name === "code_intelligence") {
+    tags.add("code");
+    tags.add("semantic");
+  }
   if (tool.name === "tool_catalog_search") {
     tags.add("catalog");
     tags.add("discovery");

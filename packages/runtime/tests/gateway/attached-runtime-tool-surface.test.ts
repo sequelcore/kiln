@@ -69,4 +69,26 @@ describe("attached runtime builtin tool surface", () => {
     expect(runtimeSurface.toolDefinitions.map((tool) => tool.name)).toEqual(["read", "tool_catalog_search"]);
     expect(Array.from(runtimeSurface.capabilities.keys())).toEqual(["read", "tool_catalog_search"]);
   });
+
+  it("can explicitly expose code intelligence in deferred runtime projection", () => {
+    const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
+      builtinToolOptions: {
+        toolProjection: {
+          mode: "deferred",
+          alwaysOnTools: ["read", "code_intelligence"],
+        },
+      },
+    });
+
+    expect(Array.from(runtimeSurface.callBuiltinTools.keys())).toEqual([
+      "read",
+      "code_intelligence",
+      "tool_catalog_search",
+    ]);
+    expect(runtimeSurface.toolDefinitions.map((tool) => tool.name)).toEqual([
+      "read",
+      "code_intelligence",
+      "tool_catalog_search",
+    ]);
+  });
 });

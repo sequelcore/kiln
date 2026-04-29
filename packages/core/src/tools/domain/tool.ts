@@ -96,6 +96,7 @@ export type DevToolName =
   | "grep"
   | "glob"
   | "git"
+  | "code_intelligence"
   | "tool_catalog_search";
 
 export const TOOL_SCHEMAS: Record<
@@ -479,6 +480,67 @@ export const TOOL_SCHEMAS: Record<
     },
     annotations: {
       destructive: false,
+    },
+  },
+  code_intelligence: {
+    name: "code_intelligence",
+    description: "Query configured language-server adapters for definitions, references, hover, symbols, diagnostics, implementations, and call hierarchy.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        operation: {
+          enum: [
+            "definition",
+            "references",
+            "hover",
+            "document_symbols",
+            "workspace_symbols",
+            "diagnostics",
+            "implementation",
+            "call_hierarchy",
+          ],
+          description: "Semantic code operation to run.",
+        },
+        path: {
+          type: "string",
+          description: "Workspace file path for file-scoped and position-scoped operations.",
+        },
+        position: {
+          type: "object",
+          properties: {
+            line: {
+              type: "number",
+              description: "Zero-based line number.",
+            },
+            character: {
+              type: "number",
+              description: "Zero-based UTF-16 character offset.",
+            },
+          },
+          required: ["line", "character"],
+          additionalProperties: false,
+          description: "Zero-based source position for position-scoped operations.",
+        },
+        query: {
+          type: "string",
+          description: "Workspace symbol search query.",
+        },
+        symbol: {
+          type: "string",
+          description: "Optional symbol name used by symbol-scoped adapters.",
+        },
+        limit: {
+          type: "number",
+          description: "Maximum entries to return. Defaults to 50 and caps at 200.",
+        },
+        verbosity: OUTPUT_VERBOSITY_PROPERTY,
+      },
+      required: ["operation"],
+      additionalProperties: false,
+    },
+    annotations: {
+      readOnly: true,
+      idempotent: true,
     },
   },
   tool_catalog_search: {

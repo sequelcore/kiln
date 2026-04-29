@@ -61,6 +61,7 @@ describe("tool domain types", () => {
       "grep",
       "glob",
       "git",
+      "code_intelligence",
       "tool_catalog_search",
     ]);
   });
@@ -106,6 +107,10 @@ describe("tool domain types", () => {
       readOnly: true,
       idempotent: true,
     });
+    expect(TOOL_SCHEMAS.code_intelligence.annotations).toEqual({
+      readOnly: true,
+      idempotent: true,
+    });
   });
 
   it("uses JSON Schema object definitions for each tool", () => {
@@ -128,6 +133,7 @@ describe("tool domain types", () => {
     expect(TOOL_SCHEMAS.patch.inputSchema.required).toEqual(["patch"]);
     expect(TOOL_SCHEMAS.stat.inputSchema.required).toEqual(["path"]);
     expect(TOOL_SCHEMAS.tree.inputSchema.required).toEqual([]);
+    expect(TOOL_SCHEMAS.code_intelligence.inputSchema.required).toEqual(["operation"]);
     expect(TOOL_SCHEMAS.view_image.inputSchema.required).toEqual(["path"]);
     expect(TOOL_SCHEMAS.ocr_image.inputSchema.required).toEqual(["path"]);
     expect(TOOL_SCHEMAS.web_search.inputSchema.required).toEqual(["query"]);
