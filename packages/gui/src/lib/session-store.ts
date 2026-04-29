@@ -1030,6 +1030,22 @@ function providerHasSelectableSurface(provider: ProviderDescriptor): boolean {
   return provider.available && (provider.models.length > 0 || isGuiProviderModeless(provider.id));
 }
 
+function shouldApplySessionScopedFrame(
+  state: SessionStoreState,
+  kilnSessionId: string,
+): boolean {
+  if (state.liveSessionId) {
+    return state.liveSessionId === kilnSessionId;
+  }
+  if (state.selectedSessionId) {
+    return state.selectedSessionId === kilnSessionId;
+  }
+  if (state.resumeTargetId && state.status !== "running") {
+    return state.resumeTargetId === kilnSessionId;
+  }
+  return true;
+}
+
 function areProviderDescriptorsEqual(
   current: readonly ProviderDescriptor[],
   next: readonly ProviderDescriptor[],
@@ -1100,6 +1116,7 @@ interface SessionStoreState {
   readonly activeModel: string | null;
   readonly sessionList: readonly GuiSessionSummary[];
   readonly selectedSessionId: string | null;
+  readonly liveSessionId: string | null;
   readonly resumeTargetId: string | null;
   readonly routedProvider: string | null;
   readonly routedModel: string | null;
@@ -1185,6 +1202,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   activeModel: null,
   sessionList: [],
   selectedSessionId: null,
+  liveSessionId: null,
   resumeTargetId: null,
   routedProvider: null,
   routedModel: null,
@@ -1238,7 +1256,23 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   },
 
   setSelectedSessionId: (sessionId) => {
-    set({ selectedSessionId: sessionId });
+    set({
+      selectedSessionId: sessionId,
+      liveSessionId: null,
+      messages: [],
+      timelineEntries: [],
+      currentAssistant: null,
+      activity: null,
+      activityPhase: "idle",
+      errorBanner: null,
+      sessionCostUsd: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      currentTurnTrackedInputTokens: 0,
+      currentTurnTrackedOutputTokens: 0,
+      respondingProvider: null,
+      respondingModel: null,
+    });
   },
 
   viewSessionDetail: (detail) => {
@@ -1246,6 +1280,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     writeResumeTarget(detail.id);
     set({
       selectedSessionId: detail.id,
+      liveSessionId: null,
       resumeTargetId: detail.id,
       messages: loaded.messages,
       timelineEntries: loaded.timelineEntries,
@@ -1379,6 +1414,12 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   onSessionEvent: (event) => {
     const state = get();
+    if (!shouldApplySessionScopedFrame(state, event.kilnSessionId)) {
+      return;
+    }
+    if (state.status === "running" && state.liveSessionId !== event.kilnSessionId) {
+      set({ liveSessionId: event.kilnSessionId });
+    }
     const payload = isObjectRecord(event.payload) ? event.payload : {};
 
     if (event.kind === "assistant_delta") {
@@ -2038,6 +2079,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       activityPhase: "idle",
       errorBanner: null,
       selectedSessionId: null,
+      liveSessionId: null,
       resumeTargetId: null,
       routedProvider: null,
       routedModel: null,
@@ -2407,6 +2449,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         },
       ],
       status: "running",
+      liveSessionId: null,
       activity: { phase: "thinking" },
       activityPhase: "thinking",
       routeMode: "responding",
@@ -2510,7 +2553,21 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   },
 
   onActivityPhase: (frame) => {
-    set({ activityPhase: frame.phase });
+    const state = get();
+    if (!shouldApplySessionScopedFrame(state, frame.kilnSessionId)) {
+      return;
+    }
+    set({
+      liveSessionId: state.status === "running" ? frame.kilnSessionId : state.liveSessionId,
+      activityPhase: frame.phase,
+      activity: frame.phase === "idle"
+        ? null
+        : {
+            phase: frame.phase,
+            toolName: frame.toolName,
+            details: frame.details,
+          },
+    });
   },
 
   sendApprovalResponse: (approved, reason, sessionId) => {

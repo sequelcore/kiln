@@ -1074,6 +1074,29 @@ class GuiActivityStreamer {
     } satisfies GuiInboundFrame));
   }
 
+  private emitActivityPhase(input: {
+    phase: "idle" | "thinking" | "tool_running" | "awaiting_approval" | "streaming";
+    sessionId?: string;
+    toolName?: string;
+    details?: string;
+  }): void {
+    if (!this.ws) {
+      return;
+    }
+    const sessionId = input.sessionId ?? this.capture?.sessionId;
+    if (!sessionId) {
+      return;
+    }
+    this.ws.send(JSON.stringify({
+      type: "activity_phase",
+      kilnSessionId: sessionId,
+      ...(this.capture?.sessionId === sessionId ? { turnId: `${sessionId}:turn:live` } : {}),
+      phase: input.phase,
+      ...(input.toolName ? { toolName: input.toolName } : {}),
+      ...(input.details ? { details: input.details } : {}),
+    } satisfies GuiInboundFrame));
+  }
+
   register(ws: WSContext, eventBus?: EventBus): void {
     this.ws = ws;
     this.eventBus = eventBus ?? null;
@@ -1113,13 +1136,11 @@ class GuiActivityStreamer {
             status: () => (this.pendingApprovals.has(sessionId) ? "awaiting_approval" : "resolved"),
           });
         }
-        if (this.ws) {
-          this.ws.send(JSON.stringify({
-            type: "activity_phase",
-            phase: "awaiting_approval",
-            details: approvalEvent.description,
-          } satisfies GuiInboundFrame));
-        }
+        this.emitActivityPhase({
+          phase: "awaiting_approval",
+          sessionId,
+          details: approvalEvent.description,
+        });
       }
     };
     this.eventBus.onAny(this.approvalHandler);
@@ -1152,12 +1173,7 @@ class GuiActivityStreamer {
           }
           this.approvalRegistry.unregister(sessionId);
         }
-        if (this.ws) {
-          this.ws.send(JSON.stringify({
-            type: "activity_phase",
-            phase: "idle",
-          } satisfies GuiInboundFrame));
-        }
+        this.emitActivityPhase({ phase: "idle", sessionId });
       }
     };
     this.eventBus.onAny(this.receivedHandler);
@@ -1229,11 +1245,10 @@ class GuiActivityStreamer {
 
     if (event.type === "text_delta") {
       if (event.isThinking) {
-        this.ws.send(JSON.stringify({
-          type: "activity_phase",
+        this.emitActivityPhase({
           phase: "thinking",
           details: event.content,
-        } satisfies GuiInboundFrame));
+        });
         return;
       }
       this.emitSessionEvent({
@@ -1262,11 +1277,10 @@ class GuiActivityStreamer {
           input: (event.input && typeof event.input === "object" ? event.input : {}) as Record<string, unknown>,
         },
       });
-      this.ws.send(JSON.stringify({
-        type: "activity_phase",
+      this.emitActivityPhase({
         phase: "tool_running",
         toolName: event.toolName,
-      } satisfies GuiInboundFrame));
+      });
     } else if (event.type === "tool_result") {
       const pending = this.capture?.pendingToolCallIds.get(event.toolName);
       const toolCallId = pending?.shift()
@@ -1286,10 +1300,7 @@ class GuiActivityStreamer {
           },
         },
       });
-      this.ws.send(JSON.stringify({
-        type: "activity_phase",
-        phase: "idle",
-      } satisfies GuiInboundFrame));
+      this.emitActivityPhase({ phase: "idle" });
     } else if (event.type === "file_changed") {
       if (this.capture) {
         this.capture.fileChanges.push({

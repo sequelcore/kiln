@@ -3,6 +3,7 @@ import { createBunWebSocket } from "hono/bun";
 import type { WSContext } from "hono/ws";
 import {
   isGuiProviderModeless,
+  type GuiInboundFrame,
   type GuiProviderDiscoveryResult,
   type GuiProviderModelCapabilities,
   type GuiProviderReasoningEffort,
@@ -637,8 +638,8 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
                   reasoningEffort,
                 ),
                 turnCapture: {
-                  start: (sessionId) => {
-                    activityStreamer.beginTurnCapture(sessionId);
+                  start: (sessionId, nextSequence) => {
+                    activityStreamer.beginTurnCapture(sessionId, nextSequence);
                   },
                   finish: (sessionId) => activityStreamer.endTurnCapture(sessionId),
                   abort: (sessionId) => {
@@ -754,6 +755,11 @@ class TuiActivityStreamer {
   private readonly pendingApprovals = new Set<string>();
   private capture: {
     sessionId: string;
+    nextSequence: number;
+    toolOrdinal: number;
+    approvalOrdinal: number;
+    pendingToolCallIds: Map<string, string[]>;
+    pendingApprovalIds: string[];
     fileChanges: RuntimeTurnFileChange[];
     approvalTransitions: RuntimeTurnApprovalTransition[];
     authorityDecisions: RuntimeTurnAuthorityDecision[];
@@ -777,9 +783,14 @@ class TuiActivityStreamer {
     this.approvalBridge = bridge;
   }
 
-  beginTurnCapture(sessionId: string): void {
+  beginTurnCapture(sessionId: string, nextSequence: number): void {
     this.capture = {
       sessionId,
+      nextSequence,
+      toolOrdinal: 0,
+      approvalOrdinal: 0,
+      pendingToolCallIds: new Map<string, string[]>(),
+      pendingApprovalIds: [],
       fileChanges: [],
       approvalTransitions: [],
       authorityDecisions: [],
@@ -803,6 +814,69 @@ class TuiActivityStreamer {
     return captured;
   }
 
+  private nextLiveSequence(): number | null {
+    if (!this.capture) {
+      return null;
+    }
+    const sequence = this.capture.nextSequence;
+    this.capture.nextSequence += 1;
+    return sequence;
+  }
+
+  private emitSessionEvent(input: {
+    kind: "assistant_delta" | "tool_call_started" | "tool_call_completed" | "approval_requested" | "approval_resolved" | "file_changed" | "cost_updated";
+    timestamp: string;
+    payload: Record<string, unknown>;
+  }): void {
+    if (!this.ws || !this.capture) {
+      return;
+    }
+    const sequence = this.nextLiveSequence();
+    if (sequence === null) {
+      return;
+    }
+    this.ws.send(JSON.stringify({
+      type: "session_event",
+      event: {
+        eventId: `${this.capture.sessionId}:live:${sequence}`,
+        kilnSessionId: this.capture.sessionId,
+        sequence,
+        timestamp: input.timestamp,
+        kind: input.kind,
+        turnId: `${this.capture.sessionId}:turn:live`,
+        source: {
+          actor: input.kind === "assistant_delta" ? "assistant" : input.kind.startsWith("tool_") ? "tool" : "runtime",
+          surface: "tui",
+          component: "tui-gateway",
+        },
+        payload: input.payload,
+      },
+    } satisfies GuiInboundFrame));
+  }
+
+  private emitActivityPhase(input: {
+    phase: "idle" | "thinking" | "tool_running" | "awaiting_approval" | "streaming";
+    sessionId?: string;
+    toolName?: string;
+    details?: string;
+  }): void {
+    if (!this.ws) {
+      return;
+    }
+    const sessionId = input.sessionId ?? this.capture?.sessionId;
+    if (!sessionId) {
+      return;
+    }
+    this.ws.send(JSON.stringify({
+      type: "activity_phase",
+      kilnSessionId: sessionId,
+      ...(this.capture?.sessionId === sessionId ? { turnId: `${sessionId}:turn:live` } : {}),
+      phase: input.phase,
+      ...(input.toolName ? { toolName: input.toolName } : {}),
+      ...(input.details ? { details: input.details } : {}),
+    } satisfies GuiInboundFrame));
+  }
+
   register(ws: WSContext, eventBus?: EventBus): void {
     this.ws = ws;
     this.eventBus = eventBus ?? null;
@@ -819,10 +893,21 @@ class TuiActivityStreamer {
         if (sessionId) {
           this.pendingApprovals.add(sessionId);
           if (this.capture && this.capture.sessionId === sessionId) {
+            const approvalId = `${sessionId}:live:approval:${++this.capture.approvalOrdinal}`;
+            this.capture.pendingApprovalIds.push(approvalId);
             this.capture.approvalTransitions.push({
               status: "requested",
               sessionId,
               reason: approvalEvent.description,
+            });
+            this.emitSessionEvent({
+              kind: "approval_requested",
+              timestamp: approvalEvent.timestamp.toISOString(),
+              payload: {
+                approvalId,
+                action: approvalEvent.description,
+                justification: approvalEvent.description,
+              },
             });
           }
           this.approvalRegistry.register(sessionId, {
@@ -831,13 +916,11 @@ class TuiActivityStreamer {
             status: () => (this.pendingApprovals.has(sessionId) ? "awaiting_approval" : "resolved"),
           });
         }
-        if (this.ws) {
-          this.ws.send(JSON.stringify({
-            type: "approval_requested",
-            description: approvalEvent.description,
-            sessionId,
-          }));
-        }
+        this.emitActivityPhase({
+          phase: "awaiting_approval",
+          sessionId,
+          details: approvalEvent.description,
+        });
       }
     };
     this.eventBus.onAny(this.approvalHandler);
@@ -849,22 +932,28 @@ class TuiActivityStreamer {
         if (sessionId) {
           this.pendingApprovals.delete(sessionId);
           if (this.capture && this.capture.sessionId === sessionId) {
+            const approvalId = this.capture.pendingApprovalIds.shift() ?? `${sessionId}:live:approval:${++this.capture.approvalOrdinal}`;
             this.capture.approvalTransitions.push({
               status: receivedEvent.approved ? "approved" : "rejected",
               sessionId,
               reason: receivedEvent.reason,
             });
+            this.emitSessionEvent({
+              kind: "approval_resolved",
+              timestamp: receivedEvent.timestamp.toISOString(),
+              payload: {
+                approvalId,
+                resolution: {
+                  decision: receivedEvent.approved ? "approved" : "denied",
+                  resolvedBy: "operator",
+                  reason: receivedEvent.reason,
+                },
+              },
+            });
           }
           this.approvalRegistry.unregister(sessionId);
         }
-        if (this.ws) {
-          this.ws.send(JSON.stringify({
-            type: "approval_received",
-            approved: receivedEvent.approved,
-            reason: receivedEvent.reason,
-            sessionId,
-          }));
-        }
+        this.emitActivityPhase({ phase: "idle", sessionId });
       }
     };
     this.eventBus.onAny(this.receivedHandler);
@@ -909,21 +998,64 @@ class TuiActivityStreamer {
   forward(event: CliSessionEvent): void {
     if (!this.ws) return;
 
-    // Only forward activity events, not raw text deltas or completion
-    if (event.type === "tool_use") {
-      this.ws.send(JSON.stringify({
-        type: "activity",
-        activity: "tool_use",
+    if (event.type === "text_delta") {
+      if (event.isThinking) {
+        this.emitActivityPhase({
+          phase: "thinking",
+          details: event.content,
+        });
+        return;
+      }
+      this.emitSessionEvent({
+        kind: "assistant_delta",
+        timestamp: new Date().toISOString(),
+        payload: {
+          messageId: this.capture ? `${this.capture.sessionId}:live:assistant` : "assistant-live",
+          delta: event.content,
+        },
+      });
+    } else if (event.type === "tool_use") {
+      const toolCallId = this.capture
+        ? `${this.capture.sessionId}:live:tool:${++this.capture.toolOrdinal}`
+        : `${event.toolName ?? "tool"}_${Date.now()}`;
+      if (this.capture) {
+        const pending = this.capture.pendingToolCallIds.get(event.toolName) ?? [];
+        pending.push(toolCallId);
+        this.capture.pendingToolCallIds.set(event.toolName, pending);
+      }
+      this.emitSessionEvent({
+        kind: "tool_call_started",
+        timestamp: new Date().toISOString(),
+        payload: {
+          toolCallId,
+          toolName: event.toolName ?? "unknown",
+          input: (event.input && typeof event.input === "object" ? event.input : {}) as Record<string, unknown>,
+        },
+      });
+      this.emitActivityPhase({
+        phase: "tool_running",
         toolName: event.toolName,
-        input: event.input,
-      }));
+      });
     } else if (event.type === "tool_result") {
-      this.ws.send(JSON.stringify({
-        type: "activity",
-        activity: "tool_result",
-        toolName: event.toolName,
-        output: event.output,
-      }));
+      const pending = this.capture?.pendingToolCallIds.get(event.toolName);
+      const toolCallId = pending?.shift()
+        ?? (this.capture ? `${this.capture.sessionId}:live:tool:${++this.capture.toolOrdinal}` : `${event.toolName ?? "tool"}_${Date.now()}`);
+      if (pending && pending.length === 0 && this.capture) {
+        this.capture.pendingToolCallIds.delete(event.toolName);
+      }
+      this.emitSessionEvent({
+        kind: "tool_call_completed",
+        timestamp: new Date().toISOString(),
+        payload: {
+          toolCallId,
+          toolName: event.toolName ?? "unknown",
+          outputSummary: event.output ?? "",
+          status: {
+            state: "succeeded",
+          },
+        },
+      });
+      this.emitActivityPhase({ phase: "idle" });
     } else if (event.type === "file_changed") {
       if (this.capture) {
         this.capture.fileChanges.push({
@@ -935,27 +1067,45 @@ class TuiActivityStreamer {
           diffTruncated: event.diffTruncated,
         });
       }
-      this.ws.send(JSON.stringify({
-        type: "activity",
-        activity: "file_changed",
-        path: event.path,
-        changeType: event.changeType,
-        linesAdded: event.linesAdded,
-        linesRemoved: event.linesRemoved,
-        diffPreview: event.diffPreview,
-        diffTruncated: event.diffTruncated,
-      }));
+      this.emitSessionEvent({
+        kind: "file_changed",
+        timestamp: new Date().toISOString(),
+        payload: {
+          change: {
+            path: event.path,
+            changeType: event.changeType === "modified" ? "updated" : event.changeType,
+            linesAdded: event.linesAdded,
+            linesRemoved: event.linesRemoved,
+            diffPreview: event.diffPreview,
+            diffTruncated: event.diffTruncated,
+          },
+        },
+      });
     } else if (event.type === "cost_update") {
-      this.ws.send(JSON.stringify({
-        type: "activity",
-        activity: "cost_update",
-        usd: event.usd,
-        inputTokens: event.inputTokens,
-        outputTokens: event.outputTokens,
-      }));
+      this.emitSessionEvent({
+        kind: "cost_updated",
+        timestamp: new Date().toISOString(),
+        payload: {
+          provider: {
+            provider: event.provider ?? "unknown",
+            model: event.model ?? event.canonicalModel ?? "unknown",
+            canonicalModel: event.canonicalModel,
+            billingMode: event.billingMode,
+          },
+          usage: {
+            inputTokens: event.inputTokens ?? 0,
+            outputTokens: event.outputTokens ?? 0,
+            cacheReadTokens: event.cacheReadTokens ?? 0,
+          },
+          cost: {
+            deltaUsd: event.usd,
+            currency: "USD",
+          },
+        },
+      });
     }
-    // text_delta, completed, error are handled by the gateway's done frame
-    // approval_requested/approval_received come via eventBus, not CliSessionEvent
+    // completed/error are handled by the gateway's done/error frames.
+    // approval_requested/approval_received come via eventBus, not CliSessionEvent.
   }
 }
 

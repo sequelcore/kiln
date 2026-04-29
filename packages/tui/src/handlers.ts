@@ -52,6 +52,26 @@ export interface AssistantData {
   model: string;
 }
 
+function bindOrRejectSessionScopedEvent(
+  ctx: HandlerContext,
+  sessionId: string | undefined,
+  turnId: string | undefined,
+): boolean {
+  if (!sessionId) {
+    return true;
+  }
+  if (ctx.state.currentSessionId && ctx.state.currentSessionId !== sessionId) {
+    return false;
+  }
+  if (!ctx.state.currentSessionId) {
+    update(ctx.state, "currentSessionId", sessionId);
+  }
+  if (turnId && !ctx.state.currentTurnId) {
+    update(ctx.state, "currentTurnId", turnId);
+  }
+  return true;
+}
+
 /**
  * Handles text_delta events, both thinking and assistant content.
  */
@@ -263,10 +283,13 @@ export function handleActivity(
   outputTokens: number | undefined,
   renderSidebarCost: () => void,
   renderSidebarApprovals?: () => void,
-  event?: { sessionId?: string; path?: string; changeType?: "created" | "modified" | "deleted"; linesAdded?: number; linesRemoved?: number }
+  event?: { sessionId?: string; turnId?: string; path?: string; changeType?: "created" | "modified" | "deleted"; linesAdded?: number; linesRemoved?: number }
 ): void {
   // Ignore late-arriving frames after the turn has completed.
   if (ctx.state.status !== "running") return;
+  if (!bindOrRejectSessionScopedEvent(ctx, event?.sessionId, event?.turnId)) {
+    return;
+  }
 
   if (activity === "approval_requested" && (details !== undefined || output !== undefined)) {
     handleApprovalRequested(ctx, details ?? output ?? "", event?.sessionId ?? "");
@@ -299,7 +322,15 @@ export function handleActivity(
     if (path && changeType) {
       update(ctx.state, "changedFiles", [
         ...ctx.state.changedFiles,
-        { path, changeType, linesAdded, linesRemoved, timestamp: new Date() },
+        {
+          sessionId: event?.sessionId,
+          turnId: event?.turnId,
+          path,
+          changeType,
+          linesAdded,
+          linesRemoved,
+          timestamp: new Date(),
+        },
       ]);
       ctx.renderSidebarChanges?.();
     }
@@ -455,6 +486,8 @@ export async function sendMessage(
   update(ctx.state, "messages", [...ctx.state.messages, userMsg]);
 
   update(ctx.state, "status", "running");
+  update(ctx.state, "currentSessionId", undefined);
+  update(ctx.state, "currentTurnId", undefined);
   update(ctx.state, "thinking", "");
   update(ctx.state, "thinkingVisible", false);
   renderSidebarCost();

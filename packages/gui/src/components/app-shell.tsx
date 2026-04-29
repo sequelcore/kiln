@@ -732,10 +732,10 @@ export function AppShell() {
   }, [sessionsQuery.error, setErrorBanner]);
 
   useEffect(() => {
-    if (sessionDetailQuery.data) {
+    if (sessionDetailQuery.data && sessionDetailQuery.data.id === selectedSessionId) {
       viewSessionDetail(sessionDetailQuery.data);
     }
-  }, [sessionDetailQuery.data, viewSessionDetail]);
+  }, [selectedSessionId, sessionDetailQuery.data, viewSessionDetail]);
 
   useEffect(() => {
     if (sessionDetailQuery.error) {

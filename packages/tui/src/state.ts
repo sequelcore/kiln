@@ -41,6 +41,8 @@ export interface ReactiveState {
   supportedReasoningEfforts: ReasoningEffort[];
   respondingProvider?: string;
   respondingModel?: string;
+  currentSessionId?: string;
+  currentTurnId?: string;
   currentActivity: ActivitySnapshot;
   toolCallCounts: Record<string, number>;
   /** Per-provider cumulative cost in USD. Key: provider name (e.g. "claude"). */
@@ -116,6 +118,8 @@ export interface PendingApproval {
 
 /** File change record. */
 export interface ChangedFile {
+  sessionId?: string;
+  turnId?: string;
   path: string;
   changeType: "created" | "modified" | "deleted";
   linesAdded?: number;
@@ -165,6 +169,8 @@ export function createReactiveState(): ReactiveState {
     supportedReasoningEfforts: [],
     respondingProvider: undefined,
     respondingModel: undefined,
+    currentSessionId: undefined,
+    currentTurnId: undefined,
     currentActivity: { phase: "" },
     toolCallCounts: {},
     perProviderCost: {},

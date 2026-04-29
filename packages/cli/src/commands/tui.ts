@@ -641,18 +641,23 @@ function mapSessionEventToTui(
   event: unknown,
   route?: { provider: string; model: string },
 ):
-  | { type: "text_delta"; content: string; isThinking?: boolean }
-  | { type: "file_changed"; path: string; changeType: "created" | "modified" | "deleted"; linesAdded?: number; linesRemoved?: number }
-  | { type: "cost_update"; usd: number }
+  | { type: "text_delta"; content: string; isThinking?: boolean; sessionId?: string; turnId?: string }
+  | { type: "file_changed"; path: string; changeType: "created" | "modified" | "deleted"; linesAdded?: number; linesRemoved?: number; sessionId?: string; turnId?: string }
+  | { type: "cost_update"; usd: number; sessionId?: string; turnId?: string }
   | { type: "completed"; totalUsd: number; routedProvider?: string; routedModel?: string }
   | { type: "error"; message: string }
-  | { type: "activity"; activity: string; toolName?: string; output?: string; input?: unknown } {
+  | { type: "activity"; activity: string; toolName?: string; output?: string; input?: unknown; sessionId?: string; turnId?: string } {
   const candidate = event as { type?: string; [key: string]: unknown } | undefined;
+  const scoped = {
+    ...(typeof candidate?.sessionId === "string" ? { sessionId: candidate.sessionId } : {}),
+    ...(typeof candidate?.turnId === "string" ? { turnId: candidate.turnId } : {}),
+  };
   switch (candidate?.type) {
     case "text_delta":
       return {
         type: "text_delta",
         content: String(candidate.content ?? ""),
+        ...scoped,
       };
     case "file_changed":
       return {
@@ -661,11 +666,13 @@ function mapSessionEventToTui(
         changeType: (candidate.changeType as "created" | "modified" | "deleted") ?? "modified",
         linesAdded: typeof candidate.linesAdded === "number" ? candidate.linesAdded : undefined,
         linesRemoved: typeof candidate.linesRemoved === "number" ? candidate.linesRemoved : undefined,
+        ...scoped,
       };
     case "cost_update":
       return {
         type: "cost_update",
         usd: typeof candidate.usd === "number" ? candidate.usd : 0,
+        ...scoped,
       };
     case "completed":
       return {
@@ -685,6 +692,7 @@ function mapSessionEventToTui(
         activity: "tool_use",
         toolName: typeof candidate.toolName === "string" ? candidate.toolName : undefined,
         input: candidate.input,
+        ...scoped,
       };
     case "tool_result":
       return {
@@ -692,6 +700,7 @@ function mapSessionEventToTui(
         activity: "tool_result",
         toolName: typeof candidate.toolName === "string" ? candidate.toolName : undefined,
         output: typeof candidate.output === "string" ? candidate.output : undefined,
+        ...scoped,
       };
     default:
       return {

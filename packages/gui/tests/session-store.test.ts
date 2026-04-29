@@ -23,6 +23,7 @@ function resetSessionStore(): void {
     activeModel: null,
     sessionList: [],
     selectedSessionId: null,
+    liveSessionId: null,
     resumeTargetId: null,
     routedProvider: null,
     routedModel: null,
@@ -181,6 +182,78 @@ describe("session-store", () => {
       diffPreview: "- old\n+ new",
       diffTruncated: false,
     });
+  });
+
+  it("clears visible operational state when selecting another session", () => {
+    useSessionStore.setState({
+      selectedSessionId: "session-a",
+      resumeTargetId: "session-a",
+      status: "running",
+      activity: { phase: "tool_running", toolName: "write" },
+      activityPhase: "tool_running",
+      messages: [
+        {
+          id: "message-a",
+          role: "assistant",
+          content: "old visible message",
+          createdAt: "2026-04-28T19:00:00.000Z",
+        },
+      ],
+      timelineEntries: [
+        {
+          id: "event-a",
+          type: "event",
+          eventKind: "file_changed",
+          createdAt: "2026-04-28T19:00:01.000Z",
+          title: "File changed",
+          summary: "modified: old.txt",
+          tone: "info",
+          details: { path: "old.txt", changeType: "modified" },
+          sessionId: "session-a",
+        },
+      ],
+    });
+
+    useSessionStore.getState().setSelectedSessionId("session-b");
+
+    const state = useSessionStore.getState();
+    expect(state.selectedSessionId).toBe("session-b");
+    expect(state.messages).toEqual([]);
+    expect(state.timelineEntries).toEqual([]);
+    expect(state.activity).toBeNull();
+    expect(state.activityPhase).toBe("idle");
+  });
+
+  it("ignores live canonical events and phase frames for another visible session", () => {
+    useSessionStore.setState({
+      selectedSessionId: "session-visible",
+      resumeTargetId: "session-visible",
+      status: "ready",
+    });
+
+    useSessionStore.getState().onSessionEvent({
+      eventId: "evt-foreign-tool",
+      kilnSessionId: "session-foreign",
+      sequence: 1,
+      timestamp: "2026-04-28T19:10:00.000Z",
+      kind: "tool_call_started",
+      payload: {
+        toolCallId: "tool-foreign",
+        toolName: "write",
+        input: { path: "foreign.txt" },
+      },
+    });
+    useSessionStore.getState().onActivityPhase({
+      type: "activity_phase",
+      kilnSessionId: "session-foreign",
+      phase: "tool_running",
+      toolName: "write",
+    });
+
+    const state = useSessionStore.getState();
+    expect(state.timelineEntries).toEqual([]);
+    expect(state.activity).toBeNull();
+    expect(state.activityPhase).toBe("idle");
   });
 
   it("applies live canonical session events to streaming/tool/approval state", () => {

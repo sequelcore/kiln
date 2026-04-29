@@ -208,6 +208,102 @@ describe("GatewaySession provider switching", () => {
   });
 });
 
+describe("GatewaySession canonical session events", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    wsInstances = [];
+    (globalThis as unknown as { WebSocket: typeof MockWebSocket }).WebSocket = MockWebSocket;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("projects canonical tool and file events with session identity", async () => {
+    const session = new GatewaySession("ws://localhost:4801/tui/ws");
+    const ws = wsInstances[0];
+    ws.simulateOpen();
+
+    const events: unknown[] = [];
+    const collect = (async () => {
+      for await (const event of session.run({ prompt: "edit file" })) {
+        events.push(event);
+      }
+    })();
+
+    await Promise.resolve();
+    ws.simulateMessage(JSON.stringify({
+      type: "session_event",
+      event: {
+        eventId: "evt-tool",
+        kilnSessionId: "session-1",
+        sequence: 1,
+        timestamp: "2026-04-28T20:00:00.000Z",
+        kind: "tool_call_started",
+        turnId: "session-1:turn:live",
+        payload: {
+          toolCallId: "tool-1",
+          toolName: "write",
+          input: { path: "demo.txt" },
+        },
+      },
+    }));
+    ws.simulateMessage(JSON.stringify({
+      type: "session_event",
+      event: {
+        eventId: "evt-file",
+        kilnSessionId: "session-1",
+        sequence: 2,
+        timestamp: "2026-04-28T20:00:01.000Z",
+        kind: "file_changed",
+        turnId: "session-1:turn:live",
+        payload: {
+          change: {
+            path: "demo.txt",
+            changeType: "updated",
+            linesAdded: 2,
+            linesRemoved: 1,
+          },
+        },
+      },
+    }));
+    ws.simulateMessage(JSON.stringify({
+      type: "done",
+      content: "done",
+      inputTokens: 1,
+      outputTokens: 1,
+      routedProvider: "codex-oauth",
+      routedModel: "gpt-5.5",
+    }));
+
+    await collect;
+
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "activity",
+        activity: "tool_use",
+        sessionId: "session-1",
+        turnId: "session-1:turn:live",
+        toolName: "write",
+        input: { path: "demo.txt" },
+      }),
+      expect.objectContaining({
+        type: "activity",
+        activity: "file_changed",
+        sessionId: "session-1",
+        turnId: "session-1:turn:live",
+        path: "demo.txt",
+        changeType: "modified",
+        linesAdded: 2,
+        linesRemoved: 1,
+      }),
+    ]));
+
+    await session.dispose();
+  });
+});
+
 describe("GatewaySession provider authentication", () => {
   beforeEach(() => {
     vi.useFakeTimers();

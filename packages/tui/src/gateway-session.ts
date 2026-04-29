@@ -4,7 +4,11 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { isGuiProviderModeless, type GuiProviderDiscoveryResult } from "@kilnai/gateway-contracts";
+import {
+  isGuiProviderModeless,
+  type GuiProviderDiscoveryResult,
+  type OperatorSessionEvent,
+} from "@kilnai/gateway-contracts";
 import type { SessionLike } from "./types.js";
 import type { SessionEventInternal } from "./types.js";
 import { applyTuiOperatorThemeRequest } from "./operator-theme-handler.js";
@@ -48,6 +52,105 @@ function normalizeModel(model: unknown): string | null {
 
 function providerRequiresSelectedModelMessage(provider: string): string {
   return `Provider '${provider}' requires a selected model.`;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}
+
+function readNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function normalizeChangeType(value: unknown): "created" | "modified" | "deleted" | undefined {
+  if (value === "created" || value === "deleted") return value;
+  if (value === "modified" || value === "updated" || value === "renamed") return "modified";
+  return undefined;
+}
+
+function mapCanonicalSessionEvent(event: OperatorSessionEvent): SessionEventInternal | null {
+  const payload = asRecord(event.payload) ?? {};
+  const scoped = {
+    sessionId: event.kilnSessionId,
+    ...(event.turnId ? { turnId: event.turnId } : {}),
+  };
+
+  if (event.kind === "assistant_delta") {
+    const content = readString(payload.delta) ?? readString(payload.content);
+    return content ? { type: "text_delta", content, ...scoped } : null;
+  }
+  if (event.kind === "tool_call_started") {
+    const toolName = readString(payload.toolName) ?? "tool";
+    return {
+      type: "activity",
+      activity: "tool_use",
+      toolName,
+      input: payload.input,
+      ...scoped,
+    };
+  }
+  if (event.kind === "tool_call_completed") {
+    const toolName = readString(payload.toolName) ?? "tool";
+    return {
+      type: "activity",
+      activity: "tool_result",
+      toolName,
+      output: readString(payload.outputSummary) ?? readString(payload.output) ?? "",
+      ...scoped,
+    };
+  }
+  if (event.kind === "file_changed") {
+    const change = asRecord(payload.change);
+    const path = readString(change?.path);
+    const changeType = normalizeChangeType(change?.changeType);
+    if (!path || !changeType) return null;
+    return {
+      type: "activity",
+      activity: "file_changed",
+      path,
+      changeType,
+      linesAdded: readNumber(change?.linesAdded),
+      linesRemoved: readNumber(change?.linesRemoved),
+      ...scoped,
+    };
+  }
+  if (event.kind === "cost_updated") {
+    const cost = asRecord(payload.cost);
+    const usage = asRecord(payload.usage);
+    return {
+      type: "activity",
+      activity: "cost_update",
+      usd: readNumber(cost?.deltaUsd) ?? 0,
+      inputTokens: readNumber(usage?.inputTokens),
+      outputTokens: readNumber(usage?.outputTokens),
+      ...scoped,
+    };
+  }
+  if (event.kind === "approval_requested") {
+    return {
+      type: "activity",
+      activity: "approval_requested",
+      details: readString(payload.action) ?? readString(payload.justification),
+      ...scoped,
+    };
+  }
+  if (event.kind === "approval_resolved") {
+    const resolution = asRecord(payload.resolution);
+    const decision = readString(resolution?.decision);
+    return {
+      type: "activity",
+      activity: decision === "approved" ? "approval_approved" : "approval_rejected",
+      details: readString(resolution?.reason),
+      ...scoped,
+    };
+  }
+  return null;
 }
 
 /**
@@ -374,6 +477,20 @@ export class GatewaySession implements SessionLike {
       }
       this.push({ type: "error", message: frame.message });
       this.pushStop();
+    } else if (frame.type === "session_event") {
+      const event = mapCanonicalSessionEvent(frame.event);
+      if (event) {
+        this.push(event);
+      }
+    } else if (frame.type === "activity_phase") {
+      this.push({
+        type: "activity",
+        activity: frame.phase === "thinking" ? "reasoning" : frame.phase,
+        toolName: frame.toolName,
+        details: frame.details,
+        sessionId: frame.kilnSessionId,
+        turnId: frame.turnId,
+      });
     } else if (frame.type === "approval_requested") {
       this.push({ 
         type: "activity", 

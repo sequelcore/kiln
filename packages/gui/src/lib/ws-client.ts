@@ -161,6 +161,8 @@ const GuiInboundFrameSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("session_event"), event: GuiSessionEventSchema }),
   z.object({
     type: z.literal("activity_phase"),
+    kilnSessionId: z.string(),
+    turnId: z.string().optional(),
     phase: z.enum(["idle", "thinking", "tool_running", "awaiting_approval", "streaming"]),
     toolName: z.string().optional(),
     details: z.string().optional(),

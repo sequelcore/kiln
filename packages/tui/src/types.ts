@@ -18,26 +18,26 @@ export interface TuiConfig {
 }
 
 export type SessionEvent =
-  | { type: "text_delta"; content: string; isThinking?: boolean }
-  | { type: "tool_use"; toolName: string; input?: unknown }
-  | { type: "tool_result"; toolName: string; output: string }
-  | { type: "file_changed"; path: string; changeType: "created" | "modified" | "deleted"; linesAdded?: number; linesRemoved?: number }
-  | { type: "cost_update"; usd: number }
+  | { type: "text_delta"; content: string; isThinking?: boolean; sessionId?: string; turnId?: string }
+  | { type: "tool_use"; toolName: string; input?: unknown; sessionId?: string; turnId?: string }
+  | { type: "tool_result"; toolName: string; output: string; sessionId?: string; turnId?: string }
+  | { type: "file_changed"; path: string; changeType: "created" | "modified" | "deleted"; linesAdded?: number; linesRemoved?: number; sessionId?: string; turnId?: string }
+  | { type: "cost_update"; usd: number; sessionId?: string; turnId?: string }
   | { type: "completed"; totalUsd: number; routedProvider?: string; routedModel?: string }
   | { type: "error"; message: string }
   | { type: "thinking" }
-  | { type: "activity"; activity: string; toolName?: string; output?: string; usd?: number; input?: unknown; details?: string; sessionId?: string };
+  | { type: "activity"; activity: string; toolName?: string; output?: string; usd?: number; input?: unknown; details?: string; sessionId?: string; turnId?: string };
 
 /**
  * @internal
  * @description A single event from an active session turn.
  */
 export type SessionEventInternal =
-  | { type: "text_delta"; content: string; isThinking?: boolean }
-  | { type: "tool_use"; toolName: string; input?: unknown }
-  | { type: "tool_result"; toolName: string; output: string }
-  | { type: "file_changed"; path: string; changeType: "created" | "modified" | "deleted"; linesAdded?: number; linesRemoved?: number }
-  | { type: "cost_update"; usd: number }
+  | { type: "text_delta"; content: string; isThinking?: boolean; sessionId?: string; turnId?: string }
+  | { type: "tool_use"; toolName: string; input?: unknown; sessionId?: string; turnId?: string }
+  | { type: "tool_result"; toolName: string; output: string; sessionId?: string; turnId?: string }
+  | { type: "file_changed"; path: string; changeType: "created" | "modified" | "deleted"; linesAdded?: number; linesRemoved?: number; sessionId?: string; turnId?: string }
+  | { type: "cost_update"; usd: number; sessionId?: string; turnId?: string }
   | {
       type: "completed";
       totalUsd: number;
@@ -58,7 +58,7 @@ export type SessionEventInternal =
     }
   | { type: "error"; message: string }
   | { type: "thinking" }
-  | { type: "activity"; activity: string; toolName?: string; output?: string; usd?: number; input?: unknown; inputTokens?: number; outputTokens?: number; details?: string; sessionId?: string; path?: string; changeType?: "created" | "modified" | "deleted"; linesAdded?: number; linesRemoved?: number };
+  | { type: "activity"; activity: string; toolName?: string; output?: string; usd?: number; input?: unknown; inputTokens?: number; outputTokens?: number; details?: string; sessionId?: string; turnId?: string; path?: string; changeType?: "created" | "modified" | "deleted"; linesAdded?: number; linesRemoved?: number };
 
 /**
  * @description The only session abstraction the TUI depends on.

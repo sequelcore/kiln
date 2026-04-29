@@ -198,7 +198,7 @@ export interface GuiSessionMeta {
   readonly exactArtifacts?: readonly string[];
 }
 
-export type GuiSessionEventKind =
+export type OperatorSessionEventKind =
   | "turn_started"
   | "user_message"
   | "assistant_message"
@@ -219,28 +219,34 @@ export type GuiSessionEventKind =
   | "error_recorded"
   | "turn_completed";
 
-export interface GuiSessionEventSource {
+export type GuiSessionEventKind = OperatorSessionEventKind;
+
+export interface OperatorSessionEventSource {
   readonly actor: "user" | "assistant" | "system" | "tool" | "runtime";
   readonly surface: "cli" | "tui" | "gui" | "ide" | "gateway" | "runtime";
   readonly component?: string;
 }
 
-export interface GuiSessionEvent {
+export type GuiSessionEventSource = OperatorSessionEventSource;
+
+export interface OperatorSessionEvent {
   readonly eventId: string;
   readonly kilnSessionId: string;
   readonly sequence: number;
   readonly timestamp: string;
-  readonly kind: GuiSessionEventKind;
+  readonly kind: OperatorSessionEventKind;
   readonly turnId?: string;
   readonly parentEventId?: string;
-  readonly source?: GuiSessionEventSource;
+  readonly source?: OperatorSessionEventSource;
   readonly payload: Record<string, unknown>;
 }
+
+export type GuiSessionEvent = OperatorSessionEvent;
 
 export interface GuiSessionDetail {
   readonly id: string;
   readonly meta: GuiSessionMeta;
-  readonly events: readonly GuiSessionEvent[];
+  readonly events: readonly OperatorSessionEvent[];
 }
 
 // --- WebSocket frame shapes ---
@@ -261,6 +267,22 @@ export interface OperatorThemeSetResultFrame {
   readonly ok: boolean;
   readonly appliedTheme?: string;
   readonly error?: string;
+}
+
+export type OperatorActivityPhase =
+  | "idle"
+  | "thinking"
+  | "tool_running"
+  | "awaiting_approval"
+  | "streaming";
+
+export interface OperatorActivityPhaseFrame {
+  readonly type: "activity_phase";
+  readonly kilnSessionId: string;
+  readonly turnId?: string;
+  readonly phase: OperatorActivityPhase;
+  readonly toolName?: string;
+  readonly details?: string;
 }
 
 /** Frames sent by the browser (operator) to the gateway. */
@@ -292,13 +314,8 @@ export type GuiOutboundFrame =
 export type GuiInboundFrame =
   | { type: "thinking" }
   | OperatorThemeSetFrame
-  | { type: "session_event"; event: GuiSessionEvent }
-  | {
-      type: "activity_phase";
-      phase: "idle" | "thinking" | "tool_running" | "awaiting_approval" | "streaming";
-      toolName?: string;
-      details?: string;
-    }
+  | { type: "session_event"; event: OperatorSessionEvent }
+  | OperatorActivityPhaseFrame
   | {
       type: "done";
       content: string;

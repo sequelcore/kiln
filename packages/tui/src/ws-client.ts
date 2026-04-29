@@ -2,7 +2,11 @@
  * @fileoverview TUI WebSocket client for gateway communication.
  * @module @kilnai/tui
  */
-import type { OperatorThemeScope } from "@kilnai/gateway-contracts";
+import type {
+  OperatorActivityPhaseFrame,
+  OperatorSessionEvent,
+  OperatorThemeScope,
+} from "@kilnai/gateway-contracts";
 
 /**
  * Inbound frames the TUI gateway sends.
@@ -35,6 +39,8 @@ export interface TuiProviderDiscoveryFrame {
 
 export type TuiInboundFrame =
   | { type: "thinking" }
+  | { type: "session_event"; event: OperatorSessionEvent }
+  | OperatorActivityPhaseFrame
   | {
       type: "activity";
       activity: string;

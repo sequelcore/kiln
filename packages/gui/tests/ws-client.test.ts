@@ -472,11 +472,15 @@ describe("GuiWsClient", () => {
         {
           json: {
             type: "activity_phase",
+            kilnSessionId: "sess-1",
+            turnId: "sess-1:turn:live",
             phase: "tool_running",
             toolName: "grep",
           },
           expected: {
             type: "activity_phase",
+            kilnSessionId: "sess-1",
+            turnId: "sess-1:turn:live",
             phase: "tool_running",
             toolName: "grep",
           },
