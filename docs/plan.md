@@ -40,9 +40,9 @@ Closed slices:
 
 ## Active Objective
 
-Implement the remaining shared developer tools from the canonical core surface
-outward. Every phase must preserve the single core registry and shared runtime
-execution path for CLI, GUI, TUI, and MCP consumers.
+Start the second shared-tooling program from the canonical core surface outward.
+Every phase must preserve the single core registry and shared runtime execution
+path for CLI, GUI, TUI, SDK, and MCP consumers.
 
 ## References
 
@@ -50,6 +50,8 @@ execution path for CLI, GUI, TUI, and MCP consumers.
 - User guide: `docs/guides/tool-use.md`
 - Roadmap: `docs/roadmap/07-shared-developer-tools.md`
 - Research basis: `docs/research/11-agent-tooling-surface.md`
+- Next roadmap: `docs/roadmap/08-shared-tooling-intelligence.md`
+- Next research basis: `docs/research/12-agent-tooling-next-surface.md`
 
 ## Closed Phase 10: Web Provider Configuration And Runtime Policy Wiring
 
@@ -83,10 +85,68 @@ Focused tests:
 - `packages/runtime/tests/gateway/web-tool-surface-config.test.ts`
 - `packages/runtime/tests/gateway/attached-runtime-tool-surface.test.ts`
 
-## Remaining Phases
+## New Program: Shared Tooling Intelligence
 
-No developer-tool capability phase remains open in this plan. New tool additions
-must start with fresh research and a new phase entry before implementation.
+The next plan is documented in
+`docs/roadmap/08-shared-tooling-intelligence.md`. It starts from the research
+in `docs/research/12-agent-tooling-next-surface.md`.
+
+### Slice 11: Structured Tool Outputs And Output Schemas
+
+Make builtin tool results machine-readable before adding more high-volume or
+semantic tools.
+
+Status: implemented for builtin developer tools.
+
+Requirements:
+
+- core output-schema contract for builtin tools
+- MCP `outputSchema` projection
+- stable text output for current consumers
+- structured content for tool-level success and error results
+- focused output validation tests
+- docs distinguishing output contract from audit metadata
+
+### Slice 12: Tool Catalog Index And Deferred Discovery
+
+Add a searchable core catalog over tool names, descriptions, input fields,
+output schemas, tags, authority, and source package. Keep execution through the
+canonical registry while allowing deferred tool projection for large catalogs.
+
+### Slice 13: Semantic Code Intelligence
+
+Add a provider-neutral `code_intelligence` tool backed by language-server
+adapters for definitions, references, hover, symbols, diagnostics,
+implementations, and call hierarchy.
+
+### Slice 14: Bulk Context Ingestion
+
+Add `read_many` for bounded, deterministic multi-file context packets with
+include/exclude rules, gitignore respect, default excludes, provenance,
+skipped-file reasons, and truncation metadata.
+
+### Slice 15: Background Monitor And Long-Running Task Lifecycle
+
+Add monitor start/read/stop/list semantics for dev servers, watch tests, logs,
+and CI polling. Reuse `bash` command validation and expose lifecycle metadata
+and runtime events.
+
+### Slice 16: Shared Task State
+
+Add session-local task state so CLI, GUI, TUI, MCP, and SDK consumers observe
+the same progress model instead of each surface inventing its own checklist.
+
+### Slice 17: Operator Elicitation
+
+Add one cross-surface structured-input boundary for asking the operator
+questions. Map to MCP elicitation where available and require URL mode for
+sensitive credential or OAuth-style handoffs.
+
+### Slice 18: MCP Resources For Workspace And Artifacts
+
+Expose stable context such as selected files, summaries, task state, plans, and
+session artifacts as MCP resources with templates, pagination, and
+list-changed/update notifications.
 
 ## Phase 9 Design Record
 

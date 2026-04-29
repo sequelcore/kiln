@@ -1,7 +1,7 @@
 import type { ToolDefinition } from "../agents/index.js";
 import type { Capability } from "../engine/domain/capability.js";
 import { DevToolRegistry } from "./domain/tool-registry.js";
-import type { DevTool, DevToolAnnotations } from "./domain/tool.js";
+import { DEV_TOOL_OUTPUT_SCHEMA, type DevTool, type DevToolAnnotations } from "./domain/tool.js";
 import { BashTool, type BashToolOptions } from "./infrastructure/bash-tool.js";
 import { EditTool } from "./infrastructure/edit-tool.js";
 import { GitTool, type GitToolOptions } from "./infrastructure/git-tool.js";
@@ -22,6 +22,7 @@ export interface DevToolSchemaProjection {
   readonly name: string;
   readonly description: string;
   readonly inputSchema: Record<string, unknown>;
+  readonly outputSchema?: Record<string, unknown>;
 }
 
 export interface DefaultBuiltinToolRegistryOptions {
@@ -103,6 +104,7 @@ export function projectDevToolSchemas(
     name: tool.name,
     description: tool.description,
     inputSchema: cloneRecord(tool.inputSchema),
+    outputSchema: resolveToolOutputSchema(tool),
   }));
 }
 
@@ -113,6 +115,7 @@ export function projectDevToolDefinitions(
     name: tool.name,
     description: tool.description,
     inputSchema: cloneRecord(tool.inputSchema),
+    outputSchema: resolveToolOutputSchema(tool),
     tags: new Set<string>(),
   }));
 }
@@ -128,9 +131,14 @@ export function projectDevToolCapabilities(
       schema: cloneRecord(tool.inputSchema),
       tags: [],
       annotations: cloneAnnotations(tool.annotations),
+      outputSchema: resolveToolOutputSchema(tool),
     });
   }
   return capabilityMap;
+}
+
+function resolveToolOutputSchema(tool: DevTool): Record<string, unknown> {
+  return cloneRecord(tool.outputSchema ?? DEV_TOOL_OUTPUT_SCHEMA);
 }
 
 function createRegistryView(registry: DevToolRegistry): DefaultBuiltinToolRegistryView {

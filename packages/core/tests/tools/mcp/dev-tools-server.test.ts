@@ -67,6 +67,10 @@ describe("DevToolsMcpServer", () => {
 
     for (const tool of tools) {
       expect(tool.inputSchema.type).toBe("object");
+      expect(tool.outputSchema).toMatchObject({
+        type: "object",
+        required: ["result", "attempts", "fallbackUsed"],
+      });
       expect(tool.description.length).toBeGreaterThan(0);
     }
   });
@@ -257,6 +261,14 @@ describe("DevToolsMcpServer", () => {
     const response = await server.callTool("echo", { message: "hello" });
 
     expect(response.isError).toBeUndefined();
+    expect(response.structuredContent).toEqual({
+      result: {
+        output: JSON.stringify({ message: "hello" }),
+        isError: false,
+      },
+      attempts: 1,
+      fallbackUsed: false,
+    });
     const payload = JSON.parse(response.content[0]!.text) as {
       result: ToolResult;
       attempts: number;
@@ -268,6 +280,30 @@ describe("DevToolsMcpServer", () => {
     });
     expect(payload.attempts).toBe(1);
     expect(payload.fallbackUsed).toBe(false);
+  });
+
+  it("returns structuredContent for tool-level error results that match the published output schema", async () => {
+    const registry = new DevToolRegistry();
+    registry.register(
+      makeTool("invalid", async () => ({
+        output: "invalid input",
+        isError: true,
+      })),
+    );
+    const server = createServer(registry);
+
+    const response = await server.callTool("invalid", {});
+
+    expect(response.isError).toBe(true);
+    expect(response.structuredContent).toEqual({
+      result: {
+        output: "invalid input",
+        isError: true,
+      },
+      attempts: 1,
+      fallbackUsed: false,
+    });
+    expect(JSON.parse(response.content[0]!.text)).toEqual(response.structuredContent);
   });
 
   it("does not impose the default 30s bridge timeout when MCP bash input requests longer", async () => {

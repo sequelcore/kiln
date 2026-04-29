@@ -59,6 +59,7 @@ export interface DevToolsMcpToolSchema {
   readonly name: string;
   readonly description: string;
   readonly inputSchema: Record<string, unknown>;
+  readonly outputSchema?: Record<string, unknown>;
 }
 
 export interface DevToolsMcpCallResult {
@@ -106,17 +107,13 @@ export class DevToolsMcpServer {
         input: args,
       });
 
-      if (execution.result.isError) {
-        return this.errorResult(execution.result.output);
-      }
-
       const payload = {
         result: projectToolResult(execution.result),
         attempts: execution.attempts,
         fallbackUsed: execution.fallbackUsed,
       };
 
-      return this.jsonResult(payload, execution.result.content);
+      return this.jsonResult(payload, execution.result.content, execution.result.isError);
     } catch (error) {
       return this.errorResult(this.formatErrorMessage(error));
     } finally {
@@ -156,10 +153,12 @@ export class DevToolsMcpServer {
   private jsonResult(
     data: unknown,
     content: readonly ToolResultContentPart[] = [],
+    isError = false,
   ): DevToolsMcpCallResult {
     return {
       content: [{ type: "text", text: JSON.stringify(data, null, 2) }, ...content],
       structuredContent: data,
+      ...(isError ? { isError: true } : {}),
     };
   }
 

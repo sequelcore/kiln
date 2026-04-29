@@ -63,6 +63,7 @@ export interface ToolDefinition {
   readonly name: string;
   readonly description: string;
   readonly inputSchema: Record<string, unknown>;
+  readonly outputSchema?: Record<string, unknown>;
   readonly tags: ReadonlySet<string>;
 }
 

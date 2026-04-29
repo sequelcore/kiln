@@ -50,6 +50,11 @@ define the active architecture contract. For doctrine, use
   External agent-tooling patterns and user pain points that inform Kiln's next
   shared developer tools: patch, tree/stat, image/OCR, output modes, and web.
 
+- `12-agent-tooling-next-surface.md`
+  Second-pass research on structured outputs, deferred tool discovery, semantic
+  code intelligence, bulk context ingestion, monitors, task state, elicitation,
+  and MCP resources.
+
 ## Supporting Reference
 
 - `10-coordination-intelligence.md`
@@ -70,3 +75,4 @@ define the active architecture contract. For doctrine, use
 9. `09-tool-execution-and-trust.md`
 10. `10-coordination-intelligence.md`
 11. `11-agent-tooling-surface.md`
+12. `12-agent-tooling-next-surface.md`

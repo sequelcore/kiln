@@ -6,12 +6,23 @@ import {
 } from "../../src/gateway/attached-runtime-tool-surface.js";
 
 function projectToolDefinitions(
-  tools: readonly { readonly name: string; readonly description: string; readonly inputSchema: Record<string, unknown> }[],
-): readonly { readonly name: string; readonly description: string; readonly inputSchema: Record<string, unknown> }[] {
+  tools: readonly {
+    readonly name: string;
+    readonly description: string;
+    readonly inputSchema: Record<string, unknown>;
+    readonly outputSchema?: Record<string, unknown>;
+  }[],
+): readonly {
+  readonly name: string;
+  readonly description: string;
+  readonly inputSchema: Record<string, unknown>;
+  readonly outputSchema?: Record<string, unknown>;
+}[] {
   return tools.map((tool) => ({
     name: tool.name,
     description: tool.description,
     inputSchema: tool.inputSchema,
+    ...(tool.outputSchema ? { outputSchema: tool.outputSchema } : {}),
   }));
 }
 

@@ -19,6 +19,42 @@ export type ToolResult = {
   readonly content?: readonly ToolResultContentPart[];
 };
 
+export const DEV_TOOL_OUTPUT_SCHEMA = {
+  type: "object",
+  properties: {
+    result: {
+      type: "object",
+      properties: {
+        output: {
+          type: "string",
+          description: "Human-readable tool output. Shape depends on the tool and requested verbosity.",
+        },
+        isError: {
+          type: "boolean",
+          description: "True when the tool completed with a tool-level error result.",
+        },
+        metadata: {
+          type: "object",
+          description: "Audit and provenance metadata emitted by the tool.",
+          additionalProperties: true,
+        },
+      },
+      required: ["output", "isError"],
+      additionalProperties: false,
+    },
+    attempts: {
+      type: "number",
+      description: "Number of execution attempts made by the bridge.",
+    },
+    fallbackUsed: {
+      type: "boolean",
+      description: "True when bridge-level fallback execution was used.",
+    },
+  },
+  required: ["result", "attempts", "fallbackUsed"],
+  additionalProperties: false,
+} as const;
+
 export type ToolResultContentPart =
   | {
     readonly type: "text";
@@ -34,6 +70,7 @@ export interface DevTool {
   readonly name: string;
   readonly description: string;
   readonly inputSchema: Record<string, unknown>;
+  readonly outputSchema?: Record<string, unknown>;
   readonly annotations?: DevToolAnnotations;
   execute(input: ToolInput, sandbox?: unknown): Promise<ToolResult>;
 }

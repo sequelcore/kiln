@@ -58,6 +58,7 @@ export {
 } from "./domain/tool-environment.js";
 
 export type { ToolSandboxContext } from "./infrastructure/tool-helpers.js";
+export { DEV_TOOL_OUTPUT_SCHEMA } from "./domain/tool.js";
 export type { BashToolOptions } from "./infrastructure/bash-tool.js";
 export { BashTool } from "./infrastructure/bash-tool.js";
 export { ReadTool } from "./infrastructure/read-tool.js";

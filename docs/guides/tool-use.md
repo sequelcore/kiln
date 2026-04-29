@@ -106,6 +106,38 @@ That distinction matters because the caller can treat "never allowed" differentl
 
 ---
 
+## Structured output
+
+Builtin developer tools publish a shared MCP `outputSchema`. The schema is the
+execution envelope returned in MCP `structuredContent`:
+
+```json
+{
+  "result": {
+    "output": "tool-specific text output",
+    "isError": false,
+    "metadata": {}
+  },
+  "attempts": 1,
+  "fallbackUsed": false
+}
+```
+
+For backwards compatibility, MCP responses also include the serialized JSON
+envelope as a text content item. `result.output` remains the human-readable tool
+output and preserves each tool's existing `verbosity` behavior.
+
+`result.metadata` is audit and provenance evidence, not the primary output
+contract. Consumers should use the envelope and `outputSchema` for structural
+validation, then use metadata for evidence such as paths, hashes, redirect
+chains, search sources, byte counts, and truncation.
+
+Tool-level failures still return the same structured envelope with
+`result.isError: true` and MCP `isError: true`. Thrown execution failures and
+unknown tools remain MCP error results.
+
+---
+
 ## Webhook tools
 
 Webhook tools expose external HTTP endpoints as tenant-scoped tools. Kiln signs requests with HMAC-SHA256 and returns the parsed JSON response as the tool result.

@@ -92,19 +92,49 @@ describe("default builtin tool surface", () => {
     const secondReadCapability = second.capabilities.get("read");
 
     expect(firstReadDefinition?.inputSchema).not.toBe(secondReadDefinition?.inputSchema);
+    expect(firstReadDefinition?.outputSchema).not.toBe(secondReadDefinition?.outputSchema);
     expect(firstReadCapability?.schema).not.toBe(secondReadCapability?.schema);
+    expect(firstReadCapability?.outputSchema).not.toBe(secondReadCapability?.outputSchema);
     expect(firstReadCapability?.annotations).not.toBe(secondReadCapability?.annotations);
 
     const firstSchema = firstReadDefinition?.inputSchema as {
       properties: { filePath: { description: string } };
     };
     firstSchema.properties.filePath.description = "mutated";
+    (firstReadDefinition?.outputSchema as {
+      properties: { result: { properties: { output: { type: string } } } };
+    }).properties.result.properties.output.type = "number";
 
     expect(
       (secondReadDefinition?.inputSchema as {
         properties: { filePath: { description: string } };
       }).properties.filePath.description,
     ).not.toBe("mutated");
+    expect(
+      (secondReadDefinition?.outputSchema as {
+        properties: { result: { properties: { output: { type: string } } } };
+      }).properties.result.properties.output.type,
+    ).toBe("string");
+  });
+
+  it("projects a structured output schema for every builtin tool definition and capability", () => {
+    const surface = createDefaultBuiltinToolSurface();
+
+    for (const definition of surface.toolDefinitions) {
+      expect(definition.outputSchema).toMatchObject({
+        type: "object",
+        required: ["result", "attempts", "fallbackUsed"],
+        properties: {
+          result: expect.objectContaining({
+            type: "object",
+            required: ["output", "isError"],
+          }),
+          attempts: expect.objectContaining({ type: "number" }),
+          fallbackUsed: expect.objectContaining({ type: "boolean" }),
+        },
+      });
+      expect(surface.capabilities.get(definition.name)?.outputSchema).toEqual(definition.outputSchema);
+    }
   });
 
   it("executes through the canonical bridge", async () => {

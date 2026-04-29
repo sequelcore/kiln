@@ -53,6 +53,11 @@ indicates the default read order, not necessarily the active work priority.
   projection foundation: patch, tree/stat, image/OCR, output modes, and
   controlled web tools.
 
+- `08-shared-tooling-intelligence.md`
+  Owns the next shared-tooling program: structured outputs, deferred tool
+  discovery, LSP-backed code intelligence, bulk context ingestion, monitors,
+  task state, elicitation, and MCP resources.
+
 ### Deferred work
 
 - `02-external-benchmark-validation.md`
@@ -102,9 +107,9 @@ This is the delivery queue. It is the only priority order in this index.
 4. Execute `06-config-projection-unification.md` after the provider credential
    pool and config/registry ADR sequencing is clear. It owns harness config
    projection, drift detection, engine registry, and config lifecycle commands.
-5. Execute `07-shared-developer-tools.md` for the next shared tool expansion:
-   patch first, then tree/stat, image/OCR, output verbosity, and controlled web
-   tools.
+5. `07-shared-developer-tools.md` is complete as of 2026-04-29. Use
+   `08-shared-tooling-intelligence.md` for the next shared-tooling expansion,
+   starting with structured output schemas.
 6. Keep `02-external-benchmark-validation.md` deferred until the product
    surface stabilizes.
 
