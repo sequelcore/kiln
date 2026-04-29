@@ -27,7 +27,7 @@ import {
   providerRequiresSelectedModelMessage,
   resolveGuiOperatorDiscoveryResults,
 } from "./gui-provider-models.js";
-import { createProviderDiscoveryCache } from "./provider-discovery-cache.js";
+import { createProviderCatalogService } from "./provider-catalog-service.js";
 import { startProviderAuthRequest } from "./provider-auth.js";
 import type {
   RuntimeTurnApprovalTransition,
@@ -275,6 +275,23 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
   const port = options.port ?? 4801;
   const providerLabel = options.sessionManager.getProvider();
   const systemPrompt = options.systemPrompt ?? "You are a helpful assistant.";
+  const providerCatalog = createProviderCatalogService<readonly GuiProviderDiscoveryResult[]>(
+    () => resolveTuiProviderDiscovery(options.getProviderAvailability),
+    [],
+  );
+  let providerDiscovery = providerCatalog.snapshot().discovery;
+  let models = projectGuiOperatorModels(providerDiscovery);
+  const applyDiscovery = (nextDiscovery: readonly GuiProviderDiscoveryResult[]): readonly GuiProviderDiscoveryResult[] => {
+    providerDiscovery = nextDiscovery;
+    models = projectGuiOperatorModels(providerDiscovery);
+    return providerDiscovery;
+  };
+  const refreshDiscovery = async (
+    refreshOptions?: { readonly force?: boolean },
+  ): Promise<readonly GuiProviderDiscoveryResult[]> => applyDiscovery(
+    (await providerCatalog.refresh(refreshOptions)).discovery,
+  );
+  const readDiscovery = (): readonly GuiProviderDiscoveryResult[] => applyDiscovery(providerCatalog.snapshot().discovery);
 
   const approvalRegistry = new ApprovalGateRegistry();
 
@@ -314,6 +331,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
     upgradeWebSocket((c) => {
       const userId = c.req.query("userId") ?? crypto.randomUUID();
       let operatorSocket: WSContext | null = null;
+      let unsubscribeDiscovery: (() => void) | undefined;
       const operatorThemeBridge = createOperatorThemeBridge((frame) => {
         operatorSocket?.send(JSON.stringify(frame));
       });
@@ -323,9 +341,18 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
         async onOpen(_event: Event, ws: WSContext) {
           operatorSocket = ws;
           activityStreamer.register(ws, eventBus);
+          unsubscribeDiscovery?.();
+          unsubscribeDiscovery = providerCatalog.subscribe((snapshot) => {
+            const currentDiscovery = applyDiscovery(snapshot.discovery);
+            ws.send(JSON.stringify({
+              type: "providers_refreshed",
+              models: projectGuiOperatorModels(currentDiscovery),
+              providerDiscovery: currentDiscovery,
+            }));
+          });
           const activeProvider = options.sessionManager.getProvider();
           const storedModel = options.sessionManager.getModel().trim();
-          const currentDiscovery = await refreshDiscovery();
+          const currentDiscovery = readDiscovery();
           const currentModels = projectGuiOperatorModels(currentDiscovery);
           const providerModels = currentModels[activeProvider];
           let activeModel = storedModel.length > 0 ? storedModel : undefined;
@@ -680,6 +707,8 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
           if (operatorSocket === ws) {
             operatorSocket = null;
           }
+          unsubscribeDiscovery?.();
+          unsubscribeDiscovery = undefined;
           if (activeOperatorSurface?.theme.setTheme === operatorThemeBridge.request) {
             activeOperatorSurface = undefined;
           }
@@ -691,30 +720,24 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
     }),
   );
 
-  const providerDiscoveryResolver = createProviderDiscoveryCache(() =>
-    resolveTuiProviderDiscovery(options.getProviderAvailability),
-  );
-  let providerDiscovery = await providerDiscoveryResolver.get({ force: true });
-  let models = projectGuiOperatorModels(providerDiscovery);
-  const refreshDiscovery = async (
-    refreshOptions?: { readonly force?: boolean },
-  ): Promise<readonly GuiProviderDiscoveryResult[]> => {
-    providerDiscovery = await providerDiscoveryResolver.get(refreshOptions);
-    models = projectGuiOperatorModels(providerDiscovery);
-    return providerDiscovery;
-  };
-
   const server = Bun.serve({
     port,
     fetch: app.fetch,
     websocket,
   });
+  providerCatalog.startBackgroundRefresh({ force: true });
 
   return {
     url: `ws://localhost:${port}/tui/ws`,
     port,
-    models,
-    providerDiscovery,
+    get models() {
+      readDiscovery();
+      return models;
+    },
+    get providerDiscovery() {
+      readDiscovery();
+      return providerDiscovery;
+    },
     shutdown: () => server.stop(),
   };
 }

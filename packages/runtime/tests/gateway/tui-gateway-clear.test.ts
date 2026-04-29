@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UpgradeWebSocket } from "hono/ws";
 import { execSync } from "node:child_process";
 import * as messagePipelineModule from "../../src/gateway/message-pipeline.js";
+import * as guiProviderModelsModule from "../../src/gateway/gui-provider-models.js";
 
 const tuiSocketHarness = vi.hoisted(() => {
   type HandlerFactory = Parameters<UpgradeWebSocket>[0];
@@ -93,6 +94,10 @@ function makeSessionManager() {
     getModel: vi.fn(() => "claude-sonnet-4-6"),
     setModel: vi.fn(),
   };
+}
+
+async function flushAsyncWork(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 afterEach(() => {
@@ -211,6 +216,27 @@ describe("TUI gateway clear frame handling", () => {
     expect(handled).toBe(false);
     expect(ws.send).not.toHaveBeenCalled();
     expect(onClear).not.toHaveBeenCalled();
+  });
+});
+
+describe("TUI gateway startup discovery", () => {
+  it("starts listening before provider discovery resolves", async () => {
+    stubBunServe();
+    const discoverySpy = vi
+      .spyOn(guiProviderModelsModule, "resolveGuiOperatorDiscoveryResults")
+      .mockImplementation(() => new Promise(() => undefined));
+    const sessionManager = makeSessionManager();
+    const { startTuiGateway } = await import("../../src/gateway/tui-gateway.js");
+
+    const gateway = await startTuiGateway({ sessionManager });
+    try {
+      expect(gateway.models).toEqual({});
+      expect(gateway.providerDiscovery).toEqual([]);
+      expect(discoverySpy).toHaveBeenCalledTimes(1);
+    } finally {
+      discoverySpy.mockRestore();
+      gateway.shutdown();
+    }
   });
 });
 
@@ -428,10 +454,12 @@ describe("TUI gateway provider switching", () => {
       );
 
       const outboundFrames = mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string) as { type: string });
-      expect(outboundFrames).toContainEqual(expect.objectContaining({
-        type: "providers_refreshed",
-        models: { opencode: ["openai/gpt-5-other"] },
-      }));
+      expect(outboundFrames).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          type: "providers_refreshed",
+          models: expect.objectContaining({ opencode: ["openai/gpt-5-other"] }),
+        }),
+      ]));
     } finally {
       gateway.shutdown();
     }

@@ -37,6 +37,31 @@ const runtimeMocks = vi.hoisted(() => ({
       entry.available ? [[entry.provider, entry.models]] : []
     )))
   )),
+  createProviderCatalogService: vi.fn((resolveDiscovery: () => Promise<readonly unknown[]>, emptyDiscovery: readonly unknown[]) => {
+    let discovery = emptyDiscovery;
+    const listeners = new Set<(snapshot: { status: string; discovery: readonly unknown[] }) => void>();
+    const snapshot = () => ({ status: discovery.length > 0 ? "ready" : "pending", discovery });
+    const refresh = vi.fn(async () => {
+      discovery = await resolveDiscovery();
+      const nextSnapshot = snapshot();
+      for (const listener of listeners) {
+        listener(nextSnapshot);
+      }
+      return nextSnapshot;
+    });
+    return {
+      snapshot,
+      refresh,
+      ensureReady: refresh,
+      startBackgroundRefresh: vi.fn(() => {
+        void refresh();
+      }),
+      subscribe: vi.fn((listener: (snapshot: { status: string; discovery: readonly unknown[] }) => void) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      }),
+    };
+  }),
   resolveGuiProviderSwitch: vi.fn((input: {
     provider: string;
     model?: string;
@@ -167,6 +192,7 @@ vi.mock("@kilnai/runtime", () => ({
   getProjectContextArtifactCache: runtimeMocks.getProjectContextArtifactCache,
   resolveGuiOperatorDiscoveryResults: runtimeMocks.resolveGuiOperatorDiscoveryResults,
   projectGuiOperatorModels: runtimeMocks.projectGuiOperatorModels,
+  createProviderCatalogService: runtimeMocks.createProviderCatalogService,
   providerRequiresSelectedModelMessage: (provider: string) => `Provider '${provider}' requires a selected model.`,
   resolveGuiProviderSwitch: runtimeMocks.resolveGuiProviderSwitch,
   startTuiGateway: runtimeMocks.startTuiGateway,
@@ -351,7 +377,7 @@ describe("tuiCommand startup provider catalog guard", () => {
     expect(startTuiArgs[10]).toBeUndefined();
   });
 
-  it("rejects direct startup for non-model-less harness providers without runtime-advertised models", async () => {
+  it("accepts pending direct startup for non-model-less harness providers and fails closed on execution", async () => {
     process.env.KILN_TUI_TRANSPORT = "direct";
     registryMocks.providerDisplayInfo = [
       { id: "codex", group: "harness", models: [], free: false },
@@ -360,10 +386,26 @@ describe("tuiCommand startup provider catalog guard", () => {
 
     await expect(
       tuiCommand(APP_CONFIG, { cwd, provider: "codex" }),
-    ).rejects.toThrow("Provider 'codex' is not available in the runtime TUI model catalog");
+    ).resolves.toBeUndefined();
 
     expect(runtimeMocks.startTuiGateway).not.toHaveBeenCalled();
-    expect(tuiMocks.startTui).not.toHaveBeenCalled();
+    expect(tuiMocks.startTui).toHaveBeenCalledTimes(1);
+    const startTuiArgs = tuiMocks.startTui.mock.calls[0] ?? [];
+    expect(startTuiArgs[1]).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "codex", models: [] }),
+    ]));
+    const createSession = startTuiArgs[0] as () => Promise<{
+      run: (opts: { prompt: string }) => AsyncIterable<{ type: string; message?: string }>;
+    }>;
+    const session = await createSession();
+    const events: Array<{ type: string; message?: string }> = [];
+    for await (const event of session.run({ prompt: "hello" })) {
+      events.push(event);
+    }
+    expect(events).toEqual([{
+      type: "error",
+      message: "Provider 'codex' is unavailable",
+    }]);
   });
 
   it("rejects direct startup providers that are only known through shared metadata and absent from the local registry", async () => {

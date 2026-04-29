@@ -12,6 +12,7 @@ const {
   mockResolveGuiOperatorDiscoveryResults,
   mockProjectGuiOperatorModels,
   mockResolveGuiProviderSwitch,
+  mockCreateProviderCatalogService,
 } = vi.hoisted(() => ({
   mockGatewaySessionCtor: vi.fn(),
   mockWaitForGateway: vi.fn(),
@@ -46,6 +47,31 @@ const {
       entry.available ? [[entry.provider, entry.models]] : []
     )))
   )),
+  mockCreateProviderCatalogService: vi.fn((resolveDiscovery: () => Promise<readonly unknown[]>, emptyDiscovery: readonly unknown[]) => {
+    let discovery = emptyDiscovery;
+    const listeners = new Set<(snapshot: { status: string; discovery: readonly unknown[] }) => void>();
+    const snapshot = () => ({ status: discovery.length > 0 ? "ready" : "pending", discovery });
+    const refresh = vi.fn(async () => {
+      discovery = await resolveDiscovery();
+      const nextSnapshot = snapshot();
+      for (const listener of listeners) {
+        listener(nextSnapshot);
+      }
+      return nextSnapshot;
+    });
+    return {
+      snapshot,
+      refresh,
+      ensureReady: refresh,
+      startBackgroundRefresh: vi.fn(() => {
+        void refresh();
+      }),
+      subscribe: vi.fn((listener: (snapshot: { status: string; discovery: readonly unknown[] }) => void) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      }),
+    };
+  }),
   mockResolveGuiProviderSwitch: vi.fn((input: {
     provider: string;
     model?: string;
@@ -96,6 +122,7 @@ vi.mock("@kilnai/runtime", () => ({
   getProjectContextArtifactCache: mockGetProjectContextArtifactCache,
   resolveGuiOperatorDiscoveryResults: mockResolveGuiOperatorDiscoveryResults,
   projectGuiOperatorModels: mockProjectGuiOperatorModels,
+  createProviderCatalogService: mockCreateProviderCatalogService,
   providerRequiresSelectedModelMessage: (provider: string) => `Provider '${provider}' requires a selected model.`,
   resolveGuiProviderSwitch: mockResolveGuiProviderSwitch,
 }));
@@ -459,6 +486,15 @@ describe("makeMultiProviderSessionFactory", () => {
       models: {
         claude: ["claude-sonnet-4-6"],
       },
+      providerDiscovery: [{
+        provider: "claude",
+        available: true,
+        models: ["claude-sonnet-4-6"],
+        status: "available",
+        reason: "claude models discovered.",
+        authState: "authenticated",
+        lastCheckedAt: "2026-04-28T12:00:00.000Z",
+      }],
       shutdown: vi.fn(),
     });
 
@@ -476,7 +512,7 @@ describe("makeMultiProviderSessionFactory", () => {
     expect(mockStartTui).not.toHaveBeenCalled();
   });
 
-  it("rejects direct bootstrap when a direct-api provider is absent from the runtime TUI model catalog", async () => {
+  it("accepts pending direct bootstrap and fails closed when a direct-api provider remains undiscovered", async () => {
     const previousTransport = process.env.KILN_TUI_TRANSPORT;
     process.env.KILN_TUI_TRANSPORT = "direct";
 
@@ -485,16 +521,34 @@ describe("makeMultiProviderSessionFactory", () => {
     const { join } = await import("node:path");
     const cwd = await mkdtemp(join(tmpdir(), "kiln-tui-gateway-"));
 
+    const events: Array<{ type: string; message?: string }> = [];
+    mockCreateProviderCatalogService.mockImplementationOnce((resolveDiscovery: () => Promise<readonly unknown[]>) => {
+      let discovery: readonly unknown[] = [];
+      const snapshot = () => ({ status: discovery.length > 0 ? "ready" : "pending", discovery });
+      return {
+        snapshot,
+        refresh: vi.fn(async () => snapshot()),
+        ensureReady: vi.fn(async () => {
+          discovery = await resolveDiscovery();
+          return snapshot();
+        }),
+        startBackgroundRefresh: vi.fn(),
+        subscribe: vi.fn(() => () => undefined),
+      };
+    });
     mockStartTui.mockImplementation(async (createSession: () => Promise<unknown>) => {
-      await createSession();
+      const session = await createSession() as {
+        run: (opts: { prompt: string }) => AsyncIterable<{ type: string; message?: string }>;
+      };
+      for await (const event of session.run({ prompt: "hello" })) {
+        events.push(event);
+      }
     });
 
     try {
       await expect(
         tuiCommand(APP_CONFIG, { cwd, provider: "ollama" }),
-      ).rejects.toThrow(
-        "Provider 'ollama' is not available in the runtime TUI model catalog. Available providers: opencode-go, opencode-zen, claude, anthropic, openai, deepseek, openrouter",
-      );
+      ).resolves.toBeUndefined();
     } finally {
       process.env.KILN_TUI_TRANSPORT = previousTransport;
       await rm(cwd, { recursive: true, force: true });
@@ -502,8 +556,12 @@ describe("makeMultiProviderSessionFactory", () => {
 
     expect(mockStartTuiGateway).not.toHaveBeenCalled();
     expect(mockWaitForGateway).not.toHaveBeenCalled();
-    expect(mockStartTui).not.toHaveBeenCalled();
+    expect(mockStartTui).toHaveBeenCalledTimes(1);
     expect(mockGatewaySessionCtor).not.toHaveBeenCalled();
+    expect(events).toEqual([{
+      type: "error",
+      message: "Provider 'ollama' is unavailable",
+    }]);
   });
 
   it("direct bootstrap switch path allows model-less registry harness providers and rejects direct API switches without discovered models", async () => {

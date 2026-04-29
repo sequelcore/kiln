@@ -118,6 +118,18 @@ function createGuiDist(): string {
   return distDir;
 }
 
+async function flushAsyncWork(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+async function waitForCondition(condition: () => boolean, message: string): Promise<void> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (condition()) return;
+    await flushAsyncWork();
+  }
+  throw new Error(message);
+}
+
 function createTempDir(): string {
   return mkdtempSync(join(tmpdir(), "gui-gateway-empty-"));
 }
@@ -350,6 +362,48 @@ describe("startGuiGateway static mount", () => {
     }
   });
 
+  it("starts listening before operator provider discovery resolves", async () => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    const resolveGuiOperatorDiscoverySpy = vi
+      .spyOn(guiProviderModelsModule, "resolveGuiOperatorDiscoveryResults")
+      .mockImplementation(() => new Promise(() => undefined));
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
+        port: port ?? 4810,
+        stop,
+      })),
+    });
+
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+
+    try {
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        getSnapshot: async () => ({ } as never),
+        operatorTransport: {
+          sessionManager: {
+            factory: vi.fn() as never,
+            getProvider: () => "",
+            setProvider: vi.fn(),
+            getModel: () => "",
+            setModel: vi.fn(),
+          },
+        },
+      });
+
+      expect(gateway.operatorModels).toEqual({});
+      expect(gateway.operatorDiscovery).toEqual([]);
+      expect(resolveGuiOperatorDiscoverySpy).toHaveBeenCalledTimes(1);
+    } finally {
+      resolveGuiOperatorDiscoverySpy.mockRestore();
+      gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
+
   it("omits stale active provider/model selections from the welcome frame when they are absent from the authoritative models map", async () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
@@ -378,6 +432,7 @@ describe("startGuiGateway static mount", () => {
           },
         },
       });
+      await flushAsyncWork();
 
       const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
       await handlers.onOpen!(new Event("open"), wsCtx);
@@ -439,6 +494,10 @@ describe("startGuiGateway static mount", () => {
           },
         },
       });
+      await waitForCondition(
+        () => (gateway?.operatorDiscovery?.length ?? 0) > 0,
+        "Expected GUI provider discovery to finish before authoritative welcome validation.",
+      );
 
       const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
       await handlers.onOpen!(new Event("open"), wsCtx);
@@ -510,8 +569,10 @@ describe("startGuiGateway static mount", () => {
           },
         },
       });
-
-      expect(gateway.operatorModels?.openai).toEqual([GPT4O]);
+      await waitForCondition(
+        () => gateway?.operatorModels?.openai?.includes(GPT4O) ?? false,
+        "Expected GUI provider models to be ready before welcome validation.",
+      );
 
       const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
       await handlers.onOpen!(new Event("open"), wsCtx);
@@ -1094,8 +1155,10 @@ describe("startGuiGateway static mount", () => {
           },
         },
       });
-
-      expect(gateway.operatorModels?.openai).toEqual([GPT4O]);
+      await waitForCondition(
+        () => gateway?.operatorModels?.openai?.includes(GPT4O) ?? false,
+        "Expected GUI provider models to be ready before message validation.",
+      );
 
       const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
       await handlers.onMessage!(
@@ -1254,6 +1317,10 @@ describe("startGuiGateway static mount", () => {
           },
         },
       });
+      await waitForCondition(
+        () => gateway?.operatorModels?.openai?.includes(GPT4O) ?? false,
+        "Expected GUI provider models to be ready before cached welcome validation.",
+      );
 
       expect(gateway.operatorModels?.openai).toContain(GPT4O);
       providerAvailability = { openai: false };
@@ -1336,6 +1403,10 @@ describe("startGuiGateway static mount", () => {
           },
         },
       });
+      await waitForCondition(
+        () => gateway?.operatorModels?.["codex-oauth"]?.includes("gpt-5.4-mini") ?? false,
+        "Expected codex-oauth models to be advertised after background discovery.",
+      );
 
       expect(resolveGuiOperatorDiscoverySpy).toHaveBeenCalledWith({ "codex-oauth": true });
       expect(gateway.operatorModels?.["codex-oauth"]).toEqual(["gpt-5.4-mini"]);

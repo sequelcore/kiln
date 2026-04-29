@@ -38,7 +38,7 @@ import {
   resolveGuiOperatorDiscoveryResults,
   resolveGuiProviderSwitch,
 } from "./gui-provider-models.js";
-import { createProviderDiscoveryCache } from "./provider-discovery-cache.js";
+import { createProviderCatalogService } from "./provider-catalog-service.js";
 import { startProviderAuthRequest } from "./provider-auth.js";
 import {
   buildAttachedRuntimePerCallToolConfig,
@@ -172,22 +172,28 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
   let activeConnections = 0;
 
   const { upgradeWebSocket, websocket } = createBunWebSocket();
-  const operatorDiscoveryResolver = transportOptions
-    ? createProviderDiscoveryCache(() => resolveOperatorDiscovery(options.getProviderAvailability))
+  const operatorCatalog = transportOptions
+    ? createProviderCatalogService<readonly GuiProviderDiscoveryResult[]>(
+      () => resolveOperatorDiscovery(options.getProviderAvailability),
+      [],
+    )
     : undefined;
-  let operatorDiscovery = operatorDiscoveryResolver
-    ? await operatorDiscoveryResolver.get({ force: true })
-    : undefined;
+  let operatorDiscovery = operatorCatalog?.snapshot().discovery;
   let operatorModels = operatorDiscovery ? projectGuiOperatorModels(operatorDiscovery) : undefined;
   const refreshOperatorDiscovery = async (
     refreshOptions?: { readonly force?: boolean },
   ): Promise<readonly GuiProviderDiscoveryResult[] | undefined> => {
-    if (!operatorDiscoveryResolver) {
+    if (!operatorCatalog) {
       return undefined;
     }
-    operatorDiscovery = await operatorDiscoveryResolver.get(refreshOptions);
+    operatorDiscovery = (await operatorCatalog.refresh(refreshOptions)).discovery;
     operatorModels = projectGuiOperatorModels(operatorDiscovery);
     return operatorDiscovery;
+  };
+  const getOperatorDiscoverySnapshot = (): readonly GuiProviderDiscoveryResult[] => {
+    operatorDiscovery = operatorCatalog?.snapshot().discovery;
+    operatorModels = operatorDiscovery ? projectGuiOperatorModels(operatorDiscovery) : undefined;
+    return operatorDiscovery ?? [];
   };
 
   let operatorWsUrl: string | undefined;
@@ -211,9 +217,10 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
   app.get("/gui-api/health", (c) => c.json({ status: "ok", channel: "gui", connections: activeConnections }));
 
   app.get("/gui/api/dashboard", async (c) => {
-    const nextDiscovery = await refreshOperatorDiscovery();
+    const nextDiscovery = getOperatorDiscoverySnapshot();
+    operatorCatalog?.startBackgroundRefresh();
     const snapshot = await options.getSnapshot({
-      operatorModels: nextDiscovery ? projectGuiOperatorModels(nextDiscovery) : undefined,
+      operatorModels: projectGuiOperatorModels(nextDiscovery),
       operatorDiscovery: nextDiscovery,
     });
     return c.json(snapshot);
@@ -283,6 +290,8 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
       transport: transportOptions,
       initialDiscovery: operatorDiscovery ?? [],
       getDiscovery: async (discoveryOptions) => (await refreshOperatorDiscovery(discoveryOptions)) ?? [],
+      getDiscoverySnapshot: getOperatorDiscoverySnapshot,
+      onDiscoveryUpdated: (listener) => operatorCatalog?.subscribe((snapshot) => listener(snapshot.discovery)) ?? (() => {}),
       onReady: (url) => {
         operatorWsUrl = url;
       },
@@ -333,6 +342,7 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
     fetch: app.fetch,
     websocket,
   });
+  operatorCatalog?.startBackgroundRefresh({ force: true });
 
   const boundPort = server.port ?? port;
 
@@ -341,8 +351,22 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
     url: `http://localhost:${boundPort}/gui/`,
     apiUrl: `http://localhost:${boundPort}/gui/api/dashboard`,
     operatorWsUrl,
-    operatorModels,
-    operatorDiscovery,
+    get operatorModels() {
+      const currentDiscovery = operatorCatalog?.snapshot().discovery;
+      if (currentDiscovery) {
+        operatorDiscovery = currentDiscovery;
+        operatorModels = projectGuiOperatorModels(currentDiscovery);
+      }
+      return operatorModels;
+    },
+    get operatorDiscovery() {
+      const currentDiscovery = operatorCatalog?.snapshot().discovery;
+      if (currentDiscovery) {
+        operatorDiscovery = currentDiscovery;
+        operatorModels = projectGuiOperatorModels(currentDiscovery);
+      }
+      return operatorDiscovery;
+    },
     hasMountedGui,
     shutdown: () => server.stop(),
   };
@@ -365,6 +389,8 @@ function wireOperatorTransport(
     transport: OperatorSessionTransportOptions;
     initialDiscovery: readonly GuiProviderDiscoveryResult[];
     getDiscovery: (options?: { readonly force?: boolean }) => Promise<readonly GuiProviderDiscoveryResult[]>;
+    getDiscoverySnapshot: () => readonly GuiProviderDiscoveryResult[];
+    onDiscoveryUpdated: (listener: (discovery: readonly GuiProviderDiscoveryResult[]) => void) => () => void;
     onReady: (wsUrl: string) => void;
     onSocketOpen?: () => void;
     onSocketClose?: () => void;
@@ -399,13 +425,18 @@ function wireOperatorTransport(
     upgradeWebSocket((c) => {
       const userId = c.req.query("userId") ?? crypto.randomUUID();
       let discovery = [...input.initialDiscovery];
+      const applyDiscovery = (nextDiscovery: readonly GuiProviderDiscoveryResult[]): readonly GuiProviderDiscoveryResult[] => {
+        discovery = [...nextDiscovery];
+        return discovery;
+      };
+      const readDiscovery = (): readonly GuiProviderDiscoveryResult[] => applyDiscovery(input.getDiscoverySnapshot());
       const refreshDiscovery = async (
         options?: { readonly force?: boolean },
       ): Promise<readonly GuiProviderDiscoveryResult[]> => {
-        discovery = [...await input.getDiscovery(options).catch(() => [])];
-        return discovery;
+        return applyDiscovery(await input.getDiscovery(options).catch(() => []));
       };
       let operatorSocket: WSContext | null = null;
+      let unsubscribeDiscovery: (() => void) | undefined;
       const operatorThemeBridge = createOperatorThemeBridge((frame) => {
         operatorSocket?.send(JSON.stringify(frame satisfies GuiInboundFrame));
       });
@@ -416,7 +447,17 @@ function wireOperatorTransport(
           operatorSocket = ws;
           input.onSocketOpen?.();
           activityStreamer.register(ws, eventBus);
-          const currentDiscovery = await refreshDiscovery();
+          unsubscribeDiscovery?.();
+          unsubscribeDiscovery = input.onDiscoveryUpdated((currentDiscovery) => {
+            applyDiscovery(currentDiscovery);
+            ws.send(JSON.stringify({
+              type: "providers_refreshed",
+              models: projectGuiOperatorModels(currentDiscovery),
+              providerDiscovery: currentDiscovery,
+              providers: buildWelcomeProviderDescriptors(currentDiscovery),
+            } satisfies GuiInboundFrame));
+          });
+          const currentDiscovery = readDiscovery();
           const currentModels = projectGuiOperatorModels(currentDiscovery);
           const storedProvider = input.transport.sessionManager.getProvider();
           const providerModels = currentModels[storedProvider];
@@ -435,8 +476,10 @@ function wireOperatorTransport(
             activeProvider = storedProvider;
             input.transport.sessionManager.setModel("");
           } else {
-            input.transport.sessionManager.setModel("");
-            input.transport.sessionManager.setProvider("");
+            if (currentDiscovery.length > 0) {
+              input.transport.sessionManager.setModel("");
+              input.transport.sessionManager.setProvider("");
+            }
           }
           const activeModelCapabilities = findProviderModelCapabilities(
             currentDiscovery,
@@ -844,6 +887,8 @@ function wireOperatorTransport(
           if (operatorSocket === ws) {
             operatorSocket = null;
           }
+          unsubscribeDiscovery?.();
+          unsubscribeDiscovery = undefined;
           if (activeOperatorSurface?.theme.setTheme === operatorThemeBridge.request) {
             activeOperatorSurface = undefined;
           }

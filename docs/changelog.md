@@ -3,9 +3,14 @@
 ## Unreleased -- Operator Runtime Performance
 
 - GUI and TUI provider discovery now use a shared short-lived cache with
-  in-flight request deduplication. Startup still performs forced discovery,
-  while normal socket opens, dashboard reads, provider switches, and prompt
-  admission reuse fresh discovery results.
+  in-flight request deduplication. Startup now opens the operator surface with
+  a pending catalog and runs forced discovery in the background, while normal
+  socket opens, dashboard reads, provider switches, and prompt admission reuse
+  fresh discovery results.
+- Direct TUI startup now follows the same catalog lifecycle as gateway-backed
+  TUI: it renders pending providers immediately, updates when discovery
+  completes, and fails closed before execution or provider switching if the
+  selected provider/model is not runtime-advertised.
 - Explicit provider refresh and completed provider-auth flows bypass the cache
   so newly authenticated providers are revalidated immediately.
 - Provider discovery now runs wrapper-provider and direct-provider probes in

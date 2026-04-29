@@ -41,19 +41,30 @@ availability from a different source.
 ## Runtime Caching
 
 GUI and TUI use a shared runtime discovery cache with a short TTL and
-in-flight request deduplication. Cold startup performs a forced discovery so
-the first catalog is authoritative. Normal dashboard reads, socket opens,
-provider switches, and prompt admission then reuse the cached discovery while
-it is fresh instead of re-probing every provider on every turn.
+in-flight request deduplication. Cold startup starts with an immediate
+`pending` catalog snapshot and kicks forced discovery into the background after
+the operator transport is listening. Startup, dashboard reads, and socket opens
+must not block on CLI probes, remote model endpoints, or local daemons.
+
+While discovery is pending, surfaces may render the provider catalog as loading
+or include locally known providers as pending selections, but they must not
+claim runtime availability. Once discovery completes, subscribers receive the
+authoritative catalog and the same snapshot updates GUI, TUI, and direct TUI
+state. Normal dashboard reads, socket opens, provider switches, and prompt
+admission then reuse fresh discovery results instead of re-probing every
+provider on every turn.
 
 Explicit refresh actions and completed provider-auth flows bypass the cache and
 force a new discovery pass. This preserves operator correctness after login or
 manual refresh while keeping ordinary chat turns from paying repeated CLI,
 network, and local daemon discovery costs.
 
-The cache is an optimization only. Prompt admission still validates against the
-current runtime-owned discovery result, and turn records keep the discovery
-evidence used for that admission.
+The cache is an optimization only. Prompt admission, provider switches, and
+direct TUI execution call the provider catalog before mutating session routing
+or admitting work. If the catalog is still pending, that operation awaits the
+in-flight discovery; if discovery proves the provider/model unavailable, the
+operation fails closed. Turn records keep the discovery evidence used for
+admission.
 
 ## Model Capabilities
 
