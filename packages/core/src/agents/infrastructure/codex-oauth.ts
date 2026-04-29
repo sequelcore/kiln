@@ -13,6 +13,8 @@ import { CodexOAuthAuth } from "./codex-oauth-auth.js";
 import { normalizeToolInput } from "../tool-call-input.js";
 
 const RESPONSES_URL = "https://chatgpt.com/backend-api/codex/responses";
+const CODEX_OAUTH_TOOL_DEBUG =
+  /^(1|true|yes)$/i.test(process.env.KILN_OPERATOR_TOOL_DEBUG?.trim() ?? "");
 
 interface AccessTokenProvider {
   getValidAccessToken(): Promise<string>;
@@ -188,6 +190,22 @@ export class CodexOAuthAdapter implements ProviderAdapter {
       input.push(...this.mapMessageToInputItems(message.role, message.parts));
     }
 
+    const tools = options.tools?.map((tool) => ({
+      type: "function" as const,
+      name: tool.name,
+      description: tool.description,
+      parameters: toStrictToolSchema(tool.inputSchema),
+      strict: true,
+    }));
+    if (CODEX_OAUTH_TOOL_DEBUG) {
+      console.warn("[codex-oauth-tools][debug] request tools", {
+        model: this.model,
+        toolCount: tools?.length ?? 0,
+        toolNames: tools?.map((tool) => tool.name) ?? [],
+        hasOperatorSetTheme: tools?.some((tool) => tool.name === "operator_set_theme") ?? false,
+      });
+    }
+
     return {
       model: this.model,
       instructions: options.system,
@@ -196,13 +214,7 @@ export class CodexOAuthAdapter implements ProviderAdapter {
       stream: true,
       max_output_tokens: options.maxTokens,
       ...(options.reasoningEffort ? { reasoning: { effort: options.reasoningEffort } } : {}),
-      tools: options.tools?.map((tool) => ({
-        type: "function",
-        name: tool.name,
-        description: tool.description,
-        parameters: toStrictToolSchema(tool.inputSchema),
-        strict: true,
-      })),
+      ...(tools ? { tools } : {}),
     };
   }
 

@@ -53,10 +53,12 @@ const OPERATOR_SET_THEME_TOOL: ToolDefinition = {
     type: "object",
     properties: {
       theme: {
+        type: "string",
         enum: OPERATOR_THEME_NAMES,
         description: "Theme name to apply.",
       },
       scope: {
+        type: "string",
         enum: ["session", "persisted"],
         description: "session applies only to the live surface; persisted also asks the surface to save the preference.",
         default: "session",

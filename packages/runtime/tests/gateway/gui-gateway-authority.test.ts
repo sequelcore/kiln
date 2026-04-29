@@ -84,7 +84,17 @@ describe("GUI authority forwarding", () => {
     const cfg = buildGuiTurnPerCallConfig("codex-oauth", "gpt-5.4-mini", surface);
 
     expect(cfg.toolAllowlist?.has("operator_set_theme")).toBe(true);
-    expect(cfg.additionalTools?.some((tool) => tool.name === "operator_set_theme")).toBe(true);
+    const themeTool = cfg.additionalTools?.find((tool) => tool.name === "operator_set_theme");
+    expect(themeTool).toBeDefined();
+    expect(themeTool?.inputSchema).toMatchObject({
+      type: "object",
+      properties: {
+        theme: { type: "string" },
+        scope: { type: "string" },
+      },
+      required: ["theme"],
+      additionalProperties: false,
+    });
 
     const result = await surface.callBuiltinTools.get("operator_set_theme")?.({
       theme: "dracula",
