@@ -13,6 +13,7 @@ import {
   type CliRenderer,
   type ScrollBoxRenderable,
 } from "@opentui/core";
+import { formatOperatorEventValue } from "@kilnai/gateway-contracts";
 import type { SessionLike } from "./types.js";
 import type { ReactiveState, Message, ResumeSidebarInfo, PendingApproval } from "./state.js";
 import { update, createMessage } from "./state.js";
@@ -155,7 +156,7 @@ export function handleToolUse(
     const entries = Object.entries(input as Record<string, unknown>).slice(0, 3);
     inputPreview = entries
       .map(([k, v]) => {
-        const vStr = typeof v === "string" ? v : JSON.stringify(v);
+        const vStr = formatOperatorEventValue(v) ?? "";
         return vStr.length > 20 ? `${k}=${vStr.slice(0, 17)}...` : `${k}=${vStr}`;
       })
       .join(", ");

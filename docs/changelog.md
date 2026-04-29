@@ -25,6 +25,9 @@
   durable tool/file/approval/cost facts flow through canonical `session_event`
   frames, and live `activity_phase` frames carry `kilnSessionId` plus optional
   `turnId`.
+- GUI and TUI now consume a shared operator event presenter from
+  `@kilnai/gateway-contracts`, so normal operator UI renders typed detail rows
+  and compact text instead of raw JSON payload blocks.
 - GUI operational projections now clear on session selection and reject live
   tool/activity frames from other sessions, preventing stale Activity, changed
   files, approvals, or diff state from leaking across conversations.

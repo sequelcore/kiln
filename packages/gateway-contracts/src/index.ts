@@ -35,6 +35,17 @@ export type {
 } from "./frames.js";
 
 export {
+  formatOperatorEventValue,
+  presentOperatorEventPayload,
+  presentOperatorSessionEvent,
+} from "./operator-event-presentation.js";
+export type {
+  OperatorEventDetailItem,
+  OperatorEventPresentation,
+  OperatorEventTone,
+} from "./operator-event-presentation.js";
+
+export {
   OPERATOR_THEME_LABELS,
   OPERATOR_THEME_NAMES,
   OPERATOR_THEME_PALETTES,

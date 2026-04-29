@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { presentOperatorEventPayload, type OperatorEventDetailItem } from "@kilnai/gateway-contracts";
 import type { TimelineEventEntry, TimelineEntry } from "../lib/session-store.js";
 import { isActivityTimelineEntry } from "../lib/timeline-visibility.js";
 import { Badge } from "@/components/ui/badge";
@@ -32,14 +33,23 @@ function compactKind(value: string): string {
   return value.replace(/_/g, " ");
 }
 
-function JsonDetails(props: { readonly details: unknown }) {
-  if (props.details === undefined) {
-    return null;
-  }
+function detailsPayloadForEvent(entry: TimelineEventEntry): Record<string, unknown> {
+  return typeof entry.details === "object" && entry.details !== null && !Array.isArray(entry.details)
+    ? entry.details as Record<string, unknown>
+    : {};
+}
+
+function DetailList(props: { readonly items: readonly OperatorEventDetailItem[] }) {
+  if (props.items.length === 0) return null;
   return (
-    <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-md border bg-background px-3 py-2 text-[11px] leading-5 text-muted-foreground">
-      {JSON.stringify(props.details, null, 2)}
-    </pre>
+    <dl className="grid gap-2 text-sm">
+      {props.items.map((item) => (
+        <div key={`${item.label}:${item.value}`} className="rounded-md border border-border/60 bg-background px-3 py-2">
+          <dt className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{item.label}</dt>
+          <dd className="mt-1 break-words text-foreground">{item.value}</dd>
+        </div>
+      ))}
+    </dl>
   );
 }
 
@@ -50,6 +60,9 @@ export function ActivityLogPanel(props: ActivityLogPanelProps) {
   );
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const selectedEvent = events.find((entry) => activityKey(entry) === selectedKey) ?? events[0] ?? null;
+  const selectedPresentation = selectedEvent
+    ? presentOperatorEventPayload(selectedEvent.eventKind, detailsPayloadForEvent(selectedEvent))
+    : null;
 
   useEffect(() => {
     if (events.length === 0) {
@@ -121,23 +134,15 @@ export function ActivityLogPanel(props: ActivityLogPanelProps) {
           {selectedEvent ? (
             <section aria-label="Selected activity detail" className="flex flex-col gap-3">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Event</p>
-                <p className="mt-2 text-sm font-medium leading-6 text-foreground">{selectedEvent.title}</p>
+                <p className="text-sm font-medium leading-6 text-foreground">{selectedEvent.title}</p>
                 {selectedEvent.summary ? (
                   <p className="mt-1 text-sm leading-6 text-muted-foreground">{selectedEvent.summary}</p>
                 ) : null}
+                <p className="mt-2 font-mono text-[10.5px] tracking-[0.01em] text-muted-foreground/75">
+                  {formatCreatedAt(selectedEvent.createdAt)}
+                </p>
               </div>
-              <div className="grid gap-2 text-sm">
-                <div className="rounded-md border bg-background px-3 py-2">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Kind</p>
-                  <p className="mt-1 text-foreground">{compactKind(selectedEvent.eventKind)}</p>
-                </div>
-                <div className="rounded-md border bg-background px-3 py-2">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Recorded</p>
-                  <p className="mt-1 text-foreground">{formatCreatedAt(selectedEvent.createdAt)}</p>
-                </div>
-              </div>
-              <JsonDetails details={selectedEvent.details} />
+              <DetailList items={selectedPresentation?.details ?? []} />
             </section>
           ) : (
             <div className="grid h-full place-items-center text-center">

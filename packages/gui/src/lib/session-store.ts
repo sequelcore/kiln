@@ -9,7 +9,7 @@ import type {
   GuiSessionEvent,
   GuiSessionSummary,
 } from "@kilnai/gateway-contracts";
-import { isGuiProviderModeless } from "@kilnai/gateway-contracts";
+import { formatOperatorEventValue, isGuiProviderModeless } from "@kilnai/gateway-contracts";
 
 export interface ApprovalRequest {
   readonly id: string;
@@ -1883,7 +1883,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       const entries = Object.entries(frame.input as Record<string, unknown>).slice(0, 3);
       if (entries.length === 0) return "";
       const formatted = entries
-        .map(([key, value]) => `${key}=${typeof value === "string" ? value : JSON.stringify(value)}`)
+        .map(([key, value]) => `${key}=${formatOperatorEventValue(value) ?? ""}`)
         .join(", ");
       return ` (${formatted})`;
     })();

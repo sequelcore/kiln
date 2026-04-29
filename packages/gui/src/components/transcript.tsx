@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { formatOperatorEventValue } from "@kilnai/gateway-contracts";
 import type { ActivityPhase, TimelineEntry, TimelineEventEntry } from "../lib/session-store.js";
 import { ActivityPhaseIndicator } from "./activity-phase-indicator.js";
 import { MessageRow } from "./message-row.js";
@@ -32,12 +33,6 @@ function readNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-function formatValue(value: unknown): string {
-  if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
-  return JSON.stringify(value);
-}
-
 function formatUsd(value: number | null): string | null {
   if (value === null) return null;
   return new Intl.NumberFormat("en-US", {
@@ -62,16 +57,7 @@ function MetaList(props: { readonly items: readonly { label: string; value: stri
   );
 }
 
-function JsonDetails(props: { readonly open: boolean; readonly details: unknown }) {
-  if (!props.open) return null;
-  return (
-    <pre className="mt-3 max-h-64 overflow-auto rounded-md border border-[var(--color-border)]/60 bg-[var(--color-background)] px-3 py-2 text-[11px] leading-5 text-[var(--color-text-muted)]">
-      {JSON.stringify(props.details, null, 2)}
-    </pre>
-  );
-}
-
-function ToolEventDetails(props: { readonly entry: TimelineEventEntry; readonly open: boolean }) {
+function ToolEventDetails(props: { readonly entry: TimelineEventEntry }) {
   const details = asRecord(props.entry.details);
   if (!details) return null;
   const input = asRecord(details.input) ?? details;
@@ -81,17 +67,15 @@ function ToolEventDetails(props: { readonly entry: TimelineEventEntry; readonly 
   if (status) items.push({ label: "Status", value: status });
   if (result) items.push({ label: "Result", value: result });
   for (const [key, value] of Object.entries(input).slice(0, 4)) {
-    items.push({ label: key, value: formatValue(value) });
+    const formatted = formatOperatorEventValue(value);
+    if (formatted) {
+      items.push({ label: key, value: formatted });
+    }
   }
-  return (
-    <>
-      <MetaList items={items} />
-      <JsonDetails open={props.open} details={props.entry.details} />
-    </>
-  );
+  return <MetaList items={items} />;
 }
 
-function ApprovalEventDetails(props: { readonly entry: TimelineEventEntry; readonly open: boolean }) {
+function ApprovalEventDetails(props: { readonly entry: TimelineEventEntry }) {
   const details = asRecord(props.entry.details);
   if (!details) return null;
   const resolution = asRecord(details.resolution);
@@ -102,15 +86,10 @@ function ApprovalEventDetails(props: { readonly entry: TimelineEventEntry; reado
     readString(resolution?.decision) ? { label: "Decision", value: readString(resolution?.decision)! } : null,
     readString(resolution?.resolvedBy) ? { label: "Resolved by", value: readString(resolution?.resolvedBy)! } : null,
   ].filter((item): item is { label: string; value: string } => item !== null);
-  return (
-    <>
-      <MetaList items={items} />
-      <JsonDetails open={props.open} details={props.entry.details} />
-    </>
-  );
+  return <MetaList items={items} />;
 }
 
-function FileChangedDetails(props: { readonly entry: TimelineEventEntry; readonly open: boolean }) {
+function FileChangedDetails(props: { readonly entry: TimelineEventEntry }) {
   const details = asRecord(props.entry.details);
   if (!details) return null;
   const diffPreview = readString(details.diffPreview);
@@ -135,12 +114,11 @@ function FileChangedDetails(props: { readonly entry: TimelineEventEntry; readonl
           ) : null}
         </div>
       ) : null}
-      <JsonDetails open={props.open} details={props.entry.details} />
     </>
   );
 }
 
-function CostEventDetails(props: { readonly entry: TimelineEventEntry; readonly open: boolean }) {
+function CostEventDetails(props: { readonly entry: TimelineEventEntry }) {
   const details = asRecord(props.entry.details);
   if (!details) return null;
   const provider = asRecord(details.provider);
@@ -153,15 +131,10 @@ function CostEventDetails(props: { readonly entry: TimelineEventEntry; readonly 
     readNumber(usage?.inputTokens) !== null ? { label: "Input tokens", value: String(readNumber(usage?.inputTokens)) } : null,
     readNumber(usage?.outputTokens) !== null ? { label: "Output tokens", value: String(readNumber(usage?.outputTokens)) } : null,
   ].filter((item): item is { label: string; value: string } => item !== null);
-  return (
-    <>
-      <MetaList items={items} />
-      <JsonDetails open={props.open} details={props.entry.details} />
-    </>
-  );
+  return <MetaList items={items} />;
 }
 
-function ProviderEventDetails(props: { readonly entry: TimelineEventEntry; readonly open: boolean }) {
+function ProviderEventDetails(props: { readonly entry: TimelineEventEntry }) {
   const details = asRecord(props.entry.details);
   if (!details) return null;
   const provider = asRecord(details.provider);
@@ -170,15 +143,10 @@ function ProviderEventDetails(props: { readonly entry: TimelineEventEntry; reado
     readString(provider?.model) ? { label: "Model", value: readString(provider?.model)! } : null,
     readString(details.reason) ? { label: "Why", value: readString(details.reason)! } : null,
   ].filter((item): item is { label: string; value: string } => item !== null);
-  return (
-    <>
-      <MetaList items={items} />
-      <JsonDetails open={props.open} details={props.entry.details} />
-    </>
-  );
+  return <MetaList items={items} />;
 }
 
-function ContinuityEventDetails(props: { readonly entry: TimelineEventEntry; readonly open: boolean }) {
+function ContinuityEventDetails(props: { readonly entry: TimelineEventEntry }) {
   const details = asRecord(props.entry.details);
   if (!details) return null;
   const runtimeContinuity = asRecord(details.runtimeContinuity);
@@ -189,15 +157,10 @@ function ContinuityEventDetails(props: { readonly entry: TimelineEventEntry; rea
     readString(runtimeContinuity?.selectionReason) ? { label: "Selection", value: readString(runtimeContinuity?.selectionReason)! } : null,
     readString(runtimeContinuity?.feedbackLabel) ? { label: "Feedback", value: readString(runtimeContinuity?.feedbackLabel)! } : null,
   ].filter((item): item is { label: string; value: string } => item !== null);
-  return (
-    <>
-      <MetaList items={items} />
-      <JsonDetails open={props.open} details={props.entry.details} />
-    </>
-  );
+  return <MetaList items={items} />;
 }
 
-function TurnCompletedDetails(props: { readonly entry: TimelineEventEntry; readonly open: boolean }) {
+function TurnCompletedDetails(props: { readonly entry: TimelineEventEntry }) {
   const details = asRecord(props.entry.details);
   if (!details) return null;
   const authority = asRecord(details.authorityStatus);
@@ -211,34 +174,48 @@ function TurnCompletedDetails(props: { readonly entry: TimelineEventEntry; reado
     readNumber(details.inputTokens) !== null ? { label: "Input tokens", value: String(readNumber(details.inputTokens)) } : null,
     readNumber(details.outputTokens) !== null ? { label: "Output tokens", value: String(readNumber(details.outputTokens)) } : null,
   ].filter((item): item is { label: string; value: string } => item !== null);
-  return (
-    <>
-      <MetaList items={items} />
-      <JsonDetails open={props.open} details={props.entry.details} />
-    </>
-  );
+  return <MetaList items={items} />;
+}
+
+function canRenderEventDetails(entry: TimelineEventEntry): boolean {
+  if (entry.details === undefined) return false;
+  switch (entry.eventKind) {
+    case "tool_call_started":
+    case "tool_call_completed":
+    case "approval_requested":
+    case "approval_resolved":
+    case "file_changed":
+    case "cost_updated":
+    case "provider_routed":
+    case "continuity_decided":
+    case "turn_completed":
+      return true;
+    default:
+      return false;
+  }
 }
 
 function EventDetails(props: { readonly entry: TimelineEventEntry; readonly open: boolean }) {
+  if (!props.open) return null;
   switch (props.entry.eventKind) {
     case "tool_call_started":
     case "tool_call_completed":
-      return <ToolEventDetails entry={props.entry} open={props.open} />;
+      return <ToolEventDetails entry={props.entry} />;
     case "approval_requested":
     case "approval_resolved":
-      return <ApprovalEventDetails entry={props.entry} open={props.open} />;
+      return <ApprovalEventDetails entry={props.entry} />;
     case "file_changed":
-      return <FileChangedDetails entry={props.entry} open={props.open} />;
+      return <FileChangedDetails entry={props.entry} />;
     case "cost_updated":
-      return <CostEventDetails entry={props.entry} open={props.open} />;
+      return <CostEventDetails entry={props.entry} />;
     case "provider_routed":
-      return <ProviderEventDetails entry={props.entry} open={props.open} />;
+      return <ProviderEventDetails entry={props.entry} />;
     case "continuity_decided":
-      return <ContinuityEventDetails entry={props.entry} open={props.open} />;
+      return <ContinuityEventDetails entry={props.entry} />;
     case "turn_completed":
-      return <TurnCompletedDetails entry={props.entry} open={props.open} />;
+      return <TurnCompletedDetails entry={props.entry} />;
     default:
-      return props.entry.details !== undefined ? <JsonDetails open={props.open} details={props.entry.details} /> : null;
+      return null;
   }
 }
 
@@ -256,7 +233,7 @@ function TimelineEventRow(props: {
     error: "border-destructive bg-card text-destructive",
   }[props.entry.tone];
   const canResolveApproval = props.entry.eventKind === "approval_requested" && Boolean(props.entry.sessionId);
-  const hasDetails = props.entry.details !== undefined;
+  const hasDetails = canRenderEventDetails(props.entry);
 
   return (
     <article className={`mx-auto w-full max-w-3xl rounded-lg border px-3 py-2 ${toneClasses}`}>

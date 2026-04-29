@@ -6,6 +6,7 @@
 import { randomUUID } from "node:crypto";
 import {
   isGuiProviderModeless,
+  presentOperatorSessionEvent,
   type GuiProviderDiscoveryResult,
   type OperatorSessionEvent,
 } from "@kilnai/gateway-contracts";
@@ -76,6 +77,7 @@ function normalizeChangeType(value: unknown): "created" | "modified" | "deleted"
 
 function mapCanonicalSessionEvent(event: OperatorSessionEvent): SessionEventInternal | null {
   const payload = asRecord(event.payload) ?? {};
+  const presentation = presentOperatorSessionEvent(event);
   const scoped = {
     sessionId: event.kilnSessionId,
     ...(event.turnId ? { turnId: event.turnId } : {}),
@@ -136,7 +138,7 @@ function mapCanonicalSessionEvent(event: OperatorSessionEvent): SessionEventInte
     return {
       type: "activity",
       activity: "approval_requested",
-      details: readString(payload.action) ?? readString(payload.justification),
+      details: presentation.compactText,
       ...scoped,
     };
   }
@@ -146,7 +148,7 @@ function mapCanonicalSessionEvent(event: OperatorSessionEvent): SessionEventInte
     return {
       type: "activity",
       activity: decision === "approved" ? "approval_approved" : "approval_rejected",
-      details: readString(resolution?.reason),
+      details: presentation.compactText,
       ...scoped,
     };
   }

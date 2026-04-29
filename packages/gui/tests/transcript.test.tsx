@@ -181,6 +181,8 @@ describe("Transcript", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "Show details" })[0]!);
     expect(screen.getByText("path")).toBeInTheDocument();
     expect(screen.getByText("demo.txt")).toBeInTheDocument();
+    expect(screen.queryByText(/"input"/)).not.toBeInTheDocument();
+    expect(screen.queryByText("{")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getAllByRole("button", { name: "Show details" })[0]!);
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));

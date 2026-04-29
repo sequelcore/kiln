@@ -110,6 +110,12 @@ This contract applies to GUI, TUI, and CLI-backed operator flows. A consumer may
 render different UI for the same event stream, but it must not invent a
 surface-local session namespace.
 
+Operator presentation is a shared contract concern, not a surface-local fallback.
+Consumers may keep `event.payload` for derivation and diagnostics, but normal
+operator UI must render the shared presentation projection from
+`@kilnai/gateway-contracts` instead of serializing payloads as raw JSON. This
+keeps GUI and TUI minimal while preserving the canonical structured evidence.
+
 ## Consumer Scoping Rules
 
 Every operator consumer must treat `kilnSessionId` as the routing key for live
