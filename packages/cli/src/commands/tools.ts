@@ -26,7 +26,7 @@ export async function toolsCommand(
   const surface = createDefaultBuiltinToolSurface(
     await loadConfiguredWebToolSurfaceOptions(_appConfig, process.cwd()),
   );
-  const server = new DevToolsMcpServer({ bridge: surface.bridge });
+  const server = new DevToolsMcpServer({ bridge: surface.bridge, tools: surface.tools });
 
   await server.initialize();
 

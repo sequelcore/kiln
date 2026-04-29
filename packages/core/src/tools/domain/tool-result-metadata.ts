@@ -4,6 +4,7 @@ export type InspectionToolName = "stat" | "tree";
 export type MediaToolName = "view_image" | "ocr_image";
 export type WebToolName = "web_search" | "web_fetch";
 export type SearchToolName = "grep" | "glob";
+export type CatalogToolName = "tool_catalog_search";
 
 export type FileToolOperation = "read" | "write" | "edit" | "patch";
 export type InspectionToolOperation = "stat" | "tree";
@@ -22,6 +23,7 @@ export type WebToolErrorCode =
   | "provider_not_configured";
 export type SearchToolStrategy = "rg" | "fd" | "fallback";
 export type GrepOutputMode = "content" | "files_with_matches" | "count";
+export type CatalogToolOperation = "search";
 
 export interface CommandToolResultMetadata<TToolName extends CommandToolName = CommandToolName> {
   readonly toolName: TToolName;
@@ -155,13 +157,29 @@ export interface WebToolResultMetadata<TToolName extends WebToolName = WebToolNa
   readonly verbosity?: ToolOutputVerbosity;
 }
 
+export interface CatalogToolResultMetadata<TToolName extends CatalogToolName = CatalogToolName> {
+  readonly toolName: TToolName;
+  readonly kind: "catalog";
+  readonly operation: CatalogToolOperation;
+  readonly query?: string;
+  readonly exact?: string;
+  readonly prefix?: string;
+  readonly tags?: readonly string[];
+  readonly resultCount: number;
+  readonly totalIndexed: number;
+  readonly includedSchemas?: boolean;
+  readonly stale?: boolean;
+  readonly verbosity?: ToolOutputVerbosity;
+}
+
 export type ToolResultMetadata =
   | CommandToolResultMetadata
   | FileToolResultMetadata
   | InspectionToolResultMetadata
   | MediaToolResultMetadata
   | WebToolResultMetadata
-  | SearchToolResultMetadata;
+  | SearchToolResultMetadata
+  | CatalogToolResultMetadata;
 
 export function commandToolMetadata<TToolName extends CommandToolName>(
   toolName: TToolName,
@@ -257,6 +275,17 @@ export function webToolMetadata<TToolName extends WebToolName>(
   return {
     toolName,
     kind: "web",
+    ...metadata,
+  };
+}
+
+export function catalogToolMetadata<TToolName extends CatalogToolName>(
+  toolName: TToolName,
+  metadata: Omit<CatalogToolResultMetadata<TToolName>, "toolName" | "kind">,
+): CatalogToolResultMetadata<TToolName> {
+  return {
+    toolName,
+    kind: "catalog",
     ...metadata,
   };
 }

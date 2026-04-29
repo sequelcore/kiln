@@ -24,6 +24,7 @@ const BUILTIN_TOOL_NAMES = [
   "grep",
   "glob",
   "git",
+  "tool_catalog_search",
 ];
 
 describe("default builtin tool surface", () => {
@@ -149,6 +150,58 @@ describe("default builtin tool surface", () => {
       result: {
         isError: true,
         output: expect.stringContaining("__missing__.txt"),
+      },
+    });
+  });
+
+  it("exposes a catalog index over the canonical builtin tool registry", () => {
+    const surface = createDefaultBuiltinToolSurface();
+
+    expect(surface.catalog.search({ exact: "read" })).toMatchObject({
+      totalIndexed: BUILTIN_TOOL_NAMES.length,
+      entries: [
+        {
+          name: "read",
+          sourcePackage: "@kilnai/core",
+          authority: "read_only",
+          inputFields: ["filePath", "offset", "limit"],
+        },
+      ],
+    });
+    expect(surface.catalog.search({ query: "directory tree", limit: 1 }).entries[0]?.name).toBe("tree");
+  });
+
+  it("supports deferred projection while keeping the canonical registry executable", async () => {
+    const surface = createDefaultBuiltinToolSurface({
+      toolProjection: {
+        mode: "deferred",
+        alwaysOnTools: ["read"],
+      },
+    });
+
+    expect(surface.toolNames).toEqual(["read", "tool_catalog_search"]);
+    expect(surface.tools.map((tool) => tool.name)).toEqual(["read", "tool_catalog_search"]);
+    expect(surface.toolDefinitions.map((tool) => tool.name)).toEqual(["read", "tool_catalog_search"]);
+    expect(Array.from(surface.capabilities.keys())).toEqual(["read", "tool_catalog_search"]);
+    expect(surface.registry.has("glob")).toBe(true);
+    expect(surface.bridge.listTools().map((tool) => tool.name)).toEqual(BUILTIN_TOOL_NAMES);
+
+    await expect(surface.bridge.execute({
+      name: "tool_catalog_search",
+      input: { exact: "glob", verbosity: "structured" },
+    })).resolves.toMatchObject({
+      attempts: 1,
+      fallbackUsed: false,
+      result: {
+        isError: false,
+        metadata: expect.objectContaining({
+          toolName: "tool_catalog_search",
+          kind: "catalog",
+          operation: "search",
+          exact: "glob",
+          resultCount: 1,
+          totalIndexed: BUILTIN_TOOL_NAMES.length,
+        }),
       },
     });
   });

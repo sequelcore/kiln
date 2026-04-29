@@ -41,13 +41,13 @@ function createServer(registry?: DevToolRegistry): DevToolsMcpServer {
 }
 
 describe("DevToolsMcpServer", () => {
-  it("lists the 14 native tool schemas", () => {
+  it("lists the 15 native tool schemas", () => {
     const server = createServer();
 
     const tools = server.listTools();
     const names = tools.map((tool) => tool.name);
 
-    expect(tools).toHaveLength(14);
+    expect(tools).toHaveLength(15);
     expect(names).toEqual([
       "bash",
       "read",
@@ -63,6 +63,7 @@ describe("DevToolsMcpServer", () => {
       "grep",
       "glob",
       "git",
+      "tool_catalog_search",
     ]);
 
     for (const tool of tools) {
@@ -77,9 +78,35 @@ describe("DevToolsMcpServer", () => {
 
   it("projects MCP schemas from the canonical core surface", () => {
     const surface = createDefaultBuiltinToolSurface();
-    const server = new DevToolsMcpServer({ bridge: surface.bridge });
+    const server = new DevToolsMcpServer({ bridge: surface.bridge, tools: surface.tools });
 
     expect(server.listTools()).toEqual(projectDevToolSchemas(surface.tools));
+  });
+
+  it("can list a deferred projection while executing against the canonical bridge", async () => {
+    const surface = createDefaultBuiltinToolSurface({
+      toolProjection: {
+        mode: "deferred",
+        alwaysOnTools: ["read"],
+      },
+    });
+    const server = new DevToolsMcpServer({ bridge: surface.bridge, tools: surface.tools });
+
+    expect(server.listTools().map((tool) => tool.name)).toEqual(["read", "tool_catalog_search"]);
+
+    const result = await server.callTool("tool_catalog_search", { exact: "glob", verbosity: "structured" });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent).toMatchObject({
+      result: {
+        isError: false,
+        metadata: {
+          toolName: "tool_catalog_search",
+          kind: "catalog",
+          resultCount: 1,
+          totalIndexed: 15,
+        },
+      },
+    });
   });
 
   it("exposes patch as a destructive MCP tool with dry-run support", async () => {

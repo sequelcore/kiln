@@ -9,6 +9,9 @@ export type {
 export { TOOL_SCHEMAS } from "./domain/tool.js";
 
 export type {
+  CatalogToolName,
+  CatalogToolOperation,
+  CatalogToolResultMetadata,
   CommandToolName,
   CommandToolResultMetadata,
   FileToolChangeMetadata,
@@ -36,6 +39,7 @@ export type {
   WebToolResultMetadata,
 } from "./domain/tool-result-metadata.js";
 export {
+  catalogToolMetadata,
   commandToolMetadata,
   fileToolMetadata,
   inspectionToolMetadata,
@@ -44,6 +48,19 @@ export {
   searchToolMetadata,
   webToolMetadata,
 } from "./domain/tool-result-metadata.js";
+
+export type {
+  ToolCatalogAuthority,
+  ToolCatalogEntry,
+  ToolCatalogSearchAdapter,
+  ToolCatalogSearchReason,
+  ToolCatalogSearchRequest,
+  ToolCatalogSearchResult,
+} from "./domain/tool-catalog.js";
+export {
+  LexicalToolCatalogSearchAdapter,
+  ToolCatalogIndex,
+} from "./domain/tool-catalog.js";
 
 export { DevToolRegistry } from "./domain/tool-registry.js";
 
@@ -67,6 +84,7 @@ export { EditTool } from "./infrastructure/edit-tool.js";
 export { PatchTool } from "./infrastructure/patch-tool.js";
 export { StatTool } from "./infrastructure/stat-tool.js";
 export { TreeTool } from "./infrastructure/tree-tool.js";
+export { ToolCatalogSearchTool } from "./infrastructure/tool-catalog-search-tool.js";
 export { ViewImageTool } from "./infrastructure/view-image-tool.js";
 export type {
   OcrImageRequest,
@@ -98,6 +116,7 @@ export { GitTool } from "./infrastructure/git-tool.js";
 export type {
   DefaultBuiltinToolRegistryView,
   DefaultBuiltinToolSurface,
+  DefaultBuiltinToolProjectionOptions,
   DevToolSchemaProjection,
   DefaultBuiltinToolRegistryOptions,
 } from "./default-tool-surface.js";

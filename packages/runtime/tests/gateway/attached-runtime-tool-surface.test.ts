@@ -54,4 +54,19 @@ describe("attached runtime builtin tool surface", () => {
     expect(config.perCallCapabilities).toBe(runtimeSurface.capabilities);
     expect(config.toolAuthority).toBe(runtimeSurface.toolAuthority);
   });
+
+  it("propagates deferred core tool projection to runtime consumers", () => {
+    const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
+      builtinToolOptions: {
+        toolProjection: {
+          mode: "deferred",
+          alwaysOnTools: ["read"],
+        },
+      },
+    });
+
+    expect(Array.from(runtimeSurface.callBuiltinTools.keys())).toEqual(["read", "tool_catalog_search"]);
+    expect(runtimeSurface.toolDefinitions.map((tool) => tool.name)).toEqual(["read", "tool_catalog_search"]);
+    expect(Array.from(runtimeSurface.capabilities.keys())).toEqual(["read", "tool_catalog_search"]);
+  });
 });

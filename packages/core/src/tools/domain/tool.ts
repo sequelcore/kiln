@@ -95,7 +95,8 @@ export type DevToolName =
   | "web_fetch"
   | "grep"
   | "glob"
-  | "git";
+  | "git"
+  | "tool_catalog_search";
 
 export const TOOL_SCHEMAS: Record<
   DevToolName,
@@ -478,6 +479,47 @@ export const TOOL_SCHEMAS: Record<
     },
     annotations: {
       destructive: false,
+    },
+  },
+  tool_catalog_search: {
+    name: "tool_catalog_search",
+    description: "Search the shared Kiln tool catalog by exact name, prefix, tags, or lexical query. Use this before requesting hidden deferred tools.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "Lexical search over tool names, descriptions, input fields, output fields, and tags.",
+        },
+        exact: {
+          type: "string",
+          description: "Exact tool name to resolve.",
+        },
+        prefix: {
+          type: "string",
+          description: "Tool name prefix to list, such as web_.",
+        },
+        tags: {
+          type: "array",
+          items: { type: "string" },
+          description: "Tags that every returned tool must include.",
+        },
+        limit: {
+          type: "number",
+          description: "Maximum catalog entries to return. Defaults to 20 and caps at 50.",
+        },
+        includeSchemas: {
+          type: "boolean",
+          description: "When true, include cloned input and output schemas for matched tools.",
+        },
+        verbosity: OUTPUT_VERBOSITY_PROPERTY,
+      },
+      required: [],
+      additionalProperties: false,
+    },
+    annotations: {
+      readOnly: true,
+      idempotent: true,
     },
   },
 };

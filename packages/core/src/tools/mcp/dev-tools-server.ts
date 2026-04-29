@@ -1,6 +1,6 @@
 import { KilnError } from "../../engine/errors.js";
 import { projectDevToolSchemas } from "../default-tool-surface.js";
-import type { ToolResult, ToolResultContentPart } from "../domain/tool.js";
+import type { DevTool, ToolResult, ToolResultContentPart } from "../domain/tool.js";
 import { DevToolExecutionBridge } from "../tool-executor.js";
 
 const SERVER_NAME = "kilnai-dev-tools";
@@ -53,6 +53,7 @@ function loadSdkModules(): Promise<SdkModules> {
 
 export interface DevToolsMcpServerOptions {
   readonly bridge: DevToolExecutionBridge;
+  readonly tools?: readonly DevTool[];
 }
 
 export interface DevToolsMcpToolSchema {
@@ -70,11 +71,13 @@ export interface DevToolsMcpCallResult {
 
 export class DevToolsMcpServer {
   private readonly bridge: DevToolExecutionBridge;
+  private readonly tools?: readonly DevTool[];
   private sdk: SdkModules | undefined;
   private sdkPromise: Promise<SdkModules> | undefined;
 
   constructor(options: DevToolsMcpServerOptions) {
     this.bridge = options.bridge;
+    this.tools = options.tools;
   }
 
   async initialize(): Promise<void> {
@@ -92,7 +95,7 @@ export class DevToolsMcpServer {
   }
 
   listTools(): readonly DevToolsMcpToolSchema[] {
-    return projectDevToolSchemas(this.bridge.listTools());
+    return projectDevToolSchemas(this.tools ?? this.bridge.listTools());
   }
 
   async callTool(

@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased -- Shared Tooling Intelligence
+
+- Added a core `ToolCatalogIndex` over builtin tool names, descriptions, input
+  fields, output fields, tags, authority class, source package, and optional
+  cloned schemas.
+- Added the read-only `tool_catalog_search` builtin tool with exact, prefix,
+  tag, and lexical query search plus raw, structured, and summary output modes.
+- Added deferred builtin tool projection through
+  `DefaultBuiltinToolRegistryOptions.toolProjection`; projected surfaces expose
+  always-on tools plus catalog search while the canonical registry remains the
+  execution source.
+- MCP dev-tools listing can now use the projected surface while `callTool`
+  continues through the canonical bridge, and attached runtime consumers inherit
+  the same projection.
+
 ## Unreleased -- Operator Workspace Explorer
 
 - Added a shared `OperatorWorkspaceExplorer` contract in

@@ -1,5 +1,6 @@
 import type { ToolDefinition } from "../agents/index.js";
 import type { Capability } from "../engine/domain/capability.js";
+import { ToolCatalogIndex } from "./domain/tool-catalog.js";
 import { DevToolRegistry } from "./domain/tool-registry.js";
 import { DEV_TOOL_OUTPUT_SCHEMA, type DevTool, type DevToolAnnotations } from "./domain/tool.js";
 import { BashTool, type BashToolOptions } from "./infrastructure/bash-tool.js";
@@ -11,6 +12,7 @@ import { OcrImageTool } from "./infrastructure/ocr-image-tool.js";
 import { PatchTool } from "./infrastructure/patch-tool.js";
 import { ReadTool } from "./infrastructure/read-tool.js";
 import { StatTool } from "./infrastructure/stat-tool.js";
+import { ToolCatalogSearchTool } from "./infrastructure/tool-catalog-search-tool.js";
 import { TreeTool } from "./infrastructure/tree-tool.js";
 import { ViewImageTool } from "./infrastructure/view-image-tool.js";
 import { WebFetchTool, type WebFetchToolOptions } from "./infrastructure/web-fetch-tool.js";
@@ -32,6 +34,12 @@ export interface DefaultBuiltinToolRegistryOptions {
   readonly webFetch?: WebFetchToolOptions;
   readonly webSearch?: WebSearchToolOptions;
   readonly git?: GitToolOptions;
+  readonly toolProjection?: DefaultBuiltinToolProjectionOptions;
+}
+
+export interface DefaultBuiltinToolProjectionOptions {
+  readonly mode?: "all" | "deferred";
+  readonly alwaysOnTools?: readonly string[];
 }
 
 export interface DefaultBuiltinToolRegistryView {
@@ -48,12 +56,14 @@ export interface DefaultBuiltinToolSurface {
   readonly toolDefinitions: readonly ToolDefinition[];
   readonly capabilities: ReadonlyMap<string, Capability>;
   readonly bridge: DevToolExecutionBridge;
+  readonly catalog: ToolCatalogIndex;
 }
 
 export function createDefaultBuiltinTools(
   options: DefaultBuiltinToolRegistryOptions = {},
 ): readonly DevTool[] {
-  return [
+  let catalog = new ToolCatalogIndex([]);
+  const tools = [
     new BashTool(options.bash),
     new ReadTool(),
     new WriteTool(),
@@ -68,7 +78,10 @@ export function createDefaultBuiltinTools(
     new GrepTool(options.grep),
     new GlobTool(options.glob),
     new GitTool(options.git),
+    new ToolCatalogSearchTool(() => catalog),
   ];
+  catalog = ToolCatalogIndex.fromTools(tools);
+  return tools;
 }
 
 export function createDefaultBuiltinToolRegistry(
@@ -85,7 +98,8 @@ export function createDefaultBuiltinToolSurface(
   options: DefaultBuiltinToolRegistryOptions = {},
 ): DefaultBuiltinToolSurface {
   const registry = createDefaultBuiltinToolRegistry(options);
-  const tools = registry.list();
+  const catalog = ToolCatalogIndex.fromTools(registry.list());
+  const tools = projectTools(registry.list(), options.toolProjection);
 
   return {
     tools,
@@ -94,6 +108,7 @@ export function createDefaultBuiltinToolSurface(
     toolDefinitions: projectDevToolDefinitions(tools),
     capabilities: projectDevToolCapabilities(tools),
     bridge: new DevToolExecutionBridge({ registry }),
+    catalog,
   };
 }
 
@@ -150,6 +165,21 @@ function createRegistryView(registry: DevToolRegistry): DefaultBuiltinToolRegist
       return registry.size;
     },
   };
+}
+
+function projectTools(
+  tools: readonly DevTool[],
+  projection: DefaultBuiltinToolProjectionOptions | undefined,
+): readonly DevTool[] {
+  if (projection?.mode !== "deferred") {
+    return tools;
+  }
+
+  const requested = new Set<string>([
+    ...(projection.alwaysOnTools ?? ["read", "grep", "glob"]),
+    "tool_catalog_search",
+  ]);
+  return tools.filter((tool) => requested.has(tool.name));
 }
 
 function cloneAnnotations(

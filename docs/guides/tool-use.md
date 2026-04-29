@@ -390,8 +390,15 @@ The built-in executors are intentionally small and predictable:
 - `GrepTool` uses `rg` when available and falls back to a recursive file walk plus JavaScript `RegExp`; `outputMode` controls match shape while `verbosity` controls result shape.
 - `GlobTool` uses `fd` when available and falls back to the same recursive walker plus glob matching helpers; it can return raw path lists, structured JSON matches, or a summary.
 - `GitTool` executes `git` directly and validates the reconstructed command string before running it.
+- `ToolCatalogSearchTool` searches the shared catalog by exact name, prefix, tags, or lexical query. It is read-only, supports raw, structured, and summary output, and reports stale exact matches as an empty result with `reason: "tool_not_found"`.
 
-All fourteen tools return `ToolResult`; failures are regular tool results when possible, not uncaught process exceptions.
+All fifteen tools return `ToolResult`; failures are regular tool results when possible, not uncaught process exceptions.
+
+The default surface can also run in deferred projection mode. In that mode,
+only configured always-on tools plus `tool_catalog_search` are advertised to a
+consumer, while concrete execution still routes through the canonical registry
+and bridge. This keeps GUI, CLI, TUI, SDK, and MCP consumers on the same tool
+contract without forcing every tool schema into every context.
 
 For MCP consumers, long-running calls have two coordinated timeout layers:
 

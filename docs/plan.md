@@ -113,6 +113,35 @@ Add a searchable core catalog over tool names, descriptions, input fields,
 output schemas, tags, authority, and source package. Keep execution through the
 canonical registry while allowing deferred tool projection for large catalogs.
 
+Status: implemented.
+
+Implemented contract:
+
+- `ToolCatalogIndex` indexes canonical `DevTool` definitions with names,
+  descriptions, input fields, output fields, tags, authority class, source
+  package, and optional cloned schemas.
+- `tool_catalog_search` is the shared read-only discovery tool. It supports
+  exact, prefix, tag, and lexical query search without requiring external
+  embeddings.
+- `DefaultBuiltinToolRegistryOptions.toolProjection` supports `mode:
+  "deferred"` with an explicit `alwaysOnTools` list. Deferred projection
+  changes advertised tools, not the canonical registry.
+- MCP dev-tools listing accepts the projected tool set while execution still
+  routes through the canonical `DevToolExecutionBridge`.
+- Attached runtime surfaces consume the same projected core tool definitions,
+  capabilities, and executors, so GUI, CLI, TUI, and SDK-backed runtime
+  consumers share one contract.
+- Missing exact catalog references return an empty result with `stale: true`
+  and `reason: "tool_not_found"` instead of falling back to unrelated tools.
+
+Verification:
+
+- `bun run typecheck`
+- `bun run test`
+- `bun run build`
+- `bun run --cwd packages/core test tests/tools/domain/tool-catalog.test.ts tests/tools/default-tool-surface.test.ts tests/tools/mcp/dev-tools-server.test.ts`
+- `bun run --cwd packages/runtime test tests/gateway/attached-runtime-tool-surface.test.ts`
+
 ### Slice 13: Semantic Code Intelligence
 
 Add a provider-neutral `code_intelligence` tool backed by language-server
@@ -237,7 +266,8 @@ Implemented core order:
 
 1. Add failing core tests for `TOOL_SCHEMAS`, `DevToolName`, web metadata
    builders, default surface tool order, MCP schema projection, and runtime
-   attached-surface projection. Expected count becomes 14 builtin tools.
+   attached-surface projection. Expected count becomes 14 builtin tools for
+   Slice 10 and 15 builtin tools after Slice 12 adds `tool_catalog_search`.
 2. Add `packages/core/src/tools/infrastructure/web-policy.ts` for URL/domain
    normalization, sandbox `NetworkFilter` checks, redirect policy helpers, and
    private/localhost address rejection.

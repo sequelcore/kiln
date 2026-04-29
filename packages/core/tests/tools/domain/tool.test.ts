@@ -61,6 +61,7 @@ describe("tool domain types", () => {
       "grep",
       "glob",
       "git",
+      "tool_catalog_search",
     ]);
   });
 
@@ -98,6 +99,10 @@ describe("tool domain types", () => {
       idempotent: true,
     });
     expect(TOOL_SCHEMAS.web_fetch.annotations).toEqual({
+      readOnly: true,
+      idempotent: true,
+    });
+    expect(TOOL_SCHEMAS.tool_catalog_search.annotations).toEqual({
       readOnly: true,
       idempotent: true,
     });

@@ -75,6 +75,15 @@ Requirements:
 - test catalog search without requiring external embeddings
 - define failure behavior for missing, stale, or unauthorized tool references
 
+Implemented in Slice 12:
+
+- core `ToolCatalogIndex` with exact, prefix, tag, and lexical search adapters
+- shared `tool_catalog_search` read-only builtin tool
+- deferred projection through `DefaultBuiltinToolRegistryOptions.toolProjection`
+- projected MCP listing with canonical bridge execution
+- attached runtime propagation for all operator consumers
+- stale exact-match behavior: empty result plus `reason: "tool_not_found"`
+
 ## Slice 13: Semantic Code Intelligence
 
 Goal: add shared language-server-backed code navigation and diagnostics.
