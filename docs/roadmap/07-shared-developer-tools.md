@@ -122,6 +122,29 @@ Design requirements:
 - Search must expose recency filtering and result ranking metadata.
 - Network access policy must be explicit and auditable.
 - Results must be sanitized before reinjection.
+- Search and fetch must stay separate: search discovers/ranks sources, fetch
+  retrieves one explicit URL.
+- Provider-specific search belongs behind an injected core provider interface;
+  core must not silently scrape a public search page or use shell network calls.
+- URL fetch must validate HTTP(S), normalized domain, sandbox network policy,
+  redirect hops, response size, and supported content type before returning
+  text.
+- Both tools should support `verbosity?: "raw" | "structured" | "summary"`.
+- External web metadata should use a new `web` metadata family instead of
+  overloading local workspace `search` metadata.
+
+Planned implementation slices:
+
+1. Contract and policy foundation: `web` metadata, schema entries,
+   URL/domain normalization, `NetworkFilter` integration, and fail-closed
+   provider interfaces.
+2. `web_fetch`: native fetch client, redirect validation, content-type and byte
+   limits, sanitization, truncation metadata, and raw/structured/summary output.
+3. `web_search`: injected provider, domain and recency filters, ranked source
+   normalization, provider-not-configured errors, and raw/structured/summary
+   output.
+4. Shared projection update: default core surface, MCP surface, runtime-attached
+   CLI/GUI/TUI surface, docs, and full verification gates.
 
 Research basis:
 
@@ -130,6 +153,12 @@ Research basis:
 - Production MCP research identifies server contracts, timeouts, errors, and
   observability as necessary reliability layers; web tools must include those
   from the first slice.
+- Anthropic and OpenAI web search surfaces expose source/citation information
+  and domain controls, confirming that source evidence is part of the contract.
+- MCP security guidance calls out network scope minimization and SSRF risk, so
+  web tools need policy enforcement at the URL boundary.
+- User reports from coding-agent communities show demand for reliable current
+  documentation lookup and lower-friction recency-triggered search.
 
 ## Execution Rules
 

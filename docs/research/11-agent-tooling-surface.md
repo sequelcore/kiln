@@ -38,6 +38,20 @@ architecture contract in `docs/architecture/tool-execution.md`.
   https://www.reddit.com/r/ClaudeCode/comments/1rbhfhh/passing_multiple_images_to_claude_code_is_quite_a/
   and
   https://www.reddit.com/r/ClaudeCode/comments/1sg1m5m/can_claude_code_take_images_from_mcp_tool_calls/
+- Anthropic Claude API web search:
+  https://platform.claude.com/docs/en/agents-and-tools/tool-use/web-search-tool
+- Anthropic Claude API web fetch:
+  https://platform.claude.com/docs/en/agents-and-tools/tool-use/web-fetch-tool
+- OpenAI Responses API web search:
+  https://developers.openai.com/api/docs/guides/tools-web-search
+- OpenCode tools reference:
+  https://opencode.ai/docs/tools/
+- MCP security best practices:
+  https://modelcontextprotocol.io/docs/tutorials/security/security_best_practices
+- User reports on web-search friction in coding agents:
+  https://github.com/openai/codex/issues/2563
+  and
+  https://github.com/openai/codex/issues/6025
 
 ## Findings
 
@@ -102,6 +116,27 @@ Claude Code and Gemini CLI both expose web fetch/search tools. The key Kiln
 requirement is not just network access; it is controlled source access. Domain
 allowlists, recency windows, retrieval metadata, truncation metadata, and
 sanitization must be part of the first slice.
+
+Current tool surfaces separate discovery from retrieval. Gemini CLI documents
+`google_web_search` as a search-summary tool with citations and sources.
+OpenCode exposes `websearch` for discovery and `webfetch` for retrieving a
+specific URL. Anthropic's web tools follow the same split and add limits,
+domain filters, source metadata, retrieval timestamps, truncation/content
+limits, and explicit error codes.
+
+User reports around Codex web search show two recurring needs: automatic use
+when recency intent is present, and dependable documentation lookup when network
+access is enabled. Kiln should not solve the automatic model-choice layer inside
+the tool executor, but the tool contract must make dependable lookup possible:
+clear input schemas, provider-independent metadata, source URLs, result ranking,
+and audit-visible policy decisions.
+
+MCP security guidance makes external network tools higher risk than local
+read-only filesystem inspection. Web tools must defend against SSRF and
+over-broad scopes with allowlisted HTTP(S) URLs, domain normalization, private
+address blocking, redirect validation, bounded response sizes, and auditable
+network policy. A search provider should be injected through core options; core
+must not silently scrape a public search page or tunnel through shell commands.
 
 ## Design Principles For Kiln
 
