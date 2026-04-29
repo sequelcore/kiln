@@ -22,6 +22,11 @@
   multi-file text context packets with include/exclude filters, simple
   `.gitignore` support, default nuisance-directory excludes, skipped-file
   reasons, byte/file caps, and truncation metadata.
+- Added shared monitor lifecycle tools: `monitor_start`, `monitor_read`,
+  `monitor_stop`, and `monitor_list`. The tools share one session-local core
+  registry for long-running shell commands, bounded output events, explicit
+  stop semantics, timeout cleanup, monitor metadata, MCP projection, and
+  attached-runtime projection.
 
 ## Unreleased -- Operator Workspace Explorer
 

@@ -113,4 +113,32 @@ describe("attached runtime builtin tool surface", () => {
       "tool_catalog_search",
     ]);
   });
+
+  it("can explicitly expose monitor lifecycle tools in deferred runtime projection", () => {
+    const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
+      builtinToolOptions: {
+        toolProjection: {
+          mode: "deferred",
+          alwaysOnTools: ["read", "monitor_start", "monitor_read", "monitor_stop", "monitor_list"],
+        },
+      },
+    });
+
+    expect(Array.from(runtimeSurface.callBuiltinTools.keys())).toEqual([
+      "read",
+      "monitor_start",
+      "monitor_read",
+      "monitor_stop",
+      "monitor_list",
+      "tool_catalog_search",
+    ]);
+    expect(runtimeSurface.toolDefinitions.map((tool) => tool.name)).toEqual([
+      "read",
+      "monitor_start",
+      "monitor_read",
+      "monitor_stop",
+      "monitor_list",
+      "tool_catalog_search",
+    ]);
+  });
 });

@@ -8,7 +8,7 @@ describe("ToolCatalogIndex", () => {
 
     const result = catalog.search({ exact: "read" });
 
-    expect(result.totalIndexed).toBe(17);
+    expect(result.totalIndexed).toBe(21);
     expect(result.entries).toHaveLength(1);
     expect(result.entries[0]).toMatchObject({
       name: "read",
@@ -53,7 +53,7 @@ describe("ToolCatalogIndex", () => {
     const catalog = ToolCatalogIndex.fromTools(createDefaultBuiltinTools());
 
     expect(catalog.search({ exact: "missing_tool" })).toMatchObject({
-      totalIndexed: 17,
+      totalIndexed: 21,
       entries: [],
       stale: true,
       reason: "tool_not_found",
@@ -82,6 +82,24 @@ describe("ToolCatalogIndex", () => {
       authority: "read_only",
       tags: expect.arrayContaining(["file", "context", "read-only"]),
       inputFields: expect.arrayContaining(["paths", "include", "exclude", "recursive", "respectGitIgnore"]),
+    });
+  });
+
+  it("indexes monitor tools as lifecycle command tools", () => {
+    const catalog = ToolCatalogIndex.fromTools(createDefaultBuiltinTools());
+
+    expect(catalog.search({ tags: ["monitor"] }).entries.map((entry) => entry.name)).toEqual([
+      "monitor_start",
+      "monitor_read",
+      "monitor_stop",
+      "monitor_list",
+    ]);
+    expect(catalog.search({ exact: "monitor_start" }).entries[0]).toMatchObject({
+      name: "monitor_start",
+      sourcePackage: "@kilnai/core",
+      authority: "destructive",
+      tags: expect.arrayContaining(["monitor", "command", "destructive"]),
+      inputFields: expect.arrayContaining(["command", "cwd", "name", "timeout", "verbosity"]),
     });
   });
 });

@@ -212,6 +212,36 @@ Add monitor start/read/stop/list semantics for dev servers, watch tests, logs,
 and CI polling. Reuse `bash` command validation and expose lifecycle metadata
 and runtime events.
 
+Status: implemented.
+
+Implemented contract:
+
+- `MonitorRegistry` owns session-local long-running command lifecycles.
+- Default builtin surfaces expose the owned `MonitorRegistry`, including
+  `stopAll()`, so session teardown has an explicit orphan-cleanup boundary.
+- `monitor_start` validates cwd and command through the shared sandbox helpers,
+  starts a monitored `bash -c` process, records process ownership, and installs
+  timeout cleanup.
+- `monitor_read` returns bounded stdout, stderr, and lifecycle events after an
+  optional sequence cursor.
+- `monitor_stop` stops a running monitor by id and records explicit lifecycle
+  completion evidence.
+- `monitor_list` returns current monitor snapshots, optionally filtered by
+  status.
+- All four monitor tools support raw, structured, and summary output and emit
+  shared `monitor` metadata.
+- The tools are registered in the canonical builtin surface, indexed in the
+  tool catalog, projected through MCP, and available to runtime consumers
+  through the same deferred projection model.
+
+Verification:
+
+- `bun run typecheck`
+- `bun run --cwd packages/core test tests/tools/infrastructure/monitor-tools.test.ts tests/tools/domain/tool.test.ts tests/tools/default-tool-surface.test.ts tests/tools/domain/tool-catalog.test.ts tests/tools/mcp/dev-tools-server.test.ts`
+- `bun run --cwd packages/runtime test tests/gateway/attached-runtime-tool-surface.test.ts`
+- `bun run test`
+- `bun run build`
+
 ### Slice 16: Shared Task State
 
 Add session-local task state so CLI, GUI, TUI, MCP, and SDK consumers observe

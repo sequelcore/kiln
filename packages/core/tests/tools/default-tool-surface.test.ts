@@ -6,6 +6,7 @@ import {
 import {
   createDefaultBuiltinToolSurface as createDefaultBuiltinToolSurfaceFromBarrel,
   fileToolMetadata,
+  MonitorRegistry,
   projectDevToolSchemas,
 } from "../../src/tools/index.js";
 
@@ -26,6 +27,10 @@ const BUILTIN_TOOL_NAMES = [
   "glob",
   "git",
   "code_intelligence",
+  "monitor_start",
+  "monitor_read",
+  "monitor_stop",
+  "monitor_list",
   "tool_catalog_search",
 ];
 
@@ -75,6 +80,14 @@ describe("default builtin tool surface", () => {
     expect(first.toolDefinitions).not.toBe(second.toolDefinitions);
     expect(first.capabilities).not.toBe(second.capabilities);
     expect(first.bridge).not.toBe(second.bridge);
+    expect(first.monitorRegistry).not.toBe(second.monitorRegistry);
+  });
+
+  it("can receive an owned monitor registry for session teardown", () => {
+    const monitorRegistry = new MonitorRegistry();
+    const surface = createDefaultBuiltinToolSurface({ monitorRegistry });
+
+    expect(surface.monitorRegistry).toBe(monitorRegistry);
   });
 
   it("exposes a read-only registry view", () => {
@@ -188,6 +201,7 @@ describe("default builtin tool surface", () => {
     expect(surface.registry.has("glob")).toBe(true);
     expect(surface.registry.has("read_many")).toBe(true);
     expect(surface.registry.has("code_intelligence")).toBe(true);
+    expect(surface.registry.has("monitor_start")).toBe(true);
     expect(surface.bridge.listTools().map((tool) => tool.name)).toEqual(BUILTIN_TOOL_NAMES);
 
     await expect(surface.bridge.execute({

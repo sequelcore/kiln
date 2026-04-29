@@ -193,6 +193,22 @@ Requirements:
 - make GUI/TUI/CLI status projections read from the same monitor registry
 - define orphan cleanup on session end
 
+Implemented in Slice 15:
+
+- shared session-local `MonitorRegistry` with explicit process ownership,
+  stop semantics, timeout cleanup, lifecycle output events, and bounded output
+  event text
+- default builtin surfaces expose the owned monitor registry so session teardown
+  can call `stopAll()` for orphan cleanup
+- core `monitor_start`, `monitor_read`, `monitor_stop`, and `monitor_list`
+  builtin tools
+- command and cwd validation through the same sandbox helpers used by `bash`
+- sequence-numbered stdout, stderr, and lifecycle events with raw, structured,
+  and summary output modes
+- shared `monitor` metadata for lifecycle evidence, status, timing, truncation,
+  event counts, and error classification
+- catalog, MCP, and attached-runtime projection through the canonical surface
+
 ## Slice 16: Shared Task State
 
 Goal: make progress tracking observable and consistent across surfaces.

@@ -41,13 +41,13 @@ function createServer(registry?: DevToolRegistry): DevToolsMcpServer {
 }
 
 describe("DevToolsMcpServer", () => {
-  it("lists the 17 native tool schemas", () => {
+  it("lists the 21 native tool schemas", () => {
     const server = createServer();
 
     const tools = server.listTools();
     const names = tools.map((tool) => tool.name);
 
-    expect(tools).toHaveLength(17);
+    expect(tools).toHaveLength(21);
     expect(names).toEqual([
       "bash",
       "read",
@@ -65,6 +65,10 @@ describe("DevToolsMcpServer", () => {
       "glob",
       "git",
       "code_intelligence",
+      "monitor_start",
+      "monitor_read",
+      "monitor_stop",
+      "monitor_list",
       "tool_catalog_search",
     ]);
 
@@ -105,7 +109,7 @@ describe("DevToolsMcpServer", () => {
           toolName: "tool_catalog_search",
           kind: "catalog",
           resultCount: 1,
-          totalIndexed: 17,
+          totalIndexed: 21,
         },
       },
     });
@@ -168,6 +172,62 @@ describe("DevToolsMcpServer", () => {
       },
     });
   });
+
+  it("exposes monitor lifecycle tools through MCP", async () => {
+    const server = createServer();
+
+    expect(server.listTools().find((tool) => tool.name === "monitor_start")).toMatchObject({
+      name: "monitor_start",
+      inputSchema: {
+        type: "object",
+        required: ["command"],
+        properties: {
+          command: expect.objectContaining({ type: "string" }),
+          cwd: expect.objectContaining({ type: "string" }),
+          name: expect.objectContaining({ type: "string" }),
+          timeout: expect.objectContaining({
+            type: "number",
+            "x-kiln-timeout-unit": "milliseconds",
+          }),
+          verbosity: expect.objectContaining({ enum: ["raw", "structured", "summary"] }),
+        },
+      },
+    });
+    expect(server.listTools().find((tool) => tool.name === "monitor_read")).toMatchObject({
+      name: "monitor_read",
+      inputSchema: {
+        type: "object",
+        required: ["id"],
+        properties: {
+          id: expect.objectContaining({ type: "string" }),
+          sinceSequence: expect.objectContaining({ type: "number" }),
+          limit: expect.objectContaining({ type: "number" }),
+        },
+      },
+    });
+    expect(server.listTools().find((tool) => tool.name === "monitor_stop")).toMatchObject({
+      name: "monitor_stop",
+      inputSchema: {
+        type: "object",
+        required: ["id"],
+        properties: {
+          id: expect.objectContaining({ type: "string" }),
+          reason: expect.objectContaining({ type: "string" }),
+        },
+      },
+    });
+    expect(server.listTools().find((tool) => tool.name === "monitor_list")).toMatchObject({
+      name: "monitor_list",
+      inputSchema: {
+        type: "object",
+        required: [],
+        properties: {
+          status: expect.objectContaining({ enum: ["running", "exited", "stopped", "failed"] }),
+        },
+      },
+    });
+  });
+
 
   it("exposes patch as a destructive MCP tool with dry-run support", async () => {
     const server = createServer();

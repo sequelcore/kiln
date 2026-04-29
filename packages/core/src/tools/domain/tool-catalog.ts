@@ -165,6 +165,10 @@ function tagsForTool(tool: DevTool): readonly string[] {
   if (tool.name === "bash" || tool.name === "git") {
     tags.add("command");
   }
+  if (tool.name === "monitor_start" || tool.name === "monitor_read" || tool.name === "monitor_stop" || tool.name === "monitor_list") {
+    tags.add("monitor");
+    tags.add("command");
+  }
   if (tool.name === "code_intelligence") {
     tags.add("code");
     tags.add("semantic");

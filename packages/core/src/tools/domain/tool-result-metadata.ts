@@ -6,6 +6,7 @@ export type WebToolName = "web_search" | "web_fetch";
 export type SearchToolName = "grep" | "glob";
 export type CatalogToolName = "tool_catalog_search";
 export type CodeToolName = "code_intelligence";
+export type MonitorToolName = "monitor_start" | "monitor_read" | "monitor_stop" | "monitor_list";
 
 export type FileToolOperation = "read" | "read_many" | "write" | "edit" | "patch";
 export type InspectionToolOperation = "stat" | "tree";
@@ -40,6 +41,8 @@ export type CodeIntelligenceErrorCode =
   | "unsupported_language"
   | "adapter_error"
   | "read_denied";
+export type MonitorToolOperation = "start" | "read" | "stop" | "list";
+export type MonitorStatus = "running" | "exited" | "stopped" | "failed";
 
 export interface CommandToolResultMetadata<TToolName extends CommandToolName = CommandToolName> {
   readonly toolName: TToolName;
@@ -206,6 +209,29 @@ export interface CodeToolResultMetadata<TToolName extends CodeToolName = CodeToo
   readonly verbosity?: ToolOutputVerbosity;
 }
 
+export interface MonitorToolResultMetadata<TToolName extends MonitorToolName = MonitorToolName> {
+  readonly toolName: TToolName;
+  readonly kind: "monitor";
+  readonly operation: MonitorToolOperation;
+  readonly id?: string;
+  readonly name?: string;
+  readonly command?: string;
+  readonly cwd?: string;
+  readonly status?: MonitorStatus;
+  readonly timeoutMs?: number;
+  readonly sequence?: number;
+  readonly sinceSequence?: number;
+  readonly eventCount?: number;
+  readonly monitorCount?: number;
+  readonly exitCode?: number | string;
+  readonly signal?: NodeJS.Signals | string;
+  readonly durationMs?: number;
+  readonly timedOut?: boolean;
+  readonly truncated?: boolean;
+  readonly errorCode?: "invalid_input" | "not_found" | "already_finished" | "runner_error";
+  readonly verbosity?: ToolOutputVerbosity;
+}
+
 export type ToolResultMetadata =
   | CommandToolResultMetadata
   | FileToolResultMetadata
@@ -214,7 +240,8 @@ export type ToolResultMetadata =
   | WebToolResultMetadata
   | SearchToolResultMetadata
   | CatalogToolResultMetadata
-  | CodeToolResultMetadata;
+  | CodeToolResultMetadata
+  | MonitorToolResultMetadata;
 
 export function commandToolMetadata<TToolName extends CommandToolName>(
   toolName: TToolName,
@@ -334,6 +361,17 @@ export function codeToolMetadata<TToolName extends CodeToolName>(
   return {
     toolName,
     kind: "code",
+    ...metadata,
+  };
+}
+
+export function monitorToolMetadata<TToolName extends MonitorToolName>(
+  toolName: TToolName,
+  metadata: Omit<MonitorToolResultMetadata<TToolName>, "toolName" | "kind">,
+): MonitorToolResultMetadata<TToolName> {
+  return {
+    toolName,
+    kind: "monitor",
     ...metadata,
   };
 }

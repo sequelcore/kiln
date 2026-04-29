@@ -233,10 +233,11 @@ export interface DevTool {
 }
 ```
 
-The twelve built-in tool names are:
+The twenty-one built-in tool names are:
 
 - `bash`
 - `read`
+- `read_many`
 - `write`
 - `edit`
 - `patch`
@@ -247,6 +248,12 @@ The twelve built-in tool names are:
 - `grep`
 - `glob`
 - `git`
+- `code_intelligence`
+- `monitor_start`
+- `monitor_read`
+- `monitor_stop`
+- `monitor_list`
+- `tool_catalog_search`
 
 Operator-attached CLI, GUI, and TUI turns may also expose
 `operator_set_theme`. That tool is not part of the filesystem developer-tool
@@ -286,16 +293,17 @@ Builtin developer tools return one core-owned metadata contract from
 Every metadata object includes:
 
 - `toolName`: canonical builtin tool name
-- `kind`: `command`, `file`, `inspection`, `media`, `web`, or `search`
+- `kind`: `command`, `file`, `inspection`, `media`, `web`, `search`, or
+  `monitor`
 
 High-volume metadata may also include `verbosity`, which records the requested
 output shape without changing the stable metadata family.
 
-File metadata also includes `operation`, which is `read`, `write`, `edit`, or
-`patch`. Runtime file-change evidence is derived from shared `file` metadata
-for `write`, `edit`, and `patch`; `read` metadata is not file-change evidence.
-Patch metadata carries a `files` array so one tool result can report every
-created, modified, deleted, or moved path.
+File metadata also includes `operation`, which is `read`, `read_many`, `write`,
+`edit`, or `patch`. Runtime file-change evidence is derived from shared `file`
+metadata for `write`, `edit`, and `patch`; read operations are not file-change
+evidence. Patch metadata carries a `files` array so one tool result can report
+every created, modified, deleted, or moved path.
 
 Inspection metadata covers `stat` and `tree`. `stat` reports the inspected path,
 entry type, size, modified time, and optional hash. `tree` reports the root path,
@@ -316,6 +324,12 @@ sources, errors, and requested verbosity. `web_fetch` reports source URL,
 normalized final URL, content type, status, bytes read, redirect chain,
 truncation, errors, and requested verbosity. Web metadata is external-source
 evidence, not workspace search or file-change evidence.
+
+Monitor metadata covers `monitor_start`, `monitor_read`, `monitor_stop`, and
+`monitor_list`. It reports monitor ids, command/cwd ownership, status, timeout,
+sequence cursors, event counts, duration, exit code, signal, timeout state, and
+truncation evidence. Monitor metadata is lifecycle evidence, not file-change
+evidence.
 
 Web tools are fail-closed unless `KilnYaml.web` enables them:
 
@@ -344,6 +358,7 @@ return a JSON object with a `sources` array.
 |------|---------|------------|--------------|
 | `bash` | Run a shell command through `bash -c` | `command`, `timeout`, `cwd`, `verbosity` | `raw` output is combined stdout+stderr; `structured` is JSON command evidence; `summary` is a bounded rollup; metadata includes `cwd`, `command`, `timeoutMs`, `verbosity` |
 | `read` | Read file content from disk | `filePath`, `offset`, `limit` | `output` is the selected line window; metadata includes `filePath`, `offset`, `limit`, `totalLines` |
+| `read_many` | Read a bounded deterministic packet of text files | `paths`, `include`, `exclude`, `recursive`, `respectGitIgnore`, `useDefaultExcludes`, `maxFiles`, `maxBytes`, `verbosity` | `raw` output is a path-delimited text packet; `structured` is JSON file/skipped data; `summary` is a bounded rollup; metadata includes file count, skipped count, total bytes, truncation, and `verbosity` |
 | `write` | Replace full file contents | `filePath`, `content` | `output` is a confirmation string; metadata includes `filePath`, `bytesWritten` |
 | `edit` | Replace one or all string matches in a file | `filePath`, `oldString`, `newString`, `replaceAll` | `output` is a replacement summary or an error; metadata includes `filePath`, `replacements`, `replaceAll` |
 | `patch` | Apply a structured multi-file patch | `patch`, `dryRun` | `output` is an apply or dry-run summary; metadata includes `operationCount`, `dryRun`, and per-file change entries |
@@ -356,6 +371,12 @@ return a JSON object with a `sources` array.
 | `grep` | Search file content by regex | `pattern`, optional file-or-directory `path`, `glob`, `outputMode`, `verbosity` | `raw` output is newline-delimited matches, file paths, or counts; `structured` is JSON result data; `summary` is a bounded rollup; metadata includes `path`, `strategy`, `outputMode`, `count`, and `verbosity` |
 | `glob` | Match files by glob pattern | `pattern`, `path`, `verbosity` | `raw` output is newline-delimited relative file paths; `structured` is JSON matches; `summary` is a bounded rollup; metadata includes `path`, `strategy`, `count`, and `verbosity` |
 | `git` | Run a git subcommand | `subcommand`, `args` | `output` is combined stdout+stderr; metadata includes `cwd`, `command` |
+| `code_intelligence` | Query a configured language-server adapter | `operation`, `path`, `position`, `query`, `symbol`, `limit`, `verbosity` | default configuration fails closed; configured adapters return bounded semantic code results; metadata includes operation, workspace root, adapter, language, result count, errors, and `verbosity` |
+| `monitor_start` | Start a monitored long-running shell command | `command`, `cwd`, `name`, `timeout`, `verbosity` | starts a session-local monitor with timeout cleanup; metadata includes id, command, cwd, status, timeout, sequence, and `verbosity` |
+| `monitor_read` | Read bounded monitor output events | `id`, `sinceSequence`, `limit`, `verbosity` | `raw` output is concatenated event text; `structured` is JSON snapshot plus events; `summary` is a bounded rollup; metadata includes id, status, sequence, cursor, event count, and `verbosity` |
+| `monitor_stop` | Stop a monitored command | `id`, `reason`, `verbosity` | stops a running monitor or returns the completed snapshot; metadata includes id, status, event count, duration, exit code, signal, timeout, and truncation |
+| `monitor_list` | List monitor snapshots | `status`, `verbosity` | returns monitor rows, JSON snapshots, or a summary count; metadata includes monitor count, optional status filter, and `verbosity` |
+| `tool_catalog_search` | Search the shared tool catalog | `query`, `exact`, `prefix`, `tags`, `limit`, `includeSchemas`, `verbosity` | returns matched tool catalog entries and reports stale exact matches without falling back to unrelated tools |
 
 `patch` accepts a structured document with `*** Begin Patch` and
 `*** End Patch` sentinels. Supported operations are:
@@ -392,9 +413,10 @@ The built-in executors are intentionally small and predictable:
 - `GitTool` executes `git` directly and validates the reconstructed command string before running it.
 - `ReadManyTool` builds bounded multi-file text packets with deterministic ordering, include/exclude globs, optional `.gitignore` respect, default nuisance-directory excludes, per-file skipped reasons, total bytes, and truncation metadata.
 - `CodeIntelligenceTool` validates workspace paths and delegates semantic navigation, symbols, diagnostics, implementations, and call hierarchy to an injected `CodeIntelligenceAdapter`. The default fails closed with `adapter_not_configured` instead of approximating LSP behavior with text search.
+- `MonitorRegistry` owns session-local long-running command lifecycles and exposes `stopAll()` for session teardown. `MonitorStartTool` reuses bash-style cwd and command validation, starts `bash -c`, installs timeout cleanup, and records sequence-numbered output. `MonitorReadTool`, `MonitorStopTool`, and `MonitorListTool` read, stop, and project the same registry rather than owning separate process state.
 - `ToolCatalogSearchTool` searches the shared catalog by exact name, prefix, tags, or lexical query. It is read-only, supports raw, structured, and summary output, and reports stale exact matches as an empty result with `reason: "tool_not_found"`.
 
-All seventeen tools return `ToolResult`; failures are regular tool results when possible, not uncaught process exceptions.
+All twenty-one tools return `ToolResult`; failures are regular tool results when possible, not uncaught process exceptions.
 
 The default surface can also run in deferred projection mode. In that mode,
 only configured always-on tools plus `tool_catalog_search` are advertised to a
@@ -593,9 +615,9 @@ kiln tools --mcp
 
 That command:
 
-1. builds a default `DevToolRegistry`
-2. registers `bash`, `read`, `write`, `edit`, `grep`, `glob`, and `git`
-3. creates `DevToolExecutionBridge`
+1. builds the canonical default builtin tool surface from `@kilnai/core`
+2. creates `DevToolExecutionBridge`
+3. projects the same tool definitions used by runtime-attached sessions
 4. starts `DevToolsMcpServer` on stdio
 
 This is the consumption path for external MCP-compatible agents.

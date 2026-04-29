@@ -9,6 +9,14 @@ import { EditTool } from "./infrastructure/edit-tool.js";
 import { GitTool, type GitToolOptions } from "./infrastructure/git-tool.js";
 import { GlobTool, type GlobToolOptions } from "./infrastructure/glob-tool.js";
 import { GrepTool, type GrepToolOptions } from "./infrastructure/grep-tool.js";
+import {
+  MonitorListTool,
+  MonitorReadTool,
+  MonitorRegistry,
+  MonitorStartTool,
+  MonitorStopTool,
+  type MonitorRegistryOptions,
+} from "./infrastructure/monitor-tools.js";
 import { OcrImageTool } from "./infrastructure/ocr-image-tool.js";
 import { PatchTool } from "./infrastructure/patch-tool.js";
 import { ReadManyTool } from "./infrastructure/read-many-tool.js";
@@ -37,6 +45,8 @@ export interface DefaultBuiltinToolRegistryOptions {
   readonly webSearch?: WebSearchToolOptions;
   readonly git?: GitToolOptions;
   readonly codeIntelligence?: CodeIntelligenceToolOptions;
+  readonly monitor?: MonitorRegistryOptions;
+  readonly monitorRegistry?: MonitorRegistry;
   readonly toolProjection?: DefaultBuiltinToolProjectionOptions;
 }
 
@@ -60,12 +70,14 @@ export interface DefaultBuiltinToolSurface {
   readonly capabilities: ReadonlyMap<string, Capability>;
   readonly bridge: DevToolExecutionBridge;
   readonly catalog: ToolCatalogIndex;
+  readonly monitorRegistry: MonitorRegistry;
 }
 
 export function createDefaultBuiltinTools(
   options: DefaultBuiltinToolRegistryOptions = {},
 ): readonly DevTool[] {
   let catalog = new ToolCatalogIndex([]);
+  const monitorRegistry = options.monitorRegistry ?? new MonitorRegistry(options.monitor);
   const tools = [
     new BashTool(options.bash),
     new ReadTool(),
@@ -83,6 +95,10 @@ export function createDefaultBuiltinTools(
     new GlobTool(options.glob),
     new GitTool(options.git),
     new CodeIntelligenceTool(options.codeIntelligence),
+    new MonitorStartTool({ registry: monitorRegistry }),
+    new MonitorReadTool({ registry: monitorRegistry }),
+    new MonitorStopTool({ registry: monitorRegistry }),
+    new MonitorListTool({ registry: monitorRegistry }),
     new ToolCatalogSearchTool(() => catalog),
   ];
   catalog = ToolCatalogIndex.fromTools(tools);
@@ -102,7 +118,12 @@ export function createDefaultBuiltinToolRegistry(
 export function createDefaultBuiltinToolSurface(
   options: DefaultBuiltinToolRegistryOptions = {},
 ): DefaultBuiltinToolSurface {
-  const registry = createDefaultBuiltinToolRegistry(options);
+  const monitorRegistry = options.monitorRegistry ?? new MonitorRegistry(options.monitor);
+  const surfaceOptions = {
+    ...options,
+    monitorRegistry,
+  };
+  const registry = createDefaultBuiltinToolRegistry(surfaceOptions);
   const catalog = ToolCatalogIndex.fromTools(registry.list());
   const tools = projectTools(registry.list(), options.toolProjection);
 
@@ -114,6 +135,7 @@ export function createDefaultBuiltinToolSurface(
     capabilities: projectDevToolCapabilities(tools),
     bridge: new DevToolExecutionBridge({ registry }),
     catalog,
+    monitorRegistry,
   };
 }
 

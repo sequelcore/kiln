@@ -63,6 +63,10 @@ describe("tool domain types", () => {
       "glob",
       "git",
       "code_intelligence",
+      "monitor_start",
+      "monitor_read",
+      "monitor_stop",
+      "monitor_list",
       "tool_catalog_search",
     ]);
   });
@@ -116,6 +120,14 @@ describe("tool domain types", () => {
       readOnly: true,
       idempotent: true,
     });
+    expect(TOOL_SCHEMAS.monitor_read.annotations).toEqual({
+      readOnly: true,
+      idempotent: true,
+    });
+    expect(TOOL_SCHEMAS.monitor_list.annotations).toEqual({
+      readOnly: true,
+      idempotent: true,
+    });
   });
 
   it("uses JSON Schema object definitions for each tool", () => {
@@ -145,10 +157,25 @@ describe("tool domain types", () => {
     expect(TOOL_SCHEMAS.web_search.inputSchema.required).toEqual(["query"]);
     expect(TOOL_SCHEMAS.web_fetch.inputSchema.required).toEqual(["url"]);
     expect(TOOL_SCHEMAS.git.inputSchema.required).toEqual(["subcommand"]);
+    expect(TOOL_SCHEMAS.monitor_start.inputSchema.required).toEqual(["command"]);
+    expect(TOOL_SCHEMAS.monitor_read.inputSchema.required).toEqual(["id"]);
+    expect(TOOL_SCHEMAS.monitor_stop.inputSchema.required).toEqual(["id"]);
+    expect(TOOL_SCHEMAS.monitor_list.inputSchema.required).toEqual([]);
   });
 
   it("exposes the shared verbosity field only where it is supported", () => {
-    for (const toolName of ["bash", "tree", "web_search", "web_fetch", "grep", "glob"] as const) {
+    for (const toolName of [
+      "bash",
+      "tree",
+      "web_search",
+      "web_fetch",
+      "grep",
+      "glob",
+      "monitor_start",
+      "monitor_read",
+      "monitor_stop",
+      "monitor_list",
+    ] as const) {
       expect(TOOL_SCHEMAS[toolName].inputSchema).toMatchObject({
         properties: {
           verbosity: {

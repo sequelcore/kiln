@@ -41,6 +41,10 @@ export type {
   MediaToolName,
   MediaToolOperation,
   MediaToolResultMetadata,
+  MonitorStatus,
+  MonitorToolName,
+  MonitorToolOperation,
+  MonitorToolResultMetadata,
   SearchToolName,
   SearchToolResultMetadata,
   SearchToolStrategy,
@@ -60,6 +64,7 @@ export {
   inspectionToolMetadata,
   isFileToolResultMetadata,
   mediaToolMetadata,
+  monitorToolMetadata,
   searchToolMetadata,
   webToolMetadata,
 } from "./domain/tool-result-metadata.js";
@@ -95,6 +100,23 @@ export type { BashToolOptions } from "./infrastructure/bash-tool.js";
 export { BashTool } from "./infrastructure/bash-tool.js";
 export type { CodeIntelligenceToolOptions } from "./infrastructure/code-intelligence-tool.js";
 export { CodeIntelligenceTool } from "./infrastructure/code-intelligence-tool.js";
+export type {
+  MonitorCommandRequest,
+  MonitorCommandRunner,
+  MonitorEvent,
+  MonitorFinishResult,
+  MonitorOutputSink,
+  MonitorProcessHandle,
+  MonitorRegistryOptions,
+  MonitorSnapshot,
+} from "./infrastructure/monitor-tools.js";
+export {
+  MonitorListTool,
+  MonitorReadTool,
+  MonitorRegistry,
+  MonitorStartTool,
+  MonitorStopTool,
+} from "./infrastructure/monitor-tools.js";
 export { ReadTool } from "./infrastructure/read-tool.js";
 export { ReadManyTool } from "./infrastructure/read-many-tool.js";
 export { WriteTool } from "./infrastructure/write-tool.js";

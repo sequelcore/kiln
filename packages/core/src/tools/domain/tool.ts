@@ -98,6 +98,10 @@ export type DevToolName =
   | "glob"
   | "git"
   | "code_intelligence"
+  | "monitor_start"
+  | "monitor_read"
+  | "monitor_stop"
+  | "monitor_list"
   | "tool_catalog_search";
 
 export const TOOL_SCHEMAS: Record<
@@ -589,6 +593,112 @@ export const TOOL_SCHEMAS: Record<
         verbosity: OUTPUT_VERBOSITY_PROPERTY,
       },
       required: ["operation"],
+      additionalProperties: false,
+    },
+    annotations: {
+      readOnly: true,
+      idempotent: true,
+    },
+  },
+  monitor_start: {
+    name: "monitor_start",
+    description: "Start a monitored long-running shell command. Always pass a JSON object with command and optional cwd, name, timeout, or verbosity.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        command: {
+          type: "string",
+          minLength: 1,
+          description: "Shell command to execute under monitor lifecycle ownership.",
+        },
+        cwd: {
+          type: "string",
+          description: "Optional working directory for the monitored command.",
+        },
+        name: {
+          type: "string",
+          description: "Optional human-readable monitor name.",
+        },
+        timeout: {
+          type: "number",
+          description: "Optional monitor timeout in milliseconds. The monitor is stopped when the timeout expires.",
+          "x-kiln-timeout-unit": "milliseconds",
+        },
+        verbosity: OUTPUT_VERBOSITY_PROPERTY,
+      },
+      required: ["command"],
+      additionalProperties: false,
+    },
+    annotations: {
+      destructive: true,
+    },
+  },
+  monitor_read: {
+    name: "monitor_read",
+    description: "Read bounded output events from a monitored command. Always pass a JSON object with id and optional sinceSequence, limit, or verbosity.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: {
+          type: "string",
+          minLength: 1,
+          description: "Monitor id returned by monitor_start.",
+        },
+        sinceSequence: {
+          type: "number",
+          description: "Return events with sequence numbers greater than this value.",
+        },
+        limit: {
+          type: "number",
+          description: "Maximum output events to return. Defaults to 100 and caps at 1000.",
+        },
+        verbosity: OUTPUT_VERBOSITY_PROPERTY,
+      },
+      required: ["id"],
+      additionalProperties: false,
+    },
+    annotations: {
+      readOnly: true,
+      idempotent: true,
+    },
+  },
+  monitor_stop: {
+    name: "monitor_stop",
+    description: "Stop a monitored command by id. Always pass a JSON object with id and optional reason or verbosity.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: {
+          type: "string",
+          minLength: 1,
+          description: "Monitor id returned by monitor_start.",
+        },
+        reason: {
+          type: "string",
+          description: "Optional stop reason recorded in lifecycle output.",
+        },
+        verbosity: OUTPUT_VERBOSITY_PROPERTY,
+      },
+      required: ["id"],
+      additionalProperties: false,
+    },
+    annotations: {
+      destructive: true,
+    },
+  },
+  monitor_list: {
+    name: "monitor_list",
+    description: "List monitored command lifecycles. Always pass a JSON object with optional status or verbosity.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        status: {
+          enum: ["running", "exited", "stopped", "failed"],
+          description: "Optional status filter.",
+        },
+        verbosity: OUTPUT_VERBOSITY_PROPERTY,
+      },
+      required: [],
       additionalProperties: false,
     },
     annotations: {

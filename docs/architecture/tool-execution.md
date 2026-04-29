@@ -244,16 +244,20 @@ evidence extraction.
 The shared metadata families are:
 
 - `command`: shell-like execution evidence for `bash` and `git`
-- `file`: file operation evidence for `read`, `write`, `edit`, and `patch`
+- `file`: file operation evidence for `read`, `read_many`, `write`, `edit`,
+  and `patch`
 - `inspection`: workspace orientation evidence for `stat` and `tree`
 - `media`: image and OCR evidence for `view_image` and `ocr_image`
 - `web`: external source evidence for `web_search` and `web_fetch`
 - `search`: workspace search evidence for `grep` and `glob`
+- `monitor`: long-running command lifecycle evidence for `monitor_start`,
+  `monitor_read`, `monitor_stop`, and `monitor_list`
 
 Every builtin metadata object includes:
 
 - `toolName`: the canonical builtin tool name
-- `kind`: one of `command`, `file`, `inspection`, `media`, `web`, or `search`
+- `kind`: one of `command`, `file`, `inspection`, `media`, `web`, `search`, or
+  `monitor`
 
 Existing metadata keys such as `cwd`, `command`, `filePath`, `bytesWritten`,
 `replacements`, `path`, `type`, `size`, `modifiedTime`, `mimeType`, `strategy`,
@@ -267,8 +271,8 @@ The shared result-shaping input is `verbosity`, not `outputMode`. `grep` already
 uses `outputMode` for match semantics (`content`, `files_with_matches`, or
 `count`), so reusing that field for output shape would make the contract
 ambiguous. `verbosity` is currently supported by `bash`, `tree`, `web_search`,
-`web_fetch`, `grep`, and `glob`; it changes only `ToolResult.output`, not the
-metadata family.
+`web_fetch`, `grep`, `glob`, and the monitor lifecycle tools; it changes only
+`ToolResult.output`, not the metadata family.
 
 Inspection metadata is read-only orientation state. `stat` can report type,
 size, modified time, and an optional checksum. `tree` can report bounded
@@ -291,6 +295,15 @@ network/content errors. Web tools must require explicit network policy, reject
 private and local targets, validate redirects, and sanitize text before
 reinjection. Runtime file-change evidence must not treat `web` metadata as
 filesystem mutation evidence.
+
+Monitor metadata is lifecycle evidence for session-local long-running
+commands. `monitor_start` records command, cwd, timeout, monitor id, status, and
+current sequence. `monitor_read` records cursor and event-count evidence.
+`monitor_stop` records explicit stop outcome, duration, exit code, signal,
+timeout, and truncation evidence. `monitor_list` records the projected monitor
+count and optional status filter. Monitor output is command output, not
+workspace mutation evidence; file-change extraction must not parse monitor text
+as file evidence.
 
 `patch` is the multi-file member of the file metadata family. Its top-level
 metadata uses `operation: "patch"`, `dryRun`, and `operationCount`, and its
