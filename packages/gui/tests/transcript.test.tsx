@@ -24,6 +24,32 @@ function messageEntry(id: string, role: Message["role"], content: string, stream
 }
 
 describe("Transcript", () => {
+  it("renders a minimal empty state without an instructional card", () => {
+    vi.spyOn(Date, "now").mockReturnValue(0);
+
+    render(<Transcript entries={[]} />);
+
+    expect(screen.getByText("Job's live. Run it clean.")).toBeInTheDocument();
+    expect(screen.getByText("Kiln")).toBeInTheDocument();
+    expect(screen.queryByText("Start a conversation to see the transcript.")).not.toBeInTheDocument();
+  });
+
+  it("selects a different empty phrase on a fresh empty mount", () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(0);
+    try {
+      const { unmount } = render(<Transcript entries={[]} />);
+      expect(screen.getByText("Job's live. Run it clean.")).toBeInTheDocument();
+
+      unmount();
+      nowSpy.mockReturnValue(1);
+      render(<Transcript entries={[]} />);
+
+      expect(screen.getByText("Signal's hot. Take control.")).toBeInTheDocument();
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
   it("renders user, assistant, tool, and error rows with distinct roles", () => {
     render(
       <Transcript

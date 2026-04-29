@@ -34,6 +34,27 @@ export type {
   OperatorThemeSetResultFrame,
 } from "./frames.js";
 
+export type {
+  OperatorWorkspaceDirectorySnapshot,
+  OperatorWorkspaceEntryKind,
+  OperatorWorkspaceError,
+  OperatorWorkspaceErrorCode,
+  OperatorWorkspaceExplorer,
+  OperatorWorkspaceFileSnapshot,
+  OperatorWorkspacePreviewKind,
+  OperatorWorkspaceTreeEntry,
+  OperatorWorkspaceVcsState,
+  OperatorWorkspaceVcsStatus,
+} from "./workspace.js";
+
+export {
+  OPERATOR_EMPTY_STATE_PHRASES,
+  operatorEmptyStatePhraseAt,
+} from "./operator-empty-state.js";
+export type {
+  OperatorEmptyStatePhrase,
+} from "./operator-empty-state.js";
+
 export {
   formatOperatorEventValue,
   presentOperatorEventPayload,

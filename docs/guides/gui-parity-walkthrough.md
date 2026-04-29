@@ -150,7 +150,28 @@ Pass condition:
   scrolling, and responsive drawer behavior all match the intended GUI
   operator surface.
 
-### 6. Gateway transport behavior
+### 6. Workspace and file previews
+
+Show:
+
+- Workspace rail mode opened from the left rail.
+- Root tree rendered from the active working directory.
+- A top-level directory marked with Git status because a nested file changed.
+- Expanding that directory without losing the parent marker.
+- Opening a JSON file into the main layout as a document tab beside Chat.
+- Opening a code file and showing line numbers plus syntax highlighting.
+- Opening a Markdown file and showing safe rendered Markdown.
+- Returning to the Chat tab without closing the file tabs.
+
+Pass condition:
+
+- Workspace is a governed read-only navigator, not a sidebar metadata card.
+- Git markers propagate to ancestor directories from the root tree.
+- File previews stay in main-layout document tabs and do not create session
+  events, approval requests, changed-file entries, provider tool calls, or
+  working-tree mutations.
+
+### 7. Gateway transport behavior
 
 Show:
 
@@ -165,7 +186,7 @@ Pass condition:
 - The GUI clearly depends on the local gateway transport, handles readiness,
   and preserves continuity instead of failing silently.
 
-### 7. CLI integration and invocation
+### 8. CLI integration and invocation
 
 Show:
 

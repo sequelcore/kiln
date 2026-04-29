@@ -77,4 +77,17 @@ describe("ProviderStatus", () => {
     expect(screen.getByText("domain: Kiln")).toBeInTheDocument();
     expect(screen.getByText("cwd: C:/Proyectos/Sequel/kiln")).toBeInTheDocument();
   });
+
+  it("renders an explicit compact empty state before a provider is selected", () => {
+    useSessionStore.setState({
+      activeProvider: null,
+      activeModel: null,
+      providers: [],
+    });
+
+    render(<ProviderStatus onOpenPicker={() => undefined} compact />);
+
+    expect(screen.getByRole("button", { name: "Select provider / model. Click to change." })).toBeInTheDocument();
+    expect(screen.getByText("Select provider / model")).toBeInTheDocument();
+  });
 });

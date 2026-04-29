@@ -7,6 +7,8 @@ import {
   type GuiInboundFrame,
   type GuiOutboundFrame,
   type GuiProviderReasoningEffort,
+  type OperatorWorkspaceFileSnapshot,
+  type OperatorWorkspaceTreeEntry,
   type OperatorThemeName,
 } from "@kilnai/gateway-contracts";
 import { GuiGatewayClient } from "../api/client.js";
@@ -15,6 +17,7 @@ import { useSessionStore } from "../lib/session-store.js";
 import { deriveChangedFiles, derivePendingApprovals, deriveRuntimeContinuity } from "../lib/session-store.js";
 import { SessionList } from "./session-list.js";
 import { WorkspacePanel } from "./workspace-panel.js";
+import { WorkspaceDocumentTabs } from "./workspace-document-tabs.js";
 import { ChangedFilesPanel } from "./changed-files-panel.js";
 import { ApprovalsPanel } from "./approvals-panel.js";
 import { ActivityLogPanel } from "./activity-log-panel.js";
@@ -54,6 +57,7 @@ import { cn } from "@/lib/utils";
 const NARROW_LAYOUT_QUERY = "(max-width: 1024px)";
 const PROVIDER_SWITCH_WAIT_TIMEOUT_MS = 5_500;
 const PROVIDER_AUTH_WAIT_TIMEOUT_MS = 15 * 60 * 1000;
+const WORKSPACE_DOCUMENT_TAB_LIMIT = 8;
 
 const REASONING_EFFORT_LABELS: Record<GuiProviderReasoningEffort, string> = {
   minimal: "Minimal",
@@ -402,6 +406,10 @@ export function AppShell() {
   const [sidebarExpanded, setSidebarExpanded] = useState(true);
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>("sessions");
   const [reasoningEffort, setReasoningEffort] = useState<GuiProviderReasoningEffort | null>(null);
+  const [workspaceDocuments, setWorkspaceDocuments] = useState<readonly OperatorWorkspaceFileSnapshot[]>([]);
+  const [selectedWorkspacePath, setSelectedWorkspacePath] = useState<string | null>(null);
+  const [workspaceDocumentLoadingPath, setWorkspaceDocumentLoadingPath] = useState<string | null>(null);
+  const [workspaceDocumentError, setWorkspaceDocumentError] = useState<string | null>(null);
   const sendRef = useRef<((frame: GuiOutboundFrame) => void) | null>(null);
 
   const status = useSessionStore((state) => state.status);
@@ -472,6 +480,32 @@ export function AppShell() {
         : (activeModelCapabilities?.defaultReasoningEffort ?? reasoningEffortOptions[0]!)
     )
     : null;
+
+  const openWorkspaceFile = async (entry: OperatorWorkspaceTreeEntry) => {
+    setSelectedWorkspacePath(entry.path);
+    setWorkspaceDocumentError(null);
+    if (workspaceDocuments.some((file) => file.path === entry.path)) {
+      return;
+    }
+    setWorkspaceDocumentLoadingPath(entry.path);
+    try {
+      const file = await gatewayClient.loadWorkspaceFile(entry.path);
+      setWorkspaceDocuments((current) => [file, ...current.filter((item) => item.path !== file.path)].slice(0, WORKSPACE_DOCUMENT_TAB_LIMIT));
+      setSelectedWorkspacePath(file.path);
+    } catch (error) {
+      setWorkspaceDocumentError(error instanceof Error ? error.message : "Could not load workspace file.");
+    } finally {
+      setWorkspaceDocumentLoadingPath(null);
+    }
+  };
+
+  const closeWorkspaceFile = (path: string) => {
+    const next = workspaceDocuments.filter((file) => file.path !== path);
+    setWorkspaceDocuments(next);
+    if (selectedWorkspacePath === path) {
+      setSelectedWorkspacePath(next[0]?.path ?? null);
+    }
+  };
 
   useEffect(() => {
     if (reasoningEffortOptions.length === 0) {
@@ -907,13 +941,12 @@ export function AppShell() {
     ) : sidebarMode === "workspace"
       ? (
         <WorkspacePanel
-          domainLabel={domainLabel}
           gatewayWorkingDirectory={workingDirectory}
           workspaceTree={dashboardData?.workspaceTree}
-          selectedSessionId={selectedSessionId}
-          sessionMeta={selectedSessionMeta}
-          activeProvider={activeProvider}
-          activeModel={activeModel}
+          workspaceClient={gatewayClient}
+          worktreePath={selectedSessionMeta?.sessionLedger?.worktreePath ?? null}
+          selectedFilePath={selectedWorkspacePath}
+          onOpenFile={openWorkspaceFile}
         />
       ) : sidebarMode === "changed"
         ? (
@@ -1055,18 +1088,31 @@ export function AppShell() {
               activeProvider={activeProvider}
               resumeInfo={resumeInfo}
               runtimeContinuity={runtimeContinuity}
-              changedFiles={changedFiles}
               fieldTelemetry={dashboardData?.telemetry ?? null}
             />
             <ThemeSwitcher onThemeSelected={persistThemePreference} />
           </header>
-          <Transcript
-            entries={conversationEntries}
-            activityPhase={activityPhase}
-            activityToolName={activity?.toolName}
-            activityDetails={activity?.details}
-            onApprove={(sessionId) => sendApprovalResponse(true, undefined, sessionId)}
-            onDeny={(sessionId) => sendApprovalResponse(false, undefined, sessionId)}
+          <WorkspaceDocumentTabs
+            files={workspaceDocuments}
+            selectedPath={selectedWorkspacePath}
+            loadingPath={workspaceDocumentLoadingPath}
+            error={workspaceDocumentError}
+            onSelectChat={() => setSelectedWorkspacePath(null)}
+            onSelectFile={(path) => {
+              setSelectedWorkspacePath(path);
+              setWorkspaceDocumentError(null);
+            }}
+            onCloseFile={closeWorkspaceFile}
+            chatContent={(
+              <Transcript
+                entries={conversationEntries}
+                activityPhase={activityPhase}
+                activityToolName={activity?.toolName}
+                activityDetails={activity?.details}
+                onApprove={(sessionId) => sendApprovalResponse(true, undefined, sessionId)}
+                onDeny={(sessionId) => sendApprovalResponse(false, undefined, sessionId)}
+              />
+            )}
           />
           <Composer
             status={status}

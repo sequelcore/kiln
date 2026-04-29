@@ -8,13 +8,11 @@ test.describe("parity category 3 - cost and telemetry", () => {
     const sessionSection = page.locator("section").filter({ has: page.getByText("Session", { exact: true }) }).first();
     const continuitySection = page.locator("section").filter({ has: page.getByText("Continuity", { exact: true }) }).first();
     const fieldSection = page.locator("section").filter({ has: page.getByText("Field", { exact: true }) }).first();
-    const changedFilesSection = page.locator("section").filter({ has: page.getByText("Changed Files", { exact: true }) }).first();
 
     await expect(costSection).toBeVisible();
     await expect(sessionSection).toBeVisible();
     await expect(continuitySection).toBeVisible();
     await expect(fieldSection).toBeVisible();
-    await expect(changedFilesSection).toBeVisible();
     await expect(page.getByText("field [idle]")).toBeVisible();
 
     const composer = page.locator("#composer-input");

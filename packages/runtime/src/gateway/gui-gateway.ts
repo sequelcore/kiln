@@ -56,6 +56,9 @@ import {
   type GuiProviderReasoningEffort,
   type GuiSessionDetail,
   type GuiSessionSummary,
+  type OperatorWorkspaceError,
+  type OperatorWorkspaceErrorCode,
+  type OperatorWorkspaceExplorer,
 } from "@kilnai/gateway-contracts";
 
 export type {
@@ -89,6 +92,7 @@ export interface StartGuiGatewayOptions {
   readonly getSessionDetail?: (sessionId: string) => Promise<GuiSessionDetail | null>;
   readonly workingDirectory?: string;
   readonly domainLabel?: string;
+  readonly workspaceExplorer?: OperatorWorkspaceExplorer;
   readonly updateThemePreference?: (theme: string) => Promise<void> | void;
   readonly onConnectionCountChange?: (count: number) => void;
   readonly onManagedWindowClose?: () => void;
@@ -114,6 +118,46 @@ function guiProviderAuthDebug(message: string, context?: Record<string, unknown>
     return;
   }
   console.warn(`[gui-gateway:provider-auth][debug] ${message}`, context ?? {});
+}
+
+const WORKSPACE_ERROR_CODES: ReadonlySet<OperatorWorkspaceErrorCode> = new Set([
+  "workspace_unavailable",
+  "invalid_path",
+  "outside_workspace",
+  "not_found",
+  "not_a_directory",
+  "not_a_file",
+  "read_failed",
+  "preview_unsupported",
+]);
+
+function isWorkspaceErrorCode(value: unknown): value is OperatorWorkspaceErrorCode {
+  return typeof value === "string" && WORKSPACE_ERROR_CODES.has(value as OperatorWorkspaceErrorCode);
+}
+
+function workspaceErrorResponse(error: unknown): { readonly status: 400 | 403 | 404 | 500; readonly body: OperatorWorkspaceError } {
+  const code = typeof error === "object" && error !== null && "code" in error && isWorkspaceErrorCode(error.code)
+    ? error.code
+    : "read_failed";
+  const message = error instanceof Error ? error.message : "Workspace request failed.";
+  const path = typeof error === "object" && error !== null && "path" in error && typeof error.path === "string"
+    ? error.path
+    : undefined;
+  const status = code === "outside_workspace"
+    ? 403
+    : code === "not_found"
+      ? 404
+      : code === "invalid_path" || code === "not_a_directory" || code === "not_a_file"
+        ? 400
+        : 500;
+  return {
+    status,
+    body: {
+      code,
+      message,
+      ...(path ? { path } : {}),
+    },
+  };
 }
 
 export function buildGuiPerCallToolConfig(): PerCallToolConfig {
@@ -230,6 +274,44 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
       operatorDiscovery: nextDiscovery,
     });
     return c.json(snapshot);
+  });
+
+  app.get("/gui/api/workspace/tree", async (c) => {
+    if (!options.workspaceExplorer) {
+      return c.json({
+        code: "workspace_unavailable",
+        message: "Workspace explorer is not available.",
+      } satisfies OperatorWorkspaceError, 404);
+    }
+    try {
+      const path = c.req.query("path");
+      return c.json(await options.workspaceExplorer.listDirectory(path));
+    } catch (error) {
+      const { status, body } = workspaceErrorResponse(error);
+      return c.json(body, status);
+    }
+  });
+
+  app.get("/gui/api/workspace/file", async (c) => {
+    if (!options.workspaceExplorer) {
+      return c.json({
+        code: "workspace_unavailable",
+        message: "Workspace explorer is not available.",
+      } satisfies OperatorWorkspaceError, 404);
+    }
+    const path = c.req.query("path");
+    if (!path) {
+      return c.json({
+        code: "invalid_path",
+        message: "Workspace file path is required.",
+      } satisfies OperatorWorkspaceError, 400);
+    }
+    try {
+      return c.json(await options.workspaceExplorer.readFile(path));
+    } catch (error) {
+      const { status, body } = workspaceErrorResponse(error);
+      return c.json(body, status);
+    }
   });
 
   app.post("/gui/api/preferences/theme", async (c) => {

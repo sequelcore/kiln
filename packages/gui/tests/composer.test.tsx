@@ -140,6 +140,49 @@ describe("Composer", () => {
     expect(screen.getByRole("button", { name: "Claude Sonnet 4" })).toBeInTheDocument();
   });
 
+  it("keeps model, effort, plan, and send controls inside the input surface", () => {
+    renderComposer();
+
+    const textarea = screen.getByLabelText("Message");
+    const inputSurface = textarea.parentElement;
+
+    expect(inputSurface).not.toBeNull();
+    expect(within(inputSurface as HTMLElement).getByRole("button", { name: "Claude Sonnet 4" })).toBeInTheDocument();
+    expect(within(inputSurface as HTMLElement).getByLabelText("Reasoning effort")).toBeInTheDocument();
+    expect(within(inputSurface as HTMLElement).getByRole("button", { name: "Plan" })).toBeInTheDocument();
+    expect(within(inputSurface as HTMLElement).getByRole("button", { name: "Send message" })).toBeInTheDocument();
+  });
+
+  it("uses a restrained focus treatment on the input surface", () => {
+    renderComposer();
+
+    const textarea = screen.getByLabelText("Message");
+    const inputSurface = textarea.parentElement;
+
+    expect(inputSurface).toHaveClass("focus-within:border-ring/70");
+    expect(inputSurface).not.toHaveClass("focus-within:ring-3");
+  });
+
+  it("uses theme elevation instead of default shadow scale", () => {
+    renderComposer();
+
+    const textarea = screen.getByLabelText("Message");
+    const inputSurface = textarea.parentElement;
+
+    expect(inputSurface).toHaveClass("shadow-[var(--shadow-elevated)]");
+    expect(inputSurface).not.toHaveClass("shadow-sm");
+  });
+
+  it("keeps comfortable vertical spacing inside the input surface", () => {
+    renderComposer();
+
+    const textarea = screen.getByLabelText("Message");
+    const inputSurface = textarea.parentElement;
+
+    expect(inputSurface).toHaveClass("gap-3", "px-3", "py-3");
+    expect(textarea).toHaveClass("min-h-24", "px-3", "py-3");
+  });
+
   it("renders send as an icon button with an accessible label", () => {
     renderComposer();
 

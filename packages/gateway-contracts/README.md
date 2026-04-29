@@ -23,6 +23,38 @@ operator events to display-safe presentation:
 GUI and TUI may render those projections differently, but they should consume
 this shared presenter instead of duplicating event-specific display logic.
 
+## Operator Empty State Copy
+
+The shared operator empty-state phrase catalog lives in
+`src/operator-empty-state.ts`. GUI uses it for the empty transcript rotation;
+TUI uses the same copy for its idle input placeholder because the terminal
+surface has no separate empty transcript canvas.
+
+Keep this copy short, command-oriented, and Kiln-native. It may lean cyberpunk
+in tone, but it must stay original and avoid copying exact lines or named
+character voice from external games.
+
+## Operator Workspace Explorer
+
+The shared read-only workspace explorer contract lives in `src/workspace.ts`.
+It defines governed directory snapshots, file-preview snapshots, VCS status, and
+typed workspace errors for all operator surfaces.
+
+Consumers should treat this as navigation and preview state only:
+
+- `OperatorWorkspaceDirectorySnapshot` is a bounded directory listing rooted at
+  the active working directory.
+- `OperatorWorkspaceTreeEntry` may carry optional `vcs` status so GUI, TUI, CLI,
+  and future surfaces can render working-tree state consistently.
+- `OperatorWorkspaceFileSnapshot` carries conservative previews for text/code,
+  Markdown, JSON, supported web images, or explicit unsupported/binary states.
+- Workspace previews must not create session events, approval requests,
+  provider tool calls, changed-file entries, or working-tree mutations.
+
+VCS status is the current working tree. It is deliberately separate from
+session-scoped `Changed files`, which is durable runtime evidence emitted by
+tools and session events.
+
 ## Operator Themes
 
 The shared operator theme catalog lives in `src/operator-themes.ts`.

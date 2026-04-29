@@ -50,6 +50,11 @@
   --color-thinking-fg:        var(--color-text-muted);
   --color-cursor-fg:          var(--color-success);
 
+  /* workspace/document viewer surfaces */
+  --workspace-viewer:          color-mix(in srgb, var(--color-background) 88%, var(--color-background-panel));
+  --workspace-viewer-panel:    color-mix(in srgb, var(--color-background-panel) 72%, var(--color-background-element));
+  --workspace-viewer-gutter:   color-mix(in srgb, var(--color-background-panel) 84%, var(--color-background));
+
   /* Tailwind compat aliases used by existing components */
   --color-foreground:         var(--color-text);
   --color-muted-foreground:   var(--color-text-muted);
@@ -86,6 +91,10 @@
   --sidebar-accent-foreground: var(--color-text);
   --sidebar-border:           var(--color-border);
   --sidebar-ring:             var(--color-border-active);
+
+  --shadow-elevated:          0 18px 54px color-mix(in srgb, black 46%, transparent),
+                              0 0 0 1px color-mix(in srgb, var(--color-border-active) 18%, transparent),
+                              inset 0 1px 0 color-mix(in srgb, var(--color-text) 5%, transparent);
 
   --radius: 0.5rem;
 }
@@ -124,6 +133,10 @@
   --color-thinking-fg:        var(--color-text-muted);
   --color-cursor-fg:          var(--color-success);
 
+  --workspace-viewer:          color-mix(in srgb, var(--color-background) 70%, var(--color-background-panel));
+  --workspace-viewer-panel:    color-mix(in srgb, var(--color-background-panel) 74%, var(--color-background-element));
+  --workspace-viewer-gutter:   color-mix(in srgb, var(--color-background-panel) 86%, var(--color-background));
+
   --color-foreground:         var(--color-text);
   --color-muted-foreground:   var(--color-text-muted);
 
@@ -159,6 +172,10 @@
   --sidebar-border:           var(--color-border);
   --sidebar-ring:             var(--color-border-active);
 
+  --shadow-elevated:          0 18px 48px color-mix(in srgb, black 14%, transparent),
+                              0 0 0 1px color-mix(in srgb, white 64%, transparent),
+                              inset 0 1px 0 color-mix(in srgb, white 76%, transparent);
+
   --radius: 0.5rem;
 }
 
@@ -184,6 +201,9 @@
   --color-tool-fg: var(--color-tool-fg);
   --color-thinking-fg: var(--color-thinking-fg);
   --color-cursor-fg: var(--color-cursor-fg);
+  --color-workspace-viewer: var(--workspace-viewer);
+  --color-workspace-viewer-panel: var(--workspace-viewer-panel);
+  --color-workspace-viewer-gutter: var(--workspace-viewer-gutter);
   --color-foreground: var(--color-foreground);
   --color-muted-foreground: var(--color-muted-foreground);
   --radius: var(--radius);

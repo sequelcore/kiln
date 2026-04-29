@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { SessionTelemetry } from "../src/components/session-telemetry.js";
 
 describe("SessionTelemetry", () => {
-  it("renders provider breakdown, continuity details, and changed files", () => {
+  it("renders provider breakdown and continuity details without duplicating changed files", () => {
     render(
       <SessionTelemetry
         activeProvider="claude"
@@ -21,15 +21,6 @@ describe("SessionTelemetry", () => {
           usedCachedSupport: true,
           selectionReason: "recent continuity",
         }}
-        changedFiles={[
-          {
-            path: "packages/gui/src/components/app-shell.tsx",
-            changeType: "modified",
-            linesAdded: 12,
-            linesRemoved: 4,
-            recordedAt: "2026-04-21T00:00:00.000Z",
-          },
-        ]}
         fieldTelemetry={{
           status: "stable",
           dominantRegions: ["routing", "memory", "tools"],
@@ -47,23 +38,22 @@ describe("SessionTelemetry", () => {
     expect(screen.getByText("field [stable]")).toBeInTheDocument();
     expect(screen.getByText("dom: routing, memory, tools")).toBeInTheDocument();
     expect(screen.getByText((content) => content.includes("sat: 42%") && content.includes("H: 1.37"))).toBeInTheDocument();
-    expect(screen.getByText("~ app-shell.tsx +12-4")).toBeInTheDocument();
+    expect(screen.queryByText("Changed Files")).not.toBeInTheDocument();
   });
 
-  it("shows thinking state and empty changes fallback", () => {
+  it("shows thinking state without empty changed-file fallback", () => {
     render(
       <SessionTelemetry
         activeProvider="claude"
         resumeInfo={null}
         runtimeContinuity={null}
-        changedFiles={[]}
         fieldTelemetry={null}
       />,
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Details" }));
 
-    expect(screen.getByText("(none)")).toBeInTheDocument();
+    expect(screen.queryByText("(none)")).not.toBeInTheDocument();
     expect(screen.getByText("resume: --")).toBeInTheDocument();
   });
 });

@@ -11,7 +11,7 @@ interface ProviderStatusProps {
 }
 
 function resolveProviderLabel(providerId: string | null, fallbackLabel?: string): string {
-  if (!providerId) return "—";
+  if (!providerId) return "Select provider";
   return getGuiProviderMetadata(providerId)?.label ?? fallbackLabel ?? providerId;
 }
 
@@ -53,7 +53,10 @@ export function ProviderStatus(props: ProviderStatusProps) {
     : activeModel;
   const displayLabel = resolveProviderLabel(displayProviderId, providerById.get(displayProviderId ?? "")?.label);
   const routeText = modeLabel(routeMode);
-  const modelLabel = displayModel && displayModel.trim().length > 0 ? displayModel : "—";
+  const modelLabel = displayModel && displayModel.trim().length > 0 ? displayModel : "Select model";
+  const compactLabel = displayProviderId
+    ? `${displayLabel} / ${modelLabel}`
+    : "Select provider / model";
 
   if (props.compact) {
     return (
@@ -61,12 +64,12 @@ export function ProviderStatus(props: ProviderStatusProps) {
         type="button"
         variant={routeMode === "responding" ? "secondary" : "outline"}
         size="sm"
-        aria-label={`Current model: ${displayLabel} ${modelLabel}. Click to change.`}
+        aria-label={`${compactLabel}. Click to change.`}
         onClick={props.onOpenPicker}
         className="min-w-0 max-w-full justify-start"
       >
         <span className="min-w-0 truncate">
-          {displayLabel} / {modelLabel}
+          {compactLabel}
         </span>
         <ChevronDownIcon data-icon="inline-end" />
       </Button>

@@ -204,10 +204,15 @@ every surface. The GUI is only the first projection.
 ### 2a. Grow the left rail into real supervision modes
 
 The local GUI shell now uses a left rail for operator modes. `Sessions`,
-`Changed files`, `Approvals`, and a metadata-first `Workspace` panel are now
-implemented from governed gateway/session data. Repository tree navigation
-inside `Workspace` remains gated until a canonical workspace-tree contract
-exists.
+`Changed files`, `Approvals`, and `Workspace` are implemented from governed
+gateway/session data. `Workspace` uses the shared `OperatorWorkspaceExplorer`
+contract for lazy directory navigation and read-only file previews. The rail
+owns tree navigation, while the main layout owns document tabs and formatted
+preview rendering. Workspace Git status is indexed from the working-tree probe
+and propagated to ancestor directories, so root-level folders expose nested
+changes without requiring the operator to expand every branch. Session summary
+data belongs to the main session header and inspector, not to Workspace
+metadata rows.
 
 Target modes:
 
@@ -481,7 +486,7 @@ Deliverables:
 
 Non-goals:
 
-- no workspace tree contract in this slice
+- no workspace mutation or editor semantics in this slice
 - no structured diff rendering in this slice
 - no real approvals panel in this slice
 - no invokable-agent UI in this slice
@@ -497,8 +502,12 @@ Primary files:
 
 Deliverables:
 
-- workspace panel reads active working directory/file tree through a governed
-  gateway contract
+- workspace panel reads active working directory/file tree and file previews
+  through the governed workspace explorer contract
+- workspace entries carry optional shared VCS status so GUI, TUI, CLI, and
+  future surfaces can render Git working-tree state consistently
+- main layout owns read-only workspace document tabs, including a persistent
+  Chat tab and formatted JSON/Markdown/text/image previews
 - changed-files panel renders session-scoped file changes and diff entrypoints
 - approvals panel renders pending approvals with approve/deny actions tied to
   the originating tool call
@@ -521,10 +530,16 @@ Current implementation status:
 - `Approvals` now exists as a real left-rail mode backed by canonical
   approval-request/approval-resolved events, with explicit approve/deny
   actions.
-- `Workspace` now exists as a real left-rail mode backed by governed gateway
-  metadata (`workingDirectory`, `domainLabel`, and selected-session ledger
-  fields). Repository tree browsing remains gated until a canonical workspace
-  tree contract is added.
+- `Workspace` now exists as a real left-rail mode backed by the shared
+  `OperatorWorkspaceExplorer` contract. The GUI loads the root directory from
+  the dashboard snapshot, lazily expands nested directories through the gateway,
+  and opens read-only document tabs in the main layout without inventing session
+  events or mutating the working tree. JSON is pretty-printed when valid,
+  Markdown uses the safe GFM renderer, text/code uses line-numbered previews
+  with lazy-loaded token-derived syntax highlighting, and images render inline
+  when they fit the gateway preview limit. Git status is indexed once per
+  bounded probe, including ancestor-directory projection for root-level folder
+  markers.
 
 ### Slice B3. Chat input and command polish
 

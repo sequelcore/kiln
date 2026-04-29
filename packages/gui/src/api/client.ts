@@ -6,6 +6,11 @@ import type {
   GuiSessionListResponse,
   GuiSessionSummary,
   GuiTelemetrySnapshot,
+  OperatorWorkspaceDirectorySnapshot,
+  OperatorWorkspaceEntryKind,
+  OperatorWorkspaceFileSnapshot,
+  OperatorWorkspaceVcsState,
+  OperatorWorkspaceVcsStatus,
   OperatorThemeName,
 } from "@kilnai/gateway-contracts";
 import { GuiSessionClient, type GuiSessionClientOptions } from "./session-client.js";
@@ -171,6 +176,68 @@ export class GuiGatewayClient {
     }
   }
 
+  async loadWorkspaceDirectory(path?: string): Promise<OperatorWorkspaceDirectorySnapshot> {
+    const candidateBaseUrls = this.resolveCandidateBaseUrls();
+    const failures: string[] = [];
+
+    for (const candidateBaseUrl of candidateBaseUrls) {
+      const url = new URL("/gui/api/workspace/tree", candidateBaseUrl);
+      if (path) {
+        url.searchParams.set("path", path);
+      }
+      try {
+        const response = await fetch(url, {
+          headers: { accept: "application/json" },
+        });
+        if (!response.ok) {
+          failures.push(`${candidateBaseUrl}: status ${response.status}`);
+          continue;
+        }
+        const payload = parseWorkspaceDirectorySnapshot(await response.json());
+        this.resolvedBaseUrl = candidateBaseUrl;
+        return payload;
+      } catch (error) {
+        failures.push(`${candidateBaseUrl}: ${errorMessage(error)}`);
+      }
+    }
+
+    throw new Error(
+      failures.length > 0
+        ? `Workspace directory fetch failed (${failures.join(" | ")})`
+        : "Workspace directory fetch failed.",
+    );
+  }
+
+  async loadWorkspaceFile(path: string): Promise<OperatorWorkspaceFileSnapshot> {
+    const candidateBaseUrls = this.resolveCandidateBaseUrls();
+    const failures: string[] = [];
+
+    for (const candidateBaseUrl of candidateBaseUrls) {
+      const url = new URL("/gui/api/workspace/file", candidateBaseUrl);
+      url.searchParams.set("path", path);
+      try {
+        const response = await fetch(url, {
+          headers: { accept: "application/json" },
+        });
+        if (!response.ok) {
+          failures.push(`${candidateBaseUrl}: status ${response.status}`);
+          continue;
+        }
+        const payload = parseWorkspaceFileSnapshot(await response.json());
+        this.resolvedBaseUrl = candidateBaseUrl;
+        return payload;
+      } catch (error) {
+        failures.push(`${candidateBaseUrl}: ${errorMessage(error)}`);
+      }
+    }
+
+    throw new Error(
+      failures.length > 0
+        ? `Workspace file fetch failed (${failures.join(" | ")})`
+        : "Workspace file fetch failed.",
+    );
+  }
+
   notifyWindowClosed(): void {
     for (const candidateBaseUrl of this.resolveCandidateBaseUrls()) {
       const url = new URL("/gui/api/window-closed", candidateBaseUrl);
@@ -293,6 +360,97 @@ function parseDashboardSnapshot(value: unknown): GuiDashboardSnapshot {
     workingDirectory: typeof snapshot.workingDirectory === "string" ? snapshot.workingDirectory : undefined,
     domainLabel: typeof snapshot.domainLabel === "string" ? snapshot.domainLabel : undefined,
     workspaceTree: normalizeWorkspaceTreeSnapshot(snapshot.workspaceTree),
+  };
+}
+
+function parseWorkspaceDirectorySnapshot(value: unknown): OperatorWorkspaceDirectorySnapshot {
+  if (!isRecord(value)) {
+    throw new Error("Invalid workspace directory response body.");
+  }
+  if (typeof value.rootPath !== "string") {
+    throw new Error("Invalid workspace directory rootPath.");
+  }
+  if (typeof value.directoryPath !== "string") {
+    throw new Error("Invalid workspace directory path.");
+  }
+  if (!Array.isArray(value.entries)) {
+    throw new Error("Invalid workspace directory entries payload.");
+  }
+  const entries = value.entries.map((entry) => {
+    if (!isRecord(entry) || typeof entry.path !== "string" || typeof entry.name !== "string") {
+      throw new Error("Invalid workspace directory entry.");
+    }
+    if (entry.kind !== "directory" && entry.kind !== "file") {
+      throw new Error("Invalid workspace directory entry kind.");
+    }
+    const kind: OperatorWorkspaceEntryKind = entry.kind;
+    return {
+      path: entry.path,
+      name: entry.name,
+      kind,
+      ...(typeof entry.sizeBytes === "number" ? { sizeBytes: entry.sizeBytes } : {}),
+      ...(typeof entry.modifiedAt === "string" ? { modifiedAt: entry.modifiedAt } : {}),
+      ...(isWorkspaceVcsStatus(entry.vcs) ? { vcs: entry.vcs } : {}),
+    };
+  });
+  return {
+    rootPath: value.rootPath,
+    directoryPath: value.directoryPath,
+    ...(typeof value.parentPath === "string" ? { parentPath: value.parentPath } : {}),
+    entries,
+    ...(typeof value.truncated === "boolean" ? { truncated: value.truncated } : {}),
+    source: "gateway",
+  };
+}
+
+const WORKSPACE_VCS_STATES: ReadonlySet<OperatorWorkspaceVcsState> = new Set([
+  "modified",
+  "added",
+  "deleted",
+  "renamed",
+  "untracked",
+  "ignored",
+  "conflicted",
+]);
+
+function isWorkspaceVcsState(value: unknown): value is OperatorWorkspaceVcsState {
+  return typeof value === "string" && WORKSPACE_VCS_STATES.has(value as OperatorWorkspaceVcsState);
+}
+
+function isWorkspaceVcsStatus(value: unknown): value is OperatorWorkspaceVcsStatus {
+  return isRecord(value)
+    && value.provider === "git"
+    && isWorkspaceVcsState(value.state)
+    && (value.staged === undefined || typeof value.staged === "boolean");
+}
+
+function parseWorkspaceFileSnapshot(value: unknown): OperatorWorkspaceFileSnapshot {
+  if (!isRecord(value)) {
+    throw new Error("Invalid workspace file response body.");
+  }
+  if (typeof value.path !== "string" || typeof value.name !== "string") {
+    throw new Error("Invalid workspace file identity.");
+  }
+  if (value.kind !== "text" && value.kind !== "image" && value.kind !== "binary" && value.kind !== "unsupported") {
+    throw new Error("Invalid workspace file preview kind.");
+  }
+  if (typeof value.sizeBytes !== "number") {
+    throw new Error("Invalid workspace file size.");
+  }
+  return {
+    path: value.path,
+    name: value.name,
+    kind: value.kind,
+    sizeBytes: value.sizeBytes,
+    ...(typeof value.modifiedAt === "string" ? { modifiedAt: value.modifiedAt } : {}),
+    ...(typeof value.mimeType === "string" ? { mimeType: value.mimeType } : {}),
+    ...(typeof value.language === "string" ? { language: value.language } : {}),
+    ...(value.encoding === "utf-8" || value.encoding === "base64" ? { encoding: value.encoding } : {}),
+    ...(typeof value.content === "string" ? { content: value.content } : {}),
+    ...(typeof value.dataUrl === "string" ? { dataUrl: value.dataUrl } : {}),
+    ...(typeof value.truncated === "boolean" ? { truncated: value.truncated } : {}),
+    ...(typeof value.unsupportedReason === "string" ? { unsupportedReason: value.unsupportedReason } : {}),
+    source: "gateway",
   };
 }
 

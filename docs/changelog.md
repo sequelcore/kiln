@@ -1,5 +1,38 @@
 # Changelog
 
+## Unreleased -- Operator Workspace Explorer
+
+- Added a shared `OperatorWorkspaceExplorer` contract in
+  `@kilnai/gateway-contracts` for governed directory snapshots, file-preview
+  snapshots, and typed workspace errors.
+- `kiln gui` now provides a local read-only workspace explorer rooted at the
+  active working directory. Directory listing is lazy, capped, sorted with
+  directories first, and rejects paths outside the workspace root.
+- The GUI gateway now exposes `/gui/api/workspace/tree` and
+  `/gui/api/workspace/file` for operator surfaces that consume the shared
+  workspace contract.
+- The GUI Workspace rail mode now renders an explorable file tree with local
+  main-layout document tabs for text/code files and supported images. Binary
+  and unsupported files show explicit metadata-only states.
+- Workspace document tabs now include a persistent Chat tab, line-numbered text
+  previews, safe GFM Markdown rendering, and pretty-printed JSON when valid.
+- Workspace entries now carry optional shared Git VCS status and the GUI tree
+  renders compact markers/colors for modified, added, deleted, renamed,
+  untracked, ignored, and conflicted files or directories.
+- Git VCS projection now indexes changed paths and their ancestor directories
+  once per status probe, so parent folders show nested changes immediately and
+  visible tree rows use constant-time status lookups.
+- Workspace document previews now use theme-derived viewer tokens for the
+  editor surface, document tab strip, Markdown/code blocks, and line-number
+  gutter instead of reusing the chat background.
+- Workspace code previews now use token-derived syntax highlighting for common
+  code, JSON, Markdown, YAML, shell, SQL, and web languages while preserving the
+  source text exactly. The highlighter is split into a lazy workspace-preview
+  chunk so normal GUI startup does not load it.
+- Workspace previews are presentation-only and do not create session events,
+  approval requests, changed-file entries, provider tool calls, or working-tree
+  mutations.
+
 ## Unreleased -- Operator Runtime Performance
 
 - GUI and TUI provider discovery now use a shared short-lived cache with
@@ -28,6 +61,9 @@
 - GUI and TUI now consume a shared operator event presenter from
   `@kilnai/gateway-contracts`, so normal operator UI renders typed detail rows
   and compact text instead of raw JSON payload blocks.
+- GUI and TUI now share operator empty-state copy from
+  `@kilnai/gateway-contracts`, keeping idle chat copy consistent across
+  surfaces while allowing each renderer to project it differently.
 - GUI operational projections now clear on session selection and reject live
   tool/activity frames from other sessions, preventing stale Activity, changed
   files, approvals, or diff state from leaking across conversations.

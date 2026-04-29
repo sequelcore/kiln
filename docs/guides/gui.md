@@ -80,6 +80,13 @@ tokens are mapped onto the existing Kiln theme variables in
 `packages/gui/src/styles.css`. Do not introduce a parallel palette or raw
 provider colors for normal UI state.
 
+Workspace document previews use the same token discipline. Viewer-specific
+surfaces are exposed as `--workspace-viewer`, `--workspace-viewer-panel`, and
+`--workspace-viewer-gutter`, derived from the active Kiln theme instead of
+hard-coded light or dark colors. Use those tokens for file-preview backgrounds,
+code gutters, Markdown code blocks, and document-tab surfaces so future themes
+inherit a coherent editor-like surface automatically.
+
 The current session rail follows a dense operator-console pattern: grouped
 canonical sessions, hairline separators, compact provider glyphs, stable cost
 formatting, and a subtle active continuation rail. It intentionally avoids
@@ -104,8 +111,8 @@ Regression coverage now explicitly locks this behavior: turns/tokens/cost stay
 in the top bar and are not duplicated in `SessionTelemetry`.
 
 The inspector is the detail layer. It should focus on continuity decisions,
-field state, changed files, and future event-backed diagnostics. It is
-collapsed by default so the operator can keep the transcript in focus.
+field state, and future event-backed diagnostics. It is collapsed by default so
+the operator can keep the transcript in focus.
 
 Those inspector sections must be projections of the canonical session
 timeline. Do not maintain separate GUI-only caches for changed files,
@@ -126,9 +133,74 @@ Current mode status:
 - `Changed files` is live and renders session-scoped file-change events from
   the canonical timeline with per-file review, canonical line deltas, and an
   explicit "diff hunks not emitted yet" state
-- `Workspace` remains gated until a governed workspace/tree contract exists
+- `Workspace` is live and renders the active working directory through the
+  shared governed workspace explorer contract
 - `Approvals` remains gated until a dedicated event-backed panel is built on
   top of canonical approval events
+
+## Workspace Explorer
+
+The Workspace rail panel is a read-only navigation projection of the active
+working directory. It uses the shared `OperatorWorkspaceExplorer` contract from
+`@kilnai/gateway-contracts`, so future operator surfaces can consume the same
+directory and file-preview model instead of inventing GUI-only workspace state.
+It must not duplicate session summary fields such as domain, session ID,
+provider/model route, phase, turns, tokens, or cost; those belong to the main
+session header and inspector surfaces.
+
+The local GUI gateway exposes that contract through:
+
+- `GET /gui/api/workspace/tree?path=<path>` for lazy directory loading
+- `GET /gui/api/workspace/file?path=<path>` for read-only file preview
+
+The first dashboard snapshot seeds the root directory so the panel can render
+immediately. Expanding a directory loads only that directory, capped at 250
+entries, sorted with directories first. Paths are resolved against the active
+working directory and rejected if they escape that root.
+
+The panel may show the current workspace root and an active worktree path when
+it differs from the root. Full session metadata stays outside Workspace.
+
+Workspace entries may also carry canonical VCS status from the shared contract.
+The local GUI explorer currently projects Git working-tree state with a short
+cache, in-flight deduplication, and a bounded status probe so startup is not
+blocked by slow repositories. The status probe is normalized into an indexed
+map before rendering: each changed path also marks its ancestor directories, so
+top-level folders such as `packages` show a Git marker when any nested file is
+modified. File-tree rendering then performs constant-time VCS lookups instead
+of rescanning the full Git status output for every visible row.
+
+Files and directories render compact Git markers for modified, added, deleted,
+renamed, untracked, and conflicted states; the shared contract also reserves an
+ignored state for surfaces that opt into ignored-file projection. This is
+distinct from `Changed files`: VCS status is the current working tree, while
+`Changed files` is session evidence emitted by runtime/tool events.
+
+Selecting a file opens it in the main layout as a document tab next to the Chat
+tab. The sidebar remains tree navigation; it does not own file-preview tabs.
+The preview surface uses theme-derived workspace viewer tokens so code,
+Markdown, images, and unsupported-file states remain visually distinct from the
+chat transcript without creating a separate color system.
+
+File preview support is intentionally conservative:
+
+- text/code files render as UTF-8 text with line numbers and are capped at 256
+  KiB; supported languages use syntax highlighting derived from the active
+  Kiln theme tokens. The syntax highlighter is lazy-loaded so normal GUI
+  startup does not pay the code-preview bundle cost.
+- JSON files are parsed and pretty-printed when valid; invalid JSON falls back
+  to raw text with an explicit notice
+- Markdown files render through the GUI's safe Markdown renderer with GFM
+  enabled and raw HTML skipped
+- common web images (`png`, `jpg`, `jpeg`, `gif`, `svg`, `webp`) render inline
+  when they are 1 MiB or smaller
+- binary or unsupported files show metadata and an explicit unsupported-preview
+  state
+
+Document tabs are local presentation state. They do not mutate the runtime
+session, provider route, approval state, changed-file events, or working tree.
+Editing, save semantics, structured diff viewing, and provider tool invocation
+remain outside this read-only workspace slice.
 
 ## Commands and Composer
 
@@ -204,6 +276,13 @@ For session-scoping validation, start a turn that uses a tool, switch to another
 session, then return. The second session must not show the first session's tool
 activity, changed files, approvals, or diff previews. Returning to the first
 session should restore those facts from its own canonical timeline.
+
+For workspace validation, open the Workspace rail mode, expand a nested
+directory, open a text file, then open a JSON or Markdown file if one exists.
+The expected result is a lazy tree with read-only document tabs in the main
+layout. The Chat tab remains available beside the opened files. Opening files
+must not create session events, approvals, changed-file entries, or provider
+tool calls.
 
 For reasoning validation, select a Codex OAuth model that advertises reasoning
 levels, choose a non-default effort from the composer control, and send a turn.

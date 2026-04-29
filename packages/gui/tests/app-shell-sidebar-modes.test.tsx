@@ -48,6 +48,19 @@ vi.mock("../src/api/client.js", () => ({
       };
     }
 
+    async loadWorkspaceFile() {
+      return {
+        path: "C:/Proyectos/Sequel/kiln/package.json",
+        name: "package.json",
+        kind: "text",
+        sizeBytes: 17,
+        source: "gateway",
+        encoding: "utf-8",
+        language: "json",
+        content: "{\"ok\":true}",
+      };
+    }
+
     async saveThemePreference() {}
   },
 }));
@@ -100,8 +113,29 @@ vi.mock("../src/components/session-list.js", () => ({
 }));
 
 vi.mock("../src/components/workspace-panel.js", () => ({
-  WorkspacePanel: ({ selectedSessionId }: { selectedSessionId: string | null }) => (
-    <div data-testid="workspace-panel">Workspace panel: {selectedSessionId ?? "none"}</div>
+  WorkspacePanel: ({
+    selectedSessionId,
+    selectedFilePath,
+    onOpenFile,
+  }: {
+    selectedSessionId: string | null;
+    selectedFilePath?: string | null;
+    onOpenFile?: (entry: { path: string; name: string; kind: "file" }) => void;
+  }) => (
+    <div data-testid="workspace-panel">
+      Workspace panel: {selectedSessionId ?? "none"}
+      <span>Selected file: {selectedFilePath ?? "none"}</span>
+      <button
+        type="button"
+        onClick={() => onOpenFile?.({
+          path: "C:/Proyectos/Sequel/kiln/package.json",
+          name: "package.json",
+          kind: "file",
+        })}
+      >
+        Open package.json
+      </button>
+    </div>
   ),
 }));
 
@@ -276,6 +310,25 @@ describe("AppShell sidebar modes", () => {
 
     expect(screen.getByTestId("workspace-panel")).toHaveTextContent("Workspace panel: none");
     expect(screen.queryByTestId("session-list")).not.toBeInTheDocument();
+  });
+
+  it("opens workspace files in main document tabs instead of the sidebar panel", async () => {
+    render(<AppShell />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-list")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Workspace" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open package.json" }));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Workspace documents")).toBeInTheDocument();
+    });
+    expect(screen.getByRole("tab", { name: "Chat" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "package.json" })).toBeInTheDocument();
+    expect(screen.getByTestId("workspace-code")).toHaveTextContent(/"ok":\s*true/);
+    expect(screen.getByTestId("workspace-panel")).toHaveTextContent("Selected file: C:/Proyectos/Sequel/kiln/package.json");
   });
 
   it("switches the left mode panel from sessions to approvals", async () => {

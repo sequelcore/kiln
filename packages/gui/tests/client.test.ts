@@ -113,4 +113,49 @@ describe("GuiGatewayClient", () => {
 
     await expect(client.loadDashboard()).rejects.toThrow("Invalid dashboard workspace tree entries payload.");
   });
+
+  it("loads a workspace directory snapshot from the gateway", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      rootPath: "C:/repo",
+      directoryPath: "C:/repo/src",
+      parentPath: "C:/repo",
+      source: "gateway",
+      entries: [
+        { path: "C:/repo/src/index.ts", name: "index.ts", kind: "file", sizeBytes: 42, vcs: { provider: "git", state: "modified" } },
+      ],
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new GuiGatewayClient("http://localhost:4810");
+    const snapshot = await client.loadWorkspaceDirectory("C:/repo/src");
+
+    expect(snapshot.entries[0]?.name).toBe("index.ts");
+    expect(snapshot.entries[0]?.vcs).toEqual({ provider: "git", state: "modified" });
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/gui/api/workspace/tree?path=C%3A%2Frepo%2Fsrc");
+  });
+
+  it("loads a workspace file preview from the gateway", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      path: "C:/repo/src/index.ts",
+      name: "index.ts",
+      kind: "text",
+      sizeBytes: 24,
+      source: "gateway",
+      encoding: "utf-8",
+      content: "export const ok = true;",
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new GuiGatewayClient("http://localhost:4810");
+    const file = await client.loadWorkspaceFile("C:/repo/src/index.ts");
+
+    expect(file.content).toBe("export const ok = true;");
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/gui/api/workspace/file?path=C%3A%2Frepo%2Fsrc%2Findex.ts");
+  });
 });

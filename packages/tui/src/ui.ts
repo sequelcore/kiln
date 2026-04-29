@@ -14,6 +14,7 @@ import {
   RGBA,
   type CliRenderer,
 } from "@opentui/core";
+import { operatorEmptyStatePhraseAt } from "@kilnai/gateway-contracts";
 import type { ReactiveState } from "./state.js";
 import type { KilnTheme } from "./theme.js";
 
@@ -136,7 +137,7 @@ export function initUI(
     focusedTextColor: theme.text,
     backgroundColor: "transparent",
     focusedBackgroundColor: "transparent",
-    placeholder: "",
+    placeholder: operatorEmptyStatePhraseAt(0),
     wrapMode: "word",
     onSubmit: () => {
       const text = inputTextarea.plainText.trim();

@@ -42,7 +42,7 @@ export function Composer(props: ComposerProps) {
   }
 
   return (
-    <section className="border-t bg-background px-4 py-3">
+    <section className="bg-background px-4 pb-3 pt-2">
       <form
         onSubmit={(event) => {
           event.preventDefault();
@@ -63,70 +63,72 @@ export function Composer(props: ComposerProps) {
         <label className="sr-only" htmlFor="composer-input">
           Message
         </label>
-        <Textarea
-          id="composer-input"
-          value={draft}
-          wrap="soft"
-          onChange={(event) => handleDraftChange(event.target.value)}
-          onKeyDown={(event) => {
-            if (
-              event.key === "/"
-              && !event.shiftKey
-              && !event.altKey
-              && !event.ctrlKey
-              && !event.metaKey
-              && draft.trim().length === 0
-            ) {
+        <div className="flex flex-col gap-3 rounded-xl border border-border bg-card px-3 py-3 shadow-[var(--shadow-elevated)] transition-colors focus-within:border-ring/70">
+          <Textarea
+            id="composer-input"
+            value={draft}
+            wrap="soft"
+            onChange={(event) => handleDraftChange(event.target.value)}
+            onKeyDown={(event) => {
+              if (
+                event.key === "/"
+                && !event.shiftKey
+                && !event.altKey
+                && !event.ctrlKey
+                && !event.metaKey
+                && draft.trim().length === 0
+              ) {
+                event.preventDefault();
+                props.commandMenu.onOpenChange(true);
+                return;
+              }
+              if (event.key !== "Enter") return;
+              if (event.shiftKey) return;
               event.preventDefault();
-              props.commandMenu.onOpenChange(true);
-              return;
-            }
-            if (event.key !== "Enter") return;
-            if (event.shiftKey) return;
-            event.preventDefault();
-            if (props.status !== "ready") {
-              return;
-            }
-            if (!draft.trim()) {
-              props.onEmptySubmit();
-              return;
-            }
-            props.onSubmit(draft);
-            setDraft("");
-          }}
-          rows={2}
-          className="min-h-20 max-h-40 resize-none"
-          placeholder="Message Kiln"
-        />
-        <div className="flex flex-wrap items-center gap-2">
-          {props.providerControl || props.reasoningControl ? (
-            <div className="flex min-w-0 max-w-full flex-1 items-center gap-1.5 sm:flex-none">
-              {props.providerControl ? (
-                <div className="min-w-0 max-w-[min(100%,22rem)]">{props.providerControl}</div>
-              ) : null}
-              {props.reasoningControl}
-            </div>
-          ) : null}
-          <Button
-            type="button"
-            size="sm"
-            variant={props.planMode ? "secondary" : "outline"}
-            aria-pressed={props.planMode}
-            onClick={() => props.onTogglePlanMode(!props.planMode)}
-          >
-            Plan
-          </Button>
-          <Button
-            type="submit"
-            disabled={!canSubmit || isBusy}
-            variant="default"
-            size="icon-sm"
-            aria-label="Send message"
-            title="Send message"
-            className="ml-auto"
-          >
-            <ArrowUp aria-hidden="true" />
-          </Button>
+              if (props.status !== "ready") {
+                return;
+              }
+              if (!draft.trim()) {
+                props.onEmptySubmit();
+                return;
+              }
+              props.onSubmit(draft);
+              setDraft("");
+            }}
+            rows={2}
+            className="min-h-24 max-h-40 resize-none border-0 bg-transparent px-3 py-3 shadow-none focus-visible:border-transparent focus-visible:ring-0"
+            placeholder="Message Kiln"
+          />
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            {props.providerControl || props.reasoningControl ? (
+              <div className="flex min-w-0 max-w-full flex-1 items-center gap-1.5 sm:flex-none">
+                {props.providerControl ? (
+                  <div className="min-w-0 max-w-[min(100%,22rem)]">{props.providerControl}</div>
+                ) : null}
+                {props.reasoningControl}
+              </div>
+            ) : null}
+            <Button
+              type="button"
+              size="sm"
+              variant={props.planMode ? "secondary" : "outline"}
+              aria-pressed={props.planMode}
+              onClick={() => props.onTogglePlanMode(!props.planMode)}
+            >
+              Plan
+            </Button>
+            <Button
+              type="submit"
+              disabled={!canSubmit || isBusy}
+              variant="default"
+              size="icon-sm"
+              aria-label="Send message"
+              title="Send message"
+              className="ml-auto"
+            >
+              <ArrowUp aria-hidden="true" />
+            </Button>
+          </div>
         </div>
       </form>
     </section>

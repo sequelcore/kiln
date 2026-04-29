@@ -1,6 +1,6 @@
 import type { GuiResumeInfo, GuiTelemetrySnapshot } from "@kilnai/gateway-contracts";
 import { useState, type ReactNode } from "react";
-import type { ChangedFileEntry, RuntimeContinuityInfo } from "../lib/session-store.js";
+import type { RuntimeContinuityInfo } from "../lib/session-store.js";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverHeader, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
 
@@ -8,17 +8,7 @@ interface SessionTelemetryProps {
   readonly activeProvider: string | null;
   readonly resumeInfo: GuiResumeInfo | null;
   readonly runtimeContinuity: RuntimeContinuityInfo | null;
-  readonly changedFiles: readonly ChangedFileEntry[];
   readonly fieldTelemetry: GuiTelemetrySnapshot | null;
-}
-
-function formatChange(entry: ChangedFileEntry): string {
-  const icon = entry.changeType === "created" ? "+" : entry.changeType === "deleted" ? "-" : "~";
-  const fileName = entry.path.replace(/\\/g, "/").split("/").pop() ?? entry.path;
-  const delta = entry.linesAdded || entry.linesRemoved
-    ? ` ${entry.linesAdded ? `+${entry.linesAdded}` : ""}${entry.linesRemoved ? `-${entry.linesRemoved}` : ""}`
-    : "";
-  return `${icon} ${fileName}${delta}`;
 }
 
 function Section(props: { readonly title: string; readonly children: ReactNode }) {
@@ -57,7 +47,7 @@ export function SessionTelemetry(props: SessionTelemetryProps) {
         <PopoverHeader>
           <PopoverTitle>Session details</PopoverTitle>
         </PopoverHeader>
-        <div className="grid gap-4 lg:grid-cols-3">
+        <div className="grid gap-4 lg:grid-cols-2">
           <Section title="Continuity">
             <div className="flex flex-col gap-1 text-xs text-foreground">
               <p>resume: {props.resumeInfo?.strategy ?? "--"}{props.resumeInfo?.feedbackLabel ? ` · ${props.resumeInfo.feedbackLabel}` : ""}</p>
@@ -78,17 +68,6 @@ export function SessionTelemetry(props: SessionTelemetryProps) {
             </div>
           </Section>
 
-          <Section title="Changed Files">
-            {props.changedFiles.length === 0 ? (
-              <p className="text-xs text-muted-foreground">(none)</p>
-            ) : (
-              <ul className="flex flex-col gap-1 text-xs text-foreground">
-                {props.changedFiles.slice(0, 8).map((entry) => (
-                  <li key={`${entry.recordedAt}:${entry.path}`}>{formatChange(entry)}</li>
-                ))}
-              </ul>
-            )}
-          </Section>
         </div>
       </PopoverContent>
     </Popover>
