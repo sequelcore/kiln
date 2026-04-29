@@ -19,6 +19,8 @@ const BUILTIN_TOOL_NAMES = [
   "tree",
   "view_image",
   "ocr_image",
+  "web_search",
+  "web_fetch",
   "grep",
   "glob",
   "git",

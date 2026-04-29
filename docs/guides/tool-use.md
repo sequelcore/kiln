@@ -254,7 +254,7 @@ Builtin developer tools return one core-owned metadata contract from
 Every metadata object includes:
 
 - `toolName`: canonical builtin tool name
-- `kind`: `command`, `file`, `inspection`, `media`, or `search`
+- `kind`: `command`, `file`, `inspection`, `media`, `web`, or `search`
 
 High-volume metadata may also include `verbosity`, which records the requested
 output shape without changing the stable metadata family.
@@ -278,6 +278,13 @@ source or confidence when available. MCP consumers receive image content as a
 standard MCP image content item; text-only consumers still receive the compact
 JSON `output`.
 
+Web metadata covers `web_search` and `web_fetch`. `web_search` reports provider,
+query, normalized domain filters, recency, result count, retrieval time, ranked
+sources, errors, and requested verbosity. `web_fetch` reports source URL,
+normalized final URL, content type, status, bytes read, redirect chain,
+truncation, errors, and requested verbosity. Web metadata is external-source
+evidence, not workspace search or file-change evidence.
+
 ### Tool reference
 
 | Tool | Purpose | Key params | Output shape |
@@ -291,6 +298,8 @@ JSON `output`.
 | `tree` | Produce a compact bounded directory tree | `path`, `depth`, `includeFiles`, `verbosity` | `raw` output is an indented deterministic tree; `structured` is JSON entry data; `summary` is a bounded rollup; metadata includes `path`, `depth`, `includeFiles`, `entryCount`, `truncated`, `verbosity`, and ignored directories |
 | `view_image` | Read an image as model-consumable content | `path`, `detail` | `output` is compact JSON metadata; `content` includes MCP-compatible image data; metadata includes `path`, `mimeType`, `size`, dimensions, and `detail` |
 | `ocr_image` | Extract text from an image through the configured OCR backend | `path`, `language` | `output` is compact JSON text extraction data; metadata includes `path`, `mimeType`, `language`, `textLength`, and optional backend confidence/source |
+| `web_search` | Search the web through the configured provider | `query`, `domains`, `recencyDays`, `maxResults`, `verbosity` | default configuration fails closed; configured providers return ranked sources; metadata includes provider, query, domains, recency, result count, sources, errors, and `verbosity` |
+| `web_fetch` | Fetch and sanitize allowed HTTP(S) text content | `url`, `maxBytes`, `timeout`, `verbosity` | default configuration requires explicit network policy; output is sanitized text, JSON, or summary; metadata includes source/final URL, status, content type, bytes read, redirect chain, truncation, errors, and `verbosity` |
 | `grep` | Search file content by regex | `pattern`, optional file-or-directory `path`, `glob`, `outputMode`, `verbosity` | `raw` output is newline-delimited matches, file paths, or counts; `structured` is JSON result data; `summary` is a bounded rollup; metadata includes `path`, `strategy`, `outputMode`, `count`, and `verbosity` |
 | `glob` | Match files by glob pattern | `pattern`, `path`, `verbosity` | `raw` output is newline-delimited relative file paths; `structured` is JSON matches; `summary` is a bounded rollup; metadata includes `path`, `strategy`, `count`, and `verbosity` |
 | `git` | Run a git subcommand | `subcommand`, `args` | `output` is combined stdout+stderr; metadata includes `cwd`, `command` |
@@ -323,11 +332,13 @@ The built-in executors are intentionally small and predictable:
 - `TreeTool` validates the root path, bounds depth and entry count, sorts directories before files, skips nuisance directories by default, and can return raw, structured, or summary output.
 - `ViewImageTool` validates path and image MIME by content, enforces size limits, and returns base64 image content plus media metadata.
 - `OcrImageTool` validates the image through the same path and MIME checks, then calls the configured OCR runner; the default runner uses `tesseract` from PATH when available.
+- `WebSearchTool` validates query, domain, recency, and result-count controls, intersects domains with sandbox network policy, calls an injected provider, and fails closed when no provider is configured.
+- `WebFetchTool` validates HTTP(S) URLs, rejects private/local hosts, requires explicit network policy, validates redirect hops, caps bytes, checks supported text content types, sanitizes returned text, and supports raw, structured, or summary output.
 - `GrepTool` uses `rg` when available and falls back to a recursive file walk plus JavaScript `RegExp`; `outputMode` controls match shape while `verbosity` controls result shape.
 - `GlobTool` uses `fd` when available and falls back to the same recursive walker plus glob matching helpers; it can return raw path lists, structured JSON matches, or a summary.
 - `GitTool` executes `git` directly and validates the reconstructed command string before running it.
 
-All twelve tools return `ToolResult`; failures are regular tool results when possible, not uncaught process exceptions.
+All fourteen tools return `ToolResult`; failures are regular tool results when possible, not uncaught process exceptions.
 
 For MCP consumers, long-running calls have two coordinated timeout layers:
 

@@ -28,6 +28,11 @@ Closed slices:
 10. Core `verbosity?: "raw" | "structured" | "summary"` support for `bash`,
     `tree`, `grep`, and `glob`, preserving raw defaults while adding structured
     JSON and bounded summaries with stable metadata.
+11. Core `web_search` and `web_fetch` foundation with shared `web` metadata,
+    URL/domain policy helpers, sandbox `NetworkFilter` enforcement, private host
+    rejection, sanitized fetch output, fail-closed injected search provider,
+    verbosity support, and shared projections across MCP, runtime-attached
+    sessions, and CLI startup.
 
 ## Active Objective
 
@@ -44,14 +49,24 @@ execution path for CLI, GUI, TUI, and MCP consumers.
 
 ## Remaining Phases
 
-### Phase 9: Controlled Web Search And Fetch
+### Phase 10: Web Provider Configuration And Runtime Policy Wiring
 
-Add:
+The core web tools now exist in the shared surface. Remaining operational work is
+to wire configurable providers and policy into each consumer entrypoint without
+creating consumer-private tool implementations.
 
-```ts
-web_search({ query: string, domains?: string[], recencyDays?: number })
-web_fetch({ url: string })
-```
+Core requirements:
+
+- config schema for default network policy and allowed domains
+- config schema for the selected `WebSearchProvider`
+- CLI/MCP startup path that passes web provider and network policy into
+  `createDefaultBuiltinToolSurface()`
+- runtime-attached GUI/TUI/CLI path that passes the same provider and policy
+  into `createAttachedRuntimeBuiltinToolSurface()`
+- fail-closed defaults when no provider or network policy is configured
+- tests proving GUI, CLI, TUI, and MCP all receive the same configured surface
+
+## Phase 9 Design Record
 
 Research basis:
 
@@ -136,7 +151,7 @@ WebToolResultMetadata {
 }
 ```
 
-Implementation order:
+Implemented core order:
 
 1. Add failing core tests for `TOOL_SCHEMAS`, `DevToolName`, web metadata
    builders, default surface tool order, MCP schema projection, and runtime
@@ -157,7 +172,7 @@ Implementation order:
 7. Update MCP tests, runtime attached-surface tests, CLI tool startup tests if
    needed, and user/architecture docs.
 
-Focused test cases:
+Focused test cases covered:
 
 - `web_fetch` rejects non-HTTP(S), localhost/private IP, invalid URL, and
   domains outside sandbox policy.

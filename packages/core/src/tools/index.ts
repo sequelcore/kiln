@@ -29,6 +29,11 @@ export type {
   SearchToolStrategy,
   ToolOutputVerbosity,
   ToolResultMetadata,
+  WebSourceMetadata,
+  WebToolErrorCode,
+  WebToolName,
+  WebToolOperation,
+  WebToolResultMetadata,
 } from "./domain/tool-result-metadata.js";
 export {
   commandToolMetadata,
@@ -37,6 +42,7 @@ export {
   isFileToolResultMetadata,
   mediaToolMetadata,
   searchToolMetadata,
+  webToolMetadata,
 } from "./domain/tool-result-metadata.js";
 
 export { DevToolRegistry } from "./domain/tool-registry.js";
@@ -72,6 +78,20 @@ export type { GrepToolOptions } from "./infrastructure/grep-tool.js";
 export { GrepTool } from "./infrastructure/grep-tool.js";
 export type { GlobToolOptions } from "./infrastructure/glob-tool.js";
 export { GlobTool } from "./infrastructure/glob-tool.js";
+export type {
+  WebFetchClient,
+  WebFetchClientRequest,
+  WebFetchClientResponse,
+  WebFetchToolOptions,
+} from "./infrastructure/web-fetch-tool.js";
+export { WebFetchTool } from "./infrastructure/web-fetch-tool.js";
+export type {
+  WebSearchProvider,
+  WebSearchProviderRequest,
+  WebSearchProviderResponse,
+  WebSearchToolOptions,
+} from "./infrastructure/web-search-tool.js";
+export { WebSearchTool } from "./infrastructure/web-search-tool.js";
 export type { GitToolOptions } from "./infrastructure/git-tool.js";
 export { GitTool } from "./infrastructure/git-tool.js";
 export type {

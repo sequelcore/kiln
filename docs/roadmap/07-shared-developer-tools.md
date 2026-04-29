@@ -87,6 +87,21 @@ adding structured JSON and bounded summary formats. Metadata remains stable and
 records the requested `verbosity`. The field is intentionally not named
 `outputMode` because `grep.outputMode` already controls match semantics.
 
+### Slice 9: Controlled Web Search And Fetch Core Foundation
+
+`web_search` and `web_fetch` are now core developer tools projected through the
+canonical builtin surface. Both tools use shared `web` metadata, expose
+`verbosity?: "raw" | "structured" | "summary"`, and are read-only/idempotent.
+
+`web_fetch` validates HTTP(S) URLs, rejects private and localhost targets,
+requires an explicit network policy, enforces sandbox `NetworkFilter` checks,
+validates redirect hops, caps bytes, checks supported text content types,
+sanitizes reinjected text, and records retrieval metadata. `web_search` accepts
+query, domain, recency, and max-result controls through an injected
+`WebSearchProvider`; the default provider path fails closed so core never
+scrapes public result pages or shells out for search. CLI, GUI, TUI, and MCP
+receive the new tools from the same core surface.
+
 ## Consumer Contract
 
 All current consumers use the shared surface:
@@ -103,11 +118,12 @@ All current consumers use the shared surface:
 
 ## Remaining Tool Phases
 
-### Phase 9: Controlled Web Search And Fetch
+### Phase 10: Web Provider Configuration And Runtime Policy Wiring
 
-Goal: add current external lookup tools with source-quality controls.
+Goal: make the core web tools operational through explicit configuration while
+preserving fail-closed defaults.
 
-Target contracts:
+The core contracts are already present:
 
 ```ts
 web_search({ query: string, domains?: string[], recencyDays?: number })
@@ -116,35 +132,15 @@ web_fetch({ url: string })
 
 Design requirements:
 
-- Domain restrictions must be first-class, not prompt-only hints.
-- Fetch must return source URL, content type, retrieval time, truncation state,
-  and citations or extract metadata where possible.
-- Search must expose recency filtering and result ranking metadata.
-- Network access policy must be explicit and auditable.
-- Results must be sanitized before reinjection.
-- Search and fetch must stay separate: search discovers/ranks sources, fetch
-  retrieves one explicit URL.
-- Provider-specific search belongs behind an injected core provider interface;
-  core must not silently scrape a public search page or use shell network calls.
-- URL fetch must validate HTTP(S), normalized domain, sandbox network policy,
-  redirect hops, response size, and supported content type before returning
-  text.
-- Both tools should support `verbosity?: "raw" | "structured" | "summary"`.
-- External web metadata should use a new `web` metadata family instead of
-  overloading local workspace `search` metadata.
-
-Planned implementation slices:
-
-1. Contract and policy foundation: `web` metadata, schema entries,
-   URL/domain normalization, `NetworkFilter` integration, and fail-closed
-   provider interfaces.
-2. `web_fetch`: native fetch client, redirect validation, content-type and byte
-   limits, sanitization, truncation metadata, and raw/structured/summary output.
-3. `web_search`: injected provider, domain and recency filters, ranked source
-   normalization, provider-not-configured errors, and raw/structured/summary
-   output.
-4. Shared projection update: default core surface, MCP surface, runtime-attached
-   CLI/GUI/TUI surface, docs, and full verification gates.
+- Add configuration for web network policy and allowed domains.
+- Add configuration for the selected `WebSearchProvider`.
+- Pass configured policy/provider into `createDefaultBuiltinToolSurface()` for
+  CLI MCP startup.
+- Pass the same configured policy/provider into runtime-attached CLI, GUI, and
+  TUI surfaces.
+- Keep `web_search` provider-not-configured and `web_fetch` network-denied
+  defaults when configuration is absent.
+- Prove all consumers receive the same configured core tool surface.
 
 Research basis:
 

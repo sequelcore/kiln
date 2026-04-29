@@ -54,6 +54,8 @@ export type DevToolName =
   | "tree"
   | "view_image"
   | "ocr_image"
+  | "web_search"
+  | "web_fetch"
   | "grep"
   | "glob"
   | "git";
@@ -288,6 +290,70 @@ export const TOOL_SCHEMAS: Record<
         },
       },
       required: ["path"],
+      additionalProperties: false,
+    },
+    annotations: {
+      readOnly: true,
+      idempotent: true,
+    },
+  },
+  web_search: {
+    name: "web_search",
+    description: "Search the web through the configured provider. Always pass a JSON object with query and optional domains, recencyDays, maxResults, or verbosity.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          minLength: 1,
+          description: "Search query.",
+        },
+        domains: {
+          type: "array",
+          items: { type: "string" },
+          description: "Optional domain allowlist that narrows the active network policy.",
+        },
+        recencyDays: {
+          type: "number",
+          description: "Optional recency filter in days.",
+        },
+        maxResults: {
+          type: "number",
+          description: "Maximum number of ranked results to return.",
+        },
+        verbosity: OUTPUT_VERBOSITY_PROPERTY,
+      },
+      required: ["query"],
+      additionalProperties: false,
+    },
+    annotations: {
+      readOnly: true,
+      idempotent: true,
+    },
+  },
+  web_fetch: {
+    name: "web_fetch",
+    description: "Fetch and sanitize text content from an allowed HTTP(S) URL. Always pass a JSON object with url and optional maxBytes, timeout, or verbosity.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        url: {
+          type: "string",
+          minLength: 1,
+          description: "HTTP or HTTPS URL to fetch.",
+        },
+        maxBytes: {
+          type: "number",
+          description: "Maximum response bytes to read before truncating.",
+        },
+        timeout: {
+          type: "number",
+          description: "Optional timeout in milliseconds.",
+          "x-kiln-timeout-unit": "milliseconds",
+        },
+        verbosity: OUTPUT_VERBOSITY_PROPERTY,
+      },
+      required: ["url"],
       additionalProperties: false,
     },
     annotations: {

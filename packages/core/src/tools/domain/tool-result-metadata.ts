@@ -2,6 +2,7 @@ export type CommandToolName = "bash" | "git";
 export type FileToolName = "read" | "write" | "edit" | "patch";
 export type InspectionToolName = "stat" | "tree";
 export type MediaToolName = "view_image" | "ocr_image";
+export type WebToolName = "web_search" | "web_fetch";
 export type SearchToolName = "grep" | "glob";
 
 export type FileToolOperation = "read" | "write" | "edit" | "patch";
@@ -10,6 +11,15 @@ export type InspectionEntryType = "file" | "directory" | "symlink" | "other";
 export type MediaToolOperation = "view_image" | "ocr";
 export type ImageDetail = "default" | "original";
 export type ToolOutputVerbosity = "raw" | "structured" | "summary";
+export type WebToolOperation = "search" | "fetch";
+export type WebToolErrorCode =
+  | "invalid_input"
+  | "network_denied"
+  | "unsupported_content_type"
+  | "too_many_requests"
+  | "unavailable"
+  | "timeout"
+  | "provider_not_configured";
 export type SearchToolStrategy = "rg" | "fd" | "fallback";
 export type GrepOutputMode = "content" | "files_with_matches" | "count";
 
@@ -114,11 +124,43 @@ export interface MediaToolResultMetadata<TToolName extends MediaToolName = Media
   readonly code?: number | string;
 }
 
+export interface WebSourceMetadata {
+  readonly url: string;
+  readonly title?: string;
+  readonly snippet?: string;
+  readonly rank?: number;
+  readonly publishedAt?: string;
+  readonly source?: string;
+}
+
+export interface WebToolResultMetadata<TToolName extends WebToolName = WebToolName> {
+  readonly toolName: TToolName;
+  readonly kind: "web";
+  readonly operation: WebToolOperation;
+  readonly provider?: string;
+  readonly query?: string;
+  readonly url?: string;
+  readonly normalizedUrl?: string;
+  readonly domains?: readonly string[];
+  readonly recencyDays?: number;
+  readonly resultCount?: number;
+  readonly retrievedAt?: string;
+  readonly contentType?: string;
+  readonly status?: number;
+  readonly bytesRead?: number;
+  readonly truncated?: boolean;
+  readonly redirectChain?: readonly string[];
+  readonly sources?: readonly WebSourceMetadata[];
+  readonly errorCode?: WebToolErrorCode;
+  readonly verbosity?: ToolOutputVerbosity;
+}
+
 export type ToolResultMetadata =
   | CommandToolResultMetadata
   | FileToolResultMetadata
   | InspectionToolResultMetadata
   | MediaToolResultMetadata
+  | WebToolResultMetadata
   | SearchToolResultMetadata;
 
 export function commandToolMetadata<TToolName extends CommandToolName>(
@@ -204,6 +246,17 @@ export function mediaToolMetadata<TToolName extends MediaToolName>(
   return {
     toolName,
     kind: "media",
+    ...metadata,
+  };
+}
+
+export function webToolMetadata<TToolName extends WebToolName>(
+  toolName: TToolName,
+  metadata: Omit<WebToolResultMetadata<TToolName>, "toolName" | "kind">,
+): WebToolResultMetadata<TToolName> {
+  return {
+    toolName,
+    kind: "web",
     ...metadata,
   };
 }

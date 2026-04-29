@@ -41,13 +41,13 @@ function createServer(registry?: DevToolRegistry): DevToolsMcpServer {
 }
 
 describe("DevToolsMcpServer", () => {
-  it("lists the 12 native tool schemas", () => {
+  it("lists the 14 native tool schemas", () => {
     const server = createServer();
 
     const tools = server.listTools();
     const names = tools.map((tool) => tool.name);
 
-    expect(tools).toHaveLength(12);
+    expect(tools).toHaveLength(14);
     expect(names).toEqual([
       "bash",
       "read",
@@ -58,6 +58,8 @@ describe("DevToolsMcpServer", () => {
       "tree",
       "view_image",
       "ocr_image",
+      "web_search",
+      "web_fetch",
       "grep",
       "glob",
       "git",
@@ -158,7 +160,7 @@ describe("DevToolsMcpServer", () => {
   it("exposes shared verbosity on high-volume MCP tools without changing grep outputMode", async () => {
     const server = createServer();
 
-    for (const toolName of ["bash", "tree", "grep", "glob"]) {
+    for (const toolName of ["bash", "tree", "web_search", "web_fetch", "grep", "glob"]) {
       const schema = server.listTools().find((tool) => tool.name === toolName);
       expect(schema?.inputSchema).toMatchObject({
         properties: {
@@ -171,6 +173,41 @@ describe("DevToolsMcpServer", () => {
     expect(grepSchema?.inputSchema).toMatchObject({
       properties: {
         outputMode: expect.objectContaining({ enum: ["content", "files_with_matches", "count"] }),
+      },
+    });
+  });
+
+  it("exposes controlled web tools as read-only MCP tools", async () => {
+    const server = createServer();
+
+    const webSearchSchema = server.listTools().find((tool) => tool.name === "web_search");
+    const webFetchSchema = server.listTools().find((tool) => tool.name === "web_fetch");
+
+    expect(webSearchSchema).toMatchObject({
+      name: "web_search",
+      inputSchema: {
+        type: "object",
+        required: ["query"],
+        properties: {
+          query: expect.objectContaining({ type: "string" }),
+          domains: expect.objectContaining({ type: "array" }),
+          recencyDays: expect.objectContaining({ type: "number" }),
+          maxResults: expect.objectContaining({ type: "number" }),
+          verbosity: expect.objectContaining({ enum: ["raw", "structured", "summary"] }),
+        },
+      },
+    });
+    expect(webFetchSchema).toMatchObject({
+      name: "web_fetch",
+      inputSchema: {
+        type: "object",
+        required: ["url"],
+        properties: {
+          url: expect.objectContaining({ type: "string" }),
+          maxBytes: expect.objectContaining({ type: "number" }),
+          timeout: expect.objectContaining({ type: "number" }),
+          verbosity: expect.objectContaining({ enum: ["raw", "structured", "summary"] }),
+        },
       },
     });
   });

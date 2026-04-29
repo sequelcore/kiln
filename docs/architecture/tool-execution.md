@@ -247,12 +247,13 @@ The shared metadata families are:
 - `file`: file operation evidence for `read`, `write`, `edit`, and `patch`
 - `inspection`: workspace orientation evidence for `stat` and `tree`
 - `media`: image and OCR evidence for `view_image` and `ocr_image`
+- `web`: external source evidence for `web_search` and `web_fetch`
 - `search`: workspace search evidence for `grep` and `glob`
 
 Every builtin metadata object includes:
 
 - `toolName`: the canonical builtin tool name
-- `kind`: one of `command`, `file`, `inspection`, `media`, or `search`
+- `kind`: one of `command`, `file`, `inspection`, `media`, `web`, or `search`
 
 Existing metadata keys such as `cwd`, `command`, `filePath`, `bytesWritten`,
 `replacements`, `path`, `type`, `size`, `modifiedTime`, `mimeType`, `strategy`,
@@ -265,8 +266,9 @@ create private metadata contracts for builtin tools.
 The shared result-shaping input is `verbosity`, not `outputMode`. `grep` already
 uses `outputMode` for match semantics (`content`, `files_with_matches`, or
 `count`), so reusing that field for output shape would make the contract
-ambiguous. `verbosity` is currently supported by `bash`, `tree`, `grep`, and
-`glob`; it changes only `ToolResult.output`, not the metadata family.
+ambiguous. `verbosity` is currently supported by `bash`, `tree`, `web_search`,
+`web_fetch`, `grep`, and `glob`; it changes only `ToolResult.output`, not the
+metadata family.
 
 Inspection metadata is read-only orientation state. `stat` can report type,
 size, modified time, and an optional checksum. `tree` can report bounded
@@ -280,6 +282,15 @@ image content while preserving a compact text `output` for text-only consumers.
 `ocr_image` can report extracted text, language, text length, and OCR backend
 source or confidence when the backend provides it. Runtime file-change evidence
 must not treat `media` metadata as filesystem mutation evidence.
+
+Web metadata is read-only external-source state. `web_search` can report query,
+provider, recency, domain filters, ranked sources, result count, retrieval time,
+and provider/configuration errors. `web_fetch` can report source URL, normalized
+final URL, content type, status, bytes read, redirect chain, truncation, and
+network/content errors. Web tools must require explicit network policy, reject
+private and local targets, validate redirects, and sanitize text before
+reinjection. Runtime file-change evidence must not treat `web` metadata as
+filesystem mutation evidence.
 
 `patch` is the multi-file member of the file metadata family. Its top-level
 metadata uses `operation: "patch"`, `dryRun`, and `operationCount`, and its

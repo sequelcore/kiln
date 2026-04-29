@@ -7,12 +7,14 @@ import {
   inspectionToolMetadata,
   isFileToolResultMetadata,
   mediaToolMetadata,
+  webToolMetadata,
   searchToolMetadata,
   type CommandToolResultMetadata,
   type FileToolResultMetadata,
   type InspectionToolResultMetadata,
   type MediaToolResultMetadata,
   type SearchToolResultMetadata,
+  type WebToolResultMetadata,
 } from "../../../src/tools/domain/tool-result-metadata.js";
 
 describe("tool domain types", () => {
@@ -54,6 +56,8 @@ describe("tool domain types", () => {
       "tree",
       "view_image",
       "ocr_image",
+      "web_search",
+      "web_fetch",
       "grep",
       "glob",
       "git",
@@ -89,6 +93,14 @@ describe("tool domain types", () => {
       readOnly: true,
       idempotent: true,
     });
+    expect(TOOL_SCHEMAS.web_search.annotations).toEqual({
+      readOnly: true,
+      idempotent: true,
+    });
+    expect(TOOL_SCHEMAS.web_fetch.annotations).toEqual({
+      readOnly: true,
+      idempotent: true,
+    });
   });
 
   it("uses JSON Schema object definitions for each tool", () => {
@@ -113,11 +125,13 @@ describe("tool domain types", () => {
     expect(TOOL_SCHEMAS.tree.inputSchema.required).toEqual([]);
     expect(TOOL_SCHEMAS.view_image.inputSchema.required).toEqual(["path"]);
     expect(TOOL_SCHEMAS.ocr_image.inputSchema.required).toEqual(["path"]);
+    expect(TOOL_SCHEMAS.web_search.inputSchema.required).toEqual(["query"]);
+    expect(TOOL_SCHEMAS.web_fetch.inputSchema.required).toEqual(["url"]);
     expect(TOOL_SCHEMAS.git.inputSchema.required).toEqual(["subcommand"]);
   });
 
   it("exposes the shared verbosity field only where it is supported", () => {
-    for (const toolName of ["bash", "tree", "grep", "glob"] as const) {
+    for (const toolName of ["bash", "tree", "web_search", "web_fetch", "grep", "glob"] as const) {
       expect(TOOL_SCHEMAS[toolName].inputSchema).toMatchObject({
         properties: {
           verbosity: {
@@ -151,6 +165,44 @@ describe("tool domain types", () => {
       timedOut: false,
       truncated: false,
       verbosity: "raw",
+    });
+  });
+
+  it("builds web metadata with source and retrieval evidence", () => {
+    const metadata: WebToolResultMetadata<"web_search"> = webToolMetadata("web_search", {
+      operation: "search",
+      provider: "test-search",
+      query: "kiln docs",
+      domains: ["example.com"],
+      recencyDays: 7,
+      resultCount: 1,
+      retrievedAt: "2026-04-29T00:00:00.000Z",
+      sources: [{
+        url: "https://example.com/docs",
+        title: "Docs",
+        rank: 1,
+        snippet: "Result snippet",
+      }],
+      verbosity: "structured",
+    });
+
+    expect(metadata).toEqual({
+      toolName: "web_search",
+      kind: "web",
+      operation: "search",
+      provider: "test-search",
+      query: "kiln docs",
+      domains: ["example.com"],
+      recencyDays: 7,
+      resultCount: 1,
+      retrievedAt: "2026-04-29T00:00:00.000Z",
+      sources: [{
+        url: "https://example.com/docs",
+        title: "Docs",
+        rank: 1,
+        snippet: "Result snippet",
+      }],
+      verbosity: "structured",
     });
   });
 

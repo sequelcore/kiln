@@ -13,6 +13,8 @@ import { ReadTool } from "./infrastructure/read-tool.js";
 import { StatTool } from "./infrastructure/stat-tool.js";
 import { TreeTool } from "./infrastructure/tree-tool.js";
 import { ViewImageTool } from "./infrastructure/view-image-tool.js";
+import { WebFetchTool, type WebFetchToolOptions } from "./infrastructure/web-fetch-tool.js";
+import { WebSearchTool, type WebSearchToolOptions } from "./infrastructure/web-search-tool.js";
 import { WriteTool } from "./infrastructure/write-tool.js";
 import { DevToolExecutionBridge } from "./tool-executor.js";
 
@@ -26,6 +28,8 @@ export interface DefaultBuiltinToolRegistryOptions {
   readonly bash?: BashToolOptions;
   readonly grep?: GrepToolOptions;
   readonly glob?: GlobToolOptions;
+  readonly webFetch?: WebFetchToolOptions;
+  readonly webSearch?: WebSearchToolOptions;
   readonly git?: GitToolOptions;
 }
 
@@ -58,6 +62,8 @@ export function createDefaultBuiltinTools(
     new TreeTool(),
     new ViewImageTool(),
     new OcrImageTool(),
+    new WebSearchTool(options.webSearch),
+    new WebFetchTool(options.webFetch),
     new GrepTool(options.grep),
     new GlobTool(options.glob),
     new GitTool(options.git),
