@@ -122,9 +122,12 @@ export async function resolveRuntimeSessionRouting(
     emitModelRouted(session.id, routingDecision);
   }
 
-  const invocationSystem = appendExecutionIdentity(
-    baseSystem,
-    executionIdentity,
+  const invocationSystem = appendOperatorSurfaceToolDirective(
+    appendExecutionIdentity(
+      baseSystem,
+      executionIdentity,
+    ),
+    mergedTools,
   );
 
   return {
@@ -135,6 +138,26 @@ export async function resolveRuntimeSessionRouting(
     executionIdentity,
     routingDecision,
   };
+}
+
+export function appendOperatorSurfaceToolDirective(
+  system: string,
+  tools: readonly ToolDefinition[] | undefined,
+): string {
+  if (!tools?.some(isOperatorSurfaceTool)) {
+    return system;
+  }
+  return `${system}
+
+--- Operator Surface Tools ---
+This turn is attached to a live operator surface. Operator tools change the visible CLI, TUI, or GUI state for the current operator; they are not source-code edits.
+When the operator asks to change the live UI state, such as theme, panel, focus, browser, or device/simulator state, use the matching operator_* tool instead of proposing repository or config changes.
+For theme requests, call operator_set_theme. Use scope="session" unless the operator explicitly asks to save or persist the preference.
+Do not claim the surface changed unless the operator tool returns a successful acknowledgement.`;
+}
+
+function isOperatorSurfaceTool(tool: ToolDefinition): boolean {
+  return tool.name.startsWith("operator_") || tool.tags?.has("operator-ui") === true;
 }
 
 function mergeAdditionalTools(
