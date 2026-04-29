@@ -1,6 +1,6 @@
 import { readdir, lstat } from "node:fs/promises";
 import { join } from "node:path";
-import { inspectionToolMetadata } from "../domain/tool-result-metadata.js";
+import { inspectionToolMetadata, type ToolOutputVerbosity } from "../domain/tool-result-metadata.js";
 import { TOOL_SCHEMAS, type DevTool, type ToolInput, type ToolResult } from "../domain/tool.js";
 import {
   getSandboxContext,
@@ -12,6 +12,7 @@ import {
   toSuccessResult,
   validateReadPath,
 } from "./tool-helpers.js";
+import { parseOutputVerbosity, pluralize } from "./output-verbosity.js";
 
 const DEFAULT_DEPTH = 2;
 const MAX_DEPTH = 8;
@@ -35,8 +36,15 @@ interface TreeEntry {
 
 interface TreeState {
   readonly lines: string[];
+  readonly entries: TreeOutputEntry[];
   entryCount: number;
   truncated: boolean;
+}
+
+interface TreeOutputEntry {
+  readonly name: string;
+  readonly type: "directory" | "file";
+  readonly depth: number;
 }
 
 export class TreeTool implements DevTool {
@@ -53,6 +61,10 @@ export class TreeTool implements DevTool {
     );
     const depth = clampDepth(optionalNumber(input, "depth"));
     const includeFiles = optionalBoolean(input, "includeFiles") ?? true;
+    const verbosityInput = parseOutputVerbosity(input);
+    if (!verbosityInput.ok) {
+      return verbosityInput.result;
+    }
     const readError = validateReadPath(rootPath, sandbox);
     if (readError) {
       return toErrorResult(readError, inspectionToolMetadata("tree", {
@@ -63,6 +75,7 @@ export class TreeTool implements DevTool {
         entryCount: 0,
         truncated: false,
         ignoredDirectories: IGNORED_DIRECTORIES,
+        verbosity: verbosityInput.value,
       }));
     }
 
@@ -77,17 +90,19 @@ export class TreeTool implements DevTool {
           entryCount: 0,
           truncated: false,
           ignoredDirectories: IGNORED_DIRECTORIES,
+          verbosity: verbosityInput.value,
         }));
       }
 
       const state: TreeState = {
         lines: ["."],
+        entries: [],
         entryCount: 0,
         truncated: false,
       };
       await appendDirectoryEntries(rootPath, 1, depth, includeFiles, state, sandbox);
 
-      return toSuccessResult(state.lines.join("\n"), inspectionToolMetadata("tree", {
+      const metadata = inspectionToolMetadata("tree", {
         operation: "tree",
         path: rootPath,
         depth,
@@ -95,7 +110,9 @@ export class TreeTool implements DevTool {
         entryCount: state.entryCount,
         truncated: state.truncated,
         ignoredDirectories: IGNORED_DIRECTORIES,
-      }));
+        verbosity: verbosityInput.value,
+      });
+      return toSuccessResult(formatTreeOutput(rootPath, state, verbosityInput.value), metadata);
     } catch (error) {
       const err = error as NodeJS.ErrnoException;
       return toErrorResult(err.message, inspectionToolMetadata("tree", {
@@ -107,6 +124,7 @@ export class TreeTool implements DevTool {
         truncated: false,
         ignoredDirectories: IGNORED_DIRECTORIES,
         code: err.code,
+        verbosity: verbosityInput.value,
       }));
     }
   }
@@ -136,6 +154,11 @@ async function appendDirectoryEntries(
     }
 
     state.lines.push(`${"  ".repeat(level - 1)}${entry.name}${entry.isDirectory ? "/" : ""}`);
+    state.entries.push({
+      name: entry.name,
+      type: entry.isDirectory ? "directory" : "file",
+      depth: level,
+    });
     state.entryCount += 1;
 
     if (entry.isDirectory && !entry.isSymbolicLink) {
@@ -180,4 +203,25 @@ function clampDepth(value: number | undefined): number {
     return DEFAULT_DEPTH;
   }
   return Math.max(0, Math.min(MAX_DEPTH, Math.trunc(value)));
+}
+
+function formatTreeOutput(
+  rootPath: string,
+  state: TreeState,
+  verbosity: ToolOutputVerbosity,
+): string {
+  if (verbosity === "structured") {
+    return JSON.stringify({
+      root: rootPath,
+      entries: state.entries,
+      entryCount: state.entryCount,
+      truncated: state.truncated,
+    }, null, 2);
+  }
+
+  if (verbosity === "summary") {
+    return `${state.entryCount} ${pluralize(state.entryCount, "entry", "entries")} under ${rootPath}${state.truncated ? " (truncated)" : ""}`;
+  }
+
+  return state.lines.join("\n");
 }

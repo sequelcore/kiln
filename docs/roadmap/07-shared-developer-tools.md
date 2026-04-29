@@ -78,6 +78,15 @@ boundary and calls a configurable OCR runner; the default runner uses
 Both tools emit shared `media` metadata and project through MCP,
 runtime-attached sessions, and CLI startup from the canonical builtin surface.
 
+### Slice 8: Output Verbosity Modes
+
+High-volume tools now support
+`verbosity?: "raw" | "structured" | "summary"` from the canonical core schema.
+`bash`, `tree`, `grep`, and `glob` preserve their raw default output while
+adding structured JSON and bounded summary formats. Metadata remains stable and
+records the requested `verbosity`. The field is intentionally not named
+`outputMode` because `grep.outputMode` already controls match semantics.
+
 ## Consumer Contract
 
 All current consumers use the shared surface:
@@ -93,33 +102,6 @@ All current consumers use the shared surface:
   define separate metadata contracts for builtin tools.
 
 ## Remaining Tool Phases
-
-### Phase 8: Output Verbosity Modes
-
-Goal: reduce token overhead without losing structured metadata.
-
-Target contract pattern:
-
-```ts
-outputMode?: "raw" | "structured" | "summary"
-```
-
-Design requirements:
-
-- Keep metadata stable regardless of output mode.
-- `raw` should minimize wrapper text for path lists and command output.
-- `structured` should preserve current JSON-rich behavior.
-- `summary` should provide bounded human-readable rollups for large results.
-- Apply to high-volume tools first: `glob`, `grep`, `tree`, `bash`, and future
-  web tools.
-
-Research basis:
-
-- MCP encourages structured tool outputs and output schemas, but production
-  research highlights token pressure, observability, and error handling as
-  infrastructure concerns beyond the base protocol.
-- Gemini CLI exposes MCP description toggles and schema inspection, showing
-  demand for adjustable verbosity during tool discovery and use.
 
 ### Phase 9: Controlled Web Search And Fetch
 

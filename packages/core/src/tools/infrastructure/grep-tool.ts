@@ -4,7 +4,7 @@ import {
   detectToolEnvironment,
   type ToolEnvironment,
 } from "../domain/tool-environment.js";
-import { searchToolMetadata } from "../domain/tool-result-metadata.js";
+import { searchToolMetadata, type ToolOutputVerbosity } from "../domain/tool-result-metadata.js";
 import {
   TOOL_SCHEMAS,
   type DevTool,
@@ -25,6 +25,7 @@ import {
   validateReadPath,
   walkFiles,
 } from "./tool-helpers.js";
+import { parseOutputVerbosity, pluralize, splitNonEmptyLines } from "./output-verbosity.js";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 
@@ -70,6 +71,10 @@ export class GrepTool implements DevTool {
     if (!patternInput.ok) {
       return patternInput.result;
     }
+    const verbosityInput = parseOutputVerbosity(input);
+    if (!verbosityInput.ok) {
+      return verbosityInput.result;
+    }
 
     const sandboxContext = getSandboxContext(sandbox);
     const searchPath = resolvePath(
@@ -99,6 +104,7 @@ export class GrepTool implements DevTool {
           patternInput.value,
           globFilter,
           outputMode,
+          verbosityInput.value,
         );
       }
 
@@ -107,6 +113,7 @@ export class GrepTool implements DevTool {
         patternInput.value,
         globFilter,
         outputMode,
+        verbosityInput.value,
         sandbox,
       );
     } catch (error) {
@@ -123,6 +130,7 @@ export class GrepTool implements DevTool {
     pattern: string,
     globFilter: string | undefined,
     outputMode: GrepOutputMode,
+    verbosity: ToolOutputVerbosity,
   ): Promise<ToolResult> {
     const args = buildFastPathArgs(pattern, globFilter, outputMode, searchTarget.rgTarget);
 
@@ -134,10 +142,14 @@ export class GrepTool implements DevTool {
         DEFAULT_TIMEOUT_MS,
       );
 
-      return toSuccessResult(result.stdout.trim(), searchToolMetadata("grep", {
+      const rawOutput = result.stdout.trim();
+      const results = splitNonEmptyLines(rawOutput);
+      return toSuccessResult(formatGrepOutput(rawOutput, results, outputMode, verbosity), searchToolMetadata("grep", {
         path: searchTarget.path,
         strategy: "rg",
         outputMode,
+        count: results.length,
+        verbosity,
       }));
     } catch (error) {
       const err = error as NodeJS.ErrnoException & {
@@ -147,11 +159,13 @@ export class GrepTool implements DevTool {
       };
 
       if (String(err.code) === "1") {
-        return toSuccessResult("", searchToolMetadata("grep", {
+        return toSuccessResult(formatGrepOutput("", [], outputMode, verbosity), searchToolMetadata("grep", {
           path: searchTarget.path,
           strategy: "rg",
           outputMode,
+          count: 0,
           noMatches: true,
+          verbosity,
         }));
       }
 
@@ -172,6 +186,7 @@ export class GrepTool implements DevTool {
     pattern: string,
     globFilter: string | undefined,
     outputMode: GrepOutputMode,
+    verbosity: ToolOutputVerbosity,
     sandbox?: unknown,
   ): Promise<ToolResult> {
     let expression: RegExp;
@@ -227,12 +242,36 @@ export class GrepTool implements DevTool {
           ? resultsFiles.join("\n")
           : resultsCount.join("\n");
 
-    return toSuccessResult(output, searchToolMetadata("grep", {
+    const results = splitNonEmptyLines(output);
+    return toSuccessResult(formatGrepOutput(output, results, outputMode, verbosity), searchToolMetadata("grep", {
       path: searchTarget.path,
       strategy: "fallback",
       outputMode,
+      count: results.length,
+      verbosity,
     }));
   }
+}
+
+function formatGrepOutput(
+  rawOutput: string,
+  results: readonly string[],
+  outputMode: GrepOutputMode,
+  verbosity: ToolOutputVerbosity,
+): string {
+  if (verbosity === "structured") {
+    return JSON.stringify({
+      outputMode,
+      results,
+      count: results.length,
+    }, null, 2);
+  }
+
+  if (verbosity === "summary") {
+    return `${results.length} ${outputMode} ${pluralize(results.length, "result")}`;
+  }
+
+  return rawOutput;
 }
 
 function isGrepOutputMode(value: string | undefined): value is GrepOutputMode {

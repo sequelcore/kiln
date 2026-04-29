@@ -116,6 +116,22 @@ describe("tool domain types", () => {
     expect(TOOL_SCHEMAS.git.inputSchema.required).toEqual(["subcommand"]);
   });
 
+  it("exposes the shared verbosity field only where it is supported", () => {
+    for (const toolName of ["bash", "tree", "grep", "glob"] as const) {
+      expect(TOOL_SCHEMAS[toolName].inputSchema).toMatchObject({
+        properties: {
+          verbosity: {
+            enum: ["raw", "structured", "summary"],
+          },
+        },
+      });
+    }
+    expect((TOOL_SCHEMAS.grep.inputSchema.properties as Record<string, unknown>)["outputMode"]).toMatchObject({
+      enum: ["content", "files_with_matches", "count"],
+    });
+    expect((TOOL_SCHEMAS.read.inputSchema.properties as Record<string, unknown>)["verbosity"]).toBeUndefined();
+  });
+
   it("builds command metadata with a shared core contract", () => {
     const metadata: CommandToolResultMetadata<"bash"> = commandToolMetadata("bash", {
       cwd: "C:/workspace",
@@ -123,6 +139,7 @@ describe("tool domain types", () => {
       timeoutMs: 30_000,
       timedOut: false,
       truncated: false,
+      verbosity: "raw",
     });
 
     expect(metadata).toMatchObject({
@@ -133,6 +150,7 @@ describe("tool domain types", () => {
       timeoutMs: 30_000,
       timedOut: false,
       truncated: false,
+      verbosity: "raw",
     });
   });
 

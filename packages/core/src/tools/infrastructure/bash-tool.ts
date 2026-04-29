@@ -13,6 +13,7 @@ import {
   validateCommand,
   validateReadPath,
 } from "./tool-helpers.js";
+import { parseOutputVerbosity } from "./output-verbosity.js";
 
 const execFile = promisify(execFileCallback);
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -56,6 +57,10 @@ export class BashTool implements DevTool {
     if (!timeoutInput.ok) {
       return toErrorResult(timeoutInput.message);
     }
+    const verbosityInput = parseOutputVerbosity(input);
+    if (!verbosityInput.ok) {
+      return verbosityInput.result;
+    }
 
     const sandboxContext = getSandboxContext(sandbox);
     const cwd = resolvePath(optionalString(input, "cwd") ?? sandboxContext?.cwd ?? process.cwd(), sandbox);
@@ -67,6 +72,7 @@ export class BashTool implements DevTool {
         cwd,
         command: commandInput.value,
         timeoutMs: timeoutInput.value,
+        verbosity: verbosityInput.value,
       }));
     }
 
@@ -76,6 +82,7 @@ export class BashTool implements DevTool {
         cwd,
         command: commandInput.value,
         timeoutMs: timeoutInput.value,
+        verbosity: verbosityInput.value,
       }));
     }
 
@@ -87,7 +94,7 @@ export class BashTool implements DevTool {
       const stdout = result.stdout;
       const stderr = result.stderr;
       const output = [stdout, stderr].filter(Boolean).join("").trim();
-      return toSuccessResult(output, commandToolMetadata("bash", {
+      const metadata = commandToolMetadata("bash", {
         cwd,
         command: commandInput.value,
         timeoutMs: timeoutInput.value,
@@ -99,7 +106,9 @@ export class BashTool implements DevTool {
         timedOut: false,
         truncated: false,
         durationMs,
-      }));
+        verbosity: verbosityInput.value,
+      });
+      return toSuccessResult(formatBashOutput(output, metadata), metadata);
     } catch (error) {
       const err = error as NodeJS.ErrnoException & {
         stdout?: string;
@@ -117,7 +126,7 @@ export class BashTool implements DevTool {
         err.message ||
         "bash command failed";
 
-      return toErrorResult(message, commandToolMetadata("bash", {
+      const metadata = commandToolMetadata("bash", {
         cwd,
         command: commandInput.value,
         timeoutMs: timeoutInput.value,
@@ -132,9 +141,41 @@ export class BashTool implements DevTool {
         timedOut: isTimedOut(err),
         truncated: isMaxBufferExceeded(err),
         durationMs,
-      }));
+        verbosity: verbosityInput.value,
+      });
+      return toErrorResult(formatBashOutput(message, metadata), metadata);
     }
   }
+}
+
+function formatBashOutput(
+  rawOutput: string,
+  metadata: ReturnType<typeof commandToolMetadata<"bash">>,
+): string {
+  if (metadata.verbosity === "structured") {
+    return JSON.stringify({
+      stdout: metadata.stdout ?? "",
+      stderr: metadata.stderr ?? "",
+      exitCode: metadata.exitCode,
+      timedOut: metadata.timedOut ?? false,
+      truncated: metadata.truncated ?? false,
+      durationMs: metadata.durationMs,
+      stdoutBytes: metadata.stdoutBytes ?? 0,
+      stderrBytes: metadata.stderrBytes ?? 0,
+    }, null, 2);
+  }
+
+  if (metadata.verbosity === "summary") {
+    const status = metadata.exitCode === 0 ? "succeeded" : "failed";
+    return [
+      `Command ${status}`,
+      `stdout ${metadata.stdoutBytes ?? 0} bytes`,
+      `stderr ${metadata.stderrBytes ?? 0} bytes`,
+      `duration ${metadata.durationMs ?? 0}ms`,
+    ].join("; ");
+  }
+
+  return rawOutput;
 }
 
 function parseTimeout(input: ToolInput): { ok: true; value: number } | { ok: false; message: string } {

@@ -25,6 +25,9 @@ Closed slices:
    `ocr_image({ path, language? })` tools with image MIME validation, size
    limits, MCP-compatible image content, configurable OCR backend execution,
    shared `media` metadata, and shared projections.
+10. Core `verbosity?: "raw" | "structured" | "summary"` support for `bash`,
+    `tree`, `grep`, and `glob`, preserving raw defaults while adding structured
+    JSON and bounded summaries with stable metadata.
 
 ## Active Objective
 
@@ -40,21 +43,6 @@ execution path for CLI, GUI, TUI, and MCP consumers.
 - Research basis: `docs/research/11-agent-tooling-surface.md`
 
 ## Remaining Phases
-
-### Phase 8: Output Verbosity Modes
-
-Add shared option where useful:
-
-```ts
-outputMode?: "raw" | "structured" | "summary"
-```
-
-Core requirements:
-
-- stable metadata in every mode
-- raw output for low-token path lists and command output
-- structured output for rich machine-readable projections
-- summary output for large results
 
 ### Phase 9: Controlled Web Search And Fetch
 

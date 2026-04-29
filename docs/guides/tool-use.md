@@ -237,6 +237,15 @@ The supported theme names are defined once in `@kilnai/gateway-contracts`.
 
 `TOOL_SCHEMAS` is the source of truth for names, descriptions, input schemas, and annotations. `createDefaultBuiltinToolSurface()` turns those core definitions into registry, MCP, runtime, CLI, and capability projections.
 
+High-volume tools support a shared `verbosity` field:
+
+- `raw`: preserves the compact historical `ToolResult.output`
+- `structured`: returns JSON while keeping the same metadata contract
+- `summary`: returns a bounded rollup for large outputs
+
+The shared field is named `verbosity`, not `outputMode`, because `grep` already
+uses `outputMode` for match shape: `content`, `files_with_matches`, or `count`.
+
 ### Result metadata
 
 Builtin developer tools return one core-owned metadata contract from
@@ -246,6 +255,9 @@ Every metadata object includes:
 
 - `toolName`: canonical builtin tool name
 - `kind`: `command`, `file`, `inspection`, `media`, or `search`
+
+High-volume metadata may also include `verbosity`, which records the requested
+output shape without changing the stable metadata family.
 
 File metadata also includes `operation`, which is `read`, `write`, `edit`, or
 `patch`. Runtime file-change evidence is derived from shared `file` metadata
@@ -270,17 +282,17 @@ JSON `output`.
 
 | Tool | Purpose | Key params | Output shape |
 |------|---------|------------|--------------|
-| `bash` | Run a shell command through `bash -c` | `command`, `timeout`, `cwd` | `ToolResult.output` is combined stdout+stderr; metadata includes `cwd`, `command`, `timeoutMs` |
+| `bash` | Run a shell command through `bash -c` | `command`, `timeout`, `cwd`, `verbosity` | `raw` output is combined stdout+stderr; `structured` is JSON command evidence; `summary` is a bounded rollup; metadata includes `cwd`, `command`, `timeoutMs`, `verbosity` |
 | `read` | Read file content from disk | `filePath`, `offset`, `limit` | `output` is the selected line window; metadata includes `filePath`, `offset`, `limit`, `totalLines` |
 | `write` | Replace full file contents | `filePath`, `content` | `output` is a confirmation string; metadata includes `filePath`, `bytesWritten` |
 | `edit` | Replace one or all string matches in a file | `filePath`, `oldString`, `newString`, `replaceAll` | `output` is a replacement summary or an error; metadata includes `filePath`, `replacements`, `replaceAll` |
 | `patch` | Apply a structured multi-file patch | `patch`, `dryRun` | `output` is an apply or dry-run summary; metadata includes `operationCount`, `dryRun`, and per-file change entries |
 | `stat` | Inspect file, directory, symlink, or other path metadata | `path`, `hash` | `output` is compact JSON metadata; metadata includes `path`, `type`, `size`, `modifiedTime`, and optional `hash` |
-| `tree` | Produce a compact bounded directory tree | `path`, `depth`, `includeFiles` | `output` is an indented deterministic tree; metadata includes `path`, `depth`, `includeFiles`, `entryCount`, `truncated`, and ignored directories |
+| `tree` | Produce a compact bounded directory tree | `path`, `depth`, `includeFiles`, `verbosity` | `raw` output is an indented deterministic tree; `structured` is JSON entry data; `summary` is a bounded rollup; metadata includes `path`, `depth`, `includeFiles`, `entryCount`, `truncated`, `verbosity`, and ignored directories |
 | `view_image` | Read an image as model-consumable content | `path`, `detail` | `output` is compact JSON metadata; `content` includes MCP-compatible image data; metadata includes `path`, `mimeType`, `size`, dimensions, and `detail` |
 | `ocr_image` | Extract text from an image through the configured OCR backend | `path`, `language` | `output` is compact JSON text extraction data; metadata includes `path`, `mimeType`, `language`, `textLength`, and optional backend confidence/source |
-| `grep` | Search file content by regex | `pattern`, optional file-or-directory `path`, `glob`, `outputMode` | `output` is newline-delimited matches, file paths, or counts; metadata includes `path`, `strategy`, `outputMode` |
-| `glob` | Match files by glob pattern | `pattern`, `path` | `output` is newline-delimited relative file paths; metadata includes `path`, `strategy`, `count` |
+| `grep` | Search file content by regex | `pattern`, optional file-or-directory `path`, `glob`, `outputMode`, `verbosity` | `raw` output is newline-delimited matches, file paths, or counts; `structured` is JSON result data; `summary` is a bounded rollup; metadata includes `path`, `strategy`, `outputMode`, `count`, and `verbosity` |
+| `glob` | Match files by glob pattern | `pattern`, `path`, `verbosity` | `raw` output is newline-delimited relative file paths; `structured` is JSON matches; `summary` is a bounded rollup; metadata includes `path`, `strategy`, `count`, and `verbosity` |
 | `git` | Run a git subcommand | `subcommand`, `args` | `output` is combined stdout+stderr; metadata includes `cwd`, `command` |
 
 `patch` accepts a structured document with `*** Begin Patch` and
@@ -303,16 +315,16 @@ without changing disk.
 
 The built-in executors are intentionally small and predictable:
 
-- `BashTool` validates `cwd`, validates the command string against the sandbox policy, clamps timeout to `300000ms`, and executes with `execFile("bash", ["-c", command])`.
+- `BashTool` validates `cwd`, validates the command string against the sandbox policy, clamps timeout to `300000ms`, executes with `execFile("bash", ["-c", command])`, and applies `verbosity` after command metadata is built.
 - `ReadTool` uses line-based slicing, not byte offsets.
 - `WriteTool` creates parent directories before writing.
 - `EditTool` supports single replacement and `replaceAll`, and fails if the target string is not found.
 - `StatTool` validates the target path, reports `lstat` metadata, and computes SHA-256 only when requested for files.
-- `TreeTool` validates the root path, bounds depth and entry count, sorts directories before files, and skips nuisance directories by default.
+- `TreeTool` validates the root path, bounds depth and entry count, sorts directories before files, skips nuisance directories by default, and can return raw, structured, or summary output.
 - `ViewImageTool` validates path and image MIME by content, enforces size limits, and returns base64 image content plus media metadata.
 - `OcrImageTool` validates the image through the same path and MIME checks, then calls the configured OCR runner; the default runner uses `tesseract` from PATH when available.
-- `GrepTool` uses `rg` when available and falls back to a recursive file walk plus JavaScript `RegExp`.
-- `GlobTool` uses `fd` when available and falls back to the same recursive walker plus glob matching helpers.
+- `GrepTool` uses `rg` when available and falls back to a recursive file walk plus JavaScript `RegExp`; `outputMode` controls match shape while `verbosity` controls result shape.
+- `GlobTool` uses `fd` when available and falls back to the same recursive walker plus glob matching helpers; it can return raw path lists, structured JSON matches, or a summary.
 - `GitTool` executes `git` directly and validates the reconstructed command string before running it.
 
 All twelve tools return `ToolResult`; failures are regular tool results when possible, not uncaught process exceptions.

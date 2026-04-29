@@ -27,6 +27,7 @@ export type {
   SearchToolName,
   SearchToolResultMetadata,
   SearchToolStrategy,
+  ToolOutputVerbosity,
   ToolResultMetadata,
 } from "./domain/tool-result-metadata.js";
 export {

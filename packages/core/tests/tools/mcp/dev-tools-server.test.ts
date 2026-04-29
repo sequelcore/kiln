@@ -155,6 +155,26 @@ describe("DevToolsMcpServer", () => {
     });
   });
 
+  it("exposes shared verbosity on high-volume MCP tools without changing grep outputMode", async () => {
+    const server = createServer();
+
+    for (const toolName of ["bash", "tree", "grep", "glob"]) {
+      const schema = server.listTools().find((tool) => tool.name === toolName);
+      expect(schema?.inputSchema).toMatchObject({
+        properties: {
+          verbosity: expect.objectContaining({ enum: ["raw", "structured", "summary"] }),
+        },
+      });
+    }
+
+    const grepSchema = server.listTools().find((tool) => tool.name === "grep");
+    expect(grepSchema?.inputSchema).toMatchObject({
+      properties: {
+        outputMode: expect.objectContaining({ enum: ["content", "files_with_matches", "count"] }),
+      },
+    });
+  });
+
   it("returns MCP image content for view_image", async () => {
     const tempDir = await makeTempDir();
     try {

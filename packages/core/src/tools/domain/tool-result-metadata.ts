@@ -9,6 +9,7 @@ export type InspectionToolOperation = "stat" | "tree";
 export type InspectionEntryType = "file" | "directory" | "symlink" | "other";
 export type MediaToolOperation = "view_image" | "ocr";
 export type ImageDetail = "default" | "original";
+export type ToolOutputVerbosity = "raw" | "structured" | "summary";
 export type SearchToolStrategy = "rg" | "fd" | "fallback";
 export type GrepOutputMode = "content" | "files_with_matches" | "count";
 
@@ -29,6 +30,7 @@ export interface CommandToolResultMetadata<TToolName extends CommandToolName = C
   readonly truncated?: boolean;
   readonly maxBufferBytes?: number;
   readonly durationMs?: number;
+  readonly verbosity?: ToolOutputVerbosity;
 }
 
 export interface FileToolResultMetadata<TToolName extends FileToolName = FileToolName> {
@@ -73,6 +75,7 @@ export interface SearchToolResultMetadata<TToolName extends SearchToolName = Sea
   readonly outputMode?: GrepOutputMode;
   readonly count?: number;
   readonly noMatches?: boolean;
+  readonly verbosity?: ToolOutputVerbosity;
 }
 
 export interface InspectionToolResultMetadata<TToolName extends InspectionToolName = InspectionToolName> {
@@ -91,6 +94,7 @@ export interface InspectionToolResultMetadata<TToolName extends InspectionToolNa
   readonly truncated?: boolean;
   readonly ignoredDirectories?: readonly string[];
   readonly code?: number | string;
+  readonly verbosity?: ToolOutputVerbosity;
 }
 
 export interface MediaToolResultMetadata<TToolName extends MediaToolName = MediaToolName> {

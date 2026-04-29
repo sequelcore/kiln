@@ -2,6 +2,11 @@
 
 import type { ToolResultMetadata } from "./tool-result-metadata.js";
 
+const OUTPUT_VERBOSITY_PROPERTY = {
+  enum: ["raw", "structured", "summary"],
+  description: "Controls ToolResult.output shape. raw preserves the compact default, structured returns JSON, summary returns a bounded rollup.",
+} as const;
+
 export type ToolInput = {
   readonly name: string;
   readonly input: Record<string, unknown>;
@@ -82,6 +87,7 @@ export const TOOL_SCHEMAS: Record<
           type: "string",
           description: "Optional working directory for the command.",
         },
+        verbosity: OUTPUT_VERBOSITY_PROPERTY,
       },
       required: ["command"],
       additionalProperties: false,
@@ -231,6 +237,7 @@ export const TOOL_SCHEMAS: Record<
           type: "boolean",
           description: "When false, only directories are shown. Defaults to true.",
         },
+        verbosity: OUTPUT_VERBOSITY_PROPERTY,
       },
       required: [],
       additionalProperties: false,
@@ -311,6 +318,7 @@ export const TOOL_SCHEMAS: Record<
           enum: ["content", "files_with_matches", "count"],
           description: "content returns matching lines, files_with_matches returns only file paths, count returns per-file counts.",
         },
+        verbosity: OUTPUT_VERBOSITY_PROPERTY,
       },
       required: ["pattern"],
       additionalProperties: false,
@@ -335,6 +343,7 @@ export const TOOL_SCHEMAS: Record<
           type: "string",
           description: "Optional directory root for the glob search.",
         },
+        verbosity: OUTPUT_VERBOSITY_PROPERTY,
       },
       required: ["pattern"],
       additionalProperties: false,

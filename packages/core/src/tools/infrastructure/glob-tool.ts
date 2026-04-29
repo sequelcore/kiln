@@ -3,7 +3,7 @@ import {
   detectToolEnvironment,
   type ToolEnvironment,
 } from "../domain/tool-environment.js";
-import { searchToolMetadata } from "../domain/tool-result-metadata.js";
+import { searchToolMetadata, type ToolOutputVerbosity } from "../domain/tool-result-metadata.js";
 import {
   TOOL_SCHEMAS,
   type DevTool,
@@ -24,6 +24,7 @@ import {
   validateReadPath,
   walkFiles,
 } from "./tool-helpers.js";
+import { parseOutputVerbosity, pluralize, splitNonEmptyLines } from "./output-verbosity.js";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 
@@ -60,6 +61,10 @@ export class GlobTool implements DevTool {
     if (!patternInput.ok) {
       return patternInput.result;
     }
+    const verbosityInput = parseOutputVerbosity(input);
+    if (!verbosityInput.ok) {
+      return verbosityInput.result;
+    }
 
     const sandboxContext = getSandboxContext(sandbox);
     const searchRoot = resolvePath(
@@ -78,10 +83,10 @@ export class GlobTool implements DevTool {
       const fdPath = environment.fd?.path;
 
       if (fdPath) {
-        return await this.executeFastPath(fdPath, searchRoot, patternInput.value);
+        return await this.executeFastPath(fdPath, searchRoot, patternInput.value, verbosityInput.value);
       }
 
-      return await this.executeFallback(searchRoot, patternInput.value, sandbox);
+      return await this.executeFallback(searchRoot, patternInput.value, verbosityInput.value, sandbox);
     } catch (error) {
       const err = error as Error;
       return toErrorResult(err.message, searchToolMetadata("glob", {
@@ -94,6 +99,7 @@ export class GlobTool implements DevTool {
     fdPath: string,
     searchRoot: string,
     pattern: string,
+    verbosity: ToolOutputVerbosity,
   ): Promise<ToolResult> {
     const args = ["--glob", "--type", "f", pattern, "."];
     try {
@@ -104,10 +110,15 @@ export class GlobTool implements DevTool {
         DEFAULT_TIMEOUT_MS,
       );
 
-      return toSuccessResult(result.stdout.trim(), searchToolMetadata("glob", {
+      const rawOutput = result.stdout.trim();
+      const matches = splitNonEmptyLines(rawOutput);
+      const metadata = searchToolMetadata("glob", {
         path: searchRoot,
         strategy: "fd",
-      }));
+        count: matches.length,
+        verbosity,
+      });
+      return toSuccessResult(formatGlobOutput(rawOutput, matches, verbosity), metadata);
     } catch (error) {
       const err = error as NodeJS.ErrnoException & {
         stdout?: string;
@@ -116,10 +127,12 @@ export class GlobTool implements DevTool {
       };
 
       if (String(err.code) === "1") {
-        return toSuccessResult("", searchToolMetadata("glob", {
+        return toSuccessResult(formatGlobOutput("", [], verbosity), searchToolMetadata("glob", {
           path: searchRoot,
           strategy: "fd",
+          count: 0,
           noMatches: true,
+          verbosity,
         }));
       }
 
@@ -137,6 +150,7 @@ export class GlobTool implements DevTool {
   private async executeFallback(
     searchRoot: string,
     pattern: string,
+    verbosity: ToolOutputVerbosity,
     sandbox?: unknown,
   ): Promise<ToolResult> {
     const files = await walkFiles(searchRoot);
@@ -154,10 +168,31 @@ export class GlobTool implements DevTool {
       }
     }
 
-    return toSuccessResult(matches.join("\n"), searchToolMetadata("glob", {
+    const rawOutput = matches.join("\n");
+    return toSuccessResult(formatGlobOutput(rawOutput, matches, verbosity), searchToolMetadata("glob", {
       path: searchRoot,
       strategy: "fallback",
       count: matches.length,
+      verbosity,
     }));
   }
+}
+
+function formatGlobOutput(
+  rawOutput: string,
+  matches: readonly string[],
+  verbosity: ToolOutputVerbosity,
+): string {
+  if (verbosity === "structured") {
+    return JSON.stringify({
+      matches,
+      count: matches.length,
+    }, null, 2);
+  }
+
+  if (verbosity === "summary") {
+    return `${matches.length} ${pluralize(matches.length, "match")}`;
+  }
+
+  return rawOutput;
 }

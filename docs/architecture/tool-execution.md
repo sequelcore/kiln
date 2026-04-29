@@ -256,10 +256,17 @@ Every builtin metadata object includes:
 
 Existing metadata keys such as `cwd`, `command`, `filePath`, `bytesWritten`,
 `replacements`, `path`, `type`, `size`, `modifiedTime`, `mimeType`, `strategy`,
-`timedOut`, and `truncated` are preserved. The normalized fields are additive
-and come from
+`timedOut`, and `truncated` are preserved. High-volume tools may also include
+`verbosity` to record whether the public `output` was raw, structured, or
+summarized. The normalized fields are additive and come from
 `packages/core/src/tools/domain/tool-result-metadata.ts`; consumers must not
 create private metadata contracts for builtin tools.
+
+The shared result-shaping input is `verbosity`, not `outputMode`. `grep` already
+uses `outputMode` for match semantics (`content`, `files_with_matches`, or
+`count`), so reusing that field for output shape would make the contract
+ambiguous. `verbosity` is currently supported by `bash`, `tree`, `grep`, and
+`glob`; it changes only `ToolResult.output`, not the metadata family.
 
 Inspection metadata is read-only orientation state. `stat` can report type,
 size, modified time, and an optional checksum. `tree` can report bounded
