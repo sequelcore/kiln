@@ -2652,6 +2652,10 @@ describe("discoverGuiDirectProviderModelDiscovery", () => {
               slug: "gpt-5.4-mini",
               shell_type: "disabled",
             },
+            {
+              slug: "gpt-no-functions",
+              supports_tools: false,
+            },
           ],
         }),
       };
@@ -2664,7 +2668,7 @@ describe("discoverGuiDirectProviderModelDiscovery", () => {
       };
       const discovered = await discoverGuiDirectProviderModelDiscovery(providerAvailability);
       const models = projectDirectProviderDiscoveryForTest(discovered, providerAvailability);
-      expect(models["codex-oauth"]).toEqual(["gpt-5.4", "gpt-5.4-mini"]);
+      expect(models["codex-oauth"]).toEqual(["gpt-5.4", "gpt-5.4-mini", "gpt-no-functions"]);
       expect(discovered["codex-oauth"]?.modelCapabilities).toEqual({
         "gpt-5.4": {
           supportsTools: true,
@@ -2674,7 +2678,7 @@ describe("discoverGuiDirectProviderModelDiscovery", () => {
           defaultReasoningEffort: "medium",
           supportedReasoningEfforts: ["low", "medium", "high"],
         },
-        "gpt-5.4-mini": {
+        "gpt-no-functions": {
           supportsTools: false,
         },
       });

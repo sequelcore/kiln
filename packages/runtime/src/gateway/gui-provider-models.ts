@@ -561,9 +561,17 @@ function readReasoningEffortArray(value: unknown): readonly GuiProviderReasoning
 }
 
 function readCodexOauthModelSupportsTools(record: Readonly<Record<string, unknown>>): boolean | undefined {
+  const explicitSupportsTools =
+    readBoolean(record.supports_tools)
+    ?? readBoolean(record.supportsTools)
+    ?? readBoolean(record.supports_function_calling)
+    ?? readBoolean(record.supportsFunctionCalling)
+    ?? readBoolean(record.supports_tool_calls)
+    ?? readBoolean(record.supportsToolCalls);
+  if (explicitSupportsTools !== undefined) return explicitSupportsTools;
+
   const shellType = readString(record.shell_type) ?? readString(record.shellType);
-  if (shellType === "disabled") return false;
-  if (shellType) return true;
+  if (shellType && shellType !== "disabled") return true;
 
   const applyPatchToolType =
     readString(record.apply_patch_tool_type)
