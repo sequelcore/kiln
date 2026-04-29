@@ -5,6 +5,7 @@ import { parse, stringify } from "yaml";
 import { KilnYamlError } from "../kiln-yaml.js";
 import type {
   KilnHooksConfig,
+  KilnYamlWebConfig,
   KilnYamlMcp,
   KilnYamlPermissions,
 } from "../kiln-yaml-types.js";
@@ -28,6 +29,7 @@ export interface KilnGlobalConfig {
   model?: string;
   permissions?: KilnYamlPermissions;
   mcp?: KilnYamlMcp;
+  web?: KilnYamlWebConfig;
   hooks?: KilnHooksConfig;
   identity?: KilnGlobalIdentity;
   tui?: KilnGlobalTuiConfig;

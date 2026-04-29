@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { KilnAppConfig } from "../config.js";
 import { readGlobalConfig } from "../config/global-config.js";
+import { loadConfiguredWebToolSurfaceOptions } from "../config/web-tools-config.js";
 import { resolveEffectiveProvider } from "../config/env-config.js";
 import { loadResumeSidebarInfo } from "../application/resume-sidebar-info.js";
 import { SessionStore, TranscriptStore } from "../wrapper/session-store.js";
@@ -54,6 +55,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
   const themePreference = resolveGuiThemePreference(flags.theme, globalConfig);
   const transcriptStore = new TranscriptStore(cwd);
   const contextArtifactCache = await getProjectContextArtifactCache(cwd);
+  const builtinToolOptions = await loadConfiguredWebToolSurfaceOptions(appConfig, cwd);
   const sessionManager = await makeMultiProviderSessionFactory(
     provider,
     providerIds,
@@ -62,6 +64,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
     sessionStore,
     transcriptStore,
     contextArtifactCache,
+    builtinToolOptions,
   );
   const bootstrapContext = await resolveGuiBootstrapContext(appConfig, cwd, contextArtifactCache);
   const managedWindowShutdownMonitor = createManagedGuiWindowShutdownMonitor();
@@ -89,6 +92,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
     updateThemePreference: (theme) => persistGuiThemePreference(theme, globalConfig),
     onConnectionCountChange: managedWindowShutdownMonitor.onConnectionCountChange,
     onManagedWindowClose: managedWindowShutdownMonitor.onManagedWindowClose,
+    builtinToolOptions,
     operatorTransport: {
       sessionManager,
       systemPrompt: bootstrapContext.systemPrompt,

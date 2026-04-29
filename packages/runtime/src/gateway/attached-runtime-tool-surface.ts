@@ -2,6 +2,7 @@ import type {
   AuthorityDescriptor,
   Capability,
   DefaultBuiltinToolSurface,
+  DefaultBuiltinToolRegistryOptions,
   DiscoveredDirectProviderModelCapabilities,
   ToolDefinition,
 } from "@kilnai/core";
@@ -31,16 +32,13 @@ export interface AttachedRuntimeBuiltinToolSurface {
 
 export interface AttachedRuntimeBuiltinToolSurfaceOptions {
   readonly operatorSurface?: OperatorSurfaceController;
+  readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
 }
 
 const DEFAULT_CORE_BUILTIN_TOOL_SURFACE = createDefaultBuiltinToolSurface();
-const DEFAULT_TOOL_CAPABILITIES = DEFAULT_CORE_BUILTIN_TOOL_SURFACE.capabilities;
-const DEFAULT_BUILTIN_TOOL_SURFACE: AttachedRuntimeBuiltinToolSurface = {
-  callBuiltinTools: buildBuiltinToolExecutors(DEFAULT_CORE_BUILTIN_TOOL_SURFACE),
-  toolDefinitions: DEFAULT_CORE_BUILTIN_TOOL_SURFACE.toolDefinitions,
-  capabilities: DEFAULT_TOOL_CAPABILITIES,
-  toolAuthority: buildBuiltinToolAuthority(DEFAULT_TOOL_CAPABILITIES),
-};
+const DEFAULT_BUILTIN_TOOL_SURFACE: AttachedRuntimeBuiltinToolSurface = buildRuntimeSurface(
+  DEFAULT_CORE_BUILTIN_TOOL_SURFACE,
+);
 
 const OPERATOR_SET_THEME_TOOL: ToolDefinition = {
   name: "operator_set_theme",
@@ -82,17 +80,21 @@ export function createAttachedRuntimeBuiltinToolSurface(
   options: AttachedRuntimeBuiltinToolSurfaceOptions = {},
 ): AttachedRuntimeBuiltinToolSurface {
   const themeController = options.operatorSurface?.theme;
+  const baseSurface = options.builtinToolOptions
+    ? buildRuntimeSurface(createDefaultBuiltinToolSurface(options.builtinToolOptions))
+    : DEFAULT_BUILTIN_TOOL_SURFACE;
+
   if (!themeController) {
-    return DEFAULT_BUILTIN_TOOL_SURFACE;
+    return baseSurface;
   }
 
-  const callBuiltinTools = new Map(DEFAULT_BUILTIN_TOOL_SURFACE.callBuiltinTools);
+  const callBuiltinTools = new Map(baseSurface.callBuiltinTools);
   callBuiltinTools.set(OPERATOR_SET_THEME_TOOL.name, async (input) => executeOperatorSetTheme(input, themeController));
 
-  const capabilities = new Map(DEFAULT_BUILTIN_TOOL_SURFACE.capabilities);
+  const capabilities = new Map(baseSurface.capabilities);
   capabilities.set(OPERATOR_SET_THEME_TOOL.name, OPERATOR_SET_THEME_CAPABILITY);
 
-  const toolAuthority = new Map(DEFAULT_BUILTIN_TOOL_SURFACE.toolAuthority);
+  const toolAuthority = new Map(baseSurface.toolAuthority);
   const authority = authorityFromCapability(OPERATOR_SET_THEME_TOOL.name, OPERATOR_SET_THEME_CAPABILITY);
   if (authority) {
     toolAuthority.set(OPERATOR_SET_THEME_TOOL.name, authority);
@@ -100,9 +102,18 @@ export function createAttachedRuntimeBuiltinToolSurface(
 
   return {
     callBuiltinTools,
-    toolDefinitions: [...DEFAULT_BUILTIN_TOOL_SURFACE.toolDefinitions, OPERATOR_SET_THEME_TOOL],
+    toolDefinitions: [...baseSurface.toolDefinitions, OPERATOR_SET_THEME_TOOL],
     capabilities,
     toolAuthority,
+  };
+}
+
+function buildRuntimeSurface(coreSurface: DefaultBuiltinToolSurface): AttachedRuntimeBuiltinToolSurface {
+  return {
+    callBuiltinTools: buildBuiltinToolExecutors(coreSurface),
+    toolDefinitions: coreSurface.toolDefinitions,
+    capabilities: coreSurface.capabilities,
+    toolAuthority: buildBuiltinToolAuthority(coreSurface.capabilities),
   };
 }
 

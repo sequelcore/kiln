@@ -11,6 +11,7 @@ import {
   getFieldStrength,
   isDirectProviderId,
   resolveDirectProviderExecutionProfile,
+  type DefaultBuiltinToolRegistryOptions,
   type ReasoningEffort,
 } from "@kilnai/core";
 import type { OperatorSurfaceController } from "@kilnai/runtime";
@@ -147,6 +148,7 @@ export interface ProviderCreateConfig {
   readonly addDir?: string;
   readonly localProvider?: string;
   readonly operatorSurface?: OperatorSurfaceController;
+  readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
 }
 
 export interface ClaudeBackendConfig {
@@ -950,6 +952,7 @@ function createDirectProviderSession(
     constraintInstructions: translated.constraintInstructions,
     executionProfile: profile,
     ...(config.operatorSurface ? { operatorSurface: config.operatorSurface } : {}),
+    ...(config.builtinToolOptions ? { builtinToolOptions: config.builtinToolOptions } : {}),
   });
 }
 

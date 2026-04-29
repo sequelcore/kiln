@@ -15,6 +15,7 @@ import {
   type ToolDefinition,
   type ReasoningEffort,
   resolveDirectProviderExecutionProfile,
+  type DefaultBuiltinToolRegistryOptions,
 } from "@kilnai/core";
 import {
   createAttachedRuntimeBuiltinToolSurface,
@@ -47,6 +48,7 @@ export interface ProviderSessionConfig {
   readonly executionMode?: DirectProviderExecutionMode;
   readonly executionProfile?: ResolvedDirectProviderExecutionProfile;
   readonly operatorSurface?: OperatorSurfaceController;
+  readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
 }
 
 const PROVIDER_PRIORITY: Record<ProviderSessionConfig["provider"], number> = {
@@ -138,6 +140,7 @@ export class ProviderSession implements IKilnSession {
     };
     const builtinToolSurface = createAttachedRuntimeBuiltinToolSurface({
       operatorSurface,
+      builtinToolOptions: config.builtinToolOptions,
     });
     this.builtinTools = builtinToolSurface.callBuiltinTools;
     this.toolDefinitions = builtinToolSurface.toolDefinitions;

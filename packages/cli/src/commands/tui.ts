@@ -14,6 +14,7 @@ import {
 } from "../application/context-artifact-keys.js";
 import { readGlobalConfig } from "../config/global-config.js";
 import { resolveEffectiveProvider } from "../config/env-config.js";
+import { loadConfiguredWebToolSurfaceOptions } from "../config/web-tools-config.js";
 import {
   createDefaultRegistry,
   getProviderDisplayInfo,
@@ -31,6 +32,7 @@ import {
   type AgentMessage,
   type CanonicalSessionEventKind,
   type ContextArtifactCache,
+  type DefaultBuiltinToolRegistryOptions,
   type SessionEventSource,
 } from "@kilnai/core";
 import { getProjectContextArtifactCache } from "@kilnai/runtime";
@@ -60,6 +62,7 @@ interface TuiBootstrapOptions {
   readonly registry: ReturnType<typeof createDefaultRegistry>["registry"];
   readonly contextArtifactCache: ContextArtifactCache;
   readonly systemPrompt: string;
+  readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
 }
 
 interface TuiBootstrapResult {
@@ -285,6 +288,7 @@ export async function makeMultiProviderSessionFactory(
   sessionStore: SessionStore,
   transcriptStore: TranscriptStore,
   contextArtifactCache: ContextArtifactCache,
+  builtinToolOptions?: DefaultBuiltinToolRegistryOptions,
 ): Promise<MultiProviderSessionManager> {
   const providers = providerIds;
   
@@ -376,6 +380,7 @@ export async function makeMultiProviderSessionFactory(
           model: modelForTurn,
           reasoningEffort: options.reasoningEffort,
           ...(context?.operatorSurface ? { operatorSurface: context.operatorSurface } : {}),
+          ...(builtinToolOptions ? { builtinToolOptions } : {}),
         });
         activeSession = resumedSession;
         const capturedId = options.kilnSessionId ?? context?.kilnSessionId ?? resumedFrom ?? resumedSession.sessionId;
@@ -599,6 +604,7 @@ async function bootstrapGatewaySession(
     getProviderAvailability: () => getRuntimeProviderAvailability(options.registry),
     contextArtifactCache,
     planMode: flags.plan ?? false,
+    builtinToolOptions: options.builtinToolOptions,
   });
 
   writeTuiBootstrapStatus("Connecting to local gateway...");
@@ -849,6 +855,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   const provider = parseProvider(resolveEffectiveProvider(flags.provider, globalConfig?.provider), providerIds);
   const startupProviderIds = providerIds;
   const contextArtifactCache = await getProjectContextArtifactCache(cwd);
+  const builtinToolOptions = await loadConfiguredWebToolSurfaceOptions(appConfig, cwd);
 
   // Resolve domain display name from app config if available
   let domain = "kiln";
@@ -880,6 +887,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     sessionStore,
     transcriptStore,
     contextArtifactCache,
+    builtinToolOptions,
   );
 
   const bootstrap = await bootstrapTuiSession({
@@ -888,6 +896,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     registry,
     contextArtifactCache,
     systemPrompt,
+    builtinToolOptions,
   });
 
   const shutdown = (code = 0, error?: unknown) => {

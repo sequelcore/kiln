@@ -10,8 +10,18 @@ import {
 import { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
 import type { PerCallToolConfig } from "../session/runtime-session-orchestrator.js";
 import { SessionRegistry } from "../session/session-registry.js";
-import { textParts, extractText, EventBus, type ApprovalRequestedEvent, type ApprovalReceivedEvent, type KilnEvent, type ToolAuthorizedEvent, type ReasoningEffort } from "@kilnai/core";
-import type { ContextArtifactCache } from "@kilnai/core";
+import {
+  textParts,
+  extractText,
+  EventBus,
+  type ApprovalRequestedEvent,
+  type ApprovalReceivedEvent,
+  type KilnEvent,
+  type ToolAuthorizedEvent,
+  type ReasoningEffort,
+  type DefaultBuiltinToolRegistryOptions,
+  type ContextArtifactCache,
+} from "@kilnai/core";
 import { CliSubscriptionExecutor } from "../execution/cli-subscription-executor.js";
 import type { CliSessionFactory, CliSessionEvent } from "../execution/cli-subscription-executor.js";
 import { ApprovalGateRegistry } from "./approval-registry.js";
@@ -76,6 +86,7 @@ export interface TuiGatewayOptions {
   readonly eventBus?: EventBus;
   /** Whether plan mode is active (read-only planning). */
   readonly planMode?: boolean;
+  readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
   readonly getProviderAvailability?: () => Promise<Record<string, boolean>> | Record<string, boolean>;
 }
 
@@ -303,7 +314,9 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
 
   // Activity streamer: bridges CLI session events to the active WS connection
   const activityStreamer = new TuiActivityStreamer(approvalRegistry);
-  const builtinToolSurface = createAttachedRuntimeBuiltinToolSurface();
+  const builtinToolSurface = createAttachedRuntimeBuiltinToolSurface({
+    builtinToolOptions: options.builtinToolOptions,
+  });
   let activeOperatorSurface: { theme: { setTheme: ReturnType<typeof createOperatorThemeBridge>["request"] } } | undefined;
 
   const executor = new CliSubscriptionExecutor(
@@ -617,6 +630,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
                 frame.reasoningEffort,
               );
               const turnBuiltinToolSurface = createAttachedRuntimeBuiltinToolSurface({
+                builtinToolOptions: options.builtinToolOptions,
                 operatorSurface: {
                   theme: {
                     setTheme: operatorThemeBridge.request,
@@ -685,6 +699,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
                 routedProvider,
                 routedModel || undefined,
                 createAttachedRuntimeBuiltinToolSurface({
+                  builtinToolOptions: options.builtinToolOptions,
                   operatorSurface: {
                     theme: {
                       setTheme: operatorThemeBridge.request,

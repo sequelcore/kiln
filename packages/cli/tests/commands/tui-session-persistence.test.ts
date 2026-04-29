@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { SessionRecord, TranscriptStore } from "../../src/wrapper/session-store.js";
-import { InMemoryContextArtifactCache, type ContextArtifactCache } from "@kilnai/core";
+import { InMemoryContextArtifactCache, type ContextArtifactCache, type DefaultBuiltinToolRegistryOptions } from "@kilnai/core";
 
 const {
   mockGatewaySessionCtor,
@@ -269,6 +269,37 @@ describe("makeMultiProviderSessionFactory", () => {
     for await (const _ of session.run({ prompt: "test" } as any)) {}
 
     expect(registry.createSession).toHaveBeenCalled();
+  });
+
+  it("passes configured builtin tool options into provider sessions", async () => {
+    const { store } = makeStore(null);
+    const { registry } = makeRegistry();
+    const transcriptStore = makeTranscriptStore();
+    const cache = makeContextArtifactCache();
+    const builtinToolOptions: DefaultBuiltinToolRegistryOptions = {
+      webSearch: {
+        searchProvider: async () => ({ sources: [] }),
+      },
+    };
+
+    const { factory } = await makeMultiProviderSessionFactory(
+      "claude",
+      PROVIDER_IDS,
+      "/p",
+      registry,
+      store as any,
+      transcriptStore,
+      cache,
+      builtinToolOptions,
+    );
+    const session = factory("sys", "/p");
+
+    for await (const _ of session.run({ prompt: "test" } as any)) {}
+
+    expect(registry.createSession).toHaveBeenCalledWith(
+      "claude",
+      expect.objectContaining({ builtinToolOptions }),
+    );
   });
 
   it("calls store.append() after session dispose", async () => {

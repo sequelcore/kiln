@@ -102,6 +102,20 @@ query, domain, recency, and max-result controls through an injected
 scrapes public result pages or shells out for search. CLI, GUI, TUI, and MCP
 receive the new tools from the same core surface.
 
+### Slice 10: Web Provider Configuration And Runtime Policy Wiring
+
+`KilnYaml.web` now configures controlled web access once for every consumer. The
+schema gates activation with `enabled`, resolves `netPolicy` and
+`allowedDomains` into a shared `SandboxPolicy`, and supports a provider-neutral
+HTTP JSON `WebSearchProvider` adapter through `searchProvider`.
+
+Absent configuration remains fail-closed: `web_fetch` requires explicit network
+policy and `web_search` requires an injected provider. Configured options are
+passed into `createDefaultBuiltinToolSurface()` for CLI MCP startup and into
+`createAttachedRuntimeBuiltinToolSurface()` for direct provider sessions, GUI
+gateway startup, and TUI gateway startup. GUI and TUI operator tools still layer
+on top of the same configured core surface.
+
 ## Consumer Contract
 
 All current consumers use the shared surface:
@@ -113,48 +127,17 @@ All current consumers use the shared surface:
   `buildAttachedRuntimePerCallToolConfig()`.
 - GUI and TUI may attach operator-surface tools, such as `operator_set_theme`,
   but developer tools still come from the core surface.
+- Web policy and search-provider configuration are resolved once from
+  `KilnYaml.web` and then passed into the same core surface constructors; no
+  consumer owns a private web provider or network policy path.
 - No consumer may copy builtin tool schemas, create a private executor, or
   define separate metadata contracts for builtin tools.
 
 ## Remaining Tool Phases
 
-### Phase 10: Web Provider Configuration And Runtime Policy Wiring
-
-Goal: make the core web tools operational through explicit configuration while
-preserving fail-closed defaults.
-
-The core contracts are already present:
-
-```ts
-web_search({ query: string, domains?: string[], recencyDays?: number })
-web_fetch({ url: string })
-```
-
-Design requirements:
-
-- Add configuration for web network policy and allowed domains.
-- Add configuration for the selected `WebSearchProvider`.
-- Pass configured policy/provider into `createDefaultBuiltinToolSurface()` for
-  CLI MCP startup.
-- Pass the same configured policy/provider into runtime-attached CLI, GUI, and
-  TUI surfaces.
-- Keep `web_search` provider-not-configured and `web_fetch` network-denied
-  defaults when configuration is absent.
-- Prove all consumers receive the same configured core tool surface.
-
-Research basis:
-
-- Claude Code exposes `WebFetch` and `WebSearch`.
-- Gemini CLI exposes both `web_fetch` and web search.
-- Production MCP research identifies server contracts, timeouts, errors, and
-  observability as necessary reliability layers; web tools must include those
-  from the first slice.
-- Anthropic and OpenAI web search surfaces expose source/citation information
-  and domain controls, confirming that source evidence is part of the contract.
-- MCP security guidance calls out network scope minimization and SSRF risk, so
-  web tools need policy enforcement at the URL boundary.
-- User reports from coding-agent communities show demand for reliable current
-  documentation lookup and lower-friction recency-triggered search.
+No tool phase remains open. Future additions should begin with a new research
+record that compares current agent tooling, security guidance, and user pain
+points before changing the shared surface.
 
 ## Execution Rules
 

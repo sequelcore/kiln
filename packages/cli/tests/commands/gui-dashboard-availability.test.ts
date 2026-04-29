@@ -7,11 +7,14 @@ import type { KilnAppConfig } from "../../src/config.js";
 const gatewayHarness = vi.hoisted(() => ({
   snapshot: null as { providers?: Array<{ id: string; available: boolean }> } | null,
   operatorModels: {} as Record<string, string[]>,
+  lastOptions: null as { builtinToolOptions?: unknown } | null,
   shutdown: vi.fn(),
   closeWindow: vi.fn(),
   startGuiGateway: vi.fn(async (options: {
     getSnapshot: (context?: { operatorModels?: Record<string, string[]> }) => Promise<unknown>;
+    builtinToolOptions?: unknown;
   }) => {
+    gatewayHarness.lastOptions = options;
     gatewayHarness.snapshot = await options.getSnapshot({
       operatorModels: gatewayHarness.operatorModels,
     }) as { providers?: Array<{ id: string; available: boolean }> };
@@ -78,15 +81,19 @@ vi.mock("@kilnai/runtime", () => ({
   startGuiGateway: gatewayHarness.startGuiGateway,
 }));
 
-vi.mock("@kilnai/core", () => ({
-  getFieldStore: vi.fn(() => ({
-    snapshot: vi.fn().mockResolvedValue({
-      regions: new Map(),
-      dominantRegions: [],
-      entropy: 0,
-    }),
-  })),
-}));
+vi.mock("@kilnai/core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@kilnai/core")>();
+  return {
+    ...actual,
+    getFieldStore: vi.fn(() => ({
+      snapshot: vi.fn().mockResolvedValue({
+        regions: new Map(),
+        dominantRegions: [],
+        entropy: 0,
+      }),
+    })),
+  };
+});
 
 vi.mock("../../src/config/global-config.js", () => ({
   readGlobalConfig: configMocks.readGlobalConfig,
@@ -165,6 +172,7 @@ describe("GUI dashboard provider availability", () => {
     vi.clearAllMocks();
     gatewayHarness.snapshot = null;
     gatewayHarness.operatorModels = {};
+    gatewayHarness.lastOptions = null;
     configMocks.globalConfig = null;
     registryMocks.providers = [{
       id: "openai",
@@ -174,6 +182,33 @@ describe("GUI dashboard provider availability", () => {
       health: "healthy",
       isAvailable: () => false,
     }];
+  });
+
+  it("passes configured web tool options into GUI gateway startup", async () => {
+    tmpDir = mkdtempSync(join(tmpdir(), "kiln-gui-dashboard-availability-"));
+    const { guiCommand } = await import("../../src/commands/gui.js");
+
+    await guiCommand({
+      ...APP_CONFIG,
+      kilnYaml: {
+        version: "1",
+        web: {
+          enabled: true,
+          netPolicy: "documentation",
+          allowedDomains: ["docs.example.com"],
+        },
+      },
+    }, {
+      cwd: tmpDir,
+      mode: "prod",
+      open: true,
+      provider: registryMocks.providers[0].id,
+    });
+
+    expect(gatewayHarness.lastOptions?.builtinToolOptions).toMatchObject({
+      webFetch: expect.any(Object),
+      webSearch: expect.any(Object),
+    });
   });
 
   afterEach(() => {

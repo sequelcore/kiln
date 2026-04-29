@@ -6,6 +6,7 @@ import type {
   KilnYaml,
   KilnYamlMcp,
   KilnYamlMcpServer,
+  KilnYamlWebConfig,
 } from "./kiln-yaml-types.js";
 export { KilnYamlError } from "./kiln-yaml-types.js";
 export { validateKilnHooks } from "./kiln-yaml-types.js";
@@ -26,6 +27,7 @@ export type {
   KilnYamlAgentScope,
   KilnYamlProvider,
   KilnYamlSkillGeneration,
+  KilnYamlWebConfig,
   KilnHooksConfig,
 } from "./kiln-yaml-types.js";
 
@@ -74,8 +76,22 @@ export function mergeKilnYaml(base: KilnYaml, override: Partial<KilnYaml>): Kiln
     model: override.model ?? base.model,
     permissions: override.permissions ?? base.permissions,
     providers: override.providers ?? base.providers,
+    web: mergeWeb(base.web, override.web),
     contextGovernance: override.contextGovernance ?? base.contextGovernance,
     hooks: override.hooks ?? base.hooks,
+  };
+}
+
+function mergeWeb(
+  base: KilnYamlWebConfig | undefined,
+  override: KilnYamlWebConfig | undefined,
+): KilnYamlWebConfig | undefined {
+  if (!base && !override) return undefined;
+  return {
+    ...base,
+    ...override,
+    searchProvider: override?.searchProvider ?? base?.searchProvider,
+    allowedDomains: override?.allowedDomains ?? base?.allowedDomains,
   };
 }
 

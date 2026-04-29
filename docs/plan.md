@@ -33,6 +33,10 @@ Closed slices:
     rejection, sanitized fetch output, fail-closed injected search provider,
     verbosity support, and shared projections across MCP, runtime-attached
     sessions, and CLI startup.
+12. Configured web provider and network-policy wiring through `KilnYaml.web`,
+    CLI/MCP startup, direct provider sessions, GUI gateway startup, and TUI
+    gateway startup. Defaults remain fail-closed when web configuration is
+    absent.
 
 ## Active Objective
 
@@ -47,24 +51,42 @@ execution path for CLI, GUI, TUI, and MCP consumers.
 - Roadmap: `docs/roadmap/07-shared-developer-tools.md`
 - Research basis: `docs/research/11-agent-tooling-surface.md`
 
+## Closed Phase 10: Web Provider Configuration And Runtime Policy Wiring
+
+The core web tools now accept explicit operational configuration without any
+consumer-private tool implementation.
+
+Implemented contracts:
+
+- `KilnYaml.web.enabled` gates web tool activation; absent configuration keeps
+  `web_fetch` network-denied and `web_search` provider-not-configured.
+- `KilnYaml.web.netPolicy` supports `none`, `documentation`,
+  `package-managers`, and `full`.
+- `KilnYaml.web.allowedDomains` narrows the active network policy. When omitted,
+  `documentation` and `package-managers` use the shared core default domain
+  lists, and `full` uses unrestricted network policy.
+- `KilnYaml.web.searchProvider` supports `{ type: "none" }` and
+  `{ type: "http", url, headers? }`. The HTTP provider receives normalized
+  `WebSearchProviderRequest` JSON and must return normalized source JSON.
+- CLI `kiln tools --mcp` passes resolved web options into
+  `createDefaultBuiltinToolSurface()`.
+- Runtime-attached direct provider sessions, GUI gateway startup, and TUI
+  gateway startup pass the same resolved options into
+  `createAttachedRuntimeBuiltinToolSurface()`.
+
+Focused tests:
+
+- `packages/cli/tests/config/web-tools-config.test.ts`
+- `packages/cli/tests/commands/tools-web-config.test.ts`
+- `packages/cli/tests/commands/gui-dashboard-availability.test.ts`
+- `packages/cli/tests/commands/tui-session-persistence.test.ts`
+- `packages/runtime/tests/gateway/web-tool-surface-config.test.ts`
+- `packages/runtime/tests/gateway/attached-runtime-tool-surface.test.ts`
+
 ## Remaining Phases
 
-### Phase 10: Web Provider Configuration And Runtime Policy Wiring
-
-The core web tools now exist in the shared surface. Remaining operational work is
-to wire configurable providers and policy into each consumer entrypoint without
-creating consumer-private tool implementations.
-
-Core requirements:
-
-- config schema for default network policy and allowed domains
-- config schema for the selected `WebSearchProvider`
-- CLI/MCP startup path that passes web provider and network policy into
-  `createDefaultBuiltinToolSurface()`
-- runtime-attached GUI/TUI/CLI path that passes the same provider and policy
-  into `createAttachedRuntimeBuiltinToolSurface()`
-- fail-closed defaults when no provider or network policy is configured
-- tests proving GUI, CLI, TUI, and MCP all receive the same configured surface
+No developer-tool capability phase remains open in this plan. New tool additions
+must start with fresh research and a new phase entry before implementation.
 
 ## Phase 9 Design Record
 

@@ -11,6 +11,7 @@ import {
   type ModelRoutedEvent,
   type ReasoningEffort,
   type ToolAuthorizedEvent,
+  type DefaultBuiltinToolRegistryOptions,
 } from "@kilnai/core";
 import { CliSubscriptionExecutor } from "../execution/cli-subscription-executor.js";
 import type { CliSessionEvent } from "../execution/cli-subscription-executor.js";
@@ -96,6 +97,7 @@ export interface StartGuiGatewayOptions {
   readonly updateThemePreference?: (theme: string) => Promise<void> | void;
   readonly onConnectionCountChange?: (count: number) => void;
   readonly onManagedWindowClose?: () => void;
+  readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
   readonly operatorTransport?: OperatorSessionTransportOptions;
 }
 
@@ -380,6 +382,7 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
       getDiscovery: async (discoveryOptions) => (await refreshOperatorDiscovery(discoveryOptions)) ?? [],
       getDiscoverySnapshot: getOperatorDiscoverySnapshot,
       onDiscoveryUpdated: (listener) => operatorCatalog?.subscribe((snapshot) => listener(snapshot.discovery)) ?? (() => {}),
+      builtinToolOptions: options.builtinToolOptions,
       onReady: (url) => {
         operatorWsUrl = url;
       },
@@ -479,6 +482,7 @@ function wireOperatorTransport(
     getDiscovery: (options?: { readonly force?: boolean }) => Promise<readonly GuiProviderDiscoveryResult[]>;
     getDiscoverySnapshot: () => readonly GuiProviderDiscoveryResult[];
     onDiscoveryUpdated: (listener: (discovery: readonly GuiProviderDiscoveryResult[]) => void) => () => void;
+    builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
     onReady: (wsUrl: string) => void;
     onSocketOpen?: () => void;
     onSocketClose?: () => void;
@@ -487,7 +491,9 @@ function wireOperatorTransport(
   const providerLabel = input.transport.sessionManager.getProvider();
   const approvalRegistry = new ApprovalGateRegistry();
   const activityStreamer = new GuiActivityStreamer(approvalRegistry);
-  const builtinToolSurface = createAttachedRuntimeBuiltinToolSurface();
+  const builtinToolSurface = createAttachedRuntimeBuiltinToolSurface({
+    builtinToolOptions: input.builtinToolOptions,
+  });
   let activeOperatorSurface: { theme: { setTheme: ReturnType<typeof createOperatorThemeBridge>["request"] } } | undefined;
   const executor = new CliSubscriptionExecutor(
     input.transport.sessionManager.factory,
@@ -878,6 +884,7 @@ function wireOperatorTransport(
                 frame.reasoningEffort,
               );
               const turnBuiltinToolSurface = createAttachedRuntimeBuiltinToolSurface({
+                builtinToolOptions: input.builtinToolOptions,
                 operatorSurface: {
                   theme: {
                     setTheme: operatorThemeBridge.request,
@@ -956,6 +963,7 @@ function wireOperatorTransport(
                   routedProvider,
                   routedModel || undefined,
                   createAttachedRuntimeBuiltinToolSurface({
+                    builtinToolOptions: input.builtinToolOptions,
                     operatorSurface: {
                       theme: {
                         setTheme: operatorThemeBridge.request,

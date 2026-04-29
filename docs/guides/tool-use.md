@@ -285,6 +285,27 @@ normalized final URL, content type, status, bytes read, redirect chain,
 truncation, errors, and requested verbosity. Web metadata is external-source
 evidence, not workspace search or file-change evidence.
 
+Web tools are fail-closed unless `KilnYaml.web` enables them:
+
+```yaml
+web:
+  enabled: true
+  netPolicy: documentation
+  allowedDomains:
+    - docs.example.com
+  searchProvider:
+    type: http
+    url: https://search.example.com/query
+    headers:
+      authorization: Bearer replace-with-provider-token
+```
+
+`netPolicy` accepts `none`, `documentation`, `package-managers`, or `full`.
+`allowedDomains` narrows the policy; when omitted, `documentation` and
+`package-managers` use Kiln's shared default domain lists. The HTTP search
+provider receives the normalized `WebSearchProviderRequest` as JSON and must
+return a JSON object with a `sources` array.
+
 ### Tool reference
 
 | Tool | Purpose | Key params | Output shape |

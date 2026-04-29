@@ -4,6 +4,7 @@ import {
   DevToolsMcpServer,
 } from "@kilnai/core";
 import type { KilnAppConfig } from "../config.js";
+import { loadConfiguredWebToolSurfaceOptions } from "../config/web-tools-config.js";
 
 export interface ToolsCommandFlags {
   readonly mcp?: boolean;
@@ -22,7 +23,9 @@ export async function toolsCommand(
     return;
   }
 
-  const surface = createDefaultBuiltinToolSurface();
+  const surface = createDefaultBuiltinToolSurface(
+    await loadConfiguredWebToolSurfaceOptions(_appConfig, process.cwd()),
+  );
   const server = new DevToolsMcpServer({ bridge: surface.bridge });
 
   await server.initialize();

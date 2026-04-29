@@ -82,6 +82,29 @@ export interface KilnYamlSkillGeneration {
   readonly complexityThreshold?: number;
 }
 
+export type KilnYamlWebNetPolicy = "none" | "documentation" | "package-managers" | "full";
+
+export interface KilnYamlWebHttpSearchProvider {
+  readonly type: "http";
+  readonly url: string;
+  readonly headers?: Record<string, string>;
+}
+
+export interface KilnYamlWebDisabledSearchProvider {
+  readonly type?: "none";
+}
+
+export type KilnYamlWebSearchProvider =
+  | KilnYamlWebDisabledSearchProvider
+  | KilnYamlWebHttpSearchProvider;
+
+export interface KilnYamlWebConfig {
+  readonly enabled?: boolean;
+  readonly netPolicy?: KilnYamlWebNetPolicy;
+  readonly allowedDomains?: readonly string[];
+  readonly searchProvider?: KilnYamlWebSearchProvider;
+}
+
 export interface KilnYamlQualityGate {
   readonly name: string;
   readonly command: string;
@@ -190,6 +213,7 @@ export interface KilnYaml {
   readonly model?: KilnYamlModel;
   readonly permissions?: KilnYamlPermissions;
   readonly providers?: Record<string, KilnYamlProvider>;
+  readonly web?: KilnYamlWebConfig;
   readonly skillGeneration?: KilnYamlSkillGeneration;
   readonly qualityGates?: readonly KilnYamlQualityGate[];
   readonly hooks?: KilnHooksConfig;
