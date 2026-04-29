@@ -371,15 +371,24 @@ The next plan is documented in
 Add cursor-based pagination to core resource and template listing before
 workspace and artifact namespaces increase cardinality.
 
-Status: planned.
+Status: implemented.
 
-Planned contract:
+Implemented contract:
 
-- core `ToolResourceRegistry.list({ cursor?, limit? })`
-- core `ToolResourceRegistry.listTemplates({ cursor?, limit? })`
-- MCP `resources/list` cursor support
-- MCP `resources/templates/list` cursor support
-- deterministic opaque cursors with explicit invalid/stale behavior
+- core `ToolResourceRegistry.listPage({ cursor?, limit? })`
+- core `ToolResourceRegistry.listTemplatePage({ cursor?, limit? })`
+- no-arg `ToolResourceRegistry.list()` and `listTemplates()` preserved for
+  current in-process callers
+- MCP `resources/list` cursor support through `DevToolsMcpServer.listResources`
+- MCP `resources/templates/list` cursor support through
+  `DevToolsMcpServer.listResourceTemplates`
+- deterministic opaque cursors with invalid, stale, and out-of-range failure
+  behavior
+- bounded MCP page size owned by the server projection
+
+Verification:
+
+- `bun run --cwd packages/core test tests/tools/domain/tool-resource-registry.test.ts tests/tools/mcp/dev-tools-server.test.ts`
 
 ### Slice 20: Workspace File Resource Templates
 

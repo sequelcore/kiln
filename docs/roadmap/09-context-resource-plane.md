@@ -86,23 +86,32 @@ Goal: make the core `ToolResourceRegistry` and MCP server support cursor-based
 pagination for resources and resource templates before adding large workspace
 and artifact namespaces.
 
-Planned contract:
+Status: implemented on 2026-04-29.
+
+Implemented contract:
 
 ```ts
-listResources({ cursor?: string, limit?: number })
-listResourceTemplates({ cursor?: string, limit?: number })
+ToolResourceRegistry.listPage({ cursor?: string, limit?: number })
+ToolResourceRegistry.listTemplatePage({ cursor?: string, limit?: number })
+DevToolsMcpServer.listResources({ cursor?: string })
+DevToolsMcpServer.listResourceTemplates({ cursor?: string })
 ```
 
-Requirements:
+Implemented requirements:
 
 - add a core pagination model for resource descriptors and templates
-- use opaque cursors, not numeric offsets exposed as public contract
-- keep default page sizes small and deterministic
+- use opaque cursors, not numeric offsets exposed as public contract; cursors
+  carry kind and fingerprint validation so stale namespace cursors fail closed
+- keep default page sizes bounded and deterministic
 - include `nextCursor` only when another page exists
 - preserve current no-arg listing behavior for in-process callers
 - project `cursor` handling through MCP `resources/list` and
   `resources/templates/list`
 - test invalid, stale, and out-of-range cursor handling
+
+Verification:
+
+- `bun run --cwd packages/core test tests/tools/domain/tool-resource-registry.test.ts tests/tools/mcp/dev-tools-server.test.ts`
 
 Why first:
 

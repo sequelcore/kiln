@@ -97,6 +97,8 @@ export {
 export type {
   ToolResourceContent,
   ToolResourceDescriptor,
+  ToolResourceListOptions,
+  ToolResourcePage,
   ToolResourceReadResult,
   ToolResourceRegistryOptions,
   ToolResourceTemplateDescriptor,

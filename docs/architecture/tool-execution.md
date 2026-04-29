@@ -194,11 +194,20 @@ snapshots. They must not execute commands, mutate files, update tasks, stop
 monitors, grant approval, or bypass canonical tool authority. If a consumer
 needs to act, it must call the appropriate tool through the execution bridge.
 
+Resource and resource-template listing is cursor-paginated at the core registry
+boundary. In-process callers can still use the no-arg full listing for the
+current small static set, while MCP `resources/list` and
+`resources/templates/list` project bounded pages and return `nextCursor` only
+when another page exists. Cursors are opaque context positions with namespace
+and fingerprint validation; invalid, stale, and out-of-range cursors fail
+closed.
+
 The next resource-plane work is tracked in
-`docs/roadmap/09-context-resource-plane.md`. That roadmap owns pagination,
-workspace-file templates, artifact namespaces, resource subscriptions,
-notifications, and resource links from high-volume tool outputs. Those features
-extend the read-only context plane; they do not change the action boundary.
+`docs/roadmap/09-context-resource-plane.md`. That roadmap owns the completed
+pagination foundation plus workspace-file templates, artifact namespaces,
+resource subscriptions, notifications, and resource links from high-volume tool
+outputs. Those features extend the read-only context plane; they do not change
+the action boundary.
 
 ## Runtime Projections
 

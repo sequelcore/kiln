@@ -112,6 +112,77 @@ describe("DevToolsMcpServer", () => {
     ]);
   });
 
+  it("paginates MCP resources with cursor results", () => {
+    const surface = createDefaultBuiltinToolSurface();
+    const server = new DevToolsMcpServer({
+      bridge: surface.bridge,
+      tools: surface.tools,
+      resources: surface.resources,
+      resourcePageSize: 2,
+    });
+
+    const firstPage = server.listResources();
+    const secondPage = server.listResources({ cursor: firstPage.nextCursor });
+
+    expect(firstPage.resources.map((resource) => resource.uri)).toEqual([
+      "kiln://tools/catalog",
+      "kiln://session/tasks",
+    ]);
+    expect(firstPage.nextCursor).toEqual(expect.any(String));
+    expect(secondPage.resources.map((resource) => resource.uri)).toEqual([
+      "kiln://session/monitors",
+    ]);
+    expect(secondPage.nextCursor).toBeUndefined();
+  });
+
+  it("paginates MCP resource templates with cursor results", () => {
+    const surface = createDefaultBuiltinToolSurface();
+    const server = new DevToolsMcpServer({
+      bridge: surface.bridge,
+      tools: surface.tools,
+      resources: surface.resources,
+      resourcePageSize: 1,
+    });
+
+    const firstPage = server.listResourceTemplates();
+    const secondPage = server.listResourceTemplates({ cursor: firstPage.nextCursor });
+
+    expect(firstPage.resourceTemplates.map((template) => template.uriTemplate)).toEqual([
+      "kiln://tools/catalog/{name}",
+    ]);
+    expect(firstPage.nextCursor).toEqual(expect.any(String));
+    expect(secondPage.resourceTemplates.map((template) => template.uriTemplate)).toEqual([
+      "kiln://session/tasks/{id}",
+    ]);
+    expect(secondPage.nextCursor).toEqual(expect.any(String));
+  });
+
+  it("forwards MCP resource list cursors from SDK request params", async () => {
+    const surface = createDefaultBuiltinToolSurface();
+    const server = new DevToolsMcpServer({
+      bridge: surface.bridge,
+      tools: surface.tools,
+      resources: surface.resources,
+      resourcePageSize: 2,
+    });
+    await server.initialize();
+    const mcpServer = server.createServer();
+    const handlers = (mcpServer as unknown as { _requestHandlers: Map<string, unknown> })._requestHandlers;
+    const handler = handlers.get("resources/list") as (
+      request: { method: "resources/list"; params: Record<string, unknown> },
+    ) => Promise<{ resources: readonly unknown[]; nextCursor?: string }>;
+
+    const firstPage = await handler({ method: "resources/list", params: {} });
+    const secondPage = await handler({
+      method: "resources/list",
+      params: { cursor: firstPage.nextCursor },
+    });
+
+    expect(firstPage.resources).toHaveLength(2);
+    expect(secondPage.resources).toHaveLength(1);
+    expect(secondPage.nextCursor).toBeUndefined();
+  });
+
   it("reads MCP resources through the canonical resource registry", async () => {
     const surface = createDefaultBuiltinToolSurface();
     surface.taskStateStore.update({

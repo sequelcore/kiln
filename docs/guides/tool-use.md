@@ -227,10 +227,18 @@ These resources read from the same catalog, task-state store, and monitor
 registry used by the builtin tools. They return JSON content and never mutate
 state, run commands, stop monitors, or bypass tool authorization.
 
+MCP resource and resource-template listing supports cursor pagination. The
+server accepts `cursor` from `resources/list` and `resources/templates/list`,
+returns bounded pages, and includes `nextCursor` only when another page exists.
+The cursor is opaque to consumers; callers should pass it back unchanged and
+restart from the first page if it is rejected as invalid, stale, or
+out-of-range. Core in-process callers that need the current complete static set
+may still call `ToolResourceRegistry.list()` or `listTemplates()`.
+
 The deeper resource-plane roadmap is
-`docs/roadmap/09-context-resource-plane.md`. It covers pagination,
-workspace-file resources, artifact namespaces, update notifications, resource
-links from high-volume tools, and consumer UX.
+`docs/roadmap/09-context-resource-plane.md`. Pagination is implemented there;
+the remaining slices cover workspace-file resources, artifact namespaces,
+update notifications, resource links from high-volume tools, and consumer UX.
 
 ### Domain contracts
 

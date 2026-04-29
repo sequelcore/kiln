@@ -2,8 +2,11 @@ import { KilnError } from "../../engine/errors.js";
 import type { ToolCatalogIndex } from "./tool-catalog.js";
 import type { MonitorRegistry } from "../infrastructure/monitor-tools.js";
 import type { TaskStateStore } from "../infrastructure/task-state-tools.js";
+import { createHash } from "node:crypto";
 
 const JSON_MIME_TYPE = "application/json";
+const DEFAULT_RESOURCE_PAGE_LIMIT = 50;
+const MAX_RESOURCE_PAGE_LIMIT = 100;
 
 export interface ToolResourceDescriptor {
   readonly uri: string;
@@ -42,6 +45,16 @@ export type ToolResourceContent =
 
 export interface ToolResourceReadResult {
   readonly contents: readonly ToolResourceContent[];
+}
+
+export interface ToolResourceListOptions {
+  readonly cursor?: string;
+  readonly limit?: number;
+}
+
+export interface ToolResourcePage<T> {
+  readonly items: readonly T[];
+  readonly nextCursor?: string;
 }
 
 export interface ToolResourceRegistryOptions {
@@ -119,6 +132,14 @@ export class ToolResourceRegistry {
     ];
   }
 
+  listPage(options: ToolResourceListOptions = {}): ToolResourcePage<ToolResourceDescriptor> {
+    return paginateResourceItems("resources", this.list(), options);
+  }
+
+  listTemplatePage(options: ToolResourceListOptions = {}): ToolResourcePage<ToolResourceTemplateDescriptor> {
+    return paginateResourceItems("resourceTemplates", this.listTemplates(), options);
+  }
+
   async read(uri: string): Promise<ToolResourceReadResult> {
     const parsed = parseKilnResourceUri(uri);
     if (!parsed) {
@@ -175,6 +196,100 @@ export class ToolResourceRegistry {
 
     throw resourceNotFound(uri);
   }
+}
+
+type ResourceCursorKind = "resources" | "resourceTemplates";
+
+interface DecodedResourceCursor {
+  readonly kind: ResourceCursorKind;
+  readonly offset: number;
+  readonly fingerprint: string;
+}
+
+function paginateResourceItems<T extends ToolResourceDescriptor | ToolResourceTemplateDescriptor>(
+  kind: ResourceCursorKind,
+  items: readonly T[],
+  options: ToolResourceListOptions,
+): ToolResourcePage<T> {
+  const limit = normalizeLimit(options.limit);
+  const fingerprint = fingerprintResourceItems(items);
+  const offset = options.cursor ? decodeResourceCursor(options.cursor, kind, fingerprint, items.length).offset : 0;
+  const pageItems = items.slice(offset, offset + limit);
+  const nextOffset = offset + pageItems.length;
+  return {
+    items: pageItems,
+    ...(nextOffset < items.length ? { nextCursor: encodeResourceCursor({ kind, offset: nextOffset, fingerprint }) } : {}),
+  };
+}
+
+function normalizeLimit(limit: number | undefined): number {
+  if (limit === undefined) {
+    return DEFAULT_RESOURCE_PAGE_LIMIT;
+  }
+  const normalized = Math.trunc(limit);
+  if (!Number.isFinite(limit) || normalized <= 0) {
+    throw new KilnError("INTERNAL_ERROR", "Invalid resource page limit", {
+      context: { limit },
+      retryable: false,
+    });
+  }
+  return Math.min(normalized, MAX_RESOURCE_PAGE_LIMIT);
+}
+
+function encodeResourceCursor(cursor: DecodedResourceCursor): string {
+  return Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url");
+}
+
+function decodeResourceCursor(
+  cursor: string,
+  expectedKind: ResourceCursorKind,
+  expectedFingerprint: string,
+  itemCount: number,
+): DecodedResourceCursor {
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
+  } catch {
+    throw resourceCursorError("Invalid resource cursor", { cursor });
+  }
+
+  if (!isDecodedResourceCursor(decoded)) {
+    throw resourceCursorError("Invalid resource cursor", { cursor });
+  }
+  if (decoded.kind !== expectedKind || decoded.fingerprint !== expectedFingerprint) {
+    throw resourceCursorError("Stale resource cursor", { cursor, expectedKind });
+  }
+  if (decoded.offset >= itemCount) {
+    throw resourceCursorError("Out-of-range resource cursor", { cursor, itemCount });
+  }
+  return decoded;
+}
+
+function isDecodedResourceCursor(value: unknown): value is DecodedResourceCursor {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return (
+    (candidate["kind"] === "resources" || candidate["kind"] === "resourceTemplates") &&
+    Number.isInteger(candidate["offset"]) &&
+    typeof candidate["fingerprint"] === "string" &&
+    (candidate["offset"] as number) >= 0
+  );
+}
+
+function fingerprintResourceItems(
+  items: readonly (ToolResourceDescriptor | ToolResourceTemplateDescriptor)[],
+): string {
+  const canonicalIds = items.map((item) => "uri" in item ? item.uri : item.uriTemplate).join("\n");
+  return createHash("sha256").update(canonicalIds).digest("base64url");
+}
+
+function resourceCursorError(message: string, context: Record<string, unknown>): KilnError {
+  return new KilnError("INTERNAL_ERROR", message, {
+    context,
+    retryable: false,
+  });
 }
 
 function jsonResource(uri: string, value: unknown): ToolResourceReadResult {

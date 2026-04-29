@@ -3,6 +3,7 @@ import { projectDevToolSchemas } from "../default-tool-surface.js";
 import type { DevTool, ToolResult, ToolResultContentPart } from "../domain/tool.js";
 import type {
   ToolResourceDescriptor,
+  ToolResourceListOptions,
   ToolResourceReadResult,
   ToolResourceRegistry,
   ToolResourceTemplateDescriptor,
@@ -69,6 +70,7 @@ export interface DevToolsMcpServerOptions {
   readonly bridge: DevToolExecutionBridge;
   readonly tools?: readonly DevTool[];
   readonly resources?: ToolResourceRegistry;
+  readonly resourcePageSize?: number;
 }
 
 export interface DevToolsMcpToolSchema {
@@ -86,16 +88,19 @@ export interface DevToolsMcpCallResult {
 
 export interface DevToolsMcpListResourcesResult {
   readonly resources: readonly ToolResourceDescriptor[];
+  readonly nextCursor?: string;
 }
 
 export interface DevToolsMcpListResourceTemplatesResult {
   readonly resourceTemplates: readonly ToolResourceTemplateDescriptor[];
+  readonly nextCursor?: string;
 }
 
 export class DevToolsMcpServer {
   private readonly bridge: DevToolExecutionBridge;
   private readonly tools?: readonly DevTool[];
   private readonly resources?: ToolResourceRegistry;
+  private readonly resourcePageSize: number | undefined;
   private sdk: SdkModules | undefined;
   private sdkPromise: Promise<SdkModules> | undefined;
 
@@ -103,6 +108,7 @@ export class DevToolsMcpServer {
     this.bridge = options.bridge;
     this.tools = options.tools;
     this.resources = options.resources;
+    this.resourcePageSize = options.resourcePageSize;
   }
 
   async initialize(): Promise<void> {
@@ -123,15 +129,25 @@ export class DevToolsMcpServer {
     return projectDevToolSchemas(this.tools ?? this.bridge.listTools());
   }
 
-  listResources(): DevToolsMcpListResourcesResult {
+  listResources(options: Pick<ToolResourceListOptions, "cursor"> = {}): DevToolsMcpListResourcesResult {
+    const page = this.resources?.listPage({
+      cursor: options.cursor,
+      limit: this.resourcePageSize,
+    });
     return {
-      resources: this.resources?.list() ?? [],
+      resources: page?.items ?? [],
+      ...(page?.nextCursor ? { nextCursor: page.nextCursor } : {}),
     };
   }
 
-  listResourceTemplates(): DevToolsMcpListResourceTemplatesResult {
+  listResourceTemplates(options: Pick<ToolResourceListOptions, "cursor"> = {}): DevToolsMcpListResourceTemplatesResult {
+    const page = this.resources?.listTemplatePage({
+      cursor: options.cursor,
+      limit: this.resourcePageSize,
+    });
     return {
-      resourceTemplates: this.resources?.listTemplates() ?? [],
+      resourceTemplates: page?.items ?? [],
+      ...(page?.nextCursor ? { nextCursor: page.nextCursor } : {}),
     };
   }
 
@@ -190,9 +206,16 @@ export class DevToolsMcpServer {
       { capabilities: { tools: {}, resources: {} } },
     );
 
-    server.setRequestHandler(ListResourcesRequestSchema, async () => this.listResources());
+    server.setRequestHandler(
+      ListResourcesRequestSchema,
+      async (request: { params?: Record<string, unknown> }) => this.listResources(parseResourceListParams(request.params)),
+    );
 
-    server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => this.listResourceTemplates());
+    server.setRequestHandler(
+      ListResourceTemplatesRequestSchema,
+      async (request: { params?: Record<string, unknown> }) =>
+        this.listResourceTemplates(parseResourceListParams(request.params)),
+    );
 
     server.setRequestHandler(
       ReadResourceRequestSchema,
@@ -289,4 +312,18 @@ function projectToolResult(result: ToolResult): Omit<ToolResult, "content"> {
     isError: result.isError,
     ...(result.metadata !== undefined ? { metadata: result.metadata } : {}),
   };
+}
+
+function parseResourceListParams(params: Record<string, unknown> | undefined): Pick<ToolResourceListOptions, "cursor"> {
+  const cursor = params?.["cursor"];
+  if (cursor === undefined) {
+    return {};
+  }
+  if (typeof cursor !== "string") {
+    throw new KilnError("INTERNAL_ERROR", "Invalid MCP resource cursor", {
+      context: { cursor },
+      retryable: false,
+    });
+  }
+  return { cursor };
 }

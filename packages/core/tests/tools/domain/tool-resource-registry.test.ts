@@ -19,6 +19,67 @@ describe("ToolResourceRegistry", () => {
     ]);
   });
 
+  it("paginates resources with opaque cursors while preserving no-arg listing", () => {
+    const surface = createDefaultBuiltinToolSurface();
+
+    const firstPage = surface.resources.listPage({ limit: 2 });
+    const secondPage = surface.resources.listPage({ cursor: firstPage.nextCursor, limit: 2 });
+
+    expect(surface.resources.list().map((resource) => resource.uri)).toEqual([
+      "kiln://tools/catalog",
+      "kiln://session/tasks",
+      "kiln://session/monitors",
+    ]);
+    expect(firstPage.items.map((resource) => resource.uri)).toEqual([
+      "kiln://tools/catalog",
+      "kiln://session/tasks",
+    ]);
+    expect(firstPage.nextCursor).toEqual(expect.any(String));
+    expect(firstPage.nextCursor).not.toBe("2");
+    expect(secondPage.items.map((resource) => resource.uri)).toEqual([
+      "kiln://session/monitors",
+    ]);
+    expect(secondPage.nextCursor).toBeUndefined();
+  });
+
+  it("paginates resource templates with their own cursor namespace", () => {
+    const surface = createDefaultBuiltinToolSurface();
+
+    const firstPage = surface.resources.listTemplatePage({ limit: 1 });
+    const secondPage = surface.resources.listTemplatePage({ cursor: firstPage.nextCursor, limit: 2 });
+
+    expect(firstPage.items.map((template) => template.uriTemplate)).toEqual([
+      "kiln://tools/catalog/{name}",
+    ]);
+    expect(firstPage.nextCursor).toEqual(expect.any(String));
+    expect(secondPage.items.map((template) => template.uriTemplate)).toEqual([
+      "kiln://session/tasks/{id}",
+      "kiln://session/monitors/{id}",
+    ]);
+    expect(secondPage.nextCursor).toBeUndefined();
+  });
+
+  it("rejects invalid, stale, and out-of-range pagination cursors", () => {
+    const surface = createDefaultBuiltinToolSurface();
+    const resourceCursor = surface.resources.listPage({ limit: 1 }).nextCursor;
+    const templateCursor = surface.resources.listTemplatePage({ limit: 1 }).nextCursor;
+    const outOfRangeCursor = encodeTestCursor({
+      ...decodeTestCursor(resourceCursor),
+      offset: 999,
+    });
+
+    expect(() => surface.resources.listPage({ cursor: "not-a-cursor", limit: 1 })).toThrow("Invalid resource cursor");
+    expect(() => surface.resources.listPage({ cursor: templateCursor, limit: 1 })).toThrow("Stale resource cursor");
+    expect(() => surface.resources.listPage({ cursor: outOfRangeCursor, limit: 1 })).toThrow("Out-of-range resource cursor");
+  });
+
+  it("rejects non-positive pagination limits", () => {
+    const surface = createDefaultBuiltinToolSurface();
+
+    expect(() => surface.resources.listPage({ limit: 0 })).toThrow("Invalid resource page limit");
+    expect(() => surface.resources.listTemplatePage({ limit: 0.5 })).toThrow("Invalid resource page limit");
+  });
+
   it("reads the tool catalog as a JSON resource", async () => {
     const surface = createDefaultBuiltinToolSurface();
 
@@ -110,3 +171,12 @@ describe("ToolResourceRegistry", () => {
     await expect(surface.resources.read("kiln://session/tasks/missing")).rejects.toThrow("Resource not found");
   });
 });
+
+function decodeTestCursor(cursor: string | undefined): Record<string, unknown> {
+  expect(cursor).toEqual(expect.any(String));
+  return JSON.parse(Buffer.from(cursor!, "base64url").toString("utf8")) as Record<string, unknown>;
+}
+
+function encodeTestCursor(cursor: Record<string, unknown>): string {
+  return Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url");
+}
