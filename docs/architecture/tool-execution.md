@@ -87,6 +87,28 @@ provider-name branches:
 the same executable direct-provider path as any other provider that advertises
 the required structured tool capability.
 
+## Operator Surface Tools
+
+Attached GUI and TUI sessions may add operator-surface tools to the same
+per-turn builtin projection. These tools are runtime-owned projections, not
+private GUI or TUI tool loops.
+
+`operator_set_theme` is the canonical operator UI actuator for changing the
+connected surface theme. It is only exposed when a live operator surface is
+attached to the turn. The runtime sends an `operator_theme_set` frame over the
+surface WebSocket, waits for `operator_theme_set_result`, and returns that
+acknowledgement as the tool result.
+
+The tool accepts:
+
+- `theme`: one of the shared `OPERATOR_THEME_NAMES`
+- `scope`: `session` for the live surface or `persisted` when the operator has
+  explicitly asked to save the preference
+- `reason`: optional short operator-facing context
+
+The shared theme catalog and frame contracts live in
+`@kilnai/gateway-contracts` so GUI and TUI cannot drift.
+
 ## Execution Boundary
 
 Execution adapters may host transport or session wiring, but they do not own

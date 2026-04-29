@@ -60,6 +60,7 @@ export function ProviderStatus(props: ProviderStatusProps) {
       <Button
         type="button"
         variant={routeMode === "responding" ? "secondary" : "outline"}
+        size="sm"
         aria-label={`Current model: ${displayLabel} ${modelLabel}. Click to change.`}
         onClick={props.onOpenPicker}
         className="min-w-0 max-w-full justify-start"

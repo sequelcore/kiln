@@ -241,6 +241,24 @@ export interface GuiSessionDetail {
 
 // --- WebSocket frame shapes ---
 
+export type OperatorThemeScope = "session" | "persisted";
+
+export interface OperatorThemeSetFrame {
+  readonly type: "operator_theme_set";
+  readonly requestId: string;
+  readonly theme: string;
+  readonly scope: OperatorThemeScope;
+  readonly reason?: string;
+}
+
+export interface OperatorThemeSetResultFrame {
+  readonly type: "operator_theme_set_result";
+  readonly requestId: string;
+  readonly ok: boolean;
+  readonly appliedTheme?: string;
+  readonly error?: string;
+}
+
 /** Frames sent by the browser (operator) to the gateway. */
 export type GuiOutboundFrame =
   | {
@@ -260,6 +278,7 @@ export type GuiOutboundFrame =
       tier?: "go" | "zen";
     }
   | { type: "provider"; provider: string; model?: string; requestId: string }
+  | OperatorThemeSetResultFrame
   | { type: "resume"; sessionId: string }
   | { type: "approve"; sessionId?: string }
   | { type: "reject"; reason: string; sessionId?: string }
@@ -268,6 +287,7 @@ export type GuiOutboundFrame =
 /** Frames sent by the gateway to the browser (operator). */
 export type GuiInboundFrame =
   | { type: "thinking" }
+  | OperatorThemeSetFrame
   | { type: "session_event"; event: GuiSessionEvent }
   | {
       type: "activity_phase";

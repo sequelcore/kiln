@@ -2,6 +2,8 @@
  * @fileoverview TUI WebSocket client for gateway communication.
  * @module @kilnai/tui
  */
+import type { OperatorThemeScope } from "@kilnai/gateway-contracts";
+
 /**
  * Inbound frames the TUI gateway sends.
  */
@@ -97,6 +99,13 @@ export type TuiInboundFrame =
       providerDiscovery: TuiProviderDiscoveryFrame[];
     }
   | { type: "provider_changed"; provider: string; model?: string; requestId: string }
+  | {
+      type: "operator_theme_set";
+      requestId: string;
+      theme: string;
+      scope: OperatorThemeScope;
+      reason?: string;
+    }
   | { type: "approval_requested"; description: string; sessionId: string }
   | { type: "approval_received"; approved: boolean; reason?: string; sessionId?: string };
 
@@ -109,6 +118,7 @@ export type TuiOutboundFrame =
   | { type: "refresh_providers" }
   | { type: "provider_auth"; provider: string; requestId: string; apiKey?: string; tier?: "go" | "zen" }
   | { type: "provider"; provider: string; model?: string; requestId: string }
+  | { type: "operator_theme_set_result"; requestId: string; ok: boolean; appliedTheme?: string; error?: string }
   | { type: "approve"; sessionId?: string }
   | { type: "reject"; reason: string; sessionId?: string }
   | { type: "exec" }; // Exit plan mode and execute

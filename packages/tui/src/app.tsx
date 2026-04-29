@@ -7,8 +7,10 @@ import { execSync } from "node:child_process";
 import { createCliRenderer, TextRenderable } from "@opentui/core";
 import { getFieldStore } from "@kilnai/core";
 import {
+  OPERATOR_THEME_LABELS,
   getGuiProviderMetadata,
   isGuiProviderModeless,
+  isOperatorThemeName,
   type GuiProviderCatalogStatus,
   type GuiProviderDiscoveryResult,
 } from "@kilnai/gateway-contracts";
@@ -36,6 +38,7 @@ import {
   renderSidebarChanges,
   renderSlashPopover,
 } from "./render.js";
+import { setTuiOperatorThemeHandler } from "./operator-theme-handler.js";
 
 export interface ProviderDisplayInfo {
   readonly id: string;
@@ -62,6 +65,7 @@ export async function startTui(
   loadSessions?: () => Promise<SessionListItem[]>,
   onResumeSession?: (session: SessionListItem) => void,
   refreshProviders?: () => Promise<void> | void,
+  persistThemePreference?: (themeName: string) => Promise<void> | void,
 ): Promise<void> {
   const renderer = await createCliRenderer({
     exitOnCtrlC: false,
@@ -291,6 +295,27 @@ export async function startTui(
       );
     },
   );
+  const clearOperatorThemeHandler = setTuiOperatorThemeHandler(async (request) => {
+    const themeName = isOperatorThemeName(request.theme) ? request.theme : undefined;
+    if (!themeName) {
+      return { ok: false, error: `Unknown theme '${request.theme}'.` };
+    }
+    const requestedTheme = themes[themeName];
+    if (!requestedTheme) {
+      return { ok: false, error: `Unknown theme '${request.theme}'.` };
+    }
+    if (request.scope === "persisted") {
+      if (!persistThemePreference) {
+        return { ok: false, error: "Persisted TUI theme changes are unavailable in this session." };
+      }
+      await persistThemePreference(themeName);
+    }
+    applyTheme(requestedTheme);
+    ui.commandBarStatus.content = t`${fg(currentTheme.accent)(
+      `Theme: ${OPERATOR_THEME_LABELS[themeName]}`,
+    )}`;
+    return { ok: true, appliedTheme: themeName };
+  });
 
   function cycleReasoningEffort(): void {
     if (state.supportedReasoningEfforts.length === 0) {
@@ -1658,4 +1683,5 @@ export async function startTui(
   });
 
   await new Promise<void>((resolve) => renderer.once("destroy", resolve));
+  clearOperatorThemeHandler();
 }

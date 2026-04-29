@@ -204,6 +204,21 @@ The seven built-in tool names are:
 - `glob`
 - `git`
 
+Operator-attached GUI/TUI turns may also expose `operator_set_theme`. That tool
+is not part of the filesystem developer-tool registry; it is added by the
+runtime gateway only when a live operator surface can acknowledge the request.
+It changes the connected GUI/TUI theme through the shared WebSocket frame
+contract and returns an ordinary tool result.
+
+`operator_set_theme` parameters:
+
+- `theme`: shared operator theme name
+- `scope`: `session` for the live surface, or `persisted` to save the
+  preference when the operator requested persistence
+- `reason`: optional short explanation
+
+The supported theme names are defined once in `@kilnai/gateway-contracts`.
+
 ### Built-in tool schemas
 
 `TOOL_SCHEMAS` is the source of truth for names, descriptions, input schemas, and annotations. Those schemas are used both by native callers and by the MCP surface.

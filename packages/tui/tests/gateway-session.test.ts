@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GatewaySession } from "../src/gateway-session.js";
+import { setTuiOperatorThemeHandler } from "../src/operator-theme-handler.js";
 
 let wsInstances: MockWebSocket[] = [];
 
@@ -63,6 +64,30 @@ function sentProviderAuthFrame(ws: MockWebSocket): { provider: string; apiKey?: 
   expect(typeof frame.requestId).toBe("string");
   expect(frame.requestId?.trim()).not.toBe("");
   return frame as { provider: string; apiKey?: string; tier?: "go" | "zen"; requestId: string };
+}
+
+function sentOperatorThemeResultFrame(ws: MockWebSocket): {
+  requestId: string;
+  ok: boolean;
+  appliedTheme?: string;
+  error?: string;
+} {
+  const themeCall = ws.send.mock.calls.find(([payload]) => {
+    if (typeof payload !== "string" || payload === "ping") return false;
+    return (JSON.parse(payload) as { type?: string }).type === "operator_theme_set_result";
+  });
+  expect(themeCall).toBeDefined();
+  const frame = JSON.parse(themeCall?.[0] as string) as {
+    type?: string;
+    requestId?: string;
+    ok?: boolean;
+    appliedTheme?: string;
+    error?: string;
+  };
+  expect(frame.type).toBe("operator_theme_set_result");
+  expect(typeof frame.requestId).toBe("string");
+  expect(typeof frame.ok).toBe("boolean");
+  return frame as { requestId: string; ok: boolean; appliedTheme?: string; error?: string };
 }
 
 describe("GatewaySession provider switching", () => {
@@ -258,6 +283,58 @@ describe("GatewaySession provider authentication", () => {
     }));
 
     await expect(promise).resolves.toBeUndefined();
+    await session.dispose();
+  });
+});
+
+describe("GatewaySession operator theme frames", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    wsInstances = [];
+    (globalThis as unknown as { WebSocket: typeof MockWebSocket }).WebSocket = MockWebSocket;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("applies operator theme requests through the registered TUI handler", async () => {
+    const applyTheme = vi.fn().mockResolvedValue({ ok: true, appliedTheme: "dracula" });
+    const clearHandler = setTuiOperatorThemeHandler(applyTheme);
+    const session = new GatewaySession("ws://localhost:4801/tui/ws");
+    const ws = wsInstances[0];
+    ws.simulateOpen();
+
+    ws.simulateMessage(JSON.stringify({
+      type: "operator_theme_set",
+      requestId: "theme-1",
+      theme: "dracula",
+      scope: "session",
+      reason: "test",
+    }));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(applyTheme).toHaveBeenCalledWith({
+      theme: "dracula",
+      scope: "session",
+      reason: "test",
+    });
+    await vi.waitFor(() => {
+      expect(ws.send.mock.calls.some(([payload]) => (
+        typeof payload === "string"
+        && payload !== "ping"
+        && (JSON.parse(payload) as { type?: string }).type === "operator_theme_set_result"
+      ))).toBe(true);
+    });
+    expect(sentOperatorThemeResultFrame(ws)).toMatchObject({
+      requestId: "theme-1",
+      ok: true,
+      appliedTheme: "dracula",
+    });
+
+    clearHandler();
     await session.dispose();
   });
 });

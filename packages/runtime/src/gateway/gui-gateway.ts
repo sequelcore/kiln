@@ -44,8 +44,10 @@ import {
   createAttachedRuntimeBuiltinToolSurface,
   type AttachedRuntimeBuiltinToolSurface,
 } from "./attached-runtime-tool-surface.js";
+import { createOperatorThemeBridge } from "./operator-theme-bridge.js";
 import {
   isGuiProviderModeless,
+  isOperatorThemeName,
   type GuiDashboardSnapshot,
   type GuiInboundFrame,
   type GuiOutboundFrame,
@@ -217,7 +219,7 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
     }
     const payload = await c.req.json().catch(() => null) as { theme?: unknown } | null;
     const theme = typeof payload?.theme === "string" ? payload.theme.trim() : "";
-    if (theme !== "kiln-dark" && theme !== "kiln-light" && theme !== "system-follow") {
+    if (!isOperatorThemeName(theme)) {
       return c.json({ error: "invalid_theme" }, 400);
     }
     await options.updateThemePreference(theme);
@@ -393,9 +395,14 @@ function wireOperatorTransport(
         discovery = [...await input.getDiscovery().catch(() => [])];
         return discovery;
       };
+      let operatorSocket: WSContext | null = null;
+      const operatorThemeBridge = createOperatorThemeBridge((frame) => {
+        operatorSocket?.send(JSON.stringify(frame satisfies GuiInboundFrame));
+      });
 
       return {
         async onOpen(_event: Event, ws: WSContext) {
+          operatorSocket = ws;
           input.onSocketOpen?.();
           activityStreamer.register(ws, eventBus);
           const currentDiscovery = await refreshDiscovery();
@@ -459,6 +466,11 @@ function wireOperatorTransport(
             }
 
             const frame = JSON.parse(raw) as GuiOutboundFrame | Record<string, unknown>;
+
+            if (frame.type === "operator_theme_set_result") {
+              operatorThemeBridge.resolve(frame as Extract<GuiOutboundFrame, { type: "operator_theme_set_result" }>);
+              return;
+            }
 
             if (frame.type === "clear") {
               await sessionRegistry.detachActive(GUI_APP_NAME, userId, GUI_TENANT_ID);
@@ -723,6 +735,11 @@ function wireOperatorTransport(
                 activeModelCapabilities,
                 frame.reasoningEffort,
               );
+              const turnBuiltinToolSurface = createAttachedRuntimeBuiltinToolSurface({
+                operatorTheme: {
+                  setTheme: operatorThemeBridge.request,
+                },
+              });
               result = await processAdmittedTurn({
                 orchestrator,
                 sessionRegistry,
@@ -735,10 +752,11 @@ function wireOperatorTransport(
                 channel: "gui",
                 providerValidation: currentDiscovery,
                 contextArtifactCache: input.transport.contextArtifactCache,
+                callBuiltinTools: turnBuiltinToolSurface.callBuiltinTools,
                 perCallConfig: buildGuiTurnPerCallConfig(
                   activeProvider,
                   activeModel,
-                  builtinToolSurface,
+                  turnBuiltinToolSurface,
                   activeModelCapabilities,
                   reasoningEffort,
                 ),
@@ -793,7 +811,11 @@ function wireOperatorTransport(
                 buildGuiTurnPerCallConfig(
                   routedProvider,
                   routedModel || undefined,
-                  builtinToolSurface,
+                  createAttachedRuntimeBuiltinToolSurface({
+                    operatorTheme: {
+                      setTheme: operatorThemeBridge.request,
+                    },
+                  }),
                   routedModelCapabilities,
                 ),
               ),
@@ -804,7 +826,11 @@ function wireOperatorTransport(
         },
 
         onClose(_event: CloseEvent, ws: WSContext) {
+          if (operatorSocket === ws) {
+            operatorSocket = null;
+          }
           input.onSocketClose?.();
+          operatorThemeBridge.rejectAll("Operator surface disconnected before applying the theme.");
           activityStreamer.unregister(ws);
         },
       };

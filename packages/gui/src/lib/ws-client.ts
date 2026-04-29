@@ -35,6 +35,13 @@ const GuiOutboundFrameSchema = z.discriminatedUnion("type", [
     model: z.string().trim().min(1).optional(),
     requestId: z.string().trim().min(1),
   }),
+  z.object({
+    type: z.literal("operator_theme_set_result"),
+    requestId: z.string().trim().min(1),
+    ok: z.boolean(),
+    appliedTheme: z.string().optional(),
+    error: z.string().optional(),
+  }),
   z.object({ type: z.literal("resume"), sessionId: z.string() }),
   z.object({ type: z.literal("approve"), sessionId: z.string().optional() }),
   z.object({ type: z.literal("reject"), reason: z.string(), sessionId: z.string().optional() }),
@@ -140,6 +147,13 @@ const GuiSessionEventSchema = z.object({
 /** Schema for GuiInboundFrame validation. */
 const GuiInboundFrameSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("thinking") }),
+  z.object({
+    type: z.literal("operator_theme_set"),
+    requestId: z.string().trim().min(1),
+    theme: z.string().trim().min(1),
+    scope: z.enum(["session", "persisted"]),
+    reason: z.string().optional(),
+  }),
   z.object({ type: z.literal("session_event"), event: GuiSessionEventSchema }),
   z.object({
     type: z.literal("activity_phase"),

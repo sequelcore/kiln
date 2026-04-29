@@ -140,6 +140,13 @@ describe("Composer", () => {
     expect(screen.getByRole("button", { name: "Claude Sonnet 4" })).toBeInTheDocument();
   });
 
+  it("renders send as an icon button with an accessible label", () => {
+    renderComposer();
+
+    expect(screen.getByRole("button", { name: "Send message" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Send" })).not.toBeInTheDocument();
+  });
+
   it("renders reasoning effort as part of the composer model controls", () => {
     renderComposer();
 

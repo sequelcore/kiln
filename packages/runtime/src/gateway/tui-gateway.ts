@@ -21,6 +21,7 @@ import {
   createAttachedRuntimeBuiltinToolSurface,
   type AttachedRuntimeBuiltinToolSurface,
 } from "./attached-runtime-tool-surface.js";
+import { createOperatorThemeBridge } from "./operator-theme-bridge.js";
 import {
   projectGuiOperatorModels,
   providerRequiresSelectedModelMessage,
@@ -309,9 +310,14 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
     "/tui/ws",
     upgradeWebSocket((c) => {
       const userId = c.req.query("userId") ?? crypto.randomUUID();
+      let operatorSocket: WSContext | null = null;
+      const operatorThemeBridge = createOperatorThemeBridge((frame) => {
+        operatorSocket?.send(JSON.stringify(frame));
+      });
 
       return {
         async onOpen(_event: Event, ws: WSContext) {
+          operatorSocket = ws;
           activityStreamer.register(ws, eventBus);
           const activeProvider = options.sessionManager.getProvider();
           const storedModel = options.sessionManager.getModel().trim();
@@ -353,6 +359,17 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
               : new TextDecoder().decode(event.data as ArrayBuffer);
 
             const frame = JSON.parse(raw) as Record<string, unknown>;
+
+            if (frame.type === "operator_theme_set_result") {
+              operatorThemeBridge.resolve(frame as {
+                type: "operator_theme_set_result";
+                requestId: string;
+                ok: boolean;
+                appliedTheme?: string;
+                error?: string;
+              });
+              return;
+            }
 
             if (frame.type === "clear") {
               try {
@@ -562,6 +579,11 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
                 activeModelCapabilities,
                 frame.reasoningEffort,
               );
+              const turnBuiltinToolSurface = createAttachedRuntimeBuiltinToolSurface({
+                operatorTheme: {
+                  setTheme: operatorThemeBridge.request,
+                },
+              });
               result = await processAdmittedTurn({
                 orchestrator,
                 sessionRegistry,
@@ -573,10 +595,11 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
                 channel: "tui",
                 providerValidation: currentDiscovery,
                 contextArtifactCache: options.contextArtifactCache,
+                callBuiltinTools: turnBuiltinToolSurface.callBuiltinTools,
                 perCallConfig: buildTuiTurnPerCallConfig(
                   activeProvider,
                   activeModel,
-                  builtinToolSurface,
+                  turnBuiltinToolSurface,
                   activeModelCapabilities,
                   reasoningEffort,
                 ),
@@ -622,7 +645,11 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
               buildTuiTurnPerCallConfig(
                 routedProvider,
                 routedModel || undefined,
-                builtinToolSurface,
+                createAttachedRuntimeBuiltinToolSurface({
+                  operatorTheme: {
+                    setTheme: operatorThemeBridge.request,
+                  },
+                }),
                 routedModelCapabilities,
               ),
             );
@@ -642,6 +669,10 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
         },
 
         onClose(_event: CloseEvent, ws: WSContext) {
+          if (operatorSocket === ws) {
+            operatorSocket = null;
+          }
+          operatorThemeBridge.rejectAll("Operator surface disconnected before applying the theme.");
           activityStreamer.unregister(ws);
           // Session persists across reconnects (stored in sessionRegistry)
         },

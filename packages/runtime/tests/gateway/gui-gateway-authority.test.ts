@@ -74,6 +74,31 @@ describe("GUI authority forwarding", () => {
     });
   });
 
+  it("adds the operator theme tool when a live operator theme controller is attached", async () => {
+    const { buildGuiTurnPerCallConfig } = await import("../../src/gateway/gui-gateway.js");
+    const { createAttachedRuntimeBuiltinToolSurface } = await import("../../src/gateway/attached-runtime-tool-surface.js");
+    const setTheme = vi.fn().mockResolvedValue({ ok: true, appliedTheme: "dracula" });
+    const surface = createAttachedRuntimeBuiltinToolSurface({
+      operatorTheme: { setTheme },
+    });
+    const cfg = buildGuiTurnPerCallConfig("codex-oauth", "gpt-5.4-mini", surface);
+
+    expect(cfg.toolAllowlist?.has("operator_set_theme")).toBe(true);
+    expect(cfg.additionalTools?.some((tool) => tool.name === "operator_set_theme")).toBe(true);
+
+    const result = await surface.callBuiltinTools.get("operator_set_theme")?.({
+      theme: "dracula",
+      scope: "session",
+      reason: "test",
+    });
+
+    expect(setTheme).toHaveBeenCalledWith({ theme: "dracula", scope: "session", reason: "test" });
+    expect(result).toMatchObject({
+      isError: false,
+      metadata: { appliedTheme: "dracula" },
+    });
+  });
+
   it("exposes the builtin tool surface for live-discovered Codex OAuth models", async () => {
     const { buildGuiTurnPerCallConfig, deriveGuiAuthorityStatusFromPerCallConfig } = await import("../../src/gateway/gui-gateway.js");
     const cfg = buildGuiTurnPerCallConfig("codex-oauth", "gpt-5.5", undefined, {

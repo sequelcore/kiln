@@ -6,6 +6,7 @@ import type {
   GuiSessionListResponse,
   GuiSessionSummary,
   GuiTelemetrySnapshot,
+  OperatorThemeName,
 } from "@kilnai/gateway-contracts";
 import { GuiSessionClient, type GuiSessionClientOptions } from "./session-client.js";
 
@@ -145,7 +146,7 @@ export class GuiGatewayClient {
     return resolveCandidateBaseUrls(this.baseUrl, this.resolvedBaseUrl);
   }
 
-  async saveThemePreference(theme: "kiln-dark" | "kiln-light" | "system-follow"): Promise<void> {
+  async saveThemePreference(theme: OperatorThemeName): Promise<void> {
     const candidateBaseUrls = this.resolveCandidateBaseUrls();
 
     for (const candidateBaseUrl of candidateBaseUrls) {

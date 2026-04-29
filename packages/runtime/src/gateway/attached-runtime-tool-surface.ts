@@ -10,6 +10,11 @@ import {
   isDirectProviderId,
   resolveDirectProviderExecutionProfile,
 } from "@kilnai/core";
+import {
+  OPERATOR_THEME_NAMES,
+  isOperatorThemeName,
+  type OperatorThemeScope,
+} from "@kilnai/gateway-contracts";
 import type { PerCallToolConfig } from "../session/runtime-session-orchestrator.js";
 import { authorityFromCapability } from "./tool-authority.js";
 
@@ -18,6 +23,18 @@ export interface AttachedRuntimeBuiltinToolSurface {
   readonly toolDefinitions: readonly ToolDefinition[];
   readonly capabilities: ReadonlyMap<string, Capability>;
   readonly toolAuthority: ReadonlyMap<string, AuthorityDescriptor>;
+}
+
+export interface OperatorThemeToolController {
+  readonly setTheme: (input: {
+    readonly theme: string;
+    readonly scope: OperatorThemeScope;
+    readonly reason?: string;
+  }) => Promise<{ readonly ok: boolean; readonly appliedTheme?: string; readonly error?: string }>;
+}
+
+export interface AttachedRuntimeBuiltinToolSurfaceOptions {
+  readonly operatorTheme?: OperatorThemeToolController;
 }
 
 const DEFAULT_CORE_BUILTIN_TOOL_SURFACE = createDefaultBuiltinToolSurface();
@@ -29,8 +46,65 @@ const DEFAULT_BUILTIN_TOOL_SURFACE: AttachedRuntimeBuiltinToolSurface = {
   toolAuthority: buildBuiltinToolAuthority(DEFAULT_TOOL_CAPABILITIES),
 };
 
-export function createAttachedRuntimeBuiltinToolSurface(): AttachedRuntimeBuiltinToolSurface {
-  return DEFAULT_BUILTIN_TOOL_SURFACE;
+const OPERATOR_SET_THEME_TOOL: ToolDefinition = {
+  name: "operator_set_theme",
+  description: "Change the live operator surface theme when the connected GUI/TUI supports it. Use scope='session' unless the operator explicitly asks to persist the preference.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      theme: {
+        enum: OPERATOR_THEME_NAMES,
+        description: "Theme name to apply.",
+      },
+      scope: {
+        enum: ["session", "persisted"],
+        description: "session applies only to the live surface; persisted also asks the surface to save the preference.",
+        default: "session",
+      },
+      reason: {
+        type: "string",
+        description: "Short operator-facing reason for changing the theme.",
+      },
+    },
+    required: ["theme"],
+    additionalProperties: false,
+  },
+  tags: new Set<string>(["operator-ui"]),
+};
+
+const OPERATOR_SET_THEME_CAPABILITY: Capability = {
+  name: OPERATOR_SET_THEME_TOOL.name,
+  description: OPERATOR_SET_THEME_TOOL.description,
+  schema: OPERATOR_SET_THEME_TOOL.inputSchema,
+  tags: ["operator-ui"],
+  annotations: { idempotent: true },
+};
+
+export function createAttachedRuntimeBuiltinToolSurface(
+  options: AttachedRuntimeBuiltinToolSurfaceOptions = {},
+): AttachedRuntimeBuiltinToolSurface {
+  if (!options.operatorTheme) {
+    return DEFAULT_BUILTIN_TOOL_SURFACE;
+  }
+
+  const callBuiltinTools = new Map(DEFAULT_BUILTIN_TOOL_SURFACE.callBuiltinTools);
+  callBuiltinTools.set(OPERATOR_SET_THEME_TOOL.name, async (input) => executeOperatorSetTheme(input, options.operatorTheme!));
+
+  const capabilities = new Map(DEFAULT_BUILTIN_TOOL_SURFACE.capabilities);
+  capabilities.set(OPERATOR_SET_THEME_TOOL.name, OPERATOR_SET_THEME_CAPABILITY);
+
+  const toolAuthority = new Map(DEFAULT_BUILTIN_TOOL_SURFACE.toolAuthority);
+  const authority = authorityFromCapability(OPERATOR_SET_THEME_TOOL.name, OPERATOR_SET_THEME_CAPABILITY);
+  if (authority) {
+    toolAuthority.set(OPERATOR_SET_THEME_TOOL.name, authority);
+  }
+
+  return {
+    callBuiltinTools,
+    toolDefinitions: [...DEFAULT_BUILTIN_TOOL_SURFACE.toolDefinitions, OPERATOR_SET_THEME_TOOL],
+    capabilities,
+    toolAuthority,
+  };
 }
 
 export function buildAttachedRuntimePerCallToolConfig(input: {
@@ -104,4 +178,36 @@ function buildBuiltinToolAuthority(
     }
   }
   return toolAuthority;
+}
+
+async function executeOperatorSetTheme(
+  input: Record<string, unknown>,
+  controller: OperatorThemeToolController,
+): Promise<{ readonly output: string; readonly isError: boolean; readonly metadata: Record<string, unknown> }> {
+  const theme = typeof input.theme === "string" ? input.theme.trim() : "";
+  if (!isOperatorThemeName(theme)) {
+    return {
+      output: `Unknown operator theme '${theme || "<empty>"}'.`,
+      isError: true,
+      metadata: { reason: "invalid_theme" },
+    };
+  }
+  const rawScope = typeof input.scope === "string" ? input.scope.trim() : "session";
+  const scope: OperatorThemeScope = rawScope === "persisted" ? "persisted" : "session";
+  const reason = typeof input.reason === "string" && input.reason.trim().length > 0
+    ? input.reason.trim()
+    : undefined;
+  const result = await controller.setTheme({ theme, scope, ...(reason ? { reason } : {}) });
+  if (!result.ok) {
+    return {
+      output: result.error ?? `Theme '${theme}' was not applied.`,
+      isError: true,
+      metadata: { theme, scope, applied: false, error: result.error },
+    };
+  }
+  return {
+    output: `Applied operator theme '${result.appliedTheme ?? theme}' (${scope}).`,
+    isError: false,
+    metadata: { theme, scope, appliedTheme: result.appliedTheme ?? theme },
+  };
 }

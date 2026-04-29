@@ -1,6 +1,14 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type { GuiInboundFrame, GuiProviderReasoningEffort } from "@kilnai/gateway-contracts";
+import {
+  OPERATOR_THEME_LABELS,
+  OPERATOR_THEME_NAMES,
+  isOperatorThemeName,
+  type GuiInboundFrame,
+  type GuiOutboundFrame,
+  type GuiProviderReasoningEffort,
+  type OperatorThemeName,
+} from "@kilnai/gateway-contracts";
 import { GuiGatewayClient } from "../api/client.js";
 import { useGuiWs } from "../lib/use-gui-ws.js";
 import { useSessionStore } from "../lib/session-store.js";
@@ -346,7 +354,7 @@ function ReasoningEffortControl(props: {
 }) {
   if (props.options.length === 0) return null;
   return (
-    <label className="inline-flex h-9 shrink-0 items-center rounded-md border border-border bg-background px-2 text-xs text-foreground hover:bg-secondary/45">
+    <label className="inline-flex h-7 shrink-0 items-center rounded-[min(var(--radius-md),12px)] border border-border bg-background px-2 text-xs text-foreground hover:bg-secondary/45">
       <span className="sr-only">Reasoning effort</span>
       <select
         aria-label="Reasoning effort"
@@ -379,6 +387,7 @@ export function AppShell() {
   const [sidebarExpanded, setSidebarExpanded] = useState(true);
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>("sessions");
   const [reasoningEffort, setReasoningEffort] = useState<GuiProviderReasoningEffort | null>(null);
+  const sendRef = useRef<((frame: GuiOutboundFrame) => void) | null>(null);
 
   const status = useSessionStore((state) => state.status);
   const timelineEntries = useSessionStore((state) => state.timelineEntries);
@@ -605,6 +614,26 @@ export function AppShell() {
     onFrame: (frame: GuiInboundFrame) => {
         if (frame.type === "welcome") {
           onWelcome(frame);
+        } else if (frame.type === "operator_theme_set") {
+          if (!isOperatorThemeName(frame.theme)) {
+            sendRef.current?.({
+              type: "operator_theme_set_result",
+              requestId: frame.requestId,
+              ok: false,
+              error: `Unknown theme '${frame.theme}'.`,
+            });
+            return;
+          }
+          setTheme(frame.theme);
+          if (frame.scope === "persisted") {
+            persistThemePreference(frame.theme);
+          }
+          sendRef.current?.({
+            type: "operator_theme_set_result",
+            requestId: frame.requestId,
+            ok: true,
+            appliedTheme: frame.theme,
+          });
         } else if (frame.type === "session_event") {
           onSessionEvent(frame.event);
         } else if (frame.type === "done") {
@@ -649,6 +678,7 @@ export function AppShell() {
   });
 
   useEffect(() => {
+    sendRef.current = wsState === "open" ? send : null;
     setSender(wsState === "open" ? send : null);
   }, [send, setSender, wsState]);
 
@@ -740,35 +770,19 @@ export function AppShell() {
     : null;
   const workingDirectory = dashboardData?.workingDirectory;
   const domainLabel = dashboardData?.domainLabel;
-  const persistThemePreference = (theme: "kiln-dark" | "kiln-light" | "system-follow") => {
+  const persistThemePreference = (theme: OperatorThemeName) => {
     void gatewayClient.saveThemePreference(theme);
     const nextUrl = new URL(window.location.href);
     nextUrl.searchParams.set("theme", theme);
     window.history.replaceState({}, "", nextUrl.toString());
   };
-  const themeCommands: readonly CommandPaletteItem[] = [
-    {
-      id: "theme-dark",
-      trigger: "theme dark",
-      title: "Dark theme",
-      description: "Apply kiln-dark immediately.",
-      keywords: ["dark", "theme", "kiln-dark"],
-    },
-    {
-      id: "theme-light",
-      trigger: "theme light",
-      title: "Light theme",
-      description: "Apply kiln-light immediately.",
-      keywords: ["light", "theme", "kiln-light"],
-    },
-    {
-      id: "theme-system",
-      trigger: "theme system",
-      title: "System theme",
-      description: "Follow the OS preference.",
-      keywords: ["system", "theme", "system-follow"],
-    },
-  ];
+  const themeCommands: readonly CommandPaletteItem[] = OPERATOR_THEME_NAMES.map((theme) => ({
+    id: `theme:${theme}`,
+    trigger: `theme ${theme}`,
+    title: OPERATOR_THEME_LABELS[theme],
+    description: `Apply ${theme}.`,
+    keywords: ["theme", theme, OPERATOR_THEME_LABELS[theme].toLowerCase()],
+  }));
   const rootCommands: readonly CommandPaletteItem[] = [
     {
       id: "new-session",
@@ -836,22 +850,14 @@ export function AppShell() {
         setIsProviderPickerOpen(true);
         closePalette();
         return;
-      case "theme-dark":
-        setTheme("kiln-dark");
-        persistThemePreference("kiln-dark");
-        closePalette();
-        return;
-      case "theme-light":
-        setTheme("kiln-light");
-        persistThemePreference("kiln-light");
-        closePalette();
-        return;
-      case "theme-system":
-        setTheme("system-follow");
-        persistThemePreference("system-follow");
-        closePalette();
-        return;
       default:
+        if (command.id.startsWith("theme:")) {
+          const theme = command.id.slice("theme:".length) as OperatorThemeName;
+          if ((OPERATOR_THEME_NAMES as readonly string[]).includes(theme)) {
+            setTheme(theme);
+            persistThemePreference(theme);
+          }
+        }
         closePalette();
     }
   };

@@ -24,7 +24,7 @@ By default, the command:
 | Flag | Description |
 |------|-------------|
 | `--provider <name>` | Initial provider selection |
-| `--theme <name>` | Initial GUI theme (`kiln-dark`, `kiln-light`, `system-follow`) |
+| `--theme <name>` | Initial GUI theme from the shared operator theme catalog |
 | `--plan` | Start with plan mode enabled |
 | `--cwd <path>` | Working directory used by the session |
 | `--port <number>` | Override the gateway port |
@@ -48,7 +48,22 @@ If no supported browser host is available, `kiln gui` fails closed and tells you
 
 ## Theme Persistence
 
-GUI theme preference is stored in `~/.kiln/config.yaml` under `gui.theme`. If `gui.theme` is absent, Kiln falls back to `tui.theme` during the transition period, then to `kiln-dark`.
+GUI theme preference is stored in `~/.kiln/config.yaml` under `gui.theme`. If
+`gui.theme` is absent, Kiln falls back to `tui.theme` during the transition
+period, then to `kiln-dark`.
+
+GUI and TUI use the same operator theme catalog from
+`@kilnai/gateway-contracts`: `kiln-dark`, `kiln-light`, `system-follow`,
+`dracula`, `catppuccin-mocha`, `nord`, `tokyo-night`, `gruvbox-dark`,
+`rose-pine`, `kanagawa-wave`, `everforest-dark`, `ayu-dark`, `one-dark`, and
+`night-owl`. `system-follow` follows the OS color preference in the GUI; in the
+TUI it resolves to the terminal-safe dark palette because there is no reliable
+cross-terminal OS theme bridge.
+
+Connected executable providers can call the runtime `operator_set_theme` tool
+to request a live GUI theme change. The request is acknowledged over the same
+operator WebSocket as other GUI control frames. `scope: "session"` applies only
+to the live window; `scope: "persisted"` also saves `gui.theme`.
 
 ## Design System
 

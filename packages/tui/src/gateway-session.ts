@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import { isGuiProviderModeless, type GuiProviderDiscoveryResult } from "@kilnai/gateway-contracts";
 import type { SessionLike } from "./types.js";
 import type { SessionEventInternal } from "./types.js";
+import { applyTuiOperatorThemeRequest } from "./operator-theme-handler.js";
 import { TuiWsClient } from "./ws-client.js";
 import type { TuiInboundFrame } from "./ws-client.js";
 
@@ -322,6 +323,8 @@ export class GatewaySession implements SessionLike {
   private handleFrame(frame: TuiInboundFrame): void {
     if (frame.type === "thinking") {
       this.push({ type: "thinking" });
+    } else if (frame.type === "operator_theme_set") {
+      void this.handleOperatorThemeSet(frame);
     } else if (frame.type === "activity") {
       this.push({
         type: "activity",
@@ -472,6 +475,32 @@ export class GatewaySession implements SessionLike {
       } else if (pending) {
         pending.reject(new Error("Provider switch acknowledgement did not match the pending request"));
       }
+    }
+  }
+
+  private async handleOperatorThemeSet(
+    frame: Extract<TuiInboundFrame, { type: "operator_theme_set" }>,
+  ): Promise<void> {
+    try {
+      const result = await applyTuiOperatorThemeRequest({
+        theme: frame.theme,
+        scope: frame.scope,
+        ...(frame.reason ? { reason: frame.reason } : {}),
+      });
+      this.client.send({
+        type: "operator_theme_set_result",
+        requestId: frame.requestId,
+        ok: result.ok,
+        ...(result.appliedTheme ? { appliedTheme: result.appliedTheme } : {}),
+        ...(result.error ? { error: result.error } : {}),
+      });
+    } catch (error) {
+      this.client.send({
+        type: "operator_theme_set_result",
+        requestId: frame.requestId,
+        ok: false,
+        error: error instanceof Error ? error.message : "TUI theme control failed.",
+      });
     }
   }
 

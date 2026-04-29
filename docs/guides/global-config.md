@@ -23,9 +23,14 @@
 | `identity.name` | `string` | Default operator name for generated prompt context and UI personalization. |
 | `identity.timezone` | `string` | Default timezone identifier for prompt context and scheduling-aware flows. |
 | `tui` | `KilnGlobalTuiConfig` | Global TUI preferences. |
-| `tui.theme` | `string` | Default TUI theme name. |
+| `tui.theme` | `string` | Default TUI theme name from the shared operator theme catalog. |
 | `gui` | `KilnGlobalGuiConfig` | Global GUI preferences. |
-| `gui.theme` | `string` | Default GUI theme name (`kiln-dark`, `kiln-light`, `system-follow`). |
+| `gui.theme` | `string` | Default GUI theme name from the shared operator theme catalog. |
+
+Supported operator themes are `kiln-dark`, `kiln-light`, `system-follow`,
+`dracula`, `catppuccin-mocha`, `nord`, `tokyo-night`, `gruvbox-dark`,
+`rose-pine`, `kanagawa-wave`, `everforest-dark`, `ayu-dark`, `one-dark`, and
+`night-owl`. GUI and TUI validate theme names against the same contract.
 
 ## Environment Variables
 

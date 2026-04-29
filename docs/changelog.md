@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased -- Operator Theme Tools and Theme Parity
+
+- Added a shared operator theme catalog in `@kilnai/gateway-contracts` and
+  wired GUI, TUI, CLI config parsing, and runtime validation to the same theme
+  names.
+- GUI now exposes the same named themes as the TUI instead of only
+  `kiln-dark`, `kiln-light`, and `system-follow`.
+- TUI now accepts `kiln-light` and `system-follow` for catalog parity.
+  `system-follow` maps to the dark terminal palette because terminals do not
+  expose a dependable OS theme signal.
+- Added the runtime `operator_set_theme` tool for attached GUI/TUI sessions.
+  Executable providers can request live theme changes through the same governed
+  tool loop as other builtin tools.
+- Added `operator_theme_set` and `operator_theme_set_result` WebSocket frames so
+  GUI and TUI acknowledge theme requests before the tool returns.
+- `operator_set_theme` supports `scope: "session"` for live-only changes and
+  `scope: "persisted"` to save `gui.theme` or `tui.theme` when the surface owns
+  persistence.
+
 ## Unreleased -- Unified Provider Auth and Reasoning Controls
 
 - GUI and TUI provider login now run through the same interactive provider-auth

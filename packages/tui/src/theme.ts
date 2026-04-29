@@ -83,6 +83,22 @@ export const kilnDark: KilnTheme = createTheme({
   info: "#9fb0c7",
 });
 
+export const kilnLight: KilnTheme = createTheme({
+  bg0: "#f7f9fc",
+  bg1: "#eef2f8",
+  bg2: "#e2e8f1",
+  border: "#aab6c7",
+  borderActive: "#687896",
+  text: "#1d2430",
+  textMuted: "#586579",
+  accent: "#7a4fd6",
+  primary: "#0b6fae",
+  success: "#16703a",
+  error: "#b3263a",
+  warning: "#8a5a00",
+  info: "#4d6280",
+});
+
 export const dracula: KilnTheme = createTheme({
   bg0: "#21222c",
   bg1: "#282a36",
@@ -263,6 +279,8 @@ export const defaultTheme = kilnDark;
 
 export const themes: Record<string, KilnTheme> = {
   "kiln-dark": kilnDark,
+  "kiln-light": kilnLight,
+  "system-follow": kilnDark,
   dracula,
   "catppuccin-mocha": catppuccinMocha,
   nord,

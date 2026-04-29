@@ -55,6 +55,8 @@ The TUI exports `KilnTheme`, `defaultTheme`, and the named `themes` map from `pa
 The current build ships these built-in theme names:
 
 - `kiln-dark`
+- `kiln-light`
+- `system-follow`
 - `dracula`
 - `catppuccin-mocha`
 - `nord`
@@ -68,6 +70,19 @@ The current build ships these built-in theme names:
 - `night-owl`
 
 Use any of them with `--theme <name>`.
+
+This list is not TUI-owned. GUI and TUI consume the shared operator theme
+catalog from `@kilnai/gateway-contracts`, so any theme added to the contract
+must be rendered by both surfaces. `system-follow` is accepted for config parity
+with the GUI; the terminal renderer maps it to `kiln-dark` because terminal
+processes do not expose a dependable OS color-scheme signal.
+
+Executable providers connected through the TUI gateway can call
+`operator_set_theme` to request a live theme change. The gateway sends an
+`operator_theme_set` frame to the TUI, the TUI applies the theme, and it returns
+an `operator_theme_set_result` acknowledgement. `scope: "session"` changes only
+the current TUI process; `scope: "persisted"` also writes `tui.theme` in
+`~/.kiln/config.yaml` when the standard CLI wrapper owns the session.
 
 `KilnTheme` exposes these semantic color tokens:
 

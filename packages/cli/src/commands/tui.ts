@@ -41,6 +41,7 @@ import {
   resolveGuiProviderSwitch,
 } from "@kilnai/runtime";
 import type { CliSessionFactoryContext, CliSessionRunOptions } from "@kilnai/runtime";
+import { persistTuiThemePreference } from "./gui-options.js";
 
 export interface TuiFlags {
   provider?: string;
@@ -933,6 +934,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     () => bootstrap.createSession().then((session) => (
       session as unknown as { refreshProviders?: () => Promise<void> | void }
     ).refreshProviders?.()),
+    (themeName) => persistTuiThemePreference(themeName, globalConfig),
   );
 
   bootstrap.shutdown();

@@ -1,14 +1,10 @@
 import { readGlobalConfig, writeGlobalConfig, type KilnGlobalConfig } from "../config/global-config.js";
+import { isOperatorThemeName, type OperatorThemeName } from "@kilnai/gateway-contracts";
 
-const GUI_THEME_VALUES = ["kiln-dark", "kiln-light", "system-follow"] as const;
-
-export type GuiThemePreference = (typeof GUI_THEME_VALUES)[number];
+export type GuiThemePreference = OperatorThemeName;
 
 function parseGuiThemePreference(theme: string | undefined): GuiThemePreference | undefined {
-  if (theme === "kiln-dark" || theme === "kiln-light" || theme === "system-follow") {
-    return theme;
-  }
-  return undefined;
+  return isOperatorThemeName(theme) ? theme : undefined;
 }
 
 export function resolveGuiThemePreference(
@@ -36,6 +32,24 @@ export function persistGuiThemePreference(
     ...current,
     gui: {
       ...current.gui,
+      theme: resolvedTheme,
+    },
+  });
+}
+
+export function persistTuiThemePreference(
+  theme: string,
+  configOverride?: KilnGlobalConfig | null,
+): void {
+  const resolvedTheme = parseGuiThemePreference(theme);
+  if (!resolvedTheme) {
+    return;
+  }
+  const current = configOverride ?? readGlobalConfig() ?? {};
+  writeGlobalConfig({
+    ...current,
+    tui: {
+      ...current.tui,
       theme: resolvedTheme,
     },
   });

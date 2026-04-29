@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import type { SessionStatus } from "../lib/session-store.js";
 import { ComposerCommandMenu } from "./composer-command-menu.js";
 import type { CommandPaletteItem } from "./command-menu-surface.js";
+import { ArrowUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -108,7 +109,7 @@ export function Composer(props: ComposerProps) {
           ) : null}
           <Button
             type="button"
-            size="xs"
+            size="sm"
             variant={props.planMode ? "secondary" : "outline"}
             aria-pressed={props.planMode}
             onClick={() => props.onTogglePlanMode(!props.planMode)}
@@ -119,9 +120,12 @@ export function Composer(props: ComposerProps) {
             type="submit"
             disabled={!canSubmit || isBusy}
             variant="default"
-            className="ml-auto px-4"
+            size="icon-sm"
+            aria-label="Send message"
+            title="Send message"
+            className="ml-auto"
           >
-            Send
+            <ArrowUp aria-hidden="true" />
           </Button>
         </div>
       </form>
