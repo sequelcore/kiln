@@ -41,6 +41,8 @@ describe("direct provider execution profiles", () => {
       defaultExecutionMode: "text-only",
       executionMode: "kiln-executable",
       defaultBillingMode: "metered",
+      modelSupportsFunctionTools: true,
+      modelSupportsRuntimeTools: true,
       modelSupportsTools: true,
       supportsKilnExecutableTools: true,
     });
@@ -58,6 +60,8 @@ describe("direct provider execution profiles", () => {
       defaultExecutionMode: "text-only",
       executionMode: "kiln-executable",
       defaultBillingMode: "subscription",
+      modelSupportsFunctionTools: true,
+      modelSupportsRuntimeTools: true,
       modelSupportsTools: true,
       supportsKilnExecutableTools: true,
     });
@@ -67,7 +71,7 @@ describe("direct provider execution profiles", () => {
     const resolved = resolveDirectProviderExecutionProfile({
       provider: "codex-oauth",
       model: "gpt-5.5",
-      discoveredModelCapabilities: { supportsTools: true },
+      discoveredModelCapabilities: { supportsFunctionTools: true },
     });
 
     expect(resolved).toMatchObject({
@@ -76,16 +80,18 @@ describe("direct provider execution profiles", () => {
       defaultExecutionMode: "kiln-executable",
       executionMode: "kiln-executable",
       defaultBillingMode: "subscription",
+      modelSupportsFunctionTools: true,
+      modelSupportsRuntimeTools: true,
       modelSupportsTools: true,
       supportsKilnExecutableTools: true,
     });
   });
 
-  it("lets explicit discovery metadata disable dynamic Codex OAuth tool fallback", () => {
+  it("lets explicit function-tool discovery metadata disable dynamic Codex OAuth tool fallback", () => {
     const resolved = resolveDirectProviderExecutionProfile({
       provider: "codex-oauth",
       model: "gpt-disabled",
-      discoveredModelCapabilities: { supportsTools: false },
+      discoveredModelCapabilities: { supportsFunctionTools: false },
     });
 
     expect(resolved).toMatchObject({
@@ -94,6 +100,46 @@ describe("direct provider execution profiles", () => {
       defaultExecutionMode: "kiln-executable",
       executionMode: "text-only",
       defaultBillingMode: "subscription",
+      modelSupportsFunctionTools: false,
+      modelSupportsRuntimeTools: false,
+      modelSupportsTools: false,
+      supportsKilnExecutableTools: false,
+    });
+  });
+
+  it("keeps provider native tool metadata separate from Kiln runtime tool eligibility", () => {
+    const resolved = resolveDirectProviderExecutionProfile({
+      provider: "codex-oauth",
+      model: "gpt-5.5",
+      discoveredModelCapabilities: {
+        supportsNativeShellTools: false,
+        supportsNativePatchTools: false,
+      },
+    });
+
+    expect(resolved).toMatchObject({
+      executionMode: "kiln-executable",
+      modelSupportsFunctionTools: true,
+      modelSupportsRuntimeTools: true,
+      modelSupportsTools: true,
+      supportsKilnExecutableTools: true,
+    });
+  });
+
+  it("fails closed when runtime tool execution is explicitly disabled", () => {
+    const resolved = resolveDirectProviderExecutionProfile({
+      provider: "codex-oauth",
+      model: "gpt-5.5",
+      discoveredModelCapabilities: {
+        supportsFunctionTools: true,
+        supportsRuntimeTools: false,
+      },
+    });
+
+    expect(resolved).toMatchObject({
+      executionMode: "text-only",
+      modelSupportsFunctionTools: true,
+      modelSupportsRuntimeTools: false,
       modelSupportsTools: false,
       supportsKilnExecutableTools: false,
     });
@@ -111,6 +157,8 @@ describe("direct provider execution profiles", () => {
       defaultExecutionMode: "text-only",
       executionMode: "text-only",
       defaultBillingMode: "metered",
+      modelSupportsFunctionTools: false,
+      modelSupportsRuntimeTools: false,
       modelSupportsTools: false,
       supportsKilnExecutableTools: false,
     });
@@ -126,6 +174,8 @@ describe("direct provider execution profiles", () => {
     expect(resolved).toMatchObject({
       model: "deepseek-reasoner",
       executionMode: "text-only",
+      modelSupportsFunctionTools: false,
+      modelSupportsRuntimeTools: false,
       modelSupportsTools: false,
       supportsKilnExecutableTools: false,
     });
@@ -141,6 +191,8 @@ describe("direct provider execution profiles", () => {
     expect(resolved).toMatchObject({
       model: "gpt-5.4",
       executionMode: "text-only",
+      modelSupportsFunctionTools: true,
+      modelSupportsRuntimeTools: true,
       modelSupportsTools: true,
       supportsKilnExecutableTools: true,
     });

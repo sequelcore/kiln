@@ -204,11 +204,13 @@ The seven built-in tool names are:
 - `glob`
 - `git`
 
-Operator-attached GUI/TUI turns may also expose `operator_set_theme`. That tool
-is not part of the filesystem developer-tool registry; it is added by the
-runtime gateway only when a live operator surface can acknowledge the request.
-It changes the connected GUI/TUI theme through the shared WebSocket frame
-contract and returns an ordinary tool result.
+Operator-attached CLI, GUI, and TUI turns may also expose
+`operator_set_theme`. That tool is not part of the filesystem developer-tool
+registry; it is added by the runtime projection when the active consumer
+provides an operator theme controller. GUI and TUI change the connected live
+surface through the shared WebSocket frame contract and return an ordinary tool
+result. CLI has no live visual surface, so it rejects `scope: "session"` with an
+explicit tool error and accepts `scope: "persisted"` to save GUI/TUI defaults.
 
 `operator_set_theme` parameters:
 

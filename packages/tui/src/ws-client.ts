@@ -8,6 +8,10 @@ import type { OperatorThemeScope } from "@kilnai/gateway-contracts";
  * Inbound frames the TUI gateway sends.
  */
 export interface TuiProviderModelCapabilities {
+  readonly supportsFunctionTools?: boolean;
+  readonly supportsRuntimeTools?: boolean;
+  readonly supportsNativeShellTools?: boolean;
+  readonly supportsNativePatchTools?: boolean;
   readonly supportsTools?: boolean;
   readonly supportsStreaming?: boolean;
   readonly supportsStructuredOutput?: boolean;

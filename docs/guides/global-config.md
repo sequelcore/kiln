@@ -31,6 +31,9 @@ Supported operator themes are `kiln-dark`, `kiln-light`, `system-follow`,
 `dracula`, `catppuccin-mocha`, `nord`, `tokyo-night`, `gruvbox-dark`,
 `rose-pine`, `kanagawa-wave`, `everforest-dark`, `ayu-dark`, `one-dark`, and
 `night-owl`. GUI and TUI validate theme names against the same contract.
+When the CLI `operator_set_theme` tool is called with `scope: "persisted"`, it
+writes both `gui.theme` and `tui.theme` because there is no live CLI visual
+surface to update.
 
 ## Environment Variables
 

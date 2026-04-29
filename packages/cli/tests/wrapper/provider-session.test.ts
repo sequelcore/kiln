@@ -146,6 +146,58 @@ vi.mock("@kilnai/runtime", () => {
   }
 
   return {
+    createAttachedRuntimeBuiltinToolSurface: vi.fn((options?: {
+      operatorSurface?: {
+        theme?: {
+          setTheme(input: { theme: string; scope: "session" | "persisted"; reason?: string }): Promise<{
+            ok: boolean;
+            appliedTheme?: string;
+            error?: string;
+          }>;
+        };
+      };
+    }) => {
+      const coreSurface = coreSurfaceMocks.createDefaultBuiltinToolSurface();
+      const callBuiltinTools = new Map<string, (input: Record<string, unknown>) => Promise<unknown>>();
+      for (const toolName of coreSurface.toolNames as readonly string[]) {
+        callBuiltinTools.set(toolName, async (input: Record<string, unknown>) => {
+          const execution = await coreSurface.bridge.execute({ name: toolName, input });
+          const result = execution.result;
+          return { output: result.output, isError: result.isError, metadata: result.metadata };
+        });
+      }
+      const toolDefinitions = [...coreSurface.toolDefinitions];
+      const capabilities = new Map(coreSurface.capabilities);
+      if (options?.operatorSurface?.theme) {
+        const themeController = options.operatorSurface.theme;
+        callBuiltinTools.set("operator_set_theme", async (input: Record<string, unknown>) => (
+          themeController.setTheme({
+            theme: typeof input.theme === "string" ? input.theme : "",
+            scope: input.scope === "persisted" ? "persisted" : "session",
+            ...(typeof input.reason === "string" ? { reason: input.reason } : {}),
+          })
+        ));
+        toolDefinitions.push({
+          name: "operator_set_theme",
+          description: "Mock operator theme tool",
+          inputSchema: { type: "object", properties: {}, required: ["theme"] },
+          tags: new Set<string>(["operator-ui"]),
+        });
+        capabilities.set("operator_set_theme", {
+          name: "operator_set_theme",
+          description: "Mock operator theme tool",
+          schema: { type: "object", properties: {}, required: ["theme"] },
+          tags: ["operator-ui"],
+          annotations: { idempotent: true },
+        });
+      }
+      return {
+        callBuiltinTools,
+        toolDefinitions,
+        capabilities,
+        toolAuthority: new Map(),
+      };
+    }),
     RuntimeSessionOrchestrator: class MockRuntimeSessionOrchestrator {
       constructor(...args: unknown[]) {
         runtimeMocks.orchestratorConstructor(...args);
@@ -383,7 +435,7 @@ describe("ProviderSession.run()", () => {
     }));
     const events = await collectEvents(session.run({ prompt: "execute tool path" }));
 
-    expect(session.capabilities.supportedTools).toEqual(["mock_builtin"]);
+    expect(session.capabilities.supportedTools).toEqual(["mock_builtin", "operator_set_theme"]);
     expect(events).toContainEqual({ type: "text_delta", content: "applied changes" });
     expect(events).toContainEqual({
       type: "tool_result",
@@ -421,7 +473,7 @@ describe("ProviderSession.run()", () => {
       executionMode: "kiln-executable",
     }));
 
-    expect(session.capabilities.supportedTools).toEqual(["mock_builtin"]);
+    expect(session.capabilities.supportedTools).toEqual(["mock_builtin", "operator_set_theme"]);
 
     await collectEvents(session.run({ prompt: "execute with canonical surface" }));
 
@@ -508,7 +560,7 @@ describe("ProviderSession.run()", () => {
       env: { OPENAI_API_KEY: "cfg-key" },
     }));
 
-    expect(session.capabilities.supportedTools).toEqual(["mock_builtin"]);
+    expect(session.capabilities.supportedTools).toEqual(["mock_builtin", "operator_set_theme"]);
   });
 
   it("does not derive executable mode when no model is selected", () => {

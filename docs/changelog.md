@@ -10,14 +10,22 @@
 - TUI now accepts `kiln-light` and `system-follow` for catalog parity.
   `system-follow` maps to the dark terminal palette because terminals do not
   expose a dependable OS theme signal.
-- Added the runtime `operator_set_theme` tool for attached GUI/TUI sessions.
-  Executable providers can request live theme changes through the same governed
-  tool loop as other builtin tools.
+- Added the runtime `operator_set_theme` tool for attached CLI/GUI/TUI
+  sessions. Executable providers can request operator theme changes through the
+  same governed tool loop as other builtin tools.
 - Added `operator_theme_set` and `operator_theme_set_result` WebSocket frames so
   GUI and TUI acknowledge theme requests before the tool returns.
 - `operator_set_theme` supports `scope: "session"` for live-only changes and
   `scope: "persisted"` to save `gui.theme` or `tui.theme` when the surface owns
   persistence.
+- CLI exposes the same operator theme tool contract for executable
+  direct-provider sessions. Because CLI has no live visual surface,
+  session-scoped theme changes return an explicit tool error and persisted
+  changes save both GUI and TUI defaults.
+- Direct-provider model capabilities now distinguish structured function-tool
+  support, Kiln runtime-tool eligibility, and provider-native shell/patch
+  metadata so disabled provider-native tools do not incorrectly disable Kiln
+  builtin or operator tools.
 
 ## Unreleased -- Unified Provider Auth and Reasoning Controls
 

@@ -49,12 +49,34 @@ storing it in surface-local state.
 
 Current capability fields include:
 
-- `supportsTools`
+- `supportsFunctionTools`
+- `supportsRuntimeTools`
+- `supportsNativeShellTools`
+- `supportsNativePatchTools`
+- `supportsTools` (operator-surface compatibility projection of
+  `supportsRuntimeTools`)
 - `supportsParallelToolCalls`
 - `contextWindow`
 - `supportsVision`
 - `defaultReasoningEffort`
 - `supportedReasoningEfforts`
+
+Tool-capability fields are intentionally split:
+
+- `supportsFunctionTools` means the model endpoint can accept structured
+  function/tool-call schemas.
+- `supportsRuntimeTools` means Kiln may execute local runtime tools for that
+  model through the canonical authority and execution path.
+- `supportsNativeShellTools` and `supportsNativePatchTools` describe
+  provider-native shell or patch affordances advertised by the provider. They
+  are diagnostics and UI metadata; disabled native provider tools do not, by
+  themselves, disable Kiln runtime tools.
+- `supportsTools` remains a compatibility projection for existing consumers
+  that have not yet split UI display from execution eligibility.
+
+Execution admission must use `supportsFunctionTools` and `supportsRuntimeTools`
+when present. It must not infer that Kiln tools are unavailable merely because
+a provider-native shell or patch tool is disabled.
 
 `supportedReasoningEfforts` uses Kiln's normalized effort enum:
 `minimal`, `low`, `medium`, `high`, and `xhigh`. Provider-native names are

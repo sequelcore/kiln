@@ -72,6 +72,10 @@ const GuiProviderDescriptorSchema = z.object({
 });
 
 const GuiProviderModelCapabilitiesSchema = z.object({
+  supportsFunctionTools: z.boolean().optional(),
+  supportsRuntimeTools: z.boolean().optional(),
+  supportsNativeShellTools: z.boolean().optional(),
+  supportsNativePatchTools: z.boolean().optional(),
   supportsTools: z.boolean().optional(),
   supportsStreaming: z.boolean().optional(),
   supportsStructuredOutput: z.boolean().optional(),

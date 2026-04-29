@@ -580,8 +580,10 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
                 frame.reasoningEffort,
               );
               const turnBuiltinToolSurface = createAttachedRuntimeBuiltinToolSurface({
-                operatorTheme: {
-                  setTheme: operatorThemeBridge.request,
+                operatorSurface: {
+                  theme: {
+                    setTheme: operatorThemeBridge.request,
+                  },
                 },
               });
               result = await processAdmittedTurn({
@@ -646,8 +648,10 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
                 routedProvider,
                 routedModel || undefined,
                 createAttachedRuntimeBuiltinToolSurface({
-                  operatorTheme: {
-                    setTheme: operatorThemeBridge.request,
+                  operatorSurface: {
+                    theme: {
+                      setTheme: operatorThemeBridge.request,
+                    },
                   },
                 }),
                 routedModelCapabilities,

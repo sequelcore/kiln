@@ -4,13 +4,11 @@ import {
   KilnError,
   appendExecutionIdentity,
   type ContentPart,
-  createDefaultBuiltinToolSurface,
   getDirectProviderExecutionProfile,
   resolveExecutionIdentity,
   textPart,
   type AgentMessage,
   type Capability,
-  type DefaultBuiltinToolSurface,
   type DirectProviderExecutionMode,
   type DirectProviderId,
   type ResolvedDirectProviderExecutionProfile,
@@ -18,7 +16,10 @@ import {
   type ReasoningEffort,
   resolveDirectProviderExecutionProfile,
 } from "@kilnai/core";
-import type { OrchestrateResult } from "@kilnai/runtime";
+import {
+  createAttachedRuntimeBuiltinToolSurface,
+  type OrchestrateResult,
+} from "@kilnai/runtime";
 import type {
   IKilnSession,
   KilnPermissionPolicy,
@@ -30,6 +31,7 @@ import { buildProviderSystemPrompt } from "./preamble-builder.js";
 import { PermissionPolicyAuthorizer } from "./permission-policy-authorizer.js";
 import { ProviderContextTracker } from "./provider-context.js";
 import { createDirectProviderAdapter } from "./direct-provider-adapter-factory.js";
+import { createCliOperatorThemeController } from "../application/operator-theme-preferences.js";
 
 export interface ProviderSessionConfig {
   readonly provider: DirectProviderId;
@@ -68,20 +70,6 @@ function getDefaultBillingMode(
     return profile.defaultBillingMode;
   }
   return provider === "ollama" ? "free" : "metered";
-}
-
-function buildBuiltinToolExecutors(
-  surface: DefaultBuiltinToolSurface,
-): ReadonlyMap<string, (input: Record<string, unknown>) => Promise<unknown>> {
-  const executors = new Map<string, (input: Record<string, unknown>) => Promise<unknown>>();
-  for (const toolName of surface.toolNames) {
-    executors.set(toolName, async (input: Record<string, unknown>) => {
-      const execution = await surface.bridge.execute({ name: toolName, input });
-      const result = execution.result;
-      return { output: result.output, isError: result.isError, metadata: result.metadata };
-    });
-  }
-  return executors;
 }
 
 function resolveExecutionMode(config: ProviderSessionConfig): DirectProviderExecutionMode {
@@ -143,12 +131,19 @@ export class ProviderSession implements IKilnSession {
       maxContextTokens: 128000,
       compactionThreshold: 0.85,
     });
-    const builtinToolSurface = createDefaultBuiltinToolSurface();
-    this.builtinTools = buildBuiltinToolExecutors(builtinToolSurface);
+    const builtinToolSurface = createAttachedRuntimeBuiltinToolSurface({
+      operatorSurface: {
+        theme: createCliOperatorThemeController(),
+      },
+    });
+    this.builtinTools = builtinToolSurface.callBuiltinTools;
     this.toolDefinitions = builtinToolSurface.toolDefinitions;
     this.capabilityMap = builtinToolSurface.capabilities;
     this.eventBus = new EventBus(100);
-    this._capabilities = deriveCapabilities(config, builtinToolSurface.toolNames);
+    this._capabilities = deriveCapabilities(
+      config,
+      builtinToolSurface.toolDefinitions.map((tool) => tool.name),
+    );
   }
 
   get capabilities(): SessionCapabilities {

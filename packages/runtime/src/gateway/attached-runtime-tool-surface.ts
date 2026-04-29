@@ -25,7 +25,7 @@ export interface AttachedRuntimeBuiltinToolSurface {
   readonly toolAuthority: ReadonlyMap<string, AuthorityDescriptor>;
 }
 
-export interface OperatorThemeToolController {
+export interface OperatorSurfaceThemeController {
   readonly setTheme: (input: {
     readonly theme: string;
     readonly scope: OperatorThemeScope;
@@ -33,8 +33,12 @@ export interface OperatorThemeToolController {
   }) => Promise<{ readonly ok: boolean; readonly appliedTheme?: string; readonly error?: string }>;
 }
 
+export interface OperatorSurfaceController {
+  readonly theme?: OperatorSurfaceThemeController;
+}
+
 export interface AttachedRuntimeBuiltinToolSurfaceOptions {
-  readonly operatorTheme?: OperatorThemeToolController;
+  readonly operatorSurface?: OperatorSurfaceController;
 }
 
 const DEFAULT_CORE_BUILTIN_TOOL_SURFACE = createDefaultBuiltinToolSurface();
@@ -48,7 +52,7 @@ const DEFAULT_BUILTIN_TOOL_SURFACE: AttachedRuntimeBuiltinToolSurface = {
 
 const OPERATOR_SET_THEME_TOOL: ToolDefinition = {
   name: "operator_set_theme",
-  description: "Change the live operator surface theme when the connected GUI/TUI supports it. Use scope='session' unless the operator explicitly asks to persist the preference.",
+  description: "Change the operator surface theme when the connected CLI/GUI/TUI surface supports it. Use scope='session' for the live surface and scope='persisted' only when the operator explicitly asks to save the preference.",
   inputSchema: {
     type: "object",
     properties: {
@@ -85,12 +89,13 @@ const OPERATOR_SET_THEME_CAPABILITY: Capability = {
 export function createAttachedRuntimeBuiltinToolSurface(
   options: AttachedRuntimeBuiltinToolSurfaceOptions = {},
 ): AttachedRuntimeBuiltinToolSurface {
-  if (!options.operatorTheme) {
+  const themeController = options.operatorSurface?.theme;
+  if (!themeController) {
     return DEFAULT_BUILTIN_TOOL_SURFACE;
   }
 
   const callBuiltinTools = new Map(DEFAULT_BUILTIN_TOOL_SURFACE.callBuiltinTools);
-  callBuiltinTools.set(OPERATOR_SET_THEME_TOOL.name, async (input) => executeOperatorSetTheme(input, options.operatorTheme!));
+  callBuiltinTools.set(OPERATOR_SET_THEME_TOOL.name, async (input) => executeOperatorSetTheme(input, themeController));
 
   const capabilities = new Map(DEFAULT_BUILTIN_TOOL_SURFACE.capabilities);
   capabilities.set(OPERATOR_SET_THEME_TOOL.name, OPERATOR_SET_THEME_CAPABILITY);
@@ -184,7 +189,7 @@ function buildBuiltinToolAuthority(
 
 async function executeOperatorSetTheme(
   input: Record<string, unknown>,
-  controller: OperatorThemeToolController,
+  controller: OperatorSurfaceThemeController,
 ): Promise<{ readonly output: string; readonly isError: boolean; readonly metadata: Record<string, unknown> }> {
   const theme = typeof input.theme === "string" ? input.theme.trim() : "";
   if (!isOperatorThemeName(theme)) {

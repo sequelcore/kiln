@@ -79,7 +79,7 @@ describe("GUI authority forwarding", () => {
     const { createAttachedRuntimeBuiltinToolSurface } = await import("../../src/gateway/attached-runtime-tool-surface.js");
     const setTheme = vi.fn().mockResolvedValue({ ok: true, appliedTheme: "dracula" });
     const surface = createAttachedRuntimeBuiltinToolSurface({
-      operatorTheme: { setTheme },
+      operatorSurface: { theme: { setTheme } },
     });
     const cfg = buildGuiTurnPerCallConfig("codex-oauth", "gpt-5.4-mini", surface);
 
@@ -112,7 +112,7 @@ describe("GUI authority forwarding", () => {
   it("exposes the builtin tool surface for live-discovered Codex OAuth models", async () => {
     const { buildGuiTurnPerCallConfig, deriveGuiAuthorityStatusFromPerCallConfig } = await import("../../src/gateway/gui-gateway.js");
     const cfg = buildGuiTurnPerCallConfig("codex-oauth", "gpt-5.5", undefined, {
-      supportsTools: true,
+      supportsFunctionTools: true,
     });
 
     expect(cfg.modelOverride).toEqual({
@@ -128,10 +128,10 @@ describe("GUI authority forwarding", () => {
     });
   });
 
-  it("fails closed when live Codex OAuth discovery says the model has tools disabled", async () => {
+  it("fails closed when live Codex OAuth discovery says the model has function tools disabled", async () => {
     const { buildGuiTurnPerCallConfig, deriveGuiAuthorityStatusFromPerCallConfig } = await import("../../src/gateway/gui-gateway.js");
     const cfg = buildGuiTurnPerCallConfig("codex-oauth", "gpt-disabled", undefined, {
-      supportsTools: false,
+      supportsFunctionTools: false,
     });
 
     expect(cfg.modelOverride).toEqual({
@@ -143,6 +143,21 @@ describe("GUI authority forwarding", () => {
     expect(cfg.toolAuthority?.size).toBe(0);
     expect(deriveGuiAuthorityStatusFromPerCallConfig(cfg)).toEqual({
       effective: "fail_closed",
+      completeness: "authoritative",
+    });
+  });
+
+  it("keeps native Codex tool metadata separate from runtime tool execution", async () => {
+    const { buildGuiTurnPerCallConfig, deriveGuiAuthorityStatusFromPerCallConfig } = await import("../../src/gateway/gui-gateway.js");
+    const cfg = buildGuiTurnPerCallConfig("codex-oauth", "gpt-5.5", undefined, {
+      supportsNativeShellTools: false,
+      supportsNativePatchTools: false,
+    });
+
+    expect(cfg.toolAllowlist?.has("write")).toBe(true);
+    expect(cfg.additionalTools?.some((tool) => tool.name === "write")).toBe(true);
+    expect(deriveGuiAuthorityStatusFromPerCallConfig(cfg)).toEqual({
+      effective: "destructive",
       completeness: "authoritative",
     });
   });

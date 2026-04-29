@@ -21,7 +21,8 @@ import {
   type GuiProviderDescriptor,
 } from "@kilnai/runtime";
 import { getFieldStore } from "@kilnai/core";
-import { buildGuiUrl, persistGuiThemePreference, resolveGuiThemePreference } from "./gui-options.js";
+import { persistGuiThemePreference, resolveGuiThemePreference } from "../application/operator-theme-preferences.js";
+import { buildGuiUrl } from "./gui-options.js";
 import { createManagedGuiWindowShutdownMonitor } from "./gui-shutdown-monitor.js";
 import { launchGuiWindow, type GuiWindowSession } from "./gui-window.js";
 import { loadSessionSummaries, toProviderLabel } from "./gui-session-summaries.js";

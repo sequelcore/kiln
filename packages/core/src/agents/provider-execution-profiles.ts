@@ -28,11 +28,17 @@ export interface ResolvedDirectProviderExecutionProfile {
   readonly executionMode: DirectProviderExecutionMode;
   readonly defaultBillingMode: ExecutionBillingMode;
   readonly supportsStructuredToolCalls: boolean;
+  readonly modelSupportsFunctionTools: boolean;
+  readonly modelSupportsRuntimeTools: boolean;
   readonly modelSupportsTools: boolean;
   readonly supportsKilnExecutableTools: boolean;
 }
 
 export interface DiscoveredDirectProviderModelCapabilities {
+  readonly supportsFunctionTools?: boolean;
+  readonly supportsRuntimeTools?: boolean;
+  readonly supportsNativeShellTools?: boolean;
+  readonly supportsNativePatchTools?: boolean;
   readonly supportsTools?: boolean;
   readonly defaultReasoningEffort?: ReasoningEffort;
   readonly supportedReasoningEfforts?: readonly ReasoningEffort[];
@@ -127,12 +133,21 @@ export function resolveDirectProviderExecutionProfile(options: {
   }
   const model = selectedModel;
   const capabilities = options.capabilityRegistry ?? MODEL_CAPABILITIES;
-  const modelSupportsTools = options.discoveredModelCapabilities?.supportsTools
+  const discoveredSupportsFunctionTools =
+    options.discoveredModelCapabilities?.supportsFunctionTools
+    ?? options.discoveredModelCapabilities?.supportsTools;
+  const modelSupportsFunctionTools = discoveredSupportsFunctionTools
     ?? (
       capabilities.supportsTools(profile.provider, model)
       || providerUsesDynamicToolCapableModels(profile.provider)
     );
-  const supportsKilnExecutableTools = profile.supportsStructuredToolCalls && modelSupportsTools;
+  const modelSupportsRuntimeTools =
+    options.discoveredModelCapabilities?.supportsRuntimeTools
+    ?? modelSupportsFunctionTools;
+  const supportsKilnExecutableTools =
+    profile.supportsStructuredToolCalls
+    && modelSupportsFunctionTools
+    && modelSupportsRuntimeTools;
   const executionMode = resolveExecutionMode({
     requestedExecutionMode: options.requestedExecutionMode,
     supportsKilnExecutableTools,
@@ -145,7 +160,9 @@ export function resolveDirectProviderExecutionProfile(options: {
     executionMode,
     defaultBillingMode: profile.defaultBillingMode,
     supportsStructuredToolCalls: profile.supportsStructuredToolCalls,
-    modelSupportsTools,
+    modelSupportsFunctionTools,
+    modelSupportsRuntimeTools,
+    modelSupportsTools: modelSupportsRuntimeTools,
     supportsKilnExecutableTools,
   };
 }

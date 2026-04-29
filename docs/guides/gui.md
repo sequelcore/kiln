@@ -63,7 +63,10 @@ cross-terminal OS theme bridge.
 Connected executable providers can call the runtime `operator_set_theme` tool
 to request a live GUI theme change. The request is acknowledged over the same
 operator WebSocket as other GUI control frames. `scope: "session"` applies only
-to the live window; `scope: "persisted"` also saves `gui.theme`.
+to the live window; `scope: "persisted"` also saves `gui.theme`. The CLI exposes
+the same operator tool contract for parity, but because it has no live visual
+surface it only accepts persisted theme changes and writes the shared GUI/TUI
+defaults.
 
 ## Design System
 

@@ -736,8 +736,10 @@ function wireOperatorTransport(
                 frame.reasoningEffort,
               );
               const turnBuiltinToolSurface = createAttachedRuntimeBuiltinToolSurface({
-                operatorTheme: {
-                  setTheme: operatorThemeBridge.request,
+                operatorSurface: {
+                  theme: {
+                    setTheme: operatorThemeBridge.request,
+                  },
                 },
               });
               result = await processAdmittedTurn({
@@ -812,8 +814,10 @@ function wireOperatorTransport(
                   routedProvider,
                   routedModel || undefined,
                   createAttachedRuntimeBuiltinToolSurface({
-                    operatorTheme: {
-                      setTheme: operatorThemeBridge.request,
+                    operatorSurface: {
+                      theme: {
+                        setTheme: operatorThemeBridge.request,
+                      },
                     },
                   }),
                   routedModelCapabilities,

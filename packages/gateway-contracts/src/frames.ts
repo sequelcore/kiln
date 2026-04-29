@@ -43,6 +43,10 @@ export type GuiProviderCatalogStatus = "pending" | "refreshing" | "ready" | "err
 export type GuiProviderReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh";
 
 export interface GuiProviderModelCapabilities {
+  readonly supportsFunctionTools?: boolean;
+  readonly supportsRuntimeTools?: boolean;
+  readonly supportsNativeShellTools?: boolean;
+  readonly supportsNativePatchTools?: boolean;
   readonly supportsTools?: boolean;
   readonly supportsStreaming?: boolean;
   readonly supportsStructuredOutput?: boolean;

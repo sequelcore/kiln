@@ -41,7 +41,7 @@ import {
   resolveGuiProviderSwitch,
 } from "@kilnai/runtime";
 import type { CliSessionFactoryContext, CliSessionRunOptions } from "@kilnai/runtime";
-import { persistTuiThemePreference } from "./gui-options.js";
+import { persistTuiThemePreference } from "../application/operator-theme-preferences.js";
 
 export interface TuiFlags {
   provider?: string;

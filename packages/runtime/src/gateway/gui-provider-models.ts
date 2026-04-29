@@ -493,7 +493,10 @@ function readCodexOauthModelId(entry: unknown): string | undefined {
 function readCodexOauthModelCapabilities(
   record: Readonly<Record<string, unknown>>,
 ): GuiProviderModelCapabilities {
-  const supportsTools = readCodexOauthModelSupportsTools(record);
+  const supportsFunctionTools = readCodexOauthModelSupportsFunctionTools(record);
+  const supportsRuntimeTools = supportsFunctionTools;
+  const supportsNativeShellTools = readCodexOauthModelSupportsNativeShellTools(record);
+  const supportsNativePatchTools = readCodexOauthModelSupportsNativePatchTools(record);
   const supportsParallelToolCalls =
     readBoolean(record.supports_parallel_tool_calls)
     ?? readBoolean(record.supportsParallelToolCalls);
@@ -516,7 +519,11 @@ function readCodexOauthModelCapabilities(
     ?? readReasoningEffortArray(record.supportedReasoningLevels);
 
   return {
-    ...(supportsTools !== undefined ? { supportsTools } : {}),
+    ...(supportsFunctionTools !== undefined ? { supportsFunctionTools } : {}),
+    ...(supportsRuntimeTools !== undefined ? { supportsRuntimeTools } : {}),
+    ...(supportsNativeShellTools !== undefined ? { supportsNativeShellTools } : {}),
+    ...(supportsNativePatchTools !== undefined ? { supportsNativePatchTools } : {}),
+    ...(supportsRuntimeTools !== undefined ? { supportsTools: supportsRuntimeTools } : {}),
     ...(supportsParallelToolCalls !== undefined ? { supportsParallelToolCalls } : {}),
     ...(contextWindow !== undefined ? { contextWindow } : {}),
     ...(supportsVision !== undefined ? { supportsVision } : {}),
@@ -560,7 +567,7 @@ function readReasoningEffortArray(value: unknown): readonly GuiProviderReasoning
   return efforts.length > 0 ? efforts : undefined;
 }
 
-function readCodexOauthModelSupportsTools(record: Readonly<Record<string, unknown>>): boolean | undefined {
+function readCodexOauthModelSupportsFunctionTools(record: Readonly<Record<string, unknown>>): boolean | undefined {
   const explicitSupportsTools =
     readBoolean(record.supports_tools)
     ?? readBoolean(record.supportsTools)
@@ -570,20 +577,30 @@ function readCodexOauthModelSupportsTools(record: Readonly<Record<string, unknow
     ?? readBoolean(record.supportsToolCalls);
   if (explicitSupportsTools !== undefined) return explicitSupportsTools;
 
-  const shellType = readString(record.shell_type) ?? readString(record.shellType);
-  if (shellType && shellType !== "disabled") return true;
-
-  const applyPatchToolType =
-    readString(record.apply_patch_tool_type)
-    ?? readString(record.applyPatchToolType);
-  if (applyPatchToolType && applyPatchToolType !== "disabled") return true;
-
   const experimentalSupportedTools =
     readStringArray(record.experimental_supported_tools)
     ?? readStringArray(record.experimentalSupportedTools);
   if (experimentalSupportedTools && experimentalSupportedTools.length > 0) return true;
 
   return undefined;
+}
+
+function readCodexOauthModelSupportsNativeShellTools(
+  record: Readonly<Record<string, unknown>>,
+): boolean | undefined {
+  const shellType = readString(record.shell_type) ?? readString(record.shellType);
+  if (!shellType) return undefined;
+  return shellType !== "disabled";
+}
+
+function readCodexOauthModelSupportsNativePatchTools(
+  record: Readonly<Record<string, unknown>>,
+): boolean | undefined {
+  const applyPatchToolType =
+    readString(record.apply_patch_tool_type)
+    ?? readString(record.applyPatchToolType);
+  if (!applyPatchToolType) return undefined;
+  return applyPatchToolType !== "disabled";
 }
 
 function asRecord(value: unknown): Readonly<Record<string, unknown>> | undefined {

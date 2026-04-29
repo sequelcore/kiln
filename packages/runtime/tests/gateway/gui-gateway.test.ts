@@ -2671,14 +2671,20 @@ describe("discoverGuiDirectProviderModelDiscovery", () => {
       expect(models["codex-oauth"]).toEqual(["gpt-5.4", "gpt-5.4-mini", "gpt-no-functions"]);
       expect(discovered["codex-oauth"]?.modelCapabilities).toEqual({
         "gpt-5.4": {
-          supportsTools: true,
+          supportsNativeShellTools: true,
+          supportsNativePatchTools: true,
           supportsParallelToolCalls: true,
           contextWindow: 272000,
           supportsVision: true,
           defaultReasoningEffort: "medium",
           supportedReasoningEfforts: ["low", "medium", "high"],
         },
+        "gpt-5.4-mini": {
+          supportsNativeShellTools: false,
+        },
         "gpt-no-functions": {
+          supportsFunctionTools: false,
+          supportsRuntimeTools: false,
           supportsTools: false,
         },
       });

@@ -79,7 +79,7 @@ describe("TUI authority forwarding", () => {
   it("exposes the builtin tool surface for live-discovered Codex OAuth models", async () => {
     const { buildTuiTurnPerCallConfig, deriveTuiAuthorityStatusFromPerCallConfig } = await import("../../src/gateway/tui-gateway.js");
     const cfg = buildTuiTurnPerCallConfig("codex-oauth", "gpt-5.5", undefined, {
-      supportsTools: true,
+      supportsFunctionTools: true,
     });
 
     expect(cfg.modelOverride).toEqual({
@@ -95,10 +95,10 @@ describe("TUI authority forwarding", () => {
     });
   });
 
-  it("fails closed when live Codex OAuth discovery says the model has tools disabled", async () => {
+  it("fails closed when live Codex OAuth discovery says the model has function tools disabled", async () => {
     const { buildTuiTurnPerCallConfig, deriveTuiAuthorityStatusFromPerCallConfig } = await import("../../src/gateway/tui-gateway.js");
     const cfg = buildTuiTurnPerCallConfig("codex-oauth", "gpt-disabled", undefined, {
-      supportsTools: false,
+      supportsFunctionTools: false,
     });
 
     expect(cfg.modelOverride).toEqual({

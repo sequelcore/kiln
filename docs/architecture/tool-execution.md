@@ -89,15 +89,17 @@ the required structured tool capability.
 
 ## Operator Surface Tools
 
-Attached GUI and TUI sessions may add operator-surface tools to the same
-per-turn builtin projection. These tools are runtime-owned projections, not
-private GUI or TUI tool loops.
+CLI, GUI, and TUI sessions may add operator-surface tools to the same builtin
+projection used for developer tools. These tools are runtime-owned projections,
+not private consumer loops.
 
 `operator_set_theme` is the canonical operator UI actuator for changing the
-connected surface theme. It is only exposed when a live operator surface is
-attached to the turn. The runtime sends an `operator_theme_set` frame over the
-surface WebSocket, waits for `operator_theme_set_result`, and returns that
-acknowledgement as the tool result.
+connected surface theme. GUI and TUI attach a live theme controller for each
+turn; the runtime sends an `operator_theme_set` frame over the surface
+WebSocket, waits for `operator_theme_set_result`, and returns that
+acknowledgement as the tool result. CLI attaches the same tool contract but has
+no live visual surface, so `scope: "session"` returns an explicit tool error and
+`scope: "persisted"` updates GUI and TUI defaults in global config.
 
 The tool accepts:
 
@@ -108,6 +110,16 @@ The tool accepts:
 
 The shared theme catalog and frame contracts live in
 `@kilnai/gateway-contracts` so GUI and TUI cannot drift.
+
+Operator-surface tools depend on two separate gates:
+
+- the selected provider/model must support structured function tools and Kiln
+  runtime tool execution
+- the active consumer must attach a controller for the operator capability
+
+Provider-native shell or patch metadata does not decide whether operator tools
+are exposed. Those fields describe provider-native affordances, not Kiln's
+runtime execution authority.
 
 ## Execution Boundary
 

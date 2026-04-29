@@ -18,6 +18,16 @@ export {
 } from "./gateway/gui-provider-models.js";
 export { startProviderAuthRequest } from "./gateway/provider-auth.js";
 export type { ProviderAuthRequest, ProviderAuthResult, ProviderAuthStartResult } from "./gateway/provider-auth.js";
+export {
+  buildAttachedRuntimePerCallToolConfig,
+  createAttachedRuntimeBuiltinToolSurface,
+} from "./gateway/attached-runtime-tool-surface.js";
+export type {
+  AttachedRuntimeBuiltinToolSurface,
+  AttachedRuntimeBuiltinToolSurfaceOptions,
+  OperatorSurfaceController,
+  OperatorSurfaceThemeController,
+} from "./gateway/attached-runtime-tool-surface.js";
 export type {
   StartGuiGatewayOptions,
   GuiGateway,
