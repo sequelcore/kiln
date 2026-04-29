@@ -112,6 +112,14 @@ timeline. Do not maintain separate GUI-only caches for changed files,
 continuity, or approval state when the same facts already exist in
 `session_event` history.
 
+Live runtime progress follows the same rule. The GUI accepts `session_event`
+frames for durable operational evidence and `activity_phase` frames for
+lightweight progress, but both are scoped by `kilnSessionId`. When the operator
+selects another session, the visible activity, changed files, approvals, diffs,
+and tool log projections are cleared or replaced by the selected session's
+timeline. Late frames from a different session must not update the visible
+session.
+
 Current mode status:
 
 - `Sessions` is live and loads canonical Kiln conversations into chat
@@ -176,12 +184,26 @@ GUI history lists only sessions that have canonical transcript metadata. Kiln
 does not show ledger-only rows as fallback history, because they are not
 loadable conversations.
 
+Operational panels are session-scoped:
+
+- `Activity` renders event entries from the visible session timeline.
+- `Changed files` renders file-change events owned by the visible session.
+- `Approvals` resolves pending requests by canonical session identity.
+- Tool calls and cost updates are derived from `session_event` history.
+- `activity_phase` updates only apply when the frame's `kilnSessionId` matches
+  the live or visible session.
+
 For live validation, create two conversations, select the first one from
 history, and send another message. The expected result is that the runtime logs
 show the first canonical Kiln session ID and the assistant has the selected
 conversation's prior context. Provider switching should still produce one
 continued Kiln conversation with per-provider telemetry attribution, not
 separate provider-owned histories.
+
+For session-scoping validation, start a turn that uses a tool, switch to another
+session, then return. The second session must not show the first session's tool
+activity, changed files, approvals, or diff previews. Returning to the first
+session should restore those facts from its own canonical timeline.
 
 For reasoning validation, select a Codex OAuth model that advertises reasoning
 levels, choose a non-default effort from the composer control, and send a turn.

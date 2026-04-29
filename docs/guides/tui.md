@@ -195,6 +195,13 @@ In the default gateway path, continuity is runtime-owned:
 - `startTuiGateway()` uses runtime `SessionRegistry.getOrCreate(...)` keyed by app, tenant, and that `userId`.
 - Multi-turn history therefore stays in one `RuntimeSession` instead of creating a fresh session per turn.
 - Reconnects reuse the same `userId`, so the gateway can reattach to the same runtime session state.
+- Runtime tools, approvals, changed files, cost updates, and assistant deltas
+  are delivered as canonical `session_event` frames with `kilnSessionId` and,
+  when available, `turnId`.
+- `activity_phase` frames are progress-only and are also scoped by
+  `kilnSessionId`.
+- The TUI must ignore late operational frames whose `kilnSessionId` does not
+  match the active runtime session.
 
 The CLI wrapper persists canonical Kiln session records and stores
 provider-native thread IDs as nested provider-thread metadata. The TUI sidebar
@@ -218,6 +225,24 @@ The sidebar session browser is populated from the canonical session index.
 the active continuation target. Clear detaches the active runtime conversation
 but leaves canonical session records and transcripts available for later
 selection.
+
+## Operational Event Scoping
+
+The TUI renders a terminal-specific projection of the same operator event stream
+used by the GUI. It may show compact sidebar counters instead of a full activity
+timeline, but the underlying identity is still the canonical Kiln session.
+
+Rules:
+
+- Tool-use and tool-result activity must retain the event's `sessionId` and
+  `turnId`.
+- File changes must be stored with the session/turn that produced them.
+- Pending approvals are resolved by session ID.
+- Cost updates belong to the current active session and provider attribution,
+  not to a provider-owned history namespace.
+- Legacy unscoped `activity` frames are kept only for older direct session
+  projections; new gateway activity should use `session_event` plus
+  session-scoped `activity_phase`.
 
 The direct fallback path still uses this wrapper-managed resume state. The
 default gateway path adds runtime-side continuity on top of it.

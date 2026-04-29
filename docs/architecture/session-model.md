@@ -69,6 +69,65 @@ All operator surfaces share the same model:
 - Telemetry is attributed per provider/turn inside the session, while the
   session itself remains canonical.
 
+## Operator Session Events
+
+Runtime activity is part of the session model. Tools, approvals, changed files,
+diff previews, cost updates, provider routing, assistant deltas, continuity
+decisions, and turn completion are emitted as canonical operator session
+events.
+
+The shared transport contract is:
+
+```text
+session_event
+  -> event.eventId
+  -> event.kilnSessionId
+  -> event.sequence
+  -> event.timestamp
+  -> event.kind
+  -> event.turnId? 
+  -> event.source?
+  -> event.payload
+```
+
+Live progress frames use the same identity boundary:
+
+```text
+activity_phase
+  -> kilnSessionId
+  -> turnId?
+  -> phase
+  -> toolName?
+  -> details?
+```
+
+`activity_phase` is only a lightweight progress projection. It must never be
+the source of truth for tool evidence, approvals, changed files, diffs, or cost.
+Those facts belong in `session_event` history and are projected by each
+operator surface.
+
+This contract applies to GUI, TUI, and CLI-backed operator flows. A consumer may
+render different UI for the same event stream, but it must not invent a
+surface-local session namespace.
+
+## Consumer Scoping Rules
+
+Every operator consumer must treat `kilnSessionId` as the routing key for live
+operational state.
+
+- GUI activity panels, changed files, approvals, diffs, and tool logs are
+  projections of the visible session timeline.
+- TUI sidebars and activity state are projections of the active runtime
+  session/turn.
+- CLI transcript persistence stores canonical event identity and may project
+  the same facts into text output.
+- Late frames from an old or different session must not mutate the visible
+  session's operational state.
+- Session selection must clear or replace visible operational projections before
+  the selected transcript finishes loading.
+- Legacy activity frames without session identity are not valid for new runtime
+  activity contracts.
+
 ## Transcript Persistence
 
 The session ledger is not the transcript source of truth.
@@ -95,6 +154,11 @@ canonical `kilnSessionId`.
 - Provider/model selection is next-turn routing state.
 - Transcript, approvals, tool evidence, changed files, and replay belong to the
   Kiln session.
+- Runtime activity frames that affect visible operator state must include the
+  owning `kilnSessionId`.
+- Turn-scoped live activity should include `turnId` when the runtime has one.
+- No consumer may apply a tool, approval, file, diff, or cost update to the
+  currently visible session unless the event belongs to that session.
 
 ## Live Validation
 
@@ -108,3 +172,7 @@ A valid live test proves:
   exists
 - cost/token telemetry remains attributed by provider inside the same Kiln
   session
+- switching sessions does not leave stale tool activity, approvals, changed
+  files, or diff previews visible from the previous session
+- late events from a previous session are ignored or parked outside the visible
+  session projection

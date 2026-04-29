@@ -21,6 +21,23 @@
 - CLI-backed operator sessions no longer pass both serialized prompt history
   and structured message history to provider sessions, avoiding duplicated
   replay and runaway prompt growth across chat turns.
+- GUI, TUI, and CLI operator activity now share a session-scoped event contract:
+  durable tool/file/approval/cost facts flow through canonical `session_event`
+  frames, and live `activity_phase` frames carry `kilnSessionId` plus optional
+  `turnId`.
+- GUI operational projections now clear on session selection and reject live
+  tool/activity frames from other sessions, preventing stale Activity, changed
+  files, approvals, or diff state from leaking across conversations.
+- TUI gateway activity now emits canonical session events for tools, file
+  changes, cost updates, assistant deltas, and approvals instead of relying on
+  unscoped legacy activity frames.
+- TUI direct-session projections now preserve `sessionId` and `turnId` when the
+  provider session supplies them.
+- Runtime gateway exports now load Bun/Hono adapters only when a gateway surface
+  starts, keeping the shared runtime barrel importable from CLI tests and other
+  Node/Vitest consumers.
+- Package test configs now exclude generated `dist` output, and CLI tests run
+  serially to avoid duplicated compiled tests and cross-file mock contention.
 
 ## Unreleased -- Operator Theme Tools and Theme Parity
 
