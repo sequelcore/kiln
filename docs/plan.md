@@ -282,6 +282,39 @@ Add one cross-surface structured-input boundary for asking the operator
 questions. Map to MCP elicitation where available and require URL mode for
 sensitive credential or OAuth-style handoffs.
 
+Status: implemented.
+
+Implemented contract:
+
+- `operator_elicit` is registered in the canonical core builtin surface.
+- `OperatorElicitationResponder` is the consumer-owned response boundary; CLI,
+  GUI, TUI, SDK, and MCP consumers attach responders instead of duplicating tool
+  schemas or execution logic.
+- The default tool fails closed with `responder_not_configured` when no
+  responder is available.
+- `mode: "form"` collects bounded non-sensitive structured values using an
+  optional JSON Schema object.
+- `mode: "url"` requires an HTTPS URL and is the required path for credentials,
+  OAuth, tokens, and other sensitive handoffs.
+- Sensitive form collection is denied when `sensitive: true` is set or the
+  schema contains credential-like field names.
+- Outcomes are explicit: `submitted`, `declined`, `cancelled`, and
+  `unsupported`.
+- Metadata uses the shared `elicitation` family and records mode, outcome,
+  schema presence, URL handoff, surface, and collected field names without
+  logging submitted values.
+- MCP calls can pass an elicitation responder through request-handler context.
+- The tool is indexed in the catalog, projected through MCP, and available to
+  runtime consumers through the same deferred projection model.
+
+Verification:
+
+- `bun run typecheck`
+- `bun run --cwd packages/core test tests/tools/infrastructure/operator-elicitation-tool.test.ts tests/tools/domain/tool.test.ts tests/tools/default-tool-surface.test.ts tests/tools/domain/tool-catalog.test.ts tests/tools/mcp/dev-tools-server.test.ts`
+- `bun run --cwd packages/runtime test tests/gateway/attached-runtime-tool-surface.test.ts`
+- `bun run test`
+- `bun run build`
+
 ### Slice 18: MCP Resources For Workspace And Artifacts
 
 Expose stable context such as selected files, summaries, task state, plans, and

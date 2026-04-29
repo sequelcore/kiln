@@ -165,4 +165,26 @@ describe("attached runtime builtin tool surface", () => {
       "tool_catalog_search",
     ]);
   });
+
+  it("can explicitly expose operator elicitation in deferred runtime projection", () => {
+    const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
+      builtinToolOptions: {
+        toolProjection: {
+          mode: "deferred",
+          alwaysOnTools: ["read", "operator_elicit"],
+        },
+      },
+    });
+
+    expect(Array.from(runtimeSurface.callBuiltinTools.keys())).toEqual([
+      "read",
+      "operator_elicit",
+      "tool_catalog_search",
+    ]);
+    expect(runtimeSurface.toolDefinitions.map((tool) => tool.name)).toEqual([
+      "read",
+      "operator_elicit",
+      "tool_catalog_search",
+    ]);
+  });
 });

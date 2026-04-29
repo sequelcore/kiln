@@ -1,6 +1,7 @@
 import { KilnError } from "../../engine/errors.js";
 import { projectDevToolSchemas } from "../default-tool-surface.js";
 import type { DevTool, ToolResult, ToolResultContentPart } from "../domain/tool.js";
+import type { OperatorElicitationResponder } from "../infrastructure/operator-elicitation-tool.js";
 import { DevToolExecutionBridge } from "../tool-executor.js";
 
 const SERVER_NAME = "kilnai-dev-tools";
@@ -29,6 +30,7 @@ interface McpRequestHandlerExtra {
       readonly message: string;
     };
   }) => Promise<void>;
+  readonly elicit?: OperatorElicitationResponder["elicit"];
 }
 
 interface SdkModules {
@@ -108,6 +110,7 @@ export class DevToolsMcpServer {
       const execution = await this.bridge.execute({
         name,
         input: args,
+        ...(extra?.elicit ? { sandbox: { operatorElicitation: { elicit: extra.elicit } } } : {}),
       });
 
       const payload = {

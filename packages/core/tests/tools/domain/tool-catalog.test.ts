@@ -8,7 +8,7 @@ describe("ToolCatalogIndex", () => {
 
     const result = catalog.search({ exact: "read" });
 
-    expect(result.totalIndexed).toBe(23);
+    expect(result.totalIndexed).toBe(24);
     expect(result.entries).toHaveLength(1);
     expect(result.entries[0]).toMatchObject({
       name: "read",
@@ -53,7 +53,7 @@ describe("ToolCatalogIndex", () => {
     const catalog = ToolCatalogIndex.fromTools(createDefaultBuiltinTools());
 
     expect(catalog.search({ exact: "missing_tool" })).toMatchObject({
-      totalIndexed: 23,
+      totalIndexed: 24,
       entries: [],
       stale: true,
       reason: "tool_not_found",
@@ -116,6 +116,18 @@ describe("ToolCatalogIndex", () => {
       authority: "standard",
       tags: expect.arrayContaining(["task-state", "progress"]),
       inputFields: expect.arrayContaining(["id", "title", "status", "details", "dependsOn", "verbosity"]),
+    });
+  });
+
+  it("indexes operator elicitation as a cross-surface operator tool", () => {
+    const catalog = ToolCatalogIndex.fromTools(createDefaultBuiltinTools());
+
+    expect(catalog.search({ exact: "operator_elicit" }).entries[0]).toMatchObject({
+      name: "operator_elicit",
+      sourcePackage: "@kilnai/core",
+      authority: "standard",
+      tags: expect.arrayContaining(["operator", "elicitation"]),
+      inputFields: expect.arrayContaining(["mode", "message", "schema", "url", "sensitive", "verbosity"]),
     });
   });
 });

@@ -28,6 +28,12 @@ export type {
   CodeToolResultMetadata,
   CommandToolName,
   CommandToolResultMetadata,
+  ElicitationMode,
+  ElicitationOutcome,
+  ElicitationToolErrorCode,
+  ElicitationToolName,
+  ElicitationToolOperation,
+  ElicitationToolResultMetadata,
   FileToolChangeMetadata,
   FileToolName,
   FileToolOperation,
@@ -64,6 +70,7 @@ export {
   catalogToolMetadata,
   codeToolMetadata,
   commandToolMetadata,
+  elicitationToolMetadata,
   fileToolMetadata,
   inspectionToolMetadata,
   isFileToolResultMetadata,
@@ -132,6 +139,13 @@ export {
   TaskStateStore,
   TaskUpdateTool,
 } from "./infrastructure/task-state-tools.js";
+export type {
+  OperatorElicitationRequest,
+  OperatorElicitationResponder,
+  OperatorElicitationResponse,
+  OperatorElicitationToolOptions,
+} from "./infrastructure/operator-elicitation-tool.js";
+export { OperatorElicitationTool } from "./infrastructure/operator-elicitation-tool.js";
 export { ReadTool } from "./infrastructure/read-tool.js";
 export { ReadManyTool } from "./infrastructure/read-many-tool.js";
 export { WriteTool } from "./infrastructure/write-tool.js";

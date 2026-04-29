@@ -8,6 +8,7 @@ export type CatalogToolName = "tool_catalog_search";
 export type CodeToolName = "code_intelligence";
 export type MonitorToolName = "monitor_start" | "monitor_read" | "monitor_stop" | "monitor_list";
 export type TaskStateToolName = "task_list" | "task_update";
+export type ElicitationToolName = "operator_elicit";
 
 export type FileToolOperation = "read" | "read_many" | "write" | "edit" | "patch";
 export type InspectionToolOperation = "stat" | "tree";
@@ -46,6 +47,14 @@ export type MonitorToolOperation = "start" | "read" | "stop" | "list";
 export type MonitorStatus = "running" | "exited" | "stopped" | "failed";
 export type TaskStateToolOperation = "list" | "update";
 export type SessionTaskStatus = "pending" | "in_progress" | "blocked" | "completed" | "cancelled";
+export type ElicitationToolOperation = "elicit";
+export type ElicitationMode = "form" | "url";
+export type ElicitationOutcome = "submitted" | "declined" | "cancelled" | "unsupported";
+export type ElicitationToolErrorCode =
+  | "invalid_input"
+  | "responder_not_configured"
+  | "sensitive_form_denied"
+  | "responder_error";
 
 export interface CommandToolResultMetadata<TToolName extends CommandToolName = CommandToolName> {
   readonly toolName: TToolName;
@@ -248,6 +257,21 @@ export interface TaskStateToolResultMetadata<TToolName extends TaskStateToolName
   readonly verbosity?: ToolOutputVerbosity;
 }
 
+export interface ElicitationToolResultMetadata<TToolName extends ElicitationToolName = ElicitationToolName> {
+  readonly toolName: TToolName;
+  readonly kind: "elicitation";
+  readonly operation: ElicitationToolOperation;
+  readonly mode?: ElicitationMode;
+  readonly outcome?: ElicitationOutcome;
+  readonly schemaProvided?: boolean;
+  readonly sensitive?: boolean;
+  readonly url?: string;
+  readonly surface?: string;
+  readonly valueKeys?: readonly string[];
+  readonly errorCode?: ElicitationToolErrorCode;
+  readonly verbosity?: ToolOutputVerbosity;
+}
+
 export type ToolResultMetadata =
   | CommandToolResultMetadata
   | FileToolResultMetadata
@@ -258,7 +282,8 @@ export type ToolResultMetadata =
   | CatalogToolResultMetadata
   | CodeToolResultMetadata
   | MonitorToolResultMetadata
-  | TaskStateToolResultMetadata;
+  | TaskStateToolResultMetadata
+  | ElicitationToolResultMetadata;
 
 export function commandToolMetadata<TToolName extends CommandToolName>(
   toolName: TToolName,
@@ -400,6 +425,17 @@ export function taskStateToolMetadata<TToolName extends TaskStateToolName>(
   return {
     toolName,
     kind: "task_state",
+    ...metadata,
+  };
+}
+
+export function elicitationToolMetadata<TToolName extends ElicitationToolName>(
+  toolName: TToolName,
+  metadata: Omit<ElicitationToolResultMetadata<TToolName>, "toolName" | "kind">,
+): ElicitationToolResultMetadata<TToolName> {
+  return {
+    toolName,
+    kind: "elicitation",
     ...metadata,
   };
 }

@@ -88,6 +88,13 @@ provider-name branches:
 the same executable direct-provider path as any other provider that advertises
 the required structured tool capability.
 
+`operator_elicit` is part of the core shared builtin surface, not a GUI/TUI
+private prompt loop. It lets executable sessions request bounded operator input
+through a consumer-provided responder. Form mode is only for non-sensitive
+structured values. Credential, OAuth, token, and other sensitive handoffs must
+use HTTPS URL mode so submitted secrets are handled by the operator surface and
+are not collected by generic tool metadata.
+
 ## Operator Surface Tools
 
 CLI, GUI, and TUI sessions may add operator-surface tools to the same builtin
@@ -254,12 +261,13 @@ The shared metadata families are:
   `monitor_read`, `monitor_stop`, and `monitor_list`
 - `task_state`: session-local progress evidence for `task_list` and
   `task_update`
+- `elicitation`: operator-input evidence for `operator_elicit`
 
 Every builtin metadata object includes:
 
 - `toolName`: the canonical builtin tool name
 - `kind`: one of `command`, `file`, `inspection`, `media`, `web`, `search`,
-  `monitor`, or `task_state`
+  `monitor`, `task_state`, or `elicitation`
 
 Existing metadata keys such as `cwd`, `command`, `filePath`, `bytesWritten`,
 `replacements`, `path`, `type`, `size`, `modifiedTime`, `mimeType`, `strategy`,
@@ -273,8 +281,9 @@ The shared result-shaping input is `verbosity`, not `outputMode`. `grep` already
 uses `outputMode` for match semantics (`content`, `files_with_matches`, or
 `count`), so reusing that field for output shape would make the contract
 ambiguous. `verbosity` is currently supported by `bash`, `tree`, `web_search`,
-`web_fetch`, `grep`, `glob`, the monitor lifecycle tools, and task-state tools;
-it changes only `ToolResult.output`, not the metadata family.
+`web_fetch`, `grep`, `glob`, the monitor lifecycle tools, task-state tools, and
+`operator_elicit`; it changes only `ToolResult.output`, not the metadata
+family.
 
 Inspection metadata is read-only orientation state. `stat` can report type,
 size, modified time, and an optional checksum. `tree` can report bounded
@@ -312,6 +321,13 @@ records the updated task id, status, sequence, and total task count.
 `task_list` records status filters, returned task count, total task count, and
 sequence. Task-state tools are session-local coordination state, not saved
 project plans, external project management records, or file-change evidence.
+
+Elicitation metadata is operator-input evidence. `operator_elicit` records the
+mode, outcome, schema presence, sensitivity flag, optional HTTPS URL handoff,
+answering surface, and submitted field names. It must not record submitted
+values. Runtime consumers must treat declined, cancelled, unsupported, and
+responder-missing outcomes as explicit tool-level errors rather than retrying
+through ad hoc text prompts.
 
 `patch` is the multi-file member of the file metadata family. Its top-level
 metadata uses `operation: "patch"`, `dryRun`, and `operationCount`, and its

@@ -173,6 +173,10 @@ function tagsForTool(tool: DevTool): readonly string[] {
     tags.add("task-state");
     tags.add("progress");
   }
+  if (tool.name === "operator_elicit") {
+    tags.add("operator");
+    tags.add("elicitation");
+  }
   if (tool.name === "code_intelligence") {
     tags.add("code");
     tags.add("semantic");

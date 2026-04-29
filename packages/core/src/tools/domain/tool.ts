@@ -104,6 +104,7 @@ export type DevToolName =
   | "monitor_list"
   | "task_list"
   | "task_update"
+  | "operator_elicit"
   | "tool_catalog_search";
 
 export const TOOL_SCHEMAS: Record<
@@ -759,6 +760,42 @@ export const TOOL_SCHEMAS: Record<
         verbosity: OUTPUT_VERBOSITY_PROPERTY,
       },
       required: ["title", "status"],
+      additionalProperties: false,
+    },
+    annotations: {
+      destructive: false,
+    },
+  },
+  operator_elicit: {
+    name: "operator_elicit",
+    description: "Ask the operator for bounded input through a consumer-provided elicitation surface. Use URL mode for sensitive handoffs.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        mode: {
+          enum: ["form", "url"],
+          description: "Elicitation mode. form collects bounded non-sensitive values; url hands the operator to an HTTPS surface.",
+        },
+        message: {
+          type: "string",
+          minLength: 1,
+          description: "Prompt shown to the operator.",
+        },
+        schema: {
+          type: "object",
+          description: "Optional JSON Schema object describing non-sensitive form values.",
+        },
+        url: {
+          type: "string",
+          description: "HTTPS URL for URL-mode operator handoff.",
+        },
+        sensitive: {
+          type: "boolean",
+          description: "True when the request may involve credentials, tokens, or other sensitive values.",
+        },
+        verbosity: OUTPUT_VERBOSITY_PROPERTY,
+      },
+      required: ["mode", "message"],
       additionalProperties: false,
     },
     annotations: {

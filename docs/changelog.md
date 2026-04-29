@@ -31,6 +31,11 @@
   tools share one core `TaskStateStore` so CLI, GUI, TUI, SDK, and MCP
   consumers can observe the same model-visible progress state instead of
   maintaining private checklists.
+- Added the shared `operator_elicit` builtin tool for cross-surface operator
+  input. It supports form and HTTPS URL handoff modes, fails closed without a
+  consumer-provided responder, denies sensitive form collection, projects
+  through MCP and attached runtime surfaces, and records elicitation metadata
+  without logging submitted values.
 
 ## Unreleased -- Operator Workspace Explorer
 

@@ -69,6 +69,7 @@ describe("tool domain types", () => {
       "monitor_list",
       "task_list",
       "task_update",
+      "operator_elicit",
       "tool_catalog_search",
     ]);
   });
@@ -169,6 +170,7 @@ describe("tool domain types", () => {
     expect(TOOL_SCHEMAS.monitor_list.inputSchema.required).toEqual([]);
     expect(TOOL_SCHEMAS.task_list.inputSchema.required).toEqual([]);
     expect(TOOL_SCHEMAS.task_update.inputSchema.required).toEqual(["title", "status"]);
+    expect(TOOL_SCHEMAS.operator_elicit.inputSchema.required).toEqual(["mode", "message"]);
   });
 
   it("exposes the shared verbosity field only where it is supported", () => {
@@ -185,6 +187,7 @@ describe("tool domain types", () => {
       "monitor_list",
       "task_list",
       "task_update",
+      "operator_elicit",
     ] as const) {
       expect(TOOL_SCHEMAS[toolName].inputSchema).toMatchObject({
         properties: {

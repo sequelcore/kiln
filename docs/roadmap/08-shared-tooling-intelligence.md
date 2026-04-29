@@ -276,6 +276,23 @@ Requirements:
 - audit who asked, what surface answered, and what fields were collected
   without logging sensitive values
 
+Implemented in Slice 17:
+
+- shared `operator_elicit` builtin tool in the canonical core surface
+- `OperatorElicitationResponder` boundary for CLI, GUI, TUI, SDK, and MCP
+  consumers to attach their own operator surfaces without owning tool logic
+- fail-closed default when no responder is configured
+- form mode for bounded non-sensitive structured input
+- HTTPS URL mode for credential, OAuth, and other sensitive handoffs
+- sensitive form denial based on explicit `sensitive: true` and sensitive
+  schema field names
+- submitted, declined, cancelled, and unsupported outcomes with raw,
+  structured, and summary output
+- shared `elicitation` metadata that records mode, outcome, surface, schema
+  presence, URL handoff, and collected field names without logging values
+- MCP call bridging to an MCP-provided elicitation responder when available
+- catalog, MCP, and attached-runtime projection through the canonical surface
+
 ## Slice 18: MCP Resources For Workspace And Artifacts
 
 Goal: expose stable context as resources rather than forcing every context read
@@ -303,5 +320,6 @@ Requirements:
 
 ## Current Priority
 
-Start with Slice 11. Structured output schemas reduce ambiguity and lower the
-risk of every later slice.
+Continue with Slice 18. MCP resources build on the structured outputs, catalog,
+bulk context, monitors, task state, and operator elicitation now available from
+the canonical shared tool surface.

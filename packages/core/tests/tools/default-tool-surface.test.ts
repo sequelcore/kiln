@@ -34,6 +34,7 @@ const BUILTIN_TOOL_NAMES = [
   "monitor_list",
   "task_list",
   "task_update",
+  "operator_elicit",
   "tool_catalog_search",
 ];
 
@@ -214,6 +215,7 @@ describe("default builtin tool surface", () => {
     expect(surface.registry.has("code_intelligence")).toBe(true);
     expect(surface.registry.has("monitor_start")).toBe(true);
     expect(surface.registry.has("task_update")).toBe(true);
+    expect(surface.registry.has("operator_elicit")).toBe(true);
     expect(surface.bridge.listTools().map((tool) => tool.name)).toEqual(BUILTIN_TOOL_NAMES);
 
     await expect(surface.bridge.execute({

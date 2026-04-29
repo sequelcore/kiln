@@ -41,13 +41,13 @@ function createServer(registry?: DevToolRegistry): DevToolsMcpServer {
 }
 
 describe("DevToolsMcpServer", () => {
-  it("lists the 23 native tool schemas", () => {
+  it("lists the 24 native tool schemas", () => {
     const server = createServer();
 
     const tools = server.listTools();
     const names = tools.map((tool) => tool.name);
 
-    expect(tools).toHaveLength(23);
+    expect(tools).toHaveLength(24);
     expect(names).toEqual([
       "bash",
       "read",
@@ -71,6 +71,7 @@ describe("DevToolsMcpServer", () => {
       "monitor_list",
       "task_list",
       "task_update",
+      "operator_elicit",
       "tool_catalog_search",
     ]);
 
@@ -111,7 +112,7 @@ describe("DevToolsMcpServer", () => {
           toolName: "tool_catalog_search",
           kind: "catalog",
           resultCount: 1,
-          totalIndexed: 23,
+          totalIndexed: 24,
         },
       },
     });
@@ -260,6 +261,62 @@ describe("DevToolsMcpServer", () => {
           details: expect.objectContaining({ type: "string" }),
           dependsOn: expect.objectContaining({ type: "array" }),
           verbosity: expect.objectContaining({ enum: ["raw", "structured", "summary"] }),
+        },
+      },
+    });
+  });
+
+  it("exposes operator elicitation through MCP", async () => {
+    const server = createServer();
+
+    expect(server.listTools().find((tool) => tool.name === "operator_elicit")).toMatchObject({
+      name: "operator_elicit",
+      inputSchema: {
+        type: "object",
+        required: ["mode", "message"],
+        properties: {
+          mode: expect.objectContaining({ enum: ["form", "url"] }),
+          message: expect.objectContaining({ type: "string" }),
+          schema: expect.objectContaining({ type: "object" }),
+          url: expect.objectContaining({ type: "string" }),
+          sensitive: expect.objectContaining({ type: "boolean" }),
+          verbosity: expect.objectContaining({ enum: ["raw", "structured", "summary"] }),
+        },
+      },
+    });
+  });
+
+  it("maps operator_elicit to an MCP-provided elicitation responder when available", async () => {
+    const server = createServer();
+
+    const response = await server.callTool(
+      "operator_elicit",
+      {
+        mode: "form",
+        message: "Select environment",
+        schema: { type: "object", properties: { environment: { enum: ["dev", "prod"] } } },
+        verbosity: "structured",
+      },
+      {
+        elicit: async (request) => ({
+          outcome: "submitted",
+          values: { environment: "dev" },
+          surface: "mcp",
+          request,
+        }),
+      },
+    );
+
+    expect(response.isError).toBeUndefined();
+    expect(response.structuredContent).toMatchObject({
+      result: {
+        isError: false,
+        metadata: {
+          toolName: "operator_elicit",
+          kind: "elicitation",
+          outcome: "submitted",
+          surface: "mcp",
+          valueKeys: ["environment"],
         },
       },
     });

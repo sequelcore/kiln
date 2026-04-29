@@ -18,6 +18,7 @@ import {
   type MonitorRegistryOptions,
 } from "./infrastructure/monitor-tools.js";
 import { OcrImageTool } from "./infrastructure/ocr-image-tool.js";
+import { OperatorElicitationTool, type OperatorElicitationToolOptions } from "./infrastructure/operator-elicitation-tool.js";
 import { PatchTool } from "./infrastructure/patch-tool.js";
 import { ReadManyTool } from "./infrastructure/read-many-tool.js";
 import { ReadTool } from "./infrastructure/read-tool.js";
@@ -55,6 +56,7 @@ export interface DefaultBuiltinToolRegistryOptions {
   readonly monitorRegistry?: MonitorRegistry;
   readonly taskState?: TaskStateStoreOptions;
   readonly taskStateStore?: TaskStateStore;
+  readonly operatorElicitation?: OperatorElicitationToolOptions;
   readonly toolProjection?: DefaultBuiltinToolProjectionOptions;
 }
 
@@ -111,6 +113,7 @@ export function createDefaultBuiltinTools(
     new MonitorListTool({ registry: monitorRegistry }),
     new TaskListTool({ store: taskStateStore }),
     new TaskUpdateTool({ store: taskStateStore }),
+    new OperatorElicitationTool(options.operatorElicitation),
     new ToolCatalogSearchTool(() => catalog),
   ];
   catalog = ToolCatalogIndex.fromTools(tools);
