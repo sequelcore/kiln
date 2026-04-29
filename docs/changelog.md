@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased -- Operator Runtime Performance
+
+- GUI and TUI provider discovery now use a shared short-lived cache with
+  in-flight request deduplication. Startup still performs forced discovery,
+  while normal socket opens, dashboard reads, provider switches, and prompt
+  admission reuse fresh discovery results.
+- Explicit provider refresh and completed provider-auth flows bypass the cache
+  so newly authenticated providers are revalidated immediately.
+- Provider discovery now runs wrapper-provider and direct-provider probes in
+  parallel instead of serially paying every provider timeout.
+- Codex CLI model discovery now handles closed app-server stdin writes as a
+  structured unavailable-provider result instead of allowing an `EPIPE` process
+  crash.
+- CLI-backed operator sessions no longer pass both serialized prompt history
+  and structured message history to provider sessions, avoiding duplicated
+  replay and runaway prompt growth across chat turns.
+
 ## Unreleased -- Operator Theme Tools and Theme Parity
 
 - Added a shared operator theme catalog in `@kilnai/gateway-contracts` and

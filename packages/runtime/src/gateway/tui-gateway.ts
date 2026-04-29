@@ -27,6 +27,7 @@ import {
   providerRequiresSelectedModelMessage,
   resolveGuiOperatorDiscoveryResults,
 } from "./gui-provider-models.js";
+import { createProviderDiscoveryCache } from "./provider-discovery-cache.js";
 import { startProviderAuthRequest } from "./provider-auth.js";
 import type {
   RuntimeTurnApprovalTransition,
@@ -385,7 +386,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
             }
 
             if (frame.type === "refresh_providers") {
-              const currentDiscovery = await refreshDiscovery();
+              const currentDiscovery = await refreshDiscovery({ force: true });
               ws.send(JSON.stringify({
                 type: "providers_refreshed",
                 models: projectGuiOperatorModels(currentDiscovery),
@@ -447,7 +448,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
                 provider: auth.provider,
                 requestId: auth.requestId,
               });
-              const currentDiscovery = await refreshDiscovery();
+              const currentDiscovery = await refreshDiscovery({ force: true });
               const providerDiscovery = currentDiscovery.find((entry) => entry.provider === auth.provider);
               tuiProviderAuthDebug("discovery refreshed after auth", {
                 provider: auth.provider,
@@ -690,10 +691,15 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
     }),
   );
 
-  let providerDiscovery = await resolveTuiProviderDiscovery(options.getProviderAvailability);
+  const providerDiscoveryResolver = createProviderDiscoveryCache(() =>
+    resolveTuiProviderDiscovery(options.getProviderAvailability),
+  );
+  let providerDiscovery = await providerDiscoveryResolver.get({ force: true });
   let models = projectGuiOperatorModels(providerDiscovery);
-  const refreshDiscovery = async (): Promise<readonly GuiProviderDiscoveryResult[]> => {
-    providerDiscovery = await resolveTuiProviderDiscovery(options.getProviderAvailability);
+  const refreshDiscovery = async (
+    refreshOptions?: { readonly force?: boolean },
+  ): Promise<readonly GuiProviderDiscoveryResult[]> => {
+    providerDiscovery = await providerDiscoveryResolver.get(refreshOptions);
     models = projectGuiOperatorModels(providerDiscovery);
     return providerDiscovery;
   };

@@ -87,12 +87,12 @@ vi.mock("node:child_process", async (importOriginal) => {
     spawn: vi.fn(() => {
       const proc = new EventEmitter() as EventEmitter & {
         stdout: EventEmitter;
-        stdin: { write: ReturnType<typeof vi.fn> };
+        stdin: EventEmitter & { write: ReturnType<typeof vi.fn> };
         kill: () => void;
       };
 
       proc.stdout = new EventEmitter();
-      proc.stdin = { write: vi.fn() };
+      proc.stdin = Object.assign(new EventEmitter(), { write: vi.fn() });
       proc.kill = () => {
         proc.emit("close");
       };
@@ -842,12 +842,11 @@ describe("startGuiGateway static mount", () => {
     }
   });
 
-  it("uses the ready provider catalog for provider switches instead of blocking on a cold rediscovery", async () => {
+  it("uses the cached ready provider catalog for provider switches instead of blocking on cold rediscovery", async () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
     const resolveGuiOperatorDiscoverySpy = vi
       .spyOn(guiProviderModelsModule, "resolveGuiOperatorDiscoveryResults")
-      .mockResolvedValueOnce(makeGuiOperatorDiscoveryFromModels({ "codex-oauth": ["gpt-5.4"] }))
       .mockResolvedValueOnce(makeGuiOperatorDiscoveryFromModels({ "codex-oauth": ["gpt-5.4"] }))
       .mockImplementationOnce(() => new Promise(() => undefined));
     const setProvider = vi.fn();
@@ -893,7 +892,7 @@ describe("startGuiGateway static mount", () => {
         wsCtx,
       );
 
-      expect(resolveGuiOperatorDiscoverySpy).toHaveBeenCalledTimes(2);
+      expect(resolveGuiOperatorDiscoverySpy).toHaveBeenCalledTimes(1);
       expect(setProvider).toHaveBeenCalledWith("codex-oauth");
       expect(setModel).toHaveBeenCalledWith("gpt-5.4");
       const outboundFrames = mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string) as { type: string });
@@ -983,16 +982,29 @@ describe("startGuiGateway static mount", () => {
     }
   });
 
-  it("refreshes provider models before admitting a turn", async () => {
+  it("uses cached provider models before admitting a turn", async () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
     const resolveGuiOperatorDiscoverySpy = vi
       .spyOn(guiProviderModelsModule, "resolveGuiOperatorDiscoveryResults")
       .mockResolvedValueOnce(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }))
-      .mockResolvedValueOnce(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }))
       .mockResolvedValueOnce(makeGuiOperatorDiscoveryFromModels({ openai: [] }));
     const factory = vi.fn() as never;
     vi.mocked(processAdmittedTurn).mockReset();
+    vi.mocked(processAdmittedTurn).mockResolvedValue({
+      ok: true,
+      result: {
+        parts: [{ type: "text", text: "cached discovery admitted" }],
+        inputTokens: 1,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        queued: false,
+        sessionId: "session-1",
+        sessionMode: "mode-a",
+        traceId: "trace-1",
+      },
+    } as never);
     vi.stubGlobal("Bun", {
       serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
         port: port ?? 4810,
@@ -1031,11 +1043,12 @@ describe("startGuiGateway static mount", () => {
       const outboundFrames = mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string) as { type: string; message?: string });
 
       expect(outboundFrames).toContainEqual({ type: "thinking" });
-      expect(outboundFrames).toContainEqual({
-        type: "error",
-        message: "No models were discovered for OpenAI.",
-      });
-      expect(processAdmittedTurn).not.toHaveBeenCalled();
+      expect(outboundFrames).toContainEqual(expect.objectContaining({
+        type: "done",
+        content: "cached discovery admitted",
+      }));
+      expect(resolveGuiOperatorDiscoverySpy).toHaveBeenCalledTimes(1);
+      expect(processAdmittedTurn).toHaveBeenCalledTimes(1);
       expect(factory).not.toHaveBeenCalled();
     } finally {
       resolveGuiOperatorDiscoverySpy.mockRestore();
@@ -1206,7 +1219,7 @@ describe("startGuiGateway static mount", () => {
   });
 
 
-  it("refreshes provider availability before welcome and omits drifted direct provider models", async () => {
+  it("reuses cached provider availability on welcome and refreshes drifted direct provider models on request", async () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
     let providerAvailability: Record<string, boolean> = { openai: true };
@@ -1255,8 +1268,29 @@ describe("startGuiGateway static mount", () => {
       };
 
       expect(welcomeFrame.type).toBe("welcome");
-      expect(welcomeFrame.models.openai).toBeUndefined();
+      expect(welcomeFrame.models.openai).toEqual([GPT4O]);
       expect(welcomeFrame.providers.find((descriptor) => descriptor.id === "openai")).toMatchObject({
+        id: "openai",
+        available: true,
+        models: [GPT4O],
+      });
+
+      await handlers.onMessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({ type: "refresh_providers" }),
+        }),
+        wsCtx,
+      );
+      const refreshFrame = mockWs.send.mock.calls
+        .map(([payload]) => JSON.parse(payload as string) as {
+          type: string;
+          models?: Record<string, string[]>;
+          providers?: GuiProviderDescriptor[];
+        })
+        .find((frame) => frame.type === "providers_refreshed");
+
+      expect(refreshFrame?.models?.openai).toBeUndefined();
+      expect(refreshFrame?.providers?.find((descriptor) => descriptor.id === "openai")).toMatchObject({
         id: "openai",
         available: false,
         models: [],

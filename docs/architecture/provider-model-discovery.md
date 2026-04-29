@@ -38,6 +38,23 @@ The same discovery result gates execution and drives operator diagnostics.
 Surfaces may abbreviate the human-facing reason, but they must not derive
 availability from a different source.
 
+## Runtime Caching
+
+GUI and TUI use a shared runtime discovery cache with a short TTL and
+in-flight request deduplication. Cold startup performs a forced discovery so
+the first catalog is authoritative. Normal dashboard reads, socket opens,
+provider switches, and prompt admission then reuse the cached discovery while
+it is fresh instead of re-probing every provider on every turn.
+
+Explicit refresh actions and completed provider-auth flows bypass the cache and
+force a new discovery pass. This preserves operator correctness after login or
+manual refresh while keeping ordinary chat turns from paying repeated CLI,
+network, and local daemon discovery costs.
+
+The cache is an optimization only. Prompt admission still validates against the
+current runtime-owned discovery result, and turn records keep the discovery
+evidence used for that admission.
+
 ## Model Capabilities
 
 When a provider exposes per-model capability metadata, discovery carries it

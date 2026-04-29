@@ -83,8 +83,10 @@ export async function discoverGuiCliOperatorModels(): Promise<GuiCliOperatorMode
 export async function resolveGuiOperatorDiscoveryResults(
   providerAvailability: Readonly<Record<string, boolean>>,
 ): Promise<GuiProviderDiscoveryResult[]> {
-  const cliModels = await discoverGuiCliOperatorModels();
-  const directProviderDiscovery = await discoverGuiDirectProviderModelDiscovery(providerAvailability);
+  const [cliModels, directProviderDiscovery] = await Promise.all([
+    discoverGuiCliOperatorModels(),
+    discoverGuiDirectProviderModelDiscovery(providerAvailability),
+  ]);
   return buildGuiOperatorDiscoveryResults({
     opencodeModels: cliModels.opencodeModels,
     opencodeDiscovery: cliModels.opencodeDiscovery,
@@ -291,13 +293,23 @@ function defaultUnavailableReason(label: string, status: GuiProviderDiscoverySta
 export async function discoverGuiDirectProviderModelDiscovery(
   providerAvailability: Readonly<Record<string, boolean>>,
 ): Promise<Record<string, GuiCliProviderModelDiscovery>> {
-  const openCodeDirectDiscovery = await discoverOpenCodeDirectModelDiscovery(providerAvailability);
-  const openAiDiscovery = await discoverOpenAiModelDiscovery(providerAvailability.openai);
-  const anthropicDiscovery = await discoverAnthropicModelDiscovery(providerAvailability.anthropic);
-  const deepSeekDiscovery = await discoverDeepSeekModelDiscovery(providerAvailability.deepseek);
-  const openRouterDiscovery = await discoverOpenRouterModelDiscovery(providerAvailability.openrouter);
-  const ollamaDiscovery = await discoverOllamaModelDiscovery(providerAvailability.ollama);
-  const codexOauthDiscovery = await discoverCodexOauthModelDiscovery(providerAvailability["codex-oauth"]);
+  const [
+    openCodeDirectDiscovery,
+    openAiDiscovery,
+    anthropicDiscovery,
+    deepSeekDiscovery,
+    openRouterDiscovery,
+    ollamaDiscovery,
+    codexOauthDiscovery,
+  ] = await Promise.all([
+    discoverOpenCodeDirectModelDiscovery(providerAvailability),
+    discoverOpenAiModelDiscovery(providerAvailability.openai),
+    discoverAnthropicModelDiscovery(providerAvailability.anthropic),
+    discoverDeepSeekModelDiscovery(providerAvailability.deepseek),
+    discoverOpenRouterModelDiscovery(providerAvailability.openrouter),
+    discoverOllamaModelDiscovery(providerAvailability.ollama),
+    discoverCodexOauthModelDiscovery(providerAvailability["codex-oauth"]),
+  ]);
   return Object.fromEntries([
     ...(codexOauthDiscovery ? [["codex-oauth", codexOauthDiscovery] as const] : []),
     ...(openAiDiscovery ? [["openai", openAiDiscovery] as const] : []),
@@ -1390,12 +1402,20 @@ export async function discoverCodexCliModelDiscovery(): Promise<GuiCliProviderMo
               }
               if (msg.result !== undefined) {
                 initialized = true;
-                writeJsonLine(proc.stdin, { method: "initialized" });
-                writeJsonLine(proc.stdin, {
+                const acceptedInitialized = writeJsonLine(proc.stdin, { method: "initialized" });
+                const acceptedModelList = acceptedInitialized && writeJsonLine(proc.stdin, {
                   method: "model/list",
                   id: CODEX_APP_SERVER_MODEL_LIST_REQUEST_ID,
                   params: { limit: 100, includeHidden: false },
                 });
+                if (!acceptedModelList) {
+                  finish(unavailableCliProviderDiscovery(
+                    "endpoint_error",
+                    "Codex app-server closed before accepting model discovery requests.",
+                    "unknown",
+                  ));
+                  return;
+                }
               }
               continue;
             }
@@ -1433,6 +1453,13 @@ export async function discoverCodexCliModelDiscovery(): Promise<GuiCliProviderMo
         finish(unavailableCliProviderDiscovery(
           "endpoint_error",
           "Codex app-server failed to start.",
+          "unknown",
+        ));
+      });
+      bindWritableError(proc.stdin, () => {
+        finish(unavailableCliProviderDiscovery(
+          "endpoint_error",
+          "Codex app-server closed before accepting model discovery requests.",
           "unknown",
         ));
       });
@@ -1504,8 +1531,17 @@ function classifyCodexCliAppServerError(error: { readonly message?: unknown }): 
   );
 }
 
-function writeJsonLine(stdin: { write: (chunk: string) => unknown }, message: unknown): void {
-  stdin.write(JSON.stringify(message) + "\n");
+function writeJsonLine(stdin: { write: (chunk: string) => unknown }, message: unknown): boolean {
+  try {
+    stdin.write(JSON.stringify(message) + "\n");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function bindWritableError(stdin: { on?: (event: "error", listener: () => void) => unknown }, listener: () => void): void {
+  stdin.on?.("error", listener);
 }
 
 function homeExecutableCandidates(relativePaths: readonly string[]): string[] {

@@ -38,6 +38,7 @@ import {
   resolveGuiOperatorDiscoveryResults,
   resolveGuiProviderSwitch,
 } from "./gui-provider-models.js";
+import { createProviderDiscoveryCache } from "./provider-discovery-cache.js";
 import { startProviderAuthRequest } from "./provider-auth.js";
 import {
   buildAttachedRuntimePerCallToolConfig,
@@ -171,15 +172,20 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
   let activeConnections = 0;
 
   const { upgradeWebSocket, websocket } = createBunWebSocket();
-  let operatorDiscovery = transportOptions
-    ? await resolveOperatorDiscovery(options.getProviderAvailability)
+  const operatorDiscoveryResolver = transportOptions
+    ? createProviderDiscoveryCache(() => resolveOperatorDiscovery(options.getProviderAvailability))
+    : undefined;
+  let operatorDiscovery = operatorDiscoveryResolver
+    ? await operatorDiscoveryResolver.get({ force: true })
     : undefined;
   let operatorModels = operatorDiscovery ? projectGuiOperatorModels(operatorDiscovery) : undefined;
-  const refreshOperatorDiscovery = async (): Promise<readonly GuiProviderDiscoveryResult[] | undefined> => {
-    if (!transportOptions) {
+  const refreshOperatorDiscovery = async (
+    refreshOptions?: { readonly force?: boolean },
+  ): Promise<readonly GuiProviderDiscoveryResult[] | undefined> => {
+    if (!operatorDiscoveryResolver) {
       return undefined;
     }
-    operatorDiscovery = await resolveOperatorDiscovery(options.getProviderAvailability);
+    operatorDiscovery = await operatorDiscoveryResolver.get(refreshOptions);
     operatorModels = projectGuiOperatorModels(operatorDiscovery);
     return operatorDiscovery;
   };
@@ -276,7 +282,7 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
       port,
       transport: transportOptions,
       initialDiscovery: operatorDiscovery ?? [],
-      getDiscovery: async () => (await refreshOperatorDiscovery()) ?? [],
+      getDiscovery: async (discoveryOptions) => (await refreshOperatorDiscovery(discoveryOptions)) ?? [],
       onReady: (url) => {
         operatorWsUrl = url;
       },
@@ -358,7 +364,7 @@ function wireOperatorTransport(
     port: number;
     transport: OperatorSessionTransportOptions;
     initialDiscovery: readonly GuiProviderDiscoveryResult[];
-    getDiscovery: () => Promise<readonly GuiProviderDiscoveryResult[]>;
+    getDiscovery: (options?: { readonly force?: boolean }) => Promise<readonly GuiProviderDiscoveryResult[]>;
     onReady: (wsUrl: string) => void;
     onSocketOpen?: () => void;
     onSocketClose?: () => void;
@@ -393,8 +399,10 @@ function wireOperatorTransport(
     upgradeWebSocket((c) => {
       const userId = c.req.query("userId") ?? crypto.randomUUID();
       let discovery = [...input.initialDiscovery];
-      const refreshDiscovery = async (): Promise<readonly GuiProviderDiscoveryResult[]> => {
-        discovery = [...await input.getDiscovery().catch(() => [])];
+      const refreshDiscovery = async (
+        options?: { readonly force?: boolean },
+      ): Promise<readonly GuiProviderDiscoveryResult[]> => {
+        discovery = [...await input.getDiscovery(options).catch(() => [])];
         return discovery;
       };
       let operatorSocket: WSContext | null = null;
@@ -487,7 +495,7 @@ function wireOperatorTransport(
             }
 
             if (frame.type === "refresh_providers") {
-              const currentDiscovery = await refreshDiscovery();
+              const currentDiscovery = await refreshDiscovery({ force: true });
               ws.send(JSON.stringify({
                 type: "providers_refreshed",
                 models: projectGuiOperatorModels(currentDiscovery),
@@ -550,7 +558,7 @@ function wireOperatorTransport(
                 provider: auth.provider,
                 requestId: auth.requestId,
               });
-              const currentDiscovery = await refreshDiscovery();
+              const currentDiscovery = await refreshDiscovery({ force: true });
               const providerDiscovery = currentDiscovery.find((entry) => entry.provider === auth.provider);
               guiProviderAuthDebug("discovery refreshed after auth", {
                 provider: auth.provider,
