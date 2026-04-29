@@ -2,6 +2,7 @@ import type {
   AuthorityDescriptor,
   Capability,
   DefaultBuiltinToolSurface,
+  DiscoveredDirectProviderModelCapabilities,
   ToolDefinition,
 } from "@kilnai/core";
 import {
@@ -36,6 +37,8 @@ export function buildAttachedRuntimePerCallToolConfig(input: {
   readonly tenantId: string;
   readonly activeProvider?: string;
   readonly activeModel?: string;
+  readonly activeModelCapabilities?: DiscoveredDirectProviderModelCapabilities;
+  readonly reasoningEffort?: PerCallToolConfig["reasoningEffort"];
   readonly builtinToolSurface?: AttachedRuntimeBuiltinToolSurface;
 }): PerCallToolConfig {
   const provider = isDirectProviderId(input.activeProvider)
@@ -44,6 +47,7 @@ export function buildAttachedRuntimePerCallToolConfig(input: {
   const profile = resolveDirectProviderExecutionProfile({
     provider,
     model: input.activeModel,
+    discoveredModelCapabilities: input.activeModelCapabilities,
   });
   const modelOverride = provider && profile
     ? {
@@ -54,6 +58,7 @@ export function buildAttachedRuntimePerCallToolConfig(input: {
   const config: PerCallToolConfig = {
     tenantId: input.tenantId,
     ...(modelOverride ? { modelOverride } : {}),
+    ...(input.reasoningEffort ? { reasoningEffort: input.reasoningEffort } : {}),
   };
 
   if (profile?.executionMode !== "kiln-executable") {

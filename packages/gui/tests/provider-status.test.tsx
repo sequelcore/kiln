@@ -12,6 +12,8 @@ function resetStore(): void {
     planMode: false,
     activity: null,
     errorBanner: null,
+    providerCatalogStatus: "ready",
+    providerCatalogError: null,
     providers: [
       {
         id: "claude",

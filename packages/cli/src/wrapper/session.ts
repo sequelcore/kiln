@@ -11,7 +11,7 @@
  * - Pure type definitions.
  */
 
-import type { AgentMessage, ExecutionBillingMode } from "@kilnai/core";
+import type { AgentMessage, ExecutionBillingMode, ReasoningEffort } from "@kilnai/core";
 
 export type CostTrackingMode =
   | "native"
@@ -138,6 +138,7 @@ export interface SessionRunOptions {
   readonly system?: string;
   readonly messages?: readonly AgentMessage[];
   readonly cwd?: string;
+  readonly reasoningEffort?: ReasoningEffort;
   readonly env?: Record<string, string>;
   readonly abortSignal?: AbortSignal;
 }

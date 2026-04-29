@@ -25,7 +25,7 @@ import type { PersistedTranscriptEvent } from "../wrapper/session-store.js";
 import type { ResumeFeedback, ResumeStrategy } from "../wrapper/index.js";
 import { GatewaySession, waitForGateway, themes, kilnDark } from "@kilnai/tui";
 import type { SessionLike } from "@kilnai/tui";
-import { GUI_PROVIDER_DISPLAY_ORDER, isGuiProviderModeless, type GuiProviderDiscoveryResult } from "@kilnai/gateway-contracts";
+import { GUI_PROVIDER_DISPLAY_ORDER, getGuiProviderMetadata, isGuiProviderModeless, type GuiProviderDiscoveryResult } from "@kilnai/gateway-contracts";
 import {
   extractText,
   type AgentMessage,
@@ -81,6 +81,13 @@ type CliSessionFactory = (
 ) => import("../wrapper/session.js").IKilnSession;
 type CliProviderDisplayInfo = ReturnType<typeof getProviderDisplayInfo>[number];
 
+function writeTuiBootstrapStatus(message: string): void {
+  if (!process.stderr.isTTY) {
+    return;
+  }
+  process.stderr.write(`${message}\n`);
+}
+
 function normalizeProviderModels(models: readonly string[] | undefined): string[] {
   const unique = new Set<string>();
   for (const model of models ?? []) {
@@ -95,6 +102,7 @@ function normalizeProviderModels(models: readonly string[] | undefined): string[
 function buildTuiStartupProviderDisplayInfo(input: {
   readonly providerDisplayInfo: readonly CliProviderDisplayInfo[];
   readonly runtimeModels: Record<string, string[]>;
+  readonly runtimeDiscovery?: readonly GuiProviderDiscoveryResult[];
   readonly includeModelessProviders?: boolean;
 }): CliProviderDisplayInfo[] {
   const providerById = new Map<string, CliProviderDisplayInfo>();
@@ -127,15 +135,28 @@ function buildTuiStartupProviderDisplayInfo(input: {
     const runtimeModels = normalizeProviderModels(input.runtimeModels[providerId]);
     const models = runtimeModels;
     const runtimeCatalogContainsProvider = Object.prototype.hasOwnProperty.call(input.runtimeModels, providerId);
+    const discovery = input.runtimeDiscovery?.find((entry) => entry.provider === providerId);
+    const metadata = getGuiProviderMetadata(providerId);
+    const includeAuthProvider = Boolean(
+      metadata?.authMethod
+        && discovery
+        && !discovery.available
+        && (discovery.authState === "missing" || discovery.authState === "expired"),
+    );
     if (models.length === 0) {
       const includeModelessProvider = input.includeModelessProviders === true
         && runtimeCatalogContainsProvider
         && isGuiProviderModeless(providerId);
-      if (!includeModelessProvider) {
+      if (!includeModelessProvider && !includeAuthProvider) {
         return [];
       }
     }
-    return [{ ...provider, models }];
+    return [{
+      ...provider,
+      models,
+      available: discovery?.available,
+      reason: discovery?.reason,
+    }];
   });
 }
 
@@ -145,6 +166,11 @@ function assertTuiProviderAvailableInStartupCatalog(
 ): void {
   const startupProvider = startupProviderDisplayInfo.find((entry) => entry.id === provider);
   if (startupProvider && (startupProvider.models.length > 0 || isGuiProviderModeless(provider))) {
+    return;
+  }
+  const metadata = getGuiProviderMetadata(provider);
+  const startupAvailability = startupProvider as ({ readonly available?: boolean } & CliProviderDisplayInfo) | undefined;
+  if (metadata?.authMethod && startupAvailability?.available === false) {
     return;
   }
 
@@ -345,6 +371,7 @@ export async function makeMultiProviderSessionFactory(
           resumeSessionId: decision.shouldUseProviderNativeResume ? resumedFrom : undefined,
           sessionLedgerOwner: "host",
           model: modelForTurn,
+          reasoningEffort: options.reasoningEffort,
         });
         activeSession = resumedSession;
         const capturedId = options.kilnSessionId ?? context?.kilnSessionId ?? resumedFrom ?? resumedSession.sessionId;
@@ -559,6 +586,7 @@ async function bootstrapGatewaySession(
   const { startTuiGateway } = await import("@kilnai/runtime");
   const { flags, sessionManager, contextArtifactCache, systemPrompt } = options;
 
+  writeTuiBootstrapStatus("Starting Kiln TUI runtime...");
   const gateway = await startTuiGateway({
     sessionManager,
     port: flags.port,
@@ -569,7 +597,9 @@ async function bootstrapGatewaySession(
     planMode: flags.plan ?? false,
   });
 
+  writeTuiBootstrapStatus("Connecting to local gateway...");
   await waitForGateway(`http://localhost:${gateway.port}/health`);
+  writeTuiBootstrapStatus("Loading provider and model discovery...");
 
   const providerModelsRef: { current: Record<string, string[]> } = {
     current: gateway.models,
@@ -675,10 +705,15 @@ async function bootstrapDirectSession(
   let session: TuiControlSession | null = null;
   const providerModelsRef: { current: Record<string, string[]> } = { current: {} };
   const providerDiscoveryRef: { current: readonly GuiProviderDiscoveryResult[] } = { current: [] };
+  let initialProviderDiscoveryLoaded = false;
   const refreshProviderModels = async (): Promise<Record<string, string[]>> => {
+    if (!initialProviderDiscoveryLoaded) {
+      writeTuiBootstrapStatus("Loading provider and model discovery...");
+    }
     const providerAvailability = getRuntimeProviderAvailability(options.registry);
     providerDiscoveryRef.current = await resolveGuiOperatorDiscoveryResults(providerAvailability);
     providerModelsRef.current = projectGuiOperatorModels(providerDiscoveryRef.current);
+    initialProviderDiscoveryLoaded = true;
     return providerModelsRef.current;
   };
   await refreshProviderModels();
@@ -874,6 +909,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   const startupProviderDisplayInfo = buildTuiStartupProviderDisplayInfo({
     providerDisplayInfo,
     runtimeModels: bootstrap.providerModelsRef.current,
+    runtimeDiscovery: bootstrap.providerDiscoveryRef.current,
     includeModelessProviders: true,
   });
   assertTuiProviderAvailableInStartupCatalog(provider, startupProviderDisplayInfo);
@@ -894,6 +930,9 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     bootstrap.providerDiscoveryRef,
     startupTransport === "direct" ? loadSessionList : undefined,
     startupTransport === "direct" ? handleResumeSession : undefined,
+    () => bootstrap.createSession().then((session) => (
+      session as unknown as { refreshProviders?: () => Promise<void> | void }
+    ).refreshProviders?.()),
   );
 
   bootstrap.shutdown();

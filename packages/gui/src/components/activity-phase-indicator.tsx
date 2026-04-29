@@ -42,7 +42,7 @@ function phaseColorClass(phase: ActivityPhase): string {
 
 function spinnerClass(phase: ActivityPhase): string {
   if (phase === "idle") return "hidden";
-  return "inline-block h-2 w-2 animate-pulse rounded-full bg-current";
+  return "inline-block size-2 animate-pulse rounded-full bg-current";
 }
 
 export function ActivityPhaseIndicator(props: ActivityPhaseIndicatorProps) {

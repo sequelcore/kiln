@@ -1,3 +1,4 @@
+import type { ReasoningEffort } from "./index.js";
 import type { ExecutionBillingMode } from "./execution-identity.js";
 import { ModelCapabilityRegistry } from "./model-capability-registry.js";
 
@@ -29,6 +30,12 @@ export interface ResolvedDirectProviderExecutionProfile {
   readonly supportsStructuredToolCalls: boolean;
   readonly modelSupportsTools: boolean;
   readonly supportsKilnExecutableTools: boolean;
+}
+
+export interface DiscoveredDirectProviderModelCapabilities {
+  readonly supportsTools?: boolean;
+  readonly defaultReasoningEffort?: ReasoningEffort;
+  readonly supportedReasoningEfforts?: readonly ReasoningEffort[];
 }
 
 const DIRECT_PROVIDER_EXECUTION_PROFILES: ReadonlyMap<DirectProviderId, DirectProviderExecutionProfile> = new Map([
@@ -85,7 +92,7 @@ const DIRECT_PROVIDER_EXECUTION_PROFILES: ReadonlyMap<DirectProviderId, DirectPr
 const MODEL_CAPABILITIES = new ModelCapabilityRegistry();
 
 function providerUsesDynamicToolCapableModels(provider: DirectProviderId): boolean {
-  return provider === "opencode-go" || provider === "opencode-zen";
+  return provider === "codex-oauth" || provider === "opencode-go" || provider === "opencode-zen";
 }
 
 export function isDirectProviderId(provider: string | undefined): provider is DirectProviderId {
@@ -108,6 +115,7 @@ export function resolveDirectProviderExecutionProfile(options: {
   readonly provider: string | undefined;
   readonly model?: string;
   readonly requestedExecutionMode?: DirectProviderExecutionMode;
+  readonly discoveredModelCapabilities?: DiscoveredDirectProviderModelCapabilities;
   readonly capabilityRegistry?: ModelCapabilityRegistry;
 }): ResolvedDirectProviderExecutionProfile | undefined {
   const profile = getDirectProviderExecutionProfile(options.provider);
@@ -119,9 +127,11 @@ export function resolveDirectProviderExecutionProfile(options: {
   }
   const model = selectedModel;
   const capabilities = options.capabilityRegistry ?? MODEL_CAPABILITIES;
-  const modelSupportsTools =
-    capabilities.supportsTools(profile.provider, model)
-    || providerUsesDynamicToolCapableModels(profile.provider);
+  const modelSupportsTools = options.discoveredModelCapabilities?.supportsTools
+    ?? (
+      capabilities.supportsTools(profile.provider, model)
+      || providerUsesDynamicToolCapableModels(profile.provider)
+    );
   const supportsKilnExecutableTools = profile.supportsStructuredToolCalls && modelSupportsTools;
   const executionMode = resolveExecutionMode({
     requestedExecutionMode: options.requestedExecutionMode,

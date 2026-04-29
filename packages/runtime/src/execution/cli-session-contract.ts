@@ -1,4 +1,4 @@
-import type { AgentMessage, ExecutionBillingMode } from "@kilnai/core";
+import type { AgentMessage, ExecutionBillingMode, ReasoningEffort } from "@kilnai/core";
 
 /** Minimal session run options — structurally compatible with cli/wrapper/session IKilnSession. */
 export interface CliSessionRunOptions {
@@ -7,6 +7,7 @@ export interface CliSessionRunOptions {
   readonly system?: string;
   readonly messages?: readonly AgentMessage[];
   readonly cwd?: string;
+  readonly reasoningEffort?: ReasoningEffort;
 }
 
 /** Minimal session event union — structurally compatible with cli/wrapper/session SessionEvent. */

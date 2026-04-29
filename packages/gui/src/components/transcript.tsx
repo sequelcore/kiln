@@ -1,9 +1,14 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { TimelineEntry, TimelineEventEntry } from "../lib/session-store.js";
+import type { ActivityPhase, TimelineEntry, TimelineEventEntry } from "../lib/session-store.js";
+import { ActivityPhaseIndicator } from "./activity-phase-indicator.js";
 import { MessageRow } from "./message-row.js";
+import { Button } from "@/components/ui/button";
 
 interface TranscriptProps {
   readonly entries: readonly TimelineEntry[];
+  readonly activityPhase?: ActivityPhase;
+  readonly activityToolName?: string;
+  readonly activityDetails?: string;
   readonly onApprove?: (sessionId: string) => void;
   readonly onDeny?: (sessionId: string) => void;
 }
@@ -244,76 +249,102 @@ function TimelineEventRow(props: {
 }) {
   const [open, setOpen] = useState(false);
   const toneClasses = {
-    info: "border-[var(--color-border)] bg-[var(--color-background-element)] text-[var(--color-text-muted)]",
-    running: "border-[var(--color-info)]/40 bg-[var(--color-info)]/8 text-[var(--color-info)]",
-    success: "border-[var(--color-success)]/40 bg-[var(--color-success)]/8 text-[var(--color-success)]",
-    warning: "border-[var(--color-warning)]/40 bg-[var(--color-warning)]/8 text-[var(--color-warning)]",
-    error: "border-[var(--color-error)]/40 bg-[var(--color-error)]/8 text-[var(--color-error)]",
+    info: "border-border bg-card text-muted-foreground",
+    running: "border-border bg-card text-foreground",
+    success: "border-border bg-card text-foreground",
+    warning: "border-border bg-card text-foreground",
+    error: "border-destructive bg-card text-destructive",
   }[props.entry.tone];
   const canResolveApproval = props.entry.eventKind === "approval_requested" && Boolean(props.entry.sessionId);
   const hasDetails = props.entry.details !== undefined;
 
   return (
-    <article className={`rounded-lg border px-4 py-3 shadow-sm ${toneClasses}`}>
+    <article className={`mx-auto w-full max-w-3xl rounded-lg border px-3 py-2 ${toneClasses}`}>
       <header className="mb-2 flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em]">{props.entry.title}</p>
+          <p className="truncate font-mono text-[10px] uppercase tracking-[0.16em]">{props.entry.title}</p>
           {props.entry.summary ? (
-            <p className="mt-1 text-sm leading-6 text-[var(--color-text)]">{props.entry.summary}</p>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">{props.entry.summary}</p>
           ) : null}
         </div>
-        <time dateTime={props.entry.createdAt} className="shrink-0 text-[10px] opacity-80" title={props.entry.createdAt}>
+        <time dateTime={props.entry.createdAt} className="shrink-0 font-mono text-[10px] text-muted-foreground" title={props.entry.createdAt}>
           {new Date(props.entry.createdAt).toLocaleTimeString()}
         </time>
       </header>
       {hasDetails ? (
         <div className="flex flex-wrap items-center gap-2">
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="xs"
             aria-expanded={open}
             onClick={() => setOpen((value) => !value)}
-            className="rounded border border-current/30 px-2 py-1 text-[11px] uppercase tracking-wide hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-active)]"
           >
             {open ? "Hide details" : "Show details"}
-          </button>
+          </Button>
           {canResolveApproval && props.entry.sessionId ? (
             <>
-              <button
+              <Button
                 type="button"
+                variant="outline"
+                size="xs"
                 onClick={() => props.onApprove?.(props.entry.sessionId!)}
-                className="rounded border border-[var(--color-success)]/50 bg-[var(--color-success)]/10 px-2 py-1 text-[11px] font-medium text-[var(--color-success)] hover:bg-[var(--color-success)]/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-success)]"
               >
                 Approve
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
+                variant="destructive"
+                size="xs"
                 onClick={() => props.onDeny?.(props.entry.sessionId!)}
-                className="rounded border border-[var(--color-error)]/50 bg-[var(--color-error)]/10 px-2 py-1 text-[11px] font-medium text-[var(--color-error)] hover:bg-[var(--color-error)]/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-error)]"
               >
                 Deny
-              </button>
+              </Button>
             </>
           ) : null}
         </div>
       ) : canResolveApproval && props.entry.sessionId ? (
         <div className="flex flex-wrap items-center gap-2">
-          <button
+          <Button
             type="button"
+            variant="outline"
+            size="xs"
             onClick={() => props.onApprove?.(props.entry.sessionId!)}
-            className="rounded border border-[var(--color-success)]/50 bg-[var(--color-success)]/10 px-2 py-1 text-[11px] font-medium text-[var(--color-success)] hover:bg-[var(--color-success)]/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-success)]"
           >
             Approve
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
+            variant="destructive"
+            size="xs"
             onClick={() => props.onDeny?.(props.entry.sessionId!)}
-            className="rounded border border-[var(--color-error)]/50 bg-[var(--color-error)]/10 px-2 py-1 text-[11px] font-medium text-[var(--color-error)] hover:bg-[var(--color-error)]/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-error)]"
           >
             Deny
-          </button>
+          </Button>
         </div>
       ) : null}
       <EventDetails entry={props.entry} open={open} />
+    </article>
+  );
+}
+
+function AssistantActivityRow(props: {
+  readonly phase: ActivityPhase;
+  readonly toolName?: string;
+  readonly details?: string;
+}) {
+  return (
+    <article data-role="assistant" className="mx-auto flex w-full max-w-3xl justify-start">
+      <div className="max-w-[min(46rem,92%)] rounded-lg border border-dashed bg-card px-3 py-2">
+        <header className="mb-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <span>Assistant</span>
+        </header>
+        <ActivityPhaseIndicator
+          phase={props.phase}
+          toolName={props.toolName}
+          details={props.details}
+        />
+      </div>
     </article>
   );
 }
@@ -323,6 +354,15 @@ export function Transcript(props: TranscriptProps) {
   const shouldStickRef = useRef(true);
   const [hasUserScrolledUp, setHasUserScrolledUp] = useState(false);
   const lastEntry = props.entries[props.entries.length - 1];
+  const lastEntryAnchor = lastEntry?.type === "message" ? lastEntry.message.content : lastEntry?.summary;
+  const hasStreamingAssistant = props.entries.some((entry) => (
+    entry.type === "message"
+    && entry.message.role === "assistant"
+    && entry.message.streaming === true
+  ));
+  const showAssistantActivity = props.activityPhase
+    && props.activityPhase !== "idle"
+    && !(props.activityPhase === "streaming" && hasStreamingAssistant);
 
   useEffect(() => {
     const node = containerRef.current;
@@ -345,18 +385,18 @@ export function Transcript(props: TranscriptProps) {
       return;
     }
     node.scrollTop = node.scrollHeight;
-  }, [props.entries.length, lastEntry?.type === "message" ? lastEntry.message.content : lastEntry?.summary]);
+  }, [props.entries.length, lastEntryAnchor, showAssistantActivity, props.activityPhase]);
 
   return (
     <section className="relative flex h-full min-h-0 flex-col">
       <div
         ref={containerRef}
-        className="flex-1 space-y-3 overflow-y-auto px-4 py-4"
+        className="flex flex-1 flex-col gap-3 overflow-y-auto px-4 py-4"
         aria-live="polite"
         aria-label="Transcript"
       >
-        {props.entries.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-[var(--color-border)] bg-[var(--color-background-element)]/50 px-4 py-6 text-sm text-[var(--color-text-muted)]">
+        {props.entries.length === 0 && !showAssistantActivity ? (
+          <div className="mx-auto w-full max-w-3xl rounded-lg border border-dashed bg-card px-4 py-8 text-center text-sm text-muted-foreground">
             Start a conversation to see the transcript.
           </div>
         ) : (
@@ -366,6 +406,13 @@ export function Transcript(props: TranscriptProps) {
               : <TimelineEventRow key={entry.id} entry={entry} onApprove={props.onApprove} onDeny={props.onDeny} />
           ))
         )}
+        {showAssistantActivity ? (
+          <AssistantActivityRow
+            phase={props.activityPhase!}
+            toolName={props.activityToolName}
+            details={props.activityDetails}
+          />
+        ) : null}
       </div>
       {hasUserScrolledUp ? (
         <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-10 bg-gradient-to-t from-[var(--color-background)] to-transparent" />

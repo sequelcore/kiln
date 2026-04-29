@@ -38,14 +38,58 @@ export type GuiProviderAuthState =
   | "not_required"
   | "unknown";
 
+export type GuiProviderCatalogStatus = "pending" | "refreshing" | "ready" | "error";
+
+export type GuiProviderReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh";
+
+export interface GuiProviderModelCapabilities {
+  readonly supportsTools?: boolean;
+  readonly supportsStreaming?: boolean;
+  readonly supportsStructuredOutput?: boolean;
+  readonly supportsVision?: boolean;
+  readonly supportsParallelToolCalls?: boolean;
+  readonly contextWindow?: number;
+  readonly defaultReasoningEffort?: GuiProviderReasoningEffort;
+  readonly supportedReasoningEfforts?: readonly GuiProviderReasoningEffort[];
+}
+
 export interface GuiProviderDiscoveryResult {
   readonly provider: string;
   readonly available: boolean;
   readonly models: readonly string[];
+  readonly modelCapabilities?: Readonly<Record<string, GuiProviderModelCapabilities>>;
   readonly status: GuiProviderDiscoveryStatus;
   readonly reason: string;
   readonly authState: GuiProviderAuthState;
   readonly lastCheckedAt: string;
+}
+
+export type GuiProviderAuthMethod = "device_code" | "api_key";
+
+export interface GuiProviderAuthDeviceCodeStarted {
+  readonly type: "provider_auth_started";
+  readonly provider: string;
+  readonly requestId: string;
+  readonly method: "device_code";
+  readonly verificationUri: string;
+  readonly userCode: string;
+  readonly message?: string;
+}
+
+export interface GuiProviderAuthCompleted {
+  readonly type: "provider_auth_completed";
+  readonly provider: string;
+  readonly requestId: string;
+  readonly models: Record<string, string[]>;
+  readonly providerDiscovery: readonly GuiProviderDiscoveryResult[];
+  readonly providers?: readonly GuiProviderDescriptor[];
+}
+
+export interface GuiProviderAuthFailed {
+  readonly type: "provider_auth_failed";
+  readonly provider: string;
+  readonly requestId: string;
+  readonly message: string;
 }
 
 export interface GuiSessionSummary {
@@ -204,9 +248,17 @@ export type GuiOutboundFrame =
       content: string;
       planMode?: boolean;
       resumeSessionId?: string;
+      reasoningEffort?: GuiProviderReasoningEffort;
     }
   | { type: "clear" }
   | { type: "refresh_providers" }
+  | {
+      type: "provider_auth";
+      provider: string;
+      requestId: string;
+      apiKey?: string;
+      tier?: "go" | "zen";
+    }
   | { type: "provider"; provider: string; model?: string; requestId: string }
   | { type: "resume"; sessionId: string }
   | { type: "approve"; sessionId?: string }
@@ -265,6 +317,9 @@ export type GuiInboundFrame =
     }
     | { type: "exec_confirmed" }
     | { type: "cleared" }
+    | GuiProviderAuthDeviceCodeStarted
+    | GuiProviderAuthCompleted
+    | GuiProviderAuthFailed
     | {
       type: "providers_refreshed";
       models: Record<string, string[]>;

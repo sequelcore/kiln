@@ -95,6 +95,7 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
         prompt: buildPreamble(governedContext, options.permissionPolicy, undefined),
         cwd: process.cwd(),
         env: options.env,
+        reasoningEffort: options.sessionConfig.reasoningEffort,
       })) {
         switch (event.type) {
           case "text_delta": {

@@ -6,6 +6,8 @@ import type { Components } from "react-markdown";
 import { getGuiProviderMetadata } from "@kilnai/gateway-contracts";
 import type { Message } from "../lib/session-store.js";
 import { useSessionStore } from "../lib/session-store.js";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 
 const markdownComponents: Components = {
   code({ className, children, ...rest }) {
@@ -51,21 +53,6 @@ function roleLabel(role: Message["role"]): string {
   }
 }
 
-function roleClassName(role: Message["role"]): string {
-  switch (role) {
-    case "user":
-      return "border-[var(--color-user-border)] bg-[var(--color-user-bg)]";
-    case "assistant":
-      return "border-[var(--color-border)] bg-[var(--color-assistant-bg)]";
-    case "tool":
-      return "border-[var(--color-tool-fg)]/60 bg-[var(--color-background-element)]";
-    case "error":
-      return "border-[var(--color-error)]/60 bg-[var(--color-error)]/10";
-    default:
-      return "border-[var(--color-border)] bg-[var(--color-background-element)]";
-  }
-}
-
 export function MessageRow(props: MessageRowProps) {
   const { message } = props;
   const activeProvider = useSessionStore((state) => state.activeProvider);
@@ -79,42 +66,68 @@ export function MessageRow(props: MessageRowProps) {
   const assistantProviderLabel = assistantProvider
     ? (getGuiProviderMetadata(assistantProvider)?.label ?? assistantProvider)
     : null;
+  const isUser = message.role === "user";
+  const isAssistant = message.role === "assistant";
+  const isOperational = message.role === "tool" || message.role === "error";
 
   return (
     <article
       data-role={message.role}
-      className={`rounded-lg border px-4 py-3 shadow-sm ${roleClassName(message.role)}`}
-    >
-      <header className="mb-2 flex items-center gap-2 text-xs uppercase tracking-wide text-[var(--color-text-muted)]">
-        <span>{label}</span>
-        {message.role === "assistant" && assistantProviderLabel ? (
-          <span>
-            {assistantProviderLabel}
-            {assistantModel ? ` · ${assistantModel}` : " · —"}
-          </span>
-        ) : null}
-      </header>
-      {showMarkdown ? (
-        <div className="markdown-body text-sm text-[var(--color-text)]">
-          <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{message.content}</ReactMarkdown>
-          {message.streaming ? (
-            <span
-              aria-label="Streaming"
-              className="ml-1 inline-block h-4 w-1 animate-pulse rounded bg-[var(--color-cursor-fg)] align-middle"
-            />
-          ) : null}
-        </div>
-      ) : (
-        <p className="whitespace-pre-wrap break-words text-sm text-[var(--color-text)]">
-          {message.content}
-          {message.streaming ? (
-            <span
-              aria-label="Streaming"
-              className="ml-1 inline-block h-4 w-1 animate-pulse rounded bg-[var(--color-cursor-fg)] align-middle"
-            />
-          ) : null}
-        </p>
+      className={cn(
+        "mx-auto flex w-full max-w-3xl",
+        isUser ? "justify-end" : "justify-start",
       )}
+    >
+      <div
+        className={cn(
+          "min-w-0",
+          isUser ? "max-w-[min(42rem,82%)]" : "max-w-[min(44rem,90%)]",
+          isAssistant ? "rounded-lg border bg-card px-3 py-2" : "",
+          isOperational ? "rounded-lg border bg-card px-3 py-2" : "",
+        )}
+      >
+        <header className={cn(
+          "mb-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground",
+          isUser ? "justify-end" : "justify-start",
+          isUser ? "sr-only" : "",
+        )}>
+          <span>{label}</span>
+          {assistantProviderLabel ? (
+            <Badge variant="outline" className="max-w-full truncate">
+              {assistantProviderLabel}
+              {assistantModel ? ` / ${assistantModel}` : " / —"}
+            </Badge>
+          ) : null}
+        </header>
+        <div
+          className={cn(
+            "min-w-0 text-sm leading-6 text-foreground",
+            isUser ? "rounded-lg bg-muted px-3 py-2" : "",
+          )}
+        >
+          {showMarkdown ? (
+            <div className="markdown-body">
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{message.content}</ReactMarkdown>
+              {message.streaming ? (
+                <span
+                  aria-label="Streaming"
+                  className="ml-1 inline-block h-4 w-1 animate-pulse rounded bg-[var(--color-cursor-fg)] align-middle"
+                />
+              ) : null}
+            </div>
+          ) : (
+            <p className="whitespace-pre-wrap break-words">
+              {message.content}
+              {message.streaming ? (
+                <span
+                  aria-label="Streaming"
+                  className="ml-1 inline-block h-4 w-1 animate-pulse rounded bg-[var(--color-cursor-fg)] align-middle"
+                />
+              ) : null}
+            </p>
+          )}
+        </div>
+      </div>
     </article>
   );
 }

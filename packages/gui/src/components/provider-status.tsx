@@ -1,4 +1,5 @@
 import { getGuiProviderMetadata } from "@kilnai/gateway-contracts";
+import { ChevronDownIcon } from "lucide-react";
 import { useSessionStore } from "../lib/session-store.js";
 import { Button } from "@/components/ui/button";
 
@@ -6,6 +7,7 @@ interface ProviderStatusProps {
   readonly onOpenPicker: () => void;
   readonly domainLabel?: string;
   readonly workingDirectory?: string;
+  readonly compact?: boolean;
 }
 
 function resolveProviderLabel(providerId: string | null, fallbackLabel?: string): string {
@@ -51,6 +53,24 @@ export function ProviderStatus(props: ProviderStatusProps) {
     : activeModel;
   const displayLabel = resolveProviderLabel(displayProviderId, providerById.get(displayProviderId ?? "")?.label);
   const routeText = modeLabel(routeMode);
+  const modelLabel = displayModel && displayModel.trim().length > 0 ? displayModel : "—";
+
+  if (props.compact) {
+    return (
+      <Button
+        type="button"
+        variant={routeMode === "responding" ? "secondary" : "outline"}
+        aria-label={`Current model: ${displayLabel} ${modelLabel}. Click to change.`}
+        onClick={props.onOpenPicker}
+        className="min-w-0 max-w-full justify-start"
+      >
+        <span className="min-w-0 truncate">
+          {displayLabel} / {modelLabel}
+        </span>
+        <ChevronDownIcon data-icon="inline-end" />
+      </Button>
+    );
+  }
 
   return (
     <Button
@@ -62,18 +82,14 @@ export function ProviderStatus(props: ProviderStatusProps) {
         `domain: ${props.domainLabel ?? "—"}`,
         `cwd: ${props.workingDirectory ?? "—"}`,
       ].join("\n")}
-      className="h-auto min-w-0 justify-start gap-3 rounded-xl border-border/80 bg-background/45 px-3 py-2 text-left hover:bg-secondary/60"
+      className="h-auto min-w-0 justify-start text-left"
     >
-      <span
-        aria-hidden="true"
-        className={routeMode === "responding" ? "size-2 rounded-full bg-[var(--color-accent)]" : "size-2 rounded-full bg-muted-foreground/55"}
-      />
       <span className="grid min-w-0 gap-1">
         <span className="flex min-w-0 items-center gap-1.5">
           <span className="truncate text-xs font-semibold text-foreground">{displayLabel}</span>
           <span className="text-muted-foreground/45" aria-hidden="true">·</span>
           <span className="truncate font-mono text-[11px] text-muted-foreground">
-            {displayModel && displayModel.trim().length > 0 ? displayModel : "—"}
+            {modelLabel}
           </span>
           <span className="text-muted-foreground/45" aria-hidden="true">·</span>
           <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">{routeText}</span>
@@ -87,7 +103,7 @@ export function ProviderStatus(props: ProviderStatusProps) {
         </span>
       </span>
       {providerSwitching ? (
-        <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--color-warning)]">switching…</span>
+        <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">switching…</span>
       ) : null}
     </Button>
   );

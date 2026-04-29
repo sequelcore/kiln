@@ -20,6 +20,7 @@ GUI and TUI consume the same structured discovery result:
 - `reason`
 - `authState`
 - `lastCheckedAt`
+- `modelCapabilities`
 
 Common statuses include:
 
@@ -36,6 +37,38 @@ Common statuses include:
 The same discovery result gates execution and drives operator diagnostics.
 Surfaces may abbreviate the human-facing reason, but they must not derive
 availability from a different source.
+
+## Model Capabilities
+
+When a provider exposes per-model capability metadata, discovery carries it
+under `modelCapabilities[modelId]`. The capability record is advisory for UI
+controls and strict for request shaping: operator surfaces may only expose
+controls that discovery says the active model supports, and execution must send
+the selected capability value through the normal turn request rather than
+storing it in surface-local state.
+
+Current capability fields include:
+
+- `supportsTools`
+- `supportsParallelToolCalls`
+- `contextWindow`
+- `supportsVision`
+- `defaultReasoningEffort`
+- `supportedReasoningEfforts`
+
+`supportedReasoningEfforts` uses Kiln's normalized effort enum:
+`minimal`, `low`, `medium`, `high`, and `xhigh`. Provider-native names are
+normalized at the discovery boundary. For Codex OAuth, the ChatGPT-backed model
+endpoint returns `supported_reasoning_levels` as records such as
+`{ effort, description }`; discovery must preserve the ordered `effort` values
+and ignore descriptive copy. Older string-array shapes remain accepted for
+providers that expose them that way.
+
+If a model does not advertise `supportedReasoningEfforts`, GUI and TUI must not
+render a reasoning selector for that model, and CLI requests should not invent a
+default. If a model does advertise supported efforts, the default is
+`defaultReasoningEffort` when present, otherwise the first advertised supported
+effort.
 
 ## Provider Classes
 
@@ -94,6 +127,11 @@ diagnostics in the runtime result. Examples:
 GUI and TUI expose provider refresh without restarting the process. Refresh
 re-runs runtime discovery, updates the selectable model catalog, and leaves the
 current operator session alive.
+
+Reasoning effort is shown next to provider/model selection when the active
+model advertises supported efforts. GUI renders it as a compact composer
+control; TUI renders the current effort in the provider sidebar and cycles it
+with `/effort`. Both surfaces send the selected effort on the next turn only.
 
 ## Turn Records
 

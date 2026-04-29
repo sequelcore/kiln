@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ApprovalRequest } from "../lib/session-store.js";
+import { CheckCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { SidebarPanelShell } from "./sidebar-panel-shell.js";
 
 interface ApprovalsPanelProps {
   readonly approvals: readonly ApprovalRequest[];
   readonly onApprove: (sessionId: string) => void;
   readonly onDeny: (sessionId: string) => void;
-  readonly onStartNewSession: () => void;
 }
 
 const timeFormatter = new Intl.DateTimeFormat("en-US", {
@@ -60,14 +61,7 @@ export function ApprovalsPanel(props: ApprovalsPanelProps) {
   };
 
   return (
-    <aside className="flex h-full min-h-0 flex-col border-r border-border/70 bg-card">
-      <header className="flex items-center gap-2 border-b border-border/70 px-3.5 py-3">
-        <p className="text-sm font-semibold tracking-tight text-foreground">Approvals</p>
-        <p className="ml-auto font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-          {props.approvals.length} pending
-        </p>
-      </header>
-
+    <SidebarPanelShell title="Approvals" meta={`${props.approvals.length} pending`}>
       <div className="grid min-h-0 flex-1 lg:grid-rows-[minmax(0,1.1fr)_minmax(14rem,0.9fr)]">
         <div className="min-h-0 overflow-y-auto border-b border-border/60">
           {props.approvals.length === 0 ? (
@@ -95,7 +89,7 @@ export function ApprovalsPanel(props: ApprovalsPanelProps) {
                       )}
                     >
                       <span className="mt-0.5 inline-flex size-5 items-center justify-center rounded border border-border/80 font-mono text-[11px] text-muted-foreground">
-                        ?
+                        <CheckCheck className="size-3.5" aria-hidden="true" />
                       </span>
                       <span className="min-w-0">
                         <span className="min-w-0 truncate text-[13px] font-medium leading-5 text-foreground">
@@ -150,20 +144,6 @@ export function ApprovalsPanel(props: ApprovalsPanelProps) {
           )}
         </div>
       </div>
-
-      <footer className="border-t border-border/70 p-2.5">
-        <Button
-          type="button"
-          variant="outline"
-          aria-label="New Session"
-          onClick={props.onStartNewSession}
-          className="h-9 w-full justify-start border-border/80 bg-transparent font-medium hover:bg-secondary/50"
-        >
-          <span aria-hidden="true" className="text-base leading-none">+</span>
-          New Session
-        </Button>
-      </footer>
-    </aside>
+    </SidebarPanelShell>
   );
 }
-

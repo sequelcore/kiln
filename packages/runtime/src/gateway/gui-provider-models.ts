@@ -12,6 +12,8 @@ import {
   type GuiProviderDescriptor,
   type GuiProviderDiscoveryResult,
   type GuiProviderDiscoveryStatus,
+  type GuiProviderModelCapabilities,
+  type GuiProviderReasoningEffort,
 } from "@kilnai/gateway-contracts";
 
 const KNOWN_GUI_PROVIDER_IDS = new Set<string>(GUI_PROVIDER_DISPLAY_ORDER);
@@ -25,6 +27,7 @@ export interface GuiCliOperatorModelDiscovery {
 
 export interface GuiCliProviderModelDiscovery {
   readonly models: string[];
+  readonly modelCapabilities?: Readonly<Record<string, GuiProviderModelCapabilities>>;
   readonly status: GuiProviderDiscoveryStatus;
   readonly reason: string;
   readonly authState: GuiProviderAuthState;
@@ -42,6 +45,27 @@ interface OpenCodeDirectProviderDiscoveryTarget {
 
 const OPENCODE_GO_MODELS_URL = "https://opencode.ai/zen/go/v1/models";
 const OPENCODE_ZEN_MODELS_URL = `${OPENCODE_BASE_URL}/models`;
+const CODEX_OAUTH_MODELS_URL = "https://chatgpt.com/backend-api/codex/models";
+const CODEX_OAUTH_MODEL_DISCOVERY_TIMEOUT_MS = 5_000;
+const CODEX_OAUTH_MODEL_DISCOVERY_CACHE_TTL_MS = 30_000;
+const CODEX_OAUTH_MODELS_CLIENT_VERSION =
+  process.env.KILN_CODEX_OAUTH_CLIENT_VERSION?.trim() || "1.0.7";
+const CODEX_OAUTH_MODEL_DISCOVERY_DEBUG =
+  /^(1|true|yes)$/i.test(process.env.KILN_PROVIDER_AUTH_DEBUG?.trim() ?? "");
+
+let codexOauthModelDiscoveryCache:
+  | {
+      readonly token: string;
+      readonly expiresAt: number;
+      readonly result: GuiCliProviderModelDiscovery;
+    }
+  | undefined;
+let codexOauthModelDiscoveryInflight:
+  | {
+      readonly token: string;
+      readonly promise: Promise<GuiCliProviderModelDiscovery>;
+    }
+  | undefined;
 
 export async function discoverGuiCliOperatorModels(): Promise<GuiCliOperatorModelDiscovery> {
   const [opencodeDiscovery, codexDiscovery] = await Promise.all([
@@ -137,10 +161,14 @@ export function buildGuiOperatorDiscoveryResults(input: {
         && availability !== false
       );
       const status = available ? "available" : directDiscovery.status;
+      const modelCapabilities = available
+        ? filterModelCapabilities(directDiscovery.modelCapabilities, directModels)
+        : undefined;
       results.push({
         provider,
         available,
         models: available ? directModels : [],
+        ...(modelCapabilities ? { modelCapabilities } : {}),
         status,
         reason: directDiscovery.reason,
         authState: directDiscovery.authState,
@@ -227,6 +255,21 @@ function normalizeModelIds(models: readonly string[]): string[] {
   return result;
 }
 
+function filterModelCapabilities(
+  capabilities: Readonly<Record<string, GuiProviderModelCapabilities>> | undefined,
+  models: readonly string[],
+): Readonly<Record<string, GuiProviderModelCapabilities>> | undefined {
+  if (!capabilities) return undefined;
+  const filtered: Record<string, GuiProviderModelCapabilities> = {};
+  for (const model of models) {
+    const capability = capabilities[model];
+    if (capability) {
+      filtered[model] = capability;
+    }
+  }
+  return Object.keys(filtered).length > 0 ? filtered : undefined;
+}
+
 function defaultUnavailableStatus(group: GuiProviderDescriptor["group"]): GuiProviderDiscoveryStatus {
   return group === "harness" ? "cli_missing" : "missing_auth";
 }
@@ -292,13 +335,67 @@ async function discoverCodexOauthModelDiscovery(
       "missing",
     );
   }
-  let data: { readonly data?: unknown; readonly models?: unknown } | undefined;
+  const cachedDiscovery = codexOauthModelDiscoveryCache;
+  if (
+    cachedDiscovery
+    && cachedDiscovery.token === token
+    && cachedDiscovery.expiresAt > Date.now()
+  ) {
+    return cachedDiscovery.result;
+  }
+  if (
+    codexOauthModelDiscoveryInflight
+    && codexOauthModelDiscoveryInflight.token === token
+  ) {
+    return await codexOauthModelDiscoveryInflight.promise;
+  }
+  const discovery = discoverCodexOauthModelsFromEndpoint(token);
+  codexOauthModelDiscoveryInflight = { token, promise: discovery };
   try {
-    const response = await fetch("https://chatgpt.com/backend-api/codex/models", {
+    const result = await discovery;
+    if (result.status === "available" || result.status === "empty_model_list") {
+      codexOauthModelDiscoveryCache = {
+        token,
+        expiresAt: Date.now() + CODEX_OAUTH_MODEL_DISCOVERY_CACHE_TTL_MS,
+        result,
+      };
+    }
+    return result;
+  } finally {
+    if (codexOauthModelDiscoveryInflight?.promise === discovery) {
+      codexOauthModelDiscoveryInflight = undefined;
+    }
+  }
+}
+
+async function discoverCodexOauthModelsFromEndpoint(token: string): Promise<GuiCliProviderModelDiscovery> {
+  let data: { readonly data?: unknown; readonly models?: unknown } | undefined;
+  const modelsUrl = new URL(CODEX_OAUTH_MODELS_URL);
+  modelsUrl.searchParams.set("client_version", CODEX_OAUTH_MODELS_CLIENT_VERSION);
+  try {
+    codexOauthModelDebug("requesting model discovery", {
+      url: modelsUrl.toString(),
+      timeoutMs: CODEX_OAUTH_MODEL_DISCOVERY_TIMEOUT_MS,
+      hasToken: token.length > 0,
+    });
+    const response = await fetch(modelsUrl.toString(), {
       headers: { Authorization: `Bearer ${token}` },
-      signal: AbortSignal.timeout(800),
+      signal: AbortSignal.timeout(CODEX_OAUTH_MODEL_DISCOVERY_TIMEOUT_MS),
+    });
+    codexOauthModelDebug("model endpoint response", {
+      status: response.status,
+      statusText: response.statusText,
+      ok: response.ok,
+      contentType: responseHeader(response, "content-type"),
+      requestId: responseHeader(response, "x-request-id"),
+      cfRay: responseHeader(response, "cf-ray"),
+      authError: responseHeader(response, "x-openai-authorization-error"),
+      authErrorCode: responseHeader(response, "x-openai-authorization-error-code"),
     });
     if (!response.ok) {
+      codexOauthModelDebug("model endpoint non-ok body", {
+        body: await responseDebugBody(response),
+      });
       return unavailableCliProviderDiscovery(
         "endpoint_error",
         "Codex OAuth model endpoint failed.",
@@ -309,7 +406,26 @@ async function discoverCodexOauthModelDiscovery(
     data = typeof parsed === "object" && parsed !== null
       ? parsed as { readonly data?: unknown; readonly models?: unknown }
       : undefined;
-  } catch {
+    const modelSource = Array.isArray(data?.models) ? data.models : data?.data;
+    const capabilityCount = Array.isArray(modelSource)
+      ? countCodexOauthModelCapabilityEntries(modelSource)
+      : 0;
+    codexOauthModelDebug("model endpoint parsed", {
+      hasModelsArray: Array.isArray(data?.models),
+      hasDataArray: Array.isArray(data?.data),
+      modelCount: Array.isArray(data?.models)
+        ? data.models.length
+        : Array.isArray(data?.data)
+          ? data.data.length
+          : 0,
+      capabilityCount,
+    });
+  } catch (error) {
+    codexOauthModelDebug("model endpoint request failed", {
+      errorName: error instanceof Error ? error.name : typeof error,
+      message: error instanceof Error ? error.message : String(error),
+      timeoutMs: CODEX_OAUTH_MODEL_DISCOVERY_TIMEOUT_MS,
+    });
     return unavailableCliProviderDiscovery(
       "endpoint_error",
       "Codex OAuth model endpoint failed.",
@@ -317,20 +433,16 @@ async function discoverCodexOauthModelDiscovery(
     );
   }
   const modelSource = Array.isArray(data?.models) ? data.models : data?.data;
-  const models = normalizeModelIds(Array.isArray(modelSource)
-    ? modelSource.flatMap((entry) => {
-      if (typeof entry?.slug === "string") {
-        return [entry.slug];
-      }
-      if (typeof entry?.id === "string") {
-        return [entry.id];
-      }
-      return [];
-    })
-    : []);
+  const modelEntries = Array.isArray(modelSource) ? modelSource : [];
+  const models = normalizeModelIds(modelEntries.flatMap((entry) => {
+    const modelId = readCodexOauthModelId(entry);
+    return modelId ? [modelId] : [];
+  }));
+  const modelCapabilities = extractCodexOauthModelCapabilities(modelEntries, models);
   return models.length > 0
     ? {
         models,
+        ...(modelCapabilities ? { modelCapabilities } : {}),
         status: "available",
         reason: "Codex OAuth models discovered.",
         authState: "authenticated",
@@ -340,6 +452,187 @@ async function discoverCodexOauthModelDiscovery(
         "Codex OAuth model endpoint returned an empty model list.",
         "unknown",
       );
+}
+
+function countCodexOauthModelCapabilityEntries(entries: readonly unknown[]): number {
+  let count = 0;
+  for (const entry of entries) {
+    const record = asRecord(entry);
+    if (record && Object.keys(readCodexOauthModelCapabilities(record)).length > 0) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+function extractCodexOauthModelCapabilities(
+  entries: readonly unknown[],
+  models: readonly string[],
+): Readonly<Record<string, GuiProviderModelCapabilities>> | undefined {
+  const discoveredModels = new Set(models);
+  const capabilities: Record<string, GuiProviderModelCapabilities> = {};
+  for (const entry of entries) {
+    const record = asRecord(entry);
+    if (!record) continue;
+    const model = readCodexOauthModelId(record);
+    if (!model || !discoveredModels.has(model)) continue;
+    const capability = readCodexOauthModelCapabilities(record);
+    if (Object.keys(capability).length > 0) {
+      capabilities[model] = capability;
+    }
+  }
+  return Object.keys(capabilities).length > 0 ? capabilities : undefined;
+}
+
+function readCodexOauthModelId(entry: unknown): string | undefined {
+  const record = asRecord(entry);
+  if (!record) return undefined;
+  return readString(record.slug)?.trim() || readString(record.id)?.trim() || undefined;
+}
+
+function readCodexOauthModelCapabilities(
+  record: Readonly<Record<string, unknown>>,
+): GuiProviderModelCapabilities {
+  const supportsTools = readCodexOauthModelSupportsTools(record);
+  const supportsParallelToolCalls =
+    readBoolean(record.supports_parallel_tool_calls)
+    ?? readBoolean(record.supportsParallelToolCalls);
+  const contextWindow =
+    readFiniteNumber(record.context_window)
+    ?? readFiniteNumber(record.contextWindow);
+  const inputModalities =
+    readStringArray(record.input_modalities)
+    ?? readStringArray(record.inputModalities);
+  const supportsVision = inputModalities?.some((modality) => modality.toLowerCase() === "image");
+  const defaultReasoningEffort =
+    readReasoningEffort(record.default_reasoning_effort)
+    ?? readReasoningEffort(record.defaultReasoningEffort)
+    ?? readReasoningEffort(record.default_reasoning_level)
+    ?? readReasoningEffort(record.defaultReasoningLevel);
+  const supportedReasoningEfforts =
+    readReasoningEffortArray(record.supported_reasoning_efforts)
+    ?? readReasoningEffortArray(record.supportedReasoningEfforts)
+    ?? readReasoningEffortArray(record.supported_reasoning_levels)
+    ?? readReasoningEffortArray(record.supportedReasoningLevels);
+
+  return {
+    ...(supportsTools !== undefined ? { supportsTools } : {}),
+    ...(supportsParallelToolCalls !== undefined ? { supportsParallelToolCalls } : {}),
+    ...(contextWindow !== undefined ? { contextWindow } : {}),
+    ...(supportsVision !== undefined ? { supportsVision } : {}),
+    ...(defaultReasoningEffort !== undefined ? { defaultReasoningEffort } : {}),
+    ...(supportedReasoningEfforts !== undefined ? { supportedReasoningEfforts } : {}),
+  };
+}
+
+function readReasoningEffort(value: unknown): GuiProviderReasoningEffort | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === "minimal"
+    || normalized === "low"
+    || normalized === "medium"
+    || normalized === "high"
+    || normalized === "xhigh"
+  ) {
+    return normalized;
+  }
+  if (normalized === "extra_high" || normalized === "extra-high") {
+    return "xhigh";
+  }
+  return undefined;
+}
+
+function readReasoningEffortArray(value: unknown): readonly GuiProviderReasoningEffort[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const efforts: GuiProviderReasoningEffort[] = [];
+  const seen = new Set<GuiProviderReasoningEffort>();
+  for (const entry of value) {
+    const record = asRecord(entry);
+    const effort = readReasoningEffort(entry)
+      ?? readReasoningEffort(record?.effort)
+      ?? readReasoningEffort(record?.value)
+      ?? readReasoningEffort(record?.id);
+    if (!effort || seen.has(effort)) continue;
+    seen.add(effort);
+    efforts.push(effort);
+  }
+  return efforts.length > 0 ? efforts : undefined;
+}
+
+function readCodexOauthModelSupportsTools(record: Readonly<Record<string, unknown>>): boolean | undefined {
+  const shellType = readString(record.shell_type) ?? readString(record.shellType);
+  if (shellType === "disabled") return false;
+  if (shellType) return true;
+
+  const applyPatchToolType =
+    readString(record.apply_patch_tool_type)
+    ?? readString(record.applyPatchToolType);
+  if (applyPatchToolType && applyPatchToolType !== "disabled") return true;
+
+  const experimentalSupportedTools =
+    readStringArray(record.experimental_supported_tools)
+    ?? readStringArray(record.experimentalSupportedTools);
+  if (experimentalSupportedTools && experimentalSupportedTools.length > 0) return true;
+
+  return undefined;
+}
+
+function asRecord(value: unknown): Readonly<Record<string, unknown>> | undefined {
+  return typeof value === "object" && value !== null
+    ? value as Readonly<Record<string, unknown>>
+    : undefined;
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}
+
+function readBoolean(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function readFiniteNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function readStringArray(value: unknown): readonly string[] | undefined {
+  return Array.isArray(value) && value.every((entry) => typeof entry === "string")
+    ? value
+    : undefined;
+}
+
+function codexOauthModelDebug(message: string, context: Record<string, unknown>): void {
+  if (!CODEX_OAUTH_MODEL_DISCOVERY_DEBUG) {
+    return;
+  }
+  console.warn(`[gui-provider-models:codex-oauth][debug] ${message}`, context);
+}
+
+function responseHeader(response: Response, name: string): string | undefined {
+  const headers = (response as { readonly headers?: { get?: (header: string) => string | null } }).headers;
+  return headers?.get?.(name) ?? undefined;
+}
+
+async function responseDebugBody(response: Response): Promise<string | undefined> {
+  const clone = (response as { readonly clone?: () => Response }).clone;
+  const source = typeof clone === "function" ? clone.call(response) : response;
+  const text = (source as { readonly text?: () => Promise<string> }).text;
+  if (typeof text !== "function") {
+    return undefined;
+  }
+  try {
+    const body = await text.call(source);
+    return redactDebugBody(body).slice(0, 1_000);
+  } catch (error) {
+    return `failed to read response body: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
+function redactDebugBody(body: string): string {
+  return body
+    .replace(/Bearer\s+[A-Za-z0-9._~-]+/g, "Bearer <redacted>")
+    .replace(/"(access_token|refresh_token|id_token|token)"\s*:\s*"[^"]+"/gi, "\"$1\":\"<redacted>\"");
 }
 
 async function discoverOpenAiModelDiscovery(

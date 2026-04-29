@@ -45,6 +45,26 @@ function sentProviderFrame(ws: MockWebSocket): { provider: string; model?: strin
   return frame as { provider: string; model?: string; requestId: string };
 }
 
+function sentProviderAuthFrame(ws: MockWebSocket): { provider: string; apiKey?: string; tier?: "go" | "zen"; requestId: string } {
+  const providerCall = ws.send.mock.calls.find(([payload]) => {
+    if (typeof payload !== "string" || payload === "ping") return false;
+    return (JSON.parse(payload) as { type?: string }).type === "provider_auth";
+  });
+  expect(providerCall).toBeDefined();
+  const frame = JSON.parse(providerCall?.[0] as string) as {
+    type?: string;
+    provider?: string;
+    apiKey?: string;
+    tier?: "go" | "zen";
+    requestId?: string;
+  };
+  expect(frame.type).toBe("provider_auth");
+  expect(typeof frame.provider).toBe("string");
+  expect(typeof frame.requestId).toBe("string");
+  expect(frame.requestId?.trim()).not.toBe("");
+  return frame as { provider: string; apiKey?: string; tier?: "go" | "zen"; requestId: string };
+}
+
 describe("GatewaySession provider switching", () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -160,5 +180,84 @@ describe("GatewaySession provider switching", () => {
 
     await expect(modelessSwitch).resolves.toBe("claude");
     await disconnectedSession.dispose();
+  });
+});
+
+describe("GatewaySession provider authentication", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    wsInstances = [];
+    (globalThis as unknown as { WebSocket: typeof MockWebSocket }).WebSocket = MockWebSocket;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("sends provider_auth and resolves matching completion", async () => {
+    const onWelcome = vi.fn();
+    const session = new GatewaySession("ws://localhost:4801/tui/ws", onWelcome);
+    const ws = wsInstances[0];
+    ws.simulateOpen();
+
+    const promise = session.authenticateProvider("opencode-go", { apiKey: "sk-test", tier: "go" });
+    await Promise.resolve();
+
+    const frame = sentProviderAuthFrame(ws);
+    expect(frame).toMatchObject({
+      provider: "opencode-go",
+      apiKey: "sk-test",
+      tier: "go",
+    });
+
+    ws.simulateMessage(JSON.stringify({
+      type: "provider_auth_completed",
+      provider: "opencode-go",
+      requestId: frame.requestId,
+      models: { "opencode-go": ["minimax-m2.5"] },
+      providerDiscovery: [],
+    }));
+
+    await expect(promise).resolves.toBeUndefined();
+    expect(onWelcome).toHaveBeenCalledWith({ "opencode-go": ["minimax-m2.5"] }, []);
+    await session.dispose();
+  });
+
+  it("forwards device code auth start details before completion", async () => {
+    const session = new GatewaySession("ws://localhost:4801/tui/ws");
+    const ws = wsInstances[0];
+    const onStarted = vi.fn();
+    ws.simulateOpen();
+
+    const promise = session.authenticateProvider("codex-oauth", { onStarted });
+    await Promise.resolve();
+
+    const frame = sentProviderAuthFrame(ws);
+    ws.simulateMessage(JSON.stringify({
+      type: "provider_auth_started",
+      provider: "codex-oauth",
+      requestId: frame.requestId,
+      method: "device_code",
+      verificationUri: "https://auth.openai.com/codex/device",
+      userCode: "ABCD-EFGH",
+    }));
+
+    expect(onStarted).toHaveBeenCalledWith({
+      verificationUri: "https://auth.openai.com/codex/device",
+      userCode: "ABCD-EFGH",
+      message: undefined,
+    });
+
+    ws.simulateMessage(JSON.stringify({
+      type: "provider_auth_completed",
+      provider: "codex-oauth",
+      requestId: frame.requestId,
+      models: { "codex-oauth": ["gpt-5.4"] },
+      providerDiscovery: [],
+    }));
+
+    await expect(promise).resolves.toBeUndefined();
+    await session.dispose();
   });
 });

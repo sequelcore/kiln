@@ -8,6 +8,8 @@ export interface GuiProviderMetadata {
   readonly group: GuiProviderGroup;
   readonly free: boolean;
   readonly modelSelection?: "required" | "none";
+  readonly authMethod?: "device_code" | "api_key";
+  readonly authTier?: "go" | "zen";
 }
 
 export const GUI_PROVIDER_METADATA = {
@@ -35,18 +37,23 @@ export const GUI_PROVIDER_METADATA = {
     label: "OpenCode Go",
     group: "subscription",
     free: true,
+    authMethod: "api_key",
+    authTier: "go",
   },
   "opencode-zen": {
     id: "opencode-zen",
     label: "OpenCode Zen",
     group: "direct-api",
     free: false,
+    authMethod: "api_key",
+    authTier: "zen",
   },
   "codex-oauth": {
     id: "codex-oauth",
     label: "Codex OAuth",
     group: "subscription",
     free: true,
+    authMethod: "device_code",
   },
   anthropic: {
     id: "anthropic",

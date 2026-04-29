@@ -217,6 +217,25 @@ describe("CodexSession.run() JSONL parsing", () => {
     expect(promptArg).toContain("[data-firewall] DENY logs");
   });
 
+  it("run() passes reasoning effort as a Codex config override", async () => {
+    const { proc, emitLine, resolveExit } = makeMockProc();
+    vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
+    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
+
+    const session = new CodexSession(baseConfig({ reasoningEffort: "high" }));
+    const collectPromise = collectEvents(session.run({ prompt: "Implement feature X" }));
+
+    emitLine({ type: "thread.started", thread_id: "t1" });
+    emitLine({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } });
+    resolveExit(0);
+
+    await collectPromise;
+
+    const spawnArgs = vi.mocked(mockSpawn).mock.calls[0]?.[1] as string[] | undefined;
+    expect(spawnArgs).toContain("-c");
+    expect(spawnArgs).toContain("model_reasoning_effort=high");
+  });
+
   it("run() passes explicit approval and sandbox args instead of relying on full-auto", async () => {
     const { proc, emitLine, resolveExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);

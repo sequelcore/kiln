@@ -471,7 +471,7 @@ export interface ProviderPickerComponents {
   hint: InstanceType<typeof TextRenderable>;
   /** Live data rows currently in scrollBox.content. */
   rows: InstanceType<typeof TextRenderable>[];
-  mode: "providers" | "models";
+  mode: "providers" | "models" | "auth-key" | "auth-confirm";
 }
 
 /**

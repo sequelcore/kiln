@@ -16,6 +16,8 @@ function resetSessionStore(): void {
     planMode: false,
     activity: null,
     errorBanner: null,
+    providerCatalogStatus: "ready",
+    providerCatalogError: null,
     providers: [],
     activeProvider: null,
     activeModel: null,
@@ -36,12 +38,16 @@ function resetSessionStore(): void {
     clearPending: false,
     providerSwitching: false,
     providerSwitchTarget: null,
+    providerAuthenticating: false,
+    providerAuthTarget: null,
+    providerAuthMessage: null,
     providerExplicitSelection: false,
     authorityStatus: null,
     activityPhase: "idle",
     outboundSend: null,
     clearTimeoutId: null,
     providerSwitchTimeoutId: null,
+    providerAuthTimeoutId: null,
   });
 }
 

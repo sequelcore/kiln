@@ -4,6 +4,7 @@ import {
   CODEX_DEFAULT_MODEL,
   appendExecutionIdentity,
   resolveExecutionIdentity,
+  type ReasoningEffort,
 } from "@kilnai/core";
 import type {
   SessionEvent,
@@ -26,6 +27,7 @@ interface TranslationRuleMetadata {
 export interface CodexSessionConfig {
   readonly task: string;
   readonly model?: string;
+  readonly reasoningEffort?: ReasoningEffort;
   readonly cwd?: string;
   readonly env?: Record<string, string>;
   readonly approvalMode?: "never" | "on-request" | "on-failure" | "untrusted";
@@ -185,6 +187,10 @@ export class CodexSession implements IKilnSession {
     ];
     if (this.config.model) {
       args.push("-m", this.config.model);
+    }
+    const reasoningEffort = options.reasoningEffort ?? this.config.reasoningEffort;
+    if (reasoningEffort) {
+      args.push("-c", `model_reasoning_effort=${reasoningEffort}`);
     }
     if (this.config.profile) {
       args.push("--profile", this.config.profile);

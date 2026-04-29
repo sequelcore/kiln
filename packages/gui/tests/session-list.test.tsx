@@ -77,4 +77,11 @@ describe("SessionList", () => {
     fireEvent.click(screen.getByRole("button", { name: "New Session" }));
     expect(onStartNewSession).toHaveBeenCalledTimes(1);
   });
+
+  it("does not render unavailable search and filter controls", () => {
+    renderSessionList();
+
+    expect(screen.queryByLabelText("Search sessions")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Filter sessions")).not.toBeInTheDocument();
+  });
 });

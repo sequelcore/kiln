@@ -76,6 +76,44 @@ describe("TUI authority forwarding", () => {
     });
   });
 
+  it("exposes the builtin tool surface for live-discovered Codex OAuth models", async () => {
+    const { buildTuiTurnPerCallConfig, deriveTuiAuthorityStatusFromPerCallConfig } = await import("../../src/gateway/tui-gateway.js");
+    const cfg = buildTuiTurnPerCallConfig("codex-oauth", "gpt-5.5", undefined, {
+      supportsTools: true,
+    });
+
+    expect(cfg.modelOverride).toEqual({
+      provider: "codex-oauth",
+      model: "gpt-5.5",
+    });
+    expect(cfg.toolAllowlist?.has("write")).toBe(true);
+    expect(cfg.additionalTools?.some((tool) => tool.name === "write")).toBe(true);
+    expect(cfg.toolAuthority?.has("write")).toBe(true);
+    expect(deriveTuiAuthorityStatusFromPerCallConfig(cfg)).toEqual({
+      effective: "destructive",
+      completeness: "authoritative",
+    });
+  });
+
+  it("fails closed when live Codex OAuth discovery says the model has tools disabled", async () => {
+    const { buildTuiTurnPerCallConfig, deriveTuiAuthorityStatusFromPerCallConfig } = await import("../../src/gateway/tui-gateway.js");
+    const cfg = buildTuiTurnPerCallConfig("codex-oauth", "gpt-disabled", undefined, {
+      supportsTools: false,
+    });
+
+    expect(cfg.modelOverride).toEqual({
+      provider: "codex-oauth",
+      model: "gpt-disabled",
+    });
+    expect(cfg.toolAllowlist?.size).toBe(0);
+    expect(cfg.additionalTools).toBeUndefined();
+    expect(cfg.toolAuthority?.size).toBe(0);
+    expect(deriveTuiAuthorityStatusFromPerCallConfig(cfg)).toEqual({
+      effective: "fail_closed",
+      completeness: "authoritative",
+    });
+  });
+
   it("includes authorityStatus in welcome and done frame payload helpers", async () => {
     const {
       buildTuiTurnPerCallConfig,

@@ -63,6 +63,11 @@ function futureToken(overrides?: Partial<CodexOAuthTokenFile>): CodexOAuthTokenF
   };
 }
 
+function jwtWithExp(exp: number): string {
+  const payload = Buffer.from(JSON.stringify({ exp })).toString("base64url");
+  return `header.${payload}.signature`;
+}
+
 async function loadModule(): Promise<typeof import("../codex-oauth-auth.js")> {
   return import("../codex-oauth-auth.js");
 }
@@ -221,6 +226,33 @@ describe("CodexOAuthAuth", () => {
       await assertion;
     });
 
+    it("accepts successful device-code exchange responses without expires_in", async () => {
+      const accessTokenExp = 1_800_000_000;
+      mockFetch
+        .mockResolvedValueOnce(jsonResponse(200, {
+          authorization_code: "authorization-code",
+          code_verifier: "server-code-verifier",
+        }))
+        .mockResolvedValueOnce(jsonResponse(200, {
+          access_token: jwtWithExp(accessTokenExp),
+          refresh_token: "refresh-token",
+          id_token: jwtWithExp(1_800_100_000),
+        }));
+
+      const auth = await createAuth();
+      const pending = auth.pollForAuthorization({
+        deviceAuthId: "device-auth-id",
+        userCode: "USER-CODE",
+        intervalSeconds: 3,
+      });
+
+      await vi.advanceTimersByTimeAsync(3000);
+      const token = await pending as CodexOAuthTokenFile;
+
+      expect(token.refresh_token).toBe("refresh-token");
+      expect(token.expires_at).toBe(new Date(accessTokenExp * 1000).toISOString());
+    });
+
     it("times out after 15 minutes", async () => {
       mockFetch.mockResolvedValue(jsonResponse(403, {}));
 
@@ -275,6 +307,20 @@ describe("CodexOAuthAuth", () => {
         client_id: "app_EMoamEEZ73f0CkXaXp7hrann",
       });
       expect(new Date(token.expires_at).getTime()).toBeGreaterThan(Date.now());
+    });
+
+    it("uses JWT exp when refresh response omits expires_in", async () => {
+      const accessTokenExp = 1_800_000_000;
+      mockFetch.mockResolvedValueOnce(jsonResponse(200, {
+        access_token: jwtWithExp(accessTokenExp),
+        refresh_token: "new-refresh-token",
+        id_token: jwtWithExp(1_800_100_000),
+      }));
+
+      const auth = await createAuth();
+      const token = await auth.refreshToken(futureToken()) as CodexOAuthTokenFile;
+
+      expect(token.expires_at).toBe(new Date(accessTokenExp * 1000).toISOString());
     });
 
     it("throws KilnError on failure", async () => {

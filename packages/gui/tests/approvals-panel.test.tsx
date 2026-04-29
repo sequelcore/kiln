@@ -25,7 +25,6 @@ describe("ApprovalsPanel", () => {
         ]}
         onApprove={onApprove}
         onDeny={onDeny}
-        onStartNewSession={() => undefined}
       />,
     );
 
@@ -42,4 +41,3 @@ describe("ApprovalsPanel", () => {
     expect(within(review).getByText("Edit packages/gui/src/transcript.tsx")).toBeInTheDocument();
   });
 });
-

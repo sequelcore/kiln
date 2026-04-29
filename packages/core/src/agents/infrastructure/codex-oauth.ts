@@ -3,6 +3,7 @@ import type {
   AgentStreamEvent,
   CreateMessageOptions,
   ProviderAdapter,
+  ReasoningEffort,
   ToolCall,
 } from "../index.js";
 import { textPart, extractText } from "../../engine/domain/content.js";
@@ -48,6 +49,9 @@ interface ResponsesRequestBody {
   readonly stream: true;
   readonly max_output_tokens?: number;
   readonly temperature?: number;
+  readonly reasoning?: {
+    readonly effort: ReasoningEffort;
+  };
   readonly tools?: readonly ResponsesTool[];
 }
 
@@ -191,6 +195,7 @@ export class CodexOAuthAdapter implements ProviderAdapter {
       store: false,
       stream: true,
       max_output_tokens: options.maxTokens,
+      ...(options.reasoningEffort ? { reasoning: { effort: options.reasoningEffort } } : {}),
       tools: options.tools?.map((tool) => ({
         type: "function",
         name: tool.name,

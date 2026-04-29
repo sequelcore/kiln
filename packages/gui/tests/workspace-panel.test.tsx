@@ -1,16 +1,6 @@
 import { render, screen } from "@testing-library/react";
-import type { ButtonHTMLAttributes, ReactNode } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { WorkspacePanel } from "../src/components/workspace-panel.js";
-
-vi.mock("@/components/ui/button", () => ({
-  Button: ({
-    children,
-    ...props
-  }: {
-    readonly children: ReactNode;
-  } & ButtonHTMLAttributes<HTMLButtonElement>) => <button {...props}>{children}</button>,
-}));
 
 describe("WorkspacePanel", () => {
   it("renders root entries from the canonical workspace snapshot", () => {
@@ -38,7 +28,6 @@ describe("WorkspacePanel", () => {
         sessionMeta={null}
         activeProvider="codex-oauth"
         activeModel="gpt-5.4-mini"
-        onStartNewSession={() => undefined}
       />,
     );
 
@@ -75,7 +64,6 @@ describe("WorkspacePanel", () => {
         }}
         activeProvider="codex-oauth"
         activeModel="gpt-5.4-mini"
-        onStartNewSession={() => undefined}
       />,
     );
 
@@ -97,12 +85,11 @@ describe("WorkspacePanel", () => {
         sessionMeta={null}
         activeProvider={null}
         activeModel={null}
-        onStartNewSession={() => undefined}
       />,
     );
 
     expect(screen.getByText("No active session selected")).toBeInTheDocument();
-    expect(screen.getByText("Gateway did not provide a working directory for this session.")).toBeInTheDocument();
-    expect(screen.getByText("File-tree browsing is intentionally gated until the gateway exposes a canonical workspace-tree contract.")).toBeInTheDocument();
+    expect(screen.getByText("No working directory available.")).toBeInTheDocument();
+    expect(screen.getByText("No workspace tree available.")).toBeInTheDocument();
   });
 });

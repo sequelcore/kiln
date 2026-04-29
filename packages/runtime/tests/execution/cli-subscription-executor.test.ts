@@ -59,6 +59,25 @@ describe("CliSubscriptionExecutor", () => {
     expect(run.mock.calls[0]?.[0]?.kilnSessionId).toBe("kiln-runtime-session");
   });
 
+  it("passes requested reasoning effort through to the subscription session", async () => {
+    const dispose = vi.fn().mockResolvedValue(undefined);
+    const run = vi.fn().mockImplementation(() =>
+      eventStream([
+        { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+      ]),
+    );
+    const factory = vi.fn().mockReturnValue({ run, dispose });
+    const executor = new CliSubscriptionExecutor(factory, "codex");
+
+    await executor.createMessage({
+      system: "sys",
+      messages: [],
+      reasoningEffort: "high",
+    });
+
+    expect(run.mock.calls[0]?.[0]?.reasoningEffort).toBe("high");
+  });
+
   it("builds a single-message prompt without labels", async () => {
     const dispose = vi.fn().mockResolvedValue(undefined);
     const run = vi.fn().mockImplementation(() =>

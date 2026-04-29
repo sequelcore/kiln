@@ -36,7 +36,12 @@ function renderPickerHarness(options?: {
   activeProvider?: string | null;
   activeModel?: string | null;
   onSwitchProvider?: (provider: string, model?: string) => void | Promise<void>;
+  onAuthenticateProvider?: (provider: string, options?: { apiKey?: string; tier?: "go" | "zen" }) => void | Promise<void>;
   onRefreshProviders?: () => void | Promise<void>;
+  providerAuthenticating?: boolean;
+  providerAuthProvider?: string | null;
+  providerAuthMessage?: string | null;
+  providerAuthDetails?: { verificationUri: string; userCode: string } | null;
 }) {
   const onSwitchProvider = options?.onSwitchProvider ?? vi.fn();
 
@@ -49,7 +54,12 @@ function renderPickerHarness(options?: {
         activeProvider={options?.activeProvider ?? "claude"}
         activeModel={options?.activeModel ?? "claude-sonnet-4-6"}
         onSwitchProvider={(provider, model) => onSwitchProvider(provider, model)}
+        onAuthenticateProvider={options?.onAuthenticateProvider}
         onRefreshProviders={options?.onRefreshProviders}
+        providerAuthenticating={options?.providerAuthenticating}
+        providerAuthProvider={options?.providerAuthProvider}
+        providerAuthMessage={options?.providerAuthMessage}
+        providerAuthDetails={options?.providerAuthDetails}
         onOpenChange={setOpen}
       />
     );
@@ -127,6 +137,68 @@ describe("ProviderPicker", () => {
       expect(onRefreshProviders).toHaveBeenCalledOnce();
     });
     expect(screen.getByRole("dialog", { name: "Switch provider" })).toBeInTheDocument();
+  });
+
+  it("renders device-code auth link and code with copy actions", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    renderPickerHarness({
+      providerAuthenticating: true,
+      providerAuthProvider: "codex-oauth",
+      providerAuthMessage: "Complete Codex sign-in in the browser, then return to Kiln.",
+      providerAuthDetails: {
+        verificationUri: "https://chatgpt.com/activate",
+        userCode: "ABCD-EFGH",
+      },
+    });
+
+    expect(screen.getByText("https://chatgpt.com/activate")).toBeInTheDocument();
+    expect(screen.getByText("ABCD-EFGH")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy link" }));
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith("https://chatgpt.com/activate");
+    });
+    expect(screen.getByText("Link copied.")).toBeInTheDocument();
+  });
+
+  it("selects authenticatable providers without starting auth until Authenticate is pressed", async () => {
+    const onAuthenticateProvider = vi.fn().mockResolvedValue(undefined);
+    const onRefreshProviders = vi.fn().mockResolvedValue(undefined);
+    renderPickerHarness({
+      providers: [
+        ...baseProviders,
+        {
+          id: "codex-oauth",
+          label: "Codex OAuth",
+          group: "subscription",
+          free: true,
+          available: false,
+          models: [],
+          reason: "Codex OAuth authentication is missing.",
+          authState: "missing",
+        },
+      ],
+      onAuthenticateProvider,
+      onRefreshProviders,
+    });
+
+    fireEvent.click(screen.getByRole("option", { name: /Codex OAuth/ }));
+
+    expect(onAuthenticateProvider).not.toHaveBeenCalled();
+    expect(screen.getByText("Press Authenticate to start provider sign-in.")).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Authenticate" })).toBeEnabled();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Authenticate" }));
+
+    await waitFor(() => {
+      expect(onAuthenticateProvider).toHaveBeenCalledWith("codex-oauth", {});
+    });
   });
 
   it("treats available provider descriptors without models as unavailable", () => {

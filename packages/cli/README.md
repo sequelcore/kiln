@@ -66,6 +66,20 @@ Run a single task:
 kiln run "Implement the login page"
 ```
 
+Useful flags:
+
+- `--provider <name>` to select the provider for the run
+- `--model <name>` to select the model for providers that require model selection
+- `--effort <minimal|low|medium|high|xhigh>` or
+  `--reasoning-effort <minimal|low|medium|high|xhigh>` to set reasoning effort
+  for providers/models that support it
+- `--plan` to start in plan mode
+- `--workers <number>` to run isolated parallel workers
+
+Reasoning effort is forwarded through the shared session contract. For the
+Codex CLI wrapper it becomes Codex's `model_reasoning_effort` config override;
+for direct runtime providers it is sent as provider request metadata.
+
 ### `kiln tui`
 
 Start the interactive terminal UI:
@@ -77,6 +91,7 @@ kiln tui
 Useful flags:
 
 - `--provider <name>` to select the initial provider
+- `--model <name>` to select the initial model
 - `--theme <name>` to select a theme
 - `--port <number>` to override the local TUI gateway port
 - `--plan` to start in plan mode
@@ -86,7 +101,12 @@ Current transport behavior:
 - gateway transport is the default path
 - direct transport is available only with `KILN_TUI_TRANSPORT=direct`
 
-The default gateway path keeps TUI conversations on the runtime session pipeline so provider routing, continuity, approvals, and sidebar route labels reflect the actual backend used for each turn.
+The default gateway path keeps TUI conversations on the runtime session
+pipeline so provider routing, continuity, approvals, reasoning effort, and
+sidebar route labels reflect the actual backend used for each turn.
+
+Inside the TUI, use `/provider` to change provider/model and `/effort` to cycle
+the active model's advertised reasoning effort options.
 
 ### `kiln gateway`
 

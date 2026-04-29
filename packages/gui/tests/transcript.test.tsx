@@ -63,6 +63,42 @@ describe("Transcript", () => {
     expect(screen.getByLabelText("Streaming")).toBeInTheDocument();
   });
 
+  it("renders assistant messages in a lightweight chat bubble", () => {
+    render(
+      <Transcript
+        entries={[messageEntry("1", "assistant", "Here is the update.")]}
+      />,
+    );
+
+    const assistantRow = screen.getByRole("article");
+    expect(assistantRow).toHaveAttribute("data-role", "assistant");
+    expect(assistantRow.firstElementChild).toHaveClass("rounded-lg", "border", "bg-card");
+  });
+
+  it("shows assistant thinking state in the transcript instead of the composer", () => {
+    render(
+      <Transcript
+        entries={[messageEntry("1", "user", "build this")]}
+        activityPhase="thinking"
+      />,
+    );
+
+    expect(screen.getByRole("status", { name: "Activity phase: Thinking" })).toBeInTheDocument();
+    expect(screen.getAllByRole("article").at(-1)).toHaveAttribute("data-role", "assistant");
+  });
+
+  it("does not duplicate the responding state when an assistant message is already streaming", () => {
+    render(
+      <Transcript
+        entries={[messageEntry("1", "assistant", "working", true)]}
+        activityPhase="streaming"
+      />,
+    );
+
+    expect(screen.getByLabelText("Streaming")).toBeInTheDocument();
+    expect(screen.queryByRole("status", { name: "Activity phase: Responding" })).not.toBeInTheDocument();
+  });
+
   it("sticks to bottom unless user scrolled up", () => {
     const firstMessages = [
       messageEntry("1", "assistant", "first"),

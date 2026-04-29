@@ -19,6 +19,8 @@ export interface AgentStreamEvent {
   readonly content: string;
 }
 
+export type ReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh";
+
 /** Provider adapter interface -- all LLM providers implement this */
 export interface ProviderAdapter {
   readonly name: string;
@@ -42,6 +44,7 @@ export interface CreateMessageOptions {
   readonly toolChoice?: ToolChoiceOption;
   readonly outputSchema?: Record<string, unknown>;
   readonly maxTokens?: number;
+  readonly reasoningEffort?: ReasoningEffort;
 }
 
 /** Response from an agent */
@@ -78,6 +81,7 @@ export {
   CLAUDE_HAIKU,
 } from "./infrastructure/anthropic.js";
 export { ProviderRegistry } from "./provider-registry.js";
+export type { DiscoveredDirectProviderModelCapabilities } from "./provider-execution-profiles.js";
 export { OpenAIAdapter, GPT4O, GPT4O_MINI, O3, O3_MINI } from "./infrastructure/openai.js";
 export { DeepSeekAdapter, DEEPSEEK_CHAT, DEEPSEEK_REASONER } from "./infrastructure/deepseek.js";
 export { OllamaAdapter, LLAMA3, CODELLAMA, DEEPSEEK_CODER } from "./infrastructure/ollama.js";
@@ -106,6 +110,7 @@ export type { OpenAISttConfig } from "./infrastructure/openai-stt.js";
 export { DeepgramSttAdapter } from "./infrastructure/deepgram-stt.js";
 export type { DeepgramSttConfig } from "./infrastructure/deepgram-stt.js";
 export { CodexOAuthAuth } from "./infrastructure/codex-oauth-auth.js";
+export { CODEX_DEVICE_VERIFICATION_URI } from "./infrastructure/codex-oauth-auth.js";
 export { CodexOAuthAdapter } from "./infrastructure/codex-oauth.js";
 export type {
   CodexOAuthAuthOptions,

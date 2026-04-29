@@ -42,6 +42,7 @@ import {
   AnthropicAdapter,
   type ContextArtifact,
   type CanonicalSessionEventKind,
+  type ReasoningEffort,
   type SessionEventSource,
   VerificationResult,
   scoreComplexity,
@@ -58,6 +59,7 @@ export interface RunFlags {
   readonly apiKey?: string;
   readonly provider?: string;
   readonly model?: string;
+  readonly reasoningEffort?: ReasoningEffort;
   readonly agent?: string;
   readonly permissionPolicy?: KilnPermissionPolicy;
   readonly isolate?: boolean;
@@ -312,6 +314,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     addDir: flags.addDir,
     localProvider: flags.localProvider,
     model: effectiveModel,
+    reasoningEffort: flags.reasoningEffort,
   };
 
   const sessionHooks = new SessionHooks(appConfig.kilnYaml?.hooks, {

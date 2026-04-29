@@ -14,15 +14,29 @@ const CONNECT_TIMEOUT_MS = 10_000;
 const SEND_CONNECTED_TIMEOUT_MS = 5_000;
 const CLEAR_TIMEOUT_MS = 5_000;
 const PROVIDER_REFRESH_TIMEOUT_MS = 5_000;
+const PROVIDER_AUTH_TIMEOUT_MS = 15 * 60 * 1000;
 
 const STOP = Symbol("STOP");
 let providerSwitchRequestOrdinal = 0;
+let providerAuthRequestOrdinal = 0;
 
 type QueueItem = SessionEventInternal | typeof STOP;
 
 function nextProviderSwitchRequestId(): string {
   providerSwitchRequestOrdinal += 1;
   return `provider-switch:${Date.now()}:${providerSwitchRequestOrdinal}`;
+}
+
+function nextProviderAuthRequestId(): string {
+  providerAuthRequestOrdinal += 1;
+  return `provider-auth:${Date.now()}:${providerAuthRequestOrdinal}`;
+}
+
+function providerAuthDebug(message: string, context?: Record<string, unknown>): void {
+  if (!/^(1|true|yes)$/i.test(process.env.KILN_PROVIDER_AUTH_DEBUG?.trim() ?? "")) {
+    return;
+  }
+  console.warn(`[tui-gateway-session:provider-auth][debug] ${message}`, context ?? {});
 }
 
 function normalizeModel(model: unknown): string | null {
@@ -76,6 +90,15 @@ export class GatewaySession implements SessionLike {
   /** Pending provider refresh callbacks — set while waiting for "providers_refreshed" frame. */
   private providerRefreshCallbacks: { resolve: () => void; reject: (err: Error) => void } | null = null;
 
+  /** Pending provider auth callbacks — set while waiting for provider_auth_completed. */
+  private providerAuthCallbacks: {
+    provider: string;
+    requestId: string;
+    resolve: () => void;
+    reject: (err: Error) => void;
+    onStarted?: (details: { verificationUri: string; userCode: string; message?: string }) => void;
+  } | null = null;
+
   constructor(
     wsUrl: string,
     onWelcome?: (
@@ -101,7 +124,11 @@ export class GatewaySession implements SessionLike {
     this.client.connect();
   }
 
-  async *run(opts: { prompt: string; cwd?: string }): AsyncGenerator<SessionEventInternal> {
+  async *run(opts: {
+    prompt: string;
+    cwd?: string;
+    reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
+  }): AsyncGenerator<SessionEventInternal> {
     // Wait for connection to be established
     await this.waitForConnection();
 
@@ -110,7 +137,11 @@ export class GatewaySession implements SessionLike {
     this.resolve = null;
 
     // Send the user message
-    this.client.send({ type: "message", content: opts.prompt });
+    this.client.send({
+      type: "message",
+      content: opts.prompt,
+      ...(opts.reasoningEffort ? { reasoningEffort: opts.reasoningEffort } : {}),
+    });
 
     yield* this.drainQueue();
   }
@@ -216,6 +247,58 @@ export class GatewaySession implements SessionLike {
     });
   }
 
+  async authenticateProvider(
+    provider: string,
+    options: {
+      readonly apiKey?: string;
+      readonly tier?: "go" | "zen";
+      readonly onStarted?: (details: { verificationUri: string; userCode: string; message?: string }) => void;
+    } = {},
+  ): Promise<void> {
+    await this.waitForConnection();
+    return new Promise<void>((resolve, reject) => {
+      const requestId = nextProviderAuthRequestId();
+      const timeout = setTimeout(() => {
+        this.providerAuthCallbacks = null;
+        providerAuthDebug("timed out waiting for provider auth completion", {
+          provider,
+          requestId,
+        });
+        reject(new Error("Provider authentication timed out"));
+      }, PROVIDER_AUTH_TIMEOUT_MS);
+
+      this.providerAuthCallbacks = {
+        provider,
+        requestId,
+        onStarted: options.onStarted,
+        resolve: () => {
+          clearTimeout(timeout);
+          this.providerAuthCallbacks = null;
+          resolve();
+        },
+        reject: (err) => {
+          clearTimeout(timeout);
+          this.providerAuthCallbacks = null;
+          reject(err);
+        },
+      };
+
+      providerAuthDebug("sending provider_auth frame", {
+        provider,
+        requestId,
+        hasApiKey: Boolean(options.apiKey),
+        tier: options.tier,
+      });
+      this.client.send({
+        type: "provider_auth",
+        provider,
+        requestId,
+        ...(options.apiKey ? { apiKey: options.apiKey } : {}),
+        ...(options.tier ? { tier: options.tier } : {}),
+      });
+    });
+  }
+
   /**
    * Send an approval response to the gateway.
    */
@@ -281,6 +364,11 @@ export class GatewaySession implements SessionLike {
         this.providerRefreshCallbacks = null;
         pendingProviderRefresh.reject(new Error(frame.message));
       }
+      const pendingProviderAuth = this.providerAuthCallbacks;
+      if (pendingProviderAuth) {
+        this.providerAuthCallbacks = null;
+        pendingProviderAuth.reject(new Error(frame.message));
+      }
       this.push({ type: "error", message: frame.message });
       this.pushStop();
     } else if (frame.type === "approval_requested") {
@@ -307,6 +395,67 @@ export class GatewaySession implements SessionLike {
     } else if (frame.type === "providers_refreshed") {
       this.onWelcome?.(frame.models, frame.providerDiscovery as readonly GuiProviderDiscoveryResult[]);
       this.providerRefreshCallbacks?.resolve();
+    } else if (frame.type === "provider_auth_started") {
+      const pending = this.providerAuthCallbacks;
+      if (pending && frame.provider === pending.provider && frame.requestId === pending.requestId) {
+        providerAuthDebug("started frame accepted", {
+          provider: frame.provider,
+          requestId: frame.requestId,
+          method: frame.method,
+          verificationUri: frame.verificationUri,
+          hasUserCode: frame.userCode.trim().length > 0,
+          message: frame.message,
+        });
+        pending.onStarted?.({
+          verificationUri: frame.verificationUri,
+          userCode: frame.userCode,
+          message: frame.message,
+        });
+      } else {
+        providerAuthDebug("ignored started frame without matching pending request", {
+          provider: frame.provider,
+          requestId: frame.requestId,
+          pendingProvider: pending?.provider,
+          pendingRequestId: pending?.requestId,
+        });
+      }
+    } else if (frame.type === "provider_auth_completed") {
+      providerAuthDebug("completed frame received", {
+        provider: frame.provider,
+        requestId: frame.requestId,
+        modelCount: frame.models?.[frame.provider]?.length,
+        discovery: frame.providerDiscovery?.find((entry) => entry.provider === frame.provider),
+      });
+      this.onWelcome?.(frame.models, frame.providerDiscovery as readonly GuiProviderDiscoveryResult[]);
+      const pending = this.providerAuthCallbacks;
+      if (pending && frame.provider === pending.provider && frame.requestId === pending.requestId) {
+        pending.resolve();
+      } else {
+        providerAuthDebug("ignored completed frame without matching pending request", {
+          provider: frame.provider,
+          requestId: frame.requestId,
+          pendingProvider: pending?.provider,
+          pendingRequestId: pending?.requestId,
+        });
+      }
+    } else if (frame.type === "provider_auth_failed") {
+      const pending = this.providerAuthCallbacks;
+      if (pending && frame.provider === pending.provider && frame.requestId === pending.requestId) {
+        providerAuthDebug("failed frame accepted", {
+          provider: frame.provider,
+          requestId: frame.requestId,
+          message: frame.message,
+        });
+        pending.reject(new Error(frame.message));
+      } else {
+        providerAuthDebug("ignored failed frame without matching pending request", {
+          provider: frame.provider,
+          requestId: frame.requestId,
+          pendingProvider: pending?.provider,
+          pendingRequestId: pending?.requestId,
+          message: frame.message,
+        });
+      }
     } else if (frame.type === "exec_confirmed") {
       this._planMode = false;
     } else if (frame.type === "cleared") {

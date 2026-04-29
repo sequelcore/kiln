@@ -21,6 +21,7 @@ The `kiln tui` command currently accepts these flags from `packages/cli/src/comm
 | Flag | Purpose |
 |------|---------|
 | `--provider <name>` | Select the initial provider. Supported values are `claude`, `codex`, `opencode`, `codex-oauth`, `anthropic`, `openai`, `deepseek`, `openrouter`, and `ollama`. |
+| `--model <name>` | Select the initial model for providers that require model selection. |
 | `--theme <name>` | Select a named TUI theme. |
 | `--port <number>` | Override the local TUI gateway port when gateway transport is used. |
 | `--plan` | Start the gateway session with plan mode enabled. |
@@ -104,6 +105,7 @@ Key bindings and input behavior come from `packages/tui/src/app.tsx`:
 - `/clear` clears the active session.
 - `/plan` enables plan mode in the TUI state.
 - `/provider` opens the provider picker.
+- `/effort` cycles the active model's advertised reasoning effort options.
 - `/theme` opens the theme picker.
 - `/resume` focuses the session browser in the sidebar.
 - Arrow keys or `j` / `k` navigate the theme picker, provider picker, slash popover, and session list depending on the current UI state.
@@ -135,6 +137,21 @@ Important distinction:
 - The assistant route label in chat is finalized from the gateway `done` frame's `routedProvider` and `routedModel`.
 
 That means the header shown above an assistant message reflects the provider/model that actually handled the turn, not just the provider that happened to be selected when the turn started.
+
+## Reasoning Effort
+
+The TUI consumes the same provider discovery result as the GUI. When the active
+provider/model advertises `supportedReasoningEfforts`, the sidebar appends the
+current effort next to the model label, for example `gpt-5.4 · medium`.
+
+Use `/effort` to cycle through the advertised values. The initial value is the
+model's `defaultReasoningEffort` when present, otherwise the first advertised
+supported effort. If the active model does not advertise effort options,
+`/effort` reports that no reasoning effort options are available.
+
+The selected reasoning effort is sent with the next user turn through the
+gateway message frame. It is per-turn execution state, not a persisted TUI
+theme or provider preference.
 
 ## Session Commands
 

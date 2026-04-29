@@ -1,11 +1,16 @@
 import { Hono } from "hono";
 import { createBunWebSocket } from "hono/bun";
 import type { WSContext } from "hono/ws";
-import { isGuiProviderModeless, type GuiProviderDiscoveryResult } from "@kilnai/gateway-contracts";
+import {
+  isGuiProviderModeless,
+  type GuiProviderDiscoveryResult,
+  type GuiProviderModelCapabilities,
+  type GuiProviderReasoningEffort,
+} from "@kilnai/gateway-contracts";
 import { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
 import type { PerCallToolConfig } from "../session/runtime-session-orchestrator.js";
 import { SessionRegistry } from "../session/session-registry.js";
-import { textParts, extractText, EventBus, type ApprovalRequestedEvent, type ApprovalReceivedEvent, type KilnEvent, type ToolAuthorizedEvent } from "@kilnai/core";
+import { textParts, extractText, EventBus, type ApprovalRequestedEvent, type ApprovalReceivedEvent, type KilnEvent, type ToolAuthorizedEvent, type ReasoningEffort } from "@kilnai/core";
 import type { ContextArtifactCache } from "@kilnai/core";
 import { CliSubscriptionExecutor } from "../execution/cli-subscription-executor.js";
 import type { CliSessionFactory, CliSessionEvent } from "../execution/cli-subscription-executor.js";
@@ -21,6 +26,7 @@ import {
   providerRequiresSelectedModelMessage,
   resolveGuiOperatorDiscoveryResults,
 } from "./gui-provider-models.js";
+import { startProviderAuthRequest } from "./provider-auth.js";
 import type {
   RuntimeTurnApprovalTransition,
   RuntimeTurnAuthorityDecision,
@@ -77,6 +83,13 @@ export interface TuiGateway {
 
 const TUI_APP_NAME = "kiln-tui";
 const TUI_TENANT_ID = "_tui";
+
+function tuiProviderAuthDebug(message: string, context?: Record<string, unknown>): void {
+  if (!/^(1|true|yes)$/i.test(process.env.KILN_PROVIDER_AUTH_DEBUG?.trim() ?? "")) {
+    return;
+  }
+  console.warn(`[tui-gateway:provider-auth][debug] ${message}`, context ?? {});
+}
 
 export interface TuiAuthorityStatus {
   readonly effective: "fail_closed" | "read_only" | "idempotent" | "audited" | "destructive" | "unknown";
@@ -155,13 +168,47 @@ export function buildTuiTurnPerCallConfig(
   activeProvider: string,
   activeModel: string | undefined,
   builtinToolSurface: AttachedRuntimeBuiltinToolSurface = createAttachedRuntimeBuiltinToolSurface(),
+  activeModelCapabilities?: GuiProviderModelCapabilities,
+  reasoningEffort?: ReasoningEffort,
 ): PerCallToolConfig {
   return buildAttachedRuntimePerCallToolConfig({
     tenantId: TUI_TENANT_ID,
     activeProvider,
     activeModel,
+    ...(activeModelCapabilities ? { activeModelCapabilities } : {}),
+    reasoningEffort,
     builtinToolSurface,
   });
+}
+
+function resolveRequestedReasoningEffort(
+  activeModelCapabilities: GuiProviderModelCapabilities | undefined,
+  requested: unknown,
+): ReasoningEffort | undefined {
+  if (typeof requested !== "string") return undefined;
+  if (
+    requested !== "minimal"
+    && requested !== "low"
+    && requested !== "medium"
+    && requested !== "high"
+    && requested !== "xhigh"
+  ) {
+    throw new Error(`Unknown reasoning effort '${requested}'.`);
+  }
+  const supported = activeModelCapabilities?.supportedReasoningEfforts;
+  if (supported && !supported.includes(requested as GuiProviderReasoningEffort)) {
+    throw new Error(`Reasoning effort '${requested}' is not supported by the selected model.`);
+  }
+  return requested as ReasoningEffort;
+}
+
+function findProviderModelCapabilities(
+  discovery: readonly GuiProviderDiscoveryResult[],
+  provider: string | undefined,
+  model: string | undefined,
+): GuiProviderModelCapabilities | undefined {
+  if (!provider || !model) return undefined;
+  return discovery.find((entry) => entry.provider === provider)?.modelCapabilities?.[model];
 }
 
 export function buildTuiDoneFramePayload(input: {
@@ -278,8 +325,18 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
             }
             activeModel = undefined;
           }
+          const activeModelCapabilities = findProviderModelCapabilities(
+            currentDiscovery,
+            activeProvider,
+            activeModel,
+          );
           const authorityStatus = deriveTuiAuthorityStatusFromPerCallConfig(
-            buildTuiTurnPerCallConfig(activeProvider, activeModel, builtinToolSurface),
+            buildTuiTurnPerCallConfig(
+              activeProvider,
+              activeModel,
+              builtinToolSurface,
+              activeModelCapabilities,
+            ),
           );
           ws.send(JSON.stringify(buildTuiWelcomeFramePayload({
             models: currentModels,
@@ -311,6 +368,79 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
               const currentDiscovery = await refreshDiscovery();
               ws.send(JSON.stringify({
                 type: "providers_refreshed",
+                models: projectGuiOperatorModels(currentDiscovery),
+                providerDiscovery: currentDiscovery,
+              }));
+              return;
+            }
+
+            if (frame.type === "provider_auth") {
+              tuiProviderAuthDebug("received frame", {
+                provider: typeof frame.provider === "string" ? frame.provider : null,
+                requestId: typeof frame.requestId === "string" ? frame.requestId : null,
+              });
+              const auth = await startProviderAuthRequest(frame);
+              if (!auth.ok) {
+                tuiProviderAuthDebug("request rejected", {
+                  provider: auth.provider,
+                  requestId: auth.requestId,
+                  error: auth.error,
+                });
+                ws.send(JSON.stringify({
+                  type: "provider_auth_failed",
+                  provider: auth.provider,
+                  requestId: auth.requestId,
+                  message: auth.error,
+                }));
+                return;
+              }
+              if (auth.started) {
+                tuiProviderAuthDebug("sending started frame", {
+                  provider: auth.provider,
+                  requestId: auth.requestId,
+                  method: auth.method,
+                });
+                ws.send(JSON.stringify(auth.started));
+              }
+              try {
+                tuiProviderAuthDebug("waiting for completion", {
+                  provider: auth.provider,
+                  requestId: auth.requestId,
+                  method: auth.method,
+                });
+                await auth.complete();
+              } catch (error) {
+                tuiProviderAuthDebug("completion failed", {
+                  provider: auth.provider,
+                  requestId: auth.requestId,
+                  error: error instanceof Error ? error.message : String(error),
+                });
+                ws.send(JSON.stringify({
+                  type: "provider_auth_failed",
+                  provider: auth.provider,
+                  requestId: auth.requestId,
+                  message: error instanceof Error ? error.message : "Provider authentication failed.",
+                }));
+                return;
+              }
+              tuiProviderAuthDebug("completion succeeded; refreshing discovery", {
+                provider: auth.provider,
+                requestId: auth.requestId,
+              });
+              const currentDiscovery = await refreshDiscovery();
+              const providerDiscovery = currentDiscovery.find((entry) => entry.provider === auth.provider);
+              tuiProviderAuthDebug("discovery refreshed after auth", {
+                provider: auth.provider,
+                requestId: auth.requestId,
+                available: providerDiscovery?.available,
+                authState: providerDiscovery?.authState,
+                reason: providerDiscovery?.reason,
+                modelCount: projectGuiOperatorModels(currentDiscovery)[auth.provider]?.length ?? 0,
+              });
+              ws.send(JSON.stringify({
+                type: "provider_auth_completed",
+                provider: auth.provider,
+                requestId: auth.requestId,
                 models: projectGuiOperatorModels(currentDiscovery),
                 providerDiscovery: currentDiscovery,
               }));
@@ -387,8 +517,10 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
             // Send "thinking" status to indicate work has started
             ws.send(JSON.stringify({ type: "thinking" }));
             let result;
+            let turnDiscovery: readonly GuiProviderDiscoveryResult[] = [];
             try {
               const currentDiscovery = await refreshDiscovery();
+              turnDiscovery = currentDiscovery;
               const activeProvider = options.sessionManager.getProvider();
               const activeDiscovery = currentDiscovery.find((entry) => entry.provider === activeProvider);
               const providerModels = activeDiscovery?.available ? activeDiscovery.models : undefined;
@@ -421,6 +553,15 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
                 }));
                 return;
               }
+              const activeModelCapabilities = findProviderModelCapabilities(
+                currentDiscovery,
+                activeProvider,
+                activeModel,
+              );
+              const reasoningEffort = resolveRequestedReasoningEffort(
+                activeModelCapabilities,
+                frame.reasoningEffort,
+              );
               result = await processAdmittedTurn({
                 orchestrator,
                 sessionRegistry,
@@ -432,7 +573,13 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
                 channel: "tui",
                 providerValidation: currentDiscovery,
                 contextArtifactCache: options.contextArtifactCache,
-                perCallConfig: buildTuiTurnPerCallConfig(activeProvider, activeModel, builtinToolSurface),
+                perCallConfig: buildTuiTurnPerCallConfig(
+                  activeProvider,
+                  activeModel,
+                  builtinToolSurface,
+                  activeModelCapabilities,
+                  reasoningEffort,
+                ),
                 turnCapture: {
                   start: (sessionId) => {
                     activityStreamer.beginTurnCapture(sessionId);
@@ -465,12 +612,18 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
               ? ""
               : options.sessionManager.getModel();
             const routedModel = output.routingDecision?.model ?? fallbackRoutedModel;
+            const routedModelCapabilities = findProviderModelCapabilities(
+              turnDiscovery.length > 0 ? turnDiscovery : providerDiscovery,
+              routedProvider,
+              routedModel || undefined,
+            );
 
             const authorityStatus = deriveTuiAuthorityStatusFromPerCallConfig(
               buildTuiTurnPerCallConfig(
                 routedProvider,
                 routedModel || undefined,
                 builtinToolSurface,
+                routedModelCapabilities,
               ),
             );
             ws.send(JSON.stringify(buildTuiDoneFramePayload({

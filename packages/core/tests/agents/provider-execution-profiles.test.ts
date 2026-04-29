@@ -63,6 +63,42 @@ describe("direct provider execution profiles", () => {
     });
   });
 
+  it("promotes live-discovered Codex OAuth models without requiring static model capability rows", () => {
+    const resolved = resolveDirectProviderExecutionProfile({
+      provider: "codex-oauth",
+      model: "gpt-5.5",
+      discoveredModelCapabilities: { supportsTools: true },
+    });
+
+    expect(resolved).toMatchObject({
+      provider: "codex-oauth",
+      model: "gpt-5.5",
+      defaultExecutionMode: "kiln-executable",
+      executionMode: "kiln-executable",
+      defaultBillingMode: "subscription",
+      modelSupportsTools: true,
+      supportsKilnExecutableTools: true,
+    });
+  });
+
+  it("lets explicit discovery metadata disable dynamic Codex OAuth tool fallback", () => {
+    const resolved = resolveDirectProviderExecutionProfile({
+      provider: "codex-oauth",
+      model: "gpt-disabled",
+      discoveredModelCapabilities: { supportsTools: false },
+    });
+
+    expect(resolved).toMatchObject({
+      provider: "codex-oauth",
+      model: "gpt-disabled",
+      defaultExecutionMode: "kiln-executable",
+      executionMode: "text-only",
+      defaultBillingMode: "subscription",
+      modelSupportsTools: false,
+      supportsKilnExecutableTools: false,
+    });
+  });
+
   it("keeps unsupported selected models text-only even when the provider supports structured tool calls", () => {
     const resolved = resolveDirectProviderExecutionProfile({
       provider: "deepseek",

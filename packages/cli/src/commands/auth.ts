@@ -2,6 +2,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { CodexOAuthAuth, OpenCodeAuth, type CodexOAuthTokenFile, type OpenCodeTier } from "@kilnai/core";
+import { startProviderAuthRequest } from "@kilnai/runtime";
 
 const AUTH_DIR = join(homedir(), ".kiln", "auth");
 const EXPIRING_SOON_MS = 120 * 1000;
@@ -58,20 +59,23 @@ export async function runAuth(args: string[]): Promise<void> {
 }
 
 async function runCodexLogin(): Promise<void> {
-  const auth = new CodexOAuthAuth();
-  const authRequest = await auth.startDeviceAuthorization();
-  console.log("Prerequisite: Enable device code auth in ChatGPT Settings > Security.");
-  console.log("");
-  console.log("  1. Visit: https://auth.openai.com/codex/device");
-  console.log(`  2. Enter code: ${authRequest.userCode}`);
-  console.log("");
-  console.log("Waiting for sign-in... (Ctrl+C to cancel)");
-  const tokenFile = await auth.pollForAuthorization({
-    deviceAuthId: authRequest.deviceAuthId,
-    userCode: authRequest.userCode,
-    intervalSeconds: authRequest.intervalSeconds,
+  const authRequest = await startProviderAuthRequest({
+    provider: "codex-oauth",
+    requestId: `cli-auth:${Date.now()}`,
   });
-  await auth.saveTokenFile(tokenFile);
+  if (!authRequest.ok) {
+    console.log(authRequest.error);
+    return;
+  }
+  if (authRequest.started) {
+    console.log("Prerequisite: Enable device code auth in ChatGPT Settings > Security.");
+    console.log("");
+    console.log(`  1. Visit: ${authRequest.started.verificationUri}`);
+    console.log(`  2. Enter code: ${authRequest.started.userCode}`);
+    console.log("");
+  }
+  console.log("Waiting for sign-in... (Ctrl+C to cancel)");
+  await authRequest.complete();
   console.log("Authenticated successfully");
 }
 
@@ -99,7 +103,17 @@ async function runOpenCodeLink(rest: string[]): Promise<void> {
   const auth = new OpenCodeAuth();
 
   if (explicitKey) {
-    await auth.saveAuthFile({ api_key: explicitKey, tier, created_at: new Date().toISOString() });
+    const linked = await startProviderAuthRequest({
+      provider: tier === "zen" ? "opencode-zen" : "opencode-go",
+      requestId: `cli-auth:${Date.now()}`,
+      apiKey: explicitKey,
+      tier,
+    });
+    if (!linked.ok) {
+      console.log(linked.error);
+      return;
+    }
+    await linked.complete();
     console.log(`Linked OpenCode (${tier}) from --key`);
     return;
   }
@@ -117,7 +131,17 @@ async function runOpenCodeLink(rest: string[]): Promise<void> {
     console.log("No key provided. Aborted.");
     return;
   }
-  await auth.saveAuthFile({ api_key: key, tier, created_at: new Date().toISOString() });
+  const linked = await startProviderAuthRequest({
+    provider: tier === "zen" ? "opencode-zen" : "opencode-go",
+    requestId: `cli-auth:${Date.now()}`,
+    apiKey: key,
+    tier,
+  });
+  if (!linked.ok) {
+    console.log(linked.error);
+    return;
+  }
+  await linked.complete();
   console.log(`Linked OpenCode (${tier})`);
 }
 

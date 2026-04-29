@@ -6,7 +6,7 @@ import {
   isGuiProviderModeless,
   type GuiProviderGroup,
 } from "@kilnai/gateway-contracts";
-import type { ProviderDescriptor } from "../lib/session-store.js";
+import type { ProviderAuthDetails, ProviderDescriptor } from "../lib/session-store.js";
 
 interface ProviderPickerProps {
   readonly open: boolean;
@@ -14,8 +14,13 @@ interface ProviderPickerProps {
   readonly activeProvider: string | null;
   readonly activeModel: string | null;
   readonly onSwitchProvider: (provider: string, model?: string) => Promise<void>;
+  readonly onAuthenticateProvider?: (provider: string, options?: { apiKey?: string; tier?: "go" | "zen" }) => Promise<void>;
   readonly onRefreshProviders?: () => void | Promise<void>;
   readonly onOpenChange: (open: boolean) => void;
+  readonly providerAuthenticating?: boolean;
+  readonly providerAuthProvider?: string | null;
+  readonly providerAuthMessage?: string | null;
+  readonly providerAuthDetails?: ProviderAuthDetails | null;
 }
 
 type PickerKeyEvent = Pick<KeyboardEvent, "key" | "shiftKey" | "preventDefault">;
@@ -30,6 +35,9 @@ interface PickerProvider {
   readonly available: boolean;
   readonly models: readonly string[];
   readonly reason?: string;
+  readonly authState?: string;
+  readonly authMethod?: "device_code" | "api_key";
+  readonly authTier?: "go" | "zen";
 }
 
 const GROUP_ORDER: readonly PickerCategory[] = ["subscription", "harness", "direct-api"];
@@ -67,6 +75,9 @@ function normalizeProviders(providers: readonly ProviderDescriptor[]): PickerPro
       available: provider.available && (models.length > 0 || isGuiProviderModeless(provider.id)),
       models,
       reason: provider.reason,
+      authState: provider.authState,
+      authMethod: meta.authMethod,
+      authTier: meta.authTier,
     });
   }
   return Array.from(byId.values()).sort((left, right) => (
@@ -111,7 +122,9 @@ export function ProviderPicker(props: ProviderPickerProps) {
   const [modelSearch, setModelSearch] = useState("");
   const [switchInFlight, setSwitchInFlight] = useState(false);
   const [refreshInFlight, setRefreshInFlight] = useState(false);
+  const [authInFlight, setAuthInFlight] = useState(false);
   const [switchError, setSwitchError] = useState<string | null>(null);
+  const [copyNotice, setCopyNotice] = useState<string | null>(null);
 
   const providerItems = useMemo(
     () => normalizeProviders(props.providers),
@@ -161,7 +174,9 @@ export function ProviderPicker(props: ProviderPickerProps) {
     setModelSearch("");
     setSwitchInFlight(false);
     setRefreshInFlight(false);
+    setAuthInFlight(false);
     setSwitchError(null);
+    setCopyNotice(null);
   }, [props.activeProvider, props.open, providerItems, providerIds]);
 
   useEffect(() => {
@@ -204,13 +219,13 @@ export function ProviderPicker(props: ProviderPickerProps) {
   }, [props.open, pane]);
 
   const close = (force = false) => {
-    if ((switchInFlight || refreshInFlight) && !force) return;
+    if ((switchInFlight || refreshInFlight || authInFlight || props.providerAuthenticating) && !force) return;
     props.onOpenChange(false);
     setPane("providers");
   };
 
   const refreshProviders = async () => {
-    if (!props.onRefreshProviders || refreshInFlight || switchInFlight) {
+    if (!props.onRefreshProviders || refreshInFlight || switchInFlight || authInFlight || props.providerAuthenticating) {
       return;
     }
     setSwitchError(null);
@@ -224,11 +239,72 @@ export function ProviderPicker(props: ProviderPickerProps) {
     }
   };
 
+  const copyText = async (text: string, label: string): Promise<void> => {
+    setCopyNotice(null);
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const element = document.createElement("textarea");
+        element.value = text;
+        element.setAttribute("readonly", "true");
+        element.style.position = "fixed";
+        element.style.left = "-9999px";
+        document.body.appendChild(element);
+        element.select();
+        document.execCommand("copy");
+        document.body.removeChild(element);
+      }
+      setCopyNotice(`${label} copied.`);
+    } catch {
+      setCopyNotice("Copy failed. Select the text manually.");
+    }
+  };
+
+  const providerCanAuthenticate = (provider: PickerProvider | undefined): provider is PickerProvider => {
+    if (!provider || provider.available || !provider.authMethod || !props.onAuthenticateProvider) {
+      return false;
+    }
+    return provider.authState === "missing"
+      || provider.authState === "expired"
+      || /auth|api[_ -]?key|credential/i.test(provider.reason ?? "");
+  };
+
+  const authenticateProvider = async (provider: PickerProvider): Promise<void> => {
+    if (!props.onAuthenticateProvider || authInFlight || switchInFlight || refreshInFlight || props.providerAuthenticating) {
+      return;
+    }
+    let apiKey: string | undefined;
+    if (provider.authMethod === "api_key") {
+      apiKey = window.prompt(`Paste ${provider.label} API key`)?.trim();
+      if (!apiKey) {
+        return;
+      }
+    }
+    setSwitchError(null);
+    setAuthInFlight(true);
+    try {
+      await props.onAuthenticateProvider(provider.id, {
+        ...(apiKey ? { apiKey } : {}),
+        ...(provider.authTier ? { tier: provider.authTier } : {}),
+      });
+      await props.onRefreshProviders?.();
+    } catch (error) {
+      setSwitchError(error instanceof Error ? error.message : "Provider authentication failed. Please retry.");
+    } finally {
+      setAuthInFlight(false);
+    }
+  };
+
   const openModelsOrCommit = async (targetProviderId?: string) => {
     const providerId = targetProviderId ?? currentProviderId;
     if (!providerId) return;
     const provider = providersById.get(providerId);
     if (!provider?.available) {
+      if (providerCanAuthenticate(provider)) {
+        setSelectedProviderId(provider.id);
+        setSwitchError("Press Authenticate to start provider sign-in.");
+      }
       return;
     }
 
@@ -257,7 +333,7 @@ export function ProviderPicker(props: ProviderPickerProps) {
   };
 
   const commitModelSelection = async (targetModel?: string) => {
-    if (switchInFlight || refreshInFlight) return;
+    if (switchInFlight || refreshInFlight || authInFlight || props.providerAuthenticating) return;
     if (!selectedProviderId) return;
     if (!providersById.get(selectedProviderId)?.available) return;
     const selectedModel = targetModel ?? filteredModels[modelIndex];
@@ -281,7 +357,8 @@ export function ProviderPicker(props: ProviderPickerProps) {
       let next = previous;
       for (let scanned = 0; scanned < total; scanned += 1) {
         next = (next + direction + total) % total;
-        if (providerItems[next]?.available) {
+        const candidate = providerItems[next];
+        if (candidate?.available || providerCanAuthenticate(candidate)) {
           return next;
         }
       }
@@ -327,9 +404,9 @@ export function ProviderPicker(props: ProviderPickerProps) {
       return;
     }
 
-    if (event.key === "Escape") {
-      event.preventDefault();
-      if (switchInFlight || refreshInFlight) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+      if (switchInFlight || refreshInFlight || authInFlight || props.providerAuthenticating) {
         return;
       }
       if (pane === "models") {
@@ -381,7 +458,7 @@ export function ProviderPicker(props: ProviderPickerProps) {
       event.preventDefault();
       void commitModelSelection();
     }
-  }, [close, commitModelSelection, filteredModels.length, moveProviderIndex, openModelsOrCommit, pane, refreshProviders, switchInFlight, refreshInFlight]);
+  }, [authInFlight, close, commitModelSelection, filteredModels.length, moveProviderIndex, openModelsOrCommit, pane, props.providerAuthenticating, refreshProviders, switchInFlight, refreshInFlight]);
 
   useEffect(() => {
     if (!props.open) return;
@@ -430,7 +507,7 @@ export function ProviderPicker(props: ProviderPickerProps) {
                   void refreshProviders();
                 }}
                 className="rounded border border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-text-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-active)]"
-                disabled={switchInFlight || refreshInFlight}
+                disabled={switchInFlight || refreshInFlight || authInFlight || props.providerAuthenticating}
               >
                 {refreshInFlight ? "Refreshing..." : "Refresh"}
               </button>
@@ -439,7 +516,7 @@ export function ProviderPicker(props: ProviderPickerProps) {
               type="button"
               onClick={() => close()}
               className="rounded border border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-text-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-active)]"
-              disabled={switchInFlight || refreshInFlight}
+              disabled={switchInFlight || refreshInFlight || authInFlight || props.providerAuthenticating}
             >
               Close
             </button>
@@ -459,6 +536,8 @@ export function ProviderPicker(props: ProviderPickerProps) {
                       const index = providerIds.indexOf(provider.id);
                       const selected = index === providerIndex;
                       const active = provider.id === props.activeProvider;
+                      const authenticatable = providerCanAuthenticate(provider);
+                      const busyAuthenticating = (authInFlight || props.providerAuthenticating) && props.providerAuthProvider === provider.id;
                       return (
                         <button
                           key={provider.id}
@@ -474,12 +553,12 @@ export function ProviderPicker(props: ProviderPickerProps) {
                           onDoubleClick={() => {
                             void openModelsOrCommit(provider.id);
                           }}
-                          disabled={!provider.available || switchInFlight || refreshInFlight}
-                          aria-disabled={!provider.available || switchInFlight || refreshInFlight}
+                          disabled={(!provider.available && !authenticatable) || switchInFlight || refreshInFlight || authInFlight || props.providerAuthenticating}
+                          aria-disabled={(!provider.available && !authenticatable) || switchInFlight || refreshInFlight || authInFlight || props.providerAuthenticating}
                           className={[
                             "flex w-full items-center justify-between rounded border px-3 py-2 text-left text-sm",
                             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-active)]",
-                            !provider.available
+                            !provider.available && !authenticatable
                               ? "cursor-not-allowed border-[var(--color-border)] bg-[var(--color-background)] opacity-60"
                               : null,
                             selected
@@ -499,9 +578,14 @@ export function ProviderPicker(props: ProviderPickerProps) {
                                 <span className="text-[11px] text-[var(--color-text-muted)]">Current</span>
                               ) : null}
                               {!provider.available ? (
-                                <span className="text-[11px] text-[var(--color-text-muted)]">Unavailable</span>
+                                <span className="text-[11px] text-[var(--color-text-muted)]">
+                                  {authenticatable ? (busyAuthenticating ? "Authenticating" : "Sign in") : "Unavailable"}
+                                </span>
                               ) : null}
                             </span>
+                            {busyAuthenticating && props.providerAuthMessage ? (
+                              <span className="text-xs text-[var(--color-text-muted)]">{props.providerAuthMessage}</span>
+                            ) : null}
                             {!provider.available && provider.reason ? (
                               <span className="text-xs text-[var(--color-text-muted)]">{conciseUnavailableReason(provider.reason)}</span>
                             ) : null}
@@ -545,7 +629,7 @@ export function ProviderPicker(props: ProviderPickerProps) {
               }}
               placeholder="Filter models"
               className="w-full rounded border border-[var(--color-border)] bg-[var(--color-background)] px-3 py-2 text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-active)]"
-              disabled={switchInFlight || refreshInFlight}
+              disabled={switchInFlight || refreshInFlight || authInFlight || props.providerAuthenticating}
             />
             <div role="listbox" aria-label="Models" className="max-h-[50vh] space-y-1 overflow-y-auto pr-1">
               {filteredModels.map((model, index) => {
@@ -588,6 +672,71 @@ export function ProviderPicker(props: ProviderPickerProps) {
           </div>
         )}
 
+        {pane === "providers" && switchError ? (
+          <p className="mt-3 text-xs text-[var(--color-danger)]">{switchError}</p>
+        ) : null}
+
+        {props.providerAuthenticating && props.providerAuthDetails ? (
+          <section className="mt-4 space-y-3 rounded border border-[var(--color-border-active)] bg-[var(--color-background-element)] p-3">
+            <div className="space-y-1">
+              <p className="text-sm text-[var(--color-text)]">
+                Complete browser sign-in
+              </p>
+              {props.providerAuthMessage ? (
+                <p className="text-xs text-[var(--color-text-muted)]">{props.providerAuthMessage}</p>
+              ) : null}
+            </div>
+            <div className="grid gap-2 text-xs">
+              <div className="grid gap-1">
+                <span className="text-[var(--color-text-muted)]">Link</span>
+                <code className="select-all break-all rounded border border-[var(--color-border)] bg-[var(--color-background)] px-2 py-1 text-[var(--color-text)]">
+                  {props.providerAuthDetails.verificationUri}
+                </code>
+              </div>
+              <div className="grid gap-1">
+                <span className="text-[var(--color-text-muted)]">Code</span>
+                <code className="select-all rounded border border-[var(--color-border)] bg-[var(--color-background)] px-2 py-1 text-lg tracking-wide text-[var(--color-text)]">
+                  {props.providerAuthDetails.userCode}
+                </code>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => window.open(props.providerAuthDetails?.verificationUri, "_blank", "noopener,noreferrer")}
+                className="rounded border border-[var(--color-border-active)] bg-[var(--color-background)] px-2 py-1 text-xs text-[var(--color-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-active)]"
+              >
+                Open link
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (props.providerAuthDetails) {
+                    void copyText(props.providerAuthDetails.verificationUri, "Link");
+                  }
+                }}
+                className="rounded border border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-text-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-active)]"
+              >
+                Copy link
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (props.providerAuthDetails) {
+                    void copyText(props.providerAuthDetails.userCode, "Code");
+                  }
+                }}
+                className="rounded border border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-text-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-active)]"
+              >
+                Copy code
+              </button>
+            </div>
+            {copyNotice ? (
+              <p className="text-xs text-[var(--color-text-muted)]">{copyNotice}</p>
+            ) : null}
+          </section>
+        ) : null}
+
         <footer className="mt-4 flex items-center justify-end gap-2 border-t border-[var(--color-border)] pt-3">
           <button
             type="button"
@@ -601,15 +750,22 @@ export function ProviderPicker(props: ProviderPickerProps) {
             type="button"
             onClick={() => {
               if (pane === "providers") {
-                openModelsOrCommit();
+                const provider = currentProvider ?? undefined;
+                if (providerCanAuthenticate(provider)) {
+                  void authenticateProvider(provider);
+                  return;
+                }
+                void openModelsOrCommit();
                 return;
               }
               void commitModelSelection();
             }}
-            disabled={switchInFlight || refreshInFlight || (pane === "providers" ? !Boolean(currentProvider?.available) : !Boolean(filteredModels[modelIndex]))}
+            disabled={switchInFlight || refreshInFlight || authInFlight || props.providerAuthenticating || (pane === "providers" ? !(Boolean(currentProvider?.available) || providerCanAuthenticate(currentProvider ?? undefined)) : !Boolean(filteredModels[modelIndex]))}
             className="rounded border border-[var(--color-border-active)] bg-[var(--color-background-element)] px-3 py-1.5 text-sm text-[var(--color-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-active)]"
           >
-            {pane === "providers" ? "Next" : (switchInFlight ? "Switching..." : "Switch")}
+            {pane === "providers"
+              ? (providerCanAuthenticate(currentProvider ?? undefined) ? (authInFlight || props.providerAuthenticating ? "Authenticating..." : "Authenticate") : "Next")
+              : (switchInFlight ? "Switching..." : "Switch")}
           </button>
         </footer>
       </div>

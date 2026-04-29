@@ -1,4 +1,4 @@
-import type { ExecutionBillingMode, ProviderAdapter, ContentPart, ToolDefinition } from "@kilnai/core";
+import type { ExecutionBillingMode, ProviderAdapter, ContentPart, ToolDefinition, ReasoningEffort } from "@kilnai/core";
 import type { McpClient } from "@kilnai/core";
 import type { EventBus } from "@kilnai/core";
 import type { ContextAuditEntry } from "@kilnai/core";
@@ -92,6 +92,7 @@ export interface PerCallToolConfig {
     readonly canonicalModel?: string;
     readonly billingMode?: ExecutionBillingMode;
   };
+  readonly reasoningEffort?: ReasoningEffort;
 }
 
 export type CommandShell = "bash" | "sh" | "zsh" | "powershell" | "cmd" | "any";

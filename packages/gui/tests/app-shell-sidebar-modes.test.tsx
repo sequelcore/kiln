@@ -81,7 +81,14 @@ vi.mock("../src/components/session-telemetry.js", () => ({
 }));
 
 vi.mock("../src/components/transcript.js", () => ({
-  Transcript: () => <div>Transcript</div>,
+  Transcript: ({ entries }: { entries: readonly { id: string; title?: string }[] }) => (
+    <div data-testid="transcript-probe">
+      Transcript entries: {entries.length}
+      {entries.map((entry) => (
+        <span key={entry.id}>{entry.title}</span>
+      ))}
+    </div>
+  ),
 }));
 
 vi.mock("../src/components/composer.js", () => ({
@@ -107,6 +114,12 @@ vi.mock("../src/components/changed-files-panel.js", () => ({
 vi.mock("../src/components/approvals-panel.js", () => ({
   ApprovalsPanel: ({ approvals }: { approvals: readonly { id: string }[] }) => (
     <div data-testid="approvals-panel">Approvals: {approvals.length}</div>
+  ),
+}));
+
+vi.mock("../src/components/activity-log-panel.js", () => ({
+  ActivityLogPanel: ({ entries }: { entries: readonly { id: string }[] }) => (
+    <div data-testid="activity-log-panel">Activity: {entries.length}</div>
   ),
 }));
 
@@ -160,6 +173,8 @@ function resetStore(): void {
     planMode: false,
     activity: null,
     errorBanner: null,
+    providerCatalogStatus: "ready",
+    providerCatalogError: null,
     providers: [],
     activeProvider: "claude",
     activeModel: "claude-sonnet-4-6",
@@ -274,5 +289,30 @@ describe("AppShell sidebar modes", () => {
 
     expect(screen.getByTestId("approvals-panel")).toHaveTextContent("Approvals: 1");
     expect(screen.queryByTestId("session-list")).not.toBeInTheDocument();
+  });
+
+  it("switches the left mode panel from sessions to activity", async () => {
+    render(<AppShell />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-list")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+
+    expect(screen.getByTestId("activity-log-panel")).toHaveTextContent("Activity: 2");
+    expect(screen.queryByTestId("session-list")).not.toBeInTheDocument();
+  });
+
+  it("keeps non-actionable runtime events out of the transcript", async () => {
+    render(<AppShell />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("transcript-probe")).toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId("transcript-probe")).toHaveTextContent("Transcript entries: 1");
+    expect(screen.getByTestId("transcript-probe")).toHaveTextContent("Approval requested");
+    expect(screen.getByTestId("transcript-probe")).not.toHaveTextContent("File changed");
   });
 });

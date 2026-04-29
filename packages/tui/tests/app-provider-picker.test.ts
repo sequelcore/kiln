@@ -9,6 +9,7 @@ const harness = vi.hoisted(() => ({
   state: null as ReactiveState | null,
   ui: null as { commandBarStatus: { content: string } } | null,
   switchProvider: vi.fn(),
+  authenticateProvider: vi.fn(),
 }));
 
 vi.mock("../src/state.js", async () => {
@@ -282,6 +283,7 @@ describe("TUI provider picker", () => {
     harness.renderer = null;
     harness.state = null;
     harness.ui = null;
+    harness.authenticateProvider.mockReset();
   });
 
   afterEach(() => {
@@ -459,6 +461,63 @@ describe("TUI provider picker", () => {
     }
   });
 
+  it("shows a provider discovery loader and blocks selection while refresh is in flight", async () => {
+    let resolveRefresh: (() => void) | undefined;
+    const refreshProviders = vi.fn(() => new Promise<void>((resolve) => {
+      resolveRefresh = resolve;
+    }));
+    const createSession = vi.fn(async () => ({
+      run: async function* () {},
+      dispose: vi.fn(),
+      switchProvider: harness.switchProvider,
+    }));
+
+    const startPromise = startTui(
+      createSession,
+      [
+        { id: "claude", group: "subscription", models: ["claude-sonnet-4-6"], free: false },
+        { id: "openai", group: "direct-api", models: ["gpt-5.4"], free: false },
+      ],
+      "claude",
+      "kiln",
+      TEST_THEME,
+      {},
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      refreshProviders,
+    );
+
+    try {
+      await waitForTuiReady();
+      emitText("/provider");
+      emitKey("\r", "return");
+      await flushUi();
+
+      emitKey("r", "r");
+      await flushUi();
+
+      expect(refreshProviders).toHaveBeenCalledOnce();
+      expect(harness.ui?.commandBarStatus.content).toContain("Refreshing provider and model discovery");
+
+      emitKey("\r", "return");
+      await flushUi();
+
+      expect(harness.switchProvider).not.toHaveBeenCalled();
+      expect(harness.state?.providerPickerOpen).toBe(true);
+
+      resolveRefresh?.();
+      await flushUi();
+
+      expect(harness.ui?.commandBarStatus.content).toContain("Provider discovery refreshed");
+    } finally {
+      harness.renderer?.destroy();
+      void startPromise.catch(() => undefined);
+    }
+  });
+
   it("switches from a modeled provider to metadata-modeless claude without a model", async () => {
     harness.switchProvider.mockResolvedValue("claude");
 
@@ -537,6 +596,70 @@ describe("TUI provider picker", () => {
       expect(harness.state?.currentProvider).toBe("openai");
       expect(harness.state?.currentModel).toBe("gpt-5.4");
       expect(harness.state?.providerPickerOpen).toBe(true);
+    } finally {
+      harness.renderer?.destroy();
+      void startPromise.catch(() => undefined);
+    }
+  });
+
+  it("requires explicit confirmation before starting device-code provider auth", async () => {
+    harness.authenticateProvider.mockResolvedValue(undefined);
+    const createSession = vi.fn(async () => ({
+      run: async function* () {},
+      dispose: vi.fn(),
+      switchProvider: harness.switchProvider,
+      authenticateProvider: harness.authenticateProvider,
+    }));
+    const providerDiscoveryRef = {
+      current: [
+        {
+          provider: "codex-oauth",
+          available: false,
+          reason: "Codex OAuth authentication is missing.",
+          authState: "missing" as const,
+        },
+      ],
+    };
+
+    const startPromise = startTui(
+      createSession,
+      [
+        { id: "claude", group: "harness", models: [], free: false },
+        { id: "codex-oauth", group: "subscription", models: [], free: true, available: false, reason: "Codex OAuth authentication is missing." },
+      ],
+      "claude",
+      "kiln",
+      TEST_THEME,
+      {},
+      undefined,
+      undefined,
+      providerDiscoveryRef,
+    );
+
+    try {
+      await waitForTuiReady();
+      emitText("/provider");
+      emitKey("\r", "return");
+      await flushUi();
+      expect(harness.state?.providerPickerOpen).toBe(true);
+
+      emitKey("\x1b[B", "down");
+      await flushUi();
+      emitKey("\r", "return");
+      await flushUi();
+
+      expect(harness.authenticateProvider).not.toHaveBeenCalled();
+      expect(harness.ui?.commandBarStatus.content).not.toContain("Open ");
+
+      emitKey("\r", "return");
+      await flushUi();
+
+      expect(harness.authenticateProvider).toHaveBeenCalledWith(
+        "codex-oauth",
+        expect.objectContaining({
+          onStarted: expect.any(Function),
+        }),
+      );
     } finally {
       harness.renderer?.destroy();
       void startPromise.catch(() => undefined);

@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased -- Unified Provider Auth and Reasoning Controls
+
+- GUI and TUI provider login now run through the same interactive provider-auth
+  gateway path used by the CLI, including device-code OAuth for `codex-oauth`.
+- GUI provider/model switching now uses the ready runtime catalog instead of
+  blocking on cold rediscovery, preventing first-switch timeouts when selecting
+  `codex-oauth`.
+- Direct provider discovery now carries per-model capabilities including tool
+  support, vision support, context window, default reasoning effort, and
+  supported reasoning efforts.
+- `codex-oauth` model discovery now parses ChatGPT-backed
+  `supported_reasoning_levels` records and exposes normalized
+  `supportedReasoningEfforts` to GUI and TUI.
+- GUI renders a compact reasoning-effort selector beside the provider/model
+  control in the composer when the active model advertises supported efforts.
+- TUI shows the current reasoning effort next to the model in the sidebar and
+  adds `/effort` to cycle the active model's supported efforts.
+- `kiln run` accepts `--effort` / `--reasoning-effort` and forwards the selected
+  effort through the shared session contract.
+- Codex CLI wrapper calls now pass the selected effort as
+  `model_reasoning_effort=<value>`.
+
 ## Unreleased -- Native OpenCode Go/Zen Provider
 
 - Added `OpenCodeAuth` API-key store at `~/.kiln/auth/opencode.json` with

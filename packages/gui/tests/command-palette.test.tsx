@@ -54,29 +54,10 @@ describe("CommandPalette", () => {
       />,
     );
 
-    const dialog = screen.getByRole("dialog", { name: "Command Palette" });
-    fireEvent.keyDown(dialog, { key: "ArrowDown" });
-    fireEvent.keyDown(dialog, { key: "Enter" });
+    const input = screen.getByPlaceholderText("Filter commands…");
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    fireEvent.keyDown(input, { key: "Enter" });
 
     expect(onExecute).toHaveBeenCalledWith(commands[1]);
-  });
-
-  it("renders the composer placement as a non-modal inline dialog", () => {
-    render(
-      <CommandPalette
-        open
-        placement="composer"
-        title="Command Palette"
-        placeholder="Filter commands…"
-        query=""
-        commands={commands}
-        onQueryChange={() => {}}
-        onExecute={() => {}}
-        onOpenChange={() => {}}
-      />,
-    );
-
-    const dialog = screen.getByRole("dialog", { name: "Command Palette" });
-    expect(dialog).toHaveAttribute("aria-modal", "false");
   });
 });

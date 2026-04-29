@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { Composer } from "../src/components/composer.js";
@@ -7,21 +7,44 @@ function renderComposer(overrides?: Partial<ComponentProps<typeof Composer>>) {
   const onSubmit = vi.fn();
   const onEmptySubmit = vi.fn();
   const onTogglePlanMode = vi.fn();
-  const onOpenCommandPalette = vi.fn();
+  const onCommandMenuOpenChange = vi.fn();
+  const onCommandMenuExecute = vi.fn();
+  const onCommandMenuQueryChange = vi.fn();
   render(
     <Composer
       status="ready"
       planMode={false}
-      activityLabel={null}
       resumeTargetId={null}
+      providerControl={<button type="button">Claude Sonnet 4</button>}
+      reasoningControl={<select aria-label="Reasoning effort" defaultValue="medium"><option value="medium">Medium</option></select>}
+      commandMenu={{
+        open: false,
+        query: "",
+        commands: [
+          {
+            id: "new-session",
+            trigger: "new session",
+            title: "New Session",
+          },
+        ],
+        onQueryChange: onCommandMenuQueryChange,
+        onExecute: onCommandMenuExecute,
+        onOpenChange: onCommandMenuOpenChange,
+      }}
       onSubmit={onSubmit}
       onEmptySubmit={onEmptySubmit}
       onTogglePlanMode={onTogglePlanMode}
-      onOpenCommandPalette={onOpenCommandPalette}
       {...overrides}
     />,
   );
-  return { onSubmit, onEmptySubmit, onTogglePlanMode, onOpenCommandPalette };
+  return {
+    onSubmit,
+    onEmptySubmit,
+    onTogglePlanMode,
+    onCommandMenuOpenChange,
+    onCommandMenuExecute,
+    onCommandMenuQueryChange,
+  };
 }
 
 describe("Composer", () => {
@@ -57,50 +80,92 @@ describe("Composer", () => {
     expect(onEmptySubmit).toHaveBeenCalledTimes(1);
   });
 
-  it("Slash on empty draft opens the command palette route", () => {
-    const { onOpenCommandPalette } = renderComposer();
+  it("Slash on empty draft opens the local command menu", () => {
+    const { onCommandMenuOpenChange } = renderComposer();
     const textarea = screen.getByLabelText("Message");
     fireEvent.keyDown(textarea, { key: "/", code: "Slash" });
-    expect(onOpenCommandPalette).toHaveBeenCalledTimes(1);
+    expect(onCommandMenuOpenChange).toHaveBeenCalledWith(true);
   });
 
-  it("Slash inserted through input change opens the command palette route", () => {
-    const { onOpenCommandPalette } = renderComposer();
+  it("Slash inserted through input change opens the local command menu", () => {
+    const { onCommandMenuOpenChange } = renderComposer();
     const textarea = screen.getByLabelText("Message") as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value: "/" } });
-    expect(onOpenCommandPalette).toHaveBeenCalledTimes(1);
+    expect(onCommandMenuOpenChange).toHaveBeenCalledWith(true);
     expect(textarea.value).toBe("");
   });
 
-  it("Command chip opens the command palette route", () => {
-    const { onOpenCommandPalette } = renderComposer();
-    fireEvent.click(screen.getByRole("button", { name: "Open command palette" }));
-    expect(onOpenCommandPalette).toHaveBeenCalledTimes(1);
-  });
-
-  it("shows selected route and continuation marker when resuming a target", () => {
-    renderComposer({ resumeTargetId: "session-42" });
-
-    expect(screen.getByText("Continuing")).toBeInTheDocument();
-    expect(screen.getByText("selected")).toBeInTheDocument();
-    expect(screen.queryByText("new")).not.toBeInTheDocument();
-  });
-
-  it("normalizes pasted text to LF and strips trailing newlines", () => {
-    renderComposer();
-    const textarea = screen.getByLabelText("Message") as HTMLTextAreaElement;
-
-    fireEvent.paste(textarea, {
-      clipboardData: {
-        getData: () => "line1\r\nline2\r\n",
+  it("renders the local command menu above the composer when open", () => {
+    renderComposer({
+      commandMenu: {
+        open: true,
+        query: "",
+        commands: [
+          {
+            id: "provider",
+            trigger: "provider",
+            title: "Provider",
+            description: "Open the provider and model picker.",
+          },
+        ],
+        onQueryChange: vi.fn(),
+        onExecute: vi.fn(),
+        onOpenChange: vi.fn(),
       },
     });
 
-    expect(textarea.value).toBe("line1\nline2");
+    const menu = screen.getByRole("dialog", { name: "Composer commands" });
+    expect(menu).toHaveAttribute("aria-modal", "false");
+    expect(within(menu).getByText("Provider")).toBeInTheDocument();
+  });
+
+  it("does not render a redundant command button", () => {
+    renderComposer();
+
+    expect(screen.queryByRole("button", { name: "Open command palette" })).not.toBeInTheDocument();
+    expect(screen.queryByText("/command")).not.toBeInTheDocument();
+  });
+
+  it("keeps route state out of the composer toolbar when resuming a target", () => {
+    renderComposer({ resumeTargetId: "session-42" });
+
+    expect(screen.queryByText("Continuing")).not.toBeInTheDocument();
+    expect(screen.queryByText("selected")).not.toBeInTheDocument();
+    expect(screen.queryByText("new")).not.toBeInTheDocument();
+  });
+
+  it("renders the provider/model control in the composer rail", () => {
+    renderComposer();
+
+    expect(screen.getByRole("button", { name: "Claude Sonnet 4" })).toBeInTheDocument();
+  });
+
+  it("renders reasoning effort as part of the composer model controls", () => {
+    renderComposer();
+
+    expect(screen.getByLabelText("Reasoning effort")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Claude Sonnet 4" })).toBeInTheDocument();
+  });
+
+  it("does not render placeholder-only file or approval chips", () => {
+    renderComposer();
+
+    expect(screen.queryByText("@files")).not.toBeInTheDocument();
+    expect(screen.queryByText("approvals")).not.toBeInTheDocument();
+  });
+
+  it("does not block native paste behavior", () => {
+    renderComposer();
+    const textarea = screen.getByLabelText("Message") as HTMLTextAreaElement;
+    const pasteEvent = new Event("paste", { bubbles: true, cancelable: true });
+
+    fireEvent(textarea, pasteEvent);
+
+    expect(pasteEvent.defaultPrevented).toBe(false);
   });
 
   it("non-special editing keys do not trigger command actions", () => {
-    const { onSubmit, onEmptySubmit, onOpenCommandPalette } = renderComposer();
+    const { onSubmit, onEmptySubmit, onCommandMenuOpenChange } = renderComposer();
     const textarea = screen.getByLabelText("Message");
 
     fireEvent.keyDown(textarea, { key: "Backspace", code: "Backspace" });
@@ -109,7 +174,7 @@ describe("Composer", () => {
 
     expect(onSubmit).not.toHaveBeenCalled();
     expect(onEmptySubmit).not.toHaveBeenCalled();
-    expect(onOpenCommandPalette).not.toHaveBeenCalled();
+    expect(onCommandMenuOpenChange).not.toHaveBeenCalled();
   });
 
   it("Textarea is configured for wrapped multi-line input", () => {

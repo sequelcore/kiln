@@ -15,6 +15,7 @@ import {
   type DirectProviderId,
   type ResolvedDirectProviderExecutionProfile,
   type ToolDefinition,
+  type ReasoningEffort,
   resolveDirectProviderExecutionProfile,
 } from "@kilnai/core";
 import type { OrchestrateResult } from "@kilnai/runtime";
@@ -33,6 +34,7 @@ import { createDirectProviderAdapter } from "./direct-provider-adapter-factory.j
 export interface ProviderSessionConfig {
   readonly provider: DirectProviderId;
   readonly model?: string;
+  readonly reasoningEffort?: ReasoningEffort;
   readonly task: string;
   readonly systemPrompt?: string;
   readonly cwd?: string;
@@ -271,7 +273,11 @@ export class ProviderSession implements IKilnSession {
     const { systemPrompt, userPrompt } = this.buildSystemAndPrompt(options);
     const messages = this.buildConversationMessages(userPrompt, options.messages);
 
-    for await (const event of adapter.streamMessage({ system: systemPrompt, messages })) {
+    for await (const event of adapter.streamMessage({
+      system: systemPrompt,
+      messages,
+      reasoningEffort: options.reasoningEffort ?? this.config.reasoningEffort,
+    })) {
       if (options.abortSignal?.aborted) {
         isError = true;
         yield { type: "error", code: "ABORTED", message: "Aborted during execution", isRetryable: false };
@@ -356,7 +362,13 @@ export class ProviderSession implements IKilnSession {
     }
 
     const promptParts: ContentPart[] = [textPart(userPrompt)];
-    const result: OrchestrateResult = await orchestrator.processMessage(cliSession, promptParts);
+    const result: OrchestrateResult = await orchestrator.processMessage(
+      cliSession,
+      promptParts,
+      undefined,
+      undefined,
+      { reasoningEffort: options.reasoningEffort ?? this.config.reasoningEffort },
+    );
 
     let isError = false;
     for (const part of result.parts) {

@@ -11,6 +11,7 @@ import {
   getFieldStrength,
   isDirectProviderId,
   resolveDirectProviderExecutionProfile,
+  type ReasoningEffort,
 } from "@kilnai/core";
 import { ClaudeSession } from "./claude-code-process.js";
 import { CodexSession } from "./codex-session.js";
@@ -135,6 +136,7 @@ export interface ProviderCreateConfig {
   readonly mcpServers?: Record<string, { command: string; args: string[] }>;
   readonly permissionPolicy: KilnPermissionPolicy;
   readonly model?: string;
+  readonly reasoningEffort?: ReasoningEffort;
   readonly resumeSessionId?: string;
   readonly sessionLedgerOwner?: "wrapper" | "host";
   readonly ephemeral?: boolean;

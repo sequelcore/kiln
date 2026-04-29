@@ -66,6 +66,7 @@ export class CliSubscriptionExecutor implements ProviderAdapter {
         kilnSessionId: options.sessionId,
         system: options.system,
         messages: options.messages,
+        reasoningEffort: options.reasoningEffort,
       })) {
         // Stream event to TUI via callback
         this.onEvent?.(event);

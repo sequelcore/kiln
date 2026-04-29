@@ -15,6 +15,7 @@ export interface Message {
 
 /** Possible TUI status values. */
 export type TuiStatus = "idle" | "running" | "error";
+export type ReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh";
 
 /**
  * Reactive state container holding all TUI application state.
@@ -36,6 +37,8 @@ export interface ReactiveState {
   providerPickerIndex: number;
   currentProvider: string;
   currentModel: string;
+  currentReasoningEffort?: ReasoningEffort;
+  supportedReasoningEfforts: ReasoningEffort[];
   respondingProvider?: string;
   respondingModel?: string;
   currentActivity: ActivitySnapshot;
@@ -158,6 +161,8 @@ export function createReactiveState(): ReactiveState {
     providerPickerIndex: 0,
     currentProvider: "claude",
     currentModel: "",
+    currentReasoningEffort: undefined,
+    supportedReasoningEfforts: [],
     respondingProvider: undefined,
     respondingModel: undefined,
     currentActivity: { phase: "" },

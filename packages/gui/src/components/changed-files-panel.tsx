@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ChangedFileEntry } from "../lib/session-store.js";
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { SidebarPanelShell } from "./sidebar-panel-shell.js";
 
 interface ChangedFilesPanelProps {
   readonly files: readonly ChangedFileEntry[];
-  readonly onStartNewSession: () => void;
 }
 
 const timeFormatter = new Intl.DateTimeFormat("en-US", {
@@ -84,14 +83,7 @@ export function ChangedFilesPanel(props: ChangedFilesPanelProps) {
   }, [props.files, selectedKey]);
 
   return (
-    <aside className="flex h-full min-h-0 flex-col border-r border-border/70 bg-card">
-      <header className="flex items-center gap-2 border-b border-border/70 px-3.5 py-3">
-        <p className="text-sm font-semibold tracking-tight text-foreground">Changed Files</p>
-        <p className="ml-auto font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-          {props.files.length} tracked
-        </p>
-      </header>
-
+    <SidebarPanelShell title="Changed Files" meta={`${props.files.length} tracked`}>
       <div className="grid min-h-0 flex-1 lg:grid-rows-[minmax(0,1.1fr)_minmax(14rem,0.9fr)]">
         <div className="min-h-0 overflow-y-auto border-b border-border/60">
           {props.files.length === 0 ? (
@@ -197,19 +189,6 @@ export function ChangedFilesPanel(props: ChangedFilesPanelProps) {
           )}
         </div>
       </div>
-
-      <footer className="border-t border-border/70 p-2.5">
-        <Button
-          type="button"
-          variant="outline"
-          aria-label="New Session"
-          onClick={props.onStartNewSession}
-          className="h-9 w-full justify-start border-border/80 bg-transparent font-medium hover:bg-secondary/50"
-        >
-          <span aria-hidden="true" className="text-base leading-none">+</span>
-          New Session
-        </Button>
-      </footer>
-    </aside>
+    </SidebarPanelShell>
   );
 }

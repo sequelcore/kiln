@@ -5,6 +5,28 @@
 /**
  * Inbound frames the TUI gateway sends.
  */
+export interface TuiProviderModelCapabilities {
+  readonly supportsTools?: boolean;
+  readonly supportsStreaming?: boolean;
+  readonly supportsStructuredOutput?: boolean;
+  readonly supportsVision?: boolean;
+  readonly supportsParallelToolCalls?: boolean;
+  readonly contextWindow?: number;
+  readonly defaultReasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
+  readonly supportedReasoningEfforts?: ("minimal" | "low" | "medium" | "high" | "xhigh")[];
+}
+
+export interface TuiProviderDiscoveryFrame {
+  readonly provider: string;
+  readonly available: boolean;
+  readonly models: string[];
+  readonly modelCapabilities?: Record<string, TuiProviderModelCapabilities>;
+  readonly status: string;
+  readonly reason: string;
+  readonly authState: string;
+  readonly lastCheckedAt: string;
+}
+
 export type TuiInboundFrame =
   | { type: "thinking" }
   | {
@@ -47,31 +69,32 @@ export type TuiInboundFrame =
       type: "welcome";
       greeting?: string;
       models?: Record<string, string[]>;
-      providerDiscovery?: Array<{
-        provider: string;
-        available: boolean;
-        models: string[];
-        status: string;
-        reason: string;
-        authState: string;
-        lastCheckedAt: string;
-      }>;
+      providerDiscovery?: TuiProviderDiscoveryFrame[];
       planMode?: boolean;
     }
   | { type: "exec_confirmed" } // Plan mode exit confirmed, execution can proceed
   | { type: "cleared" }
   | {
+      type: "provider_auth_started";
+      provider: string;
+      requestId: string;
+      method: "device_code";
+      verificationUri: string;
+      userCode: string;
+      message?: string;
+    }
+  | {
+      type: "provider_auth_completed";
+      provider: string;
+      requestId: string;
+      models: Record<string, string[]>;
+      providerDiscovery: TuiProviderDiscoveryFrame[];
+    }
+  | { type: "provider_auth_failed"; provider: string; requestId: string; message: string }
+  | {
       type: "providers_refreshed";
       models: Record<string, string[]>;
-      providerDiscovery: Array<{
-        provider: string;
-        available: boolean;
-        models: string[];
-        status: string;
-        reason: string;
-        authState: string;
-        lastCheckedAt: string;
-      }>;
+      providerDiscovery: TuiProviderDiscoveryFrame[];
     }
   | { type: "provider_changed"; provider: string; model?: string; requestId: string }
   | { type: "approval_requested"; description: string; sessionId: string }
@@ -81,9 +104,10 @@ export type TuiInboundFrame =
  * Outbound frames the TUI sends to the gateway.
  */
 export type TuiOutboundFrame =
-  | { type: "message"; content: string }
+  | { type: "message"; content: string; reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh" }
   | { type: "clear" }
   | { type: "refresh_providers" }
+  | { type: "provider_auth"; provider: string; requestId: string; apiKey?: string; tier?: "go" | "zen" }
   | { type: "provider"; provider: string; model?: string; requestId: string }
   | { type: "approve"; sessionId?: string }
   | { type: "reject"; reason: string; sessionId?: string }

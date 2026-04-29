@@ -143,6 +143,7 @@ export class RuntimeSessionOrchestrator {
         messages: [...session.conversationHistory],
         tools: routing.hasTools ? routing.effectiveTools : undefined,
         maxTokens: this.deps.maxTokens,
+        reasoningEffort: perCallConfig?.reasoningEffort,
       });
 
       const usageTotals = this.telemetry.recordResponse(

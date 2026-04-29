@@ -276,6 +276,28 @@ describe("GuiWsClient", () => {
         }),
       );
     });
+
+    it("does not queue provider authentication while disconnected", () => {
+      client = createClient();
+
+      expect(() => client.send({
+        type: "provider_auth",
+        provider: "codex-oauth",
+        requestId: "provider-auth-1",
+      })).toThrow("Cannot send provider authentication while WebSocket is not open");
+
+      client.connect();
+      const wsInstance = wsInstances[wsInstances.length - 1];
+      wsInstance.simulateOpen();
+
+      expect(wsInstance.send).not.toHaveBeenCalledWith(
+        JSON.stringify({
+          type: "provider_auth",
+          provider: "codex-oauth",
+          requestId: "provider-auth-1",
+        }),
+      );
+    });
   });
 
   describe("inbound message handling", () => {
@@ -343,6 +365,8 @@ describe("GuiWsClient", () => {
       const frames: GuiOutboundFrame[] = [
         { type: "message", content: "hello world" },
         { type: "clear" },
+        { type: "provider_auth", provider: "codex-oauth", requestId: "provider-auth-1" },
+        { type: "provider_auth", provider: "opencode-go", requestId: "provider-auth-2", apiKey: "sk-test", tier: "go" },
         { type: "provider", provider: "openai", model: "gpt-4", requestId: "provider-switch-1" },
         { type: "provider", provider: "claude", requestId: "provider-switch-2" },
         { type: "resume", sessionId: "session-123" },
@@ -361,7 +385,7 @@ describe("GuiWsClient", () => {
         
         // This will validate the frame through the Zod schema
         // If invalid, it would log a warning and return early
-        if (frame.type === "provider") {
+        if (frame.type === "provider" || frame.type === "provider_auth") {
           const wsInstance = wsInstances[wsInstances.length - 1];
           wsInstance.simulateOpen();
         }

@@ -7,7 +7,7 @@ const useQueryMock = vi.fn();
 const waitForGatewayMock = vi.fn();
 const sendMock = vi.fn();
 let wsState: "idle" | "connecting" | "open" | "reconnecting" | "closed" = "open";
-const commandPalettePropsLog: Array<{ open: boolean; placement?: "global" | "composer" }> = [];
+const commandPalettePropsLog: Array<{ open: boolean }> = [];
 const dashboardRefetchMock = vi.fn();
 const dashboardData = {
   providers: [],
@@ -76,9 +76,9 @@ vi.mock("../src/api/client.js", () => ({
 }));
 
 vi.mock("../src/components/command-palette.js", () => ({
-  CommandPalette: (props: { open: boolean; placement?: "global" | "composer" }) => {
-    commandPalettePropsLog.push({ open: props.open, placement: props.placement });
-    return <div data-testid="command-palette-probe" data-open={String(props.open)} data-placement={props.placement ?? "global"} />;
+  CommandPalette: (props: { open: boolean }) => {
+    commandPalettePropsLog.push({ open: props.open });
+    return <div data-testid="command-palette-probe" data-open={String(props.open)} />;
   },
 }));
 
@@ -107,8 +107,8 @@ vi.mock("../src/components/transcript.js", () => ({
 }));
 
 vi.mock("../src/components/composer.js", () => ({
-  Composer: ({ onOpenCommandPalette }: { onOpenCommandPalette: () => void }) => (
-    <button type="button" onClick={onOpenCommandPalette}>
+  Composer: ({ commandMenu }: { commandMenu: { onOpenChange: (open: boolean) => void } }) => (
+    <button type="button" onClick={() => commandMenu.onOpenChange(true)}>
       Open composer commands
     </button>
   ),
@@ -133,6 +133,10 @@ vi.mock("../src/components/changed-files-panel.js", () => ({
 
 vi.mock("../src/components/approvals-panel.js", () => ({
   ApprovalsPanel: () => <div>Approvals</div>,
+}));
+
+vi.mock("../src/components/activity-log-panel.js", () => ({
+  ActivityLogPanel: () => <div>Activity</div>,
 }));
 
 function installMatchMedia(matches: boolean): void {
@@ -171,6 +175,8 @@ function resetStore(): void {
     planMode: false,
     activity: null,
     errorBanner: null,
+    providerCatalogStatus: "ready",
+    providerCatalogError: null,
     providers: [],
     activeProvider: "claude",
     activeModel: "claude-sonnet-4-6",
@@ -199,7 +205,7 @@ function resetStore(): void {
   });
 }
 
-function latestPaletteProps(): { open: boolean; placement?: "global" | "composer" } | undefined {
+function latestPaletteProps(): { open: boolean } | undefined {
   return commandPalettePropsLog.at(-1);
 }
 
@@ -240,13 +246,12 @@ describe("AppShell command palette and telemetry regressions", () => {
     render(<AppShell />);
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "New Session" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Details" })).toBeInTheDocument();
     });
 
     fireEvent.keyDown(window, { key: "k", ctrlKey: true });
     await waitFor(() => {
       expect(latestPaletteProps()?.open).toBe(true);
-      expect(latestPaletteProps()?.placement).toBe("global");
     });
 
     fireEvent.keyDown(window, { key: "k", ctrlKey: true });
@@ -257,11 +262,10 @@ describe("AppShell command palette and telemetry regressions", () => {
     fireEvent.keyDown(window, { key: "k", metaKey: true });
     await waitFor(() => {
       expect(latestPaletteProps()?.open).toBe(true);
-      expect(latestPaletteProps()?.placement).toBe("global");
     });
   });
 
-  it("keeps composer-triggered command opening distinct from the global path", async () => {
+  it("keeps composer-triggered commands out of the global palette", async () => {
     render(<AppShell />);
 
     await waitFor(() => {
@@ -271,7 +275,6 @@ describe("AppShell command palette and telemetry regressions", () => {
     fireEvent.keyDown(window, { key: "k", ctrlKey: true });
     await waitFor(() => {
       expect(latestPaletteProps()?.open).toBe(true);
-      expect(latestPaletteProps()?.placement).toBe("global");
     });
 
     fireEvent.keyDown(window, { key: "k", ctrlKey: true });
@@ -280,25 +283,26 @@ describe("AppShell command palette and telemetry regressions", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Open composer commands" }));
-    await waitFor(() => {
-      expect(latestPaletteProps()?.open).toBe(true);
-      expect(latestPaletteProps()?.placement).toBe("composer");
-    });
+    expect(latestPaletteProps()?.open).toBe(false);
   });
 
-  it("keeps turns, tokens, and cost in the top bar and out of Inspector details", async () => {
+  it("keeps session telemetry out of the primary chat chrome", async () => {
     render(<AppShell />);
 
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Details" })).toBeInTheDocument();
     });
 
-    expect(screen.getAllByText(/turns/i)).toHaveLength(1);
-    expect(screen.getAllByText(/tokens/i)).toHaveLength(1);
-    expect(screen.getAllByText(/cost/i)).toHaveLength(1);
+    expect(screen.queryByText(/turns/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/tokens/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/cost/i)).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Details" }));
-    const inspectorSection = screen.getByText("Inspector").closest("section");
+    const inspectorSection = await waitFor(() => {
+      const section = screen.getByText("Continuity").closest("section");
+      expect(section).not.toBeNull();
+      return section;
+    });
     expect(inspectorSection).not.toBeNull();
     const inspector = within(inspectorSection as HTMLElement);
     expect(inspector.queryByText(/turns/i)).not.toBeInTheDocument();
@@ -312,7 +316,7 @@ describe("AppShell command palette and telemetry regressions", () => {
     render(<AppShell />);
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "New Session" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Details" })).toBeInTheDocument();
     });
 
     expect(useSessionStore.getState().outboundSend).toBeNull();
@@ -328,7 +332,7 @@ describe("AppShell command palette and telemetry regressions", () => {
       const { rerender, unmount } = render(<AppShell />);
 
       await waitFor(() => {
-        expect(screen.getByRole("button", { name: "New Session" })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: "Details" })).toBeInTheDocument();
       });
 
       wsState = "reconnecting";
@@ -428,5 +432,27 @@ describe("AppShell command palette and telemetry regressions", () => {
         }),
       ]);
     });
+  });
+
+  it("wraps the app in a runtime bootstrap gate until provider discovery settles", async () => {
+    dashboardQueryResult = {
+      data: null,
+      error: null,
+      isSuccess: false,
+      refetch: dashboardRefetchMock,
+    };
+    useSessionStore.setState({
+      providerCatalogStatus: "pending",
+      providerCatalogError: null,
+      providers: [],
+      activeProvider: null,
+      activeModel: null,
+    });
+
+    render(<AppShell />);
+
+    expect(await screen.findByRole("status", { name: "Runtime bootstrap" })).toBeInTheDocument();
+    expect(screen.getByText("Starting Kiln runtime")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "New Session" })).not.toBeInTheDocument();
   });
 });

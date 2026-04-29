@@ -10,6 +10,8 @@ function resetSessionStore(): void {
     planMode: false,
     activity: null,
     errorBanner: null,
+    providerCatalogStatus: "ready",
+    providerCatalogError: null,
     providers: [],
     activeProvider: null,
     activeModel: null,
@@ -25,11 +27,15 @@ function resetSessionStore(): void {
     clearPending: false,
     providerSwitching: false,
     providerSwitchTarget: null,
+    providerAuthenticating: false,
+    providerAuthTarget: null,
+    providerAuthMessage: null,
     providerExplicitSelection: false,
     authorityStatus: null,
     outboundSend: null,
     clearTimeoutId: null,
     providerSwitchTimeoutId: null,
+    providerAuthTimeoutId: null,
   });
 }
 
@@ -52,6 +58,14 @@ function lastProviderRequestId(send: ReturnType<typeof vi.fn>): string {
   const frame = send.mock.calls.at(-1)?.[0] as GuiOutboundFrame | undefined;
   if (frame?.type !== "provider" || !frame.requestId) {
     throw new Error("Expected provider switch frame with requestId");
+  }
+  return frame.requestId;
+}
+
+function lastProviderAuthRequestId(send: ReturnType<typeof vi.fn>): string {
+  const frame = send.mock.calls.at(-1)?.[0] as GuiOutboundFrame | undefined;
+  if (frame?.type !== "provider_auth" || !frame.requestId) {
+    throw new Error("Expected provider auth frame with requestId");
   }
   return frame.requestId;
 }
@@ -89,6 +103,79 @@ describe("session-store provider selection", () => {
       model: "sonnet-4.6",
       requestId: expect.any(String),
     });
+  });
+
+  it("switchProvider rejects provider changes until the provider catalog is ready", () => {
+    const send = vi.fn();
+    useSessionStore.getState().setSender(send);
+    useSessionStore.setState({
+      providerCatalogStatus: "pending",
+      providers: [
+        {
+          id: "codex-oauth",
+          label: "Codex OAuth",
+          group: "subscription",
+          free: true,
+          available: true,
+          models: ["gpt-5.4"],
+        },
+      ],
+    });
+
+    const accepted = useSessionStore.getState().switchProvider("codex-oauth", "gpt-5.4");
+
+    expect(accepted).toBe(false);
+    expect(send).not.toHaveBeenCalled();
+    expect(useSessionStore.getState().errorBanner).toBe("Provider catalog is still loading. Please retry once startup completes.");
+  });
+
+  it("authenticateProvider emits provider_auth and applies completed provider descriptors", () => {
+    const send = vi.fn();
+    useSessionStore.getState().setSender(send);
+
+    const accepted = useSessionStore.getState().authenticateProvider("opencode-go", {
+      apiKey: "sk-test",
+      tier: "go",
+    });
+    const requestId = lastProviderAuthRequestId(send);
+
+    expect(accepted).toBe(true);
+    expect(send).toHaveBeenCalledWith({
+      type: "provider_auth",
+      provider: "opencode-go",
+      requestId,
+      apiKey: "sk-test",
+      tier: "go",
+    });
+
+    useSessionStore.getState().onProviderAuthCompleted({
+      type: "provider_auth_completed",
+      provider: "opencode-go",
+      requestId,
+      models: { "opencode-go": ["minimax-m2.5"] },
+      providerDiscovery: [],
+      providers: [
+        {
+          id: "opencode-go",
+          label: "OpenCode Go",
+          group: "subscription",
+          free: true,
+          available: true,
+          models: ["minimax-m2.5"],
+        },
+      ],
+    });
+
+    const state = useSessionStore.getState();
+    expect(state.providerAuthenticating).toBe(false);
+    expect(state.providerAuthTarget).toBeNull();
+    expect(state.providers).toEqual([
+      expect.objectContaining({
+        id: "opencode-go",
+        available: true,
+        models: ["minimax-m2.5"],
+      }),
+    ]);
   });
 
   it("switchProvider accepts model-less Claude and emits a provider frame without model", () => {

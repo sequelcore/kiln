@@ -2,6 +2,9 @@ import { create } from "zustand";
 import type {
   GuiInboundFrame,
   GuiOutboundFrame,
+  GuiProviderCatalogStatus,
+  GuiProviderDiscoveryResult,
+  GuiProviderReasoningEffort,
   GuiSessionDetail,
   GuiSessionEvent,
   GuiSessionSummary,
@@ -50,6 +53,8 @@ export interface ChangedFileEntry {
   readonly recordedAt: string;
 }
 
+export type ProviderCatalogStatus = GuiProviderCatalogStatus;
+
 type StoreTextDeltaFrame = {
   type: "text_delta";
   content: string;
@@ -71,10 +76,25 @@ const PLAN_MODE_KEY = "kiln.gui.planMode";
 const RESUME_TARGET_KEY = "kiln.gui.resumeTarget";
 const CLEAR_TIMEOUT_MS = 5_000;
 const PROVIDER_SWITCH_TIMEOUT_MS = 5_000;
+const PROVIDER_AUTH_TIMEOUT_MS = 15 * 60 * 1000;
 let providerSwitchRequestOrdinal = 0;
+let providerAuthRequestOrdinal = 0;
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function providerAuthDebug(message: string, context?: Record<string, unknown>): void {
+  const env = (import.meta as { readonly env?: Record<string, string | undefined> }).env;
+  const enabled = /^(1|true|yes)$/i.test(
+    env?.VITE_KILN_PROVIDER_AUTH_DEBUG?.trim()
+    ?? env?.KILN_PROVIDER_AUTH_DEBUG?.trim()
+    ?? "",
+  );
+  if (!enabled) {
+    return;
+  }
+  console.warn(`[gui-session-store:provider-auth][debug] ${message}`, context ?? {});
 }
 
 function createMessageId(): string {
@@ -113,6 +133,11 @@ function readResumeTarget(): string | null {
 function nextProviderSwitchRequestId(): string {
   providerSwitchRequestOrdinal += 1;
   return `provider-switch:${Date.now()}:${providerSwitchRequestOrdinal}`;
+}
+
+function nextProviderAuthRequestId(): string {
+  providerAuthRequestOrdinal += 1;
+  return `provider-auth:${Date.now()}:${providerAuthRequestOrdinal}`;
 }
 
 function providerRequiresSelectedModelMessage(provider: string): string {
@@ -1047,6 +1072,16 @@ interface ProviderSwitchTarget {
   readonly requestId: string;
 }
 
+interface ProviderAuthTarget {
+  readonly provider: string;
+  readonly requestId: string;
+}
+
+export interface ProviderAuthDetails {
+  readonly verificationUri: string;
+  readonly userCode: string;
+}
+
 export type RouteMode = "user" | "auto" | "responding";
 
 interface SessionStoreState {
@@ -1057,7 +1092,10 @@ interface SessionStoreState {
   readonly planMode: boolean;
   readonly activity: ActivityState | null;
   readonly errorBanner: string | null;
+  readonly providerCatalogStatus: ProviderCatalogStatus;
+  readonly providerCatalogError: string | null;
   readonly providers: readonly ProviderDescriptor[];
+  readonly providerDiscovery: readonly GuiProviderDiscoveryResult[];
   readonly activeProvider: string | null;
   readonly activeModel: string | null;
   readonly sessionList: readonly GuiSessionSummary[];
@@ -1077,11 +1115,16 @@ interface SessionStoreState {
   readonly clearPending: boolean;
   readonly providerSwitching: boolean;
   readonly providerSwitchTarget: ProviderSwitchTarget | null;
+  readonly providerAuthenticating: boolean;
+  readonly providerAuthTarget: ProviderAuthTarget | null;
+  readonly providerAuthMessage: string | null;
+  readonly providerAuthDetails: ProviderAuthDetails | null;
   readonly providerExplicitSelection: boolean;
   readonly authorityStatus: AuthorityStatus | null;
   readonly outboundSend: ((frame: GuiOutboundFrame) => void) | null;
   readonly clearTimeoutId: ReturnType<typeof setTimeout> | null;
   readonly providerSwitchTimeoutId: ReturnType<typeof setTimeout> | null;
+  readonly providerAuthTimeoutId: ReturnType<typeof setTimeout> | null;
   readonly activityPhase: ActivityPhase;
 }
 
@@ -1093,8 +1136,13 @@ interface SessionStoreActions {
   viewSessionDetail: (detail: GuiSessionDetail) => void;
   setErrorBanner: (message: string | null) => void;
   clearErrorBanner: () => void;
+  markProviderCatalogRefreshing: () => void;
+  markProviderCatalogError: (message: string) => void;
   onWelcome: (frame: Extract<GuiInboundFrame, { type: "welcome" }>) => void;
-  onProvidersRefreshed: (providers: readonly ProviderDescriptor[]) => void;
+  onProvidersRefreshed: (
+    providers: readonly ProviderDescriptor[],
+    providerDiscovery?: readonly GuiProviderDiscoveryResult[],
+  ) => void;
   onSessionEvent: (event: GuiSessionEvent) => void;
   onTextDelta: (frame: StoreTextDeltaFrame) => void;
   onActivity: (frame: StoreActivityFrame) => void;
@@ -1102,9 +1150,13 @@ interface SessionStoreActions {
   onError: (frame: Extract<GuiInboundFrame, { type: "error" }>) => void;
   onCleared: () => void;
   onProviderChanged: (frame: Extract<GuiInboundFrame, { type: "provider_changed" }>) => void;
+  onProviderAuthStarted: (frame: Extract<GuiInboundFrame, { type: "provider_auth_started" }>) => void;
+  onProviderAuthCompleted: (frame: Extract<GuiInboundFrame, { type: "provider_auth_completed" }>) => void;
+  onProviderAuthFailed: (frame: Extract<GuiInboundFrame, { type: "provider_auth_failed" }>) => void;
   onExecConfirmed: () => void;
   switchProvider: (provider: string, model?: string) => boolean;
-  sendMessage: (text: string) => boolean;
+  authenticateProvider: (provider: string, options?: { apiKey?: string; tier?: "go" | "zen" }) => boolean;
+  sendMessage: (text: string, options?: { reasoningEffort?: GuiProviderReasoningEffort }) => boolean;
   sendClear: () => boolean;
   setPlanMode: (enabled: boolean) => void;
   setResume: (sessionId: string | null) => void;
@@ -1125,7 +1177,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   planMode: initialPlanMode,
   activity: null,
   errorBanner: null,
+  providerCatalogStatus: "pending",
+  providerCatalogError: null,
   providers: [],
+  providerDiscovery: [],
   activeProvider: null,
   activeModel: null,
   sessionList: [],
@@ -1145,11 +1200,16 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   clearPending: false,
   providerSwitching: false,
   providerSwitchTarget: null,
+  providerAuthenticating: false,
+  providerAuthTarget: null,
+  providerAuthMessage: null,
+  providerAuthDetails: null,
   providerExplicitSelection: false,
   authorityStatus: null,
   outboundSend: null,
   clearTimeoutId: null,
   providerSwitchTimeoutId: null,
+  providerAuthTimeoutId: null,
   activityPhase: "idle",
 
   setConnectionStatus: (status) => {
@@ -1213,10 +1273,27 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     set({ errorBanner: null });
   },
 
+  markProviderCatalogRefreshing: () => {
+    set({
+      providerCatalogStatus: "refreshing",
+      providerCatalogError: null,
+    });
+  },
+
+  markProviderCatalogError: (message) => {
+    set({
+      providerCatalogStatus: "error",
+      providerCatalogError: message,
+    });
+  },
+
   onWelcome: (frame) => {
     const current = get();
     if (current.providerSwitchTimeoutId) {
       clearTimeout(current.providerSwitchTimeoutId);
+    }
+    if (current.providerAuthTimeoutId) {
+      clearTimeout(current.providerAuthTimeoutId);
     }
     const providers = normalizeProviderDescriptors(frame.providers ?? []);
     const explicitActiveProvider = readString(frame.activeProvider);
@@ -1237,6 +1314,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
     set({
       providers,
+      providerDiscovery: frame.providerDiscovery ?? current.providerDiscovery,
+      providerCatalogStatus: "ready",
+      providerCatalogError: null,
       activeProvider,
       activeModel,
       authorityStatus: frame.authorityStatus ?? current.authorityStatus,
@@ -1249,11 +1329,16 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       providerSwitching: false,
       providerSwitchTarget: null,
       providerSwitchTimeoutId: null,
+      providerAuthenticating: false,
+      providerAuthTarget: null,
+      providerAuthMessage: null,
+      providerAuthDetails: null,
+      providerAuthTimeoutId: null,
     });
     persistPlanMode(resolvedPlanMode);
   },
 
-  onProvidersRefreshed: (nextProviders) => {
+  onProvidersRefreshed: (nextProviders, nextProviderDiscovery) => {
     const current = get();
     const providers = normalizeProviderDescriptors(nextProviders);
     const activeProvider = current.activeProvider;
@@ -1282,6 +1367,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
     set({
       providers,
+      providerDiscovery: nextProviderDiscovery ?? current.providerDiscovery,
+      providerCatalogStatus: "ready",
+      providerCatalogError: null,
       activeProvider: nextActiveProvider,
       activeModel: nextActiveModel,
       routeMode: nextRouteMode,
@@ -1889,6 +1977,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     if (state.providerSwitchTimeoutId) {
       clearTimeout(state.providerSwitchTimeoutId);
     }
+    if (state.providerAuthTimeoutId) {
+      clearTimeout(state.providerAuthTimeoutId);
+    }
     const errorMessage: Message = {
       id: createMessageId(),
       role: "error",
@@ -1918,6 +2009,11 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       providerSwitching: false,
       providerSwitchTarget: null,
       providerSwitchTimeoutId: null,
+      providerAuthenticating: false,
+      providerAuthTarget: null,
+      providerAuthMessage: null,
+      providerAuthDetails: null,
+      providerAuthTimeoutId: null,
     });
   },
 
@@ -1928,6 +2024,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     }
     if (state.providerSwitchTimeoutId) {
       clearTimeout(state.providerSwitchTimeoutId);
+    }
+    if (state.providerAuthTimeoutId) {
+      clearTimeout(state.providerAuthTimeoutId);
     }
     writeResumeTarget(null);
     set({
@@ -1955,6 +2054,11 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       providerSwitching: false,
       providerSwitchTarget: null,
       providerSwitchTimeoutId: null,
+      providerAuthenticating: false,
+      providerAuthTarget: null,
+      providerAuthMessage: null,
+      providerAuthDetails: null,
+      providerAuthTimeoutId: null,
     });
   },
 
@@ -2001,6 +2105,117 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     });
   },
 
+  onProviderAuthStarted: (frame) => {
+    const state = get();
+    if (
+      !state.providerAuthenticating
+      || !state.providerAuthTarget
+      || state.providerAuthTarget.provider !== frame.provider
+      || state.providerAuthTarget.requestId !== frame.requestId
+    ) {
+      providerAuthDebug("ignored started frame without matching pending request", {
+        provider: frame.provider,
+        requestId: frame.requestId,
+        pendingProvider: state.providerAuthTarget?.provider,
+        pendingRequestId: state.providerAuthTarget?.requestId,
+        providerAuthenticating: state.providerAuthenticating,
+      });
+      return;
+    }
+    providerAuthDebug("started frame accepted", {
+      provider: frame.provider,
+      requestId: frame.requestId,
+      method: frame.method,
+      verificationUri: frame.verificationUri,
+      hasUserCode: frame.userCode.trim().length > 0,
+      message: frame.message,
+    });
+    set({
+      providerAuthMessage: frame.message ?? "Complete provider sign-in, then return to Kiln.",
+      providerAuthDetails: {
+        verificationUri: frame.verificationUri,
+        userCode: frame.userCode,
+      },
+      errorBanner: null,
+    });
+  },
+
+  onProviderAuthCompleted: (frame) => {
+    const state = get();
+    if (
+      !state.providerAuthenticating
+      || !state.providerAuthTarget
+      || state.providerAuthTarget.provider !== frame.provider
+      || state.providerAuthTarget.requestId !== frame.requestId
+    ) {
+      providerAuthDebug("ignored completed frame without matching pending request", {
+        provider: frame.provider,
+        requestId: frame.requestId,
+        pendingProvider: state.providerAuthTarget?.provider,
+        pendingRequestId: state.providerAuthTarget?.requestId,
+        providerAuthenticating: state.providerAuthenticating,
+      });
+      return;
+    }
+    providerAuthDebug("completed frame accepted", {
+      provider: frame.provider,
+      requestId: frame.requestId,
+      providerCount: frame.providers?.length,
+      modelCount: frame.models?.[frame.provider]?.length,
+      discovery: frame.providerDiscovery?.find((entry) => entry.provider === frame.provider),
+    });
+    if (state.providerAuthTimeoutId) {
+      clearTimeout(state.providerAuthTimeoutId);
+    }
+    set({
+      providers: normalizeProviderDescriptors(frame.providers ?? state.providers),
+      providerCatalogStatus: "ready",
+      providerCatalogError: null,
+      providerAuthenticating: false,
+      providerAuthTarget: null,
+      providerAuthMessage: null,
+      providerAuthDetails: null,
+      providerAuthTimeoutId: null,
+      errorBanner: null,
+    });
+  },
+
+  onProviderAuthFailed: (frame) => {
+    const state = get();
+    if (
+      !state.providerAuthenticating
+      || !state.providerAuthTarget
+      || state.providerAuthTarget.provider !== frame.provider
+      || state.providerAuthTarget.requestId !== frame.requestId
+    ) {
+      providerAuthDebug("ignored failed frame without matching pending request", {
+        provider: frame.provider,
+        requestId: frame.requestId,
+        pendingProvider: state.providerAuthTarget?.provider,
+        pendingRequestId: state.providerAuthTarget?.requestId,
+        providerAuthenticating: state.providerAuthenticating,
+        message: frame.message,
+      });
+      return;
+    }
+    providerAuthDebug("failed frame accepted", {
+      provider: frame.provider,
+      requestId: frame.requestId,
+      message: frame.message,
+    });
+    if (state.providerAuthTimeoutId) {
+      clearTimeout(state.providerAuthTimeoutId);
+    }
+    set({
+      providerAuthenticating: false,
+      providerAuthTarget: null,
+      providerAuthMessage: null,
+      providerAuthDetails: null,
+      providerAuthTimeoutId: null,
+      errorBanner: frame.message,
+    });
+  },
+
   onExecConfirmed: () => {
     persistPlanMode(false);
     set({ planMode: false, status: "ready", errorBanner: null });
@@ -2010,6 +2225,14 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     const state = get();
     const outboundSend = state.outboundSend;
     if (!outboundSend) {
+      return false;
+    }
+    if (state.providerCatalogStatus !== "ready") {
+      set({
+        errorBanner: state.providerCatalogStatus === "error"
+          ? state.providerCatalogError ?? "Provider catalog is unavailable. Refresh providers and retry."
+          : "Provider catalog is still loading. Please retry once startup completes.",
+      });
       return false;
     }
 
@@ -2085,7 +2308,77 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     return true;
   },
 
-  sendMessage: (text) => {
+  authenticateProvider: (provider, options = {}) => {
+    const state = get();
+    const outboundSend = state.outboundSend;
+    if (!outboundSend) {
+      return false;
+    }
+    if (state.providerAuthTimeoutId) {
+      clearTimeout(state.providerAuthTimeoutId);
+    }
+    const requestId = nextProviderAuthRequestId();
+    const timeoutId = setTimeout(() => {
+      const latest = get();
+      if (!latest.providerAuthenticating) return;
+      providerAuthDebug("timed out waiting for provider auth completion", {
+        provider,
+        requestId,
+      });
+      set({
+        providerAuthenticating: false,
+        providerAuthTarget: null,
+        providerAuthMessage: null,
+        providerAuthDetails: null,
+        providerAuthTimeoutId: null,
+        errorBanner: "Provider authentication timed out. Please retry.",
+      });
+    }, PROVIDER_AUTH_TIMEOUT_MS);
+
+    set({
+      providerAuthenticating: true,
+      providerAuthTarget: { provider, requestId },
+      providerAuthMessage: null,
+      providerAuthDetails: null,
+      providerAuthTimeoutId: timeoutId,
+      errorBanner: null,
+    });
+
+    try {
+      providerAuthDebug("sending provider_auth frame", {
+        provider,
+        requestId,
+        hasApiKey: Boolean(options.apiKey),
+        tier: options.tier,
+      });
+      outboundSend({
+        type: "provider_auth",
+        provider,
+        requestId,
+        ...(options.apiKey ? { apiKey: options.apiKey } : {}),
+        ...(options.tier ? { tier: options.tier } : {}),
+      });
+    } catch (error) {
+      clearTimeout(timeoutId);
+      providerAuthDebug("failed to send provider_auth frame", {
+        provider,
+        requestId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      set({
+        providerAuthenticating: false,
+        providerAuthTarget: null,
+        providerAuthMessage: null,
+        providerAuthDetails: null,
+        providerAuthTimeoutId: null,
+        errorBanner: error instanceof Error ? error.message : "Provider authentication failed.",
+      });
+      return false;
+    }
+    return true;
+  },
+
+  sendMessage: (text, options) => {
     const state = get();
     const outboundSend = state.outboundSend;
     if (state.status !== "ready" || !outboundSend) {
@@ -2130,6 +2423,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       content: normalized,
       planMode: state.planMode,
       resumeSessionId: state.resumeTargetId ?? undefined,
+      ...(options?.reasoningEffort ? { reasoningEffort: options.reasoningEffort } : {}),
     });
 
     return true;
@@ -2192,6 +2486,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     if (state.providerSwitchTimeoutId) {
       clearTimeout(state.providerSwitchTimeoutId);
     }
+    if (state.providerAuthTimeoutId) {
+      clearTimeout(state.providerAuthTimeoutId);
+    }
     set({
       status: "idle",
       activity: null,
@@ -2204,6 +2501,11 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       providerSwitching: false,
       providerSwitchTarget: null,
       providerSwitchTimeoutId: null,
+      providerAuthenticating: false,
+      providerAuthTarget: null,
+      providerAuthMessage: null,
+      providerAuthDetails: null,
+      providerAuthTimeoutId: null,
     });
   },
 

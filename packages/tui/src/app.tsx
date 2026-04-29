@@ -6,9 +6,14 @@
 import { execSync } from "node:child_process";
 import { createCliRenderer, TextRenderable } from "@opentui/core";
 import { getFieldStore } from "@kilnai/core";
-import { isGuiProviderModeless, type GuiProviderDiscoveryResult } from "@kilnai/gateway-contracts";
+import {
+  getGuiProviderMetadata,
+  isGuiProviderModeless,
+  type GuiProviderCatalogStatus,
+  type GuiProviderDiscoveryResult,
+} from "@kilnai/gateway-contracts";
 import type { SessionLike } from "./types.js";
-import type { Message, ResumeSidebarInfo, SessionListItem } from "./state.js";
+import type { Message, ReasoningEffort, ResumeSidebarInfo, SessionListItem } from "./state.js";
 import { createReactiveState, update } from "./state.js";
 import type { KilnTheme } from "./theme.js";
 import { defaultTheme, themes } from "./theme.js";
@@ -104,12 +109,42 @@ export async function startTui(
   let providerPickerState = {
     providerIndex: 0,
     modelIndex: 0,
-    mode: "providers" as "providers" | "models",
+    mode: "providers" as "providers" | "models" | "auth-key" | "auth-confirm",
+    authKeyBuffer: "",
   };
   let providerModels = Object.fromEntries(
     providerDisplayInfo.map((entry) => [entry.id, [...entry.models]]),
   ) as Record<string, string[]>;
   let providerDiscovery = providerDiscoveryRef?.current ?? [];
+  let providerCatalogStatus: GuiProviderCatalogStatus = "ready";
+  let providerCatalogError: string | null = null;
+
+  const isReasoningEffort = (value: unknown): value is ReasoningEffort => (
+    value === "minimal"
+    || value === "low"
+    || value === "medium"
+    || value === "high"
+    || value === "xhigh"
+  );
+  const syncReasoningEffort = () => {
+    const capabilities = providerDiscovery
+      .find((entry) => entry.provider === state.currentProvider)
+      ?.modelCapabilities?.[state.currentModel];
+    const supported = (capabilities?.supportedReasoningEfforts ?? []).filter(isReasoningEffort);
+    update(state, "supportedReasoningEfforts", supported);
+    if (supported.length === 0) {
+      if (state.currentReasoningEffort !== undefined) {
+        update(state, "currentReasoningEffort", undefined);
+      }
+      return;
+    }
+    const defaultEffort = isReasoningEffort(capabilities?.defaultReasoningEffort)
+      ? capabilities.defaultReasoningEffort
+      : supported[0]!;
+    if (!state.currentReasoningEffort || !supported.includes(state.currentReasoningEffort)) {
+      update(state, "currentReasoningEffort", defaultEffort);
+    }
+  };
   update(state, "currentProvider", provider);
   const initialProviderIndex = validProviders.findIndex((providerName) => providerName === provider);
   if (initialProviderIndex >= 0) {
@@ -120,11 +155,13 @@ export async function startTui(
       update(state, "currentModel", initialModel);
     }
   }
+  syncReasoningEffort();
 
   const SLASH_COMMANDS = [
     { id: "clear", trigger: "clear", title: "Clear session", description: "Start a new session", type: "builtin" as const },
     { id: "theme", trigger: "theme", title: "Change theme", description: "Switch color theme", type: "builtin" as const },
     { id: "provider", trigger: "provider", title: "Change provider", description: "Switch AI provider", type: "builtin" as const },
+    { id: "effort", trigger: "effort", title: "Change effort", description: "Cycle reasoning effort", type: "builtin" as const },
     { id: "resume", trigger: "resume", title: "Resume session", description: "Browse and resume previous sessions", type: "builtin" as const },
   ];
 
@@ -138,6 +175,7 @@ export async function startTui(
           validProviders.map((providerName) => [providerName, models[providerName] ?? []]),
         );
         providerDiscovery = providerDiscoveryRef?.current ?? providerDiscovery;
+        syncReasoningEffort();
         if (providerPicker) {
           renderProviderPicker();
         }
@@ -218,6 +256,11 @@ export async function startTui(
         return;
       }
 
+      if (text === "/effort") {
+        cycleReasoningEffort();
+        return;
+      }
+
       void sendMessage(
         {
           renderer,
@@ -248,6 +291,23 @@ export async function startTui(
       );
     },
   );
+
+  function cycleReasoningEffort(): void {
+    if (state.supportedReasoningEfforts.length === 0) {
+      ui.commandBarStatus.content = t`${fg(currentTheme.textMuted)("No reasoning effort options for this model")}`;
+      return;
+    }
+    const currentIndex = state.currentReasoningEffort
+      ? state.supportedReasoningEfforts.indexOf(state.currentReasoningEffort)
+      : -1;
+    const nextEffort = state.supportedReasoningEfforts[
+      (currentIndex + 1) % state.supportedReasoningEfforts.length
+    ];
+    if (!nextEffort) return;
+    update(state, "currentReasoningEffort", nextEffort);
+    renderSidebarProvider(state, currentTheme, ui, domain);
+    ui.commandBarStatus.content = t`${fg(currentTheme.accent)(`Reasoning effort: ${nextEffort}`)}`;
+  }
 
   renderSidebarCost(state, currentTheme, ui);
   renderSidebarTurns(state, currentTheme, ui);
@@ -324,9 +384,31 @@ export async function startTui(
     return models.length > 0 || isGuiProviderModeless(providerName);
   }
 
+  function providerCanAuthenticate(providerName: string): boolean {
+    const metadata = getGuiProviderMetadata(providerName);
+    if (!metadata?.authMethod) {
+      return false;
+    }
+    const discovery = getProviderDiscovery(providerName);
+    if (!discovery || discovery.available) {
+      return false;
+    }
+    return discovery.authState === "missing"
+      || discovery.authState === "expired"
+      || /auth|api[_ -]?key|credential/i.test(discovery.reason);
+  }
+
   function getProviderReason(providerName: string): string | undefined {
     const reason = getProviderDiscovery(providerName)?.reason ?? providerInfoById.get(providerName)?.reason;
     return reason ? conciseUnavailableReason(reason) : undefined;
+  }
+
+  function markProviderCatalog(status: GuiProviderCatalogStatus, error: string | null = null): void {
+    providerCatalogStatus = status;
+    providerCatalogError = error;
+    if (providerPicker) {
+      renderProviderPicker();
+    }
   }
 
   function conciseUnavailableReason(reason: string): string {
@@ -413,6 +495,29 @@ export async function startTui(
     clearPickerRows();
 
     const scrollContent = providerPicker.scrollBox.content;
+    if (providerCatalogStatus !== "ready") {
+      providerPicker.mode = "providers";
+      providerPicker.title.content = t`${fg(currentTheme.accent)(" Providers ")}`;
+      const loadingLabel = providerCatalogStatus === "error"
+        ? (providerCatalogError ?? "Provider discovery failed.")
+        : providerCatalogStatus === "refreshing"
+          ? "Refreshing provider and model discovery..."
+          : "Loading provider and model discovery...";
+      const row = makePickerRow(
+        "provider-catalog-status",
+        loadingLabel,
+        true,
+        providerCatalogStatus === "error" ? currentTheme.error : currentTheme.accent,
+        currentTheme.textMuted,
+        "",
+      );
+      scrollContent.add(row);
+      providerPicker.rows.push(row);
+      providerPicker.hint.content = providerCatalogStatus === "error"
+        ? t`${fg(currentTheme.textMuted)("r retry  Esc cancel")}`
+        : t`${fg(currentTheme.textMuted)("please wait  Esc cancel")}`;
+      return;
+    }
 
     if (providerPickerState.mode === "providers") {
       providerPicker.mode = "providers";
@@ -436,9 +541,12 @@ export async function startTui(
           const label = getProviderLabel(providerName);
           const reason = getProviderReason(providerName);
           const selectable = providerIsSelectable(providerName);
+          const authenticatable = providerCanAuthenticate(providerName);
           const row = makePickerRow(
             getProviderRowId(providerName),
-            selectable || !reason ? label : `${label} - ${reason}`,
+            selectable || !reason
+              ? label
+              : `${label} - ${authenticatable ? "sign in" : reason}`,
             selected,
             currentTheme.accent,
             currentTheme.textMuted,
@@ -449,7 +557,46 @@ export async function startTui(
         }
       }
 
-      providerPicker.hint.content = t`${fg(currentTheme.textMuted)("↑↓ navigate  Enter models  r refresh  Esc cancel")}`;
+      providerPicker.hint.content = t`${fg(currentTheme.textMuted)("↑↓ navigate  Enter select/login  r refresh  Esc cancel")}`;
+      return;
+    }
+
+    if (providerPickerState.mode === "auth-key") {
+      providerPicker.mode = "auth-key";
+      const providerName = getCurrentProvider();
+      providerPicker.title.content = t`${fg(currentTheme.accent)(` ${providerName} API key `)}`;
+      const masked = providerPickerState.authKeyBuffer.length > 0
+        ? "*".repeat(Math.min(providerPickerState.authKeyBuffer.length, 48))
+        : "<paste key>";
+      const row = makePickerRow(
+        `provider-auth-key-${providerName}`,
+        masked,
+        true,
+        currentTheme.primary,
+        currentTheme.textMuted,
+        "",
+      );
+      scrollContent.add(row);
+      providerPicker.rows.push(row);
+      providerPicker.hint.content = t`${fg(currentTheme.textMuted)("paste key  Backspace edit  Enter link  Esc back")}`;
+      return;
+    }
+
+    if (providerPickerState.mode === "auth-confirm") {
+      providerPicker.mode = "auth-confirm";
+      const providerName = getCurrentProvider();
+      providerPicker.title.content = t`${fg(currentTheme.accent)(` Authenticate ${providerName} `)}`;
+      const row = makePickerRow(
+        `provider-auth-confirm-${providerName}`,
+        `Press Enter to start browser sign-in for ${providerName}`,
+        true,
+        currentTheme.primary,
+        currentTheme.textMuted,
+        "",
+      );
+      scrollContent.add(row);
+      providerPicker.rows.push(row);
+      providerPicker.hint.content = t`${fg(currentTheme.textMuted)("Enter authenticate  Esc back")}`;
       return;
     }
 
@@ -500,14 +647,14 @@ export async function startTui(
         const reason = getProviderReason(prevProvider);
         const label = providerIsSelectable(prevProvider) || !reason
           ? getProviderLabel(prevProvider)
-          : `${getProviderLabel(prevProvider)} - ${reason}`;
+          : `${getProviderLabel(prevProvider)} - ${providerCanAuthenticate(prevProvider) ? "sign in" : reason}`;
         prevRow.content = t`${fg(currentTheme.textMuted)(`○ ${label}`)}`;
       }
       if (nextRow) {
         const reason = getProviderReason(nextProvider);
         const label = providerIsSelectable(nextProvider) || !reason
           ? getProviderLabel(nextProvider)
-          : `${getProviderLabel(nextProvider)} - ${reason}`;
+          : `${getProviderLabel(nextProvider)} - ${providerCanAuthenticate(nextProvider) ? "sign in" : reason}`;
         nextRow.content = t`${fg(currentTheme.accent)(`● ${label}`)}`;
       }
       return;
@@ -619,6 +766,11 @@ export async function startTui(
     }
 
     try {
+      if (providerCatalogStatus !== "ready") {
+        throw new Error(providerCatalogStatus === "error"
+          ? (providerCatalogError ?? "Provider discovery is unavailable")
+          : "Provider discovery is still loading");
+      }
       const selectedProvider = getCurrentProvider();
       if (!providerIsSelectable(selectedProvider)) {
         throw new Error(getProviderReason(selectedProvider) ?? `Provider '${selectedProvider}' is unavailable`);
@@ -655,6 +807,7 @@ export async function startTui(
 
       update(state, "currentProvider", selectedProvider);
       update(state, "currentModel", selectedModel);
+      syncReasoningEffort();
       update(state, "routeMode", "user");
       update(state, "providerPickerIndex", providerPickerState.providerIndex);
       renderSidebarProvider(state, currentTheme, ui, domain);
@@ -672,6 +825,8 @@ export async function startTui(
 
   async function refreshProviderDiscoveryFromPicker(): Promise<void> {
     if (!providerPicker) return;
+    markProviderCatalog("refreshing");
+    ui.commandBarStatus.content = t`${fg(currentTheme.accent)("Refreshing provider and model discovery...")}`;
     try {
       const session = await createSession();
       const sessionRefreshProviders = (
@@ -688,6 +843,7 @@ export async function startTui(
           validProviders.map((providerName) => [providerName, refreshedModels[providerName] ?? []]),
         );
       }
+      markProviderCatalog("ready");
       renderProviderPicker();
       process.nextTick(() => {
         scrollToSelectedRow(false);
@@ -697,6 +853,7 @@ export async function startTui(
       const message = error instanceof Error && error.message.trim().length > 0
         ? error.message
         : "Provider discovery refresh failed";
+      markProviderCatalog("error", message);
       ui.commandBarStatus.content = t`${fg(currentTheme.error)(`Provider discovery refresh failed: ${message}`)}`;
     }
   }
@@ -706,6 +863,7 @@ export async function startTui(
     if (providerPickerState.mode === "providers") return;
 
     providerPickerState.mode = "providers";
+    providerPickerState.authKeyBuffer = "";
     renderProviderPicker();
     providerPicker.scrollBox.scrollTo(0);
     process.nextTick(() => {
@@ -728,6 +886,61 @@ export async function startTui(
     process.nextTick(() => {
       scrollToSelectedRow(true);
     });
+  }
+
+  async function authenticateSelectedProvider(apiKey?: string): Promise<void> {
+    const selectedProvider = getCurrentProvider();
+    const metadata = getGuiProviderMetadata(selectedProvider);
+    if (!metadata?.authMethod) {
+      ui.commandBarStatus.content = t`${fg(currentTheme.error)(`Provider '${selectedProvider}' does not support interactive authentication`)}`;
+      return;
+    }
+    markProviderCatalog("refreshing");
+    ui.commandBarStatus.content = t`${fg(currentTheme.accent)("Provider authentication in progress...")}`;
+    try {
+      const session = await createSession();
+      const authenticateProvider = (
+        session as unknown as {
+          authenticateProvider?: (
+            providerName: string,
+            options?: {
+              readonly apiKey?: string;
+              readonly tier?: "go" | "zen";
+              readonly onStarted?: (details: { verificationUri: string; userCode: string; message?: string }) => void;
+            },
+          ) => Promise<void>;
+        }
+      ).authenticateProvider;
+      if (typeof authenticateProvider !== "function") {
+        throw new Error("Active session does not support provider authentication");
+      }
+      await authenticateProvider(selectedProvider, {
+        ...(apiKey ? { apiKey } : {}),
+        ...(metadata.authTier ? { tier: metadata.authTier } : {}),
+        onStarted: (details) => {
+          ui.commandBarStatus.content = t`${fg(currentTheme.accent)(`Open ${details.verificationUri} and enter ${details.userCode}`)}`;
+        },
+      });
+      await refreshProviders?.();
+      providerDiscovery = providerDiscoveryRef?.current ?? providerDiscovery;
+      const refreshedModels = providerModelsRef?.current;
+      if (refreshedModels) {
+        providerModels = Object.fromEntries(
+          validProviders.map((providerName) => [providerName, refreshedModels[providerName] ?? []]),
+        );
+      }
+      markProviderCatalog("ready");
+      providerPickerState.mode = "providers";
+      providerPickerState.authKeyBuffer = "";
+      renderProviderPicker();
+      ui.commandBarStatus.content = t`${fg(currentTheme.accent)("Provider authentication completed")}`;
+    } catch (error) {
+      const message = error instanceof Error && error.message.trim().length > 0
+        ? error.message
+        : "Provider authentication failed";
+      markProviderCatalog("error", message);
+      ui.commandBarStatus.content = t`${fg(currentTheme.error)(`Provider authentication failed: ${message}`)}`;
+    }
   }
 
   function navigateProviderPicker(direction: number): void {
@@ -1029,7 +1242,14 @@ export async function startTui(
       if (!providerPicker) return;
 
       if (key.sequence === "\x1b") {
-        if (providerPickerState.mode === "models") {
+        if (
+          providerCatalogStatus === "ready"
+          && (
+            providerPickerState.mode === "models"
+            || providerPickerState.mode === "auth-key"
+            || providerPickerState.mode === "auth-confirm"
+          )
+        ) {
           returnToProviderMode();
           return;
         }
@@ -1037,9 +1257,28 @@ export async function startTui(
         return;
       }
 
+      if (providerCatalogStatus !== "ready") {
+        if (providerCatalogStatus !== "refreshing" && key.name === "r") {
+          void refreshProviderDiscoveryFromPicker();
+        }
+        return;
+      }
+
       if (key.sequence === "\r" || key.sequence === "\n") {
         if (providerPickerState.mode === "providers") {
           const selectedProvider = getCurrentProvider();
+          if (!providerIsSelectable(selectedProvider) && providerCanAuthenticate(selectedProvider)) {
+            const metadata = getGuiProviderMetadata(selectedProvider);
+            if (metadata?.authMethod === "api_key") {
+              providerPickerState.mode = "auth-key";
+              providerPickerState.authKeyBuffer = "";
+              renderProviderPicker();
+              return;
+            }
+            providerPickerState.mode = "auth-confirm";
+            renderProviderPicker();
+            return;
+          }
           if (
             getCurrentModels().length === 0
             && isGuiProviderModeless(selectedProvider)
@@ -1051,7 +1290,38 @@ export async function startTui(
           enterModelMode();
           return;
         }
+        if (providerPickerState.mode === "auth-key") {
+          const apiKey = providerPickerState.authKeyBuffer.trim();
+          if (apiKey.length === 0) {
+            ui.commandBarStatus.content = t`${fg(currentTheme.error)("API key is required")}`;
+            return;
+          }
+          void authenticateSelectedProvider(apiKey);
+          return;
+        }
+        if (providerPickerState.mode === "auth-confirm") {
+          void authenticateSelectedProvider();
+          return;
+        }
         void closeProviderPicker(true);
+        return;
+      }
+
+      if (providerPickerState.mode === "auth-key") {
+        if (key.name === "backspace" || key.sequence === "\x7f" || key.sequence === "\b") {
+          providerPickerState.authKeyBuffer = providerPickerState.authKeyBuffer.slice(0, -1);
+          renderProviderPicker();
+          return;
+        }
+        if (typeof key.sequence === "string" && key.sequence.length === 1 && key.sequence >= " ") {
+          providerPickerState.authKeyBuffer += key.sequence;
+          renderProviderPicker();
+          return;
+        }
+        return;
+      }
+
+      if (providerPickerState.mode === "auth-confirm") {
         return;
       }
 
@@ -1078,6 +1348,11 @@ export async function startTui(
         return;
       }
 
+      return;
+    }
+
+    if (key.ctrl && key.name === "e") {
+      cycleReasoningEffort();
       return;
     }
 
@@ -1210,7 +1485,7 @@ export async function startTui(
       }
 
       // Process slash commands (must check before session resume check)
-      if (inputText === "/clear" || inputText === "/theme" || inputText === "/provider" || inputText === "/resume" || inputText === "/plan") {
+      if (inputText === "/clear" || inputText === "/theme" || inputText === "/provider" || inputText === "/effort" || inputText === "/resume" || inputText === "/plan") {
         // Commands are handled after clearing input
         ui.inputTextarea.clear();
         update(state, "input", "");
@@ -1249,6 +1524,11 @@ export async function startTui(
 
           if (inputText === "/provider") {
             openProviderPicker();
+            return;
+          }
+
+          if (inputText === "/effort") {
+            cycleReasoningEffort();
             return;
           }
 

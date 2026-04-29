@@ -145,6 +145,7 @@ export function renderSidebarProvider(
   const provider = isResponding ? (state.respondingProvider ?? state.currentProvider) : state.currentProvider;
   const model = isResponding ? (state.respondingModel ?? state.currentModel) : state.currentModel;
   const modelStr = model ? ` · ${model}` : "";
+  const effortStr = state.currentReasoningEffort ? ` · ${state.currentReasoningEffort}` : "";
   const planBadge = state.planMode ? ` ${fg(theme.warning)("PLAN")}` : "";
   const routeMode = isResponding
     ? " responding"
@@ -152,7 +153,7 @@ export function renderSidebarProvider(
       ? " auto"
       : " via user";
   const routeStr = state.planMode ? "" : fg(theme.textMuted)(routeMode);
-  ui.sidebarProviderText.content = t`${fg(theme.accent)("[" + provider + "]")}${planBadge} ${fg(theme.text)(domain + modelStr)}${routeStr}`;
+  ui.sidebarProviderText.content = t`${fg(theme.accent)("[" + provider + "]")}${planBadge} ${fg(theme.text)(domain + modelStr + effortStr)}${routeStr}`;
 }
 
 /**

@@ -122,6 +122,19 @@ transparent textarea, and a bottom action rail for command, file, approval,
 plan, route, and send affordances. Avoid large detached input cards, duplicate
 status headers, or controls that push the transcript out of view.
 
+Provider/model selection and reasoning effort live in the composer action rail
+because they shape the next submitted turn. The reasoning control appears only
+when the active discovered model advertises `supportedReasoningEfforts`; it
+defaults to the model's advertised `defaultReasoningEffort` when present. The
+selected effort is sent with the next message frame and is not a global GUI
+preference.
+
+For Codex OAuth, the model catalog is discovered from the authenticated Codex
+model endpoint. Reasoning levels are derived from that catalog, including the
+object-shaped `supported_reasoning_levels` response returned by ChatGPT-backed
+Codex models. Do not add a static reasoning fallback in the GUI; if discovery
+does not advertise levels, the control must stay hidden.
+
 ## Session Model
 
 The GUI session rail shows canonical Kiln sessions. It is not filtered by the
@@ -151,6 +164,11 @@ show the first canonical Kiln session ID and the assistant has the selected
 conversation's prior context. Provider switching should still produce one
 continued Kiln conversation with per-provider telemetry attribution, not
 separate provider-owned histories.
+
+For reasoning validation, select a Codex OAuth model that advertises reasoning
+levels, choose a non-default effort from the composer control, and send a turn.
+The request should complete through the same runtime session and the selected
+effort should apply only to that turn.
 
 See `docs/architecture/session-model.md` for the canonical rules.
 

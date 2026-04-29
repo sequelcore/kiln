@@ -479,7 +479,10 @@ export async function sendMessage(
   };
 
   try {
-    for await (const event of session.run({ prompt: text })) {
+    for await (const event of session.run({
+      prompt: text,
+      reasoningEffort: ctx.state.currentReasoningEffort,
+    })) {
       switch (event.type) {
         case "text_delta":
           if (event.content) {

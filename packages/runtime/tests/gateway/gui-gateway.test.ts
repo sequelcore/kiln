@@ -781,13 +781,13 @@ describe("startGuiGateway static mount", () => {
     }
   });
 
-  it("refreshes provider models before accepting a provider switch", async () => {
+  it("uses the initial provider catalog when accepting a provider switch before socket welcome", async () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
     const resolveGuiOperatorDiscoverySpy = vi
       .spyOn(guiProviderModelsModule, "resolveGuiOperatorDiscoveryResults")
       .mockResolvedValueOnce(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }))
-      .mockResolvedValueOnce(makeGuiOperatorDiscoveryFromModels({ openai: ["gpt-5.4"] }));
+      .mockImplementationOnce(() => new Promise(() => undefined));
     const setProvider = vi.fn();
     const setModel = vi.fn();
     vi.stubGlobal("Bun", {
@@ -825,12 +825,84 @@ describe("startGuiGateway static mount", () => {
         wsCtx,
       );
 
-      expect(mockWs.send).toHaveBeenCalledWith(JSON.stringify({
-        type: "error",
-        message: `Provider 'openai' does not advertise model '${GPT4O}'`,
-      }));
-      expect(setProvider).not.toHaveBeenCalled();
-      expect(setModel).not.toHaveBeenCalled();
+      expect(resolveGuiOperatorDiscoverySpy).toHaveBeenCalledTimes(1);
+      expect(setProvider).toHaveBeenCalledWith("openai");
+      expect(setModel).toHaveBeenCalledWith(GPT4O);
+      const outboundFrames = mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string) as { type: string });
+      expect(outboundFrames).toContainEqual({
+        type: "provider_changed",
+        provider: "openai",
+        requestId: "request-drift",
+        model: GPT4O,
+      });
+    } finally {
+      resolveGuiOperatorDiscoverySpy.mockRestore();
+      gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
+
+  it("uses the ready provider catalog for provider switches instead of blocking on a cold rediscovery", async () => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    const resolveGuiOperatorDiscoverySpy = vi
+      .spyOn(guiProviderModelsModule, "resolveGuiOperatorDiscoveryResults")
+      .mockResolvedValueOnce(makeGuiOperatorDiscoveryFromModels({ "codex-oauth": ["gpt-5.4"] }))
+      .mockResolvedValueOnce(makeGuiOperatorDiscoveryFromModels({ "codex-oauth": ["gpt-5.4"] }))
+      .mockImplementationOnce(() => new Promise(() => undefined));
+    const setProvider = vi.fn();
+    const setModel = vi.fn();
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
+        port: port ?? 4810,
+        stop,
+      })),
+    });
+
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+
+    try {
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        getSnapshot: async () => ({ } as never),
+        operatorTransport: {
+          sessionManager: {
+            factory: vi.fn() as never,
+            getProvider: () => "",
+            setProvider,
+            getModel: () => "",
+            setModel,
+          },
+        },
+      });
+
+      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
+      await handlers.onOpen?.(new Event("open"), wsCtx);
+
+      await handlers.onMessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            type: "provider",
+            provider: "codex-oauth",
+            model: "gpt-5.4",
+            requestId: "request-codex-oauth",
+          }),
+        }),
+        wsCtx,
+      );
+
+      expect(resolveGuiOperatorDiscoverySpy).toHaveBeenCalledTimes(2);
+      expect(setProvider).toHaveBeenCalledWith("codex-oauth");
+      expect(setModel).toHaveBeenCalledWith("gpt-5.4");
+      const outboundFrames = mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string) as { type: string });
+      expect(outboundFrames).toContainEqual({
+        type: "provider_changed",
+        provider: "codex-oauth",
+        requestId: "request-codex-oauth",
+        model: "gpt-5.4",
+      });
     } finally {
       resolveGuiOperatorDiscoverySpy.mockRestore();
       gateway?.shutdown();
@@ -2552,15 +2624,38 @@ describe("discoverGuiDirectProviderModelDiscovery", () => {
     const codexAuthSpy = vi
       .spyOn(CodexOAuthAuth.prototype, "getValidAccessToken")
       .mockResolvedValue("test-codex-token");
-    const fetchSpy = vi.fn(async (url: string) => ({
-      ok: url === "https://chatgpt.com/backend-api/codex/models",
-      json: async () => ({
-        models: [
-          { slug: "gpt-5.4" },
-          { slug: "gpt-5.4-mini" },
-        ],
-      }),
-    }));
+    const fetchSpy = vi.fn(async (url: string) => {
+      const requestedUrl = new URL(url);
+      return {
+        ok: (
+          requestedUrl.origin === "https://chatgpt.com"
+          && requestedUrl.pathname === "/backend-api/codex/models"
+          && requestedUrl.searchParams.get("client_version") === "1.0.7"
+        ),
+        json: async () => ({
+          models: [
+            {
+              slug: "gpt-5.4",
+              shell_type: "shell_command",
+              apply_patch_tool_type: "freeform",
+              supports_parallel_tool_calls: true,
+              context_window: 272000,
+              input_modalities: ["text", "image"],
+              default_reasoning_level: "medium",
+              supported_reasoning_levels: [
+                { effort: "low", description: "Fast responses with lighter reasoning" },
+                { effort: "medium", description: "Balances speed and reasoning depth" },
+                { effort: "high", description: "Greater reasoning depth" },
+              ],
+            },
+            {
+              slug: "gpt-5.4-mini",
+              shell_type: "disabled",
+            },
+          ],
+        }),
+      };
+    });
     vi.stubGlobal("fetch", fetchSpy);
 
     try {
@@ -2570,12 +2665,36 @@ describe("discoverGuiDirectProviderModelDiscovery", () => {
       const discovered = await discoverGuiDirectProviderModelDiscovery(providerAvailability);
       const models = projectDirectProviderDiscoveryForTest(discovered, providerAvailability);
       expect(models["codex-oauth"]).toEqual(["gpt-5.4", "gpt-5.4-mini"]);
-      expect(fetchSpy).toHaveBeenCalledWith(
-        "https://chatgpt.com/backend-api/codex/models",
-        expect.objectContaining({
-          headers: { Authorization: "Bearer test-codex-token" },
-        }),
-      );
+      expect(discovered["codex-oauth"]?.modelCapabilities).toEqual({
+        "gpt-5.4": {
+          supportsTools: true,
+          supportsParallelToolCalls: true,
+          contextWindow: 272000,
+          supportsVision: true,
+          defaultReasoningEffort: "medium",
+          supportedReasoningEfforts: ["low", "medium", "high"],
+        },
+        "gpt-5.4-mini": {
+          supportsTools: false,
+        },
+      });
+      const discoveryResults = buildGuiOperatorDiscoveryResults({
+        opencodeModels: [],
+        codexModels: [],
+        providerAvailability,
+        directProviderDiscovery: discovered,
+        lastCheckedAt: "2026-04-28T12:00:00.000Z",
+      });
+      expect(discoveryResults.find((entry) => entry.provider === "codex-oauth")?.modelCapabilities)
+        .toEqual(discovered["codex-oauth"]?.modelCapabilities);
+      const [url, options] = fetchSpy.mock.calls[0] ?? [];
+      const requestedUrl = new URL(String(url));
+      expect(requestedUrl.origin).toBe("https://chatgpt.com");
+      expect(requestedUrl.pathname).toBe("/backend-api/codex/models");
+      expect(requestedUrl.searchParams.get("client_version")).toBe("1.0.7");
+      expect(options).toEqual(expect.objectContaining({
+        headers: { Authorization: "Bearer test-codex-token" },
+      }));
     } finally {
       codexAuthSpy.mockRestore();
     }
@@ -2630,7 +2749,7 @@ describe("discoverGuiDirectProviderModelDiscovery", () => {
   it("diagnoses codex-oauth model endpoint failure", async () => {
     const codexAuthSpy = vi
       .spyOn(CodexOAuthAuth.prototype, "getValidAccessToken")
-      .mockResolvedValue("test-codex-token");
+      .mockResolvedValue("test-codex-token-endpoint-failure");
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 503 })));
 
     try {
@@ -2651,7 +2770,7 @@ describe("discoverGuiDirectProviderModelDiscovery", () => {
   it("diagnoses an empty codex-oauth model response", async () => {
     const codexAuthSpy = vi
       .spyOn(CodexOAuthAuth.prototype, "getValidAccessToken")
-      .mockResolvedValue("test-codex-token");
+      .mockResolvedValue("test-codex-token-empty-models");
     vi.stubGlobal("fetch", vi.fn(async () => ({
       ok: true,
       json: async () => ({ models: [] }),
@@ -2667,6 +2786,37 @@ describe("discoverGuiDirectProviderModelDiscovery", () => {
         reason: "Codex OAuth model endpoint returned an empty model list.",
         authState: "unknown",
       });
+    } finally {
+      codexAuthSpy.mockRestore();
+    }
+  });
+
+  it("reuses in-flight and cached codex-oauth model discovery", async () => {
+    const codexAuthSpy = vi
+      .spyOn(CodexOAuthAuth.prototype, "getValidAccessToken")
+      .mockResolvedValue("test-codex-token-cache");
+    const fetchSpy = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        models: [{ slug: "gpt-5.4" }],
+      }),
+    }));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    try {
+      const providerAvailability = {
+        "codex-oauth": true,
+      };
+      const [first, second] = await Promise.all([
+        discoverGuiDirectProviderModelDiscovery(providerAvailability),
+        discoverGuiDirectProviderModelDiscovery(providerAvailability),
+      ]);
+      const third = await discoverGuiDirectProviderModelDiscovery(providerAvailability);
+
+      expect(projectDirectProviderDiscoveryForTest(first, providerAvailability)["codex-oauth"]).toEqual(["gpt-5.4"]);
+      expect(projectDirectProviderDiscoveryForTest(second, providerAvailability)["codex-oauth"]).toEqual(["gpt-5.4"]);
+      expect(projectDirectProviderDiscoveryForTest(third, providerAvailability)["codex-oauth"]).toEqual(["gpt-5.4"]);
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
     } finally {
       codexAuthSpy.mockRestore();
     }

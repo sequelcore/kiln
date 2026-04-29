@@ -1,12 +1,11 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { ChangedFilesPanel } from "../src/components/changed-files-panel.js";
 
 describe("ChangedFilesPanel", () => {
   it("renders file entries and shows selected file review details", () => {
     render(
       <ChangedFilesPanel
-        onStartNewSession={() => undefined}
         files={[
           {
             path: "packages/gui/src/components/app-shell.tsx",
@@ -44,16 +43,13 @@ describe("ChangedFilesPanel", () => {
     expect(within(review).getByText("Diff preview is not available for this file-change event.")).toBeInTheDocument();
   });
 
-  it("exposes the new-session action from the review panel", () => {
-    const onStartNewSession = vi.fn();
+  it("keeps new-session out of the changed-files panel chrome", () => {
     render(
       <ChangedFilesPanel
-        onStartNewSession={onStartNewSession}
         files={[]}
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "New Session" }));
-    expect(onStartNewSession).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: "New Session" })).not.toBeInTheDocument();
   });
 });

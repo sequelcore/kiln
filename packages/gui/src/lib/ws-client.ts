@@ -18,9 +18,17 @@ const GuiOutboundFrameSchema = z.discriminatedUnion("type", [
     content: z.string(),
     planMode: z.boolean().optional(),
     resumeSessionId: z.string().optional(),
+    reasoningEffort: z.enum(["minimal", "low", "medium", "high", "xhigh"]).optional(),
   }),
   z.object({ type: z.literal("clear") }),
   z.object({ type: z.literal("refresh_providers") }),
+  z.object({
+    type: z.literal("provider_auth"),
+    provider: z.string(),
+    requestId: z.string().trim().min(1),
+    apiKey: z.string().optional(),
+    tier: z.enum(["go", "zen"]).optional(),
+  }),
   z.object({
     type: z.literal("provider"),
     provider: z.string(),
@@ -56,10 +64,22 @@ const GuiProviderDescriptorSchema = z.object({
   lastCheckedAt: z.string().optional(),
 });
 
+const GuiProviderModelCapabilitiesSchema = z.object({
+  supportsTools: z.boolean().optional(),
+  supportsStreaming: z.boolean().optional(),
+  supportsStructuredOutput: z.boolean().optional(),
+  supportsVision: z.boolean().optional(),
+  supportsParallelToolCalls: z.boolean().optional(),
+  contextWindow: z.number().optional(),
+  defaultReasoningEffort: z.enum(["minimal", "low", "medium", "high", "xhigh"]).optional(),
+  supportedReasoningEfforts: z.array(z.enum(["minimal", "low", "medium", "high", "xhigh"])).optional(),
+});
+
 const GuiProviderDiscoveryResultSchema = z.object({
   provider: z.string(),
   available: z.boolean(),
   models: z.array(z.string()),
+  modelCapabilities: z.record(z.string(), GuiProviderModelCapabilitiesSchema).optional(),
   status: z.enum([
     "available",
     "missing_auth",
@@ -163,6 +183,29 @@ const GuiInboundFrameSchema = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("exec_confirmed") }),
   z.object({ type: z.literal("cleared") }),
+  z.object({
+    type: z.literal("provider_auth_started"),
+    provider: z.string(),
+    requestId: z.string().trim().min(1),
+    method: z.literal("device_code"),
+    verificationUri: z.string(),
+    userCode: z.string(),
+    message: z.string().optional(),
+  }),
+  z.object({
+    type: z.literal("provider_auth_completed"),
+    provider: z.string(),
+    requestId: z.string().trim().min(1),
+    models: z.record(z.array(z.string())),
+    providerDiscovery: z.array(GuiProviderDiscoveryResultSchema),
+    providers: z.array(GuiProviderDescriptorSchema).optional(),
+  }),
+  z.object({
+    type: z.literal("provider_auth_failed"),
+    provider: z.string(),
+    requestId: z.string().trim().min(1),
+    message: z.string(),
+  }),
   z.object({
     type: z.literal("providers_refreshed"),
     models: z.record(z.array(z.string())),
@@ -272,6 +315,8 @@ export class GuiWsClient {
       this.ws.send(JSON.stringify(frame));
     } else if (frame.type === "provider") {
       throw new Error("Cannot send provider switch while WebSocket is not open");
+    } else if (frame.type === "provider_auth") {
+      throw new Error("Cannot send provider authentication while WebSocket is not open");
     } else {
       // Queue for later when not open
       if (this.outboundQueue.length >= OUTBOUND_QUEUE_MAX) {

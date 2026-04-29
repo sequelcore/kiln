@@ -116,6 +116,22 @@ vi.mock("../src/components/session-list.js", () => ({
   SessionList: () => <div data-testid="session-list">Session list</div>,
 }));
 
+vi.mock("../src/components/workspace-panel.js", () => ({
+  WorkspacePanel: () => <div>Workspace</div>,
+}));
+
+vi.mock("../src/components/changed-files-panel.js", () => ({
+  ChangedFilesPanel: () => <div>Changed files</div>,
+}));
+
+vi.mock("../src/components/approvals-panel.js", () => ({
+  ApprovalsPanel: () => <div>Approvals</div>,
+}));
+
+vi.mock("../src/components/activity-log-panel.js", () => ({
+  ActivityLogPanel: () => <div>Activity</div>,
+}));
+
 function installMatchMedia(matches: boolean): void {
   const listeners = new Set<(event: MediaQueryListEvent) => void>();
   vi.stubGlobal("matchMedia", (query: string) => ({
@@ -152,6 +168,8 @@ function resetStore(): void {
     planMode: false,
     activity: null,
     errorBanner: null,
+    providerCatalogStatus: "ready",
+    providerCatalogError: null,
     providers: [],
     activeProvider: "claude",
     activeModel: "claude-sonnet-4-6",
@@ -214,7 +232,7 @@ describe("AppShell responsive sidebar", () => {
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Open session drawer" })).toBeInTheDocument();
     });
-    expect(screen.getByRole("button", { name: "New Session" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Theme" })).toBeInTheDocument();
 
     expect(screen.queryByRole("dialog", { name: "Sessions drawer" })).not.toBeInTheDocument();
 

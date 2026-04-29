@@ -74,6 +74,9 @@ Show:
 - Provider picker with all grouped providers visible.
 - Provider switch acknowledgement in the GUI status/header.
 - Model selection for at least one provider with visible model label.
+- Reasoning effort control visible beside model selection for a model that
+  advertises supported reasoning levels, such as Codex OAuth.
+- One turn submitted with a non-default reasoning effort.
 - A turn whose route status changes to `responding`.
 - The final assistant message header showing the routed provider and model.
 - A single session that contains turns from at least two providers without the
@@ -83,6 +86,8 @@ Pass condition:
 
 - Provider choice, model choice, route status, and final assistant route label
   are all visible and coherent.
+- Reasoning effort is discoverability-driven: visible when supported by the
+  active model, hidden when unsupported, and applied to the next turn only.
 - Provider switching changes the next execution route only; it does not create
   or reveal a provider-owned session namespace.
 

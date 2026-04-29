@@ -10,6 +10,7 @@ import {
   type ApprovalRequestedEvent,
   type KilnEvent,
   type ModelRoutedEvent,
+  type ReasoningEffort,
   type ToolAuthorizedEvent,
 } from "@kilnai/core";
 import { CliSubscriptionExecutor } from "../execution/cli-subscription-executor.js";
@@ -37,6 +38,7 @@ import {
   resolveGuiOperatorDiscoveryResults,
   resolveGuiProviderSwitch,
 } from "./gui-provider-models.js";
+import { startProviderAuthRequest } from "./provider-auth.js";
 import {
   buildAttachedRuntimePerCallToolConfig,
   createAttachedRuntimeBuiltinToolSurface,
@@ -48,6 +50,8 @@ import {
   type GuiInboundFrame,
   type GuiOutboundFrame,
   type GuiProviderDiscoveryResult,
+  type GuiProviderModelCapabilities,
+  type GuiProviderReasoningEffort,
   type GuiSessionDetail,
   type GuiSessionSummary,
 } from "@kilnai/gateway-contracts";
@@ -95,6 +99,13 @@ export interface GuiGateway {
 
 const GUI_APP_NAME = "kiln-gui";
 const GUI_TENANT_ID = "_gui";
+
+function guiProviderAuthDebug(message: string, context?: Record<string, unknown>): void {
+  if (!/^(1|true|yes)$/i.test(process.env.KILN_PROVIDER_AUTH_DEBUG?.trim() ?? "")) {
+    return;
+  }
+  console.warn(`[gui-gateway:provider-auth][debug] ${message}`, context ?? {});
+}
 
 export function buildGuiPerCallToolConfig(): PerCallToolConfig {
   return buildAttachedRuntimePerCallToolConfig({
@@ -409,8 +420,18 @@ function wireOperatorTransport(
             input.transport.sessionManager.setModel("");
             input.transport.sessionManager.setProvider("");
           }
+          const activeModelCapabilities = findProviderModelCapabilities(
+            currentDiscovery,
+            activeProvider,
+            activeModel,
+          );
           const guiAuthorityStatus = deriveGuiAuthorityStatusFromPerCallConfig(
-            buildGuiTurnPerCallConfig(activeProvider ?? "", activeModel, builtinToolSurface),
+            buildGuiTurnPerCallConfig(
+              activeProvider ?? "",
+              activeModel,
+              builtinToolSurface,
+              activeModelCapabilities,
+            ),
           );
           ws.send(JSON.stringify({
             type: "welcome",
@@ -461,6 +482,80 @@ function wireOperatorTransport(
               return;
             }
 
+            if (frame.type === "provider_auth") {
+              guiProviderAuthDebug("received frame", {
+                provider: typeof frame.provider === "string" ? frame.provider : null,
+                requestId: typeof frame.requestId === "string" ? frame.requestId : null,
+              });
+              const auth = await startProviderAuthRequest(frame);
+              if (!auth.ok) {
+                guiProviderAuthDebug("request rejected", {
+                  provider: auth.provider,
+                  requestId: auth.requestId,
+                  error: auth.error,
+                });
+                ws.send(JSON.stringify({
+                  type: "provider_auth_failed",
+                  provider: auth.provider,
+                  requestId: auth.requestId,
+                  message: auth.error,
+                } satisfies GuiInboundFrame));
+                return;
+              }
+              if (auth.started) {
+                guiProviderAuthDebug("sending started frame", {
+                  provider: auth.provider,
+                  requestId: auth.requestId,
+                  method: auth.method,
+                });
+                ws.send(JSON.stringify(auth.started satisfies GuiInboundFrame));
+              }
+              try {
+                guiProviderAuthDebug("waiting for completion", {
+                  provider: auth.provider,
+                  requestId: auth.requestId,
+                  method: auth.method,
+                });
+                await auth.complete();
+              } catch (error) {
+                guiProviderAuthDebug("completion failed", {
+                  provider: auth.provider,
+                  requestId: auth.requestId,
+                  error: error instanceof Error ? error.message : String(error),
+                });
+                ws.send(JSON.stringify({
+                  type: "provider_auth_failed",
+                  provider: auth.provider,
+                  requestId: auth.requestId,
+                  message: error instanceof Error ? error.message : "Provider authentication failed.",
+                } satisfies GuiInboundFrame));
+                return;
+              }
+              guiProviderAuthDebug("completion succeeded; refreshing discovery", {
+                provider: auth.provider,
+                requestId: auth.requestId,
+              });
+              const currentDiscovery = await refreshDiscovery();
+              const providerDiscovery = currentDiscovery.find((entry) => entry.provider === auth.provider);
+              guiProviderAuthDebug("discovery refreshed after auth", {
+                provider: auth.provider,
+                requestId: auth.requestId,
+                available: providerDiscovery?.available,
+                authState: providerDiscovery?.authState,
+                reason: providerDiscovery?.reason,
+                modelCount: projectGuiOperatorModels(currentDiscovery)[auth.provider]?.length ?? 0,
+              });
+              ws.send(JSON.stringify({
+                type: "provider_auth_completed",
+                provider: auth.provider,
+                requestId: auth.requestId,
+                models: projectGuiOperatorModels(currentDiscovery),
+                providerDiscovery: currentDiscovery,
+                providers: buildWelcomeProviderDescriptors(currentDiscovery),
+              } satisfies GuiInboundFrame));
+              return;
+            }
+
             if (frame.type === "provider") {
               const requestId = typeof frame.requestId === "string" && frame.requestId.trim().length > 0
                 ? frame.requestId.trim()
@@ -472,7 +567,7 @@ function wireOperatorTransport(
                 } satisfies GuiInboundFrame));
                 return;
               }
-              const currentDiscovery = await refreshDiscovery();
+              const currentDiscovery = discovery.length > 0 ? discovery : await refreshDiscovery();
               const resolution = resolveGuiProviderSwitch({
                 provider: frame.provider,
                 model: frame.model,
@@ -576,8 +671,10 @@ function wireOperatorTransport(
 
             ws.send(JSON.stringify({ type: "thinking" } satisfies GuiInboundFrame));
             let result;
+            let turnDiscovery: readonly GuiProviderDiscoveryResult[] = [];
             try {
               const currentDiscovery = await refreshDiscovery();
+              turnDiscovery = currentDiscovery;
               const activeProvider = input.transport.sessionManager.getProvider().trim();
               if (activeProvider.length === 0) {
                 ws.send(JSON.stringify({
@@ -617,6 +714,15 @@ function wireOperatorTransport(
                 } satisfies GuiInboundFrame));
                 return;
               }
+              const activeModelCapabilities = findProviderModelCapabilities(
+                currentDiscovery,
+                activeProvider,
+                activeModel,
+              );
+              const reasoningEffort = resolveRequestedReasoningEffort(
+                activeModelCapabilities,
+                frame.reasoningEffort,
+              );
               result = await processAdmittedTurn({
                 orchestrator,
                 sessionRegistry,
@@ -629,7 +735,13 @@ function wireOperatorTransport(
                 channel: "gui",
                 providerValidation: currentDiscovery,
                 contextArtifactCache: input.transport.contextArtifactCache,
-                perCallConfig: buildGuiTurnPerCallConfig(activeProvider, activeModel, builtinToolSurface),
+                perCallConfig: buildGuiTurnPerCallConfig(
+                  activeProvider,
+                  activeModel,
+                  builtinToolSurface,
+                  activeModelCapabilities,
+                  reasoningEffort,
+                ),
                 turnCapture: {
                   start: (sessionId, nextSequence) => {
                     activityStreamer.beginTurnCapture(sessionId, nextSequence);
@@ -662,6 +774,11 @@ function wireOperatorTransport(
               ? ""
               : input.transport.sessionManager.getModel();
             const routedModel = output.routingDecision?.model ?? fallbackRoutedModel;
+            const routedModelCapabilities = findProviderModelCapabilities(
+              turnDiscovery.length > 0 ? turnDiscovery : discovery,
+              routedProvider,
+              routedModel || undefined,
+            );
 
             ws.send(JSON.stringify({
               type: "done",
@@ -677,6 +794,7 @@ function wireOperatorTransport(
                   routedProvider,
                   routedModel || undefined,
                   builtinToolSurface,
+                  routedModelCapabilities,
                 ),
               ),
             } satisfies GuiInboundFrame));
@@ -707,13 +825,47 @@ export function buildGuiTurnPerCallConfig(
   activeProvider: string,
   activeModel: string | undefined,
   builtinToolSurface: AttachedRuntimeBuiltinToolSurface = createAttachedRuntimeBuiltinToolSurface(),
+  activeModelCapabilities?: GuiProviderModelCapabilities,
+  reasoningEffort?: ReasoningEffort,
 ): PerCallToolConfig {
   return buildAttachedRuntimePerCallToolConfig({
     tenantId: GUI_TENANT_ID,
     activeProvider,
     activeModel,
+    ...(activeModelCapabilities ? { activeModelCapabilities } : {}),
+    reasoningEffort,
     builtinToolSurface,
   });
+}
+
+function resolveRequestedReasoningEffort(
+  activeModelCapabilities: GuiProviderModelCapabilities | undefined,
+  requested: unknown,
+): ReasoningEffort | undefined {
+  if (typeof requested !== "string") return undefined;
+  if (
+    requested !== "minimal"
+    && requested !== "low"
+    && requested !== "medium"
+    && requested !== "high"
+    && requested !== "xhigh"
+  ) {
+    throw new Error(`Unknown reasoning effort '${requested}'.`);
+  }
+  const supported = activeModelCapabilities?.supportedReasoningEfforts;
+  if (supported && !supported.includes(requested as GuiProviderReasoningEffort)) {
+    throw new Error(`Reasoning effort '${requested}' is not supported by the selected model.`);
+  }
+  return requested as ReasoningEffort;
+}
+
+function findProviderModelCapabilities(
+  discovery: readonly GuiProviderDiscoveryResult[],
+  provider: string | undefined,
+  model: string | undefined,
+): GuiProviderModelCapabilities | undefined {
+  if (!provider || !model) return undefined;
+  return discovery.find((entry) => entry.provider === provider)?.modelCapabilities?.[model];
 }
 
 async function applyResumeSelection(

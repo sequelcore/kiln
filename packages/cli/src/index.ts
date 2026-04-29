@@ -4,6 +4,7 @@ import { join } from "node:path";
 import pkg from "../package.json" with { type: "json" };
 import { migrateConfigJson } from "./kiln-yaml.js";
 import type { KilnAppConfig } from "./config.js";
+import type { ReasoningEffort } from "@kilnai/core";
 
 // Re-export types and config
 export type { KilnAppConfig, SystemPromptOptions } from "./config.js";
@@ -55,6 +56,7 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     console.log("  --api-key    Anthropic API key (required for the subprocess runtime)");
     console.log("  --provider   LLM provider (claude, codex, opencode, anthropic, openai, deepseek, openrouter, ollama)");
     console.log("  --model      Model override for the selected provider");
+    console.log("  --effort     Reasoning effort override (minimal, low, medium, high, xhigh)");
     console.log("  --agent      Agent name from .kiln/agents or ~/.kiln/agents");
     console.log("  --port       Port override (dev/gateway)");
     console.log("  --gui-port   GUI dev server port override (gui command)");
@@ -311,8 +313,8 @@ function parseOpenFlag(args: readonly string[]): boolean {
   return true;
 }
 
-function parseRunArgs(rawArgs: readonly string[]): { task: string; flags: { apiKey?: string; provider?: string; model?: string; agent?: string; isolate?: boolean; plan?: boolean; ephemeral?: boolean; profile?: string; skipGitRepoCheck?: boolean; outputSchema?: string; addDir?: string; localProvider?: string; workers?: number } } {
-  const flags: { apiKey?: string; provider?: string; model?: string; agent?: string; isolate?: boolean; plan?: boolean; ephemeral?: boolean; profile?: string; skipGitRepoCheck?: boolean; outputSchema?: string; addDir?: string; localProvider?: string; workers?: number } = {};
+function parseRunArgs(rawArgs: readonly string[]): { task: string; flags: { apiKey?: string; provider?: string; model?: string; reasoningEffort?: ReasoningEffort; agent?: string; isolate?: boolean; plan?: boolean; ephemeral?: boolean; profile?: string; skipGitRepoCheck?: boolean; outputSchema?: string; addDir?: string; localProvider?: string; workers?: number } } {
+  const flags: { apiKey?: string; provider?: string; model?: string; reasoningEffort?: ReasoningEffort; agent?: string; isolate?: boolean; plan?: boolean; ephemeral?: boolean; profile?: string; skipGitRepoCheck?: boolean; outputSchema?: string; addDir?: string; localProvider?: string; workers?: number } = {};
   const taskParts: string[] = [];
   let i = 0;
   while (i < rawArgs.length) {
@@ -325,6 +327,9 @@ function parseRunArgs(rawArgs: readonly string[]): { task: string; flags: { apiK
       i += 2;
     } else if (arg === "--model" && i + 1 < rawArgs.length) {
       flags.model = rawArgs[i + 1];
+      i += 2;
+    } else if ((arg === "--effort" || arg === "--reasoning-effort") && i + 1 < rawArgs.length) {
+      flags.reasoningEffort = parseReasoningEffort(rawArgs[i + 1]);
       i += 2;
     } else if (arg === "--agent" && i + 1 < rawArgs.length) {
       flags.agent = rawArgs[i + 1];
@@ -363,6 +368,20 @@ function parseRunArgs(rawArgs: readonly string[]): { task: string; flags: { apiK
     }
   }
   return { task: taskParts.join(" "), flags };
+}
+
+function parseReasoningEffort(value: string | undefined): ReasoningEffort | undefined {
+  const normalized = value?.trim().toLowerCase();
+  if (
+    normalized === "minimal"
+    || normalized === "low"
+    || normalized === "medium"
+    || normalized === "high"
+    || normalized === "xhigh"
+  ) {
+    return normalized;
+  }
+  throw new Error(`Unknown reasoning effort '${value}'. Use minimal, low, medium, high, or xhigh.`);
 }
 
 function parseMcpConfigFlags(rawArgs: readonly string[]): { client?: string; name?: string; command?: string; args?: string } {

@@ -186,6 +186,29 @@ describe("CodexOAuthAdapter", () => {
       });
     });
 
+    it("sends requested reasoning effort to the Codex Responses endpoint", async () => {
+      mockFetch.mockResolvedValueOnce(sseResponse([
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_reasoning",
+              status: "completed",
+              output: [],
+              usage: { input_tokens: 1, output_tokens: 1 },
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter("gpt-5.4");
+      await adapter.createMessage(createOptions({ reasoningEffort: "high" }));
+
+      const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(String(init.body)) as { reasoning?: { effort?: string } };
+      expect(body.reasoning).toEqual({ effort: "high" });
+    });
+
     it("calls auth.getValidAccessToken() before each request", async () => {
       mockFetch.mockResolvedValueOnce(sseResponse([
         {

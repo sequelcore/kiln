@@ -11,6 +11,13 @@ const DEFAULT_TOKEN_PATH = join(homedir(), ".kiln", "auth", "codex-oauth.json");
 const AUTO_REFRESH_BUFFER_SECONDS = 120;
 const POLL_TIMEOUT_MS = 15 * 60 * 1000;
 
+function providerAuthDebug(message: string, context?: Record<string, unknown>): void {
+  if (!/^(1|true|yes)$/i.test(process.env.KILN_PROVIDER_AUTH_DEBUG?.trim() ?? "")) {
+    return;
+  }
+  console.warn(`[codex-oauth-auth][debug] ${message}`, context ?? {});
+}
+
 interface DeviceAuthorizationApiResponse {
   readonly device_auth_id?: string;
   readonly user_code?: string;
@@ -26,6 +33,7 @@ interface DeviceTokenPollResponse {
 }
 
 interface OAuthTokenResponse {
+  readonly id_token?: string;
   readonly access_token?: string;
   readonly refresh_token?: string;
   readonly expires_in?: number;
@@ -63,6 +71,10 @@ export class CodexOAuthAuth {
   }
 
   async startDeviceAuthorization(): Promise<DeviceAuthorizationResult> {
+    providerAuthDebug("starting device authorization", {
+      tokenPath: this.tokenPath,
+      endpoint: "/api/accounts/deviceauth/usercode",
+    });
     const body = JSON.stringify({
       client_id: CLIENT_ID,
     });
@@ -74,6 +86,15 @@ export class CodexOAuthAuth {
     });
 
     const data = await this.parseJson<DeviceAuthorizationApiResponse>(response);
+    providerAuthDebug("device authorization response", {
+      status: response.status,
+      ok: response.ok,
+      hasDeviceAuthId: Boolean(data.device_auth_id),
+      hasUserCode: Boolean(data.user_code),
+      interval: data.interval,
+      expiresAt: data.expires_at,
+      error: data.error,
+    });
     if (!response.ok || !data.device_auth_id || !data.user_code) {
       throw this.authError("Failed to start Codex OAuth device authorization", {
         status: response.status,
@@ -90,8 +111,14 @@ export class CodexOAuthAuth {
 
   async pollForAuthorization(params: PollAuthorizationParams): Promise<CodexOAuthTokenFile> {
     const deadline = Date.now() + POLL_TIMEOUT_MS;
+    let attempt = 0;
+    providerAuthDebug("polling device authorization", {
+      intervalSeconds: params.intervalSeconds,
+      timeoutMs: POLL_TIMEOUT_MS,
+    });
 
     while (Date.now() < deadline) {
+      attempt += 1;
       await this.sleep(params.intervalSeconds * 1000);
 
       const body = JSON.stringify({
@@ -105,10 +132,22 @@ export class CodexOAuthAuth {
       });
 
       if (response.status === 403 || response.status === 404) {
+        providerAuthDebug("device authorization pending", {
+          attempt,
+          status: response.status,
+        });
         continue;
       }
 
       const data = await this.parseJson<DeviceTokenPollResponse>(response);
+      providerAuthDebug("device authorization poll response", {
+        attempt,
+        status: response.status,
+        ok: response.ok,
+        hasAuthorizationCode: Boolean(data.authorization_code),
+        hasCodeVerifier: Boolean(data.code_verifier),
+        error: data.error,
+      });
       if (!response.ok) {
         throw this.authError("Failed while polling Codex OAuth authorization", {
           status: response.status,
@@ -123,6 +162,9 @@ export class CodexOAuthAuth {
         });
       }
 
+      providerAuthDebug("device authorization approved; exchanging authorization code", {
+        attempt,
+      });
       return this.exchangeAuthorizationCode(data.authorization_code, data.code_verifier);
     }
 
@@ -132,6 +174,10 @@ export class CodexOAuthAuth {
   }
 
   async refreshToken(tokenFile: CodexOAuthTokenFile): Promise<CodexOAuthTokenFile> {
+    providerAuthDebug("refreshing token", {
+      tokenPath: this.tokenPath,
+      expiresAt: tokenFile.expires_at,
+    });
     const body = new URLSearchParams({
       grant_type: "refresh_token",
       refresh_token: tokenFile.refresh_token,
@@ -145,7 +191,16 @@ export class CodexOAuthAuth {
     });
 
     const data = await this.parseJson<OAuthTokenResponse>(response);
-    if (!response.ok || !data.access_token || !data.refresh_token || typeof data.expires_in !== "number") {
+    providerAuthDebug("refresh token response", {
+      status: response.status,
+      ok: response.ok,
+      hasAccessToken: Boolean(data.access_token),
+      hasRefreshToken: Boolean(data.refresh_token),
+      hasIdToken: Boolean(data.id_token),
+      expiresIn: data.expires_in,
+      error: data.error,
+    });
+    if (!response.ok || !data.access_token || !data.refresh_token) {
       throw this.authError("Failed to refresh Codex OAuth token", {
         status: response.status,
         error: data.error,
@@ -180,8 +235,17 @@ export class CodexOAuthAuth {
   }
 
   async saveTokenFile(tokenFile: CodexOAuthTokenFile): Promise<void> {
+    providerAuthDebug("saving token file", {
+      tokenPath: this.tokenPath,
+      expiresAt: tokenFile.expires_at,
+      hasAccessToken: this.isNonEmptyTokenString(tokenFile.access_token),
+      hasRefreshToken: this.isNonEmptyTokenString(tokenFile.refresh_token),
+    });
     await mkdir(dirname(this.tokenPath), { recursive: true });
     await writeFile(this.tokenPath, JSON.stringify(tokenFile, null, 2), "utf8");
+    providerAuthDebug("token file saved", {
+      tokenPath: this.tokenPath,
+    });
   }
 
   async loadTokenFile(): Promise<CodexOAuthTokenFile | null> {
@@ -238,7 +302,16 @@ export class CodexOAuthAuth {
     });
 
     const data = await this.parseJson<OAuthTokenResponse>(response);
-    if (!response.ok || !data.access_token || !data.refresh_token || typeof data.expires_in !== "number") {
+    providerAuthDebug("authorization code exchange response", {
+      status: response.status,
+      ok: response.ok,
+      hasAccessToken: Boolean(data.access_token),
+      hasRefreshToken: Boolean(data.refresh_token),
+      hasIdToken: Boolean(data.id_token),
+      expiresIn: data.expires_in,
+      error: data.error,
+    });
+    if (!response.ok || !data.access_token || !data.refresh_token) {
       throw this.authError("Failed to exchange Codex OAuth authorization code", {
         status: response.status,
         error: data.error,
@@ -249,12 +322,52 @@ export class CodexOAuthAuth {
   }
 
   private toTokenFile(token: OAuthTokenResponse): CodexOAuthTokenFile {
+    const expiresAt = this.resolveExpiresAt(token);
+    providerAuthDebug("resolved token expiry", {
+      expiresAt,
+      hadExpiresIn: typeof token.expires_in === "number",
+      hasAccessTokenJwtExpiry: Boolean(this.readJwtExpiry(token.access_token)),
+      hasIdTokenJwtExpiry: Boolean(this.readJwtExpiry(token.id_token)),
+    });
     return {
       access_token: token.access_token!,
       refresh_token: token.refresh_token!,
-      expires_at: new Date(Date.now() + token.expires_in! * 1000).toISOString(),
+      expires_at: expiresAt,
       client_id: CLIENT_ID,
     };
+  }
+
+  private resolveExpiresAt(token: OAuthTokenResponse): string {
+    if (typeof token.expires_in === "number" && Number.isFinite(token.expires_in) && token.expires_in > 0) {
+      return new Date(Date.now() + token.expires_in * 1000).toISOString();
+    }
+    const accessTokenExpiry = this.readJwtExpiry(token.access_token);
+    if (accessTokenExpiry) {
+      return accessTokenExpiry;
+    }
+    const idTokenExpiry = this.readJwtExpiry(token.id_token);
+    if (idTokenExpiry) {
+      return idTokenExpiry;
+    }
+    return new Date(Date.now() + 60 * 60 * 1000).toISOString();
+  }
+
+  private readJwtExpiry(token: string | undefined): string | null {
+    const payload = token?.split(".")[1];
+    if (!payload) {
+      return null;
+    }
+    try {
+      const padded = payload + "=".repeat((4 - (payload.length % 4)) % 4);
+      const decoded = Buffer.from(padded.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
+      const parsed = JSON.parse(decoded) as { exp?: unknown };
+      if (typeof parsed.exp !== "number" || !Number.isFinite(parsed.exp) || parsed.exp <= 0) {
+        return null;
+      }
+      return new Date(parsed.exp * 1000).toISOString();
+    } catch {
+      return null;
+    }
   }
 
   private parseIntervalSeconds(interval: number | string | undefined): number {

@@ -74,6 +74,44 @@ describe("GUI authority forwarding", () => {
     });
   });
 
+  it("exposes the builtin tool surface for live-discovered Codex OAuth models", async () => {
+    const { buildGuiTurnPerCallConfig, deriveGuiAuthorityStatusFromPerCallConfig } = await import("../../src/gateway/gui-gateway.js");
+    const cfg = buildGuiTurnPerCallConfig("codex-oauth", "gpt-5.5", undefined, {
+      supportsTools: true,
+    });
+
+    expect(cfg.modelOverride).toEqual({
+      provider: "codex-oauth",
+      model: "gpt-5.5",
+    });
+    expect(cfg.toolAllowlist?.has("write")).toBe(true);
+    expect(cfg.additionalTools?.some((tool) => tool.name === "write")).toBe(true);
+    expect(cfg.toolAuthority?.has("write")).toBe(true);
+    expect(deriveGuiAuthorityStatusFromPerCallConfig(cfg)).toEqual({
+      effective: "destructive",
+      completeness: "authoritative",
+    });
+  });
+
+  it("fails closed when live Codex OAuth discovery says the model has tools disabled", async () => {
+    const { buildGuiTurnPerCallConfig, deriveGuiAuthorityStatusFromPerCallConfig } = await import("../../src/gateway/gui-gateway.js");
+    const cfg = buildGuiTurnPerCallConfig("codex-oauth", "gpt-disabled", undefined, {
+      supportsTools: false,
+    });
+
+    expect(cfg.modelOverride).toEqual({
+      provider: "codex-oauth",
+      model: "gpt-disabled",
+    });
+    expect(cfg.toolAllowlist?.size).toBe(0);
+    expect(cfg.additionalTools).toBeUndefined();
+    expect(cfg.toolAuthority?.size).toBe(0);
+    expect(deriveGuiAuthorityStatusFromPerCallConfig(cfg)).toEqual({
+      effective: "fail_closed",
+      completeness: "authoritative",
+    });
+  });
+
   it("fails closed for executable direct providers without an explicit active model", async () => {
     const { buildGuiTurnPerCallConfig } = await import("../../src/gateway/gui-gateway.js");
     const cfg = buildGuiTurnPerCallConfig("openai", undefined);
@@ -177,5 +215,19 @@ describe("GUI authority forwarding", () => {
     expect(toolFn).toHaveBeenCalledTimes(1);
     expect((provider.createMessage as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(2);
     expect(getReinjectedToolResultFromSecondCall(provider)).toContain("should not run");
+  });
+
+  it("keeps requested reasoning effort in GUI per-call config", async () => {
+    const { buildGuiTurnPerCallConfig } = await import("../../src/gateway/gui-gateway.js");
+
+    const cfg = buildGuiTurnPerCallConfig(
+      "codex-oauth",
+      "gpt-5.4",
+      undefined,
+      { supportsTools: true, supportedReasoningEfforts: ["low", "medium", "high"] },
+      "high",
+    );
+
+    expect(cfg.reasoningEffort).toBe("high");
   });
 });

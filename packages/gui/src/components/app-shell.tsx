@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type { GuiInboundFrame } from "@kilnai/gateway-contracts";
+import type { GuiInboundFrame, GuiProviderReasoningEffort } from "@kilnai/gateway-contracts";
 import { GuiGatewayClient } from "../api/client.js";
 import { useGuiWs } from "../lib/use-gui-ws.js";
 import { useSessionStore } from "../lib/session-store.js";
@@ -9,6 +9,7 @@ import { SessionList } from "./session-list.js";
 import { WorkspacePanel } from "./workspace-panel.js";
 import { ChangedFilesPanel } from "./changed-files-panel.js";
 import { ApprovalsPanel } from "./approvals-panel.js";
+import { ActivityLogPanel } from "./activity-log-panel.js";
 import { Transcript } from "./transcript.js";
 import { Composer } from "./composer.js";
 import { CommandPalette, type CommandPaletteItem } from "./command-palette.js";
@@ -19,10 +20,32 @@ import { ProviderPicker } from "./provider-picker.js";
 import { ProviderStatus } from "./provider-status.js";
 import { SessionTelemetry } from "./session-telemetry.js";
 import { useUiStore } from "../lib/ui-store.js";
+import { isActivityTimelineEntry, isConversationTimelineEntry } from "../lib/timeline-visibility.js";
+import type { LucideIcon } from "lucide-react";
+import {
+  Activity,
+  CheckCheck,
+  ChevronLeft,
+  ChevronRight,
+  FileDiff,
+  Folder,
+  MessagesSquare,
+} from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 const NARROW_LAYOUT_QUERY = "(max-width: 1024px)";
 const PROVIDER_SWITCH_WAIT_TIMEOUT_MS = 5_500;
+const PROVIDER_AUTH_WAIT_TIMEOUT_MS = 15 * 60 * 1000;
+
+const REASONING_EFFORT_LABELS: Record<GuiProviderReasoningEffort, string> = {
+  minimal: "Minimal",
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  xhigh: "XHigh",
+};
 
 function KilnMark() {
   return (
@@ -37,50 +60,15 @@ function KilnMark() {
   );
 }
 
-type SidebarMode = "sessions" | "workspace" | "changed" | "approvals";
+type SidebarMode = "sessions" | "workspace" | "changed" | "approvals" | "activity";
 
-function ModeIcon(props: { readonly mode: SidebarMode }) {
-  const strokeProps = {
-    stroke: "currentColor",
-    strokeWidth: 1.4,
-    fill: "none",
-    strokeLinecap: "round",
-    strokeLinejoin: "round",
-  } as const;
-  if (props.mode === "workspace") {
-    return (
-      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
-        <path d="M2.5 5 L6 5 L7 6.5 L13.5 6.5 L13.5 12.5 L2.5 12.5 Z" {...strokeProps} />
-        <path d="M5 9 L11 9" {...strokeProps} opacity="0.6" />
-      </svg>
-    );
-  }
-  if (props.mode === "changed") {
-    return (
-      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
-        <rect x="2.5" y="2.8" width="11" height="10.4" rx="1.2" {...strokeProps} />
-        <path d="M6 6 L10 6 M8 4 L8 8" {...strokeProps} />
-        <path d="M6 11 L10 11" {...strokeProps} />
-      </svg>
-    );
-  }
-  if (props.mode === "approvals") {
-    return (
-      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
-        <path d="M4 3.5 L2.5 3.5 L2.5 12.5 L4 12.5" {...strokeProps} />
-        <path d="M12 3.5 L13.5 3.5 L13.5 12.5 L12 12.5" {...strokeProps} />
-        <path d="M5.5 8.3 L7.3 10 L10.5 6.2" {...strokeProps} />
-      </svg>
-    );
-  }
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <rect x="2.5" y="3.5" width="11" height="2.2" rx="0.6" stroke="currentColor" strokeWidth="1.4" />
-      <rect x="2.5" y="6.9" width="7.5" height="2.2" rx="0.6" stroke="currentColor" strokeWidth="1.4" />
-      <rect x="2.5" y="10.3" width="9" height="2.2" rx="0.6" stroke="currentColor" strokeWidth="1.4" />
-    </svg>
-  );
-}
+const sidebarModeIcons: Record<SidebarMode, LucideIcon> = {
+  sessions: MessagesSquare,
+  workspace: Folder,
+  changed: FileDiff,
+  approvals: CheckCheck,
+  activity: Activity,
+};
 
 function SidebarRailButton(props: {
   readonly mode: SidebarMode;
@@ -91,42 +79,30 @@ function SidebarRailButton(props: {
   readonly disabled?: boolean;
   readonly onClick: () => void;
 }) {
+  const Icon = sidebarModeIcons[props.mode];
   return (
-    <button
+    <Button
       type="button"
+      variant={props.active ? "secondary" : "ghost"}
+      size="icon-lg"
       aria-current={props.active ? "page" : undefined}
       aria-label={props.label}
       disabled={props.disabled}
       title={`${props.label} ${props.shortcut}${props.disabled ? " · coming next" : ""}`}
       onClick={props.onClick}
-      className={[
-        "relative grid size-9 place-items-center rounded-lg outline-none transition-colors focus-visible:ring-3 focus-visible:ring-ring/50",
-        props.active ? "bg-secondary text-foreground" : "text-muted-foreground hover:bg-secondary/45 hover:text-foreground",
-        props.disabled ? "cursor-not-allowed opacity-45 hover:bg-transparent hover:text-muted-foreground" : "",
-      ].join(" ")}
+      className={cn("relative text-muted-foreground", props.active && "text-foreground")}
     >
       {props.active ? <span className="absolute -left-2 top-2 bottom-2 w-0.5 rounded-r-full bg-foreground" /> : null}
-      <ModeIcon mode={props.mode} />
+      <Icon aria-hidden="true" />
       {props.count && props.count > 0 ? (
-        <span className="absolute right-0.5 top-0.5 min-w-3.5 rounded-full border border-border bg-card px-1 text-center font-mono text-[9px] leading-3 text-muted-foreground">
+        <Badge
+          variant="outline"
+          className="absolute -right-1 -top-1 h-4 min-w-4 px-1 font-mono text-[9px] leading-none text-muted-foreground"
+        >
           {props.count}
-        </span>
+        </Badge>
       ) : null}
-    </button>
-  );
-}
-
-function CollapseIcon(props: { readonly expanded: boolean }) {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-      <path
-        d={props.expanded ? "M9 3 L5 7 L9 11" : "M5 3 L9 7 L5 11"}
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
+    </Button>
   );
 }
 
@@ -135,6 +111,7 @@ function LeftRail(props: {
   readonly sessionCount: number;
   readonly changedCount: number;
   readonly approvalCount: number;
+  readonly activityCount: number;
   readonly expanded: boolean;
   readonly onToggleExpanded: () => void;
   readonly onSelectMode: (mode: SidebarMode) => void;
@@ -145,7 +122,18 @@ function LeftRail(props: {
       className="flex h-full w-14 shrink-0 flex-col items-center gap-1 border-r border-border/70 bg-card px-0 py-2"
     >
       <KilnMark />
-      <div className="h-2" />
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-lg"
+        aria-label={props.expanded ? "Collapse sidebar" : "Expand sidebar"}
+        title={props.expanded ? "Collapse sidebar" : "Expand sidebar"}
+        onClick={props.onToggleExpanded}
+        className="text-muted-foreground"
+      >
+        {props.expanded ? <ChevronLeft aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
+      </Button>
+      <div className="h-1" />
       <SidebarRailButton
         mode="sessions"
         label="Sessions"
@@ -197,19 +185,20 @@ function LeftRail(props: {
           props.onSelectMode("approvals");
         }}
       />
+      <SidebarRailButton
+        mode="activity"
+        label="Activity"
+        shortcut="Ctrl+5"
+        active={props.activeMode === "activity"}
+        count={props.activityCount}
+        onClick={() => {
+          if (!props.expanded) {
+            props.onToggleExpanded();
+          }
+          props.onSelectMode("activity");
+        }}
+      />
       <div className="flex-1" />
-      <button
-        type="button"
-        aria-label={props.expanded ? "Collapse sidebar" : "Expand sidebar"}
-        title={props.expanded ? "Collapse sidebar" : "Expand sidebar"}
-        onClick={props.onToggleExpanded}
-        className="grid size-9 place-items-center rounded-lg text-muted-foreground outline-none transition-colors hover:bg-secondary/45 hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
-      >
-        <CollapseIcon expanded={props.expanded} />
-      </button>
-      <div className="grid size-7 place-items-center rounded-full border border-border font-mono text-[10px] text-muted-foreground">
-        rv
-      </div>
     </nav>
   );
 }
@@ -221,13 +210,6 @@ function toWsUrl(path: string): string {
     return `${protocol}//${window.location.hostname}:${gatewayPort}${path}`;
   }
   return `${protocol}//${window.location.host}${path}`;
-}
-
-function mapActivityLabel(activity: ReturnType<typeof useSessionStore.getState>["activity"]): string | null {
-  if (!activity?.phase) return null;
-  const tool = activity.toolName ? ` · ${activity.toolName}` : "";
-  const details = activity.details ? ` · ${activity.details}` : "";
-  return `${activity.phase}${tool}${details}`;
 }
 
 function waitForProviderSwitchResolution(provider: string, model: string | null): Promise<void> {
@@ -272,35 +254,151 @@ function waitForProviderSwitchResolution(provider: string, model: string | null)
   });
 }
 
+function waitForProviderAuthResolution(provider: string): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const deadline = Date.now() + PROVIDER_AUTH_WAIT_TIMEOUT_MS;
+    let pollTimeoutId: ReturnType<typeof setTimeout> | null = null;
+    let settled = false;
+
+    const settle = (callback: () => void) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (pollTimeoutId) {
+        clearTimeout(pollTimeoutId);
+      }
+      callback();
+    };
+
+    const poll = () => {
+      const state = useSessionStore.getState();
+      if (!state.providerAuthenticating) {
+        if (state.errorBanner) {
+          settle(() => reject(new Error(state.errorBanner ?? "Provider authentication failed.")));
+          return;
+        }
+        settle(resolve);
+        return;
+      }
+      if (state.providerAuthTarget?.provider !== provider) {
+        settle(() => reject(new Error("Provider authentication target changed.")));
+        return;
+      }
+      if (Date.now() >= deadline) {
+        settle(() => reject(new Error("Provider authentication timed out. Please retry.")));
+        return;
+      }
+      pollTimeoutId = setTimeout(poll, 100);
+    };
+
+    poll();
+  });
+}
+
+function RuntimeBootstrapGate(props: {
+  readonly title: string;
+  readonly detail: string;
+  readonly error?: string | null;
+  readonly onRetry?: () => void;
+}) {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-[var(--color-background)] px-6">
+      <section
+        role="status"
+        aria-label="Runtime bootstrap"
+        aria-live="polite"
+        className="w-full max-w-lg rounded-xl border border-[var(--color-border)] bg-[var(--color-background-panel)] p-6 shadow-[0_24px_80px_rgba(0,0,0,0.18)]"
+      >
+        <div className="flex items-start gap-4">
+          <div className="mt-1 grid size-9 shrink-0 place-items-center rounded-lg border border-border bg-background">
+            <span className="size-2 animate-pulse rounded-full bg-[var(--color-accent)]" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-foreground">{props.title}</p>
+            <p className="mt-1 text-sm text-[var(--color-text-muted)]">{props.error ?? props.detail}</p>
+            {props.error && props.onRetry ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="mt-4"
+                onClick={props.onRetry}
+              >
+                Retry
+              </Button>
+            ) : (
+              <div className="mt-4 h-2 w-full overflow-hidden rounded bg-[var(--color-background-element)]">
+                <div className="h-full w-1/3 animate-pulse rounded bg-[var(--color-accent)]" />
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function ReasoningEffortControl(props: {
+  readonly value: GuiProviderReasoningEffort;
+  readonly options: readonly GuiProviderReasoningEffort[];
+  readonly onChange: (value: GuiProviderReasoningEffort) => void;
+}) {
+  if (props.options.length === 0) return null;
+  return (
+    <label className="inline-flex h-9 shrink-0 items-center rounded-md border border-border bg-background px-2 text-xs text-foreground hover:bg-secondary/45">
+      <span className="sr-only">Reasoning effort</span>
+      <select
+        aria-label="Reasoning effort"
+        value={props.value}
+        onChange={(event) => props.onChange(event.target.value as GuiProviderReasoningEffort)}
+        className="min-w-20 bg-transparent text-xs font-medium text-foreground outline-none"
+      >
+        {props.options.map((effort) => (
+          <option key={effort} value={effort}>
+            {REASONING_EFFORT_LABELS[effort]}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 export function AppShell() {
   const [gatewayReady, setGatewayReady] = useState(false);
   const [gatewayError, setGatewayError] = useState<string | null>(null);
   const [gatewayAttempt, setGatewayAttempt] = useState(0);
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
   const [paletteMode, setPaletteMode] = useState<"root" | "theme">("root");
-  const [palettePlacement, setPalettePlacement] = useState<"global" | "composer">("global");
   const [paletteQuery, setPaletteQuery] = useState("");
+  const [composerCommandOpen, setComposerCommandOpen] = useState(false);
+  const [composerCommandQuery, setComposerCommandQuery] = useState("");
   const [isProviderPickerOpen, setIsProviderPickerOpen] = useState(false);
   const [isNarrow, setIsNarrow] = useState(() => window.matchMedia(NARROW_LAYOUT_QUERY).matches);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [sidebarExpanded, setSidebarExpanded] = useState(true);
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>("sessions");
+  const [reasoningEffort, setReasoningEffort] = useState<GuiProviderReasoningEffort | null>(null);
 
   const status = useSessionStore((state) => state.status);
   const timelineEntries = useSessionStore((state) => state.timelineEntries);
   const providers = useSessionStore((state) => state.providers);
+  const providerDiscovery = useSessionStore((state) => state.providerDiscovery);
   const planMode = useSessionStore((state) => state.planMode);
   const activity = useSessionStore((state) => state.activity);
   const errorBanner = useSessionStore((state) => state.errorBanner);
+  const providerCatalogStatus = useSessionStore((state) => state.providerCatalogStatus);
+  const providerCatalogError = useSessionStore((state) => state.providerCatalogError);
   const activeProvider = useSessionStore((state) => state.activeProvider);
   const activeModel = useSessionStore((state) => state.activeModel);
+  const providerAuthenticating = useSessionStore((state) => state.providerAuthenticating);
+  const providerAuthProvider = useSessionStore((state) => state.providerAuthTarget?.provider ?? null);
+  const providerAuthMessage = useSessionStore((state) => state.providerAuthMessage);
+  const providerAuthDetails = useSessionStore((state) => state.providerAuthDetails);
   const sessionList = useSessionStore((state) => state.sessionList);
   const selectedSessionId = useSessionStore((state) => state.selectedSessionId);
   const resumeTargetId = useSessionStore((state) => state.resumeTargetId);
   const turnCounter = useSessionStore((state) => state.turnCounter);
-  const sessionCostUsd = useSessionStore((state) => state.sessionCostUsd);
-  const inputTokens = useSessionStore((state) => state.inputTokens);
-  const outputTokens = useSessionStore((state) => state.outputTokens);
   const activityPhase = useSessionStore((state) => state.activityPhase);
   const setConnectionStatus = useSessionStore((state) => state.setConnectionStatus);
   const setSender = useSessionStore((state) => state.setSender);
@@ -309,6 +407,8 @@ export function AppShell() {
   const viewSessionDetail = useSessionStore((state) => state.viewSessionDetail);
   const setErrorBanner = useSessionStore((state) => state.setErrorBanner);
   const clearErrorBanner = useSessionStore((state) => state.clearErrorBanner);
+  const markProviderCatalogRefreshing = useSessionStore((state) => state.markProviderCatalogRefreshing);
+  const markProviderCatalogError = useSessionStore((state) => state.markProviderCatalogError);
   const onWelcome = useSessionStore((state) => state.onWelcome);
   const onProvidersRefreshed = useSessionStore((state) => state.onProvidersRefreshed);
   const onSessionEvent = useSessionStore((state) => state.onSessionEvent);
@@ -316,6 +416,9 @@ export function AppShell() {
   const onError = useSessionStore((state) => state.onError);
   const onCleared = useSessionStore((state) => state.onCleared);
   const onProviderChanged = useSessionStore((state) => state.onProviderChanged);
+  const onProviderAuthStarted = useSessionStore((state) => state.onProviderAuthStarted);
+  const onProviderAuthCompleted = useSessionStore((state) => state.onProviderAuthCompleted);
+  const onProviderAuthFailed = useSessionStore((state) => state.onProviderAuthFailed);
   const onExecConfirmed = useSessionStore((state) => state.onExecConfirmed);
   const onActivityPhase = useSessionStore((state) => state.onActivityPhase);
   const sendApprovalResponse = useSessionStore((state) => state.sendApprovalResponse);
@@ -323,6 +426,7 @@ export function AppShell() {
   const sendClear = useSessionStore((state) => state.sendClear);
   const setPlanMode = useSessionStore((state) => state.setPlanMode);
   const switchProvider = useSessionStore((state) => state.switchProvider);
+  const authenticateProvider = useSessionStore((state) => state.authenticateProvider);
   const setResume = useSessionStore((state) => state.setResume);
   const disconnect = useSessionStore((state) => state.disconnect);
   const setTheme = useUiStore((state) => state.setTheme);
@@ -330,7 +434,32 @@ export function AppShell() {
   const changedFiles = useMemo(() => deriveChangedFiles(timelineEntries), [timelineEntries]);
   const runtimeContinuity = useMemo(() => deriveRuntimeContinuity(timelineEntries, activeProvider), [activeProvider, timelineEntries]);
   const pendingApprovals = useMemo(() => derivePendingApprovals(timelineEntries), [timelineEntries]);
+  const activityEntries = useMemo(() => timelineEntries.filter(isActivityTimelineEntry), [timelineEntries]);
+  const conversationEntries = useMemo(() => timelineEntries.filter(isConversationTimelineEntry), [timelineEntries]);
   const approvalCount = pendingApprovals.length;
+  const activeModelCapabilities = activeProvider && activeModel
+    ? providerDiscovery.find((entry) => entry.provider === activeProvider)?.modelCapabilities?.[activeModel]
+    : undefined;
+  const reasoningEffortOptions = activeModelCapabilities?.supportedReasoningEfforts ?? [];
+  const resolvedReasoningEffort = reasoningEffortOptions.length > 0
+    ? (
+      reasoningEffort && reasoningEffortOptions.includes(reasoningEffort)
+        ? reasoningEffort
+        : (activeModelCapabilities?.defaultReasoningEffort ?? reasoningEffortOptions[0]!)
+    )
+    : null;
+
+  useEffect(() => {
+    if (reasoningEffortOptions.length === 0) {
+      if (reasoningEffort !== null) {
+        setReasoningEffort(null);
+      }
+      return;
+    }
+    if (!reasoningEffort || !reasoningEffortOptions.includes(reasoningEffort)) {
+      setReasoningEffort(activeModelCapabilities?.defaultReasoningEffort ?? reasoningEffortOptions[0]!);
+    }
+  }, [activeModelCapabilities?.defaultReasoningEffort, reasoningEffort, reasoningEffortOptions]);
 
   const closePalette = () => {
     setIsPaletteOpen(false);
@@ -338,11 +467,9 @@ export function AppShell() {
     setPaletteQuery("");
   };
 
-  const openPalette = (mode: "root" | "theme" = "root", placement: "global" | "composer" = "global") => {
-    setPaletteMode(mode);
-    setPalettePlacement(placement);
-    setPaletteQuery("");
-    setIsPaletteOpen(true);
+  const closeComposerCommands = () => {
+    setComposerCommandOpen(false);
+    setComposerCommandQuery("");
   };
 
   useEffect(() => {
@@ -396,10 +523,16 @@ export function AppShell() {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
         if (isPaletteOpen) {
-          closePalette();
+          setIsPaletteOpen(false);
+          setPaletteMode("root");
+          setPaletteQuery("");
           return;
         }
-        openPalette("root");
+        setComposerCommandOpen(false);
+        setComposerCommandQuery("");
+        setPaletteMode("root");
+        setPaletteQuery("");
+        setIsPaletteOpen(true);
       }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "p") {
         event.preventDefault();
@@ -433,8 +566,19 @@ export function AppShell() {
           setSidebarExpanded(true);
         }
       }
+      if ((event.ctrlKey || event.metaKey) && event.key === "5") {
+        event.preventDefault();
+        setSidebarMode("activity");
+        if (!isNarrow) {
+          setSidebarExpanded(true);
+        }
+      }
       if (event.key === "Escape") {
-        closePalette();
+        setIsPaletteOpen(false);
+        setPaletteMode("root");
+        setPaletteQuery("");
+        setComposerCommandOpen(false);
+        setComposerCommandQuery("");
         setDrawerOpen(false);
         setIsProviderPickerOpen(false);
       }
@@ -471,8 +615,16 @@ export function AppShell() {
         onCleared();
       } else if (frame.type === "provider_changed") {
         onProviderChanged(frame);
+      } else if (frame.type === "provider_auth_started") {
+        onProviderAuthStarted(frame);
+      } else if (frame.type === "provider_auth_completed") {
+        onProviderAuthCompleted(frame);
+        onProvidersRefreshed(frame.providers ?? useSessionStore.getState().providers, frame.providerDiscovery);
+        void dashboardQuery.refetch();
+      } else if (frame.type === "provider_auth_failed") {
+        onProviderAuthFailed(frame);
       } else if (frame.type === "providers_refreshed") {
-        onProvidersRefreshed(frame.providers);
+        onProvidersRefreshed(frame.providers, frame.providerDiscovery);
       } else if (frame.type === "exec_confirmed") {
         onExecConfirmed();
         } else if (frame.type === "thinking") {
@@ -564,8 +716,11 @@ export function AppShell() {
   useEffect(() => {
     if (dashboardQuery.error) {
       setErrorBanner("Could not load dashboard state.");
+      if (providerCatalogStatus !== "ready") {
+        markProviderCatalogError("Could not load provider discovery.");
+      }
     }
-  }, [dashboardQuery.error, setErrorBanner]);
+  }, [dashboardQuery.error, markProviderCatalogError, providerCatalogStatus, setErrorBanner]);
 
   useEffect(() => {
     if (!dashboardQuery.error && dashboardQuery.data && errorBanner === "Could not load dashboard state.") {
@@ -579,7 +734,6 @@ export function AppShell() {
     }
   }, [dashboardQuery.data, dashboardQuery.error, onProvidersRefreshed]);
 
-  const activityLabel = mapActivityLabel(activity);
   const dashboardData = dashboardQuery.error ? undefined : dashboardQuery.data;
   const resumeInfo = activeProvider
     ? dashboardData?.resumeInfoByProvider?.[activeProvider] ?? null
@@ -639,8 +793,34 @@ export function AppShell() {
     },
   ];
   const paletteCommands = paletteMode === "theme" ? themeCommands : rootCommands;
+  const runtimeBootstrapReady = gatewayReady && providerCatalogStatus === "ready";
+  const bootstrapTitle = gatewayError || providerCatalogStatus === "error"
+    ? "Kiln runtime needs attention"
+    : "Starting Kiln runtime";
+  const bootstrapDetail = !gatewayReady
+    ? "Connecting to the local gateway."
+    : wsState !== "open"
+      ? "Opening the realtime session channel."
+      : providerCatalogStatus === "refreshing"
+        ? "Refreshing provider and model discovery."
+        : "Loading provider and model discovery.";
+  const bootstrapError = gatewayError ?? (
+    providerCatalogStatus === "error" ? providerCatalogError ?? "Provider discovery failed." : null
+  );
+  const retryBootstrap = () => {
+    clearErrorBanner();
+    markProviderCatalogRefreshing();
+    if (wsState === "open") {
+      send({ type: "refresh_providers" });
+    }
+    void dashboardQuery.refetch();
+    if (gatewayError) {
+      setGatewayAttempt((count) => count + 1);
+    }
+  };
 
   const executePaletteCommand = (command: CommandPaletteItem) => {
+    closeComposerCommands();
     switch (command.id) {
       case "new-session":
         sendClear();
@@ -650,6 +830,7 @@ export function AppShell() {
       case "theme":
         setPaletteMode("theme");
         setPaletteQuery("");
+        setIsPaletteOpen(true);
         return;
       case "provider":
         setIsProviderPickerOpen(true);
@@ -675,31 +856,14 @@ export function AppShell() {
     }
   };
 
-  if (!gatewayReady && !gatewayError) {
+  if (!runtimeBootstrapReady) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-[var(--color-background)] px-6">
-        <div className="w-full max-w-lg rounded-xl border border-[var(--color-border)] bg-[var(--color-background-panel)] p-6">
-          <p className="text-sm text-[var(--color-text-muted)]">Connecting to gateway…</p>
-          <div className="mt-3 h-2 w-full overflow-hidden rounded bg-[var(--color-background-element)]">
-            <div className="h-full w-1/3 animate-pulse rounded bg-[var(--color-accent)]" />
-          </div>
-        </div>
-      </main>
-    );
-  }
-
-  if (gatewayError) {
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-[var(--color-background)] px-6">
-        <div className="w-full max-w-xl rounded-xl border border-[var(--color-border)] bg-[var(--color-background-panel)]">
-          <ErrorBanner
-            message={gatewayError}
-            onRetry={() => {
-              setGatewayAttempt((count) => count + 1);
-            }}
-          />
-        </div>
-      </main>
+      <RuntimeBootstrapGate
+        title={bootstrapTitle}
+        detail={bootstrapDetail}
+        error={bootstrapError}
+        onRetry={bootstrapError ? retryBootstrap : undefined}
+      />
     );
   }
 
@@ -729,51 +893,59 @@ export function AppShell() {
           sessionMeta={selectedSessionMeta}
           activeProvider={activeProvider}
           activeModel={activeModel}
-          onStartNewSession={startNewSession}
         />
       ) : sidebarMode === "changed"
         ? (
           <ChangedFilesPanel
             files={changedFiles}
-            onStartNewSession={startNewSession}
           />
         )
-        : (
-          <ApprovalsPanel
-            approvals={pendingApprovals}
-            onApprove={(sessionId) => sendApprovalResponse(true, undefined, sessionId)}
-            onDeny={(sessionId) => sendApprovalResponse(false, undefined, sessionId)}
-            onStartNewSession={startNewSession}
-          />
-        );
+        : sidebarMode === "approvals"
+          ? (
+            <ApprovalsPanel
+              approvals={pendingApprovals}
+              onApprove={(sessionId) => sendApprovalResponse(true, undefined, sessionId)}
+              onDeny={(sessionId) => sendApprovalResponse(false, undefined, sessionId)}
+            />
+          )
+          : (
+            <ActivityLogPanel
+              entries={timelineEntries}
+            />
+          );
 
   const closeDrawer = () => {
     setDrawerOpen(false);
   };
   const activeSession = sessionList.find((session) => session.id === selectedSessionId) ?? null;
   const topBarTitle = activeSession?.title ?? activeSession?.taskSummary ?? "New session";
-  const tokenTotal = inputTokens + outputTokens;
   const drawerTitle = sidebarMode === "sessions"
     ? "Sessions"
     : sidebarMode === "workspace"
       ? "Workspace"
       : sidebarMode === "changed"
         ? "Changed Files"
-        : "Approvals";
+        : sidebarMode === "approvals"
+          ? "Approvals"
+          : "Activity";
   const drawerDescription = sidebarMode === "sessions"
     ? "History moves into a drawer on narrow windows."
     : sidebarMode === "workspace"
       ? "Workspace metadata moves into a drawer on narrow windows."
-    : sidebarMode === "changed"
-      ? "Changed files move into a drawer on narrow windows."
-      : "Approval requests move into a drawer on narrow windows.";
+      : sidebarMode === "changed"
+        ? "Changed files move into a drawer on narrow windows."
+        : sidebarMode === "approvals"
+          ? "Approval requests move into a drawer on narrow windows."
+          : "Runtime activity moves into a drawer on narrow windows.";
   const drawerAriaLabel = sidebarMode === "sessions"
     ? "session drawer"
     : sidebarMode === "workspace"
       ? "workspace drawer"
       : sidebarMode === "changed"
         ? "changed files drawer"
-        : "approvals drawer";
+        : sidebarMode === "approvals"
+          ? "approvals drawer"
+          : "activity drawer";
 
   return (
     <div className="relative flex h-screen overflow-hidden bg-background text-foreground">
@@ -794,7 +966,6 @@ export function AppShell() {
 
       <CommandPalette
         open={isPaletteOpen}
-        placement={palettePlacement}
         title={paletteMode === "theme" ? "Theme Commands" : "Command Palette"}
         placeholder={paletteMode === "theme" ? "Filter themes…" : "Filter commands…"}
         query={paletteQuery}
@@ -816,22 +987,23 @@ export function AppShell() {
       <div className="relative z-10 flex min-h-0 flex-1">
         {!isNarrow ? (
           <div className="flex min-h-0">
-              <LeftRail
-                activeMode={sidebarMode}
-                sessionCount={sessionList.length}
-                changedCount={changedFiles.length}
-                approvalCount={approvalCount}
-                expanded={sidebarExpanded}
-                onToggleExpanded={() => setSidebarExpanded((expanded) => !expanded)}
-                onSelectMode={setSidebarMode}
-              />
+            <LeftRail
+              activeMode={sidebarMode}
+              sessionCount={sessionList.length}
+              changedCount={changedFiles.length}
+              approvalCount={approvalCount}
+              activityCount={activityEntries.length}
+              expanded={sidebarExpanded}
+              onToggleExpanded={() => setSidebarExpanded((expanded) => !expanded)}
+              onSelectMode={setSidebarMode}
+            />
             {sidebarExpanded ? (
-              <div className="w-[296px] min-w-[296px] max-w-[296px]">{sidebar}</div>
+              <div className="w-80 min-w-80 max-w-80">{sidebar}</div>
             ) : null}
           </div>
         ) : null}
         <main className="flex min-h-0 flex-1 flex-col bg-background/65">
-          <header className="flex h-11 shrink-0 items-center gap-3 border-b border-border/70 bg-card/70 px-4 backdrop-blur">
+          <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border/70 bg-card/70 px-4 backdrop-blur">
             {isNarrow ? (
               <Button
                 type="button"
@@ -856,84 +1028,48 @@ export function AppShell() {
                 </span>
               ) : null}
             </div>
-            <div className="ml-auto hidden items-center gap-2 xl:flex">
-              <span className="rounded-md border border-border/70 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
-                turns <span className="text-foreground">{turnCounter}</span>
-              </span>
-              <span className="rounded-md border border-border/70 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
-                tokens <span className="text-foreground">{tokenTotal.toLocaleString("en-US")}</span>
-              </span>
-              <span className="rounded-md border border-border/70 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
-                cost <span className="text-foreground">${sessionCostUsd.toFixed(4)}</span>
-              </span>
-            </div>
+            <div className="ml-auto" />
             <ConnectionStatus state={wsState} />
-            <Button
-              type="button"
-              variant="outline"
-              size="xs"
-              onClick={() => setIsProviderPickerOpen(true)}
-            >
-              {activeProvider ?? "Provider"}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="xs"
-              aria-label="New Session"
-              onClick={() => {
-                startNewSession();
-                closePalette();
-              }}
-            >
-              New
-            </Button>
-            <Button
-              type="button"
-              variant="secondary"
-              size="xs"
-              aria-expanded={isPaletteOpen}
-              onClick={() => {
-                if (isPaletteOpen) {
-                  closePalette();
-                  return;
-                }
-                openPalette("root");
-              }}
-            >
-              Commands
-            </Button>
+            <SessionTelemetry
+              activeProvider={activeProvider}
+              resumeInfo={resumeInfo}
+              runtimeContinuity={runtimeContinuity}
+              changedFiles={changedFiles}
+              fieldTelemetry={dashboardData?.telemetry ?? null}
+            />
             <ThemeSwitcher onThemeSelected={persistThemePreference} />
           </header>
-          <div className="border-b border-border/60 bg-card/35 px-4 py-2 lg:hidden">
-            <ProviderStatus
-              onOpenPicker={() => setIsProviderPickerOpen(true)}
-              domainLabel={domainLabel}
-              workingDirectory={workingDirectory}
-            />
-          </div>
-          <SessionTelemetry
-            activeProvider={activeProvider}
-            resumeInfo={resumeInfo}
-            runtimeContinuity={runtimeContinuity}
-            changedFiles={changedFiles}
-            fieldTelemetry={dashboardData?.telemetry ?? null}
-          />
           <Transcript
-            entries={timelineEntries}
+            entries={conversationEntries}
+            activityPhase={activityPhase}
+            activityToolName={activity?.toolName}
+            activityDetails={activity?.details}
             onApprove={(sessionId) => sendApprovalResponse(true, undefined, sessionId)}
             onDeny={(sessionId) => sendApprovalResponse(false, undefined, sessionId)}
           />
           <Composer
             status={status}
             planMode={planMode}
-            activityLabel={activityLabel}
-            activityPhase={activityPhase}
-            activityToolName={activity?.toolName}
-            activityDetails={activity?.details}
             resumeTargetId={resumeTargetId}
+            providerControl={(
+              <ProviderStatus
+                compact
+                onOpenPicker={() => setIsProviderPickerOpen(true)}
+                domainLabel={domainLabel}
+                workingDirectory={workingDirectory}
+              />
+            )}
+            reasoningControl={resolvedReasoningEffort ? (
+              <ReasoningEffortControl
+                value={resolvedReasoningEffort}
+                options={reasoningEffortOptions}
+                onChange={setReasoningEffort}
+              />
+            ) : null}
             onSubmit={(text) => {
-              sendMessage(text);
+              sendMessage(text, {
+                ...(resolvedReasoningEffort ? { reasoningEffort: resolvedReasoningEffort } : {}),
+              });
             }}
             onEmptySubmit={() => {
               if (selectedSessionId) {
@@ -941,7 +1077,23 @@ export function AppShell() {
               }
             }}
             onTogglePlanMode={setPlanMode}
-            onOpenCommandPalette={() => openPalette("root", "composer")}
+            commandMenu={{
+              open: composerCommandOpen,
+              query: composerCommandQuery,
+              commands: rootCommands,
+              onQueryChange: setComposerCommandQuery,
+              onExecute: executePaletteCommand,
+              onOpenChange: (open) => {
+                if (!open) {
+                  closeComposerCommands();
+                  return;
+                }
+                setPaletteQuery("");
+                setIsPaletteOpen(false);
+                setComposerCommandQuery("");
+                setComposerCommandOpen(true);
+              },
+            }}
           />
         </main>
       </div>
@@ -964,7 +1116,9 @@ export function AppShell() {
                 ? "Workspace drawer"
                 : drawerTitle === "Changed Files"
                   ? "Changed files drawer"
-                  : "Approvals drawer"}
+                  : drawerTitle === "Approvals"
+                    ? "Approvals drawer"
+                    : "Activity drawer"}
             className="flex h-full w-[min(26rem,calc(100vw-3rem))] max-w-full flex-col border-l border-border bg-card shadow-2xl"
           >
             <div className="flex items-center justify-between border-b border-border px-4 py-3">
@@ -1013,11 +1167,38 @@ export function AppShell() {
           }
         }}
         onRefreshProviders={async () => {
+          markProviderCatalogRefreshing();
           if (wsState === "open") {
             send({ type: "refresh_providers" });
           }
-          await dashboardQuery.refetch();
+          const result = await dashboardQuery.refetch();
+          if (result && "error" in result && result.error) {
+            markProviderCatalogError("Could not refresh provider discovery.");
+            return;
+          }
+          if (result && "data" in result && result.data?.providers) {
+            onProvidersRefreshed(result.data.providers);
+          }
         }}
+        onAuthenticateProvider={async (provider, options) => {
+          const started = authenticateProvider(provider, options);
+          if (!started) {
+            const message = useSessionStore.getState().errorBanner ?? "Provider authentication failed.";
+            setErrorBanner(message);
+            throw new Error(message);
+          }
+          try {
+            await waitForProviderAuthResolution(provider);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "Provider authentication failed.";
+            setErrorBanner(message);
+            throw (error instanceof Error ? error : new Error(message));
+          }
+        }}
+        providerAuthenticating={providerAuthenticating}
+        providerAuthProvider={providerAuthProvider}
+        providerAuthMessage={providerAuthMessage}
+        providerAuthDetails={providerAuthDetails}
         onOpenChange={(open) => setIsProviderPickerOpen(open)}
       />
     </div>

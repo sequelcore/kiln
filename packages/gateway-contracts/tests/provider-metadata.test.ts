@@ -11,4 +11,12 @@ describe("getGuiProviderMetadata", () => {
     expect(isGuiProviderModeless("codex")).toBe(false);
     expect(isGuiProviderModeless("unknown-provider")).toBe(false);
   });
+
+  it("exposes interactive auth only for providers that consume Kiln-managed credentials", () => {
+    expect(getGuiProviderMetadata("codex")?.authMethod).toBeUndefined();
+    expect(getGuiProviderMetadata("opencode")?.authMethod).toBeUndefined();
+    expect(getGuiProviderMetadata("codex-oauth")?.authMethod).toBe("device_code");
+    expect(getGuiProviderMetadata("opencode-go")?.authMethod).toBe("api_key");
+    expect(getGuiProviderMetadata("opencode-zen")?.authMethod).toBe("api_key");
+  });
 });
