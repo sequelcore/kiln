@@ -233,7 +233,7 @@ export interface DevTool {
 }
 ```
 
-The twenty-one built-in tool names are:
+The twenty-three built-in tool names are:
 
 - `bash`
 - `read`
@@ -245,6 +245,8 @@ The twenty-one built-in tool names are:
 - `tree`
 - `view_image`
 - `ocr_image`
+- `web_search`
+- `web_fetch`
 - `grep`
 - `glob`
 - `git`
@@ -253,6 +255,8 @@ The twenty-one built-in tool names are:
 - `monitor_read`
 - `monitor_stop`
 - `monitor_list`
+- `task_list`
+- `task_update`
 - `tool_catalog_search`
 
 Operator-attached CLI, GUI, and TUI turns may also expose
@@ -293,8 +297,8 @@ Builtin developer tools return one core-owned metadata contract from
 Every metadata object includes:
 
 - `toolName`: canonical builtin tool name
-- `kind`: `command`, `file`, `inspection`, `media`, `web`, `search`, or
-  `monitor`
+- `kind`: `command`, `file`, `inspection`, `media`, `web`, `search`,
+  `monitor`, or `task_state`
 
 High-volume metadata may also include `verbosity`, which records the requested
 output shape without changing the stable metadata family.
@@ -330,6 +334,11 @@ Monitor metadata covers `monitor_start`, `monitor_read`, `monitor_stop`, and
 sequence cursors, event counts, duration, exit code, signal, timeout state, and
 truncation evidence. Monitor metadata is lifecycle evidence, not file-change
 evidence.
+
+Task-state metadata covers `task_list` and `task_update`. It reports task ids,
+status filters, sequence numbers, task counts, and validation errors for the
+session-local progress model. Task-state metadata is not a saved project plan,
+external issue tracker record, or file-change signal.
 
 Web tools are fail-closed unless `KilnYaml.web` enables them:
 
@@ -376,6 +385,8 @@ return a JSON object with a `sources` array.
 | `monitor_read` | Read bounded monitor output events | `id`, `sinceSequence`, `limit`, `verbosity` | `raw` output is concatenated event text; `structured` is JSON snapshot plus events; `summary` is a bounded rollup; metadata includes id, status, sequence, cursor, event count, and `verbosity` |
 | `monitor_stop` | Stop a monitored command | `id`, `reason`, `verbosity` | stops a running monitor or returns the completed snapshot; metadata includes id, status, event count, duration, exit code, signal, timeout, and truncation |
 | `monitor_list` | List monitor snapshots | `status`, `verbosity` | returns monitor rows, JSON snapshots, or a summary count; metadata includes monitor count, optional status filter, and `verbosity` |
+| `task_list` | List session-local task state | `status`, `verbosity` | `raw` output is tab-delimited task rows; `structured` is JSON task state plus counts; `summary` is a bounded rollup; metadata includes filter status, task count, total task count, sequence, and `verbosity` |
+| `task_update` | Create or update session-local task state | `id`, `title`, `status`, `details`, `dependsOn`, `verbosity` | creates or updates one task in the shared store; metadata includes task id, status, total task count, sequence, and `verbosity` |
 | `tool_catalog_search` | Search the shared tool catalog | `query`, `exact`, `prefix`, `tags`, `limit`, `includeSchemas`, `verbosity` | returns matched tool catalog entries and reports stale exact matches without falling back to unrelated tools |
 
 `patch` accepts a structured document with `*** Begin Patch` and
@@ -414,9 +425,10 @@ The built-in executors are intentionally small and predictable:
 - `ReadManyTool` builds bounded multi-file text packets with deterministic ordering, include/exclude globs, optional `.gitignore` respect, default nuisance-directory excludes, per-file skipped reasons, total bytes, and truncation metadata.
 - `CodeIntelligenceTool` validates workspace paths and delegates semantic navigation, symbols, diagnostics, implementations, and call hierarchy to an injected `CodeIntelligenceAdapter`. The default fails closed with `adapter_not_configured` instead of approximating LSP behavior with text search.
 - `MonitorRegistry` owns session-local long-running command lifecycles and exposes `stopAll()` for session teardown. `MonitorStartTool` reuses bash-style cwd and command validation, starts `bash -c`, installs timeout cleanup, and records sequence-numbered output. `MonitorReadTool`, `MonitorStopTool`, and `MonitorListTool` read, stop, and project the same registry rather than owning separate process state.
+- `TaskStateStore` owns session-local model-visible task progress. `TaskUpdateTool` validates lifecycle status, title, ids, and dependencies before mutating the store. `TaskListTool` projects the same store with optional status filtering.
 - `ToolCatalogSearchTool` searches the shared catalog by exact name, prefix, tags, or lexical query. It is read-only, supports raw, structured, and summary output, and reports stale exact matches as an empty result with `reason: "tool_not_found"`.
 
-All twenty-one tools return `ToolResult`; failures are regular tool results when possible, not uncaught process exceptions.
+All twenty-three tools return `ToolResult`; failures are regular tool results when possible, not uncaught process exceptions.
 
 The default surface can also run in deferred projection mode. In that mode,
 only configured always-on tools plus `tool_catalog_search` are advertised to a

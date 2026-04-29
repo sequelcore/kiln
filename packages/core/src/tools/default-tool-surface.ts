@@ -22,6 +22,12 @@ import { PatchTool } from "./infrastructure/patch-tool.js";
 import { ReadManyTool } from "./infrastructure/read-many-tool.js";
 import { ReadTool } from "./infrastructure/read-tool.js";
 import { StatTool } from "./infrastructure/stat-tool.js";
+import {
+  TaskListTool,
+  TaskStateStore,
+  type TaskStateStoreOptions,
+  TaskUpdateTool,
+} from "./infrastructure/task-state-tools.js";
 import { ToolCatalogSearchTool } from "./infrastructure/tool-catalog-search-tool.js";
 import { TreeTool } from "./infrastructure/tree-tool.js";
 import { ViewImageTool } from "./infrastructure/view-image-tool.js";
@@ -47,6 +53,8 @@ export interface DefaultBuiltinToolRegistryOptions {
   readonly codeIntelligence?: CodeIntelligenceToolOptions;
   readonly monitor?: MonitorRegistryOptions;
   readonly monitorRegistry?: MonitorRegistry;
+  readonly taskState?: TaskStateStoreOptions;
+  readonly taskStateStore?: TaskStateStore;
   readonly toolProjection?: DefaultBuiltinToolProjectionOptions;
 }
 
@@ -71,6 +79,7 @@ export interface DefaultBuiltinToolSurface {
   readonly bridge: DevToolExecutionBridge;
   readonly catalog: ToolCatalogIndex;
   readonly monitorRegistry: MonitorRegistry;
+  readonly taskStateStore: TaskStateStore;
 }
 
 export function createDefaultBuiltinTools(
@@ -78,6 +87,7 @@ export function createDefaultBuiltinTools(
 ): readonly DevTool[] {
   let catalog = new ToolCatalogIndex([]);
   const monitorRegistry = options.monitorRegistry ?? new MonitorRegistry(options.monitor);
+  const taskStateStore = options.taskStateStore ?? new TaskStateStore(options.taskState);
   const tools = [
     new BashTool(options.bash),
     new ReadTool(),
@@ -99,6 +109,8 @@ export function createDefaultBuiltinTools(
     new MonitorReadTool({ registry: monitorRegistry }),
     new MonitorStopTool({ registry: monitorRegistry }),
     new MonitorListTool({ registry: monitorRegistry }),
+    new TaskListTool({ store: taskStateStore }),
+    new TaskUpdateTool({ store: taskStateStore }),
     new ToolCatalogSearchTool(() => catalog),
   ];
   catalog = ToolCatalogIndex.fromTools(tools);
@@ -119,9 +131,11 @@ export function createDefaultBuiltinToolSurface(
   options: DefaultBuiltinToolRegistryOptions = {},
 ): DefaultBuiltinToolSurface {
   const monitorRegistry = options.monitorRegistry ?? new MonitorRegistry(options.monitor);
+  const taskStateStore = options.taskStateStore ?? new TaskStateStore(options.taskState);
   const surfaceOptions = {
     ...options,
     monitorRegistry,
+    taskStateStore,
   };
   const registry = createDefaultBuiltinToolRegistry(surfaceOptions);
   const catalog = ToolCatalogIndex.fromTools(registry.list());
@@ -136,6 +150,7 @@ export function createDefaultBuiltinToolSurface(
     bridge: new DevToolExecutionBridge({ registry }),
     catalog,
     monitorRegistry,
+    taskStateStore,
   };
 }
 

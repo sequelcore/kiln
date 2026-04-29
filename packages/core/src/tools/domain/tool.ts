@@ -102,6 +102,8 @@ export type DevToolName =
   | "monitor_read"
   | "monitor_stop"
   | "monitor_list"
+  | "task_list"
+  | "task_update"
   | "tool_catalog_search";
 
 export const TOOL_SCHEMAS: Record<
@@ -704,6 +706,63 @@ export const TOOL_SCHEMAS: Record<
     annotations: {
       readOnly: true,
       idempotent: true,
+    },
+  },
+  task_list: {
+    name: "task_list",
+    description: "List shared session-local task state. Always pass a JSON object with optional status or verbosity.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        status: {
+          enum: ["pending", "in_progress", "blocked", "completed", "cancelled"],
+          description: "Optional task status filter.",
+        },
+        verbosity: OUTPUT_VERBOSITY_PROPERTY,
+      },
+      required: [],
+      additionalProperties: false,
+    },
+    annotations: {
+      readOnly: true,
+      idempotent: true,
+    },
+  },
+  task_update: {
+    name: "task_update",
+    description: "Create or update shared session-local task state. Always pass a JSON object with title, status, and optional id, details, dependsOn, or verbosity.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: {
+          type: "string",
+          description: "Optional stable task id. When omitted, Kiln assigns one.",
+        },
+        title: {
+          type: "string",
+          minLength: 1,
+          description: "Task title shown to shared operator surfaces.",
+        },
+        status: {
+          enum: ["pending", "in_progress", "blocked", "completed", "cancelled"],
+          description: "Task lifecycle status.",
+        },
+        details: {
+          type: "string",
+          description: "Optional short task details.",
+        },
+        dependsOn: {
+          type: "array",
+          items: { type: "string" },
+          description: "Optional dependency task ids.",
+        },
+        verbosity: OUTPUT_VERBOSITY_PROPERTY,
+      },
+      required: ["title", "status"],
+      additionalProperties: false,
+    },
+    annotations: {
+      destructive: false,
     },
   },
   tool_catalog_search: {

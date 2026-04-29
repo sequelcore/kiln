@@ -169,6 +169,10 @@ function tagsForTool(tool: DevTool): readonly string[] {
     tags.add("monitor");
     tags.add("command");
   }
+  if (tool.name === "task_list" || tool.name === "task_update") {
+    tags.add("task-state");
+    tags.add("progress");
+  }
   if (tool.name === "code_intelligence") {
     tags.add("code");
     tags.add("semantic");

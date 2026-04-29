@@ -45,9 +45,13 @@ export type {
   MonitorToolName,
   MonitorToolOperation,
   MonitorToolResultMetadata,
+  SessionTaskStatus,
   SearchToolName,
   SearchToolResultMetadata,
   SearchToolStrategy,
+  TaskStateToolName,
+  TaskStateToolOperation,
+  TaskStateToolResultMetadata,
   ToolOutputVerbosity,
   ToolResultMetadata,
   WebSourceMetadata,
@@ -66,6 +70,7 @@ export {
   mediaToolMetadata,
   monitorToolMetadata,
   searchToolMetadata,
+  taskStateToolMetadata,
   webToolMetadata,
 } from "./domain/tool-result-metadata.js";
 
@@ -117,6 +122,16 @@ export {
   MonitorStartTool,
   MonitorStopTool,
 } from "./infrastructure/monitor-tools.js";
+export type {
+  SessionTask,
+  TaskStateSnapshot,
+  TaskStateStoreOptions,
+} from "./infrastructure/task-state-tools.js";
+export {
+  TaskListTool,
+  TaskStateStore,
+  TaskUpdateTool,
+} from "./infrastructure/task-state-tools.js";
 export { ReadTool } from "./infrastructure/read-tool.js";
 export { ReadManyTool } from "./infrastructure/read-many-tool.js";
 export { WriteTool } from "./infrastructure/write-tool.js";

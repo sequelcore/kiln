@@ -141,4 +141,28 @@ describe("attached runtime builtin tool surface", () => {
       "tool_catalog_search",
     ]);
   });
+
+  it("can explicitly expose task state tools in deferred runtime projection", () => {
+    const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
+      builtinToolOptions: {
+        toolProjection: {
+          mode: "deferred",
+          alwaysOnTools: ["read", "task_list", "task_update"],
+        },
+      },
+    });
+
+    expect(Array.from(runtimeSurface.callBuiltinTools.keys())).toEqual([
+      "read",
+      "task_list",
+      "task_update",
+      "tool_catalog_search",
+    ]);
+    expect(runtimeSurface.toolDefinitions.map((tool) => tool.name)).toEqual([
+      "read",
+      "task_list",
+      "task_update",
+      "tool_catalog_search",
+    ]);
+  });
 });

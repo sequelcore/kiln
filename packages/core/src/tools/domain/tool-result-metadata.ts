@@ -7,6 +7,7 @@ export type SearchToolName = "grep" | "glob";
 export type CatalogToolName = "tool_catalog_search";
 export type CodeToolName = "code_intelligence";
 export type MonitorToolName = "monitor_start" | "monitor_read" | "monitor_stop" | "monitor_list";
+export type TaskStateToolName = "task_list" | "task_update";
 
 export type FileToolOperation = "read" | "read_many" | "write" | "edit" | "patch";
 export type InspectionToolOperation = "stat" | "tree";
@@ -43,6 +44,8 @@ export type CodeIntelligenceErrorCode =
   | "read_denied";
 export type MonitorToolOperation = "start" | "read" | "stop" | "list";
 export type MonitorStatus = "running" | "exited" | "stopped" | "failed";
+export type TaskStateToolOperation = "list" | "update";
+export type SessionTaskStatus = "pending" | "in_progress" | "blocked" | "completed" | "cancelled";
 
 export interface CommandToolResultMetadata<TToolName extends CommandToolName = CommandToolName> {
   readonly toolName: TToolName;
@@ -232,6 +235,19 @@ export interface MonitorToolResultMetadata<TToolName extends MonitorToolName = M
   readonly verbosity?: ToolOutputVerbosity;
 }
 
+export interface TaskStateToolResultMetadata<TToolName extends TaskStateToolName = TaskStateToolName> {
+  readonly toolName: TToolName;
+  readonly kind: "task_state";
+  readonly operation: TaskStateToolOperation;
+  readonly id?: string;
+  readonly status?: SessionTaskStatus;
+  readonly taskCount: number;
+  readonly totalTaskCount?: number;
+  readonly sequence?: number;
+  readonly errorCode?: "invalid_input" | "not_found";
+  readonly verbosity?: ToolOutputVerbosity;
+}
+
 export type ToolResultMetadata =
   | CommandToolResultMetadata
   | FileToolResultMetadata
@@ -241,7 +257,8 @@ export type ToolResultMetadata =
   | SearchToolResultMetadata
   | CatalogToolResultMetadata
   | CodeToolResultMetadata
-  | MonitorToolResultMetadata;
+  | MonitorToolResultMetadata
+  | TaskStateToolResultMetadata;
 
 export function commandToolMetadata<TToolName extends CommandToolName>(
   toolName: TToolName,
@@ -372,6 +389,17 @@ export function monitorToolMetadata<TToolName extends MonitorToolName>(
   return {
     toolName,
     kind: "monitor",
+    ...metadata,
+  };
+}
+
+export function taskStateToolMetadata<TToolName extends TaskStateToolName>(
+  toolName: TToolName,
+  metadata: Omit<TaskStateToolResultMetadata<TToolName>, "toolName" | "kind">,
+): TaskStateToolResultMetadata<TToolName> {
+  return {
+    toolName,
+    kind: "task_state",
     ...metadata,
   };
 }

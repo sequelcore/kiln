@@ -41,13 +41,13 @@ function createServer(registry?: DevToolRegistry): DevToolsMcpServer {
 }
 
 describe("DevToolsMcpServer", () => {
-  it("lists the 21 native tool schemas", () => {
+  it("lists the 23 native tool schemas", () => {
     const server = createServer();
 
     const tools = server.listTools();
     const names = tools.map((tool) => tool.name);
 
-    expect(tools).toHaveLength(21);
+    expect(tools).toHaveLength(23);
     expect(names).toEqual([
       "bash",
       "read",
@@ -69,6 +69,8 @@ describe("DevToolsMcpServer", () => {
       "monitor_read",
       "monitor_stop",
       "monitor_list",
+      "task_list",
+      "task_update",
       "tool_catalog_search",
     ]);
 
@@ -109,7 +111,7 @@ describe("DevToolsMcpServer", () => {
           toolName: "tool_catalog_search",
           kind: "catalog",
           resultCount: 1,
-          totalIndexed: 21,
+          totalIndexed: 23,
         },
       },
     });
@@ -223,6 +225,41 @@ describe("DevToolsMcpServer", () => {
         required: [],
         properties: {
           status: expect.objectContaining({ enum: ["running", "exited", "stopped", "failed"] }),
+        },
+      },
+    });
+  });
+
+  it("exposes shared task state tools through MCP", async () => {
+    const server = createServer();
+
+    expect(server.listTools().find((tool) => tool.name === "task_list")).toMatchObject({
+      name: "task_list",
+      inputSchema: {
+        type: "object",
+        required: [],
+        properties: {
+          status: expect.objectContaining({
+            enum: ["pending", "in_progress", "blocked", "completed", "cancelled"],
+          }),
+          verbosity: expect.objectContaining({ enum: ["raw", "structured", "summary"] }),
+        },
+      },
+    });
+    expect(server.listTools().find((tool) => tool.name === "task_update")).toMatchObject({
+      name: "task_update",
+      inputSchema: {
+        type: "object",
+        required: ["title", "status"],
+        properties: {
+          id: expect.objectContaining({ type: "string" }),
+          title: expect.objectContaining({ type: "string" }),
+          status: expect.objectContaining({
+            enum: ["pending", "in_progress", "blocked", "completed", "cancelled"],
+          }),
+          details: expect.objectContaining({ type: "string" }),
+          dependsOn: expect.objectContaining({ type: "array" }),
+          verbosity: expect.objectContaining({ enum: ["raw", "structured", "summary"] }),
         },
       },
     });

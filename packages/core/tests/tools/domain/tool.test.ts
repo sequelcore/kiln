@@ -67,6 +67,8 @@ describe("tool domain types", () => {
       "monitor_read",
       "monitor_stop",
       "monitor_list",
+      "task_list",
+      "task_update",
       "tool_catalog_search",
     ]);
   });
@@ -128,6 +130,10 @@ describe("tool domain types", () => {
       readOnly: true,
       idempotent: true,
     });
+    expect(TOOL_SCHEMAS.task_list.annotations).toEqual({
+      readOnly: true,
+      idempotent: true,
+    });
   });
 
   it("uses JSON Schema object definitions for each tool", () => {
@@ -161,6 +167,8 @@ describe("tool domain types", () => {
     expect(TOOL_SCHEMAS.monitor_read.inputSchema.required).toEqual(["id"]);
     expect(TOOL_SCHEMAS.monitor_stop.inputSchema.required).toEqual(["id"]);
     expect(TOOL_SCHEMAS.monitor_list.inputSchema.required).toEqual([]);
+    expect(TOOL_SCHEMAS.task_list.inputSchema.required).toEqual([]);
+    expect(TOOL_SCHEMAS.task_update.inputSchema.required).toEqual(["title", "status"]);
   });
 
   it("exposes the shared verbosity field only where it is supported", () => {
@@ -175,6 +183,8 @@ describe("tool domain types", () => {
       "monitor_read",
       "monitor_stop",
       "monitor_list",
+      "task_list",
+      "task_update",
     ] as const) {
       expect(TOOL_SCHEMAS[toolName].inputSchema).toMatchObject({
         properties: {

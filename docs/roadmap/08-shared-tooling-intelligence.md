@@ -235,6 +235,20 @@ Requirements:
 - avoid replacing project management integrations; this is session-local work
   state
 
+Implemented in Slice 16:
+
+- shared session-local `TaskStateStore` with stable task ids, lifecycle status,
+  details, dependencies, timestamps, and monotonic sequence numbers
+- core `task_update` builtin tool for creating or updating model-visible task
+  progress
+- core `task_list` builtin tool for read-only task projection with optional
+  status filtering
+- supported statuses: `pending`, `in_progress`, `blocked`, `completed`, and
+  `cancelled`
+- shared `task_state` metadata for update/list evidence, sequence, status,
+  task counts, and validation errors
+- catalog, MCP, and attached-runtime projection through the canonical surface
+
 ## Slice 17: Operator Elicitation
 
 Goal: give tools and agents one safe cross-surface way to ask for structured

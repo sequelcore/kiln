@@ -8,7 +8,7 @@ describe("ToolCatalogIndex", () => {
 
     const result = catalog.search({ exact: "read" });
 
-    expect(result.totalIndexed).toBe(21);
+    expect(result.totalIndexed).toBe(23);
     expect(result.entries).toHaveLength(1);
     expect(result.entries[0]).toMatchObject({
       name: "read",
@@ -53,7 +53,7 @@ describe("ToolCatalogIndex", () => {
     const catalog = ToolCatalogIndex.fromTools(createDefaultBuiltinTools());
 
     expect(catalog.search({ exact: "missing_tool" })).toMatchObject({
-      totalIndexed: 21,
+      totalIndexed: 23,
       entries: [],
       stale: true,
       reason: "tool_not_found",
@@ -100,6 +100,22 @@ describe("ToolCatalogIndex", () => {
       authority: "destructive",
       tags: expect.arrayContaining(["monitor", "command", "destructive"]),
       inputFields: expect.arrayContaining(["command", "cwd", "name", "timeout", "verbosity"]),
+    });
+  });
+
+  it("indexes task state tools as shared session progress tools", () => {
+    const catalog = ToolCatalogIndex.fromTools(createDefaultBuiltinTools());
+
+    expect(catalog.search({ tags: ["task-state"] }).entries.map((entry) => entry.name)).toEqual([
+      "task_list",
+      "task_update",
+    ]);
+    expect(catalog.search({ exact: "task_update" }).entries[0]).toMatchObject({
+      name: "task_update",
+      sourcePackage: "@kilnai/core",
+      authority: "standard",
+      tags: expect.arrayContaining(["task-state", "progress"]),
+      inputFields: expect.arrayContaining(["id", "title", "status", "details", "dependsOn", "verbosity"]),
     });
   });
 });

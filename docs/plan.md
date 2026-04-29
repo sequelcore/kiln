@@ -247,6 +247,35 @@ Verification:
 Add session-local task state so CLI, GUI, TUI, MCP, and SDK consumers observe
 the same progress model instead of each surface inventing its own checklist.
 
+Status: implemented.
+
+Implemented contract:
+
+- `TaskStateStore` owns session-local model-visible task progress.
+- `task_update` creates or updates tasks with stable ids, title, status,
+  optional details, optional dependencies, timestamps, and monotonic sequence
+  numbers.
+- `task_list` returns the shared task projection with optional status
+  filtering.
+- Supported task statuses are `pending`, `in_progress`, `blocked`,
+  `completed`, and `cancelled`.
+- The task-state model is deliberately separate from project documents,
+  roadmap plans, orchestration demand registries, and external project
+  management integrations.
+- Both tools support raw, structured, and summary output and emit shared
+  `task_state` metadata.
+- The tools are registered in the canonical builtin surface, indexed in the
+  tool catalog, projected through MCP, and available to runtime consumers
+  through the same deferred projection model.
+
+Verification:
+
+- `bun run typecheck`
+- `bun run --cwd packages/core test tests/tools/infrastructure/task-state-tools.test.ts tests/tools/domain/tool.test.ts tests/tools/default-tool-surface.test.ts tests/tools/domain/tool-catalog.test.ts tests/tools/mcp/dev-tools-server.test.ts`
+- `bun run --cwd packages/runtime test tests/gateway/attached-runtime-tool-surface.test.ts`
+- `bun run test`
+- `bun run build`
+
 ### Slice 17: Operator Elicitation
 
 Add one cross-surface structured-input boundary for asking the operator

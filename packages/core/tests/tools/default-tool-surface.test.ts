@@ -8,6 +8,7 @@ import {
   fileToolMetadata,
   MonitorRegistry,
   projectDevToolSchemas,
+  TaskStateStore,
 } from "../../src/tools/index.js";
 
 const BUILTIN_TOOL_NAMES = [
@@ -31,6 +32,8 @@ const BUILTIN_TOOL_NAMES = [
   "monitor_read",
   "monitor_stop",
   "monitor_list",
+  "task_list",
+  "task_update",
   "tool_catalog_search",
 ];
 
@@ -81,6 +84,7 @@ describe("default builtin tool surface", () => {
     expect(first.capabilities).not.toBe(second.capabilities);
     expect(first.bridge).not.toBe(second.bridge);
     expect(first.monitorRegistry).not.toBe(second.monitorRegistry);
+    expect(first.taskStateStore).not.toBe(second.taskStateStore);
   });
 
   it("can receive an owned monitor registry for session teardown", () => {
@@ -88,6 +92,13 @@ describe("default builtin tool surface", () => {
     const surface = createDefaultBuiltinToolSurface({ monitorRegistry });
 
     expect(surface.monitorRegistry).toBe(monitorRegistry);
+  });
+
+  it("can receive an owned task state store for session progress projection", () => {
+    const taskStateStore = new TaskStateStore();
+    const surface = createDefaultBuiltinToolSurface({ taskStateStore });
+
+    expect(surface.taskStateStore).toBe(taskStateStore);
   });
 
   it("exposes a read-only registry view", () => {
@@ -202,6 +213,7 @@ describe("default builtin tool surface", () => {
     expect(surface.registry.has("read_many")).toBe(true);
     expect(surface.registry.has("code_intelligence")).toBe(true);
     expect(surface.registry.has("monitor_start")).toBe(true);
+    expect(surface.registry.has("task_update")).toBe(true);
     expect(surface.bridge.listTools().map((tool) => tool.name)).toEqual(BUILTIN_TOOL_NAMES);
 
     await expect(surface.bridge.execute({

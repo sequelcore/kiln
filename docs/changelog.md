@@ -27,6 +27,10 @@
   registry for long-running shell commands, bounded output events, explicit
   stop semantics, timeout cleanup, monitor metadata, MCP projection, and
   attached-runtime projection.
+- Added shared session task-state tools: `task_list` and `task_update`. The
+  tools share one core `TaskStateStore` so CLI, GUI, TUI, SDK, and MCP
+  consumers can observe the same model-visible progress state instead of
+  maintaining private checklists.
 
 ## Unreleased -- Operator Workspace Explorer
 
