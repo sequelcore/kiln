@@ -1038,7 +1038,7 @@ export function AppShell() {
         }}
       />
 
-      <div className="relative z-10 flex min-h-0 flex-1">
+      <div className="relative z-10 flex min-h-0 min-w-0 flex-1">
         {!isNarrow ? (
           <div className="flex min-h-0">
             <LeftRail
@@ -1056,8 +1056,8 @@ export function AppShell() {
             ) : null}
           </div>
         ) : null}
-        <main className="flex min-h-0 flex-1 flex-col bg-background/65">
-          <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border/70 bg-card/70 px-4 backdrop-blur">
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background/65">
+          <header className="flex h-12 min-w-0 shrink-0 items-center gap-3 border-b border-border/70 bg-card/70 px-4 backdrop-blur">
             {isNarrow ? (
               <Button
                 type="button"

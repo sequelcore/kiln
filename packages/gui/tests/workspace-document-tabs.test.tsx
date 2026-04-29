@@ -110,4 +110,82 @@ describe("WorkspaceDocumentTabs", () => {
     expect(screen.getByText("missing.ts")).toBeInTheDocument();
     expect(screen.getByText("Workspace file was not found.")).toBeInTheDocument();
   });
+
+  it("constrains long workspace file names inside closable tabs", () => {
+    const longName = "very-long-generated-workspace-document-name-that-should-not-overflow-the-tab-boundary.tsx";
+    const longPath = `C:/repo/src/components/${longName}`;
+
+    render(
+      <WorkspaceDocumentTabs
+        chatContent={<div>Chat transcript</div>}
+        files={[{
+          path: longPath,
+          name: longName,
+          kind: "text",
+          sizeBytes: 22,
+          source: "gateway",
+          encoding: "utf-8",
+          language: "tsx",
+          content: "export const ok = true;",
+        }]}
+        selectedPath={longPath}
+        loadingPath={null}
+        error={null}
+        onSelectChat={vi.fn()}
+        onSelectFile={vi.fn()}
+        onCloseFile={vi.fn()}
+      />,
+    );
+
+    const tab = screen.getByRole("tab", { name: longName });
+    const tabShell = tab.parentElement;
+    const label = screen.getByText(longName);
+
+    expect(tab).toHaveAttribute("title", longPath);
+    expect(tab.className).toContain("min-w-0");
+    expect(tab.className).toContain("flex-1");
+    expect(tab.className).toContain("overflow-hidden");
+    expect(tabShell?.className).toContain("max-w-60");
+    expect(tabShell?.className).toContain("overflow-hidden");
+    expect(label.className).toContain("truncate");
+    expect(screen.getByRole("button", { name: `Close ${longName}` })).toBeInTheDocument();
+  });
+
+  it("contains long code lines inside the viewer scroll boundary", () => {
+    const longLine = `export const value = "${"x".repeat(400)}";`;
+
+    render(
+      <WorkspaceDocumentTabs
+        chatContent={<div>Chat transcript</div>}
+        files={[{
+          path: "C:/repo/src/long-line.ts",
+          name: "long-line.ts",
+          kind: "text",
+          sizeBytes: longLine.length,
+          source: "gateway",
+          encoding: "utf-8",
+          language: "ts",
+          content: longLine,
+        }]}
+        selectedPath="C:/repo/src/long-line.ts"
+        loadingPath={null}
+        error={null}
+        onSelectChat={vi.fn()}
+        onSelectFile={vi.fn()}
+        onCloseFile={vi.fn()}
+      />,
+    );
+
+    const workspaceDocuments = screen.getByLabelText("Workspace documents");
+    const scrollBoundary = screen.getByTestId("workspace-code-scroll");
+    const selectedPanel = screen.getByRole("tabpanel", { name: "long-line.ts" });
+
+    expect(workspaceDocuments.className).toContain("min-w-0");
+    expect(workspaceDocuments.className).toContain("overflow-hidden");
+    expect(selectedPanel.className).toContain("min-w-0");
+    expect(selectedPanel.className).toContain("overflow-hidden");
+    expect(scrollBoundary.className).toContain("min-w-0");
+    expect(scrollBoundary.className).toContain("overflow-auto");
+    expect(screen.getByTestId("workspace-code")).toHaveTextContent("export const value");
+  });
 });

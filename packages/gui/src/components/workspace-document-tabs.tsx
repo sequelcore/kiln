@@ -82,12 +82,12 @@ function formatJson(content: string): { readonly content: string; readonly error
 function CodeBlock(props: { readonly content: string; readonly language?: string; readonly notice?: string | null }) {
   const resolvedLanguage = syntaxLanguage(props.language);
   return (
-    <div className="h-full min-h-0 overflow-auto bg-workspace-viewer">
-      <div className="sticky top-0 z-10 flex min-h-9 items-center justify-between border-b border-border/60 bg-workspace-viewer-panel/95 px-4 backdrop-blur">
+    <div data-testid="workspace-code-scroll" className="h-full min-h-0 min-w-0 overflow-auto bg-workspace-viewer">
+      <div className="sticky top-0 z-10 flex min-h-9 min-w-0 items-center justify-between border-b border-border/60 bg-workspace-viewer-panel/95 px-4 backdrop-blur">
         <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
           {props.language ?? "text"}
         </span>
-        {props.notice ? <span className="text-xs text-muted-foreground">{props.notice}</span> : null}
+        {props.notice ? <span className="min-w-0 truncate text-xs text-muted-foreground">{props.notice}</span> : null}
       </div>
       <Suspense fallback={<PlainCodeBlock content={props.content} />}>
         <WorkspaceCodeHighlighter content={props.content} language={resolvedLanguage} />
@@ -114,8 +114,8 @@ function PlainCodeBlock(props: { readonly content: string }) {
 
 function MarkdownPreview(props: { readonly content: string }) {
   return (
-    <div className="h-full overflow-auto bg-workspace-viewer px-6 py-5">
-      <article className="mx-auto max-w-4xl text-sm leading-7 text-foreground">
+    <div className="h-full min-w-0 overflow-auto bg-workspace-viewer px-6 py-5">
+      <article className="mx-auto min-w-0 max-w-4xl text-sm leading-7 text-foreground">
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           skipHtml
@@ -239,9 +239,9 @@ export function WorkspaceDocumentTabs(props: WorkspaceDocumentTabsProps) {
       aria-label="Workspace documents"
       value={selectedValue}
       onValueChange={handleTabChange}
-      className="h-full min-h-0 gap-0 bg-workspace-viewer"
+      className="h-full min-h-0 min-w-0 gap-0 overflow-hidden bg-workspace-viewer"
     >
-      <div className="min-h-10 overflow-x-auto border-b border-border/60 bg-workspace-viewer-panel">
+      <div className="min-h-10 min-w-0 max-w-full overflow-x-auto border-b border-border/60 bg-workspace-viewer-panel">
         <TabsList variant="line" className="min-h-10 w-max justify-start gap-1 rounded-none px-2 py-1">
           <TabsTrigger value={CHAT_TAB_VALUE} className="h-8 flex-none px-3">
             <MessageSquare data-icon="inline-start" />
@@ -251,13 +251,17 @@ export function WorkspaceDocumentTabs(props: WorkspaceDocumentTabsProps) {
             <div
               key={file.path}
               className={cn(
-                "flex h-8 max-w-60 shrink-0 items-center rounded-md border border-border/60",
+                "flex h-8 max-w-60 shrink-0 items-center overflow-hidden rounded-md border border-border/60",
                 selectedValue === file.path ? "bg-secondary text-foreground" : "bg-workspace-viewer text-muted-foreground",
               )}
             >
-              <TabsTrigger value={file.path} className="min-w-0 flex-none justify-start rounded-r-none border-0 bg-transparent px-2 data-active:bg-transparent">
+              <TabsTrigger
+                value={file.path}
+                title={file.path}
+                className="min-w-0 flex-1 justify-start overflow-hidden rounded-r-none border-0 bg-transparent px-2 data-active:bg-transparent"
+              >
                 <File data-icon="inline-start" />
-                <span className="truncate">{file.name}</span>
+                <span className="block min-w-0 truncate">{file.name}</span>
               </TabsTrigger>
               <Button
                 type="button"
@@ -272,23 +276,27 @@ export function WorkspaceDocumentTabs(props: WorkspaceDocumentTabsProps) {
             </div>
           ))}
           {transientPath ? (
-            <TabsTrigger value={transientPath} className="h-8 max-w-60 flex-none border-border/60 bg-secondary px-2 text-foreground">
+            <TabsTrigger
+              value={transientPath}
+              title={transientPath}
+              className="h-8 max-w-60 flex-none overflow-hidden border-border/60 bg-secondary px-2 text-foreground"
+            >
               <File data-icon="inline-start" />
-              <span className="truncate">{basename(transientPath)}</span>
+              <span className="block min-w-0 truncate">{basename(transientPath)}</span>
             </TabsTrigger>
           ) : null}
         </TabsList>
       </div>
-      <TabsContent value={CHAT_TAB_VALUE} keepMounted className="min-h-0 overflow-hidden bg-workspace-viewer">
+      <TabsContent value={CHAT_TAB_VALUE} keepMounted className="min-h-0 min-w-0 overflow-hidden bg-workspace-viewer">
         {props.chatContent}
       </TabsContent>
       {props.files.map((file) => (
-        <TabsContent key={file.path} value={file.path} className="min-h-0 overflow-hidden bg-workspace-viewer">
+        <TabsContent key={file.path} value={file.path} className="min-h-0 min-w-0 overflow-hidden bg-workspace-viewer">
           {file.path === props.selectedPath ? renderSelectedFileContent() : <FilePreview file={file} />}
         </TabsContent>
       ))}
       {transientPath ? (
-        <TabsContent value={transientPath} className="min-h-0 overflow-hidden bg-workspace-viewer">
+        <TabsContent value={transientPath} className="min-h-0 min-w-0 overflow-hidden bg-workspace-viewer">
           {renderSelectedFileContent()}
         </TabsContent>
       ) : null}
