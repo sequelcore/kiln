@@ -22,7 +22,7 @@ A single Kiln gateway process hosting two independent apps (support + booking), 
 
 ```bash
 # 1. Install (from monorepo root)
-cd ../.. && bun install && cd examples/multi-app-gateway
+cd ../../.. && bun install && cd docs/examples/multi-app-gateway
 
 # 2. Set your API key
 export ANTHROPIC_API_KEY=sk-ant-...

@@ -123,7 +123,7 @@ const sse = new SseClient({ url: "http://localhost:3000/dev/events" });
 ## Documentation
 
 - [React SDK Guide](https://github.com/sequelcore/kiln/blob/main/docs/sdk/react-hooks.md)
-- [Examples](https://github.com/sequelcore/kiln/tree/main/examples)
+- [Examples](https://github.com/sequelcore/kiln/tree/main/docs/examples)
 
 ## License
 

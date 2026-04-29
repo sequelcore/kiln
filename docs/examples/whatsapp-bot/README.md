@@ -16,7 +16,7 @@ The bot answers questions about services, prices, and hours. It remembers return
 
 - [Bun](https://bun.sh) 1.1+
 - Anthropic API key (`ANTHROPIC_API_KEY`)
-- Meta Developer account with a WhatsApp Business app ([setup guide](../../docs/guides/channels.md))
+- Meta Developer account with a WhatsApp Business app ([setup guide](../../guides/channels.md))
 - [ngrok](https://ngrok.com) (for local development)
 
 ## Quick Start
@@ -24,7 +24,7 @@ The bot answers questions about services, prices, and hours. It remembers return
 ### 1. Install
 
 ```bash
-cd examples/whatsapp-bot
+cd docs/examples/whatsapp-bot
 bun install
 ```
 

@@ -20,7 +20,7 @@ An AI agent for TechShop that can look up orders, check accounts, and create sup
 
 ```bash
 # 1. Install (from monorepo root)
-cd ../.. && bun install && cd examples/support-agent
+cd ../../.. && bun install && cd docs/examples/support-agent
 
 # 2. Set your API key
 export ANTHROPIC_API_KEY=sk-ant-...

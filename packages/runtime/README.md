@@ -117,7 +117,7 @@ When the gateway starts, it automatically mounts:
 - [Channels Guide](https://github.com/sequelcore/kiln/blob/main/docs/guides/channels.md)
 - [Multi-Tenant Guide](https://github.com/sequelcore/kiln/blob/main/docs/guides/multi-tenant.md)
 - [Triggers Guide](https://github.com/sequelcore/kiln/blob/main/docs/guides/triggers.md)
-- [Examples](https://github.com/sequelcore/kiln/tree/main/examples)
+- [Examples](https://github.com/sequelcore/kiln/tree/main/docs/examples)
 
 ## License
 

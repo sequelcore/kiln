@@ -22,7 +22,7 @@ A hair salon booking agent that can check availability, create appointments, and
 
 ```bash
 # 1. Install (from monorepo root)
-cd ../.. && bun install && cd examples/booking-assistant
+cd ../../.. && bun install && cd docs/examples/booking-assistant
 
 # 2. Set your API key
 export ANTHROPIC_API_KEY=sk-ant-...

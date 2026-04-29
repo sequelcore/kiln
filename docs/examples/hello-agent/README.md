@@ -20,7 +20,7 @@ A minimal example: one agent, one web channel, zero custom code. Everything is d
 
 ```bash
 # 1. Install dependencies (from monorepo root)
-cd ../.. && bun install && cd examples/hello-agent
+cd ../../.. && bun install && cd docs/examples/hello-agent
 
 # 2. Set your API key
 cp .env.example .env

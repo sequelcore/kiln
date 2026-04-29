@@ -95,7 +95,7 @@ AI Agent responds with text + suggestion chips
 
 - [Widget Guide](https://github.com/sequelcore/kiln/blob/main/docs/guides/channels.md)
 - [Multi-Tenant Guide](https://github.com/sequelcore/kiln/blob/main/docs/guides/multi-tenant.md)
-- [Booking Assistant Example](https://github.com/sequelcore/kiln/tree/main/examples/booking-assistant) -- Working demo with widget
+- [Booking Assistant Example](https://github.com/sequelcore/kiln/tree/main/docs/examples/booking-assistant) -- Working demo with widget
 
 ## License
 
