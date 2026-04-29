@@ -1,5 +1,4 @@
 import { Hono } from "hono";
-import { createBunWebSocket } from "hono/bun";
 import type { WSContext } from "hono/ws";
 import {
   isGuiProviderModeless,
@@ -35,6 +34,12 @@ import type {
   RuntimeTurnAuthorityDecision,
   RuntimeTurnFileChange,
 } from "../session/runtime-turn-record.js";
+
+type BunHonoAdapters = typeof import("hono/bun");
+
+async function loadBunHonoAdapters(): Promise<BunHonoAdapters> {
+  return import("hono/bun");
+}
 
 /**
  * Provider switch handler - called by the gateway when user switches provider.
@@ -319,7 +324,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
     reject: (sessionId, reason) => orchestrator.emitApprovalReceived(false, reason, sessionId),
   });
 
-  const { upgradeWebSocket, websocket } = createBunWebSocket();
+  const { upgradeWebSocket, websocket } = (await loadBunHonoAdapters()).createBunWebSocket();
 
   const app = new Hono();
 

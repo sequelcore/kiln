@@ -1,6 +1,5 @@
 import { join } from "node:path";
 import { Hono } from "hono";
-import { createBunWebSocket } from "hono/bun";
 import type { WSContext } from "hono/ws";
 import {
   EventBus,
@@ -70,6 +69,13 @@ export type {
   GuiSessionSummary,
   GuiTelemetrySnapshot,
 } from "@kilnai/gateway-contracts";
+
+type BunHonoAdapters = typeof import("hono/bun");
+type BunUpgradeWebSocket = ReturnType<BunHonoAdapters["createBunWebSocket"]>["upgradeWebSocket"];
+
+async function loadBunHonoAdapters(): Promise<BunHonoAdapters> {
+  return import("hono/bun");
+}
 
 export interface StartGuiGatewayOptions {
   readonly port?: number;
@@ -171,7 +177,7 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
   const transportOptions = options.operatorTransport;
   let activeConnections = 0;
 
-  const { upgradeWebSocket, websocket } = createBunWebSocket();
+  const { upgradeWebSocket, websocket } = (await loadBunHonoAdapters()).createBunWebSocket();
   const operatorCatalog = transportOptions
     ? createProviderCatalogService<readonly GuiProviderDiscoveryResult[]>(
       () => resolveOperatorDiscovery(options.getProviderAvailability),
@@ -383,7 +389,7 @@ async function resolveOperatorDiscovery(
 
 function wireOperatorTransport(
   app: Hono,
-  upgradeWebSocket: ReturnType<typeof createBunWebSocket>["upgradeWebSocket"],
+  upgradeWebSocket: BunUpgradeWebSocket,
   input: {
     port: number;
     transport: OperatorSessionTransportOptions;

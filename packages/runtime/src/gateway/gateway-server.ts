@@ -3,7 +3,6 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { createRequire } from "node:module";
-import { createBunWebSocket, serveStatic } from "hono/bun";
 import type { Hono } from "hono";
 import {
   parseGatewayYaml,
@@ -72,6 +71,14 @@ export { DevOrchestrator } from "./dev-orchestrator.js";
 export type { DevOrchestratorConfig, DevRunResult } from "./dev-orchestrator.js";
 export { DevTokenStore } from "./dev-token-store.js";
 export type { DevToken } from "./dev-token-store.js";
+
+type BunHonoAdapters = typeof import("hono/bun");
+type BunServeStatic = BunHonoAdapters["serveStatic"];
+type BunWebSocketHandler = ReturnType<BunHonoAdapters["createBunWebSocket"]>["websocket"];
+
+async function loadBunHonoAdapters(): Promise<BunHonoAdapters> {
+  return import("hono/bun");
+}
 
 export interface StartGatewayOptions {
   readonly port?: number;
@@ -804,6 +811,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
     }
   }
 
+  const { createBunWebSocket, serveStatic } = await loadBunHonoAdapters();
   const { upgradeWebSocket, websocket: bunWebsocket } = createBunWebSocket();
 
   const honoApp = createGatewayApp({
@@ -966,7 +974,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
   });
 
   if (studioDistPath) {
-    mountStudio(honoApp, studioDistPath);
+    mountStudio(honoApp, studioDistPath, serveStatic);
   }
 
   // Prometheus metrics endpoint (unauthenticated, before per-app routes)
@@ -1522,7 +1530,7 @@ function appToGraph(app: App): AppGraphResponse {
   };
 }
 
-function mountStudio(app: Hono, distPath: string): void {
+function mountStudio(app: Hono, distPath: string, serveStatic: BunServeStatic): void {
   app.get("/studio", (c) => c.redirect("/studio/"));
   app.use("/studio/*", serveStatic({
     root: distPath,
@@ -1537,8 +1545,8 @@ function mountStudio(app: Hono, distPath: string): void {
   });
 }
 
-async function serveAndWait(app: Hono, port: number, onShutdown?: () => void, websocketHandler?: ReturnType<typeof createBunWebSocket>["websocket"]): Promise<void> {
-  const websocket = websocketHandler ?? createBunWebSocket().websocket;
+async function serveAndWait(app: Hono, port: number, onShutdown?: () => void, websocketHandler?: BunWebSocketHandler): Promise<void> {
+  const websocket = websocketHandler ?? (await loadBunHonoAdapters()).createBunWebSocket().websocket;
 
   let server: ReturnType<typeof Bun.serve>;
   try {
@@ -1644,7 +1652,8 @@ export async function startDevServer(options?: DevServerOptions): Promise<void> 
   });
 
   if (studioDistPath) {
-    mountStudio(honoApp, studioDistPath);
+    const { serveStatic } = await loadBunHonoAdapters();
+    mountStudio(honoApp, studioDistPath, serveStatic);
   }
 
   console.log(`Dev server started on port ${port}`);
