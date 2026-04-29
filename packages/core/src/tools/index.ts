@@ -4,6 +4,7 @@ export type {
   DevToolName,
   ToolInput,
   ToolResult,
+  ToolResultContentPart,
 } from "./domain/tool.js";
 export { TOOL_SCHEMAS } from "./domain/tool.js";
 
@@ -19,6 +20,10 @@ export type {
   InspectionToolName,
   InspectionToolOperation,
   InspectionToolResultMetadata,
+  ImageDetail,
+  MediaToolName,
+  MediaToolOperation,
+  MediaToolResultMetadata,
   SearchToolName,
   SearchToolResultMetadata,
   SearchToolStrategy,
@@ -29,6 +34,7 @@ export {
   fileToolMetadata,
   inspectionToolMetadata,
   isFileToolResultMetadata,
+  mediaToolMetadata,
   searchToolMetadata,
 } from "./domain/tool-result-metadata.js";
 
@@ -53,6 +59,14 @@ export { EditTool } from "./infrastructure/edit-tool.js";
 export { PatchTool } from "./infrastructure/patch-tool.js";
 export { StatTool } from "./infrastructure/stat-tool.js";
 export { TreeTool } from "./infrastructure/tree-tool.js";
+export { ViewImageTool } from "./infrastructure/view-image-tool.js";
+export type {
+  OcrImageRequest,
+  OcrImageResult,
+  OcrImageRunner,
+  OcrImageToolOptions,
+} from "./infrastructure/ocr-image-tool.js";
+export { OcrImageTool } from "./infrastructure/ocr-image-tool.js";
 export type { GrepToolOptions } from "./infrastructure/grep-tool.js";
 export { GrepTool } from "./infrastructure/grep-tool.js";
 export type { GlobToolOptions } from "./infrastructure/glob-tool.js";

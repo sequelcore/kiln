@@ -67,6 +67,17 @@ bounded depth, bounded entry count, sandbox validation, and nuisance-directory
 filtering. Both tools emit shared `inspection` metadata and project through the
 canonical builtin surface.
 
+### Slice 7: Image Viewer And OCR Tools
+
+`view_image({ path, detail? })` and `ocr_image({ path, language? })` are now
+core developer tools. `view_image` validates image content by MIME signature,
+enforces size limits, emits MCP-compatible image content, and preserves compact
+JSON output for text-only consumers. `ocr_image` validates the same image
+boundary and calls a configurable OCR runner; the default runner uses
+`tesseract` from PATH when available and returns a clear tool error otherwise.
+Both tools emit shared `media` metadata and project through MCP,
+runtime-attached sessions, and CLI startup from the canonical builtin surface.
+
 ## Consumer Contract
 
 All current consumers use the shared surface:
@@ -82,38 +93,6 @@ All current consumers use the shared surface:
   define separate metadata contracts for builtin tools.
 
 ## Remaining Tool Phases
-
-### Phase 7: Image Viewer And OCR
-
-Goal: make image-heavy workspaces first-class for every consumer.
-
-Target contracts:
-
-```ts
-view_image({ path: string, detail?: "default" | "original" })
-ocr_image({ path: string, language?: string })
-```
-
-Design requirements:
-
-- `view_image` returns model-consumable image content or a stable resource link
-  depending on the consumer projection.
-- Preserve original-resolution access for detail-sensitive evidence, UI, and
-  diagram work.
-- Enforce MIME/type checks, size limits, and sandbox path validation.
-- `ocr_image` must return text plus confidence/source metadata when the OCR
-  backend supports it.
-- Do not couple implementation to GUI/TUI rendering. GUI/TUI may render richer
-  previews later, but the core tool contract must work through MCP and runtime.
-
-Research basis:
-
-- MCP tool results support image content, embedded resources, and resource
-  links.
-- Gemini CLI reads images and PDFs as base64 model-consumable data through its
-  file tools.
-- Users repeatedly report friction around passing multiple images, image size
-  failures, and unreliable image handling in coding agents.
 
 ### Phase 8: Output Verbosity Modes
 

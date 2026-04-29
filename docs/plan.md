@@ -21,6 +21,10 @@ Closed slices:
    `tree({ path?, depth?, includeFiles? })` tools with sandbox validation,
    bounded deterministic output, shared `inspection` metadata, and shared
    projections.
+9. Core `view_image({ path, detail? })` and
+   `ocr_image({ path, language? })` tools with image MIME validation, size
+   limits, MCP-compatible image content, configurable OCR backend execution,
+   shared `media` metadata, and shared projections.
 
 ## Active Objective
 
@@ -36,23 +40,6 @@ execution path for CLI, GUI, TUI, and MCP consumers.
 - Research basis: `docs/research/11-agent-tooling-surface.md`
 
 ## Remaining Phases
-
-### Phase 7: Image Viewer And OCR
-
-Add:
-
-```ts
-view_image({ path: string, detail?: "default" | "original" })
-ocr_image({ path: string, language?: string })
-```
-
-Core requirements:
-
-- path-safe image access
-- MIME and size validation
-- model-consumable output or resource-link projection
-- original-resolution option
-- OCR confidence/source metadata when available
 
 ### Phase 8: Output Verbosity Modes
 

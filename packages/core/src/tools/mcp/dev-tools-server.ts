@@ -1,5 +1,6 @@
 import { KilnError } from "../../engine/errors.js";
 import { projectDevToolSchemas } from "../default-tool-surface.js";
+import type { ToolResult, ToolResultContentPart } from "../domain/tool.js";
 import { DevToolExecutionBridge } from "../tool-executor.js";
 
 const SERVER_NAME = "kilnai-dev-tools";
@@ -61,7 +62,8 @@ export interface DevToolsMcpToolSchema {
 }
 
 export interface DevToolsMcpCallResult {
-  readonly content: readonly { type: "text"; text: string }[];
+  readonly content: readonly ToolResultContentPart[];
+  readonly structuredContent?: unknown;
   readonly isError?: boolean;
 }
 
@@ -108,11 +110,13 @@ export class DevToolsMcpServer {
         return this.errorResult(execution.result.output);
       }
 
-      return this.jsonResult({
-        result: execution.result,
+      const payload = {
+        result: projectToolResult(execution.result),
         attempts: execution.attempts,
         fallbackUsed: execution.fallbackUsed,
-      });
+      };
+
+      return this.jsonResult(payload, execution.result.content);
     } catch (error) {
       return this.errorResult(this.formatErrorMessage(error));
     } finally {
@@ -149,9 +153,13 @@ export class DevToolsMcpServer {
     return server;
   }
 
-  private jsonResult(data: unknown): DevToolsMcpCallResult {
+  private jsonResult(
+    data: unknown,
+    content: readonly ToolResultContentPart[] = [],
+  ): DevToolsMcpCallResult {
     return {
-      content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
+      content: [{ type: "text", text: JSON.stringify(data, null, 2) }, ...content],
+      structuredContent: data,
     };
   }
 
@@ -198,4 +206,12 @@ export class DevToolsMcpServer {
       },
     };
   }
+}
+
+function projectToolResult(result: ToolResult): Omit<ToolResult, "content"> {
+  return {
+    output: result.output,
+    isError: result.isError,
+    ...(result.metadata !== undefined ? { metadata: result.metadata } : {}),
+  };
 }

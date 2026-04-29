@@ -1,11 +1,14 @@
 export type CommandToolName = "bash" | "git";
 export type FileToolName = "read" | "write" | "edit" | "patch";
 export type InspectionToolName = "stat" | "tree";
+export type MediaToolName = "view_image" | "ocr_image";
 export type SearchToolName = "grep" | "glob";
 
 export type FileToolOperation = "read" | "write" | "edit" | "patch";
 export type InspectionToolOperation = "stat" | "tree";
 export type InspectionEntryType = "file" | "directory" | "symlink" | "other";
+export type MediaToolOperation = "view_image" | "ocr";
+export type ImageDetail = "default" | "original";
 export type SearchToolStrategy = "rg" | "fd" | "fallback";
 export type GrepOutputMode = "content" | "files_with_matches" | "count";
 
@@ -90,10 +93,28 @@ export interface InspectionToolResultMetadata<TToolName extends InspectionToolNa
   readonly code?: number | string;
 }
 
+export interface MediaToolResultMetadata<TToolName extends MediaToolName = MediaToolName> {
+  readonly toolName: TToolName;
+  readonly kind: "media";
+  readonly operation: MediaToolOperation;
+  readonly path: string;
+  readonly mimeType?: string;
+  readonly size?: number;
+  readonly width?: number;
+  readonly height?: number;
+  readonly detail?: ImageDetail;
+  readonly language?: string;
+  readonly textLength?: number;
+  readonly confidence?: number;
+  readonly source?: string;
+  readonly code?: number | string;
+}
+
 export type ToolResultMetadata =
   | CommandToolResultMetadata
   | FileToolResultMetadata
   | InspectionToolResultMetadata
+  | MediaToolResultMetadata
   | SearchToolResultMetadata;
 
 export function commandToolMetadata<TToolName extends CommandToolName>(
@@ -168,6 +189,17 @@ export function inspectionToolMetadata<TToolName extends InspectionToolName>(
   return {
     toolName,
     kind: "inspection",
+    ...metadata,
+  };
+}
+
+export function mediaToolMetadata<TToolName extends MediaToolName>(
+  toolName: TToolName,
+  metadata: Omit<MediaToolResultMetadata<TToolName>, "toolName" | "kind">,
+): MediaToolResultMetadata<TToolName> {
+  return {
+    toolName,
+    kind: "media",
     ...metadata,
   };
 }

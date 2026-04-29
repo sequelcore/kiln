@@ -189,6 +189,7 @@ export type ToolResult = {
   readonly output: string;
   readonly isError: boolean;
   readonly metadata?: ToolResultMetadata;
+  readonly content?: readonly ToolResultContentPart[];
 };
 
 export interface DevTool {
@@ -200,7 +201,7 @@ export interface DevTool {
 }
 ```
 
-The ten built-in tool names are:
+The twelve built-in tool names are:
 
 - `bash`
 - `read`
@@ -209,6 +210,8 @@ The ten built-in tool names are:
 - `patch`
 - `stat`
 - `tree`
+- `view_image`
+- `ocr_image`
 - `grep`
 - `glob`
 - `git`
@@ -242,7 +245,7 @@ Builtin developer tools return one core-owned metadata contract from
 Every metadata object includes:
 
 - `toolName`: canonical builtin tool name
-- `kind`: `command`, `file`, `inspection`, or `search`
+- `kind`: `command`, `file`, `inspection`, `media`, or `search`
 
 File metadata also includes `operation`, which is `read`, `write`, `edit`, or
 `patch`. Runtime file-change evidence is derived from shared `file` metadata
@@ -256,6 +259,13 @@ depth, file-inclusion mode, entry count, truncation state, and ignored
 directories. Inspection metadata is orientation evidence, not file-change
 evidence.
 
+Media metadata covers `view_image` and `ocr_image`. `view_image` reports path,
+MIME type, size, optional dimensions, and requested detail level. `ocr_image`
+reports path, MIME type, size, language, extracted text length, and OCR backend
+source or confidence when available. MCP consumers receive image content as a
+standard MCP image content item; text-only consumers still receive the compact
+JSON `output`.
+
 ### Tool reference
 
 | Tool | Purpose | Key params | Output shape |
@@ -267,6 +277,8 @@ evidence.
 | `patch` | Apply a structured multi-file patch | `patch`, `dryRun` | `output` is an apply or dry-run summary; metadata includes `operationCount`, `dryRun`, and per-file change entries |
 | `stat` | Inspect file, directory, symlink, or other path metadata | `path`, `hash` | `output` is compact JSON metadata; metadata includes `path`, `type`, `size`, `modifiedTime`, and optional `hash` |
 | `tree` | Produce a compact bounded directory tree | `path`, `depth`, `includeFiles` | `output` is an indented deterministic tree; metadata includes `path`, `depth`, `includeFiles`, `entryCount`, `truncated`, and ignored directories |
+| `view_image` | Read an image as model-consumable content | `path`, `detail` | `output` is compact JSON metadata; `content` includes MCP-compatible image data; metadata includes `path`, `mimeType`, `size`, dimensions, and `detail` |
+| `ocr_image` | Extract text from an image through the configured OCR backend | `path`, `language` | `output` is compact JSON text extraction data; metadata includes `path`, `mimeType`, `language`, `textLength`, and optional backend confidence/source |
 | `grep` | Search file content by regex | `pattern`, optional file-or-directory `path`, `glob`, `outputMode` | `output` is newline-delimited matches, file paths, or counts; metadata includes `path`, `strategy`, `outputMode` |
 | `glob` | Match files by glob pattern | `pattern`, `path` | `output` is newline-delimited relative file paths; metadata includes `path`, `strategy`, `count` |
 | `git` | Run a git subcommand | `subcommand`, `args` | `output` is combined stdout+stderr; metadata includes `cwd`, `command` |
@@ -297,11 +309,13 @@ The built-in executors are intentionally small and predictable:
 - `EditTool` supports single replacement and `replaceAll`, and fails if the target string is not found.
 - `StatTool` validates the target path, reports `lstat` metadata, and computes SHA-256 only when requested for files.
 - `TreeTool` validates the root path, bounds depth and entry count, sorts directories before files, and skips nuisance directories by default.
+- `ViewImageTool` validates path and image MIME by content, enforces size limits, and returns base64 image content plus media metadata.
+- `OcrImageTool` validates the image through the same path and MIME checks, then calls the configured OCR runner; the default runner uses `tesseract` from PATH when available.
 - `GrepTool` uses `rg` when available and falls back to a recursive file walk plus JavaScript `RegExp`.
 - `GlobTool` uses `fd` when available and falls back to the same recursive walker plus glob matching helpers.
 - `GitTool` executes `git` directly and validates the reconstructed command string before running it.
 
-All ten tools return `ToolResult`; failures are regular tool results when possible, not uncaught process exceptions.
+All twelve tools return `ToolResult`; failures are regular tool results when possible, not uncaught process exceptions.
 
 For MCP consumers, long-running calls have two coordinated timeout layers:
 

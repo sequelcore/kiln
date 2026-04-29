@@ -6,10 +6,12 @@ import {
   fileToolMetadata,
   inspectionToolMetadata,
   isFileToolResultMetadata,
+  mediaToolMetadata,
   searchToolMetadata,
   type CommandToolResultMetadata,
   type FileToolResultMetadata,
   type InspectionToolResultMetadata,
+  type MediaToolResultMetadata,
   type SearchToolResultMetadata,
 } from "../../../src/tools/domain/tool-result-metadata.js";
 
@@ -50,6 +52,8 @@ describe("tool domain types", () => {
       "patch",
       "stat",
       "tree",
+      "view_image",
+      "ocr_image",
       "grep",
       "glob",
       "git",
@@ -77,6 +81,14 @@ describe("tool domain types", () => {
       readOnly: true,
       idempotent: true,
     });
+    expect(TOOL_SCHEMAS.view_image.annotations).toEqual({
+      readOnly: true,
+      idempotent: true,
+    });
+    expect(TOOL_SCHEMAS.ocr_image.annotations).toEqual({
+      readOnly: true,
+      idempotent: true,
+    });
   });
 
   it("uses JSON Schema object definitions for each tool", () => {
@@ -99,6 +111,8 @@ describe("tool domain types", () => {
     expect(TOOL_SCHEMAS.patch.inputSchema.required).toEqual(["patch"]);
     expect(TOOL_SCHEMAS.stat.inputSchema.required).toEqual(["path"]);
     expect(TOOL_SCHEMAS.tree.inputSchema.required).toEqual([]);
+    expect(TOOL_SCHEMAS.view_image.inputSchema.required).toEqual(["path"]);
+    expect(TOOL_SCHEMAS.ocr_image.inputSchema.required).toEqual(["path"]);
     expect(TOOL_SCHEMAS.git.inputSchema.required).toEqual(["subcommand"]);
   });
 
@@ -190,6 +204,30 @@ describe("tool domain types", () => {
       size: 7,
       modifiedTime: "2026-04-29T00:00:00.000Z",
       hashAlgorithm: "none",
+    });
+  });
+
+  it("builds media metadata for image tools", () => {
+    const metadata: MediaToolResultMetadata<"view_image"> = mediaToolMetadata("view_image", {
+      operation: "view_image",
+      path: "C:/workspace/evidence.png",
+      mimeType: "image/png",
+      size: 68,
+      width: 1,
+      height: 1,
+      detail: "original",
+    });
+
+    expect(metadata).toEqual({
+      toolName: "view_image",
+      kind: "media",
+      operation: "view_image",
+      path: "C:/workspace/evidence.png",
+      mimeType: "image/png",
+      size: 68,
+      width: 1,
+      height: 1,
+      detail: "original",
     });
   });
 });

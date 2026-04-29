@@ -8,6 +8,12 @@ import { DevToolRegistry } from "../../../src/tools/domain/tool-registry.js";
 import type { DevTool, ToolInput, ToolResult } from "../../../src/tools/domain/tool.js";
 import { DevToolExecutionBridge } from "../../../src/tools/tool-executor.js";
 import { DevToolsMcpServer } from "../../../src/tools/mcp/dev-tools-server.js";
+import { makeTempDir, removeTempDir } from "../infrastructure/test-utils.js";
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
+
+const PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
+const PNG_BYTES = Buffer.from(PNG_BASE64, "base64");
 
 function makeTool(
   name: string,
@@ -35,13 +41,13 @@ function createServer(registry?: DevToolRegistry): DevToolsMcpServer {
 }
 
 describe("DevToolsMcpServer", () => {
-  it("lists the 10 native tool schemas", () => {
+  it("lists the 12 native tool schemas", () => {
     const server = createServer();
 
     const tools = server.listTools();
     const names = tools.map((tool) => tool.name);
 
-    expect(tools).toHaveLength(10);
+    expect(tools).toHaveLength(12);
     expect(names).toEqual([
       "bash",
       "read",
@@ -50,6 +56,8 @@ describe("DevToolsMcpServer", () => {
       "patch",
       "stat",
       "tree",
+      "view_image",
+      "ocr_image",
       "grep",
       "glob",
       "git",
@@ -115,6 +123,68 @@ describe("DevToolsMcpServer", () => {
         },
       },
     });
+  });
+
+  it("exposes image tools as read-only MCP tools", async () => {
+    const server = createServer();
+
+    const viewImageSchema = server.listTools().find((tool) => tool.name === "view_image");
+    const ocrImageSchema = server.listTools().find((tool) => tool.name === "ocr_image");
+
+    expect(viewImageSchema).toMatchObject({
+      name: "view_image",
+      inputSchema: {
+        type: "object",
+        required: ["path"],
+        properties: {
+          path: expect.objectContaining({ type: "string" }),
+          detail: expect.objectContaining({ enum: ["default", "original"] }),
+        },
+      },
+    });
+    expect(ocrImageSchema).toMatchObject({
+      name: "ocr_image",
+      inputSchema: {
+        type: "object",
+        required: ["path"],
+        properties: {
+          path: expect.objectContaining({ type: "string" }),
+          language: expect.objectContaining({ type: "string" }),
+        },
+      },
+    });
+  });
+
+  it("returns MCP image content for view_image", async () => {
+    const tempDir = await makeTempDir();
+    try {
+      const imagePath = join(tempDir, "evidence.png");
+      await writeFile(imagePath, PNG_BYTES);
+      const server = createServer();
+
+      const response = await server.callTool("view_image", { path: imagePath });
+
+      expect(response.isError).toBeUndefined();
+      expect(response.content).toContainEqual({
+        type: "image",
+        data: PNG_BASE64,
+        mimeType: "image/png",
+      });
+      const payload = JSON.parse(response.content[0]!.text) as {
+        result: ToolResult;
+      };
+      expect(payload.result).toMatchObject({
+        isError: false,
+        metadata: {
+          toolName: "view_image",
+          kind: "media",
+          mimeType: "image/png",
+        },
+      });
+      expect("content" in payload.result).toBe(false);
+    } finally {
+      await removeTempDir(tempDir);
+    }
   });
 
   it("calls a registered tool through the bridge and returns JSON payload", async () => {

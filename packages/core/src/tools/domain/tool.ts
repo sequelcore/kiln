@@ -11,7 +11,19 @@ export type ToolResult = {
   readonly output: string;
   readonly isError: boolean;
   readonly metadata?: ToolResultMetadata;
+  readonly content?: readonly ToolResultContentPart[];
 };
+
+export type ToolResultContentPart =
+  | {
+    readonly type: "text";
+    readonly text: string;
+  }
+  | {
+    readonly type: "image";
+    readonly data: string;
+    readonly mimeType: string;
+  };
 
 export interface DevTool {
   readonly name: string;
@@ -35,6 +47,8 @@ export type DevToolName =
   | "patch"
   | "stat"
   | "tree"
+  | "view_image"
+  | "ocr_image"
   | "grep"
   | "glob"
   | "git";
@@ -219,6 +233,54 @@ export const TOOL_SCHEMAS: Record<
         },
       },
       required: [],
+      additionalProperties: false,
+    },
+    annotations: {
+      readOnly: true,
+      idempotent: true,
+    },
+  },
+  view_image: {
+    name: "view_image",
+    description: "Read an image file and return model-consumable image content. Always pass a JSON object with path and optional detail.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: {
+          type: "string",
+          minLength: 1,
+          description: "Path to the image file.",
+        },
+        detail: {
+          enum: ["default", "original"],
+          description: "default uses the normal image size cap; original allows larger original-resolution files.",
+        },
+      },
+      required: ["path"],
+      additionalProperties: false,
+    },
+    annotations: {
+      readOnly: true,
+      idempotent: true,
+    },
+  },
+  ocr_image: {
+    name: "ocr_image",
+    description: "Extract text from an image file using the configured OCR backend. Always pass a JSON object with path and optional language.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: {
+          type: "string",
+          minLength: 1,
+          description: "Path to the image file.",
+        },
+        language: {
+          type: "string",
+          description: "OCR language code. Defaults to eng.",
+        },
+      },
+      required: ["path"],
       additionalProperties: false,
     },
     annotations: {

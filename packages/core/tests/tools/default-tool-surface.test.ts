@@ -17,6 +17,8 @@ const BUILTIN_TOOL_NAMES = [
   "patch",
   "stat",
   "tree",
+  "view_image",
+  "ocr_image",
   "grep",
   "glob",
   "git",

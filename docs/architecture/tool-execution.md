@@ -246,15 +246,16 @@ The shared metadata families are:
 - `command`: shell-like execution evidence for `bash` and `git`
 - `file`: file operation evidence for `read`, `write`, `edit`, and `patch`
 - `inspection`: workspace orientation evidence for `stat` and `tree`
+- `media`: image and OCR evidence for `view_image` and `ocr_image`
 - `search`: workspace search evidence for `grep` and `glob`
 
 Every builtin metadata object includes:
 
 - `toolName`: the canonical builtin tool name
-- `kind`: one of `command`, `file`, `inspection`, or `search`
+- `kind`: one of `command`, `file`, `inspection`, `media`, or `search`
 
 Existing metadata keys such as `cwd`, `command`, `filePath`, `bytesWritten`,
-`replacements`, `path`, `type`, `size`, `modifiedTime`, `strategy`,
+`replacements`, `path`, `type`, `size`, `modifiedTime`, `mimeType`, `strategy`,
 `timedOut`, and `truncated` are preserved. The normalized fields are additive
 and come from
 `packages/core/src/tools/domain/tool-result-metadata.ts`; consumers must not
@@ -266,6 +267,12 @@ directory shape, entry count, truncation state, and ignored nuisance
 directories. Runtime file-change evidence must continue to come from shared
 `file` metadata only; `inspection` metadata must not be treated as a write,
 edit, or patch signal.
+
+Media metadata is read-only image state. `view_image` can return MCP-compatible
+image content while preserving a compact text `output` for text-only consumers.
+`ocr_image` can report extracted text, language, text length, and OCR backend
+source or confidence when the backend provides it. Runtime file-change evidence
+must not treat `media` metadata as filesystem mutation evidence.
 
 `patch` is the multi-file member of the file metadata family. Its top-level
 metadata uses `operation: "patch"`, `dryRun`, and `operationCount`, and its
