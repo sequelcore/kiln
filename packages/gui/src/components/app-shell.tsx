@@ -41,6 +41,14 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 const NARROW_LAYOUT_QUERY = "(max-width: 1024px)";
@@ -54,6 +62,7 @@ const REASONING_EFFORT_LABELS: Record<GuiProviderReasoningEffort, string> = {
   high: "High",
   xhigh: "XHigh",
 };
+const EMPTY_REASONING_EFFORTS: readonly GuiProviderReasoningEffort[] = [];
 
 function KilnMark() {
   return (
@@ -354,21 +363,27 @@ function ReasoningEffortControl(props: {
 }) {
   if (props.options.length === 0) return null;
   return (
-    <label className="inline-flex h-7 shrink-0 items-center rounded-[min(var(--radius-md),12px)] border border-border bg-background px-2 text-xs text-foreground hover:bg-secondary/45">
-      <span className="sr-only">Reasoning effort</span>
-      <select
-        aria-label="Reasoning effort"
-        value={props.value}
-        onChange={(event) => props.onChange(event.target.value as GuiProviderReasoningEffort)}
-        className="min-w-20 bg-transparent text-xs font-medium text-foreground outline-none"
-      >
-        {props.options.map((effort) => (
-          <option key={effort} value={effort}>
-            {REASONING_EFFORT_LABELS[effort]}
-          </option>
-        ))}
-      </select>
-    </label>
+    <Select
+      value={props.value}
+      onValueChange={(value) => {
+        if (value) {
+          props.onChange(value);
+        }
+      }}
+    >
+      <SelectTrigger size="sm" aria-label="Reasoning effort" className="min-w-24">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent align="end">
+        <SelectGroup>
+          {props.options.map((effort) => (
+            <SelectItem key={effort} value={effort}>
+              {REASONING_EFFORT_LABELS[effort]}
+            </SelectItem>
+          ))}
+        </SelectGroup>
+      </SelectContent>
+    </Select>
   );
 }
 
@@ -449,7 +464,7 @@ export function AppShell() {
   const activeModelCapabilities = activeProvider && activeModel
     ? providerDiscovery.find((entry) => entry.provider === activeProvider)?.modelCapabilities?.[activeModel]
     : undefined;
-  const reasoningEffortOptions = activeModelCapabilities?.supportedReasoningEfforts ?? [];
+  const reasoningEffortOptions = activeModelCapabilities?.supportedReasoningEfforts ?? EMPTY_REASONING_EFFORTS;
   const resolvedReasoningEffort = reasoningEffortOptions.length > 0
     ? (
       reasoningEffort && reasoningEffortOptions.includes(reasoningEffort)
