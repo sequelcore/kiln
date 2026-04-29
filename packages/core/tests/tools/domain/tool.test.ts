@@ -45,6 +45,7 @@ describe("tool domain types", () => {
       "read",
       "write",
       "edit",
+      "patch",
       "grep",
       "glob",
       "git",
@@ -83,6 +84,7 @@ describe("tool domain types", () => {
       "oldString",
       "newString",
     ]);
+    expect(TOOL_SCHEMAS.patch.inputSchema.required).toEqual(["patch"]);
     expect(TOOL_SCHEMAS.git.inputSchema.required).toEqual(["subcommand"]);
   });
 
@@ -125,6 +127,16 @@ describe("tool domain types", () => {
     expect(isFileToolResultMetadata(metadata)).toBe(true);
     expect(isFileToolResultMetadata({ kind: "file", operation: "read", filePath: "C:/workspace/out.txt" })).toBe(false);
     expect(isFileToolResultMetadata({ kind: "file", operation: "read" })).toBe(false);
+    expect(isFileToolResultMetadata({
+      toolName: "patch",
+      kind: "file",
+      operation: "patch",
+      files: [{
+        operation: "write",
+        filePath: "C:/workspace/out.txt",
+        changeType: "created",
+      }],
+    })).toBe(true);
   });
 
   it("builds search metadata with a shared strategy field", () => {

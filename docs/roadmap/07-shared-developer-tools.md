@@ -50,6 +50,14 @@ native `rg` fast path. The dev-tools MCP server emits standard MCP progress
 notifications for long-running tool calls when the caller supplies a progress
 token.
 
+### Slice 5: Patch Tool
+
+`patch({ patch, dryRun? })` is now a core developer tool. It parses structured
+patch documents in `@kilnai/core`, validates every target path before applying
+changes, supports dry-run validation, emits per-file metadata, and projects
+through MCP, runtime-attached sessions, and CLI startup from the canonical
+builtin surface.
+
 ## Consumer Contract
 
 All current consumers use the shared surface:
@@ -65,38 +73,6 @@ All current consumers use the shared surface:
   define separate metadata contracts for builtin tools.
 
 ## Remaining Tool Phases
-
-### Phase 5: Patch Tool
-
-Goal: add a reviewable, structured edit tool that is safer than whole-file
-`write` and more expressive than string-only `edit`.
-
-Target contract:
-
-```ts
-patch({ patch: string, dryRun?: boolean })
-```
-
-Design requirements:
-
-- Accept a single patch document with explicit create, update, delete, and move
-  semantics.
-- Validate paths before applying any file operation.
-- Support dry-run validation and structured per-file results.
-- Decide atomicity before implementation. Default should be all-or-nothing for
-  multi-file patches unless the contract explicitly states partial success.
-- Emit `file` metadata for every changed path and a higher-level patch summary
-  for audit.
-- Reject ambiguous or unsupported patch syntax instead of shelling out blindly.
-
-Research basis:
-
-- OpenAI documents `apply_patch` as a structured diff workflow with explicit
-  success/failure result reporting, path validation, rollback considerations,
-  and approval hooks.
-- User complaints around patch tools on Windows show that shell-mediated patch
-  invocation is brittle; Kiln should implement patch application as a core tool,
-  not as a hidden shell convention.
 
 ### Phase 6: File Metadata And Directory Tree Tools
 

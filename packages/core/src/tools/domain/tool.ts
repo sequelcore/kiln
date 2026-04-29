@@ -32,6 +32,7 @@ export type DevToolName =
   | "read"
   | "write"
   | "edit"
+  | "patch"
   | "grep"
   | "glob"
   | "git";
@@ -147,6 +148,29 @@ export const TOOL_SCHEMAS: Record<
     },
     annotations: {
       destructive: false,
+    },
+  },
+  patch: {
+    name: "patch",
+    description: "Apply a structured patch document to files. Always pass a JSON object with patch and optional dryRun.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        patch: {
+          type: "string",
+          minLength: 1,
+          description: "Structured patch document to apply.",
+        },
+        dryRun: {
+          type: "boolean",
+          description: "When true, validate and preview the patch without changing files.",
+        },
+      },
+      required: ["patch"],
+      additionalProperties: false,
+    },
+    annotations: {
+      destructive: true,
     },
   },
   grep: {

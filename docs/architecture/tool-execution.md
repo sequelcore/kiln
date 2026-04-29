@@ -244,7 +244,7 @@ evidence extraction.
 The shared metadata families are:
 
 - `command`: shell-like execution evidence for `bash` and `git`
-- `file`: file operation evidence for `read`, `write`, and `edit`
+- `file`: file operation evidence for `read`, `write`, `edit`, and `patch`
 - `search`: workspace search evidence for `grep` and `glob`
 
 Every builtin metadata object includes:
@@ -257,6 +257,12 @@ Existing metadata keys such as `cwd`, `command`, `filePath`, `bytesWritten`,
 The normalized fields are additive and come from
 `packages/core/src/tools/domain/tool-result-metadata.ts`; consumers must not
 create private metadata contracts for builtin tools.
+
+`patch` is the multi-file member of the file metadata family. Its top-level
+metadata uses `operation: "patch"`, `dryRun`, and `operationCount`, and its
+`files` array contains the per-path change evidence used by runtime file-change
+tracking. Runtime consumers must read that shared metadata instead of parsing
+patch text or maintaining a private diff contract.
 
 Runtime evidence extraction reads shared metadata first. File-change evidence is
 recognized from `kind: "file"` metadata with `operation: "write"` or

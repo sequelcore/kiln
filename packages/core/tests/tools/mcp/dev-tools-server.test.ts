@@ -35,18 +35,19 @@ function createServer(registry?: DevToolRegistry): DevToolsMcpServer {
 }
 
 describe("DevToolsMcpServer", () => {
-  it("lists the 7 native tool schemas", () => {
+  it("lists the 8 native tool schemas", () => {
     const server = createServer();
 
     const tools = server.listTools();
     const names = tools.map((tool) => tool.name);
 
-    expect(tools).toHaveLength(7);
+    expect(tools).toHaveLength(8);
     expect(names).toEqual([
       "bash",
       "read",
       "write",
       "edit",
+      "patch",
       "grep",
       "glob",
       "git",
@@ -63,6 +64,24 @@ describe("DevToolsMcpServer", () => {
     const server = new DevToolsMcpServer({ bridge: surface.bridge });
 
     expect(server.listTools()).toEqual(projectDevToolSchemas(surface.tools));
+  });
+
+  it("exposes patch as a destructive MCP tool with dry-run support", async () => {
+    const server = createServer();
+
+    const patchSchema = server.listTools().find((tool) => tool.name === "patch");
+
+    expect(patchSchema).toMatchObject({
+      name: "patch",
+      inputSchema: {
+        type: "object",
+        required: ["patch"],
+        properties: {
+          patch: expect.objectContaining({ type: "string" }),
+          dryRun: expect.objectContaining({ type: "boolean" }),
+        },
+      },
+    });
   });
 
   it("calls a registered tool through the bridge and returns JSON payload", async () => {

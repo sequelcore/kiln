@@ -200,12 +200,13 @@ export interface DevTool {
 }
 ```
 
-The seven built-in tool names are:
+The eight built-in tool names are:
 
 - `bash`
 - `read`
 - `write`
 - `edit`
+- `patch`
 - `grep`
 - `glob`
 - `git`
@@ -241,9 +242,11 @@ Every metadata object includes:
 - `toolName`: canonical builtin tool name
 - `kind`: `command`, `file`, or `search`
 
-File metadata also includes `operation`, which is `read`, `write`, or `edit`.
-Runtime file-change evidence is derived from shared `file` metadata for
-`write` and `edit`; `read` metadata is not file-change evidence.
+File metadata also includes `operation`, which is `read`, `write`, `edit`, or
+`patch`. Runtime file-change evidence is derived from shared `file` metadata
+for `write`, `edit`, and `patch`; `read` metadata is not file-change evidence.
+Patch metadata carries a `files` array so one tool result can report every
+created, modified, deleted, or moved path.
 
 ### Tool reference
 
@@ -253,9 +256,26 @@ Runtime file-change evidence is derived from shared `file` metadata for
 | `read` | Read file content from disk | `filePath`, `offset`, `limit` | `output` is the selected line window; metadata includes `filePath`, `offset`, `limit`, `totalLines` |
 | `write` | Replace full file contents | `filePath`, `content` | `output` is a confirmation string; metadata includes `filePath`, `bytesWritten` |
 | `edit` | Replace one or all string matches in a file | `filePath`, `oldString`, `newString`, `replaceAll` | `output` is a replacement summary or an error; metadata includes `filePath`, `replacements`, `replaceAll` |
+| `patch` | Apply a structured multi-file patch | `patch`, `dryRun` | `output` is an apply or dry-run summary; metadata includes `operationCount`, `dryRun`, and per-file change entries |
 | `grep` | Search file content by regex | `pattern`, optional file-or-directory `path`, `glob`, `outputMode` | `output` is newline-delimited matches, file paths, or counts; metadata includes `path`, `strategy`, `outputMode` |
 | `glob` | Match files by glob pattern | `pattern`, `path` | `output` is newline-delimited relative file paths; metadata includes `path`, `strategy`, `count` |
 | `git` | Run a git subcommand | `subcommand`, `args` | `output` is combined stdout+stderr; metadata includes `cwd`, `command` |
+
+`patch` accepts a structured document with `*** Begin Patch` and
+`*** End Patch` sentinels. Supported operations are:
+
+- `*** Add File: path` followed by `+` lines
+- `*** Update File: path` followed by `@@` hunks using space, `-`, and `+`
+  line prefixes
+- `*** Delete File: path`
+- `*** Update File: oldPath` plus `*** Move to: newPath`
+
+Patch execution is all-or-nothing at the planning boundary: Kiln parses the
+entire document, validates every target path, checks file existence, and
+computes every changed file before applying any write. If application fails
+after writing starts, Kiln restores captured file snapshots on a best-effort
+basis. `dryRun: true` performs the same parsing, path validation, and planning
+without changing disk.
 
 ### Executor behavior
 

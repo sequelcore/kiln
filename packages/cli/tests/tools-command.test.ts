@@ -4,7 +4,7 @@ import type { KilnAppConfig } from "../src/config.js";
 const coreMocks = vi.hoisted(() => {
   const connect = vi.fn().mockResolvedValue(undefined);
   const bridge = { source: "core-default-bridge" };
-  const toolNames = ["bash", "read", "write", "edit", "grep", "glob", "git"];
+  const toolNames = ["bash", "read", "write", "edit", "patch", "grep", "glob", "git"];
   return {
     bridge,
     toolNames,

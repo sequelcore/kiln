@@ -1,8 +1,8 @@
 export type CommandToolName = "bash" | "git";
-export type FileToolName = "read" | "write" | "edit";
+export type FileToolName = "read" | "write" | "edit" | "patch";
 export type SearchToolName = "grep" | "glob";
 
-export type FileToolOperation = "read" | "write" | "edit";
+export type FileToolOperation = "read" | "write" | "edit" | "patch";
 export type SearchToolStrategy = "rg" | "fd" | "fallback";
 export type GrepOutputMode = "content" | "files_with_matches" | "count";
 
@@ -29,7 +29,9 @@ export interface FileToolResultMetadata<TToolName extends FileToolName = FileToo
   readonly toolName: TToolName;
   readonly kind: "file";
   readonly operation: FileToolOperation;
-  readonly filePath: string;
+  readonly filePath?: string;
+  readonly previousFilePath?: string;
+  readonly files?: readonly FileToolChangeMetadata[];
   readonly changeType?: "created" | "modified" | "deleted";
   readonly offset?: number;
   readonly limit?: number;
@@ -41,7 +43,20 @@ export interface FileToolResultMetadata<TToolName extends FileToolName = FileToo
   readonly linesRemoved?: number;
   readonly diffPreview?: string;
   readonly diffTruncated?: boolean;
+  readonly dryRun?: boolean;
+  readonly operationCount?: number;
   readonly code?: number | string;
+}
+
+export interface FileToolChangeMetadata {
+  readonly operation: "write" | "edit" | "delete" | "move";
+  readonly filePath: string;
+  readonly previousFilePath?: string;
+  readonly changeType: "created" | "modified" | "deleted";
+  readonly linesAdded?: number;
+  readonly linesRemoved?: number;
+  readonly diffPreview?: string;
+  readonly diffTruncated?: boolean;
 }
 
 export interface SearchToolResultMetadata<TToolName extends SearchToolName = SearchToolName> {
@@ -93,10 +108,24 @@ export function isFileToolResultMetadata(value: unknown): value is FileToolResul
     filePath?: unknown;
   };
 
-  return (candidate.toolName === "read" || candidate.toolName === "write" || candidate.toolName === "edit")
-    && candidate.kind === "file"
-    && (candidate.operation === "read" || candidate.operation === "write" || candidate.operation === "edit")
-    && typeof candidate.filePath === "string";
+  const hasFilePath = typeof candidate.filePath === "string";
+  const hasPatchFiles = Array.isArray((candidate as { files?: unknown }).files);
+  const isSingleFileTool = (
+    candidate.toolName === "read"
+    || candidate.toolName === "write"
+    || candidate.toolName === "edit"
+  )
+    && (
+      candidate.operation === "read"
+      || candidate.operation === "write"
+      || candidate.operation === "edit"
+    )
+    && hasFilePath;
+  const isPatchTool = candidate.toolName === "patch"
+    && candidate.operation === "patch"
+    && hasPatchFiles;
+
+  return candidate.kind === "file" && (isSingleFileTool || isPatchTool);
 }
 
 export function searchToolMetadata<TToolName extends SearchToolName>(

@@ -10,6 +10,7 @@ export { TOOL_SCHEMAS } from "./domain/tool.js";
 export type {
   CommandToolName,
   CommandToolResultMetadata,
+  FileToolChangeMetadata,
   FileToolName,
   FileToolOperation,
   FileToolResultMetadata,
@@ -44,6 +45,7 @@ export { BashTool } from "./infrastructure/bash-tool.js";
 export { ReadTool } from "./infrastructure/read-tool.js";
 export { WriteTool } from "./infrastructure/write-tool.js";
 export { EditTool } from "./infrastructure/edit-tool.js";
+export { PatchTool } from "./infrastructure/patch-tool.js";
 export type { GrepToolOptions } from "./infrastructure/grep-tool.js";
 export { GrepTool } from "./infrastructure/grep-tool.js";
 export type { GlobToolOptions } from "./infrastructure/glob-tool.js";

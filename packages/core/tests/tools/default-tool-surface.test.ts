@@ -14,6 +14,7 @@ const BUILTIN_TOOL_NAMES = [
   "read",
   "write",
   "edit",
+  "patch",
   "grep",
   "glob",
   "git",

@@ -9,6 +9,7 @@ import type {
   ToolExecutionResult,
   AuthorityDescriptor,
   ToolAuthorizationResult,
+  FileToolChangeMetadata,
   FileToolResultMetadata,
 } from "@kilnai/core";
 import {
@@ -137,6 +138,22 @@ function maybeString(value: unknown): string | undefined {
     return undefined;
   }
   return value;
+}
+
+function isFileToolChangeMetadata(value: unknown): value is FileToolChangeMetadata {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const candidate = value as {
+    filePath?: unknown;
+    changeType?: unknown;
+  };
+  return typeof candidate.filePath === "string"
+    && (
+      candidate.changeType === "created"
+      || candidate.changeType === "modified"
+      || candidate.changeType === "deleted"
+    );
 }
 
 function buildWritePreview(content: string): string {
@@ -632,6 +649,29 @@ export class RuntimeSessionToolExecutor {
     const sharedFileMetadata: FileToolResultMetadata | undefined = isFileToolResultMetadata(metadata)
       ? metadata
       : undefined;
+
+    if (sharedFileMetadata?.operation === "patch") {
+      const files = Array.isArray(sharedFileMetadata.files)
+        ? sharedFileMetadata.files.filter(isFileToolChangeMetadata)
+        : [];
+      if (files.length === 0) {
+        return undefined;
+      }
+      return files.map((file) => {
+        const clipped = file.diffPreview ? clipDiffPreview(file.diffPreview) : undefined;
+        const linesAdded = maybeNumber(file.linesAdded);
+        const linesRemoved = maybeNumber(file.linesRemoved);
+        return {
+          path: file.filePath,
+          changeType: normalizeFileChangeType(file.changeType),
+          ...(linesAdded !== undefined ? { linesAdded } : {}),
+          ...(linesRemoved !== undefined ? { linesRemoved } : {}),
+          ...(clipped && clipped.preview.length > 0 ? { diffPreview: clipped.preview } : {}),
+          ...(clipped ? { diffTruncated: clipped.truncated || (file.diffTruncated ?? false) } : {}),
+        };
+      });
+    }
+
     const legacyOperation = legacyFileOperationFromToolName(toolName);
     const operation = sharedFileMetadata?.operation ?? legacyOperation;
 

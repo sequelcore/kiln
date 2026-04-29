@@ -1084,6 +1084,71 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       }]);
     });
 
+    it("extracts multi-file change evidence from patch metadata", async () => {
+      const provider = makeToolCallProvider(
+        {
+          id: "tc-patch-1",
+          name: "patch",
+          input: { patch: "*** Begin Patch\n*** Add File: src/new.txt\n+new\n*** End Patch" },
+        },
+        "patching files...",
+      );
+
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: [{ name: "patch", description: "Patches files", inputSchema: {}, tags: new Set() }],
+        builtinTools: new Map([[
+          "patch",
+          vi.fn().mockResolvedValue({
+            output: "Applied 2 patch operations",
+            isError: false,
+            metadata: {
+              toolName: "patch",
+              kind: "file",
+              operation: "patch",
+              files: [
+                {
+                  operation: "write",
+                  filePath: "C:/workspace/src/new.txt",
+                  changeType: "created",
+                  linesAdded: 1,
+                  diffPreview: "+ new",
+                },
+                {
+                  operation: "edit",
+                  filePath: "C:/workspace/src/existing.txt",
+                  changeType: "modified",
+                  linesAdded: 1,
+                  linesRemoved: 1,
+                  diffPreview: "- old\n+ new",
+                },
+              ],
+            },
+          }),
+        ]]),
+      });
+
+      const result = await orchestrator.processMessage(makeSession(), textParts("apply patch"));
+
+      expect(result.toolExecutions?.[0]?.fileChanges).toEqual([
+        {
+          path: "C:/workspace/src/new.txt",
+          changeType: "created",
+          linesAdded: 1,
+          diffPreview: "+ new",
+          diffTruncated: false,
+        },
+        {
+          path: "C:/workspace/src/existing.txt",
+          changeType: "modified",
+          linesAdded: 1,
+          linesRemoved: 1,
+          diffPreview: "- old\n+ new",
+          diffTruncated: false,
+        },
+      ]);
+    });
+
     it("does not treat read metadata as file-change evidence", async () => {
       const provider = makeToolCallProvider(
         {

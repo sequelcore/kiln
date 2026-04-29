@@ -15,6 +15,8 @@ Closed slices:
 5. Shared projection cleanup across MCP, runtime-attached sessions, and CLI.
 6. Kiln-owned MCP request timeout propagation and server-side progress
    notifications.
+7. Core `patch({ patch, dryRun? })` tool with structured parsing, path
+   validation, dry-run planning, per-file metadata, and shared projections.
 
 ## Active Objective
 
@@ -30,23 +32,6 @@ execution path for CLI, GUI, TUI, and MCP consumers.
 - Research basis: `docs/research/11-agent-tooling-surface.md`
 
 ## Remaining Phases
-
-### Phase 5: Patch Tool
-
-Add:
-
-```ts
-patch({ patch: string, dryRun?: boolean })
-```
-
-Core requirements:
-
-- parse and validate structured patch input in core
-- validate every target path before applying changes
-- support dry-run validation
-- emit structured per-file metadata
-- define and test atomicity semantics
-- expose through MCP, runtime-attached sessions, and CLI projection
 
 ### Phase 6: Tree And Stat
 
