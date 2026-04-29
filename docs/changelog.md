@@ -18,6 +18,10 @@
   `CodeIntelligenceAdapter` boundary for language-server-backed definitions,
   references, hover, symbols, diagnostics, implementations, and call hierarchy.
   The default fails closed when no adapter is configured.
+- Added the read-only `read_many` builtin tool for bounded deterministic
+  multi-file text context packets with include/exclude filters, simple
+  `.gitignore` support, default nuisance-directory excludes, skipped-file
+  reasons, byte/file caps, and truncation metadata.
 
 ## Unreleased -- Operator Workspace Explorer
 

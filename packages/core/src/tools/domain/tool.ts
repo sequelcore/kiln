@@ -84,6 +84,7 @@ export interface DevToolAnnotations {
 export type DevToolName =
   | "bash"
   | "read"
+  | "read_many"
   | "write"
   | "edit"
   | "patch"
@@ -152,6 +153,58 @@ export const TOOL_SCHEMAS: Record<
         limit: { type: "number", description: "Maximum number of lines to read" },
       },
       required: ["filePath"],
+      additionalProperties: false,
+    },
+    annotations: {
+      readOnly: true,
+      idempotent: true,
+    },
+  },
+  read_many: {
+    name: "read_many",
+    description: "Read a bounded deterministic packet of text files. Always pass a JSON object with paths and optional include, exclude, recursive, respectGitIgnore, useDefaultExcludes, maxFiles, maxBytes, or verbosity.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        paths: {
+          type: "array",
+          items: { type: "string" },
+          minItems: 1,
+          description: "Files or directories to include in the context packet.",
+        },
+        include: {
+          type: "array",
+          items: { type: "string" },
+          description: "Optional glob patterns to include.",
+        },
+        exclude: {
+          type: "array",
+          items: { type: "string" },
+          description: "Optional glob patterns to exclude.",
+        },
+        recursive: {
+          type: "boolean",
+          description: "When true, recursively expands directories. Defaults to false.",
+        },
+        respectGitIgnore: {
+          type: "boolean",
+          description: "When true, applies simple .gitignore path patterns from the workspace root.",
+        },
+        useDefaultExcludes: {
+          type: "boolean",
+          description: "When true, skips default nuisance directories such as .git, dist, build, coverage, and node_modules. Defaults to true.",
+        },
+        maxFiles: {
+          type: "number",
+          description: "Maximum files to include. Defaults to 50 and caps at 200.",
+        },
+        maxBytes: {
+          type: "number",
+          description: "Maximum bytes of text content to return across all files. Defaults to 262144.",
+        },
+        verbosity: OUTPUT_VERBOSITY_PROPERTY,
+      },
+      required: ["paths"],
       additionalProperties: false,
     },
     annotations: {

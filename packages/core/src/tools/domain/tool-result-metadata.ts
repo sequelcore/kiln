@@ -1,5 +1,5 @@
 export type CommandToolName = "bash" | "git";
-export type FileToolName = "read" | "write" | "edit" | "patch";
+export type FileToolName = "read" | "read_many" | "write" | "edit" | "patch";
 export type InspectionToolName = "stat" | "tree";
 export type MediaToolName = "view_image" | "ocr_image";
 export type WebToolName = "web_search" | "web_fetch";
@@ -7,7 +7,7 @@ export type SearchToolName = "grep" | "glob";
 export type CatalogToolName = "tool_catalog_search";
 export type CodeToolName = "code_intelligence";
 
-export type FileToolOperation = "read" | "write" | "edit" | "patch";
+export type FileToolOperation = "read" | "read_many" | "write" | "edit" | "patch";
 export type InspectionToolOperation = "stat" | "tree";
 export type InspectionEntryType = "file" | "directory" | "symlink" | "other";
 export type MediaToolOperation = "view_image" | "ocr";
@@ -72,6 +72,10 @@ export interface FileToolResultMetadata<TToolName extends FileToolName = FileToo
   readonly offset?: number;
   readonly limit?: number;
   readonly totalLines?: number;
+  readonly fileCount?: number;
+  readonly skippedCount?: number;
+  readonly totalBytes?: number;
+  readonly truncated?: boolean;
   readonly bytesWritten?: number;
   readonly replacements?: number;
   readonly replaceAll?: boolean;
@@ -82,6 +86,7 @@ export interface FileToolResultMetadata<TToolName extends FileToolName = FileToo
   readonly dryRun?: boolean;
   readonly operationCount?: number;
   readonly code?: number | string;
+  readonly verbosity?: ToolOutputVerbosity;
 }
 
 export interface FileToolChangeMetadata {
@@ -249,11 +254,13 @@ export function isFileToolResultMetadata(value: unknown): value is FileToolResul
   const hasPatchFiles = Array.isArray((candidate as { files?: unknown }).files);
   const isSingleFileTool = (
     candidate.toolName === "read"
+    || candidate.toolName === "read_many"
     || candidate.toolName === "write"
     || candidate.toolName === "edit"
   )
     && (
       candidate.operation === "read"
+      || candidate.operation === "read_many"
       || candidate.operation === "write"
       || candidate.operation === "edit"
     )

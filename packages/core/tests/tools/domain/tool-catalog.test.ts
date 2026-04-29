@@ -8,7 +8,7 @@ describe("ToolCatalogIndex", () => {
 
     const result = catalog.search({ exact: "read" });
 
-    expect(result.totalIndexed).toBe(16);
+    expect(result.totalIndexed).toBe(17);
     expect(result.entries).toHaveLength(1);
     expect(result.entries[0]).toMatchObject({
       name: "read",
@@ -53,7 +53,7 @@ describe("ToolCatalogIndex", () => {
     const catalog = ToolCatalogIndex.fromTools(createDefaultBuiltinTools());
 
     expect(catalog.search({ exact: "missing_tool" })).toMatchObject({
-      totalIndexed: 16,
+      totalIndexed: 17,
       entries: [],
       stale: true,
       reason: "tool_not_found",
@@ -71,5 +71,17 @@ describe("ToolCatalogIndex", () => {
       inputFields: expect.arrayContaining(["operation", "path", "position", "query", "symbol", "verbosity"]),
     });
     expect(catalog.search({ tags: ["code"] }).entries.map((entry) => entry.name)).toContain("code_intelligence");
+  });
+
+  it("indexes read_many as a bulk context file tool", () => {
+    const catalog = ToolCatalogIndex.fromTools(createDefaultBuiltinTools());
+
+    expect(catalog.search({ exact: "read_many" }).entries[0]).toMatchObject({
+      name: "read_many",
+      sourcePackage: "@kilnai/core",
+      authority: "read_only",
+      tags: expect.arrayContaining(["file", "context", "read-only"]),
+      inputFields: expect.arrayContaining(["paths", "include", "exclude", "recursive", "respectGitIgnore"]),
+    });
   });
 });

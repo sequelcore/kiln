@@ -11,6 +11,7 @@ import { GlobTool, type GlobToolOptions } from "./infrastructure/glob-tool.js";
 import { GrepTool, type GrepToolOptions } from "./infrastructure/grep-tool.js";
 import { OcrImageTool } from "./infrastructure/ocr-image-tool.js";
 import { PatchTool } from "./infrastructure/patch-tool.js";
+import { ReadManyTool } from "./infrastructure/read-many-tool.js";
 import { ReadTool } from "./infrastructure/read-tool.js";
 import { StatTool } from "./infrastructure/stat-tool.js";
 import { ToolCatalogSearchTool } from "./infrastructure/tool-catalog-search-tool.js";
@@ -68,6 +69,7 @@ export function createDefaultBuiltinTools(
   const tools = [
     new BashTool(options.bash),
     new ReadTool(),
+    new ReadManyTool(),
     new WriteTool(),
     new EditTool(),
     new PatchTool(),

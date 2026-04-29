@@ -41,16 +41,17 @@ function createServer(registry?: DevToolRegistry): DevToolsMcpServer {
 }
 
 describe("DevToolsMcpServer", () => {
-  it("lists the 16 native tool schemas", () => {
+  it("lists the 17 native tool schemas", () => {
     const server = createServer();
 
     const tools = server.listTools();
     const names = tools.map((tool) => tool.name);
 
-    expect(tools).toHaveLength(16);
+    expect(tools).toHaveLength(17);
     expect(names).toEqual([
       "bash",
       "read",
+      "read_many",
       "write",
       "edit",
       "patch",
@@ -104,7 +105,7 @@ describe("DevToolsMcpServer", () => {
           toolName: "tool_catalog_search",
           kind: "catalog",
           resultCount: 1,
-          totalIndexed: 16,
+          totalIndexed: 17,
         },
       },
     });
@@ -137,6 +138,31 @@ describe("DevToolsMcpServer", () => {
           position: expect.objectContaining({ type: "object" }),
           query: expect.objectContaining({ type: "string" }),
           symbol: expect.objectContaining({ type: "string" }),
+          verbosity: expect.objectContaining({ enum: ["raw", "structured", "summary"] }),
+        },
+      },
+    });
+  });
+
+  it("exposes read_many as a read-only MCP tool", async () => {
+    const server = createServer();
+
+    const schema = server.listTools().find((tool) => tool.name === "read_many");
+
+    expect(schema).toMatchObject({
+      name: "read_many",
+      inputSchema: {
+        type: "object",
+        required: ["paths"],
+        properties: {
+          paths: expect.objectContaining({ type: "array" }),
+          include: expect.objectContaining({ type: "array" }),
+          exclude: expect.objectContaining({ type: "array" }),
+          recursive: expect.objectContaining({ type: "boolean" }),
+          respectGitIgnore: expect.objectContaining({ type: "boolean" }),
+          useDefaultExcludes: expect.objectContaining({ type: "boolean" }),
+          maxFiles: expect.objectContaining({ type: "number" }),
+          maxBytes: expect.objectContaining({ type: "number" }),
           verbosity: expect.objectContaining({ enum: ["raw", "structured", "summary"] }),
         },
       },

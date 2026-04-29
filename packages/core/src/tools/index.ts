@@ -96,6 +96,7 @@ export { BashTool } from "./infrastructure/bash-tool.js";
 export type { CodeIntelligenceToolOptions } from "./infrastructure/code-intelligence-tool.js";
 export { CodeIntelligenceTool } from "./infrastructure/code-intelligence-tool.js";
 export { ReadTool } from "./infrastructure/read-tool.js";
+export { ReadManyTool } from "./infrastructure/read-many-tool.js";
 export { WriteTool } from "./infrastructure/write-tool.js";
 export { EditTool } from "./infrastructure/edit-tool.js";
 export { PatchTool } from "./infrastructure/patch-tool.js";

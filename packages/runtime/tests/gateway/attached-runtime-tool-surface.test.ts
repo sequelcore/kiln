@@ -91,4 +91,26 @@ describe("attached runtime builtin tool surface", () => {
       "tool_catalog_search",
     ]);
   });
+
+  it("can explicitly expose read_many in deferred runtime projection", () => {
+    const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
+      builtinToolOptions: {
+        toolProjection: {
+          mode: "deferred",
+          alwaysOnTools: ["read", "read_many"],
+        },
+      },
+    });
+
+    expect(Array.from(runtimeSurface.callBuiltinTools.keys())).toEqual([
+      "read",
+      "read_many",
+      "tool_catalog_search",
+    ]);
+    expect(runtimeSurface.toolDefinitions.map((tool) => tool.name)).toEqual([
+      "read",
+      "read_many",
+      "tool_catalog_search",
+    ]);
+  });
 });

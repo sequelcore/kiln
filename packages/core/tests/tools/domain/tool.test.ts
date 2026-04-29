@@ -49,6 +49,7 @@ describe("tool domain types", () => {
     expect(Object.keys(TOOL_SCHEMAS)).toEqual([
       "bash",
       "read",
+      "read_many",
       "write",
       "edit",
       "patch",
@@ -68,6 +69,10 @@ describe("tool domain types", () => {
 
   it("marks read-only tools with safety annotations", () => {
     expect(TOOL_SCHEMAS.read.annotations).toEqual({
+      readOnly: true,
+      idempotent: true,
+    });
+    expect(TOOL_SCHEMAS.read_many.annotations).toEqual({
       readOnly: true,
       idempotent: true,
     });
@@ -131,6 +136,7 @@ describe("tool domain types", () => {
       "newString",
     ]);
     expect(TOOL_SCHEMAS.patch.inputSchema.required).toEqual(["patch"]);
+    expect(TOOL_SCHEMAS.read_many.inputSchema.required).toEqual(["paths"]);
     expect(TOOL_SCHEMAS.stat.inputSchema.required).toEqual(["path"]);
     expect(TOOL_SCHEMAS.tree.inputSchema.required).toEqual([]);
     expect(TOOL_SCHEMAS.code_intelligence.inputSchema.required).toEqual(["operation"]);

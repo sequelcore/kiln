@@ -180,6 +180,32 @@ Add `read_many` for bounded, deterministic multi-file context packets with
 include/exclude rules, gitignore respect, default excludes, provenance,
 skipped-file reasons, and truncation metadata.
 
+Status: implemented.
+
+Implemented contract:
+
+- `read_many` reads deterministic text-file context packets from files and
+  directories with optional recursive expansion.
+- The tool supports include/exclude glob filters, simple `.gitignore` pattern
+  respect, default nuisance-directory excludes, `maxFiles`, `maxBytes`, and
+  raw/structured/summary output.
+- Binary, image, PDF, audio, video, denied, ignored, excluded, non-file, and
+  overflow candidates are skipped with per-file reasons instead of silently
+  disappearing.
+- Returned metadata includes file count, skipped count, total bytes, truncation,
+  and verbosity.
+- The tool is registered in the canonical builtin surface, indexed in the tool
+  catalog, projected through MCP, and available to runtime consumers through the
+  same deferred projection model.
+
+Verification:
+
+- `bun run typecheck`
+- `bun run test`
+- `bun run build`
+- `bun run --cwd packages/core test tests/tools/infrastructure/read-many-tool.test.ts tests/tools/domain/tool-catalog.test.ts tests/tools/default-tool-surface.test.ts tests/tools/mcp/dev-tools-server.test.ts tests/tools/domain/tool.test.ts`
+- `bun run --cwd packages/runtime test tests/gateway/attached-runtime-tool-surface.test.ts`
+
 ### Slice 15: Background Monitor And Long-Running Task Lifecycle
 
 Add monitor start/read/stop/list semantics for dev servers, watch tests, logs,

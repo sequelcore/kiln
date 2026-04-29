@@ -144,8 +144,11 @@ function authorityForTool(tool: DevTool): ToolCatalogAuthority {
 
 function tagsForTool(tool: DevTool): readonly string[] {
   const tags = new Set<string>();
-  if (tool.name === "read" || tool.name === "write" || tool.name === "edit" || tool.name === "patch") {
+  if (tool.name === "read" || tool.name === "read_many" || tool.name === "write" || tool.name === "edit" || tool.name === "patch") {
     tags.add("file");
+  }
+  if (tool.name === "read_many") {
+    tags.add("context");
   }
   if (tool.name === "grep" || tool.name === "glob") {
     tags.add("search");

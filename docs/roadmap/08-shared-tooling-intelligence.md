@@ -159,6 +159,17 @@ Requirements:
 - support resource links for large files when MCP resources are available
 - preserve deterministic ordering
 
+Implemented in Slice 14:
+
+- shared `read_many` read-only builtin tool
+- deterministic file ordering from explicit files and directory expansion
+- include/exclude glob filters plus simple `.gitignore` pattern support
+- default nuisance-directory excludes for `.git`, `node_modules`, `dist`,
+  `build`, `coverage`, and `.kiln-worktrees`
+- text-only inclusion by default with binary/media/PDF/archive skip reasons
+- per-file provenance, skipped reasons, total bytes, and truncation metadata
+- catalog, MCP, and attached-runtime projection through the canonical surface
+
 ## Slice 15: Background Monitor And Long-Running Task Lifecycle
 
 Goal: model dev servers, watch tests, logs, and CI polling as monitored tasks
