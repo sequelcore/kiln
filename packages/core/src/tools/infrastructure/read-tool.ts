@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { fileToolMetadata } from "../domain/tool-result-metadata.js";
 import { TOOL_SCHEMAS, type DevTool, type ToolInput, type ToolResult } from "../domain/tool.js";
 import {
   optionalNumber,
@@ -24,7 +25,10 @@ export class ReadTool implements DevTool {
     const absolutePath = resolvePath(filePathInput.value, sandbox);
     const readError = validateReadPath(absolutePath, sandbox);
     if (readError) {
-      return toErrorResult(readError, { filePath: absolutePath });
+      return toErrorResult(readError, fileToolMetadata("read", {
+        operation: "read",
+        filePath: absolutePath,
+      }));
     }
 
     const offset = optionalNumber(input, "offset") ?? 0;
@@ -41,15 +45,20 @@ export class ReadTool implements DevTool {
       const lines = content.split(/\r?\n/);
       const sliced = limit !== undefined ? lines.slice(offset, offset + limit) : lines.slice(offset);
       const windowed = sliced.join("\n");
-      return toSuccessResult(windowed, {
+      return toSuccessResult(windowed, fileToolMetadata("read", {
+        operation: "read",
         filePath: absolutePath,
         offset,
         limit,
         totalLines: lines.length,
-      });
+      }));
     } catch (error) {
       const err = error as NodeJS.ErrnoException;
-      return toErrorResult(err.message, { filePath: absolutePath, code: err.code });
+      return toErrorResult(err.message, fileToolMetadata("read", {
+        operation: "read",
+        filePath: absolutePath,
+        code: err.code,
+      }));
     }
   }
 }

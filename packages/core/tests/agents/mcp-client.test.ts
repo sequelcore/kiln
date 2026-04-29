@@ -91,7 +91,53 @@ describe("McpClient", () => {
       const result = await client.executeTool("search", { query: "test" });
 
       expect(result).toEqual({ status: "ok" });
-      expect(mockCallTool).toHaveBeenCalledWith({ name: "search", arguments: { query: "test" } });
+      expect(mockCallTool).toHaveBeenCalledWith(
+        { name: "search", arguments: { query: "test" } },
+        undefined,
+        expect.objectContaining({
+          timeout: 120_000,
+          resetTimeoutOnProgress: true,
+          onprogress: expect.any(Function),
+        }),
+      );
+    });
+
+    it("extends the MCP request timeout from millisecond tool timeout arguments", async () => {
+      const client = new McpClient(config);
+
+      mockCallTool.mockResolvedValue({
+        content: [{ type: "text", text: '{"status": "ok"}' }],
+      });
+
+      await client.executeTool("bash", { command: "bun run test", timeout: 360_000 });
+
+      expect(mockCallTool).toHaveBeenCalledWith(
+        { name: "bash", arguments: { command: "bun run test", timeout: 360_000 } },
+        undefined,
+        expect.objectContaining({
+          timeout: 390_000,
+          resetTimeoutOnProgress: true,
+          onprogress: expect.any(Function),
+        }),
+      );
+    });
+
+    it("honors explicit MCP request timeout config", async () => {
+      const client = new McpClient({ ...config, requestTimeoutMs: 500_000 });
+
+      mockCallTool.mockResolvedValue({
+        content: [{ type: "text", text: '{"status": "ok"}' }],
+      });
+
+      await client.executeTool("bash", { command: "bun run test", timeout: 360_000 });
+
+      expect(mockCallTool).toHaveBeenCalledWith(
+        { name: "bash", arguments: { command: "bun run test", timeout: 360_000 } },
+        undefined,
+        expect.objectContaining({
+          timeout: 500_000,
+        }),
+      );
     });
 
     it("returns text when not JSON", async () => {

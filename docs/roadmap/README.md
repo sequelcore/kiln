@@ -48,6 +48,11 @@ indicates the default read order, not necessarily the active work priority.
   projects managed Claude/Codex/OpenCode config, and adds drift-aware sync,
   uninstall, migrate, and engine-status workflows.
 
+- `07-shared-developer-tools.md`
+  Owns the shared builtin developer-tool roadmap after the metadata and
+  projection foundation: patch, tree/stat, image/OCR, output modes, and
+  controlled web tools.
+
 ### Deferred work
 
 - `02-external-benchmark-validation.md`
@@ -72,7 +77,10 @@ indicates the default read order, not necessarily the active work priority.
 6. Read `06-config-projection-unification.md` when planning harness config
    projection, engine registry, drift detection, sync, uninstall, migrate, or
    config-surface work.
-7. Read `02-external-benchmark-validation.md` only when benchmark work becomes
+7. Read `07-shared-developer-tools.md` when planning builtin developer tools,
+   MCP projections, runtime-attached tool surfaces, patch/image/web tools, or
+   tool output contracts.
+8. Read `02-external-benchmark-validation.md` only when benchmark work becomes
    active.
 
 ## Current Execution Priority
@@ -94,12 +102,15 @@ This is the delivery queue. It is the only priority order in this index.
 4. Execute `06-config-projection-unification.md` after the provider credential
    pool and config/registry ADR sequencing is clear. It owns harness config
    projection, drift detection, engine registry, and config lifecycle commands.
-5. Keep `02-external-benchmark-validation.md` deferred until the product
+5. Execute `07-shared-developer-tools.md` for the next shared tool expansion:
+   patch first, then tree/stat, image/OCR, output verbosity, and controlled web
+   tools.
+6. Keep `02-external-benchmark-validation.md` deferred until the product
    surface stabilizes.
 
 ## Current Status
 
-As of 2026-04-28:
+As of 2026-04-29:
 
 - the taxonomy freeze and module mapping slices are closed
 - bounded-context doctrine now lives only in the stable architecture docs,
@@ -153,6 +164,9 @@ As of 2026-04-28:
 - context-governor execution records were pruned on 2026-04-27 after
   consolidation, and roadmap numbering was compacted:
   provider credential pool is now `05`, and config projection is now `06`
+- shared developer-tool metadata, timeout handling, runtime evidence, MCP
+  projection, and consumer alignment completed on 2026-04-29; remaining builtin
+  tool expansion now lives in `07-shared-developer-tools.md`
 
 ## Rules
 

@@ -78,6 +78,40 @@ function makeCommandProvider(command: string, toolName = "bash"): ProviderAdapte
   };
 }
 
+function makeToolCallProvider(
+  toolCall: { readonly id: string; readonly name: string; readonly input: Record<string, unknown> },
+  firstResponseText = "using tool...",
+): ProviderAdapter {
+  let callCount = 0;
+  return {
+    name: "mock",
+    createMessage: vi.fn().mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        return {
+          parts: textParts(firstResponseText),
+          inputTokens: 100,
+          outputTokens: 50,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          toolCalls: [toolCall],
+          stopReason: "tool_use",
+        };
+      }
+      return {
+        parts: textParts("done"),
+        inputTokens: 100,
+        outputTokens: 50,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        toolCalls: [],
+        stopReason: "end_turn",
+      };
+    }),
+    streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+  };
+}
+
 function makeSession(): RuntimeSession {
   return new RuntimeSession({ appName: "app", tenantId: "test-tenant", userId: "user-1", systemPrompt: "Be helpful." });
 }
@@ -975,63 +1009,113 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
     it.each(["write", "edit"] as const)(
       "captures structured file changes from %s tool metadata",
       async (toolName) => {
-      let callCount = 0;
-      const provider: ProviderAdapter = {
-        name: "mock",
-        createMessage: vi.fn().mockImplementation(() => {
-          callCount++;
-          if (callCount === 1) {
-            return {
-              parts: textParts("writing file..."),
-              inputTokens: 100,
-              outputTokens: 50,
-              cacheReadTokens: 0,
-              cacheWriteTokens: 0,
-              toolCalls: [{
-                id: "tc-write-1",
-                name: toolName,
-                input: { filePath: "src/demo.txt", content: "updated" },
-              }],
-              stopReason: "tool_use",
-            };
-          }
-          return {
-            parts: textParts("done"),
-            inputTokens: 100,
-            outputTokens: 50,
-            cacheReadTokens: 0,
-            cacheWriteTokens: 0,
-            toolCalls: [],
-            stopReason: "end_turn",
-          };
-        }),
-        streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
-      };
+        const provider = makeToolCallProvider(
+          {
+            id: "tc-write-1",
+            name: toolName,
+            input: { filePath: "src/demo.txt", content: "updated" },
+          },
+          "writing file...",
+        );
+
+        const orchestrator = new RuntimeSessionOrchestrator({
+          provider,
+          tools: [{ name: toolName, description: "Writes files", inputSchema: {}, tags: new Set() }],
+          builtinTools: new Map([[
+            toolName,
+            vi.fn().mockResolvedValue({
+              output: "Wrote 7 characters",
+              isError: false,
+              metadata: { filePath: "C:/workspace/src/demo.txt" },
+            }),
+          ]]),
+        });
+
+        const result = await orchestrator.processMessage(makeSession(), textParts("write file"));
+
+        expect(result.toolExecutions?.[0]?.fileChanges).toEqual([
+          expect.objectContaining({
+            path: "C:/workspace/src/demo.txt",
+            changeType: "modified",
+            linesAdded: 1,
+          }),
+        ]);
+      },
+    );
+
+    it("uses shared file metadata as the source of truth for file-change evidence", async () => {
+      const provider = makeToolCallProvider(
+        {
+          id: "tc-shared-file-1",
+          name: "filesystem_write",
+          input: { content: "updated\ncontent" },
+        },
+        "writing file...",
+      );
 
       const orchestrator = new RuntimeSessionOrchestrator({
         provider,
-        tools: [{ name: toolName, description: "Writes files", inputSchema: {}, tags: new Set() }],
+        tools: [{ name: "filesystem_write", description: "Writes files", inputSchema: {}, tags: new Set() }],
         builtinTools: new Map([[
-          toolName,
+          "filesystem_write",
           vi.fn().mockResolvedValue({
-            output: "Wrote 7 characters",
+            output: "Wrote file",
             isError: false,
-            metadata: { filePath: "C:/workspace/src/demo.txt" },
+            metadata: {
+              toolName: "write",
+              kind: "file",
+              operation: "write",
+              filePath: "C:/workspace/src/shared.txt",
+              linesAdded: 2,
+              diffPreview: "+ updated\n+ content",
+            },
           }),
         ]]),
       });
 
       const result = await orchestrator.processMessage(makeSession(), textParts("write file"));
 
-      expect(result.toolExecutions?.[0]?.fileChanges).toEqual([
-        expect.objectContaining({
-          path: "C:/workspace/src/demo.txt",
-          changeType: "modified",
-          linesAdded: 1,
-        }),
-      ]);
-      },
-    );
+      expect(result.toolExecutions?.[0]?.fileChanges).toEqual([{
+        path: "C:/workspace/src/shared.txt",
+        changeType: "modified",
+        linesAdded: 2,
+        diffPreview: "+ updated\n+ content",
+        diffTruncated: false,
+      }]);
+    });
+
+    it("does not treat read metadata as file-change evidence", async () => {
+      const provider = makeToolCallProvider(
+        {
+          id: "tc-shared-read-1",
+          name: "read",
+          input: { filePath: "src/demo.txt" },
+        },
+        "reading file...",
+      );
+
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: [{ name: "read", description: "Reads files", inputSchema: {}, tags: new Set() }],
+        builtinTools: new Map([[
+          "read",
+          vi.fn().mockResolvedValue({
+            output: "file content",
+            isError: false,
+            metadata: {
+              toolName: "read",
+              kind: "file",
+              operation: "read",
+              filePath: "C:/workspace/src/demo.txt",
+            },
+          }),
+        ]]),
+      });
+
+      const result = await orchestrator.processMessage(makeSession(), textParts("read file"));
+
+      expect(result.toolExecutions?.[0]?.fileChanges).toBeUndefined();
+    });
 
     it("normalizes write-tool aliases before execution", async () => {
       let callCount = 0;

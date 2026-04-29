@@ -3,6 +3,7 @@ import {
   detectToolEnvironment,
   type ToolEnvironment,
 } from "../domain/tool-environment.js";
+import { searchToolMetadata } from "../domain/tool-result-metadata.js";
 import {
   TOOL_SCHEMAS,
   type DevTool,
@@ -67,7 +68,9 @@ export class GlobTool implements DevTool {
     );
     const rootReadError = validateReadPath(searchRoot, sandbox);
     if (rootReadError) {
-      return toErrorResult(rootReadError, { path: searchRoot });
+      return toErrorResult(rootReadError, searchToolMetadata("glob", {
+        path: searchRoot,
+      }));
     }
 
     try {
@@ -81,7 +84,9 @@ export class GlobTool implements DevTool {
       return await this.executeFallback(searchRoot, patternInput.value, sandbox);
     } catch (error) {
       const err = error as Error;
-      return toErrorResult(err.message, { path: searchRoot });
+      return toErrorResult(err.message, searchToolMetadata("glob", {
+        path: searchRoot,
+      }));
     }
   }
 
@@ -99,10 +104,10 @@ export class GlobTool implements DevTool {
         DEFAULT_TIMEOUT_MS,
       );
 
-      return toSuccessResult(result.stdout.trim(), {
+      return toSuccessResult(result.stdout.trim(), searchToolMetadata("glob", {
         path: searchRoot,
         strategy: "fd",
-      });
+      }));
     } catch (error) {
       const err = error as NodeJS.ErrnoException & {
         stdout?: string;
@@ -111,21 +116,21 @@ export class GlobTool implements DevTool {
       };
 
       if (String(err.code) === "1") {
-        return toSuccessResult("", {
+        return toSuccessResult("", searchToolMetadata("glob", {
           path: searchRoot,
           strategy: "fd",
           noMatches: true,
-        });
+        }));
       }
 
       const message =
         [err.stderr, err.stdout].filter(Boolean).join("").trim() ||
         err.message ||
         "fd execution failed";
-      return toErrorResult(message, {
+      return toErrorResult(message, searchToolMetadata("glob", {
         path: searchRoot,
         strategy: "fd",
-      });
+      }));
     }
   }
 
@@ -149,11 +154,10 @@ export class GlobTool implements DevTool {
       }
     }
 
-    return toSuccessResult(matches.join("\n"), {
+    return toSuccessResult(matches.join("\n"), searchToolMetadata("glob", {
       path: searchRoot,
       strategy: "fallback",
       count: matches.length,
-    });
+    }));
   }
 }
-

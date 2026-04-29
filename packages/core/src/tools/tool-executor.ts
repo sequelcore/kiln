@@ -11,6 +11,8 @@ import { KilnError } from "../engine/errors.js";
 import type { DevTool, ToolResult } from "./domain/tool.js";
 import { DevToolRegistry } from "./domain/tool-registry.js";
 
+const KILN_TIMEOUT_UNIT_SCHEMA_KEY = "x-kiln-timeout-unit";
+
 export interface DevToolExecutionRequest extends ToolExecutionRequest {
   readonly sandbox?: unknown;
   readonly retry?: RetryConfig;
@@ -80,7 +82,7 @@ export class DevToolExecutionBridge {
       request.name,
       request.input,
       executor,
-      request.retry,
+      withToolInputTimeout(request.retry, primaryTool, request.input),
       fallbackExecutor,
     );
 
@@ -238,6 +240,46 @@ function isToolResult(value: unknown): value is ToolResult {
   }
 
   return true;
+}
+
+function withToolInputTimeout(
+  retry: RetryConfig | undefined,
+  tool: DevTool,
+  input: Record<string, unknown>,
+): RetryConfig | undefined {
+  if (retry?.timeout !== undefined) {
+    return retry;
+  }
+
+  if (!hasMillisecondTimeoutInput(tool)) {
+    return retry;
+  }
+
+  const timeoutMs = input["timeout"];
+  if (typeof timeoutMs !== "number" || !Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    return retry;
+  }
+
+  return {
+    ...retry,
+    timeout: Math.ceil(timeoutMs / 1000),
+  };
+}
+
+function hasMillisecondTimeoutInput(tool: DevTool): boolean {
+  const properties = tool.inputSchema["properties"];
+  if (!properties || typeof properties !== "object") {
+    return false;
+  }
+
+  const timeout = (properties as Record<string, unknown>)["timeout"];
+  if (!timeout || typeof timeout !== "object") {
+    return false;
+  }
+
+  const candidate = timeout as { type?: unknown; [KILN_TIMEOUT_UNIT_SCHEMA_KEY]?: unknown };
+  return candidate.type === "number"
+    && candidate[KILN_TIMEOUT_UNIT_SCHEMA_KEY] === "milliseconds";
 }
 
 function isAuthorityDescriptor(value: unknown): value is AuthorityDescriptor {

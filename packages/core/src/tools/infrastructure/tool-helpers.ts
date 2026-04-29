@@ -7,6 +7,7 @@ const execFile = promisify(execFileCallback);
 
 import { PathValidator } from "../../sandbox/path-validator.js";
 import { SandboxPolicy } from "../../sandbox/policies.js";
+import type { ToolResultMetadata } from "../domain/tool-result-metadata.js";
 import type { ToolInput, ToolResult } from "../domain/tool.js";
 
 type RecordValue = Record<string, unknown>;
@@ -17,7 +18,7 @@ export interface ToolSandboxContext {
   readonly pathValidator?: PathValidator;
 }
 
-export function toErrorResult(message: string, metadata?: Record<string, unknown>): ToolResult {
+export function toErrorResult(message: string, metadata?: ToolResultMetadata): ToolResult {
   return {
     output: message,
     isError: true,
@@ -25,7 +26,7 @@ export function toErrorResult(message: string, metadata?: Record<string, unknown
   };
 }
 
-export function toSuccessResult(output: string, metadata?: Record<string, unknown>): ToolResult {
+export function toSuccessResult(output: string, metadata?: ToolResultMetadata): ToolResult {
   return {
     output,
     isError: false,

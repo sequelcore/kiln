@@ -1,23 +1,24 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { AnnotationAuthorizer } from "../../src/security/annotation-authorizer.js";
 import { KilnError } from "../../src/engine/errors.js";
 import { DevToolRegistry } from "../../src/tools/domain/tool-registry.js";
-import type { DevTool, ToolInput, ToolResult } from "../../src/tools/domain/tool.js";
+import { TOOL_SCHEMAS, type DevTool, type ToolInput, type ToolResult } from "../../src/tools/domain/tool.js";
 import { DevToolExecutionBridge } from "../../src/tools/tool-executor.js";
 
 function makeTool(
   name: string,
   executeFn: (input: ToolInput) => Promise<ToolResult>,
   annotations?: DevTool["annotations"],
+  inputSchema: DevTool["inputSchema"] = {
+    type: "object",
+    properties: {},
+    required: [],
+  },
 ): DevTool {
   return {
     name,
     description: `${name} tool`,
-    inputSchema: {
-      type: "object",
-      properties: {},
-      required: [],
-    },
+    inputSchema,
     annotations,
     execute: executeFn,
   };
@@ -238,6 +239,74 @@ describe("DevToolExecutionBridge", () => {
     expect(result.result.output).toBe("recovered");
     expect(result.attempts).toBe(2);
     expect(result.fallbackUsed).toBe(false);
+  });
+
+  it("lets millisecond tool input timeout extend the outer execution timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      const registry = new DevToolRegistry();
+      registry.register(
+        makeTool("bash", async () => {
+          await new Promise((resolve) => setTimeout(resolve, 31_000));
+          return {
+            output: "late success",
+            isError: false,
+          };
+        }, undefined, TOOL_SCHEMAS.bash.inputSchema),
+      );
+
+      const bridge = new DevToolExecutionBridge({ registry });
+      const resultPromise = bridge.execute({
+        name: "bash",
+        input: { command: "sleep 31", timeout: 60_000 },
+      });
+
+      await vi.advanceTimersByTimeAsync(31_000);
+
+      await expect(resultPromise).resolves.toMatchObject({
+        result: {
+          output: "late success",
+          isError: false,
+        },
+        attempts: 1,
+        fallbackUsed: false,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps explicit retry timeout authoritative over millisecond tool input timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      const registry = new DevToolRegistry();
+      registry.register(
+        makeTool("bash", async () => {
+          await new Promise((resolve) => setTimeout(resolve, 31_000));
+          return {
+            output: "late success",
+            isError: false,
+          };
+        }, undefined, TOOL_SCHEMAS.bash.inputSchema),
+      );
+
+      const bridge = new DevToolExecutionBridge({ registry });
+      const resultPromise = bridge.execute({
+        name: "bash",
+        input: { command: "sleep 31", timeout: 60_000 },
+        retry: { timeout: 0.01 },
+      });
+      const expectation = expect(resultPromise).rejects.toMatchObject({
+        code: "TOOL_EXECUTION_TIMEOUT",
+        context: { toolName: "bash", timeoutMs: 10 },
+      } satisfies Partial<KilnError>);
+
+      await vi.advanceTimersByTimeAsync(10);
+
+      await expectation;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("uses fallback tool via retry wrapper when configured", async () => {

@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 import type { DevTool, ToolInput, ToolResult } from "../../../src/tools/domain/tool.js";
 import { TOOL_SCHEMAS } from "../../../src/tools/domain/tool.js";
+import {
+  commandToolMetadata,
+  fileToolMetadata,
+  isFileToolResultMetadata,
+  searchToolMetadata,
+  type CommandToolResultMetadata,
+  type FileToolResultMetadata,
+  type SearchToolResultMetadata,
+} from "../../../src/tools/domain/tool-result-metadata.js";
 
 describe("tool domain types", () => {
   it("accepts a minimal developer tool", async () => {
@@ -75,5 +84,64 @@ describe("tool domain types", () => {
       "newString",
     ]);
     expect(TOOL_SCHEMAS.git.inputSchema.required).toEqual(["subcommand"]);
+  });
+
+  it("builds command metadata with a shared core contract", () => {
+    const metadata: CommandToolResultMetadata<"bash"> = commandToolMetadata("bash", {
+      cwd: "C:/workspace",
+      command: "echo ok",
+      timeoutMs: 30_000,
+      timedOut: false,
+      truncated: false,
+    });
+
+    expect(metadata).toMatchObject({
+      toolName: "bash",
+      kind: "command",
+      cwd: "C:/workspace",
+      command: "echo ok",
+      timeoutMs: 30_000,
+      timedOut: false,
+      truncated: false,
+    });
+  });
+
+  it("builds file metadata with normalized operation evidence", () => {
+    const metadata: FileToolResultMetadata<"write"> = fileToolMetadata("write", {
+      operation: "write",
+      filePath: "C:/workspace/out.txt",
+      bytesWritten: 7,
+      linesAdded: 1,
+    });
+
+    expect(metadata).toEqual({
+      toolName: "write",
+      kind: "file",
+      operation: "write",
+      filePath: "C:/workspace/out.txt",
+      bytesWritten: 7,
+      linesAdded: 1,
+    });
+    expect(isFileToolResultMetadata(metadata)).toBe(true);
+    expect(isFileToolResultMetadata({ kind: "file", operation: "read", filePath: "C:/workspace/out.txt" })).toBe(false);
+    expect(isFileToolResultMetadata({ kind: "file", operation: "read" })).toBe(false);
+  });
+
+  it("builds search metadata with a shared strategy field", () => {
+    const metadata: SearchToolResultMetadata<"grep"> = searchToolMetadata("grep", {
+      path: "C:/workspace",
+      strategy: "rg",
+      outputMode: "content",
+      noMatches: true,
+    });
+
+    expect(metadata).toEqual({
+      toolName: "grep",
+      kind: "search",
+      path: "C:/workspace",
+      strategy: "rg",
+      outputMode: "content",
+      noMatches: true,
+    });
   });
 });

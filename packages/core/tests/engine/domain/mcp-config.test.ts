@@ -5,7 +5,7 @@ describe("validateMcpConfig", () => {
   it("returns empty array for valid config", () => {
     const config: McpConfig = {
       servers: [
-        { name: "mcp-server", url: "https://example.com/mcp" },
+        { name: "mcp-server", url: "https://example.com/mcp", requestTimeoutMs: 300_000 },
       ],
     };
     expect(validateMcpConfig(config)).toEqual([]);
@@ -46,5 +46,20 @@ describe("validateMcpConfig", () => {
     };
     const errors = validateMcpConfig(config);
     expect(errors).toContainEqual({ field: "servers[0].name", message: "must be a non-empty string" });
+  });
+
+  it("errors on invalid request timeout", () => {
+    const config: McpConfig = {
+      servers: [
+        { name: "mcp-server", url: "https://example.com/mcp", requestTimeoutMs: 0 },
+      ],
+    };
+
+    const errors = validateMcpConfig(config);
+
+    expect(errors).toContainEqual({
+      field: "servers[0].requestTimeoutMs",
+      message: "must be a positive finite number",
+    });
   });
 });

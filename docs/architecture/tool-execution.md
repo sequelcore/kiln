@@ -53,8 +53,9 @@ Current source-of-truth boundary:
   authority state, not independent policy evaluators
 - authority evidence and dangerous-command outcomes are recorded through one
   canonical turn-record shape across admitted surfaces
-- structured file-change evidence from runtime write and edit tools must
-  survive the executor boundary rather than being flattened away
+- structured file-change evidence from runtime file tools must be derived from
+  shared core file metadata when it is present, and must survive the executor
+  boundary rather than being flattened away
 
 ## Shared Provider Tool Surface
 
@@ -206,6 +207,62 @@ Authority behavior differs by surface:
 - result sanitization
 - dangerous command detection
 - command and path safety checks
+
+## Timeout Contract
+
+Tool-specific timeout inputs stay owned by the tool that executes the work. The
+execution bridge may only derive its outer retry guard from canonical tool
+schema metadata when all of these are true:
+
+- the tool input has a numeric `timeout` field
+- that schema field is marked with `x-kiln-timeout-unit: "milliseconds"`
+- the execution request did not provide an explicit `retry.timeout`
+
+This keeps long-running MCP calls, such as `bash` with a larger millisecond
+timeout, from being preempted by the bridge default while preserving explicit
+retry policy as the stronger request-level contract. Kiln-owned MCP clients
+also pass an MCP request timeout that is at least the tool timeout plus a
+`30000ms` buffer and opt into progress-based timeout resets.
+
+Operational verification on 2026-04-29 confirmed that, after restarting the
+Kiln MCP server, `bash` accepted a `180000ms` request timeout and completed the
+runtime package test suite in `76986ms` with `timedOut: false`.
+
+Dev-tools MCP calls emit `notifications/progress` every `30000ms` when the
+caller supplies a progress token. This gives compliant MCP clients a standard
+keepalive path for long-running calls; callers that impose a hard request-await
+ceiling while ignoring request timeout options and progress notifications can
+still time out outside Kiln's execution path.
+
+## Tool Result Metadata Contract
+
+Builtin developer tools expose one core-owned result metadata contract from
+`@kilnai/core`. Public `ToolResult.output` text remains the user-facing payload;
+metadata is structured evidence for projections, audit, and later runtime
+evidence extraction.
+
+The shared metadata families are:
+
+- `command`: shell-like execution evidence for `bash` and `git`
+- `file`: file operation evidence for `read`, `write`, and `edit`
+- `search`: workspace search evidence for `grep` and `glob`
+
+Every builtin metadata object includes:
+
+- `toolName`: the canonical builtin tool name
+- `kind`: one of `command`, `file`, or `search`
+
+Existing metadata keys such as `cwd`, `command`, `filePath`, `bytesWritten`,
+`replacements`, `path`, `strategy`, `timedOut`, and `truncated` are preserved.
+The normalized fields are additive and come from
+`packages/core/src/tools/domain/tool-result-metadata.ts`; consumers must not
+create private metadata contracts for builtin tools.
+
+Runtime evidence extraction reads shared metadata first. File-change evidence is
+recognized from `kind: "file"` metadata with `operation: "write"` or
+`operation: "edit"`; `operation: "read"` is explicitly not change evidence.
+Legacy runtime fallbacks for canonical `write` and `edit` tool names exist only
+to preserve older tool results that do not yet emit shared metadata.
 
 ## Invariants
 

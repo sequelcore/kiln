@@ -1,9 +1,10 @@
-import { readFile } from "node:fs/promises";
-import { basename, relative } from "node:path";
+import { readFile, stat } from "node:fs/promises";
+import { basename, dirname, relative } from "node:path";
 import {
   detectToolEnvironment,
   type ToolEnvironment,
 } from "../domain/tool-environment.js";
+import { searchToolMetadata } from "../domain/tool-result-metadata.js";
 import {
   TOOL_SCHEMAS,
   type DevTool,
@@ -38,6 +39,13 @@ type GrepCommandRunner = (
 
 type EnvironmentProvider = () => Promise<ToolEnvironment>;
 
+interface GrepSearchTarget {
+  readonly path: string;
+  readonly root: string;
+  readonly rgTarget: string;
+  readonly filePath?: string;
+}
+
 export interface GrepToolOptions {
   readonly commandRunner?: GrepCommandRunner;
   readonly environmentProvider?: EnvironmentProvider;
@@ -64,13 +72,15 @@ export class GrepTool implements DevTool {
     }
 
     const sandboxContext = getSandboxContext(sandbox);
-    const searchRoot = resolvePath(
+    const searchPath = resolvePath(
       optionalString(input,"path") ?? sandboxContext?.cwd ?? process.cwd(),
       sandbox,
     );
-    const rootReadError = validateReadPath(searchRoot, sandbox);
+    const rootReadError = validateReadPath(searchPath, sandbox);
     if (rootReadError) {
-      return toErrorResult(rootReadError, { path: searchRoot });
+      return toErrorResult(rootReadError, searchToolMetadata("grep", {
+        path: searchPath,
+      }));
     }
 
     const globFilter = optionalString(input,"glob");
@@ -78,13 +88,14 @@ export class GrepTool implements DevTool {
     const outputMode = isGrepOutputMode(modeValue) ? modeValue : "content";
 
     try {
+      const searchTarget = await resolveSearchTarget(searchPath);
       const environment = await this.environmentProvider();
       const rgPath = environment.rg?.path;
 
       if (rgPath) {
         return await this.executeFastPath(
           rgPath,
-          searchRoot,
+          searchTarget,
           patternInput.value,
           globFilter,
           outputMode,
@@ -92,7 +103,7 @@ export class GrepTool implements DevTool {
       }
 
       return await this.executeFallback(
-        searchRoot,
+        searchTarget,
         patternInput.value,
         globFilter,
         outputMode,
@@ -100,34 +111,34 @@ export class GrepTool implements DevTool {
       );
     } catch (error) {
       const err = error as Error;
-      return toErrorResult(err.message, {
-        path: searchRoot,
-      });
+      return toErrorResult(err.message, searchToolMetadata("grep", {
+        path: searchPath,
+      }));
     }
   }
 
   private async executeFastPath(
     rgPath: string,
-    searchRoot: string,
+    searchTarget: GrepSearchTarget,
     pattern: string,
     globFilter: string | undefined,
     outputMode: GrepOutputMode,
   ): Promise<ToolResult> {
-    const args = buildFastPathArgs(pattern, globFilter, outputMode);
+    const args = buildFastPathArgs(pattern, globFilter, outputMode, searchTarget.rgTarget);
 
     try {
       const result = await this.commandRunner(
         rgPath,
         args,
-        searchRoot,
+        searchTarget.root,
         DEFAULT_TIMEOUT_MS,
       );
 
-      return toSuccessResult(result.stdout.trim(), {
-        path: searchRoot,
+      return toSuccessResult(result.stdout.trim(), searchToolMetadata("grep", {
+        path: searchTarget.path,
         strategy: "rg",
         outputMode,
-      });
+      }));
     } catch (error) {
       const err = error as NodeJS.ErrnoException & {
         stdout?: string;
@@ -136,12 +147,12 @@ export class GrepTool implements DevTool {
       };
 
       if (String(err.code) === "1") {
-        return toSuccessResult("", {
-          path: searchRoot,
+        return toSuccessResult("", searchToolMetadata("grep", {
+          path: searchTarget.path,
           strategy: "rg",
           outputMode,
           noMatches: true,
-        });
+        }));
       }
 
       const message =
@@ -149,15 +160,15 @@ export class GrepTool implements DevTool {
         err.message ||
         "rg execution failed";
 
-      return toErrorResult(message, {
-        path: searchRoot,
+      return toErrorResult(message, searchToolMetadata("grep", {
+        path: searchTarget.path,
         strategy: "rg",
-      });
+      }));
     }
   }
 
   private async executeFallback(
-    searchRoot: string,
+    searchTarget: GrepSearchTarget,
     pattern: string,
     globFilter: string | undefined,
     outputMode: GrepOutputMode,
@@ -170,7 +181,7 @@ export class GrepTool implements DevTool {
       return toErrorResult("Invalid input: \"pattern\" must be a valid regular expression");
     }
 
-    const files = await walkFiles(searchRoot);
+    const files = searchTarget.filePath ? [searchTarget.filePath] : await walkFiles(searchTarget.root);
     const resultsContent: string[] = [];
     const resultsFiles: string[] = [];
     const resultsCount: string[] = [];
@@ -181,7 +192,7 @@ export class GrepTool implements DevTool {
         continue;
       }
 
-      const relativePath = normalizePath(relative(searchRoot, filePath) || basename(filePath));
+      const relativePath = normalizePath(relative(searchTarget.root, filePath) || basename(filePath));
       if (globFilter && !matchesGlob(relativePath, globFilter)) {
         continue;
       }
@@ -216,11 +227,11 @@ export class GrepTool implements DevTool {
           ? resultsFiles.join("\n")
           : resultsCount.join("\n");
 
-    return toSuccessResult(output, {
-      path: searchRoot,
+    return toSuccessResult(output, searchToolMetadata("grep", {
+      path: searchTarget.path,
       strategy: "fallback",
       outputMode,
-    });
+    }));
   }
 }
 
@@ -232,6 +243,7 @@ function buildFastPathArgs(
   pattern: string,
   globFilter: string | undefined,
   outputMode: GrepOutputMode,
+  target: string,
 ): string[] {
   const args: string[] = ["--no-heading", "--line-number"];
   if (globFilter) {
@@ -244,6 +256,28 @@ function buildFastPathArgs(
     args.push("--count");
   }
 
-  args.push(pattern, ".");
+  args.push(pattern, target);
   return args;
+}
+
+async function resolveSearchTarget(searchPath: string): Promise<GrepSearchTarget> {
+  const stats = await stat(searchPath);
+  if (stats.isDirectory()) {
+    return {
+      path: searchPath,
+      root: searchPath,
+      rgTarget: ".",
+    };
+  }
+
+  if (stats.isFile()) {
+    return {
+      path: searchPath,
+      root: dirname(searchPath),
+      rgTarget: basename(searchPath),
+      filePath: searchPath,
+    };
+  }
+
+  throw new Error("Invalid input: \"path\" must be a file or directory");
 }

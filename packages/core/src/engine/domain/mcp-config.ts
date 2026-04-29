@@ -5,6 +5,7 @@ export interface McpServerConfig {
   readonly url: string;
   readonly env?: Record<string, string>;
   readonly reconnect?: boolean;
+  readonly requestTimeoutMs?: number;
 }
 
 export interface McpConfig {
@@ -38,6 +39,16 @@ export function validateMcpConfig(config: McpConfig): McpValidationError[] {
 
     if (!server.url || typeof server.url !== "string") {
       errors.push({ field: `servers[${i}].url`, message: "must be a non-empty string" });
+    }
+
+    if (
+      server.requestTimeoutMs !== undefined &&
+      (!Number.isFinite(server.requestTimeoutMs) || server.requestTimeoutMs <= 0)
+    ) {
+      errors.push({
+        field: `servers[${i}].requestTimeoutMs`,
+        message: "must be a positive finite number",
+      });
     }
   }
 

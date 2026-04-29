@@ -25,6 +25,8 @@ describe("GrepTool", () => {
 
       expect(result.isError).toBe(false);
       expect(result.output).toContain("a.txt:2:needle line");
+      expect(result.metadata?.["toolName"]).toBe("grep");
+      expect(result.metadata?.["kind"]).toBe("search");
       expect(result.metadata?.["strategy"]).toBe("fallback");
     } finally {
       await removeTempDir(tempDir);
@@ -50,6 +52,8 @@ describe("GrepTool", () => {
 
     expect(result.isError).toBe(false);
     expect(result.output).toContain("src/file.ts:12:match here");
+    expect(result.metadata?.["toolName"]).toBe("grep");
+    expect(result.metadata?.["kind"]).toBe("search");
     expect(result.metadata?.["strategy"]).toBe("rg");
     expect(commandRunner).toHaveBeenCalledWith(
       "rg-bin",
@@ -58,6 +62,70 @@ describe("GrepTool", () => {
       30_000,
     );
     expect(commandRunner).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses the parent directory as cwd when grep path is a file", async () => {
+    const tempDir = await makeTempDir();
+    try {
+      const filePath = join(tempDir, "notes.txt");
+      await writeFile(filePath, "needle line\n", "utf8");
+
+      const commandRunner = vi.fn(async () => ({
+        stdout: "notes.txt:1:needle line\n",
+        stderr: "",
+      }));
+      const tool = new GrepTool({
+        environmentProvider: async () => ({
+          rg: { path: "rg-bin", version: "15.0.0" },
+        }),
+        commandRunner,
+      });
+
+      const result = await tool.execute(
+        {
+          name: "grep",
+          input: { pattern: "needle", path: filePath, outputMode: "content" },
+        },
+        makeSandbox(tempDir),
+      );
+
+      expect(result.isError).toBe(false);
+      expect(result.output).toContain("notes.txt:1:needle line");
+      expect(commandRunner).toHaveBeenCalledWith(
+        "rg-bin",
+        ["--no-heading", "--line-number", "needle", "notes.txt"],
+        tempDir,
+        30_000,
+      );
+    } finally {
+      await removeTempDir(tempDir);
+    }
+  });
+
+  it("searches a single file path with the fallback scanner", async () => {
+    const tempDir = await makeTempDir();
+    try {
+      const filePath = join(tempDir, "notes.txt");
+      await writeFile(filePath, "needle line\nother line", "utf8");
+
+      const tool = new GrepTool({
+        environmentProvider: async () => ({}),
+      });
+
+      const result = await tool.execute(
+        {
+          name: "grep",
+          input: { pattern: "needle", path: filePath, outputMode: "content" },
+        },
+        makeSandbox(tempDir),
+      );
+
+      expect(result.isError).toBe(false);
+      expect(result.output).toBe("notes.txt:1:needle line");
+      expect(result.metadata?.["strategy"]).toBe("fallback");
+    } finally {
+      await removeTempDir(tempDir);
+    }
   });
 
   it("respects sandbox read validation for search root", async () => {
@@ -106,6 +174,8 @@ describe("GlobTool", () => {
       expect(result.isError).toBe(false);
       expect(result.output).toContain("src/match.ts");
       expect(result.output).not.toContain("skip.js");
+      expect(result.metadata?.["toolName"]).toBe("glob");
+      expect(result.metadata?.["kind"]).toBe("search");
       expect(result.metadata?.["strategy"]).toBe("fallback");
     } finally {
       await removeTempDir(tempDir);
@@ -131,6 +201,8 @@ describe("GlobTool", () => {
 
     expect(result.isError).toBe(false);
     expect(result.output).toContain("src/one.ts");
+    expect(result.metadata?.["toolName"]).toBe("glob");
+    expect(result.metadata?.["kind"]).toBe("search");
     expect(result.metadata?.["strategy"]).toBe("fd");
     expect(commandRunner).toHaveBeenCalledWith(
       "fd-bin",

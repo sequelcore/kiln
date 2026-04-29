@@ -7,6 +7,25 @@ export type {
 } from "./domain/tool.js";
 export { TOOL_SCHEMAS } from "./domain/tool.js";
 
+export type {
+  CommandToolName,
+  CommandToolResultMetadata,
+  FileToolName,
+  FileToolOperation,
+  FileToolResultMetadata,
+  GrepOutputMode,
+  SearchToolName,
+  SearchToolResultMetadata,
+  SearchToolStrategy,
+  ToolResultMetadata,
+} from "./domain/tool-result-metadata.js";
+export {
+  commandToolMetadata,
+  fileToolMetadata,
+  isFileToolResultMetadata,
+  searchToolMetadata,
+} from "./domain/tool-result-metadata.js";
+
 export { DevToolRegistry } from "./domain/tool-registry.js";
 
 export type {

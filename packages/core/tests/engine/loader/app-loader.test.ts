@@ -251,6 +251,84 @@ teams:
     expect(app.router.rules).toHaveLength(0);
   });
 
+  it("maps MCP request timeout config", () => {
+    const yaml = `
+name: mcp-app
+channels: [cli]
+
+memory:
+  scopes: [user]
+  backend: sqlite+fts5
+
+router:
+  rules: []
+  fallback: solo
+
+mcp:
+  servers:
+    - name: tools
+      url: http://localhost:3001/mcp
+      requestTimeoutMs: 390000
+
+teams:
+  solo:
+    agents:
+      worker:
+        name: Solo
+        role: Generalist
+        goal: Handle all tasks
+        tier: coding
+        tools: []
+    workflow:
+      phases: [work]
+      gates: {}
+    capabilities: []
+    qualityGates: []
+`;
+
+    const app = parseAppYaml(yaml);
+
+    expect(app.mcp?.servers[0]?.requestTimeoutMs).toBe(390_000);
+  });
+
+  it("throws AppLoaderError for invalid MCP request timeout config", () => {
+    const yaml = `
+name: mcp-app
+channels: [cli]
+
+memory:
+  scopes: [user]
+  backend: sqlite+fts5
+
+router:
+  rules: []
+  fallback: solo
+
+mcp:
+  servers:
+    - name: tools
+      url: http://localhost:3001/mcp
+      requestTimeoutMs: never
+
+teams:
+  solo:
+    agents:
+      worker:
+        name: Solo
+        role: Generalist
+        goal: Handle all tasks
+        tier: coding
+        tools: []
+    workflow:
+      phases: [work]
+      gates: {}
+    capabilities: []
+    qualityGates: []
+`;
+
+    expect(() => parseAppYaml(yaml)).toThrow(AppLoaderError);
+  });
+
   it("supports quality key as alias for qualityGates", () => {
     const yaml = `
 name: alias-app

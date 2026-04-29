@@ -9,10 +9,12 @@ import type {
   ToolExecutionResult,
   AuthorityDescriptor,
   ToolAuthorizationResult,
+  FileToolResultMetadata,
 } from "@kilnai/core";
 import {
   executeWithRetry,
   getInvalidToolInputDetails,
+  isFileToolResultMetadata,
   normalizeToolCall,
 } from "@kilnai/core";
 import type { RuntimeSession } from "./runtime-session.js";
@@ -111,6 +113,16 @@ function normalizeFileChangeType(value: unknown): "created" | "modified" | "dele
     return "deleted";
   }
   return "modified";
+}
+
+function legacyFileOperationFromToolName(toolName: string): "write" | "edit" | undefined {
+  if (toolName === "write") {
+    return "write";
+  }
+  if (toolName === "edit") {
+    return "edit";
+  }
+  return undefined;
 }
 
 function maybeNumber(value: unknown): number | undefined {
@@ -611,18 +623,24 @@ export class RuntimeSessionToolExecutor {
     readonly diffPreview?: string;
     readonly diffTruncated?: boolean;
   }[] | undefined {
-    if (toolName !== "write" && toolName !== "edit") {
-      return undefined;
-    }
-
     const resultRecord = resultValue && typeof resultValue === "object"
       ? resultValue as { metadata?: Record<string, unknown> }
       : undefined;
     const metadata = resultRecord?.metadata && typeof resultRecord.metadata === "object"
       ? resultRecord.metadata
       : undefined;
+    const sharedFileMetadata: FileToolResultMetadata | undefined = isFileToolResultMetadata(metadata)
+      ? metadata
+      : undefined;
+    const legacyOperation = legacyFileOperationFromToolName(toolName);
+    const operation = sharedFileMetadata?.operation ?? legacyOperation;
 
-    const filePath = maybeString(metadata?.filePath)
+    if (operation !== "write" && operation !== "edit") {
+      return undefined;
+    }
+
+    const filePath = maybeString(sharedFileMetadata?.filePath)
+      ?? maybeString(metadata?.filePath)
       ?? maybeString(metadata?.path)
       ?? maybeString(toolInput.filePath)
       ?? maybeString(toolInput.path);
@@ -643,7 +661,7 @@ export class RuntimeSessionToolExecutor {
     let diffTruncated = metadataTruncated;
 
     if (!diffPreview) {
-      if (toolName === "write") {
+      if (operation === "write") {
         const content = maybeString(toolInput.content) ?? maybeString(toolInput.text);
         if (content !== undefined) {
           linesAdded = linesAdded ?? countLines(content);
@@ -651,7 +669,7 @@ export class RuntimeSessionToolExecutor {
           diffPreview = preview.preview;
           diffTruncated = preview.truncated;
         }
-      } else if (toolName === "edit") {
+      } else if (operation === "edit") {
         const oldString = maybeString(toolInput.oldString) ?? maybeString(toolInput.old_string);
         const newString = maybeString(toolInput.newString) ?? maybeString(toolInput.new_string);
         if (oldString !== undefined && newString !== undefined) {

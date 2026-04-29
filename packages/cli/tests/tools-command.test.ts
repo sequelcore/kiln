@@ -4,9 +4,11 @@ import type { KilnAppConfig } from "../src/config.js";
 const coreMocks = vi.hoisted(() => {
   const connect = vi.fn().mockResolvedValue(undefined);
   const bridge = { source: "core-default-bridge" };
+  const toolNames = ["bash", "read", "write", "edit", "grep", "glob", "git"];
   return {
     bridge,
-    createDefaultBuiltinToolSurface: vi.fn(() => ({ bridge })),
+    toolNames,
+    createDefaultBuiltinToolSurface: vi.fn(() => ({ bridge, toolNames })),
     initialize: vi.fn().mockResolvedValue(undefined),
     connect,
     createServer: vi.fn(() => ({ connect })),
@@ -56,6 +58,10 @@ describe("tools command", () => {
     await toolsCommand(APP_CONFIG, { mcp: true });
 
     expect(coreMocks.createDefaultBuiltinToolSurface).toHaveBeenCalledTimes(1);
+    expect(coreMocks.createDefaultBuiltinToolSurface).toHaveReturnedWith({
+      bridge: coreMocks.bridge,
+      toolNames: coreMocks.toolNames,
+    });
     expect(coreMocks.initialize).toHaveBeenCalledTimes(1);
     expect(coreMocks.createServer).toHaveBeenCalledTimes(1);
     expect(coreMocks.connect).toHaveBeenCalledTimes(1);

@@ -1,23 +1,28 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import {
+  createDefaultBuiltinToolRegistry,
+  createDefaultBuiltinToolSurface,
+  projectDevToolSchemas,
+} from "../../../src/tools/default-tool-surface.js";
 import { DevToolRegistry } from "../../../src/tools/domain/tool-registry.js";
 import type { DevTool, ToolInput, ToolResult } from "../../../src/tools/domain/tool.js";
 import { DevToolExecutionBridge } from "../../../src/tools/tool-executor.js";
 import { DevToolsMcpServer } from "../../../src/tools/mcp/dev-tools-server.js";
-import { createDefaultBuiltinToolRegistry } from "../../../src/tools/default-tool-surface.js";
 
 function makeTool(
   name: string,
   executeFn: (input: ToolInput) => Promise<ToolResult>,
   annotations?: DevTool["annotations"],
+  inputSchema: DevTool["inputSchema"] = {
+    type: "object",
+    properties: {},
+    required: [],
+  },
 ): DevTool {
   return {
     name,
     description: `${name} tool`,
-    inputSchema: {
-      type: "object",
-      properties: {},
-      required: [],
-    },
+    inputSchema,
     annotations,
     execute: executeFn,
   };
@@ -53,6 +58,13 @@ describe("DevToolsMcpServer", () => {
     }
   });
 
+  it("projects MCP schemas from the canonical core surface", () => {
+    const surface = createDefaultBuiltinToolSurface();
+    const server = new DevToolsMcpServer({ bridge: surface.bridge });
+
+    expect(server.listTools()).toEqual(projectDevToolSchemas(surface.tools));
+  });
+
   it("calls a registered tool through the bridge and returns JSON payload", async () => {
     const registry = new DevToolRegistry();
     registry.register(
@@ -77,6 +89,98 @@ describe("DevToolsMcpServer", () => {
     });
     expect(payload.attempts).toBe(1);
     expect(payload.fallbackUsed).toBe(false);
+  });
+
+  it("does not impose the default 30s bridge timeout when MCP bash input requests longer", async () => {
+    vi.useFakeTimers();
+    try {
+      const registry = createDefaultBuiltinToolRegistry({
+        bash: {
+          commandRunner: async () => {
+            await new Promise((resolve) => setTimeout(resolve, 31_000));
+            return {
+              stdout: "late success",
+              stderr: "",
+            };
+          },
+        },
+      });
+      const server = createServer(registry);
+
+      const responsePromise = server.callTool("bash", { command: "sleep 31", timeout: 60_000 });
+      await vi.advanceTimersByTimeAsync(31_000);
+
+      const response = await responsePromise;
+      expect(response.isError).toBeUndefined();
+      const payload = JSON.parse(response.content[0]!.text) as {
+        result: ToolResult;
+        attempts: number;
+        fallbackUsed: boolean;
+      };
+      expect(payload.result.output).toBe("late success");
+      expect(payload.result.isError).toBe(false);
+      expect(payload.result.metadata?.["timeoutMs"]).toBe(60_000);
+      expect(payload.attempts).toBe(1);
+      expect(payload.fallbackUsed).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("emits MCP progress notifications while a tool call is still running", async () => {
+    vi.useFakeTimers();
+    try {
+      let resolveTool: ((result: ToolResult) => void) | undefined;
+      const registry = new DevToolRegistry();
+      registry.register(
+        makeTool(
+          "slow",
+          async () =>
+            await new Promise<ToolResult>((resolve) => {
+              resolveTool = resolve;
+            }),
+          undefined,
+          {
+            type: "object",
+            properties: {
+              timeout: {
+                type: "number",
+                "x-kiln-timeout-unit": "milliseconds",
+              },
+            },
+          },
+        ),
+      );
+      const server = createServer(registry);
+      const sendNotification = vi.fn(async () => undefined);
+
+      const responsePromise = server.callTool(
+        "slow",
+        { timeout: 60_000 },
+        {
+          _meta: { progressToken: "progress-1" },
+          sendNotification,
+        },
+      );
+      await vi.advanceTimersByTimeAsync(30_000);
+
+      expect(sendNotification).toHaveBeenCalledWith({
+        method: "notifications/progress",
+        params: {
+          progressToken: "progress-1",
+          progress: 1,
+          message: 'Tool "slow" is still running',
+        },
+      });
+
+      resolveTool?.({ output: "done", isError: false });
+      const response = await responsePromise;
+
+      expect(response.isError).toBeUndefined();
+      expect(sendNotification).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("returns an MCP error result for unknown tools", async () => {

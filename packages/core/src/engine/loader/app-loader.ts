@@ -209,6 +209,7 @@ interface RawMcpServer {
   url?: unknown;
   env?: unknown;
   reconnect?: unknown;
+  requestTimeoutMs?: unknown;
 }
 
 interface RawMcp {
@@ -1010,11 +1011,19 @@ function mapMcp(raw: RawMcp): { mcp: McpConfig | undefined; errors: { field: str
         }
       }
 
+      const requestTimeoutMs =
+        server.requestTimeoutMs === undefined
+          ? undefined
+          : typeof server.requestTimeoutMs === "number"
+            ? server.requestTimeoutMs
+            : Number.NaN;
+
       servers.push({
         name: typeof server.name === "string" ? server.name : "",
         url: typeof server.url === "string" ? server.url : "",
         ...(env && Object.keys(env).length > 0 ? { env } : {}),
         ...(typeof server.reconnect === "boolean" ? { reconnect: server.reconnect } : {}),
+        ...(requestTimeoutMs !== undefined ? { requestTimeoutMs } : {}),
       });
     }
   }

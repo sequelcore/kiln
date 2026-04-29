@@ -1,5 +1,6 @@
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
+import { commandToolMetadata } from "../domain/tool-result-metadata.js";
 import { TOOL_SCHEMAS, type DevTool, type ToolInput, type ToolResult } from "../domain/tool.js";
 import {
   getSandboxContext,
@@ -55,16 +56,24 @@ export class GitTool implements DevTool {
 
     const sandboxContext = getSandboxContext(sandbox);
     const cwd = resolvePath(sandboxContext?.cwd ?? process.cwd(), sandbox);
+    const commandString = toCommandString(subcommandInput.value, argsInput.value);
 
     const cwdError = validateReadPath(cwd, sandbox);
     if (cwdError) {
-      return toErrorResult(cwdError, { cwd });
+      return toErrorResult(cwdError, commandToolMetadata("git", {
+        cwd,
+        command: commandString,
+        timeoutMs: DEFAULT_TIMEOUT_MS,
+      }));
     }
 
-    const commandString = toCommandString(subcommandInput.value, argsInput.value);
     const commandError = validateCommand(commandString, cwd, sandbox);
     if (commandError) {
-      return toErrorResult(commandError, { cwd, command: commandString });
+      return toErrorResult(commandError, commandToolMetadata("git", {
+        cwd,
+        command: commandString,
+        timeoutMs: DEFAULT_TIMEOUT_MS,
+      }));
     }
 
     const allArgs = [subcommandInput.value, ...argsInput.value];
@@ -72,10 +81,11 @@ export class GitTool implements DevTool {
     try {
       const result = await this.commandRunner(allArgs, cwd, DEFAULT_TIMEOUT_MS);
       const output = [result.stdout, result.stderr].filter(Boolean).join("").trim();
-      return toSuccessResult(output, {
+      return toSuccessResult(output, commandToolMetadata("git", {
         cwd,
         command: commandString,
-      });
+        timeoutMs: DEFAULT_TIMEOUT_MS,
+      }));
     } catch (error) {
       const err = error as NodeJS.ErrnoException & {
         stdout?: string;
@@ -89,12 +99,13 @@ export class GitTool implements DevTool {
         err.message ||
         "git command failed";
 
-      return toErrorResult(message, {
+      return toErrorResult(message, commandToolMetadata("git", {
         cwd,
         command: commandString,
+        timeoutMs: DEFAULT_TIMEOUT_MS,
         code: err.code,
         signal: err.signal,
-      });
+      }));
     }
   }
 }

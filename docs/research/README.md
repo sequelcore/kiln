@@ -46,6 +46,10 @@ define the active architecture contract. For doctrine, use
   Gating, approvals, trust boundaries, interrupts, and observability for real
   tool execution.
 
+- `11-agent-tooling-surface.md`
+  External agent-tooling patterns and user pain points that inform Kiln's next
+  shared developer tools: patch, tree/stat, image/OCR, output modes, and web.
+
 ## Supporting Reference
 
 - `10-coordination-intelligence.md`
@@ -65,3 +69,4 @@ define the active architecture contract. For doctrine, use
 8. `08-context-governance.md`
 9. `09-tool-execution-and-trust.md`
 10. `10-coordination-intelligence.md`
+11. `11-agent-tooling-surface.md`

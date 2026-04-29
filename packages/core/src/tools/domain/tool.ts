@@ -1,5 +1,7 @@
 // Engine domain: developer tool types for Phase 9a (native runtime)
 
+import type { ToolResultMetadata } from "./tool-result-metadata.js";
+
 export type ToolInput = {
   readonly name: string;
   readonly input: Record<string, unknown>;
@@ -8,7 +10,7 @@ export type ToolInput = {
 export type ToolResult = {
   readonly output: string;
   readonly isError: boolean;
-  readonly metadata?: Record<string, unknown>;
+  readonly metadata?: ToolResultMetadata;
 };
 
 export interface DevTool {
@@ -57,6 +59,7 @@ export const TOOL_SCHEMAS: Record<
         timeout: {
           type: "number",
           description: "Optional timeout in milliseconds.",
+          "x-kiln-timeout-unit": "milliseconds",
         },
         cwd: {
           type: "string",
@@ -159,7 +162,7 @@ export const TOOL_SCHEMAS: Record<
         },
         path: {
           type: "string",
-          description: "Optional directory root for the search.",
+          description: "Optional file or directory root for the search.",
         },
         glob: {
           type: "string",

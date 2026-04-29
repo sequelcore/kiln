@@ -27,6 +27,11 @@
 | `gui` | `KilnGlobalGuiConfig` | Global GUI preferences. |
 | `gui.theme` | `string` | Default GUI theme name from the shared operator theme catalog. |
 
+MCP server entries may include `requestTimeoutMs` to override the default
+Kiln-owned MCP client request timeout for that server. Use it for servers with
+long-running tools when the tool's own input does not expose a millisecond
+`timeout` field.
+
 Supported operator themes are `kiln-dark`, `kiln-light`, `system-follow`,
 `dracula`, `catppuccin-mocha`, `nord`, `tokyo-night`, `gruvbox-dark`,
 `rose-pine`, `kanagawa-wave`, `everforest-dark`, `ayu-dark`, `one-dark`, and

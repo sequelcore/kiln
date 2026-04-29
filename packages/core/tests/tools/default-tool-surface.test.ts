@@ -5,6 +5,7 @@ import {
 } from "../../src/tools/default-tool-surface.js";
 import {
   createDefaultBuiltinToolSurface as createDefaultBuiltinToolSurfaceFromBarrel,
+  fileToolMetadata,
   projectDevToolSchemas,
 } from "../../src/tools/index.js";
 
@@ -35,6 +36,14 @@ describe("default builtin tool surface", () => {
 
     expect(surface.toolNames).toEqual(BUILTIN_TOOL_NAMES);
     expect(projectDevToolSchemas(surface.tools).map((tool) => tool.name)).toEqual(BUILTIN_TOOL_NAMES);
+    expect(fileToolMetadata("write", {
+      operation: "write",
+      filePath: "x.txt",
+      bytesWritten: 1,
+    })).toMatchObject({
+      toolName: "write",
+      kind: "file",
+    });
   });
 
   it("keeps projections aligned with the existing default registry helper", () => {

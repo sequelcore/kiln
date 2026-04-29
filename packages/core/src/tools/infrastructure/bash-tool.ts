@@ -1,5 +1,6 @@
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
+import { commandToolMetadata } from "../domain/tool-result-metadata.js";
 import { TOOL_SCHEMAS, type DevTool, type ToolInput, type ToolResult } from "../domain/tool.js";
 import {
   getSandboxContext,
@@ -62,42 +63,76 @@ export class BashTool implements DevTool {
     // Validate cwd is within sandbox boundaries (read access implies path containment)
     const cwdError = validateReadPath(cwd, sandbox);
     if (cwdError) {
-      return toErrorResult(cwdError, { cwd });
+      return toErrorResult(cwdError, commandToolMetadata("bash", {
+        cwd,
+        command: commandInput.value,
+        timeoutMs: timeoutInput.value,
+      }));
     }
 
     const commandError = validateCommand(commandInput.value, cwd, sandbox);
     if (commandError) {
-      return toErrorResult(commandError, { cwd, command: commandInput.value });
-    }
-
-    try {
-      const result = await this.commandRunner(commandInput.value, cwd, timeoutInput.value);
-      const output = [result.stdout, result.stderr].filter(Boolean).join("").trim();
-      return toSuccessResult(output, {
+      return toErrorResult(commandError, commandToolMetadata("bash", {
         cwd,
         command: commandInput.value,
         timeoutMs: timeoutInput.value,
-      });
+      }));
+    }
+
+    const startedAtMs = Date.now();
+
+    try {
+      const result = await this.commandRunner(commandInput.value, cwd, timeoutInput.value);
+      const durationMs = elapsedDurationMs(startedAtMs);
+      const stdout = result.stdout;
+      const stderr = result.stderr;
+      const output = [stdout, stderr].filter(Boolean).join("").trim();
+      return toSuccessResult(output, commandToolMetadata("bash", {
+        cwd,
+        command: commandInput.value,
+        timeoutMs: timeoutInput.value,
+        stdout,
+        stderr,
+        stdoutBytes: byteLength(stdout),
+        stderrBytes: byteLength(stderr),
+        exitCode: 0,
+        timedOut: false,
+        truncated: false,
+        durationMs,
+      }));
     } catch (error) {
       const err = error as NodeJS.ErrnoException & {
         stdout?: string;
         stderr?: string;
         code?: number | string;
         signal?: NodeJS.Signals;
+        killed?: boolean;
       };
+      const durationMs = elapsedDurationMs(startedAtMs);
+      const stdout = err.stdout ?? "";
+      const stderr = err.stderr ?? "";
 
       const message =
-        [err.stderr, err.stdout].filter(Boolean).join("").trim() ||
+        [stderr, stdout].filter(Boolean).join("").trim() ||
         err.message ||
         "bash command failed";
 
-      return toErrorResult(message, {
+      return toErrorResult(message, commandToolMetadata("bash", {
         cwd,
         command: commandInput.value,
         timeoutMs: timeoutInput.value,
+        maxBufferBytes: MAX_BUFFER,
         code: err.code,
         signal: err.signal,
-      });
+        stdout,
+        stderr,
+        stdoutBytes: byteLength(stdout),
+        stderrBytes: byteLength(stderr),
+        exitCode: deriveExitCode(err.code),
+        timedOut: isTimedOut(err),
+        truncated: isMaxBufferExceeded(err),
+        durationMs,
+      }));
     }
   }
 }
@@ -132,4 +167,58 @@ async function runBashCommand(
   });
 
   return { stdout, stderr };
+}
+
+function byteLength(value: string): number {
+  return Buffer.byteLength(value, "utf8");
+}
+
+function elapsedDurationMs(startedAtMs: number): number {
+  return Math.max(0, Date.now() - startedAtMs);
+}
+
+function deriveExitCode(code: number | string | undefined): number | string | undefined {
+  if (typeof code === "number") {
+    return code;
+  }
+
+  if (typeof code === "string") {
+    const numericCode = Number.parseInt(code, 10);
+    if (Number.isFinite(numericCode) && `${numericCode}` === code.trim()) {
+      return numericCode;
+    }
+
+    return code;
+  }
+
+  return undefined;
+}
+
+function isTimedOut(
+  error: NodeJS.ErrnoException & { code?: number | string; signal?: NodeJS.Signals; killed?: boolean },
+): boolean {
+  if (isMaxBufferExceeded(error)) {
+    return false;
+  }
+
+  if (error.killed) {
+    return true;
+  }
+
+  if (typeof error.code === "string") {
+    const normalizedCode = error.code.trim().toUpperCase();
+    if (normalizedCode === "ETIMEDOUT" || normalizedCode === "TIMEOUT") {
+      return true;
+    }
+  }
+
+  return /timed?\s*out|timeout/i.test(error.message ?? "");
+}
+
+function isMaxBufferExceeded(error: NodeJS.ErrnoException & { code?: number | string }): boolean {
+  if (typeof error.code === "string" && error.code.trim().toUpperCase() === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") {
+    return true;
+  }
+
+  return /maxBuffer/i.test(error.message ?? "");
 }

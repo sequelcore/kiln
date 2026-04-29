@@ -10,6 +10,8 @@ import type { PromptScanner } from "../security/prompt-scanner.js";
 /** Package identity for MCP client registration */
 const CLIENT_NAME = "kilnai";
 const CLIENT_VERSION = "0.5.0";
+const DEFAULT_REQUEST_TIMEOUT_MS = 120_000;
+const REQUEST_TIMEOUT_BUFFER_MS = 30_000;
 
 export interface McpClientOptions {
   /** Override the client name reported to MCP servers */
@@ -97,7 +99,11 @@ export class McpClient {
     }
 
     try {
-      const result = await this.client!.callTool({ name, arguments: args });
+      const result = await this.client!.callTool({ name, arguments: args }, undefined, {
+        timeout: this.resolveRequestTimeoutMs(args),
+        resetTimeoutOnProgress: true,
+        onprogress: () => undefined,
+      });
 
       if (result.isError) {
         const content = result.content as readonly { type: string; text?: string }[];
@@ -152,5 +158,16 @@ export class McpClient {
       tags: ["mcp", this.serverName],
       ...(annotations ? { annotations } : {}),
     };
+  }
+
+  private resolveRequestTimeoutMs(args: Record<string, unknown>): number {
+    const configuredTimeout = this.config.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+    const toolTimeout = args["timeout"];
+
+    if (typeof toolTimeout !== "number" || !Number.isFinite(toolTimeout) || toolTimeout <= 0) {
+      return configuredTimeout;
+    }
+
+    return Math.max(configuredTimeout, Math.ceil(toolTimeout + REQUEST_TIMEOUT_BUFFER_MS));
   }
 }

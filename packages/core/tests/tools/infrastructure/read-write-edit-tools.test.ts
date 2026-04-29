@@ -31,6 +31,15 @@ describe("ReadTool", () => {
 
       expect(result.isError).toBe(false);
       expect(result.output).toBe("line1\nline2");
+      expect(result.metadata).toMatchObject({
+        toolName: "read",
+        kind: "file",
+        operation: "read",
+        filePath: join(tempDir, "sample.txt"),
+        offset: 1,
+        limit: 2,
+        totalLines: 5,
+      });
     } finally {
       await removeTempDir(tempDir);
     }
@@ -109,6 +118,14 @@ describe("WriteTool", () => {
       );
 
       expect(result.isError).toBe(false);
+      expect(result.output).toBe(`Wrote 0 characters to ${join(tempDir, "nested", "empty.txt")}`);
+      expect(result.metadata).toMatchObject({
+        toolName: "write",
+        kind: "file",
+        operation: "write",
+        filePath: join(tempDir, "nested", "empty.txt"),
+        bytesWritten: 0,
+      });
       const content = await readFile(join(tempDir, "nested", "empty.txt"), "utf8");
       expect(content).toBe("");
     } finally {
@@ -163,6 +180,15 @@ describe("EditTool", () => {
       );
 
       expect(editResult.isError).toBe(false);
+      expect(editResult.output).toBe(`Applied 1 replacement in ${join(tempDir, "sample.txt")}`);
+      expect(editResult.metadata).toMatchObject({
+        toolName: "edit",
+        kind: "file",
+        operation: "edit",
+        filePath: join(tempDir, "sample.txt"),
+        replacements: 1,
+        replaceAll: false,
+      });
       const readResult = await read.execute(
         {
           name: "read",

@@ -1,4 +1,5 @@
 import { readFile, writeFile } from "node:fs/promises";
+import { fileToolMetadata } from "../domain/tool-result-metadata.js";
 import { TOOL_SCHEMAS, type DevTool, type ToolInput, type ToolResult } from "../domain/tool.js";
 import {
   optionalBoolean,
@@ -66,12 +67,18 @@ export class EditTool implements DevTool {
     const absolutePath = resolvePath(filePathInput.value, sandbox);
     const readError = validateReadPath(absolutePath, sandbox);
     if (readError) {
-      return toErrorResult(readError, { filePath: absolutePath });
+      return toErrorResult(readError, fileToolMetadata("edit", {
+        operation: "edit",
+        filePath: absolutePath,
+      }));
     }
 
     const writeError = validateWritePath(absolutePath, sandbox);
     if (writeError) {
-      return toErrorResult(writeError, { filePath: absolutePath });
+      return toErrorResult(writeError, fileToolMetadata("edit", {
+        operation: "edit",
+        filePath: absolutePath,
+      }));
     }
 
     const replaceEveryMatch = optionalBoolean(input, "replaceAll") ?? false;
@@ -83,24 +90,30 @@ export class EditTool implements DevTool {
         : replaceSingle(content, oldStringInput.value, newStringInput.value);
 
       if (replacement.count === 0) {
-        return toErrorResult(`No match found for "${oldStringInput.value}"`, {
+        return toErrorResult(`No match found for "${oldStringInput.value}"`, fileToolMetadata("edit", {
+          operation: "edit",
           filePath: absolutePath,
-        });
+        }));
       }
 
       await writeFile(absolutePath, replacement.value, "utf8");
 
       return toSuccessResult(
         `Applied ${replacement.count} replacement${replacement.count === 1 ? "" : "s"} in ${absolutePath}`,
-        {
+        fileToolMetadata("edit", {
+          operation: "edit",
           filePath: absolutePath,
           replacements: replacement.count,
           replaceAll: replaceEveryMatch,
-        },
+        }),
       );
     } catch (error) {
       const err = error as NodeJS.ErrnoException;
-      return toErrorResult(err.message, { filePath: absolutePath, code: err.code });
+      return toErrorResult(err.message, fileToolMetadata("edit", {
+        operation: "edit",
+        filePath: absolutePath,
+        code: err.code,
+      }));
     }
   }
 }

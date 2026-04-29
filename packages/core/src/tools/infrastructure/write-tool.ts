@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import { fileToolMetadata } from "../domain/tool-result-metadata.js";
 import { TOOL_SCHEMAS, type DevTool, type ToolInput, type ToolResult } from "../domain/tool.js";
 import {
   requireString,
@@ -29,7 +30,10 @@ export class WriteTool implements DevTool {
     const absolutePath = resolvePath(filePathInput.value, sandbox);
     const writeError = validateWritePath(absolutePath, sandbox);
     if (writeError) {
-      return toErrorResult(writeError, { filePath: absolutePath });
+      return toErrorResult(writeError, fileToolMetadata("write", {
+        operation: "write",
+        filePath: absolutePath,
+      }));
     }
 
     try {
@@ -38,14 +42,19 @@ export class WriteTool implements DevTool {
 
       return toSuccessResult(
         `Wrote ${contentInput.value.length} characters to ${absolutePath}`,
-        {
+        fileToolMetadata("write", {
+          operation: "write",
           filePath: absolutePath,
           bytesWritten: Buffer.byteLength(contentInput.value, "utf8"),
-        },
+        }),
       );
     } catch (error) {
       const err = error as NodeJS.ErrnoException;
-      return toErrorResult(err.message, { filePath: absolutePath, code: err.code });
+      return toErrorResult(err.message, fileToolMetadata("write", {
+        operation: "write",
+        filePath: absolutePath,
+        code: err.code,
+      }));
     }
   }
 }

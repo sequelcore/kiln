@@ -4,12 +4,30 @@ import { DevToolExecutionBridge } from "../tool-executor.js";
 
 const SERVER_NAME = "kilnai-dev-tools";
 const SERVER_VERSION = "0.1.0";
+const PROGRESS_INTERVAL_MS = 30_000;
 
 interface McpServerInstance {
   setRequestHandler(
     schema: unknown,
-    handler: (request: { params: Record<string, unknown> }) => unknown,
+    handler: (
+      request: { params: Record<string, unknown> },
+      extra?: McpRequestHandlerExtra,
+    ) => unknown,
   ): void;
+}
+
+interface McpRequestHandlerExtra {
+  readonly _meta?: {
+    readonly progressToken?: string | number;
+  };
+  readonly sendNotification?: (notification: {
+    readonly method: "notifications/progress";
+    readonly params: {
+      readonly progressToken: string | number;
+      readonly progress: number;
+      readonly message: string;
+    };
+  }) => Promise<void>;
 }
 
 interface SdkModules {
@@ -77,7 +95,9 @@ export class DevToolsMcpServer {
   async callTool(
     name: string,
     args: Record<string, unknown> = {},
+    extra?: McpRequestHandlerExtra,
   ): Promise<DevToolsMcpCallResult> {
+    const progress = this.startProgressNotifications(name, extra);
     try {
       const execution = await this.bridge.execute({
         name,
@@ -95,6 +115,8 @@ export class DevToolsMcpServer {
       });
     } catch (error) {
       return this.errorResult(this.formatErrorMessage(error));
+    } finally {
+      progress.stop();
     }
   }
 
@@ -115,12 +137,12 @@ export class DevToolsMcpServer {
 
     server.setRequestHandler(
       CallToolRequestSchema,
-      async (request: { params: Record<string, unknown> }) => {
+      async (request: { params: Record<string, unknown> }, extra?: McpRequestHandlerExtra) => {
         const params = request.params as {
           name: string;
           arguments?: Record<string, unknown>;
         };
-        return this.callTool(params.name, params.arguments ?? {});
+        return this.callTool(params.name, params.arguments ?? {}, extra);
       },
     );
 
@@ -145,5 +167,35 @@ export class DevToolsMcpServer {
       return `${error.code}: ${error.message}`;
     }
     return error instanceof Error ? error.message : String(error);
+  }
+
+  private startProgressNotifications(
+    toolName: string,
+    extra: McpRequestHandlerExtra | undefined,
+  ): { stop: () => void } {
+    const progressToken = extra?._meta?.progressToken;
+    if (!progressToken || !extra?.sendNotification) {
+      return { stop: () => undefined };
+    }
+
+    let progress = 0;
+    const timer = setInterval(() => {
+      progress += 1;
+      void extra.sendNotification?.({
+        method: "notifications/progress",
+        params: {
+          progressToken,
+          progress,
+          message: `Tool "${toolName}" is still running`,
+        },
+      });
+    }, PROGRESS_INTERVAL_MS);
+    timer.unref?.();
+
+    return {
+      stop: () => {
+        clearInterval(timer);
+      },
+    };
   }
 }

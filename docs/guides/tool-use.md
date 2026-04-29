@@ -10,7 +10,7 @@ Kiln uses the same runtime loop for every tool category: publish the schema,
 authorize the call, execute it inside the runtime boundary, and inject the
 structured result back into the session.
 
-Sources: `packages/core/src/engine/domain/capability.ts`, `packages/core/src/engine/domain/tool-execution.ts`, `packages/core/src/orchestrator/orchestrator.ts`, `packages/core/src/security/annotation-authorizer.ts`, `packages/core/src/tools/domain/tool.ts`, `packages/core/src/tools/domain/tool-registry.ts`, `packages/core/src/tools/domain/tool-environment.ts`, `packages/core/src/tools/infrastructure/*.ts`, `packages/core/src/tools/tool-executor.ts`, `packages/core/src/tools/mcp/dev-tools-server.ts`, `packages/cli/src/wrapper/session.ts`, `packages/cli/src/wrapper/session-registry.ts`
+Sources: `packages/core/src/engine/domain/capability.ts`, `packages/core/src/engine/domain/tool-execution.ts`, `packages/core/src/orchestrator/orchestrator.ts`, `packages/core/src/security/annotation-authorizer.ts`, `packages/core/src/tools/default-tool-surface.ts`, `packages/core/src/tools/domain/tool.ts`, `packages/core/src/tools/domain/tool-registry.ts`, `packages/core/src/tools/domain/tool-result-metadata.ts`, `packages/core/src/tools/domain/tool-environment.ts`, `packages/core/src/tools/infrastructure/*.ts`, `packages/core/src/tools/tool-executor.ts`, `packages/core/src/tools/mcp/dev-tools-server.ts`, `packages/runtime/src/gateway/attached-runtime-tool-surface.ts`, `packages/cli/src/commands/tools.ts`, `packages/cli/src/wrapper/session.ts`, `packages/cli/src/wrapper/session-registry.ts`
 
 ---
 
@@ -169,6 +169,12 @@ They cannot own:
 The canonical path remains: registry schema, runtime authorization, execution
 bridge, telemetry, audit, and structured result reinjection.
 
+The canonical builtin projection is `createDefaultBuiltinToolSurface()` in
+`@kilnai/core`. MCP, runtime-attached sessions, and `kiln tools --mcp` consume
+that surface or projections from it; they do not maintain their own builtin
+tool registry. Runtime may append operator-surface tools such as
+`operator_set_theme`, but the developer tools still come from the core surface.
+
 ### Domain contracts
 
 `packages/core/src/tools/domain/tool.ts` defines the core types:
@@ -182,7 +188,7 @@ export type ToolInput = {
 export type ToolResult = {
   readonly output: string;
   readonly isError: boolean;
-  readonly metadata?: Record<string, unknown>;
+  readonly metadata?: ToolResultMetadata;
 };
 
 export interface DevTool {
@@ -223,7 +229,21 @@ The supported theme names are defined once in `@kilnai/gateway-contracts`.
 
 ### Built-in tool schemas
 
-`TOOL_SCHEMAS` is the source of truth for names, descriptions, input schemas, and annotations. Those schemas are used both by native callers and by the MCP surface.
+`TOOL_SCHEMAS` is the source of truth for names, descriptions, input schemas, and annotations. `createDefaultBuiltinToolSurface()` turns those core definitions into registry, MCP, runtime, CLI, and capability projections.
+
+### Result metadata
+
+Builtin developer tools return one core-owned metadata contract from
+`packages/core/src/tools/domain/tool-result-metadata.ts`.
+
+Every metadata object includes:
+
+- `toolName`: canonical builtin tool name
+- `kind`: `command`, `file`, or `search`
+
+File metadata also includes `operation`, which is `read`, `write`, or `edit`.
+Runtime file-change evidence is derived from shared `file` metadata for
+`write` and `edit`; `read` metadata is not file-change evidence.
 
 ### Tool reference
 
@@ -233,7 +253,7 @@ The supported theme names are defined once in `@kilnai/gateway-contracts`.
 | `read` | Read file content from disk | `filePath`, `offset`, `limit` | `output` is the selected line window; metadata includes `filePath`, `offset`, `limit`, `totalLines` |
 | `write` | Replace full file contents | `filePath`, `content` | `output` is a confirmation string; metadata includes `filePath`, `bytesWritten` |
 | `edit` | Replace one or all string matches in a file | `filePath`, `oldString`, `newString`, `replaceAll` | `output` is a replacement summary or an error; metadata includes `filePath`, `replacements`, `replaceAll` |
-| `grep` | Search file content by regex | `pattern`, `path`, `glob`, `outputMode` | `output` is newline-delimited matches, file paths, or counts; metadata includes `path`, `strategy`, `outputMode` |
+| `grep` | Search file content by regex | `pattern`, optional file-or-directory `path`, `glob`, `outputMode` | `output` is newline-delimited matches, file paths, or counts; metadata includes `path`, `strategy`, `outputMode` |
 | `glob` | Match files by glob pattern | `pattern`, `path` | `output` is newline-delimited relative file paths; metadata includes `path`, `strategy`, `count` |
 | `git` | Run a git subcommand | `subcommand`, `args` | `output` is combined stdout+stderr; metadata includes `cwd`, `command` |
 
@@ -250,6 +270,14 @@ The built-in executors are intentionally small and predictable:
 - `GitTool` executes `git` directly and validates the reconstructed command string before running it.
 
 All seven tools return `ToolResult`; failures are regular tool results when possible, not uncaught process exceptions.
+
+For MCP consumers, long-running calls have two coordinated timeout layers:
+
+- Kiln-owned MCP clients pass a request timeout that is at least the requested
+  millisecond tool timeout plus `30000ms`, and enable progress-based timeout
+  reset handling.
+- The dev-tools MCP server emits `notifications/progress` every `30000ms` while
+  a call is still running when the caller provides an MCP progress token.
 
 ---
 
