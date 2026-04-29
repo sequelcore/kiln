@@ -92,6 +92,47 @@ describe("DevToolsMcpServer", () => {
     expect(server.listTools()).toEqual(projectDevToolSchemas(surface.tools));
   });
 
+  it("lists MCP resources and templates from the canonical core surface", () => {
+    const surface = createDefaultBuiltinToolSurface();
+    const server = new DevToolsMcpServer({
+      bridge: surface.bridge,
+      tools: surface.tools,
+      resources: surface.resources,
+    });
+
+    expect(server.listResources().resources.map((resource) => resource.uri)).toEqual([
+      "kiln://tools/catalog",
+      "kiln://session/tasks",
+      "kiln://session/monitors",
+    ]);
+    expect(server.listResourceTemplates().resourceTemplates.map((template) => template.uriTemplate)).toEqual([
+      "kiln://tools/catalog/{name}",
+      "kiln://session/tasks/{id}",
+      "kiln://session/monitors/{id}",
+    ]);
+  });
+
+  it("reads MCP resources through the canonical resource registry", async () => {
+    const surface = createDefaultBuiltinToolSurface();
+    surface.taskStateStore.update({
+      title: "Expose MCP resources",
+      status: "completed",
+    });
+    const server = new DevToolsMcpServer({
+      bridge: surface.bridge,
+      tools: surface.tools,
+      resources: surface.resources,
+    });
+
+    await expect(server.readResource("kiln://session/tasks")).resolves.toEqual({
+      contents: [{
+        uri: "kiln://session/tasks",
+        mimeType: "application/json",
+        text: expect.stringContaining("Expose MCP resources"),
+      }],
+    });
+  });
+
   it("can list a deferred projection while executing against the canonical bridge", async () => {
     const surface = createDefaultBuiltinToolSurface({
       toolProjection: {

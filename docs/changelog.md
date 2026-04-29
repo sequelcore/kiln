@@ -36,6 +36,11 @@
   consumer-provided responder, denies sensitive form collection, projects
   through MCP and attached runtime surfaces, and records elicitation metadata
   without logging submitted values.
+- Added a core `ToolResourceRegistry` and MCP resource projection for read-only
+  context snapshots. The dev-tools MCP server now exposes `kiln://tools/catalog`,
+  `kiln://session/tasks`, and `kiln://session/monitors` plus templates for
+  exact tool entries, task ids, and monitor ids, all backed by the same catalog,
+  task-state store, and monitor registry used by builtin tools.
 
 ## Unreleased -- Operator Workspace Explorer
 

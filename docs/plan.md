@@ -321,6 +321,42 @@ Expose stable context such as selected files, summaries, task state, plans, and
 session artifacts as MCP resources with templates, pagination, and
 list-changed/update notifications.
 
+Status: implemented for the first shared resource registry and MCP projection.
+
+Implemented contract:
+
+- `ToolResourceRegistry` is owned by the canonical default builtin tool
+  surface.
+- Static resources:
+  - `kiln://tools/catalog`
+  - `kiln://session/tasks`
+  - `kiln://session/monitors`
+- Resource templates:
+  - `kiln://tools/catalog/{name}`
+  - `kiln://session/tasks/{id}`
+  - `kiln://session/monitors/{id}`
+- Resource reads use the same `ToolCatalogIndex`, `TaskStateStore`, and
+  `MonitorRegistry` instances used by builtin tools.
+- The dev-tools MCP server advertises `resources/list`,
+  `resources/templates/list`, and `resources/read` from that registry.
+- Resource reads return JSON content and remain read-only. They do not execute
+  commands, mutate files, update task state, stop monitors, or bypass tool
+  authorization.
+
+Deferred follow-up:
+
+- workspace file and artifact resource templates with pagination
+- list-changed and updated notifications for changing artifact namespaces
+- resource links from high-volume tools such as `read_many`, `tree`, and
+  monitor reads
+
+Verification:
+
+- `bun run typecheck`
+- `bun run --cwd packages/core test tests/tools/domain/tool-resource-registry.test.ts tests/tools/default-tool-surface.test.ts tests/tools/mcp/dev-tools-server.test.ts`
+- `bun run test`
+- `bun run build`
+
 ## Phase 9 Design Record
 
 Research basis:

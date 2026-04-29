@@ -209,6 +209,24 @@ tool registry. Runtime may append operator-surface tools such as
 `operator_elicit` is a core builtin developer tool for asking the operator for
 bounded input through whatever responder the active consumer attaches.
 
+The same default surface also owns a `ToolResourceRegistry` for read-only MCP
+resources. Resources are context snapshots, not actions. The initial shared
+resources are:
+
+- `kiln://tools/catalog`
+- `kiln://session/tasks`
+- `kiln://session/monitors`
+
+The initial resource templates are:
+
+- `kiln://tools/catalog/{name}`
+- `kiln://session/tasks/{id}`
+- `kiln://session/monitors/{id}`
+
+These resources read from the same catalog, task-state store, and monitor
+registry used by the builtin tools. They return JSON content and never mutate
+state, run commands, stop monitors, or bypass tool authorization.
+
 ### Domain contracts
 
 `packages/core/src/tools/domain/tool.ts` defines the core types:

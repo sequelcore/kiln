@@ -170,6 +170,30 @@ MCP configuration, register host metadata, or package instructions, but the
 concrete tool call still resolves through the canonical runtime authority and
 execution path before any local action happens.
 
+## MCP Resource Boundary
+
+MCP resources are the read-only context plane. They expose stable snapshots and
+addressable context without turning reads into tool actions.
+
+The default builtin tool surface owns a `ToolResourceRegistry` alongside the
+tool registry. The first shared resources are:
+
+- `kiln://tools/catalog`
+- `kiln://session/tasks`
+- `kiln://session/monitors`
+
+The first resource templates are:
+
+- `kiln://tools/catalog/{name}`
+- `kiln://session/tasks/{id}`
+- `kiln://session/monitors/{id}`
+
+Resource reads are backed by the same `ToolCatalogIndex`, `TaskStateStore`, and
+`MonitorRegistry` instances that power builtin tools. They are read-only JSON
+snapshots. They must not execute commands, mutate files, update tasks, stop
+monitors, grant approval, or bypass canonical tool authority. If a consumer
+needs to act, it must call the appropriate tool through the execution bridge.
+
 ## Runtime Projections
 
 Several runtime-visible structures project authority state without becoming new

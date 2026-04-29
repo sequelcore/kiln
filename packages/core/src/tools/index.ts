@@ -94,6 +94,15 @@ export {
   ToolCatalogIndex,
 } from "./domain/tool-catalog.js";
 
+export type {
+  ToolResourceContent,
+  ToolResourceDescriptor,
+  ToolResourceReadResult,
+  ToolResourceRegistryOptions,
+  ToolResourceTemplateDescriptor,
+} from "./domain/tool-resource-registry.js";
+export { ToolResourceRegistry } from "./domain/tool-resource-registry.js";
+
 export { DevToolRegistry } from "./domain/tool-registry.js";
 
 export type {
@@ -207,6 +216,8 @@ export { DevToolExecutionBridge } from "./tool-executor.js";
 
 export type {
   DevToolsMcpCallResult,
+  DevToolsMcpListResourcesResult,
+  DevToolsMcpListResourceTemplatesResult,
   DevToolsMcpServerOptions,
   DevToolsMcpToolSchema,
 } from "./mcp/dev-tools-server.js";

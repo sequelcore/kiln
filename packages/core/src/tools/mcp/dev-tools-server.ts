@@ -1,6 +1,12 @@
 import { KilnError } from "../../engine/errors.js";
 import { projectDevToolSchemas } from "../default-tool-surface.js";
 import type { DevTool, ToolResult, ToolResultContentPart } from "../domain/tool.js";
+import type {
+  ToolResourceDescriptor,
+  ToolResourceReadResult,
+  ToolResourceRegistry,
+  ToolResourceTemplateDescriptor,
+} from "../domain/tool-resource-registry.js";
 import type { OperatorElicitationResponder } from "../infrastructure/operator-elicitation-tool.js";
 import { DevToolExecutionBridge } from "../tool-executor.js";
 
@@ -40,6 +46,9 @@ interface SdkModules {
   ) => McpServerInstance;
   ListToolsRequestSchema: unknown;
   CallToolRequestSchema: unknown;
+  ListResourcesRequestSchema: unknown;
+  ListResourceTemplatesRequestSchema: unknown;
+  ReadResourceRequestSchema: unknown;
 }
 
 function loadSdkModules(): Promise<SdkModules> {
@@ -50,12 +59,16 @@ function loadSdkModules(): Promise<SdkModules> {
     Server: serverModule.Server as unknown as SdkModules["Server"],
     ListToolsRequestSchema: typesModule.ListToolsRequestSchema,
     CallToolRequestSchema: typesModule.CallToolRequestSchema,
+    ListResourcesRequestSchema: typesModule.ListResourcesRequestSchema,
+    ListResourceTemplatesRequestSchema: typesModule.ListResourceTemplatesRequestSchema,
+    ReadResourceRequestSchema: typesModule.ReadResourceRequestSchema,
   }));
 }
 
 export interface DevToolsMcpServerOptions {
   readonly bridge: DevToolExecutionBridge;
   readonly tools?: readonly DevTool[];
+  readonly resources?: ToolResourceRegistry;
 }
 
 export interface DevToolsMcpToolSchema {
@@ -71,15 +84,25 @@ export interface DevToolsMcpCallResult {
   readonly isError?: boolean;
 }
 
+export interface DevToolsMcpListResourcesResult {
+  readonly resources: readonly ToolResourceDescriptor[];
+}
+
+export interface DevToolsMcpListResourceTemplatesResult {
+  readonly resourceTemplates: readonly ToolResourceTemplateDescriptor[];
+}
+
 export class DevToolsMcpServer {
   private readonly bridge: DevToolExecutionBridge;
   private readonly tools?: readonly DevTool[];
+  private readonly resources?: ToolResourceRegistry;
   private sdk: SdkModules | undefined;
   private sdkPromise: Promise<SdkModules> | undefined;
 
   constructor(options: DevToolsMcpServerOptions) {
     this.bridge = options.bridge;
     this.tools = options.tools;
+    this.resources = options.resources;
   }
 
   async initialize(): Promise<void> {
@@ -98,6 +121,28 @@ export class DevToolsMcpServer {
 
   listTools(): readonly DevToolsMcpToolSchema[] {
     return projectDevToolSchemas(this.tools ?? this.bridge.listTools());
+  }
+
+  listResources(): DevToolsMcpListResourcesResult {
+    return {
+      resources: this.resources?.list() ?? [],
+    };
+  }
+
+  listResourceTemplates(): DevToolsMcpListResourceTemplatesResult {
+    return {
+      resourceTemplates: this.resources?.listTemplates() ?? [],
+    };
+  }
+
+  async readResource(uri: string): Promise<ToolResourceReadResult> {
+    if (!this.resources) {
+      throw new KilnError("INTERNAL_ERROR", "No MCP resource registry is configured", {
+        context: { uri },
+        retryable: false,
+      });
+    }
+    return await this.resources.read(uri);
   }
 
   async callTool(
@@ -132,10 +177,35 @@ export class DevToolsMcpServer {
       throw new Error("Dev tools MCP server not initialized");
     }
 
-    const { Server, ListToolsRequestSchema, CallToolRequestSchema } = this.sdk;
+    const {
+      Server,
+      ListToolsRequestSchema,
+      CallToolRequestSchema,
+      ListResourcesRequestSchema,
+      ListResourceTemplatesRequestSchema,
+      ReadResourceRequestSchema,
+    } = this.sdk;
     const server = new Server(
       { name: SERVER_NAME, version: SERVER_VERSION },
-      { capabilities: { tools: {} } },
+      { capabilities: { tools: {}, resources: {} } },
+    );
+
+    server.setRequestHandler(ListResourcesRequestSchema, async () => this.listResources());
+
+    server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => this.listResourceTemplates());
+
+    server.setRequestHandler(
+      ReadResourceRequestSchema,
+      async (request: { params: Record<string, unknown> }) => {
+        const uri = request.params["uri"];
+        if (typeof uri !== "string") {
+          throw new KilnError("INTERNAL_ERROR", "Invalid MCP resource URI", {
+            context: { uri },
+            retryable: false,
+          });
+        }
+        return await this.readResource(uri);
+      },
     );
 
     server.setRequestHandler(ListToolsRequestSchema, async () => ({

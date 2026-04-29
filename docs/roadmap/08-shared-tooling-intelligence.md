@@ -309,6 +309,25 @@ Requirements:
 - allow tools such as `read_many`, `tree`, and monitors to return resource
   links for large or evolving outputs
 
+Implemented in Slice 18:
+
+- core `ToolResourceRegistry` owned by the default builtin tool surface
+- static read-only resources:
+  - `kiln://tools/catalog`
+  - `kiln://session/tasks`
+  - `kiln://session/monitors`
+- resource templates:
+  - `kiln://tools/catalog/{name}`
+  - `kiln://session/tasks/{id}`
+  - `kiln://session/monitors/{id}`
+- resource reads use the same `ToolCatalogIndex`, `TaskStateStore`, and
+  `MonitorRegistry` instances as the builtin tools
+- dev-tools MCP server now exposes `resources/list`,
+  `resources/templates/list`, and `resources/read`
+- resource reads are JSON, read-only, and separate from tool execution
+  authority; they do not run commands, mutate tasks, stop monitors, or bypass
+  tool policy
+
 ## Execution Rules
 
 - Start each slice with focused failing tests.
@@ -320,6 +339,7 @@ Requirements:
 
 ## Current Priority
 
-Continue with Slice 18. MCP resources build on the structured outputs, catalog,
-bulk context, monitors, task state, and operator elicitation now available from
-the canonical shared tool surface.
+Shared Tooling Intelligence Slices 11-18 are implemented. The next roadmap
+should plan deeper resource pagination, workspace-file resource templates,
+artifact update notifications, and resource links from high-volume tool
+outputs.

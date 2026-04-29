@@ -86,6 +86,7 @@ describe("default builtin tool surface", () => {
     expect(first.bridge).not.toBe(second.bridge);
     expect(first.monitorRegistry).not.toBe(second.monitorRegistry);
     expect(first.taskStateStore).not.toBe(second.taskStateStore);
+    expect(first.resources).not.toBe(second.resources);
   });
 
   it("can receive an owned monitor registry for session teardown", () => {
@@ -196,6 +197,24 @@ describe("default builtin tool surface", () => {
       ],
     });
     expect(surface.catalog.search({ query: "directory tree", limit: 1 }).entries[0]?.name).toBe("tree");
+  });
+
+  it("exposes a resource registry over the same catalog and session stores", async () => {
+    const surface = createDefaultBuiltinToolSurface();
+    surface.taskStateStore.update({ title: "resource state", status: "pending" });
+
+    expect(surface.resources.list().map((resource) => resource.uri)).toEqual([
+      "kiln://tools/catalog",
+      "kiln://session/tasks",
+      "kiln://session/monitors",
+    ]);
+    await expect(surface.resources.read("kiln://session/tasks")).resolves.toMatchObject({
+      contents: [{
+        uri: "kiln://session/tasks",
+        mimeType: "application/json",
+        text: expect.stringContaining("resource state"),
+      }],
+    });
   });
 
   it("supports deferred projection while keeping the canonical registry executable", async () => {

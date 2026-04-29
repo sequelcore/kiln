@@ -1,6 +1,7 @@
 import type { ToolDefinition } from "../agents/index.js";
 import type { Capability } from "../engine/domain/capability.js";
 import { ToolCatalogIndex } from "./domain/tool-catalog.js";
+import { ToolResourceRegistry } from "./domain/tool-resource-registry.js";
 import { DevToolRegistry } from "./domain/tool-registry.js";
 import { DEV_TOOL_OUTPUT_SCHEMA, type DevTool, type DevToolAnnotations } from "./domain/tool.js";
 import { BashTool, type BashToolOptions } from "./infrastructure/bash-tool.js";
@@ -80,6 +81,7 @@ export interface DefaultBuiltinToolSurface {
   readonly capabilities: ReadonlyMap<string, Capability>;
   readonly bridge: DevToolExecutionBridge;
   readonly catalog: ToolCatalogIndex;
+  readonly resources: ToolResourceRegistry;
   readonly monitorRegistry: MonitorRegistry;
   readonly taskStateStore: TaskStateStore;
 }
@@ -142,6 +144,7 @@ export function createDefaultBuiltinToolSurface(
   };
   const registry = createDefaultBuiltinToolRegistry(surfaceOptions);
   const catalog = ToolCatalogIndex.fromTools(registry.list());
+  const resources = new ToolResourceRegistry({ catalog, monitorRegistry, taskStateStore });
   const tools = projectTools(registry.list(), options.toolProjection);
 
   return {
@@ -152,6 +155,7 @@ export function createDefaultBuiltinToolSurface(
     capabilities: projectDevToolCapabilities(tools),
     bridge: new DevToolExecutionBridge({ registry }),
     catalog,
+    resources,
     monitorRegistry,
     taskStateStore,
   };
