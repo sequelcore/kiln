@@ -249,11 +249,24 @@ metadata; binary files return metadata-only JSON because blob reads need a
 separate policy. Workspace resources never write files, delete files, execute
 commands, or grant tool authority.
 
+When the builtin surface is created with `artifactResources.store`, the same
+registry also exposes artifact resources:
+
+- `kiln://artifacts/{namespace}`
+- `kiln://artifacts/{namespace}/{id}`
+- `kiln://artifacts/{namespace}/{id}/content`
+
+Artifact writes go through `ArtifactResourceStore`, not through resource reads.
+The memory-backed store requires explicit session retention on each write,
+records producer provenance, and bounds content size plus retained artifacts per
+namespace. Artifact content may be JSON, text, or blob content, all addressed by
+stable artifact URIs.
+
 The deeper resource-plane roadmap is
-`docs/roadmap/09-context-resource-plane.md`. Pagination and workspace-file
-resources are implemented there; the remaining slices cover artifact
-namespaces, update notifications, resource links from high-volume tools, and
-consumer UX.
+`docs/roadmap/09-context-resource-plane.md`. Pagination, workspace-file
+resources, and artifact namespaces are implemented there; the remaining slices
+cover update notifications, resource links from high-volume tools, and consumer
+UX.
 
 ### Domain contracts
 

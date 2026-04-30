@@ -8,6 +8,7 @@ import { DevToolRegistry } from "../../../src/tools/domain/tool-registry.js";
 import type { DevTool, ToolInput, ToolResult } from "../../../src/tools/domain/tool.js";
 import { DevToolExecutionBridge } from "../../../src/tools/tool-executor.js";
 import { DevToolsMcpServer } from "../../../src/tools/mcp/dev-tools-server.js";
+import { MemoryArtifactResourceStore } from "../../../src/tools/infrastructure/artifact-resource-store.js";
 import { makeTempDir, removeTempDir } from "../infrastructure/test-utils.js";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -183,6 +184,45 @@ describe("DevToolsMcpServer", () => {
     } finally {
       await removeTempDir(tempDir);
     }
+  });
+
+  it("projects configured artifact resources through MCP listing and reads", async () => {
+    const artifactStore = new MemoryArtifactResourceStore({
+      now: () => "2026-04-29T18:00:00.000Z",
+    });
+    const artifact = artifactStore.put({
+      namespace: "test-results",
+      title: "Focused Tests",
+      mimeType: "text/plain",
+      content: { type: "text", text: "passed" },
+      producer: { kind: "tool", name: "bash" },
+      retention: { scope: "session" },
+    });
+    const surface = createDefaultBuiltinToolSurface({
+      artifactResources: { store: artifactStore },
+    });
+    const server = new DevToolsMcpServer({
+      bridge: surface.bridge,
+      tools: surface.tools,
+      resources: surface.resources,
+    });
+
+    expect(server.listResources().resources.map((resource) => resource.uri)).toContain("kiln://artifacts/test-results");
+    expect(server.listResourceTemplates().resourceTemplates.map((template) => template.uriTemplate)).toContain(
+      "kiln://artifacts/{namespace}/{id}/content",
+    );
+    await expect(server.readResource(`kiln://artifacts/test-results/${artifact.id}/content`)).resolves.toEqual({
+      contents: [{
+        uri: `kiln://artifacts/test-results/${artifact.id}/content`,
+        mimeType: "text/plain",
+        text: "passed",
+        _meta: expect.objectContaining({
+          id: artifact.id,
+          namespace: "test-results",
+          relation: "content",
+        }),
+      }],
+    });
   });
 
   it("forwards MCP resource list cursors from SDK request params", async () => {

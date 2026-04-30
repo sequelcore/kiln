@@ -426,7 +426,29 @@ Verification:
 Introduce a core artifact resource store for generated context packets, tool
 results, monitor output, test results, plans, and summaries.
 
-Status: planned.
+Status: implemented.
+
+Implemented contract:
+
+- `ArtifactResourceStore` owns artifact writes, retention, metadata, and
+  provenance.
+- `MemoryArtifactResourceStore` is the first session-local implementation.
+- `ArtifactResourceProvider` projects stored artifacts through the shared
+  read-only resource registry.
+- Implemented resources:
+  - `kiln://artifacts/{namespace}`
+  - `kiln://artifacts/{namespace}/{id}`
+  - `kiln://artifacts/{namespace}/{id}/content`
+- Metadata includes id, namespace, title, MIME type, created/updated time,
+  producer, size, sequence, and explicit retention policy.
+- Content supports JSON, text, and blob resource shapes.
+- Retention is explicit on writes and bounded by per-namespace artifact count
+  and configured content bytes.
+
+Verification:
+
+- `bun run --cwd packages/core test tests/tools/domain/artifact-resource-store.test.ts tests/tools/domain/tool-resource-registry.test.ts tests/tools/mcp/dev-tools-server.test.ts`
+- `bun run typecheck`
 
 ### Slice 22: Resource Subscriptions And Update Notifications
 

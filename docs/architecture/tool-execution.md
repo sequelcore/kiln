@@ -210,12 +210,20 @@ absolute local paths. Every read is checked against the configured root and any
 provided `PathValidator`; traversal outside the root fails closed. Binary files
 return metadata-only JSON until a separate blob policy exists.
 
+Artifact resources are projected through the same core registry when an
+`ArtifactResourceStore` is configured. `MemoryArtifactResourceStore` is the
+first session-local implementation. It requires explicit session retention on
+writes, bounds content size and retained artifacts per namespace, records
+producer provenance, and exposes read-only `kiln://artifacts/...` resources for
+namespace indexes, artifact metadata, and JSON/text/blob content. Resource reads
+do not give consumers mutation access to the store.
+
 The next resource-plane work is tracked in
 `docs/roadmap/09-context-resource-plane.md`. That roadmap owns the completed
-pagination and workspace-resource foundations plus artifact namespaces, resource
-subscriptions, notifications, and resource links from high-volume tool outputs.
-Those features extend the read-only context plane; they do not change the action
-boundary.
+pagination, workspace-resource, and artifact namespace foundations plus
+resource subscriptions, notifications, and resource links from high-volume tool
+outputs. Those features extend the read-only context plane; they do not change
+the action boundary.
 
 ## Runtime Projections
 

@@ -171,7 +171,9 @@ Goal: define a core artifact resource namespace for generated context packets,
 test results, monitor snapshots, plans, summaries, and other session artifacts
 that should be read by URI instead of replayed as tool text.
 
-Planned resource templates:
+Status: implemented on 2026-04-29.
+
+Implemented resource templates:
 
 ```text
 kiln://artifacts/{namespace}
@@ -179,10 +181,12 @@ kiln://artifacts/{namespace}/{id}
 kiln://artifacts/{namespace}/{id}/content
 ```
 
-Requirements:
+Implemented requirements:
 
-- introduce a core `ArtifactResourceStore` boundary
-- support memory-backed session artifacts first
+- introduce a core `ArtifactResourceStore` boundary with
+  `MemoryArtifactResourceStore`
+- support memory-backed session artifacts first through explicit session
+  retention policy
 - define artifact metadata: id, namespace, title, MIME type, createdAt,
   updatedAt, producer, size, sequence, and retention policy
 - support JSON, text, and blob resource contents
@@ -191,6 +195,7 @@ Requirements:
 - keep producer provenance for tool-generated artifacts
 - project artifact resources through MCP without letting consumers mutate the
   store directly
+- bound artifact content bytes and retained artifacts per namespace
 
 Candidate namespaces:
 
@@ -200,6 +205,11 @@ Candidate namespaces:
 - `test-results`
 - `plans`
 - `summaries`
+
+Verification:
+
+- `bun run --cwd packages/core test tests/tools/domain/artifact-resource-store.test.ts tests/tools/domain/tool-resource-registry.test.ts tests/tools/mcp/dev-tools-server.test.ts`
+- `bun run typecheck`
 
 ## Slice 22: Resource Subscriptions And Update Notifications
 

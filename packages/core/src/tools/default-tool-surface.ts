@@ -4,6 +4,7 @@ import { ToolCatalogIndex } from "./domain/tool-catalog.js";
 import { ToolResourceRegistry } from "./domain/tool-resource-registry.js";
 import { DevToolRegistry } from "./domain/tool-registry.js";
 import { DEV_TOOL_OUTPUT_SCHEMA, type DevTool, type DevToolAnnotations } from "./domain/tool.js";
+import { ArtifactResourceProvider, type ArtifactResourceStore } from "./infrastructure/artifact-resource-store.js";
 import { BashTool, type BashToolOptions } from "./infrastructure/bash-tool.js";
 import { CodeIntelligenceTool, type CodeIntelligenceToolOptions } from "./infrastructure/code-intelligence-tool.js";
 import { EditTool } from "./infrastructure/edit-tool.js";
@@ -61,6 +62,11 @@ export interface DefaultBuiltinToolRegistryOptions {
   readonly operatorElicitation?: OperatorElicitationToolOptions;
   readonly toolProjection?: DefaultBuiltinToolProjectionOptions;
   readonly workspaceResources?: WorkspaceResourceProviderOptions;
+  readonly artifactResources?: DefaultArtifactResourceOptions;
+}
+
+export interface DefaultArtifactResourceOptions {
+  readonly store: ArtifactResourceStore;
 }
 
 export interface DefaultBuiltinToolProjectionOptions {
@@ -84,6 +90,7 @@ export interface DefaultBuiltinToolSurface {
   readonly bridge: DevToolExecutionBridge;
   readonly catalog: ToolCatalogIndex;
   readonly resources: ToolResourceRegistry;
+  readonly artifactStore?: ArtifactResourceStore;
   readonly monitorRegistry: MonitorRegistry;
   readonly taskStateStore: TaskStateStore;
 }
@@ -146,11 +153,15 @@ export function createDefaultBuiltinToolSurface(
   };
   const registry = createDefaultBuiltinToolRegistry(surfaceOptions);
   const catalog = ToolCatalogIndex.fromTools(registry.list());
+  const resourceProviders = [
+    ...(options.workspaceResources ? [new WorkspaceResourceProvider(options.workspaceResources)] : []),
+    ...(options.artifactResources ? [new ArtifactResourceProvider({ store: options.artifactResources.store })] : []),
+  ];
   const resources = new ToolResourceRegistry({
     catalog,
     monitorRegistry,
     taskStateStore,
-    providers: options.workspaceResources ? [new WorkspaceResourceProvider(options.workspaceResources)] : [],
+    providers: resourceProviders,
   });
   const tools = projectTools(registry.list(), options.toolProjection);
 
@@ -163,6 +174,7 @@ export function createDefaultBuiltinToolSurface(
     bridge: new DevToolExecutionBridge({ registry }),
     catalog,
     resources,
+    ...(options.artifactResources ? { artifactStore: options.artifactResources.store } : {}),
     monitorRegistry,
     taskStateStore,
   };

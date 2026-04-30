@@ -120,6 +120,22 @@ export {
 
 export type { ToolSandboxContext } from "./infrastructure/tool-helpers.js";
 export { DEV_TOOL_OUTPUT_SCHEMA } from "./domain/tool.js";
+export type {
+  ArtifactContent,
+  ArtifactNamespaceSummary,
+  ArtifactProducer,
+  ArtifactResource,
+  ArtifactResourceMetadata,
+  ArtifactResourceProviderOptions,
+  ArtifactResourcePutInput,
+  ArtifactResourceStore,
+  ArtifactRetentionPolicy,
+  MemoryArtifactResourceStoreOptions,
+} from "./infrastructure/artifact-resource-store.js";
+export {
+  ArtifactResourceProvider,
+  MemoryArtifactResourceStore,
+} from "./infrastructure/artifact-resource-store.js";
 export type { BashToolOptions } from "./infrastructure/bash-tool.js";
 export { BashTool } from "./infrastructure/bash-tool.js";
 export type { CodeIntelligenceToolOptions } from "./infrastructure/code-intelligence-tool.js";
@@ -202,6 +218,7 @@ export type {
   DefaultBuiltinToolProjectionOptions,
   DevToolSchemaProjection,
   DefaultBuiltinToolRegistryOptions,
+  DefaultArtifactResourceOptions,
 } from "./default-tool-surface.js";
 export {
   createDefaultBuiltinTools,

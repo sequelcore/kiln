@@ -3,6 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createDefaultBuiltinToolSurface } from "../../../src/tools/default-tool-surface.js";
 import { ToolResourceRegistry } from "../../../src/tools/domain/tool-resource-registry.js";
+import { MemoryArtifactResourceStore } from "../../../src/tools/infrastructure/artifact-resource-store.js";
 import { makeSandbox, makeTempDir, removeTempDir } from "../infrastructure/test-utils.js";
 
 describe("ToolResourceRegistry", () => {
@@ -354,6 +355,34 @@ describe("ToolResourceRegistry", () => {
     } finally {
       await removeTempDir(tempDir);
     }
+  });
+
+  it("projects configured artifact resources through the shared resource registry", async () => {
+    const artifactStore = new MemoryArtifactResourceStore({
+      now: () => "2026-04-29T18:00:00.000Z",
+    });
+    const artifact = artifactStore.put({
+      namespace: "plans",
+      title: "Slice 21",
+      mimeType: "text/plain",
+      content: { type: "text", text: "artifact content" },
+      producer: { kind: "tool", name: "task_update" },
+      retention: { scope: "session" },
+    });
+    const surface = createDefaultBuiltinToolSurface({
+      artifactResources: { store: artifactStore },
+    });
+
+    expect(surface.resources.list().map((resource) => resource.uri)).toContain("kiln://artifacts/plans");
+    expect(surface.resources.listTemplates().map((template) => template.uriTemplate)).toContain(
+      "kiln://artifacts/{namespace}/{id}/content",
+    );
+    const result = await surface.resources.read(`kiln://artifacts/plans/${artifact.id}/content`);
+    expect(result.contents[0]).toMatchObject({
+      uri: `kiln://artifacts/plans/${artifact.id}/content`,
+      mimeType: "text/plain",
+      text: "artifact content",
+    });
   });
 });
 
