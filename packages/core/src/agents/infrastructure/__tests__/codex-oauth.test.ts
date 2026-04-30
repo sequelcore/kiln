@@ -626,6 +626,65 @@ describe("CodexOAuthAdapter", () => {
       ]);
     });
 
+    it("strips leaked function-call arguments from assistant text", async () => {
+      const leakedArguments = "{\"id\":\"mon_2\",\"sinceSequence\":0,\"limit\":10,\"verbosity\":\"raw\"}";
+      mockFetch.mockResolvedValueOnce(sseResponse([
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_leaked_args_1",
+              status: "completed",
+              output: [
+                {
+                  type: "message",
+                  content: [
+                    {
+                      type: "output_text",
+                      text: `${leakedArguments}${leakedArguments}to=functions.monitor_readListo. Deje el reporte en temp_test/reporte_tools.md`,
+                    },
+                  ],
+                },
+                {
+                  type: "function_call",
+                  id: "call_leaked_args_1",
+                  call_id: "call_leaked_args_1",
+                  name: "monitor_read",
+                  arguments: leakedArguments,
+                },
+              ],
+              usage: {
+                input_tokens: 15,
+                output_tokens: 5,
+              },
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+      const response = await adapter.createMessage(createOptions());
+
+      expect(response.parts).toEqual([
+        {
+          type: "text",
+          text: "Listo. Deje el reporte en temp_test/reporte_tools.md",
+        },
+      ]);
+      expect(response.toolCalls).toEqual([
+        {
+          id: "call_leaked_args_1",
+          name: "monitor_read",
+          input: {
+            id: "mon_2",
+            sinceSequence: 0,
+            limit: 10,
+            verbosity: "raw",
+          },
+        },
+      ]);
+    });
+
     it("normalizes builtin tool aliases in function-call arguments", async () => {
       mockFetch.mockResolvedValueOnce(sseResponse([
         {
@@ -1139,6 +1198,85 @@ describe("CodexOAuthAdapter", () => {
         name: "lookup_weather",
         input: { city: "Tijuana" },
       });
+    });
+
+    it("buffers tool-enabled stream text so leaked function-call arguments never render as deltas", async () => {
+      const leakedArguments = "{\"id\":\"mon_2\",\"sinceSequence\":0,\"limit\":10,\"verbosity\":\"raw\"}";
+      mockFetch.mockResolvedValueOnce(sseResponse([
+        { event: "response.output_text.delta", data: { delta: leakedArguments } },
+        { event: "response.output_text.delta", data: { delta: "to=functions.monitor_read" } },
+        { event: "response.output_text.delta", data: { delta: "Listo. Deje el reporte en temp_test/reporte_tools.md" } },
+        {
+          event: "response.output_item.added",
+          data: {
+            item: {
+              type: "function_call",
+              id: "call_stream_leaked_1",
+              call_id: "call_stream_leaked_1",
+              name: "monitor_read",
+              arguments: leakedArguments,
+            },
+          },
+        },
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_stream_leaked_1",
+              status: "completed",
+              output: [
+                {
+                  type: "message",
+                  content: [
+                    {
+                      type: "output_text",
+                      text: `${leakedArguments}to=functions.monitor_readListo. Deje el reporte en temp_test/reporte_tools.md`,
+                    },
+                  ],
+                },
+                {
+                  type: "function_call",
+                  id: "call_stream_leaked_1",
+                  call_id: "call_stream_leaked_1",
+                  name: "monitor_read",
+                  arguments: leakedArguments,
+                },
+              ],
+              usage: { input_tokens: 10, output_tokens: 3 },
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+      const events = await collectEvents(adapter.streamMessage(createOptions({
+        tools: [
+          {
+            name: "monitor_read",
+            description: "Read monitor output.",
+            inputSchema: {
+              type: "object",
+              properties: {
+                id: { type: "string" },
+                sinceSequence: { type: "number" },
+                limit: { type: "number" },
+                verbosity: { type: "string" },
+              },
+              required: ["id"],
+              additionalProperties: false,
+            },
+            tags: new Set(["runtime"]),
+          },
+        ],
+      })));
+
+      expect(events.filter((event) => event.type === "text")).toEqual([
+        {
+          type: "text",
+          content: "Listo. Deje el reporte en temp_test/reporte_tools.md",
+        },
+      ]);
+      expect(events.some((event) => event.type === "text" && event.content.includes("\"id\":\"mon_2\""))).toBe(false);
     });
 
     it("yields final done event with full AgentResponse on response.completed", async () => {

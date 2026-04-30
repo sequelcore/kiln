@@ -2,6 +2,7 @@ import {
   DOCUMENTATION_DOMAINS,
   PACKAGE_MANAGER_DOMAINS,
   SandboxPolicy,
+  SqliteMemoryRepository,
   type DefaultBuiltinToolRegistryOptions,
   type NetPolicy,
   type SandboxConfig,
@@ -9,6 +10,8 @@ import {
   type WebSearchProviderResponse,
   type WebSourceMetadata,
 } from "@kilnai/core";
+import { existsSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
 import type { KilnAppConfig } from "../config.js";
 import { loadKilnConfig } from "./config-merger.js";
 import { KilnYamlError } from "../kiln-yaml.js";
@@ -47,8 +50,12 @@ export function createWebToolSurfaceOptions(
 ): DefaultBuiltinToolRegistryOptions {
   const webConfig = input.config?.web;
   const workspaceResources = { rootPath: input.projectPath };
+  const memoryResources = createProjectMemoryResources(input.projectPath);
   if (webConfig?.enabled !== true) {
-    return { workspaceResources };
+    return {
+      workspaceResources,
+      ...(memoryResources ? { memoryResources } : {}),
+    };
   }
 
   const networkPolicy = createWebNetworkPolicy(webConfig, input.projectPath);
@@ -56,11 +63,24 @@ export function createWebToolSurfaceOptions(
 
   return {
     workspaceResources,
+    ...(memoryResources ? { memoryResources } : {}),
     webFetch: { networkPolicy },
     webSearch: {
       networkPolicy,
       ...(searchProvider ? { searchProvider } : {}),
     },
+  };
+}
+
+function createProjectMemoryResources(projectPath: string): DefaultBuiltinToolRegistryOptions["memoryResources"] | undefined {
+  if (!existsSync(projectPath)) {
+    return undefined;
+  }
+
+  const kilnDir = join(projectPath, ".kiln");
+  mkdirSync(kilnDir, { recursive: true });
+  return {
+    repository: new SqliteMemoryRepository({ dbPath: join(kilnDir, "memory.db") }),
   };
 }
 

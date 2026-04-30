@@ -132,6 +132,11 @@ export class CodexOAuthAdapter implements ProviderAdapter {
   async *streamMessage(options: CreateMessageOptions): AsyncGenerator<AgentStreamEvent> {
     const body = this.buildRequestBody(options);
     const response = await this.postWith401Retry(body);
+    const shouldBufferText = (options.tools?.length ?? 0) > 0;
+    let collectedText = "";
+    const collectedFunctionCallsByItemId = new Map<string, ResponsesOutputItem>();
+    const collectedFunctionCallsByCallId = new Map<string, ResponsesOutputItem>();
+    const collectedFunctionCallArguments = new Map<string, string>();
 
     if (!response.body) {
       throw this.providerError("Codex OAuth streaming response body was empty", {
@@ -143,6 +148,10 @@ export class CodexOAuthAdapter implements ProviderAdapter {
       if (event.event === "response.output_text.delta") {
         const delta = this.parseJsonString<{ delta?: string }>(event.data);
         if (delta.delta) {
+          if (shouldBufferText) {
+            collectedText += delta.delta;
+            continue;
+          }
           yield { type: "text", content: delta.delta };
         }
         continue;
@@ -151,6 +160,12 @@ export class CodexOAuthAdapter implements ProviderAdapter {
       if (event.event === "response.output_item.added") {
         const added = this.parseJsonString<OutputItemAddedEnvelope>(event.data);
         if (added.item?.type === "function_call") {
+          if (added.item.id) {
+            collectedFunctionCallsByItemId.set(added.item.id, added.item);
+          }
+          if (added.item.call_id) {
+            collectedFunctionCallsByCallId.set(added.item.call_id, added.item);
+          }
           yield {
             type: "tool_use",
             content: JSON.stringify({
@@ -163,9 +178,86 @@ export class CodexOAuthAdapter implements ProviderAdapter {
         continue;
       }
 
+      if (event.event === "response.output_item.done") {
+        const done = this.parseJsonString<OutputItemDoneEnvelope>(event.data);
+        const item = done.item;
+        if (item?.type === "function_call") {
+          if (item.id) {
+            collectedFunctionCallsByItemId.set(item.id, item);
+          }
+          if (item.call_id) {
+            collectedFunctionCallsByCallId.set(item.call_id, item);
+          }
+          if (item.id && typeof item.arguments === "string") {
+            collectedFunctionCallArguments.set(item.id, item.arguments);
+          }
+          if (item.call_id && typeof item.arguments === "string") {
+            collectedFunctionCallArguments.set(item.call_id, item.arguments);
+          }
+        }
+        continue;
+      }
+
+      if (event.event === "response.function_call_arguments.delta") {
+        const delta = this.parseJsonString<FunctionCallArgumentsDeltaEnvelope>(event.data);
+        if (delta.item_id && typeof delta.delta === "string") {
+          const current = collectedFunctionCallArguments.get(delta.item_id) ?? "";
+          collectedFunctionCallArguments.set(delta.item_id, current + delta.delta);
+        }
+        continue;
+      }
+
+      if (event.event === "response.function_call_arguments.done") {
+        const done = this.parseJsonString<FunctionCallArgumentsDoneEnvelope>(event.data);
+        if (done.item_id && typeof done.arguments === "string") {
+          collectedFunctionCallArguments.set(done.item_id, done.arguments);
+          if (done.call_id) {
+            collectedFunctionCallArguments.set(done.call_id, done.arguments);
+          }
+        }
+        if (done.item_id) {
+          const existing = collectedFunctionCallsByItemId.get(done.item_id);
+          const mergedItem: ResponsesOutputItem = {
+            ...(existing ?? {}),
+            type: "function_call",
+            id: existing?.id ?? done.item_id,
+            call_id: existing?.call_id ?? done.call_id,
+            name: existing?.name ?? done.name,
+            arguments: existing?.arguments ?? done.arguments,
+          };
+          collectedFunctionCallsByItemId.set(done.item_id, mergedItem);
+          if (done.call_id) {
+            collectedFunctionCallsByCallId.set(done.call_id, mergedItem);
+          }
+        }
+        continue;
+      }
+
       if (event.event === "response.completed") {
         const completed = this.parseJsonString<CompletedSseEnvelope>(event.data);
-        const mapped = this.mapResponse(completed.response ?? {});
+        const completedResponse = shouldBufferText
+          ? this.applyStreamingFallbacks(
+            completed.response ?? {},
+            collectedText,
+            [...new Map(
+              [
+                ...collectedFunctionCallsByItemId.values(),
+                ...collectedFunctionCallsByCallId.values(),
+              ].map((item) => [(item.call_id ?? item.id ?? ""), item]),
+            ).values()],
+            collectedFunctionCallsByItemId,
+            collectedFunctionCallsByCallId,
+            collectedFunctionCallArguments,
+          )
+          : completed.response ?? {};
+        const mapped = this.mapResponse(completedResponse);
+        if (shouldBufferText) {
+          for (const part of mapped.parts) {
+            if (part.type === "text" && part.text.length > 0) {
+              yield { type: "text", content: part.text };
+            }
+          }
+        }
         yield {
           type: "done",
           content: "",
@@ -312,16 +404,19 @@ export class CodexOAuthAdapter implements ProviderAdapter {
   } {
     const parts: ContentPart[] = [];
     const toolCalls: ToolCall[] = [];
+    const outputItems = response.output ?? [];
+    const functionCallItems = outputItems.filter((item) => item.type === "function_call");
 
-    for (const item of response.output ?? []) {
+    for (const item of outputItems) {
       if (item.type === "message") {
         const text = (item.content ?? [])
           .filter((content) => content.type === "output_text" && typeof content.text === "string")
           .map((content) => content.text ?? "")
           .join("");
+        const visibleText = stripLeakedFunctionCallText(text, functionCallItems);
 
-        if (text.length > 0) {
-          parts.push(textPart(text));
+        if (visibleText.length > 0) {
+          parts.push(textPart(visibleText));
         }
       }
 
@@ -661,6 +756,214 @@ export class CodexOAuthAdapter implements ProviderAdapter {
 
     return `function_calls=[${functionCallIds.join(", ")}]; function_call_outputs=[${functionCallOutputIds.join(", ")}]`;
   }
+}
+
+function stripLeakedFunctionCallText(
+  text: string,
+  functionCalls: readonly ResponsesOutputItem[],
+): string {
+  if (text.length === 0 || functionCalls.length === 0) {
+    return text;
+  }
+
+  let remaining = text;
+  let stripped = false;
+  const maxPasses = Math.max(4, functionCalls.length * 4);
+
+  for (let pass = 0; pass < maxPasses; pass++) {
+    const next = stripOneLeakedFunctionCallPrefix(remaining, functionCalls);
+    if (next === remaining) {
+      break;
+    }
+    remaining = next;
+    stripped = true;
+  }
+
+  return stripped ? remaining.trimStart() : text;
+}
+
+function stripOneLeakedFunctionCallPrefix(
+  text: string,
+  functionCalls: readonly ResponsesOutputItem[],
+): string {
+  const rawArgumentPrefix = matchingRawArgumentPrefix(text, functionCalls);
+  if (rawArgumentPrefix) {
+    return text.slice(rawArgumentPrefix.length);
+  }
+
+  const marker = matchingFunctionDestinationMarker(text, functionCalls);
+  if (marker) {
+    return text.slice(marker.length);
+  }
+
+  const jsonPrefix = readLeadingJsonObjectPrefix(text);
+  if (jsonPrefix && isLeakedFunctionArgumentObject(jsonPrefix.value, jsonPrefix.followingText, functionCalls)) {
+    return text.slice(jsonPrefix.end);
+  }
+
+  return text;
+}
+
+function matchingRawArgumentPrefix(
+  text: string,
+  functionCalls: readonly ResponsesOutputItem[],
+): string | null {
+  const start = firstNonWhitespaceIndex(text);
+  if (start === -1) {
+    return null;
+  }
+  const candidate = text.slice(start);
+  for (const item of functionCalls) {
+    const args = typeof item.arguments === "string" ? item.arguments.trim() : "";
+    if (args.length > 0 && candidate.startsWith(args)) {
+      return text.slice(0, start) + args;
+    }
+  }
+  return null;
+}
+
+function matchingFunctionDestinationMarker(
+  text: string,
+  functionCalls: readonly ResponsesOutputItem[],
+): string | null {
+  const start = firstNonWhitespaceIndex(text);
+  if (start === -1) {
+    return null;
+  }
+  const candidate = text.slice(start);
+  for (const item of functionCalls) {
+    if (!item.name) {
+      continue;
+    }
+    const functionsMarker = `to=functions.${item.name}`;
+    if (candidate.startsWith(functionsMarker)) {
+      return text.slice(0, start) + functionsMarker;
+    }
+    const mcpMarkerMatch = /^to=mcp__[A-Za-z0-9_-]+__\./u.exec(candidate);
+    if (mcpMarkerMatch) {
+      const marker = `${mcpMarkerMatch[0]}${item.name}`;
+      if (candidate.startsWith(marker)) {
+        return text.slice(0, start) + marker;
+      }
+    }
+  }
+  return null;
+}
+
+function isLeakedFunctionArgumentObject(
+  value: unknown,
+  followingText: string,
+  functionCalls: readonly ResponsesOutputItem[],
+): boolean {
+  if (!isPlainRecord(value)) {
+    return false;
+  }
+
+  for (const item of functionCalls) {
+    const args = typeof item.arguments === "string" ? item.arguments.trim() : "";
+    if (!args) {
+      continue;
+    }
+    try {
+      if (jsonValuesEqual(value, JSON.parse(args))) {
+        return true;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return matchingFunctionDestinationMarker(followingText, functionCalls) !== null;
+}
+
+function readLeadingJsonObjectPrefix(
+  text: string,
+): { readonly end: number; readonly followingText: string; readonly value: unknown } | null {
+  const start = firstNonWhitespaceIndex(text);
+  if (start === -1 || text[start] !== "{") {
+    return null;
+  }
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let index = start; index < text.length; index++) {
+    const char = text[index];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === "\"") {
+      inString = true;
+      continue;
+    }
+    if (char === "{") {
+      depth++;
+      continue;
+    }
+    if (char !== "}") {
+      continue;
+    }
+
+    depth--;
+    if (depth !== 0) {
+      continue;
+    }
+
+    const end = index + 1;
+    try {
+      return {
+        end,
+        followingText: text.slice(end),
+        value: JSON.parse(text.slice(start, end)) as unknown,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
+function firstNonWhitespaceIndex(text: string): number {
+  const match = /\S/u.exec(text);
+  return match ? match.index : -1;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function jsonValuesEqual(left: unknown, right: unknown): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (Array.isArray(left) || Array.isArray(right)) {
+    if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) {
+      return false;
+    }
+    return left.every((value, index) => jsonValuesEqual(value, right[index]));
+  }
+  if (isPlainRecord(left) || isPlainRecord(right)) {
+    if (!isPlainRecord(left) || !isPlainRecord(right)) {
+      return false;
+    }
+    const leftKeys = Object.keys(left).sort();
+    const rightKeys = Object.keys(right).sort();
+    if (!jsonValuesEqual(leftKeys, rightKeys)) {
+      return false;
+    }
+    return leftKeys.every((key) => jsonValuesEqual(left[key], right[key]));
+  }
+  return false;
 }
 
 function toStrictToolSchema(schema: Record<string, unknown>): Record<string, unknown> {

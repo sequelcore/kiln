@@ -45,6 +45,16 @@ function spinnerClass(phase: ActivityPhase): string {
   return "inline-block size-2 animate-pulse rounded-full bg-current";
 }
 
+function TypingDots() {
+  return (
+    <span aria-hidden="true" className="inline-flex items-center gap-1 py-1">
+      <span className="size-1.5 animate-bounce rounded-full bg-current [animation-delay:-160ms]" />
+      <span className="size-1.5 animate-bounce rounded-full bg-current [animation-delay:-80ms]" />
+      <span className="size-1.5 animate-bounce rounded-full bg-current" />
+    </span>
+  );
+}
+
 export function ActivityPhaseIndicator(props: ActivityPhaseIndicatorProps) {
   const isActive = props.phase !== "idle";
   const label = props.phase === "tool_running" && props.toolName
@@ -53,6 +63,19 @@ export function ActivityPhaseIndicator(props: ActivityPhaseIndicatorProps) {
   const colorClass = phaseColorClass(props.phase);
   const truncatedDetails = props.details ? props.details.slice(0, 40) : undefined;
   const toolLabel = props.toolName && !label.includes(props.toolName) ? ` · ${props.toolName}` : "";
+
+  if (props.phase === "thinking") {
+    return (
+      <div
+        role="status"
+        aria-live="polite"
+        aria-label="Activity phase: Thinking"
+        className={`inline-flex items-center text-xs ${colorClass}`}
+      >
+        <TypingDots />
+      </div>
+    );
+  }
 
   return (
     <div

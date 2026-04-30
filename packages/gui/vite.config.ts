@@ -24,6 +24,14 @@ export default defineConfig({
   server: {
     port: 5183,
     proxy: {
+      "/health": {
+        target: `http://localhost:${resolvedGatewayPort}`,
+        changeOrigin: true,
+      },
+      "/gui/api": {
+        target: `http://localhost:${resolvedGatewayPort}`,
+        changeOrigin: true,
+      },
       "/gui-api": {
         target: `http://localhost:${resolvedGatewayPort}`,
         changeOrigin: true,

@@ -1,6 +1,5 @@
-import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { appendFile, readFile, writeFile, readdir } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, writeFile, readdir } from 'node:fs/promises';
 import type { ResumeFeedback, ResumeOutcome, ResumeStrategy } from './index.js';
 import type { CanonicalSessionEventKind, SessionEventEnvelope, SessionEventSource } from '@kilnai/core';
 
@@ -23,6 +22,11 @@ export interface SessionRecord {
   projectPath: string;
   providerThread?: ProviderThreadMeta;
   resumeStrategy?: ResumeStrategy;
+}
+
+interface ResumeTargetsFile {
+  readonly defaultSessionId?: string;
+  readonly providerSessionIds?: Record<string, string>;
 }
 
 function parseOptionalString(value: unknown): string | undefined {
@@ -85,9 +89,11 @@ function parseSessionRecord(line: string): SessionRecord | null {
 
 export class SessionStore {
   private readonly filePath: string;
+  private readonly resumeTargetsPath: string;
 
   constructor(projectPath: string) {
     this.filePath = join(projectPath, '.kiln', 'sessions.jsonl');
+    this.resumeTargetsPath = join(projectPath, '.kiln', 'resume-targets.json');
   }
 
   async append(record: SessionRecord): Promise<void> {
@@ -96,6 +102,7 @@ export class SessionStore {
       await mkdir(dir, { recursive: true });
       const line = serializeSessionRecord(record) + '\n';
       await appendFile(this.filePath, line, 'utf-8');
+      await this.setResumeTarget(record);
     } catch (err) {
       console.error('[SessionStore] Failed to append session record:', err);
     }
@@ -131,28 +138,76 @@ export class SessionStore {
     }
   }
 
-  async clearLast(provider?: string): Promise<void> {
+  private async readResumeTargets(): Promise<ResumeTargetsFile> {
     try {
-      const records = await this.readRecords();
-      // Find index of the last record matching provider (or any if undefined)
-      let lastMatchIndex = -1;
-      for (let i = 0; i < records.length; i++) {
-        const record = records[i]!;
-        if (provider === undefined || record.provider === provider) {
-          lastMatchIndex = i;
-        }
-      }
-      if (lastMatchIndex === -1) return;
-      const remaining = records.filter((_, i) => i !== lastMatchIndex);
-      const dir = join(this.filePath, '..');
-      await mkdir(dir, { recursive: true });
-      await writeFile(
-        this.filePath,
-        remaining.map((record) => `${serializeSessionRecord(record)}\n`).join(''),
-        'utf-8',
-      );
+      const parsed = JSON.parse(await readFile(this.resumeTargetsPath, 'utf-8')) as Partial<ResumeTargetsFile>;
+      const defaultSessionId = parseOptionalString(parsed.defaultSessionId);
+      const providerSessionIds = parsed.providerSessionIds && typeof parsed.providerSessionIds === 'object'
+        ? Object.fromEntries(
+          Object.entries(parsed.providerSessionIds)
+            .flatMap(([provider, sessionId]) => {
+              const normalizedProvider = parseOptionalString(provider);
+              const normalizedSessionId = parseOptionalString(sessionId);
+              return normalizedProvider && normalizedSessionId
+                ? [[normalizedProvider, normalizedSessionId]]
+                : [];
+            }),
+        )
+        : undefined;
+      return {
+        ...(defaultSessionId ? { defaultSessionId } : {}),
+        ...(providerSessionIds && Object.keys(providerSessionIds).length > 0 ? { providerSessionIds } : {}),
+      };
+    } catch {
+      return {};
+    }
+  }
+
+  private async writeResumeTargets(targets: ResumeTargetsFile): Promise<void> {
+    const dir = join(this.resumeTargetsPath, '..');
+    await mkdir(dir, { recursive: true });
+    await writeFile(this.resumeTargetsPath, JSON.stringify(targets, null, 2), 'utf-8');
+  }
+
+  async getResumeTarget(provider?: string): Promise<SessionRecord | null> {
+    const targets = await this.readResumeTargets();
+    const sessionId = provider ? targets.providerSessionIds?.[provider] : targets.defaultSessionId;
+    return sessionId ? this.find(sessionId) : null;
+  }
+
+  async setResumeTarget(record: SessionRecord): Promise<void> {
+    try {
+      const current = await this.readResumeTargets();
+      await this.writeResumeTargets({
+        defaultSessionId: record.sessionId,
+        providerSessionIds: {
+          ...(current.providerSessionIds ?? {}),
+          [record.provider]: record.sessionId,
+        },
+      });
     } catch (err) {
-      console.error('[SessionStore] Failed to clearLast:', err);
+      console.error('[SessionStore] Failed to set resume target:', err);
+    }
+  }
+
+  async clearResumeTarget(provider?: string): Promise<void> {
+    try {
+      if (provider === undefined) {
+        await this.writeResumeTargets({});
+        return;
+      }
+      const current = await this.readResumeTargets();
+      const providerSessionIds = { ...(current.providerSessionIds ?? {}) };
+      delete providerSessionIds[provider];
+      const nextDefault = current.defaultSessionId && current.defaultSessionId === current.providerSessionIds?.[provider]
+        ? undefined
+        : current.defaultSessionId;
+      await this.writeResumeTargets({
+        ...(nextDefault ? { defaultSessionId: nextDefault } : {}),
+        ...(Object.keys(providerSessionIds).length > 0 ? { providerSessionIds } : {}),
+      });
+    } catch (err) {
+      console.error('[SessionStore] Failed to clear resume target:', err);
     }
   }
 

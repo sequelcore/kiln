@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { createDefaultBuiltinToolSurface } from "@kilnai/core";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createWebToolSurfaceOptions } from "../../src/config/web-tools-config.js";
 import type { KilnYaml } from "../../src/kiln-yaml-types.js";
 
@@ -38,6 +41,27 @@ describe("web tool config", () => {
     expect(options.webFetch?.networkPolicy?.canAccess("docs.example.com")).toBe(true);
     expect(options.webSearch?.networkPolicy).toBe(options.webFetch?.networkPolicy);
     expect(options.webSearch?.networkPolicy?.canAccess("api.example.com")).toBe(false);
+  });
+
+  it("registers the project Memory Lattice resource with shared tool surfaces", async () => {
+    const projectPath = mkdtempSync(join(tmpdir(), "kiln-web-tools-memory-"));
+    const surface = createDefaultBuiltinToolSurface(createWebToolSurfaceOptions({
+      config: { version: "1" },
+      projectPath,
+    }));
+
+    const result = await surface.resources.read("kiln://memory/graph?depth=0&limit=25");
+
+    expect(result?.contents[0]?.mimeType).toBe("application/json");
+    expect(JSON.parse(result?.contents[0]?.text ?? "{}")).toMatchObject({
+      snapshot: {
+        nodes: [],
+        edges: [],
+        limits: { maxNodes: 25, maxEdges: 50 },
+        truncated: false,
+      },
+      filters: { depth: 0 },
+    });
   });
 
   it("adapts an HTTP search provider without making consumers provider-specific", async () => {

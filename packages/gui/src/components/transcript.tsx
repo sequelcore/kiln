@@ -1,5 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import {
+  projectConversationTurnItems,
+  type ConversationProjectionInput,
   formatOperatorEventValue,
   operatorEmptyStatePhraseAt,
 } from "@kilnai/gateway-contracts";
@@ -9,6 +12,7 @@ import { ActivityPhaseIndicator } from "./activity-phase-indicator.js";
 import { MessageRow } from "./message-row.js";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 interface TranscriptProps {
@@ -84,11 +88,11 @@ function detailDisplayText(value: unknown, maxLength = 180): string | null {
 function MetaList(props: { readonly items: readonly { label: string; value: string }[] }) {
   if (props.items.length === 0) return null;
   return (
-    <dl className="mt-3 grid gap-2 sm:grid-cols-2">
+    <dl className="mt-2 flex flex-wrap gap-x-4 gap-y-2 text-xs">
       {props.items.map((item) => (
-        <div key={`${item.label}:${item.value}`} className="min-w-0 overflow-hidden rounded-md border border-[var(--color-border)]/50 bg-[var(--color-background)] px-3 py-2">
-          <dt className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--color-text-muted)]">{item.label}</dt>
-          <dd className="mt-1 break-words text-sm leading-5 text-[var(--color-text)]">{item.value}</dd>
+        <div key={`${item.label}:${item.value}`} className="min-w-0">
+          <dt className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{item.label}</dt>
+          <dd className="mt-0.5 break-words text-sm leading-5 text-foreground">{item.value}</dd>
         </div>
       ))}
     </dl>
@@ -98,7 +102,7 @@ function MetaList(props: { readonly items: readonly { label: string; value: stri
 function ToolPreviewText(props: { readonly text: string; readonly outputKind: string }) {
   const lines = props.text.replace(/\r\n/g, "\n").split("\n");
   return (
-    <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border/70 bg-background px-2.5 py-2 font-mono text-[11px] leading-5 text-foreground">
+    <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-background/80 px-2.5 py-2 font-mono text-[11px] leading-5 text-foreground">
       {lines.map((line, index) => (
         <span
           key={`${index}:${line}`}
@@ -133,8 +137,8 @@ function ToolResultPresentationDetails(props: { readonly entry: TimelineEventEnt
     empty: "No output",
   }[presentation.outputKind] ?? "Preview";
   return (
-    <div className="mt-3 flex flex-col gap-3">
-      <div className="min-w-0 rounded-md border border-border/70 bg-background px-3 py-2">
+    <div className="mt-3 flex flex-col gap-2 border-l border-border/60 pl-3">
+      <div className="min-w-0">
         <p className="truncate text-sm font-medium leading-5 text-foreground">{presentation.title}</p>
         {presentation.summary ? (
           <p className="mt-1 text-sm leading-5 text-muted-foreground">{presentation.summary}</p>
@@ -142,7 +146,7 @@ function ToolResultPresentationDetails(props: { readonly entry: TimelineEventEnt
       </div>
       <MetaList items={presentation.fields} />
       {presentation.resourceLinks?.map((resource) => (
-        <div key={resource.uri} className="min-w-0 rounded-md border border-border/70 bg-background px-3 py-2">
+        <div key={resource.uri} className="min-w-0 rounded-lg bg-background/55 px-2.5 py-2">
           <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{previewLabel}</p>
           <p className="mt-1 truncate text-sm font-medium text-foreground">{resource.title ?? resource.uri}</p>
           <p className="mt-1 break-all font-mono text-[11px] leading-5 text-muted-foreground">{resource.uri}</p>
@@ -154,7 +158,7 @@ function ToolResultPresentationDetails(props: { readonly entry: TimelineEventEnt
         </div>
       ))}
       {presentation.preview ? (
-        <div className="rounded-md border border-border/70 bg-background-element/35 p-2.5">
+        <div>
           <div className="mb-2 flex items-center justify-between gap-3">
             <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{previewLabel}</p>
             {presentation.preview.truncated ? (
@@ -162,15 +166,6 @@ function ToolResultPresentationDetails(props: { readonly entry: TimelineEventEnt
             ) : null}
           </div>
           <ToolPreviewText text={presentation.preview.text} outputKind={presentation.outputKind} />
-        </div>
-      ) : null}
-      {presentation.raw.available ? (
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="outline">Raw available</Badge>
-          <Button type="button" variant="ghost" size="xs">Open inspector</Button>
-          {presentation.raw.resourceUri ? (
-            <span className="min-w-0 break-all font-mono text-[11px] text-muted-foreground">{presentation.raw.resourceUri}</span>
-          ) : null}
         </div>
       ) : null}
     </div>
@@ -368,62 +363,109 @@ function eventBadgeVariant(entry: TimelineEventEntry): "outline" | "secondary" |
   }[entry.tone] as "outline" | "secondary" | "destructive";
 }
 
-function InlineToolEventRow(props: { readonly entry: TimelineEventEntry }) {
-  const [open, setOpen] = useState(false);
+function toolEventTooltipText(entry: TimelineEventEntry): string {
+  const toolName = entry.title.replace(/^(Using|Completed)\s+/u, "").trim();
+  if (entry.eventKind === "tool_call_started") {
+    return `${toolName} is running for this assistant turn.`;
+  }
+  return `${toolName} result attached to this assistant turn. Expand for details.`;
+}
+
+function ToolEventCard(props: {
+  readonly entry: TimelineEventEntry;
+  readonly nested?: boolean;
+}) {
+  const [open, setOpen] = useState(() => shouldAutoOpenToolEventDetails(props.entry));
   const Icon = eventIcon(props.entry);
   const summary = eventSummaryText(props.entry);
   const hasDetails = canRenderEventDetails(props.entry);
 
   return (
+    <div className="min-w-0 flex-1">
+      <div
+        data-role="tool-event"
+        className={cn(
+          "flex min-w-0 items-center gap-2 rounded-xl bg-background/70 px-2.5 py-1.5 text-sm",
+          props.nested ? "bg-background/55" : "shadow-sm",
+        )}
+      >
+        <Icon
+          aria-hidden="true"
+          className={cn(
+            "shrink-0 text-muted-foreground",
+            props.entry.tone === "running" ? "animate-spin" : null,
+            props.entry.tone === "error" ? "text-destructive" : null,
+          )}
+        />
+        <TooltipProvider delay={400}>
+          <Tooltip>
+            <TooltipTrigger
+              render={(
+                <Badge
+                  variant={eventBadgeVariant(props.entry)}
+                  className="max-w-[11rem] cursor-default truncate focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                />
+              )}
+            >
+              {props.entry.title}
+            </TooltipTrigger>
+            <TooltipContent side="top" align="start">
+              {toolEventTooltipText(props.entry)}
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+        {summary ? (
+          <span className="min-w-0 flex-1 truncate text-muted-foreground">
+            {summary}
+          </span>
+        ) : null}
+        <time
+          dateTime={props.entry.createdAt}
+          className="hidden shrink-0 font-mono text-[10px] text-muted-foreground/70 sm:inline"
+          title={props.entry.createdAt}
+        >
+          {new Date(props.entry.createdAt).toLocaleTimeString()}
+        </time>
+        {hasDetails ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            aria-label={open ? "Hide details" : "Show details"}
+            aria-expanded={open}
+            onClick={() => setOpen((value) => !value)}
+          >
+            {open ? <ChevronUp data-icon="inline-start" /> : <ChevronDown data-icon="inline-start" />}
+          </Button>
+        ) : null}
+      </div>
+      {open ? (
+        <div className="mt-3 max-w-[min(36rem,100%)]">
+          <EventDetails entry={props.entry} open={open} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function InlineToolEventRow(props: { readonly entry: TimelineEventEntry }) {
+  return (
     <article data-role="tool" className="mx-auto flex w-full max-w-3xl justify-start px-1">
       <div className="flex min-w-0 max-w-[min(42rem,94%)] flex-1 gap-2">
         <span className="mt-2 h-auto w-px shrink-0 rounded-full bg-border" aria-hidden="true" />
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-2 rounded-md border border-border/70 bg-muted/25 px-2.5 py-1.5 text-sm shadow-[0_1px_0_rgba(255,255,255,0.03)]">
-            <Icon
-              aria-hidden="true"
-              className={cn(
-                "shrink-0 text-muted-foreground",
-                props.entry.tone === "running" ? "animate-spin" : null,
-                props.entry.tone === "error" ? "text-destructive" : null,
-              )}
-            />
-            <Badge variant={eventBadgeVariant(props.entry)} className="max-w-[11rem] truncate">
-              {props.entry.title}
-            </Badge>
-            {summary ? (
-              <span className="min-w-0 flex-1 truncate text-muted-foreground">
-                {summary}
-              </span>
-            ) : null}
-            <time
-              dateTime={props.entry.createdAt}
-              className="hidden shrink-0 font-mono text-[10px] text-muted-foreground/70 sm:inline"
-              title={props.entry.createdAt}
-            >
-              {new Date(props.entry.createdAt).toLocaleTimeString()}
-            </time>
-            {hasDetails ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-xs"
-                aria-label={open ? "Hide details" : "Show details"}
-                aria-expanded={open}
-                onClick={() => setOpen((value) => !value)}
-              >
-                {open ? <ChevronUp data-icon="inline-start" /> : <ChevronDown data-icon="inline-start" />}
-              </Button>
-            ) : null}
-          </div>
-          {open ? (
-            <div className="mt-2 max-w-[min(36rem,100%)] rounded-md border border-border/70 bg-background/80 px-3 pb-3 pt-1">
-              <EventDetails entry={props.entry} open={open} />
-            </div>
-          ) : null}
-        </div>
+        <ToolEventCard entry={props.entry} />
       </div>
     </article>
+  );
+}
+
+function AssistantToolEventStack(props: { readonly entries: readonly TimelineEventEntry[] }) {
+  return (
+    <div data-testid="assistant-tool-events" className="flex flex-col gap-2">
+      {props.entries.map((entry) => (
+        <ToolEventCard key={entry.id} entry={entry} nested />
+      ))}
+    </div>
   );
 }
 
@@ -507,13 +549,19 @@ function AssistantActivityRow(props: {
   readonly phase: ActivityPhase;
   readonly toolName?: string;
   readonly details?: string;
+  readonly toolEvents?: readonly TimelineEventEntry[];
 }) {
   return (
     <article data-role="assistant" className="mx-auto flex w-full max-w-3xl justify-start">
-      <div className="max-w-[min(46rem,92%)] rounded-lg border border-dashed bg-card px-3 py-2">
-        <header className="mb-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+      <div className="min-w-0 max-w-[min(44rem,90%)] rounded-2xl rounded-tl-md bg-muted/35 px-3.5 py-2.5 shadow-sm">
+        <header className="sr-only">
           <span>Assistant</span>
         </header>
+        {props.toolEvents && props.toolEvents.length > 0 ? (
+          <div className="mb-2">
+            <AssistantToolEventStack entries={props.toolEvents} />
+          </div>
+        ) : null}
         <ActivityPhaseIndicator
           phase={props.phase}
           toolName={props.toolName}
@@ -551,6 +599,95 @@ function EmptyTranscript() {
   );
 }
 
+function toolCallIdFromTimelineEntry(entry: TimelineEventEntry): string | null {
+  const details = asRecord(entry.details);
+  return readString(details?.toolCallId);
+}
+
+function toConversationProjectionInput(entry: TimelineEntry): ConversationProjectionInput {
+  if (entry.type === "message") {
+    return {
+      id: entry.id,
+      kind: "message",
+      role: entry.message.role,
+      ...(entry.turnId ? { turnId: entry.turnId } : {}),
+      ...(entry.message.streaming !== undefined ? { streaming: entry.message.streaming } : {}),
+    };
+  }
+  const toolCallId = toolCallIdFromTimelineEntry(entry);
+  return {
+    id: entry.id,
+    kind: "event",
+    eventKind: entry.eventKind,
+    ...(entry.turnId ? { turnId: entry.turnId } : {}),
+    ...(toolCallId ? { toolCallId } : {}),
+  };
+}
+
+function shouldAutoOpenToolEventDetails(entry: TimelineEventEntry): boolean {
+  if (entry.eventKind !== "tool_call_completed") return false;
+  const presentation = entry.toolPresentation;
+  if (!presentation?.preview?.text) return false;
+  return presentation.outputKind === "diff" || presentation.outputKind === "tree";
+}
+
+function renderTranscriptEntries(
+  entries: readonly TimelineEntry[],
+  onApprove: TranscriptProps["onApprove"],
+  onDeny: TranscriptProps["onDeny"],
+  activity?: {
+    readonly phase: ActivityPhase;
+    readonly toolName?: string;
+    readonly details?: string;
+  },
+): ReactNode[] {
+  const entriesById = new Map(entries.map((entry) => [entry.id, entry]));
+  const eventEntriesById = new Map(entries.flatMap((entry) => (
+    entry.type === "event" ? [[entry.id, entry] as const] : []
+  )));
+  const items = projectConversationTurnItems<ActivityPhase>(
+    entries.map((entry) => toConversationProjectionInput(entry)),
+    activity ? { activity } : {},
+  );
+  const eventEntries = (eventIds: readonly string[]): readonly TimelineEventEntry[] => (
+    eventIds.flatMap((id) => {
+      const entry = eventEntriesById.get(id);
+      return entry ? [entry] : [];
+    })
+  );
+
+  return items.map((item) => {
+    if (item.kind === "event") {
+      const entry = entriesById.get(item.entryId);
+      if (!entry || entry.type !== "event") return null;
+      return isToolEvent(entry)
+        ? <InlineToolEventRow key={entry.id} entry={entry} />
+        : <TimelineEventRow key={entry.id} entry={entry} onApprove={onApprove} onDeny={onDeny} />;
+    }
+    if (item.kind === "activity") {
+      return (
+        <AssistantActivityRow
+          key="assistant-activity"
+          phase={item.phase}
+          toolName={item.toolName}
+          details={item.details}
+          toolEvents={eventEntries(item.eventIds)}
+        />
+      );
+    }
+    const entry = entriesById.get(item.entryId);
+    if (!entry || entry.type !== "message") return null;
+    return (
+      <MessageRow
+        key={entry.id}
+        message={entry.message}
+        beforeContent={item.beforeEventIds.length > 0 ? <AssistantToolEventStack entries={eventEntries(item.beforeEventIds)} /> : undefined}
+        afterContent={item.afterEventIds.length > 0 ? <AssistantToolEventStack entries={eventEntries(item.afterEventIds)} /> : undefined}
+      />
+    );
+  });
+}
+
 export function Transcript(props: TranscriptProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const shouldStickRef = useRef(true);
@@ -564,7 +701,7 @@ export function Transcript(props: TranscriptProps) {
   ));
   const showAssistantActivity = props.activityPhase
     && props.activityPhase !== "idle"
-    && !(props.activityPhase === "streaming" && hasStreamingAssistant);
+    && !hasStreamingAssistant;
 
   useEffect(() => {
     const node = containerRef.current;
@@ -600,21 +737,19 @@ export function Transcript(props: TranscriptProps) {
         {props.entries.length === 0 && !showAssistantActivity ? (
           <EmptyTranscript />
         ) : (
-          props.entries.map((entry) => (
-            entry.type === "message"
-              ? <MessageRow key={entry.id} message={entry.message} />
-              : isToolEvent(entry)
-                ? <InlineToolEventRow key={entry.id} entry={entry} />
-                : <TimelineEventRow key={entry.id} entry={entry} onApprove={props.onApprove} onDeny={props.onDeny} />
-          ))
+          renderTranscriptEntries(
+            props.entries,
+            props.onApprove,
+            props.onDeny,
+            showAssistantActivity
+              ? {
+                  phase: props.activityPhase!,
+                  toolName: props.activityToolName,
+                  details: props.activityDetails,
+                }
+              : undefined,
+          )
         )}
-        {showAssistantActivity ? (
-          <AssistantActivityRow
-            phase={props.activityPhase!}
-            toolName={props.activityToolName}
-            details={props.activityDetails}
-          />
-        ) : null}
       </div>
       {hasUserScrolledUp ? (
         <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-10 bg-gradient-to-t from-[var(--color-background)] to-transparent" />

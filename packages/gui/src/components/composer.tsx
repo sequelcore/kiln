@@ -42,7 +42,7 @@ export function Composer(props: ComposerProps) {
   }
 
   return (
-    <section className="bg-background px-4 pb-3 pt-2">
+    <section className="relative z-10 bg-background/95 px-4 pb-2 pt-1 before:pointer-events-none before:absolute before:inset-x-0 before:-top-8 before:h-8 before:bg-gradient-to-t before:from-background before:to-transparent before:content-[''] supports-[backdrop-filter]:bg-background/88">
       <form
         onSubmit={(event) => {
           event.preventDefault();
@@ -50,7 +50,7 @@ export function Composer(props: ComposerProps) {
           props.onSubmit(draft);
           setDraft("");
         }}
-        className="relative mx-auto flex max-w-3xl flex-col gap-2"
+        className="relative mx-auto flex max-w-3xl flex-col gap-1.5"
       >
         <ComposerCommandMenu
           open={props.commandMenu.open}
@@ -63,7 +63,7 @@ export function Composer(props: ComposerProps) {
         <label className="sr-only" htmlFor="composer-input">
           Message
         </label>
-        <div className="flex flex-col gap-3 rounded-xl border border-border bg-card px-3 py-3 shadow-[var(--shadow-elevated)] transition-colors focus-within:border-ring/70">
+        <div className="flex flex-col gap-2 rounded-lg border border-border bg-card px-2.5 py-2 shadow-[var(--shadow-elevated)] transition-colors focus-within:border-ring/70">
           <Textarea
             id="composer-input"
             value={draft}
@@ -96,10 +96,10 @@ export function Composer(props: ComposerProps) {
               setDraft("");
             }}
             rows={2}
-            className="min-h-24 max-h-40 resize-none border-0 bg-transparent px-3 py-3 shadow-none focus-visible:border-transparent focus-visible:ring-0"
+            className="min-h-16 max-h-32 resize-none border-0 bg-transparent px-2.5 py-2 text-sm shadow-none focus-visible:border-transparent focus-visible:ring-0"
             placeholder="Message Kiln"
           />
-          <div className="flex flex-wrap items-center gap-2 pt-1">
+          <div className="flex flex-wrap items-center gap-2 pt-0.5">
             {props.providerControl || props.reasoningControl ? (
               <div className="flex min-w-0 max-w-full flex-1 items-center gap-1.5 sm:flex-none">
                 {props.providerControl ? (

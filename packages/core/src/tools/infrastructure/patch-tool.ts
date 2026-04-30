@@ -6,6 +6,12 @@ import {
 } from "../domain/tool-result-metadata.js";
 import { TOOL_SCHEMAS, type DevTool, type ToolInput, type ToolResult } from "../domain/tool.js";
 import {
+  buildAddedPreview,
+  buildRemovedPreview,
+  clipDiffPreview,
+  countTextLines,
+} from "./file-diff-preview.js";
+import {
   optionalBoolean,
   requireString,
   resolvePath,
@@ -496,17 +502,6 @@ async function restoreSnapshots(snapshots: ReadonlyMap<string, FileSnapshot>): P
   }
 }
 
-function countTextLines(content: string): number {
-  if (content.length === 0) {
-    return 0;
-  }
-  const normalized = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n").replace(/\n$/, "");
-  if (normalized.length === 0) {
-    return 0;
-  }
-  return normalized.split("\n").length;
-}
-
 function countHunkLines(hunks: readonly PatchHunk[], kind: "add" | "remove"): number {
   return hunks.reduce(
     (count, hunk) => count + hunk.lines.filter((line) => line.kind === kind).length,
@@ -514,44 +509,9 @@ function countHunkLines(hunks: readonly PatchHunk[], kind: "add" | "remove"): nu
   );
 }
 
-function buildAddedPreview(content: string): string {
-  return content.length === 0
-    ? "+ (empty file)"
-    : content.split("\n").map((line) => `+ ${line}`).join("\n");
-}
-
-function buildRemovedPreview(content: string): string {
-  return content.length === 0
-    ? "- (empty file)"
-    : content.replace(/\r\n/g, "\n").replace(/\r/g, "\n").replace(/\n$/, "")
-      .split("\n")
-      .map((line) => `- ${line}`)
-      .join("\n");
-}
-
 function buildHunkPreview(hunks: readonly PatchHunk[]): string {
   return hunks
     .flatMap((hunk) => hunk.lines.filter((line) => line.kind !== "context"))
     .map((line) => `${line.kind === "add" ? "+" : "-"} ${line.text}`)
     .join("\n");
-}
-
-function clipDiffPreview(value: string): { readonly preview: string; readonly truncated: boolean } {
-  const maxLines = 24;
-  const maxChars = 1200;
-  const normalized = value.trimEnd();
-  if (normalized.length === 0) {
-    return { preview: "", truncated: false };
-  }
-
-  const lines = normalized.split("\n");
-  let preview = lines.slice(0, maxLines).join("\n");
-  let truncated = lines.length > maxLines;
-
-  if (preview.length > maxChars) {
-    preview = `${preview.slice(0, maxChars)}\n...`;
-    truncated = true;
-  }
-
-  return { preview, truncated };
 }

@@ -199,9 +199,12 @@ export class RuntimeSessionOrchestrator {
             ? repeatedInvalidToolAttempt.content
             : `Tool "${toolCall.name}" was not executed because this tool round was aborted after a repeated malformed tool call. Correct the arguments and retry only the necessary tool calls.`;
           toolExecutions.push({
+            toolCallId: toolCall.id,
             toolName: toolCall.name,
+            input: toolCall.input,
             durationMs: 0,
             success: false,
+            output: content,
             resultSummary: content.slice(0, 200),
           });
           return {

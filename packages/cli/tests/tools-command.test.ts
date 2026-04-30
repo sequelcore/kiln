@@ -51,6 +51,9 @@ vi.mock("@modelcontextprotocol/sdk/server/stdio.js", () => ({
 vi.mock("@kilnai/core", () => ({
   createDefaultBuiltinToolSurface: coreMocks.createDefaultBuiltinToolSurface,
   projectToolResourceDescriptor: coreMocks.projectToolResourceDescriptor,
+  SqliteMemoryRepository: class MockSqliteMemoryRepository {
+    constructor(readonly options: unknown) {}
+  },
   DevToolsMcpServer: class MockDevToolsMcpServer {
     constructor(options: unknown) {
       expect(options).toEqual({

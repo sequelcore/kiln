@@ -1,12 +1,15 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { WorkspaceDocumentTabs } from "../src/components/workspace-document-tabs.js";
+import { OperatorSurfaceTabs } from "../src/components/operator-surface-tabs.js";
 
-describe("WorkspaceDocumentTabs", () => {
+describe("OperatorSurfaceTabs", () => {
   it("keeps chat as the first main-layout tab while rendering open workspace files", () => {
     render(
-      <WorkspaceDocumentTabs
+      <OperatorSurfaceTabs
+        activeSurface="workspace"
         chatContent={<div>Chat transcript</div>}
+        memoryContent={<div>Memory Lattice surface</div>}
+        memoryOpen={false}
         files={[{
           path: "C:/repo/package.json",
           name: "package.json",
@@ -21,23 +24,57 @@ describe("WorkspaceDocumentTabs", () => {
         loadingPath={null}
         error={null}
         onSelectChat={vi.fn()}
+        onSelectMemory={vi.fn()}
+        onCloseMemory={vi.fn()}
         onSelectFile={vi.fn()}
         onCloseFile={vi.fn()}
       />,
     );
 
-    const workspaceDocuments = screen.getByLabelText("Workspace documents");
-    expect(workspaceDocuments).toBeInTheDocument();
-    expect(workspaceDocuments.className).toContain("bg-workspace-viewer");
+    const operatorSurfaces = screen.getByLabelText("Operator surfaces");
+    expect(operatorSurfaces).toBeInTheDocument();
+    expect(operatorSurfaces.className).toContain("bg-workspace-viewer");
     expect(screen.getByRole("tab", { name: "Chat" })).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "Memory Lattice" })).not.toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "package.json" })).toBeInTheDocument();
     expect(screen.getByTestId("workspace-code")).toHaveTextContent(/"ok":\s*true/);
   });
 
+  it("renders the Memory Lattice as a closable main surface tab only after it is opened", () => {
+    const onSelectMemory = vi.fn();
+    const onCloseMemory = vi.fn();
+    render(
+      <OperatorSurfaceTabs
+        activeSurface="chat"
+        chatContent={<div>Chat transcript</div>}
+        memoryContent={<div data-testid="memory-surface">Memory Lattice canvas</div>}
+        memoryOpen
+        files={[]}
+        selectedPath={null}
+        loadingPath={null}
+        error={null}
+        onSelectChat={vi.fn()}
+        onSelectMemory={onSelectMemory}
+        onCloseMemory={onCloseMemory}
+        onSelectFile={vi.fn()}
+        onCloseFile={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Memory Lattice" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close Memory Lattice" }));
+
+    expect(onSelectMemory).toHaveBeenCalledOnce();
+    expect(onCloseMemory).toHaveBeenCalledOnce();
+  });
+
   it("renders markdown through the safe markdown renderer", () => {
     render(
-      <WorkspaceDocumentTabs
+      <OperatorSurfaceTabs
+        activeSurface="workspace"
         chatContent={<div>Chat transcript</div>}
+        memoryContent={<div>Memory Lattice surface</div>}
+        memoryOpen={false}
         files={[{
           path: "C:/repo/README.md",
           name: "README.md",
@@ -53,6 +90,8 @@ describe("WorkspaceDocumentTabs", () => {
         loadingPath={null}
         error={null}
         onSelectChat={vi.fn()}
+        onSelectMemory={vi.fn()}
+        onCloseMemory={vi.fn()}
         onSelectFile={vi.fn()}
         onCloseFile={vi.fn()}
       />,
@@ -65,8 +104,11 @@ describe("WorkspaceDocumentTabs", () => {
   it("switches back to chat without closing open file tabs", () => {
     const onSelectChat = vi.fn();
     render(
-      <WorkspaceDocumentTabs
+      <OperatorSurfaceTabs
+        activeSurface="workspace"
         chatContent={<div>Chat transcript</div>}
+        memoryContent={<div>Memory Lattice surface</div>}
+        memoryOpen={false}
         files={[{
           path: "C:/repo/src/index.ts",
           name: "index.ts",
@@ -81,6 +123,8 @@ describe("WorkspaceDocumentTabs", () => {
         loadingPath={null}
         error={null}
         onSelectChat={onSelectChat}
+        onSelectMemory={vi.fn()}
+        onCloseMemory={vi.fn()}
         onSelectFile={vi.fn()}
         onCloseFile={vi.fn()}
       />,
@@ -94,13 +138,18 @@ describe("WorkspaceDocumentTabs", () => {
 
   it("keeps the selected file tab visible when preview loading fails", () => {
     render(
-      <WorkspaceDocumentTabs
+      <OperatorSurfaceTabs
+        activeSurface="workspace"
         chatContent={<div>Chat transcript</div>}
+        memoryContent={<div>Memory Lattice surface</div>}
+        memoryOpen={false}
         files={[]}
         selectedPath="C:/repo/missing.ts"
         loadingPath={null}
         error="Workspace file was not found."
         onSelectChat={vi.fn()}
+        onSelectMemory={vi.fn()}
+        onCloseMemory={vi.fn()}
         onSelectFile={vi.fn()}
         onCloseFile={vi.fn()}
       />,
@@ -116,8 +165,11 @@ describe("WorkspaceDocumentTabs", () => {
     const longPath = `C:/repo/src/components/${longName}`;
 
     render(
-      <WorkspaceDocumentTabs
+      <OperatorSurfaceTabs
+        activeSurface="workspace"
         chatContent={<div>Chat transcript</div>}
+        memoryContent={<div>Memory Lattice surface</div>}
+        memoryOpen={false}
         files={[{
           path: longPath,
           name: longName,
@@ -132,6 +184,8 @@ describe("WorkspaceDocumentTabs", () => {
         loadingPath={null}
         error={null}
         onSelectChat={vi.fn()}
+        onSelectMemory={vi.fn()}
+        onCloseMemory={vi.fn()}
         onSelectFile={vi.fn()}
         onCloseFile={vi.fn()}
       />,
@@ -155,8 +209,11 @@ describe("WorkspaceDocumentTabs", () => {
     const longLine = `export const value = "${"x".repeat(400)}";`;
 
     render(
-      <WorkspaceDocumentTabs
+      <OperatorSurfaceTabs
+        activeSurface="workspace"
         chatContent={<div>Chat transcript</div>}
+        memoryContent={<div>Memory Lattice surface</div>}
+        memoryOpen={false}
         files={[{
           path: "C:/repo/src/long-line.ts",
           name: "long-line.ts",
@@ -171,12 +228,14 @@ describe("WorkspaceDocumentTabs", () => {
         loadingPath={null}
         error={null}
         onSelectChat={vi.fn()}
+        onSelectMemory={vi.fn()}
+        onCloseMemory={vi.fn()}
         onSelectFile={vi.fn()}
         onCloseFile={vi.fn()}
       />,
     );
 
-    const workspaceDocuments = screen.getByLabelText("Workspace documents");
+    const workspaceDocuments = screen.getByLabelText("Operator surfaces");
     const scrollBoundary = screen.getByTestId("workspace-code-scroll");
     const selectedPanel = screen.getByRole("tabpanel", { name: "long-line.ts" });
 

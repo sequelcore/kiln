@@ -17,7 +17,7 @@ function makeRecord(overrides: Partial<SessionRecord> = {}): SessionRecord {
   };
 }
 
-describe("SessionStore.clearLast()", () => {
+describe("SessionStore resume targets", () => {
   let tmpDir: string;
   let store: SessionStore;
 
@@ -30,56 +30,59 @@ describe("SessionStore.clearLast()", () => {
     await rm(tmpDir, { recursive: true, force: true });
   });
 
-  it("removes the last record for the given provider", async () => {
+  it("stores resume targets separately from append-only session history", async () => {
     await store.append(makeRecord({ sessionId: "a", provider: "claude" }));
     await store.append(makeRecord({ sessionId: "b", provider: "claude" }));
 
-    await store.clearLast("claude");
+    expect((await store.getResumeTarget("claude"))?.sessionId).toBe("b");
 
-    const last = await store.last("claude");
-    expect(last?.sessionId).toBe("a");
+    await store.clearResumeTarget("claude");
+
+    expect(await store.getResumeTarget("claude")).toBeNull();
+    expect((await store.last("claude"))?.sessionId).toBe("b");
+    expect((await store.list()).map((record) => record.sessionId)).toEqual(["b", "a"]);
   });
 
-  it("removes the last record when no provider given", async () => {
+  it("clears all resume targets without deleting session records", async () => {
     await store.append(makeRecord({ sessionId: "x", provider: "codex" }));
     await store.append(makeRecord({ sessionId: "y", provider: "opencode" }));
 
-    await store.clearLast();
+    expect((await store.getResumeTarget())?.sessionId).toBe("y");
+    expect((await store.getResumeTarget("codex"))?.sessionId).toBe("x");
 
-    const last = await store.last();
-    expect(last?.sessionId).toBe("x");
+    await store.clearResumeTarget();
+
+    expect(await store.getResumeTarget()).toBeNull();
+    expect(await store.getResumeTarget("codex")).toBeNull();
+    expect((await store.list()).map((record) => record.sessionId)).toEqual(["y", "x"]);
   });
 
-  it("does not remove records for other providers", async () => {
+  it("clears one provider resume target without deleting other provider targets", async () => {
     await store.append(makeRecord({ sessionId: "c1", provider: "claude" }));
     await store.append(makeRecord({ sessionId: "cx1", provider: "codex" }));
 
-    await store.clearLast("claude");
+    await store.clearResumeTarget("claude");
 
-    const codexLast = await store.last("codex");
-    expect(codexLast?.sessionId).toBe("cx1");
+    expect(await store.getResumeTarget("claude")).toBeNull();
+    expect((await store.getResumeTarget("codex"))?.sessionId).toBe("cx1");
+    expect((await store.last("claude"))?.sessionId).toBe("c1");
   });
 
   it("is a no-op when store is empty", async () => {
-    // Should not throw
-    await expect(store.clearLast("claude")).resolves.toBeUndefined();
+    await expect(store.clearResumeTarget("claude")).resolves.toBeUndefined();
     const last = await store.last();
     expect(last).toBeNull();
   });
 
-  it("removes the last of multiple records for same provider, keeps others", async () => {
+  it("updates the resume target to the latest record for the same provider", async () => {
     await store.append(makeRecord({ sessionId: "a1", provider: "claude" }));
     await store.append(makeRecord({ sessionId: "a2", provider: "claude" }));
     await store.append(makeRecord({ sessionId: "a3", provider: "claude" }));
 
-    await store.clearLast("claude");
-
     const last = await store.last("claude");
-    expect(last?.sessionId).toBe("a2");
-
-    // Verify a1 is still present
-    const found = await store.find("a1");
-    expect(found?.sessionId).toBe("a1");
+    expect(last?.sessionId).toBe("a3");
+    expect((await store.getResumeTarget("claude"))?.sessionId).toBe("a3");
+    expect((await store.list()).filter((record) => record.provider === "claude")).toHaveLength(3);
   });
 
   it("persists provider-native resume identity under providerThread only", async () => {

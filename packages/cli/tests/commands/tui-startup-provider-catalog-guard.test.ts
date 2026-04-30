@@ -165,8 +165,9 @@ const sessionManagerMocks = vi.hoisted(() => ({
 
 const sessionStoreMocks = vi.hoisted(() => ({
   last: vi.fn().mockResolvedValue(null),
+  getResumeTarget: vi.fn().mockResolvedValue(null),
   list: vi.fn().mockResolvedValue([]),
-  clearLast: vi.fn().mockResolvedValue(undefined),
+  clearResumeTarget: vi.fn().mockResolvedValue(undefined),
   find: vi.fn().mockResolvedValue(null),
   findProviderThread: vi.fn().mockResolvedValue(null),
 }));
@@ -226,8 +227,9 @@ vi.mock("../../src/wrapper/session-registry.js", () => ({
 vi.mock("../../src/wrapper/session-store.js", () => ({
   SessionStore: class MockSessionStore {
     last = sessionStoreMocks.last;
+    getResumeTarget = sessionStoreMocks.getResumeTarget;
     list = sessionStoreMocks.list;
-    clearLast = sessionStoreMocks.clearLast;
+    clearResumeTarget = sessionStoreMocks.clearResumeTarget;
     find = sessionStoreMocks.find;
     findProviderThread = sessionStoreMocks.findProviderThread;
   },

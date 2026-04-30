@@ -109,6 +109,90 @@ describe("session-store", () => {
     expect(state.currentAssistant).not.toBeNull();
   });
 
+  it("anchors live tool events to an assistant shell before the first text delta", () => {
+    const send = vi.fn();
+    useSessionStore.getState().setSender(send);
+    useSessionStore.setState({ status: "ready" });
+    useSessionStore.getState().sendMessage("patch the file");
+
+    useSessionStore.getState().onSessionEvent({
+      eventId: "evt-tool-start",
+      kilnSessionId: "session-live",
+      sequence: 1,
+      timestamp: "2026-04-30T14:00:00.000Z",
+      kind: "tool_call_started",
+      payload: {
+        toolCallId: "tool-live",
+        toolName: "patch",
+        input: { patch: "*** Begin Patch" },
+      },
+    });
+
+    const anchored = useSessionStore.getState();
+    const assistant = anchored.messages.find((message) => message.role === "assistant");
+    expect(anchored.messages.map((message) => message.role)).toEqual(["user", "assistant"]);
+    expect(assistant).toMatchObject({
+      content: "",
+      streaming: true,
+    });
+    expect(anchored.currentAssistant).toBe(assistant?.id);
+    expect(anchored.timelineEntries.map((entry) => (
+      entry.type === "message" ? `message:${entry.message.role}` : `event:${entry.eventKind}`
+    ))).toEqual([
+      "message:user",
+      "message:assistant",
+      "event:tool_call_started",
+    ]);
+
+    useSessionStore.getState().onTextDelta({ type: "text_delta", content: "Patched." });
+
+    const withDelta = useSessionStore.getState();
+    expect(withDelta.currentAssistant).toBe(assistant?.id);
+    expect(withDelta.messages.find((message) => message.id === assistant?.id)).toMatchObject({
+      content: "Patched.",
+      streaming: true,
+    });
+    expect(withDelta.messages.filter((message) => message.role === "assistant")).toHaveLength(1);
+  });
+
+  it("fills an empty live assistant shell from done content when no text delta streamed", () => {
+    const send = vi.fn();
+    useSessionStore.getState().setSender(send);
+    useSessionStore.setState({ status: "ready" });
+    useSessionStore.getState().sendMessage("write a file");
+
+    useSessionStore.getState().onSessionEvent({
+      eventId: "evt-tool-complete",
+      kilnSessionId: "session-live",
+      sequence: 1,
+      timestamp: "2026-04-30T14:01:00.000Z",
+      kind: "tool_call_completed",
+      payload: {
+        toolCallId: "tool-live",
+        toolName: "write",
+        outputSummary: "1 file changed",
+        status: { state: "succeeded" },
+      },
+    });
+    const assistantId = useSessionStore.getState().currentAssistant;
+
+    useSessionStore.getState().onDone({
+      type: "done",
+      content: "Created live_test_visibility.txt.",
+      inputTokens: 1,
+      outputTokens: 1,
+    });
+
+    const state = useSessionStore.getState();
+    expect(state.currentAssistant).toBeNull();
+    expect(state.messages.find((message) => message.id === assistantId)).toMatchObject({
+      role: "assistant",
+      content: "Created live_test_visibility.txt.",
+      streaming: false,
+    });
+    expect(state.messages.filter((message) => message.role === "assistant")).toHaveLength(1);
+  });
+
   it("onDone closes streaming assistant and flips status to ready", () => {
     useSessionStore.getState().onTextDelta({ type: "text_delta", content: "Hi" });
     useSessionStore.getState().onDone({
@@ -222,6 +306,51 @@ describe("session-store", () => {
     expect(state.timelineEntries).toEqual([]);
     expect(state.activity).toBeNull();
     expect(state.activityPhase).toBe("idle");
+  });
+
+  it("clears resume target when selecting a blank session", () => {
+    useSessionStore.getState().setResume("session-a");
+    useSessionStore.setState({
+      selectedSessionId: "session-a",
+      resumeTargetId: "session-a",
+      messages: [
+        {
+          id: "message-a",
+          role: "assistant",
+          content: "old visible message",
+          createdAt: "2026-04-28T19:00:00.000Z",
+        },
+      ],
+    });
+
+    useSessionStore.getState().setSelectedSessionId(null);
+
+    const state = useSessionStore.getState();
+    expect(state.selectedSessionId).toBeNull();
+    expect(state.resumeTargetId).toBeNull();
+    expect(state.messages).toEqual([]);
+    expect(localStorage.getItem("kiln.gui.resumeTarget")).toBeNull();
+  });
+
+  it("does not resume the previous session after starting a blank session", () => {
+    const send = vi.fn();
+    useSessionStore.getState().setSender(send);
+    useSessionStore.getState().setResume("session-a");
+    useSessionStore.setState({
+      status: "ready",
+      selectedSessionId: "session-a",
+      resumeTargetId: "session-a",
+    });
+
+    useSessionStore.getState().setSelectedSessionId(null);
+    const accepted = useSessionStore.getState().sendMessage("new task");
+
+    expect(accepted).toBe(true);
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({
+      type: "message",
+      content: "new task",
+      resumeSessionId: undefined,
+    }));
   });
 
   it("ignores live canonical events and phase frames for another visible session", () => {
@@ -493,6 +622,119 @@ describe("session-store", () => {
       },
     });
     expect(JSON.stringify(entry?.toolPresentation)).not.toContain("\"output\"");
+  });
+
+  it("stores live read output from the full payload envelope when the summary is raw JSON", () => {
+    useSessionStore.setState({
+      selectedSessionId: "session-live",
+      liveSessionId: "session-live",
+      status: "running",
+    });
+
+    useSessionStore.getState().onSessionEvent({
+      eventId: "evt-read-live",
+      kilnSessionId: "session-live",
+      sequence: 1,
+      timestamp: "2026-04-30T10:01:00.000Z",
+      kind: "tool_call_completed",
+      payload: {
+        toolCallId: "tool-read-live",
+        toolName: "read",
+        output: JSON.stringify({
+          output: "# Session Model\n\nKiln session identity is provider-agnostic.",
+          isError: false,
+          metadata: {
+            toolName: "read",
+            kind: "file",
+            operation: "read",
+            filePath: "docs/architecture/session-model.md",
+          },
+        }),
+        outputSummary: "{\"output\":\"# Session Model\\n\\nKiln session identity is provider-agnostic.\",\"isError\":false,\"metadata\":{\"toolName\":\"read\"",
+        status: { state: "succeeded" },
+      },
+    });
+
+    const entry = useSessionStore.getState().timelineEntries.find((item) => (
+      item.type === "event" && item.eventKind === "tool_call_completed"
+    ));
+    expect(entry).toMatchObject({
+      summary: "# Session Model",
+      details: {
+        result: "# Session Model",
+      },
+      toolPresentation: {
+        outputKind: "markdown",
+        title: "docs/architecture/session-model.md",
+        preview: {
+          text: "# Session Model\n\nKiln session identity is provider-agnostic.",
+        },
+      },
+    });
+    expect(JSON.stringify(entry)).not.toContain("\"output\"");
+  });
+
+  it("loads persisted tree output as a tree presentation from the full payload envelope", () => {
+    useSessionStore.getState().viewSessionDetail({
+      id: "session-tree",
+      meta: {
+        kilnSessionId: "session-tree",
+        title: "Tree inspection",
+        task: "Tree inspection",
+        startedAt: "2026-04-30T10:02:00.000Z",
+      },
+      events: [
+        {
+          eventId: "evt-tree",
+          kilnSessionId: "session-tree",
+          sequence: 1,
+          timestamp: "2026-04-30T10:02:01.000Z",
+          kind: "tool_call_completed",
+          payload: {
+            toolCallId: "tool-tree",
+            toolName: "tree",
+            output: JSON.stringify({
+              output: ".\npackages/\n  gui/",
+              isError: false,
+              metadata: {
+                toolName: "tree",
+                kind: "inspection",
+                operation: "tree",
+                path: "C:\\Proyectos\\Sequel\\kiln",
+                depth: 2,
+                entryCount: 55,
+                resourceLinks: [
+                  {
+                    uri: "kiln://artifacts/tool-results/artifact_tree/content",
+                    title: "tree full output",
+                    mimeType: "text/plain",
+                    size: 9000,
+                    relation: "full_output",
+                  },
+                ],
+              },
+            }),
+            outputSummary: "{\"output\":\".\\npackages/\",\"isError\":false,\"metadata\":{\"toolName\":\"tree\"",
+            status: { state: "succeeded" },
+          },
+        },
+      ],
+    });
+
+    const entry = useSessionStore.getState().timelineEntries.find((item) => (
+      item.type === "event" && item.eventKind === "tool_call_completed"
+    ));
+    expect(entry).toMatchObject({
+      summary: "55 entries under C:\\Proyectos\\Sequel\\kiln",
+      toolPresentation: {
+        outputKind: "tree",
+        title: "C:\\Proyectos\\Sequel\\kiln",
+        preview: {
+          text: ".\npackages/\n  gui/",
+        },
+      },
+    });
+    expect(JSON.stringify(entry)).not.toContain("\"output\"");
   });
 
   it("projects agent invocation lifecycle events into timeline entries", () => {

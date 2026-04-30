@@ -1,4 +1,9 @@
 import type { ExecutionBillingMode } from "../agents/execution-identity.js";
+import type {
+  MemoryLayerKind,
+  MemoryRelationType,
+  MemoryScope,
+} from "../memory/domain/index.js";
 import type { TraceSpan } from "./trace.js";
 
 /** Streaming granularity levels, from coarsest to finest */
@@ -21,6 +26,14 @@ export const EVENT_LEVEL_MAP: Record<EventType, StreamLevel> = {
   memory_saved: "state",
   memory_recalled: "state",
   memory_sync: "state",
+  memory_record_created: "state",
+  memory_record_updated: "state",
+  memory_record_deleted: "state",
+  memory_relation_created: "state",
+  memory_relation_deleted: "state",
+  memory_revision_created: "state",
+  memory_context_admitted: "state",
+  memory_context_deferred: "state",
   worker_assigned: "phase",
   error: "phase",
   trace_span: "state",
@@ -82,6 +95,14 @@ export type EventType =
   | "memory_saved"
   | "memory_recalled"
   | "memory_sync"
+  | "memory_record_created"
+  | "memory_record_updated"
+  | "memory_record_deleted"
+  | "memory_relation_created"
+  | "memory_relation_deleted"
+  | "memory_revision_created"
+  | "memory_context_admitted"
+  | "memory_context_deferred"
   | "approval_requested"
   | "approval_received"
   | "worker_assigned"
@@ -202,6 +223,7 @@ export interface ToolResultEvent extends KilnEvent {
   readonly taskId?: string;
   readonly durationMs: number;
   readonly success: boolean;
+  readonly output?: string;
   readonly resultSummary?: string;
   readonly isError?: boolean;
   readonly retryAttempt?: number;
@@ -251,6 +273,67 @@ export interface MemorySyncEvent extends KilnEvent {
   readonly imported: number;
   readonly entries: number;
   readonly developers: number;
+}
+
+export interface MemoryRecordCreatedEvent extends KilnEvent {
+  readonly type: "memory_record_created";
+  readonly recordId: string;
+  readonly scope: MemoryScope;
+  readonly layer: MemoryLayerKind;
+  readonly topicKey?: string;
+}
+
+export interface MemoryRecordUpdatedEvent extends KilnEvent {
+  readonly type: "memory_record_updated";
+  readonly recordId: string;
+  readonly scope: MemoryScope;
+  readonly layer: MemoryLayerKind;
+  readonly topicKey?: string;
+}
+
+export interface MemoryRecordDeletedEvent extends KilnEvent {
+  readonly type: "memory_record_deleted";
+  readonly recordId: string;
+  readonly scope: MemoryScope;
+  readonly layer: MemoryLayerKind;
+}
+
+export interface MemoryRelationCreatedEvent extends KilnEvent {
+  readonly type: "memory_relation_created";
+  readonly relationId: string;
+  readonly sourceRecordId: string;
+  readonly targetRecordId?: string;
+  readonly targetUri?: string;
+  readonly relationType: MemoryRelationType;
+  readonly scope?: MemoryScope;
+}
+
+export interface MemoryRelationDeletedEvent extends KilnEvent {
+  readonly type: "memory_relation_deleted";
+  readonly relationId: string;
+  readonly sourceRecordId: string;
+  readonly scope?: MemoryScope;
+}
+
+export interface MemoryRevisionCreatedEvent extends KilnEvent {
+  readonly type: "memory_revision_created";
+  readonly revisionId: string;
+  readonly recordId: string;
+  readonly scope?: MemoryScope;
+}
+
+export interface MemoryContextAdmittedEvent extends KilnEvent {
+  readonly type: "memory_context_admitted";
+  readonly admissionId: string;
+  readonly recordId: string;
+  readonly scope?: MemoryScope;
+}
+
+export interface MemoryContextDeferredEvent extends KilnEvent {
+  readonly type: "memory_context_deferred";
+  readonly admissionId: string;
+  readonly recordId: string;
+  readonly scope?: MemoryScope;
 }
 
 /** Pre-compact event (memory compaction about to run) */
@@ -534,6 +617,14 @@ export interface EventMap {
   memory_saved: MemorySavedEvent;
   memory_recalled: MemoryRecalledEvent;
   memory_sync: MemorySyncEvent;
+  memory_record_created: MemoryRecordCreatedEvent;
+  memory_record_updated: MemoryRecordUpdatedEvent;
+  memory_record_deleted: MemoryRecordDeletedEvent;
+  memory_relation_created: MemoryRelationCreatedEvent;
+  memory_relation_deleted: MemoryRelationDeletedEvent;
+  memory_revision_created: MemoryRevisionCreatedEvent;
+  memory_context_admitted: MemoryContextAdmittedEvent;
+  memory_context_deferred: MemoryContextDeferredEvent;
   precompact: PrecompactEvent;
   postcompact: PostcompactEvent;
   approval_requested: ApprovalRequestedEvent;

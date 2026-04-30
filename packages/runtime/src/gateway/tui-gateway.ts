@@ -1037,9 +1037,9 @@ class TuiActivityStreamer {
         },
       });
     } else if (event.type === "tool_use") {
-      const toolCallId = this.capture
+      const toolCallId = event.toolCallId ?? (this.capture
         ? `${this.capture.sessionId}:live:tool:${++this.capture.toolOrdinal}`
-        : `${event.toolName ?? "tool"}_${Date.now()}`;
+        : `${event.toolName ?? "tool"}_${Date.now()}`);
       if (this.capture) {
         const pending = this.capture.pendingToolCallIds.get(event.toolName) ?? [];
         pending.push(toolCallId);
@@ -1060,8 +1060,17 @@ class TuiActivityStreamer {
       });
     } else if (event.type === "tool_result") {
       const pending = this.capture?.pendingToolCallIds.get(event.toolName);
-      const toolCallId = pending?.shift()
-        ?? (this.capture ? `${this.capture.sessionId}:live:tool:${++this.capture.toolOrdinal}` : `${event.toolName ?? "tool"}_${Date.now()}`);
+      let toolCallId: string;
+      if (event.toolCallId) {
+        toolCallId = event.toolCallId;
+        const pendingIndex = pending?.indexOf(event.toolCallId) ?? -1;
+        if (pending && pendingIndex >= 0) {
+          pending.splice(pendingIndex, 1);
+        }
+      } else {
+        toolCallId = pending?.shift()
+          ?? (this.capture ? `${this.capture.sessionId}:live:tool:${++this.capture.toolOrdinal}` : `${event.toolName ?? "tool"}_${Date.now()}`);
+      }
       if (pending && pending.length === 0 && this.capture) {
         this.capture.pendingToolCallIds.delete(event.toolName);
       }
@@ -1071,9 +1080,10 @@ class TuiActivityStreamer {
         payload: {
           toolCallId,
           toolName: event.toolName ?? "unknown",
-          outputSummary: event.output ?? "",
+          output: event.output ?? "",
+          outputSummary: event.outputSummary ?? event.output ?? "",
           status: {
-            state: "succeeded",
+            state: event.isError ? "failed" : "succeeded",
           },
         },
       });

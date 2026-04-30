@@ -11,8 +11,10 @@ import {
   type Capability,
   type DirectProviderExecutionMode,
   type DirectProviderId,
+  type ToolCalledEvent,
   type ResolvedDirectProviderExecutionProfile,
   type ToolDefinition,
+  type ToolResultEvent,
   type ReasoningEffort,
   resolveDirectProviderExecutionProfile,
   type DefaultBuiltinToolRegistryOptions,
@@ -106,6 +108,25 @@ function resolveProfile(
     model: config.model,
     requestedExecutionMode: config.executionMode,
   });
+}
+
+function toolCalledToSessionEvent(event: ToolCalledEvent): Extract<SessionEvent, { type: "tool_use" }> {
+  return {
+    type: "tool_use",
+    toolName: event.toolName,
+    input: event.toolInput ?? {},
+  };
+}
+
+function toolResultToSessionEvent(event: ToolResultEvent): Extract<SessionEvent, { type: "tool_result" }> {
+  const output = event.output ?? event.resultSummary ?? "";
+  return {
+    type: "tool_result",
+    toolName: event.toolName,
+    output,
+    ...(event.resultSummary !== undefined && event.resultSummary !== output ? { outputSummary: event.resultSummary } : {}),
+    ...(event.isError ? { isError: true } : {}),
+  };
 }
 
 function deriveCapabilities(
@@ -395,27 +416,101 @@ export class ProviderSession implements IKilnSession {
     }
 
     const promptParts: ContentPart[] = [textPart(userPrompt)];
-    const result: OrchestrateResult = await orchestrator.processMessage(
+    const liveToolEvents: SessionEvent[] = [];
+    let hasLiveToolEvents = false;
+    let wakeLiveToolDrain: (() => void) | undefined;
+    const enqueueLiveToolEvent = (event: SessionEvent) => {
+      hasLiveToolEvents = true;
+      liveToolEvents.push(event);
+      wakeLiveToolDrain?.();
+      wakeLiveToolDrain = undefined;
+    };
+    const onToolCalled = (event: ToolCalledEvent) => {
+      if (event.sessionId !== cliSession.id) return;
+      enqueueLiveToolEvent(toolCalledToSessionEvent(event));
+    };
+    const onToolResult = (event: ToolResultEvent) => {
+      if (event.sessionId !== cliSession.id) return;
+      enqueueLiveToolEvent(toolResultToSessionEvent(event));
+    };
+
+    this.eventBus.on("tool_called", onToolCalled);
+    this.eventBus.on("tool_result", onToolResult);
+
+    let result: OrchestrateResult | undefined;
+    let processError: unknown;
+    let processSettled = false;
+    const processPromise = orchestrator.processMessage(
       cliSession,
       promptParts,
       undefined,
       undefined,
       { reasoningEffort: options.reasoningEffort ?? this.config.reasoningEffort },
-    );
+    ).then((nextResult) => {
+      result = nextResult;
+    }).catch((err: unknown) => {
+      processError = err;
+    }).finally(() => {
+      processSettled = true;
+      wakeLiveToolDrain?.();
+      wakeLiveToolDrain = undefined;
+    });
 
-    let isError = false;
-    for (const part of result.parts) {
-      if (part.type === "text") {
-        yield { type: "text_delta", content: part.text };
+    try {
+      while (!processSettled || liveToolEvents.length > 0) {
+        while (liveToolEvents.length > 0) {
+          yield liveToolEvents.shift()!;
+        }
+        if (!processSettled) {
+          await new Promise<void>((resolve) => {
+            wakeLiveToolDrain = resolve;
+          });
+        }
       }
+      await processPromise;
+    } finally {
+      this.eventBus.off("tool_called", onToolCalled);
+      this.eventBus.off("tool_result", onToolResult);
     }
 
+    if (processError) {
+      throw processError;
+    }
+    if (!result) {
+      throw new Error("Runtime session orchestrator did not return a result.");
+    }
+
+    let isError = false;
     for (const toolExec of result.toolExecutions ?? []) {
-      yield { type: "tool_result", toolName: toolExec.toolName, output: toolExec.resultSummary };
+      if (!hasLiveToolEvents) {
+        const output = toolExec.output ?? toolExec.resultSummary;
+        if (toolExec.toolCallId || toolExec.input) {
+          yield {
+            type: "tool_use",
+            toolName: toolExec.toolName,
+            input: toolExec.input ?? {},
+            ...(toolExec.toolCallId ? { toolCallId: toolExec.toolCallId } : {}),
+          };
+        }
+        yield {
+          type: "tool_result",
+          toolName: toolExec.toolName,
+          output,
+          ...(toolExec.resultSummary !== output ? { outputSummary: toolExec.resultSummary } : {}),
+          ...(toolExec.toolCallId ? { toolCallId: toolExec.toolCallId } : {}),
+          ...(!toolExec.success ? { isError: true } : {}),
+        };
+      }
       if (toolExec.fileChanges && toolExec.fileChanges.length > 0) {
         for (const fileChange of toolExec.fileChanges) {
           yield { type: "file_changed", path: fileChange.path, changeType: fileChange.changeType };
         }
+      }
+    }
+
+    for (const part of result.parts) {
+      if (part.type === "text") {
+        yield { type: "text_delta", content: part.text };
       }
     }
 

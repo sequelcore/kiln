@@ -100,6 +100,17 @@ describe("WriteTool", () => {
       expect(result.isError).toBe(false);
       const content = await readFile(join(tempDir, "overwrite.txt"), "utf8");
       expect(content).toBe("replaced");
+      expect(result.metadata).toMatchObject({
+        toolName: "write",
+        kind: "file",
+        operation: "write",
+        filePath: join(tempDir, "overwrite.txt"),
+        changeType: "modified",
+        linesAdded: 1,
+        linesRemoved: 1,
+        diffPreview: "- first content\n+ replaced",
+        diffTruncated: false,
+      });
     } finally {
       await removeTempDir(tempDir);
     }
@@ -186,8 +197,13 @@ describe("EditTool", () => {
         kind: "file",
         operation: "edit",
         filePath: join(tempDir, "sample.txt"),
+        changeType: "modified",
         replacements: 1,
         replaceAll: false,
+        linesAdded: 1,
+        linesRemoved: 1,
+        diffPreview: "- foo\n+ bar",
+        diffTruncated: false,
       });
       const readResult = await read.execute(
         {
@@ -231,6 +247,19 @@ describe("EditTool", () => {
       );
 
       expect(editResult.isError).toBe(false);
+      expect(editResult.metadata).toMatchObject({
+        toolName: "edit",
+        kind: "file",
+        operation: "edit",
+        filePath: join(tempDir, "sample.txt"),
+        changeType: "modified",
+        replacements: 3,
+        replaceAll: true,
+        linesAdded: 0,
+        linesRemoved: 3,
+        diffPreview: "- foo\n+ (empty file)",
+        diffTruncated: false,
+      });
       const readResult = await read.execute(
         {
           name: "read",

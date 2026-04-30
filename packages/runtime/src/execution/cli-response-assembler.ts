@@ -5,7 +5,7 @@ import { textParts } from "@kilnai/core";
 type CliResponseAssemblerEvent =
   | { type: "text_delta"; content: string; isThinking?: boolean }
   | { type: "tool_use"; toolName: string; input: unknown }
-  | { type: "tool_result"; toolName: string; output: string }
+  | { type: "tool_result"; toolName: string; output: string; outputSummary?: string }
   | {
       type: "file_changed";
       path: string;

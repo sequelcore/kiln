@@ -14,8 +14,8 @@ export interface CliSessionRunOptions {
 /** Minimal session event union — structurally compatible with cli/wrapper/session SessionEvent. */
 export type CliSessionEvent =
   | { type: "text_delta"; content: string; isThinking?: boolean }
-  | { type: "tool_use"; toolName: string; input: unknown }
-  | { type: "tool_result"; toolName: string; output: string }
+  | { type: "tool_use"; toolName: string; input: unknown; toolCallId?: string }
+  | { type: "tool_result"; toolName: string; output: string; outputSummary?: string; toolCallId?: string; isError?: boolean }
   | {
       type: "file_changed";
       path: string;

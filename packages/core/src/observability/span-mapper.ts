@@ -190,6 +190,30 @@ function mapMemorySync(e: MemorySyncEvent): SpanOperation {
     };
 }
 
+function mapMemoryLatticeChanged(e: KilnEvent): SpanOperation {
+    const memoryEvent = e as KilnEvent & {
+        readonly recordId?: string;
+        readonly relationId?: string;
+        readonly revisionId?: string;
+        readonly admissionId?: string;
+        readonly layer?: string;
+        readonly scope?: { readonly kind: string; readonly id: string };
+    };
+    return {
+        action: "addEvent",
+        name: `memory.${e.type.slice("memory_".length)}`,
+        attributes: {
+            eventType: e.type,
+            ...(memoryEvent.scope ? { scope: `${memoryEvent.scope.kind}:${memoryEvent.scope.id}` } : {}),
+            ...(memoryEvent.layer ? { layer: memoryEvent.layer } : {}),
+            ...(memoryEvent.recordId ? { recordId: memoryEvent.recordId } : {}),
+            ...(memoryEvent.relationId ? { relationId: memoryEvent.relationId } : {}),
+            ...(memoryEvent.revisionId ? { revisionId: memoryEvent.revisionId } : {}),
+            ...(memoryEvent.admissionId ? { admissionId: memoryEvent.admissionId } : {}),
+        },
+    };
+}
+
 function mapPrecompact(e: PrecompactEvent): SpanOperation {
     return {
         action: "addEvent",
@@ -562,6 +586,15 @@ export function mapEventToSpan(event: KilnEvent): SpanOperation {
             return mapMemoryRecalled(event as MemoryRecalledEvent);
         case "memory_sync":
             return mapMemorySync(event as MemorySyncEvent);
+        case "memory_record_created":
+        case "memory_record_updated":
+        case "memory_record_deleted":
+        case "memory_relation_created":
+        case "memory_relation_deleted":
+        case "memory_revision_created":
+        case "memory_context_admitted":
+        case "memory_context_deferred":
+            return mapMemoryLatticeChanged(event);
         case "precompact":
             return mapPrecompact(event as PrecompactEvent);
         case "postcompact":

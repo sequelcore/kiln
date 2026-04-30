@@ -147,7 +147,7 @@ describe("CliSubscriptionExecutor", () => {
     expect(run.mock.calls[0]?.[0]?.prompt).toBe("User: u1\n\nAssistant: a1\n\nUser: u2");
   });
 
-  it("does not also forward structured messages after serializing history into the prompt", async () => {
+  it("forwards structured messages for transcript projection while keeping the provider prompt serialized", async () => {
     const dispose = vi.fn().mockResolvedValue(undefined);
     const run = vi.fn().mockImplementation(() =>
       eventStream([
@@ -169,8 +169,12 @@ describe("CliSubscriptionExecutor", () => {
     expect(run.mock.calls[0]?.[0]).toMatchObject({
       prompt: "User: first\n\nAssistant: second\n\nUser: third",
       system: "sys",
+      messages: [
+        { role: "user", parts: [{ type: "text", text: "first" }] },
+        { role: "assistant", parts: [{ type: "text", text: "second" }] },
+        { role: "user", parts: [{ type: "text", text: "third" }] },
+      ],
     });
-    expect(run.mock.calls[0]?.[0]).not.toHaveProperty("messages");
   });
 
   it("does not infer file_changed from tool_result strings", async () => {

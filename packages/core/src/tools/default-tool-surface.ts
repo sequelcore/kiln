@@ -1,5 +1,6 @@
 import type { ToolDefinition } from "../agents/index.js";
 import type { Capability } from "../engine/domain/capability.js";
+import { MemoryGraphResourceProvider, type MemoryGraphResourceProviderOptions } from "../memory/resources/index.js";
 import { ToolCatalogIndex } from "./domain/tool-catalog.js";
 import {
   ToolResourceNotificationHub,
@@ -72,6 +73,7 @@ export interface DefaultBuiltinToolRegistryOptions {
   readonly operatorElicitation?: OperatorElicitationToolOptions;
   readonly toolProjection?: DefaultBuiltinToolProjectionOptions;
   readonly workspaceResources?: WorkspaceResourceProviderOptions;
+  readonly memoryResources?: MemoryGraphResourceProviderOptions;
   readonly artifactResources?: DefaultArtifactResourceOptions;
   readonly resourceNotifications?: ToolResourceNotificationHub | ToolResourceNotificationHubOptions;
   readonly resourceRegistry?: () => ToolResourceRegistry | undefined;
@@ -214,6 +216,7 @@ export function createDefaultBuiltinToolSurface(
   const catalog = ToolCatalogIndex.fromTools(registry.list());
   const resourceProviders = [
     ...(options.workspaceResources ? [new WorkspaceResourceProvider(options.workspaceResources)] : []),
+    ...(options.memoryResources ? [new MemoryGraphResourceProvider(options.memoryResources)] : []),
     new ArtifactResourceProvider({ store: artifactStore }),
   ];
   const resourceRegistry = new ToolResourceRegistry({

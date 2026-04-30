@@ -40,9 +40,12 @@ export interface OrchestratorDeps {
 }
 
 export interface ToolExecutionSummary {
+  readonly toolCallId?: string;
   readonly toolName: string;
+  readonly input?: Record<string, unknown>;
   readonly durationMs: number;
   readonly success: boolean;
+  readonly output?: string;
   readonly resultSummary: string;
   readonly fileChanges?: readonly {
     readonly path: string;

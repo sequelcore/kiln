@@ -86,6 +86,7 @@ type CliSessionFactory = (
   context?: CliSessionFactoryContext,
 ) => import("../wrapper/session.js").IKilnSession;
 type CliProviderDisplayInfo = ReturnType<typeof getProviderDisplayInfo>[number];
+type OperatorTranscriptSurface = "tui" | "gui";
 
 function writeTuiBootstrapStatus(message: string): void {
   if (!process.stderr.isTTY) {
@@ -237,19 +238,20 @@ function mapTranscriptTypeToKind(type: string): CanonicalSessionEventKind {
   }
 }
 
-function mapTranscriptTypeToSource(type: string): SessionEventSource {
+function mapTranscriptTypeToSource(type: string, surface: OperatorTranscriptSurface): SessionEventSource {
+  const component = surface === "gui" ? "gui-command" : "tui-command";
   switch (type) {
     case "user":
-      return { actor: "user", surface: "tui", component: "tui-command" };
+      return { actor: "user", surface, component };
     case "text_delta":
-      return { actor: "assistant", surface: "tui", component: "tui-command" };
+      return { actor: "assistant", surface, component };
     case "tool_use":
     case "tool_result":
-      return { actor: "tool", surface: "tui", component: "tui-command" };
+      return { actor: "tool", surface, component };
     case "error":
-      return { actor: "runtime", surface: "tui", component: "tui-command" };
+      return { actor: "runtime", surface, component };
     default:
-      return { actor: "system", surface: "tui", component: "tui-command" };
+      return { actor: "system", surface, component };
   }
 }
 
@@ -258,6 +260,8 @@ function toPersistedTranscriptEvent(
   sequence: number,
   type: string,
   payload: Record<string, unknown>,
+  surface: OperatorTranscriptSurface,
+  turnId?: string,
 ): PersistedTranscriptEvent {
   return {
     eventId: randomUUID(),
@@ -265,8 +269,78 @@ function toPersistedTranscriptEvent(
     sequence,
     timestamp: new Date().toISOString(),
     kind: mapTranscriptTypeToKind(type),
-    source: mapTranscriptTypeToSource(type),
+    source: mapTranscriptTypeToSource(type, surface),
+    ...(turnId ? { turnId } : {}),
     payload,
+  };
+}
+
+function persistedEvent(
+  sessionId: string,
+  sequence: number,
+  kind: CanonicalSessionEventKind,
+  source: SessionEventSource,
+  payload: Record<string, unknown>,
+  turnId?: string,
+): PersistedTranscriptEvent {
+  return {
+    eventId: randomUUID(),
+    kilnSessionId: sessionId,
+    sequence,
+    timestamp: new Date().toISOString(),
+    kind,
+    source,
+    ...(turnId ? { turnId } : {}),
+    payload,
+  };
+}
+
+function parseToolResultEnvelope(value: string | undefined): {
+  readonly output: string;
+  readonly isError?: boolean;
+  readonly metadata?: Record<string, unknown>;
+} {
+  if (!value) return { output: "" };
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { output: value };
+    }
+    const record = parsed as Record<string, unknown>;
+    const output = typeof record.output === "string" ? record.output : value;
+    const metadata = record.metadata && typeof record.metadata === "object" && !Array.isArray(record.metadata)
+      ? record.metadata as Record<string, unknown>
+      : undefined;
+    return {
+      output,
+      ...(typeof record.isError === "boolean" ? { isError: record.isError } : {}),
+      ...(metadata ? { metadata } : {}),
+    };
+  } catch {
+    return { output: value };
+  }
+}
+
+function buildToolResultPayload(input: {
+  readonly toolCallId: string;
+  readonly toolName: string;
+  readonly output: string;
+  readonly outputSummary?: string;
+  readonly isError?: boolean;
+}): Record<string, unknown> {
+  const full = parseToolResultEnvelope(input.output);
+  const summary = parseToolResultEnvelope(input.outputSummary);
+  const outputSummary = summary.output || full.output.slice(0, 200);
+  const isError = full.isError ?? input.isError ?? false;
+  return {
+    toolCallId: input.toolCallId,
+    toolName: input.toolName,
+    output: full.output,
+    outputSummary,
+    ...(full.metadata ? { metadata: full.metadata } : {}),
+    status: {
+      state: isError ? "failed" : "succeeded",
+    },
   };
 }
 
@@ -290,6 +364,7 @@ export async function makeMultiProviderSessionFactory(
   transcriptStore: TranscriptStore,
   contextArtifactCache: ContextArtifactCache,
   builtinToolOptions?: DefaultBuiltinToolRegistryOptions,
+  transcriptSurface: OperatorTranscriptSurface = "tui",
 ): Promise<MultiProviderSessionManager> {
   const providers = providerIds;
   
@@ -304,16 +379,16 @@ export async function makeMultiProviderSessionFactory(
   
   let currentProvider: ProviderId | null = initialProvider;
 
-  const lastRecord = await sessionStore.last();
-  if (lastRecord) {
-    for (const p of providers) {
-      const state = providerState.get(p);
-      if (!state) continue;
-      state.resumeSessionId = lastRecord.sessionId;
-      state.providerSessionId = lastRecord.providerThread?.provider === p
-        ? lastRecord.providerThread.nativeSessionId
-        : (await sessionStore.findProviderThread?.(lastRecord.sessionId, p))?.nativeSessionId;
-    }
+  const defaultResumeRecord = await sessionStore.getResumeTarget();
+  for (const p of providers) {
+    const state = providerState.get(p);
+    if (!state) continue;
+    const resumeRecord = await sessionStore.getResumeTarget(p) ?? defaultResumeRecord;
+    if (!resumeRecord) continue;
+    state.resumeSessionId = resumeRecord.sessionId;
+    state.providerSessionId = resumeRecord.providerThread?.provider === p
+      ? resumeRecord.providerThread.nativeSessionId
+      : (await sessionStore.findProviderThread?.(resumeRecord.sessionId, p))?.nativeSessionId;
   }
 
   const policyAwareFactory: CliSessionFactory = (
@@ -425,12 +500,37 @@ export async function makeMultiProviderSessionFactory(
         }
 
         let turnCostUsd = 0;
-        let transcriptSeq = (await transcriptStore.readTranscript(capturedId)).length;
-        const userText = latestUserText(options.messages);
+        let turnIsError = false;
+        let assistantContent = "";
+        let assistantDeltaIndex = 0;
+        const pendingToolCallIds = new Map<string, string[]>();
+        let syntheticToolOrdinal = 0;
+        const priorTranscript = await transcriptStore.readTranscript(capturedId);
+        let transcriptSeq = priorTranscript.length;
+        const turnOrdinal = priorTranscript.filter((event) => event.kind === "turn_started").length + 1;
+        const turnId = `${capturedId}:turn:${turnOrdinal}`;
+        const assistantMessageId = `${turnId}:assistant`;
+        const source = (actor: SessionEventSource["actor"]): SessionEventSource => ({
+          actor,
+          surface: transcriptSurface,
+          component: transcriptSurface === "gui" ? "gui-command" : "tui-command",
+        });
+        await transcriptStore.append(
+          capturedId,
+          persistedEvent(capturedId, ++transcriptSeq, "turn_started", source("runtime"), {
+            turnId,
+            turnOrdinal,
+            trigger: "user_message",
+          }, turnId),
+        );
+        const userText = latestUserText(options.messages) ?? options.prompt.trim();
         if (userText) {
           await transcriptStore.append(
             capturedId,
-            toPersistedTranscriptEvent(capturedId, ++transcriptSeq, "user", { content: userText }),
+            toPersistedTranscriptEvent(capturedId, ++transcriptSeq, "user", {
+              messageId: `${turnId}:user`,
+              content: userText,
+            }, transcriptSurface, turnId),
           );
         }
         try {
@@ -440,47 +540,102 @@ export async function makeMultiProviderSessionFactory(
               continue;
             }
             if (event.type === "text_delta" && !event.isThinking) {
+              assistantContent += event.content;
               await transcriptStore.append(
                 capturedId,
                 toPersistedTranscriptEvent(capturedId, ++transcriptSeq, "text_delta", {
-                  type: "text_delta",
-                  content: event.content,
-                }),
+                  messageId: assistantMessageId,
+                  delta: event.content,
+                  deltaIndex: assistantDeltaIndex++,
+                }, transcriptSurface, turnId),
               );
             } else if (event.type === "tool_use") {
+              const toolCallId = event.toolCallId ?? `${turnId}:tool:${++syntheticToolOrdinal}`;
+              const pending = pendingToolCallIds.get(event.toolName) ?? [];
+              pending.push(toolCallId);
+              pendingToolCallIds.set(event.toolName, pending);
               await transcriptStore.append(
                 capturedId,
                 toPersistedTranscriptEvent(capturedId, ++transcriptSeq, "tool_use", {
-                  type: "tool_use",
+                  toolCallId,
                   toolName: event.toolName,
                   input: event.input,
-                }),
+                }, transcriptSurface, turnId),
               );
             } else if (event.type === "tool_result") {
+              const pending = pendingToolCallIds.get(event.toolName);
+              let toolCallId: string | undefined;
+              if (event.toolCallId) {
+                toolCallId = event.toolCallId;
+                const pendingIndex = pending?.indexOf(event.toolCallId) ?? -1;
+                if (pending && pendingIndex >= 0) {
+                  pending.splice(pendingIndex, 1);
+                }
+              } else {
+                toolCallId = pending?.shift();
+              }
+              if (pending && pending.length === 0) {
+                pendingToolCallIds.delete(event.toolName);
+              }
+              if (!toolCallId) {
+                toolCallId = `${turnId}:tool:${++syntheticToolOrdinal}`;
+                await transcriptStore.append(
+                  capturedId,
+                  toPersistedTranscriptEvent(capturedId, ++transcriptSeq, "tool_use", {
+                    toolCallId,
+                    toolName: event.toolName,
+                  }, transcriptSurface, turnId),
+                );
+              }
               await transcriptStore.append(
                 capturedId,
-                toPersistedTranscriptEvent(capturedId, ++transcriptSeq, "tool_result", {
-                  type: "tool_result",
+                toPersistedTranscriptEvent(capturedId, ++transcriptSeq, "tool_result", buildToolResultPayload({
+                  toolCallId,
                   toolName: event.toolName,
                   output: event.output,
-                }),
+                  ...(event.outputSummary !== undefined ? { outputSummary: event.outputSummary } : {}),
+                  ...(event.isError !== undefined ? { isError: event.isError } : {}),
+                }), transcriptSurface, turnId),
               );
             } else if (event.type === "error") {
+              turnIsError = true;
               await transcriptStore.append(
                 capturedId,
                 toPersistedTranscriptEvent(capturedId, ++transcriptSeq, "error", {
-                  type: "error",
                   message: event.message,
                   code: event.code,
-                }),
+                  retriable: event.isRetryable,
+                }, transcriptSurface, turnId),
               );
             }
             if (event.type === "completed") {
               turnCostUsd = event.totalUsd;
+              turnIsError = event.isError;
             }
             yield event;
           }
         } finally {
+          if (assistantContent.trim().length > 0) {
+            await transcriptStore.append(
+              capturedId,
+              persistedEvent(capturedId, ++transcriptSeq, "assistant_message", source("assistant"), {
+                messageId: assistantMessageId,
+                content: assistantContent,
+                provider: {
+                  provider: providerForTurn,
+                  ...(modelForTurn ? { model: modelForTurn } : { model: providerForTurn }),
+                },
+              }, turnId),
+            );
+          }
+          await transcriptStore.append(
+            capturedId,
+            persistedEvent(capturedId, ++transcriptSeq, "turn_completed", source("runtime"), {
+              turnId,
+              outcome: turnIsError ? "failed" : "completed",
+              ...(assistantContent.trim().length > 0 ? { outputMessageId: assistantMessageId } : {}),
+            }, turnId),
+          );
           await resumedSession.dispose();
           for (const [providerId, providerRuntimeState] of providerState) {
             providerRuntimeState.resumeSessionId = capturedId;
@@ -559,11 +714,7 @@ export async function makeMultiProviderSessionFactory(
         state.resumeSessionId = undefined;
         state.providerSessionId = undefined;
       }
-      if (provider === undefined) {
-        await sessionStore.clearLast();
-      } else {
-        await sessionStore.clearLast(provider);
-      }
+      await sessionStore.clearResumeTarget(provider);
     },
     setResumeSession: (sessionId: string, provider?: string) => {
       const targetProvider = provider && providers.includes(provider as ProviderId)
@@ -702,14 +853,18 @@ function mapSessionEventToTui(
         input: candidate.input,
         ...scoped,
       };
-    case "tool_result":
+    case "tool_result": {
+      const output = typeof candidate.output === "string"
+        ? parseToolResultEnvelope(candidate.output).output
+        : undefined;
       return {
         type: "activity",
         activity: "tool_result",
         toolName: typeof candidate.toolName === "string" ? candidate.toolName : undefined,
-        output: typeof candidate.output === "string" ? candidate.output : undefined,
+        output,
         ...scoped,
       };
+    }
     default:
       return {
         type: "activity",

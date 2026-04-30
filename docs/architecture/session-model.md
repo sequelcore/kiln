@@ -54,6 +54,25 @@ thread.
 Provider switching therefore changes the next execution route; it does not
 switch the operator into a different session namespace.
 
+### Resume Target Persistence
+
+Session history and resume intent are separate persistence concerns.
+
+`.kiln/sessions.jsonl` is an append-only history index for completed Kiln
+session records. It must not be mutated by clear/new-session operations and it
+must not be treated as a disposable "last session" pointer.
+
+`.kiln/resume-targets.json` stores the mutable operator resume cursor. The
+default cursor records the canonical Kiln session to continue when no explicit
+session is selected. Provider-specific cursors may record the last session used
+by a provider, but they are still references to canonical Kiln sessions, not
+provider-owned session history.
+
+Clear/new-session operations clear the resume cursor and detach live runtime
+state. They do not delete session history, transcript metadata, event history,
+or provider-thread metadata. Selecting a prior session sets the active
+continuation target explicitly through the visible session state.
+
 ## Surface Semantics
 
 All operator surfaces share the same model:
@@ -158,6 +177,26 @@ for `event.payload`. The payload remains the audit source, while normal
 operator UI uses the typed projection so GUI, TUI, CLI, IDE, SDK, and remote
 surfaces do not duplicate ad hoc JSON parsing rules.
 
+## Conversation Turn Projection
+
+Transcript layout is also shared projection, not a GUI-only rendering rule.
+
+`@kilnai/gateway-contracts` owns the conversation-turn projection used to place
+assistant messages, tool activity, and operator events into a stable transcript
+sequence. Tool start and completion events anchor to the assistant turn that
+owns the same `turnId` when that message exists. While the assistant message is
+still streaming or has not arrived yet, tool activity may appear as live
+activity; once the owning assistant turn is present, the same canonical events
+project inside that turn.
+
+Completed tool-start rows may collapse into their matching completion event so
+normal transcript surfaces show the final evidence instead of duplicated
+progress chrome. Raw payloads, debug envelopes, and full event objects remain
+available only to inspector/raw surfaces.
+
+This projection applies to GUI and TUI. The GUI is the first rich consumer, but
+it must not become the reference implementation for transcript semantics.
+
 ## Consumer Scoping Rules
 
 Every operator consumer must treat `kilnSessionId` as the routing key for live
@@ -203,6 +242,9 @@ canonical `kilnSessionId`.
 - Provider-native thread metadata is optional and scoped to the provider that
   produced it.
 - Provider/model selection is next-turn routing state.
+- Resume cursors are mutable operator state; session history is append-only
+  audit/history state.
+- Clear/new-session operations must not delete persisted sessions.
 - Transcript, approvals, tool evidence, changed files, and replay belong to the
   Kiln session.
 - Runtime activity frames that affect visible operator state must include the

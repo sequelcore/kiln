@@ -10,7 +10,11 @@ import type {
   GuiSessionSummary,
   ToolResultPresentation,
 } from "@kilnai/gateway-contracts";
-import { formatOperatorEventValue, isGuiProviderModeless, presentOperatorEventPayload } from "@kilnai/gateway-contracts";
+import {
+  formatOperatorEventValue,
+  isGuiProviderModeless,
+  presentOperatorEventPayload,
+} from "@kilnai/gateway-contracts";
 
 export interface ApprovalRequest {
   readonly id: string;
@@ -59,6 +63,7 @@ export type ProviderCatalogStatus = GuiProviderCatalogStatus;
 type StoreTextDeltaFrame = {
   type: "text_delta";
   content: string;
+  turnId?: string;
 };
 
 type StoreActivityFrame = {
@@ -350,6 +355,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
         type: "message",
         createdAt: event.timestamp,
         sequence: event.sequence,
+        ...(event.turnId ? { turnId: event.turnId } : {}),
         message: messages[messages.length - 1]!,
       });
       continue;
@@ -389,6 +395,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
         type: "message",
         createdAt: event.timestamp,
         sequence: event.sequence,
+        ...(event.turnId ? { turnId: event.turnId } : {}),
         message: messages[messages.length - 1]!,
       });
       continue;
@@ -433,6 +440,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
         type: "message",
         createdAt: event.timestamp,
         sequence: event.sequence,
+        ...(event.turnId ? { turnId: event.turnId } : {}),
         message: messages[messages.length - 1]!,
       });
       continue;
@@ -494,6 +502,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
         eventKind: event.kind,
         createdAt: event.timestamp,
         sequence: event.sequence,
+        ...(event.turnId ? { turnId: event.turnId } : {}),
         title: presentation.title,
         summary: presentation.summary,
         tone: presentation.tone,
@@ -516,7 +525,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
         callId: toolCallId,
         toolName,
         input: toolCalls.get(toolCallId)?.input ?? {},
-        result: eventPayloadText(payload) ?? undefined,
+        result: presentation.summary ?? eventPayloadText(payload) ?? undefined,
         status: toolEntryStatus(status?.state),
         startedAt: toolCalls.get(toolCallId)?.startedAt ?? event.timestamp,
         completedAt: event.timestamp,
@@ -527,6 +536,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
         eventKind: event.kind,
         createdAt: event.timestamp,
         sequence: event.sequence,
+        ...(event.turnId ? { turnId: event.turnId } : {}),
         title: presentation.title,
         summary: presentation.summary,
         tone: presentation.tone,
@@ -535,7 +545,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
           toolCallId,
           toolName,
           input: toolCalls.get(toolCallId)?.input ?? {},
-          result: eventPayloadText(payload) ?? undefined,
+          result: presentation.summary ?? eventPayloadText(payload) ?? undefined,
           status: status?.state,
         },
       });
@@ -798,6 +808,7 @@ export interface TimelineMessageEntry {
   readonly type: "message";
   readonly createdAt: string;
   readonly sequence?: number;
+  readonly turnId?: string;
   readonly message: Message;
 }
 
@@ -807,6 +818,7 @@ export interface TimelineEventEntry {
   readonly eventKind: GuiSessionEvent["kind"];
   readonly createdAt: string;
   readonly sequence?: number;
+  readonly turnId?: string;
   readonly title: string;
   readonly summary?: string;
   readonly tone: "info" | "running" | "success" | "warning" | "error";
@@ -816,6 +828,52 @@ export interface TimelineEventEntry {
 }
 
 export type TimelineEntry = TimelineMessageEntry | TimelineEventEntry;
+
+function ensureLiveAssistantAnchor(
+  state: SessionStoreState,
+  createdAt: string,
+  turnId: string | undefined,
+): {
+  readonly messages: readonly Message[];
+  readonly timelineEntries: readonly TimelineEntry[];
+  readonly currentAssistant: string;
+} {
+  const existingId = state.currentAssistant;
+  if (existingId && state.messages.some((message) => message.id === existingId && message.role === "assistant")) {
+    return {
+      messages: state.messages,
+      timelineEntries: state.timelineEntries,
+      currentAssistant: existingId,
+    };
+  }
+
+  const assistantId = createMessageId();
+  const assistantMessage: Message = {
+    id: assistantId,
+    role: "assistant",
+    content: "",
+    createdAt,
+    streaming: true,
+  };
+  return {
+    messages: [...state.messages, assistantMessage],
+    timelineEntries: [
+      ...state.timelineEntries,
+      {
+        id: `timeline:${assistantId}`,
+        type: "message",
+        createdAt,
+        ...(turnId ? { turnId } : {}),
+        message: assistantMessage,
+      },
+    ],
+    currentAssistant: assistantId,
+  };
+}
+
+function timelineTurnId(event: GuiSessionEvent): { readonly turnId?: string } {
+  return event.turnId ? { turnId: event.turnId } : {};
+}
 
 function toolNameFromDetails(details: unknown, fallbackTitle: string, fallbackToolName?: string): string {
   const detailRecord = isObjectRecord(details) ? details : null;
@@ -1293,9 +1351,13 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   },
 
   setSelectedSessionId: (sessionId) => {
+    if (sessionId === null) {
+      writeResumeTarget(null);
+    }
     set({
       selectedSessionId: sessionId,
       liveSessionId: null,
+      resumeTargetId: sessionId === null ? null : get().resumeTargetId,
       messages: [],
       timelineEntries: [],
       currentAssistant: null,
@@ -1462,7 +1524,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     if (event.kind === "assistant_delta") {
       const delta = readString(payload.delta) ?? eventPayloadText(payload);
       if (delta) {
-        state.onTextDelta({ type: "text_delta", content: delta });
+        state.onTextDelta({ type: "text_delta", content: delta, ...(event.turnId ? { turnId: event.turnId } : {}) });
       }
       return;
     }
@@ -1478,6 +1540,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             eventKind: event.kind,
             createdAt: event.timestamp,
             sequence: event.sequence,
+            ...timelineTurnId(event),
               title: "Provider routed",
               summary: [provider.provider, provider.model].filter(Boolean).join(" · ") || readString(payload.reason) || "Provider selected",
               tone: "info",
@@ -1494,15 +1557,17 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       const toolName = readString(payload.toolName) ?? "tool";
       const input = isObjectRecord(payload.input) ? payload.input : {};
       const presentation = presentOperatorEventPayload(event.kind, payload);
+      const anchored = ensureLiveAssistantAnchor(get(), event.timestamp, event.turnId);
       set({
         timelineEntries: [
-          ...get().timelineEntries,
+          ...anchored.timelineEntries,
           {
             id: `timeline:${event.eventId}`,
             type: "event",
             eventKind: event.kind,
             createdAt: event.timestamp,
             sequence: event.sequence,
+            ...timelineTurnId(event),
             title: presentation.title,
             summary: presentation.summary,
             tone: presentation.tone,
@@ -1514,10 +1579,13 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             },
           },
         ],
+        messages: anchored.messages,
+        currentAssistant: anchored.currentAssistant,
         activity: {
           phase: "tool_running",
           toolName,
         },
+        activityPhase: "tool_running",
       });
       return;
     }
@@ -1527,15 +1595,17 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       const priorToolCalls = deriveToolCallLog(get().timelineEntries);
       const priorInput = priorToolCalls.find((entry) => entry.callId === (readString(payload.toolCallId) ?? event.eventId))?.input ?? {};
       const presentation = presentOperatorEventPayload(event.kind, payload);
+      const anchored = ensureLiveAssistantAnchor(get(), event.timestamp, event.turnId);
       set({
         timelineEntries: [
-          ...get().timelineEntries,
+          ...anchored.timelineEntries,
           {
             id: `timeline:${event.eventId}`,
             type: "event",
             eventKind: event.kind,
             createdAt: event.timestamp,
             sequence: event.sequence,
+            ...timelineTurnId(event),
             title: presentation.title,
             summary: presentation.summary,
             tone: presentation.tone,
@@ -1544,11 +1614,13 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
               toolCallId: readString(payload.toolCallId) ?? event.eventId,
               toolName: readString(payload.toolName) ?? "tool",
               input: priorInput,
-              result: eventPayloadText(payload) ?? undefined,
+              result: presentation.summary ?? eventPayloadText(payload) ?? undefined,
               status: status?.state,
             },
           },
         ],
+        messages: anchored.messages,
+        currentAssistant: anchored.currentAssistant,
         activity: null,
       });
       return;
@@ -1868,6 +1940,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           id: `timeline:${assistantId}`,
           type: "message",
           createdAt: assistantMessage.createdAt,
+          ...(frame.turnId ? { turnId: frame.turnId } : {}),
           message: assistantMessage,
         },
       ],
@@ -1964,6 +2037,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         message.id === state.currentAssistant
           ? {
               ...message,
+              content: message.content.trim().length === 0 && frame.content.trim().length > 0
+                ? frame.content
+                : message.content,
               streaming: false,
               routedProvider: finalizedProvider,
               routedModel: finalizedModel,
@@ -2523,6 +2599,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     }
 
     state.outboundSend({ type: "clear" });
+    writeResumeTarget(null);
     const timeoutId = setTimeout(() => {
       const latest = get();
       if (!latest.clearPending) return;
@@ -2535,6 +2612,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     }, CLEAR_TIMEOUT_MS);
 
     set({
+      selectedSessionId: null,
+      liveSessionId: null,
+      resumeTargetId: null,
       clearPending: true,
       clearTimeoutId: timeoutId,
       status: "running",

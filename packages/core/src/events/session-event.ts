@@ -135,6 +135,7 @@ export interface CanonicalToolCallCompletedEvent extends SessionEventEnvelope<"t
   readonly toolName: string;
   readonly status: SessionToolStatus;
   readonly durationMs: number;
+  readonly output?: string;
   readonly outputSummary?: string;
 }
 

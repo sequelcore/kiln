@@ -330,14 +330,26 @@ function parseKilnResourceUri(uri: string): { readonly host: string; readonly pa
   if (parsed.protocol !== "kiln:" || parsed.hostname.length === 0) {
     return undefined;
   }
-  const path = parsed.pathname
-    .split("/")
-    .filter(Boolean)
-    .map((segment) => decodeURIComponent(segment));
+  let path: string[];
+  try {
+    path = parsed.pathname
+      .split("/")
+      .filter(Boolean)
+      .map((segment) => decodeURIComponent(segment));
+  } catch {
+    throw invalidResourceUriEncoding(uri);
+  }
   return {
     host: parsed.hostname,
     path,
   };
+}
+
+function invalidResourceUriEncoding(uri: string): KilnError {
+  return new KilnError("INTERNAL_ERROR", "Invalid resource URI path encoding", {
+    context: { uri },
+    retryable: false,
+  });
 }
 
 function resourceNotFound(uri: string): KilnError {

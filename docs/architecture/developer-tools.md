@@ -70,6 +70,34 @@ Stable metadata families include:
 Metadata is audit and projection evidence. It is not a replacement for the
 visible output contract or structured tool output schemas.
 
+## Tool Result Presentation
+
+Developer-tool results are emitted as canonical tool evidence and then rendered
+through the shared operator-event presentation projection in
+`@kilnai/gateway-contracts`.
+
+Normal operator transcript and activity surfaces must render the typed
+`toolPresentation` view model, not stringify the raw `ToolResult` envelope.
+The raw envelope remains audit evidence for inspector/raw views only.
+
+Stable presentation behavior:
+
+- `read` renders markdown or text previews from the actual file content.
+- `tree` renders compact tree previews, not the JSON wrapper around the tree
+  output.
+- `read_many` renders bounded summaries plus `kiln://artifacts/...` resource
+  links for the full packet.
+- `patch`, `edit`, and `write` render file-change summaries and diff previews
+  when diff evidence is available.
+- `stat` renders file metadata as structured fields and may expose compact text
+  only when the tool has no richer projection.
+- `bash` and `git` render command evidence, exit status, duration, and bounded
+  stdout/stderr previews.
+
+The projection is consumer-independent. GUI, TUI, CLI, SDK, and MCP-adjacent
+operator surfaces may choose different visual components, but they must not
+duplicate private JSON-unwrapping rules.
+
 ## Command Execution
 
 `bash` preserves its public text output contract while exposing structured

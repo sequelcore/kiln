@@ -11,6 +11,7 @@ import {
   projectDevToolSchemas,
   TaskStateStore,
 } from "../../src/tools/index.js";
+import { SqliteMemoryRepository } from "../../src/memory/index.js";
 import { makeTempDir, removeTempDir } from "./infrastructure/test-utils.js";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -265,6 +266,48 @@ describe("default builtin tool surface", () => {
         }),
       },
     });
+  });
+
+  it("exposes memory resources through the default builtin surface when configured", async () => {
+    const tempDir = await makeTempDir();
+    const repository = new SqliteMemoryRepository({ dbPath: join(tempDir, "memory.db") });
+    try {
+      repository.saveRecord({
+        id: "root",
+        layer: "semantic",
+        scope: { kind: "project", id: "kiln" },
+        content: "Root memory.",
+        tags: ["memory"],
+        topicKey: "root",
+        provenance: {
+          sourceType: "operator",
+          sourceId: "seed",
+          actor: "Ricardo Armenta",
+          capturedAt: "2026-04-30T12:00:00.000Z",
+        },
+        createdAt: "2026-04-30T12:00:00.000Z",
+      });
+      const surface = createDefaultBuiltinToolSurface({ memoryResources: { repository } });
+
+      expect(surface.resources.list().map((resource) => resource.uri)).toContain("kiln://memory/graph");
+      expect(surface.resources.listTemplates().map((template) => template.uriTemplate)).toContain(
+        "kiln://memory/nodes/{id}{?scope,scopeKind,scopeId}",
+      );
+      await expect(surface.bridge.execute({
+        name: "resource_read",
+        input: { uri: "kiln://memory/graph?query=root&limit=5" },
+      })).resolves.toMatchObject({
+        attempts: 1,
+        fallbackUsed: false,
+        result: {
+          isError: false,
+          output: expect.stringContaining("\"recordId\": \"root\""),
+        },
+      });
+    } finally {
+      repository.close();
+      await removeTempDir(tempDir);
+    }
   });
 
   it("stores high-volume tool output as an artifact resource link through the canonical bridge", async () => {

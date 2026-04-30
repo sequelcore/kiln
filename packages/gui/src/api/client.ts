@@ -1,6 +1,8 @@
 import type {
   GuiDashboardSnapshot,
   GuiAppDescriptor,
+  GuiMemoryLatticeGraphRequest,
+  GuiMemoryLatticeGraphResponse,
   GuiProviderDescriptor,
   GuiResumeInfo,
   GuiSessionDetail,
@@ -14,12 +16,18 @@ import type {
   OperatorWorkspaceVcsStatus,
   OperatorThemeName,
 } from "@kilnai/gateway-contracts";
+import {
+  GuiMemoryLatticeGraphRequestSchema,
+  GuiMemoryLatticeGraphResponseSchema,
+} from "@kilnai/gateway-contracts";
 import { GuiSessionClient, type GuiSessionClientOptions } from "./session-client.js";
 
 export type {
   GuiDashboardSnapshot,
   GuiProviderDescriptor,
   GuiAppDescriptor,
+  GuiMemoryLatticeGraphRequest,
+  GuiMemoryLatticeGraphResponse,
   GuiSessionSummary,
   GuiTelemetrySnapshot,
 };
@@ -112,6 +120,39 @@ export class GuiGatewayClient {
       failures.length > 0
         ? `Session list fetch failed (${failures.join(" | ")})`
         : "Session list fetch failed.",
+    );
+  }
+
+  async loadMemoryLatticeGraph(
+    request: GuiMemoryLatticeGraphRequest = {},
+  ): Promise<GuiMemoryLatticeGraphResponse> {
+    const normalizedRequest = GuiMemoryLatticeGraphRequestSchema.parse(request);
+    const candidateBaseUrls = this.resolveCandidateBaseUrls();
+    const failures: string[] = [];
+
+    for (const candidateBaseUrl of candidateBaseUrls) {
+      const url = new URL("/gui/api/memory/graph", candidateBaseUrl);
+      appendMemoryLatticeGraphQuery(url.searchParams, normalizedRequest);
+      try {
+        const response = await fetch(url, {
+          headers: { accept: "application/json" },
+        });
+        if (!response.ok) {
+          failures.push(`${candidateBaseUrl}: status ${response.status}`);
+          continue;
+        }
+        const payload = GuiMemoryLatticeGraphResponseSchema.parse(await response.json());
+        this.resolvedBaseUrl = candidateBaseUrl;
+        return payload;
+      } catch (error) {
+        failures.push(`${candidateBaseUrl}: ${errorMessage(error)}`);
+      }
+    }
+
+    throw new Error(
+      failures.length > 0
+        ? `Memory Lattice graph fetch failed (${failures.join(" | ")})`
+        : "Memory Lattice graph fetch failed.",
     );
   }
 
@@ -284,6 +325,29 @@ function normalizeBaseUrl(baseUrl: string | null | undefined): string | null {
     return new URL(normalized).origin;
   } catch {
     return null;
+  }
+}
+
+function appendMemoryLatticeGraphQuery(
+  query: URLSearchParams,
+  request: GuiMemoryLatticeGraphRequest,
+): void {
+  if (request.scope) {
+    query.set("scopeKind", request.scope.kind);
+    query.set("scopeId", request.scope.id);
+  }
+  if (request.layer) {
+    query.set("layer", request.layer);
+  }
+  const search = request.query?.trim();
+  if (search) {
+    query.set("query", search);
+  }
+  if (request.depth !== undefined) {
+    query.set("depth", String(request.depth));
+  }
+  if (request.limit !== undefined) {
+    query.set("limit", String(request.limit));
   }
 }
 

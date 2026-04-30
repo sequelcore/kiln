@@ -346,6 +346,123 @@ describe("GatewaySession canonical session events", () => {
 
     await session.dispose();
   });
+
+  it("projects read and tree tool results from full payload envelopes", async () => {
+    const session = new GatewaySession("ws://localhost:4801/tui/ws");
+    const ws = wsInstances[0];
+    ws.simulateOpen();
+
+    const events: unknown[] = [];
+    const collect = (async () => {
+      for await (const event of session.run({ prompt: "inspect docs" })) {
+        events.push(event);
+      }
+    })();
+
+    await Promise.resolve();
+    ws.simulateMessage(JSON.stringify({
+      type: "session_event",
+      event: {
+        eventId: "evt-read-result",
+        kilnSessionId: "session-1",
+        sequence: 1,
+        timestamp: "2026-04-30T20:00:00.000Z",
+        kind: "tool_call_completed",
+        turnId: "session-1:turn:live",
+        payload: {
+          toolCallId: "tool-read",
+          toolName: "read",
+          output: JSON.stringify({
+            output: "# Session Model\n\nKiln session identity is provider-agnostic.",
+            isError: false,
+            metadata: {
+              toolName: "read",
+              kind: "file",
+              operation: "read",
+              filePath: "docs/architecture/session-model.md",
+            },
+          }),
+          outputSummary: "{\"output\":\"# Session Model\\n\\nKiln session identity is provider-agnostic.\",\"isError\":false,\"metadata\":{\"toolName\":\"read\"",
+          status: { state: "succeeded" },
+        },
+      },
+    }));
+    ws.simulateMessage(JSON.stringify({
+      type: "session_event",
+      event: {
+        eventId: "evt-tree-result",
+        kilnSessionId: "session-1",
+        sequence: 2,
+        timestamp: "2026-04-30T20:00:01.000Z",
+        kind: "tool_call_completed",
+        turnId: "session-1:turn:live",
+        payload: {
+          toolCallId: "tool-tree",
+          toolName: "tree",
+          output: JSON.stringify({
+            output: ".\npackages/\n  tui/",
+            isError: false,
+            metadata: {
+              toolName: "tree",
+              kind: "inspection",
+              operation: "tree",
+              path: "C:\\Proyectos\\Sequel\\kiln",
+              depth: 2,
+              entryCount: 55,
+              resourceLinks: [
+                {
+                  uri: "kiln://artifacts/tool-results/artifact_tree/content",
+                  title: "tree full output",
+                  mimeType: "text/plain",
+                  size: 9000,
+                  relation: "full_output",
+                },
+              ],
+            },
+          }),
+          outputSummary: "{\"output\":\".\\npackages/\",\"isError\":false,\"metadata\":{\"toolName\":\"tree\"",
+          status: { state: "succeeded" },
+        },
+      },
+    }));
+    ws.simulateMessage(JSON.stringify({
+      type: "done",
+      content: "done",
+      inputTokens: 1,
+      outputTokens: 1,
+      routedProvider: "codex-oauth",
+      routedModel: "gpt-5.5",
+    }));
+
+    await collect;
+
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "activity",
+        activity: "tool_result",
+        toolName: "read",
+        output: "# Session Model",
+        toolPresentation: expect.objectContaining({
+          outputKind: "markdown",
+          title: "docs/architecture/session-model.md",
+        }),
+      }),
+      expect.objectContaining({
+        type: "activity",
+        activity: "tool_result",
+        toolName: "tree",
+        output: "55 entries under C:\\Proyectos\\Sequel\\kiln",
+        toolPresentation: expect.objectContaining({
+          outputKind: "tree",
+          title: "C:\\Proyectos\\Sequel\\kiln",
+        }),
+      }),
+    ]));
+    expect(JSON.stringify(events)).not.toContain("{\\\"output\\\"");
+    expect(JSON.stringify(events)).not.toContain("\\\"metadata\\\"");
+
+    await session.dispose();
+  });
 });
 
 describe("GatewaySession provider authentication", () => {

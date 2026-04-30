@@ -1,5 +1,13 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { startGuiGateway, type CliSessionFactory } from "@kilnai/runtime";
-import { InMemoryContextArtifactCache } from "@kilnai/core";
+import {
+  InMemoryContextArtifactCache,
+  SqliteMemoryRepository,
+  type CreateMemoryRecordInput,
+  type MemoryProvenance,
+} from "@kilnai/core";
 import type { GuiSessionSummary } from "@kilnai/gateway-contracts";
 
 function parseGatewayPort(): number {
@@ -90,6 +98,10 @@ let activeModel = "claude-sonnet-4-6";
 let resumeSessionId: string | null = null;
 
 const contextArtifactCache = new InMemoryContextArtifactCache();
+const memoryDbDir = mkdtempSync(join(tmpdir(), "kiln-gui-memory-"));
+const memoryRepository = new SqliteMemoryRepository({ dbPath: join(memoryDbDir, "memory.db") });
+
+seedMemoryRepository(memoryRepository);
 
 async function main(): Promise<void> {
   const port = parseGatewayPort();
@@ -104,8 +116,12 @@ async function main(): Promise<void> {
       ],
       sessions: sessionSummaries.slice(0, 20),
       telemetry: { status: "idle", dominantRegions: [], saturation: 0, entropy: 0 },
+      resumeInfoByProvider: {},
     }),
     listSessions: async () => sessionSummaries.slice(0, 20),
+    builtinToolOptions: {
+      memoryResources: { repository: memoryRepository },
+    },
     operatorTransport: {
       sessionManager: {
         factory: fakeSessionFactory,
@@ -133,6 +149,8 @@ async function main(): Promise<void> {
   process.stdout.write(`READY ${gateway.port}\n`);
 
   const shutdown = () => {
+    memoryRepository.close();
+    rmSync(memoryDbDir, { recursive: true, force: true });
     gateway.shutdown();
     process.exit(0);
   };
@@ -146,3 +164,52 @@ void main().catch((error) => {
   process.stderr.write(`Gateway runner failed: ${message}\n`);
   process.exit(1);
 });
+
+function seedMemoryRepository(repository: SqliteMemoryRepository): void {
+  const contract = repository.saveRecord(memoryRecord({
+    id: "memory-lattice-contract",
+    content: "Memory Lattice contract is exposed through runtime resources for GUI, TUI, CLI, and YAML consumers.",
+    topicKey: "Memory Lattice contract",
+  }));
+  const admission = repository.saveRecord(memoryRecord({
+    id: "context-admission-evidence",
+    content: "Context admission evidence explains why a memory record entered an agent context window.",
+    topicKey: "Context admission evidence",
+  }));
+
+  repository.saveRelation({
+    id: "memory-lattice-supports-admission",
+    sourceRecordId: contract.id,
+    target: { kind: "memory_record", id: admission.id },
+    type: "supports",
+    confidence: 0.9,
+    createdAt: "2026-04-30T12:00:00.000Z",
+  });
+}
+
+function memoryRecord(overrides: {
+  readonly id: string;
+  readonly content: string;
+  readonly topicKey: string;
+}): CreateMemoryRecordInput {
+  return {
+    id: overrides.id,
+    layer: "semantic",
+    scope: { kind: "project", id: "kiln" },
+    content: overrides.content,
+    topicKey: overrides.topicKey,
+    tags: ["memory-lattice"],
+    provenance: memoryProvenance("gui-e2e-fixture"),
+    confidence: 0.95,
+    createdAt: "2026-04-30T12:00:00.000Z",
+  };
+}
+
+function memoryProvenance(sourceId: string): MemoryProvenance {
+  return {
+    sourceType: "operator",
+    sourceId,
+    actor: "Kiln GUI parity fixture",
+    capturedAt: "2026-04-30T12:00:00.000Z",
+  };
+}

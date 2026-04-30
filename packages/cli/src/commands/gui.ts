@@ -73,6 +73,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
     transcriptStore,
     contextArtifactCache,
     builtinToolOptions,
+    "gui",
   );
   const bootstrapContext = await resolveGuiBootstrapContext(appConfig, cwd, contextArtifactCache);
   const managedWindowShutdownMonitor = createManagedGuiWindowShutdownMonitor();

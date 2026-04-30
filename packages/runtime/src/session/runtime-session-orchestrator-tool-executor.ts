@@ -216,9 +216,12 @@ export class RuntimeSessionToolExecutor {
           isError: true,
         });
         toolExecutions.push({
+          toolCallId: normalizedToolCall.id,
           toolName: normalizedToolCall.name,
+          input: normalizedToolCall.input,
           durationMs: 0,
           success: false,
+          output: content,
           resultSummary: content.slice(0, 200),
         });
         this.emitError(session.id, content);
@@ -226,11 +229,21 @@ export class RuntimeSessionToolExecutor {
       }
 
       if (perCallConfig?.toolAllowlist && !perCallConfig.toolAllowlist.has(normalizedToolCall.name)) {
+        const content = `Tool "${normalizedToolCall.name}" is not available for this tenant`;
         resultParts.push({
           type: "tool_result",
           toolUseId: normalizedToolCall.id,
-          content: `Tool "${normalizedToolCall.name}" is not available for this tenant`,
+          content,
           isError: true,
+        });
+        toolExecutions.push({
+          toolCallId: normalizedToolCall.id,
+          toolName: normalizedToolCall.name,
+          input: normalizedToolCall.input,
+          durationMs: 0,
+          success: false,
+          output: content,
+          resultSummary: content.slice(0, 200),
         });
         continue;
       }
@@ -246,20 +259,40 @@ export class RuntimeSessionToolExecutor {
               `Tool "${normalizedToolCall.name}" requires approval: ${authResult.reason}`,
             );
             if (!approval.approved) {
+              const content = `Approval denied: ${approval.reason ?? authResult.reason}`;
               resultParts.push({
                 type: "tool_result",
                 toolUseId: normalizedToolCall.id,
-                content: `Approval denied: ${approval.reason ?? authResult.reason}`,
+                content,
                 isError: true,
+              });
+              toolExecutions.push({
+                toolCallId: normalizedToolCall.id,
+                toolName: normalizedToolCall.name,
+                input: normalizedToolCall.input,
+                durationMs: 0,
+                success: false,
+                output: content,
+                resultSummary: content.slice(0, 200),
               });
               continue;
             }
           } else {
+            const content = `Authorization denied: ${authResult.reason}`;
             resultParts.push({
               type: "tool_result",
               toolUseId: normalizedToolCall.id,
-              content: `Authorization denied: ${authResult.reason}`,
+              content,
               isError: true,
+            });
+            toolExecutions.push({
+              toolCallId: normalizedToolCall.id,
+              toolName: normalizedToolCall.name,
+              input: normalizedToolCall.input,
+              durationMs: 0,
+              success: false,
+              output: content,
+              resultSummary: content.slice(0, 200),
             });
             continue;
           }
@@ -270,12 +303,18 @@ export class RuntimeSessionToolExecutor {
         continue;
       }
 
-      if (this.handleRateLimitBlock(normalizedToolCall, perCallConfig, resultParts)) {
+      if (this.handleRateLimitBlock(normalizedToolCall, perCallConfig, resultParts, toolExecutions)) {
         continue;
       }
 
       const cacheTtl = capability?.annotations?.cacheTtl;
-      const cachedResult = await this.tryCachedToolResult(session.id, normalizedToolCall, cacheTtl, resultParts);
+      const cachedResult = await this.tryCachedToolResult(
+        session.id,
+        normalizedToolCall,
+        cacheTtl,
+        resultParts,
+        toolExecutions,
+      );
       if (cachedResult.hit) {
         continue;
       }
@@ -303,6 +342,7 @@ export class RuntimeSessionToolExecutor {
           sanitized.resultSummary,
           false,
           execution.retryAttempt,
+          sanitized.resultValue,
         );
 
         const fileChanges = this.extractFileChangesFromToolResult(
@@ -311,9 +351,12 @@ export class RuntimeSessionToolExecutor {
           execution.resultValueRaw,
         );
         toolExecutions.push({
+          toolCallId: normalizedToolCall.id,
           toolName: normalizedToolCall.name,
+          input: normalizedToolCall.input,
           durationMs,
           success: true,
+          output: sanitized.resultValue,
           resultSummary: sanitized.resultSummary,
           fileChanges,
         });
@@ -342,9 +385,12 @@ export class RuntimeSessionToolExecutor {
         const errMsg = err instanceof Error ? err.message : String(err);
         this.emitToolResult(session.id, normalizedToolCall.name, durationMs, false, errMsg.slice(0, 200), true);
         toolExecutions.push({
+          toolCallId: normalizedToolCall.id,
           toolName: normalizedToolCall.name,
+          input: normalizedToolCall.input,
           durationMs,
           success: false,
+          output: errMsg,
           resultSummary: errMsg.slice(0, 200),
         });
         this.emitError(session.id, `Tool "${normalizedToolCall.name}" failed: ${err}`);
@@ -483,9 +529,12 @@ export class RuntimeSessionToolExecutor {
     this.emitError(sessionId, `Tool "${toolCall.name}" blocked by dangerous command detector: ${decision.reasonCode}`);
     this.appendAudit(toolCall.name, 0, "error", authResult);
     toolExecutions.push({
+      toolCallId: toolCall.id,
       toolName: toolCall.name,
+      input: toolCall.input,
       durationMs: 0,
       success: false,
+      output: blockMessage,
       resultSummary: blockMessage.slice(0, 200),
     });
     resultParts.push({
@@ -506,6 +555,7 @@ export class RuntimeSessionToolExecutor {
       readonly content: string;
       readonly isError: boolean;
     }>,
+    toolExecutions: ToolExecutionSummary[],
   ): boolean {
     if (!perCallConfig?.rateLimiter || !perCallConfig.tenantId) {
       return false;
@@ -515,11 +565,21 @@ export class RuntimeSessionToolExecutor {
       return false;
     }
     const retryAfterSec = Math.ceil((rateResult.retryAfterMs ?? 60_000) / 1000);
+    const content = `Rate limit exceeded for tool "${toolCall.name}". Try again in ${retryAfterSec} seconds.`;
     resultParts.push({
       type: "tool_result",
       toolUseId: toolCall.id,
-      content: `Rate limit exceeded for tool "${toolCall.name}". Try again in ${retryAfterSec} seconds.`,
+      content,
       isError: true,
+    });
+    toolExecutions.push({
+      toolCallId: toolCall.id,
+      toolName: toolCall.name,
+      input: toolCall.input,
+      durationMs: 0,
+      success: false,
+      output: content,
+      resultSummary: content.slice(0, 200),
     });
     return true;
   }
@@ -534,6 +594,7 @@ export class RuntimeSessionToolExecutor {
       readonly content: string;
       readonly isError: boolean;
     }>,
+    toolExecutions: ToolExecutionSummary[],
   ): Promise<{ readonly hit: boolean }> {
     if (!cacheTtl || !this.deps.toolCache) {
       return { hit: false };
@@ -562,6 +623,15 @@ export class RuntimeSessionToolExecutor {
         toolUseId: toolCall.id,
         content: resultString,
         isError: false,
+      });
+      toolExecutions.push({
+        toolCallId: toolCall.id,
+        toolName: toolCall.name,
+        input: toolCall.input,
+        durationMs: 0,
+        success: true,
+        output: resultString,
+        resultSummary: resultString.slice(0, 200),
       });
       return { hit: true };
     } catch {
@@ -809,6 +879,7 @@ export class RuntimeSessionToolExecutor {
     resultSummary?: string,
     isError?: boolean,
     retryAttempt?: number,
+    output?: string,
   ): void {
     const event: ToolResultEvent = {
       type: "tool_result",
@@ -817,6 +888,7 @@ export class RuntimeSessionToolExecutor {
       success,
       timestamp: new Date(),
       sessionId,
+      ...(output ? { output } : {}),
       ...(resultSummary ? { resultSummary } : {}),
       ...(isError !== undefined ? { isError } : {}),
       ...(retryAttempt !== undefined ? { retryAttempt } : {}),

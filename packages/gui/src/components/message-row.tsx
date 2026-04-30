@@ -3,6 +3,7 @@ import remarkGfm from "remark-gfm";
 import SyntaxHighlighter from "react-syntax-highlighter";
 import { atomOneDark } from "react-syntax-highlighter/dist/esm/styles/hljs";
 import type { Components } from "react-markdown";
+import type { ReactNode } from "react";
 import { getGuiProviderMetadata } from "@kilnai/gateway-contracts";
 import type { Message } from "../lib/session-store.js";
 import { useSessionStore } from "../lib/session-store.js";
@@ -36,6 +37,8 @@ const markdownComponents: Components = {
 
 interface MessageRowProps {
   readonly message: Message;
+  readonly beforeContent?: ReactNode;
+  readonly afterContent?: ReactNode;
 }
 
 function roleLabel(role: Message["role"]): string {
@@ -82,8 +85,8 @@ export function MessageRow(props: MessageRowProps) {
         className={cn(
           "min-w-0",
           isUser ? "max-w-[min(42rem,82%)]" : "max-w-[min(44rem,90%)]",
-          isAssistant ? "rounded-lg border bg-card px-3 py-2" : "",
-          isOperational ? "rounded-lg border bg-card px-3 py-2" : "",
+          isAssistant ? "rounded-2xl rounded-tl-md bg-muted/35 px-3.5 py-2.5 shadow-sm" : "",
+          isOperational ? "rounded-2xl rounded-tl-md bg-muted/35 px-3.5 py-2.5 shadow-sm" : "",
         )}
       >
         <header className={cn(
@@ -102,9 +105,14 @@ export function MessageRow(props: MessageRowProps) {
         <div
           className={cn(
             "min-w-0 text-sm leading-6 text-foreground",
-            isUser ? "rounded-lg bg-muted px-3 py-2" : "",
+            isUser ? "rounded-2xl rounded-tr-md bg-primary px-3.5 py-2.5 text-primary-foreground shadow-sm" : "",
           )}
         >
+          {isAssistant && props.beforeContent ? (
+            <div className="mb-2 flex flex-col gap-1.5">
+              {props.beforeContent}
+            </div>
+          ) : null}
           {showMarkdown ? (
             <div className="markdown-body">
               <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{message.content}</ReactMarkdown>
@@ -126,6 +134,11 @@ export function MessageRow(props: MessageRowProps) {
               ) : null}
             </p>
           )}
+          {isAssistant && props.afterContent ? (
+            <div className="mt-2 flex flex-col gap-1.5">
+              {props.afterContent}
+            </div>
+          ) : null}
         </div>
       </div>
     </article>

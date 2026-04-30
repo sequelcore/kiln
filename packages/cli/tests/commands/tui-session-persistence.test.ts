@@ -166,12 +166,13 @@ function makeStore(lastRecord: SessionRecord | null = null) {
   return {
     store: {
       last: vi.fn().mockResolvedValue(lastRecord),
+      getResumeTarget: vi.fn().mockResolvedValue(lastRecord),
       find: vi.fn().mockImplementation(async (sessionId: string) => bySession.get(sessionId) ?? null),
       append: vi.fn().mockImplementation(async (r: SessionRecord) => {
         appended.push(r);
         bySession.set(r.sessionId, r);
       }),
-      clearLast: vi.fn().mockResolvedValue(undefined),
+      clearResumeTarget: vi.fn().mockResolvedValue(undefined),
     } as unknown as import("../../src/wrapper/session-store.js").SessionStore,
     appended,
   };
@@ -368,6 +369,222 @@ describe("makeMultiProviderSessionFactory", () => {
     });
   });
 
+  it("persists full tool output separately from the compact summary", async () => {
+    const { store } = makeStore(null);
+    const fullOutput = JSON.stringify({
+      output: "# Session Model\n\nKiln session identity is provider-agnostic.",
+      isError: false,
+      metadata: {
+        toolName: "read",
+        kind: "inspection",
+        operation: "read",
+        filePath: "docs/architecture/session-model.md",
+      },
+    });
+    const registry = {
+      list: vi.fn().mockReturnValue([]),
+      createSession: vi.fn().mockReturnValue({
+        sessionId: "sess-full-output",
+        providerSessionId: "prov-full-output",
+        dispose: vi.fn().mockResolvedValue(undefined),
+        run: vi.fn().mockImplementation(async function* () {
+          yield {
+            type: "tool_result",
+            toolName: "read",
+            output: fullOutput,
+            outputSummary: fullOutput.slice(0, 40),
+          };
+        }),
+      }),
+    } as unknown as ReturnType<typeof import("../../src/wrapper/session-registry.js").createDefaultRegistry>["registry"];
+    const transcriptStore = makeTranscriptStore();
+    const cache = makeContextArtifactCache();
+
+    const { factory } = await makeMultiProviderSessionFactory("claude", PROVIDER_IDS, "/proj", registry, store as any, transcriptStore, cache);
+    const session = factory("sys", "/proj");
+    for await (const _ of session.run({ prompt: "read docs" } as any)) {}
+
+    const appendedEvents = vi.mocked(transcriptStore.append).mock.calls.map((call) => call[1]);
+    const toolEvent = appendedEvents.find((event) => event.kind === "tool_call_completed");
+    expect(toolEvent?.payload).toMatchObject({
+      toolCallId: "sess-full-output:turn:1:tool:1",
+      toolName: "read",
+      output: "# Session Model\n\nKiln session identity is provider-agnostic.",
+      outputSummary: fullOutput.slice(0, 40),
+      metadata: {
+        toolName: "read",
+        kind: "inspection",
+        operation: "read",
+        filePath: "docs/architecture/session-model.md",
+      },
+      status: { state: "succeeded" },
+    });
+    expect(toolEvent?.payload.output).not.toBe(fullOutput);
+  });
+
+  it("persists a complete canonical turn for prompt-only direct sessions", async () => {
+    const { store } = makeStore(null);
+    const registry = {
+      list: vi.fn().mockReturnValue([]),
+      createSession: vi.fn().mockReturnValue({
+        sessionId: "sess-turn",
+        providerSessionId: "prov-turn",
+        dispose: vi.fn().mockResolvedValue(undefined),
+        run: vi.fn().mockImplementation(async function* () {
+          yield { type: "text_delta", content: "Done." };
+          yield { type: "completed", totalUsd: 0, durationMs: 10, isError: false, isPreflightCrash: false };
+        }),
+      }),
+    } as unknown as ReturnType<typeof import("../../src/wrapper/session-registry.js").createDefaultRegistry>["registry"];
+    const transcriptStore = makeTranscriptStore();
+    const cache = makeContextArtifactCache();
+
+    const { factory } = await makeMultiProviderSessionFactory("claude", PROVIDER_IDS, "/proj", registry, store as any, transcriptStore, cache);
+    const session = factory("sys", "/proj");
+    for await (const _ of session.run({ prompt: "summarize operator event visibility" } as any)) {}
+
+    const appendedEvents = vi.mocked(transcriptStore.append).mock.calls.map((call) => call[1]);
+    expect(appendedEvents.map((event) => event.kind)).toEqual([
+      "turn_started",
+      "user_message",
+      "assistant_delta",
+      "assistant_message",
+      "turn_completed",
+    ]);
+    expect(appendedEvents.find((event) => event.kind === "user_message")?.payload).toMatchObject({
+      content: "summarize operator event visibility",
+    });
+    expect(appendedEvents.find((event) => event.kind === "assistant_message")?.payload).toMatchObject({
+      content: "Done.",
+    });
+  });
+
+  it("persists the latest structured user message instead of the serialized provider prompt", async () => {
+    const { store } = makeStore(null);
+    const registry = {
+      list: vi.fn().mockReturnValue([]),
+      createSession: vi.fn().mockReturnValue({
+        sessionId: "sess-structured-user",
+        providerSessionId: "prov-structured-user",
+        dispose: vi.fn().mockResolvedValue(undefined),
+        run: vi.fn().mockImplementation(async function* () {
+          yield { type: "text_delta", content: "Done." };
+        }),
+      }),
+    } as unknown as ReturnType<typeof import("../../src/wrapper/session-registry.js").createDefaultRegistry>["registry"];
+    const transcriptStore = makeTranscriptStore();
+    const cache = makeContextArtifactCache();
+
+    const { factory } = await makeMultiProviderSessionFactory("claude", PROVIDER_IDS, "/proj", registry, store as any, transcriptStore, cache);
+    const session = factory("sys", "/proj");
+    for await (const _ of session.run({
+      prompt: "User: first request\n\nAssistant: first answer\n\nUser: read live_test_visibility.txt",
+      messages: [
+        { role: "user", parts: [{ type: "text", text: "first request" }] },
+        { role: "assistant", parts: [{ type: "text", text: "first answer" }] },
+        { role: "user", parts: [{ type: "text", text: "read live_test_visibility.txt" }] },
+      ],
+    } as any)) {}
+
+    const appendedEvents = vi.mocked(transcriptStore.append).mock.calls.map((call) => call[1]);
+    const userEvent = appendedEvents.find((event) => event.kind === "user_message");
+    expect(userEvent?.payload).toMatchObject({
+      content: "read live_test_visibility.txt",
+    });
+    expect(userEvent?.payload).not.toMatchObject({
+      content: "User: first request\n\nAssistant: first answer\n\nUser: read live_test_visibility.txt",
+    });
+  });
+
+  it("uses GUI transcript source attribution when the shared factory is created for GUI", async () => {
+    const { store } = makeStore(null);
+    const registry = {
+      list: vi.fn().mockReturnValue([]),
+      createSession: vi.fn().mockReturnValue({
+        sessionId: "sess-gui-source",
+        providerSessionId: "prov-gui-source",
+        dispose: vi.fn().mockResolvedValue(undefined),
+        run: vi.fn().mockImplementation(async function* () {
+          yield { type: "text_delta", content: "GUI turn" };
+        }),
+      }),
+    } as unknown as ReturnType<typeof import("../../src/wrapper/session-registry.js").createDefaultRegistry>["registry"];
+    const transcriptStore = makeTranscriptStore();
+    const cache = makeContextArtifactCache();
+
+    const { factory } = await makeMultiProviderSessionFactory(
+      "claude",
+      PROVIDER_IDS,
+      "/proj",
+      registry,
+      store as any,
+      transcriptStore,
+      cache,
+      undefined,
+      "gui",
+    );
+    const session = factory("sys", "/proj");
+    for await (const _ of session.run({ prompt: "hello gui" } as any)) {}
+
+    const appendedEvents = vi.mocked(transcriptStore.append).mock.calls.map((call) => call[1]);
+    expect(appendedEvents).not.toHaveLength(0);
+    expect(appendedEvents.every((event) => event.source.surface === "gui")).toBe(true);
+    expect(appendedEvents.every((event) => event.source.component === "gui-command")).toBe(true);
+  });
+
+  it("links real tool call ids and inputs across started and completed events", async () => {
+    const { store } = makeStore(null);
+    const fullOutput = JSON.stringify({
+      output: "im alive and testing diff",
+      isError: false,
+      metadata: {
+        toolName: "read",
+        kind: "file",
+        operation: "read",
+        filePath: "im_alive.txt",
+      },
+    });
+    const registry = {
+      list: vi.fn().mockReturnValue([]),
+      createSession: vi.fn().mockReturnValue({
+        sessionId: "sess-linked-tool",
+        providerSessionId: "prov-linked-tool",
+        dispose: vi.fn().mockResolvedValue(undefined),
+        run: vi.fn().mockImplementation(async function* () {
+          yield { type: "tool_use", toolCallId: "call-read-1", toolName: "read", input: { filePath: "im_alive.txt" } };
+          yield {
+            type: "tool_result",
+            toolCallId: "call-read-1",
+            toolName: "read",
+            output: fullOutput,
+            outputSummary: "im alive and testing diff",
+          };
+        }),
+      }),
+    } as unknown as ReturnType<typeof import("../../src/wrapper/session-registry.js").createDefaultRegistry>["registry"];
+    const transcriptStore = makeTranscriptStore();
+    const cache = makeContextArtifactCache();
+
+    const { factory } = await makeMultiProviderSessionFactory("claude", PROVIDER_IDS, "/proj", registry, store as any, transcriptStore, cache);
+    const session = factory("sys", "/proj");
+    for await (const _ of session.run({ prompt: "read im_alive.txt" } as any)) {}
+
+    const appendedEvents = vi.mocked(transcriptStore.append).mock.calls.map((call) => call[1]);
+    const started = appendedEvents.find((event) => event.kind === "tool_call_started");
+    const completed = appendedEvents.find((event) => event.kind === "tool_call_completed");
+    expect(started?.payload).toMatchObject({
+      toolCallId: "call-read-1",
+      toolName: "read",
+      input: { filePath: "im_alive.txt" },
+    });
+    expect(completed?.payload).toMatchObject({
+      toolCallId: "call-read-1",
+      toolName: "read",
+      output: "im alive and testing diff",
+      status: { state: "succeeded" },
+    });
+  });
+
   it("passes captured sessionId as resumeSessionId on next turn", async () => {
     const { store } = makeStore(null);
     const { registry } = makeRegistry("sess-first");
@@ -395,20 +612,20 @@ describe("makeMultiProviderSessionFactory", () => {
     await session.dispose();
 
     await onClear();
-    expect(store.clearLast).toHaveBeenCalledWith();
+    expect(store.clearResumeTarget).toHaveBeenCalledWith(undefined);
   });
 
   it("onClear clears the canonical resume target", async () => {
     const { store } = makeStore(null);
     const { registry } = makeRegistry();
-    store.clearLast = vi.fn().mockResolvedValue(undefined);
+    store.clearResumeTarget = vi.fn().mockResolvedValue(undefined);
     const transcriptStore = makeTranscriptStore();
     const cache = makeContextArtifactCache();
 
     const { onClear } = await makeMultiProviderSessionFactory("claude", PROVIDER_IDS, "/proj", registry, store, transcriptStore, cache);
     await onClear();
 
-    expect(store.clearLast).toHaveBeenCalledWith();
+    expect(store.clearResumeTarget).toHaveBeenCalledWith(undefined);
   });
 
   it("tracks selected models per provider instead of reusing one global model", async () => {

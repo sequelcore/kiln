@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { Transcript } from "../src/components/transcript.js";
 import type { Message, TimelineEntry } from "../src/lib/session-store.js";
@@ -50,34 +50,92 @@ describe("Transcript", () => {
     }
   });
 
-  it("renders user, assistant, tool, and error rows with distinct roles", () => {
+  it("renders user, assistant, and error rows with distinct roles", () => {
     render(
       <Transcript
         entries={[
           messageEntry("1", "user", "hello"),
           messageEntry("2", "assistant", "world"),
-          {
-            id: "timeline:event:tool",
-            type: "event",
-            eventKind: "tool_call_started",
-            createdAt: new Date().toISOString(),
-            title: "Using bash",
-            summary: "Execution in progress",
-            tone: "running",
-          },
           messageEntry("4", "error", "boom"),
         ]}
       />,
     );
 
     const rows = screen.getAllByRole("article");
-    expect(rows).toHaveLength(4);
+    expect(rows).toHaveLength(3);
     expect(rows[0]).toHaveAttribute("data-role", "user");
     expect(rows[1]).toHaveAttribute("data-role", "assistant");
-    expect(rows[2]).toHaveAttribute("data-role", "tool");
-    expect(rows[2]).toHaveTextContent("Using bash");
-    expect(rows[2]).not.toHaveClass("rounded-lg");
-    expect(rows[3]).toHaveAttribute("data-role", "error");
+    expect(rows[2]).toHaveAttribute("data-role", "error");
+  });
+
+  it("groups tool activity into the following assistant message bubble", () => {
+    render(
+      <Transcript
+        entries={[
+          messageEntry("1", "user", "read docs"),
+          {
+            id: "timeline:event:tool-started",
+            type: "event",
+            eventKind: "tool_call_started",
+            createdAt: new Date().toISOString(),
+            title: "Using read",
+            summary: "Execution in progress",
+            tone: "running",
+            details: { toolCallId: "call_read_1" },
+          },
+          {
+            id: "timeline:event:tool-completed",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: new Date().toISOString(),
+            title: "Completed read",
+            summary: "# Session Model",
+            tone: "success",
+            details: { toolCallId: "call_read_1", status: "succeeded" },
+          },
+          messageEntry("2", "assistant", "Here is the summary."),
+        ]}
+      />,
+    );
+
+    const rows = screen.getAllByRole("article");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveAttribute("data-role", "user");
+    expect(rows[1]).toHaveAttribute("data-role", "assistant");
+    expect(within(rows[1]!).getByTestId("assistant-tool-events")).toBeInTheDocument();
+    expect(rows[1]).not.toHaveTextContent("Using read");
+    expect(rows[1]).not.toHaveTextContent("Execution in progress");
+    expect(rows[1]).toHaveTextContent("Completed read");
+    expect(rows[1]).toHaveTextContent("Here is the summary.");
+  });
+
+  it("groups trailing tool activity into the previous assistant message bubble", () => {
+    render(
+      <Transcript
+        entries={[
+          messageEntry("1", "user", "create a file"),
+          messageEntry("2", "assistant", "Created `im_alive.txt` with:"),
+          {
+            id: "timeline:event:tool-completed",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: new Date().toISOString(),
+            title: "Completed write",
+            summary: "1 file changed, 1 addition",
+            tone: "success",
+          },
+          messageEntry("3", "user", "now edit it"),
+        ]}
+      />,
+    );
+
+    const rows = screen.getAllByRole("article");
+    expect(rows).toHaveLength(3);
+    expect(rows[1]).toHaveAttribute("data-role", "assistant");
+    expect(within(rows[1]!).getByTestId("assistant-tool-events")).toBeInTheDocument();
+    expect(rows[1]).toHaveTextContent("Completed write");
+    expect(rows[1]).toHaveTextContent("Created im_alive.txt with:");
+    expect(rows[2]).toHaveAttribute("data-role", "user");
   });
 
   it("keeps JSON-shaped tool output compact in inline rows and details", () => {
@@ -158,18 +216,18 @@ describe("Transcript", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
-
     expect(screen.getByText("Diff preview")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Hide details" })).toBeInTheDocument();
     expect(screen.getByText("packages/gui/src/components/transcript.tsx")).toBeInTheDocument();
     expect(screen.getByText("Additions")).toBeInTheDocument();
     expect(screen.getByText("18")).toBeInTheDocument();
     expect(screen.getByText("+ typed preview")).toBeInTheDocument();
-    expect(screen.getByText("Open inspector")).toBeInTheDocument();
+    expect(screen.queryByText("Open inspector")).not.toBeInTheDocument();
+    expect(screen.queryByText("Raw available")).not.toBeInTheDocument();
     expect(screen.queryByText(/"metadata"/)).not.toBeInTheDocument();
   });
 
-  it("renders resource-linked tool presentations with an inspector action", () => {
+  it("renders resource-linked tool presentations without fake inspector actions", () => {
     render(
       <Transcript
         entries={[
@@ -218,8 +276,161 @@ describe("Transcript", () => {
     expect(screen.getByText("Resource link")).toBeInTheDocument();
     expect(screen.getAllByText("read_many full output").length).toBeGreaterThan(0);
     expect(screen.getByText("kiln://artifacts/tool-results/artifact_1/content")).toBeInTheDocument();
-    expect(screen.getByText("Open inspector")).toBeInTheDocument();
+    expect(screen.queryByText("Open inspector")).not.toBeInTheDocument();
+    expect(screen.queryByText("Raw available")).not.toBeInTheDocument();
     expect(screen.queryByText("--- C:\\Proyectos\\Sequel\\kiln\\docs\\architecture.md")).not.toBeInTheDocument();
+  });
+
+  it("renders read and tree tool presentations without JSON envelopes", () => {
+    render(
+      <Transcript
+        entries={[
+          {
+            id: "timeline:event:tool-read-live",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: new Date().toISOString(),
+            title: "Completed read",
+            summary: "# Session Model",
+            tone: "success",
+            details: {
+              result: "# Session Model",
+              status: "succeeded",
+            },
+            toolPresentation: {
+              outputKind: "markdown",
+              title: "docs/architecture/session-model.md",
+              summary: "# Session Model",
+              fields: [{ label: "Path", value: "docs/architecture/session-model.md" }],
+              preview: {
+                text: "# Session Model\n\nKiln session identity is provider-agnostic.",
+              },
+              raw: { available: true },
+            },
+          },
+          {
+            id: "timeline:event:tool-tree-live",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: new Date().toISOString(),
+            title: "Completed tree",
+            summary: "55 entries under C:\\Proyectos\\Sequel\\kiln",
+            tone: "success",
+            details: {
+              result: "55 entries under C:\\Proyectos\\Sequel\\kiln",
+              status: "succeeded",
+            },
+            toolPresentation: {
+              outputKind: "tree",
+              title: "C:\\Proyectos\\Sequel\\kiln",
+              summary: "55 entries under C:\\Proyectos\\Sequel\\kiln",
+              fields: [{ label: "Entries", value: "55" }],
+              preview: {
+                text: ".\npackages/\n  gui/",
+              },
+              resourceLinks: [
+                {
+                  uri: "kiln://artifacts/tool-results/artifact_tree/content",
+                  title: "tree full output",
+                  mimeType: "text/plain",
+                  size: 9000,
+                  relation: "full_output",
+                },
+              ],
+              raw: { available: true, resourceUri: "kiln://artifacts/tool-results/artifact_tree/content" },
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("# Session Model")).toBeInTheDocument();
+    expect(screen.getAllByText("55 entries under C:\\Proyectos\\Sequel\\kiln").length).toBeGreaterThan(0);
+
+    const detailButtons = screen.getAllByRole("button", { name: "Show details" });
+    fireEvent.click(detailButtons[0]!);
+
+    expect(screen.getByText("Markdown preview")).toBeInTheDocument();
+    expect(screen.getAllByText("Tree preview").length).toBeGreaterThan(0);
+    expect(screen.getByText("Kiln session identity is provider-agnostic.")).toBeInTheDocument();
+    expect(screen.getByText("packages/")).toBeInTheDocument();
+    expect(screen.getByText("tree full output")).toBeInTheDocument();
+    expect(screen.queryByText(/\"output\"/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/\"metadata\"/)).not.toBeInTheDocument();
+  });
+
+  it("renders stat metadata as fields instead of JSON text preview", () => {
+    render(
+      <Transcript
+        entries={[
+          {
+            id: "timeline:event:tool-stat-live",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: new Date().toISOString(),
+            title: "Completed stat",
+            summary: "file · 25 bytes",
+            tone: "success",
+            details: {
+              result: "{",
+              status: "succeeded",
+            },
+            toolPresentation: {
+              outputKind: "text",
+              title: "C:\\Proyectos\\Sequel\\kiln\\im_alive.txt",
+              summary: "file · 25 bytes",
+              fields: [
+                { label: "Type", value: "file" },
+                { label: "Size", value: "25 bytes" },
+                { label: "Modified", value: "2026-04-30T12:33:05.305Z" },
+              ],
+              raw: { available: false },
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("file · 25 bytes")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+    expect(screen.getByText("C:\\Proyectos\\Sequel\\kiln\\im_alive.txt")).toBeInTheDocument();
+    expect(screen.getByText("Type")).toBeInTheDocument();
+    expect(screen.getByText("25 bytes")).toBeInTheDocument();
+    expect(screen.queryByText("Text preview")).not.toBeInTheDocument();
+    expect(screen.queryByText("{")).not.toBeInTheDocument();
+  });
+
+  it("does not render a tree summary as a tree preview", () => {
+    render(
+      <Transcript
+        entries={[
+          {
+            id: "timeline:event:tool-tree-summary",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: new Date().toISOString(),
+            title: "Completed tree",
+            summary: "20 entries under C:\\Proyectos\\Sequel\\kiln",
+            tone: "success",
+            details: {
+              result: "20 entries under C:\\Proyectos\\Sequel\\kiln",
+              status: "succeeded",
+            },
+            toolPresentation: {
+              outputKind: "tree",
+              title: "C:\\Proyectos\\Sequel\\kiln",
+              summary: "20 entries under C:\\Proyectos\\Sequel\\kiln",
+              fields: [{ label: "Entries", value: "20" }],
+              raw: { available: false },
+            },
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+    expect(screen.getAllByText("20 entries under C:\\Proyectos\\Sequel\\kiln").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Tree preview")).not.toBeInTheDocument();
   });
 
   it("shows streaming cursor indicator for streaming assistant message", () => {
@@ -242,7 +453,8 @@ describe("Transcript", () => {
 
     const assistantRow = screen.getByRole("article");
     expect(assistantRow).toHaveAttribute("data-role", "assistant");
-    expect(assistantRow.firstElementChild).toHaveClass("rounded-lg", "border", "bg-card");
+    expect(assistantRow.firstElementChild).toHaveClass("rounded-2xl", "rounded-tl-md", "bg-muted/35");
+    expect(assistantRow.firstElementChild).not.toHaveClass("border", "bg-card");
   });
 
   it("shows assistant thinking state in the transcript instead of the composer", () => {
@@ -254,6 +466,7 @@ describe("Transcript", () => {
     );
 
     expect(screen.getByRole("status", { name: "Activity phase: Thinking" })).toBeInTheDocument();
+    expect(screen.queryByText("Thinking")).not.toBeInTheDocument();
     expect(screen.getAllByRole("article").at(-1)).toHaveAttribute("data-role", "assistant");
   });
 
@@ -269,6 +482,46 @@ describe("Transcript", () => {
     expect(screen.getByRole("status", { name: "Activity phase: Using read_many" })).toBeInTheDocument();
   });
 
+  it("keeps live tool events inside the active assistant bubble before final text arrives", () => {
+    render(
+      <Transcript
+        entries={[
+          messageEntry("1", "user", "patch the file"),
+          {
+            id: "timeline:event:tool-started",
+            type: "event",
+            eventKind: "tool_call_started",
+            createdAt: new Date().toISOString(),
+            title: "Using patch",
+            summary: "Execution in progress",
+            tone: "running",
+            details: { toolCallId: "call_patch_1" },
+          },
+          {
+            id: "timeline:event:tool-completed",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: new Date().toISOString(),
+            title: "Completed patch",
+            summary: "1 file changed",
+            tone: "success",
+            details: { toolCallId: "call_patch_1", status: "succeeded" },
+          },
+        ]}
+        activityPhase="streaming"
+      />,
+    );
+
+    const rows = screen.getAllByRole("article");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveAttribute("data-role", "user");
+    expect(rows[1]).toHaveAttribute("data-role", "assistant");
+    expect(screen.queryByText("Using patch")).not.toBeInTheDocument();
+    expect(within(rows[1]!).getByTestId("assistant-tool-events")).toBeInTheDocument();
+    expect(rows[1]).toHaveTextContent("Completed patch");
+    expect(rows[1]).toHaveTextContent("Responding");
+  });
+
   it("does not duplicate the responding state when an assistant message is already streaming", () => {
     render(
       <Transcript
@@ -279,6 +532,37 @@ describe("Transcript", () => {
 
     expect(screen.getByLabelText("Streaming")).toBeInTheDocument();
     expect(screen.queryByRole("status", { name: "Activity phase: Responding" })).not.toBeInTheDocument();
+  });
+
+  it("does not render a separate activity row once an assistant shell anchors live tools", () => {
+    render(
+      <Transcript
+        entries={[
+          messageEntry("1", "user", "patch the file"),
+          messageEntry("2", "assistant", "", true),
+          {
+            id: "timeline:event:tool-started",
+            type: "event",
+            eventKind: "tool_call_started",
+            createdAt: new Date().toISOString(),
+            title: "Using patch",
+            summary: "Execution in progress",
+            tone: "running",
+            details: { toolCallId: "call_patch_1" },
+          },
+        ]}
+        activityPhase="tool_running"
+        activityToolName="patch"
+      />,
+    );
+
+    const rows = screen.getAllByRole("article");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveAttribute("data-role", "user");
+    expect(rows[1]).toHaveAttribute("data-role", "assistant");
+    expect(within(rows[1]!).getByTestId("assistant-tool-events")).toBeInTheDocument();
+    expect(rows[1]).toHaveTextContent("Using patch");
+    expect(screen.queryByRole("status", { name: "Activity phase: Using patch" })).not.toBeInTheDocument();
   });
 
   it("sticks to bottom unless user scrolled up", () => {

@@ -2,6 +2,11 @@ import { readFile, writeFile } from "node:fs/promises";
 import { fileToolMetadata } from "../domain/tool-result-metadata.js";
 import { TOOL_SCHEMAS, type DevTool, type ToolInput, type ToolResult } from "../domain/tool.js";
 import {
+  buildReplacementPreview,
+  clipDiffPreview,
+  countTextLines,
+} from "./file-diff-preview.js";
+import {
   optionalBoolean,
   requireString,
   resolvePath,
@@ -97,14 +102,20 @@ export class EditTool implements DevTool {
       }
 
       await writeFile(absolutePath, replacement.value, "utf8");
+      const preview = clipDiffPreview(buildReplacementPreview(oldStringInput.value, newStringInput.value));
 
       return toSuccessResult(
         `Applied ${replacement.count} replacement${replacement.count === 1 ? "" : "s"} in ${absolutePath}`,
         fileToolMetadata("edit", {
           operation: "edit",
           filePath: absolutePath,
+          changeType: "modified",
           replacements: replacement.count,
           replaceAll: replaceEveryMatch,
+          linesAdded: countTextLines(newStringInput.value) * replacement.count,
+          linesRemoved: countTextLines(oldStringInput.value) * replacement.count,
+          ...(preview.preview.length > 0 ? { diffPreview: preview.preview } : {}),
+          diffTruncated: preview.truncated,
         }),
       );
     } catch (error) {

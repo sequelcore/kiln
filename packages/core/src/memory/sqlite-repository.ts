@@ -23,6 +23,10 @@ import type {
 } from "./repository.js";
 
 const DEFAULT_LIMIT = 50;
+const MAX_RECORD_LIMIT = 500;
+const MAX_REVISION_LIMIT = 501;
+const MAX_RELATION_LIMIT = 1_001;
+const MAX_ADMISSION_LIMIT = 501;
 
 type SqlBinding = string | number | null;
 
@@ -219,7 +223,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
   }
 
   listRecords(query: MemoryRecordQuery = {}): readonly MemoryRecord[] {
-    const limit = this.resolveLimit(query.limit);
+    const limit = this.resolveRecordLimit(query.limit);
     const { where, args } = this.whereClause(query);
     const rows = this.db.prepare(`
       SELECT *
@@ -237,7 +241,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
       return records.map((record) => ({ record }));
     }
 
-    const limit = this.resolveLimit(query.limit);
+    const limit = this.resolveRecordLimit(query.limit);
     const scopedQuery: MemoryRecordQuery = {
       ...query,
       query: undefined,
@@ -250,7 +254,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
       FROM memory_fts f
       JOIN memory_records r ON r.id = f.id
       ${where === "" ? "WHERE" : `${where} AND`} memory_fts MATCH ?
-      ORDER BY bm25(memory_fts), r.updated_at DESC, r.created_at DESC
+      ORDER BY bm25(memory_fts), r.updated_at DESC, r.created_at DESC, r.id ASC
       LIMIT ?
     `).all(...args, query.query.trim(), limit) as MemorySearchRow[];
 
@@ -347,13 +351,20 @@ export class SqliteMemoryRepository implements MemoryRepository {
     return revision;
   }
 
-  listRevisions(recordId: string): readonly MemoryRevision[] {
+  listRevisions(recordId: string, query: { readonly limit?: number } = {}): readonly MemoryRevision[] {
+    const args: SqlBinding[] = [recordId];
+    let limitClause = "";
+    if (query.limit !== undefined) {
+      limitClause = "LIMIT ?";
+      args.push(this.resolveRevisionLimit(query.limit));
+    }
     const rows = this.db.prepare(`
       SELECT *
       FROM memory_revisions
       WHERE record_id = ?
       ORDER BY sequence ASC
-    `).all(recordId) as MemoryRevisionRow[];
+      ${limitClause}
+    `).all(...args) as MemoryRevisionRow[];
     return rows.map((row) => ({
       id: row.id,
       recordId: row.record_id,
@@ -396,13 +407,29 @@ export class SqliteMemoryRepository implements MemoryRepository {
     return relation;
   }
 
-  listRelations(sourceRecordId: string): readonly MemoryRelation[] {
+  getRelation(id: string): MemoryRelation | undefined {
+    const row = this.db.prepare(`
+      SELECT *
+      FROM memory_relations
+      WHERE id = ?
+    `).get(id) as MemoryRelationRow | undefined;
+    return row ? this.toRelation(row) : undefined;
+  }
+
+  listRelations(sourceRecordId: string, query: { readonly limit?: number } = {}): readonly MemoryRelation[] {
+    const args: SqlBinding[] = [sourceRecordId];
+    let limitClause = "";
+    if (query.limit !== undefined) {
+      limitClause = "LIMIT ?";
+      args.push(this.resolveRelationLimit(query.limit));
+    }
     const rows = this.db.prepare(`
       SELECT *
       FROM memory_relations
       WHERE source_record_id = ?
       ORDER BY created_at ASC, id ASC
-    `).all(sourceRecordId) as MemoryRelationRow[];
+      ${limitClause}
+    `).all(...args) as MemoryRelationRow[];
     return rows.map((row) => this.toRelation(row));
   }
 
@@ -448,9 +475,10 @@ export class SqliteMemoryRepository implements MemoryRepository {
   listContextAdmissions(query: {
     readonly sessionId?: string;
     readonly recordId?: string;
+    readonly limit?: number;
   } = {}): readonly MemoryContextAdmission[] {
     const clauses = [];
-    const args: string[] = [];
+    const args: SqlBinding[] = [];
     if (query.sessionId) {
       clauses.push("session_id = ?");
       args.push(query.sessionId);
@@ -459,13 +487,15 @@ export class SqliteMemoryRepository implements MemoryRepository {
       clauses.push("record_id = ?");
       args.push(query.recordId);
     }
+    const limit = this.resolveAdmissionLimit(query.limit);
     const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
     const rows = this.db.prepare(`
       SELECT *
       FROM memory_context_admissions
       ${where}
       ORDER BY created_at ASC, id ASC
-    `).all(...args) as MemoryContextAdmissionRow[];
+      LIMIT ?
+    `).all(...args, limit) as MemoryContextAdmissionRow[];
     return rows.map((row) => ({
       id: row.id,
       recordId: row.record_id,
@@ -666,10 +696,34 @@ export class SqliteMemoryRepository implements MemoryRepository {
     };
   }
 
-  private resolveLimit(limit: number | undefined): number {
+  private resolveRecordLimit(limit: number | undefined): number {
     if (limit === undefined) return DEFAULT_LIMIT;
-    if (!Number.isInteger(limit) || limit < 1 || limit > 500) {
+    if (!Number.isInteger(limit) || limit < 1 || limit > MAX_RECORD_LIMIT) {
       throw new Error("Memory record query limit must be an integer between 1 and 500");
+    }
+    return limit;
+  }
+
+  private resolveRevisionLimit(limit: number | undefined): number {
+    if (limit === undefined) return DEFAULT_LIMIT;
+    if (!Number.isInteger(limit) || limit < 1 || limit > MAX_REVISION_LIMIT) {
+      throw new Error("Memory revision query limit must be an integer between 1 and 501");
+    }
+    return limit;
+  }
+
+  private resolveRelationLimit(limit: number | undefined): number {
+    if (limit === undefined) return DEFAULT_LIMIT;
+    if (!Number.isInteger(limit) || limit < 1 || limit > MAX_RELATION_LIMIT) {
+      throw new Error("Memory relation query limit must be an integer between 1 and 1001");
+    }
+    return limit;
+  }
+
+  private resolveAdmissionLimit(limit: number | undefined): number {
+    if (limit === undefined) return DEFAULT_LIMIT;
+    if (!Number.isInteger(limit) || limit < 1 || limit > MAX_ADMISSION_LIMIT) {
+      throw new Error("Memory context admission query limit must be an integer between 1 and 501");
     }
     return limit;
   }

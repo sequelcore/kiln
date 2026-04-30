@@ -3,24 +3,32 @@ import type { ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { OperatorWorkspaceFileSnapshot } from "@kilnai/gateway-contracts";
-import { File, Image, MessageSquare, X } from "lucide-react";
+import { File, Image, MessageSquare, Network, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
-interface WorkspaceDocumentTabsProps {
+export type OperatorSurfaceKind = "chat" | "memory" | "workspace";
+
+interface OperatorSurfaceTabsProps {
+  readonly activeSurface: OperatorSurfaceKind;
   readonly chatContent: ReactNode;
+  readonly memoryContent: ReactNode;
+  readonly memoryOpen: boolean;
   readonly files: readonly OperatorWorkspaceFileSnapshot[];
   readonly selectedPath: string | null;
   readonly loadingPath: string | null;
   readonly error: string | null;
   readonly onSelectChat: () => void;
+  readonly onSelectMemory: () => void;
+  readonly onCloseMemory: () => void;
   readonly onSelectFile: (path: string) => void;
   readonly onCloseFile: (path: string) => void;
 }
 
 const CHAT_TAB_VALUE = "__kiln_chat__";
+const MEMORY_TAB_VALUE = "__kiln_memory_lattice__";
 
 const WorkspaceCodeHighlighter = lazy(async () => {
   const module = await import("./workspace-code-highlighter.js");
@@ -194,20 +202,23 @@ function FilePreview(props: { readonly file: OperatorWorkspaceFileSnapshot }) {
   );
 }
 
-export function WorkspaceDocumentTabs(props: WorkspaceDocumentTabsProps) {
+export function OperatorSurfaceTabs(props: OperatorSurfaceTabsProps) {
   const selectedFile = props.selectedPath ? props.files.find((file) => file.path === props.selectedPath) ?? null : null;
   const pendingPath = props.selectedPath && props.loadingPath === props.selectedPath && !selectedFile ? props.selectedPath : null;
   const transientPath = pendingPath ?? (props.selectedPath && !selectedFile ? props.selectedPath : null);
-  const hasWorkspaceTabs = props.files.length > 0 || transientPath !== null;
-  const selectedValue = props.selectedPath ?? CHAT_TAB_VALUE;
-
-  if (!hasWorkspaceTabs) {
-    return <>{props.chatContent}</>;
-  }
+  const selectedValue = props.activeSurface === "memory" && props.memoryOpen
+    ? MEMORY_TAB_VALUE
+    : props.activeSurface === "workspace" && props.selectedPath
+      ? props.selectedPath
+      : CHAT_TAB_VALUE;
 
   function handleTabChange(value: unknown) {
     if (value === CHAT_TAB_VALUE) {
       props.onSelectChat();
+      return;
+    }
+    if (value === MEMORY_TAB_VALUE && props.memoryOpen) {
+      props.onSelectMemory();
       return;
     }
     if (typeof value === "string") {
@@ -236,7 +247,7 @@ export function WorkspaceDocumentTabs(props: WorkspaceDocumentTabsProps) {
 
   return (
     <Tabs
-      aria-label="Workspace documents"
+      aria-label="Operator surfaces"
       value={selectedValue}
       onValueChange={handleTabChange}
       className="h-full min-h-0 min-w-0 gap-0 overflow-hidden bg-workspace-viewer"
@@ -247,6 +258,33 @@ export function WorkspaceDocumentTabs(props: WorkspaceDocumentTabsProps) {
             <MessageSquare data-icon="inline-start" />
             Chat
           </TabsTrigger>
+          {props.memoryOpen ? (
+            <div
+              className={cn(
+                "flex h-8 max-w-60 shrink-0 items-center overflow-hidden rounded-md border border-border/60",
+                selectedValue === MEMORY_TAB_VALUE ? "bg-secondary text-foreground" : "bg-workspace-viewer text-muted-foreground",
+              )}
+            >
+              <TabsTrigger
+                value={MEMORY_TAB_VALUE}
+                title="Memory Lattice"
+                className="min-w-0 flex-1 justify-start overflow-hidden rounded-r-none border-0 bg-transparent px-2 data-active:bg-transparent"
+              >
+                <Network data-icon="inline-start" />
+                <span className="block min-w-0 truncate">Memory Lattice</span>
+              </TabsTrigger>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className="shrink-0 rounded-l-none"
+                aria-label="Close Memory Lattice"
+                onClick={props.onCloseMemory}
+              >
+                <X />
+              </Button>
+            </div>
+          ) : null}
           {props.files.map((file) => (
             <div
               key={file.path}
@@ -290,6 +328,11 @@ export function WorkspaceDocumentTabs(props: WorkspaceDocumentTabsProps) {
       <TabsContent value={CHAT_TAB_VALUE} keepMounted className="min-h-0 min-w-0 overflow-hidden bg-workspace-viewer">
         {props.chatContent}
       </TabsContent>
+      {props.memoryOpen ? (
+        <TabsContent value={MEMORY_TAB_VALUE} className="min-h-0 min-w-0 overflow-hidden bg-workspace-viewer">
+          {props.memoryContent}
+        </TabsContent>
+      ) : null}
       {props.files.map((file) => (
         <TabsContent key={file.path} value={file.path} className="min-h-0 min-w-0 overflow-hidden bg-workspace-viewer">
           {file.path === props.selectedPath ? renderSelectedFileContent() : <FilePreview file={file} />}

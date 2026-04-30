@@ -47,6 +47,8 @@ import {
   type AttachedRuntimeBuiltinToolSurface,
 } from "./attached-runtime-tool-surface.js";
 import { createOperatorThemeBridge } from "./operator-theme-bridge.js";
+import { projectMemoryLatticeInvalidationFrame } from "./gui-memory-lattice-events.js";
+import { createGuiMemoryLatticeRoutes } from "./gui-memory-lattice.js";
 import {
   isGuiProviderModeless,
   isOperatorThemeName,
@@ -215,6 +217,7 @@ export function deriveGuiAuthorityStatusFromPerCallConfig(
 export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<GuiGateway> {
   const port = options.port ?? 4810;
   const builtinToolOptions = createSessionBuiltinToolOptions(options.builtinToolOptions);
+  const memoryLatticeResources = createAttachedRuntimeBuiltinToolSurface({ builtinToolOptions });
   const app = new Hono();
   const guiDistPath = resolveGuiDistPath(options.guiDistPath, import.meta.url);
   const hasMountedGui = mountGuiStaticAssetsIfPresent(app, guiDistPath);
@@ -269,6 +272,7 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
 
   app.get("/health", (c) => c.json({ status: "ok", channel: "gui", connections: activeConnections }));
   app.get("/gui-api/health", (c) => c.json({ status: "ok", channel: "gui", connections: activeConnections }));
+  app.route("/gui/api", createGuiMemoryLatticeRoutes({ resources: memoryLatticeResources }));
 
   app.get("/gui/api/dashboard", async (c) => {
     const nextDiscovery = getOperatorDiscoverySnapshot();
@@ -1086,6 +1090,7 @@ class GuiActivityStreamer {
   private receivedHandler: ((event: KilnEvent) => void) | null = null;
   private modelRoutedHandler: ((event: KilnEvent) => void) | null = null;
   private authorizedHandler: ((event: KilnEvent) => void) | null = null;
+  private memoryLatticeHandler: ((event: KilnEvent) => void) | null = null;
   private approvalBridge: {
     approve: (sessionId: string) => void;
     reject: (sessionId: string, reason: string) => void;
@@ -1312,6 +1317,14 @@ class GuiActivityStreamer {
       }
     };
     this.eventBus.onAny(this.authorizedHandler);
+
+    this.memoryLatticeHandler = (event: KilnEvent) => {
+      const frame = projectMemoryLatticeInvalidationFrame(event);
+      if (frame) {
+        this.ws?.send(JSON.stringify(frame satisfies GuiInboundFrame));
+      }
+    };
+    this.eventBus.onAny(this.memoryLatticeHandler);
   }
 
   unregister(ws: WSContext): void {
@@ -1333,6 +1346,10 @@ class GuiActivityStreamer {
     if (this.eventBus && this.authorizedHandler) {
       this.eventBus.offAny(this.authorizedHandler);
       this.authorizedHandler = null;
+    }
+    if (this.eventBus && this.memoryLatticeHandler) {
+      this.eventBus.offAny(this.memoryLatticeHandler);
+      this.memoryLatticeHandler = null;
     }
     this.eventBus = null;
     this.capture = null;
@@ -1358,9 +1375,9 @@ class GuiActivityStreamer {
         },
       });
     } else if (event.type === "tool_use") {
-      const toolCallId = this.capture
+      const toolCallId = event.toolCallId ?? (this.capture
         ? `${this.capture.sessionId}:live:tool:${++this.capture.toolOrdinal}`
-        : `${event.toolName ?? "tool"}_${Date.now()}`;
+        : `${event.toolName ?? "tool"}_${Date.now()}`);
       if (this.capture) {
         const pending = this.capture.pendingToolCallIds.get(event.toolName) ?? [];
         pending.push(toolCallId);
@@ -1381,8 +1398,17 @@ class GuiActivityStreamer {
       });
     } else if (event.type === "tool_result") {
       const pending = this.capture?.pendingToolCallIds.get(event.toolName);
-      const toolCallId = pending?.shift()
-        ?? (this.capture ? `${this.capture.sessionId}:live:tool:${++this.capture.toolOrdinal}` : `${event.toolName ?? "tool"}_${Date.now()}`);
+      let toolCallId: string;
+      if (event.toolCallId) {
+        toolCallId = event.toolCallId;
+        const pendingIndex = pending?.indexOf(event.toolCallId) ?? -1;
+        if (pending && pendingIndex >= 0) {
+          pending.splice(pendingIndex, 1);
+        }
+      } else {
+        toolCallId = pending?.shift()
+          ?? (this.capture ? `${this.capture.sessionId}:live:tool:${++this.capture.toolOrdinal}` : `${event.toolName ?? "tool"}_${Date.now()}`);
+      }
       if (pending && pending.length === 0 && this.capture) {
         this.capture.pendingToolCallIds.delete(event.toolName);
       }
@@ -1392,9 +1418,10 @@ class GuiActivityStreamer {
         payload: {
           toolCallId,
           toolName: event.toolName ?? "unknown",
-          outputSummary: event.output ?? "",
+          output: event.output ?? "",
+          outputSummary: event.outputSummary ?? event.output ?? "",
           status: {
-            state: "succeeded",
+            state: event.isError ? "failed" : "succeeded",
           },
         },
       });

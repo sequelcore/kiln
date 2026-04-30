@@ -47,15 +47,21 @@ export interface MemoryRepository {
   countRecords(scope?: MemoryScope): number;
 
   saveRevision(revision: MemoryRevision): MemoryRevision;
-  listRevisions(recordId: string): readonly MemoryRevision[];
+  listRevisions(recordId: string, query?: {
+    readonly limit?: number;
+  }): readonly MemoryRevision[];
 
   saveRelation(relation: MemoryRelationDraft): MemoryRelation;
-  listRelations(sourceRecordId: string): readonly MemoryRelation[];
+  getRelation(id: string): MemoryRelation | undefined;
+  listRelations(sourceRecordId: string, query?: {
+    readonly limit?: number;
+  }): readonly MemoryRelation[];
 
   saveContextAdmission(admission: MemoryContextAdmission): MemoryContextAdmission;
   listContextAdmissions(query?: {
     readonly sessionId?: string;
     readonly recordId?: string;
+    readonly limit?: number;
   }): readonly MemoryContextAdmission[];
 
   close(): void;

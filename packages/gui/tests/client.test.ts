@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { GUI_MEMORY_LATTICE_QUERY_MAX_LENGTH } from "@kilnai/gateway-contracts";
 import { GuiGatewayClient, resolveCandidateBaseUrls } from "../src/api/client.js";
 
 describe("GuiGatewayClient", () => {
@@ -200,5 +201,59 @@ describe("GuiGatewayClient", () => {
 
     expect(file.content).toBe("export const ok = true;");
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/gui/api/workspace/file?path=C%3A%2Frepo%2Fsrc%2Findex.ts");
+  });
+
+  it("loads Memory Lattice graph snapshots from the GUI gateway", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      snapshot: {
+        nodes: [{
+          id: "memory:record-1",
+          recordId: "record-1",
+          layer: "semantic",
+          scope: { kind: "project", id: "kiln" },
+          label: "memory lattice",
+          score: 1,
+        }],
+        edges: [],
+        limits: { maxNodes: 25, maxEdges: 50 },
+        truncated: false,
+      },
+      filters: {
+        scope: { kind: "project", id: "kiln" },
+        layer: "semantic",
+        query: "admission",
+        depth: 1,
+      },
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new GuiGatewayClient("http://localhost:4810");
+    const graph = await client.loadMemoryLatticeGraph({
+      scope: { kind: "project", id: "kiln" },
+      layer: "semantic",
+      query: "admission",
+      depth: 1,
+      limit: 25,
+    });
+
+    expect(graph.snapshot.nodes[0]?.recordId).toBe("record-1");
+    expect(graph.filters.scope).toEqual({ kind: "project", id: "kiln" });
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
+      "/gui/api/memory/graph?scopeKind=project&scopeId=kiln&layer=semantic&query=admission&depth=1&limit=25",
+    );
+  });
+
+  it("rejects oversized Memory Lattice graph queries before fetch", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new GuiGatewayClient("http://localhost:4810");
+
+    await expect(client.loadMemoryLatticeGraph({
+      query: "x".repeat(GUI_MEMORY_LATTICE_QUERY_MAX_LENGTH + 1),
+    })).rejects.toThrow();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

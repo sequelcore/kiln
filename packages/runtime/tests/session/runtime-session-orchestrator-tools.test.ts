@@ -315,7 +315,14 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       const result = await pending;
 
       expect(toolFn).not.toHaveBeenCalled();
-      expect(result.toolExecutions).toBeUndefined();
+      expect(result.toolExecutions?.[0]).toMatchObject({
+        toolCallId: "tc-1",
+        toolName: "get_data",
+        input: { query: "test" },
+        success: false,
+        output: "Approval denied: rejected by user",
+        resultSummary: "Approval denied: rejected by user",
+      });
     });
 
     it("uses per-call authority descriptor before toolAuthorizer fallback", async () => {
@@ -970,7 +977,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         capabilityMap: makeCapabilityMap(),
       });
 
-      await orchestrator.processMessage(makeSession(), textParts("fetch"));
+      const result = await orchestrator.processMessage(makeSession(), textParts("fetch"));
 
       const toolCalledEvents = emitSpy.mock.calls.filter((c) => c[0].type === "tool_called");
       expect(toolCalledEvents).toHaveLength(1);
@@ -994,7 +1001,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         eventBus,
       });
 
-      await orchestrator.processMessage(makeSession(), textParts("fetch"));
+      const result = await orchestrator.processMessage(makeSession(), textParts("fetch"));
 
       const resultEvents = emitSpy.mock.calls.filter((c) => c[0].type === "tool_result");
       expect(resultEvents).toHaveLength(1);
@@ -1002,6 +1009,12 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         type: "tool_result",
         toolName: "get_data",
         success: true,
+        output: "some result data",
+        resultSummary: "some result data",
+      });
+      expect(result.toolExecutions?.[0]).toMatchObject({
+        toolName: "get_data",
+        output: "some result data",
         resultSummary: "some result data",
       });
     });

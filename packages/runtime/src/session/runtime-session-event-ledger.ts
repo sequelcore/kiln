@@ -144,6 +144,7 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
           toolName: runtimeEvent.toolName,
           status: toSessionToolStatus(runtimeEvent),
           durationMs: runtimeEvent.durationMs,
+          output: runtimeEvent.output,
           outputSummary: runtimeEvent.resultSummary,
           source: makeSource("tool", "runtime", "orchestrator"),
           timestamp: runtimeEvent.timestamp,

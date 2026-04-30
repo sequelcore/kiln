@@ -425,9 +425,12 @@ describe("ProviderSession.run()", () => {
       parts: [{ type: "text", text: "applied changes" }],
       toolExecutions: [
         {
+          toolCallId: "call_write_1",
           toolName: "write",
+          input: { filePath: "src/feature.ts", content: "export const feature = true;" },
           durationMs: 20,
           success: true,
+          output: "export const feature = true;",
           resultSummary: "wrote src/feature.ts",
           fileChanges: [{ path: "src/feature.ts", changeType: "modified" as const }],
         },
@@ -448,10 +451,24 @@ describe("ProviderSession.run()", () => {
     expect(session.capabilities.supportedTools).toEqual(["mock_builtin", "operator_set_theme"]);
     expect(events).toContainEqual({ type: "text_delta", content: "applied changes" });
     expect(events).toContainEqual({
+      type: "tool_use",
+      toolName: "write",
+      toolCallId: "call_write_1",
+      input: { filePath: "src/feature.ts", content: "export const feature = true;" },
+    });
+    expect(events).toContainEqual({
       type: "tool_result",
       toolName: "write",
-      output: "wrote src/feature.ts",
+      toolCallId: "call_write_1",
+      output: "export const feature = true;",
+      outputSummary: "wrote src/feature.ts",
     });
+    const toolUseIndex = events.findIndex((event) => event.type === "tool_use" && event.toolCallId === "call_write_1");
+    const toolResultIndex = events.findIndex((event) => event.type === "tool_result" && event.toolCallId === "call_write_1");
+    const textIndex = events.findIndex((event) => event.type === "text_delta" && event.content === "applied changes");
+    expect(toolUseIndex).toBeGreaterThanOrEqual(0);
+    expect(toolResultIndex).toBeGreaterThan(toolUseIndex);
+    expect(textIndex).toBeGreaterThan(toolResultIndex);
     expect(events).toContainEqual({
       type: "file_changed",
       path: "src/feature.ts",
@@ -463,6 +480,74 @@ describe("ProviderSession.run()", () => {
       provider,
     }));
     expect(events).toContainEqual(expect.objectContaining({ type: "completed", isError: false }));
+  });
+
+  it("streams runtime tool events before the final executable assistant text", async () => {
+    runtimeMocks.processMessage.mockImplementationOnce(async () => {
+      const deps = runtimeMocks.orchestratorConstructor.mock.calls.at(-1)?.[0] as {
+        eventBus?: {
+          emit(event: unknown): void;
+        };
+      } | undefined;
+      deps?.eventBus?.emit({
+        type: "tool_called",
+        toolName: "write",
+        toolInput: { filePath: "live.txt", content: "live" },
+        sessionId: "cli-test-session",
+        timestamp: new Date(),
+      });
+      deps?.eventBus?.emit({
+        type: "tool_result",
+        toolName: "write",
+        durationMs: 5,
+        success: true,
+        output: "live",
+        resultSummary: "wrote live.txt",
+        sessionId: "cli-test-session",
+        timestamp: new Date(),
+      });
+      return {
+        parts: [{ type: "text", text: "applied live changes" }],
+        toolExecutions: [
+          {
+            toolCallId: "call_live_write",
+            toolName: "write",
+            input: { filePath: "live.txt", content: "live" },
+            durationMs: 5,
+            success: true,
+            output: "live",
+            resultSummary: "wrote live.txt",
+            fileChanges: [{ path: "live.txt", changeType: "modified" as const }],
+          },
+        ],
+        inputTokens: 3,
+        outputTokens: 4,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        queued: false,
+      };
+    });
+
+    const session = new ProviderSession(baseConfig({
+      provider: "openai",
+      model: "gpt-5.4",
+      env: { OPENAI_API_KEY: "cfg-key" },
+      executionMode: "kiln-executable",
+    }));
+    const events = await collectEvents(session.run({ prompt: "execute live tool path" }));
+
+    const toolUseIndex = events.findIndex((event) => event.type === "tool_use" && event.toolName === "write");
+    const toolResultIndex = events.findIndex((event) => event.type === "tool_result" && event.toolName === "write");
+    const textIndex = events.findIndex((event) => event.type === "text_delta" && event.content === "applied live changes");
+    expect(toolUseIndex).toBeGreaterThanOrEqual(0);
+    expect(toolResultIndex).toBeGreaterThan(toolUseIndex);
+    expect(textIndex).toBeGreaterThan(toolResultIndex);
+    expect(events.filter((event) => event.type === "tool_result" && event.toolName === "write")).toHaveLength(1);
+    expect(events).toContainEqual({
+      type: "file_changed",
+      path: "live.txt",
+      changeType: "modified",
+    });
   });
 
   it("builds executable sessions from the canonical core builtin tool surface", async () => {

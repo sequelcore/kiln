@@ -134,6 +134,12 @@ function eventPayloadText(payload: Record<string, unknown>): string | null {
     ?? readString(payload.toolName);
 }
 
+function toolResultEnvelopeText(payload: Record<string, unknown>): string | null {
+  return readString(payload.output)
+    ?? readString(payload.outputSummary)
+    ?? eventPayloadText(payload);
+}
+
 function parseJsonRecord(value: string): Record<string, unknown> | null {
   try {
     return asRecord(JSON.parse(value));
@@ -171,6 +177,10 @@ function parseToolResultEnvelope(value: string | null): {
       if (links.length > 0) {
         resourceLinks = links;
       }
+    }
+    const directLinks = readResourceLinks(result.resourceLinks);
+    if (directLinks.length > 0) {
+      resourceLinks = directLinks;
     }
     if (typeof result.isError === "boolean") {
       isError = result.isError;
@@ -272,12 +282,46 @@ function compactPreview(text: string | undefined, maxLength = 2_000): ToolResult
     : { text: normalized };
 }
 
+function parseOutputRecord(output: string | undefined): Record<string, unknown> | null {
+  return output ? parseJsonRecord(output) : null;
+}
+
+function formatBytes(value: number | null): string | null {
+  if (value === null) return null;
+  return `${value} ${value === 1 ? "byte" : "bytes"}`;
+}
+
+function readDiffPreview(metadata: Record<string, unknown>): { readonly text?: string; readonly truncated: boolean } {
+  const direct = readString(metadata.diffPreview);
+  if (direct) {
+    return { text: direct, truncated: metadata.diffTruncated === true };
+  }
+  if (!Array.isArray(metadata.files)) {
+    return { truncated: metadata.diffTruncated === true };
+  }
+  const previews: string[] = [];
+  let truncated = metadata.diffTruncated === true;
+  for (const file of metadata.files) {
+    const record = asRecord(file);
+    const preview = readString(record?.diffPreview);
+    if (!preview) continue;
+    const filePath = readString(record?.filePath);
+    previews.push(filePath ? `# ${filePath}\n${preview}` : preview);
+    if (record?.diffTruncated === true) {
+      truncated = true;
+    }
+  }
+  return {
+    ...(previews.length > 0 ? { text: previews.join("\n\n") } : {}),
+    truncated,
+  };
+}
+
 function toolResultRawAvailability(resourceLinks: readonly ToolResultResourceLinkPresentation[]): ToolResultRawAvailability {
   const fullOutput = resourceLinks.find((link) => link.relation === "full_output") ?? resourceLinks[0];
-  return {
-    available: true,
-    ...(fullOutput ? { resourceUri: fullOutput.uri } : {}),
-  };
+  return fullOutput
+    ? { available: true, resourceUri: fullOutput.uri }
+    : { available: false, reason: "No raw output resource" };
 }
 
 function toolResultTitle(toolName: string, metadata: Record<string, unknown> | undefined, fallback: string): string {
@@ -313,8 +357,9 @@ function projectDiffPresentation(
     summary,
     fields,
     preview: (() => {
-      const preview = compactPreview(readString(metadata.diffPreview) ?? output);
-      return preview && metadata.diffTruncated === true ? { ...preview, truncated: true } : preview;
+      const diffPreview = readDiffPreview(metadata);
+      const preview = compactPreview(diffPreview.text);
+      return preview && diffPreview.truncated ? { ...preview, truncated: true } : preview;
     })(),
     ...(resourceLinks.length > 0 ? { resourceLinks } : {}),
     raw: toolResultRawAvailability(resourceLinks),
@@ -402,7 +447,90 @@ function projectTreePresentation(
     title: path ?? toolName,
     summary,
     fields,
-    preview: compactPreview(output),
+    preview: compactPreview(treePreviewText(output)),
+    ...(resourceLinks.length > 0 ? { resourceLinks } : {}),
+    raw: toolResultRawAvailability(resourceLinks),
+  };
+}
+
+function treePreviewText(output: string | undefined): string | undefined {
+  if (!output) return undefined;
+  const structured = parseJsonRecord(output);
+  if (structured) {
+    const entries = Array.isArray(structured.entries) ? structured.entries : [];
+    const lines = entries
+      .map((entry) => {
+        const record = asRecord(entry);
+        const name = readString(record?.name);
+        const depth = readNumber(record?.depth);
+        const type = readString(record?.type);
+        if (!name || depth === null) return null;
+        return `${"  ".repeat(Math.max(0, depth - 1))}${name}${type === "directory" ? "/" : ""}`;
+      })
+      .filter((line): line is string => line !== null);
+    return lines.length > 0 ? [".", ...lines].join("\n") : undefined;
+  }
+  const normalized = output.replace(/\r\n/g, "\n").trimEnd();
+  if (!normalized.includes("\n")) return undefined;
+  return normalized;
+}
+
+function projectStatPresentation(
+  toolName: string,
+  metadata: Record<string, unknown>,
+  resourceLinks: readonly ToolResultResourceLinkPresentation[],
+): ToolResultPresentation {
+  const path = readString(metadata.path);
+  const type = readString(metadata.type);
+  const size = readMetadataNumber(metadata, "size");
+  const modifiedTime = readString(metadata.modifiedTime);
+  const hash = readString(metadata.hash);
+  const fields = [
+    field("Path", path),
+    field("Type", type),
+    field("Size", formatBytes(size)),
+    field("Modified", modifiedTime),
+    field("Hash", hash),
+  ].filter((item): item is OperatorEventDetailItem => item !== null);
+  return {
+    outputKind: "text",
+    title: path ?? toolName,
+    summary: [type, formatBytes(size)].filter((value): value is string => Boolean(value)).join(" · ") || "Metadata read",
+    fields,
+    ...(resourceLinks.length > 0 ? { resourceLinks } : {}),
+    raw: toolResultRawAvailability(resourceLinks),
+  };
+}
+
+function projectOcrPresentation(
+  toolName: string,
+  output: string | undefined,
+  metadata: Record<string, unknown>,
+  resourceLinks: readonly ToolResultResourceLinkPresentation[],
+): ToolResultPresentation {
+  const outputRecord = parseOutputRecord(output);
+  const text = readString(outputRecord?.text);
+  const path = readString(metadata.path) ?? readString(outputRecord?.path);
+  const mimeType = readString(metadata.mimeType) ?? readString(outputRecord?.mimeType);
+  const language = readString(metadata.language) ?? readString(outputRecord?.language);
+  const source = readString(metadata.source) ?? readString(outputRecord?.source);
+  const confidence = readNumber(metadata.confidence) ?? readNumber(outputRecord?.confidence);
+  const textLength = readMetadataNumber(metadata, "textLength") ?? (text ? text.length : null);
+  const fallbackSummary = output && !outputRecord ? compactText(output) : "OCR completed";
+  const fields = [
+    field("Path", path),
+    field("MIME", mimeType),
+    field("Language", language),
+    field("Text length", textLength),
+    field("Confidence", confidence),
+    field("Source", source),
+  ].filter((item): item is OperatorEventDetailItem => item !== null);
+  return {
+    outputKind: text ? "text" : "empty",
+    title: path ?? toolName,
+    summary: text ? compactText(text) : fallbackSummary,
+    fields,
+    preview: compactPreview(text ?? (!outputRecord ? output : undefined)),
     ...(resourceLinks.length > 0 ? { resourceLinks } : {}),
     raw: toolResultRawAvailability(resourceLinks),
   };
@@ -441,10 +569,17 @@ function projectToolResultPresentation(
   toolName: string,
   payload: Record<string, unknown>,
 ): ToolResultPresentation | undefined {
-  const envelope = parseToolResultEnvelope(eventPayloadText(payload));
-  const output = envelope?.output ?? readString(payload.outputSummary) ?? readString(payload.output) ?? undefined;
-  const metadata = envelope?.metadata;
-  const resourceLinks = envelope?.resourceLinks ?? [];
+  const envelope = parseToolResultEnvelope(toolResultEnvelopeText(payload));
+  const payloadMetadata = asRecord(payload.metadata);
+  const output = envelope?.output ?? readString(payload.output) ?? readString(payload.outputSummary) ?? undefined;
+  const metadata = envelope?.metadata || payloadMetadata
+    ? {
+        ...(envelope?.metadata ?? {}),
+        ...(payloadMetadata ?? {}),
+      }
+    : undefined;
+  const payloadResourceLinks = readResourceLinks(payloadMetadata?.resourceLinks);
+  const resourceLinks = payloadResourceLinks.length > 0 ? payloadResourceLinks : envelope?.resourceLinks ?? [];
   if (!output && !metadata && resourceLinks.length === 0) return undefined;
   const operation = readString(metadata?.operation);
   const kind = readString(metadata?.kind);
@@ -457,32 +592,51 @@ function projectToolResultPresentation(
   if (hasDiff && metadata) {
     return projectDiffPresentation(toolName, output, metadata, resourceLinks);
   }
-  if (resourceLinks.length > 0) {
-    return projectResourceLinkPresentation(toolName, output, metadata ?? {}, resourceLinks);
-  }
   if (kind === "command") {
     return projectCommandPresentation(toolName, output, metadata ?? {}, resourceLinks);
   }
   if (kind === "inspection" && operation === "tree") {
     return projectTreePresentation(toolName, output, metadata ?? {}, resourceLinks);
   }
+  if (kind === "inspection" && operation === "stat" && metadata) {
+    return projectStatPresentation(toolName, metadata, resourceLinks);
+  }
+  if (kind === "media" && operation === "ocr" && metadata) {
+    return projectOcrPresentation(toolName, output, metadata, resourceLinks);
+  }
+  if (operation === "read_many" && resourceLinks.length > 0) {
+    return projectResourceLinkPresentation(toolName, output, metadata ?? {}, resourceLinks);
+  }
+  if (operation === "read" || toolName === "read") {
+    return projectTextPresentation(toolName, output, metadata, resourceLinks);
+  }
+  if (resourceLinks.length > 0) {
+    return projectResourceLinkPresentation(toolName, output, metadata ?? {}, resourceLinks);
+  }
   return projectTextPresentation(toolName, output, metadata, resourceLinks);
 }
 
 function toolResultText(payload: Record<string, unknown>): string | null {
-  const raw = eventPayloadText(payload);
+  const raw = toolResultEnvelopeText(payload);
   if (!raw) return null;
   const envelope = parseToolResultEnvelope(raw);
-  if (envelope?.metadata && readString(envelope.metadata.operation) === "read_many") {
-    return formatReadManySummary(envelope.metadata);
+  const payloadMetadata = asRecord(payload.metadata);
+  const metadata = envelope?.metadata || payloadMetadata
+    ? {
+        ...(envelope?.metadata ?? {}),
+        ...(payloadMetadata ?? {}),
+      }
+    : undefined;
+  if (metadata && readString(metadata.operation) === "read_many") {
+    return formatReadManySummary(metadata);
   }
   if (envelope?.output) return compactText(envelope.output);
   const parsed = parseJsonRecord(raw);
   if (!parsed) return compactText(raw);
   const output = readString(parsed.output);
   if (output) return compactText(output);
-  const metadata = asRecord(parsed.metadata);
-  const operation = readString(metadata?.operation) ?? readString(metadata?.toolName);
+  const parsedMetadata = asRecord(parsed.metadata) ?? metadata;
+  const operation = readString(parsedMetadata?.operation) ?? readString(parsedMetadata?.toolName);
   const isError = parsed.isError === true;
   if (operation) return isError ? `${operation} failed` : `${operation} succeeded`;
   return compactText(raw);

@@ -158,6 +158,172 @@ describe("operator event presentation", () => {
     expect(presentation.toolPresentation?.preview?.text).not.toContain("\"output\"");
   });
 
+  it("uses the full live tool output envelope when outputSummary is a raw JSON summary slice", () => {
+    const presentation = presentOperatorEventPayload("tool_call_completed", {
+      toolCallId: "tool-1",
+      toolName: "read",
+      output: JSON.stringify({
+        output: "# Session Model\n\nKiln session identity is provider-agnostic.",
+        isError: false,
+        metadata: {
+          toolName: "read",
+          kind: "file",
+          operation: "read",
+          filePath: "docs/architecture/session-model.md",
+        },
+      }),
+      outputSummary: "{\"output\":\"# Session Model\\n\\nKiln session identity is provider-agnostic.\",\"isError\":false,\"metadata\":{\"toolName\":\"read\"",
+      status: { state: "succeeded" },
+    });
+
+    expect(presentation.summary).toBe("# Session Model");
+    expect(presentation.summary).not.toContain("\"output\"");
+    expect(presentation.toolPresentation).toMatchObject({
+      outputKind: "markdown",
+      title: "docs/architecture/session-model.md",
+      preview: {
+        text: "# Session Model\n\nKiln session identity is provider-agnostic.",
+      },
+    });
+  });
+
+  it("uses top-level persisted tool metadata when output is plain text", () => {
+    const presentation = presentOperatorEventPayload("tool_call_completed", {
+      toolCallId: "tool-write",
+      toolName: "write",
+      output: "Wrote 32 characters to C:\\Proyectos\\Sequel\\kiln\\live_test_visibility.txt",
+      outputSummary: "{\"output\":\"Wrote 32 characters",
+      metadata: {
+        toolName: "write",
+        kind: "file",
+        operation: "write",
+        filePath: "C:\\Proyectos\\Sequel\\kiln\\live_test_visibility.txt",
+        changeType: "modified",
+        bytesWritten: 32,
+        linesAdded: 1,
+        linesRemoved: 1,
+        diffPreview: "- kiln gui visibility baseline\n+ kiln gui visibility edit passed",
+        diffTruncated: false,
+      },
+      status: { state: "succeeded" },
+    });
+
+    expect(presentation.summary).toBe("1 file changed, 1 addition, 1 removal");
+    expect(presentation.toolPresentation).toMatchObject({
+      outputKind: "diff",
+      title: "C:\\Proyectos\\Sequel\\kiln\\live_test_visibility.txt",
+      preview: {
+        text: "- kiln gui visibility baseline\n+ kiln gui visibility edit passed",
+      },
+    });
+    expect(JSON.stringify(presentation.toolPresentation)).not.toContain("Wrote 32 characters");
+  });
+
+  it("keeps resource-linked tree results as tree previews instead of generic links", () => {
+    const presentation = presentOperatorEventPayload("tool_call_completed", {
+      toolCallId: "tool-1",
+      toolName: "tree",
+      output: JSON.stringify({
+        output: ".\npackages/\n  gui/\n    src/",
+        isError: false,
+        metadata: {
+          toolName: "tree",
+          kind: "inspection",
+          operation: "tree",
+          path: "C:\\Proyectos\\Sequel\\kiln",
+          depth: 2,
+          entryCount: 55,
+          resourceLinks: [
+            {
+              uri: "kiln://artifacts/tool-results/artifact_tree/content",
+              title: "tree full output",
+              mimeType: "text/plain",
+              size: 9000,
+              relation: "full_output",
+            },
+          ],
+        },
+      }),
+      outputSummary: "{\"output\":\".\\npackages/\\n  gui/\",\"isError\":false,\"metadata\":{\"toolName\":\"tree\"",
+      status: { state: "succeeded" },
+    });
+
+    expect(presentation.summary).toBe("55 entries under C:\\Proyectos\\Sequel\\kiln");
+    expect(presentation.toolPresentation).toMatchObject({
+      outputKind: "tree",
+      title: "C:\\Proyectos\\Sequel\\kiln",
+      preview: {
+        text: ".\npackages/\n  gui/\n    src/",
+      },
+      resourceLinks: [
+        expect.objectContaining({
+          uri: "kiln://artifacts/tool-results/artifact_tree/content",
+        }),
+      ],
+    });
+    expect(presentation.toolPresentation?.preview?.text).not.toContain("\"output\"");
+  });
+
+  it("does not render tree summary output as a tree preview", () => {
+    const presentation = presentOperatorEventPayload("tool_call_completed", {
+      toolCallId: "tool-1",
+      toolName: "tree",
+      output: JSON.stringify({
+        output: "20 entries under C:\\Proyectos\\Sequel\\kiln",
+        isError: false,
+        metadata: {
+          toolName: "tree",
+          kind: "inspection",
+          operation: "tree",
+          path: "C:\\Proyectos\\Sequel\\kiln",
+          entryCount: 20,
+          verbosity: "summary",
+        },
+      }),
+      status: { state: "succeeded" },
+    });
+
+    expect(presentation.summary).toBe("20 entries under C:\\Proyectos\\Sequel\\kiln");
+    expect(presentation.toolPresentation).toMatchObject({
+      outputKind: "tree",
+      title: "C:\\Proyectos\\Sequel\\kiln",
+      summary: "20 entries under C:\\Proyectos\\Sequel\\kiln",
+    });
+    expect(presentation.toolPresentation?.preview).toBeUndefined();
+  });
+
+  it("builds tree previews from structured tree output entries", () => {
+    const presentation = presentOperatorEventPayload("tool_call_completed", {
+      toolCallId: "tool-1",
+      toolName: "tree",
+      output: JSON.stringify({
+        output: JSON.stringify({
+          root: "C:\\Proyectos\\Sequel\\kiln",
+          entries: [
+            { name: "docs", type: "directory", depth: 1 },
+            { name: "architecture.md", type: "file", depth: 2 },
+          ],
+          entryCount: 2,
+          truncated: false,
+        }, null, 2),
+        isError: false,
+        metadata: {
+          toolName: "tree",
+          kind: "inspection",
+          operation: "tree",
+          path: "C:\\Proyectos\\Sequel\\kiln",
+          entryCount: 2,
+          verbosity: "structured",
+        },
+      }),
+      status: { state: "succeeded" },
+    });
+
+    expect(presentation.toolPresentation?.preview).toEqual({
+      text: ".\ndocs/\n  architecture.md",
+    });
+  });
+
   it("projects patch results as first-class diff presentations", () => {
     const presentation = presentOperatorEventPayload("tool_call_completed", {
       toolCallId: "tool-1",
@@ -184,7 +350,7 @@ describe("operator event presentation", () => {
       outputKind: "diff",
       title: "packages/gui/src/components/transcript.tsx",
       summary: "1 file changed, 18 additions, 6 removals",
-      raw: { available: true },
+      raw: { available: false },
     });
     expect(presentation.toolPresentation?.fields).toEqual(expect.arrayContaining([
       { label: "Files", value: "1" },
@@ -239,5 +405,181 @@ describe("operator event presentation", () => {
         title: "read_many full output",
       }),
     ]);
+    expect(presentation.toolPresentation?.raw).toEqual({
+      available: true,
+      resourceUri: "kiln://artifacts/tool-results/artifact_1/content",
+    });
+  });
+
+  it("does not invent raw availability or diff previews for write summaries", () => {
+    const presentation = presentOperatorEventPayload("tool_call_completed", {
+      toolCallId: "tool-1",
+      toolName: "write",
+      output: JSON.stringify({
+        output: "Wrote 9 characters to C:\\Proyectos\\Sequel\\kiln\\example.txt",
+        isError: false,
+        metadata: {
+          toolName: "write",
+          kind: "file",
+          operation: "write",
+          filePath: "C:\\Proyectos\\Sequel\\kiln\\example.txt",
+          bytesWritten: 9,
+        },
+      }),
+      status: { state: "succeeded" },
+    });
+
+    expect(presentation.toolPresentation).toMatchObject({
+      outputKind: "diff",
+      title: "C:\\Proyectos\\Sequel\\kiln\\example.txt",
+      raw: { available: false },
+    });
+    expect(presentation.toolPresentation?.preview).toBeUndefined();
+  });
+
+  it("projects write diff evidence when the canonical payload carries it", () => {
+    const presentation = presentOperatorEventPayload("tool_call_completed", {
+      toolCallId: "tool-1",
+      toolName: "write",
+      output: JSON.stringify({
+        output: "Wrote 9 characters to C:\\Proyectos\\Sequel\\kiln\\example.txt",
+        isError: false,
+        metadata: {
+          toolName: "write",
+          kind: "file",
+          operation: "write",
+          filePath: "C:\\Proyectos\\Sequel\\kiln\\example.txt",
+          changeType: "modified",
+          bytesWritten: 9,
+          linesAdded: 1,
+          linesRemoved: 1,
+          diffPreview: "- old text\n+ new text",
+        },
+      }),
+      status: { state: "succeeded" },
+    });
+
+    expect(presentation.toolPresentation).toMatchObject({
+      outputKind: "diff",
+      summary: "1 file changed, 1 addition, 1 removal",
+      preview: {
+        text: "- old text\n+ new text",
+      },
+    });
+    expect(presentation.toolPresentation?.preview?.text).not.toContain("Wrote 9 characters");
+  });
+
+  it("projects edit diff evidence instead of generic edit summaries", () => {
+    const presentation = presentOperatorEventPayload("tool_call_completed", {
+      toolCallId: "tool-1",
+      toolName: "edit",
+      output: JSON.stringify({
+        output: "Applied 1 replacement in C:\\Proyectos\\Sequel\\kiln\\im_alive.txt",
+        isError: false,
+        metadata: {
+          toolName: "edit",
+          kind: "file",
+          operation: "edit",
+          filePath: "C:\\Proyectos\\Sequel\\kiln\\im_alive.txt",
+          changeType: "modified",
+          replacements: 1,
+          linesAdded: 1,
+          linesRemoved: 1,
+          diffPreview: "- im alive\n+ im alive and testing diff",
+        },
+      }),
+      status: { state: "succeeded" },
+    });
+
+    expect(presentation.summary).toBe("1 file changed, 1 addition, 1 removal");
+    expect(presentation.toolPresentation).toMatchObject({
+      outputKind: "diff",
+      title: "C:\\Proyectos\\Sequel\\kiln\\im_alive.txt",
+      preview: {
+        text: "- im alive\n+ im alive and testing diff",
+      },
+    });
+  });
+
+  it("projects stat metadata without exposing JSON braces inline", () => {
+    const presentation = presentOperatorEventPayload("tool_call_completed", {
+      toolCallId: "tool-1",
+      toolName: "stat",
+      output: JSON.stringify({
+        output: JSON.stringify({
+          path: "C:\\Proyectos\\Sequel\\kiln\\im_alive.txt",
+          type: "file",
+          size: 25,
+          modifiedTime: "2026-04-30T12:33:05.305Z",
+        }, null, 2),
+        isError: false,
+        metadata: {
+          toolName: "stat",
+          kind: "inspection",
+          operation: "stat",
+          path: "C:\\Proyectos\\Sequel\\kiln\\im_alive.txt",
+          type: "file",
+          size: 25,
+          modifiedTime: "2026-04-30T12:33:05.305Z",
+          hashAlgorithm: "none",
+        },
+      }),
+      status: { state: "succeeded" },
+    });
+
+    expect(presentation.summary).toBe("file · 25 bytes");
+    expect(presentation.summary).not.toContain("{");
+    expect(presentation.toolPresentation).toMatchObject({
+      outputKind: "text",
+      title: "C:\\Proyectos\\Sequel\\kiln\\im_alive.txt",
+      summary: "file · 25 bytes",
+    });
+    expect(presentation.toolPresentation?.fields).toEqual(expect.arrayContaining([
+      { label: "Type", value: "file" },
+      { label: "Size", value: "25 bytes" },
+    ]));
+    expect(presentation.toolPresentation?.preview).toBeUndefined();
+  });
+
+  it("projects OCR text and backend errors without JSON previews", () => {
+    const success = presentOperatorEventPayload("tool_call_completed", {
+      toolCallId: "tool-1",
+      toolName: "ocr_image",
+      output: JSON.stringify({
+        output: JSON.stringify({
+          path: "C:\\Proyectos\\Sequel\\kiln\\docs\\image.png",
+          mimeType: "image/png",
+          language: "eng",
+          text: "HELLO",
+          source: "tesseract",
+        }, null, 2),
+        isError: false,
+        metadata: {
+          toolName: "ocr_image",
+          kind: "media",
+          operation: "ocr",
+          path: "C:\\Proyectos\\Sequel\\kiln\\docs\\image.png",
+          mimeType: "image/png",
+          language: "eng",
+          textLength: 5,
+          source: "tesseract",
+        },
+      }),
+      status: { state: "succeeded" },
+    });
+
+    expect(success.summary).toBe("HELLO");
+    expect(success.toolPresentation?.preview).toEqual({ text: "HELLO" });
+    expect(success.toolPresentation?.preview?.text).not.toContain("{");
+
+    const failure = presentOperatorEventPayload("tool_call_completed", {
+      toolCallId: "tool-2",
+      toolName: "ocr_image",
+      output: "OCR backend unavailable: tesseract executable was not found on PATH.",
+      status: { state: "failed" },
+    });
+
+    expect(failure.summary).toBe("OCR backend unavailable: tesseract executable was not found on PATH.");
+    expect(failure.summary).not.toContain("{");
   });
 });

@@ -302,6 +302,29 @@ export interface OperatorActivityPhaseFrame {
   readonly details?: string;
 }
 
+export interface GuiMemoryLatticeInvalidatedFrame {
+  readonly type: "memory_lattice_invalidated";
+  readonly occurredAt: string;
+  readonly reason:
+    | "record_created"
+    | "record_updated"
+    | "record_deleted"
+    | "relation_created"
+    | "relation_deleted"
+    | "revision_created"
+    | "context_admitted"
+    | "context_deferred";
+  readonly scope?: {
+    readonly kind: string;
+    readonly id: string;
+  };
+  readonly layer?: string;
+  readonly recordId?: string;
+  readonly relationId?: string;
+  readonly revisionId?: string;
+  readonly admissionId?: string;
+}
+
 /** Frames sent by the browser (operator) to the gateway. */
 export type GuiOutboundFrame =
   | {
@@ -335,6 +358,7 @@ export type GuiInboundFrame =
   | OperatorThemeSetFrame
   | { type: "session_event"; event: OperatorSessionEvent }
   | OperatorActivityPhaseFrame
+  | GuiMemoryLatticeInvalidatedFrame
   | {
       type: "done";
       content: string;

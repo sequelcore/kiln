@@ -207,6 +207,56 @@ CLI and TUI consume Memory Lattice through the same resource contracts or
 thin operator contracts. MCP consumes the same resources through standard
 resource projection and model-callable resource tools.
 
+### 8. Memory changes are domain events
+
+Manual refresh is only an operator fallback. The long-term Memory Lattice flow
+must be event-driven from the core memory application layer.
+
+Memory persistence adapters must not emit events directly. Repository methods
+store and retrieve state only. A governed memory application service or memory
+tool service coordinates validation, repository writes, relation updates,
+revision recording, context-admission evidence, and domain-event emission.
+
+Required event families:
+
+- `memory_record_created`
+- `memory_record_updated`
+- `memory_record_deleted`
+- `memory_relation_created`
+- `memory_relation_deleted`
+- `memory_revision_created`
+- `memory_context_admitted`
+- `memory_context_deferred`
+
+Runtime adapters bridge these events into operator-surface frames. GUI, TUI,
+CLI, SDK, and MCP consumers may then invalidate or re-read their resource
+projection without polling or private storage.
+
+The GUI should receive a bounded invalidation frame, not raw repository rows.
+The frame communicates that a Memory Lattice projection changed for a scope,
+layer, record, relation, or admission. The GUI then invalidates the relevant
+resource query and re-reads through the same gateway-backed resource contract.
+
+### 9. Animated graph rendering remains projection-only
+
+The GUI graph may adopt the Ehrlich hero animation language: pseudo-3D
+projection, rotation, depth sorting, glow, cursor tilt, shimmer, and
+reduced-motion fallback. That renderer must remain a presentation component
+over `MemoryGraphSnapshot`.
+
+The renderer must not:
+
+- create synthetic production records
+- connect records by visual proximity when no memory relation exists
+- rank records independently of the core graph projector
+- persist layout state as memory
+- hide provenance, scope, relation type, or admission evidence behind pure
+  ornament
+
+Demo fixtures may use synthetic memory records only in tests, fixtures, or
+explicit local seed scripts. Production rendering must remain driven by real
+core records and relations.
+
 ---
 
 ## Consequences
@@ -216,6 +266,8 @@ resource projection and model-callable resource tools.
 - One memory bounded context instead of per-surface memory models.
 - Context admission becomes visible and auditable, not hidden prompt assembly.
 - GUI, CLI, TUI, SDK, YAML apps, and MCP can converge on one graph contract.
+- Operator surfaces can update automatically from memory domain events without
+  manual refresh as the primary workflow.
 - No compatibility debt is introduced for old internal memory shapes.
 - Memory Lattice stays aligned with Kiln's biocybernetic control-plane identity
   without using informal "brain" contracts.
@@ -230,6 +282,12 @@ resource projection and model-callable resource tools.
   work begins.
 - Resource payloads can grow quickly. Mitigation: graph depth, node count,
   byte caps, and deterministic ordering are required in the core projector.
+- Memory events can leak implementation details if gateway frames mirror
+  repository rows. Mitigation: emit bounded domain events and bridge them to
+  invalidation frames, then re-read through resources.
+- A rich graph renderer can become misleading if it invents visual relations.
+  Mitigation: graph edges come only from `MemoryRelation`; proximity and glow
+  may be visual effects, not relation semantics.
 - Memory and knowledge overlap conceptually. Mitigation: memory owns durable
   records, provenance, relations, and recall evidence; knowledge retrieval
   remains a separate source that may link into memory through explicit
@@ -276,8 +334,12 @@ turning the product into a toy visual metaphor.
 7. Expose graph resources through `ToolResourceProvider`.
 8. Add runtime/gateway contracts backed by core resources.
 9. Build the GUI Memory Lattice view.
-10. Add minimal CLI/TUI/MCP/YAML projection only through shared contracts.
-11. Remove stale docs, routes, exports, tests, and internal code.
+10. Add Memory Lattice live invalidation through core memory domain events,
+    runtime event-bus bridging, and GUI/TUI/CLI resource-query invalidation.
+11. Upgrade the GUI renderer with Ehrlich-inspired pseudo-3D graph motion while
+    keeping topology, ranking, scope, and relations owned by core contracts.
+12. Add minimal CLI/TUI/MCP/YAML projection only through shared contracts.
+13. Remove stale docs, routes, exports, tests, and internal code.
 
 ---
 
@@ -291,6 +353,12 @@ Each implementation slice must prove:
 - graph reads are bounded
 - resource reads are read-only
 - context admission remains owned by `ContextGovernor`
+- memory write flows emit domain events from a service layer, not from
+  repository side effects
+- GUI/TUI/CLI resource projections invalidate from memory events without
+  private memory stores
 - GUI slices are browser-tested before completion
+- animated graph slices prove reduced-motion behavior and do not invent
+  production graph topology
 - no migration, compatibility shim, or dual-write path remains
 - no GUI-private memory state exists

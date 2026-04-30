@@ -6,6 +6,7 @@ import {
   isOperatorThemeName,
   type GuiAppDescriptor,
   type GuiInboundFrame,
+  type GuiMemoryLatticeGraphRequest,
   type GuiOutboundFrame,
   type GuiProviderReasoningEffort,
   type OperatorWorkspaceFileSnapshot,
@@ -18,7 +19,7 @@ import { useSessionStore } from "../lib/session-store.js";
 import { deriveChangedFiles, derivePendingApprovals, deriveRuntimeContinuity } from "../lib/session-store.js";
 import { SessionList } from "./session-list.js";
 import { WorkspacePanel } from "./workspace-panel.js";
-import { WorkspaceDocumentTabs } from "./workspace-document-tabs.js";
+import { OperatorSurfaceTabs, type OperatorSurfaceKind } from "./operator-surface-tabs.js";
 import { ChangedFilesPanel } from "./changed-files-panel.js";
 import { ApprovalsPanel } from "./approvals-panel.js";
 import { ActivityLogPanel } from "./activity-log-panel.js";
@@ -31,6 +32,7 @@ import { ThemeSwitcher } from "./theme-switcher.js";
 import { ProviderPicker } from "./provider-picker.js";
 import { ProviderStatus } from "./provider-status.js";
 import { SessionTelemetry } from "./session-telemetry.js";
+import { MemoryLatticePanel, MemoryLatticeSurface } from "./memory-lattice/memory-lattice-panel.js";
 import { useUiStore } from "../lib/ui-store.js";
 import { isActivityTimelineEntry, isConversationTimelineEntry } from "../lib/timeline-visibility.js";
 import type { LucideIcon } from "lucide-react";
@@ -42,6 +44,7 @@ import {
   FileDiff,
   Folder,
   MessagesSquare,
+  Network,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -83,7 +86,7 @@ function KilnMark() {
   );
 }
 
-type SidebarMode = "sessions" | "workspace" | "changed" | "approvals" | "activity";
+type SidebarMode = "sessions" | "workspace" | "changed" | "approvals" | "activity" | "memory";
 
 const sidebarModeIcons: Record<SidebarMode, LucideIcon> = {
   sessions: MessagesSquare,
@@ -91,6 +94,7 @@ const sidebarModeIcons: Record<SidebarMode, LucideIcon> = {
   changed: FileDiff,
   approvals: CheckCheck,
   activity: Activity,
+  memory: Network,
 };
 
 function SidebarRailButton(props: {
@@ -219,6 +223,18 @@ function LeftRail(props: {
             props.onToggleExpanded();
           }
           props.onSelectMode("activity");
+        }}
+      />
+      <SidebarRailButton
+        mode="memory"
+        label="Memory"
+        shortcut="Ctrl+6"
+        active={props.activeMode === "memory"}
+        onClick={() => {
+          if (!props.expanded) {
+            props.onToggleExpanded();
+          }
+          props.onSelectMode("memory");
         }}
       />
       <div className="flex-1" />
@@ -480,6 +496,11 @@ export function AppShell() {
   const [selectedWorkspacePath, setSelectedWorkspacePath] = useState<string | null>(null);
   const [workspaceDocumentLoadingPath, setWorkspaceDocumentLoadingPath] = useState<string | null>(null);
   const [workspaceDocumentError, setWorkspaceDocumentError] = useState<string | null>(null);
+  const [activeSurface, setActiveSurface] = useState<OperatorSurfaceKind>("chat");
+  const [memorySurfaceOpen, setMemorySurfaceOpen] = useState(false);
+  const [memoryFilters, setMemoryFilters] = useState<GuiMemoryLatticeGraphRequest>({ depth: 0, limit: 25 });
+  const [selectedMemoryRecordId, setSelectedMemoryRecordId] = useState<string | null>(null);
+  const [memoryLatticeInvalidationTick, setMemoryLatticeInvalidationTick] = useState(0);
   const sendRef = useRef<((frame: GuiOutboundFrame) => void) | null>(null);
 
   const status = useSessionStore((state) => state.status);
@@ -552,6 +573,7 @@ export function AppShell() {
     : null;
 
   const openWorkspaceFile = async (entry: OperatorWorkspaceTreeEntry) => {
+    setActiveSurface("workspace");
     setSelectedWorkspacePath(entry.path);
     setWorkspaceDocumentError(null);
     if (workspaceDocuments.some((file) => file.path === entry.path)) {
@@ -574,6 +596,9 @@ export function AppShell() {
     setWorkspaceDocuments(next);
     if (selectedWorkspacePath === path) {
       setSelectedWorkspacePath(next[0]?.path ?? null);
+      if (next.length === 0 && activeSurface === "workspace") {
+        setActiveSurface("chat");
+      }
     }
   };
 
@@ -701,6 +726,13 @@ export function AppShell() {
           setSidebarExpanded(true);
         }
       }
+      if ((event.ctrlKey || event.metaKey) && event.key === "6") {
+        event.preventDefault();
+        setSidebarMode("memory");
+        if (!isNarrow) {
+          setSidebarExpanded(true);
+        }
+      }
       if (event.key === "Escape") {
         setIsPaletteOpen(false);
         setPaletteMode("root");
@@ -779,6 +811,8 @@ export function AppShell() {
           setConnectionStatus("running");
         } else if (frame.type === "activity_phase") {
           onActivityPhase(frame);
+        } else if (frame.type === "memory_lattice_invalidated") {
+          setMemoryLatticeInvalidationTick((tick) => tick + 1);
         }
     },
     onStateChange: (state) => {
@@ -829,6 +863,11 @@ export function AppShell() {
       return gatewayClient.loadSessionDetail(selectedSessionId);
     },
     enabled: gatewayReady && Boolean(selectedSessionId),
+  });
+  const memoryLatticeQuery = useQuery({
+    queryKey: ["gui", "memory-lattice", memoryFilters, memoryLatticeInvalidationTick],
+    queryFn: async () => gatewayClient.loadMemoryLatticeGraph(memoryFilters),
+    enabled: gatewayReady && (sidebarMode === "memory" || memorySurfaceOpen),
   });
 
   useEffect(() => {
@@ -882,6 +921,19 @@ export function AppShell() {
       onProvidersRefreshed(dashboardQuery.data.providers);
     }
   }, [dashboardQuery.data, dashboardQuery.error, onProvidersRefreshed]);
+
+  useEffect(() => {
+    const nodes = memoryLatticeQuery.data?.snapshot?.nodes ?? [];
+    if (nodes.length === 0) {
+      if (selectedMemoryRecordId !== null) {
+        setSelectedMemoryRecordId(null);
+      }
+      return;
+    }
+    if (selectedMemoryRecordId && !nodes.some((node) => node.recordId === selectedMemoryRecordId)) {
+      setSelectedMemoryRecordId(null);
+    }
+  }, [memoryLatticeQuery.data?.snapshot?.nodes, selectedMemoryRecordId]);
 
   const dashboardData = dashboardQuery.error ? undefined : dashboardQuery.data;
   const resumeInfo = activeProvider
@@ -1051,9 +1103,24 @@ export function AppShell() {
   const startNewSession = () => {
     sendClear();
     setSelectedSessionId(null);
+    setActiveSurface("chat");
     setDrawerOpen(false);
   };
   const selectedSessionMeta = sessionDetailQuery.data?.meta ?? null;
+  const selectSidebarMode = (mode: SidebarMode) => {
+    setSidebarMode(mode);
+  };
+  const openMemorySurface = () => {
+    setMemorySurfaceOpen(true);
+    setActiveSurface("memory");
+    setSidebarMode("memory");
+  };
+  const closeMemorySurface = () => {
+    setMemorySurfaceOpen(false);
+    if (activeSurface === "memory") {
+      setActiveSurface("chat");
+    }
+  };
 
   const sidebar = sidebarMode === "sessions"
     ? (
@@ -1088,11 +1155,26 @@ export function AppShell() {
               onDeny={(sessionId) => sendApprovalResponse(false, undefined, sessionId)}
             />
           )
-          : (
-            <ActivityLogPanel
-              entries={timelineEntries}
-            />
-          );
+          : sidebarMode === "activity"
+            ? (
+              <ActivityLogPanel
+                entries={timelineEntries}
+              />
+            )
+            : (
+              <MemoryLatticePanel
+                filters={memoryFilters}
+                response={memoryLatticeQuery.data ?? null}
+                loading={Boolean(memoryLatticeQuery.isFetching)}
+                error={memoryLatticeQuery.error instanceof Error ? memoryLatticeQuery.error : null}
+                selectedRecordId={selectedMemoryRecordId}
+                onFiltersChange={setMemoryFilters}
+                onRefresh={() => void memoryLatticeQuery.refetch()}
+                onSelectRecord={setSelectedMemoryRecordId}
+                graphOpen={memorySurfaceOpen}
+                onOpenGraph={openMemorySurface}
+              />
+            );
 
   const closeDrawer = () => {
     setDrawerOpen(false);
@@ -1107,7 +1189,9 @@ export function AppShell() {
         ? "Changed Files"
         : sidebarMode === "approvals"
           ? "Approvals"
-          : "Activity";
+          : sidebarMode === "activity"
+            ? "Activity"
+            : "Memory";
   const drawerDescription = sidebarMode === "sessions"
     ? "History moves into a drawer on narrow windows."
     : sidebarMode === "workspace"
@@ -1116,7 +1200,9 @@ export function AppShell() {
         ? "Changed files move into a drawer on narrow windows."
         : sidebarMode === "approvals"
           ? "Approval requests move into a drawer on narrow windows."
-          : "Runtime activity moves into a drawer on narrow windows.";
+          : sidebarMode === "activity"
+            ? "Runtime activity moves into a drawer on narrow windows."
+            : "Memory Lattice moves into a drawer on narrow windows.";
   const drawerAriaLabel = sidebarMode === "sessions"
     ? "session drawer"
     : sidebarMode === "workspace"
@@ -1125,7 +1211,9 @@ export function AppShell() {
         ? "changed files drawer"
         : sidebarMode === "approvals"
           ? "approvals drawer"
-          : "activity drawer";
+          : sidebarMode === "activity"
+            ? "activity drawer"
+            : "memory drawer";
 
   return (
     <div className="relative flex h-screen overflow-hidden bg-background text-foreground">
@@ -1175,7 +1263,7 @@ export function AppShell() {
               activityCount={activityEntries.length}
               expanded={sidebarExpanded}
               onToggleExpanded={() => setSidebarExpanded((expanded) => !expanded)}
-              onSelectMode={setSidebarMode}
+              onSelectMode={selectSidebarMode}
             />
             {sidebarExpanded ? (
               <div className="w-80 min-w-80 max-w-80">{sidebar}</div>
@@ -1228,13 +1316,23 @@ export function AppShell() {
             />
             <ThemeSwitcher onThemeSelected={persistThemePreference} />
           </header>
-          <WorkspaceDocumentTabs
+          <OperatorSurfaceTabs
+            activeSurface={activeSurface}
+            memoryOpen={memorySurfaceOpen}
             files={workspaceDocuments}
             selectedPath={selectedWorkspacePath}
             loadingPath={workspaceDocumentLoadingPath}
             error={workspaceDocumentError}
-            onSelectChat={() => setSelectedWorkspacePath(null)}
+            onSelectChat={() => {
+              setActiveSurface("chat");
+              setSelectedWorkspacePath(null);
+            }}
+            onSelectMemory={() => {
+              openMemorySurface();
+            }}
+            onCloseMemory={closeMemorySurface}
             onSelectFile={(path) => {
+              setActiveSurface("workspace");
               setSelectedWorkspacePath(path);
               setWorkspaceDocumentError(null);
             }}
@@ -1247,6 +1345,16 @@ export function AppShell() {
                 activityDetails={activity?.details}
                 onApprove={(sessionId) => sendApprovalResponse(true, undefined, sessionId)}
                 onDeny={(sessionId) => sendApprovalResponse(false, undefined, sessionId)}
+              />
+            )}
+            memoryContent={(
+              <MemoryLatticeSurface
+                response={memoryLatticeQuery.data ?? null}
+                loading={Boolean(memoryLatticeQuery.isFetching)}
+                error={memoryLatticeQuery.error instanceof Error ? memoryLatticeQuery.error : null}
+                selectedRecordId={selectedMemoryRecordId}
+                onRefresh={() => void memoryLatticeQuery.refetch()}
+                onSelectRecord={setSelectedMemoryRecordId}
               />
             )}
           />
@@ -1323,7 +1431,9 @@ export function AppShell() {
                   ? "Changed files drawer"
                   : drawerTitle === "Approvals"
                     ? "Approvals drawer"
-                    : "Activity drawer"}
+                    : drawerTitle === "Activity"
+                      ? "Activity drawer"
+                      : "Memory drawer"}
             className="flex h-full w-[min(26rem,calc(100vw-3rem))] max-w-full flex-col border-l border-border bg-card shadow-2xl"
           >
             <div className="flex items-center justify-between border-b border-border px-4 py-3">

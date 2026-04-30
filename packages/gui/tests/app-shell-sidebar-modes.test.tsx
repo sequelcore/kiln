@@ -1,4 +1,5 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import type { GuiInboundFrame } from "@kilnai/gateway-contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppShell } from "../src/components/app-shell.js";
 import { useSessionStore } from "../src/lib/session-store.js";
@@ -6,16 +7,20 @@ import { useSessionStore } from "../src/lib/session-store.js";
 const useQueryMock = vi.fn();
 const waitForGatewayMock = vi.fn();
 const sendMock = vi.fn();
+let guiWsOnFrame: ((frame: GuiInboundFrame) => void) | null = null;
 
 vi.mock("@tanstack/react-query", () => ({
   useQuery: (options: unknown) => useQueryMock(options),
 }));
 
 vi.mock("../src/lib/use-gui-ws.js", () => ({
-  useGuiWs: () => ({
+  useGuiWs: (_baseUrl: string, options?: { onFrame?: (frame: GuiInboundFrame) => void }) => {
+    guiWsOnFrame = options?.onFrame ?? null;
+    return {
     state: "open",
     send: sendMock,
-  }),
+    };
+  },
 }));
 
 vi.mock("../src/lib/wait-for-gateway.js", () => ({
@@ -58,6 +63,25 @@ vi.mock("../src/api/client.js", () => ({
         encoding: "utf-8",
         language: "json",
         content: "{\"ok\":true}",
+      };
+    }
+
+    async loadMemoryLatticeGraph() {
+      return {
+        snapshot: {
+          nodes: [{
+            id: "memory:record-1",
+            recordId: "record-1",
+            layer: "semantic",
+            scope: { kind: "project", id: "kiln" },
+            label: "Memory Lattice contract",
+            score: 1,
+          }],
+          edges: [],
+          limits: { maxNodes: 25, maxEdges: 50 },
+          truncated: false,
+        },
+        filters: { depth: 0 },
       };
     }
 
@@ -249,6 +273,7 @@ function resetStore(): void {
 describe("AppShell sidebar modes", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    guiWsOnFrame = null;
     installMatchMedia(false);
     resetStore();
     waitForGatewayMock.mockResolvedValue(undefined);
@@ -264,6 +289,29 @@ describe("AppShell sidebar modes", () => {
         return {
           data: null,
           error: null,
+        };
+      }
+      if (queryKey.includes("memory-lattice")) {
+        return {
+          data: {
+            snapshot: {
+              nodes: [{
+                id: "memory:record-1",
+                recordId: "record-1",
+                layer: "semantic" as const,
+                scope: { kind: "project" as const, id: "kiln" },
+                label: "Memory Lattice contract",
+                score: 1,
+              }],
+              edges: [],
+              limits: { maxNodes: 25, maxEdges: 50 },
+              truncated: false,
+            },
+            filters: { depth: 0 },
+          },
+          error: null,
+          isFetching: false,
+          refetch: vi.fn(),
         };
       }
       return {
@@ -323,7 +371,7 @@ describe("AppShell sidebar modes", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open package.json" }));
 
     await waitFor(() => {
-      expect(screen.getByLabelText("Workspace documents")).toBeInTheDocument();
+      expect(screen.getByLabelText("Operator surfaces")).toBeInTheDocument();
     });
     expect(screen.getByRole("tab", { name: "Chat" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "package.json" })).toBeInTheDocument();
@@ -355,6 +403,84 @@ describe("AppShell sidebar modes", () => {
 
     expect(screen.getByTestId("activity-log-panel")).toHaveTextContent("Activity: 2");
     expect(screen.queryByTestId("session-list")).not.toBeInTheDocument();
+  });
+
+  it("switches the left mode panel from sessions to memory", async () => {
+    render(<AppShell />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-list")).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("tab", { name: "Memory Lattice" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Memory" }));
+
+    expect(screen.queryByRole("tab", { name: "Memory Lattice" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open graph" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Memory records" })).toContainElement(
+      within(screen.getByRole("region", { name: "Memory records" })).getByRole(
+        "button",
+        { name: "Memory Lattice contract" },
+      ),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open graph" }));
+
+    expect(screen.getByRole("tab", { name: "Memory Lattice" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("button", { name: "Close Memory Lattice" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Graph open" })).toBeDisabled();
+    expect(screen.getByLabelText("Memory graph")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Memory Lattice records" })).toContainElement(
+      within(screen.getByRole("region", { name: "Memory Lattice records" })).getByRole(
+        "button",
+        { name: "Memory Lattice contract" },
+      ),
+    );
+    expect(screen.queryByTestId("session-list")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Close Memory Lattice" }));
+
+    expect(screen.queryByRole("tab", { name: "Memory Lattice" })).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Chat" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("button", { name: "Open graph" })).toBeInTheDocument();
+  });
+
+  it("invalidates the Memory Lattice query when memory changes arrive over the gateway", async () => {
+    render(<AppShell />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-list")).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Memory" }));
+
+    const initialMemoryQuery = useQueryMock.mock.calls.findLast(([options]) => {
+      const queryKey = (options as { queryKey?: readonly unknown[] }).queryKey ?? [];
+      return queryKey.includes("memory-lattice");
+    });
+    expect(initialMemoryQuery?.[0]).toMatchObject({
+      queryKey: ["gui", "memory-lattice", { depth: 0, limit: 25 }, 0],
+    });
+
+    act(() => {
+      guiWsOnFrame?.({
+        type: "memory_lattice_invalidated",
+        occurredAt: "2026-04-30T12:00:00.000Z",
+        reason: "record_created",
+        scope: { kind: "project", id: "kiln" },
+        layer: "semantic",
+        recordId: "record-2",
+      });
+    });
+
+    await waitFor(() => {
+      const latestMemoryQuery = useQueryMock.mock.calls.findLast(([options]) => {
+        const queryKey = (options as { queryKey?: readonly unknown[] }).queryKey ?? [];
+        return queryKey.includes("memory-lattice");
+      });
+      expect(latestMemoryQuery?.[0]).toMatchObject({
+        queryKey: ["gui", "memory-lattice", { depth: 0, limit: 25 }, 1],
+      });
+    });
   });
 
   it("keeps non-actionable runtime events out of the transcript", async () => {
