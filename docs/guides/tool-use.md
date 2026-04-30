@@ -350,11 +350,11 @@ notification as payload content. MCP clients use `resources/subscribe` and
 `resources/unsubscribe`; CLI `kiln tools --mcp` wires those handlers from the
 same core surface.
 
-The deeper resource-plane roadmap is
-`docs/roadmap/09-context-resource-plane.md`. Pagination, workspace-file
+The completed resource-plane contract is documented in
+`docs/architecture/context-resource-plane.md`. Pagination, workspace-file
 resources, artifact namespaces, update notifications, resource links from
-high-volume tools, and consumer projection are implemented there; the remaining
-slice covers evaluation.
+high-volume tools, model-callable resource tools, and consumer projection are
+implemented there.
 
 ### Domain contracts
 

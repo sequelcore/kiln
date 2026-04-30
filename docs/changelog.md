@@ -62,6 +62,13 @@
   payload from returned tool results, so `read_many` can keep summary output
   compact while `kiln://artifacts/.../content` contains the raw bounded file
   packet.
+- Promoted the completed shared tooling intelligence and context resource plane
+  roadmaps into canonical architecture docs at
+  `docs/architecture/shared-tooling-intelligence.md` and
+  `docs/architecture/context-resource-plane.md`.
+- Removed the completed `08` and `09` roadmap files and compacted active
+  roadmap numbering so operator surfaces, provider credentials, config
+  projection, and shared developer tools are now `03` through `06`.
 
 ## Unreleased -- Operator Workspace Explorer
 
@@ -206,13 +213,13 @@
   `"opencode-zen"` (metered billing). GUI model picker surfaces the active
   tier automatically.
 - Added `OpenCodeRateLimitError` and `OpenCodeQuotaError` with `provider`
-  context and `retryable` flags, shaped for the forthcoming roadmap
-  `05-provider-credential-pool`.
+  context and `retryable` flags, shaped for the provider credential pool
+  roadmap.
 - Registered 12 OpenCode Go models (MiniMax M2.5/M2.7, GLM-5/5.1, Kimi
   K2.5/K2.6, MiMo V2 variants, Qwen 3.5/3.6 Plus) and 4 Zen models
   (Anthropic Claude Opus/Sonnet 4-6, OpenAI GPT-5.4, Google Gemini 2.5 Pro)
   in `MODEL_CATALOG` and `ModelCapabilityRegistry`.
-- Added `docs/roadmap/05-provider-credential-pool.md` as the forward plan
+- Added the provider credential pool roadmap as the forward plan
   for multi-account rotation, cooldown handling, and cross-process reload
   across all provider categories.
 - Consolidated the completed context-governor roadmap into canonical

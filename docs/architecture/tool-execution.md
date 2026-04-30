@@ -274,12 +274,11 @@ Task updates, monitor lifecycle/output changes, and artifact writes notify
 after their state mutation completes, so the resource read remains the ordering
 source of truth through the task, monitor, and artifact sequence numbers.
 
-The next resource-plane work is tracked in
-`docs/roadmap/09-context-resource-plane.md`. That roadmap owns the completed
-pagination, workspace-resource, and artifact namespace foundations plus
-resource subscriptions, notifications, and resource links from high-volume tool
-outputs. Those features extend the read-only context plane; they do not change
-the action boundary.
+The completed resource-plane architecture is documented in
+`docs/architecture/context-resource-plane.md`. Pagination, workspace resources,
+artifact namespaces, resource subscriptions, notifications, high-volume
+resource links, model-callable resource tools, and consumer projection extend
+the read-only context plane; they do not change the action boundary.
 
 ## Runtime Projections
 

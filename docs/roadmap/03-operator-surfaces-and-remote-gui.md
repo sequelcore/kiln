@@ -463,7 +463,7 @@ Completion standard:
 
 Primary files:
 
-- `docs/roadmap/04-operator-surfaces-and-remote-gui.md`
+- `docs/roadmap/03-operator-surfaces-and-remote-gui.md`
 - `docs/roadmap/README.md`
 - `docs/adr/ADR-006-gui-stack-and-binding-contract.md`
 

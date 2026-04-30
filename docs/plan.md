@@ -3,7 +3,7 @@
 ## Current State
 
 The completed 2026-04-29 foundation is now documented in
-`docs/roadmap/07-shared-developer-tools.md` and
+`docs/roadmap/06-shared-developer-tools.md` and
 `docs/architecture/tool-execution.md`.
 
 Closed slices:
@@ -48,10 +48,10 @@ path for CLI, GUI, TUI, SDK, and MCP consumers.
 
 - Architecture contract: `docs/architecture/tool-execution.md`
 - User guide: `docs/guides/tool-use.md`
-- Roadmap: `docs/roadmap/07-shared-developer-tools.md`
+- Roadmap: `docs/roadmap/06-shared-developer-tools.md`
 - Research basis: `docs/research/11-agent-tooling-surface.md`
-- Next roadmap: `docs/roadmap/08-shared-tooling-intelligence.md`
-- Resource follow-up roadmap: `docs/roadmap/09-context-resource-plane.md`
+- Shared tooling intelligence: `docs/architecture/shared-tooling-intelligence.md`
+- Context resource plane: `docs/architecture/context-resource-plane.md`
 - Next research basis: `docs/research/12-agent-tooling-next-surface.md`
 
 ## Closed Phase 10: Web Provider Configuration And Runtime Policy Wiring
@@ -88,9 +88,9 @@ Focused tests:
 
 ## New Program: Shared Tooling Intelligence
 
-The next plan is documented in
-`docs/roadmap/08-shared-tooling-intelligence.md`. It starts from the research
-in `docs/research/12-agent-tooling-next-surface.md`.
+The implemented program is documented canonically in
+`docs/architecture/shared-tooling-intelligence.md`. It started from the
+research in `docs/research/12-agent-tooling-next-surface.md`.
 
 ### Slice 11: Structured Tool Outputs And Output Schemas
 
@@ -362,8 +362,8 @@ Verification:
 
 ## New Program: Context Resource Plane
 
-The next plan is documented in
-`docs/roadmap/09-context-resource-plane.md`. It starts from the completed
+The implemented program is documented canonically in
+`docs/architecture/context-resource-plane.md`. It starts from the completed
 `ToolResourceRegistry` and MCP resource projection in Slice 18.
 
 ### Slice 19: Resource Pagination And Stable Cursors

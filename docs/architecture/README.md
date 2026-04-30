@@ -47,6 +47,16 @@ is documented by concern, not as a single monolith.
   Tool policy, execution flow, timeout/retry/fallback behavior, and command
   safety boundaries.
 
+- `shared-tooling-intelligence.md`
+  Canonical shared builtin-tool intelligence contracts: structured outputs,
+  catalog discovery, code intelligence, bulk reads, monitors, task state,
+  elicitation, and initial resources.
+
+- `context-resource-plane.md`
+  Canonical read-only resource plane: pagination, workspace resources,
+  artifact namespaces, notifications, high-volume resource links, resource
+  tools, and consumer projection.
+
 - `provider-model-discovery.md`
   Runtime provider availability, model discovery, operator diagnostics, and
   provider/model selection invariants.

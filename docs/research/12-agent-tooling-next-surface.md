@@ -3,9 +3,9 @@
 ## Purpose
 
 This note starts the second shared-tooling program after the first developer
-tool foundation closed on 2026-04-29. It informs
-`docs/roadmap/08-shared-tooling-intelligence.md` and the active plan in
-`docs/plan.md`.
+tool foundation closed on 2026-04-29. It informed the now-complete
+`docs/architecture/shared-tooling-intelligence.md` program and the active plan
+in `docs/plan.md`.
 
 The research focus is not another copy of file/edit/search tools. The next
 gaps are semantic code intelligence, bulk context ingestion, long-running
