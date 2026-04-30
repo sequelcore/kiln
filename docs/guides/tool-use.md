@@ -235,10 +235,25 @@ restart from the first page if it is rejected as invalid, stale, or
 out-of-range. Core in-process callers that need the current complete static set
 may still call `ToolResourceRegistry.list()` or `listTemplates()`.
 
+When the builtin surface is created with `workspaceResources.rootPath`, the same
+registry also exposes workspace resources:
+
+- `kiln://workspace/tree`
+- `kiln://workspace/tree{?path,depth,includeFiles}`
+- `kiln://workspace/file/{path}`
+- `kiln://workspace/preview/{path}{?offset,limit}`
+
+Workspace resource paths are relative to the configured root and use forward
+slashes. Tree and preview reads are bounded. Text files return text content with
+metadata; binary files return metadata-only JSON because blob reads need a
+separate policy. Workspace resources never write files, delete files, execute
+commands, or grant tool authority.
+
 The deeper resource-plane roadmap is
-`docs/roadmap/09-context-resource-plane.md`. Pagination is implemented there;
-the remaining slices cover workspace-file resources, artifact namespaces,
-update notifications, resource links from high-volume tools, and consumer UX.
+`docs/roadmap/09-context-resource-plane.md`. Pagination and workspace-file
+resources are implemented there; the remaining slices cover artifact
+namespaces, update notifications, resource links from high-volume tools, and
+consumer UX.
 
 ### Domain contracts
 

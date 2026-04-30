@@ -124,7 +124,9 @@ Goal: expose workspace files and bounded directory snapshots as read-only
 resources, using core path validation and the existing file/tool safety
 helpers.
 
-Planned resource templates:
+Status: implemented on 2026-04-29.
+
+Implemented resource templates:
 
 ```text
 kiln://workspace/tree{?path,depth,includeFiles}
@@ -132,9 +134,12 @@ kiln://workspace/file/{path}
 kiln://workspace/preview/{path}{?offset,limit}
 ```
 
-Requirements:
+Implemented requirements:
 
-- reuse sandbox path validation from file tools
+- add a core `WorkspaceResourceProvider` behind the shared
+  `ToolResourceProvider` registry boundary
+- reuse core path validation by accepting an optional `PathValidator` and always
+  enforcing a workspace-root subpath guard
 - normalize paths to forward-slash workspace-relative identifiers
 - reject traversal outside the workspace root
 - text resources return `text`; binary resources return metadata-only until
@@ -144,7 +149,8 @@ Requirements:
 - include resource metadata for size, modified time, MIME type, truncation, and
   path provenance
 - expose resources through MCP only after the workspace root is known and
-  policy allows reads
+  policy allows reads; `kiln tools --mcp`, GUI, and TUI startup pass the same
+  configured core builtin surface options
 
 Out of scope:
 
@@ -152,6 +158,12 @@ Out of scope:
 - editing files
 - deleting files
 - executing file-associated commands
+
+Verification:
+
+- `bun run --cwd packages/core test tests/tools/domain/tool-resource-registry.test.ts tests/tools/mcp/dev-tools-server.test.ts tests/tools/infrastructure/read-many-tool.test.ts`
+- `bun run --cwd packages/cli test tests/config/web-tools-config.test.ts tests/commands/tools-web-config.test.ts`
+- `bun run typecheck`
 
 ## Slice 21: Artifact Namespace Registry
 

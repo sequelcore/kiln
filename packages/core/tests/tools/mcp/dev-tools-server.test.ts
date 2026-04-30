@@ -157,6 +157,34 @@ describe("DevToolsMcpServer", () => {
     expect(secondPage.nextCursor).toEqual(expect.any(String));
   });
 
+  it("projects configured workspace resources through MCP listing and reads", async () => {
+    const tempDir = await makeTempDir();
+    try {
+      await writeFile(join(tempDir, "README.md"), "# Workspace\n", "utf8");
+      const surface = createDefaultBuiltinToolSurface({
+        workspaceResources: { rootPath: tempDir },
+      });
+      const server = new DevToolsMcpServer({
+        bridge: surface.bridge,
+        tools: surface.tools,
+        resources: surface.resources,
+      });
+
+      expect(server.listResources().resources.map((resource) => resource.uri)).toContain("kiln://workspace/tree");
+      expect(server.listResourceTemplates().resourceTemplates.map((template) => template.uriTemplate)).toContain(
+        "kiln://workspace/file/{path}",
+      );
+      const result = await server.readResource("kiln://workspace/file/README.md");
+      expect(result.contents[0]).toMatchObject({
+        uri: "kiln://workspace/file/README.md",
+        mimeType: "text/markdown",
+        text: "# Workspace\n",
+      });
+    } finally {
+      await removeTempDir(tempDir);
+    }
+  });
+
   it("forwards MCP resource list cursors from SDK request params", async () => {
     const surface = createDefaultBuiltinToolSurface();
     const server = new DevToolsMcpServer({

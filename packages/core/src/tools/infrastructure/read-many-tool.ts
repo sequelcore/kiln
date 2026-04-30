@@ -2,6 +2,7 @@ import { lstat, readFile, readdir } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
 import { fileToolMetadata, type ToolOutputVerbosity } from "../domain/tool-result-metadata.js";
 import { TOOL_SCHEMAS, type DevTool, type ToolInput, type ToolResult } from "../domain/tool.js";
+import { looksBinaryFilePath } from "./file-content-helpers.js";
 import { parseOutputVerbosity, pluralize } from "./output-verbosity.js";
 import {
   getSandboxContext,
@@ -20,22 +21,6 @@ const MAX_FILES = 200;
 const DEFAULT_MAX_BYTES = 256 * 1024;
 const MAX_BYTES = 2 * 1024 * 1024;
 const DEFAULT_EXCLUDED_DIRECTORIES = new Set([".git", ".kiln-worktrees", "build", "coverage", "dist", "node_modules"]);
-const BINARY_EXTENSIONS = new Set([
-  ".avif",
-  ".bmp",
-  ".gif",
-  ".ico",
-  ".jpeg",
-  ".jpg",
-  ".mp3",
-  ".mp4",
-  ".ogg",
-  ".pdf",
-  ".png",
-  ".webm",
-  ".webp",
-  ".zip",
-]);
 
 interface ReadManyFile {
   readonly path: string;
@@ -116,7 +101,7 @@ export class ReadManyTool implements DevTool {
         skipped.push({ path: candidate.path, reason: "gitignored" });
         continue;
       }
-      if (looksBinary(candidate.path)) {
+      if (looksBinaryFilePath(candidate.path)) {
         skipped.push({ path: candidate.path, reason: "binary" });
         continue;
       }
@@ -275,12 +260,4 @@ async function readGitignore(root: string, sandbox?: unknown): Promise<readonly 
 
 function matchesAny(relativePath: string, patterns: readonly string[]): boolean {
   return patterns.some((pattern) => matchesGlob(relativePath, pattern));
-}
-
-function looksBinary(path: string): boolean {
-  const lower = path.toLowerCase();
-  for (const extension of BINARY_EXTENSIONS) {
-    if (lower.endsWith(extension)) return true;
-  }
-  return false;
 }

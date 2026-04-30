@@ -35,6 +35,7 @@ import { TreeTool } from "./infrastructure/tree-tool.js";
 import { ViewImageTool } from "./infrastructure/view-image-tool.js";
 import { WebFetchTool, type WebFetchToolOptions } from "./infrastructure/web-fetch-tool.js";
 import { WebSearchTool, type WebSearchToolOptions } from "./infrastructure/web-search-tool.js";
+import { WorkspaceResourceProvider, type WorkspaceResourceProviderOptions } from "./infrastructure/workspace-resource-provider.js";
 import { WriteTool } from "./infrastructure/write-tool.js";
 import { DevToolExecutionBridge } from "./tool-executor.js";
 
@@ -59,6 +60,7 @@ export interface DefaultBuiltinToolRegistryOptions {
   readonly taskStateStore?: TaskStateStore;
   readonly operatorElicitation?: OperatorElicitationToolOptions;
   readonly toolProjection?: DefaultBuiltinToolProjectionOptions;
+  readonly workspaceResources?: WorkspaceResourceProviderOptions;
 }
 
 export interface DefaultBuiltinToolProjectionOptions {
@@ -144,7 +146,12 @@ export function createDefaultBuiltinToolSurface(
   };
   const registry = createDefaultBuiltinToolRegistry(surfaceOptions);
   const catalog = ToolCatalogIndex.fromTools(registry.list());
-  const resources = new ToolResourceRegistry({ catalog, monitorRegistry, taskStateStore });
+  const resources = new ToolResourceRegistry({
+    catalog,
+    monitorRegistry,
+    taskStateStore,
+    providers: options.workspaceResources ? [new WorkspaceResourceProvider(options.workspaceResources)] : [],
+  });
   const tools = projectTools(registry.list(), options.toolProjection);
 
   return {

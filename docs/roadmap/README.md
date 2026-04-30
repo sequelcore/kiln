@@ -117,8 +117,9 @@ This is the delivery queue. It is the only priority order in this index.
    projection, drift detection, engine registry, and config lifecycle commands.
 5. `07-shared-developer-tools.md` and `08-shared-tooling-intelligence.md` are
    complete as of 2026-04-29. Use `09-context-resource-plane.md` for the next
-   shared-tooling expansion. Resource pagination and stable cursors are closed;
-   continue with workspace-file resource templates.
+   shared-tooling expansion. Resource pagination, stable cursors, and
+   workspace-file resource templates are closed; continue with artifact
+   namespaces.
 6. Keep `02-external-benchmark-validation.md` deferred until the product
    surface stabilizes.
 

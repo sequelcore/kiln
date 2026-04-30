@@ -3,6 +3,7 @@ import type { KilnAppConfig } from "../../src/config.js";
 
 const toolsMocks = vi.hoisted(() => ({
   surfaceOptions: null as unknown,
+  serverOptions: null as unknown,
   initialized: false,
   connected: false,
 }));
@@ -13,9 +14,13 @@ vi.mock("@kilnai/core", async (importOriginal) => {
     ...actual,
     createDefaultBuiltinToolSurface: vi.fn((options: unknown) => {
       toolsMocks.surfaceOptions = options;
-      return { bridge: {} };
+      return { bridge: {}, tools: [], resources: { marker: "resources" } };
     }),
     DevToolsMcpServer: class {
+      constructor(options: unknown) {
+        toolsMocks.serverOptions = options;
+      }
+
       async initialize() {
         toolsMocks.initialized = true;
       }
@@ -56,8 +61,12 @@ describe("tools command web config", () => {
     await toolsCommand(APP_CONFIG, { mcp: true });
 
     expect(toolsMocks.surfaceOptions).toMatchObject({
+      workspaceResources: { rootPath: process.cwd() },
       webFetch: expect.any(Object),
       webSearch: expect.any(Object),
+    });
+    expect(toolsMocks.serverOptions).toMatchObject({
+      resources: { marker: "resources" },
     });
     expect(toolsMocks.initialized).toBe(true);
     expect(toolsMocks.connected).toBe(true);

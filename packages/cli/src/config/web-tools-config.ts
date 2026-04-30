@@ -46,14 +46,16 @@ export function createWebToolSurfaceOptions(
   input: WebToolSurfaceOptionsInput,
 ): DefaultBuiltinToolRegistryOptions {
   const webConfig = input.config?.web;
+  const workspaceResources = { rootPath: input.projectPath };
   if (webConfig?.enabled !== true) {
-    return {};
+    return { workspaceResources };
   }
 
   const networkPolicy = createWebNetworkPolicy(webConfig, input.projectPath);
   const searchProvider = createConfiguredWebSearchProvider(webConfig.searchProvider, input.fetchImpl);
 
   return {
+    workspaceResources,
     webFetch: { networkPolicy },
     webSearch: {
       networkPolicy,

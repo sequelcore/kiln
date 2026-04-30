@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { createDefaultBuiltinToolSurface } from "../../../src/tools/default-tool-surface.js";
 import { ToolResourceRegistry } from "../../../src/tools/domain/tool-resource-registry.js";
+import { makeSandbox, makeTempDir, removeTempDir } from "../infrastructure/test-utils.js";
 
 describe("ToolResourceRegistry", () => {
   it("lists stable read-only resources and templates from the shared tool surface", () => {
@@ -170,6 +173,188 @@ describe("ToolResourceRegistry", () => {
 
     await expect(surface.resources.read("kiln://session/tasks/missing")).rejects.toThrow("Resource not found");
   });
+
+  it("exposes workspace resource templates only when a workspace root is configured", async () => {
+    const tempDir = await makeTempDir();
+    try {
+      const defaultSurface = createDefaultBuiltinToolSurface();
+      const workspaceSurface = createDefaultBuiltinToolSurface({
+        workspaceResources: { rootPath: tempDir },
+      });
+
+      expect(defaultSurface.resources.listTemplates().map((template) => template.uriTemplate)).not.toContain(
+        "kiln://workspace/file/{path}",
+      );
+      expect(workspaceSurface.resources.list().map((resource) => resource.uri)).toContain("kiln://workspace/tree");
+      expect(workspaceSurface.resources.listTemplates().map((template) => template.uriTemplate)).toEqual([
+        "kiln://tools/catalog/{name}",
+        "kiln://session/tasks/{id}",
+        "kiln://session/monitors/{id}",
+        "kiln://workspace/tree{?path,depth,includeFiles}",
+        "kiln://workspace/file/{path}",
+        "kiln://workspace/preview/{path}{?offset,limit}",
+      ]);
+    } finally {
+      await removeTempDir(tempDir);
+    }
+  });
+
+  it("does not expose workspace resources when policy denies root reads", async () => {
+    const tempDir = await makeTempDir();
+    try {
+      const sandbox = makeSandbox(tempDir, { fsPolicy: "none" });
+      const surface = createDefaultBuiltinToolSurface({
+        workspaceResources: { rootPath: tempDir, pathValidator: sandbox.pathValidator },
+      });
+
+      expect(surface.resources.list().map((resource) => resource.uri)).not.toContain("kiln://workspace/tree");
+      expect(surface.resources.listTemplates().map((template) => template.uriTemplate)).not.toContain(
+        "kiln://workspace/file/{path}",
+      );
+    } finally {
+      await removeTempDir(tempDir);
+    }
+  });
+
+  it("reads workspace text files through stable workspace-relative URIs", async () => {
+    const tempDir = await makeTempDir();
+    try {
+      await mkdir(join(tempDir, "notes"), { recursive: true });
+      await writeFile(join(tempDir, "notes", "Caso Águila.txt"), "alpha\nbeta\ngamma\n", "utf8");
+      const surface = createDefaultBuiltinToolSurface({
+        workspaceResources: { rootPath: tempDir },
+      });
+
+      const result = await surface.resources.read(`kiln://workspace/file/${encodeWorkspacePath("notes/Caso Águila.txt")}`);
+
+      expect(result.contents).toHaveLength(1);
+      expect(result.contents[0]).toMatchObject({
+        uri: `kiln://workspace/file/${encodeWorkspacePath("notes/Caso Águila.txt")}`,
+        mimeType: "text/plain",
+        text: "alpha\nbeta\ngamma\n",
+        _meta: {
+          path: "notes/Caso Águila.txt",
+          type: "file",
+          binary: false,
+          truncated: false,
+        },
+      });
+      expect(result.contents[0]!._meta?.["absolutePath"]).toBeUndefined();
+    } finally {
+      await removeTempDir(tempDir);
+    }
+  });
+
+  it("returns bounded workspace previews with truncation metadata", async () => {
+    const tempDir = await makeTempDir();
+    try {
+      await writeFile(join(tempDir, "server.log"), "zero\none\ntwo\nthree\n", "utf8");
+      const surface = createDefaultBuiltinToolSurface({
+        workspaceResources: { rootPath: tempDir },
+      });
+
+      const result = await surface.resources.read("kiln://workspace/preview/server.log?offset=1&limit=2");
+
+      expect(result.contents[0]).toMatchObject({
+        uri: "kiln://workspace/preview/server.log?offset=1&limit=2",
+        mimeType: "text/plain",
+        text: "one\ntwo",
+        _meta: {
+          path: "server.log",
+          offset: 1,
+          limit: 2,
+          totalLines: 5,
+          truncated: true,
+        },
+      });
+    } finally {
+      await removeTempDir(tempDir);
+    }
+  });
+
+  it("returns metadata-only JSON for binary workspace files", async () => {
+    const tempDir = await makeTempDir();
+    try {
+      await writeFile(join(tempDir, "evidence.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0]));
+      const surface = createDefaultBuiltinToolSurface({
+        workspaceResources: { rootPath: tempDir },
+      });
+
+      const result = await surface.resources.read("kiln://workspace/file/evidence.png");
+      const payload = JSON.parse(result.contents[0]!.text);
+
+      expect(result.contents[0]).toMatchObject({
+        uri: "kiln://workspace/file/evidence.png",
+        mimeType: "application/json",
+        _meta: {
+          path: "evidence.png",
+          mimeType: "image/png",
+          binary: true,
+          truncated: false,
+        },
+      });
+      expect(payload).toMatchObject({
+        path: "evidence.png",
+        type: "file",
+        mimeType: "image/png",
+        binary: true,
+      });
+    } finally {
+      await removeTempDir(tempDir);
+    }
+  });
+
+  it("reads deterministic bounded workspace tree snapshots", async () => {
+    const tempDir = await makeTempDir();
+    try {
+      await mkdir(join(tempDir, "src"), { recursive: true });
+      await mkdir(join(tempDir, "docs"), { recursive: true });
+      await writeFile(join(tempDir, "zeta.txt"), "z", "utf8");
+      await writeFile(join(tempDir, "src", "index.ts"), "export {};\n", "utf8");
+      await writeFile(join(tempDir, "docs", "guide.md"), "# Guide\n", "utf8");
+      const surface = createDefaultBuiltinToolSurface({
+        workspaceResources: { rootPath: tempDir },
+      });
+
+      const result = await surface.resources.read("kiln://workspace/tree?path=.&depth=1&includeFiles=true");
+      const payload = JSON.parse(result.contents[0]!.text);
+
+      expect(payload.entries.map((entry: { path: string }) => entry.path)).toEqual([
+        "docs",
+        "src",
+        "zeta.txt",
+      ]);
+      expect(payload).toMatchObject({
+        root: ".",
+        entryCount: 3,
+        truncated: false,
+      });
+      expect(result.contents[0]!._meta).toMatchObject({
+        path: ".",
+        depth: 1,
+        includeFiles: true,
+        entryCount: 3,
+        truncated: false,
+      });
+    } finally {
+      await removeTempDir(tempDir);
+    }
+  });
+
+  it("rejects workspace resource traversal outside the configured root", async () => {
+    const tempDir = await makeTempDir();
+    try {
+      const surface = createDefaultBuiltinToolSurface({
+        workspaceResources: { rootPath: tempDir },
+      });
+
+      await expect(surface.resources.read("kiln://workspace/file/%2E%2E/secret.txt")).rejects.toThrow(
+        "Workspace resource path escapes the configured root",
+      );
+    } finally {
+      await removeTempDir(tempDir);
+    }
+  });
 });
 
 function decodeTestCursor(cursor: string | undefined): Record<string, unknown> {
@@ -179,4 +364,8 @@ function decodeTestCursor(cursor: string | undefined): Record<string, unknown> {
 
 function encodeTestCursor(cursor: Record<string, unknown>): string {
   return Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url");
+}
+
+function encodeWorkspacePath(path: string): string {
+  return path.split("/").map((segment) => encodeURIComponent(segment)).join("/");
 }

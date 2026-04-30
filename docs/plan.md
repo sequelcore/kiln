@@ -395,7 +395,31 @@ Verification:
 Expose read-only workspace tree, file, and preview resources through stable
 `kiln://workspace/...` URIs using existing sandbox and path validation.
 
-Status: planned.
+Status: implemented.
+
+Implemented contract:
+
+- `WorkspaceResourceProvider` implements the shared `ToolResourceProvider`
+  boundary used by `ToolResourceRegistry`.
+- Configured workspaces expose:
+  - `kiln://workspace/tree`
+  - `kiln://workspace/tree{?path,depth,includeFiles}`
+  - `kiln://workspace/file/{path}`
+  - `kiln://workspace/preview/{path}{?offset,limit}`
+- Workspace paths are workspace-relative, normalized to forward slashes, and
+  rejected when they escape the configured root.
+- Text file resources return text content with metadata; binary files return
+  metadata-only JSON until explicit blob policy is added.
+- Tree and preview reads are bounded by depth, entry, line, and byte caps.
+- `kiln tools --mcp` now passes the canonical resource registry into the MCP
+  server, and shared CLI/GUI/TUI startup options carry the workspace resource
+  root alongside web-tool configuration.
+
+Verification:
+
+- `bun run --cwd packages/core test tests/tools/domain/tool-resource-registry.test.ts tests/tools/mcp/dev-tools-server.test.ts tests/tools/infrastructure/read-many-tool.test.ts`
+- `bun run --cwd packages/cli test tests/config/web-tools-config.test.ts tests/commands/tools-web-config.test.ts`
+- `bun run typecheck`
 
 ### Slice 21: Artifact Namespace Registry
 

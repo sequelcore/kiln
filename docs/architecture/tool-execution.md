@@ -202,12 +202,20 @@ when another page exists. Cursors are opaque context positions with namespace
 and fingerprint validation; invalid, stale, and out-of-range cursors fail
 closed.
 
+Workspace resources are projected through the same core registry only when a
+workspace root is explicitly configured. The `WorkspaceResourceProvider` exposes
+read-only `kiln://workspace/...` resources for bounded tree snapshots, whole
+text files, and line previews. Workspace URIs use normalized relative paths, not
+absolute local paths. Every read is checked against the configured root and any
+provided `PathValidator`; traversal outside the root fails closed. Binary files
+return metadata-only JSON until a separate blob policy exists.
+
 The next resource-plane work is tracked in
 `docs/roadmap/09-context-resource-plane.md`. That roadmap owns the completed
-pagination foundation plus workspace-file templates, artifact namespaces,
-resource subscriptions, notifications, and resource links from high-volume tool
-outputs. Those features extend the read-only context plane; they do not change
-the action boundary.
+pagination and workspace-resource foundations plus artifact namespaces, resource
+subscriptions, notifications, and resource links from high-volume tool outputs.
+Those features extend the read-only context plane; they do not change the action
+boundary.
 
 ## Runtime Projections
 

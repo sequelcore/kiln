@@ -99,6 +99,7 @@ export type {
   ToolResourceDescriptor,
   ToolResourceListOptions,
   ToolResourcePage,
+  ToolResourceProvider,
   ToolResourceReadResult,
   ToolResourceRegistryOptions,
   ToolResourceTemplateDescriptor,
@@ -191,6 +192,8 @@ export type {
   WebSearchToolOptions,
 } from "./infrastructure/web-search-tool.js";
 export { WebSearchTool } from "./infrastructure/web-search-tool.js";
+export type { WorkspaceResourceProviderOptions } from "./infrastructure/workspace-resource-provider.js";
+export { WorkspaceResourceProvider } from "./infrastructure/workspace-resource-provider.js";
 export type { GitToolOptions } from "./infrastructure/git-tool.js";
 export { GitTool } from "./infrastructure/git-tool.js";
 export type {

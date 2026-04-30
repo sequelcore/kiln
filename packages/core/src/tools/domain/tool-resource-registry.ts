@@ -57,21 +57,30 @@ export interface ToolResourcePage<T> {
   readonly nextCursor?: string;
 }
 
+export interface ToolResourceProvider {
+  listResources(): readonly ToolResourceDescriptor[];
+  listTemplates(): readonly ToolResourceTemplateDescriptor[];
+  read(uri: string): Promise<ToolResourceReadResult | undefined>;
+}
+
 export interface ToolResourceRegistryOptions {
   readonly catalog: ToolCatalogIndex;
   readonly taskStateStore: TaskStateStore;
   readonly monitorRegistry: MonitorRegistry;
+  readonly providers?: readonly ToolResourceProvider[];
 }
 
 export class ToolResourceRegistry {
   private readonly catalog: ToolCatalogIndex;
   private readonly taskStateStore: TaskStateStore;
   private readonly monitorRegistry: MonitorRegistry;
+  private readonly providers: readonly ToolResourceProvider[];
 
   constructor(options: ToolResourceRegistryOptions) {
     this.catalog = options.catalog;
     this.taskStateStore = options.taskStateStore;
     this.monitorRegistry = options.monitorRegistry;
+    this.providers = options.providers ?? [];
   }
 
   list(): readonly ToolResourceDescriptor[] {
@@ -100,6 +109,7 @@ export class ToolResourceRegistry {
         mimeType: JSON_MIME_TYPE,
         annotations: { readOnlyHint: true },
       },
+      ...this.providers.flatMap((provider) => provider.listResources()),
     ];
   }
 
@@ -129,6 +139,7 @@ export class ToolResourceRegistry {
         mimeType: JSON_MIME_TYPE,
         annotations: { readOnlyHint: true },
       },
+      ...this.providers.flatMap((provider) => provider.listTemplates()),
     ];
   }
 
@@ -192,6 +203,13 @@ export class ToolResourceRegistry {
         snapshot: result.snapshot,
         events: result.events,
       });
+    }
+
+    for (const provider of this.providers) {
+      const result = await provider.read(uri);
+      if (result) {
+        return result;
+      }
     }
 
     throw resourceNotFound(uri);
