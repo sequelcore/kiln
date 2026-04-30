@@ -2,7 +2,7 @@
 
 **Status:** Product architecture track  
 **Owner:** Kiln runtime / GUI / operator surfaces  
-**Depends on:** `docs/adr/ADR-006-gui-stack-and-binding-contract.md`, `docs/roadmap/01-gui-phase-1-parity-checklist.md`, `docs/architecture/tool-execution.md`, `docs/architecture/provider-model-discovery.md`
+**Depends on:** `docs/adr/ADR-006-gui-stack-and-binding-contract.md`, `docs/guides/gui-parity.md`, `docs/guides/tui-maintenance.md`, `docs/architecture/tool-execution.md`, `docs/architecture/provider-model-discovery.md`
 **Related:** `STRATEGY.md`, `docs/roadmap/README.md`
 
 ## Purpose
@@ -160,7 +160,9 @@ single prettier shell.
 
 ### 1. Stabilize the local web GUI as the first operator surface
 
-The GUI remains the primary Phase 1 parity target and TUI deletion gate.
+The GUI is the primary operator surface. GUI Phase 1 parity is closed, and the
+TUI remains a frozen maintenance surface for terminal-first workflows and
+fallback use.
 
 Required focus:
 
@@ -289,8 +291,8 @@ client of the Kiln gateway and/or MCP surfaces.
 
 ### 4. Preserve CLI / TUI semantics for power users
 
-Even if the old TUI is deleted after GUI parity, Kiln still needs a strong
-terminal story.
+The TUI remains frozen, but Kiln still needs a strong terminal story through
+CLI automation and a maintained terminal operator surface.
 
 Required properties:
 
@@ -354,13 +356,13 @@ tradeoff.
 ### Phase 1. Local GUI parity closeout
 
 Objective:
-Finish the operational GUI parity gate without expanding scope.
+Keep the completed GUI parity baseline verifiable without expanding scope.
 
 Required results:
 
-- manual GUI walkthrough recorded
+- manual GUI walkthrough available for release validation
 - managed-window limitations documented if they remain
-- TUI deletion gate reassessed from real parity evidence
+- TUI maintenance policy kept aligned with GUI-first product focus
 
 Completion standard:
 
@@ -463,7 +465,7 @@ Completion standard:
 
 Primary files:
 
-- `docs/roadmap/03-operator-surfaces-and-remote-gui.md`
+- `docs/roadmap/01-operator-surfaces-and-remote-gui.md`
 - `docs/roadmap/README.md`
 - `docs/adr/ADR-006-gui-stack-and-binding-contract.md`
 

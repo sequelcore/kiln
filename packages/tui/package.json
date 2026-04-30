@@ -1,7 +1,7 @@
 {
   "name": "@kilnai/tui",
   "version": "1.0.7",
-  "description": "Terminal interface for Kiln. EXPERIMENTAL — frozen per ADR-005, maintenance-only, scheduled for deletion in Phase I after GUI parity.",
+  "description": "Terminal interface for Kiln. EXPERIMENTAL — frozen per ADR-005, maintenance-only.",
   "type": "module",
   "exports": {
     ".": {

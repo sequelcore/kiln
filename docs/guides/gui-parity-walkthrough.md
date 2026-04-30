@@ -3,12 +3,11 @@
 ## Purpose
 
 This guide is the manual sign-off script for GUI Phase 1 parity. It satisfies
-verification protocol item 2 from
-`docs/roadmap/01-gui-phase-1-parity-checklist.md`: a recorded walkthrough of
-the parity surface before `packages/tui/` is deleted.
+the manual validation path for the canonical parity status in
+`docs/guides/gui-parity.md`.
 
-Use this guide when recording the final operator-facing proof that `kiln gui`
-has replaced `kiln tui` for all non-deferred Phase 1 capabilities.
+Use this guide when recording operator-facing proof that `kiln gui` satisfies
+the completed Phase 1 parity capabilities.
 
 ## Recording metadata
 
@@ -26,10 +25,9 @@ Fill these fields before or immediately after recording:
 
 Before recording:
 
-1. Use the current `main` build or the exact deletion-candidate branch head.
-2. Confirm `docs/roadmap/01-gui-phase-1-parity-checklist.md` is still at
-   the expected deletion-gate status, with any unchecked rows explicitly
-   documented as deferred or out of scope.
+1. Use the current `main` build or the exact release-candidate branch head.
+2. Confirm `docs/guides/gui-parity.md` still reflects the intended GUI/TUI
+   policy.
 3. Confirm automated parity coverage is green:
    `bun x playwright test` from `packages/gui/`
 4. Confirm shared verification is green:
@@ -128,8 +126,8 @@ Show:
 
 Pass condition:
 
-- The GUI supports the keyboard-first operator path without depending on the
-  frozen TUI.
+- The GUI supports the keyboard-first operator path without requiring active
+  TUI development.
 - Session history navigation operates over Kiln sessions, not the active
   provider's private history.
 
@@ -217,5 +215,5 @@ Mark complete only when all conditions below are true:
 
 - `docs/guides/gui.md`
 - `docs/architecture/session-model.md`
-- `docs/guides/tui-deletion-checklist.md`
-- `docs/roadmap/01-gui-phase-1-parity-checklist.md`
+- `docs/guides/gui-parity.md`
+- `docs/guides/tui-maintenance.md`

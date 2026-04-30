@@ -251,27 +251,29 @@ Completion standard:
 
 Objective:
 Make CLI and GUI behave as operator interfaces to the control plane. Per
-ADR-005 (2026-04-17), the TUI is frozen and scheduled for deletion in
-Phase I; GUI is the primary operator surface.
+ADR-005 (2026-04-17, amended 2026-04-30), the TUI is frozen in maintenance
+mode and GUI is the primary operator surface.
 
 Required results:
 
 - CLI and GUI expose system state, mode, safety posture, and task lifecycle clearly
 - tooling stops pretending to be the product core
 - user interaction maps cleanly to control-plane concepts
-- TUI receives no feature work; critical bug fixes only
+- TUI receives no feature work by default; critical fixes and shared-contract
+  compatibility repairs only
 - a follow-up ADR defines the GUI stack, boundaries, and binding contract
 
 Completion standard:
 
 - the interface explains what the system is regulating, not just what command was run
-- GUI reaches parity with former TUI scope, unblocking TUI deletion in Phase I
+- GUI parity with former TUI scope is closed; TUI remains a frozen maintenance
+  surface
 
 Progress (as of 2026-04-17):
 
 - ADR-005 accepted — TUI frozen
 - ADR-006 accepted — GUI stack decided
-- `docs/roadmap/04-gui-phase-1-parity-checklist.md` accepted
+- GUI parity status now lives in `docs/guides/gui-parity.md`
 - `packages/gui/` scaffold landed at commit `54d1d53` (React 19 + TanStack Router/Query + Zustand + Tailwind v4 + Vitest + ESLint 9); pre-spec UI archived under `.reference/`
 - Runtime `gui-gateway` + `operator-gateway` and `kiln gui` CLI command in place
 - `@kilnai/gateway-contracts` package extracted (commit `fbd18dc`); GUI and runtime now share neutral wire-format types; ESLint guard directs consumers there instead of `@kilnai/runtime`
@@ -280,7 +282,8 @@ Progress (as of 2026-04-17):
 - `defe8ad` — `kiln gui --dev|--prod` implemented with Vite child-process lifecycle, `--port/--gui-port/--open/--no-open` flags, and cross-platform browser opener.
 - `cc105f9` — Playwright fixture upgraded to boot a real `gui-gateway` via Bun subprocess runner; Vite proxy reads `GUI_GATEWAY_PORT` env var.
 - `6a4043d` — Pre-existing mock regression for `startOperatorGateway` rename fixed in CLI tests.
-- ADR-006 scaffold follow-ups are complete. Only remaining work before TUI deletion is porting the 51 parity-checklist rows.
+- ADR-006 scaffold follow-ups are complete. GUI parity work has closed and the
+  TUI is retained as a frozen maintenance surface.
 - `637b279` — Slice F (theming pipeline, parity §5 partial): three-theme system (`kiln-dark` default, `kiln-light`, system-follow), accessible radiogroup switcher on landing route, Zustand persist + pre-render guard, 20 semantic tokens wired through Tailwind v4 `@theme`, body-text contrast AAA both themes, Playwright verifies persistence. Rows 5.1, 5.1a, 5.1b, 5.2 ✅.
 - `7903fb3` — Slice G (gateway transport, parity §6 in-scope): `GuiWsClient` with 30s heartbeat, 60s pong watchdog, exponential backoff (1s→30s ±20% jitter), bounded outbound queue, Zod-validated frames via `@kilnai/gateway-contracts`. `waitForGateway`, `stable-user-id` (localStorage), `useGuiWs` hook. Runtime gets pong response. Rows 6.1–6.6 ✅.
 - `919ac91` — test(gui): transport parity coverage (unit + e2e).
@@ -307,7 +310,9 @@ inform architectural calls before those calls get locked in.
 
 1. **Dogfood slice** ✅ (2026-04-17) — rows 3.7 (approval queue), 5.4 (markdown + syntax highlighting), 3.8 (tool call log), 3.9 (activity phase indicator). Shipped: `ApprovalQueue`, `ToolCallLog`, `ActivityPhaseIndicator` components; `tool_call_start`/`tool_call_result`/`activity_phase` frames added to contracts; gateway emits new frames; `react-syntax-highlighter` wired into ReactMarkdown code blocks; `activityPhase` derived from frame stream and replaces binary "thinking…" in Composer. Parity: 29/51 ✅. Bar 1 reached.
 2. **Orchestrator refactor Slice O4** — decide and delete fate of Sequential/Supervisor/Swarm strategies. Deliberately sequenced after dogfood so the architectural call is informed by a week of using the tool we're designing around. Doctrine debt; must close before the GUI grows orchestrator surfaces.
-3. **Finish GUI parity** (~3 more days) — remaining rows of §3 telemetry, §4 input polish, §5 remainder, §7 CLI flags. Unblocks TUI deletion.
+3. **GUI parity closed** — former parity tracking moved to
+   `docs/guides/gui-parity.md`; future GUI work proceeds through operator
+   surface roadmap slices.
 4. **Shared Tool Surface Unification** ✅ — direct/OAuth provider tool execution now uses one canonical Kiln path, builtin tool registration is centralized, MCP is the shared wrapper integration contract, and provider model discovery is explicit and diagnosable. Stable doctrine now lives in `docs/architecture/tool-execution.md` and `docs/architecture/provider-model-discovery.md`.
 5. **Config + Registries Surface ADR** — unify providers, credentials, MCP servers, skills, tools, models, domain packages, UI prefs behind one configuration story with one precedence model and one credential abstraction. Phase I work. See "Configuration scope" below.
 6. **GUI orchestrator surfaces** — spawn teams, route across providers, inspect parallel agents. Net-new feature on top of O4. Bar 2 ("proper multi-provider dev team from the GUI").

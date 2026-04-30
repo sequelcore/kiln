@@ -2,11 +2,12 @@
 
 > **⚠ EXPERIMENTAL — Frozen surface.** Per [ADR-005](../adr/ADR-005-freeze-tui-prioritize-gui.md),
 > the TUI is in maintenance mode. No new features; only critical bug fixes (crashes, data
-> loss, security). The primary operator surface going forward is the GUI (see Phase G in
-> `STRATEGY.md`). Scheduled for deletion in Phase I once GUI reaches parity.
+> loss, security) and shared-contract compatibility repairs. The primary operator surface
+> going forward is the GUI (see Phase G in `STRATEGY.md`). The TUI remains available as a
+> frozen terminal surface until renewed demand justifies product investment.
 > 6-month review checkpoint: 2026-10-17.
 >
-> Deletion execution is tracked in `docs/guides/tui-deletion-checklist.md`.
+> Maintenance policy is tracked in `docs/guides/tui-maintenance.md`.
 
 ## Overview
 

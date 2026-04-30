@@ -69,6 +69,9 @@
 - Promoted completed shared developer-tool doctrine into
   `docs/architecture/developer-tools.md`; the roadmap directory now contains
   only active or deferred numbered tracks.
+- Promoted GUI Phase 1 parity into `docs/guides/gui-parity.md`, replaced the
+  obsolete TUI removal checklist with `docs/guides/tui-maintenance.md`, and
+  updated the roadmap to treat the TUI as frozen maintenance.
 
 ## Unreleased -- Operator Workspace Explorer
 

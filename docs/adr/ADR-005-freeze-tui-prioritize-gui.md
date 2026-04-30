@@ -1,9 +1,28 @@
 # ADR-005: Freeze TUI Surface, Prioritize GUI as Primary Operator Interface
 
-**Status:** Accepted (2026-04-17)
+**Status:** Accepted (2026-04-17), amended (2026-04-30)
 **Date:** 2026-04-17
 **Author:** Ricardo Armenta
-**Scope:** `packages/tui/`, `packages/cli/`, future `packages/gui/` (new), `STRATEGY.md` Phase G (Operator Surfaces), Phase I (Ruthless Cleanup)
+**Scope:** `packages/tui/`, `packages/cli/`, `packages/gui/`, `STRATEGY.md` Phase G (Operator Surfaces)
+
+---
+
+## 2026-04-30 Amendment
+
+GUI Phase 1 parity is closed and the GUI is the primary operator surface.
+`packages/tui/` remains in the repository as a frozen maintenance surface for
+terminal-first workflows, fallback use, and future reassessment if concrete
+operator demand returns.
+
+The current TUI policy is:
+
+- no new TUI feature development by default
+- critical fixes and shared-contract compatibility repairs are allowed
+- no TUI-only runtime, provider, memory, tool, or authority paths
+- renewed TUI product investment requires an explicit decision
+
+Canonical current policy lives in `docs/guides/gui-parity.md` and
+`docs/guides/tui-maintenance.md`.
 
 ---
 
@@ -65,10 +84,10 @@ investment and occupies a slot in Phase G of the roadmap.
   `getFieldStore().snapshot()` telemetry poll in `packages/tui/src/app.tsx`
   touches core, which is appropriate consumer behavior. No pull-back
   required.
-- Strategic Law 8 (`STRATEGY.md` §3): "No roadmap item is complete until
-  the old path is removed." Once GUI reaches parity, deletion of
-  `@kilnai/tui` is **mandatory**, not optional. This ADR preemptively
-  commits to that.
+- The original cleanup target assumed parity would require removing the TUI.
+  Actual usage changed that policy: GUI parity is closed, and the old active
+  TUI roadmap path is removed by freezing TUI ownership and promoting the GUI
+  to primary surface, not by deleting the terminal package.
 
 ---
 
@@ -97,11 +116,10 @@ investment and occupies a slot in Phase G of the roadmap.
    a TUI surfaces during the review window — with concrete use cases not
    covered by CLI + GUI — this ADR is revisited. Otherwise:
 
-6. **Deletion in Phase I (Ruthless Cleanup).** Once the GUI reaches
-   functional parity with the current TUI, `packages/tui/` is deleted from
-   the monorepo, the `@kilnai/tui` npm package is deprecated, and
-   `docs/guides/tui.md` is removed. Per Law 8, parity without deletion is
-   incomplete.
+6. **Retain TUI in maintenance mode.** Once GUI Phase 1 parity is satisfied,
+   `packages/tui/` remains available but frozen. The GUI is the focused
+   operator surface. TUI work is limited to critical fixes and shared-contract
+   compatibility unless a new decision reopens product investment.
 
 ### Scope boundaries
 
@@ -113,8 +131,7 @@ investment and occupies a slot in Phase G of the roadmap.
 - `@kilnai/cli` — retained and invested in
 
 **Changed by this ADR:**
-- `@kilnai/tui` — frozen, experimental, maintenance-only, deletion path
-  committed
+- `@kilnai/tui` — frozen, experimental, maintenance-only
 - Phase G (Operator Surfaces) — GUI promoted to primary; TUI demoted to
   deprecated
 - A new `packages/gui/` package to be proposed in a follow-up ADR that
@@ -130,8 +147,8 @@ investment and occupies a slot in Phase G of the roadmap.
   accessibility tailwinds
 - Operator surface strategy aligns with peer category (Temporal, LangSmith,
   Langfuse, Prefect, CrewAI)
-- Explicit deletion commitment prevents `@kilnai/tui` from lingering as
-  dead weight
+- Explicit maintenance limits prevent `@kilnai/tui` from drifting into a
+  parallel product surface
 - Headless-core invariant is reinforced: surfaces are replaceable, the
   control plane is not
 
@@ -154,7 +171,7 @@ investment and occupies a slot in Phase G of the roadmap.
 - [ ] Update `docs/guides/tui.md` to surface the experimental/maintenance
       status
 - [ ] Update `packages/tui/package.json` with `experimental` marker and
-      deprecation note
+      maintenance status
 - [ ] Schedule 2026-10-17 review checkpoint
 - [ ] Resolve ADR-002 number duplication (separate cleanup)
 
@@ -169,20 +186,18 @@ operator surfaces in parallel fragments attention, duplicates binding
 logic, and creates two drift surfaces against the core. There is no
 evidence of demand that justifies parallel investment.
 
-### B. Freeze TUI but keep it indefinitely in maintenance mode
+### B. Freeze TUI but keep it in maintenance mode
 
-Rejected on Law 8 grounds. `STRATEGY.md` §3 law 8 states: "No roadmap
-item is complete until the old path is removed." A permanent
-maintenance-mode surface is exactly the "old path that never gets
-removed" pattern the strategy forbids. Freeze must come with a deletion
-commitment, gated on GUI parity and the 6-month review.
+Accepted by the 2026-04-30 amendment. Actual GUI usage proved the product
+focus shift, while terminal fallback remains useful enough to retain. The
+guardrail is strict ownership: TUI maintenance cannot become a second product
+track or a private runtime path.
 
-### C. Delete TUI immediately
+### C. Remove TUI immediately
 
 Rejected. GUI does not yet exist; the current operator would be stranded
-between CLI and nothing. Freeze-plus-scheduled-deletion is the ordered
-path that preserves operator continuity while committing to the
-endpoint.
+between CLI and nothing. Under the 2026-04-30 amendment, this remains rejected
+because the GUI is now primary and the frozen TUI still has fallback value.
 
 ### D. Replace TUI with a terminal-native web UI (e.g., textual-web,
     browser-in-terminal)

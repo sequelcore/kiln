@@ -331,4 +331,5 @@ See `docs/architecture/session-model.md` for the canonical rules.
 - `kiln gui --no-open` is useful for debugging or when you want to connect manually to the served URL.
 - The GUI still talks to Kiln through the local gateway; there is no parallel control plane.
 - Closing the managed GUI window is the expected Phase 1 shutdown path for the GUI surface.
-- The final manual sign-off script for TUI replacement lives in `docs/guides/gui-parity-walkthrough.md`.
+- GUI parity status lives in `docs/guides/gui-parity.md`; the manual validation
+  script lives in `docs/guides/gui-parity-walkthrough.md`.

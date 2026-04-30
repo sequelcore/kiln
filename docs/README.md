@@ -51,13 +51,14 @@ guides for operator-facing behavior.
 High-use guides today:
 
 - [GUI](guides/gui.md)
+- [GUI Parity](guides/gui-parity.md)
 - [GUI Parity Walkthrough](guides/gui-parity-walkthrough.md)
 - [Channels](guides/channels.md)
 - [Knowledge](guides/knowledge.md)
 - [Tool Use](guides/tool-use.md)
 - [Observability](guides/observability.md)
 - [TUI](guides/tui.md)
-- [TUI Deletion Checklist](guides/tui-deletion-checklist.md)
+- [TUI Maintenance](guides/tui-maintenance.md)
 
 ## SDK
 

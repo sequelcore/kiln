@@ -15,7 +15,7 @@ ADR-005 accepted a freeze on `@kilnai/tui` and committed to a new GUI surface as
 
 1. The GUI binds to the same `@kilnai/core` + `@kilnai/runtime` APIs as CLI and TUI. No parallel control plane.
 2. The GUI becomes the primary operator surface in Phase G.
-3. The GUI must reach functional parity with the current TUI scope to unblock TUI deletion in Phase I (Law 8).
+3. The GUI must reach functional parity with the current TUI scope so product focus can move to the GUI while TUI remains frozen maintenance.
 
 Additional context that shapes the decision:
 
@@ -76,7 +76,7 @@ Concretely:
 
 - **Transport.** HTTP for request/response (sessions, providers, config, cost snapshots, memory reads). WebSocket for streaming (session events, field telemetry, approval requests, cost deltas).
 - **Contract source of truth.** TypeScript types exported from `@kilnai/runtime` gateway route modules. The GUI imports *types only* (`import type`) from runtime — never runtime code. This keeps the GUI bundle free of server-only dependencies and preserves one-way compile direction (runtime does not import GUI).
-- **Route reuse.** The current `tui-gateway.ts` endpoints are renamed to a neutral `operator-gateway.ts` (or kept as-is under a stable path) and consumed by both surfaces during the parity window. After TUI deletion (Phase I), the gateway remains; only the TUI client disappears.
+- **Route reuse.** The current `tui-gateway.ts` endpoints are renamed to a neutral `operator-gateway.ts` (or kept as-is under a stable path) and consumed by both surfaces. The gateway contract remains shared while GUI is primary and TUI is maintained.
 - **Contract validation.** All gateway payloads are Zod-validated at the boundary on both ends. The GUI shares the schemas with runtime via a tiny `@kilnai/gateway-contracts` internal package (or a re-export from runtime) to avoid hand-maintained drift.
 - **MCP boundary.** MCP is not the GUI-to-gateway protocol. MCP remains the external tool/host contract for agents, IDEs, wrappers, and model hosts.
 
@@ -125,7 +125,7 @@ Rules:
 
 ### 5. Phase 1 scope: match current TUI capability, nothing more
 
-Phase 1 GUI ships the minimum set of views required to retire the TUI under ADR-005 §Decision #6:
+Phase 1 GUI ships the minimum set of views required to make the GUI the primary operator surface under ADR-005 §Decision #6:
 
 **In scope (Phase 1):**
 
@@ -148,7 +148,7 @@ Phase 1 GUI ships the minimum set of views required to retire the TUI under ADR-
 - Advanced theming beyond the default shadcn light/dark
 - IDE embedding (VS Code, JetBrains)
 
-Any capability outside this list that the TUI does *not* already provide does not block TUI deletion and should be proposed in its own ADR.
+Any capability outside this list that the TUI does *not* already provide does not block GUI parity and should be proposed in its own ADR.
 
 ### 6. Accessibility baseline: WCAG 2.1 AA from day one
 
@@ -179,7 +179,7 @@ Any PR that introduces a custom interactive component without an a11y review is 
 - Single binding shape (gateway HTTP/WS) for every operator surface today and every wrapper tomorrow. Zero parallel control planes, satisfying ADR-005 structurally.
 - Stack matches Sequel-wide standards, so engineers moving between Kiln and other Sequel projects pay no context tax.
 - WCAG 2.1 AA commitment from day one lets us truthfully keep the accessibility argument that justified ADR-005.
-- Phase 1 scope is a closed, testable set. Parity with the TUI is a yes/no question, which means Phase I deletion has an unambiguous trigger.
+- Phase 1 scope is a closed, testable set. Parity with the TUI is a yes/no question, which gives GUI-primary status an unambiguous validation point.
 - Tauri remains a one-package-addition away if and when OS integration becomes a need, without any binding rework.
 
 ### Negative / risks
@@ -198,7 +198,7 @@ Any PR that introduces a custom interactive component without an a11y review is 
 - [ ] Add `eslint-plugin-jsx-a11y` strict config to the GUI package
 - [ ] Add a `no-restricted-imports` rule blocking value imports from `@kilnai/core` / `@kilnai/runtime` inside `packages/gui/src/`
 - [ ] Update `STRATEGY.md` Phase G to cite this ADR
-- [ ] Define the Phase 1 parity checklist (the exact TUI capability list that, once matched, unblocks Phase I deletion)
+- [ ] Define the Phase 1 parity checklist (the exact TUI capability list that, once matched, validates GUI-primary status)
 
 ---
 

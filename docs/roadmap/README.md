@@ -37,29 +37,33 @@ indicates the default read order, not necessarily the active work priority.
   Canonical read-only resource-plane contracts.
 - `docs/architecture/provider-model-discovery.md`
   Canonical provider/model discovery, diagnostics, and selection rules.
+- `docs/guides/gui-parity.md`
+  Canonical GUI parity status and GUI/TUI focus policy.
+- `docs/guides/tui-maintenance.md`
+  Canonical frozen TUI maintenance policy.
 
 ### Active roadmaps
 
-- `01-gui-phase-1-parity-checklist.md`
-  Phase I GUI parity checklist. The deletion gate for `packages/tui/`.
+- `01-operator-surfaces-and-remote-gui.md`
+  Defines Kiln's long-term human operator surface strategy: GUI-first local
+  operation, IDE extension priority, Tauri as a later thin shell, retained
+  frozen TUI maintenance, and remote/cloud GUI hardening over the same runtime
+  contract.
 
-- `03-operator-surfaces-and-remote-gui.md`
-  Defines Kiln's long-term human operator surface strategy: web-first local GUI,
-  IDE extension priority, Tauri as a later thin shell, and remote/cloud GUI
-  hardening over the same runtime contract.
-
-- `04-provider-credential-pool.md`
+- `02-provider-credential-pool.md`
   Generalizes credential management across subscription-auth, direct API-key,
   and harness-wrapped providers. Introduces a provider-agnostic pool with
   rotation, cooldowns, and cross-process reload.
 
-- `05-config-projection-unification.md`
+- `03-config-projection-unification.md`
   Makes `~/.kiln/config.yaml` the source of truth for harness configuration,
   projects managed Claude/Codex/OpenCode config, and adds drift-aware sync,
   uninstall, migrate, and engine-status workflows.
 
-### Completed programs promoted to architecture
+### Completed programs promoted to architecture or guides
 
+- GUI Phase 1 parity is closed. Stable status now lives in
+  `docs/guides/gui-parity.md`.
 - Shared developer tools completed on 2026-04-29. Stable doctrine now lives in
   `docs/architecture/developer-tools.md`.
 - Shared tooling intelligence completed on 2026-04-29. Stable doctrine now
@@ -69,7 +73,7 @@ indicates the default read order, not necessarily the active work priority.
 
 ### Deferred work
 
-- `02-external-benchmark-validation.md`
+- `04-external-benchmark-validation.md`
   Deferred public benchmark milestone after architecture and product work
   stabilize.
 
@@ -78,47 +82,45 @@ indicates the default read order, not necessarily the active work priority.
 1. Read the relevant architecture docs in `docs/architecture/` before
    sequencing code refactors, especially `flows.md`, `subsystems.md`,
    `coordination.md`, `invariants.md`, `context-governance.md`,
-   `session-model.md`, `tool-execution.md`,
-   `developer-tools.md`, `shared-tooling-intelligence.md`, and
-   `context-resource-plane.md`.
-2. Read `01-gui-phase-1-parity-checklist.md` when planning or verifying GUI
-   parity work.
+   `session-model.md`, `tool-execution.md`, `developer-tools.md`,
+   `shared-tooling-intelligence.md`, and `context-resource-plane.md`.
+2. Read `docs/guides/gui-parity.md` and
+   `docs/guides/tui-maintenance.md` when planning GUI/TUI operator-surface
+   changes.
 3. Read `docs/architecture/tool-execution.md`,
    `docs/architecture/developer-tools.md`,
    `docs/architecture/shared-tooling-intelligence.md`,
    `docs/architecture/context-resource-plane.md`, and
    `docs/architecture/provider-model-discovery.md` when planning provider,
    wrapper, MCP, builtin-tool execution, resource, or model-discovery changes.
-4. Read `03-operator-surfaces-and-remote-gui.md` when planning GUI, IDE,
-   desktop, remote GUI, cloud dashboard, or operator supervision work.
-5. Read `04-provider-credential-pool.md` when planning any provider-auth
+4. Read `01-operator-surfaces-and-remote-gui.md` when planning GUI, IDE,
+   desktop, remote GUI, cloud dashboard, TUI maintenance, or operator
+   supervision work.
+5. Read `02-provider-credential-pool.md` when planning any provider-auth
    change, multi-account scaling, or rate-limit recovery work.
-6. Read `05-config-projection-unification.md` when planning harness config
+6. Read `03-config-projection-unification.md` when planning harness config
    projection, engine registry, drift detection, sync, uninstall, migrate, or
    config-surface work.
-7. Read `02-external-benchmark-validation.md` only when benchmark work becomes
+7. Read `04-external-benchmark-validation.md` only when benchmark work becomes
    active.
 
 ## Current Execution Priority
 
 This is the delivery queue. It is the only priority order in this index.
 
-1. Record the GUI parity manual walkthrough using
-   `docs/guides/gui-parity-walkthrough.md`, then prepare the TUI deletion PR
-   using `docs/guides/tui-deletion-checklist.md`.
-2. Use `03-operator-surfaces-and-remote-gui.md` to sequence post-parity
+1. Use `01-operator-surfaces-and-remote-gui.md` to sequence post-parity
    surface work. The first post-parity backbone slice is the canonical session
    event/replay envelope; real Workspace, Changed Files, Approvals, diffs,
    replay, and future invokable-agent panels must project from that contract
    instead of GUI-local state.
-3. Execute `04-provider-credential-pool.md` to close the single-credential
+2. Execute `02-provider-credential-pool.md` to close the single-credential
    limitation and generalize pool semantics across all provider categories.
    This slice unblocks multi-account scaling for opencode-go, codex-oauth, and
    direct API-key providers without special-casing any of them.
-4. Execute `05-config-projection-unification.md` after the provider credential
+3. Execute `03-config-projection-unification.md` after the provider credential
    pool and config/registry ADR sequencing is clear. It owns harness config
    projection, drift detection, engine registry, and config lifecycle commands.
-5. Keep `02-external-benchmark-validation.md` deferred until the product
+4. Keep `04-external-benchmark-validation.md` deferred until the product
    surface stabilizes.
 
 ## Current Status
@@ -138,10 +140,9 @@ As of 2026-04-30:
   `docs/architecture/shared-tooling-intelligence.md`,
   `docs/architecture/context-resource-plane.md`,
   `docs/architecture/coordination.md`, and `docs/architecture/invariants.md`
-- GUI Phase 1 parity is functionally closed in
-  `01-gui-phase-1-parity-checklist.md`
-- parity status is 50/51 rows complete, with the sole remaining unchecked row
-  (`6.7`) explicitly out of scope
+- GUI Phase 1 parity is closed and promoted to `docs/guides/gui-parity.md`
+- TUI remains a frozen maintenance surface under
+  `docs/guides/tui-maintenance.md`
 - GUI/TUI/CLI session history and resume are now provider-agnostic; provider
   selection is next-turn routing state and provider-native IDs are nested
   provider-thread metadata
@@ -150,7 +151,7 @@ As of 2026-04-30:
 - provider model-discovery diagnostics are complete and their stable doctrine
   lives in `docs/architecture/provider-model-discovery.md`
 - operator surface strategy now lives in
-  `03-operator-surfaces-and-remote-gui.md`
+  `01-operator-surfaces-and-remote-gui.md`
 - external benchmark validation remains deferred
 - OpenCode Go/Zen is now a first-class direct provider via `opencode-auth` and
   `opencode-provider` modules in `@kilnai/core`; the credential-pool roadmap
@@ -159,10 +160,9 @@ As of 2026-04-30:
   lives in `docs/architecture/context-governance.md`,
   `docs/architecture/memory.md`, `docs/architecture/coordination.md`,
   `docs/architecture/flows.md`, and `docs/guides/skills.md`
-- roadmap numbering was compacted on 2026-04-30:
-  operator surfaces is now `03`, provider credential pool is now `04`, config
-  projection is now `05`, and completed shared developer tools moved out of
-  the active roadmap set
+- roadmap numbering was compacted on 2026-04-30 after GUI parity closure:
+  operator surfaces is now `01`, provider credential pool is now `02`, config
+  projection is now `03`, and external benchmark validation is now `04`
 - shared developer-tool metadata, timeout handling, runtime evidence, MCP
   projection, consumer alignment, and the initial builtin tool expansion are
   complete and promoted to `docs/architecture/developer-tools.md`
