@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  createSessionBuiltinToolOptions,
   createDefaultBuiltinToolRegistry,
   createDefaultBuiltinToolSurface,
 } from "../../src/tools/default-tool-surface.js";
@@ -39,6 +40,9 @@ const BUILTIN_TOOL_NAMES = [
   "task_update",
   "operator_elicit",
   "tool_catalog_search",
+  "resource_list",
+  "resource_template_list",
+  "resource_read",
 ];
 
 describe("default builtin tool surface", () => {
@@ -76,6 +80,31 @@ describe("default builtin tool surface", () => {
     expect(surface.registry.list().map((tool) => tool.name)).toEqual(
       registry.list().map((tool) => tool.name),
     );
+  });
+
+  it("keeps session-scoped resource state readable across recreated surfaces", async () => {
+    const options = createSessionBuiltinToolOptions();
+    const firstSurface = createDefaultBuiltinToolSurface(options);
+    const artifact = firstSurface.artifactStore.put({
+      namespace: "tool-results",
+      title: "read_many full output",
+      mimeType: "text/plain",
+      content: { type: "text", text: "linked output" },
+      producer: { kind: "tool", name: "read_many" },
+      retention: { scope: "session", maxArtifacts: 10 },
+    });
+
+    const secondSurface = createDefaultBuiltinToolSurface(options);
+
+    await expect(
+      secondSurface.resources.read(`kiln://artifacts/tool-results/${artifact.id}/content`),
+    ).resolves.toMatchObject({
+      contents: [{
+        uri: `kiln://artifacts/tool-results/${artifact.id}/content`,
+        mimeType: "text/plain",
+        text: "linked output",
+      }],
+    });
   });
 
   it("creates fresh mutable containers for each surface", () => {
@@ -218,6 +247,24 @@ describe("default builtin tool surface", () => {
         text: expect.stringContaining("resource state"),
       }],
     });
+    await expect(surface.bridge.execute({
+      name: "resource_read",
+      input: { uri: "kiln://session/tasks" },
+    })).resolves.toMatchObject({
+      attempts: 1,
+      fallbackUsed: false,
+      result: {
+        isError: false,
+        output: expect.stringContaining("resource state"),
+        metadata: expect.objectContaining({
+          toolName: "resource_read",
+          kind: "resource",
+          operation: "read",
+          uri: "kiln://session/tasks",
+          contentCount: 1,
+        }),
+      },
+    });
   });
 
   it("stores high-volume tool output as an artifact resource link through the canonical bridge", async () => {
@@ -259,6 +306,47 @@ describe("default builtin tool surface", () => {
     }
   });
 
+  it("stores full read_many payloads in resource links even when visible output is summary", async () => {
+    const tempDir = await makeTempDir();
+    try {
+      await writeFile(join(tempDir, "summary.txt"), "important context\n".repeat(100), "utf8");
+      const surface = createDefaultBuiltinToolSurface();
+
+      const result = await surface.bridge.execute({
+        name: "read_many",
+        input: {
+          paths: [join(tempDir, "summary.txt")],
+          maxBytes: 120,
+          verbosity: "summary",
+        },
+      });
+
+      expect(result.result.output).toBe("1 file read, 0 skipped, 120 bytes (truncated)");
+      expect(result.result).not.toHaveProperty("resourcePayload");
+      const link = result.result.metadata?.resourceLinks?.[0];
+      expect(link).toMatchObject({
+        relation: "full_output",
+        mimeType: "text/plain",
+        title: "read_many full output",
+      });
+
+      const artifact = await surface.resources.read(link!.uri);
+      const artifactText = artifact.contents[0] && "text" in artifact.contents[0]
+        ? artifact.contents[0].text
+        : "";
+      expect(artifact.contents[0]).toMatchObject({
+        uri: link?.uri,
+        mimeType: "text/plain",
+        text: expect.stringContaining("---"),
+      });
+      expect(artifactText).toContain("important context");
+      expect(artifactText).not.toBe(result.result.output);
+      expect(link?.size).toBeGreaterThan(result.result.output.length);
+    } finally {
+      await removeTempDir(tempDir);
+    }
+  });
+
   it("supports deferred projection while keeping the canonical registry executable", async () => {
     const surface = createDefaultBuiltinToolSurface({
       toolProjection: {
@@ -267,16 +355,18 @@ describe("default builtin tool surface", () => {
       },
     });
 
-    expect(surface.toolNames).toEqual(["read", "tool_catalog_search"]);
-    expect(surface.tools.map((tool) => tool.name)).toEqual(["read", "tool_catalog_search"]);
-    expect(surface.toolDefinitions.map((tool) => tool.name)).toEqual(["read", "tool_catalog_search"]);
-    expect(Array.from(surface.capabilities.keys())).toEqual(["read", "tool_catalog_search"]);
+    const projectedTools = ["read", "tool_catalog_search", "resource_list", "resource_template_list", "resource_read"];
+    expect(surface.toolNames).toEqual(projectedTools);
+    expect(surface.tools.map((tool) => tool.name)).toEqual(projectedTools);
+    expect(surface.toolDefinitions.map((tool) => tool.name)).toEqual(projectedTools);
+    expect(Array.from(surface.capabilities.keys())).toEqual(projectedTools);
     expect(surface.registry.has("glob")).toBe(true);
     expect(surface.registry.has("read_many")).toBe(true);
     expect(surface.registry.has("code_intelligence")).toBe(true);
     expect(surface.registry.has("monitor_start")).toBe(true);
     expect(surface.registry.has("task_update")).toBe(true);
     expect(surface.registry.has("operator_elicit")).toBe(true);
+    expect(surface.registry.has("resource_read")).toBe(true);
     expect(surface.bridge.listTools().map((tool) => tool.name)).toEqual(BUILTIN_TOOL_NAMES);
 
     await expect(surface.bridge.execute({

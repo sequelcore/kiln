@@ -42,13 +42,13 @@ function createServer(registry?: DevToolRegistry): DevToolsMcpServer {
 }
 
 describe("DevToolsMcpServer", () => {
-  it("lists the 24 native tool schemas", () => {
+  it("lists the 27 native tool schemas", () => {
     const server = createServer();
 
     const tools = server.listTools();
     const names = tools.map((tool) => tool.name);
 
-    expect(tools).toHaveLength(24);
+    expect(tools).toHaveLength(27);
     expect(names).toEqual([
       "bash",
       "read",
@@ -74,6 +74,9 @@ describe("DevToolsMcpServer", () => {
       "task_update",
       "operator_elicit",
       "tool_catalog_search",
+      "resource_list",
+      "resource_template_list",
+      "resource_read",
     ]);
 
     for (const tool of tools) {
@@ -403,7 +406,13 @@ describe("DevToolsMcpServer", () => {
     });
     const server = new DevToolsMcpServer({ bridge: surface.bridge, tools: surface.tools });
 
-    expect(server.listTools().map((tool) => tool.name)).toEqual(["read", "tool_catalog_search"]);
+    expect(server.listTools().map((tool) => tool.name)).toEqual([
+      "read",
+      "tool_catalog_search",
+      "resource_list",
+      "resource_template_list",
+      "resource_read",
+    ]);
 
     const result = await server.callTool("tool_catalog_search", { exact: "glob", verbosity: "structured" });
     expect(result.isError).toBeUndefined();
@@ -414,7 +423,7 @@ describe("DevToolsMcpServer", () => {
           toolName: "tool_catalog_search",
           kind: "catalog",
           resultCount: 1,
-          totalIndexed: 24,
+          totalIndexed: 27,
         },
       },
     });

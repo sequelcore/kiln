@@ -12,7 +12,6 @@ import {
   optionalNumber,
   resolvePath,
   toErrorResult,
-  toSuccessResult,
   validateReadPath,
 } from "./tool-helpers.js";
 
@@ -146,15 +145,24 @@ export class ReadManyTool implements DevTool {
       truncated,
     };
 
-    return toSuccessResult(formatOutput(output, verbosity.value), fileToolMetadata("read_many", {
-      operation: "read_many",
-      filePath: root,
-      fileCount: files.length,
-      skippedCount: skipped.length,
-      totalBytes,
-      truncated,
-      verbosity: verbosity.value,
-    }));
+    return {
+      output: formatOutput(output, verbosity.value),
+      isError: false,
+      metadata: fileToolMetadata("read_many", {
+        operation: "read_many",
+        filePath: root,
+        fileCount: files.length,
+        skippedCount: skipped.length,
+        totalBytes,
+        truncated,
+        verbosity: verbosity.value,
+      }),
+      resourcePayload: {
+        title: "read_many full output",
+        mimeType: "text/plain",
+        text: formatOutput(output, "raw"),
+      },
+    };
   }
 }
 

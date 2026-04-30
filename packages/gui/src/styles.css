@@ -287,6 +287,9 @@ body {
 
 .markdown-body {
   line-height: 1.45;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: normal;
 }
 
 .markdown-body > * + * {
@@ -311,12 +314,15 @@ body {
   background: color-mix(in srgb, var(--color-background-element) 85%, transparent);
   color: var(--color-accent);
   padding: 0.08rem 0.3rem;
+  overflow-wrap: anywhere;
+  white-space: break-spaces;
 }
 
 .markdown-body pre {
   border: 1px solid var(--color-border);
   border-radius: 0.4rem;
   background: var(--color-background);
+  max-width: 100%;
   overflow-x: auto;
   padding: 0.6rem;
 }
@@ -326,6 +332,7 @@ body {
   background: transparent;
   color: var(--color-text);
   padding: 0;
+  white-space: pre;
 }
 
 .markdown-body a {

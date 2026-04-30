@@ -320,10 +320,17 @@ describe("ProviderSession.run()", () => {
     expect(events).toContainEqual({ type: "text_delta", content: "thinking...", isThinking: true });
     expect(events).toContainEqual({ type: "text_delta", content: "hello" });
     expect(events).toContainEqual({
-      type: "text_delta",
-      content: JSON.stringify({ name: "memory_store", input: { key: "k", value: "v" } }),
+      type: "tool_use",
+      toolName: "memory_store",
+      input: { key: "k", value: "v" },
     });
-    expect(events).toContainEqual({ type: "text_delta", content: "stored" });
+    expect(events).toContainEqual({
+      type: "error",
+      code: "TOOL_UNSUPPORTED",
+      message: "Provider emitted a tool call in text-only execution mode.",
+      isRetryable: false,
+    });
+    expect(events).toContainEqual({ type: "tool_result", toolName: "provider_tool_result", output: "stored" });
     expect(events).toContainEqual(expect.objectContaining({
       type: "cost_update",
       usd: 0,
@@ -333,7 +340,7 @@ describe("ProviderSession.run()", () => {
       canonicalModel: "gpt-4o",
       billingMode: "metered",
     }));
-    expect(events).toContainEqual(expect.objectContaining({ type: "completed", isError: false }));
+    expect(events).toContainEqual(expect.objectContaining({ type: "completed", isError: true }));
   });
 
   it.each([
@@ -360,7 +367,7 @@ describe("ProviderSession.run()", () => {
   ] satisfies Array<{
     readonly provider: ProviderSessionConfig["provider"];
     readonly config: Partial<ProviderSessionConfig>;
-  }>)("degrades $provider tool frames to text in text-only mode", async ({ provider, config }) => {
+  }>)("keeps $provider tool frames typed in text-only mode", async ({ provider, config }) => {
     adapterMocks[provider].stream.mockReturnValue(
       streamEvents([
         {
@@ -382,16 +389,19 @@ describe("ProviderSession.run()", () => {
     const events = await collectEvents(session.run({ prompt: "parse test" }));
 
     expect(session.capabilities.supportedTools).toHaveLength(0);
-    expect(events.some((event) => event.type === "tool_use" || event.type === "tool_result")).toBe(false);
     expect(events).toContainEqual({
-      type: "text_delta",
-      content: JSON.stringify({
-        name: "write",
-        input: { path: "src/feature.ts", content: "export const x = 1;" },
-      }),
+      type: "tool_use",
+      toolName: "write",
+      input: { path: "src/feature.ts", content: "export const x = 1;" },
     });
-    expect(events).toContainEqual({ type: "text_delta", content: "tool output" });
-    expect(events).toContainEqual(expect.objectContaining({ type: "completed", isError: false }));
+    expect(events).toContainEqual({
+      type: "error",
+      code: "TOOL_UNSUPPORTED",
+      message: "Provider emitted a tool call in text-only execution mode.",
+      isRetryable: false,
+    });
+    expect(events).toContainEqual({ type: "tool_result", toolName: "provider_tool_result", output: "tool output" });
+    expect(events).toContainEqual(expect.objectContaining({ type: "completed", isError: true }));
   });
 
   it.each([

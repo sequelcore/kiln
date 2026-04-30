@@ -398,7 +398,7 @@ export class DevToolsMcpServer {
   }
 }
 
-function projectToolResult(result: ToolResult): Omit<ToolResult, "content"> {
+function projectToolResult(result: ToolResult): Omit<ToolResult, "content" | "resourcePayload"> {
   return {
     output: result.output,
     isError: result.isError,

@@ -8,6 +8,8 @@ import {
   createAttachedRuntimeBuiltinToolSurface,
 } from "../../src/gateway/attached-runtime-tool-surface.js";
 
+const ALWAYS_ON_RESOURCE_TOOLS = ["resource_list", "resource_template_list", "resource_read"];
+
 function projectToolDefinitions(
   tools: readonly {
     readonly name: string;
@@ -77,9 +79,9 @@ describe("attached runtime builtin tool surface", () => {
       },
     });
 
-    expect(Array.from(runtimeSurface.callBuiltinTools.keys())).toEqual(["read", "tool_catalog_search"]);
-    expect(runtimeSurface.toolDefinitions.map((tool) => tool.name)).toEqual(["read", "tool_catalog_search"]);
-    expect(Array.from(runtimeSurface.capabilities.keys())).toEqual(["read", "tool_catalog_search"]);
+    expect(Array.from(runtimeSurface.callBuiltinTools.keys())).toEqual(["read", "tool_catalog_search", ...ALWAYS_ON_RESOURCE_TOOLS]);
+    expect(runtimeSurface.toolDefinitions.map((tool) => tool.name)).toEqual(["read", "tool_catalog_search", ...ALWAYS_ON_RESOURCE_TOOLS]);
+    expect(Array.from(runtimeSurface.capabilities.keys())).toEqual(["read", "tool_catalog_search", ...ALWAYS_ON_RESOURCE_TOOLS]);
   });
 
   it("can explicitly expose code intelligence in deferred runtime projection", () => {
@@ -96,11 +98,13 @@ describe("attached runtime builtin tool surface", () => {
       "read",
       "code_intelligence",
       "tool_catalog_search",
+      ...ALWAYS_ON_RESOURCE_TOOLS,
     ]);
     expect(runtimeSurface.toolDefinitions.map((tool) => tool.name)).toEqual([
       "read",
       "code_intelligence",
       "tool_catalog_search",
+      ...ALWAYS_ON_RESOURCE_TOOLS,
     ]);
   });
 
@@ -118,11 +122,13 @@ describe("attached runtime builtin tool surface", () => {
       "read",
       "read_many",
       "tool_catalog_search",
+      ...ALWAYS_ON_RESOURCE_TOOLS,
     ]);
     expect(runtimeSurface.toolDefinitions.map((tool) => tool.name)).toEqual([
       "read",
       "read_many",
       "tool_catalog_search",
+      ...ALWAYS_ON_RESOURCE_TOOLS,
     ]);
   });
 
@@ -143,6 +149,7 @@ describe("attached runtime builtin tool surface", () => {
       "monitor_stop",
       "monitor_list",
       "tool_catalog_search",
+      ...ALWAYS_ON_RESOURCE_TOOLS,
     ]);
     expect(runtimeSurface.toolDefinitions.map((tool) => tool.name)).toEqual([
       "read",
@@ -151,6 +158,7 @@ describe("attached runtime builtin tool surface", () => {
       "monitor_stop",
       "monitor_list",
       "tool_catalog_search",
+      ...ALWAYS_ON_RESOURCE_TOOLS,
     ]);
   });
 
@@ -169,12 +177,14 @@ describe("attached runtime builtin tool surface", () => {
       "task_list",
       "task_update",
       "tool_catalog_search",
+      ...ALWAYS_ON_RESOURCE_TOOLS,
     ]);
     expect(runtimeSurface.toolDefinitions.map((tool) => tool.name)).toEqual([
       "read",
       "task_list",
       "task_update",
       "tool_catalog_search",
+      ...ALWAYS_ON_RESOURCE_TOOLS,
     ]);
   });
 
@@ -192,11 +202,13 @@ describe("attached runtime builtin tool surface", () => {
       "read",
       "operator_elicit",
       "tool_catalog_search",
+      ...ALWAYS_ON_RESOURCE_TOOLS,
     ]);
     expect(runtimeSurface.toolDefinitions.map((tool) => tool.name)).toEqual([
       "read",
       "operator_elicit",
       "tool_catalog_search",
+      ...ALWAYS_ON_RESOURCE_TOOLS,
     ]);
   });
 
@@ -236,6 +248,18 @@ describe("attached runtime builtin tool surface", () => {
           mimeType: "text/plain",
           text: expect.stringContaining("runtime link"),
         }],
+      });
+      await expect(runtimeSurface.callBuiltinTools.get("resource_read")?.({
+        uri: result.resourceLinks![0]!.uri,
+      })).resolves.toMatchObject({
+        output: expect.stringContaining("runtime link"),
+        isError: false,
+        metadata: expect.objectContaining({
+          toolName: "resource_read",
+          kind: "resource",
+          operation: "read",
+          uri: result.resourceLinks![0]!.uri,
+        }),
       });
     } finally {
       await rm(tempDir, { recursive: true, force: true });

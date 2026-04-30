@@ -298,8 +298,48 @@ describe("makeMultiProviderSessionFactory", () => {
 
     expect(registry.createSession).toHaveBeenCalledWith(
       "claude",
-      expect.objectContaining({ builtinToolOptions }),
+      expect.objectContaining({
+        builtinToolOptions: expect.objectContaining({
+          webSearch: builtinToolOptions.webSearch,
+          artifactResources: expect.any(Object),
+          monitorRegistry: expect.any(Object),
+          taskStateStore: expect.any(Object),
+          resourceNotifications: expect.any(Object),
+        }),
+      }),
     );
+  });
+
+  it("shares builtin resource state across recreated provider sessions", async () => {
+    const { store } = makeStore(null);
+    const { registry } = makeRegistry();
+    const transcriptStore = makeTranscriptStore();
+    const cache = makeContextArtifactCache();
+
+    const { factory } = await makeMultiProviderSessionFactory(
+      "claude",
+      PROVIDER_IDS,
+      "/p",
+      registry,
+      store as any,
+      transcriptStore,
+      cache,
+    );
+
+    const first = factory("sys", "/p");
+    for await (const _ of first.run({ prompt: "first" } as any)) {}
+    const second = factory("sys", "/p");
+    for await (const _ of second.run({ prompt: "second" } as any)) {}
+
+    const firstOptions = vi.mocked(registry.createSession).mock.calls[0]?.[1]?.builtinToolOptions;
+    const secondOptions = vi.mocked(registry.createSession).mock.calls[1]?.[1]?.builtinToolOptions;
+
+    expect(firstOptions).toBeDefined();
+    expect(secondOptions).toBeDefined();
+    expect(secondOptions?.artifactResources?.store).toBe(firstOptions?.artifactResources?.store);
+    expect(secondOptions?.resourceNotifications).toBe(firstOptions?.resourceNotifications);
+    expect(secondOptions?.monitorRegistry).toBe(firstOptions?.monitorRegistry);
+    expect(secondOptions?.taskStateStore).toBe(firstOptions?.taskStateStore);
   });
 
   it("calls store.append() after session dispose", async () => {

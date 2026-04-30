@@ -5,6 +5,7 @@ export type {
   ToolInput,
   ToolResult,
   ToolResultContentPart,
+  ToolResultResourcePayload,
 } from "./domain/tool.js";
 export { TOOL_SCHEMAS } from "./domain/tool.js";
 
@@ -51,6 +52,9 @@ export type {
   MonitorToolName,
   MonitorToolOperation,
   MonitorToolResultMetadata,
+  ResourceToolName,
+  ResourceToolOperation,
+  ResourceToolResultMetadata,
   SessionTaskStatus,
   SearchToolName,
   SearchToolResultMetadata,
@@ -80,6 +84,7 @@ export {
   isFileToolResultMetadata,
   mediaToolMetadata,
   monitorToolMetadata,
+  resourceToolMetadata,
   searchToolMetadata,
   taskStateToolMetadata,
   webToolMetadata,
@@ -207,6 +212,7 @@ export type {
 export { OperatorElicitationTool } from "./infrastructure/operator-elicitation-tool.js";
 export { ReadTool } from "./infrastructure/read-tool.js";
 export { ReadManyTool } from "./infrastructure/read-many-tool.js";
+export { ResourceListTool, ResourceReadTool, ResourceTemplateListTool } from "./infrastructure/resource-tools.js";
 export { WriteTool } from "./infrastructure/write-tool.js";
 export { EditTool } from "./infrastructure/edit-tool.js";
 export { PatchTool } from "./infrastructure/patch-tool.js";
@@ -255,6 +261,7 @@ export {
   createDefaultBuiltinTools,
   createDefaultBuiltinToolRegistry,
   createDefaultBuiltinToolSurface,
+  createSessionBuiltinToolOptions,
   projectDevToolSchemas,
   projectDevToolDefinitions,
   projectDevToolCapabilities,

@@ -218,6 +218,14 @@ producer provenance, and exposes read-only `kiln://artifacts/...` resources for
 namespace indexes, artifact metadata, and JSON/text/blob content. Resource reads
 do not give consumers mutation access to the store.
 
+Operator sessions that recreate provider/runtime surfaces across turns must
+reuse one session-scoped builtin tool-state bundle. That bundle owns the
+artifact store, resource notification hub, monitor registry, and task-state
+store for the operator session. Recreating a turn surface must not orphan
+`metadata.resourceLinks`; a `kiln://artifacts/...` URI emitted in one turn must
+remain readable by `resource_read` in later turns until the session retention
+policy evicts it.
+
 High-volume tools can attach resource links after execution through the
 canonical `DevToolExecutionBridge`. The bridge uses an `ArtifactToolResourceLinker`
 to store eligible successful outputs in the `tool-results` artifact namespace
@@ -226,6 +234,13 @@ content. The original `ToolResult.output` and truncation metadata stay intact;
 resource links are an addressable follow-up read path, not hidden context
 injection. Sensitive operator elicitation results are not eligible for artifact
 linking.
+
+Tools may provide an internal `resourcePayload` when the best linked artifact is
+richer than the visible `ToolResult.output`. The linker stores that payload and
+then strips it from the returned tool result, so consumers still receive compact
+output plus a resource URI. This is required for summary-mode high-volume tools:
+`read_many` can return a one-line summary to the model while the linked
+`kiln://artifacts/.../content` resource contains the raw bounded file packet.
 
 Consumer surfaces use a shared resource display projection. Core exposes
 `ToolResourceDisplayDescriptor` plus projection helpers for registry descriptors
@@ -237,6 +252,14 @@ direct-provider runtime consumers do not need private browse/read protocols.
 When direct-provider tool execution receives linked high-volume output, the
 runtime projection returns a compact resource-pointer message rather than
 injecting the full artifact payload into every turn.
+
+The same registry is also exposed to executable model sessions as read-only
+builtin tools: `resource_list`, `resource_template_list`, and `resource_read`.
+Those tools are canonical adapters over `ToolResourceRegistry`, not consumer UI
+helpers. They remain available in deferred tool projection so models can
+discover and read resource links without raw tool-result JSON being pasted into
+assistant prose. Resource tools can only list or read context; any action still
+routes through the normal tool execution bridge and authority contract.
 
 Resource notifications are owned by the same core surface. A
 `ToolResourceNotificationHub` tracks active consumer sessions, per-session

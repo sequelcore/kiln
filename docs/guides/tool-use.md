@@ -263,6 +263,13 @@ records producer provenance, and bounds content size plus retained artifacts per
 namespace. Artifact content may be JSON, text, or blob content, all addressed by
 stable artifact URIs.
 
+Long-lived consumers that recreate tool surfaces per turn should create one
+session-scoped builtin tool options bundle and reuse it for the session. That
+keeps the artifact store, task-state store, monitor registry, and notification
+hub stable while still letting each turn attach its own operator-surface
+controllers. Without that shared state, a `kiln://artifacts/...` link created by
+one tool call can become unreadable in a later turn.
+
 High-volume tool results may include resource links to artifact content when
 the output is large or explicitly truncated. The canonical execution bridge adds
 these links after successful eligible tool calls, so MCP, CLI, GUI, TUI, SDK,
@@ -270,6 +277,13 @@ and runtime consumers share one behavior. The visible `ToolResult.output` is
 not rewritten. Structured consumers should inspect
 `result.metadata.resourceLinks`; MCP consumers also receive a `resource_link`
 content part.
+
+Linked artifact content is not required to be identical to the visible
+`ToolResult.output`. Tools can provide an internal resource payload for the
+artifact linker, and the linker strips that payload before returning the tool
+result. For example, `read_many` summary output can remain a compact line such
+as `24 files read...`, while the linked artifact stores the raw bounded file
+packet that `resource_read` can inspect later.
 
 Resource link metadata uses this shape:
 
@@ -304,6 +318,22 @@ compact resource-pointer output while preserving `metadata.resourceLinks` and
 `resource_link` content for clients that can render links. SDK consumers can
 import the resource descriptor, read result, page, and display types from
 `@kilnai/react`, which re-exports the core contracts.
+
+Executable model sessions can consume the same resource plane through core
+read-only builtin tools:
+
+- `resource_list`: lists registry resources with optional cursor pagination
+- `resource_template_list`: lists resource templates with optional cursor
+  pagination
+- `resource_read`: reads a `kiln://...` resource URI
+
+These tools are thin adapters over the same `ToolResourceRegistry`; they do not
+own a private browse/read protocol and they do not grant mutation authority.
+They stay visible in deferred tool projection alongside `tool_catalog_search`,
+so a model can follow `metadata.resourceLinks` from high-volume results without
+requiring a GUI, TUI, CLI, or MCP-client-only helper. `resource_read` returns a
+single text payload directly when possible and otherwise returns the resource
+content array as JSON.
 
 The builtin surface also creates a `ToolResourceNotificationHub`. Consumers can
 subscribe by resource URI and receive MCP-compatible invalidation messages:
@@ -352,7 +382,7 @@ export interface DevTool {
 }
 ```
 
-The twenty-four built-in tool names are:
+The twenty-seven built-in tool names are:
 
 - `bash`
 - `read`
@@ -378,6 +408,9 @@ The twenty-four built-in tool names are:
 - `task_update`
 - `operator_elicit`
 - `tool_catalog_search`
+- `resource_list`
+- `resource_template_list`
+- `resource_read`
 
 Operator-attached CLI, GUI, and TUI turns may also expose
 `operator_set_theme`. That tool is not part of the filesystem developer-tool

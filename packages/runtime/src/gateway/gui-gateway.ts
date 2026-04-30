@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { Hono } from "hono";
 import type { WSContext } from "hono/ws";
 import {
+  createSessionBuiltinToolOptions,
   EventBus,
   extractText,
   textParts,
@@ -213,6 +214,7 @@ export function deriveGuiAuthorityStatusFromPerCallConfig(
 
 export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<GuiGateway> {
   const port = options.port ?? 4810;
+  const builtinToolOptions = createSessionBuiltinToolOptions(options.builtinToolOptions);
   const app = new Hono();
   const guiDistPath = resolveGuiDistPath(options.guiDistPath, import.meta.url);
   const hasMountedGui = mountGuiStaticAssetsIfPresent(app, guiDistPath);
@@ -382,7 +384,7 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
       getDiscovery: async (discoveryOptions) => (await refreshOperatorDiscovery(discoveryOptions)) ?? [],
       getDiscoverySnapshot: getOperatorDiscoverySnapshot,
       onDiscoveryUpdated: (listener) => operatorCatalog?.subscribe((snapshot) => listener(snapshot.discovery)) ?? (() => {}),
-      builtinToolOptions: options.builtinToolOptions,
+      builtinToolOptions,
       onReady: (url) => {
         operatorWsUrl = url;
       },

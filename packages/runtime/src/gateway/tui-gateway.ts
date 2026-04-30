@@ -11,6 +11,7 @@ import { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestra
 import type { PerCallToolConfig } from "../session/runtime-session-orchestrator.js";
 import { SessionRegistry } from "../session/session-registry.js";
 import {
+  createSessionBuiltinToolOptions,
   textParts,
   extractText,
   EventBus,
@@ -290,6 +291,7 @@ export function buildTuiDoneFramePayload(input: {
  */
 export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGateway> {
   const port = options.port ?? 4801;
+  const builtinToolOptions = createSessionBuiltinToolOptions(options.builtinToolOptions);
   const providerLabel = options.sessionManager.getProvider();
   const systemPrompt = options.systemPrompt ?? "You are a helpful assistant.";
   const providerCatalog = createProviderCatalogService<readonly GuiProviderDiscoveryResult[]>(
@@ -315,7 +317,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
   // Activity streamer: bridges CLI session events to the active WS connection
   const activityStreamer = new TuiActivityStreamer(approvalRegistry);
   const builtinToolSurface = createAttachedRuntimeBuiltinToolSurface({
-    builtinToolOptions: options.builtinToolOptions,
+    builtinToolOptions,
   });
   let activeOperatorSurface: { theme: { setTheme: ReturnType<typeof createOperatorThemeBridge>["request"] } } | undefined;
 
@@ -630,7 +632,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
                 frame.reasoningEffort,
               );
               const turnBuiltinToolSurface = createAttachedRuntimeBuiltinToolSurface({
-                builtinToolOptions: options.builtinToolOptions,
+                builtinToolOptions,
                 operatorSurface: {
                   theme: {
                     setTheme: operatorThemeBridge.request,
@@ -699,7 +701,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
                 routedProvider,
                 routedModel || undefined,
                 createAttachedRuntimeBuiltinToolSurface({
-                  builtinToolOptions: options.builtinToolOptions,
+                  builtinToolOptions,
                   operatorSurface: {
                     theme: {
                       setTheme: operatorThemeBridge.request,

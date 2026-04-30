@@ -81,6 +81,23 @@ function resolveExecutionMode(config: ProviderSessionConfig): DirectProviderExec
   return profile?.executionMode ?? "text-only";
 }
 
+function toSessionToolUseEvent(content: string): Extract<SessionEvent, { type: "tool_use" }> {
+  try {
+    const parsed = JSON.parse(content) as { name?: unknown; input?: unknown };
+    return {
+      type: "tool_use",
+      toolName: typeof parsed.name === "string" && parsed.name.length > 0 ? parsed.name : "provider_tool_call",
+      input: parsed.input ?? {},
+    };
+  } catch {
+    return {
+      type: "tool_use",
+      toolName: "provider_tool_call",
+      input: {},
+    };
+  }
+}
+
 function resolveProfile(
   config: ProviderSessionConfig,
 ): ResolvedDirectProviderExecutionProfile | undefined {
@@ -290,8 +307,23 @@ export class ProviderSession implements IKilnSession {
         yield { type: "text_delta", content: event.content, isThinking: true };
         continue;
       }
-      if (event.type === "text" || event.type === "tool_use" || event.type === "tool_result") {
+      if (event.type === "text") {
         yield { type: "text_delta", content: event.content };
+        continue;
+      }
+      if (event.type === "tool_use") {
+        yield toSessionToolUseEvent(event.content);
+        yield {
+          type: "error",
+          code: "TOOL_UNSUPPORTED",
+          message: "Provider emitted a tool call in text-only execution mode.",
+          isRetryable: false,
+        };
+        isError = true;
+        continue;
+      }
+      if (event.type === "tool_result") {
+        yield { type: "tool_result", toolName: "provider_tool_result", output: event.content };
         continue;
       }
       if (event.type === "done") {

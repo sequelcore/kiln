@@ -28,6 +28,7 @@ import { GatewaySession, waitForGateway, themes, kilnDark } from "@kilnai/tui";
 import type { SessionLike } from "@kilnai/tui";
 import { GUI_PROVIDER_DISPLAY_ORDER, getGuiProviderMetadata, isGuiProviderModeless, type GuiProviderDiscoveryResult } from "@kilnai/gateway-contracts";
 import {
+  createSessionBuiltinToolOptions,
   extractText,
   type AgentMessage,
   type CanonicalSessionEventKind,
@@ -299,6 +300,7 @@ export async function makeMultiProviderSessionFactory(
   const providerModelState = new Map<ProviderId, string>(
     providers.map((provider) => [provider, ""]),
   );
+  const sessionBuiltinToolOptions = createSessionBuiltinToolOptions(builtinToolOptions);
   
   let currentProvider: ProviderId | null = initialProvider;
 
@@ -380,7 +382,7 @@ export async function makeMultiProviderSessionFactory(
           model: modelForTurn,
           reasoningEffort: options.reasoningEffort,
           ...(context?.operatorSurface ? { operatorSurface: context.operatorSurface } : {}),
-          ...(builtinToolOptions ? { builtinToolOptions } : {}),
+          builtinToolOptions: sessionBuiltinToolOptions,
         });
         activeSession = resumedSession;
         const capturedId = options.kilnSessionId ?? context?.kilnSessionId ?? resumedFrom ?? resumedSession.sessionId;
@@ -855,7 +857,9 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   const provider = parseProvider(resolveEffectiveProvider(flags.provider, globalConfig?.provider), providerIds);
   const startupProviderIds = providerIds;
   const contextArtifactCache = await getProjectContextArtifactCache(cwd);
-  const builtinToolOptions = await loadConfiguredWebToolSurfaceOptions(appConfig, cwd);
+  const builtinToolOptions = createSessionBuiltinToolOptions(
+    await loadConfiguredWebToolSurfaceOptions(appConfig, cwd),
+  );
 
   // Resolve domain display name from app config if available
   let domain = "kiln";

@@ -46,17 +46,21 @@ export class ArtifactToolResourceLinker implements ToolResourceLinker {
 
   link(request: ToolResourceLinkRequest): ToolResult {
     if (!this.shouldLink(request.toolName, request.result)) {
-      return request.result;
+      return stripResourcePayload(request.result);
     }
 
-    const title = `${request.toolName} full output`;
+    const payload = request.result.resourcePayload ?? {
+      text: request.result.output,
+      mimeType: "text/plain",
+    };
+    const title = payload.title ?? `${request.toolName} full output`;
     let artifact;
     try {
       artifact = this.store.put({
         namespace: "tool-results",
         title,
-        mimeType: "text/plain",
-        content: { type: "text", text: request.result.output },
+        mimeType: payload.mimeType,
+        content: { type: "text", text: payload.text },
         producer: { kind: "tool", name: request.toolName },
         retention: this.retention,
       });
@@ -84,10 +88,11 @@ export class ArtifactToolResourceLinker implements ToolResourceLinker {
       },
     };
 
+    const visibleResult = stripResourcePayload(request.result);
     return {
-      ...request.result,
-      metadata: this.appendMetadataLink(request.result.metadata, metadataLink),
-      content: [...(request.result.content ?? []), contentLink],
+      ...visibleResult,
+      metadata: this.appendMetadataLink(visibleResult.metadata, metadataLink),
+      content: [...(visibleResult.content ?? []), contentLink],
     };
   }
 
@@ -111,6 +116,11 @@ export class ArtifactToolResourceLinker implements ToolResourceLinker {
       resourceLinks: [...(metadata.resourceLinks ?? []), link],
     };
   }
+}
+
+function stripResourcePayload(result: ToolResult): ToolResult {
+  const { resourcePayload: _resourcePayload, ...visibleResult } = result;
+  return visibleResult;
 }
 
 function hasTruncationMetadata(metadata: ToolResultMetadata): boolean {

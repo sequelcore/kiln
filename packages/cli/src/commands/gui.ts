@@ -20,7 +20,7 @@ import {
   type GuiDashboardSnapshot,
   type GuiProviderDescriptor,
 } from "@kilnai/runtime";
-import { getFieldStore } from "@kilnai/core";
+import { createSessionBuiltinToolOptions, getFieldStore } from "@kilnai/core";
 import { persistGuiThemePreference, resolveGuiThemePreference } from "../application/operator-theme-preferences.js";
 import { buildGuiAttachUrl, buildGuiUrl } from "./gui-options.js";
 import { createLocalWorkspaceExplorer } from "./gui-workspace.js";
@@ -61,7 +61,9 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
   const provider = parseProvider(resolveEffectiveProvider(flags.provider, globalConfig?.provider), providerIds);
   const transcriptStore = new TranscriptStore(cwd);
   const contextArtifactCache = await getProjectContextArtifactCache(cwd);
-  const builtinToolOptions = await loadConfiguredWebToolSurfaceOptions(appConfig, cwd);
+  const builtinToolOptions = createSessionBuiltinToolOptions(
+    await loadConfiguredWebToolSurfaceOptions(appConfig, cwd),
+  );
   const sessionManager = await makeMultiProviderSessionFactory(
     provider,
     providerIds,

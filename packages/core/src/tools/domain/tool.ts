@@ -17,6 +17,13 @@ export type ToolResult = {
   readonly isError: boolean;
   readonly metadata?: ToolResultMetadata;
   readonly content?: readonly ToolResultContentPart[];
+  readonly resourcePayload?: ToolResultResourcePayload;
+};
+
+export type ToolResultResourcePayload = {
+  readonly text: string;
+  readonly mimeType: string;
+  readonly title?: string;
 };
 
 export const DEV_TOOL_OUTPUT_SCHEMA = {
@@ -114,7 +121,10 @@ export type DevToolName =
   | "task_list"
   | "task_update"
   | "operator_elicit"
-  | "tool_catalog_search";
+  | "tool_catalog_search"
+  | "resource_list"
+  | "resource_template_list"
+  | "resource_read";
 
 export const TOOL_SCHEMAS: Record<
   DevToolName,
@@ -845,6 +855,72 @@ export const TOOL_SCHEMAS: Record<
         verbosity: OUTPUT_VERBOSITY_PROPERTY,
       },
       required: [],
+      additionalProperties: false,
+    },
+    annotations: {
+      readOnly: true,
+      idempotent: true,
+    },
+  },
+  resource_list: {
+    name: "resource_list",
+    description: "List shared Kiln resources available to the current session. Use cursor unchanged to continue pagination.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        cursor: {
+          type: "string",
+          description: "Opaque cursor returned by a previous resource_list call.",
+        },
+        limit: {
+          type: "number",
+          description: "Maximum resources to return. Defaults to the registry page size and caps at the registry maximum.",
+        },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+    annotations: {
+      readOnly: true,
+      idempotent: true,
+    },
+  },
+  resource_template_list: {
+    name: "resource_template_list",
+    description: "List shared Kiln resource templates available to the current session. Use cursor unchanged to continue pagination.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        cursor: {
+          type: "string",
+          description: "Opaque cursor returned by a previous resource_template_list call.",
+        },
+        limit: {
+          type: "number",
+          description: "Maximum resource templates to return. Defaults to the registry page size and caps at the registry maximum.",
+        },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+    annotations: {
+      readOnly: true,
+      idempotent: true,
+    },
+  },
+  resource_read: {
+    name: "resource_read",
+    description: "Read one exact kiln:// resource URI from the shared resource registry. Fails closed for missing, malformed, or unauthorized resources.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        uri: {
+          type: "string",
+          minLength: 1,
+          description: "Exact kiln:// resource URI to read.",
+        },
+      },
+      required: ["uri"],
       additionalProperties: false,
     },
     annotations: {

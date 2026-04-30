@@ -41,6 +41,27 @@
   `kiln://session/tasks`, and `kiln://session/monitors` plus templates for
   exact tool entries, task ids, and monitor ids, all backed by the same catalog,
   task-state store, and monitor registry used by builtin tools.
+- Added read-only resource builtin tools: `resource_list`,
+  `resource_template_list`, and `resource_read`. They are backed by the same
+  core `ToolResourceRegistry` as MCP and attached-runtime resource projection,
+  and remain available in deferred tool projection so models can follow
+  `metadata.resourceLinks` without GUI/TUI-private helpers.
+- Provider text-only sessions now preserve provider tool-use and tool-result
+  stream frames as typed events and fail closed when a provider emits a tool
+  call that Kiln cannot execute, instead of degrading tool JSON into assistant
+  prose.
+- GUI transcript Markdown now contains long inline JSON, code, and resource
+  URIs so malformed or high-volume tool text cannot break the message layout.
+- Added session-scoped builtin tool-state options so GUI/TUI/direct-provider
+  turns reuse one artifact store, resource notification hub, monitor registry,
+  and task-state store across recreated tool surfaces. Artifact resource links
+  emitted by high-volume tools remain readable by `resource_read` in later turns
+  until session retention evicts them.
+- High-volume artifact links can now store an internal resource payload instead
+  of blindly storing the visible `ToolResult.output`. The linker strips that
+  payload from returned tool results, so `read_many` can keep summary output
+  compact while `kiln://artifacts/.../content` contains the raw bounded file
+  packet.
 
 ## Unreleased -- Operator Workspace Explorer
 

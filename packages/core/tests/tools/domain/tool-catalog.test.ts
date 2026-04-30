@@ -8,7 +8,7 @@ describe("ToolCatalogIndex", () => {
 
     const result = catalog.search({ exact: "read" });
 
-    expect(result.totalIndexed).toBe(24);
+    expect(result.totalIndexed).toBe(27);
     expect(result.entries).toHaveLength(1);
     expect(result.entries[0]).toMatchObject({
       name: "read",
@@ -53,7 +53,7 @@ describe("ToolCatalogIndex", () => {
     const catalog = ToolCatalogIndex.fromTools(createDefaultBuiltinTools());
 
     expect(catalog.search({ exact: "missing_tool" })).toMatchObject({
-      totalIndexed: 24,
+      totalIndexed: 27,
       entries: [],
       stale: true,
       reason: "tool_not_found",
@@ -128,6 +128,23 @@ describe("ToolCatalogIndex", () => {
       authority: "standard",
       tags: expect.arrayContaining(["operator", "elicitation"]),
       inputFields: expect.arrayContaining(["mode", "message", "schema", "url", "sensitive", "verbosity"]),
+    });
+  });
+
+  it("indexes resource tools as read-only context tools", () => {
+    const catalog = ToolCatalogIndex.fromTools(createDefaultBuiltinTools());
+
+    expect(catalog.search({ tags: ["resource"] }).entries.map((entry) => entry.name)).toEqual([
+      "resource_list",
+      "resource_template_list",
+      "resource_read",
+    ]);
+    expect(catalog.search({ exact: "resource_read" }).entries[0]).toMatchObject({
+      name: "resource_read",
+      sourcePackage: "@kilnai/core",
+      authority: "read_only",
+      tags: expect.arrayContaining(["resource", "context", "read-only", "idempotent"]),
+      inputFields: ["uri"],
     });
   });
 });

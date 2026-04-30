@@ -185,6 +185,10 @@ function tagsForTool(tool: DevTool): readonly string[] {
     tags.add("catalog");
     tags.add("discovery");
   }
+  if (tool.name === "resource_list" || tool.name === "resource_template_list" || tool.name === "resource_read") {
+    tags.add("resource");
+    tags.add("context");
+  }
   if (tool.annotations?.readOnly) {
     tags.add("read-only");
   }

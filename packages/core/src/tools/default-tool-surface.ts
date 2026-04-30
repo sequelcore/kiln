@@ -33,6 +33,7 @@ import { OperatorElicitationTool, type OperatorElicitationToolOptions } from "./
 import { PatchTool } from "./infrastructure/patch-tool.js";
 import { ReadManyTool } from "./infrastructure/read-many-tool.js";
 import { ReadTool } from "./infrastructure/read-tool.js";
+import { ResourceListTool, ResourceReadTool, ResourceTemplateListTool } from "./infrastructure/resource-tools.js";
 import { StatTool } from "./infrastructure/stat-tool.js";
 import {
   TaskListTool,
@@ -73,6 +74,7 @@ export interface DefaultBuiltinToolRegistryOptions {
   readonly workspaceResources?: WorkspaceResourceProviderOptions;
   readonly artifactResources?: DefaultArtifactResourceOptions;
   readonly resourceNotifications?: ToolResourceNotificationHub | ToolResourceNotificationHubOptions;
+  readonly resourceRegistry?: () => ToolResourceRegistry | undefined;
 }
 
 export interface DefaultArtifactResourceOptions {
@@ -106,6 +108,32 @@ export interface DefaultBuiltinToolSurface {
   readonly taskStateStore: TaskStateStore;
 }
 
+export function createSessionBuiltinToolOptions(
+  options: DefaultBuiltinToolRegistryOptions = {},
+): DefaultBuiltinToolRegistryOptions {
+  const resourceNotifications = resolveResourceNotificationHub(options.resourceNotifications);
+  const monitorRegistry = options.monitorRegistry ?? new MonitorRegistry({
+    ...options.monitor,
+    resourceNotifications,
+  });
+  monitorRegistry.setResourceChangeNotifier(resourceNotifications);
+  const taskStateStore = options.taskStateStore ?? new TaskStateStore({
+    ...options.taskState,
+    resourceNotifications,
+  });
+  taskStateStore.setResourceChangeNotifier(resourceNotifications);
+  const artifactStore = options.artifactResources?.store ?? new MemoryArtifactResourceStore({ resourceNotifications });
+  artifactStore.setResourceChangeNotifier?.(resourceNotifications);
+
+  return {
+    ...options,
+    resourceNotifications,
+    monitorRegistry,
+    taskStateStore,
+    artifactResources: { store: artifactStore },
+  };
+}
+
 export function createDefaultBuiltinTools(
   options: DefaultBuiltinToolRegistryOptions = {},
 ): readonly DevTool[] {
@@ -137,6 +165,9 @@ export function createDefaultBuiltinTools(
     new TaskUpdateTool({ store: taskStateStore }),
     new OperatorElicitationTool(options.operatorElicitation),
     new ToolCatalogSearchTool(() => catalog),
+    new ResourceListTool({ resources: options.resourceRegistry ?? (() => undefined) }),
+    new ResourceTemplateListTool({ resources: options.resourceRegistry ?? (() => undefined) }),
+    new ResourceReadTool({ resources: options.resourceRegistry ?? (() => undefined) }),
   ];
   catalog = ToolCatalogIndex.fromTools(tools);
   return tools;
@@ -172,10 +203,12 @@ export function createDefaultBuiltinToolSurface(
   }
   const artifactStore = options.artifactResources?.store ?? new MemoryArtifactResourceStore({ resourceNotifications });
   artifactStore.setResourceChangeNotifier?.(resourceNotifications);
+  let resources: ToolResourceRegistry | undefined;
   const surfaceOptions = {
     ...options,
     monitorRegistry,
     taskStateStore,
+    resourceRegistry: () => resources,
   };
   const registry = createDefaultBuiltinToolRegistry(surfaceOptions);
   const catalog = ToolCatalogIndex.fromTools(registry.list());
@@ -183,12 +216,13 @@ export function createDefaultBuiltinToolSurface(
     ...(options.workspaceResources ? [new WorkspaceResourceProvider(options.workspaceResources)] : []),
     new ArtifactResourceProvider({ store: artifactStore }),
   ];
-  const resources = new ToolResourceRegistry({
+  const resourceRegistry = new ToolResourceRegistry({
     catalog,
     monitorRegistry,
     taskStateStore,
     providers: resourceProviders,
   });
+  resources = resourceRegistry;
   const tools = projectTools(registry.list(), options.toolProjection);
 
   return {
@@ -202,7 +236,7 @@ export function createDefaultBuiltinToolSurface(
       resourceLinker: new ArtifactToolResourceLinker({ store: artifactStore }),
     }),
     catalog,
-    resources,
+    resources: resourceRegistry,
     resourceNotifications,
     artifactStore,
     monitorRegistry,
@@ -284,6 +318,9 @@ function projectTools(
   const requested = new Set<string>([
     ...(projection.alwaysOnTools ?? ["read", "grep", "glob"]),
     "tool_catalog_search",
+    "resource_list",
+    "resource_template_list",
+    "resource_read",
   ]);
   return tools.filter((tool) => requested.has(tool.name));
 }

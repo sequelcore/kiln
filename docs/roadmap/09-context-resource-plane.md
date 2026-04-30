@@ -351,12 +351,21 @@ AttachedRuntimeBuiltinToolSurface.readResource(uri)
 
 kiln tools --resources
 kiln tools --resource <uri>
+
+resource_list({ cursor?, limit? })
+resource_template_list({ cursor?, limit? })
+resource_read({ uri })
 ```
 
 Design notes:
 
 - CLI resource commands use the same `createDefaultBuiltinToolSurface()` as
   MCP mode, including workspace, artifact, web, and notification wiring.
+- Model-callable resource tools are adapters over the same core
+  `ToolResourceRegistry`; they are not GUI/TUI-only browse helpers.
+- `resource_list`, `resource_template_list`, and `resource_read` remain exposed
+  in deferred builtin projection so models can follow resource links even when
+  most high-volume tools are deferred behind catalog search.
 - Direct-provider runtime tool execution compacts linked high-volume output to
   resource pointers while preserving `metadata.resourceLinks` and
   `resource_link` content.
@@ -364,6 +373,19 @@ Design notes:
   namespaces appear after tool execution writes linked artifacts.
 - SDK exports the resource read/list/display contracts from `@kilnai/core` for
   consumer code.
+- Provider text-only sessions preserve provider tool-use and tool-result frames
+  as typed events and fail closed instead of degrading tool JSON into assistant
+  prose.
+- GUI transcript markdown contains long inline JSON, code, and `kiln://...`
+  URIs so malformed or high-volume tool text cannot break the message layout.
+- GUI/TUI operator sessions reuse one session-scoped builtin tool-state bundle
+  across recreated provider/runtime surfaces, so artifact resource links emitted
+  in one turn remain readable by `resource_read` in later turns.
+- High-volume tools can provide an internal resource payload for linked
+  artifacts. The linker stores that richer payload, strips it from the returned
+  tool result, and leaves `ToolResult.output` compact. `read_many` now links the
+  raw bounded file packet even when the visible output uses `summary`
+  verbosity.
 
 Verification:
 
@@ -371,6 +393,8 @@ Verification:
 - `bun run --cwd packages/cli test tests/tools-command.test.ts`
 - `bun run --cwd packages/runtime test tests/gateway/attached-runtime-tool-surface.test.ts`
 - `bun run --cwd packages/sdk test tests/resource-exports.test.ts`
+- 2026-04-30 hardening:
+  `bun run test -- packages/core/tests/tools/domain/tool.test.ts packages/core/tests/tools/domain/tool-catalog.test.ts packages/core/tests/tools/domain/tool-resource-registry.test.ts packages/core/tests/tools/default-tool-surface.test.ts packages/core/tests/tools/mcp/dev-tools-server.test.ts packages/runtime/tests/gateway/attached-runtime-tool-surface.test.ts packages/cli/tests/wrapper/provider-session.test.ts packages/gui/tests/transcript.test.tsx`
 
 ## Slice 25: Resource Evaluation Harness
 

@@ -9,6 +9,7 @@ export type CodeToolName = "code_intelligence";
 export type MonitorToolName = "monitor_start" | "monitor_read" | "monitor_stop" | "monitor_list";
 export type TaskStateToolName = "task_list" | "task_update";
 export type ElicitationToolName = "operator_elicit";
+export type ResourceToolName = "resource_list" | "resource_template_list" | "resource_read";
 
 export type FileToolOperation = "read" | "read_many" | "write" | "edit" | "patch";
 export type InspectionToolOperation = "stat" | "tree";
@@ -48,6 +49,7 @@ export type MonitorStatus = "running" | "exited" | "stopped" | "failed";
 export type TaskStateToolOperation = "list" | "update";
 export type SessionTaskStatus = "pending" | "in_progress" | "blocked" | "completed" | "cancelled";
 export type ElicitationToolOperation = "elicit";
+export type ResourceToolOperation = "list" | "list_templates" | "read";
 export type ElicitationMode = "form" | "url";
 export type ElicitationOutcome = "submitted" | "declined" | "cancelled" | "unsupported";
 export type ElicitationToolErrorCode =
@@ -285,6 +287,20 @@ export interface ElicitationToolResultMetadata<TToolName extends ElicitationTool
   readonly verbosity?: ToolOutputVerbosity;
 }
 
+export interface ResourceToolResultMetadata<TToolName extends ResourceToolName = ResourceToolName> {
+  readonly toolName: TToolName;
+  readonly kind: "resource";
+  readonly operation: ResourceToolOperation;
+  readonly uri?: string;
+  readonly cursor?: string;
+  readonly nextCursor?: string;
+  readonly resourceCount?: number;
+  readonly templateCount?: number;
+  readonly contentCount?: number;
+  readonly mimeType?: string;
+  readonly errorCode?: "invalid_input" | "not_found" | "cursor_error" | "registry_unavailable";
+}
+
 export type ToolSpecificResultMetadata =
   | CommandToolResultMetadata
   | FileToolResultMetadata
@@ -296,7 +312,8 @@ export type ToolSpecificResultMetadata =
   | CodeToolResultMetadata
   | MonitorToolResultMetadata
   | TaskStateToolResultMetadata
-  | ElicitationToolResultMetadata;
+  | ElicitationToolResultMetadata
+  | ResourceToolResultMetadata;
 
 export type ToolResultMetadata = ToolSpecificResultMetadata & ToolResultResourceLinkMetadata;
 
@@ -451,6 +468,17 @@ export function elicitationToolMetadata<TToolName extends ElicitationToolName>(
   return {
     toolName,
     kind: "elicitation",
+    ...metadata,
+  };
+}
+
+export function resourceToolMetadata<TToolName extends ResourceToolName>(
+  toolName: TToolName,
+  metadata: Omit<ResourceToolResultMetadata<TToolName>, "toolName" | "kind">,
+): ResourceToolResultMetadata<TToolName> {
+  return {
+    toolName,
+    kind: "resource",
     ...metadata,
   };
 }
