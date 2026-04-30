@@ -110,7 +110,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
         sessionManager.setResumeSession(sessionId);
       },
       contextArtifactCache,
-      planMode: flags.plan ?? false,
+      executionMode: flags.plan ? "plan" : "execute",
       workingDirectory: cwd,
       domainLabel: bootstrapContext.domainLabel,
     },

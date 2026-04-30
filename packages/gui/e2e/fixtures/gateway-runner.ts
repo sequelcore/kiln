@@ -142,7 +142,7 @@ async function main(): Promise<void> {
         resumeSessionId = sessionId;
       },
       contextArtifactCache,
-      planMode: false,
+      executionMode: "execute",
     },
   });
 

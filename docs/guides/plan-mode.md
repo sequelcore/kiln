@@ -28,6 +28,30 @@ Planning mode is appropriate when:
 Planning mode should not mutate the world. Its function is to improve admission,
 context sufficiency, and execution design before action.
 
+In gateway-backed consumers, planning is represented by the shared
+`executionMode` contract:
+
+- `executionMode: "plan"` marks a turn as planning-only.
+- `executionMode: "execute"` marks a turn as normal execution.
+- Mode transitions use the `execution_mode_transition` outbound frame and the
+  `execution_mode_transitioned` acknowledgement.
+
+Consumers may keep local UI state such as a pressed Plan button or a PLAN badge,
+but that state is only a projection of the shared execution mode. New
+operator-facing contracts must not introduce a separate `planMode` wire field.
+
+## Tool Boundaries
+
+Plan mode exposes only tools whose capability metadata is explicitly read-only,
+plus the runtime-owned `submit_plan` tool. Mutating tools such as write, edit,
+patch, shell execution, dependency installation, and other implementation
+surfaces are not part of the plan-mode tool set.
+
+When the plan is ready, the assistant calls `submit_plan` with the complete
+operator-facing plan. The runtime records the submission as a canonical
+`plan_submitted` session event. Approval or later execution is a mode transition
+and a new execution turn, not hidden work performed by the planning turn.
+
 ## Expected Outcome
 
 A useful planning pass should produce:

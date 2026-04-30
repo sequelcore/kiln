@@ -465,6 +465,57 @@ describe("GatewaySession canonical session events", () => {
   });
 });
 
+describe("GatewaySession execution modes", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    wsInstances = [];
+    (globalThis as unknown as { WebSocket: typeof MockWebSocket }).WebSocket = MockWebSocket;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("sends shared executionMode instead of a local plan flag", async () => {
+    const session = new GatewaySession("ws://localhost:4801/tui/ws");
+    const ws = wsInstances[0];
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({
+      type: "welcome",
+      models: {},
+      executionMode: "plan",
+    }));
+
+    const collect = (async () => {
+      for await (const _event of session.run({ prompt: "make a plan" })) {
+        // drain until done
+      }
+    })();
+    await Promise.resolve();
+
+    const messageCall = ws.send.mock.calls.find(([payload]) => {
+      if (typeof payload !== "string" || payload === "ping") return false;
+      return (JSON.parse(payload) as { type?: string }).type === "message";
+    });
+    expect(messageCall).toBeDefined();
+    expect(JSON.parse(messageCall?.[0] as string)).toMatchObject({
+      type: "message",
+      content: "make a plan",
+      executionMode: "plan",
+    });
+
+    ws.simulateMessage(JSON.stringify({
+      type: "done",
+      content: "",
+      inputTokens: 1,
+      outputTokens: 1,
+    }));
+    await collect;
+    await session.dispose();
+  });
+});
+
 describe("GatewaySession provider authentication", () => {
   beforeEach(() => {
     vi.useFakeTimers();

@@ -308,6 +308,8 @@ const CANONICAL_SESSION_EVENT_KINDS = new Set<CanonicalSessionEventKind>([
   'user_message',
   'assistant_message',
   'assistant_delta',
+  'plan_submitted',
+  'plan_approved',
   'provider_routed',
   'tool_call_started',
   'tool_call_completed',

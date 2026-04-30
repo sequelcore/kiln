@@ -126,7 +126,7 @@ export class GuiSessionClient {
   }
 
   executePlanMode(): void {
-    this.send({ type: "exec" });
+    this.send({ type: "execution_mode_transition", toMode: "execute" });
   }
 
   get isConnected(): boolean {

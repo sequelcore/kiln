@@ -85,7 +85,7 @@ describe("session-store", () => {
       ],
       activeProvider: "claude",
       activeModel: "sonnet",
-      planMode: false,
+      executionMode: "execute",
     });
 
     const state = useSessionStore.getState();
@@ -946,7 +946,7 @@ describe("session-store", () => {
     expect(send).toHaveBeenCalledWith({
       type: "message",
       content: "hello",
-      planMode: true,
+      executionMode: "plan",
       resumeSessionId: undefined,
       appName: "support",
       tenantId: "acme",
@@ -954,12 +954,12 @@ describe("session-store", () => {
     });
   });
 
-  it("setPlanMode(false) emits exec frame through sender", () => {
+  it("setPlanMode(false) emits an execution transition frame through sender", () => {
     const send = vi.fn();
     useSessionStore.getState().setSender(send);
     useSessionStore.setState({ planMode: true });
     useSessionStore.getState().setPlanMode(false);
-    expect(send).toHaveBeenCalledWith({ type: "exec" });
+    expect(send).toHaveBeenCalledWith({ type: "execution_mode_transition", toMode: "execute" });
   });
 
   it("persists planMode and session-scoped resume target and reloads on welcome", () => {
@@ -972,7 +972,7 @@ describe("session-store", () => {
       models: { claude: ["sonnet"] },
       activeProvider: "claude",
       activeModel: "sonnet",
-      planMode: false,
+      executionMode: "execute",
     });
 
     const state = useSessionStore.getState();

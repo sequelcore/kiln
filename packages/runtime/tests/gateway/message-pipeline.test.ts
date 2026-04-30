@@ -223,6 +223,51 @@ describe("processAdmittedTurn", () => {
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 
+  it("records submitted plans as canonical session events in plan execution mode", async () => {
+    const session = makeMockSession();
+    const orchestrator = makeMockOrchestrator();
+    (orchestrator.processMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
+      parts: textParts("Plan submitted."),
+      inputTokens: 10,
+      outputTokens: 5,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      queued: false,
+      toolExecutions: [{
+        toolCallId: "tool-plan",
+        toolName: "submit_plan",
+        input: {
+          plan: "1. Inspect contracts\n2. Implement execution mode\n3. Verify all consumers",
+        },
+        durationMs: 1,
+        success: true,
+        output: JSON.stringify({
+          output: "Plan submitted.",
+          isError: false,
+          metadata: {
+            toolName: "submit_plan",
+            planId: "tool-plan",
+          },
+        }),
+        resultSummary: "Plan submitted.",
+      }],
+    } satisfies OrchestrateResult);
+
+    const result = await processInboundMessage(makeBaseContext({
+      executionMode: "plan",
+      sessionRegistry: makeMockSessionRegistry(session),
+      orchestrator,
+    }));
+
+    expect(result.ok).toBe(true);
+    expect(session.sessionEvents).toContainEqual(expect.objectContaining({
+      kind: "plan_submitted",
+      planId: "tool-plan",
+      mode: "plan",
+      content: "1. Inspect contracts\n2. Implement execution mode\n3. Verify all consumers",
+    }));
+  });
+
   it("reports usage when billing is configured", async () => {
     const ctx = makeBaseContext({ billing: makeBillingConfig() });
 

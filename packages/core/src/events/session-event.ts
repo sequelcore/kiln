@@ -5,6 +5,8 @@ export type CanonicalSessionEventKind =
   | "user_message"
   | "assistant_message"
   | "assistant_delta"
+  | "plan_submitted"
+  | "plan_approved"
   | "provider_routed"
   | "tool_call_started"
   | "tool_call_completed"
@@ -96,6 +98,7 @@ export interface SessionToolStatus {
 
 export type SessionContinuityDecision = "continue" | "handoff" | "fork" | "close";
 export type SessionTurnOutcome = "completed" | "failed" | "cancelled";
+export type SessionExecutionMode = "execute" | "plan";
 
 export interface CanonicalTurnStartedEvent extends SessionEventEnvelope<"turn_started"> {
   readonly turnOrdinal: number;
@@ -117,6 +120,18 @@ export interface CanonicalAssistantDeltaEvent extends SessionEventEnvelope<"assi
   readonly messageId: string;
   readonly delta: string;
   readonly deltaIndex: number;
+}
+
+export interface CanonicalPlanSubmittedEvent extends SessionEventEnvelope<"plan_submitted"> {
+  readonly planId: string;
+  readonly mode: "plan";
+  readonly content: string;
+}
+
+export interface CanonicalPlanApprovedEvent extends SessionEventEnvelope<"plan_approved"> {
+  readonly planId?: string;
+  readonly fromMode: "plan";
+  readonly toMode: "execute";
 }
 
 export interface CanonicalProviderRoutedEvent extends SessionEventEnvelope<"provider_routed"> {
@@ -219,6 +234,8 @@ export interface CanonicalSessionEventMap {
   user_message: CanonicalUserMessageEvent;
   assistant_message: CanonicalAssistantMessageEvent;
   assistant_delta: CanonicalAssistantDeltaEvent;
+  plan_submitted: CanonicalPlanSubmittedEvent;
+  plan_approved: CanonicalPlanApprovedEvent;
   provider_routed: CanonicalProviderRoutedEvent;
   tool_call_started: CanonicalToolCallStartedEvent;
   tool_call_completed: CanonicalToolCallCompletedEvent;

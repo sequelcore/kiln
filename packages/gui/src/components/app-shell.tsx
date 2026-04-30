@@ -805,7 +805,7 @@ export function AppShell() {
         onProviderAuthFailed(frame);
       } else if (frame.type === "providers_refreshed") {
         onProvidersRefreshed(frame.providers, frame.providerDiscovery);
-      } else if (frame.type === "exec_confirmed") {
+      } else if (frame.type === "execution_mode_transitioned") {
         onExecConfirmed();
         } else if (frame.type === "thinking") {
           setConnectionStatus("running");

@@ -74,6 +74,30 @@ describe("GUI authority forwarding", () => {
     });
   });
 
+  it("restricts plan execution mode to read-only tools plus submit_plan", async () => {
+    const { buildGuiTurnPerCallConfig, deriveGuiAuthorityStatusFromPerCallConfig } = await import("../../src/gateway/gui-gateway.js");
+    const cfg = buildGuiTurnPerCallConfig("codex-oauth", "gpt-5.4-mini", undefined, undefined, undefined, "plan");
+
+    expect(cfg.toolAllowlist).toBeInstanceOf(Set);
+    expect(cfg.toolAllowlist?.has("read")).toBe(true);
+    expect(cfg.toolAllowlist?.has("tree")).toBe(true);
+    expect(cfg.toolAllowlist?.has("submit_plan")).toBe(true);
+    expect(cfg.toolAllowlist?.has("write")).toBe(false);
+    expect(cfg.toolAllowlist?.has("edit")).toBe(false);
+    expect(cfg.toolAllowlist?.has("patch")).toBe(false);
+    expect(cfg.toolAuthority?.get("submit_plan")).toMatchObject({
+      level: 1,
+      allowed: true,
+      requiresApproval: false,
+    });
+    expect(cfg.additionalTools?.some((tool) => tool.name === "submit_plan")).toBe(true);
+    expect(cfg.additionalTools?.some((tool) => tool.name === "write")).toBe(false);
+    expect(deriveGuiAuthorityStatusFromPerCallConfig(cfg)).toEqual({
+      effective: "read_only",
+      completeness: "authoritative",
+    });
+  });
+
   it("adds the operator theme tool when a live operator theme controller is attached", async () => {
     const { buildGuiTurnPerCallConfig } = await import("../../src/gateway/gui-gateway.js");
     const { createAttachedRuntimeBuiltinToolSurface } = await import("../../src/gateway/attached-runtime-tool-surface.js");
@@ -194,7 +218,7 @@ describe("GUI authority forwarding", () => {
       providers: [],
       activeProvider: "codex-oauth",
       activeModel: "gpt-5.4-mini",
-      planMode: false,
+      executionMode: "execute",
       authorityStatus,
     };
     const doneFrame = {

@@ -4,6 +4,7 @@
  */
 import type {
   OperatorActivityPhaseFrame,
+  OperatorExecutionMode,
   OperatorSessionEvent,
   OperatorThemeScope,
 } from "@kilnai/gateway-contracts";
@@ -82,9 +83,9 @@ export type TuiInboundFrame =
       greeting?: string;
       models?: Record<string, string[]>;
       providerDiscovery?: TuiProviderDiscoveryFrame[];
-      planMode?: boolean;
+      executionMode?: OperatorExecutionMode;
     }
-  | { type: "exec_confirmed" } // Plan mode exit confirmed, execution can proceed
+  | { type: "execution_mode_transitioned"; executionMode: OperatorExecutionMode }
   | { type: "cleared" }
   | {
       type: "provider_auth_started";
@@ -123,7 +124,7 @@ export type TuiInboundFrame =
  * Outbound frames the TUI sends to the gateway.
  */
 export type TuiOutboundFrame =
-  | { type: "message"; content: string; reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh" }
+  | { type: "message"; content: string; executionMode?: OperatorExecutionMode; reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh" }
   | { type: "clear" }
   | { type: "refresh_providers" }
   | { type: "provider_auth"; provider: string; requestId: string; apiKey?: string; tier?: "go" | "zen" }
@@ -131,7 +132,7 @@ export type TuiOutboundFrame =
   | { type: "operator_theme_set_result"; requestId: string; ok: boolean; appliedTheme?: string; error?: string }
   | { type: "approve"; sessionId?: string }
   | { type: "reject"; reason: string; sessionId?: string }
-  | { type: "exec" }; // Exit plan mode and execute
+  | { type: "execution_mode_transition"; toMode: OperatorExecutionMode };
 
 /**
  * Configuration options for TuiWsClient.

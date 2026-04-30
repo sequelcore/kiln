@@ -127,7 +127,7 @@ describe("TUI authority forwarding", () => {
     );
     const welcome = buildTuiWelcomeFramePayload({
       models: {},
-      planMode: false,
+      executionMode: "execute",
       authorityStatus,
     });
     const done = buildTuiDoneFramePayload({

@@ -244,6 +244,7 @@ export class GatewaySession implements SessionLike {
   async *run(opts: {
     prompt: string;
     cwd?: string;
+    executionMode?: "execute" | "plan";
     reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
   }): AsyncGenerator<SessionEventInternal> {
     // Wait for connection to be established
@@ -252,11 +253,15 @@ export class GatewaySession implements SessionLike {
     // Reset queue for this turn
     this.queue = [];
     this.resolve = null;
+    if (opts.executionMode) {
+      this._planMode = opts.executionMode === "plan";
+    }
 
     // Send the user message
     this.client.send({
       type: "message",
       content: opts.prompt,
+      executionMode: opts.executionMode ?? (this._planMode ? "plan" : "execute"),
       ...(opts.reasoningEffort ? { reasoningEffort: opts.reasoningEffort } : {}),
     });
 
@@ -430,6 +435,10 @@ export class GatewaySession implements SessionLike {
     this.client.send({ type: "reject", reason, sessionId });
   }
 
+  executePlanMode(): void {
+    this.client.send({ type: "execution_mode_transition", toMode: "execute" });
+  }
+
   async dispose(): Promise<void> {
     this.client.disconnect();
     // Unblock any waiting iterator
@@ -522,8 +531,8 @@ export class GatewaySession implements SessionLike {
       if (frame.models && this.onWelcome) {
         this.onWelcome(frame.models, frame.providerDiscovery as readonly GuiProviderDiscoveryResult[] | undefined);
       }
-      if ("planMode" in frame) {
-        this._planMode = frame.planMode ?? false;
+      if ("executionMode" in frame) {
+        this._planMode = frame.executionMode === "plan";
       }
     } else if (frame.type === "providers_refreshed") {
       this.onWelcome?.(frame.models, frame.providerDiscovery as readonly GuiProviderDiscoveryResult[]);
@@ -589,8 +598,8 @@ export class GatewaySession implements SessionLike {
           message: frame.message,
         });
       }
-    } else if (frame.type === "exec_confirmed") {
-      this._planMode = false;
+    } else if (frame.type === "execution_mode_transitioned") {
+      this._planMode = frame.executionMode === "plan";
     } else if (frame.type === "cleared") {
       this.clearCallbacks?.resolve();
     } else if (frame.type === "provider_changed") {

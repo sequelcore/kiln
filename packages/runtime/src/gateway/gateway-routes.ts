@@ -177,7 +177,7 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
             type: "welcome",
             models: {},
             providers: [],
-            planMode: false,
+            executionMode: "execute",
             domainLabel: selectedRuntime?.loadedApp.name ?? "app-gateway",
             authorityStatus: { effective: "unknown", completeness: "partial" },
           } satisfies GuiInboundFrame));
@@ -217,8 +217,11 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
             } satisfies GuiInboundFrame));
             return;
           }
-          if (frame.type === "exec") {
-            ws.send(JSON.stringify({ type: "exec_confirmed" } satisfies GuiInboundFrame));
+          if (frame.type === "execution_mode_transition") {
+            ws.send(JSON.stringify({
+              type: "execution_mode_transitioned",
+              executionMode: frame.toMode,
+            } satisfies GuiInboundFrame));
             return;
           }
           if (frame.type !== "message") {

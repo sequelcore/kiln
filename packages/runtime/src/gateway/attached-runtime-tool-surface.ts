@@ -20,6 +20,7 @@ import {
 import {
   OPERATOR_THEME_NAMES,
   isOperatorThemeName,
+  type OperatorExecutionMode,
   type OperatorThemeScope,
 } from "@kilnai/gateway-contracts";
 import type {
@@ -42,6 +43,7 @@ export interface AttachedRuntimeBuiltinToolSurface {
 export interface AttachedRuntimeBuiltinToolSurfaceOptions {
   readonly operatorSurface?: OperatorSurfaceController;
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
+  readonly executionMode?: OperatorExecutionMode;
 }
 
 const DEFAULT_CORE_BUILTIN_TOOL_SURFACE = createDefaultBuiltinToolSurface();
@@ -85,6 +87,31 @@ const OPERATOR_SET_THEME_CAPABILITY: Capability = {
   annotations: { idempotent: true },
 };
 
+const SUBMIT_PLAN_TOOL: ToolDefinition = {
+  name: "submit_plan",
+  description: "Submit the proposed plan for operator review. This tool is only available while the turn runs in plan mode and must not perform implementation work.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      plan: {
+        type: "string",
+        description: "The complete operator-facing plan.",
+      },
+    },
+    required: ["plan"],
+    additionalProperties: false,
+  },
+  tags: new Set<string>(["operator-mode", "planning"]),
+};
+
+const SUBMIT_PLAN_CAPABILITY: Capability = {
+  name: SUBMIT_PLAN_TOOL.name,
+  description: SUBMIT_PLAN_TOOL.description,
+  schema: SUBMIT_PLAN_TOOL.inputSchema,
+  tags: ["operator-mode", "planning"],
+  annotations: { readOnly: true, idempotent: true },
+};
+
 export function createAttachedRuntimeBuiltinToolSurface(
   options: AttachedRuntimeBuiltinToolSurfaceOptions = {},
 ): AttachedRuntimeBuiltinToolSurface {
@@ -93,25 +120,38 @@ export function createAttachedRuntimeBuiltinToolSurface(
     ? buildRuntimeSurface(createDefaultBuiltinToolSurface(options.builtinToolOptions))
     : DEFAULT_BUILTIN_TOOL_SURFACE;
 
-  if (!themeController) {
+  if (!themeController && options.executionMode !== "plan") {
     return baseSurface;
   }
 
   const callBuiltinTools = new Map(baseSurface.callBuiltinTools);
-  callBuiltinTools.set(OPERATOR_SET_THEME_TOOL.name, async (input) => executeOperatorSetTheme(input, themeController));
-
   const capabilities = new Map(baseSurface.capabilities);
-  capabilities.set(OPERATOR_SET_THEME_TOOL.name, OPERATOR_SET_THEME_CAPABILITY);
-
   const toolAuthority = new Map(baseSurface.toolAuthority);
-  const authority = authorityFromCapability(OPERATOR_SET_THEME_TOOL.name, OPERATOR_SET_THEME_CAPABILITY);
-  if (authority) {
-    toolAuthority.set(OPERATOR_SET_THEME_TOOL.name, authority);
+  const toolDefinitions = [...baseSurface.toolDefinitions];
+
+  if (themeController) {
+    callBuiltinTools.set(OPERATOR_SET_THEME_TOOL.name, async (input) => executeOperatorSetTheme(input, themeController));
+    capabilities.set(OPERATOR_SET_THEME_TOOL.name, OPERATOR_SET_THEME_CAPABILITY);
+    const authority = authorityFromCapability(OPERATOR_SET_THEME_TOOL.name, OPERATOR_SET_THEME_CAPABILITY);
+    if (authority) {
+      toolAuthority.set(OPERATOR_SET_THEME_TOOL.name, authority);
+    }
+    toolDefinitions.push(OPERATOR_SET_THEME_TOOL);
+  }
+
+  if (options.executionMode === "plan") {
+    callBuiltinTools.set(SUBMIT_PLAN_TOOL.name, executeSubmitPlan);
+    capabilities.set(SUBMIT_PLAN_TOOL.name, SUBMIT_PLAN_CAPABILITY);
+    const authority = authorityFromCapability(SUBMIT_PLAN_TOOL.name, SUBMIT_PLAN_CAPABILITY);
+    if (authority) {
+      toolAuthority.set(SUBMIT_PLAN_TOOL.name, authority);
+    }
+    toolDefinitions.push(SUBMIT_PLAN_TOOL);
   }
 
   return {
     callBuiltinTools,
-    toolDefinitions: [...baseSurface.toolDefinitions, OPERATOR_SET_THEME_TOOL],
+    toolDefinitions,
     capabilities,
     toolAuthority,
     listResources: baseSurface.listResources,
@@ -139,6 +179,7 @@ export function buildAttachedRuntimePerCallToolConfig(input: {
   readonly activeModelCapabilities?: DiscoveredDirectProviderModelCapabilities;
   readonly reasoningEffort?: PerCallToolConfig["reasoningEffort"];
   readonly builtinToolSurface?: AttachedRuntimeBuiltinToolSurface;
+  readonly executionMode?: OperatorExecutionMode;
 }): PerCallToolConfig {
   const provider = isDirectProviderId(input.activeProvider)
     ? input.activeProvider
@@ -169,12 +210,47 @@ export function buildAttachedRuntimePerCallToolConfig(input: {
   }
 
   const builtinToolSurface = input.builtinToolSurface ?? DEFAULT_BUILTIN_TOOL_SURFACE;
+  if (input.executionMode === "plan") {
+    return buildPlanModePerCallConfig(config, builtinToolSurface);
+  }
   return {
     ...config,
     toolAllowlist: new Set<string>(builtinToolSurface.toolDefinitions.map((tool) => tool.name)),
     toolAuthority: builtinToolSurface.toolAuthority,
     additionalTools: builtinToolSurface.toolDefinitions,
     perCallCapabilities: builtinToolSurface.capabilities,
+  };
+}
+
+function buildPlanModePerCallConfig(
+  config: PerCallToolConfig,
+  builtinToolSurface: AttachedRuntimeBuiltinToolSurface,
+): PerCallToolConfig {
+  const toolDefinitions = [...builtinToolSurface.toolDefinitions];
+  if (!toolDefinitions.some((tool) => tool.name === SUBMIT_PLAN_TOOL.name)) {
+    toolDefinitions.push(SUBMIT_PLAN_TOOL);
+  }
+  const capabilities = new Map(builtinToolSurface.capabilities);
+  capabilities.set(SUBMIT_PLAN_TOOL.name, SUBMIT_PLAN_CAPABILITY);
+  const additionalTools = toolDefinitions.filter((tool) => {
+    const capability = capabilities.get(tool.name);
+    return capability?.annotations?.readOnly === true || tool.name === SUBMIT_PLAN_TOOL.name;
+  });
+  const toolAllowlist = new Set<string>(additionalTools.map((tool) => tool.name));
+  const toolAuthority = new Map<string, AuthorityDescriptor>();
+  for (const toolName of toolAllowlist) {
+    const capability = capabilities.get(toolName);
+    const authority = capability ? authorityFromCapability(toolName, capability) : undefined;
+    if (authority) {
+      toolAuthority.set(toolName, authority);
+    }
+  }
+  return {
+    ...config,
+    toolAllowlist,
+    toolAuthority,
+    additionalTools,
+    perCallCapabilities: capabilities,
   };
 }
 
@@ -257,5 +333,26 @@ async function executeOperatorSetTheme(
     output: `Applied operator theme '${result.appliedTheme ?? theme}' (${scope}).`,
     isError: false,
     metadata: { theme, scope, appliedTheme: result.appliedTheme ?? theme },
+  };
+}
+
+async function executeSubmitPlan(
+  input: Record<string, unknown>,
+): Promise<{ readonly output: string; readonly isError: boolean; readonly metadata: Record<string, unknown> }> {
+  const plan = typeof input.plan === "string" ? input.plan.trim() : "";
+  if (!plan) {
+    return {
+      output: "Plan content is required.",
+      isError: true,
+      metadata: { toolName: SUBMIT_PLAN_TOOL.name, reason: "empty_plan" },
+    };
+  }
+  return {
+    output: "Plan submitted.",
+    isError: false,
+    metadata: {
+      toolName: SUBMIT_PLAN_TOOL.name,
+      operation: "submit_plan",
+    },
   };
 }

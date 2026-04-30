@@ -197,6 +197,22 @@ available only to inspector/raw surfaces.
 This projection applies to GUI and TUI. The GUI is the first rich consumer, but
 it must not become the reference implementation for transcript semantics.
 
+## Execution Mode
+
+Execution mode is canonical session-turn state, not a GUI-specific toggle.
+
+Gateway-backed operator consumers send `executionMode: "plan" | "execute"` on
+message frames. They request mode changes with `execution_mode_transition` and
+receive `execution_mode_transitioned` acknowledgements. Local names such as
+`planMode` may exist inside a renderer for button or badge state, but they must
+not define a new wire contract.
+
+In plan mode the runtime narrows the tool surface to read-only capabilities and
+the runtime-owned `submit_plan` tool. Successful `submit_plan` calls append
+canonical `plan_submitted` events to the session event stream. Presentation of
+those events is owned by `@kilnai/gateway-contracts` so GUI, TUI, CLI, IDE, SDK,
+and remote operator surfaces project the same planning evidence.
+
 ## Consumer Scoping Rules
 
 Every operator consumer must treat `kilnSessionId` as the routing key for live

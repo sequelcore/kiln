@@ -423,7 +423,7 @@ describe("session-store provider selection", () => {
       type: "welcome",
       providers: [],
       models: {},
-      planMode: false,
+      executionMode: "execute",
     });
 
     const state = useSessionStore.getState();
@@ -453,7 +453,7 @@ describe("session-store provider selection", () => {
         claude: [],
       },
       activeProvider: "claude",
-      planMode: false,
+      executionMode: "execute",
     });
 
     const state = useSessionStore.getState();
@@ -489,7 +489,7 @@ describe("session-store provider selection", () => {
       models: {
         claude: ["claude-sonnet-4-6"],
       },
-      planMode: false,
+      executionMode: "execute",
     });
 
     const state = useSessionStore.getState();
@@ -528,7 +528,7 @@ describe("session-store provider selection", () => {
         "unknown-provider": ["mystery-1"],
         claude: ["claude-sonnet-4-6"],
       },
-      planMode: false,
+      executionMode: "execute",
     });
 
     const state = useSessionStore.getState();
@@ -558,7 +558,7 @@ describe("session-store provider selection", () => {
         },
       ],
       activeProvider: "opencode",
-      planMode: false,
+      executionMode: "execute",
     });
 
     const state = useSessionStore.getState();
@@ -589,7 +589,7 @@ describe("session-store provider selection", () => {
       ],
       activeProvider: "opencode",
       activeModel: "   ",
-      planMode: false,
+      executionMode: "execute",
     });
 
     const state = useSessionStore.getState();
@@ -620,7 +620,7 @@ describe("session-store provider selection", () => {
       ],
       activeProvider: "openai",
       activeModel: "gpt-5",
-      planMode: false,
+      executionMode: "execute",
     });
 
     useSessionStore.getState().onProvidersRefreshed([
@@ -662,7 +662,7 @@ describe("session-store provider selection", () => {
       ],
       activeProvider: "claude",
       activeModel: "claude-sonnet-4-6",
-      planMode: false,
+      executionMode: "execute",
     });
 
     useSessionStore.getState().onProvidersRefreshed([
@@ -705,7 +705,7 @@ describe("session-store provider selection", () => {
       ],
       activeProvider: "claude",
       activeModel: "claude-sonnet-4-6",
-      planMode: false,
+      executionMode: "execute",
     });
 
     useSessionStore.getState().onProviderChanged({
@@ -733,7 +733,7 @@ describe("session-store provider selection", () => {
           models: ["gpt-5"],
         },
       ],
-      planMode: false,
+      executionMode: "execute",
     });
 
     useSessionStore.getState().onProviderChanged({
@@ -905,7 +905,7 @@ describe("session-store provider selection", () => {
       ],
       activeProvider: "openai",
       activeModel: "gpt-5",
-      planMode: false,
+      executionMode: "execute",
     });
 
     let state = useSessionStore.getState();
@@ -1018,7 +1018,7 @@ describe("session-store provider selection", () => {
       type: "welcome",
       providers: [{ id: "broken-provider" } as never],
       models: {},
-      planMode: false,
+      executionMode: "execute",
     });
 
     const state = useSessionStore.getState();
@@ -1066,7 +1066,7 @@ describe("session-store provider selection", () => {
       models: {
         "unknown-provider": ["mystery-1"],
       },
-      planMode: false,
+      executionMode: "execute",
     });
 
     const state = useSessionStore.getState();
@@ -1106,7 +1106,7 @@ describe("session-store provider selection", () => {
       ],
       activeProvider: "openai",
       activeModel: "gpt-5",
-      planMode: false,
+      executionMode: "execute",
     });
 
     const state = useSessionStore.getState();
@@ -1181,7 +1181,7 @@ describe("session-store provider selection", () => {
       models: {
         claude: ["claude-sonnet-4-6"],
       },
-      planMode: false,
+      executionMode: "execute",
     });
 
     expect(useSessionStore.getState().providers).toEqual([]);
@@ -1293,7 +1293,7 @@ describe("session-store provider selection", () => {
       ],
       activeProvider: "claude",
       activeModel: "claude-sonnet-4-6",
-      planMode: false,
+      executionMode: "execute",
     });
     expect(useSessionStore.getState().routeMode).toBe("user");
 
@@ -1331,7 +1331,7 @@ describe("session-store provider selection", () => {
       ],
       activeProvider: "claude",
       activeModel: "claude-sonnet-4-6",
-      planMode: false,
+      executionMode: "execute",
       authorityStatus: {
         effective: "audited",
         completeness: "partial",

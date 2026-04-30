@@ -422,7 +422,7 @@ not frozen yet.
 - **Review flow**: Plan output renders as a `PROPOSED PLAN` block with a structured summary and confirmation prompt.
 - **Approve/execute pipeline**: `kiln run --plan` runs in approval mode. On approval, a second session executes the plan with full permissions and sandbox access.
 - **`kiln plan` command**: Standalone `kiln plan <task>` subcommand with a 3-phase workflow (Explore, Intent Chat, Implementation Chat).
-- **Execution boundaries**: Plan mode blocks Edit, Write, and MultiEdit tools. File reads and bash are permitted.
+- **Execution boundaries**: Gateway-backed plan mode exposes only explicitly read-only tools plus `submit_plan`; mutating tools and shell execution are excluded from the planning tool set.
 - **TUI plan mode**: `/plan` command mid-session, `--plan` flag on startup, PLAN badge in sidebar.
 
 ### Phase 8.2: Parallel Workers
@@ -615,6 +615,20 @@ Six sub-phases implementing biologically-grounded multi-agent coordination:
 
 ---
 
+## Unreleased -- Execution Mode Contract
+
+### feat(runtime): shared plan and execute modes
+- Replaced GUI/TUI wire-level `planMode` and `exec` transition frames with the
+  shared `executionMode: "plan" | "execute"` contract.
+- Added canonical `execution_mode_transition` and
+  `execution_mode_transitioned` frames for mode changes.
+- Moved `submit_plan` into the attached runtime tool surface so plan submission
+  is shared by GUI, TUI, and future operator consumers.
+- Plan mode now exposes only explicitly read-only tools plus `submit_plan`.
+  Mutating tools and shell execution are excluded from the planning tool set.
+- Successful plan submissions persist as canonical `plan_submitted` session
+  events and use shared operator-event presentation.
+
 ## Unreleased -- Plan Mode (v0.25.0)
 
 ### feat(cli): kiln plan command (Phase 8.1)
@@ -622,7 +636,9 @@ Six sub-phases implementing biologically-grounded multi-agent coordination:
 - Added `--plan` flag on `kiln run`: `kiln run --plan <task>`
 - Uses permissionMode: "plan" (approval: "untrusted", sandbox: "read-only")
 - 3-phase workflow: Explore → Intent Chat → Implementation Chat
-- Execution boundaries: blocks Edit/Write/MultiEdit tools in plan mode
+- Execution boundaries: current gateway plan mode exposes only explicitly
+  read-only tools plus `submit_plan`; mutating tools and shell execution are
+  excluded from the planning tool set.
 - Final output renders `<proposed_plan>` block to user
 - TUI sidebar shows PLAN badge when active
 - `/exec` command transitions from plan mode to execution mode

@@ -6,6 +6,7 @@ import {
   type GuiProviderDiscoveryResult,
   type GuiProviderModelCapabilities,
   type GuiProviderReasoningEffort,
+  type OperatorExecutionMode,
 } from "@kilnai/gateway-contracts";
 import { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
 import type { PerCallToolConfig } from "../session/runtime-session-orchestrator.js";
@@ -85,8 +86,8 @@ export interface TuiGatewayOptions {
   readonly contextArtifactCache?: ContextArtifactCache;
   /** Event bus for listening to approval events. */
   readonly eventBus?: EventBus;
-  /** Whether plan mode is active (read-only planning). */
-  readonly planMode?: boolean;
+  /** Initial shared execution mode for operator work. */
+  readonly executionMode?: OperatorExecutionMode;
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
   readonly getProviderAvailability?: () => Promise<Record<string, boolean>> | Record<string, boolean>;
 }
@@ -166,20 +167,20 @@ export function deriveTuiAuthorityStatusFromPerCallConfig(
 export function buildTuiWelcomeFramePayload(input: {
   readonly models: Record<string, string[]>;
   readonly providerDiscovery?: readonly GuiProviderDiscoveryResult[];
-  readonly planMode: boolean;
+  readonly executionMode: OperatorExecutionMode;
   readonly authorityStatus: TuiAuthorityStatus;
 }): {
   readonly type: "welcome";
   readonly models: Record<string, string[]>;
   readonly providerDiscovery?: readonly GuiProviderDiscoveryResult[];
-  readonly planMode: boolean;
+  readonly executionMode: OperatorExecutionMode;
   readonly authorityStatus: TuiAuthorityStatus;
 } {
   return {
     type: "welcome",
     models: input.models,
     ...(input.providerDiscovery ? { providerDiscovery: input.providerDiscovery } : {}),
-    planMode: input.planMode,
+    executionMode: input.executionMode,
     authorityStatus: input.authorityStatus,
   };
 }
@@ -190,6 +191,7 @@ export function buildTuiTurnPerCallConfig(
   builtinToolSurface: AttachedRuntimeBuiltinToolSurface = createAttachedRuntimeBuiltinToolSurface(),
   activeModelCapabilities?: GuiProviderModelCapabilities,
   reasoningEffort?: ReasoningEffort,
+  executionMode: OperatorExecutionMode = "execute",
 ): PerCallToolConfig {
   return buildAttachedRuntimePerCallToolConfig({
     tenantId: TUI_TENANT_ID,
@@ -198,6 +200,7 @@ export function buildTuiTurnPerCallConfig(
     ...(activeModelCapabilities ? { activeModelCapabilities } : {}),
     reasoningEffort,
     builtinToolSurface,
+    executionMode,
   });
 }
 
@@ -220,6 +223,10 @@ function resolveRequestedReasoningEffort(
     throw new Error(`Reasoning effort '${requested}' is not supported by the selected model.`);
   }
   return requested as ReasoningEffort;
+}
+
+function resolveExecutionMode(value: unknown): OperatorExecutionMode {
+  return value === "plan" ? "plan" : "execute";
 }
 
 function findProviderModelCapabilities(
@@ -399,7 +406,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
           ws.send(JSON.stringify(buildTuiWelcomeFramePayload({
             models: currentModels,
             providerDiscovery: currentDiscovery,
-            planMode: options.planMode ?? false,
+            executionMode: options.executionMode ?? "execute",
             authorityStatus,
           })));
         },
@@ -547,13 +554,9 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
               return;
             }
 
-            // Handle plan mode execution transition
-            if (frame.type === "exec") {
-              if (!options.planMode) {
-                ws.send(JSON.stringify({ type: "error", message: "Not in plan mode" }));
-                return;
-              }
-              ws.send(JSON.stringify({ type: "exec_confirmed" }));
+            if (frame.type === "execution_mode_transition") {
+              const toMode = resolveExecutionMode(frame.toMode);
+              ws.send(JSON.stringify({ type: "execution_mode_transitioned", executionMode: toMode }));
               return;
             }
 
@@ -631,8 +634,10 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
                 activeModelCapabilities,
                 frame.reasoningEffort,
               );
+              const executionMode = resolveExecutionMode(frame.executionMode);
               const turnBuiltinToolSurface = createAttachedRuntimeBuiltinToolSurface({
                 builtinToolOptions,
+                executionMode,
                 operatorSurface: {
                   theme: {
                     setTheme: operatorThemeBridge.request,
@@ -649,6 +654,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
                 userParts: textParts(userContent),
                 channel: "tui",
                 providerValidation: currentDiscovery,
+                executionMode,
                 contextArtifactCache: options.contextArtifactCache,
                 callBuiltinTools: turnBuiltinToolSurface.callBuiltinTools,
                 perCallConfig: buildTuiTurnPerCallConfig(
@@ -657,6 +663,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
                   turnBuiltinToolSurface,
                   activeModelCapabilities,
                   reasoningEffort,
+                  executionMode,
                 ),
                 turnCapture: {
                   start: (sessionId, nextSequence) => {

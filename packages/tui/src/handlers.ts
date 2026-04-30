@@ -515,6 +515,7 @@ export async function sendMessage(
   try {
     for await (const event of session.run({
       prompt: text,
+      executionMode: ctx.state.planMode ? "plan" : "execute",
       reasoningEffort: ctx.state.currentReasoningEffort,
     })) {
       switch (event.type) {

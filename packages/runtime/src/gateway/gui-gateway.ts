@@ -60,6 +60,7 @@ import {
   type GuiProviderReasoningEffort,
   type GuiSessionDetail,
   type GuiSessionSummary,
+  type OperatorExecutionMode,
   type OperatorWorkspaceError,
   type OperatorWorkspaceErrorCode,
   type OperatorWorkspaceExplorer,
@@ -418,7 +419,7 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
             providers: [],
             activeProvider: undefined,
             activeModel: undefined,
-            planMode: false,
+            executionMode: "execute",
             workingDirectory: options.workingDirectory,
             domainLabel: options.domainLabel,
             authorityStatus: guiAuthorityStatus,
@@ -601,7 +602,7 @@ function wireOperatorTransport(
             providers: buildWelcomeProviderDescriptors(currentDiscovery),
             activeProvider,
             activeModel,
-            planMode: input.transport.planMode ?? false,
+            executionMode: input.transport.executionMode ?? "execute",
             workingDirectory: input.transport.workingDirectory,
             domainLabel: input.transport.domainLabel,
             authorityStatus: guiAuthorityStatus,
@@ -785,8 +786,12 @@ function wireOperatorTransport(
               return;
             }
 
-            if (frame.type === "exec") {
-              ws.send(JSON.stringify({ type: "exec_confirmed" } satisfies GuiInboundFrame));
+            if (frame.type === "execution_mode_transition") {
+              const toMode = resolveExecutionMode(frame.toMode);
+              ws.send(JSON.stringify({
+                type: "execution_mode_transitioned",
+                executionMode: toMode,
+              } satisfies GuiInboundFrame));
               return;
             }
 
@@ -889,8 +894,10 @@ function wireOperatorTransport(
                 activeModelCapabilities,
                 frame.reasoningEffort,
               );
+              const executionMode = resolveExecutionMode(frame.executionMode);
               const turnBuiltinToolSurface = createAttachedRuntimeBuiltinToolSurface({
                 builtinToolOptions: input.builtinToolOptions,
+                executionMode,
                 operatorSurface: {
                   theme: {
                     setTheme: operatorThemeBridge.request,
@@ -908,6 +915,7 @@ function wireOperatorTransport(
                 userParts: textParts(userContent),
                 channel: "gui",
                 providerValidation: currentDiscovery,
+                executionMode,
                 contextArtifactCache: input.transport.contextArtifactCache,
                 callBuiltinTools: turnBuiltinToolSurface.callBuiltinTools,
                 perCallConfig: buildGuiTurnPerCallConfig(
@@ -916,6 +924,7 @@ function wireOperatorTransport(
                   turnBuiltinToolSurface,
                   activeModelCapabilities,
                   reasoningEffort,
+                  executionMode,
                 ),
                 turnCapture: {
                   start: (sessionId, nextSequence) => {
@@ -970,9 +979,9 @@ function wireOperatorTransport(
                   routedModel || undefined,
                   createAttachedRuntimeBuiltinToolSurface({
                     builtinToolOptions: input.builtinToolOptions,
-                    operatorSurface: {
-                      theme: {
-                        setTheme: operatorThemeBridge.request,
+                  operatorSurface: {
+                    theme: {
+                      setTheme: operatorThemeBridge.request,
                       },
                     },
                   }),
@@ -1018,6 +1027,7 @@ export function buildGuiTurnPerCallConfig(
   builtinToolSurface: AttachedRuntimeBuiltinToolSurface = createAttachedRuntimeBuiltinToolSurface(),
   activeModelCapabilities?: GuiProviderModelCapabilities,
   reasoningEffort?: ReasoningEffort,
+  executionMode: OperatorExecutionMode = "execute",
 ): PerCallToolConfig {
   return buildAttachedRuntimePerCallToolConfig({
     tenantId: GUI_TENANT_ID,
@@ -1026,7 +1036,12 @@ export function buildGuiTurnPerCallConfig(
     ...(activeModelCapabilities ? { activeModelCapabilities } : {}),
     reasoningEffort,
     builtinToolSurface,
+    executionMode,
   });
+}
+
+function resolveExecutionMode(value: unknown): OperatorExecutionMode {
+  return value === "plan" ? "plan" : "execute";
 }
 
 function resolveRequestedReasoningEffort(

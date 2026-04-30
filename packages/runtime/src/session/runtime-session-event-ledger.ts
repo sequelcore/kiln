@@ -41,6 +41,10 @@ export interface AppendCanonicalTurnEventsInput {
   readonly turnCompletedAt: Date;
   readonly continuity: RuntimeContinuitySnapshot;
   readonly runtimeEvents: readonly CapturedRuntimeLedgerEvent[];
+  readonly planSubmissions?: readonly {
+    readonly planId: string;
+    readonly content: string;
+  }[];
   readonly fileChanges?: readonly RuntimeTurnFileChange[];
 }
 
@@ -226,6 +230,20 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
         break;
       }
     }
+  }
+
+  for (const submission of input.planSubmissions ?? []) {
+    events.push(createSessionEvent<"plan_submitted">({
+      kilnSessionId: session.id,
+      sequence: nextSequence(),
+      kind: "plan_submitted",
+      turnId,
+      planId: submission.planId,
+      mode: "plan",
+      content: submission.content,
+      source: runtimeSource,
+      timestamp: input.turnCompletedAt,
+    }));
   }
 
   for (const fileChange of input.fileChanges ?? []) {

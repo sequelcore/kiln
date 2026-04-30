@@ -1442,7 +1442,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     const activeProvider = activeProviderDescriptor ? explicitActiveProvider ?? null : null;
     const activeModel = activeProviderDescriptor ? requestedModel : null;
     const persistedPlanMode = readStoredPlanMode();
-    const resolvedPlanMode = persistedPlanMode ?? frame.planMode ?? current.planMode;
+    const welcomePlanMode = frame.executionMode ? frame.executionMode === "plan" : undefined;
+    const resolvedPlanMode = persistedPlanMode ?? welcomePlanMode ?? current.planMode;
     const persistedResume = readResumeTarget();
     const explicitSelection = Boolean(activeProvider);
 
@@ -2582,7 +2583,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     outboundSend({
       type: "message",
       content: normalized,
-      planMode: state.planMode,
+      executionMode: state.planMode ? "plan" : "execute",
       resumeSessionId: state.resumeTargetId ?? undefined,
       ...(options?.reasoningEffort ? { reasoningEffort: options.reasoningEffort } : {}),
       ...(options?.appName ? { appName: options.appName } : {}),
@@ -2631,7 +2632,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       return;
     }
     if (state.planMode && state.outboundSend) {
-      state.outboundSend({ type: "exec" });
+      state.outboundSend({ type: "execution_mode_transition", toMode: "execute" });
       return;
     }
     persistPlanMode(false);

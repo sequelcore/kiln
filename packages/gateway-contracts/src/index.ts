@@ -3,6 +3,7 @@ export type {
   GuiProviderDiscoveryResult,
   GuiProviderModelCapabilities,
   GuiProviderReasoningEffort,
+  OperatorExecutionMode,
   GuiProviderDiscoveryStatus,
   GuiProviderAuthState,
   GuiProviderCatalogStatus,

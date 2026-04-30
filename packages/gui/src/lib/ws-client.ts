@@ -16,9 +16,11 @@ const GuiOutboundFrameSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("message"),
     content: z.string(),
-    planMode: z.boolean().optional(),
+    executionMode: z.enum(["execute", "plan"]).optional(),
     resumeSessionId: z.string().optional(),
     reasoningEffort: z.enum(["minimal", "low", "medium", "high", "xhigh"]).optional(),
+    appName: z.string().optional(),
+    tenantId: z.string().optional(),
   }),
   z.object({ type: z.literal("clear") }),
   z.object({ type: z.literal("refresh_providers") }),
@@ -45,7 +47,7 @@ const GuiOutboundFrameSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("resume"), sessionId: z.string() }),
   z.object({ type: z.literal("approve"), sessionId: z.string().optional() }),
   z.object({ type: z.literal("reject"), reason: z.string(), sessionId: z.string().optional() }),
-  z.object({ type: z.literal("exec") }),
+  z.object({ type: z.literal("execution_mode_transition"), toMode: z.enum(["execute", "plan"]) }),
 ]);
 
 const GuiProviderDescriptorSchema = z.object({
@@ -122,6 +124,8 @@ const GuiSessionEventSchema = z.object({
     "user_message",
     "assistant_message",
     "assistant_delta",
+    "plan_submitted",
+    "plan_approved",
     "provider_routed",
     "tool_call_started",
     "tool_call_completed",
@@ -198,10 +202,10 @@ const GuiInboundFrameSchema = z.discriminatedUnion("type", [
     providers: z.array(GuiProviderDescriptorSchema).optional(),
     activeProvider: z.string().optional(),
     activeModel: z.string().optional(),
-    planMode: z.boolean().optional(),
+    executionMode: z.enum(["execute", "plan"]).optional(),
     authorityStatus: GuiAuthorityStatusSchema.optional(),
   }),
-  z.object({ type: z.literal("exec_confirmed") }),
+  z.object({ type: z.literal("execution_mode_transitioned"), executionMode: z.enum(["execute", "plan"]) }),
   z.object({ type: z.literal("cleared") }),
   z.object({
     type: z.literal("provider_auth_started"),

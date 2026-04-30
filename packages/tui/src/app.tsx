@@ -250,6 +250,26 @@ export async function startTui(
         return;
       }
 
+      if (text === "/exec" && state.planMode) {
+        void (async () => {
+          const session = await createSession();
+          const executePlanMode = (session as unknown as { executePlanMode?: unknown }).executePlanMode;
+          if (typeof executePlanMode === "function") {
+            executePlanMode.call(session);
+          }
+          update(state, "planMode", false);
+          renderSidebarProvider(state, currentTheme, ui, domain);
+          const execNode = new (
+            await import("@opentui/core")
+          ).TextRenderable(renderer, {
+            content: t`${fg(currentTheme.accent)("Execution mode enabled.")}`,
+            width: "100%",
+          });
+          ui.chatScrollBox.content.add(execNode);
+        })();
+        return;
+      }
+
       if (text === "/theme") {
         openThemePicker();
         return;

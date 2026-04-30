@@ -372,7 +372,7 @@ describe("GuiWsClient", () => {
         { type: "resume", sessionId: "session-123" },
         { type: "approve", sessionId: "session-123" },
         { type: "reject", reason: "not approved", sessionId: "session-123" },
-        { type: "exec" },
+        { type: "execution_mode_transition", toMode: "execute" },
       ];
 
       for (const frame of frames) {
@@ -507,18 +507,21 @@ describe("GuiWsClient", () => {
             type: "welcome",
             greeting: "Welcome!",
             models: { openai: ["gpt-4"] },
-            planMode: false,
+            executionMode: "execute",
             authorityStatus: { effective: "unknown", completeness: "partial" },
           },
           expected: {
             type: "welcome",
             greeting: "Welcome!",
             models: { openai: ["gpt-4"] },
-            planMode: false,
+            executionMode: "execute",
             authorityStatus: { effective: "unknown", completeness: "partial" },
           },
         },
-        { json: { type: "exec_confirmed" }, expected: { type: "exec_confirmed" } },
+        {
+          json: { type: "execution_mode_transitioned", executionMode: "execute" },
+          expected: { type: "execution_mode_transitioned", executionMode: "execute" },
+        },
         { json: { type: "cleared" }, expected: { type: "cleared" } },
         {
           json: {

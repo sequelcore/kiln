@@ -69,6 +69,27 @@ describe("attached runtime builtin tool surface", () => {
     expect(config.toolAuthority).toBe(runtimeSurface.toolAuthority);
   });
 
+  it("builds plan-mode per-call config from explicitly read-only tools and submit_plan", () => {
+    const runtimeSurface = createAttachedRuntimeBuiltinToolSurface();
+    const config = buildAttachedRuntimePerCallToolConfig({
+      tenantId: "tenant-1",
+      activeProvider: "codex-oauth",
+      activeModel: "gpt-5.4-mini",
+      activeModelCapabilities: { supportsFunctionTools: true },
+      builtinToolSurface: runtimeSurface,
+      executionMode: "plan",
+    });
+
+    expect(config.toolAllowlist?.has("read")).toBe(true);
+    expect(config.toolAllowlist?.has("tree")).toBe(true);
+    expect(config.toolAllowlist?.has("submit_plan")).toBe(true);
+    expect(config.toolAllowlist?.has("write")).toBe(false);
+    expect(config.toolAllowlist?.has("edit")).toBe(false);
+    expect(config.toolAllowlist?.has("patch")).toBe(false);
+    expect(config.additionalTools?.map((tool) => tool.name)).toEqual(Array.from(config.toolAllowlist ?? []));
+    expect(config.perCallCapabilities?.get("submit_plan")?.annotations?.readOnly).toBe(true);
+  });
+
   it("propagates deferred core tool projection to runtime consumers", () => {
     const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
       builtinToolOptions: {

@@ -6,6 +6,33 @@ import {
 } from "../src/operator-event-presentation.js";
 
 describe("operator event presentation", () => {
+  it("presents plan lifecycle events without raw payload syntax", () => {
+    const submitted = presentOperatorEventPayload("plan_submitted", {
+      planId: "plan-1",
+      mode: "plan",
+      content: "1. Inspect contracts\n2. Add tests\n3. Implement shared execution mode",
+    });
+    const approved = presentOperatorEventPayload("plan_approved", {
+      planId: "plan-1",
+      fromMode: "plan",
+      toMode: "execute",
+    });
+
+    expect(submitted.title).toBe("Plan submitted");
+    expect(submitted.summary).toBe("1. Inspect contracts");
+    expect(submitted.compactText).toBe("1. Inspect contracts");
+    expect(submitted.surfaces).toEqual(["conversation_inline", "activity_panel", "inspector"]);
+    expect(submitted.details).toEqual([
+      { label: "Plan", value: "plan-1" },
+      { label: "Mode", value: "plan" },
+    ]);
+    expect(JSON.stringify(submitted)).not.toContain("\\\"content\\\"");
+
+    expect(approved.title).toBe("Plan approved");
+    expect(approved.summary).toBe("plan -> execute");
+    expect(approved.surfaces).toEqual(["conversation_inline", "activity_panel", "inspector"]);
+  });
+
   it("presents provider routing without exposing raw payload syntax", () => {
     const presentation = presentOperatorEventPayload("provider_routed", {
       provider: {

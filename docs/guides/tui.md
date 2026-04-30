@@ -180,7 +180,14 @@ theme or provider preference.
 
 ### `/plan`
 
-`/plan` sets the TUI's local `planMode` state and adds a status message in the chat pane. In gateway mode, the welcome frame also carries an initial `planMode` value, and the gateway accepts an `{ type: "exec" }` frame to confirm execution mode transitions.
+`/plan` sets the TUI's local planning indicator and adds a status message in the
+chat pane. The next gateway turn sends `executionMode: "plan"` on the shared
+message frame. Gateway welcome frames carry `executionMode`, and execution-mode
+changes use `{ type: "execution_mode_transition", toMode: "execute" }` followed
+by `{ type: "execution_mode_transitioned", executionMode: "execute" }`.
+
+The local `planMode` flag is UI state only. The runtime contract is
+`executionMode`, shared with GUI and other operator consumers.
 
 ### `/provider`
 

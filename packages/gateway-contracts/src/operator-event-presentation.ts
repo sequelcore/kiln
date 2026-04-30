@@ -787,6 +787,40 @@ function approvalResolvedPresentation(payload: Record<string, unknown>): Operato
   };
 }
 
+function planSubmittedPresentation(payload: Record<string, unknown>): OperatorEventPresentation {
+  const content = readString(payload.content) ?? readString(payload.plan) ?? "Plan submitted";
+  const summary = compactText(content);
+  const details: OperatorEventDetailItem[] = [];
+  addItem(details, "Plan", payload.planId);
+  addItem(details, "Mode", payload.mode);
+  return {
+    title: "Plan submitted",
+    summary,
+    compactText: summary,
+    tone: "info",
+    details,
+    surfaces: INLINE_ACTIVITY_SURFACES,
+  };
+}
+
+function planApprovedPresentation(payload: Record<string, unknown>): OperatorEventPresentation {
+  const fromMode = readString(payload.fromMode) ?? "plan";
+  const toMode = readString(payload.toMode) ?? "execute";
+  const summary = `${fromMode} -> ${toMode}`;
+  const details: OperatorEventDetailItem[] = [];
+  addItem(details, "Plan", payload.planId);
+  addItem(details, "From", fromMode);
+  addItem(details, "To", toMode);
+  return {
+    title: "Plan approved",
+    summary,
+    compactText: summary,
+    tone: "success",
+    details,
+    surfaces: INLINE_ACTIVITY_SURFACES,
+  };
+}
+
 function invocationLabel(payload: Record<string, unknown>): string {
   return readString(payload.agentName) ?? readString(payload.agentType) ?? readString(payload.agentId) ?? "agent";
 }
@@ -914,6 +948,10 @@ export function presentOperatorEventPayload(
   payload: Record<string, unknown>,
 ): OperatorEventPresentation {
   switch (kind) {
+    case "plan_submitted":
+      return planSubmittedPresentation(payload);
+    case "plan_approved":
+      return planApprovedPresentation(payload);
     case "provider_routed":
       return providerRoutedPresentation(payload);
     case "tool_call_started":

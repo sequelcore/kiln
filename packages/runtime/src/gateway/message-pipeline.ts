@@ -51,6 +51,7 @@ import { appendCanonicalTurnEvents } from "../session/runtime-session-event-ledg
 import { resolveAgentContextAsync } from "../tenant/agent-resolver.js";
 import { buildTenantSystemPrompt } from "../tenant/system-prompt-builder.js";
 import type { AgentHandoffSummarizer } from "../session/support/summarization/agent-handoff-summarizer.js";
+import type { OperatorExecutionMode } from "@kilnai/gateway-contracts";
 
 type EgressDestination = "webhook";
 type EgressPermissionDecision = "allow" | "deny" | "redact";
@@ -106,6 +107,7 @@ export interface AdmittedTurnContext {
   readonly activeSkillTags?: readonly string[];
   readonly userContext?: Record<string, string>;
   readonly providerValidation?: readonly RuntimeTurnProviderValidation[];
+  readonly executionMode?: OperatorExecutionMode;
   readonly groundingMode?: GroundingMode;
   readonly groundingDeps?: {
     readonly rail: GroundingRail;
@@ -146,6 +148,22 @@ export interface AdmittedTurnContext {
     );
     readonly abort?: (sessionId: string) => void | Promise<void>;
   };
+}
+
+function extractPlanSubmissions(
+  toolExecutions: readonly ToolExecutionSummary[] | undefined,
+): readonly { readonly planId: string; readonly content: string }[] {
+  return (toolExecutions ?? [])
+    .filter((execution) => execution.toolName === "submit_plan" && execution.success)
+    .map((execution) => {
+      const content = typeof execution.input?.plan === "string" ? execution.input.plan.trim() : "";
+      if (!content) return null;
+      return {
+        planId: execution.toolCallId ?? `plan:${execution.durationMs}`,
+        content,
+      };
+    })
+    .filter((submission): submission is { readonly planId: string; readonly content: string } => submission !== null);
 }
 
 export type CoordinationProviderFailureReason = "provider-error" | "provider-validation-error";
@@ -494,6 +512,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
   const turnStartedAt = new Date();
   const taskShape = normalizeRuntimeTaskShape(userText);
   const effectiveTenantId = ctx.tenant?.tenantId ?? ctx.tenantId;
+  const executionMode = ctx.executionMode ?? "execute";
   const initialSystemPrompt = ctx.tenant
     ? buildTenantSystemPrompt(ctx.tenant)
     : (ctx.systemPrompt ?? "You are a helpful assistant.");
@@ -735,6 +754,20 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     influenced: runtimeSupport.decision.resumeFeedback?.influencedChoice ?? false,
   });
   const proceduralContextCandidates: ContextCandidate[] = [];
+  if (executionMode === "plan") {
+    proceduralContextCandidates.push({
+      kind: "procedural",
+      source: "runtime-execution-mode:plan",
+      required: true,
+      score: 1,
+      content: [
+        "Execution mode: plan.",
+        "Do not mutate files, run destructive commands, apply patches, install dependencies, or execute implementation work.",
+        "Use only read-only inspection tools as needed.",
+        "When the plan is ready, call submit_plan with the complete operator-facing plan.",
+      ].join("\n"),
+    });
+  }
   if (ctx.skillRegistry && (ctx.activeSkills?.length || ctx.activeSkillTags?.length)) {
     const resolved = ctx.skillRegistry.resolve(ctx.activeSkills, ctx.activeSkillTags);
     for (const skill of resolved) {
@@ -925,6 +958,9 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     ...dangerousCommandOutcomes,
     ...(externalTurnCapture?.dangerousCommandOutcomes ?? []),
   ], (outcome) => `${outcome.toolName}|${outcome.action}|${outcome.reasonCode}|${outcome.reason}`);
+  const planSubmissions = executionMode === "plan"
+    ? extractPlanSubmissions(result.toolExecutions)
+    : [];
 
   applyRuntimeTurnRecord({
     session,
@@ -968,6 +1004,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     turnCompletedAt: new Date(),
     continuity: runtimeContinuityPresentation.runtimeContinuity,
     runtimeEvents: capturedRuntimeEvents,
+    planSubmissions,
     fileChanges: mergedFileChanges.length > 0 ? mergedFileChanges : undefined,
   });
 
