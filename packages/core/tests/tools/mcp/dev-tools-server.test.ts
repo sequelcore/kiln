@@ -251,6 +251,125 @@ describe("DevToolsMcpServer", () => {
     expect(secondPage.nextCursor).toBeUndefined();
   });
 
+  it("registers MCP resource subscribe and unsubscribe handlers with session isolation", async () => {
+    vi.useFakeTimers();
+    try {
+      const surface = createDefaultBuiltinToolSurface({
+        resourceNotifications: { debounceMs: 5 },
+      });
+      const server = new DevToolsMcpServer({
+        bridge: surface.bridge,
+        tools: surface.tools,
+        resources: surface.resources,
+        resourceNotifications: surface.resourceNotifications,
+      });
+      await server.initialize();
+      const mcpServer = server.createServer();
+      const handlers = (mcpServer as unknown as { _requestHandlers: Map<string, unknown> })._requestHandlers;
+      const capabilities = (mcpServer as unknown as { _capabilities: Record<string, unknown> })._capabilities;
+      const subscribe = handlers.get("resources/subscribe") as (
+        request: { method: "resources/subscribe"; params: Record<string, unknown> },
+        extra: Record<string, unknown>,
+      ) => Promise<Record<string, never>>;
+      const unsubscribe = handlers.get("resources/unsubscribe") as (
+        request: { method: "resources/unsubscribe"; params: Record<string, unknown> },
+        extra: Record<string, unknown>,
+      ) => Promise<Record<string, never>>;
+      const first: unknown[] = [];
+      const second: unknown[] = [];
+
+      expect(capabilities.resources).toEqual({ subscribe: true, listChanged: true });
+      await subscribe(
+        { method: "resources/subscribe", params: { uri: "kiln://session/tasks" } },
+        {
+          sessionId: "first",
+          sendNotification: async (notification: unknown) => {
+            first.push(notification);
+          },
+        },
+      );
+      await subscribe(
+        { method: "resources/subscribe", params: { uri: "kiln://session/monitors" } },
+        {
+          sessionId: "second",
+          sendNotification: async (notification: unknown) => {
+            second.push(notification);
+          },
+        },
+      );
+
+      const task = surface.taskStateStore.update({ title: "Notify client", status: "completed" });
+      await vi.advanceTimersByTimeAsync(5);
+
+      expect(first).toEqual([
+        { method: "notifications/resources/updated", params: { uri: "kiln://session/tasks" } },
+        { method: "notifications/resources/updated", params: { uri: `kiln://session/tasks/${task.id}` } },
+      ]);
+      expect(second).toEqual([]);
+
+      await unsubscribe(
+        { method: "resources/unsubscribe", params: { uri: "kiln://session/tasks" } },
+        { sessionId: "first" },
+      );
+      surface.taskStateStore.update({ id: task.id, title: "No notify", status: "completed" });
+      await vi.advanceTimersByTimeAsync(5);
+
+      expect(first).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("sends MCP resource list changes to sessions that listed resources without subscribing", async () => {
+    vi.useFakeTimers();
+    try {
+      const artifactStore = new MemoryArtifactResourceStore({
+        now: () => "2026-04-29T21:00:00.000Z",
+      });
+      const surface = createDefaultBuiltinToolSurface({
+        resourceNotifications: { debounceMs: 5 },
+        artifactResources: { store: artifactStore },
+      });
+      const server = new DevToolsMcpServer({
+        bridge: surface.bridge,
+        tools: surface.tools,
+        resources: surface.resources,
+        resourceNotifications: surface.resourceNotifications,
+      });
+      await server.initialize();
+      const mcpServer = server.createServer();
+      const handlers = (mcpServer as unknown as { _requestHandlers: Map<string, unknown> })._requestHandlers;
+      const listResources = handlers.get("resources/list") as (
+        request: { method: "resources/list"; params: Record<string, unknown> },
+        extra: Record<string, unknown>,
+      ) => Promise<{ resources: readonly unknown[] }>;
+      const notifications: unknown[] = [];
+
+      await listResources(
+        { method: "resources/list", params: {} },
+        {
+          sessionId: "listed-only",
+          sendNotification: async (notification: unknown) => {
+            notifications.push(notification);
+          },
+        },
+      );
+      artifactStore.put({
+        namespace: "test-results",
+        title: "Focused Tests",
+        mimeType: "text/plain",
+        content: { type: "text", text: "passed" },
+        producer: { kind: "tool", name: "bash" },
+        retention: { scope: "session" },
+      });
+      await vi.advanceTimersByTimeAsync(5);
+
+      expect(notifications).toEqual([{ method: "notifications/resources/list_changed" }]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("reads MCP resources through the canonical resource registry", async () => {
     const surface = createDefaultBuiltinToolSurface();
     surface.taskStateStore.update({

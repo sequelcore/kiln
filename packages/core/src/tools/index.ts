@@ -95,6 +95,19 @@ export {
 } from "./domain/tool-catalog.js";
 
 export type {
+  ToolResourceChangeNotifier,
+  ToolResourceListChangedNotification,
+  ToolResourceNotification,
+  ToolResourceNotificationHubOptions,
+  ToolResourceNotificationSender,
+  ToolResourceSessionRegistration,
+  ToolResourceSubscription,
+  ToolResourceUpdatedNotification,
+} from "./domain/tool-resource-notifications.js";
+export {
+  ToolResourceNotificationHub,
+} from "./domain/tool-resource-notifications.js";
+export type {
   ToolResourceContent,
   ToolResourceDescriptor,
   ToolResourceListOptions,

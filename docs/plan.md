@@ -457,7 +457,28 @@ Add MCP-compliant `resources/subscribe`, `resources/unsubscribe`,
 `notifications/resources/list_changed` behavior with per-connection
 subscription ownership.
 
-Status: planned.
+Status: implemented.
+
+Implemented contract:
+
+- `ToolResourceNotificationHub` owns session registration, subscriptions,
+  debounced resource updates, list-changed notifications, unsubscribe, and
+  session teardown.
+- `TaskStateStore`, `MonitorRegistry`, and `MemoryArtifactResourceStore` emit
+  resource invalidations after state mutation, preserving their existing
+  sequence-number ordering as the re-read source of truth.
+- `DevToolsMcpServer` advertises MCP resource subscription/list-changed
+  capabilities when the shared notification hub is configured.
+- MCP `resources/subscribe` and `resources/unsubscribe` are routed into the
+  core hub; `notifications/resources/updated` is delivered only to matching
+  subscribed sessions.
+- `kiln tools --mcp` passes the same notification hub from the canonical
+  builtin surface into the MCP server.
+
+Verification:
+
+- `bun run --cwd packages/core test tests/tools/domain/tool-resource-notifications.test.ts tests/tools/mcp/dev-tools-server.test.ts`
+- `bun run typecheck`
 
 ### Slice 23: Resource Links From High-Volume Tools
 

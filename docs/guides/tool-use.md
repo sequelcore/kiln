@@ -262,10 +262,25 @@ records producer provenance, and bounds content size plus retained artifacts per
 namespace. Artifact content may be JSON, text, or blob content, all addressed by
 stable artifact URIs.
 
+The builtin surface also creates a `ToolResourceNotificationHub`. Consumers can
+subscribe by resource URI and receive MCP-compatible invalidation messages:
+
+- `notifications/resources/updated` for subscribed resources or their
+  descendants
+- `notifications/resources/list_changed` when listable resource namespaces
+  change
+
+Task updates, monitor lifecycle/output changes, and artifact writes notify
+after mutation. The notification is only a re-read hint; consumers should call
+`resources/read` or the in-process registry again instead of treating the
+notification as payload content. MCP clients use `resources/subscribe` and
+`resources/unsubscribe`; CLI `kiln tools --mcp` wires those handlers from the
+same core surface.
+
 The deeper resource-plane roadmap is
 `docs/roadmap/09-context-resource-plane.md`. Pagination, workspace-file
-resources, and artifact namespaces are implemented there; the remaining slices
-cover update notifications, resource links from high-volume tools, and consumer
+resources, artifact namespaces, and update notifications are implemented there;
+the remaining slices cover resource links from high-volume tools and consumer
 UX.
 
 ### Domain contracts

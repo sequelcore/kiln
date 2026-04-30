@@ -5,6 +5,7 @@ import type {
   ToolResourceReadResult,
   ToolResourceTemplateDescriptor,
 } from "../domain/tool-resource-registry.js";
+import type { ToolResourceChangeNotifier } from "../domain/tool-resource-notifications.js";
 
 const JSON_MIME_TYPE = "application/json";
 const DEFAULT_MAX_CONTENT_BYTES = 2 * 1024 * 1024;
@@ -64,6 +65,7 @@ export interface ArtifactResourceStore {
   listNamespaces(): readonly ArtifactNamespaceSummary[];
   list(namespace: string): readonly ArtifactResourceMetadata[];
   get(namespace: string, id: string): ArtifactResource | undefined;
+  setResourceChangeNotifier?(notifier: ToolResourceChangeNotifier): void;
 }
 
 export interface ArtifactResourcePutInput {
@@ -79,6 +81,7 @@ export interface MemoryArtifactResourceStoreOptions {
   readonly now?: () => string;
   readonly maxContentBytes?: number;
   readonly maxArtifactsPerNamespace?: number;
+  readonly resourceNotifications?: ToolResourceChangeNotifier;
 }
 
 export interface ArtifactResourceProviderOptions {
@@ -90,6 +93,7 @@ export class MemoryArtifactResourceStore implements ArtifactResourceStore {
   private readonly now: () => string;
   private readonly maxContentBytes: number;
   private readonly maxArtifactsPerNamespace: number;
+  private resourceNotifications: ToolResourceChangeNotifier | undefined;
   private sequence = 0;
 
   constructor(options: MemoryArtifactResourceStoreOptions = {}) {
@@ -99,6 +103,11 @@ export class MemoryArtifactResourceStore implements ArtifactResourceStore {
       options.maxArtifactsPerNamespace,
       DEFAULT_MAX_ARTIFACTS_PER_NAMESPACE,
     );
+    this.resourceNotifications = options.resourceNotifications;
+  }
+
+  setResourceChangeNotifier(notifier: ToolResourceChangeNotifier): void {
+    this.resourceNotifications = notifier;
   }
 
   put(input: ArtifactResourcePutInput): ArtifactResourceMetadata {
@@ -129,8 +138,10 @@ export class MemoryArtifactResourceStore implements ArtifactResourceStore {
       retention: input.retention,
       content: input.content,
     };
-    const artifacts = [...(this.artifactsByNamespace.get(input.namespace) ?? []), artifact];
+    const previousArtifacts = this.artifactsByNamespace.get(input.namespace) ?? [];
+    const artifacts = [...previousArtifacts, artifact];
     this.artifactsByNamespace.set(input.namespace, applyRetention(artifacts, input.retention, this.maxArtifactsPerNamespace));
+    this.notifyArtifactChanged(artifact, previousArtifacts.length === 0);
     return projectArtifactMetadata(artifact);
   }
 
@@ -157,6 +168,15 @@ export class MemoryArtifactResourceStore implements ArtifactResourceStore {
   get(namespace: string, id: string): ArtifactResource | undefined {
     validateNamespace(namespace);
     return this.artifactsByNamespace.get(namespace)?.find((artifact) => artifact.id === id);
+  }
+
+  private notifyArtifactChanged(artifact: ArtifactResource, namespaceWasAdded: boolean): void {
+    if (namespaceWasAdded) {
+      this.resourceNotifications?.notifyResourceListChanged();
+    }
+    this.resourceNotifications?.notifyResourceUpdated(`kiln://artifacts/${artifact.namespace}`);
+    this.resourceNotifications?.notifyResourceUpdated(`kiln://artifacts/${artifact.namespace}/${artifact.id}`);
+    this.resourceNotifications?.notifyResourceUpdated(`kiln://artifacts/${artifact.namespace}/${artifact.id}/content`);
   }
 }
 

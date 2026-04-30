@@ -218,6 +218,19 @@ producer provenance, and exposes read-only `kiln://artifacts/...` resources for
 namespace indexes, artifact metadata, and JSON/text/blob content. Resource reads
 do not give consumers mutation access to the store.
 
+Resource notifications are owned by the same core surface. A
+`ToolResourceNotificationHub` tracks active consumer sessions, per-session
+subscriptions, debounced pending updates, list-change notices, and teardown.
+MCP projects that contract as `resources/subscribe`, `resources/unsubscribe`,
+`notifications/resources/updated`, and
+`notifications/resources/list_changed` when the shared hub is configured.
+
+Notifications are invalidation hints only. They tell a subscribed client to
+re-read a resource URI; they never push hidden payloads into model context.
+Task updates, monitor lifecycle/output changes, and artifact writes notify
+after their state mutation completes, so the resource read remains the ordering
+source of truth through the task, monitor, and artifact sequence numbers.
+
 The next resource-plane work is tracked in
 `docs/roadmap/09-context-resource-plane.md`. That roadmap owns the completed
 pagination, workspace-resource, and artifact namespace foundations plus

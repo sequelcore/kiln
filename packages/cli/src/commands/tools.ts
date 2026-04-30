@@ -30,6 +30,7 @@ export async function toolsCommand(
     bridge: surface.bridge,
     tools: surface.tools,
     resources: surface.resources,
+    resourceNotifications: surface.resourceNotifications,
   });
 
   await server.initialize();

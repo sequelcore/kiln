@@ -1,6 +1,10 @@
 import type { ToolDefinition } from "../agents/index.js";
 import type { Capability } from "../engine/domain/capability.js";
 import { ToolCatalogIndex } from "./domain/tool-catalog.js";
+import {
+  ToolResourceNotificationHub,
+  type ToolResourceNotificationHubOptions,
+} from "./domain/tool-resource-notifications.js";
 import { ToolResourceRegistry } from "./domain/tool-resource-registry.js";
 import { DevToolRegistry } from "./domain/tool-registry.js";
 import { DEV_TOOL_OUTPUT_SCHEMA, type DevTool, type DevToolAnnotations } from "./domain/tool.js";
@@ -63,6 +67,7 @@ export interface DefaultBuiltinToolRegistryOptions {
   readonly toolProjection?: DefaultBuiltinToolProjectionOptions;
   readonly workspaceResources?: WorkspaceResourceProviderOptions;
   readonly artifactResources?: DefaultArtifactResourceOptions;
+  readonly resourceNotifications?: ToolResourceNotificationHub | ToolResourceNotificationHubOptions;
 }
 
 export interface DefaultArtifactResourceOptions {
@@ -90,6 +95,7 @@ export interface DefaultBuiltinToolSurface {
   readonly bridge: DevToolExecutionBridge;
   readonly catalog: ToolCatalogIndex;
   readonly resources: ToolResourceRegistry;
+  readonly resourceNotifications: ToolResourceNotificationHub;
   readonly artifactStore?: ArtifactResourceStore;
   readonly monitorRegistry: MonitorRegistry;
   readonly taskStateStore: TaskStateStore;
@@ -144,8 +150,22 @@ export function createDefaultBuiltinToolRegistry(
 export function createDefaultBuiltinToolSurface(
   options: DefaultBuiltinToolRegistryOptions = {},
 ): DefaultBuiltinToolSurface {
-  const monitorRegistry = options.monitorRegistry ?? new MonitorRegistry(options.monitor);
-  const taskStateStore = options.taskStateStore ?? new TaskStateStore(options.taskState);
+  const resourceNotifications = resolveResourceNotificationHub(options.resourceNotifications);
+  const monitorRegistry = options.monitorRegistry ?? new MonitorRegistry({
+    ...options.monitor,
+    resourceNotifications,
+  });
+  if (options.monitorRegistry) {
+    options.monitorRegistry.setResourceChangeNotifier(resourceNotifications);
+  }
+  const taskStateStore = options.taskStateStore ?? new TaskStateStore({
+    ...options.taskState,
+    resourceNotifications,
+  });
+  if (options.taskStateStore) {
+    options.taskStateStore.setResourceChangeNotifier(resourceNotifications);
+  }
+  options.artifactResources?.store.setResourceChangeNotifier?.(resourceNotifications);
   const surfaceOptions = {
     ...options,
     monitorRegistry,
@@ -174,6 +194,7 @@ export function createDefaultBuiltinToolSurface(
     bridge: new DevToolExecutionBridge({ registry }),
     catalog,
     resources,
+    resourceNotifications,
     ...(options.artifactResources ? { artifactStore: options.artifactResources.store } : {}),
     monitorRegistry,
     taskStateStore,
@@ -233,6 +254,14 @@ function createRegistryView(registry: DevToolRegistry): DefaultBuiltinToolRegist
       return registry.size;
     },
   };
+}
+
+function resolveResourceNotificationHub(
+  options: ToolResourceNotificationHub | ToolResourceNotificationHubOptions | undefined,
+): ToolResourceNotificationHub {
+  return options instanceof ToolResourceNotificationHub
+    ? options
+    : new ToolResourceNotificationHub(options);
 }
 
 function projectTools(

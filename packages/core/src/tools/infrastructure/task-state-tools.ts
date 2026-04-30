@@ -1,5 +1,6 @@
 import { taskStateToolMetadata, type SessionTaskStatus } from "../domain/tool-result-metadata.js";
 import { TOOL_SCHEMAS, type DevTool, type ToolInput, type ToolResult } from "../domain/tool.js";
+import type { ToolResourceChangeNotifier } from "../domain/tool-resource-notifications.js";
 import { parseOutputVerbosity } from "./output-verbosity.js";
 import { optionalString, requireString, toErrorResult, toSuccessResult } from "./tool-helpers.js";
 
@@ -24,6 +25,7 @@ export interface SessionTask {
 
 export interface TaskStateStoreOptions {
   readonly now?: () => number;
+  readonly resourceNotifications?: ToolResourceChangeNotifier;
 }
 
 export interface TaskStateSnapshot {
@@ -35,11 +37,17 @@ export interface TaskStateSnapshot {
 export class TaskStateStore {
   private readonly now: () => number;
   private readonly tasks = new Map<string, SessionTask>();
+  private resourceNotifications: ToolResourceChangeNotifier | undefined;
   private nextId = 1;
   private sequence = 0;
 
   constructor(options: TaskStateStoreOptions = {}) {
     this.now = options.now ?? Date.now;
+    this.resourceNotifications = options.resourceNotifications;
+  }
+
+  setResourceChangeNotifier(notifier: ToolResourceChangeNotifier): void {
+    this.resourceNotifications = notifier;
   }
 
   update(request: {
@@ -64,6 +72,8 @@ export class TaskStateStore {
       sequence: this.sequence,
     };
     this.tasks.set(id, task);
+    this.resourceNotifications?.notifyResourceUpdated("kiln://session/tasks");
+    this.resourceNotifications?.notifyResourceUpdated(`kiln://session/tasks/${id}`);
     return task;
   }
 

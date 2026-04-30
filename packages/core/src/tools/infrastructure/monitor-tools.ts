@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { monitorToolMetadata, type MonitorStatus } from "../domain/tool-result-metadata.js";
 import { TOOL_SCHEMAS, type DevTool, type ToolInput, type ToolResult } from "../domain/tool.js";
+import type { ToolResourceChangeNotifier } from "../domain/tool-resource-notifications.js";
 import { parseOutputVerbosity } from "./output-verbosity.js";
 import {
   getSandboxContext,
@@ -53,6 +54,7 @@ export interface MonitorCommandRunner {
 export interface MonitorRegistryOptions {
   readonly commandRunner?: MonitorCommandRunner;
   readonly now?: () => number;
+  readonly resourceNotifications?: ToolResourceChangeNotifier;
 }
 
 export interface MonitorEvent {
@@ -105,11 +107,17 @@ export class MonitorRegistry {
   private readonly commandRunner: MonitorCommandRunner;
   private readonly now: () => number;
   private readonly monitors = new Map<string, MonitorRecord>();
+  private resourceNotifications: ToolResourceChangeNotifier | undefined;
   private nextId = 1;
 
   constructor(options: MonitorRegistryOptions = {}) {
     this.commandRunner = options.commandRunner ?? new SpawnMonitorCommandRunner();
     this.now = options.now ?? Date.now;
+    this.resourceNotifications = options.resourceNotifications;
+  }
+
+  setResourceChangeNotifier(notifier: ToolResourceChangeNotifier): void {
+    this.resourceNotifications = notifier;
   }
 
   start(request: {
@@ -156,6 +164,7 @@ export class MonitorRegistry {
       this.finish(record, { error: error instanceof Error ? error : new Error(String(error)) });
     }
 
+    this.notifyMonitorChanged(record.id);
     return snapshot(record);
   }
 
@@ -227,6 +236,7 @@ export class MonitorRegistry {
       text: boundedText,
       ...(truncated ? { truncated: true } : {}),
     });
+    this.notifyMonitorChanged(record.id);
   }
 
   private finish(record: MonitorRecord, result: MonitorFinishResult): void {
@@ -250,6 +260,11 @@ export class MonitorRegistry {
     }
     const reason = result.error?.message ?? `status=${record.status}`;
     this.append(record, "lifecycle", `monitor finished: ${reason}\n`);
+  }
+
+  private notifyMonitorChanged(id: string): void {
+    this.resourceNotifications?.notifyResourceUpdated("kiln://session/monitors");
+    this.resourceNotifications?.notifyResourceUpdated(`kiln://session/monitors/${id}`);
   }
 }
 

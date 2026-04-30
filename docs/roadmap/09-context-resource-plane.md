@@ -216,31 +216,46 @@ Verification:
 Goal: add MCP-compliant subscription ownership and update notifications for
 resources that change during a session.
 
-Planned contract:
+Status: implemented on 2026-04-29.
+
+Implemented contract:
 
 ```ts
-subscribeResource({ uri })
-unsubscribeResource({ uri })
-notifyResourceUpdated(uri)
-notifyResourceListChanged()
+ToolResourceNotificationHub.subscribeResource({ sessionId, uri, sendNotification })
+ToolResourceNotificationHub.unsubscribeResource({ sessionId, uri })
+ToolResourceNotificationHub.notifyResourceUpdated(uri)
+ToolResourceNotificationHub.notifyResourceListChanged()
 ```
 
-Requirements:
+Implemented requirements:
 
-- track subscriptions per MCP connection/session
-- support `resources/subscribe` and `resources/unsubscribe`
-- send `notifications/resources/updated` only for subscribed resources
-- send `notifications/resources/list_changed` when listable resources change
-- clean up subscriptions on connection close/session teardown
-- debounce rapid updates from monitors and artifact writers
-- define notification ordering relative to task, monitor, and artifact
-  sequence numbers
-- test subscription isolation across two simulated MCP clients
+- added a core-owned `ToolResourceNotificationHub` with session registration,
+  per-session resource subscriptions, debounce, unsubscribe, and teardown
+  semantics
+- projected `resources/subscribe` and `resources/unsubscribe` through the MCP
+  server when a resource notification hub is configured
+- advertised MCP resource capabilities as `{ subscribe: true, listChanged:
+  true }` from the shared server projection
+- sent `notifications/resources/updated` only to sessions subscribed to the
+  exact resource URI or an ancestor URI
+- sent `notifications/resources/list_changed` to active sessions when listable
+  resource namespaces change
+- wired task updates, monitor lifecycle/output updates, and artifact writes to
+  notify after state mutation
+- debounced rapid monitor and artifact updates without changing the underlying
+  task, monitor, or artifact sequence numbers
+- cleaned up sessions owned by a `DevToolsMcpServer` instance on close
+- tested subscription isolation across two simulated MCP sessions
 
 Design boundary:
 
 - notifications tell clients to re-read; they do not push hidden resource
   payloads into context automatically.
+
+Verification:
+
+- `bun run --cwd packages/core test tests/tools/domain/tool-resource-notifications.test.ts tests/tools/mcp/dev-tools-server.test.ts`
+- `bun run typecheck`
 
 ## Slice 23: Resource Links From High-Volume Tools
 
@@ -329,6 +344,6 @@ Requirements:
 
 ## Current Priority
 
-Start with Slice 19. Pagination and stable cursors are the smallest safe
-extension of the current `ToolResourceRegistry`, and they prevent workspace and
-artifact namespaces from creating unbounded MCP list responses.
+Continue with Slice 23. Resource links from high-volume tools are now the next
+resource-plane expansion because pagination, workspace resources, artifact
+namespaces, and update notifications are closed.

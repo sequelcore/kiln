@@ -2,6 +2,10 @@ import { KilnError } from "../../engine/errors.js";
 import { projectDevToolSchemas } from "../default-tool-surface.js";
 import type { DevTool, ToolResult, ToolResultContentPart } from "../domain/tool.js";
 import type {
+  ToolResourceNotification,
+  ToolResourceNotificationHub,
+} from "../domain/tool-resource-notifications.js";
+import type {
   ToolResourceDescriptor,
   ToolResourceListOptions,
   ToolResourceReadResult,
@@ -36,7 +40,8 @@ interface McpRequestHandlerExtra {
       readonly progress: number;
       readonly message: string;
     };
-  }) => Promise<void>;
+  } | ToolResourceNotification) => Promise<void>;
+  readonly sessionId?: string;
   readonly elicit?: OperatorElicitationResponder["elicit"];
 }
 
@@ -50,6 +55,8 @@ interface SdkModules {
   ListResourcesRequestSchema: unknown;
   ListResourceTemplatesRequestSchema: unknown;
   ReadResourceRequestSchema: unknown;
+  SubscribeRequestSchema: unknown;
+  UnsubscribeRequestSchema: unknown;
 }
 
 function loadSdkModules(): Promise<SdkModules> {
@@ -63,6 +70,8 @@ function loadSdkModules(): Promise<SdkModules> {
     ListResourcesRequestSchema: typesModule.ListResourcesRequestSchema,
     ListResourceTemplatesRequestSchema: typesModule.ListResourceTemplatesRequestSchema,
     ReadResourceRequestSchema: typesModule.ReadResourceRequestSchema,
+    SubscribeRequestSchema: typesModule.SubscribeRequestSchema,
+    UnsubscribeRequestSchema: typesModule.UnsubscribeRequestSchema,
   }));
 }
 
@@ -70,6 +79,7 @@ export interface DevToolsMcpServerOptions {
   readonly bridge: DevToolExecutionBridge;
   readonly tools?: readonly DevTool[];
   readonly resources?: ToolResourceRegistry;
+  readonly resourceNotifications?: ToolResourceNotificationHub;
   readonly resourcePageSize?: number;
 }
 
@@ -100,7 +110,9 @@ export class DevToolsMcpServer {
   private readonly bridge: DevToolExecutionBridge;
   private readonly tools?: readonly DevTool[];
   private readonly resources?: ToolResourceRegistry;
+  private readonly resourceNotifications?: ToolResourceNotificationHub;
   private readonly resourcePageSize: number | undefined;
+  private readonly subscribedSessionIds = new Set<string>();
   private sdk: SdkModules | undefined;
   private sdkPromise: Promise<SdkModules> | undefined;
 
@@ -108,6 +120,7 @@ export class DevToolsMcpServer {
     this.bridge = options.bridge;
     this.tools = options.tools;
     this.resources = options.resources;
+    this.resourceNotifications = options.resourceNotifications;
     this.resourcePageSize = options.resourcePageSize;
   }
 
@@ -122,6 +135,10 @@ export class DevToolsMcpServer {
   }
 
   close(): void {
+    for (const sessionId of this.subscribedSessionIds) {
+      this.resourceNotifications?.disposeSession(sessionId);
+    }
+    this.subscribedSessionIds.clear();
     this.sdk = undefined;
   }
 
@@ -200,26 +217,39 @@ export class DevToolsMcpServer {
       ListResourcesRequestSchema,
       ListResourceTemplatesRequestSchema,
       ReadResourceRequestSchema,
+      SubscribeRequestSchema,
+      UnsubscribeRequestSchema,
     } = this.sdk;
+    const resourceCapabilities = this.resources
+      ? {
+        ...(this.resourceNotifications ? { subscribe: true, listChanged: true } : {}),
+      }
+      : {};
     const server = new Server(
       { name: SERVER_NAME, version: SERVER_VERSION },
-      { capabilities: { tools: {}, resources: {} } },
+      { capabilities: { tools: {}, resources: resourceCapabilities } },
     );
 
     server.setRequestHandler(
       ListResourcesRequestSchema,
-      async (request: { params?: Record<string, unknown> }) => this.listResources(parseResourceListParams(request.params)),
+      async (request: { params?: Record<string, unknown> }, extra?: McpRequestHandlerExtra) => {
+        this.registerResourceSession(extra);
+        return this.listResources(parseResourceListParams(request.params));
+      },
     );
 
     server.setRequestHandler(
       ListResourceTemplatesRequestSchema,
-      async (request: { params?: Record<string, unknown> }) =>
-        this.listResourceTemplates(parseResourceListParams(request.params)),
+      async (request: { params?: Record<string, unknown> }, extra?: McpRequestHandlerExtra) => {
+        this.registerResourceSession(extra);
+        return this.listResourceTemplates(parseResourceListParams(request.params));
+      },
     );
 
     server.setRequestHandler(
       ReadResourceRequestSchema,
-      async (request: { params: Record<string, unknown> }) => {
+      async (request: { params: Record<string, unknown> }, extra?: McpRequestHandlerExtra) => {
+        this.registerResourceSession(extra);
         const uri = request.params["uri"];
         if (typeof uri !== "string") {
           throw new KilnError("INTERNAL_ERROR", "Invalid MCP resource URI", {
@@ -228,6 +258,22 @@ export class DevToolsMcpServer {
           });
         }
         return await this.readResource(uri);
+      },
+    );
+
+    server.setRequestHandler(
+      SubscribeRequestSchema,
+      async (request: { params: Record<string, unknown> }, extra?: McpRequestHandlerExtra) => {
+        this.subscribeResource(parseResourceUriParam(request.params), extra);
+        return {};
+      },
+    );
+
+    server.setRequestHandler(
+      UnsubscribeRequestSchema,
+      async (request: { params: Record<string, unknown> }, extra?: McpRequestHandlerExtra) => {
+        this.unsubscribeResource(parseResourceUriParam(request.params), extra);
+        return {};
       },
     );
 
@@ -259,6 +305,52 @@ export class DevToolsMcpServer {
       structuredContent: data,
       ...(isError ? { isError: true } : {}),
     };
+  }
+
+  private registerResourceSession(extra: McpRequestHandlerExtra | undefined): void {
+    if (!this.resourceNotifications || !extra?.sendNotification) {
+      return;
+    }
+    const sessionId = resolveMcpSessionId(extra);
+    this.subscribedSessionIds.add(sessionId);
+    this.resourceNotifications.registerSession({
+      sessionId,
+      sendNotification: async (notification) => {
+        await extra.sendNotification?.(notification);
+      },
+    });
+  }
+
+  private subscribeResource(uri: string, extra: McpRequestHandlerExtra | undefined): void {
+    if (!this.resourceNotifications) {
+      throw new KilnError("INTERNAL_ERROR", "MCP resource subscriptions are not configured", {
+        context: { uri },
+        retryable: false,
+      });
+    }
+    if (!extra?.sendNotification) {
+      throw new KilnError("INTERNAL_ERROR", "MCP resource subscription requires notification support", {
+        context: { uri },
+        retryable: false,
+      });
+    }
+    const sessionId = resolveMcpSessionId(extra);
+    this.subscribedSessionIds.add(sessionId);
+    this.resourceNotifications.subscribeResource({
+      sessionId,
+      uri,
+      sendNotification: async (notification) => {
+        await extra.sendNotification?.(notification);
+      },
+    });
+  }
+
+  private unsubscribeResource(uri: string, extra: McpRequestHandlerExtra | undefined): void {
+    if (!this.resourceNotifications) {
+      return;
+    }
+    const sessionId = resolveMcpSessionId(extra);
+    this.resourceNotifications.unsubscribeResource({ sessionId, uri });
   }
 
   private errorResult(message: string): DevToolsMcpCallResult {
@@ -326,4 +418,19 @@ function parseResourceListParams(params: Record<string, unknown> | undefined): P
     });
   }
   return { cursor };
+}
+
+function parseResourceUriParam(params: Record<string, unknown>): string {
+  const uri = params["uri"];
+  if (typeof uri !== "string") {
+    throw new KilnError("INTERNAL_ERROR", "Invalid MCP resource URI", {
+      context: { uri },
+      retryable: false,
+    });
+  }
+  return uri;
+}
+
+function resolveMcpSessionId(extra: McpRequestHandlerExtra | undefined): string {
+  return extra?.sessionId ?? "stdio";
 }
