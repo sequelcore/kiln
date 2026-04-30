@@ -207,6 +207,11 @@ receive `execution_mode_transitioned` acknowledgements. Local names such as
 `planMode` may exist inside a renderer for button or badge state, but they must
 not define a new wire contract.
 
+The execution-mode contract is intentionally modeled as a named mode instead of
+a boolean so future governed modes can add their own tool surface, rules,
+permissions, events, and presentation without introducing new consumer-specific
+flags. The only supported modes today are `execute` and `plan`.
+
 In plan mode the runtime narrows the tool surface to read-only capabilities and
 the runtime-owned `submit_plan` tool. Successful `submit_plan` calls append
 canonical `plan_submitted` events to the session event stream. Presentation of
