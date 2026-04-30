@@ -55,6 +55,19 @@ export type ElicitationToolErrorCode =
   | "responder_not_configured"
   | "sensitive_form_denied"
   | "responder_error";
+export type ToolResourceLinkRelation = "full_output" | "snapshot" | "events" | "source" | "summary";
+
+export interface ToolResourceLinkMetadata {
+  readonly uri: string;
+  readonly title?: string;
+  readonly mimeType?: string;
+  readonly size?: number;
+  readonly relation: ToolResourceLinkRelation;
+}
+
+export interface ToolResultResourceLinkMetadata {
+  readonly resourceLinks?: readonly ToolResourceLinkMetadata[];
+}
 
 export interface CommandToolResultMetadata<TToolName extends CommandToolName = CommandToolName> {
   readonly toolName: TToolName;
@@ -272,7 +285,7 @@ export interface ElicitationToolResultMetadata<TToolName extends ElicitationTool
   readonly verbosity?: ToolOutputVerbosity;
 }
 
-export type ToolResultMetadata =
+export type ToolSpecificResultMetadata =
   | CommandToolResultMetadata
   | FileToolResultMetadata
   | InspectionToolResultMetadata
@@ -284,6 +297,8 @@ export type ToolResultMetadata =
   | MonitorToolResultMetadata
   | TaskStateToolResultMetadata
   | ElicitationToolResultMetadata;
+
+export type ToolResultMetadata = ToolSpecificResultMetadata & ToolResultResourceLinkMetadata;
 
 export function commandToolMetadata<TToolName extends CommandToolName>(
   toolName: TToolName,

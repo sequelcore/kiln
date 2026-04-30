@@ -20,6 +20,9 @@ describe("ToolResourceRegistry", () => {
       "kiln://tools/catalog/{name}",
       "kiln://session/tasks/{id}",
       "kiln://session/monitors/{id}",
+      "kiln://artifacts/{namespace}",
+      "kiln://artifacts/{namespace}/{id}",
+      "kiln://artifacts/{namespace}/{id}/content",
     ]);
   });
 
@@ -51,6 +54,7 @@ describe("ToolResourceRegistry", () => {
 
     const firstPage = surface.resources.listTemplatePage({ limit: 1 });
     const secondPage = surface.resources.listTemplatePage({ cursor: firstPage.nextCursor, limit: 2 });
+    const thirdPage = surface.resources.listTemplatePage({ cursor: secondPage.nextCursor, limit: 3 });
 
     expect(firstPage.items.map((template) => template.uriTemplate)).toEqual([
       "kiln://tools/catalog/{name}",
@@ -60,7 +64,13 @@ describe("ToolResourceRegistry", () => {
       "kiln://session/tasks/{id}",
       "kiln://session/monitors/{id}",
     ]);
-    expect(secondPage.nextCursor).toBeUndefined();
+    expect(secondPage.nextCursor).toEqual(expect.any(String));
+    expect(thirdPage.items.map((template) => template.uriTemplate)).toEqual([
+      "kiln://artifacts/{namespace}",
+      "kiln://artifacts/{namespace}/{id}",
+      "kiln://artifacts/{namespace}/{id}/content",
+    ]);
+    expect(thirdPage.nextCursor).toBeUndefined();
   });
 
   it("rejects invalid, stale, and out-of-range pagination cursors", () => {
@@ -194,6 +204,9 @@ describe("ToolResourceRegistry", () => {
         "kiln://workspace/tree{?path,depth,includeFiles}",
         "kiln://workspace/file/{path}",
         "kiln://workspace/preview/{path}{?offset,limit}",
+        "kiln://artifacts/{namespace}",
+        "kiln://artifacts/{namespace}/{id}",
+        "kiln://artifacts/{namespace}/{id}/content",
       ]);
     } finally {
       await removeTempDir(tempDir);

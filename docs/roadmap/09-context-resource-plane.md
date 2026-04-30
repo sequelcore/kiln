@@ -262,6 +262,8 @@ Verification:
 Goal: let high-volume tools return durable resource links when output is large,
 repeatedly polled, or better consumed as an artifact.
 
+Status: implemented on 2026-04-29.
+
 Candidate tools:
 
 - `read_many`
@@ -273,17 +275,20 @@ Candidate tools:
 - `code_intelligence`
 - future test/build tools
 
-Requirements:
+Implemented requirements:
 
 - extend `ToolResult.metadata` with optional resource link evidence
-- write large structured outputs to `ArtifactResourceStore`
+- write large eligible tool outputs to `ArtifactResourceStore`
 - keep compact `ToolResult.output` for existing consumers
-- return resource links in structured output and metadata
-- preserve truncation evidence even when a full artifact is available
-- never store sensitive submitted operator values
-- add retention and cleanup controls for generated artifacts
+- return MCP-compatible `resource_link` content and metadata
+- preserve truncation evidence in the original metadata when a linked artifact is available
+- never store sensitive submitted operator values; `operator_elicit` is not an eligible linked tool
+- use explicit session retention for generated `tool-results` artifacts
+- make the default builtin tool surface own a session artifact store so CLI, GUI,
+  TUI, SDK, and MCP consumers inherit one resource-link behavior through the
+  canonical execution bridge
 
-Planned metadata shape:
+Implemented metadata shape:
 
 ```ts
 resourceLinks?: readonly {
@@ -294,6 +299,23 @@ resourceLinks?: readonly {
   relation: "full_output" | "snapshot" | "events" | "source" | "summary"
 }[]
 ```
+
+Implemented behavior:
+
+- `ArtifactToolResourceLinker` is injected into `DevToolExecutionBridge`.
+- Eligible successful tool results are linked when the output is at least 8 KiB
+  or the result metadata reports `truncated: true`.
+- Linked outputs are stored as `text/plain` artifacts in the `tool-results`
+  namespace.
+- MCP call results include a `resource_link` content item alongside the
+  existing JSON text envelope and `structuredContent`.
+- Existing `ToolResult.output` remains unchanged, so older consumers still see
+  the same compact text.
+
+Verification:
+
+- `bun run --cwd packages/core test tests/tools/default-tool-surface.test.ts tests/tools/mcp/dev-tools-server.test.ts tests/tools/domain/tool-resource-registry.test.ts`
+- `bun run --cwd packages/core typecheck`
 
 ## Slice 24: Consumer Projection And Resource UX
 
@@ -344,6 +366,5 @@ Requirements:
 
 ## Current Priority
 
-Continue with Slice 23. Resource links from high-volume tools are now the next
-resource-plane expansion because pagination, workspace resources, artifact
-namespaces, and update notifications are closed.
+Continue with Slice 24. Resource links from high-volume tools are closed in the
+shared core execution path; the next work is consumer display and UX projection.

@@ -110,6 +110,9 @@ describe("DevToolsMcpServer", () => {
       "kiln://tools/catalog/{name}",
       "kiln://session/tasks/{id}",
       "kiln://session/monitors/{id}",
+      "kiln://artifacts/{namespace}",
+      "kiln://artifacts/{namespace}/{id}",
+      "kiln://artifacts/{namespace}/{id}/content",
     ]);
   });
 
@@ -820,6 +823,51 @@ describe("DevToolsMcpServer", () => {
     });
     expect(payload.attempts).toBe(1);
     expect(payload.fallbackUsed).toBe(false);
+  });
+
+  it("projects artifact-backed tool resource links as MCP resource_link content", async () => {
+    const tempDir = await makeTempDir();
+    try {
+      await writeFile(join(tempDir, "large.txt"), "resource link\n".repeat(1_000), "utf8");
+      const surface = createDefaultBuiltinToolSurface();
+      const server = new DevToolsMcpServer({
+        bridge: surface.bridge,
+        tools: surface.tools,
+        resources: surface.resources,
+        resourceNotifications: surface.resourceNotifications,
+      });
+
+      const response = await server.callTool("read_many", {
+        paths: [join(tempDir, "large.txt")],
+        maxBytes: 20_000,
+      });
+
+      expect(response.isError).toBeUndefined();
+      expect(response.content).toContainEqual(expect.objectContaining({
+        type: "resource_link",
+        uri: expect.stringMatching(/^kiln:\/\/artifacts\/tool-results\/artifact_\d+\/content$/),
+        name: "read_many full output",
+        mimeType: "text/plain",
+      }));
+      const structured = response.structuredContent as {
+        result: {
+          metadata?: {
+            resourceLinks?: readonly { uri: string }[];
+          };
+        };
+      };
+      const uri = structured.result.metadata?.resourceLinks?.[0]?.uri;
+      expect(uri).toEqual(expect.stringMatching(/^kiln:\/\/artifacts\/tool-results\/artifact_\d+\/content$/));
+      await expect(server.readResource(uri!)).resolves.toMatchObject({
+        contents: [{
+          uri,
+          mimeType: "text/plain",
+          text: expect.stringContaining("resource link"),
+        }],
+      });
+    } finally {
+      await removeTempDir(tempDir);
+    }
   });
 
   it("returns structuredContent for tool-level error results that match the published output schema", async () => {

@@ -9,6 +9,7 @@ import type {
 } from "../engine/domain/tool-execution.js";
 import { KilnError } from "../engine/errors.js";
 import type { DevTool, ToolResult } from "./domain/tool.js";
+import type { ToolResourceLinker } from "./domain/tool-resource-links.js";
 import { DevToolRegistry } from "./domain/tool-registry.js";
 
 const KILN_TIMEOUT_UNIT_SCHEMA_KEY = "x-kiln-timeout-unit";
@@ -21,6 +22,7 @@ export interface DevToolExecutionRequest extends ToolExecutionRequest {
 export interface DevToolExecutionBridgeOptions {
   readonly registry: DevToolRegistry;
   readonly authorizer?: ToolAuthorizer;
+  readonly resourceLinker?: ToolResourceLinker;
 }
 
 export interface DevToolExecutionResult extends ToolExecutionResult {
@@ -38,10 +40,12 @@ export interface DevToolAuthorizationDecision {
 export class DevToolExecutionBridge {
   private readonly registry: DevToolRegistry;
   private readonly authorizer?: ToolAuthorizer;
+  private readonly resourceLinker?: ToolResourceLinker;
 
   constructor(options: DevToolExecutionBridgeOptions) {
     this.registry = options.registry;
     this.authorizer = options.authorizer;
+    this.resourceLinker = options.resourceLinker;
   }
 
   listTools(): readonly DevTool[] {
@@ -140,7 +144,8 @@ export class DevToolExecutionBridge {
     }
 
     this.authorize(tool, authority);
-    return await tool.execute({ name: toolName, input }, sandbox);
+    const result = await tool.execute({ name: toolName, input }, sandbox);
+    return this.resourceLinker?.link({ toolName, input, result }) ?? result;
   }
 
   private authorize(tool: DevTool, authority?: AuthorityDescriptor): void {

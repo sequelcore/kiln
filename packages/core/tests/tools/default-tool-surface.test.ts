@@ -10,6 +10,9 @@ import {
   projectDevToolSchemas,
   TaskStateStore,
 } from "../../src/tools/index.js";
+import { makeTempDir, removeTempDir } from "./infrastructure/test-utils.js";
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
 
 const BUILTIN_TOOL_NAMES = [
   "bash",
@@ -215,6 +218,45 @@ describe("default builtin tool surface", () => {
         text: expect.stringContaining("resource state"),
       }],
     });
+  });
+
+  it("stores high-volume tool output as an artifact resource link through the canonical bridge", async () => {
+    const tempDir = await makeTempDir();
+    try {
+      await writeFile(join(tempDir, "large.txt"), "alpha\n".repeat(2_000), "utf8");
+      const surface = createDefaultBuiltinToolSurface();
+
+      const result = await surface.bridge.execute({
+        name: "read_many",
+        input: {
+          paths: [join(tempDir, "large.txt")],
+          maxBytes: 20_000,
+        },
+      });
+
+      const link = result.result.metadata?.resourceLinks?.[0];
+      expect(link).toMatchObject({
+        uri: expect.stringMatching(/^kiln:\/\/artifacts\/tool-results\/artifact_\d+\/content$/),
+        relation: "full_output",
+        mimeType: "text/plain",
+        title: "read_many full output",
+      });
+      expect(result.result.content).toContainEqual(expect.objectContaining({
+        type: "resource_link",
+        uri: link?.uri,
+        name: "read_many full output",
+        mimeType: "text/plain",
+      }));
+
+      const artifact = await surface.resources.read(link!.uri);
+      expect(artifact.contents[0]).toMatchObject({
+        uri: link?.uri,
+        mimeType: "text/plain",
+        text: expect.stringContaining("---"),
+      });
+    } finally {
+      await removeTempDir(tempDir);
+    }
   });
 
   it("supports deferred projection while keeping the canonical registry executable", async () => {

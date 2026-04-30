@@ -210,13 +210,22 @@ absolute local paths. Every read is checked against the configured root and any
 provided `PathValidator`; traversal outside the root fails closed. Binary files
 return metadata-only JSON until a separate blob policy exists.
 
-Artifact resources are projected through the same core registry when an
-`ArtifactResourceStore` is configured. `MemoryArtifactResourceStore` is the
-first session-local implementation. It requires explicit session retention on
+Artifact resources are projected through the same core registry. The default
+builtin surface owns a session-local `MemoryArtifactResourceStore` unless a
+consumer provides a store explicitly. It requires explicit session retention on
 writes, bounds content size and retained artifacts per namespace, records
 producer provenance, and exposes read-only `kiln://artifacts/...` resources for
 namespace indexes, artifact metadata, and JSON/text/blob content. Resource reads
 do not give consumers mutation access to the store.
+
+High-volume tools can attach resource links after execution through the
+canonical `DevToolExecutionBridge`. The bridge uses an `ArtifactToolResourceLinker`
+to store eligible successful outputs in the `tool-results` artifact namespace
+and appends `metadata.resourceLinks` plus MCP-compatible `resource_link`
+content. The original `ToolResult.output` and truncation metadata stay intact;
+resource links are an addressable follow-up read path, not hidden context
+injection. Sensitive operator elicitation results are not eligible for artifact
+linking.
 
 Resource notifications are owned by the same core surface. A
 `ToolResourceNotificationHub` tracks active consumer sessions, per-session

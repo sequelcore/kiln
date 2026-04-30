@@ -486,7 +486,35 @@ Let tools such as `read_many`, `tree`, `monitor_read`, `web_fetch`, and
 `code_intelligence` return resource links for full outputs and artifacts while
 keeping compact `ToolResult.output` stable.
 
-Status: planned.
+Status: implemented.
+
+Implemented contract:
+
+- `ToolResult.metadata.resourceLinks` records linked resource evidence with
+  URI, title, MIME type, size, and relation.
+- `ToolResult.content` supports MCP-compatible `resource_link` content parts.
+- `ArtifactToolResourceLinker` writes eligible successful high-volume tool
+  outputs to the shared `ArtifactResourceStore` under the `tool-results`
+  namespace.
+- `DevToolExecutionBridge` applies the linker after successful tool execution,
+  so all consumers using the canonical bridge inherit the same behavior.
+- `createDefaultBuiltinToolSurface()` now owns a session-local
+  `MemoryArtifactResourceStore` by default and always projects artifact
+  resource templates.
+- Linked output is added without changing `ToolResult.output`; existing raw
+  consumers remain stable while MCP and structured consumers can fetch the
+  linked artifact.
+
+Verification:
+
+- `bun run --cwd packages/core test tests/tools/default-tool-surface.test.ts tests/tools/mcp/dev-tools-server.test.ts tests/tools/domain/tool-resource-registry.test.ts`
+- `bun run --cwd packages/core typecheck`
+
+Repo-level note:
+
+- `bun run typecheck` is currently blocked by unrelated pre-existing
+  `packages/runtime/src/gateway/gateway-routes.ts` errors around
+  `GuiOutboundFrame` and `processAdmittedTurn`.
 
 ### Slice 24: Consumer Projection And Resource UX
 

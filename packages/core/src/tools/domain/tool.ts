@@ -64,6 +64,15 @@ export type ToolResultContentPart =
     readonly type: "image";
     readonly data: string;
     readonly mimeType: string;
+  }
+  | {
+    readonly type: "resource_link";
+    readonly uri: string;
+    readonly name: string;
+    readonly description?: string;
+    readonly mimeType?: string;
+    readonly size?: number;
+    readonly annotations?: Record<string, unknown>;
   };
 
 export interface DevTool {

@@ -249,8 +249,9 @@ metadata; binary files return metadata-only JSON because blob reads need a
 separate policy. Workspace resources never write files, delete files, execute
 commands, or grant tool authority.
 
-When the builtin surface is created with `artifactResources.store`, the same
-registry also exposes artifact resources:
+The default builtin surface owns a session-local artifact store unless a
+consumer supplies `artifactResources.store`. The same registry exposes artifact
+resources:
 
 - `kiln://artifacts/{namespace}`
 - `kiln://artifacts/{namespace}/{id}`
@@ -261,6 +262,26 @@ The memory-backed store requires explicit session retention on each write,
 records producer provenance, and bounds content size plus retained artifacts per
 namespace. Artifact content may be JSON, text, or blob content, all addressed by
 stable artifact URIs.
+
+High-volume tool results may include resource links to artifact content when
+the output is large or explicitly truncated. The canonical execution bridge adds
+these links after successful eligible tool calls, so MCP, CLI, GUI, TUI, SDK,
+and runtime consumers share one behavior. The visible `ToolResult.output` is
+not rewritten. Structured consumers should inspect
+`result.metadata.resourceLinks`; MCP consumers also receive a `resource_link`
+content part.
+
+Resource link metadata uses this shape:
+
+```ts
+resourceLinks?: readonly {
+  uri: string
+  title?: string
+  mimeType?: string
+  size?: number
+  relation: "full_output" | "snapshot" | "events" | "source" | "summary"
+}[]
+```
 
 The builtin surface also creates a `ToolResourceNotificationHub`. Consumers can
 subscribe by resource URI and receive MCP-compatible invalidation messages:
@@ -279,9 +300,9 @@ same core surface.
 
 The deeper resource-plane roadmap is
 `docs/roadmap/09-context-resource-plane.md`. Pagination, workspace-file
-resources, artifact namespaces, and update notifications are implemented there;
-the remaining slices cover resource links from high-volume tools and consumer
-UX.
+resources, artifact namespaces, update notifications, and resource links from
+high-volume tools are implemented there; the remaining slices cover consumer
+UX and evaluation.
 
 ### Domain contracts
 
@@ -376,6 +397,8 @@ Every metadata object includes:
 - `toolName`: canonical builtin tool name
 - `kind`: `command`, `file`, `inspection`, `media`, `web`, `search`,
   `monitor`, `task_state`, or `elicitation`
+- optional `resourceLinks`: artifact-backed resources for large or truncated
+  high-volume outputs
 
 High-volume metadata may also include `verbosity`, which records the requested
 output shape without changing the stable metadata family.

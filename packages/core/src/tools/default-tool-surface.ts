@@ -8,7 +8,12 @@ import {
 import { ToolResourceRegistry } from "./domain/tool-resource-registry.js";
 import { DevToolRegistry } from "./domain/tool-registry.js";
 import { DEV_TOOL_OUTPUT_SCHEMA, type DevTool, type DevToolAnnotations } from "./domain/tool.js";
-import { ArtifactResourceProvider, type ArtifactResourceStore } from "./infrastructure/artifact-resource-store.js";
+import { ArtifactToolResourceLinker } from "./infrastructure/artifact-tool-resource-linker.js";
+import {
+  ArtifactResourceProvider,
+  MemoryArtifactResourceStore,
+  type ArtifactResourceStore,
+} from "./infrastructure/artifact-resource-store.js";
 import { BashTool, type BashToolOptions } from "./infrastructure/bash-tool.js";
 import { CodeIntelligenceTool, type CodeIntelligenceToolOptions } from "./infrastructure/code-intelligence-tool.js";
 import { EditTool } from "./infrastructure/edit-tool.js";
@@ -96,7 +101,7 @@ export interface DefaultBuiltinToolSurface {
   readonly catalog: ToolCatalogIndex;
   readonly resources: ToolResourceRegistry;
   readonly resourceNotifications: ToolResourceNotificationHub;
-  readonly artifactStore?: ArtifactResourceStore;
+  readonly artifactStore: ArtifactResourceStore;
   readonly monitorRegistry: MonitorRegistry;
   readonly taskStateStore: TaskStateStore;
 }
@@ -165,7 +170,8 @@ export function createDefaultBuiltinToolSurface(
   if (options.taskStateStore) {
     options.taskStateStore.setResourceChangeNotifier(resourceNotifications);
   }
-  options.artifactResources?.store.setResourceChangeNotifier?.(resourceNotifications);
+  const artifactStore = options.artifactResources?.store ?? new MemoryArtifactResourceStore({ resourceNotifications });
+  artifactStore.setResourceChangeNotifier?.(resourceNotifications);
   const surfaceOptions = {
     ...options,
     monitorRegistry,
@@ -175,7 +181,7 @@ export function createDefaultBuiltinToolSurface(
   const catalog = ToolCatalogIndex.fromTools(registry.list());
   const resourceProviders = [
     ...(options.workspaceResources ? [new WorkspaceResourceProvider(options.workspaceResources)] : []),
-    ...(options.artifactResources ? [new ArtifactResourceProvider({ store: options.artifactResources.store })] : []),
+    new ArtifactResourceProvider({ store: artifactStore }),
   ];
   const resources = new ToolResourceRegistry({
     catalog,
@@ -191,11 +197,14 @@ export function createDefaultBuiltinToolSurface(
     registry: createRegistryView(registry),
     toolDefinitions: projectDevToolDefinitions(tools),
     capabilities: projectDevToolCapabilities(tools),
-    bridge: new DevToolExecutionBridge({ registry }),
+    bridge: new DevToolExecutionBridge({
+      registry,
+      resourceLinker: new ArtifactToolResourceLinker({ store: artifactStore }),
+    }),
     catalog,
     resources,
     resourceNotifications,
-    ...(options.artifactResources ? { artifactStore: options.artifactResources.store } : {}),
+    artifactStore,
     monitorRegistry,
     taskStateStore,
   };

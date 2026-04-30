@@ -59,7 +59,11 @@ export type {
   TaskStateToolOperation,
   TaskStateToolResultMetadata,
   ToolOutputVerbosity,
+  ToolResourceLinkMetadata,
+  ToolResourceLinkRelation,
   ToolResultMetadata,
+  ToolResultResourceLinkMetadata,
+  ToolSpecificResultMetadata,
   WebSourceMetadata,
   WebToolErrorCode,
   WebToolName,
@@ -118,6 +122,10 @@ export type {
   ToolResourceTemplateDescriptor,
 } from "./domain/tool-resource-registry.js";
 export { ToolResourceRegistry } from "./domain/tool-resource-registry.js";
+export type {
+  ToolResourceLinker,
+  ToolResourceLinkRequest,
+} from "./domain/tool-resource-links.js";
 
 export { DevToolRegistry } from "./domain/tool-registry.js";
 
@@ -149,6 +157,8 @@ export {
   ArtifactResourceProvider,
   MemoryArtifactResourceStore,
 } from "./infrastructure/artifact-resource-store.js";
+export type { ArtifactToolResourceLinkerOptions } from "./infrastructure/artifact-tool-resource-linker.js";
+export { ArtifactToolResourceLinker } from "./infrastructure/artifact-tool-resource-linker.js";
 export type { BashToolOptions } from "./infrastructure/bash-tool.js";
 export { BashTool } from "./infrastructure/bash-tool.js";
 export type { CodeIntelligenceToolOptions } from "./infrastructure/code-intelligence-tool.js";
