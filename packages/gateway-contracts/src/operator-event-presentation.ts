@@ -1,10 +1,54 @@
 import type { OperatorSessionEvent, OperatorSessionEventKind } from "./frames.js";
 
 export type OperatorEventTone = "info" | "running" | "success" | "warning" | "error";
+export type OperatorEventSurface = "conversation_inline" | "activity_panel" | "inspector";
 
 export interface OperatorEventDetailItem {
   readonly label: string;
   readonly value: string;
+}
+
+export type ToolResultOutputKind =
+  | "text"
+  | "markdown"
+  | "code"
+  | "table"
+  | "tree"
+  | "diff"
+  | "image"
+  | "resource_links"
+  | "command"
+  | "form"
+  | "empty";
+
+export interface ToolResultResourceLinkPresentation {
+  readonly uri: string;
+  readonly title?: string;
+  readonly mimeType?: string;
+  readonly size?: number;
+  readonly relation?: string;
+}
+
+export interface ToolResultPreview {
+  readonly text: string;
+  readonly truncated?: boolean;
+  readonly language?: string;
+}
+
+export interface ToolResultRawAvailability {
+  readonly available: boolean;
+  readonly resourceUri?: string;
+  readonly reason?: string;
+}
+
+export interface ToolResultPresentation {
+  readonly outputKind: ToolResultOutputKind;
+  readonly title: string;
+  readonly summary?: string;
+  readonly fields: readonly OperatorEventDetailItem[];
+  readonly preview?: ToolResultPreview;
+  readonly resourceLinks?: readonly ToolResultResourceLinkPresentation[];
+  readonly raw: ToolResultRawAvailability;
 }
 
 export interface OperatorEventPresentation {
@@ -13,7 +57,12 @@ export interface OperatorEventPresentation {
   readonly tone: OperatorEventTone;
   readonly details: readonly OperatorEventDetailItem[];
   readonly compactText?: string;
+  readonly surfaces: readonly OperatorEventSurface[];
+  readonly toolPresentation?: ToolResultPresentation;
 }
+
+const ACTIVITY_SURFACES = ["activity_panel", "inspector"] as const satisfies readonly OperatorEventSurface[];
+const INLINE_ACTIVITY_SURFACES = ["conversation_inline", "activity_panel", "inspector"] as const satisfies readonly OperatorEventSurface[];
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -85,6 +134,360 @@ function eventPayloadText(payload: Record<string, unknown>): string | null {
     ?? readString(payload.toolName);
 }
 
+function parseJsonRecord(value: string): Record<string, unknown> | null {
+  try {
+    return asRecord(JSON.parse(value));
+  } catch {
+    return null;
+  }
+}
+
+function parseToolResultEnvelope(value: string | null): {
+  readonly output?: string;
+  readonly isError?: boolean;
+  readonly metadata?: Record<string, unknown>;
+  readonly resourceLinks: readonly ToolResultResourceLinkPresentation[];
+} | null {
+  if (!value) return null;
+  let output: string | undefined;
+  let isError: boolean | undefined;
+  let metadata: Record<string, unknown> | undefined;
+  let resourceLinks: readonly ToolResultResourceLinkPresentation[] = [];
+  let current: string | null = value;
+  for (let depth = 0; depth < 4 && current; depth += 1) {
+    const parsed = parseJsonRecord(current);
+    if (!parsed) {
+      output = current;
+      break;
+    }
+    const result = asRecord(parsed.result) ?? parsed;
+    const nextMetadata = asRecord(result.metadata);
+    if (nextMetadata) {
+      metadata = {
+        ...(metadata ?? {}),
+        ...nextMetadata,
+      };
+      const links = readResourceLinks(nextMetadata.resourceLinks);
+      if (links.length > 0) {
+        resourceLinks = links;
+      }
+    }
+    if (typeof result.isError === "boolean") {
+      isError = result.isError;
+    }
+    const nextOutput = readString(result.output);
+    if (!nextOutput) {
+      break;
+    }
+    const nested = parseJsonRecord(nextOutput);
+    if (!nested || (!("output" in nested) && !("result" in nested) && !("metadata" in nested))) {
+      output = nextOutput;
+      break;
+    }
+    current = nextOutput;
+  }
+  return {
+    ...(output ? { output } : {}),
+    ...(isError !== undefined ? { isError } : {}),
+    ...(metadata ? { metadata } : {}),
+    resourceLinks,
+  };
+}
+
+function compactText(value: string, maxLength = 140): string {
+  const firstLine = value
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .find((line) => line.length > 0)
+    ?? value.trim();
+  const normalized = firstLine.replace(/\s+/g, " ").trim();
+  return normalized.length > maxLength ? `${normalized.slice(0, maxLength - 1)}…` : normalized;
+}
+
+function readResourceLinks(value: unknown): readonly ToolResultResourceLinkPresentation[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      const record = asRecord(item);
+      const uri = readString(record?.uri);
+      if (!uri) return null;
+      return {
+        uri,
+        ...(readString(record?.title) ? { title: readString(record?.title)! } : {}),
+        ...(readString(record?.mimeType) ? { mimeType: readString(record?.mimeType)! } : {}),
+        ...(readNumber(record?.size) !== null ? { size: readNumber(record?.size)! } : {}),
+        ...(readString(record?.relation) ? { relation: readString(record?.relation)! } : {}),
+      } satisfies ToolResultResourceLinkPresentation;
+    })
+    .filter((item): item is ToolResultResourceLinkPresentation => item !== null);
+}
+
+function plural(value: number, singular: string, pluralValue = `${singular}s`): string {
+  return `${value} ${value === 1 ? singular : pluralValue}`;
+}
+
+function readMetadataNumber(metadata: Record<string, unknown> | undefined, key: string): number | null {
+  return metadata ? readNumber(metadata[key]) : null;
+}
+
+function formatReadManySummary(metadata: Record<string, unknown>): string {
+  const fileCount = readMetadataNumber(metadata, "fileCount");
+  const skippedCount = readMetadataNumber(metadata, "skippedCount");
+  const totalBytes = readMetadataNumber(metadata, "totalBytes");
+  const parts: string[] = [];
+  if (fileCount !== null) parts.push(`${fileCount} files read`);
+  if (skippedCount !== null) parts.push(`${skippedCount} skipped`);
+  if (totalBytes !== null) parts.push(`${totalBytes} bytes`);
+  if (metadata.truncated === true) parts.push("truncated");
+  return parts.join(", ") || "read_many output";
+}
+
+function formatDiffSummary(metadata: Record<string, unknown>, output: string | undefined): string {
+  if (output && /\bfiles?\s+changed\b/u.test(output)) {
+    return compactText(output);
+  }
+  const fileCount = readMetadataNumber(metadata, "fileCount")
+    ?? (Array.isArray(metadata.files) ? metadata.files.length : null)
+    ?? (readString(metadata.filePath) ? 1 : null);
+  const additions = readMetadataNumber(metadata, "linesAdded");
+  const removals = readMetadataNumber(metadata, "linesRemoved");
+  const parts: string[] = [];
+  if (fileCount !== null) parts.push(`${plural(fileCount, "file")} changed`);
+  if (additions !== null) parts.push(plural(additions, "addition"));
+  if (removals !== null) parts.push(plural(removals, "removal"));
+  return parts.join(", ") || output || "Diff applied";
+}
+
+function field(label: string, value: unknown): OperatorEventDetailItem | null {
+  const formatted = formatOperatorEventValue(value);
+  return formatted ? { label, value: formatted } : null;
+}
+
+function compactPreview(text: string | undefined, maxLength = 2_000): ToolResultPreview | undefined {
+  if (!text || text.trim().length === 0) return undefined;
+  const normalized = text.replace(/\r\n/g, "\n").trim();
+  return normalized.length > maxLength
+    ? { text: normalized.slice(0, maxLength), truncated: true }
+    : { text: normalized };
+}
+
+function toolResultRawAvailability(resourceLinks: readonly ToolResultResourceLinkPresentation[]): ToolResultRawAvailability {
+  const fullOutput = resourceLinks.find((link) => link.relation === "full_output") ?? resourceLinks[0];
+  return {
+    available: true,
+    ...(fullOutput ? { resourceUri: fullOutput.uri } : {}),
+  };
+}
+
+function toolResultTitle(toolName: string, metadata: Record<string, unknown> | undefined, fallback: string): string {
+  return readString(metadata?.filePath)
+    ?? readString(metadata?.path)
+    ?? readString(metadata?.command)
+    ?? readString(metadata?.url)
+    ?? readString(metadata?.query)
+    ?? fallback
+    ?? toolName;
+}
+
+function projectDiffPresentation(
+  toolName: string,
+  output: string | undefined,
+  metadata: Record<string, unknown>,
+  resourceLinks: readonly ToolResultResourceLinkPresentation[],
+): ToolResultPresentation {
+  const summary = formatDiffSummary(metadata, output);
+  const files = readMetadataNumber(metadata, "fileCount")
+    ?? (Array.isArray(metadata.files) ? metadata.files.length : null)
+    ?? (readString(metadata.filePath) ? 1 : null);
+  const additions = readMetadataNumber(metadata, "linesAdded");
+  const removals = readMetadataNumber(metadata, "linesRemoved");
+  const fields = [
+    field("Files", files),
+    field("Additions", additions),
+    field("Removals", removals),
+  ].filter((item): item is OperatorEventDetailItem => item !== null);
+  return {
+    outputKind: "diff",
+    title: toolResultTitle(toolName, metadata, "Diff"),
+    summary,
+    fields,
+    preview: (() => {
+      const preview = compactPreview(readString(metadata.diffPreview) ?? output);
+      return preview && metadata.diffTruncated === true ? { ...preview, truncated: true } : preview;
+    })(),
+    ...(resourceLinks.length > 0 ? { resourceLinks } : {}),
+    raw: toolResultRawAvailability(resourceLinks),
+  };
+}
+
+function projectResourceLinkPresentation(
+  toolName: string,
+  output: string | undefined,
+  metadata: Record<string, unknown>,
+  resourceLinks: readonly ToolResultResourceLinkPresentation[],
+): ToolResultPresentation {
+  const summary = readString(metadata.operation) === "read_many"
+    ? formatReadManySummary(metadata)
+    : compactText(output ?? resourceLinks[0]?.title ?? `${toolName} output`);
+  const fileCount = readMetadataNumber(metadata, "fileCount");
+  const skippedCount = readMetadataNumber(metadata, "skippedCount");
+  const totalBytes = readMetadataNumber(metadata, "totalBytes");
+  const fields = [
+    fileCount !== null || skippedCount !== null
+      ? field("Files", `${fileCount ?? 0} read${skippedCount !== null ? ` / ${skippedCount} skipped` : ""}`)
+      : null,
+    field("Bytes", totalBytes),
+    field("MIME", resourceLinks[0]?.mimeType),
+  ].filter((item): item is OperatorEventDetailItem => item !== null);
+  return {
+    outputKind: "resource_links",
+    title: resourceLinks[0]?.title ?? toolResultTitle(toolName, metadata, `${toolName} output`),
+    summary,
+    fields,
+    resourceLinks,
+    raw: toolResultRawAvailability(resourceLinks),
+  };
+}
+
+function projectCommandPresentation(
+  toolName: string,
+  output: string | undefined,
+  metadata: Record<string, unknown>,
+  resourceLinks: readonly ToolResultResourceLinkPresentation[],
+): ToolResultPresentation {
+  const timedOut = metadata.timedOut === true;
+  const exitCode = metadata.exitCode ?? metadata.code ?? (timedOut ? "timeout" : undefined);
+  const summary = timedOut
+    ? `Command timed out${readNumber(metadata.timeoutMs) !== null ? ` after ${readNumber(metadata.timeoutMs)} ms` : ""}`
+    : output
+      ? compactText(output)
+      : "Command completed";
+  const streamPreview = [readString(metadata.stderr), readString(metadata.stdout), output]
+    .filter((value): value is string => Boolean(value))
+    .join("\n");
+  const fields = [
+    field("Command", metadata.command),
+    field("CWD", metadata.cwd),
+    field("Exit", exitCode),
+    field("Elapsed", readNumber(metadata.durationMs) !== null ? `${readNumber(metadata.durationMs)} ms` : null),
+  ].filter((item): item is OperatorEventDetailItem => item !== null);
+  return {
+    outputKind: "command",
+    title: toolResultTitle(toolName, metadata, "Command"),
+    summary,
+    fields,
+    preview: compactPreview(streamPreview),
+    ...(resourceLinks.length > 0 ? { resourceLinks } : {}),
+    raw: toolResultRawAvailability(resourceLinks),
+  };
+}
+
+function projectTreePresentation(
+  toolName: string,
+  output: string | undefined,
+  metadata: Record<string, unknown>,
+  resourceLinks: readonly ToolResultResourceLinkPresentation[],
+): ToolResultPresentation {
+  const entryCount = readMetadataNumber(metadata, "entryCount");
+  const path = readString(metadata.path);
+  const summary = `${entryCount ?? "Unknown"} entries${path ? ` under ${path}` : ""}`;
+  const fields = [
+    field("Path", path),
+    field("Entries", entryCount),
+    field("Depth", readMetadataNumber(metadata, "depth")),
+  ].filter((item): item is OperatorEventDetailItem => item !== null);
+  return {
+    outputKind: "tree",
+    title: path ?? toolName,
+    summary,
+    fields,
+    preview: compactPreview(output),
+    ...(resourceLinks.length > 0 ? { resourceLinks } : {}),
+    raw: toolResultRawAvailability(resourceLinks),
+  };
+}
+
+function projectTextPresentation(
+  toolName: string,
+  output: string | undefined,
+  metadata: Record<string, unknown> | undefined,
+  resourceLinks: readonly ToolResultResourceLinkPresentation[],
+): ToolResultPresentation {
+  const text = output ?? "";
+  const filePath = readString(metadata?.filePath);
+  const outputKind: ToolResultOutputKind = filePath?.toLowerCase().endsWith(".md") || /^#\s/u.test(text.trim())
+    ? "markdown"
+    : text.trim().length === 0
+      ? "empty"
+      : "text";
+  const fields = [
+    field("Path", filePath),
+    field("Lines", readMetadataNumber(metadata, "totalLines")),
+    field("Bytes", readMetadataNumber(metadata, "totalBytes")),
+  ].filter((item): item is OperatorEventDetailItem => item !== null);
+  return {
+    outputKind,
+    title: toolResultTitle(toolName, metadata, toolName),
+    summary: text.trim().length > 0 ? compactText(text) : "No output",
+    fields,
+    preview: compactPreview(text),
+    ...(resourceLinks.length > 0 ? { resourceLinks } : {}),
+    raw: toolResultRawAvailability(resourceLinks),
+  };
+}
+
+function projectToolResultPresentation(
+  toolName: string,
+  payload: Record<string, unknown>,
+): ToolResultPresentation | undefined {
+  const envelope = parseToolResultEnvelope(eventPayloadText(payload));
+  const output = envelope?.output ?? readString(payload.outputSummary) ?? readString(payload.output) ?? undefined;
+  const metadata = envelope?.metadata;
+  const resourceLinks = envelope?.resourceLinks ?? [];
+  if (!output && !metadata && resourceLinks.length === 0) return undefined;
+  const operation = readString(metadata?.operation);
+  const kind = readString(metadata?.kind);
+  const hasDiff = !!metadata && (
+    readString(metadata.diffPreview) !== null
+    || operation === "patch"
+    || operation === "edit"
+    || operation === "write"
+  );
+  if (hasDiff && metadata) {
+    return projectDiffPresentation(toolName, output, metadata, resourceLinks);
+  }
+  if (resourceLinks.length > 0) {
+    return projectResourceLinkPresentation(toolName, output, metadata ?? {}, resourceLinks);
+  }
+  if (kind === "command") {
+    return projectCommandPresentation(toolName, output, metadata ?? {}, resourceLinks);
+  }
+  if (kind === "inspection" && operation === "tree") {
+    return projectTreePresentation(toolName, output, metadata ?? {}, resourceLinks);
+  }
+  return projectTextPresentation(toolName, output, metadata, resourceLinks);
+}
+
+function toolResultText(payload: Record<string, unknown>): string | null {
+  const raw = eventPayloadText(payload);
+  if (!raw) return null;
+  const envelope = parseToolResultEnvelope(raw);
+  if (envelope?.metadata && readString(envelope.metadata.operation) === "read_many") {
+    return formatReadManySummary(envelope.metadata);
+  }
+  if (envelope?.output) return compactText(envelope.output);
+  const parsed = parseJsonRecord(raw);
+  if (!parsed) return compactText(raw);
+  const output = readString(parsed.output);
+  if (output) return compactText(output);
+  const metadata = asRecord(parsed.metadata);
+  const operation = readString(metadata?.operation) ?? readString(metadata?.toolName);
+  const isError = parsed.isError === true;
+  if (operation) return isError ? `${operation} failed` : `${operation} succeeded`;
+  return compactText(raw);
+}
+
 function providerIdentity(payload: Record<string, unknown>): { provider: string | null; model: string | null } {
   const provider = asRecord(payload.provider);
   return {
@@ -108,6 +511,7 @@ function providerRoutedPresentation(payload: Record<string, unknown>): OperatorE
     compactText: summary,
     tone: "info",
     details,
+    surfaces: ACTIVITY_SURFACES,
   };
 }
 
@@ -119,11 +523,12 @@ function toolStartedPresentation(payload: Record<string, unknown>): OperatorEven
   addItem(details, "Tool call ID", payload.toolCallId);
   addPrimitiveItems(details, input, 7, ["toolName", "toolCallId", "input"]);
   return {
-    title: `Tool started: ${toolName}`,
+    title: `Using ${toolName}`,
     summary: "Execution in progress",
     compactText: toolName,
     tone: "running",
     details,
+    surfaces: INLINE_ACTIVITY_SURFACES,
   };
 }
 
@@ -131,7 +536,8 @@ function toolCompletedPresentation(payload: Record<string, unknown>): OperatorEv
   const toolName = readString(payload.toolName) ?? "tool";
   const status = asRecord(payload.status);
   const statusValue = readString(status?.state) ?? readString(payload.status);
-  const result = eventPayloadText(payload);
+  const toolPresentation = projectToolResultPresentation(toolName, payload);
+  const result = toolPresentation?.summary ?? toolResultText(payload);
   const details: OperatorEventDetailItem[] = [];
   addItem(details, "Tool", toolName);
   addItem(details, "Tool call ID", payload.toolCallId);
@@ -139,11 +545,13 @@ function toolCompletedPresentation(payload: Record<string, unknown>): OperatorEv
   addItem(details, "Result", result);
   addPrimitiveItems(details, asRecord(payload.input), 8, ["toolName", "toolCallId", "input", "status", "result"]);
   return {
-    title: `Tool completed: ${toolName}`,
+    title: `Completed ${toolName}`,
     summary: result ?? undefined,
     compactText: result ?? toolName,
     tone: statusValue === "succeeded" || statusValue === "success" ? "success" : "error",
     details,
+    surfaces: INLINE_ACTIVITY_SURFACES,
+    ...(toolPresentation ? { toolPresentation } : {}),
   };
 }
 
@@ -163,6 +571,7 @@ function fileChangedPresentation(payload: Record<string, unknown>): OperatorEven
     compactText: summary,
     tone: "info",
     details,
+    surfaces: ACTIVITY_SURFACES,
   };
 }
 
@@ -186,6 +595,7 @@ function costUpdatedPresentation(payload: Record<string, unknown>): OperatorEven
     compactText: summary,
     tone: "info",
     details,
+    surfaces: ACTIVITY_SURFACES,
   };
 }
 
@@ -201,6 +611,7 @@ function approvalRequestedPresentation(payload: Record<string, unknown>): Operat
     compactText: summary,
     tone: "warning",
     details,
+    surfaces: INLINE_ACTIVITY_SURFACES,
   };
 }
 
@@ -218,6 +629,7 @@ function approvalResolvedPresentation(payload: Record<string, unknown>): Operato
     compactText: decision,
     tone: decision === "approved" ? "success" : "error",
     details,
+    surfaces: INLINE_ACTIVITY_SURFACES,
   };
 }
 
@@ -271,6 +683,7 @@ function agentPresentation(kind: OperatorSessionEventKind, payload: Record<strin
             ? "success"
             : "info",
     details,
+    surfaces: INLINE_ACTIVITY_SURFACES,
   };
 }
 
@@ -292,6 +705,7 @@ function continuityPresentation(payload: Record<string, unknown>): OperatorEvent
     compactText: summary,
     tone: "info",
     details,
+    surfaces: ACTIVITY_SURFACES,
   };
 }
 
@@ -316,6 +730,7 @@ function turnCompletedPresentation(payload: Record<string, unknown>): OperatorEv
     compactText: summary,
     tone: "success",
     details,
+    surfaces: ACTIVITY_SURFACES,
   };
 }
 
@@ -329,7 +744,15 @@ function genericPresentation(kind: OperatorSessionEventKind, payload: Record<str
     compactText: eventPayloadText(payload) ?? title,
     tone: kind === "error_recorded" ? "error" : "info",
     details,
+    surfaces: kind === "error_recorded" ? INLINE_ACTIVITY_SURFACES : ACTIVITY_SURFACES,
   };
+}
+
+export function operatorEventTargetsSurface(
+  presentation: Pick<OperatorEventPresentation, "surfaces">,
+  surface: OperatorEventSurface,
+): boolean {
+  return presentation.surfaces.includes(surface);
 }
 
 export function presentOperatorEventPayload(

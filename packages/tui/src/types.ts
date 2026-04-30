@@ -3,6 +3,8 @@
  * @module @kilnai/tui
  */
 
+import type { OperatorEventSurface, ToolResultPresentation } from "@kilnai/gateway-contracts";
+
 export type MessageRole = "user" | "assistant" | "tool" | "error";
 
 export interface ChatMessage {
@@ -26,7 +28,7 @@ export type SessionEvent =
   | { type: "completed"; totalUsd: number; routedProvider?: string; routedModel?: string }
   | { type: "error"; message: string }
   | { type: "thinking" }
-  | { type: "activity"; activity: string; toolName?: string; output?: string; usd?: number; input?: unknown; details?: string; sessionId?: string; turnId?: string };
+  | { type: "activity"; activity: string; toolName?: string; output?: string; usd?: number; input?: unknown; details?: string; sessionId?: string; turnId?: string; surfaces?: readonly OperatorEventSurface[]; toolPresentation?: ToolResultPresentation };
 
 /**
  * @internal
@@ -58,7 +60,7 @@ export type SessionEventInternal =
     }
   | { type: "error"; message: string }
   | { type: "thinking" }
-  | { type: "activity"; activity: string; toolName?: string; output?: string; usd?: number; input?: unknown; inputTokens?: number; outputTokens?: number; details?: string; sessionId?: string; turnId?: string; path?: string; changeType?: "created" | "modified" | "deleted"; linesAdded?: number; linesRemoved?: number };
+  | { type: "activity"; activity: string; toolName?: string; output?: string; usd?: number; input?: unknown; inputTokens?: number; outputTokens?: number; details?: string; sessionId?: string; turnId?: string; surfaces?: readonly OperatorEventSurface[]; toolPresentation?: ToolResultPresentation; path?: string; changeType?: "created" | "modified" | "deleted"; linesAdded?: number; linesRemoved?: number };
 
 /**
  * @description The only session abstraction the TUI depends on.

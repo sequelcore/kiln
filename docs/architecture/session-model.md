@@ -116,6 +116,48 @@ operator UI must render the shared presentation projection from
 `@kilnai/gateway-contracts` instead of serializing payloads as raw JSON. This
 keeps GUI and TUI minimal while preserving the canonical structured evidence.
 
+Shared presentation also owns operator visibility. Each presented event declares
+the surfaces it targets:
+
+- `conversation_inline` for live comprehension in the main transcript.
+- `activity_panel` for audit timelines, side panels, and terminal sidebars.
+- `inspector` for expandable detail, resource viewers, and diagnostics.
+
+Tool starts, tool completions, approval requests/resolutions, agent invocation
+state, and recorded errors are inline conversation events because they explain
+why the operator is waiting and what authority or external action is involved.
+Provider routing, continuity decisions, cost updates, changed files, and turn
+completion remain activity/inspector events unless a future product decision
+explicitly promotes them. Large payloads must be summarized inline and linked to
+resources or inspector details; raw tool JSON must not be pasted into the
+conversation surface.
+
+Tool completion presentation is typed. `tool_call_completed` projections may
+include `toolPresentation`, a shared `@kilnai/gateway-contracts` view model with
+an `outputKind`, title, summary, fields, bounded preview, resource links, and
+raw-output availability. Consumers must render that presentation before falling
+back to generic detail rows.
+
+Canonical tool-result output kinds:
+
+- `diff` for `patch`, `edit`, `write`, and file-result metadata with
+  `diffPreview`. Inline views show file/change counts and bounded hunks; full
+  diffs belong in the inspector or linked resource.
+- `resource_links` for high-volume outputs such as `read_many` when full output
+  is stored behind `kiln://artifacts/...`. Inline views show counts and links,
+  not the raw packet.
+- `tree` for directory tree results. Inline views show entry counts and bounded
+  tree previews.
+- `command` for `bash` and `git`. Inline views show command, cwd, exit/timeout,
+  elapsed time, and bounded stdout/stderr preview.
+- `markdown`, `text`, `code`, `table`, `image`, `form`, and `empty` for
+  remaining typed previews as tools become more semantic.
+
+This is a presentation projection over canonical evidence, not a replacement
+for `event.payload`. The payload remains the audit source, while normal
+operator UI uses the typed projection so GUI, TUI, CLI, IDE, SDK, and remote
+surfaces do not duplicate ad hoc JSON parsing rules.
+
 ## Consumer Scoping Rules
 
 Every operator consumer must treat `kilnSessionId` as the routing key for live
@@ -127,6 +169,9 @@ operational state.
   session/turn.
 - CLI transcript persistence stores canonical event identity and may project
   the same facts into text output.
+- GUI, TUI, CLI, IDE, SDK, and remote operator surfaces must use the shared
+  presentation surface targets before deciding whether an event appears inline,
+  in an activity/audit view, or only inside an inspector.
 - Late frames from an old or different session must not mutate the visible
   session's operational state.
 - Session selection must clear or replace visible operational projections before

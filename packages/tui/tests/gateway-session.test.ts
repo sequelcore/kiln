@@ -252,10 +252,39 @@ describe("GatewaySession canonical session events", () => {
     ws.simulateMessage(JSON.stringify({
       type: "session_event",
       event: {
-        eventId: "evt-file",
+        eventId: "evt-result",
         kilnSessionId: "session-1",
         sequence: 2,
         timestamp: "2026-04-28T20:00:01.000Z",
+        kind: "tool_call_completed",
+        turnId: "session-1:turn:live",
+        payload: {
+          toolCallId: "tool-1",
+          toolName: "patch",
+          outputSummary: JSON.stringify({
+            output: "1 file changed, 2 additions, 1 removal",
+            isError: false,
+            metadata: {
+              toolName: "patch",
+              kind: "file",
+              operation: "patch",
+              filePath: "demo.txt",
+              linesAdded: 2,
+              linesRemoved: 1,
+              diffPreview: "- old\n+ new",
+            },
+          }),
+          status: { state: "succeeded" },
+        },
+      },
+    }));
+    ws.simulateMessage(JSON.stringify({
+      type: "session_event",
+      event: {
+        eventId: "evt-file",
+        kilnSessionId: "session-1",
+        sequence: 3,
+        timestamp: "2026-04-28T20:00:02.000Z",
         kind: "file_changed",
         turnId: "session-1:turn:live",
         payload: {
@@ -287,6 +316,20 @@ describe("GatewaySession canonical session events", () => {
         turnId: "session-1:turn:live",
         toolName: "write",
         input: { path: "demo.txt" },
+        surfaces: ["conversation_inline", "activity_panel", "inspector"],
+      }),
+      expect.objectContaining({
+        type: "activity",
+        activity: "tool_result",
+        sessionId: "session-1",
+        turnId: "session-1:turn:live",
+        toolName: "patch",
+        output: "1 file changed, 2 additions, 1 removal",
+        toolPresentation: expect.objectContaining({
+          outputKind: "diff",
+          title: "demo.txt",
+        }),
+        surfaces: ["conversation_inline", "activity_panel", "inspector"],
       }),
       expect.objectContaining({
         type: "activity",
@@ -297,6 +340,7 @@ describe("GatewaySession canonical session events", () => {
         changeType: "modified",
         linesAdded: 2,
         linesRemoved: 1,
+        surfaces: ["activity_panel", "inspector"],
       }),
     ]));
 

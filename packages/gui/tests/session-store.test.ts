@@ -356,8 +356,21 @@ describe("session-store", () => {
       kind: "tool_call_completed",
       payload: {
         toolCallId: "tool-live",
-        toolName: "write",
-        outputSummary: "Wrote demo.txt",
+        toolName: "patch",
+        outputSummary: JSON.stringify({
+          output: "1 file changed, 7 additions, 2 removals",
+          isError: false,
+          metadata: {
+            toolName: "patch",
+            kind: "file",
+            operation: "patch",
+            filePath: "demo.txt",
+            linesAdded: 7,
+            linesRemoved: 2,
+            diffPreview: "- previous\n+ current",
+            diffTruncated: true,
+          },
+        }),
         status: {
           state: "succeeded",
         },
@@ -400,10 +413,20 @@ describe("session-store", () => {
     expect(deriveToolCallLog(state.timelineEntries)).toEqual([
       expect.objectContaining({
         callId: "tool-live",
-        toolName: "write",
+        toolName: "patch",
         status: "success",
       }),
     ]);
+    expect(state.timelineEntries).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        eventKind: "tool_call_completed",
+        summary: "1 file changed, 7 additions, 2 removals",
+        toolPresentation: expect.objectContaining({
+          outputKind: "diff",
+          title: "demo.txt",
+        }),
+      }),
+    ]));
     expect(derivePendingApprovals(state.timelineEntries)).toHaveLength(0);
     expect(state.sessionCostUsd).toBeCloseTo(0.02);
     expect(deriveChangedFiles(state.timelineEntries)).toEqual([
@@ -416,6 +439,60 @@ describe("session-store", () => {
         diffTruncated: true,
       }),
     ]);
+  });
+
+  it("stores unwrapped typed read presentations for nested tool result envelopes", () => {
+    useSessionStore.setState({
+      selectedSessionId: "session-live",
+      liveSessionId: "session-live",
+      status: "running",
+    });
+
+    useSessionStore.getState().onSessionEvent({
+      eventId: "evt-read-nested",
+      kilnSessionId: "session-live",
+      sequence: 1,
+      timestamp: "2026-04-30T10:00:00.000Z",
+      kind: "tool_call_completed",
+      payload: {
+        toolCallId: "tool-read",
+        toolName: "read",
+        outputSummary: JSON.stringify({
+          output: JSON.stringify({
+            output: "# Session Model\n\nKiln session identity is provider-agnostic.",
+            isError: false,
+            metadata: {
+              toolName: "read",
+              kind: "file",
+              operation: "read",
+              filePath: "docs/architecture/session-model.md",
+            },
+          }),
+          isError: false,
+          metadata: {
+            toolName: "read",
+            kind: "file",
+            operation: "read",
+          },
+        }),
+        status: { state: "succeeded" },
+      },
+    });
+
+    const entry = useSessionStore.getState().timelineEntries.find((item) => (
+      item.type === "event" && item.eventKind === "tool_call_completed"
+    ));
+    expect(entry).toMatchObject({
+      summary: "# Session Model",
+      toolPresentation: {
+        outputKind: "markdown",
+        title: "docs/architecture/session-model.md",
+        preview: {
+          text: "# Session Model\n\nKiln session identity is provider-agnostic.",
+        },
+      },
+    });
+    expect(JSON.stringify(entry?.toolPresentation)).not.toContain("\"output\"");
   });
 
   it("projects agent invocation lifecycle events into timeline entries", () => {
@@ -837,12 +914,12 @@ describe("session-store", () => {
         expect.objectContaining({
           type: "event",
           eventKind: "tool_call_started",
-          title: "Tool started: rg",
+          title: "Using rg",
         }),
         expect.objectContaining({
           type: "event",
           eventKind: "tool_call_completed",
-          title: "Tool completed: rg",
+          title: "Completed rg",
           summary: "1 match",
         }),
       ]),

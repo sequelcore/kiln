@@ -59,13 +59,20 @@ export type {
 
 export {
   formatOperatorEventValue,
+  operatorEventTargetsSurface,
   presentOperatorEventPayload,
   presentOperatorSessionEvent,
 } from "./operator-event-presentation.js";
 export type {
   OperatorEventDetailItem,
   OperatorEventPresentation,
+  OperatorEventSurface,
   OperatorEventTone,
+  ToolResultOutputKind,
+  ToolResultPresentation,
+  ToolResultPreview,
+  ToolResultRawAvailability,
+  ToolResultResourceLinkPresentation,
 } from "./operator-event-presentation.js";
 
 export {

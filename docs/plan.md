@@ -1,5 +1,130 @@
 # Shared Developer Tools Active Plan
 
+## Active Slice: Typed Tool Result Presentation
+
+Date: 2026-04-30
+
+Objective: make tool outputs readable across GUI, TUI, and future consumers by
+adding a shared typed presentation projection for tool results. The transcript
+must show operator facts, not raw JSON. Raw payloads remain available through
+inspector/resource surfaces.
+
+Scope:
+
+- `packages/gateway-contracts/src/operator-event-presentation.ts`
+  owns the shared `ToolResultPresentation` contract and projection from
+  canonical tool completion payloads.
+- `packages/gui/src/lib/session-store.ts` stores the shared tool presentation
+  on timeline events for both live and loaded sessions.
+- `packages/gui/src/components/transcript.tsx` renders typed tool previews for
+  `text`, `markdown`, `tree`, `diff`, `command`, and `resource_links` without
+  serializing JSON payloads inline.
+- `packages/tui/src/gateway-session.ts` and `packages/tui/src/types.ts`
+  preserve the same presentation on activity events so terminal consumers can
+  render compact summaries from the shared model.
+- `docs/architecture/session-model.md` documents the tool-result presentation
+  contract as canonical operator-surface behavior.
+
+Acceptance criteria:
+
+- Tool completion events expose `toolPresentation` from
+  `@kilnai/gateway-contracts`.
+- `patch`, `edit`, `write`, and file-change style results with diff metadata
+  render as `outputKind: "diff"` with file counts, additions/removals, and
+  bounded diff preview.
+- High-volume `read_many` results with resource links render as
+  `outputKind: "resource_links"` and do not paste raw output into chat.
+- `tree` renders as `outputKind: "tree"` with entry count and preview lines.
+- `bash`/`git` render as `outputKind: "command"` with command status fields
+  and bounded stdout/stderr preview.
+- GUI transcript tests assert typed previews are rendered and raw JSON keys are
+  absent from inline/details surfaces.
+- TUI gateway tests assert canonical tool completion activity carries the same
+  presentation.
+- Verification must run typecheck and focused tests. The GUI must not be
+  launched in this slice; Ricardo owns live GUI runs.
+
+Current live-test gap:
+
+- A 2026-04-30 GUI live test still showed `tree` and `read` tool previews as
+  JSON envelopes such as `{"output":"..."}` inside the transcript. The shared
+  projection now unwraps nested tool-result envelopes in unit tests, but the
+  live GUI path still needs an end-to-end trace from emitted
+  `tool_call_completed.payload` through persisted session loading,
+  `session-store`, and `Transcript` rendering.
+- This slice should not be considered visually closed until a fresh GUI live
+  test shows `read` as Markdown/text content and `tree` as a tree-style preview
+  with no `{"output":...}` text in the inline row or expanded preview.
+
+Next-agent implementation prompt:
+
+```text
+You are working in C:\Proyectos\Sequel\kiln. Follow the project rules in
+AGENTS.md and CLAUDE.md. Do not run the GUI; Ricardo will run it.
+
+Problem:
+The GUI transcript still renders tool results for read/tree as JSON envelopes,
+for example {"output":"# Session Model...","isError":false,"metadata":...},
+even after the shared ToolResultPresentation projection was added. The visible
+UI is not acceptable: tool previews must render actual content using typed
+components, not JSON strings.
+
+Goal:
+Fix this end to end from the canonical event source to all consumers. No
+surface-local hacks. The shared contract should produce clean typed
+ToolResultPresentation for live and loaded sessions, and GUI/TUI should consume
+that same presentation.
+
+Required scout:
+1. Trace actual live tool result emission:
+   - packages/runtime/src/gateway/gui-gateway.ts
+   - packages/runtime/src/execution/cli-session-contract.ts
+   - packages/runtime/src/session/runtime-session-orchestrator-tool-executor.ts
+   - packages/runtime/src/session/runtime-session-event-ledger.ts
+   - packages/runtime/src/gateway/message-pipeline.ts
+2. Determine whether the live GUI receives:
+   - a JSON string in outputSummary
+   - a double-encoded JSON string
+   - an already summarized string that is no longer parseable
+   - a stale persisted timeline entry
+3. Trace loaded-session reconstruction in packages/gui/src/lib/session-store.ts.
+4. Trace rendering in packages/gui/src/components/transcript.tsx.
+
+Implementation requirements:
+- Add failing tests before implementation.
+- Add a runtime/gateway or session-store regression fixture matching the real
+  live payload shape from the GUI transcript.
+- Ensure read results render as markdown/text with preview text only.
+- Ensure tree results render as outputKind "tree" with entry count/path and
+  bounded preview lines, never JSON.
+- Ensure read_many with resource links renders outputKind "resource_links".
+- Ensure diff/patch remains outputKind "diff".
+- Ensure TUI activity still receives the same ToolResultPresentation.
+- Raw JSON may remain available only through inspector/raw surfaces, never as
+  the default inline or expanded preview.
+
+Likely fix areas:
+- The shared parser in packages/gateway-contracts/src/operator-event-presentation.ts
+  may need to understand the exact live envelope shape.
+- Runtime may need to emit structured tool result metadata/presentation instead
+  of only outputSummary strings.
+- GUI session-store may need to prefer event.payload.toolPresentation if runtime
+  emits it, otherwise project from canonical payload once.
+
+Verification:
+- bun run --cwd packages/gateway-contracts test operator-event-presentation
+- bun run --cwd packages/gui test:run session-store transcript
+- bun run --cwd packages/tui test gateway-session
+- bun run typecheck
+- bun run test
+- bun run build
+
+Manual acceptance prompt for Ricardo after the fix:
+Run tree and read over docs/architecture/session-model.md. Expanded transcript
+tool details must show real tree/text/markdown previews and must not display
+{"output":...} anywhere except an explicit inspector/raw view.
+```
+
 ## Current State
 
 The completed 2026-04-29 foundation is now documented in

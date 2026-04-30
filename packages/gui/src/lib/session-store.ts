@@ -8,8 +8,9 @@ import type {
   GuiSessionDetail,
   GuiSessionEvent,
   GuiSessionSummary,
+  ToolResultPresentation,
 } from "@kilnai/gateway-contracts";
-import { formatOperatorEventValue, isGuiProviderModeless } from "@kilnai/gateway-contracts";
+import { formatOperatorEventValue, isGuiProviderModeless, presentOperatorEventPayload } from "@kilnai/gateway-contracts";
 
 export interface ApprovalRequest {
   readonly id: string;
@@ -479,6 +480,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
       const toolCallId = readString(payload.toolCallId) ?? event.eventId;
       const toolName = readString(payload.toolName) ?? "tool";
       const input = isObjectRecord(payload.input) ? payload.input : {};
+      const presentation = presentOperatorEventPayload(event.kind, payload);
       toolCalls.set(toolCallId, {
         callId: toolCallId,
         toolName,
@@ -492,11 +494,13 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
         eventKind: event.kind,
         createdAt: event.timestamp,
         sequence: event.sequence,
-        title: `Tool started: ${toolName}`,
-        summary: "Execution in progress",
-        tone: "running",
+        title: presentation.title,
+        summary: presentation.summary,
+        tone: presentation.tone,
+        toolPresentation: presentation.toolPresentation,
         details: {
           toolCallId,
+          toolName,
           ...input,
         },
       });
@@ -507,6 +511,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
       const toolCallId = readString(payload.toolCallId) ?? event.eventId;
       const toolName = readString(payload.toolName) ?? toolCalls.get(toolCallId)?.toolName ?? "tool";
       const status = isObjectRecord(payload.status) ? payload.status : null;
+      const presentation = presentOperatorEventPayload(event.kind, payload);
       toolCalls.set(toolCallId, {
         callId: toolCallId,
         toolName,
@@ -522,11 +527,13 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
         eventKind: event.kind,
         createdAt: event.timestamp,
         sequence: event.sequence,
-        title: `Tool completed: ${toolName}`,
-        summary: eventPayloadText(payload) ?? undefined,
-        tone: toolEntryStatus(status?.state) === "success" ? "success" : "error",
+        title: presentation.title,
+        summary: presentation.summary,
+        tone: presentation.tone,
+        toolPresentation: presentation.toolPresentation,
         details: {
           toolCallId,
+          toolName,
           input: toolCalls.get(toolCallId)?.input ?? {},
           result: eventPayloadText(payload) ?? undefined,
           status: status?.state,
@@ -804,10 +811,33 @@ export interface TimelineEventEntry {
   readonly summary?: string;
   readonly tone: "info" | "running" | "success" | "warning" | "error";
   readonly details?: unknown;
+  readonly toolPresentation?: ToolResultPresentation;
   readonly sessionId?: string;
 }
 
 export type TimelineEntry = TimelineMessageEntry | TimelineEventEntry;
+
+function toolNameFromDetails(details: unknown, fallbackTitle: string, fallbackToolName?: string): string {
+  const detailRecord = isObjectRecord(details) ? details : null;
+  const explicitToolName = readString(detailRecord?.toolName);
+  if (explicitToolName) return explicitToolName;
+  const titleMatch = /^(?:Tool started:|Tool completed:|Using|Completed)\s+(.+)$/u.exec(fallbackTitle);
+  return titleMatch?.[1]?.trim() || fallbackToolName || "tool";
+}
+
+function toolInputFromDetails(details: unknown): Record<string, unknown> {
+  const detailRecord = isObjectRecord(details) ? details : null;
+  if (!detailRecord) return {};
+  if (isObjectRecord(detailRecord.input)) return detailRecord.input;
+  return Object.fromEntries(
+    Object.entries(detailRecord).filter(([key]) => (
+      key !== "toolCallId"
+      && key !== "toolName"
+      && key !== "status"
+      && key !== "result"
+    )),
+  );
+}
 
 export function deriveToolCallLog(entries: readonly TimelineEntry[]): readonly ToolCallEntry[] {
   const toolCalls = new Map<string, ToolCallEntry>();
@@ -815,8 +845,8 @@ export function deriveToolCallLog(entries: readonly TimelineEntry[]): readonly T
     if (entry.type !== "event") continue;
     if (entry.eventKind === "tool_call_started") {
       const callId = toolCallIdFromDetails(entry.details) ?? entry.id;
-      const input = isObjectRecord(entry.details) ? entry.details : {};
-      const toolName = entry.title.replace(/^Tool started:\s*/, "") || "tool";
+      const input = toolInputFromDetails(entry.details);
+      const toolName = toolNameFromDetails(entry.details, entry.title);
       toolCalls.set(callId, {
         callId,
         toolName,
@@ -832,7 +862,7 @@ export function deriveToolCallLog(entries: readonly TimelineEntry[]): readonly T
       const previous = toolCalls.get(callId);
       toolCalls.set(callId, {
         callId,
-        toolName: entry.title.replace(/^Tool completed:\s*/, "") || previous?.toolName || "tool",
+        toolName: toolNameFromDetails(details, entry.title, previous?.toolName),
         input: isObjectRecord(details?.input) ? details.input : previous?.input ?? {},
         result: readString(details?.result) ?? entry.summary ?? undefined,
         status: toolEntryStatus(details?.status) === "running" ? "error" : toolEntryStatus(details?.status),
@@ -1463,6 +1493,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     if (event.kind === "tool_call_started") {
       const toolName = readString(payload.toolName) ?? "tool";
       const input = isObjectRecord(payload.input) ? payload.input : {};
+      const presentation = presentOperatorEventPayload(event.kind, payload);
       set({
         timelineEntries: [
           ...get().timelineEntries,
@@ -1472,11 +1503,13 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             eventKind: event.kind,
             createdAt: event.timestamp,
             sequence: event.sequence,
-            title: `Tool started: ${toolName}`,
-            summary: "Execution in progress",
-            tone: "running",
+            title: presentation.title,
+            summary: presentation.summary,
+            tone: presentation.tone,
+            toolPresentation: presentation.toolPresentation,
             details: {
               toolCallId: readString(payload.toolCallId) ?? event.eventId,
+              toolName,
               ...input,
             },
           },
@@ -1491,9 +1524,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
     if (event.kind === "tool_call_completed") {
       const status = isObjectRecord(payload.status) ? payload.status : null;
-      const completedStatus = status?.state === "succeeded" || status?.state === "success" ? "success" : "error";
       const priorToolCalls = deriveToolCallLog(get().timelineEntries);
       const priorInput = priorToolCalls.find((entry) => entry.callId === (readString(payload.toolCallId) ?? event.eventId))?.input ?? {};
+      const presentation = presentOperatorEventPayload(event.kind, payload);
       set({
         timelineEntries: [
           ...get().timelineEntries,
@@ -1503,11 +1536,13 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             eventKind: event.kind,
             createdAt: event.timestamp,
             sequence: event.sequence,
-            title: `Tool completed: ${readString(payload.toolName) ?? "tool"}`,
-            summary: eventPayloadText(payload) ?? undefined,
-            tone: completedStatus === "success" ? "success" : "error",
+            title: presentation.title,
+            summary: presentation.summary,
+            tone: presentation.tone,
+            toolPresentation: presentation.toolPresentation,
             details: {
               toolCallId: readString(payload.toolCallId) ?? event.eventId,
+              toolName: readString(payload.toolName) ?? "tool",
               input: priorInput,
               result: eventPayloadText(payload) ?? undefined,
               status: status?.state,

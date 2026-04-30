@@ -61,7 +61,7 @@ describe("Transcript", () => {
             type: "event",
             eventKind: "tool_call_started",
             createdAt: new Date().toISOString(),
-            title: "Tool started: bash",
+            title: "Using bash",
             summary: "Execution in progress",
             tone: "running",
           },
@@ -74,8 +74,152 @@ describe("Transcript", () => {
     expect(rows).toHaveLength(4);
     expect(rows[0]).toHaveAttribute("data-role", "user");
     expect(rows[1]).toHaveAttribute("data-role", "assistant");
-    expect(rows[2]).toHaveTextContent("Tool started: bash");
+    expect(rows[2]).toHaveAttribute("data-role", "tool");
+    expect(rows[2]).toHaveTextContent("Using bash");
+    expect(rows[2]).not.toHaveClass("rounded-lg");
     expect(rows[3]).toHaveAttribute("data-role", "error");
+  });
+
+  it("keeps JSON-shaped tool output compact in inline rows and details", () => {
+    render(
+      <Transcript
+        entries={[
+          {
+            id: "timeline:event:tool-json",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: new Date().toISOString(),
+            title: "Completed read",
+            summary: JSON.stringify({
+              output: "# Session Model\n\nKiln session identity is provider-agnostic.",
+              isError: false,
+              metadata: { toolName: "read", operation: "read" },
+            }),
+            tone: "success",
+            details: {
+              result: JSON.stringify({
+                output: "# Session Model\n\nKiln session identity is provider-agnostic.",
+                isError: false,
+                metadata: { toolName: "read", operation: "read" },
+              }),
+              status: "succeeded",
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("# Session Model")).toBeInTheDocument();
+    expect(screen.queryByText(/"output"/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+
+    expect(screen.getAllByText("# Session Model")).toHaveLength(2);
+    expect(screen.queryByText(/metadata/)).not.toBeInTheDocument();
+  });
+
+  it("renders typed diff tool presentations instead of raw JSON details", () => {
+    render(
+      <Transcript
+        entries={[
+          {
+            id: "timeline:event:tool-diff",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: new Date().toISOString(),
+            title: "Completed patch",
+            summary: "1 file changed, 18 additions, 6 removals",
+            tone: "success",
+            details: {
+              result: JSON.stringify({
+                output: "1 file changed, 18 additions, 6 removals",
+                isError: false,
+                metadata: { toolName: "patch", diffPreview: "- raw\n+ typed" },
+              }),
+              status: "succeeded",
+            },
+            toolPresentation: {
+              outputKind: "diff",
+              title: "packages/gui/src/components/transcript.tsx",
+              summary: "1 file changed, 18 additions, 6 removals",
+              fields: [
+                { label: "Files", value: "1" },
+                { label: "Additions", value: "18" },
+                { label: "Removals", value: "6" },
+              ],
+              preview: {
+                text: "@@ ToolEventDetails @@\n- raw json\n+ typed preview",
+                truncated: true,
+              },
+              raw: { available: true },
+            },
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+
+    expect(screen.getByText("Diff preview")).toBeInTheDocument();
+    expect(screen.getByText("packages/gui/src/components/transcript.tsx")).toBeInTheDocument();
+    expect(screen.getByText("Additions")).toBeInTheDocument();
+    expect(screen.getByText("18")).toBeInTheDocument();
+    expect(screen.getByText("+ typed preview")).toBeInTheDocument();
+    expect(screen.getByText("Open inspector")).toBeInTheDocument();
+    expect(screen.queryByText(/"metadata"/)).not.toBeInTheDocument();
+  });
+
+  it("renders resource-linked tool presentations with an inspector action", () => {
+    render(
+      <Transcript
+        entries={[
+          {
+            id: "timeline:event:tool-resource",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: new Date().toISOString(),
+            title: "Completed read_many",
+            summary: "24 files read, 109 skipped, 200000 bytes, truncated",
+            tone: "success",
+            details: {
+              result: JSON.stringify({
+                output: "--- C:\\Proyectos\\Sequel\\kiln\\docs\\architecture.md",
+                isError: false,
+                metadata: { toolName: "read_many" },
+              }),
+              status: "succeeded",
+            },
+            toolPresentation: {
+              outputKind: "resource_links",
+              title: "read_many full output",
+              summary: "24 files read, 109 skipped, 200000 bytes, truncated",
+              fields: [
+                { label: "Files", value: "24 read / 109 skipped" },
+                { label: "Bytes", value: "200000" },
+              ],
+              resourceLinks: [
+                {
+                  uri: "kiln://artifacts/tool-results/artifact_1/content",
+                  title: "read_many full output",
+                  mimeType: "text/plain",
+                  size: 200000,
+                  relation: "full_output",
+                },
+              ],
+              raw: { available: true },
+            },
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+
+    expect(screen.getByText("Resource link")).toBeInTheDocument();
+    expect(screen.getAllByText("read_many full output").length).toBeGreaterThan(0);
+    expect(screen.getByText("kiln://artifacts/tool-results/artifact_1/content")).toBeInTheDocument();
+    expect(screen.getByText("Open inspector")).toBeInTheDocument();
+    expect(screen.queryByText("--- C:\\Proyectos\\Sequel\\kiln\\docs\\architecture.md")).not.toBeInTheDocument();
   });
 
   it("shows streaming cursor indicator for streaming assistant message", () => {
@@ -111,6 +255,18 @@ describe("Transcript", () => {
 
     expect(screen.getByRole("status", { name: "Activity phase: Thinking" })).toBeInTheDocument();
     expect(screen.getAllByRole("article").at(-1)).toHaveAttribute("data-role", "assistant");
+  });
+
+  it("names the active tool in the live transcript activity row", () => {
+    render(
+      <Transcript
+        entries={[messageEntry("1", "user", "read docs")]}
+        activityPhase="tool_running"
+        activityToolName="read_many"
+      />,
+    );
+
+    expect(screen.getByRole("status", { name: "Activity phase: Using read_many" })).toBeInTheDocument();
   });
 
   it("does not duplicate the responding state when an assistant message is already streaming", () => {
@@ -176,7 +332,7 @@ describe("Transcript", () => {
             type: "event",
             eventKind: "tool_call_completed",
             createdAt: new Date().toISOString(),
-            title: "Tool completed: write",
+            title: "Completed write",
             summary: "Wrote demo.txt",
             tone: "success",
             details: {

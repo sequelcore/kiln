@@ -3,10 +3,13 @@ import {
   formatOperatorEventValue,
   operatorEmptyStatePhraseAt,
 } from "@kilnai/gateway-contracts";
+import { CheckCircle2, ChevronDown, ChevronUp, CircleAlert, LoaderCircle, Terminal } from "lucide-react";
 import type { ActivityPhase, TimelineEntry, TimelineEventEntry } from "../lib/session-store.js";
 import { ActivityPhaseIndicator } from "./activity-phase-indicator.js";
 import { MessageRow } from "./message-row.js";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 
 interface TranscriptProps {
   readonly entries: readonly TimelineEntry[];
@@ -46,21 +49,138 @@ function formatUsd(value: number | null): string | null {
   }).format(value);
 }
 
+function parseJsonRecord(value: string): Record<string, unknown> | null {
+  try {
+    return asRecord(JSON.parse(value));
+  } catch {
+    return null;
+  }
+}
+
+function compactDisplayText(value: string, maxLength = 140): string {
+  const parsed = parseJsonRecord(value);
+  const source = readString(parsed?.output) ?? value;
+  const firstLine = source
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .find((line) => line.length > 0)
+    ?? source.trim();
+  const normalized = firstLine.replace(/\s+/g, " ").trim();
+  return normalized.length > maxLength ? `${normalized.slice(0, maxLength - 1)}…` : normalized;
+}
+
+function eventSummaryText(entry: TimelineEventEntry): string | null {
+  if (!entry.summary) return null;
+  return compactDisplayText(entry.summary, 150);
+}
+
+function detailDisplayText(value: unknown, maxLength = 180): string | null {
+  const formatted = formatOperatorEventValue(value);
+  if (!formatted) return null;
+  return compactDisplayText(formatted, maxLength);
+}
+
 function MetaList(props: { readonly items: readonly { label: string; value: string }[] }) {
   if (props.items.length === 0) return null;
   return (
     <dl className="mt-3 grid gap-2 sm:grid-cols-2">
       {props.items.map((item) => (
-        <div key={`${item.label}:${item.value}`} className="rounded-md border border-[var(--color-border)]/50 bg-[var(--color-background)] px-3 py-2">
+        <div key={`${item.label}:${item.value}`} className="min-w-0 overflow-hidden rounded-md border border-[var(--color-border)]/50 bg-[var(--color-background)] px-3 py-2">
           <dt className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--color-text-muted)]">{item.label}</dt>
-          <dd className="mt-1 text-sm leading-5 text-[var(--color-text)]">{item.value}</dd>
+          <dd className="mt-1 break-words text-sm leading-5 text-[var(--color-text)]">{item.value}</dd>
         </div>
       ))}
     </dl>
   );
 }
 
+function ToolPreviewText(props: { readonly text: string; readonly outputKind: string }) {
+  const lines = props.text.replace(/\r\n/g, "\n").split("\n");
+  return (
+    <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border/70 bg-background px-2.5 py-2 font-mono text-[11px] leading-5 text-foreground">
+      {lines.map((line, index) => (
+        <span
+          key={`${index}:${line}`}
+          className={cn(
+            "block min-h-5",
+            props.outputKind === "diff" && line.startsWith("+") ? "text-success" : null,
+            props.outputKind === "diff" && line.startsWith("-") ? "text-destructive" : null,
+            props.outputKind === "diff" && line.startsWith("@@") ? "text-primary" : null,
+          )}
+        >
+          {line.length > 0 ? line : " "}
+        </span>
+      ))}
+    </pre>
+  );
+}
+
+function ToolResultPresentationDetails(props: { readonly entry: TimelineEventEntry }) {
+  const presentation = props.entry.toolPresentation;
+  if (!presentation) return null;
+  const previewLabel = {
+    command: "Command preview",
+    diff: "Diff preview",
+    markdown: "Markdown preview",
+    text: "Text preview",
+    tree: "Tree preview",
+    code: "Code preview",
+    table: "Table preview",
+    image: "Image preview",
+    resource_links: "Resource link",
+    form: "Form preview",
+    empty: "No output",
+  }[presentation.outputKind] ?? "Preview";
+  return (
+    <div className="mt-3 flex flex-col gap-3">
+      <div className="min-w-0 rounded-md border border-border/70 bg-background px-3 py-2">
+        <p className="truncate text-sm font-medium leading-5 text-foreground">{presentation.title}</p>
+        {presentation.summary ? (
+          <p className="mt-1 text-sm leading-5 text-muted-foreground">{presentation.summary}</p>
+        ) : null}
+      </div>
+      <MetaList items={presentation.fields} />
+      {presentation.resourceLinks?.map((resource) => (
+        <div key={resource.uri} className="min-w-0 rounded-md border border-border/70 bg-background px-3 py-2">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{previewLabel}</p>
+          <p className="mt-1 truncate text-sm font-medium text-foreground">{resource.title ?? resource.uri}</p>
+          <p className="mt-1 break-all font-mono text-[11px] leading-5 text-muted-foreground">{resource.uri}</p>
+          <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+            {resource.mimeType ? <span>{resource.mimeType}</span> : null}
+            {resource.size !== undefined ? <span>{resource.size} bytes</span> : null}
+            {resource.relation ? <span>{resource.relation}</span> : null}
+          </div>
+        </div>
+      ))}
+      {presentation.preview ? (
+        <div className="rounded-md border border-border/70 bg-background-element/35 p-2.5">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{previewLabel}</p>
+            {presentation.preview.truncated ? (
+              <span className="font-mono text-[10px] text-muted-foreground">truncated</span>
+            ) : null}
+          </div>
+          <ToolPreviewText text={presentation.preview.text} outputKind={presentation.outputKind} />
+        </div>
+      ) : null}
+      {presentation.raw.available ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="outline">Raw available</Badge>
+          <Button type="button" variant="ghost" size="xs">Open inspector</Button>
+          {presentation.raw.resourceUri ? (
+            <span className="min-w-0 break-all font-mono text-[11px] text-muted-foreground">{presentation.raw.resourceUri}</span>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function ToolEventDetails(props: { readonly entry: TimelineEventEntry }) {
+  if (props.entry.toolPresentation) {
+    return <ToolResultPresentationDetails entry={props.entry} />;
+  }
   const details = asRecord(props.entry.details);
   if (!details) return null;
   const input = asRecord(details.input) ?? details;
@@ -68,9 +188,11 @@ function ToolEventDetails(props: { readonly entry: TimelineEventEntry }) {
   const status = readString(details.status);
   const result = readString(details.result);
   if (status) items.push({ label: "Status", value: status });
-  if (result) items.push({ label: "Result", value: result });
-  for (const [key, value] of Object.entries(input).slice(0, 4)) {
-    const formatted = formatOperatorEventValue(value);
+  if (result) items.push({ label: "Result", value: compactDisplayText(result, 180) });
+  for (const [key, value] of Object.entries(input)
+    .filter(([key]) => key !== "status" && key !== "result" && key !== "toolCallId" && key !== "toolName")
+    .slice(0, 4)) {
+    const formatted = detailDisplayText(value);
     if (formatted) {
       items.push({ label: key, value: formatted });
     }
@@ -222,69 +344,143 @@ function EventDetails(props: { readonly entry: TimelineEventEntry; readonly open
   }
 }
 
+function isToolEvent(entry: TimelineEventEntry): boolean {
+  return entry.eventKind === "tool_call_started" || entry.eventKind === "tool_call_completed";
+}
+
+function eventIcon(entry: TimelineEventEntry) {
+  return {
+    info: Terminal,
+    running: LoaderCircle,
+    success: CheckCircle2,
+    warning: CircleAlert,
+    error: CircleAlert,
+  }[entry.tone];
+}
+
+function eventBadgeVariant(entry: TimelineEventEntry): "outline" | "secondary" | "destructive" {
+  return {
+    info: "outline",
+    running: "secondary",
+    success: "secondary",
+    warning: "outline",
+    error: "destructive",
+  }[entry.tone] as "outline" | "secondary" | "destructive";
+}
+
+function InlineToolEventRow(props: { readonly entry: TimelineEventEntry }) {
+  const [open, setOpen] = useState(false);
+  const Icon = eventIcon(props.entry);
+  const summary = eventSummaryText(props.entry);
+  const hasDetails = canRenderEventDetails(props.entry);
+
+  return (
+    <article data-role="tool" className="mx-auto flex w-full max-w-3xl justify-start px-1">
+      <div className="flex min-w-0 max-w-[min(42rem,94%)] flex-1 gap-2">
+        <span className="mt-2 h-auto w-px shrink-0 rounded-full bg-border" aria-hidden="true" />
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-2 rounded-md border border-border/70 bg-muted/25 px-2.5 py-1.5 text-sm shadow-[0_1px_0_rgba(255,255,255,0.03)]">
+            <Icon
+              aria-hidden="true"
+              className={cn(
+                "shrink-0 text-muted-foreground",
+                props.entry.tone === "running" ? "animate-spin" : null,
+                props.entry.tone === "error" ? "text-destructive" : null,
+              )}
+            />
+            <Badge variant={eventBadgeVariant(props.entry)} className="max-w-[11rem] truncate">
+              {props.entry.title}
+            </Badge>
+            {summary ? (
+              <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                {summary}
+              </span>
+            ) : null}
+            <time
+              dateTime={props.entry.createdAt}
+              className="hidden shrink-0 font-mono text-[10px] text-muted-foreground/70 sm:inline"
+              title={props.entry.createdAt}
+            >
+              {new Date(props.entry.createdAt).toLocaleTimeString()}
+            </time>
+            {hasDetails ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                aria-label={open ? "Hide details" : "Show details"}
+                aria-expanded={open}
+                onClick={() => setOpen((value) => !value)}
+              >
+                {open ? <ChevronUp data-icon="inline-start" /> : <ChevronDown data-icon="inline-start" />}
+              </Button>
+            ) : null}
+          </div>
+          {open ? (
+            <div className="mt-2 max-w-[min(36rem,100%)] rounded-md border border-border/70 bg-background/80 px-3 pb-3 pt-1">
+              <EventDetails entry={props.entry} open={open} />
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </article>
+  );
+}
+
 function TimelineEventRow(props: {
   readonly entry: TimelineEventEntry;
   readonly onApprove?: (sessionId: string) => void;
   readonly onDeny?: (sessionId: string) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const toneClasses = {
-    info: "border-border bg-card text-muted-foreground",
+  const toneClasses: Record<TimelineEventEntry["tone"], string> = {
+    info: "border-border bg-card text-foreground",
     running: "border-border bg-card text-foreground",
     success: "border-border bg-card text-foreground",
     warning: "border-border bg-card text-foreground",
-    error: "border-destructive bg-card text-destructive",
-  }[props.entry.tone];
+    error: "border-destructive/60 bg-card text-foreground",
+  };
+  const Icon = eventIcon(props.entry);
   const canResolveApproval = props.entry.eventKind === "approval_requested" && Boolean(props.entry.sessionId);
   const hasDetails = canRenderEventDetails(props.entry);
+  const summary = eventSummaryText(props.entry);
 
   return (
-    <article className={`mx-auto w-full max-w-3xl rounded-lg border px-3 py-2 ${toneClasses}`}>
-      <header className="mb-2 flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="truncate font-mono text-[10px] uppercase tracking-[0.16em]">{props.entry.title}</p>
-          {props.entry.summary ? (
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">{props.entry.summary}</p>
-          ) : null}
+    <article className={`mx-auto w-full max-w-3xl rounded-lg border px-3 py-2 shadow-sm ${toneClasses[props.entry.tone]}`}>
+      <header className="flex min-w-0 items-start justify-between gap-3">
+        <div className="flex min-w-0 flex-1 items-start gap-2.5">
+          <span className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-md border border-border bg-background text-muted-foreground" aria-hidden="true">
+            <Icon className={props.entry.tone === "running" ? "animate-spin" : ""} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <Badge variant={eventBadgeVariant(props.entry)} className="max-w-full truncate">
+                {props.entry.title}
+              </Badge>
+              <time dateTime={props.entry.createdAt} className="shrink-0 font-mono text-[10px] text-muted-foreground" title={props.entry.createdAt}>
+                {new Date(props.entry.createdAt).toLocaleTimeString()}
+              </time>
+            </div>
+            {summary ? (
+              <p className="mt-1 max-w-full truncate text-sm leading-5 text-muted-foreground">{summary}</p>
+            ) : null}
+          </div>
         </div>
-        <time dateTime={props.entry.createdAt} className="shrink-0 font-mono text-[10px] text-muted-foreground" title={props.entry.createdAt}>
-          {new Date(props.entry.createdAt).toLocaleTimeString()}
-        </time>
-      </header>
-      {hasDetails ? (
-        <div className="flex flex-wrap items-center gap-2">
+        {hasDetails ? (
           <Button
             type="button"
             variant="ghost"
-            size="xs"
+            size="icon-xs"
+            aria-label={open ? "Hide details" : "Show details"}
             aria-expanded={open}
             onClick={() => setOpen((value) => !value)}
           >
-            {open ? "Hide details" : "Show details"}
+            {open ? <ChevronUp data-icon="inline-start" /> : <ChevronDown data-icon="inline-start" />}
           </Button>
-          {canResolveApproval && props.entry.sessionId ? (
-            <>
-              <Button
-                type="button"
-                variant="outline"
-                size="xs"
-                onClick={() => props.onApprove?.(props.entry.sessionId!)}
-              >
-                Approve
-              </Button>
-              <Button
-                type="button"
-                variant="destructive"
-                size="xs"
-                onClick={() => props.onDeny?.(props.entry.sessionId!)}
-              >
-                Deny
-              </Button>
-            </>
-          ) : null}
-        </div>
-      ) : canResolveApproval && props.entry.sessionId ? (
-        <div className="flex flex-wrap items-center gap-2">
+        ) : null}
+      </header>
+      {canResolveApproval && props.entry.sessionId ? (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
           <Button
             type="button"
             variant="outline"
@@ -307,7 +503,6 @@ function TimelineEventRow(props: {
     </article>
   );
 }
-
 function AssistantActivityRow(props: {
   readonly phase: ActivityPhase;
   readonly toolName?: string;
@@ -408,7 +603,9 @@ export function Transcript(props: TranscriptProps) {
           props.entries.map((entry) => (
             entry.type === "message"
               ? <MessageRow key={entry.id} message={entry.message} />
-              : <TimelineEventRow key={entry.id} entry={entry} onApprove={props.onApprove} onDeny={props.onDeny} />
+              : isToolEvent(entry)
+                ? <InlineToolEventRow key={entry.id} entry={entry} />
+                : <TimelineEventRow key={entry.id} entry={entry} onApprove={props.onApprove} onDeny={props.onDeny} />
           ))
         )}
         {showAssistantActivity ? (

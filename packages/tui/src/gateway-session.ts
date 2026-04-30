@@ -6,6 +6,7 @@
 import { randomUUID } from "node:crypto";
 import {
   isGuiProviderModeless,
+  operatorEventTargetsSurface,
   presentOperatorSessionEvent,
   type GuiProviderDiscoveryResult,
   type OperatorSessionEvent,
@@ -78,6 +79,9 @@ function normalizeChangeType(value: unknown): "created" | "modified" | "deleted"
 function mapCanonicalSessionEvent(event: OperatorSessionEvent): SessionEventInternal | null {
   const payload = asRecord(event.payload) ?? {};
   const presentation = presentOperatorSessionEvent(event);
+  if (!operatorEventTargetsSurface(presentation, "activity_panel")) {
+    return null;
+  }
   const scoped = {
     sessionId: event.kilnSessionId,
     ...(event.turnId ? { turnId: event.turnId } : {}),
@@ -94,6 +98,7 @@ function mapCanonicalSessionEvent(event: OperatorSessionEvent): SessionEventInte
       activity: "tool_use",
       toolName,
       input: payload.input,
+      surfaces: presentation.surfaces,
       ...scoped,
     };
   }
@@ -103,7 +108,9 @@ function mapCanonicalSessionEvent(event: OperatorSessionEvent): SessionEventInte
       type: "activity",
       activity: "tool_result",
       toolName,
-      output: readString(payload.outputSummary) ?? readString(payload.output) ?? "",
+      output: presentation.toolPresentation?.summary ?? readString(payload.outputSummary) ?? readString(payload.output) ?? "",
+      toolPresentation: presentation.toolPresentation,
+      surfaces: presentation.surfaces,
       ...scoped,
     };
   }
@@ -119,6 +126,7 @@ function mapCanonicalSessionEvent(event: OperatorSessionEvent): SessionEventInte
       changeType,
       linesAdded: readNumber(change?.linesAdded),
       linesRemoved: readNumber(change?.linesRemoved),
+      surfaces: presentation.surfaces,
       ...scoped,
     };
   }
@@ -131,6 +139,7 @@ function mapCanonicalSessionEvent(event: OperatorSessionEvent): SessionEventInte
       usd: readNumber(cost?.deltaUsd) ?? 0,
       inputTokens: readNumber(usage?.inputTokens),
       outputTokens: readNumber(usage?.outputTokens),
+      surfaces: presentation.surfaces,
       ...scoped,
     };
   }
@@ -139,6 +148,7 @@ function mapCanonicalSessionEvent(event: OperatorSessionEvent): SessionEventInte
       type: "activity",
       activity: "approval_requested",
       details: presentation.compactText,
+      surfaces: presentation.surfaces,
       ...scoped,
     };
   }
@@ -149,6 +159,7 @@ function mapCanonicalSessionEvent(event: OperatorSessionEvent): SessionEventInte
       type: "activity",
       activity: decision === "approved" ? "approval_approved" : "approval_rejected",
       details: presentation.compactText,
+      surfaces: presentation.surfaces,
       ...scoped,
     };
   }
