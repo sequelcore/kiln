@@ -578,6 +578,28 @@ Acceptance:
 - Stable doctrine is promoted to architecture docs.
 - `bun run typecheck`, `bun run test`, and GUI browser verification pass.
 
+## Future Managed Agents Readiness
+
+Memory Lattice must close as infrastructure for future managed agents, not only
+as a session-level memory viewer.
+
+Do not implement managed agents in this roadmap. Do ensure the memory contracts
+can support `03-managed-agents-cross-provider-subagents.md` without rework:
+
+- memory scopes for agent and child invocation boundaries
+- provenance for the agent, session, turn, and invocation that used or produced
+  memory
+- context admission per future child invocation, not only per parent session
+- read projection suitable for wrapper, OAuth, direct API, GUI, CLI, TUI, YAML,
+  SDK, MCP, IDE, and remote consumers
+- write proposals from agents instead of unrestricted child-agent memory writes
+- conflict and coherence checks before promoted agent memories become durable
+- replay evidence that explains which memory a child invocation saw and why
+
+Managed agents should start only after these boundaries are stable enough to
+avoid provider-local memory drift, oversized prompts, unauditable context, and
+duplicate instruction systems.
+
 ## Quality Gates
 
 Each implementation PR must prove:

@@ -57,7 +57,12 @@ indicates the default read order, not necessarily the active work priority.
   and harness-wrapped providers. Introduces a provider-agnostic pool with
   rotation, cooldowns, and cross-process reload.
 
-- `03-config-projection-unification.md`
+- `03-managed-agents-cross-provider-subagents.md`
+  Defines the managed-agent invocation substrate: cross-provider child agents,
+  per-invocation permissions, execution modes, memory admission, lifecycle
+  events, parallelism, cancellation, and replay.
+
+- `04-config-projection-unification.md`
   Makes `~/.kiln/config.yaml` the source of truth for harness configuration,
   projects managed Claude/Codex/OpenCode config, and adds drift-aware sync,
   uninstall, migrate, and engine-status workflows.
@@ -75,7 +80,7 @@ indicates the default read order, not necessarily the active work priority.
 
 ### Deferred work
 
-- `04-external-benchmark-validation.md`
+- `05-external-benchmark-validation.md`
   Deferred public benchmark milestone after architecture and product work
   stabilize.
 
@@ -103,10 +108,13 @@ indicates the default read order, not necessarily the active work priority.
    supervision work.
 6. Read `02-provider-credential-pool.md` when planning any provider-auth
    change, multi-account scaling, or rate-limit recovery work.
-7. Read `03-config-projection-unification.md` when planning harness config
+7. Read `03-managed-agents-cross-provider-subagents.md` when planning managed
+   agents, cross-provider subagents, child invocation policy, parallel
+   delegation, agent memory admission, or parent-child replay.
+8. Read `04-config-projection-unification.md` when planning harness config
    projection, engine registry, drift detection, sync, uninstall, migrate, or
    config-surface work.
-8. Read `04-external-benchmark-validation.md` only when benchmark work becomes
+9. Read `05-external-benchmark-validation.md` only when benchmark work becomes
    active.
 
 ## Current Execution Priority
@@ -122,10 +130,15 @@ This is the delivery queue. It is the only priority order in this index.
    limitation and generalize pool semantics across all provider categories.
    This slice unblocks multi-account scaling for opencode-go, codex-oauth, and
    direct API-key providers without special-casing any of them.
-3. Execute `03-config-projection-unification.md` after the provider credential
-   pool and config/registry ADR sequencing is clear. It owns harness config
+3. Execute `03-managed-agents-cross-provider-subagents.md` after Memory Lattice
+   provides stable memory admission/projection and after the provider
+   credential pool can route child invocations across accounts, wrappers, and
+   direct providers.
+4. Execute `04-config-projection-unification.md` after managed agents and the
+   provider credential pool clarify what global/project config must express. It
+   owns harness config
    projection, drift detection, engine registry, and config lifecycle commands.
-4. Keep `04-external-benchmark-validation.md` deferred until the product
+5. Keep `05-external-benchmark-validation.md` deferred until the product
    surface stabilizes.
 
 ## Current Status
@@ -160,6 +173,8 @@ As of 2026-04-30:
   `01-memory-lattice-governed-memory.md`
 - operator surface doctrine now lives in
   `docs/architecture/operator-surfaces.md`
+- managed cross-provider agent invocation is tracked as roadmap `03` and is
+  intentionally sequenced after governed memory and provider credential pooling
 - external benchmark validation remains deferred
 - OpenCode Go/Zen is now a first-class direct provider via `opencode-auth` and
   `opencode-provider` modules in `@kilnai/core`; the credential-pool roadmap
@@ -168,10 +183,10 @@ As of 2026-04-30:
   lives in `docs/architecture/context-governance.md`,
   `docs/architecture/memory.md`, `docs/architecture/coordination.md`,
   `docs/architecture/flows.md`, and `docs/guides/skills.md`
-- roadmap numbering was compacted on 2026-04-30 after operator-surface doctrine
-  moved to architecture: memory lattice is now `01`, provider credential pool is
-  now `02`, config projection is now `03`, and external benchmark validation is
-  now `04`
+- roadmap numbering was updated on 2026-04-30 after operator-surface doctrine
+  moved to architecture and managed agents became an explicit execution track:
+  memory lattice is `01`, provider credential pool is `02`, managed agents is
+  `03`, config projection is `04`, and external benchmark validation is `05`
 - shared developer-tool metadata, timeout handling, runtime evidence, MCP
   projection, consumer alignment, and the initial builtin tool expansion are
   complete and promoted to `docs/architecture/developer-tools.md`
