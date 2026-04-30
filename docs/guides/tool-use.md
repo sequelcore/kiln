@@ -283,6 +283,28 @@ resourceLinks?: readonly {
 }[]
 ```
 
+Consumers can inspect resources without starting an MCP client:
+
+```bash
+kiln tools --resources
+kiln tools --resource kiln://tools/catalog
+```
+
+Both commands use the same core builtin surface as `kiln tools --mcp`.
+`--resources` prints compact display descriptors with URI, title, MIME type,
+size, relation, and truncation state when available. `--resource <uri>` reads
+the resource through the shared registry and prints text content directly when
+the resource has a single text payload.
+
+Runtime-attached consumers use the same projection through
+`AttachedRuntimeBuiltinToolSurface.listResources()`,
+`listResourceTemplates()`, and `readResource(uri)`. Direct-provider runtime tool
+execution keeps linked high-volume payloads out of the turn by returning a
+compact resource-pointer output while preserving `metadata.resourceLinks` and
+`resource_link` content for clients that can render links. SDK consumers can
+import the resource descriptor, read result, page, and display types from
+`@kilnai/react`, which re-exports the core contracts.
+
 The builtin surface also creates a `ToolResourceNotificationHub`. Consumers can
 subscribe by resource URI and receive MCP-compatible invalidation messages:
 
@@ -300,9 +322,9 @@ same core surface.
 
 The deeper resource-plane roadmap is
 `docs/roadmap/09-context-resource-plane.md`. Pagination, workspace-file
-resources, artifact namespaces, update notifications, and resource links from
-high-volume tools are implemented there; the remaining slices cover consumer
-UX and evaluation.
+resources, artifact namespaces, update notifications, resource links from
+high-volume tools, and consumer projection are implemented there; the remaining
+slice covers evaluation.
 
 ### Domain contracts
 

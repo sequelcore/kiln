@@ -227,6 +227,17 @@ resource links are an addressable follow-up read path, not hidden context
 injection. Sensitive operator elicitation results are not eligible for artifact
 linking.
 
+Consumer surfaces use a shared resource display projection. Core exposes
+`ToolResourceDisplayDescriptor` plus projection helpers for registry descriptors
+and tool-result resource links. CLI can list and read resources through
+`kiln tools --resources` and `kiln tools --resource <uri>`. Attached runtime
+surfaces expose live `listResources`, `listResourceTemplates`, and
+`readResource` functions backed by the same core registry, so GUI, TUI, SDK, and
+direct-provider runtime consumers do not need private browse/read protocols.
+When direct-provider tool execution receives linked high-volume output, the
+runtime projection returns a compact resource-pointer message rather than
+injecting the full artifact payload into every turn.
+
 Resource notifications are owned by the same core surface. A
 `ToolResourceNotificationHub` tracks active consumer sessions, per-session
 subscriptions, debounced pending updates, list-change notices, and teardown.

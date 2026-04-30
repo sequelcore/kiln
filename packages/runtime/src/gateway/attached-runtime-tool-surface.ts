@@ -5,10 +5,16 @@ import type {
   DefaultBuiltinToolRegistryOptions,
   DiscoveredDirectProviderModelCapabilities,
   ToolDefinition,
+  ToolResourceDisplayDescriptor,
+  ToolResourceReadResult,
+  ToolResourceTemplateDescriptor,
+  ToolResultContentPart,
 } from "@kilnai/core";
 import {
   createDefaultBuiltinToolSurface,
   isDirectProviderId,
+  projectToolResourceDescriptor,
+  projectToolResultResourceLinks,
   resolveDirectProviderExecutionProfile,
 } from "@kilnai/core";
 import {
@@ -28,6 +34,9 @@ export interface AttachedRuntimeBuiltinToolSurface {
   readonly toolDefinitions: readonly ToolDefinition[];
   readonly capabilities: ReadonlyMap<string, Capability>;
   readonly toolAuthority: ReadonlyMap<string, AuthorityDescriptor>;
+  listResources(): readonly ToolResourceDisplayDescriptor[];
+  listResourceTemplates(): readonly ToolResourceTemplateDescriptor[];
+  readResource(uri: string): Promise<ToolResourceReadResult>;
 }
 
 export interface AttachedRuntimeBuiltinToolSurfaceOptions {
@@ -105,6 +114,9 @@ export function createAttachedRuntimeBuiltinToolSurface(
     toolDefinitions: [...baseSurface.toolDefinitions, OPERATOR_SET_THEME_TOOL],
     capabilities,
     toolAuthority,
+    listResources: baseSurface.listResources,
+    listResourceTemplates: baseSurface.listResourceTemplates,
+    readResource: baseSurface.readResource,
   };
 }
 
@@ -114,6 +126,9 @@ function buildRuntimeSurface(coreSurface: DefaultBuiltinToolSurface): AttachedRu
     toolDefinitions: coreSurface.toolDefinitions,
     capabilities: coreSurface.capabilities,
     toolAuthority: buildBuiltinToolAuthority(coreSurface.capabilities),
+    listResources: () => coreSurface.resources.list().map(projectToolResourceDescriptor),
+    listResourceTemplates: () => coreSurface.resources.listTemplates(),
+    readResource: (uri: string) => coreSurface.resources.read(uri),
   };
 }
 
@@ -171,10 +186,33 @@ function buildBuiltinToolExecutors(
     executors.set(toolName, async (input: Record<string, unknown>) => {
       const execution = await surface.bridge.execute({ name: toolName, input });
       const result = execution.result;
-      return { output: result.output, isError: result.isError, metadata: result.metadata };
+      const resourceLinks = projectToolResultResourceLinks(result);
+      const resourceLinkContent = (result.content ?? []).filter(isResourceLinkContent);
+      return {
+        output: resourceLinks.length > 0 ? formatLinkedOutput(resourceLinks) : result.output,
+        isError: result.isError,
+        metadata: result.metadata,
+        ...(resourceLinks.length > 0 ? { resourceLinks } : {}),
+        ...(resourceLinkContent.length > 0 ? { content: resourceLinkContent } : {}),
+      };
     });
   }
   return executors;
+}
+
+function formatLinkedOutput(
+  resourceLinks: readonly { readonly uri: string; readonly title?: string }[],
+): string {
+  return [
+    "Full tool output is available as resource links:",
+    ...resourceLinks.map((link) => `- ${link.title ?? "tool output"}: ${link.uri}`),
+  ].join("\n");
+}
+
+function isResourceLinkContent(
+  content: ToolResultContentPart,
+): content is Extract<ToolResultContentPart, { readonly type: "resource_link" }> {
+  return content.type === "resource_link";
 }
 
 function buildBuiltinToolAuthority(

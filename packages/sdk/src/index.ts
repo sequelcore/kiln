@@ -30,3 +30,13 @@ export type {
   WsChatRequest,
   WsChatFrame,
 } from "./types.js";
+
+export type {
+  ToolResourceContent,
+  ToolResourceDescriptor,
+  ToolResourceDisplayDescriptor,
+  ToolResourceListOptions,
+  ToolResourcePage,
+  ToolResourceReadResult,
+  ToolResourceTemplateDescriptor,
+} from "@kilnai/core";

@@ -5,10 +5,39 @@ const coreMocks = vi.hoisted(() => {
   const connect = vi.fn().mockResolvedValue(undefined);
   const bridge = { source: "core-default-bridge" };
   const toolNames = ["bash", "read", "write", "edit", "patch", "stat", "tree", "view_image", "ocr_image", "web_search", "web_fetch", "grep", "glob", "git"];
+  const resources = {
+    list: vi.fn(() => [{
+      uri: "kiln://tools/catalog",
+      name: "tool_catalog",
+      title: "Tool Catalog",
+      mimeType: "application/json",
+    }]),
+    read: vi.fn(async () => ({
+      contents: [{
+        uri: "kiln://tools/catalog",
+        mimeType: "application/json",
+        text: "{\"totalIndexed\":24}",
+      }],
+    })),
+  };
   return {
     bridge,
     toolNames,
-    createDefaultBuiltinToolSurface: vi.fn(() => ({ bridge, toolNames })),
+    resources,
+    resourceNotifications: { marker: "notifications" },
+    tools: [{ name: "read" }],
+    createDefaultBuiltinToolSurface: vi.fn(() => ({
+      bridge,
+      toolNames,
+      tools: [{ name: "read" }],
+      resources,
+      resourceNotifications: { marker: "notifications" },
+    })),
+    projectToolResourceDescriptor: vi.fn((resource: { uri: string; title?: string; mimeType?: string }) => ({
+      uri: resource.uri,
+      title: resource.title,
+      mimeType: resource.mimeType,
+    })),
     initialize: vi.fn().mockResolvedValue(undefined),
     connect,
     createServer: vi.fn(() => ({ connect })),
@@ -21,9 +50,15 @@ vi.mock("@modelcontextprotocol/sdk/server/stdio.js", () => ({
 
 vi.mock("@kilnai/core", () => ({
   createDefaultBuiltinToolSurface: coreMocks.createDefaultBuiltinToolSurface,
+  projectToolResourceDescriptor: coreMocks.projectToolResourceDescriptor,
   DevToolsMcpServer: class MockDevToolsMcpServer {
     constructor(options: unknown) {
-      expect(options).toEqual({ bridge: coreMocks.bridge });
+      expect(options).toEqual({
+        bridge: coreMocks.bridge,
+        tools: coreMocks.tools,
+        resources: coreMocks.resources,
+        resourceNotifications: coreMocks.resourceNotifications,
+      });
     }
     initialize = coreMocks.initialize;
     createServer = coreMocks.createServer;
@@ -61,6 +96,9 @@ describe("tools command", () => {
     expect(coreMocks.createDefaultBuiltinToolSurface).toHaveReturnedWith({
       bridge: coreMocks.bridge,
       toolNames: coreMocks.toolNames,
+      tools: coreMocks.tools,
+      resources: coreMocks.resources,
+      resourceNotifications: coreMocks.resourceNotifications,
     });
     expect(coreMocks.initialize).toHaveBeenCalledTimes(1);
     expect(coreMocks.createServer).toHaveBeenCalledTimes(1);
@@ -68,6 +106,28 @@ describe("tools command", () => {
     expect(stderrSpy).toHaveBeenCalledWith(
       "kiln dev tools MCP server running (stdio)",
     );
+  });
+
+  it("lists resource descriptors for debugging and scripts", async () => {
+    const stdoutSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await toolsCommand(APP_CONFIG, { resources: true });
+
+    expect(coreMocks.resources.list).toHaveBeenCalledTimes(1);
+    expect(stdoutSpy).toHaveBeenCalledWith(JSON.stringify([{
+      uri: "kiln://tools/catalog",
+      title: "Tool Catalog",
+      mimeType: "application/json",
+    }], null, 2));
+  });
+
+  it("reads a resource by URI for debugging and scripts", async () => {
+    const stdoutSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await toolsCommand(APP_CONFIG, { resource: "kiln://tools/catalog" });
+
+    expect(coreMocks.resources.read).toHaveBeenCalledWith("kiln://tools/catalog");
+    expect(stdoutSpy).toHaveBeenCalledWith("{\"totalIndexed\":24}");
   });
 
   it("shows the tools command in CLI help output", async () => {
@@ -82,7 +142,7 @@ describe("tools command", () => {
     const helpOutput = stdoutSpy.mock.calls.map((call) => String(call[0])).join("\n");
     expect(helpOutput).toContain("tools");
     expect(helpOutput).toContain(
-      "Launch native dev tools MCP server over stdio (--mcp)",
+      "Launch native dev tools MCP server over stdio and inspect shared resources (--mcp, --resources, --resource <uri>)",
     );
   });
 });

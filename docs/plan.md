@@ -521,7 +521,31 @@ Repo-level note:
 Make CLI, GUI, TUI, SDK, and MCP consumers use the shared resource projection
 instead of private browse/read protocols.
 
-Status: planned.
+Status: implemented.
+
+Implemented contract:
+
+- `ToolResourceDisplayDescriptor` gives consumers one compact display shape for
+  URI, title, name, MIME type, size, relation, and truncation state.
+- `projectToolResourceDescriptor`, `projectToolResourceLink`, and
+  `projectToolResultResourceLinks` live in `@kilnai/core`.
+- `kiln tools --resources` lists shared resource descriptors as JSON.
+- `kiln tools --resource <uri>` reads one shared resource URI.
+- `AttachedRuntimeBuiltinToolSurface` exposes `listResources`,
+  `listResourceTemplates`, and `readResource` so GUI/TUI/runtime consumers use
+  the core registry instead of private protocols.
+- Direct-provider builtin tool execution returns compact resource-pointer
+  output when high-volume results have links, while preserving metadata and
+  `resource_link` content.
+- `@kilnai/react` exports the core resource descriptor, page, read result, and
+  display contracts for SDK consumers.
+
+Verification:
+
+- `bun run --cwd packages/core test tests/tools/domain/tool-resource-display.test.ts`
+- `bun run --cwd packages/cli test tests/tools-command.test.ts`
+- `bun run --cwd packages/runtime test tests/gateway/attached-runtime-tool-surface.test.ts`
+- `bun run --cwd packages/sdk test tests/resource-exports.test.ts`
 
 ### Slice 25: Resource Evaluation Harness
 

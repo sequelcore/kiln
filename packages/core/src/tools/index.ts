@@ -99,6 +99,14 @@ export {
 } from "./domain/tool-catalog.js";
 
 export type {
+  ToolResourceDisplayDescriptor,
+} from "./domain/tool-resource-display.js";
+export {
+  projectToolResourceDescriptor,
+  projectToolResourceLink,
+  projectToolResultResourceLinks,
+} from "./domain/tool-resource-display.js";
+export type {
   ToolResourceChangeNotifier,
   ToolResourceListChangedNotification,
   ToolResourceNotification,

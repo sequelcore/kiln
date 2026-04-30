@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createDefaultBuiltinToolSurface } from "@kilnai/core";
 import {
   buildAttachedRuntimePerCallToolConfig,
@@ -36,6 +39,15 @@ describe("attached runtime builtin tool surface", () => {
     expect(Array.from(runtimeSurface.capabilities.keys())).toEqual(Array.from(coreSurface.capabilities.keys()));
     expect(projectToolDefinitions(runtimeSurface.toolDefinitions)).toEqual(projectToolDefinitions(coreSurface.toolDefinitions));
     expect(runtimeSurface.capabilities).toEqual(coreSurface.capabilities);
+    expect(runtimeSurface.listResources()).toEqual(coreSurface.resources.list().map((resource) => ({
+      uri: resource.uri,
+      name: resource.name,
+      title: resource.title,
+      mimeType: resource.mimeType,
+    })));
+    expect(runtimeSurface.listResourceTemplates().map((template) => template.uriTemplate)).toEqual(
+      coreSurface.resources.listTemplates().map((template) => template.uriTemplate),
+    );
   });
 
   it("builds executable per-call config from the same runtime surface projection", () => {
@@ -186,5 +198,47 @@ describe("attached runtime builtin tool surface", () => {
       "operator_elicit",
       "tool_catalog_search",
     ]);
+  });
+
+  it("surfaces resource links from direct-provider builtin tool execution without injecting artifact content", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "kiln-runtime-resource-links-"));
+    try {
+      await writeFile(join(tempDir, "large.txt"), "runtime link\n".repeat(1_000), "utf8");
+      const runtimeSurface = createAttachedRuntimeBuiltinToolSurface();
+
+      const result = await runtimeSurface.callBuiltinTools.get("read_many")?.({
+        paths: [join(tempDir, "large.txt")],
+        maxBytes: 20_000,
+      }) as {
+        output: string;
+        resourceLinks?: readonly { uri: string; title?: string }[];
+        content?: readonly { type: string; uri?: string }[];
+      };
+
+      expect(result.output).toContain("Full tool output is available as resource links");
+      expect(result.output).toContain("kiln://artifacts/tool-results/");
+      expect(result.resourceLinks).toEqual([expect.objectContaining({
+        uri: expect.stringMatching(/^kiln:\/\/artifacts\/tool-results\/artifact_\d+\/content$/),
+        title: "read_many full output",
+      })]);
+      expect(result.content).toEqual([expect.objectContaining({
+        type: "resource_link",
+        uri: result.resourceLinks?.[0]?.uri,
+      })]);
+      expect(JSON.stringify(result)).not.toContain("runtime link");
+      expect(runtimeSurface.listResources()).toContainEqual(expect.objectContaining({
+        uri: "kiln://artifacts/tool-results",
+        title: "Artifacts: tool-results",
+      }));
+      await expect(runtimeSurface.readResource(result.resourceLinks![0]!.uri)).resolves.toMatchObject({
+        contents: [{
+          uri: result.resourceLinks![0]!.uri,
+          mimeType: "text/plain",
+          text: expect.stringContaining("runtime link"),
+        }],
+      });
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
   });
 });

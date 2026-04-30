@@ -322,11 +322,14 @@ Verification:
 Goal: make CLI, GUI, TUI, SDK, and MCP consumers use the same resource
 projection without building private browse/read protocols.
 
-Requirements:
+Status: implemented on 2026-04-29.
+
+Implemented requirements:
 
 - CLI can list/read resources for debugging and scripts
 - SDK exports resource registry and resource read contracts
-- GUI/TUI use resource descriptors for context browsing where appropriate
+- GUI/TUI/runtime consumers can use the attached runtime surface's shared
+  resource list/read projection instead of private browse protocols
 - MCP remains the external host contract
 - direct-provider runtime can surface resource links in tool results without
   injecting large payloads into every turn
@@ -334,6 +337,40 @@ Requirements:
   consistently
 - no consumer stores private copies of resource data unless explicitly cached
   with invalidation semantics
+
+Implemented contract:
+
+```ts
+projectToolResourceDescriptor(resource)
+projectToolResourceLink(link, truncated?)
+projectToolResultResourceLinks(result)
+
+AttachedRuntimeBuiltinToolSurface.listResources()
+AttachedRuntimeBuiltinToolSurface.listResourceTemplates()
+AttachedRuntimeBuiltinToolSurface.readResource(uri)
+
+kiln tools --resources
+kiln tools --resource <uri>
+```
+
+Design notes:
+
+- CLI resource commands use the same `createDefaultBuiltinToolSurface()` as
+  MCP mode, including workspace, artifact, web, and notification wiring.
+- Direct-provider runtime tool execution compacts linked high-volume output to
+  resource pointers while preserving `metadata.resourceLinks` and
+  `resource_link` content.
+- Runtime resource listing is live, not a copied snapshot, so artifact
+  namespaces appear after tool execution writes linked artifacts.
+- SDK exports the resource read/list/display contracts from `@kilnai/core` for
+  consumer code.
+
+Verification:
+
+- `bun run --cwd packages/core test tests/tools/domain/tool-resource-display.test.ts`
+- `bun run --cwd packages/cli test tests/tools-command.test.ts`
+- `bun run --cwd packages/runtime test tests/gateway/attached-runtime-tool-surface.test.ts`
+- `bun run --cwd packages/sdk test tests/resource-exports.test.ts`
 
 ## Slice 25: Resource Evaluation Harness
 
@@ -366,5 +403,6 @@ Requirements:
 
 ## Current Priority
 
-Continue with Slice 24. Resource links from high-volume tools are closed in the
-shared core execution path; the next work is consumer display and UX projection.
+Continue with Slice 25. Consumer projection is closed; the next work is a
+read-only evaluation harness that proves resources reduce context bloat without
+increasing tool confusion.
