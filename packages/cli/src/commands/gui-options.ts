@@ -10,3 +10,15 @@ export function buildGuiUrl(baseUrl: string, themePreference: OperatorThemePrefe
   url.searchParams.set("theme", themePreference);
   return url.toString();
 }
+
+export function buildGuiAttachUrl(connectUrl: string, themePreference: OperatorThemePreference): string {
+  const parsed = new URL(connectUrl);
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("GUI attach URL must use http:// or https://");
+  }
+  parsed.pathname = "/gui/";
+  parsed.search = "";
+  parsed.hash = "";
+  parsed.searchParams.set("theme", themePreference);
+  return parsed.toString();
+}

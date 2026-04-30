@@ -26,6 +26,11 @@ multiple human-facing surfaces:
 Kiln should follow that architecture: one governed runtime, multiple replaceable
 operator surfaces.
 
+The canonical surface taxonomy is defined in
+[`docs/architecture/runtime-surfaces.md`](../architecture/runtime-surfaces.md).
+This roadmap uses "App Gateway" for the deployable `startGateway(gateway.yaml)`
+runtime and "Operator Gateway" for local GUI/TUI bridge servers.
+
 ## Product Decision
 
 Kiln remains runtime/headless first.
@@ -68,21 +73,30 @@ Correct separation:
 ## Target Surface Model
 
 ```text
-Kiln core/runtime
+App Gateway
   -> canonical provider-agnostic sessions, events, tools, policy, audit, replay
-  -> gateway HTTP/WS internal operator contract
+  -> HTTP/WS operator contract
+  -> GUI / CLI / TUI / IDE / future remote dashboard
   -> MCP external tool contract
-  -> operator surfaces:
-       local web GUI
-       CLI / TUI
-       IDE extension
-       future Tauri wrapper
-       future remote/cloud dashboard
+  -> external agents, IDEs, wrappers, and tool hosts
 ```
 
 No surface owns control-plane logic. If a behavior affects session semantics,
 tool authority, provider identity, cost, memory, replay, or audit, it belongs in
 core/runtime and is projected through stable contracts.
+
+Separate local ports are acceptable for helper servers and UI assets. They do
+not imply separate app control planes. When operating YAML apps, a GUI or TUI
+should attach to the App Gateway instead of starting an independent app runtime.
+
+Initial implementation status: `kiln gui --connect <url>` attaches the GUI to an
+existing App Gateway URL without starting the local Operator Gateway. The App
+Gateway exposes `/gui/*` static assets when a GUI bundle is available plus
+`/gui/api/dashboard`, `/gui/api/sessions`, and `/gui/ws` operator endpoints.
+The dashboard publishes runtime-capable YAML apps and enabled tenants; the GUI
+lets the operator select the app/tenant target and sends `appName`/`tenantId`
+on message frames. Provider switching and full operator controls remain later
+operator-contract slices.
 
 Session identity is also shared infrastructure. A Kiln session is not owned by
 the selected provider; provider/model selection is next-turn routing state, and

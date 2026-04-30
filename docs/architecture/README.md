@@ -51,6 +51,10 @@ is documented by concern, not as a single monolith.
   Runtime provider availability, model discovery, operator diagnostics, and
   provider/model selection invariants.
 
+- `runtime-surfaces.md`
+  Canonical taxonomy for App Gateway, Operator Gateway, Studio Dev Server,
+  CLI, GUI, TUI, SDK/widget, and MCP boundaries.
+
 - `adaptation.md`
   Operational modes, allostatic load, predictive regulation, adaptation, and
   anti-drift rules.

@@ -22,7 +22,7 @@ import {
 } from "@kilnai/runtime";
 import { getFieldStore } from "@kilnai/core";
 import { persistGuiThemePreference, resolveGuiThemePreference } from "../application/operator-theme-preferences.js";
-import { buildGuiUrl } from "./gui-options.js";
+import { buildGuiAttachUrl, buildGuiUrl } from "./gui-options.js";
 import { createLocalWorkspaceExplorer } from "./gui-workspace.js";
 import { createManagedGuiWindowShutdownMonitor } from "./gui-shutdown-monitor.js";
 import { launchGuiWindow, type GuiWindowSession } from "./gui-window.js";
@@ -35,6 +35,7 @@ export interface GuiFlags {
   readonly guiPort?: number;
   readonly mode?: "dev" | "prod";
   readonly cwd?: string;
+  readonly connect?: string;
   readonly open?: boolean;
   readonly provider?: string;
   readonly theme?: string;
@@ -43,6 +44,13 @@ export interface GuiFlags {
 
 export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {}): Promise<void> {
   const cwd = flags.cwd ?? process.cwd();
+  const globalConfig = readGlobalConfig();
+  const themePreference = resolveGuiThemePreference(flags.theme, globalConfig);
+  if (flags.connect) {
+    await guiAttachCommand(flags.connect, themePreference, flags);
+    return;
+  }
+
   const mode = resolveGuiMode(cwd, flags.mode);
   const port = flags.port ?? 4810;
   const guiPort = flags.guiPort ?? 5183;
@@ -50,9 +58,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
   const { registry } = createDefaultRegistry();
   const providerDisplay = getProviderDisplayInfo(registry);
   const providerIds = providerDisplay.map((provider) => provider.id);
-  const globalConfig = readGlobalConfig();
   const provider = parseProvider(resolveEffectiveProvider(flags.provider, globalConfig?.provider), providerIds);
-  const themePreference = resolveGuiThemePreference(flags.theme, globalConfig);
   const transcriptStore = new TranscriptStore(cwd);
   const contextArtifactCache = await getProjectContextArtifactCache(cwd);
   const builtinToolOptions = await loadConfiguredWebToolSurfaceOptions(appConfig, cwd);
@@ -139,6 +145,30 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
     }
     gateway.shutdown();
   }, guiWindow, guiWindow ? managedWindowShutdownMonitor.waitForDisconnect() : undefined);
+}
+
+async function guiAttachCommand(
+  connectUrl: string,
+  themePreference: ReturnType<typeof resolveGuiThemePreference>,
+  flags: GuiFlags,
+): Promise<void> {
+  const guiUrl = buildGuiAttachUrl(connectUrl, themePreference);
+  const gatewayUrl = new URL(guiUrl).origin;
+  printStartupBanner({
+    mode: "attach",
+    gatewayUrl: `${gatewayUrl}/gui/`,
+    guiUrl,
+    apiUrl: `${gatewayUrl}/gui/api/dashboard`,
+  });
+
+  let guiWindow: GuiWindowSession | undefined;
+  if (flags.open ?? true) {
+    guiWindow = launchGuiWindow(guiUrl);
+    console.log(`GUI window host: ${guiWindow.browserLabel}`);
+    await waitForShutdown(() => {
+      guiWindow?.close();
+    }, guiWindow);
+  }
 }
 
 function parseProvider(p: string | undefined, providerIds: readonly ProviderId[]): ProviderId | null {
@@ -327,7 +357,7 @@ async function stopChildProcess(child: ChildProcess, label: string): Promise<voi
   console.log(`[${label}] stopped`);
 }
 
-function printStartupBanner(input: { mode: "dev" | "prod"; gatewayUrl: string; guiUrl: string; apiUrl: string }): void {
+function printStartupBanner(input: { mode: "dev" | "prod" | "attach"; gatewayUrl: string; guiUrl: string; apiUrl: string }): void {
   console.log("Kiln GUI");
   console.log(`Mode: ${input.mode}`);
   console.log(`Gateway URL: ${input.gatewayUrl}`);

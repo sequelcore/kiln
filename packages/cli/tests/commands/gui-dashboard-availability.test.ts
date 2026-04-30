@@ -121,6 +121,7 @@ vi.mock("../../src/commands/tui.js", () => ({
 }));
 
 vi.mock("../../src/commands/gui-options.js", () => ({
+  buildGuiAttachUrl: vi.fn((url: string) => `${url.replace(/\/$/, "")}/gui/`),
   buildGuiUrl: vi.fn((url: string) => url),
   persistGuiThemePreference: vi.fn(),
   resolveGuiThemePreference: vi.fn(() => "kiln-dark"),
@@ -309,6 +310,20 @@ describe("GUI dashboard provider availability", () => {
     });
 
     expect(gatewayHarness.startGuiGateway).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not start the local GUI gateway in attach mode", async () => {
+    tmpDir = mkdtempSync(join(tmpdir(), "kiln-gui-dashboard-availability-"));
+    const { guiCommand } = await import("../../src/commands/gui.js");
+
+    await guiCommand(APP_CONFIG, {
+      cwd: tmpDir,
+      connect: "http://localhost:3800",
+      open: false,
+    });
+
+    expect(gatewayHarness.startGuiGateway).not.toHaveBeenCalled();
+    expect(registryMocks.createDefaultRegistry).not.toHaveBeenCalled();
   });
 
   it("rejects an unknown configured provider instead of defaulting to the first advertised provider", async () => {

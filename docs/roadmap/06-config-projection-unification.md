@@ -2,9 +2,10 @@
 
 ## 1. Doctrine
 
-`~/.kiln/config.yaml` is the **single source of truth** for all Kiln-regulated
-work. Every provider credential, permission policy, MCP server, hook, agent,
-skill, model selection, and component set is declared there. Harness configs —
+`~/.kiln/config.yaml` is the **single source of truth** for Kiln-managed harness
+and operator configuration. Every provider credential, permission policy, MCP
+server, hook, agent, skill, model selection, and component set that Kiln
+projects into supported harnesses is declared there. Harness configs —
 `~/.claude/settings.json`, `~/.codex/config.toml`, and
 `~/.config/opencode/opencode.json` — are **projected artifacts**.
 They are never sources. They are never edited by hand for Kiln-managed concerns.
@@ -16,6 +17,11 @@ does not negotiate with them. Drift is an error condition, not a valid
 steady-state. When a harness config deviates from the last projection, Kiln
 warns loudly, refuses to sync further, and offers `kiln import-native <target>`
 as an opt-in one-shot to acknowledge and absorb the drift.
+
+This does not replace `gateway.yaml` or `app.yaml`. Deployable apps still use
+`gateway.yaml` plus bound `app.yaml` files as the App Gateway runtime contract.
+Global config may declare how local operator surfaces and harnesses attach to or
+project that runtime, but it is not the source of app topology.
 
 The engine registry is a first-class Kiln primitive. Session-start availability
 probing replaces the `~/.claude/hooks/check-engines.sh` shell workaround.

@@ -4,7 +4,8 @@
 import { Hono } from "hono";
 import type { App, SttAdapter, ContactMemoryService } from "@kilnai/core";
 import type { GatewayAppBinding, SecurityConfig, AuditLog, GatewayMcpConfig } from "@kilnai/core";
-import { PromptScanner } from "@kilnai/core";
+import { extractText, PromptScanner, textParts } from "@kilnai/core";
+import type { WSContext } from "hono/ws";
 import type { ChannelRegistry } from "../channels/channel-registry.js";
 import type { WebChannel } from "../channels/web-channel.js";
 import type { ProviderAdapterAppRuntime } from "./provider-adapter-routes.js";
@@ -48,8 +49,17 @@ import type { ConversationEventEmitter } from "./conversation-event-emitter.js";
 import type { KnowledgePipelineResult } from "./knowledge-factory.js";
 import type { JwtVerifyFn } from "./jwt-verifier.js";
 import { requireJwt } from "./auth-middleware.js";
+import type {
+  GuiDashboardSnapshot,
+  GuiInboundFrame,
+  GuiOutboundFrame,
+  GuiAppDescriptor,
+  GuiSessionDetail,
+  GuiSessionSummary,
+} from "@kilnai/gateway-contracts";
 import {
   appendCoordinationProviderFailureAudit,
+  processAdmittedTurn,
   projectAdmittedTurnContext,
   resolveCoordinationContextCandidates,
 } from "./message-pipeline.js";
@@ -137,6 +147,97 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
       subsystems,
     });
   });
+
+  app.get("/gui/api/dashboard", async (c) => {
+    return c.json(await buildAppGatewayGuiDashboard(config));
+  });
+
+  app.get("/gui/api/sessions", async (c) => {
+    return c.json({ sessions: await listAppGatewayGuiSessions(config) });
+  });
+
+  app.get("/gui/api/sessions/:sessionId", async (c) => {
+    const detail = await getAppGatewayGuiSessionDetail(config, c.req.param("sessionId"));
+    if (!detail) {
+      return c.json({ error: "Session not found" }, 404);
+    }
+    return c.json(detail);
+  });
+
+  app.post("/gui/api/preferences/theme", (c) => c.json({ ok: false, reason: "Theme persistence is local to operator surfaces" }, 202));
+  app.post("/gui/api/window-closed", (c) => c.json({ ok: true }));
+
+  if (config.upgradeWebSocket) {
+    app.get(
+      "/gui/ws",
+      config.upgradeWebSocket(() => ({
+        onOpen(_event: Event, ws: WSContext) {
+          const selectedRuntime = resolveAppGatewayGuiRuntime(config);
+          ws.send(JSON.stringify({
+            type: "welcome",
+            models: {},
+            providers: [],
+            planMode: false,
+            domainLabel: selectedRuntime?.loadedApp.name ?? "app-gateway",
+            authorityStatus: { effective: "unknown", completeness: "partial" },
+          } satisfies GuiInboundFrame));
+        },
+        async onMessage(event: MessageEvent, ws: WSContext) {
+          if (event.data === "ping") {
+            ws.send("pong");
+            return;
+          }
+          const frame = parseGuiOutboundFrame(event.data);
+          if (!frame) {
+            ws.send(JSON.stringify({
+              type: "error",
+              code: "APP_GATEWAY_INVALID_FRAME",
+              message: "Invalid GUI frame.",
+            } satisfies GuiInboundFrame));
+            return;
+          }
+          if (frame.type === "clear") {
+            const selectedRuntime = resolveAppGatewayGuiRuntime(config);
+            if (selectedRuntime) {
+              await selectedRuntime.runtime.sessionRegistry.detachActive(
+                selectedRuntime.loadedApp.name,
+                selectedRuntime.userId,
+                selectedRuntime.tenantId,
+              );
+            }
+            ws.send(JSON.stringify({ type: "cleared" } satisfies GuiInboundFrame));
+            return;
+          }
+          if (frame.type === "refresh_providers") {
+            ws.send(JSON.stringify({
+              type: "providers_refreshed",
+              models: {},
+              providerDiscovery: [],
+              providers: [],
+            } satisfies GuiInboundFrame));
+            return;
+          }
+          if (frame.type === "exec") {
+            ws.send(JSON.stringify({ type: "exec_confirmed" } satisfies GuiInboundFrame));
+            return;
+          }
+          if (frame.type !== "message") {
+            ws.send(JSON.stringify({
+              type: "error",
+              code: "APP_GATEWAY_UNSUPPORTED_GUI_FRAME",
+              message: `App Gateway attach mode does not support '${frame.type}' frames yet.`,
+            } satisfies GuiInboundFrame));
+            return;
+          }
+          const content = typeof frame.content === "string" ? frame.content.trim() : "";
+          if (!content) {
+            return;
+          }
+          await processAppGatewayGuiMessage(config, frame, ws);
+        },
+      })),
+    );
+  }
 
   if (config.mcp?.enabled) {
     app.get("/.well-known/oauth-authorization-server", (c) => {
@@ -380,4 +481,317 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
   }
 
   return app;
+}
+
+async function buildAppGatewayGuiDashboard(config: GatewayServerConfig): Promise<GuiDashboardSnapshot> {
+  const selectedRuntime = resolveAppGatewayGuiRuntime(config);
+  return {
+    providers: [],
+    sessions: await listAppGatewayGuiSessions(config),
+    telemetry: {
+      status: "stable",
+      dominantRegions: config.apps.map((app) => app.name).slice(0, 3),
+      saturation: config.apps.length,
+      entropy: 0,
+    },
+    resumeInfoByProvider: {},
+    apps: buildAppGatewayGuiApps(config),
+    ...(selectedRuntime ? { activeAppName: selectedRuntime.loadedApp.name } : {}),
+    ...(selectedRuntime ? { activeTenantId: selectedRuntime.tenantId } : {}),
+    domainLabel: selectedRuntime?.loadedApp.name ?? "app-gateway",
+  };
+}
+
+function buildAppGatewayGuiApps(config: GatewayServerConfig): readonly GuiAppDescriptor[] {
+  return config.apps.map((loadedApp) => {
+    const runtime: GuiAppDescriptor["runtime"] = loadedApp.providerAdapterRuntime
+      ? "provider-adapter"
+      : loadedApp.tenantRuntime
+        ? "tenant"
+        : "none";
+    return {
+      name: loadedApp.name,
+      runtime,
+      channels: loadedApp.binding.channels.map((channel) => channel.type),
+      runtimeCapable: runtime !== "none",
+      ...(loadedApp.tenantRuntime ? {
+        tenants: loadedApp.tenantRuntime.tenantRegistry.list(loadedApp.name).map((tenant) => ({
+          tenantId: tenant.tenantId,
+          label: tenant.businessName ?? tenant.name,
+          enabled: tenant.enabled,
+        })),
+      } : {}),
+    };
+  });
+}
+
+async function listAppGatewayGuiSessions(config: GatewayServerConfig): Promise<readonly GuiSessionSummary[]> {
+  const sessions = await collectAppGatewayRuntimeSessions(config);
+  return sessions.map((session) => {
+    const firstUserMessage = session.conversationHistory.find((message) => message.role === "user");
+    const taskSummary = firstUserMessage ? extractText(firstUserMessage.parts) : `${session.appName} session`;
+    const lastProvider = session.sessionLedger.lastProvider;
+    return {
+      id: session.id,
+      title: session.appName,
+      providersUsed: lastProvider ? [lastProvider] : [],
+      ...(lastProvider ? { lastProvider } : {}),
+      completedAt: session.lastActivityAt.toISOString(),
+      cost: 0,
+      taskSummary,
+    };
+  });
+}
+
+async function getAppGatewayGuiSessionDetail(
+  config: GatewayServerConfig,
+  sessionId: string,
+): Promise<GuiSessionDetail | null> {
+  const sessions = await collectAppGatewayRuntimeSessions(config);
+  const session = sessions.find((entry) => entry.id === sessionId);
+  if (!session) {
+    return null;
+  }
+  const firstUserMessage = session.conversationHistory.find((message) => message.role === "user");
+  const ledger = session.sessionLedger;
+  return {
+    id: session.id,
+    meta: {
+      kilnSessionId: session.id,
+      title: session.appName,
+      task: firstUserMessage ? extractText(firstUserMessage.parts) : `${session.appName} session`,
+      startedAt: session.createdAt.toISOString(),
+      completedAt: session.lastActivityAt.toISOString(),
+      costUsd: 0,
+      turnDepth: session.userTurnCount,
+      sessionLedger: {
+        currentPhase: ledger.currentPhase,
+        ...(ledger.lastError ? { lastError: ledger.lastError } : {}),
+        ...(ledger.lastProvider ? { lastProvider: ledger.lastProvider } : {}),
+        ...(ledger.toolCallCount !== undefined ? { toolCallCount: ledger.toolCallCount } : {}),
+        ...(ledger.turnDepth !== undefined ? { turnDepth: ledger.turnDepth } : {}),
+      },
+      exactArtifacts: session.exactArtifacts,
+    },
+    events: [],
+  };
+}
+
+type AppGatewayGuiRuntimeSelection =
+  | {
+      readonly loadedApp: LoadedApp;
+      readonly userId: string;
+      readonly tenantId: string;
+      readonly runtime: ProviderAdapterAppRuntime;
+      readonly kind: "provider-adapter";
+    }
+  | {
+      readonly loadedApp: LoadedApp;
+      readonly userId: string;
+      readonly tenantId: string;
+      readonly runtime: TenantAppRuntime;
+      readonly kind: "tenant";
+    };
+
+function resolveAppGatewayGuiRuntime(
+  config: GatewayServerConfig,
+  selection?: { readonly appName?: string; readonly tenantId?: string },
+): AppGatewayGuiRuntimeSelection | undefined {
+  if (selection?.appName) {
+    const loadedApp = config.apps.find((app) => app.name === selection.appName);
+    if (!loadedApp) {
+      return undefined;
+    }
+    return resolveLoadedAppGatewayGuiRuntime(loadedApp, selection.tenantId);
+  }
+
+  for (const loadedApp of config.apps) {
+    const resolved = resolveLoadedAppGatewayGuiRuntime(loadedApp);
+    if (resolved?.kind === "provider-adapter") {
+      return resolved;
+    }
+  }
+
+  for (const loadedApp of config.apps) {
+    const resolved = resolveLoadedAppGatewayGuiRuntime(loadedApp);
+    if (resolved) return resolved;
+  }
+
+  return undefined;
+}
+
+function resolveLoadedAppGatewayGuiRuntime(
+  loadedApp: LoadedApp,
+  tenantId?: string,
+): AppGatewayGuiRuntimeSelection | undefined {
+  if (loadedApp.providerAdapterRuntime) {
+    return {
+      loadedApp,
+      userId: "_gui",
+      tenantId: "_default",
+      runtime: loadedApp.providerAdapterRuntime,
+      kind: "provider-adapter",
+    };
+  }
+  const runtime = loadedApp.tenantRuntime;
+  if (!runtime) {
+    return undefined;
+  }
+  const tenant = tenantId
+    ? runtime.tenantRegistry.get(tenantId)
+    : runtime.tenantRegistry.list(loadedApp.name).find((entry) => entry.enabled);
+  if (!tenant || tenant.appName !== loadedApp.name || !tenant.enabled) {
+    return undefined;
+  }
+  return {
+    loadedApp,
+    userId: "_gui",
+    tenantId: tenant.tenantId,
+    runtime,
+    kind: "tenant",
+  };
+}
+
+async function processAppGatewayGuiMessage(
+  config: GatewayServerConfig,
+  frame: Extract<GuiOutboundFrame, { type: "message" }>,
+  ws: WSContext,
+): Promise<void> {
+  const selectedRuntime = resolveAppGatewayGuiRuntime(config, {
+    appName: frame.appName,
+    tenantId: frame.tenantId,
+  });
+  if (!selectedRuntime) {
+    ws.send(JSON.stringify({
+      type: "error",
+      code: "APP_GATEWAY_NO_GUI_RUNTIME",
+      message: frame.appName
+        ? `No runtime-capable App Gateway app matched '${frame.appName}'.`
+        : "No runtime-capable App Gateway app is available for GUI attach mode.",
+    } satisfies GuiInboundFrame));
+    return;
+  }
+
+  ws.send(JSON.stringify({ type: "thinking" } satisfies GuiInboundFrame));
+  const content = frame.content.trim();
+  const sessionId = typeof frame.resumeSessionId === "string" && frame.resumeSessionId.trim()
+    ? frame.resumeSessionId.trim()
+    : undefined;
+
+  try {
+    const processResult = selectedRuntime.kind === "provider-adapter"
+      ? await processAdmittedTurn({
+        orchestrator: selectedRuntime.runtime.orchestrator,
+        sessionRegistry: selectedRuntime.runtime.sessionRegistry,
+        appName: selectedRuntime.runtime.appName,
+        tenantId: selectedRuntime.tenantId,
+        userId: selectedRuntime.userId,
+        ...(sessionId ? { sessionId } : {}),
+        systemPrompt: selectedRuntime.runtime.systemPrompt,
+        userParts: textParts(content),
+        billing: selectedRuntime.runtime.billing,
+        channel: "gui",
+        knowledgePipeline: selectedRuntime.runtime.knowledgePipeline,
+        knowledgeMode: selectedRuntime.runtime.knowledgeMode,
+        tenant: selectedRuntime.runtime.tenant,
+        handoffSummarizer: selectedRuntime.runtime.handoffSummarizer,
+        eventBus: selectedRuntime.runtime.eventBus,
+        groundingMode: selectedRuntime.runtime.tenant?.groundingMode,
+        groundingDeps: selectedRuntime.runtime.groundingDeps,
+        contextArtifactCache: selectedRuntime.runtime.contextArtifactCache,
+        coordinationContextProvider: selectedRuntime.runtime.coordinationContextProvider,
+      })
+      : await processTenantAppGatewayGuiTurn(selectedRuntime, content, sessionId);
+
+    if (!processResult.ok) {
+      ws.send(JSON.stringify({
+        type: "error",
+        message: processResult.budgetDenied.message,
+      } satisfies GuiInboundFrame));
+      return;
+    }
+
+    const result = processResult.result;
+    ws.send(JSON.stringify({
+      type: "done",
+      content: extractText(result.parts),
+      parts: result.parts,
+      inputTokens: result.inputTokens,
+      outputTokens: result.outputTokens,
+      ...(result.routingDecision?.provider ? { routedProvider: result.routingDecision.provider } : {}),
+      ...(result.routingDecision?.model ? { routedModel: result.routingDecision.model } : {}),
+      runtimeContinuity: result.runtimeContinuity ?? { strategy: "none" },
+      authorityStatus: { effective: "unknown", completeness: "partial" },
+    } satisfies GuiInboundFrame));
+  } catch (error) {
+    ws.send(JSON.stringify({
+      type: "error",
+      message: error instanceof Error ? error.message : String(error),
+    } satisfies GuiInboundFrame));
+  }
+}
+
+async function processTenantAppGatewayGuiTurn(
+  selection: Extract<AppGatewayGuiRuntimeSelection, { kind: "tenant" }>,
+  content: string,
+  sessionId?: string,
+): ReturnType<typeof processAdmittedTurn> {
+  const tenant = selection.runtime.tenantRegistry.get(selection.tenantId);
+  if (!tenant || tenant.appName !== selection.runtime.appName) {
+    throw new Error(`Tenant '${selection.tenantId}' is not available for app '${selection.runtime.appName}'.`);
+  }
+  if (!tenant.enabled) {
+    throw new Error(`Tenant '${selection.tenantId}' is disabled.`);
+  }
+  const billingConfig = tenant.billing?.budgetEndpoint
+    ? (tenant.billing as unknown as TenantAppRuntime["billing"])
+    : selection.runtime.billing;
+
+  return processAdmittedTurn({
+    orchestrator: selection.runtime.orchestrator,
+    sessionRegistry: selection.runtime.sessionRegistry,
+    appName: selection.runtime.appName,
+    tenantId: selection.tenantId,
+    userId: selection.userId,
+    ...(sessionId ? { sessionId } : {}),
+    userParts: textParts(content),
+    billing: billingConfig,
+    channel: "gui",
+    tenant,
+    idleTimeoutMs: tenant.idleTimeoutMs,
+    groundingMode: tenant.groundingMode,
+    groundingDeps: selection.runtime.groundingDeps,
+    contextArtifactCache: selection.runtime.contextArtifactCache,
+    coordinationContextProvider: selection.runtime.coordinationContextProvider,
+  });
+}
+
+function parseGuiOutboundFrame(data: unknown): GuiOutboundFrame | null {
+  const raw = typeof data === "string"
+    ? data
+    : data instanceof ArrayBuffer
+      ? new TextDecoder().decode(data)
+      : "";
+  if (!raw) {
+    return null;
+  }
+  try {
+    return JSON.parse(raw) as GuiOutboundFrame;
+  } catch {
+    return null;
+  }
+}
+
+async function collectAppGatewayRuntimeSessions(config: GatewayServerConfig): Promise<readonly import("../session/runtime-session.js").RuntimeSession[]> {
+  const registries = new Set<import("../session/session-registry.js").SessionRegistry>();
+  for (const app of config.apps) {
+    if (app.providerAdapterRuntime) {
+      registries.add(app.providerAdapterRuntime.sessionRegistry);
+    }
+    if (app.tenantRuntime) {
+      registries.add(app.tenantRuntime.sessionRegistry);
+    }
+  }
+  const sessions = await Promise.all([...registries].map((registry) => registry.activeSessions()));
+  return sessions.flat().sort((a, b) => b.lastActivityAt.getTime() - a.lastActivityAt.getTime());
 }

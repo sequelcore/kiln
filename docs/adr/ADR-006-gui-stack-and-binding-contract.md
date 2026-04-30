@@ -31,9 +31,9 @@ The decisions below resolve seven questions left open by ADR-005: runtime substr
 
 ## Decision
 
-### 1. Runtime substrate: web-first, served locally by the existing gateway
+### 1. Runtime substrate: web-first, served by a gateway-backed operator path
 
-The GUI ships as a **Vite-built single-page web application**, served by the already-running Kiln gateway process on `http://localhost:<port>/gui/`. The operator opens it in their existing browser. This is the primary and only supported substrate in Phase 1.
+The GUI ships as a **Vite-built single-page web application**, served by a Kiln gateway-backed process on `http://localhost:<port>/gui/`. In local developer mode, `kiln gui` starts an Operator Gateway that owns the operator session bridge. When operating deployable YAML apps, the GUI attaches to the App Gateway started from `gateway.yaml` instead of creating a second app control plane. The operator opens the GUI in their existing browser. This is the primary and only supported substrate in Phase 1.
 
 Tauri is **deferred**, not rejected. Once the web surface stabilizes and a concrete need for OS integration surfaces (tray icon, file-system access, notifications, offline install), a Tauri wrapper can be added as a thin shell over the same bundle. Electron is rejected outright: heavier runtime, weaker security defaults, no integration advantage over Tauri, and no category peer in the governed-AI space ships Electron.
 
@@ -61,9 +61,16 @@ Locked to Sequel standards, no deviation:
 
 **No CSS-in-JS, no styled-components, no Emotion.** Tailwind v4 + shadcn is the full styling surface.
 
-### 3. Binding contract: HTTP + WebSocket over the existing runtime gateway
+### 3. Binding contract: HTTP + WebSocket over the operator contract
 
-The GUI talks to `@kilnai/core` and `@kilnai/runtime` **exclusively through the Hono gateway in `packages/runtime/src/gateway/`**. It does not import from `@kilnai/core` or `@kilnai/runtime` directly. It does not speak to providers directly. It does not hold control-plane state.
+The GUI talks to `@kilnai/core` and `@kilnai/runtime` **exclusively through Hono gateway routes in `packages/runtime/src/gateway/`**. It does not import from `@kilnai/core` or `@kilnai/runtime` directly. It does not speak to providers directly. It does not hold control-plane state.
+
+There are two gateway-backed modes:
+
+- **Attach mode:** GUI connects to an existing App Gateway such as `kiln-gateway` and operates loaded YAML apps.
+- **Local operator mode:** GUI starts an Operator Gateway for local coding/dev sessions that are not a deployable app gateway.
+
+The modes may use different ports, but only the App Gateway owns deployed app runtime semantics.
 
 Concretely:
 
@@ -71,6 +78,7 @@ Concretely:
 - **Contract source of truth.** TypeScript types exported from `@kilnai/runtime` gateway route modules. The GUI imports *types only* (`import type`) from runtime — never runtime code. This keeps the GUI bundle free of server-only dependencies and preserves one-way compile direction (runtime does not import GUI).
 - **Route reuse.** The current `tui-gateway.ts` endpoints are renamed to a neutral `operator-gateway.ts` (or kept as-is under a stable path) and consumed by both surfaces during the parity window. After TUI deletion (Phase I), the gateway remains; only the TUI client disappears.
 - **Contract validation.** All gateway payloads are Zod-validated at the boundary on both ends. The GUI shares the schemas with runtime via a tiny `@kilnai/gateway-contracts` internal package (or a re-export from runtime) to avoid hand-maintained drift.
+- **MCP boundary.** MCP is not the GUI-to-gateway protocol. MCP remains the external tool/host contract for agents, IDEs, wrappers, and model hosts.
 
 **Options explicitly rejected.**
 
@@ -158,7 +166,7 @@ Any PR that introduces a custom interactive component without an a11y review is 
 
 - **Dev server.** `bun run --cwd packages/gui dev` starts Vite on a fixed port (e.g. `5183`). The gateway serves a dev proxy so `http://localhost:<gateway>/gui` forwards to Vite in dev and serves the built bundle in prod.
 - **Prod serve.** `bun run --cwd packages/gui build` emits to `packages/gui/dist/`. Runtime's gateway mounts that directory as static assets under `/gui/*` when present. No separate web server process.
-- **CLI entrypoint.** `@kilnai/cli` gains a `kiln gui` command. It starts the gateway (if not running), opens the default browser at `/gui`, and tails logs. This is the single operator-facing "how do I launch the GUI" answer.
+- **CLI entrypoint.** `@kilnai/cli` provides a `kiln gui` command. In local operator mode it starts an Operator Gateway if one is not running, opens the default browser at `/gui`, and tails logs. In attach mode (`kiln gui --connect <url>`) it connects to an existing App Gateway URL and does not start another app runtime.
 - **Monorepo wiring.** `packages/gui` added to workspace. TypeScript project references: `gui` → `runtime` (types) → `core` (types). Quality gates (`bun run typecheck`, `bun run test`) cover the new package from its first commit.
 - **No separate build orchestrator.** Vite handles the GUI; `tsc -b` handles the rest. No Turbo, no Nx — Bun workspaces + Vite are sufficient at this size.
 

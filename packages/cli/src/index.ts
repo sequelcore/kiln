@@ -36,12 +36,12 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     domain: "Manage domain packages (install, list, search, info, remove)",
     gateway: "Start persistent Gateway (multi-app hosting)",
     dev: "Start development mode with hot-reload and event streaming (--playground)",
-    gui: "Start the GUI gateway and open the operator surface",
+    gui: "Start the GUI operator surface or attach to an App Gateway",
     skill: "Manage skills (list, install, publish)",
     auth: "Authenticate subscription-backed providers (codex login/status/logout)",
     cron: "Manage scheduled jobs (list, add, remove, run)",
     sync: "Sync permissions and hooks to Claude Code, Codex, and OpenCode (--permissions, --hooks, --all)",
-    tools: "Launch native dev tools MCP server over stdio (--mcp)",
+    tools: "Launch native dev tools MCP server over stdio and inspect shared resources (--mcp, --resources, --resource <uri>)",
     tui: "Interactive terminal chat (TUI mode)",
   };
 
@@ -60,12 +60,15 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     console.log("  --agent      Agent name from .kiln/agents or ~/.kiln/agents");
     console.log("  --port       Port override (dev/gateway)");
     console.log("  --gui-port   GUI dev server port override (gui command)");
+    console.log("  --connect    Attach GUI to an existing App Gateway URL");
     console.log("  --dev        Force gui command to run in dev mode");
     console.log("  --prod       Force gui command to run in prod mode");
     console.log("  --open       Open GUI URL in default browser");
     console.log("  --no-open    Do not open browser automatically");
     console.log("  --playground Open Studio in browser (dev mode)");
     console.log("  --mcp       Start tools command in MCP stdio mode");
+    console.log("  --resources List shared tool resources as JSON");
+    console.log("  --resource  Read one shared tool resource URI");
     console.log("  --plan      Plan mode: read-only exploration before execution");
     console.log("  --ephemeral Run Codex without persisting session files");
     console.log("  --profile    Codex profile name from ~/.codex/config.toml");
@@ -213,6 +216,7 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
       guiPort,
       mode: mode.value,
       cwd: findFlag(args, "--cwd"),
+      connect: findFlag(args, "--connect"),
       open: parseOpenFlag(args),
       provider: findFlag(args, "--provider"),
       theme: findFlag(args, "--theme"),
@@ -247,7 +251,11 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
 
   if (command === "tools") {
     const { toolsCommand } = await import("./commands/tools.js");
-    await toolsCommand(config, { mcp: args.includes("--mcp") });
+    await toolsCommand(config, {
+      mcp: args.includes("--mcp"),
+      resources: args.includes("--resources"),
+      resource: findFlag(args, "--resource"),
+    });
     return;
   }
 

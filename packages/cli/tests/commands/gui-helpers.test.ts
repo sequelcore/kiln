@@ -34,7 +34,7 @@ describe("gui command helpers", () => {
   });
 
   it("persists GUI theme into global config and builds launch URL with theme query", async () => {
-    const { buildGuiUrl, persistGuiThemePreference } = await import("../../src/commands/gui-options.js");
+    const { buildGuiAttachUrl, buildGuiUrl, persistGuiThemePreference } = await import("../../src/commands/gui-options.js");
 
     persistGuiThemePreference("kiln-light");
 
@@ -46,5 +46,13 @@ describe("gui command helpers", () => {
     expect(written).toContain("gui:");
     expect(written).toContain("theme: kiln-light");
     expect(buildGuiUrl("http://localhost:5183/gui/", "kiln-light")).toBe("http://localhost:5183/gui/?theme=kiln-light");
+    expect(buildGuiAttachUrl("http://localhost:3800", "kiln-light")).toBe("http://localhost:3800/gui/?theme=kiln-light");
+    expect(buildGuiAttachUrl("https://gateway.example.com/apps", "kiln-light")).toBe("https://gateway.example.com/gui/?theme=kiln-light");
+  });
+
+  it("rejects non-http GUI attach URLs", async () => {
+    const { buildGuiAttachUrl } = await import("../../src/commands/gui-options.js");
+
+    expect(() => buildGuiAttachUrl("file:///tmp/gui", "kiln-dark")).toThrow("GUI attach URL must use http:// or https://");
   });
 });

@@ -145,11 +145,28 @@ export interface GuiWorkspaceTreeSnapshot {
   readonly worktreePath?: string;
 }
 
+export interface GuiAppTenantDescriptor {
+  readonly tenantId: string;
+  readonly label?: string;
+  readonly enabled: boolean;
+}
+
+export interface GuiAppDescriptor {
+  readonly name: string;
+  readonly runtime: "provider-adapter" | "tenant" | "none";
+  readonly channels: readonly string[];
+  readonly tenants?: readonly GuiAppTenantDescriptor[];
+  readonly runtimeCapable: boolean;
+}
+
 export interface GuiDashboardSnapshot {
   readonly providers: readonly GuiProviderDescriptor[];
   readonly sessions: readonly GuiSessionSummary[];
   readonly telemetry: GuiTelemetrySnapshot;
   readonly resumeInfoByProvider: Readonly<Record<string, GuiResumeInfo>>;
+  readonly apps?: readonly GuiAppDescriptor[];
+  readonly activeAppName?: string;
+  readonly activeTenantId?: string;
   readonly workingDirectory?: string;
   readonly domainLabel?: string;
   readonly workspaceTree?: GuiWorkspaceTreeSnapshot;
@@ -293,6 +310,8 @@ export type GuiOutboundFrame =
       planMode?: boolean;
       resumeSessionId?: string;
       reasoningEffort?: GuiProviderReasoningEffort;
+      appName?: string;
+      tenantId?: string;
     }
   | { type: "clear" }
   | { type: "refresh_providers" }

@@ -20,7 +20,11 @@ The gateway must support **subscription-backed CLI execution** for local develop
 
 ## Decision
 
-The TUI will connect to a local Kiln gateway via WebSocket. The TUI becomes a pure rendering layer (OpenTUI) with no orchestration logic. The gateway owns all orchestration, session state, memory, and safety.
+The TUI will connect to a local Kiln Operator Gateway via WebSocket. The TUI becomes a pure rendering layer (OpenTUI) with no orchestration logic. The gateway-backed runtime owns all orchestration, session state, memory, and safety.
+
+This ADR predates the explicit App Gateway / Operator Gateway taxonomy. The
+local gateway described here is an Operator Gateway for the TUI path, not the
+deployable App Gateway that loads `gateway.yaml` and bound `app.yaml` files.
 
 For local developer channels (TUI), the gateway uses an injected session-manager-backed execution path. Harness providers still execute through CLI subprocesses where appropriate, while direct providers execute through Kiln's provider-session path. For deployed/web channels (widget, WhatsApp, etc.), the gateway uses API-backed `ProviderAdapter` executors. The execution backend is chosen by the runtime based on channel type.
 
@@ -35,7 +39,7 @@ kiln tui (thin client)
 
         | WebSocket (widget protocol)
 
-Local Kiln Gateway (auto-started on port 4801)
+Local Kiln Operator Gateway (auto-started on port 4801)
   - RuntimeSessionOrchestrator (provider routing, tool auth, AI guard)
   - SessionRegistry (multi-turn, persistence, concurrency)
   - Safety pipeline (PII, content, rails)
@@ -104,7 +108,7 @@ TUI-specific WebSocket protocol (not the widget protocol — no widgetId, no ten
 ## Consequences
 
 ### Positive
-- Single orchestration path (gateway) for all clients (widget, TUI, provider-adapter REST, channels)
+- Single orchestration path for the TUI operator client without duplicating rendering-side logic
 - TUI gets memory, safety, knowledge, MCP, cost tracking, enrichment for free
 - No duplication of session management, provider routing, or tool authorization
 - **Subscription arbitrage preserved** — TUI can still use flat-rate CLI subscriptions when the selected backend is harness-backed

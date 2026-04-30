@@ -58,6 +58,11 @@ import { SqliteEnrichmentStore } from "../enrichment/sqlite-enrichment-store.js"
 import { CompositeEventStore } from "../observability/composite-event-store.js";
 import { PrometheusCollector } from "../observability/prometheus-collector.js";
 import { createRuntimeToolResultSanitizer } from "./tool-result-sanitizer-factory.js";
+import {
+  mountGuiStaticAssetsIfPresent,
+  resolveGuiDistCandidates,
+  resolveGuiDistPath,
+} from "./gui-static-assets.js";
 
 export type { LoadedApp, GatewayServerConfig } from "./gateway-routes.js";
 export { createGatewayApp } from "./gateway-routes.js";
@@ -84,6 +89,7 @@ export interface StartGatewayOptions {
   readonly port?: number;
   readonly devMode?: boolean;
   readonly studioDistPath?: string;
+  readonly guiDistPath?: string;
   /** Optional gateway security config (shared with HTTP middleware and runtime sanitizer wiring). */
   readonly securityConfig?: SecurityConfig;
   /** Integration adapters to register at gateway startup. */
@@ -772,6 +778,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
     : undefined;
 
   const studioDistPath = options?.studioDistPath ?? (options?.devMode ? resolveStudioDist() : undefined);
+  const guiDistPath = resolveGuiDistPath(options?.guiDistPath, import.meta.url);
 
   // Initialize dev-mode memory stores (one per layer)
   let devMemoryStores: Map<MemoryLayer, SqliteMemoryStore> | undefined;
@@ -975,6 +982,12 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
 
   if (studioDistPath) {
     mountStudio(honoApp, studioDistPath, serveStatic);
+  }
+  if (mountGuiStaticAssetsIfPresent(honoApp, guiDistPath)) {
+    honoApp.get("/gui", (c) => c.redirect("/gui/"));
+  } else if (options?.guiDistPath) {
+    const unresolvedGuiDistPath = resolveGuiDistCandidates(options.guiDistPath, import.meta.url)[0] ?? "<unknown>";
+    console.warn(`GUI: bundle missing at ${join(unresolvedGuiDistPath, "index.html")}; /gui static mount disabled.`);
   }
 
   // Prometheus metrics endpoint (unauthenticated, before per-app routes)
@@ -1387,6 +1400,9 @@ REASONING: <one sentence explanation>`;
 
   const appNames = loadedApps.map((a) => a.name).join(", ");
   console.log(`Gateway started on port ${port} with ${loadedApps.length} apps: ${appNames}`);
+  if (guiDistPath) {
+    console.log(`GUI: http://localhost:${port}/gui/`);
+  }
   if (options?.devMode) {
     console.log(`Studio: http://localhost:${port}/${studioDistPath ? "studio" : "dev"}/`);
   }

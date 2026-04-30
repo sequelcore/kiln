@@ -24,6 +24,12 @@ kiln dev --playground
 
 Both modes serve the built SPA at `/studio/*` using Hono's `serveStatic` middleware with SPA fallback. The `/dev/` path redirects to `/studio/` when the SPA is available.
 
+These modes are intentionally different from the local GUI/TUI Operator Gateway
+path. With `gateway.yaml`, Studio is inspecting an App Gateway in dev mode. Without
+`gateway.yaml`, Studio is only an editor/inspector server and does not own app
+runtime semantics. GUI/CLI/TUI should attach to an existing App Gateway when the
+goal is to operate deployable YAML apps.
+
 ### Locating Studio
 
 Studio is a pre-built static asset, not a runtime dependency. The runtime locates it by path, not by package resolution. Three mechanisms, checked in order:

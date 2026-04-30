@@ -4,6 +4,7 @@ import {
   OPERATOR_THEME_LABELS,
   OPERATOR_THEME_NAMES,
   isOperatorThemeName,
+  type GuiAppDescriptor,
   type GuiInboundFrame,
   type GuiOutboundFrame,
   type GuiProviderReasoningEffort,
@@ -67,6 +68,7 @@ const REASONING_EFFORT_LABELS: Record<GuiProviderReasoningEffort, string> = {
   xhigh: "XHigh",
 };
 const EMPTY_REASONING_EFFORTS: readonly GuiProviderReasoningEffort[] = [];
+const EMPTY_APP_DESCRIPTORS: readonly GuiAppDescriptor[] = [];
 
 function KilnMark() {
   return (
@@ -391,6 +393,72 @@ function ReasoningEffortControl(props: {
   );
 }
 
+function AppGatewayTargetSelector(props: {
+  readonly apps: readonly GuiAppDescriptor[];
+  readonly selectedAppName: string | null;
+  readonly selectedTenantId: string | null;
+  readonly onSelectApp: (appName: string) => void;
+  readonly onSelectTenant: (tenantId: string) => void;
+}) {
+  if (props.apps.length === 0) {
+    return null;
+  }
+
+  const selectedApp = props.apps.find((app) => app.name === props.selectedAppName) ?? props.apps[0] ?? null;
+  const tenantOptions = selectedApp?.runtime === "tenant"
+    ? selectedApp.tenants?.filter((tenant) => tenant.enabled) ?? []
+    : [];
+
+  return (
+    <div className="flex min-w-0 items-center gap-2">
+      <Select
+        value={props.selectedAppName ?? selectedApp?.name ?? ""}
+        onValueChange={(value) => {
+          if (value) {
+            props.onSelectApp(value);
+          }
+        }}
+      >
+        <SelectTrigger size="sm" aria-label="App" className="min-w-32 max-w-48">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent align="end">
+          <SelectGroup>
+            {props.apps.map((app) => (
+              <SelectItem key={app.name} value={app.name}>
+                {app.name}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        </SelectContent>
+      </Select>
+      {tenantOptions.length > 0 ? (
+        <Select
+          value={props.selectedTenantId ?? tenantOptions[0]?.tenantId ?? ""}
+          onValueChange={(value) => {
+            if (value) {
+              props.onSelectTenant(value);
+            }
+          }}
+        >
+          <SelectTrigger size="sm" aria-label="Tenant" className="min-w-32 max-w-48">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent align="end">
+            <SelectGroup>
+              {tenantOptions.map((tenant) => (
+                <SelectItem key={tenant.tenantId} value={tenant.tenantId}>
+                  {tenant.label ?? tenant.tenantId}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      ) : null}
+    </div>
+  );
+}
+
 export function AppShell() {
   const [gatewayReady, setGatewayReady] = useState(false);
   const [gatewayError, setGatewayError] = useState<string | null>(null);
@@ -406,6 +474,8 @@ export function AppShell() {
   const [sidebarExpanded, setSidebarExpanded] = useState(true);
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>("sessions");
   const [reasoningEffort, setReasoningEffort] = useState<GuiProviderReasoningEffort | null>(null);
+  const [selectedAppName, setSelectedAppName] = useState<string | null>(null);
+  const [selectedTenantId, setSelectedTenantId] = useState<string | null>(null);
   const [workspaceDocuments, setWorkspaceDocuments] = useState<readonly OperatorWorkspaceFileSnapshot[]>([]);
   const [selectedWorkspacePath, setSelectedWorkspacePath] = useState<string | null>(null);
   const [workspaceDocumentLoadingPath, setWorkspaceDocumentLoadingPath] = useState<string | null>(null);
@@ -819,6 +889,62 @@ export function AppShell() {
     : null;
   const workingDirectory = dashboardData?.workingDirectory;
   const domainLabel = dashboardData?.domainLabel;
+  const appDescriptors = dashboardData?.apps ?? EMPTY_APP_DESCRIPTORS;
+  const runtimeAppDescriptors = useMemo(
+    () => appDescriptors.filter((app) => app.runtimeCapable),
+    [appDescriptors],
+  );
+  const selectedRuntimeApp = runtimeAppDescriptors.find((app) => app.name === selectedAppName) ?? null;
+
+  useEffect(() => {
+    if (runtimeAppDescriptors.length === 0) {
+      if (selectedAppName !== null) {
+        setSelectedAppName(null);
+      }
+      if (selectedTenantId !== null) {
+        setSelectedTenantId(null);
+      }
+      return;
+    }
+
+    const dashboardAppName = dashboardData?.activeAppName;
+    const nextAppName = selectedAppName && runtimeAppDescriptors.some((app) => app.name === selectedAppName)
+      ? selectedAppName
+      : dashboardAppName && runtimeAppDescriptors.some((app) => app.name === dashboardAppName)
+        ? dashboardAppName
+        : runtimeAppDescriptors[0]!.name;
+
+    if (selectedAppName !== nextAppName) {
+      setSelectedAppName(nextAppName);
+    }
+
+    const nextApp = runtimeAppDescriptors.find((app) => app.name === nextAppName);
+    if (nextApp?.runtime !== "tenant") {
+      if (selectedTenantId !== null) {
+        setSelectedTenantId(null);
+      }
+      return;
+    }
+
+    const enabledTenants = nextApp.tenants?.filter((tenant) => tenant.enabled) ?? [];
+    const dashboardTenantId = dashboardData?.activeTenantId;
+    const nextTenantId = selectedTenantId && enabledTenants.some((tenant) => tenant.tenantId === selectedTenantId)
+      ? selectedTenantId
+      : dashboardTenantId && enabledTenants.some((tenant) => tenant.tenantId === dashboardTenantId)
+        ? dashboardTenantId
+        : enabledTenants[0]?.tenantId ?? null;
+
+    if (selectedTenantId !== nextTenantId) {
+      setSelectedTenantId(nextTenantId);
+    }
+  }, [
+    dashboardData?.activeAppName,
+    dashboardData?.activeTenantId,
+    runtimeAppDescriptors,
+    selectedAppName,
+    selectedTenantId,
+  ]);
+
   const persistThemePreference = (theme: OperatorThemeName) => {
     void gatewayClient.saveThemePreference(theme);
     const nextUrl = new URL(window.location.href);
@@ -1083,6 +1209,16 @@ export function AppShell() {
               ) : null}
             </div>
             <div className="ml-auto" />
+            <AppGatewayTargetSelector
+              apps={runtimeAppDescriptors}
+              selectedAppName={selectedAppName}
+              selectedTenantId={selectedTenantId}
+              onSelectApp={(appName) => {
+                setSelectedAppName(appName);
+                setSelectedTenantId(null);
+              }}
+              onSelectTenant={setSelectedTenantId}
+            />
             <ConnectionStatus state={wsState} />
             <SessionTelemetry
               activeProvider={activeProvider}
@@ -1136,6 +1272,8 @@ export function AppShell() {
             onSubmit={(text) => {
               sendMessage(text, {
                 ...(resolvedReasoningEffort ? { reasoningEffort: resolvedReasoningEffort } : {}),
+                ...(selectedAppName ? { appName: selectedAppName } : {}),
+                ...(selectedRuntimeApp?.runtime === "tenant" && selectedTenantId ? { tenantId: selectedTenantId } : {}),
               });
             }}
             onEmptySubmit={() => {

@@ -2,9 +2,18 @@
 
 ## Overview
 
-`kiln gui` is the primary operator surface for Kiln Phase 1. It starts the local GUI gateway, serves the web UI, and launches the interface in a managed app-mode browser window so the Kiln process can shut down cleanly when the window closes.
+`kiln gui` is the primary operator surface for Kiln Phase 1. In local operator
+mode, it starts the local GUI Operator Gateway, serves the web UI, and launches
+the interface in a managed app-mode browser window so the Kiln process can shut
+down cleanly when the window closes.
 
 This is intentionally different from `kiln dev --playground` or manually opening a URL in an arbitrary browser tab. `kiln gui` owns the operator session lifecycle.
+
+This local Operator Gateway is not the deployable App Gateway that loads
+`gateway.yaml` and bound `app.yaml` files. The canonical path for operating YAML
+apps is GUI attach mode against an existing App Gateway, not a second app
+runtime. See
+[`docs/architecture/runtime-surfaces.md`](../architecture/runtime-surfaces.md).
 
 ## Usage
 
@@ -14,10 +23,35 @@ kiln gui
 
 By default, the command:
 
-1. Starts the local GUI gateway on port `4810`
+1. Starts the local GUI Operator Gateway on port `4810`
 2. Serves the GUI in dev mode or built mode, depending on whether `packages/gui/dist/index.html` exists
 3. Opens the UI in a managed app-mode window using Microsoft Edge, Google Chrome, or Chromium
 4. Shuts down the gateway when that window closes
+
+### App Gateway Attach Mode
+
+For a deployable repo such as `kiln-gateway`, the App Gateway should be started
+from its versioned `gateway.yaml` and own app sessions, tenant state, memory,
+safety, channels, events, and MCP exposure. The GUI should attach to that
+gateway over the operator HTTP/WS contract when operating those apps.
+
+Canonical topology:
+
+```bash
+kiln gateway --config ./gateway.yaml --port 3800
+kiln gui --connect http://localhost:3800
+```
+
+`--connect` is the canonical product contract for App Gateway attach mode. In
+attach mode, the CLI does not start a local GUI Operator Gateway and does not
+shut down the App Gateway when the GUI window closes.
+
+Implementation status: attach mode opens the App Gateway GUI URL, the App
+Gateway exposes the GUI dashboard/session-list contract, and `/gui/ws` routes
+messages to the selected runtime-capable YAML app. The dashboard publishes
+runtime-capable apps plus enabled tenants; the GUI renders compact app/tenant
+selectors and includes `appName` and `tenantId` in message frames. Provider
+switching and full operator controls remain future operator-contract work.
 
 ## Flags
 
@@ -27,6 +61,7 @@ By default, the command:
 | `--theme <name>` | Initial GUI theme from the shared operator theme catalog |
 | `--plan` | Start with plan mode enabled |
 | `--cwd <path>` | Working directory used by the session |
+| `--connect <url>` | Attach to an existing App Gateway instead of starting the local GUI Operator Gateway |
 | `--port <number>` | Override the gateway port |
 | `--gui-port <number>` | Override the Vite dev server port in dev mode |
 | `--dev` | Force Vite dev mode |

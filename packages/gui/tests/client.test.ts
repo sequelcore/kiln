@@ -51,6 +51,49 @@ describe("GuiGatewayClient", () => {
     expect(fetchMock).toHaveBeenCalled();
   });
 
+  it("loads app and tenant descriptors from the dashboard", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      providers: [],
+      sessions: [],
+      telemetry: {
+        status: "stable",
+        dominantRegions: ["support"],
+        saturation: 1,
+        entropy: 0,
+      },
+      resumeInfoByProvider: {},
+      apps: [
+        {
+          name: "support",
+          runtime: "tenant",
+          channels: ["api"],
+          runtimeCapable: true,
+          tenants: [
+            { tenantId: "acme", label: "ACME", enabled: true },
+          ],
+        },
+      ],
+      activeAppName: "support",
+      activeTenantId: "acme",
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new GuiGatewayClient("http://localhost:4810");
+    const snapshot = await client.loadDashboard();
+
+    expect(snapshot.activeAppName).toBe("support");
+    expect(snapshot.activeTenantId).toBe("acme");
+    expect(snapshot.apps?.[0]).toMatchObject({
+      name: "support",
+      runtime: "tenant",
+      runtimeCapable: true,
+      tenants: [{ tenantId: "acme", label: "ACME", enabled: true }],
+    });
+  });
+
   it("ignores query params, localStorage values, and hardcoded fallback ports when resolving candidate base URLs", () => {
     window.history.replaceState({}, "", "/?gatewayUrl=http://localhost:7777&gatewayPort=6666&port=5555");
     localStorage.setItem("kiln.gui.gateway.baseUrl", "http://localhost:4444");

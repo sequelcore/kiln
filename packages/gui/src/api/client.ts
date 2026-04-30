@@ -1,5 +1,6 @@
 import type {
   GuiDashboardSnapshot,
+  GuiAppDescriptor,
   GuiProviderDescriptor,
   GuiResumeInfo,
   GuiSessionDetail,
@@ -18,6 +19,7 @@ import { GuiSessionClient, type GuiSessionClientOptions } from "./session-client
 export type {
   GuiDashboardSnapshot,
   GuiProviderDescriptor,
+  GuiAppDescriptor,
   GuiSessionSummary,
   GuiTelemetrySnapshot,
 };
@@ -352,15 +354,69 @@ function parseDashboardSnapshot(value: unknown): GuiDashboardSnapshot {
     throw new Error("Invalid dashboard resume payload.");
   }
 
+  const apps = normalizeAppDescriptors(snapshot.apps);
+  const workspaceTree = normalizeWorkspaceTreeSnapshot(snapshot.workspaceTree);
   return {
     providers: snapshot.providers,
     sessions: snapshot.sessions,
     telemetry: snapshot.telemetry,
     resumeInfoByProvider: snapshot.resumeInfoByProvider as Record<string, GuiResumeInfo>,
-    workingDirectory: typeof snapshot.workingDirectory === "string" ? snapshot.workingDirectory : undefined,
-    domainLabel: typeof snapshot.domainLabel === "string" ? snapshot.domainLabel : undefined,
-    workspaceTree: normalizeWorkspaceTreeSnapshot(snapshot.workspaceTree),
+    ...(apps ? { apps } : {}),
+    ...(typeof snapshot.activeAppName === "string" ? { activeAppName: snapshot.activeAppName } : {}),
+    ...(typeof snapshot.activeTenantId === "string" ? { activeTenantId: snapshot.activeTenantId } : {}),
+    ...(typeof snapshot.workingDirectory === "string" ? { workingDirectory: snapshot.workingDirectory } : {}),
+    ...(typeof snapshot.domainLabel === "string" ? { domainLabel: snapshot.domainLabel } : {}),
+    ...(workspaceTree ? { workspaceTree } : {}),
   };
+}
+
+function normalizeAppDescriptors(value: GuiDashboardSnapshot["apps"] | null | undefined): readonly GuiAppDescriptor[] | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (!Array.isArray(value)) {
+    throw new Error("Invalid dashboard apps payload.");
+  }
+  return value.map((entry) => {
+    if (!isRecord(entry) || typeof entry.name !== "string") {
+      throw new Error("Invalid dashboard app descriptor.");
+    }
+    if (entry.runtime !== "provider-adapter" && entry.runtime !== "tenant" && entry.runtime !== "none") {
+      throw new Error("Invalid dashboard app runtime.");
+    }
+    if (!Array.isArray(entry.channels) || !entry.channels.every((channel) => typeof channel === "string")) {
+      throw new Error("Invalid dashboard app channels.");
+    }
+    if (typeof entry.runtimeCapable !== "boolean") {
+      throw new Error("Invalid dashboard app runtimeCapable flag.");
+    }
+    const tenants = entry.tenants;
+    if (tenants !== undefined) {
+      if (!Array.isArray(tenants)) {
+        throw new Error("Invalid dashboard app tenants.");
+      }
+    }
+    const normalizedTenants = tenants?.map((tenant) => {
+      if (!isRecord(tenant) || typeof tenant.tenantId !== "string" || typeof tenant.enabled !== "boolean") {
+        throw new Error("Invalid dashboard app tenant descriptor.");
+      }
+      if (tenant.label !== undefined && typeof tenant.label !== "string") {
+        throw new Error("Invalid dashboard app tenant label.");
+      }
+      return {
+        tenantId: tenant.tenantId,
+        enabled: tenant.enabled,
+        ...(typeof tenant.label === "string" ? { label: tenant.label } : {}),
+      };
+    });
+    return {
+      name: entry.name,
+      runtime: entry.runtime,
+      channels: entry.channels,
+      runtimeCapable: entry.runtimeCapable,
+      ...(normalizedTenants ? { tenants: normalizedTenants } : {}),
+    };
+  });
 }
 
 function parseWorkspaceDirectorySnapshot(value: unknown): OperatorWorkspaceDirectorySnapshot {

@@ -25,6 +25,12 @@ policy, reconsolidation, salience, threat memory, and failure containment.
 - A domain-agnostic engine whose domain behavior is declared in configuration
   and instantiated at runtime.
 
+In deployment docs, "gateway" means the App Gateway unless explicitly qualified:
+the `startGateway(gateway.yaml)` process that loads bound `app.yaml` files and
+owns app sessions, tenant state, memory, safety, channels, events, triggers, and
+MCP exposure. GUI/TUI helper servers are Operator Gateways. They may use
+separate local ports, but they are not separate app control planes.
+
 ## What Kiln Is Not
 
 - Not an LLM provider.
@@ -62,6 +68,8 @@ Both share the same control responsibilities:
 - memory system
 - cost and budget tracking
 - event emission
+
+For the full surface taxonomy, see [`runtime-surfaces.md`](runtime-surfaces.md).
 
 ## Core Architectural Promises
 

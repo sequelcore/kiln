@@ -6,6 +6,12 @@ This document is now a transitional configuration reference.
 architectural source of truth for Kiln. The source of truth is the modular
 architecture under [`docs/architecture/`](../architecture/README.md).
 
+It is a first-class deployable app declaration. When bound by `gateway.yaml`, an
+`app.yaml` is instantiated by the App Gateway and participates in the same
+session, memory, safety, tool, event, and cost control plane as other runtime
+surfaces. GUI, CLI, and TUI operate that runtime; they do not replace the app
+declaration with parallel surface-specific behavior.
+
 If the configuration surface and the architecture diverge, the architecture wins
 and the configuration must eventually be refactored to match it.
 
@@ -53,6 +59,7 @@ Relevant architecture docs:
 - [Memory](../architecture/memory.md)
 - [Context Governance](../architecture/context-governance.md)
 - [Tool Execution](../architecture/tool-execution.md)
+- [Runtime Surfaces](../architecture/runtime-surfaces.md)
 
 ## Usage Guidance
 

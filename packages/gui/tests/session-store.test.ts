@@ -612,6 +612,29 @@ describe("session-store", () => {
     expect(send).not.toHaveBeenCalled();
   });
 
+  it("sendMessage forwards selected app and tenant target", () => {
+    const send = vi.fn();
+    useSessionStore.getState().setSender(send);
+    useSessionStore.setState({ status: "ready", planMode: true });
+
+    const accepted = useSessionStore.getState().sendMessage("hello", {
+      appName: "support",
+      tenantId: "acme",
+      reasoningEffort: "medium",
+    });
+
+    expect(accepted).toBe(true);
+    expect(send).toHaveBeenCalledWith({
+      type: "message",
+      content: "hello",
+      planMode: true,
+      resumeSessionId: undefined,
+      appName: "support",
+      tenantId: "acme",
+      reasoningEffort: "medium",
+    });
+  });
+
   it("setPlanMode(false) emits exec frame through sender", () => {
     const send = vi.fn();
     useSessionStore.getState().setSender(send);

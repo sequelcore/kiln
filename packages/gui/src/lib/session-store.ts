@@ -1173,7 +1173,14 @@ interface SessionStoreActions {
   onExecConfirmed: () => void;
   switchProvider: (provider: string, model?: string) => boolean;
   authenticateProvider: (provider: string, options?: { apiKey?: string; tier?: "go" | "zen" }) => boolean;
-  sendMessage: (text: string, options?: { reasoningEffort?: GuiProviderReasoningEffort }) => boolean;
+  sendMessage: (
+    text: string,
+    options?: {
+      reasoningEffort?: GuiProviderReasoningEffort;
+      appName?: string;
+      tenantId?: string;
+    },
+  ) => boolean;
   sendClear: () => boolean;
   setPlanMode: (enabled: boolean) => void;
   setResume: (sessionId: string | null) => void;
@@ -2467,6 +2474,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       planMode: state.planMode,
       resumeSessionId: state.resumeTargetId ?? undefined,
       ...(options?.reasoningEffort ? { reasoningEffort: options.reasoningEffort } : {}),
+      ...(options?.appName ? { appName: options.appName } : {}),
+      ...(options?.tenantId ? { tenantId: options.tenantId } : {}),
     });
 
     return true;
