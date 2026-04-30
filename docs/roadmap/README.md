@@ -52,18 +52,12 @@ indicates the default read order, not necessarily the active work priority.
   provenance, relations, context-admission evidence, resource projection, and
   first GUI graph view over shared contracts.
 
-- `02-operator-surfaces-and-remote-gui.md`
-  Sequences active human-operator surface work. Stable doctrine lives in
-  `docs/architecture/operator-surfaces.md`; this roadmap tracks remaining
-  implementation phases such as event timeline hardening, IDE planning, remote
-  GUI hardening, and desktop-wrapper decision gates.
-
-- `03-provider-credential-pool.md`
+- `02-provider-credential-pool.md`
   Generalizes credential management across subscription-auth, direct API-key,
   and harness-wrapped providers. Introduces a provider-agnostic pool with
   rotation, cooldowns, and cross-process reload.
 
-- `04-config-projection-unification.md`
+- `03-config-projection-unification.md`
   Makes `~/.kiln/config.yaml` the source of truth for harness configuration,
   projects managed Claude/Codex/OpenCode config, and adds drift-aware sync,
   uninstall, migrate, and engine-status workflows.
@@ -81,7 +75,7 @@ indicates the default read order, not necessarily the active work priority.
 
 ### Deferred work
 
-- `05-external-benchmark-validation.md`
+- `04-external-benchmark-validation.md`
   Deferred public benchmark milestone after architecture and product work
   stabilize.
 
@@ -104,15 +98,15 @@ indicates the default read order, not necessarily the active work priority.
 4. Read `01-memory-lattice-governed-memory.md` when planning memory, recall,
    context-admission evidence, graph/resource projection, Memory Lattice GUI,
    memory CLI/TUI/MCP projection, or memory YAML policy work.
-5. Read `docs/architecture/operator-surfaces.md` first, then
-   `02-operator-surfaces-and-remote-gui.md`, when planning GUI, IDE, desktop,
-   remote GUI, cloud dashboard, TUI maintenance, or operator supervision work.
-6. Read `03-provider-credential-pool.md` when planning any provider-auth
+5. Read `docs/architecture/operator-surfaces.md` when planning GUI, IDE,
+   desktop, remote GUI, cloud dashboard, TUI maintenance, or operator
+   supervision work.
+6. Read `02-provider-credential-pool.md` when planning any provider-auth
    change, multi-account scaling, or rate-limit recovery work.
-7. Read `04-config-projection-unification.md` when planning harness config
+7. Read `03-config-projection-unification.md` when planning harness config
    projection, engine registry, drift detection, sync, uninstall, migrate, or
    config-surface work.
-8. Read `05-external-benchmark-validation.md` only when benchmark work becomes
+8. Read `04-external-benchmark-validation.md` only when benchmark work becomes
    active.
 
 ## Current Execution Priority
@@ -124,19 +118,14 @@ This is the delivery queue. It is the only priority order in this index.
    consumed by GUI, CLI, TUI, YAML apps, SDK, and MCP through shared resource
    contracts. The first visible product output is the GUI Memory Lattice, but the
    core memory/domain/resource work comes first.
-2. Use `02-operator-surfaces-and-remote-gui.md` to sequence post-parity
-   surface work. The first post-parity backbone slice is the canonical session
-   event/replay envelope; real Workspace, Changed Files, Approvals, diffs,
-   replay, and future invokable-agent panels must project from that contract
-   instead of GUI-local state.
-3. Execute `03-provider-credential-pool.md` to close the single-credential
+2. Execute `02-provider-credential-pool.md` to close the single-credential
    limitation and generalize pool semantics across all provider categories.
    This slice unblocks multi-account scaling for opencode-go, codex-oauth, and
    direct API-key providers without special-casing any of them.
-4. Execute `04-config-projection-unification.md` after the provider credential
+3. Execute `03-config-projection-unification.md` after the provider credential
    pool and config/registry ADR sequencing is clear. It owns harness config
    projection, drift detection, engine registry, and config lifecycle commands.
-5. Keep `05-external-benchmark-validation.md` deferred until the product
+4. Keep `04-external-benchmark-validation.md` deferred until the product
    surface stabilizes.
 
 ## Current Status
@@ -170,8 +159,7 @@ As of 2026-04-30:
 - Memory Lattice and governed memory is now priority 1 in
   `01-memory-lattice-governed-memory.md`
 - operator surface doctrine now lives in
-  `docs/architecture/operator-surfaces.md`; active work remains sequenced in
-  `02-operator-surfaces-and-remote-gui.md`
+  `docs/architecture/operator-surfaces.md`
 - external benchmark validation remains deferred
 - OpenCode Go/Zen is now a first-class direct provider via `opencode-auth` and
   `opencode-provider` modules in `@kilnai/core`; the credential-pool roadmap
@@ -180,10 +168,10 @@ As of 2026-04-30:
   lives in `docs/architecture/context-governance.md`,
   `docs/architecture/memory.md`, `docs/architecture/coordination.md`,
   `docs/architecture/flows.md`, and `docs/guides/skills.md`
-- roadmap numbering was compacted on 2026-04-30 after Memory Lattice was promoted
-  to priority 1: memory lattice is now `01`, operator surfaces is now `02`,
-  provider credential pool is now `03`, config projection is now `04`, and
-  external benchmark validation is now `05`
+- roadmap numbering was compacted on 2026-04-30 after operator-surface doctrine
+  moved to architecture: memory lattice is now `01`, provider credential pool is
+  now `02`, config projection is now `03`, and external benchmark validation is
+  now `04`
 - shared developer-tool metadata, timeout handling, runtime evidence, MCP
   projection, consumer alignment, and the initial builtin tool expansion are
   complete and promoted to `docs/architecture/developer-tools.md`

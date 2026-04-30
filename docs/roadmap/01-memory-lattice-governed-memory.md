@@ -3,7 +3,7 @@
 **Status:** In progress - slices 01.A through 01.E complete
 **Owner:** Kiln core / runtime / GUI / context governance  
 **Depends on:** `docs/adr/ADR-008-memory-lattice-governed-memory.md`, `docs/architecture/memory.md`, `docs/architecture/context-governance.md`, `docs/architecture/context-resource-plane.md`, `docs/architecture/runtime-surfaces.md`, `docs/architecture/shared-tooling-intelligence.md`, `docs/architecture/developer-tools.md`, `docs/guides/gui-parity.md`, `docs/guides/tui-maintenance.md`
-**Related:** `docs/roadmap/02-operator-surfaces-and-remote-gui.md`, `docs/roadmap/03-provider-credential-pool.md`
+**Related:** `docs/architecture/operator-surfaces.md`, `docs/roadmap/02-provider-credential-pool.md`
 
 ## Purpose
 

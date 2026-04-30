@@ -1,4 +1,4 @@
-# 03 - Provider Credential Pool
+# 02 - Provider Credential Pool
 
 ## Goal
 
@@ -321,7 +321,7 @@ provider. Confirmed via integration test.
   unified tool and discovery surfaces. Tool calls flow through the adapter,
   which talks to the pool. The tool surface does not need to know about pool
   internals.
-- `02-operator-surfaces-and-remote-gui.md` - GUI model picker should display
+- `docs/architecture/operator-surfaces.md` - GUI model picker should display
   per-credential health (from Slice 8) once the observability endpoint is
   wired. This is a read-only display concern; the picker does not own pool
   management.
