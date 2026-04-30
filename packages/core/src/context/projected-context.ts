@@ -14,6 +14,7 @@ export interface ProjectedContextBlock {
   readonly content: string;
   readonly required: boolean;
   readonly score: number;
+  readonly memoryRecordId?: string;
   readonly estimatedTokens?: number;
 }
 
@@ -30,6 +31,7 @@ export interface ContextAuditBlock {
   readonly kind: ProjectedContextBlockKind;
   readonly source: string;
   readonly required: boolean;
+  readonly memoryRecordId?: string;
   readonly estimatedTokens: number;
   readonly baseScore: number;
   readonly effectiveScore: number;
@@ -67,6 +69,7 @@ export interface ContextCandidate {
   readonly content: string;
   readonly required?: boolean;
   readonly score?: number;
+  readonly memoryRecordId?: string;
   readonly estimatedTokens?: number;
 }
 

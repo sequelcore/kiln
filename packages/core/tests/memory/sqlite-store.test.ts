@@ -8,7 +8,6 @@ describe("SqliteMemoryStore", () => {
     store = new SqliteMemoryStore({
       dbPath: ":memory:",
       layer: "user",
-      enableDecay: false,
     });
   });
 
@@ -61,7 +60,6 @@ describe("SqliteMemoryStore", () => {
     const freshStore = new SqliteMemoryStore({
       dbPath: ":memory:",
       layer: "user",
-      enableDecay: false,
     });
 
     await freshStore.save({ layer: "user", content: "Budgeting strategy first item", tags: ["budgeting"] });
@@ -102,7 +100,6 @@ describe("SqliteMemoryStore", () => {
     const decayStore = new SqliteMemoryStore({
       dbPath: ":memory:",
       layer: "agent",
-      enableDecay: true,
     });
 
     const id = await decayStore.save({
@@ -129,7 +126,6 @@ describe("SqliteMemoryStore", () => {
     const decayStore = new SqliteMemoryStore({
       dbPath: ":memory:",
       layer: "agent",
-      enableDecay: true,
     });
 
     // Use a synchronous approach to check decay: save, decay, count should still be 1
@@ -146,7 +142,6 @@ describe("SqliteMemoryStore", () => {
     const decayStore = new SqliteMemoryStore({
       dbPath: ":memory:",
       layer: "agent",
-      enableDecay: true,
     });
 
     void decayStore.save({ layer: "agent", content: "Soon to be pruned memory", tags: [] });
@@ -289,6 +284,28 @@ describe("SqliteMemoryStore", () => {
     expect(results[0]!.entry.topicKey).toBe("architecture/auth-middleware");
   });
 
+  it("direct topic_key lookup is not limited by list caps", async () => {
+    for (let i = 0; i < 510; i++) {
+      await store.save({
+        layer: "user",
+        content: `Filler memory ${i}`,
+        tags: [],
+        topicKey: `filler/${i}`,
+      });
+    }
+
+    await store.save({
+      layer: "user",
+      content: "Large scope topic key target",
+      tags: [],
+      topicKey: "architecture/large-scope-target",
+    });
+
+    const results = await store.search("architecture/large-scope-target");
+    expect(results).toHaveLength(1);
+    expect(results[0]!.entry.content).toBe("Large scope topic key target");
+  });
+
   it("search without / uses FTS5", async () => {
     await store.save({
       layer: "user",
@@ -335,8 +352,8 @@ describe("SqliteMemoryStore", () => {
     expect(results2[0]!.entry.lastSeenAt?.getTime()).toBeGreaterThan(firstLastSeen!.getTime());
   });
 
-  it("schema migration is idempotent", async () => {
-    // Create a second store with same db to verify migration runs again without error
+  it("schema initialization is idempotent", async () => {
+    // Create a second store with same db to verify initialization runs again without error
     const store2 = new SqliteMemoryStore({
       dbPath: ":memory:",
       layer: "user",
@@ -347,12 +364,56 @@ describe("SqliteMemoryStore", () => {
       layer: "user",
       content: "Content after second init",
       tags: [],
-      topicKey: "test/migration",
+      topicKey: "test/schema-init",
     });
 
-    const results = await store2.search("test/migration");
+    const results = await store2.search("test/schema-init");
     expect(results.length).toBe(1);
 
     store2.close();
+  });
+
+  it("entries with project metadata remain visible through the same store", async () => {
+    const projectStore = new SqliteMemoryStore({
+      dbPath: ":memory:",
+      layer: "project",
+    });
+
+    const id = await projectStore.save({
+      layer: "project",
+      content: "Project-scoped note about Memory Lattice visibility",
+      tags: ["lattice"],
+      projectId: "kiln",
+    });
+
+    const results = await projectStore.search("Memory Lattice visibility");
+    expect(results.map((result) => result.entry.id)).toContain(id);
+    expect(projectStore.hasEntry(id)).toBe(true);
+    await expect(projectStore.forget(id)).resolves.toBeUndefined();
+    expect(projectStore.count).toBe(0);
+
+    projectStore.close();
+  });
+
+  it("entries with agent metadata remain visible through the same store", async () => {
+    const agentStore = new SqliteMemoryStore({
+      dbPath: ":memory:",
+      layer: "agent",
+    });
+
+    const id = await agentStore.save({
+      layer: "agent",
+      content: "Agent procedural note about lattice review",
+      tags: ["review"],
+      agentRole: "architect",
+    });
+
+    const results = await agentStore.search("lattice review");
+    expect(results.map((result) => result.entry.id)).toContain(id);
+    expect(agentStore.hasEntry(id)).toBe(true);
+    await expect(agentStore.forget(id)).resolves.toBeUndefined();
+    expect(agentStore.count).toBe(0);
+
+    agentStore.close();
   });
 });

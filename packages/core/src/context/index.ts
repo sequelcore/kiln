@@ -15,6 +15,9 @@ export {
   DEFAULT_SESSION_ARTIFACT_TTL_MS,
 } from "./governor.js";
 export type {
+  ContextAdmissionIdGenerator,
+  ContextAdmissionRecord,
+  ContextAdmissionSink,
   ContextGovernor,
   ProjectContextInput,
 } from "./governor.js";

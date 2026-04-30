@@ -107,6 +107,36 @@ and byte count.
 Text resources return text content with metadata. Binary files return
 metadata-only content until an explicit blob policy is added.
 
+## Memory Lattice Resources
+
+Memory Lattice exposes governed memory graph data through the same resource
+plane. The resource provider is owned by the core memory bounded context and
+adapts bounded graph projections into read-only `kiln://memory/...` resources.
+
+Stable memory templates:
+
+```text
+kiln://memory/graph{?scope,layer,query,depth,limit}
+kiln://memory/nodes/{id}
+kiln://memory/nodes/{id}/neighbors{?depth,limit}
+kiln://memory/nodes/{id}/provenance
+kiln://memory/relations/{id}
+kiln://memory/admissions{?sessionId,recordId}
+```
+
+Memory resource reads must be:
+
+- read-only
+- scope-validated
+- bounded by node count, depth, byte size, and query limits
+- deterministic for the same backing state and options
+- backed by the core memory graph projector, not GUI/TUI-local state
+
+These resources are the shared contract for CLI, GUI, TUI, SDK, runtime, and
+MCP consumers. GUI gateway endpoints may adapt these resources for operator UI
+ergonomics, but they must not bypass the core provider or read memory storage
+directly.
+
 ## Artifact Resources
 
 `ArtifactResourceStore` owns generated context artifacts. The first

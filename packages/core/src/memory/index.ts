@@ -1,5 +1,17 @@
 import type { AgentRole } from "../agents/index.js";
 
+export * from "./domain/index.js";
+export * from "./reconsolidation/index.js";
+export * from "./relations/index.js";
+export { SqliteMemoryRepository } from "./sqlite-repository.js";
+export type { SqliteMemoryRepositoryOptions } from "./sqlite-repository.js";
+export type {
+  CreateMemoryRecordInput,
+  MemoryRecordQuery,
+  MemoryRecordSearchResult,
+  MemoryRepository,
+} from "./repository.js";
+
 /** Memory layer identifier */
 export type MemoryLayer = "user" | "agent" | "project";
 

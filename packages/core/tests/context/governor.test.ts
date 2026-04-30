@@ -4,8 +4,8 @@ import type {
   ContextGovernor,
   ProjectContextInput,
   ProjectedContext,
-} from "@kilnai/core";
-import { DefaultContextGovernor } from "@kilnai/core";
+} from "../../src/index.js";
+import { DefaultContextGovernor, InMemoryContextArtifactCache } from "../../src/index.js";
 
 // Test-local policy types (parameterization compile check — test 6)
 type TestLedger = { entries: string[] };
@@ -106,33 +106,197 @@ describe("DefaultContextGovernor", () => {
 
     const result = governor.project(input);
     const auditEntry = result.auditTrail?.[0];
+    const selectedId = result.blocks[0]!.id;
+    const deferredId = result.deferredBlocks![0]!.id;
 
     expect(auditEntry).toBeDefined();
     expect(auditEntry).toMatchObject({
       governor: "DefaultContextGovernor",
-      selectedBlockIds: ["candidate:0"],
-      deferredBlockIds: ["candidate:1"],
+      selectedBlockIds: [selectedId],
+      deferredBlockIds: [deferredId],
       selectedTokens: result.estimatedTokens,
       tokenBudget: 150,
       overflow: true,
       overflowReason: "budget-cap",
     });
     expect(auditEntry?.blocks.map((block) => block.id)).toEqual([
-      "candidate:0",
-      "candidate:1",
+      selectedId,
+      deferredId,
     ]);
     expect(auditEntry?.blocks[0]).toMatchObject({
-      id: "candidate:0",
+      id: selectedId,
       decision: "admitted",
       reason: "within-budget",
       order: 0,
     });
     expect(auditEntry?.blocks[1]).toMatchObject({
-      id: "candidate:1",
+      id: deferredId,
       decision: "deferred",
       reason: "budget-cap",
       order: 1,
     });
+  });
+
+  it("keeps memory record ids on admitted and deferred memory blocks", () => {
+    const governor = makeGovernor();
+    const content = "x".repeat(400);
+
+    const result = governor.project({
+      artifacts: [
+        {
+          kind: "memory",
+          source: "memory-repository",
+          content,
+          score: 80,
+          memoryRecordId: "memory-record-1",
+        },
+        {
+          kind: "memory",
+          source: "memory-repository",
+          content,
+          score: 40,
+          memoryRecordId: "memory-record-2",
+        },
+      ],
+      tokenBudget: 150,
+    });
+
+    expect(result.blocks[0]).toMatchObject({
+      id: "memory:memory-record-1",
+      memoryRecordId: "memory-record-1",
+    });
+    expect(result.deferredBlocks?.[0]).toMatchObject({
+      id: "memory:memory-record-2",
+      memoryRecordId: "memory-record-2",
+    });
+    expect(result.auditTrail?.[0].blocks.map((block) => block.memoryRecordId)).toEqual([
+      "memory-record-1",
+      "memory-record-2",
+    ]);
+  });
+
+  it("records admitted and deferred memory decisions through the governor admission sink", () => {
+    const governor = makeGovernor();
+    const admissions: Array<{
+      readonly recordId: string;
+      readonly sessionId?: string;
+      readonly turnId?: string;
+      readonly decision: string;
+      readonly reason: string;
+      readonly estimatedTokens: number;
+      readonly baseScore: number;
+      readonly effectiveScore: number;
+    }> = [];
+    const content = "x".repeat(400);
+
+    governor.project({
+      artifacts: [
+        {
+          kind: "memory",
+          source: "memory-repository",
+          content,
+          score: 80,
+          memoryRecordId: "memory-record-1",
+        },
+        {
+          kind: "memory",
+          source: "memory-repository",
+          content,
+          score: 40,
+          memoryRecordId: "memory-record-2",
+        },
+      ],
+      tokenBudget: 150,
+      sessionId: "session-1",
+      turnId: "turn-1",
+      admissionSink: {
+        saveContextAdmission: (admission) => {
+          admissions.push(admission);
+          return admission;
+        },
+      },
+      admissionIdGenerator: (block) => `admission:${block.id}`,
+      clock: () => "2026-04-30T12:00:00.000Z",
+    });
+
+    expect(admissions).toEqual([
+      {
+        id: "admission:memory:memory-record-1",
+        recordId: "memory-record-1",
+        sessionId: "session-1",
+        turnId: "turn-1",
+        decision: "admitted",
+        reason: "within-budget",
+        estimatedTokens: 100,
+        baseScore: 80,
+        effectiveScore: 80,
+        createdAt: "2026-04-30T12:00:00.000Z",
+      },
+      {
+        id: "admission:memory:memory-record-2",
+        recordId: "memory-record-2",
+        sessionId: "session-1",
+        turnId: "turn-1",
+        decision: "deferred",
+        reason: "budget-cap",
+        estimatedTokens: 100,
+        baseScore: 40,
+        effectiveScore: 40,
+        createdAt: "2026-04-30T12:00:00.000Z",
+      },
+    ]);
+  });
+
+  it("uses stable semantic block ids instead of positional ids", () => {
+    const governor = makeGovernor();
+    const content = "stable candidate content";
+    const withBlank = governor.project({
+      artifacts: [
+        makeCandidate({ source: "artifact", content: "", score: 100 }),
+        makeCandidate({ source: "artifact", content, score: 80 }),
+      ],
+      exactArtifacts: ["", "stable exact artifact"],
+    });
+    const withoutBlank = governor.project({
+      artifacts: [
+        makeCandidate({ source: "artifact", content, score: 80 }),
+      ],
+      exactArtifacts: ["stable exact artifact"],
+    });
+    const cache = new InMemoryContextArtifactCache();
+    cache.set({
+      key: "module-a",
+      kind: "summary",
+      content: "Module A summary.",
+      createdAt: new Date("2026-04-30T12:00:00.000Z"),
+      updatedAt: new Date("2026-04-30T12:00:00.000Z"),
+    });
+    cache.set({
+      key: "module-b",
+      kind: "summary",
+      content: "Module B summary.",
+      createdAt: new Date("2026-04-30T12:00:00.000Z"),
+      updatedAt: new Date("2026-04-30T12:00:00.000Z"),
+    });
+
+    const cacheForward = governor.project({
+      artifactCache: cache,
+      moduleArtifactKeys: ["module-a", "module-b"],
+    });
+    const cacheReverse = governor.project({
+      artifactCache: cache,
+      moduleArtifactKeys: ["module-b", "module-a"],
+    });
+
+    expect(withBlank.blocks.map((block) => block.id).sort()).toEqual(
+      withoutBlank.blocks.map((block) => block.id).sort(),
+    );
+    expect(cacheForward.blocks.map((block) => block.id).sort()).toEqual(
+      cacheReverse.blocks.map((block) => block.id).sort(),
+    );
+    expect(withBlank.blocks.map((block) => block.id).join(" ")).not.toContain("candidate:0");
+    expect(withBlank.blocks.map((block) => block.id).join(" ")).not.toContain("artifact:0");
+    expect(cacheForward.blocks.map((block) => block.id).join(" ")).not.toContain("cached-module:0");
   });
 
   it("marks required blocks as preserved in the audit even when they exceed budget", () => {
@@ -150,25 +314,27 @@ describe("DefaultContextGovernor", () => {
 
     const result = governor.project(input);
     const auditEntry = result.auditTrail?.[0];
+    const selectedId = result.blocks[0]!.id;
+    const deferredId = result.deferredBlocks![0]!.id;
 
-    expect(result.blocks.map((block) => block.id)).toEqual(["candidate:0"]);
+    expect(result.blocks.map((block) => block.id)).toEqual([selectedId]);
     expect(auditEntry).toMatchObject({
-      requiredBlockIds: ["candidate:0"],
-      preservedRequiredBlockIds: ["candidate:0"],
-      selectedBlockIds: ["candidate:0"],
-      deferredBlockIds: ["candidate:1"],
+      requiredBlockIds: [selectedId],
+      preservedRequiredBlockIds: [selectedId],
+      selectedBlockIds: [selectedId],
+      deferredBlockIds: [deferredId],
       requiredTokens: 300,
       tokenBudget: 150,
       overflow: true,
       overflowReason: "required-overflow",
     });
     expect(auditEntry?.blocks[0]).toMatchObject({
-      id: "candidate:0",
+      id: selectedId,
       decision: "admitted",
       reason: "required-preserved",
     });
     expect(auditEntry?.blocks[1]).toMatchObject({
-      id: "candidate:1",
+      id: deferredId,
       decision: "deferred",
       reason: "required-overflow",
     });

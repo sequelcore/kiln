@@ -4,6 +4,7 @@ import type { ContextArtifactCache } from "../memory/context-cache.js";
 import { getFieldStrength } from "../field/field-service.js";
 import type {
   ContextAuditBlock,
+  ContextAuditDecision,
   ContextAuditEntry,
   ContextCandidate,
   ProjectedContext,
@@ -22,6 +23,25 @@ interface RankedContextBlock {
   readonly effectiveScore: number;
   readonly estimatedTokens: number;
 }
+
+export interface ContextAdmissionRecord {
+  readonly id: string;
+  readonly recordId: string;
+  readonly sessionId?: string;
+  readonly turnId?: string;
+  readonly decision: ContextAuditDecision;
+  readonly reason: string;
+  readonly estimatedTokens: number;
+  readonly baseScore: number;
+  readonly effectiveScore: number;
+  readonly createdAt: string;
+}
+
+export interface ContextAdmissionSink {
+  saveContextAdmission(admission: ContextAdmissionRecord): ContextAdmissionRecord;
+}
+
+export type ContextAdmissionIdGenerator = (block: ContextAuditBlock) => string;
 
 export interface ContextGovernor<
   TLedger,
@@ -49,6 +69,11 @@ export interface ProjectContextInput<
     { readonly summaryBonus: number; readonly artifactPenalty: number }
   >;
   readonly memorySnapshot?: string;
+  readonly sessionId?: string;
+  readonly turnId?: string;
+  readonly admissionSink?: ContextAdmissionSink;
+  readonly admissionIdGenerator?: ContextAdmissionIdGenerator;
+  readonly clock?: () => string;
   readonly exactArtifacts?: readonly string[];
   readonly moduleArtifactKeys?: readonly string[];
   readonly projectArtifactKey?: string;
@@ -123,6 +148,7 @@ function buildContextAuditEntry(input: {
       kind: candidate.block.kind,
       source: candidate.block.source,
       required: candidate.block.required,
+      memoryRecordId: candidate.block.memoryRecordId,
       estimatedTokens: candidate.estimatedTokens,
       baseScore: candidate.block.score,
       effectiveScore: candidate.effectiveScore,
@@ -138,6 +164,7 @@ function buildContextAuditEntry(input: {
       kind: candidate.block.kind,
       source: candidate.block.source,
       required: candidate.block.required,
+      memoryRecordId: candidate.block.memoryRecordId,
       estimatedTokens: candidate.estimatedTokens,
       baseScore: candidate.block.score,
       effectiveScore: candidate.effectiveScore,
@@ -169,26 +196,32 @@ export class DefaultContextGovernor<
 > implements ContextGovernor<TLedger, TSource, TAggressiveness> {
   project(input: ProjectContextInput<TLedger, TSource, TAggressiveness>): ProjectedContext {
     const blocks: ProjectedContextBlock[] = [];
+    const blockIds = new Map<string, number>();
 
-    for (const [index, candidate] of (input.artifacts ?? []).entries()) {
+    for (const candidate of input.artifacts ?? []) {
       if (candidate.content.trim() === "") continue;
+      const memoryRecordId = normalizeMemoryRecordId(candidate.memoryRecordId);
+      const baseId = memoryRecordId
+        ? `memory:${memoryRecordId}`
+        : `candidate:${candidate.kind}:${stableHash(`${candidate.source}\n${candidate.content}`)}`;
       blocks.push({
-        id: `candidate:${index}`,
+        id: uniqueBlockId(baseId, blockIds),
         kind: candidate.kind,
         source: candidate.source,
         content: candidate.content,
         required: candidate.required ?? false,
         score: candidate.score ?? 0,
+        memoryRecordId,
         estimatedTokens: candidate.estimatedTokens ?? estimateTextTokens(candidate.content),
       });
     }
 
     // Cache-backed module summaries
-    for (const [index, key] of (input.moduleArtifactKeys ?? []).entries()) {
+    for (const key of input.moduleArtifactKeys ?? []) {
       const cachedModuleSummary = input.artifactCache?.get(key);
       if (cachedModuleSummary && cachedModuleSummary.content.trim() !== "") {
         blocks.push({
-          id: `summary:cached-module:${index}`,
+          id: uniqueBlockId(`summary:cached-module:${stableHash(key)}`, blockIds),
           kind: "summary",
           source: "context-artifact-cache",
           content: cachedModuleSummary.content,
@@ -205,7 +238,7 @@ export class DefaultContextGovernor<
         : undefined;
     if (cachedPlanSummary && cachedPlanSummary.content.trim() !== "") {
       blocks.push({
-        id: "summary:cached-plan",
+        id: uniqueBlockId("summary:cached-plan", blockIds),
         kind: "summary",
         source: "context-artifact-cache",
         content: cachedPlanSummary.content,
@@ -221,7 +254,7 @@ export class DefaultContextGovernor<
         : undefined;
     if (cachedProjectSummary && cachedProjectSummary.content.trim() !== "") {
       blocks.push({
-        id: "summary:cached-project",
+        id: uniqueBlockId("summary:cached-project", blockIds),
         kind: "summary",
         source: "context-artifact-cache",
         content: cachedProjectSummary.content,
@@ -237,7 +270,7 @@ export class DefaultContextGovernor<
         : undefined;
     if (cachedSessionSummary && cachedSessionSummary.content.trim() !== "") {
       blocks.push({
-        id: "summary:cached-session",
+        id: uniqueBlockId("summary:cached-session", blockIds),
         kind: "summary",
         source: "context-artifact-cache",
         content: cachedSessionSummary.content,
@@ -254,7 +287,7 @@ export class DefaultContextGovernor<
         : undefined;
     if (renderedLedger) {
       blocks.push({
-        id: "ledger:session",
+        id: uniqueBlockId("ledger:session", blockIds),
         kind: "ledger",
         source: "session-ledger",
         content: renderedLedger,
@@ -265,10 +298,10 @@ export class DefaultContextGovernor<
     }
 
     // Exact string artifacts (required)
-    for (const [index, artifact] of (input.exactArtifacts ?? []).entries()) {
+    for (const artifact of input.exactArtifacts ?? []) {
       if (artifact.trim() === "") continue;
       blocks.push({
-        id: `artifact:${index}`,
+        id: uniqueBlockId(`artifact:${stableHash(artifact)}`, blockIds),
         kind: "artifact",
         source: "session-artifact",
         content: artifact,
@@ -281,7 +314,7 @@ export class DefaultContextGovernor<
     // Memory snapshot
     if (input.memorySnapshot && input.memorySnapshot.trim() !== "") {
       blocks.push({
-        id: "memory:snapshot",
+        id: uniqueBlockId("memory:snapshot", blockIds),
         kind: "memory",
         source: "session-memory-snapshot",
         content: input.memorySnapshot,
@@ -332,6 +365,14 @@ export class DefaultContextGovernor<
       tokenBudget,
       overflow: selection.overflow,
     });
+    recordMemoryAdmissions({
+      sink: input.admissionSink,
+      auditBlocks: auditEntry.blocks,
+      sessionId: input.sessionId,
+      turnId: input.turnId,
+      idGenerator: input.admissionIdGenerator,
+      clock: input.clock,
+    });
 
     return {
       blocks: selectedBlocks,
@@ -342,4 +383,64 @@ export class DefaultContextGovernor<
       auditTrail: [auditEntry],
     };
   }
+}
+
+function normalizeMemoryRecordId(recordId: string | undefined): string | undefined {
+  if (recordId === undefined) return undefined;
+  const trimmed = recordId.trim();
+  if (trimmed.length === 0) {
+    throw new Error("Memory context record id is required");
+  }
+  return trimmed;
+}
+
+function uniqueBlockId(baseId: string, seen: Map<string, number>): string {
+  const count = seen.get(baseId) ?? 0;
+  seen.set(baseId, count + 1);
+  return count === 0 ? baseId : `${baseId}:${count + 1}`;
+}
+
+function stableHash(value: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = Math.imul(hash ^ value.charCodeAt(index), 0x01000193);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function recordMemoryAdmissions(input: {
+  readonly sink?: ContextAdmissionSink;
+  readonly auditBlocks: readonly ContextAuditBlock[];
+  readonly sessionId?: string;
+  readonly turnId?: string;
+  readonly idGenerator?: ContextAdmissionIdGenerator;
+  readonly clock?: () => string;
+}): void {
+  if (!input.sink) return;
+
+  const createdAt = input.clock?.() ?? new Date().toISOString();
+  for (const block of input.auditBlocks) {
+    if (block.kind !== "memory" || !block.memoryRecordId) {
+      continue;
+    }
+
+    input.sink.saveContextAdmission({
+      id: input.idGenerator?.(block) ?? defaultAdmissionId(block, input.sessionId, input.turnId),
+      recordId: block.memoryRecordId,
+      sessionId: input.sessionId,
+      turnId: input.turnId,
+      decision: block.decision,
+      reason: block.reason,
+      estimatedTokens: block.estimatedTokens,
+      baseScore: block.baseScore,
+      effectiveScore: block.effectiveScore,
+      createdAt,
+    });
+  }
+}
+
+function defaultAdmissionId(block: ContextAuditBlock, sessionId: string | undefined, turnId: string | undefined): string {
+  const sessionPart = sessionId ?? "sessionless";
+  const turnPart = turnId ?? "turnless";
+  return `context-admission:${sessionPart}:${turnPart}:${block.id}`;
 }

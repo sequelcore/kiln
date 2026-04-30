@@ -1,8 +1,8 @@
 # 01 - Memory Lattice and Governed Memory
 
-**Status:** Product architecture track  
+**Status:** In progress - slices 01.A through 01.E complete
 **Owner:** Kiln core / runtime / GUI / context governance  
-**Depends on:** `docs/architecture/memory.md`, `docs/architecture/context-governance.md`, `docs/architecture/context-resource-plane.md`, `docs/architecture/runtime-surfaces.md`, `docs/architecture/shared-tooling-intelligence.md`, `docs/architecture/developer-tools.md`, `docs/guides/gui-parity.md`, `docs/guides/tui-maintenance.md`  
+**Depends on:** `docs/adr/ADR-008-memory-lattice-governed-memory.md`, `docs/architecture/memory.md`, `docs/architecture/context-governance.md`, `docs/architecture/context-resource-plane.md`, `docs/architecture/runtime-surfaces.md`, `docs/architecture/shared-tooling-intelligence.md`, `docs/architecture/developer-tools.md`, `docs/guides/gui-parity.md`, `docs/guides/tui-maintenance.md`
 **Related:** `docs/roadmap/02-operator-surfaces-and-remote-gui.md`, `docs/roadmap/03-provider-credential-pool.md`
 
 ## Purpose
@@ -23,7 +23,7 @@ what matters, explain why it was retrieved, and show what was excluded.
 
 ## Product Decision
 
-Build a Memory Lattice, not a brain gimmick.
+Build Memory Lattice as governed memory, not as a visual metaphor.
 
 The graph is a visualization of explicit memory records, relationships,
 provenance, revisions, scope, and context-admission decisions. It is not the
@@ -53,10 +53,45 @@ Correct ownership:
 - No "brain" vocabulary in public contracts. Use memory, graph, lattice,
   provenance, relation, scope, revision, and admission.
 
+## Progress
+
+Updated on 2026-04-30.
+
+Completed:
+
+- Slice 01.A froze the Memory Lattice doctrine in ADR-008 and aligned memory,
+  context-resource, and runtime-surface architecture docs.
+- Slice 01.B introduced pure memory domain contracts for scopes, records,
+  relations, revisions, graph snapshots, and index queries.
+- Slice 01.C replaced memory persistence with the final SQLite repository shape
+  backed by `memory_records`, revisions, relations, context admissions, FTS, and
+  scope isolation.
+- Slice 01.D added reconsolidation and relation services with auditable
+  correction, extension, noop, contradiction, supersession, topic validation,
+  bound UUID defaults, and atomic repository transactions.
+- Slice 01.E connected `ContextGovernor` admission decisions to memory
+  provenance through stable memory block IDs and idempotent context-admission
+  persistence.
+
+Current verification:
+
+- `bun run --cwd packages/core typecheck`
+- `bun run --cwd packages/core test tests/context tests/memory`
+- `bun run --cwd packages/core test`
+- DDD and reviewer gates passed for Slice 01.E after the idempotency and stable
+  block-ID fixes.
+
+Next slice:
+
+- Slice 01.F - Memory Graph Projector.
+
 ## References
 
 ### Kiln architecture
 
+- `docs/adr/ADR-008-memory-lattice-governed-memory.md` - accepted decision for
+  Memory Lattice ownership, domain contracts, resource projection, and clean
+  replacement strategy.
 - `docs/architecture/memory.md` - target layered memory model, retention,
   reconsolidation, recall policy, and invariants.
 - `docs/architecture/context-governance.md` - context admission ownership.

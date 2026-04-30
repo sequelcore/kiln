@@ -5,6 +5,11 @@
 Kiln uses a layered memory architecture with explicit retention, decay,
 mutation, and deletion rules.
 
+Memory Lattice is the product and architecture name for Kiln's governed memory
+graph. It is defined by `docs/adr/ADR-008-memory-lattice-governed-memory.md`.
+The implementation belongs to the `memory` bounded context in `@kilnai/core`;
+GUI, CLI, TUI, SDK, YAML apps, and MCP are projections over that core contract.
+
 The architecture distinguishes:
 
 - working memory
@@ -42,6 +47,43 @@ claim that Kiln reproduces biological recall or plasticity.
 - Coordination state uses its own naming and scope conventions.
 - Storage and mutation APIs are not context policy. They produce or retrieve
   state; `ContextGovernor` decides admitted-turn model context.
+- Memory Lattice is not GUI state. The GUI may render memory records,
+  relations, provenance, revisions, and context-admission decisions, but it
+  does not own those rules or persist its own memory graph.
+- The current memory implementation has no external consumers that require
+  compatibility preservation. Replacement slices should delete obsolete memory
+  shapes directly instead of adding migrations, compatibility readers, or
+  dual-write paths.
+
+## Memory Lattice Contracts
+
+The memory bounded context owns these public domain concepts:
+
+- `MemoryRecord`
+- `MemoryScope`
+- `MemoryLayerKind`
+- `MemoryProvenance`
+- `MemoryRevision`
+- `MemoryRelation`
+- `MemoryContextAdmission`
+- `MemoryGraphSnapshot`
+
+Relation types are explicit domain vocabulary:
+
+- `related_to`
+- `supports`
+- `contradicts`
+- `supersedes`
+- `revises`
+- `derived_from`
+- `same_topic`
+- `admitted_to_context`
+- `linked_resource`
+- `belongs_to_scope`
+
+Memory graph projection is read-only and bounded. Context admission remains
+owned by `ContextGovernor`; memory records can be candidates, but they become
+model-visible context only after governed admission.
 
 ## Target Layer Model
 

@@ -1,237 +1,74 @@
-import { Database } from "bun:sqlite";
-import type { MemoryEntry, MemoryLayer, MemorySearchResult, MemoryStore } from "./index.js";
-import type { DecayConfig } from "./decay-curves.js";
-import { applyDecayCurve, DEFAULT_DECAY_CONFIG } from "./decay-curves.js";
-import { MemoryCompactor } from "./compactor.js";
-import type { CompactionConfig, CompactionResult, CompactableStore, CompactableEntry } from "./compactor.js";
 import { KilnError } from "../engine/errors.js";
-import type { EventBus } from "../events/index.js";
+import { applyDecayCurve, DEFAULT_DECAY_CONFIG, shouldPrune } from "./decay-curves.js";
+import type { MemoryEntry, MemoryLayer, MemorySearchResult, MemoryStore } from "./index.js";
+import {
+  SqliteMemoryRepository,
+  type CreateMemoryRecordInput,
+  type MemoryRecord,
+  type MemoryRecordQuery,
+  type MemoryRepository,
+} from "./index.js";
 
-/** Rough heuristic: ~4 characters per token for English text */
 const CHARS_PER_TOKEN_ESTIMATE = 4;
+const DEFAULT_SCOPE_ID = "default";
 
 export interface SqliteMemoryStoreOptions {
   readonly dbPath: string;
   readonly layer: MemoryLayer;
-  readonly enableDecay?: boolean;
-  readonly decay?: DecayConfig;
-  readonly compaction?: CompactionConfig;
-  /** When set, enforces tenant namespace isolation: saves are tagged, searches/forgets are scoped. */
   readonly tenantId?: string;
-  readonly compactionThreshold?: number;
-  readonly eventBus?: EventBus;
-}
-
-interface MemoryRow {
-  id: string;
-  content: string;
-  tags: string;
-  agent_role: string | null;
-  project_id: string | null;
-  topic_key: string | null;
-  revision_count: number;
-  last_seen_at: string | null;
-  created_at: string;
-  last_accessed_at: string;
-  access_count: number;
-  decay_score: number;
-}
-
-interface FtsSearchRow extends MemoryRow {
-  score: number;
-  snippet: string;
 }
 
 export class SqliteMemoryStore implements MemoryStore {
-  private readonly db: Database;
+  private readonly repository: MemoryRepository;
   private readonly layer: MemoryLayer;
-  private readonly enableDecay: boolean;
-  private readonly decayConfig: DecayConfig;
-  private readonly compactor: MemoryCompactor | null;
   private readonly tenantId: string | undefined;
-  private readonly compactionThreshold: number;
-  private readonly eventBus: EventBus | undefined;
+  private readonly decayScores = new Map<string, number>();
+  private readonly accessCounts = new Map<string, number>();
+  private readonly revisionCounts = new Map<string, number>();
 
   constructor(options: SqliteMemoryStoreOptions) {
-    this.layer = options.layer;
-    this.enableDecay = options.enableDecay ?? false;
-    this.decayConfig = options.decay ?? DEFAULT_DECAY_CONFIG;
-    this.compactor = options.compaction ? new MemoryCompactor(options.compaction) : null;
-    this.tenantId = options.tenantId;
-    this.compactionThreshold = options.compactionThreshold ?? 1000;
-    this.eventBus = options.eventBus;
-    if (this.tenantId && /[%_]/.test(this.tenantId)) {
-      throw new KilnError('CONFIG_INVALID', 'tenantId must not contain SQL wildcard characters (% or _)', {
-        context: { tenantId: this.tenantId },
-        retryable: false,
-      });
+    if (options.tenantId && /[%_]/.test(options.tenantId)) {
+      throw new Error("tenantId must not contain SQL wildcard characters (% or _)");
     }
-    this.db = new Database(options.dbPath);
-    this.db.exec("PRAGMA journal_mode = WAL;");
-    this.initSchema();
-  }
 
-  private initSchema(): void {
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS memories (
-        id TEXT PRIMARY KEY,
-        content TEXT NOT NULL,
-        tags TEXT NOT NULL,
-        agent_role TEXT,
-        project_id TEXT,
-        topic_key TEXT,
-        revision_count INTEGER NOT NULL DEFAULT 1,
-        last_seen_at TEXT,
-        created_at TEXT NOT NULL,
-        last_accessed_at TEXT NOT NULL,
-        access_count INTEGER DEFAULT 0,
-        decay_score REAL DEFAULT 1.0,
-        deleted_at TEXT,
-        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-      )
-    `);
-
-    this.db.exec(`
-      CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
-        id UNINDEXED, content, tags, topic_key, tokenize='porter'
-      );
-    `);
-
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS memories_archive (
-        id TEXT PRIMARY KEY,
-        content TEXT NOT NULL,
-        tags TEXT NOT NULL,
-        agent_role TEXT,
-        project_id TEXT,
-        topic_key TEXT,
-        revision_count INTEGER NOT NULL DEFAULT 1,
-        last_seen_at TEXT,
-        created_at TEXT NOT NULL,
-        last_accessed_at TEXT NOT NULL,
-        access_count INTEGER DEFAULT 0,
-        decay_score REAL DEFAULT 1.0,
-        archived_at TEXT NOT NULL
-      );
-    `);
+    this.repository = new SqliteMemoryRepository({ dbPath: options.dbPath });
+    this.layer = options.layer;
+    this.tenantId = options.tenantId;
   }
 
   async save(
     entry: Omit<MemoryEntry, "id" | "createdAt" | "lastAccessedAt" | "accessCount" | "revisionCount" | "lastSeenAt">,
   ): Promise<string> {
-    const now = new Date().toISOString();
+    const existing = entry.topicKey
+      ? this.findByTopicKey(entry.topicKey)
+      : undefined;
+    const id = existing?.id;
 
-    let tags = [...entry.tags];
-    if (this.tenantId) {
-      const tenantTag = `_tenant:${this.tenantId}`;
-      if (!tags.includes(tenantTag)) tags.push(tenantTag);
-    }
-    const tagsJson = JSON.stringify(tags);
-
-    // Branch A — topic_key upsert
-    if (entry.topicKey) {
-      const existing = this.db.prepare(`
-        SELECT id FROM memories
-        WHERE topic_key = ? AND project_id IS ? AND deleted_at IS NULL
-        ORDER BY last_seen_at DESC
-        LIMIT 1
-      `).get(entry.topicKey, entry.projectId ?? null) as { id: string } | undefined;
-
-      if (existing) {
-        this.db.prepare(`
-          UPDATE memories SET
-            content = ?,
-            tags = ?,
-            topic_key = ?,
-            revision_count = revision_count + 1,
-            last_seen_at = ?,
-            last_accessed_at = ?
-          WHERE id = ?
-        `).run(entry.content, tagsJson, entry.topicKey, now, now, existing.id);
-
-        if (this.count > this.compactionThreshold) {
-          this.runCompaction();
-        }
-
-        return existing.id;
-      }
-    }
-
-    // Branch B — plain insert
-    const id = crypto.randomUUID();
-
-    this.db.prepare(`
-      INSERT INTO memories (id, content, tags, agent_role, project_id, topic_key, revision_count, last_seen_at, created_at, last_accessed_at, access_count, decay_score)
-      VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, 0, 1.0)
-    `).run(id, entry.content, tagsJson, entry.agentRole ?? null, entry.projectId ?? null, entry.topicKey ?? null, now, now, now);
-
-    this.db.prepare(`
-      INSERT INTO memories_fts (id, content, tags, topic_key) VALUES (?, ?, ?, ?)
-    `).run(id, entry.content, tagsJson, entry.topicKey ?? null);
-
-    if (this.count > this.compactionThreshold) {
-      this.runCompaction();
-    }
-
-    return id;
+    const record = this.repository.saveRecord(this.toCreateRecordInput(entry, id));
+    const revisionCount = (existing ? this.revisionCounts.get(existing.id) ?? existing.revisionCount ?? 1 : 0) + 1;
+    this.revisionCounts.set(record.id, revisionCount);
+    this.decayScores.set(record.id, 1);
+    this.accessCounts.set(record.id, this.accessCounts.get(record.id) ?? 0);
+    return record.id;
   }
 
-  async search(
-    query: string,
-    limit?: number,
-  ): Promise<readonly MemorySearchResult[]> {
+  async search(query: string, limit?: number): Promise<readonly MemorySearchResult[]> {
     const maxResults = limit ?? 10;
-
-    // If query contains "/", treat as direct topic_key lookup
     if (query.includes("/")) {
-      const topicRows = this.db.prepare(`
-        SELECT m.*, -1000 as score, '' as snippet
-        FROM memories m
-        WHERE m.topic_key = ? AND (m.deleted_at IS NULL OR m.deleted_at = '')
-        ORDER BY m.revision_count DESC, m.last_seen_at DESC
-        LIMIT ?
-      `).all(query, maxResults) as FtsSearchRow[];
-
-      return topicRows.map((row) => this.toSearchResult(row));
+      const entry = this.findByTopicKey(query);
+      return entry ? [{ entry, score: 1000, snippet: "" }].slice(0, maxResults) : [];
     }
 
-    let rows: FtsSearchRow[];
-    if (this.tenantId) {
-      const tenantTag = `_tenant:${this.tenantId}`;
-      rows = this.db.prepare(`
-        SELECT m.*, bm25(memories_fts) AS score,
-               snippet(memories_fts, 1, '<b>', '</b>', '...', 32) AS snippet
-        FROM memories_fts fts
-        JOIN memories m ON m.id = fts.id
-        WHERE memories_fts MATCH ?
-          AND m.tags LIKE ?
-        ORDER BY bm25(memories_fts)
-        LIMIT ?
-      `).all(query, `%"${tenantTag}"%`, maxResults) as FtsSearchRow[];
-
-      // Runtime assertion: verify each returned row has the tenant tag
-      for (const row of rows) {
-        const tags = JSON.parse(row.tags) as string[];
-        if (!tags.includes(tenantTag)) {
-          throw new KilnError("TENANT_ISOLATION_VIOLATED", `Memory entry ${row.id} lacks tenant tag for tenant ${this.tenantId}`, {
-            context: { entryId: row.id, tenantId: this.tenantId },
-            retryable: false,
-          });
-        }
-      }
-    } else {
-      rows = this.db.prepare(`
-        SELECT m.*, bm25(memories_fts) AS score,
-               snippet(memories_fts, 1, '<b>', '</b>', '...', 32) AS snippet
-        FROM memories_fts fts
-        JOIN memories m ON m.id = fts.id
-        WHERE memories_fts MATCH ?
-        ORDER BY bm25(memories_fts)
-        LIMIT ?
-      `).all(query, maxResults) as FtsSearchRow[];
-    }
-
-    return rows.map((row) => this.toSearchResult(row));
+    const results = this.repository.searchRecords({
+      query,
+      scope: this.scopeForStore(),
+      limit: maxResults,
+    });
+    return results.map((result) => ({
+      entry: this.toEntry(result.record),
+      score: Math.abs(result.score ?? 0) * (this.decayScores.get(result.record.id) ?? 1),
+      snippet: result.snippet,
+    }));
   }
 
   async recall(query: string, tokenBudget: number): Promise<string> {
@@ -250,228 +87,125 @@ export class SqliteMemoryStore implements MemoryStore {
   }
 
   async forget(id: string): Promise<void> {
-    if (this.tenantId) {
-      const row = this.db.prepare("SELECT tags FROM memories WHERE id = ?").get(id) as { tags: string } | undefined;
-      if (row) {
-        const tags = JSON.parse(row.tags) as string[];
-        const tenantTag = `_tenant:${this.tenantId}`;
-        if (!tags.includes(tenantTag)) {
-          throw new KilnError("TENANT_ISOLATION_VIOLATED", `Cannot delete memory entry ${id}: tenant isolation violation`, {
-            context: { entryId: id, tenantId: this.tenantId },
-            retryable: false,
-          });
-        }
-      }
+    const entry = this.repository.getRecord(id);
+    if (!entry) return;
+    if (!this.isOwnScope(entry.scope)) {
+      throw new KilnError("TENANT_ISOLATION_VIOLATED", `Cannot delete memory entry ${id}: scope isolation violation`, {
+        context: { entryId: id },
+        retryable: false,
+      });
     }
-    this.db.prepare("DELETE FROM memories_fts WHERE id = ?").run(id);
-    this.db.prepare("DELETE FROM memories WHERE id = ?").run(id);
+    this.repository.deleteRecord(id, entry.scope);
+    this.decayScores.delete(id);
+    this.accessCounts.delete(id);
+    this.revisionCounts.delete(id);
   }
 
   reinforce(id: string): void {
-    const now = new Date().toISOString();
-    this.db.prepare(`
-      UPDATE memories
-      SET last_accessed_at = ?, access_count = access_count + 1, decay_score = 1.0
-      WHERE id = ?
-    `).run(now, id);
+    this.accessCounts.set(id, (this.accessCounts.get(id) ?? 0) + 1);
+    this.decayScores.set(id, 1);
   }
 
   applyDecay(factor?: number): void {
-    const config = this.decayConfig;
-    const now = Date.now();
-
-    if (config.curve === "step") {
-      // Step decay: set score to 0 for entries older than factor days
-      const rows = this.db.prepare("SELECT id, created_at FROM memories").all() as { id: string; created_at: string }[];
-      for (const row of rows) {
-        const ageInDays = (now - new Date(row.created_at).getTime()) / (1000 * 60 * 60 * 24);
-        const newScore = applyDecayCurve(1, config, ageInDays);
-        this.db.prepare("UPDATE memories SET decay_score = ? WHERE id = ?").run(newScore, row.id);
+    const entries = this.listEntries({ limit: 500 });
+    for (const entry of entries) {
+      const nextScore = applyDecayCurve(
+        this.decayScores.get(entry.id) ?? 1,
+        { ...DEFAULT_DECAY_CONFIG, factor: factor ?? DEFAULT_DECAY_CONFIG.factor },
+      );
+      if (shouldPrune(nextScore, DEFAULT_DECAY_CONFIG.pruneThreshold)) {
+        this.repository.deleteRecord(entry.id, this.scopeForStore());
+        this.decayScores.delete(entry.id);
+        this.accessCounts.delete(entry.id);
+        this.revisionCounts.delete(entry.id);
+      } else {
+        this.decayScores.set(entry.id, nextScore);
       }
-    } else if (config.curve === "linear") {
-      const linearFactor = factor ?? config.factor;
-      const rows = this.db.prepare("SELECT id, decay_score FROM memories").all() as { id: string; decay_score: number }[];
-      for (const row of rows) {
-        const newScore = applyDecayCurve(row.decay_score, { ...config, factor: linearFactor });
-        this.db.prepare("UPDATE memories SET decay_score = ? WHERE id = ?").run(newScore, row.id);
-      }
-    } else {
-      // Exponential (default) -- batch update for efficiency
-      const decayFactor = factor ?? config.factor;
-      this.db.prepare("UPDATE memories SET decay_score = decay_score * ?").run(decayFactor);
     }
-
-    // Prune entries below threshold
-    const threshold = config.pruneThreshold;
-    const pruned = this.db.prepare("SELECT id FROM memories WHERE decay_score < ?").all(threshold) as { id: string }[];
-    for (const row of pruned) {
-      this.db.prepare("DELETE FROM memories_fts WHERE id = ?").run(row.id);
-    }
-    this.db.prepare("DELETE FROM memories WHERE decay_score < ?").run(threshold);
   }
 
-  /** Run compaction if configured and threshold exceeded. Returns null if compaction is not configured. */
-  runCompaction(): CompactionResult | null {
-    if (!this.compactor) return null;
-    const compactable = this.asCompactable();
-    const entryCount = compactable.entryCount();
-    if (!this.compactor.shouldCompact(compactable)) return null;
-
-    const start = Date.now();
-    const thresholdHit = entryCount - this.compactionThreshold;
-    this.eventBus?.emit({
-      type: "precompact",
-      timestamp: new Date(),
-      sessionId: "",
-      scope: this.layer,
-      entryCount,
-      thresholdHit,
-    } as import("../events/index.js").KilnEvent);
-
-    const result = this.compactor.compact(compactable);
-
-    this.eventBus?.emit({
-      type: "postcompact",
-      timestamp: new Date(),
-      sessionId: "",
-      scope: this.layer,
-      removedCount: result.entriesRemoved,
-      remainingCount: entryCount - result.entriesRemoved,
-      durationMs: Date.now() - start,
-    } as import("../events/index.js").KilnEvent);
-
-    return result;
-  }
-
-  private asCompactable(): CompactableStore {
-    const db = this.db;
-    return {
-      entryCount(): number {
-        const row = db.prepare("SELECT COUNT(*) AS cnt FROM memories").get() as { cnt: number };
-        return row.cnt;
-      },
-      queryOldEntries(minAgeDays: number, limit: number): readonly CompactableEntry[] {
-        const cutoff = new Date(Date.now() - minAgeDays * 24 * 60 * 60 * 1000).toISOString();
-        const rows = db.prepare(`
-          SELECT id, content, tags, decay_score
-          FROM memories
-          WHERE created_at < ?
-          ORDER BY decay_score ASC
-          LIMIT ?
-        `).all(cutoff, limit) as { id: string; content: string; tags: string; decay_score: number }[];
-        return rows.map((r) => ({
-          id: r.id,
-          content: r.content,
-          tags: JSON.parse(r.tags) as string[],
-          decayScore: r.decay_score,
-        }));
-      },
-      saveSummary(content: string, tags: readonly string[]): string {
-        const id = crypto.randomUUID();
-        const now = new Date().toISOString();
-        const tagsJson = JSON.stringify(tags);
-        db.prepare(`
-          INSERT INTO memories (id, content, tags, created_at, last_accessed_at, access_count, decay_score)
-          VALUES (?, ?, ?, ?, ?, 0, 1.0)
-        `).run(id, content, tagsJson, now, now);
-        db.prepare(`
-          INSERT INTO memories_fts (id, content, tags) VALUES (?, ?, ?)
-        `).run(id, content, tagsJson);
-        return id;
-      },
-      archiveEntries(ids: readonly string[]): void {
-        const now = new Date().toISOString();
-        for (const id of ids) {
-          db.prepare(`
-            INSERT OR IGNORE INTO memories_archive
-            SELECT *, ? AS archived_at FROM memories WHERE id = ?
-          `).run(now, id);
-          db.prepare("DELETE FROM memories_fts WHERE id = ?").run(id);
-          db.prepare("DELETE FROM memories WHERE id = ?").run(id);
-        }
-      },
+  listEntries(options: { limit?: number; tags?: string } = {}): readonly MemoryEntry[] {
+    const tags = options.tags?.split(",").map((tag) => tag.trim()).filter((tag) => tag.length > 0);
+    const query: MemoryRecordQuery = {
+      scope: this.scopeForStore(),
+      tags,
+      limit: Math.min(options.limit ?? 100, 500),
     };
-  }
-
-  listEntries(options?: { limit?: number; tags?: string }): readonly MemoryEntry[] {
-    const limit = options?.limit ?? 100;
-    const tagFilter = options?.tags ? options.tags.split(",").map((t) => t.trim()).filter(Boolean) : [];
-
-    let rows: MemoryRow[];
-
-    if (this.tenantId) {
-      const tenantTag = `_tenant:${this.tenantId}`;
-      rows = this.db.prepare(`
-        SELECT * FROM memories
-        WHERE tags LIKE ?
-        ORDER BY last_accessed_at DESC
-        LIMIT ?
-      `).all(`%"${tenantTag}"%`, limit) as MemoryRow[];
-
-      for (const row of rows) {
-        const tags = JSON.parse(row.tags) as string[];
-        if (!tags.includes(tenantTag)) {
-          throw new KilnError("TENANT_ISOLATION_VIOLATED", `Memory entry ${row.id} lacks tenant tag for tenant ${this.tenantId}`, {
-            context: { entryId: row.id, tenantId: this.tenantId },
-            retryable: false,
-          });
-        }
-      }
-    } else {
-      rows = this.db.prepare(`
-        SELECT * FROM memories
-        ORDER BY last_accessed_at DESC
-        LIMIT ?
-      `).all(limit) as MemoryRow[];
-    }
-
-    if (tagFilter.length > 0) {
-      rows = rows.filter((row) => {
-        const rowTags = JSON.parse(row.tags) as string[];
-        return tagFilter.every((t) => rowTags.includes(t));
-      });
-    }
-
-    return rows.map((row) => this.toEntry(row));
+    const records = this.repository.listRecords(query);
+    return records.map((record) => this.toEntry(record));
   }
 
   hasEntry(id: string): boolean {
-    const row = this.db.prepare("SELECT 1 FROM memories WHERE id = ?").get(id) as { 1: number } | undefined;
-    return row !== undefined;
+    const record = this.repository.getRecord(id);
+    return record !== undefined && this.isOwnScope(record.scope);
   }
 
   close(): void {
-    this.db.close();
+    this.repository.close();
   }
 
   get count(): number {
-    const row = this.db.prepare("SELECT COUNT(*) AS cnt FROM memories").get() as { cnt: number };
-    return row.cnt;
+    return this.repository.countRecords(this.scopeForStore());
   }
 
-  private toSearchResult(row: FtsSearchRow): MemorySearchResult {
-    const score = this.enableDecay ? Math.abs(row.score) * row.decay_score : Math.abs(row.score);
+  private toCreateRecordInput(
+    entry: Omit<MemoryEntry, "id" | "createdAt" | "lastAccessedAt" | "accessCount" | "revisionCount" | "lastSeenAt">,
+    id?: string,
+  ): CreateMemoryRecordInput {
+    const tags = [...entry.tags];
+    if (this.tenantId) {
+      tags.push(`_tenant:${this.tenantId}`);
+    }
     return {
-      entry: this.toEntry(row),
-      score,
-      snippet: row.snippet,
+      id,
+      layer: this.layer === "agent" ? "procedural" : "semantic",
+      scope: this.scopeForStore(),
+      content: entry.content,
+      tags,
+      topicKey: entry.topicKey,
+      provenance: {
+        sourceType: "operator",
+        sourceId: this.tenantId ?? this.layer,
+        capturedAt: new Date().toISOString(),
+      },
     };
   }
 
-  private toEntry(row: MemoryRow): MemoryEntry {
+  private toEntry(record: MemoryRecord): MemoryEntry {
     return {
-      id: row.id,
+      id: record.id,
       layer: this.layer,
-      content: row.content,
-      tags: JSON.parse(row.tags) as string[],
-      topicKey: row.topic_key ?? undefined,
-      revisionCount: row.revision_count,
-      lastSeenAt: row.last_seen_at ? new Date(row.last_seen_at) : undefined,
-      createdAt: new Date(row.created_at),
-      lastAccessedAt: new Date(row.last_accessed_at),
-      accessCount: row.access_count,
-      agentRole: row.agent_role as MemoryEntry["agentRole"],
-      projectId: row.project_id ?? undefined,
+      content: record.content,
+      tags: record.tags,
+      topicKey: record.topicKey,
+      revisionCount: this.revisionCounts.get(record.id) ?? 1,
+      lastSeenAt: new Date(record.updatedAt ?? record.createdAt),
+      createdAt: new Date(record.createdAt),
+      lastAccessedAt: new Date(record.updatedAt ?? record.createdAt),
+      accessCount: this.accessCounts.get(record.id) ?? 0,
     };
+  }
+
+  private findByTopicKey(topicKey: string): MemoryEntry | undefined {
+    const record = this.repository.getRecordByTopicKey(this.scopeForStore(), topicKey);
+    return record ? this.toEntry(record) : undefined;
+  }
+
+  private scopeForStore() {
+    if (this.tenantId) {
+      return { kind: "tenant" as const, id: this.tenantId };
+    }
+    if (this.layer === "project") {
+      return { kind: "project" as const, id: DEFAULT_SCOPE_ID };
+    }
+    if (this.layer === "agent") {
+      return { kind: "agent" as const, id: DEFAULT_SCOPE_ID };
+    }
+    return { kind: "user" as const, id: DEFAULT_SCOPE_ID };
+  }
+
+  private isOwnScope(scope: { readonly kind: string; readonly id: string }): boolean {
+    const expected = this.scopeForStore();
+    return scope.kind === expected.kind && scope.id === expected.id;
   }
 }

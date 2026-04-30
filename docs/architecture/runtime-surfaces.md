@@ -89,6 +89,22 @@ App Gateway
 Capabilities converge in core/runtime and are projected outward. They are not
 reimplemented independently in each surface.
 
+## Memory Lattice Surface Rule
+
+Memory Lattice follows the same ownership model:
+
+```text
+@kilnai/core memory bounded context
+  -> memory graph resources
+  -> App Gateway / Operator Gateway contract
+  -> GUI / CLI / TUI / SDK / MCP
+```
+
+The GUI is the first visual consumer, not the owner. No surface may create a
+private memory graph, bypass core scope validation, or decide model-context
+admission locally. YAML apps may declare memory policy in the future, but they
+do not declare GUI layout.
+
 ## Naming Guidance
 
 Use precise names in new docs and code:
