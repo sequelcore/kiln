@@ -5,3 +5,4 @@
 - When a user names a specific skill, do not substitute a similarly named skill. If the named skill is unavailable, state that and proceed with the closest project-native workflow instead of applying an adjacent skill.
 - In chat surfaces, transient assistant response state such as thinking, streaming, or tool progress belongs in the transcript near the assistant turn, while durable runtime metadata belongs in an inspector or activity log.
 - When diagnosing tool execution from filesystem side effects, do not attribute an existing untracked file to the latest run unless its name, content, timestamp, and requested operation match the reported attempt.
+- When a replacement feature has no external consumers yet, do not design migrations, compatibility readers, dual-write paths, or legacy shims. Replace the model cleanly and delete obsolete code in the same slice.

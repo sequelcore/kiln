@@ -1,4 +1,4 @@
-# Operator Surfaces and Remote GUI Strategy
+# 02 - Operator Surfaces and Remote GUI Strategy
 
 **Status:** Product architecture track  
 **Owner:** Kiln runtime / GUI / operator surfaces  
@@ -67,7 +67,7 @@ concerns documented in `docs/architecture/tool-execution.md` and
 Correct separation:
 
 - `tool-execution`: how agents/providers/wrappers access governed Kiln tools
-- `04`: how humans supervise sessions, approvals, diffs, telemetry, and replay
+- `02`: how humans supervise sessions, approvals, diffs, telemetry, and replay
   across surfaces
 
 ## Target Surface Model
@@ -465,7 +465,7 @@ Completion standard:
 
 Primary files:
 
-- `docs/roadmap/01-operator-surfaces-and-remote-gui.md`
+- `docs/roadmap/02-operator-surfaces-and-remote-gui.md`
 - `docs/roadmap/README.md`
 - `docs/adr/ADR-006-gui-stack-and-binding-contract.md`
 
