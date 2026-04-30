@@ -47,6 +47,11 @@ is documented by concern, not as a single monolith.
   Tool policy, execution flow, timeout/retry/fallback behavior, and command
   safety boundaries.
 
+- `developer-tools.md`
+  Canonical builtin developer-tool surface: command, file, search, patch,
+  stat/tree, image/OCR, controlled web tools, verbosity, metadata, and shared
+  consumer projection.
+
 - `shared-tooling-intelligence.md`
   Canonical shared builtin-tool intelligence contracts: structured outputs,
   catalog discovery, code intelligence, bulk reads, monitors, task state,

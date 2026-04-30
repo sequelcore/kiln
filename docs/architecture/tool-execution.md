@@ -61,7 +61,8 @@ Current source-of-truth boundary:
 
 Kiln has one builtin developer-tool surface. The default builtin registry lives
 in `@kilnai/core` and every runtime-facing projection is derived from that
-registry.
+registry. The concrete builtin developer-tool catalog and consumer contract are
+documented in `docs/architecture/developer-tools.md`.
 
 Projection rules:
 

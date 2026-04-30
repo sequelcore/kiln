@@ -66,9 +66,9 @@
   roadmaps into canonical architecture docs at
   `docs/architecture/shared-tooling-intelligence.md` and
   `docs/architecture/context-resource-plane.md`.
-- Removed the completed `08` and `09` roadmap files and compacted active
-  roadmap numbering so operator surfaces, provider credentials, config
-  projection, and shared developer tools are now `03` through `06`.
+- Promoted completed shared developer-tool doctrine into
+  `docs/architecture/developer-tools.md`; the roadmap directory now contains
+  only active or deferred numbered tracks.
 
 ## Unreleased -- Operator Workspace Explorer
 

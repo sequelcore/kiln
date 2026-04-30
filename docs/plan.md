@@ -3,7 +3,7 @@
 ## Current State
 
 The completed 2026-04-29 foundation is now documented in
-`docs/roadmap/06-shared-developer-tools.md` and
+`docs/architecture/developer-tools.md` and
 `docs/architecture/tool-execution.md`.
 
 Closed slices:
@@ -47,8 +47,8 @@ path for CLI, GUI, TUI, SDK, and MCP consumers.
 ## References
 
 - Architecture contract: `docs/architecture/tool-execution.md`
+- Developer tools: `docs/architecture/developer-tools.md`
 - User guide: `docs/guides/tool-use.md`
-- Roadmap: `docs/roadmap/06-shared-developer-tools.md`
 - Research basis: `docs/research/11-agent-tooling-surface.md`
 - Shared tooling intelligence: `docs/architecture/shared-tooling-intelligence.md`
 - Context resource plane: `docs/architecture/context-resource-plane.md`

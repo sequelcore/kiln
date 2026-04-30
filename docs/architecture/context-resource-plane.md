@@ -5,10 +5,9 @@
 This is the canonical architecture record for Kiln's resource plane as of
 2026-04-30.
 
-Historical planning lived in the removed `09` context-resource roadmap. That
-roadmap was deleted because pagination, workspace resources, artifact
-namespaces, resource notifications, high-volume resource links, consumer
-projection, and model-callable resource read tools are now stable architecture.
+Pagination, workspace resources, artifact namespaces, resource notifications,
+high-volume resource links, consumer projection, and model-callable resource
+read tools are now stable architecture.
 
 ## Purpose
 

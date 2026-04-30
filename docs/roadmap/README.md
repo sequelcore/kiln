@@ -29,6 +29,8 @@ indicates the default read order, not necessarily the active work priority.
   rules.
 - `docs/architecture/tool-execution.md`
   Canonical tool authority, execution, and safety boundaries.
+- `docs/architecture/developer-tools.md`
+  Canonical shared builtin developer-tool contracts.
 - `docs/architecture/shared-tooling-intelligence.md`
   Canonical shared builtin-tool intelligence contracts.
 - `docs/architecture/context-resource-plane.md`
@@ -56,13 +58,10 @@ indicates the default read order, not necessarily the active work priority.
   projects managed Claude/Codex/OpenCode config, and adds drift-aware sync,
   uninstall, migrate, and engine-status workflows.
 
-- `06-shared-developer-tools.md`
-  Owns the shared builtin developer-tool roadmap after the metadata and
-  projection foundation: patch, tree/stat, image/OCR, output modes, and
-  controlled web tools.
-
 ### Completed programs promoted to architecture
 
+- Shared developer tools completed on 2026-04-29. Stable doctrine now lives in
+  `docs/architecture/developer-tools.md`.
 - Shared tooling intelligence completed on 2026-04-29. Stable doctrine now
   lives in `docs/architecture/shared-tooling-intelligence.md`.
 - Context resource plane completed on 2026-04-30. Stable doctrine now lives in
@@ -80,10 +79,12 @@ indicates the default read order, not necessarily the active work priority.
    sequencing code refactors, especially `flows.md`, `subsystems.md`,
    `coordination.md`, `invariants.md`, `context-governance.md`,
    `session-model.md`, `tool-execution.md`,
-   `shared-tooling-intelligence.md`, and `context-resource-plane.md`.
+   `developer-tools.md`, `shared-tooling-intelligence.md`, and
+   `context-resource-plane.md`.
 2. Read `01-gui-phase-1-parity-checklist.md` when planning or verifying GUI
    parity work.
 3. Read `docs/architecture/tool-execution.md`,
+   `docs/architecture/developer-tools.md`,
    `docs/architecture/shared-tooling-intelligence.md`,
    `docs/architecture/context-resource-plane.md`, and
    `docs/architecture/provider-model-discovery.md` when planning provider,
@@ -95,10 +96,7 @@ indicates the default read order, not necessarily the active work priority.
 6. Read `05-config-projection-unification.md` when planning harness config
    projection, engine registry, drift detection, sync, uninstall, migrate, or
    config-surface work.
-7. Read `06-shared-developer-tools.md` when planning builtin developer tools,
-   MCP projections, runtime-attached tool surfaces, patch/image/web tools, or
-   tool output contracts.
-8. Read `02-external-benchmark-validation.md` only when benchmark work becomes
+7. Read `02-external-benchmark-validation.md` only when benchmark work becomes
    active.
 
 ## Current Execution Priority
@@ -120,10 +118,7 @@ This is the delivery queue. It is the only priority order in this index.
 4. Execute `05-config-projection-unification.md` after the provider credential
    pool and config/registry ADR sequencing is clear. It owns harness config
    projection, drift detection, engine registry, and config lifecycle commands.
-5. Treat `06-shared-developer-tools.md` as complete for the current builtin
-   developer-tool expansion. Later tool expansion should update that roadmap
-   only if the work is genuinely new planning, not stable architecture.
-6. Keep `02-external-benchmark-validation.md` deferred until the product
+5. Keep `02-external-benchmark-validation.md` deferred until the product
    surface stabilizes.
 
 ## Current Status
@@ -139,6 +134,7 @@ As of 2026-04-30:
 - stable doctrine lives in `docs/architecture/flows.md`,
   `docs/architecture/subsystems.md`, `docs/architecture/context-governance.md`,
   `docs/architecture/session-model.md`, `docs/architecture/tool-execution.md`,
+  `docs/architecture/developer-tools.md`,
   `docs/architecture/shared-tooling-intelligence.md`,
   `docs/architecture/context-resource-plane.md`,
   `docs/architecture/coordination.md`, and `docs/architecture/invariants.md`
@@ -165,10 +161,11 @@ As of 2026-04-30:
   `docs/architecture/flows.md`, and `docs/guides/skills.md`
 - roadmap numbering was compacted on 2026-04-30:
   operator surfaces is now `03`, provider credential pool is now `04`, config
-  projection is now `05`, and shared developer tools is now `06`
+  projection is now `05`, and completed shared developer tools moved out of
+  the active roadmap set
 - shared developer-tool metadata, timeout handling, runtime evidence, MCP
   projection, consumer alignment, and the initial builtin tool expansion are
-  complete in `06-shared-developer-tools.md`
+  complete and promoted to `docs/architecture/developer-tools.md`
 - shared tooling intelligence and the context resource plane are complete and
   promoted to architecture docs
 

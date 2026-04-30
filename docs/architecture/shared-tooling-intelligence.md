@@ -5,13 +5,13 @@
 This is the canonical architecture record for the shared tooling intelligence
 program completed on 2026-04-29.
 
-The implementation moved Kiln beyond one-off developer tools into a shared
-model-callable tool plane that scales across CLI, GUI, TUI, SDK, runtime
-gateways, and MCP without consumer-private registries.
+The implementation moved Kiln beyond the concrete developer tools documented in
+`developer-tools.md` into a shared model-callable tool plane that scales across
+CLI, GUI, TUI, SDK, runtime gateways, and MCP without consumer-private
+registries.
 
-Historical planning lived in the removed `08` shared-tooling roadmap. That
-roadmap was deleted because its stable doctrine now lives here,
-`tool-execution.md`, and `context-resource-plane.md`.
+Stable tooling-intelligence doctrine lives here, in `tool-execution.md`, and in
+`context-resource-plane.md`.
 
 ## Purpose
 

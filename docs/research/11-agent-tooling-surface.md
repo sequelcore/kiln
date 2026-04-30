@@ -3,9 +3,9 @@
 ## Purpose
 
 This note summarizes external tooling patterns and user pain points relevant to
-Kiln's shared developer-tool roadmap. It informs
-`docs/roadmap/06-shared-developer-tools.md`; it does not override the
-architecture contract in `docs/architecture/tool-execution.md`.
+Kiln's shared developer-tool program. It informed
+`docs/architecture/developer-tools.md`; it does not override the architecture
+contract in `docs/architecture/tool-execution.md`.
 
 ## Sources Reviewed
 
