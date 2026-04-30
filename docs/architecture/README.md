@@ -70,6 +70,10 @@ is documented by concern, not as a single monolith.
   Canonical taxonomy for App Gateway, Operator Gateway, Studio Dev Server,
   CLI, GUI, TUI, SDK/widget, and MCP boundaries.
 
+- `operator-surfaces.md`
+  Canonical human operator surface model: GUI, CLI, TUI, IDE, remote, future
+  desktop wrapper, supervision evidence, and surface ownership rules.
+
 - `adaptation.md`
   Operational modes, allostatic load, predictive regulation, adaptation, and
   anti-drift rules.

@@ -37,6 +37,9 @@ indicates the default read order, not necessarily the active work priority.
   Canonical read-only resource-plane contracts.
 - `docs/architecture/provider-model-discovery.md`
   Canonical provider/model discovery, diagnostics, and selection rules.
+- `docs/architecture/operator-surfaces.md`
+  Canonical human operator surface model, ownership rules, GUI/TUI/CLI/IDE
+  boundaries, remote GUI requirements, and future desktop-wrapper constraints.
 - `docs/guides/gui-parity.md`
   Canonical GUI parity status and GUI/TUI focus policy.
 - `docs/guides/tui-maintenance.md`
@@ -50,10 +53,10 @@ indicates the default read order, not necessarily the active work priority.
   first GUI graph view over shared contracts.
 
 - `02-operator-surfaces-and-remote-gui.md`
-  Defines Kiln's long-term human operator surface strategy: GUI-first local
-  operation, IDE extension priority, Tauri as a later thin shell, retained
-  frozen TUI maintenance, and remote/cloud GUI hardening over the same runtime
-  contract.
+  Sequences active human-operator surface work. Stable doctrine lives in
+  `docs/architecture/operator-surfaces.md`; this roadmap tracks remaining
+  implementation phases such as event timeline hardening, IDE planning, remote
+  GUI hardening, and desktop-wrapper decision gates.
 
 - `03-provider-credential-pool.md`
   Generalizes credential management across subscription-auth, direct API-key,
@@ -101,9 +104,9 @@ indicates the default read order, not necessarily the active work priority.
 4. Read `01-memory-lattice-governed-memory.md` when planning memory, recall,
    context-admission evidence, graph/resource projection, Memory Lattice GUI,
    memory CLI/TUI/MCP projection, or memory YAML policy work.
-5. Read `02-operator-surfaces-and-remote-gui.md` when planning GUI, IDE,
-   desktop, remote GUI, cloud dashboard, TUI maintenance, or operator
-   supervision work.
+5. Read `docs/architecture/operator-surfaces.md` first, then
+   `02-operator-surfaces-and-remote-gui.md`, when planning GUI, IDE, desktop,
+   remote GUI, cloud dashboard, TUI maintenance, or operator supervision work.
 6. Read `03-provider-credential-pool.md` when planning any provider-auth
    change, multi-account scaling, or rate-limit recovery work.
 7. Read `04-config-projection-unification.md` when planning harness config
@@ -152,6 +155,7 @@ As of 2026-04-30:
   `docs/architecture/developer-tools.md`,
   `docs/architecture/shared-tooling-intelligence.md`,
   `docs/architecture/context-resource-plane.md`,
+  `docs/architecture/operator-surfaces.md`,
   `docs/architecture/coordination.md`, and `docs/architecture/invariants.md`
 - GUI Phase 1 parity is closed and promoted to `docs/guides/gui-parity.md`
 - TUI remains a frozen maintenance surface under
@@ -165,7 +169,8 @@ As of 2026-04-30:
   lives in `docs/architecture/provider-model-discovery.md`
 - Memory Lattice and governed memory is now priority 1 in
   `01-memory-lattice-governed-memory.md`
-- operator surface strategy now lives in
+- operator surface doctrine now lives in
+  `docs/architecture/operator-surfaces.md`; active work remains sequenced in
   `02-operator-surfaces-and-remote-gui.md`
 - external benchmark validation remains deferred
 - OpenCode Go/Zen is now a first-class direct provider via `opencode-auth` and

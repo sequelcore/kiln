@@ -1,59 +1,25 @@
-# 02 - Operator Surfaces and Remote GUI Strategy
+# 02 - Operator Surfaces and Remote GUI Roadmap
 
-**Status:** Product architecture track  
-**Owner:** Kiln runtime / GUI / operator surfaces  
-**Depends on:** `docs/adr/ADR-006-gui-stack-and-binding-contract.md`, `docs/guides/gui-parity.md`, `docs/guides/tui-maintenance.md`, `docs/architecture/tool-execution.md`, `docs/architecture/provider-model-discovery.md`
+**Status:** Active execution roadmap
+**Owner:** Kiln runtime / GUI / operator surfaces
+**Depends on:** `docs/architecture/operator-surfaces.md`, `docs/architecture/runtime-surfaces.md`, `docs/adr/ADR-006-gui-stack-and-binding-contract.md`, `docs/guides/gui-parity.md`, `docs/guides/tui-maintenance.md`, `docs/architecture/tool-execution.md`, `docs/architecture/provider-model-discovery.md`
 **Related:** `STRATEGY.md`, `docs/roadmap/README.md`
 
 ## Purpose
 
-Define Kiln's long-term human operator surface strategy without coupling the
-runtime to one UI shell.
+Sequence Kiln's active human-operator surface work.
 
-The category signal is clear: serious AI coding products are not converging on
-one interface. They are converging on one runtime/session/tool substrate with
-multiple human-facing surfaces:
+Stable doctrine is canonical in:
 
-- terminal and CLI for power-user control, automation, SSH, and worktrees
-- IDE/editor surfaces for review, navigation, inline diffs, and high-context
-  coding loops
-- local web or desktop surfaces for monitoring, approvals, session management,
-  and multi-agent supervision
-- cloud/background surfaces for long-running or parallel work
-- mobile or lightweight review surfaces for remote approvals and progress
-  checks
+- [`docs/architecture/runtime-surfaces.md`](../architecture/runtime-surfaces.md)
+  for App Gateway, Operator Gateway, Studio Dev Server, CLI, GUI, TUI,
+  SDK/widget, and MCP taxonomy.
+- [`docs/architecture/operator-surfaces.md`](../architecture/operator-surfaces.md)
+  for human operator surface ownership, GUI/TUI/CLI/IDE boundaries, remote GUI
+  requirements, desktop wrapper constraints, and supervision evidence.
 
-Kiln should follow that architecture: one governed runtime, multiple replaceable
-operator surfaces.
-
-The canonical surface taxonomy is defined in
-[`docs/architecture/runtime-surfaces.md`](../architecture/runtime-surfaces.md).
-This roadmap uses "App Gateway" for the deployable `startGateway(gateway.yaml)`
-runtime and "Operator Gateway" for local GUI/TUI bridge servers.
-
-## Product Decision
-
-Kiln remains runtime/headless first.
-
-The local GUI stays web-first and gateway-backed. It is not a temporary mistake
-to replace with a monolithic desktop app. It is the correct first operator
-surface because it preserves:
-
-- one runtime contract
-- fast local iteration
-- browser accessibility
-- straightforward remote deployment later
-- a thin path to Tauri without changing core/runtime semantics
-
-Desktop is deferred, not rejected. If native lifecycle, tray/background mode,
-notifications, packaged installation, or multi-window OS integration become
-important enough, Kiln should add a thin Tauri wrapper over the same GUI and
-gateway contract.
-
-Electron remains rejected unless future evidence changes the product category
-materially. Kiln is a governed control plane, not an editor fork. Cursor and
-Windsurf justify desktop depth because they own the editor surface; that does
-not imply Kiln should fork its runtime into a desktop shell.
+This roadmap records implementation phases, gates, and product sequencing. It
+is not the source of truth for operator-surface invariants.
 
 ## Boundary
 
@@ -465,15 +431,17 @@ Completion standard:
 
 Primary files:
 
+- `docs/architecture/operator-surfaces.md`
 - `docs/roadmap/02-operator-surfaces-and-remote-gui.md`
 - `docs/roadmap/README.md`
 - `docs/adr/ADR-006-gui-stack-and-binding-contract.md`
 
 Deliverables:
 
-- accepted roadmap split between tool execution and operator surfaces
-- clear guidance that web-first remains the primary local GUI strategy
-- Tauri and remote GUI documented as later gates
+- stable operator-surface doctrine promoted to architecture
+- roadmap split between tool execution and operator-surface execution work
+- web-first local GUI, future Tauri, and remote GUI constraints referenced from
+  canonical architecture instead of restated as roadmap doctrine
 
 ### Slice B. Session timeline contract
 
