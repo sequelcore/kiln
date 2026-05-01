@@ -1,6 +1,11 @@
 # Multi-Tenant
 
-The Gateway hosts multiple Apps in a single process, with each App fully isolated by memory namespace, session registry, agent pool, and channel binding. Multi-tenancy in Kiln operates at two levels: App-level isolation (one App per customer product, enforced at startup) and provider-adapter session isolation (one session per `userId` per App, enforced at request time).
+The Gateway hosts multiple Apps in a single process, with each App fully
+isolated by governed memory scope, session registry, agent pool, and channel
+binding. Multi-tenancy in Kiln operates at two levels: App-level isolation
+(one App per customer product, enforced at startup) and provider-adapter
+session isolation (one session per `userId` per App, enforced at request
+time).
 
 ## Tenant Configuration in gateway.yaml
 
@@ -33,7 +38,7 @@ apps:
 
 | Resource | Isolation Mechanism |
 |----------|---------------------|
-| Memory | `~/.kiln/gateway/{appName}/` prefix. Same scope name in different Apps maps to different SQLite databases and JSONL files. |
+| Memory | App-local memory base path plus explicit `tenant` scope. Same tenant id in different Apps maps to separate governed memory records. |
 | Sessions | `SessionRegistry` keys by `{appName}:{userId}`. No session is accessible across Apps. |
 | Agents | Each provider-adapter app has its own `RuntimeSessionOrchestrator` and `ProviderAdapter` instance. |
 | Channel bindings | `ChannelRegistry` is instantiated per App. Messages on one App's channel cannot reach another App. |

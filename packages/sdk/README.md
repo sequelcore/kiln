@@ -15,7 +15,7 @@
 
 ## What is this?
 
-`@kilnai/react` provides React hooks for connecting to a [Kiln](https://github.com/sequelcore/kiln) gateway. Supports both HTTP (SSE) and WebSocket transports, memory management, event streams, and dev-route approval controls.
+`@kilnai/react` provides React hooks for connecting to a [Kiln](https://github.com/sequelcore/kiln) gateway. Supports HTTP, WebSocket, event streams, and dev-route approval controls. Memory is consumed through gateway/resource contracts, not SDK-owned memory CRUD hooks.
 
 ## Install
 
@@ -79,14 +79,6 @@ Subscribe to real-time gateway events via SSE.
 
 ```tsx
 const { events, connected } = useKilnEvents();
-```
-
-### `useKilnMemory`
-
-Read, write, and search agent memory.
-
-```tsx
-const { entries, store, recall, forget } = useKilnMemory({ scope: "user", userId: "user-1" });
 ```
 
 ### `useKilnState`

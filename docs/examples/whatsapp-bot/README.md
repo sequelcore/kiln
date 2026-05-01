@@ -88,7 +88,7 @@ whatsapp-bot/
 2. Meta POSTs the webhook to your gateway
 3. Gateway resolves the tenant by `phone_number_id`
 4. `buildTenantSystemPrompt()` assembles the prompt from tenant JSON (persona + services + hours + FAQs)
-5. SQLite memory store recalls past conversations with this customer
+5. Governed tenant memory recalls past conversations with this customer
 6. Claude generates a response (with access to `notify_owner` tool)
 7. If the customer books an appointment, Claude calls `notify_owner` → owner gets a WhatsApp message
 8. Response is sent back to the customer via Meta Cloud API
@@ -98,7 +98,7 @@ whatsapp-bot/
 
 **Change the model:** Edit `provider.model` in `apps/my-shop/app.yaml`. Default is `claude-haiku-4-5-20251001` (fast, cheap). Use `claude-sonnet-4-5-20250514` for higher quality.
 
-**Add more businesses:** Create another tenant JSON in `~/.kiln/gateway/my-shop/tenants/`. Each tenant gets its own memory database, system prompt, and WhatsApp credentials. One gateway process serves all of them.
+**Add more businesses:** Create another tenant JSON in `~/.kiln/gateway/my-shop/tenants/`. Each tenant gets isolated governed memory, its own system prompt, and WhatsApp credentials. One gateway process serves all of them.
 
 **Disable memory:** Remove the `memory:` block from `app.yaml`. The bot still works but won't remember past conversations.
 

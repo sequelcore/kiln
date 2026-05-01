@@ -1,9 +1,13 @@
-# 03 - Managed Agents and Cross-Provider Subagents
+# 02 - Managed Agents and Cross-Provider Subagents
 
 ## Status
 
-Deferred until `01-memory-lattice-governed-memory.md` is complete or reaches a
-stable memory projection and admission boundary.
+Deferred until `01-provider-credential-pool.md` is complete.
+
+Governed memory, Memory Lattice projection, lifecycle policy, and
+context-admission boundaries are complete. Their stable doctrine lives in
+`docs/architecture/memory.md`, `docs/guides/memory.md`, and
+`docs/architecture/context-governance.md`.
 
 ## Goal
 
@@ -38,8 +42,8 @@ events.
 
 Managed agents depend on governed memory.
 
-Before implementation, Memory Lattice must define how memory is admitted into a
-child invocation, which scopes are visible, how provenance records the
+The implemented memory architecture defines how memory is admitted into a child
+invocation, which scopes are visible, how provenance records the
 agent/session/turn that used or produced memory, and how write proposals are
 reviewed before becoming durable memory.
 

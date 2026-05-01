@@ -1,113 +1,145 @@
 # Memory Operations
 
-Use this guide for memory configuration, runtime behavior, and operator-facing
-API surfaces. For doctrine and system role, start with:
+Use this guide for the operator-facing memory surface. For doctrine and system
+role, start with:
 
 - [Memory](../architecture/memory.md)
 - [Context Governance](../architecture/context-governance.md)
+- [Context Resource Plane](../architecture/context-resource-plane.md)
 
-Sources: `packages/core/src/memory/`,
-`packages/core/src/engine/domain/memory.ts`
+Source: `packages/core/src/memory/`
 
-## What This Guide Covers
+## Current Model
 
-Memory operations answer four practical questions:
+Kiln memory is governed memory, not loose saved text.
 
-- which scopes are enabled for an app
-- where those scopes are stored
-- how recall, compaction, and sync behave at runtime
-- which APIs and hooks expose the stored entries
+The canonical persistence boundary is `MemoryRepository`, currently backed by
+`SqliteMemoryRepository`. Records are stored with explicit:
 
-## Scope Configuration
+- `MemoryScope`: `user`, `agent`, `team`, `project`, `org`, `app`, `tenant`, or
+  `session`
+- `MemoryLayerKind`: `working`, `episodic`, `semantic`, `procedural`,
+  `coordination`, or `audit`
+- `MemoryProvenance`: source type, source id, capture time, and optional actor,
+  session, turn, or tool-call identity
+- tags and optional topic keys
+- revisions, relations, and context-admission evidence when available
 
-| Scope | Pattern | Backend | Sync | Typical use |
-|-------|---------|---------|------|-------------|
-| `user` | literal `user` | SQLite at `~/.kiln/memory.db` | Local | User preferences and operator defaults |
-| `agent:{name}` | `agent:` + agent name | SQLite at `~/.kiln/agents/{name}.db` | Local | Per-agent working patterns |
-| `team:{name}` | `team:` + team name | SQLite at `~/.kiln/teams/{name}.db` | Local | Team conventions |
-| `project:{id}` | `project:` + identifier | Gzipped JSONL in `{projectDir}/` | Git-synced | Shared project knowledge |
-| `org` | literal `org` | Gzipped JSONL in `{projectDir}/org/` | Git-synced | Organization-wide standards |
+There is no separate memory CRUD API. Reads are exposed through the resource
+plane. Writes go through governed mutation services and tools.
 
-Each scope is physically isolated. Two apps using `agent:architect` do not
-share a database unless they share the same configured memory base path.
+## Reads
 
-## `app.yaml`
+Read Memory Lattice through `kiln://memory/...` resources:
 
-```yaml
-memory:
-  scopes:
-    - user
-    - "agent:architect"
-    - "agent:worker"
-    - "project:my-project"
-    - org
-  backend: sqlite+fts5
-  sync: git
+```text
+kiln://memory/graph{?scope,scopeKind,scopeId,layer,query,depth,limit}
+kiln://memory/nodes/{id}{?scope,scopeKind,scopeId}
+kiln://memory/nodes/{id}/lifecycle{?scope,scopeKind,scopeId}
+kiln://memory/nodes/{id}/neighbors{?scope,scopeKind,scopeId,depth,limit}
+kiln://memory/nodes/{id}/provenance{?scope,scopeKind,scopeId}
+kiln://memory/relations/{id}{?scope,scopeKind,scopeId}
+kiln://memory/admissions{?sessionId,recordId,scope,scopeKind,scopeId,layer,limit}
 ```
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `scopes` | `string[]` | Yes | Enabled memory scopes. Scopes not listed are inaccessible. |
-| `backend` | `string` | Yes | Storage backend. |
-| `sync` | `string` | No | `git` enables sync for `project:` and `org` scopes. |
+All reads are bounded and scope-aware. GUI, CLI, TUI, SDK, MCP, and app-level
+consumers must use this resource contract rather than reading storage directly.
+Model-facing surfaces must also pass memory authority, so read results are
+filtered to the caller's allowed scopes and layers.
 
-Supported backends:
+## Lifecycle Evidence Resources
 
-- `sqlite+fts5` for local or single-node deployments
-- `postgresql` for shared multi-node deployments
+Lifecycle evidence projection is a shared resource contract for all memory
+surfaces and adapters: runtime services, CLI, TUI, SDK, MCP, GUI, IDE, remote
+operator surfaces, and managed agents.
 
-## Runtime Behavior
+Primary lifecycle evidence URI:
 
-### Auto-capture
+```text
+kiln://memory/nodes/{id}/lifecycle{?scope,scopeKind,scopeId}
+```
 
-After a significant action, the agent may persist a `MemoryEntry` with tags and
-metadata. Application code does not manually orchestrate this for normal
-session flow.
+Related resources that complete lifecycle inspection:
 
-### Auto-recall
+```text
+kiln://memory/nodes/{id}{?scope,scopeKind,scopeId}
+kiln://memory/nodes/{id}/neighbors{?scope,scopeKind,scopeId,depth,limit}
+kiln://memory/relations/{id}{?scope,scopeKind,scopeId}
+kiln://memory/admissions{?sessionId,recordId,scope,scopeKind,scopeId,layer,limit}
+```
 
-At the start of each turn, declared scopes are queried with the current task
-context. Results are ranked and injected subject to budget limits.
+Lifecycle evidence includes:
 
-### Budgets
+- lifecycle tags and policy/action markers
+- relation types such as `derived_from`, `revises`, and `supersedes`
+- revision lineage and archival or deletion transitions
+- context-admission and deferral evidence
+- bounded truncation metadata when evidence is cut by projection limits
 
-`recall()` accepts an optional token budget. Results are returned in relevance
-order until the budget is exhausted.
+The GUI is the first practical consumer, but it reads the same
+lifecycle evidence resources used by every other surface.
 
-### Decay
+## Writes
 
-Agent scopes can apply decay during recall scoring so recent patterns outrank
-stale ones. Supported curves are `exponential`, `linear`, and `step`.
+Use governed write paths:
 
-### Compaction
+- `memory_save` for operator or model-callable explicit memory writes
+- `MemoryMutationService` for runtime/application services that create,
+  update, delete, revise, relate, or admit memory records
+- channel adapters may save tenant conversation exchanges as `episodic`
+  `tenant`-scoped records with gateway provenance
+- coordination services save cross-agent state as `coordination` records
 
-When a store exceeds its configured threshold, `MemoryCompactor` can summarize
-tag groups into compacted entries and archive the originals as inactive.
+Mutation services emit memory events. Operator surfaces use those events to
+invalidate their resource projection and re-read through the same resource
+plane.
 
-## Git Sync
+`memory_save` requires layer, scope, content, and provenance. It returns the
+record id and canonical node resource URI. Generic tool allowlists do not grant
+memory write authority; a model-facing caller needs an explicit
+`permissions.memory.write` rule for the requested operation, scope, and layer.
+Audit-layer writes require `allowAuditWrite: true`.
 
-`project:{id}` and `org` scopes can be flushed to gzipped JSONL in the project
-directory when `sync: git` is enabled.
+Example YAML permission:
 
-- session end writes new entries to the synced store
-- session start loads the latest committed state
-- entries tagged `<private>` are stripped before git-backed persistence
+```yaml
+permissions:
+  memory:
+    read:
+      - operations: [read]
+        scopeKinds: [project]
+        scopeIds: [kiln]
+        layers: [working, episodic, semantic, procedural, coordination, audit]
+    write:
+      - operations: [save]
+        scopeKinds: [project]
+        scopeIds: [kiln]
+        layers: [episodic, semantic, procedural, coordination]
+```
 
-## Multi-Tenant Isolation
+Agent-scoped permissions can override or extend these rules through
+`permissions.agentScopes[].memory`. Read rules must constrain scope kind, scope
+id, and layer. Write rules are denied unless the operation, scope, and layer
+match a configured rule.
 
-Tenant isolation is enforced inside the store implementation. Entries are
-tagged with tenant identity at write time and filtered at read time, so queries
-for one tenant do not surface another tenant's data.
+## Isolation
 
-## Memory API
+Scope is part of the domain record, not only a tag. Reads and deletes must pass
+through scope validation when a caller is scoped. Tenant conversation memory is
+stored in the app memory database and isolated by `scope.kind = "tenant"` plus
+`scope.id = tenantId`.
 
-The Gateway exposes memory routes at `/api/memory` in all modes, and mirrors
-them at `/dev/memory` for Studio and debugger surfaces in dev mode.
+## Context Admission
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/memory/:scope` | List memory entries for a scope. Supports `q` and `tags`. |
-| `POST` | `/api/memory` | Create a memory entry. Returns `{ id }`. |
-| `DELETE` | `/api/memory/:id` | Delete a memory entry by ID. |
+Memory records can become context candidates, but `ContextGovernor` decides what
+enters model context. Admission and deferral decisions are persisted as memory
+evidence and are visible through Memory Lattice resources.
 
-The SDK's `useKilnMemory` hook targets the same surface.
+## Configuration
+
+The current local backing store is SQLite. Project CLI surfaces use
+`.kiln/memory.db`; gateway apps use their resolved app memory base path. YAML
+can declare model-facing memory authority through `permissions.memory` and
+agent-scoped overrides. Lifecycle retention, sync policy, and admission-policy
+references remain separate policy concerns. YAML must not define GUI layout or
+duplicate memory contracts.

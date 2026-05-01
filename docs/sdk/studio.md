@@ -73,15 +73,6 @@ A waterfall visualization of `trace_span` events received from `useKilnEvents`. 
 
 Click a span to open a detail inspector showing the full span payload: phase, agent, tool, tokens, and cost.
 
-### Memory Inspector
-
-Displays memory entries grouped by scope. Tabs correspond to the five memory scopes: `user`, `agent`, `team`, `project`, `org`.
-
-Each tab uses `useKilnMemory(scope)` to fetch and display entries. Supports:
-- Viewing all entries in the selected scope
-- Creating new entries with optional tags and metadata
-- Deleting entries by ID
-
 ### Cost Dashboard
 
 Displays cost tracking data from `GET /dev/cost`. Summary grid shows total cost (USD), input tokens, output tokens, cache read/write tokens, and tool calls. A by-role breakdown table shows per-agent-role usage with model, token counts, and call counts. Auto-refreshes via `cost_update` SSE events from `useKilnEvents`.
@@ -104,9 +95,6 @@ All dev endpoints are mounted at `/dev/` when the Gateway starts in dev mode (`d
 |--------|------|-------------|
 | `GET` | `/dev/state` | Current gateway and session state. |
 | `GET` | `/dev/events` | SSE stream of all engine events (31 types). |
-| `GET` | `/dev/memory/:scope` | List memory entries for a scope. |
-| `POST` | `/dev/memory` | Create a memory entry. |
-| `DELETE` | `/dev/memory/:id` | Delete a memory entry by ID. |
 | `GET` | `/dev/cost` | Cumulative cost tracking data by role and model. |
 | `GET` | `/dev/apps` | List loaded App names. |
 | `GET` | `/dev/triggers` | List all registered triggers across all Apps. |
@@ -129,7 +117,6 @@ When Studio is not built, `GET /dev/` serves a self-contained HTML page with zer
 
 - Event stream (real-time, all 31 types)
 - Current state (`/dev/state`)
-- Memory entries (`/dev/memory`)
 - Cost data (`/dev/cost`)
 - Loaded apps (`/dev/apps`)
 - Registered triggers (`/dev/triggers`)

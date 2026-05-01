@@ -1,6 +1,6 @@
 # React SDK (@kilnai/react)
 
-`@kilnai/react` is a React hooks library for building frontends that communicate with a Kiln Gateway. It provides typed hooks for chat, event streaming, memory management, and dev state.
+`@kilnai/react` is a React hooks library for building frontends that communicate with a Kiln Gateway. It provides typed hooks for chat, event streaming, approvals, and dev state. Memory is exposed through Gateway and resource-plane contracts rather than SDK-owned memory CRUD hooks.
 
 The SDK imports only **types** from `@kilnai/core` — never implementations or runtime code. Peer dependency: React 19+.
 
@@ -173,62 +173,6 @@ function EventLog() {
 The hook connects on mount and disconnects on unmount. `SseClient` handles auto-reconnect automatically. `connected` reflects the current connection state.
 
 This hook is intended for dev tooling and the Studio. For production monitoring, consume events directly from the Gateway's SSE endpoint.
-
-## useKilnMemory
-
-Provides CRUD access to a specific memory scope via the `/api/memory` routes.
-
-```typescript
-function useKilnMemory(scope: string): UseMemoryReturn
-
-interface UseMemoryReturn {
-  readonly entries: readonly MemoryEntry[];
-  readonly isLoading: boolean;
-  readonly error: Error | null;
-  refresh(): Promise<void>;
-  create(entry: CreateMemoryInput): Promise<void>;
-  remove(id: string): Promise<void>;
-}
-
-interface MemoryEntry {
-  readonly id: string;
-  readonly scope: string;
-  readonly content: string;
-  readonly tags?: readonly string[];
-  readonly metadata?: Record<string, unknown>;
-}
-
-interface CreateMemoryInput {
-  readonly scope: string;
-  readonly content: string;
-  readonly tags?: readonly string[];
-  readonly metadata?: Record<string, unknown>;
-}
-```
-
-```tsx
-import { useKilnMemory } from "@kilnai/react";
-
-function MemoryPanel() {
-  const { entries, isLoading, refresh, create, remove } = useKilnMemory("user");
-
-  return (
-    <div>
-      <button onClick={refresh}>Refresh</button>
-      {entries.map((e) => (
-        <div key={e.id}>
-          <span>{e.content}</span>
-          <button onClick={() => remove(e.id)}>Delete</button>
-        </div>
-      ))}
-    </div>
-  );
-}
-```
-
-Entries are not loaded automatically on mount — call `refresh()` explicitly. `create()` calls `POST /api/memory` then calls `refresh()`. `remove()` calls `DELETE /api/memory/{id}` then calls `refresh()`.
-
-Scope values match the engine's `MemoryScope` type: `"user"`, `"agent:{role}"`, `"team:{name}"`, `"project:{path}"`, `"org"`.
 
 ## useKilnState
 

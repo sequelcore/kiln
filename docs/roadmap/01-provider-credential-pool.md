@@ -1,4 +1,4 @@
-# 02 - Provider Credential Pool
+# 01 - Provider Credential Pool
 
 ## Goal
 

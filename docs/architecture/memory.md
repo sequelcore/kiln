@@ -30,16 +30,26 @@ The strongest research mapping is the layered-memory model:
 The analogy is useful for retention policy and role separation. It is not a
 claim that Kiln reproduces biological recall or plasticity.
 
-## Current State
+## Implemented State
 
 - Working memory is carried by `RuntimeSession` and related session state.
-- Episodic traces exist in transcripts and mutable memory storage.
-- Semantic storage exists through SQLite plus FTS5 and vector-backed knowledge
+- Durable records are stored through `MemoryRepository`, currently backed by
+  `SqliteMemoryRepository`.
+- Episodic traces can be written as scoped memory records with provenance,
+  revisions, relations, and context-admission evidence.
+- Semantic storage exists through SQLite FTS5 and vector-backed knowledge
   retrieval.
 - Procedural memory exists through the skill system and enters admitted-turn
   model context as governed `procedural` candidates.
 - Cross-agent coordination state exists through coordination primitives and can
   enter admitted-turn model context as governed `coordination` candidates.
+- Memory graph reads are projected through bounded `kiln://memory/...`
+  resources. GUI, CLI, TUI, SDK, YAML apps, MCP, IDE, remote operator surfaces,
+  and managed agents consume those shared contracts rather than owning separate
+  memory registries.
+- Model-facing memory reads and writes are governed by `MemoryAuthorityPolicy`.
+  Operator-only inspection can use unrestricted local resources, but model
+  calls must be constrained by explicit scope, layer, and operation authority.
 
 ## Current Boundaries
 
@@ -50,10 +60,10 @@ claim that Kiln reproduces biological recall or plasticity.
 - Memory Lattice is not GUI state. The GUI may render memory records,
   relations, provenance, revisions, and context-admission decisions, but it
   does not own those rules or persist its own memory graph.
-- The current memory implementation has no external consumers that require
-  compatibility preservation. Replacement slices should delete obsolete memory
-  shapes directly instead of adding migrations, compatibility readers, or
-  dual-write paths.
+- Legacy pre-lattice memory stores and helpers are not compatibility surfaces.
+  They were removed because they depended on obsolete `MemoryEntry` storage,
+  git/chunk sync helpers, and old vocabulary that no longer matches the
+  governed memory model.
 
 ## Memory Lattice Contracts
 
@@ -84,6 +94,43 @@ Relation types are explicit domain vocabulary:
 Memory graph projection is read-only and bounded. Context admission remains
 owned by `ContextGovernor`; memory records can be candidates, but they become
 model-visible context only after governed admission.
+
+Canonical resource templates:
+
+```text
+kiln://memory/graph{?scope,scopeKind,scopeId,layer,query,depth,limit}
+kiln://memory/nodes/{id}{?scope,scopeKind,scopeId}
+kiln://memory/nodes/{id}/lifecycle{?scope,scopeKind,scopeId}
+kiln://memory/nodes/{id}/neighbors{?scope,scopeKind,scopeId,depth,limit}
+kiln://memory/nodes/{id}/provenance{?scope,scopeKind,scopeId}
+kiln://memory/relations/{id}{?scope,scopeKind,scopeId}
+kiln://memory/admissions{?sessionId,recordId,scope,scopeKind,scopeId,layer,limit}
+```
+
+## Memory Authority
+
+Memory authority is separate from generic tool permission.
+
+The authority model defines:
+
+- caller identity: surface or agent invoking memory access
+- access: `read` or `write`
+- operations: `read`, `save`, `revise`, `relate`, `delete`, `forget`,
+  `compact`, or `promote`
+- optional scope-kind, scope-id, and layer constraints
+- explicit audit-write opt-in for writes to the audit layer
+
+Read rules for model-facing resources must constrain scope kind, scope id, and
+layer. Unscoped list reads, including admissions, fail closed unless the caller
+has authority for the requested scope/layer. Write rules are enforced by
+`MemoryMutationService`; the default model-callable write surface is
+`memory_save`, and it only performs explicit `save` operations with provenance.
+
+Model-facing GUI, TUI, CLI, `kiln run`, and `kiln tools --mcp` surfaces derive
+memory authority from `permissions.memory` and agent-scoped overrides. When no
+explicit memory policy exists, model-facing sessions default to read-only
+project-scope access. A generic `memory_save` tool allow rule does not grant
+write authority.
 
 ## Target Layer Model
 
@@ -134,6 +181,92 @@ model-visible context only after governed admission.
 
 Decay belongs primarily to mutable episodic memory. Semantic knowledge should
 not decay silently just because it is old.
+
+### Lifecycle Policy
+
+Retention, decay, forgetting, compaction, promotion, salience, and inhibition
+are implemented as governed lifecycle policy over Memory Lattice. This is not a
+rollback to the deleted pre-lattice memory implementation.
+
+Lifecycle policy operates on the governed memory model:
+
+- policy objects reference `MemoryScope` and `MemoryLayerKind`
+- decay is applied only by explicit lifecycle policy, never by repository side
+  effects
+- compaction creates revisions, relations, or derived records through governed
+  mutation services
+- deletion and archival remain auditable through repository state and memory
+  events
+- recall scoring can use salience, recency, frequency, and cue matching without
+  bypassing `ContextGovernor`
+
+Do not restore the former decay helpers or compactor classes as compatibility
+code. They represented the old persistence shape, not the final capability.
+
+The lifecycle domain starts with pure core policy contracts. It defines policy
+sets and proposed lifecycle actions, but it does not project UI state or bypass
+governed mutation paths. Approved lifecycle actions are applied by
+`MemoryLifecycleApplicationService`, which validates the current record scope
+and layer, then routes material changes through `MemoryMutationService` so
+relations, archive state, deletion evidence, and memory events remain
+auditable.
+
+The lifecycle evaluator is also pure. It accepts memory records plus bounded
+evaluation evidence such as recall salience and use counts, then returns
+proposed lifecycle actions with policy id, policy version, and reasons. It does
+not own persistence, approval, mutation, or context admission.
+
+Forgetting policy is explicit and scope-bound. A pure planner proposes
+forgetting decisions only for explicitly scoped records; governed services then
+apply `soft_delete` or `redact` mutations through `MemoryMutationService` so
+audit lineage and evidence remain preserved. Graph and resource projections hide
+soft-deleted records by default.
+
+Lifecycle promotion and derived summaries create new records with
+`derived_from` relations instead of overwriting sources. Promotion planning is
+explicit: working or episodic records must meet confidence, repeated utility,
+scope, provenance quality, and topic-coherence criteria before a promotion
+action is proposed. Topic keys are grouping cues rather than uniqueness
+constraints, so multiple records in the same scope can share a topic for
+compaction and lineage. Compaction planning preserves source records and emits
+source lineage that the governed application service materializes as derived
+records and relations.
+
+Lifecycle-aware recall scoring is also pure. It ranks in-scope records by cue
+match, layer, confidence, recency, bounded salience, prior usefulness, and
+inhibition signals. It can produce `ContextCandidate` objects for memory blocks,
+but it does not inject them into model context or write admission records;
+`DefaultContextGovernor` remains the owner of admission, deferral, token-budget
+selection, and context audit evidence.
+
+Default policy posture:
+
+- audit memory is immutable and cannot be decayed, compacted, promoted, or
+  forgotten by generic lifecycle policy
+- semantic and procedural memory are retained by default
+- semantic decay requires explicit policy opt-in
+- mutable working, episodic, and coordination memory can decay through explicit
+  layer-aware policy
+- recall salience changes are separate from model-context admission;
+  `ContextGovernor` remains the only owner of injection into model context
+
+### Operator Projection
+
+Memory lifecycle evidence is projected through the same resource plane as the
+memory graph. The dedicated lifecycle evidence resource is:
+
+```text
+kiln://memory/nodes/{id}/lifecycle{?scope,scopeKind,scopeId}
+```
+
+Graph and node detail payloads expose bounded `lifecycleEvidence` summaries for
+operator surfaces. The full lifecycle resource exposes lifecycle tags, relation
+types, revision evidence, context-admission evidence, and truncation state. The
+projection is read-only, bounded, and scope-aware.
+
+GUI is the first practical live consumer, but it is not the policy owner. CLI,
+TUI, SDK, YAML apps, MCP, IDE, remote operator surfaces, and managed agents must
+consume the same resource contracts or explicitly defer their projection.
 
 ## Reconsolidation
 

@@ -116,18 +116,20 @@ adapts bounded graph projections into read-only `kiln://memory/...` resources.
 Stable memory templates:
 
 ```text
-kiln://memory/graph{?scope,layer,query,depth,limit}
-kiln://memory/nodes/{id}
-kiln://memory/nodes/{id}/neighbors{?depth,limit}
-kiln://memory/nodes/{id}/provenance
-kiln://memory/relations/{id}
-kiln://memory/admissions{?sessionId,recordId}
+kiln://memory/graph{?scope,scopeKind,scopeId,layer,query,depth,limit}
+kiln://memory/nodes/{id}{?scope,scopeKind,scopeId}
+kiln://memory/nodes/{id}/lifecycle{?scope,scopeKind,scopeId}
+kiln://memory/nodes/{id}/neighbors{?scope,scopeKind,scopeId,depth,limit}
+kiln://memory/nodes/{id}/provenance{?scope,scopeKind,scopeId}
+kiln://memory/relations/{id}{?scope,scopeKind,scopeId}
+kiln://memory/admissions{?sessionId,recordId,scope,scopeKind,scopeId,layer,limit}
 ```
 
 Memory resource reads must be:
 
 - read-only
 - scope-validated
+- authority-filtered for model-facing surfaces
 - bounded by node count, depth, byte size, and query limits
 - deterministic for the same backing state and options
 - backed by the core memory graph projector, not GUI/TUI-local state
@@ -136,6 +138,11 @@ These resources are the shared contract for CLI, GUI, TUI, SDK, runtime, and
 MCP consumers. GUI gateway endpoints may adapt these resources for operator UI
 ergonomics, but they must not bypass the core provider or read memory storage
 directly.
+
+Operator-only inspection surfaces may use unrestricted project resources.
+Model-facing resource surfaces must pass a `MemoryAuthorityPolicy`; when no
+explicit memory permission is configured, they default to read-only access for
+the current project scope and fail closed for unscoped record-list reads.
 
 ## Artifact Resources
 

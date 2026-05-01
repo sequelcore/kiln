@@ -252,7 +252,12 @@ The `phoneNumber` in `gateway.yaml` must be unique across all Apps.
 
 **Webhook deduplication.** Meta delivers webhooks with at-least-once semantics, meaning the same message may be delivered multiple times. The `WebhookDedup` class (shared across WhatsApp, Instagram, and Messenger) tracks recently processed message IDs in a time-windowed set and silently drops duplicates. This prevents double-processing of messages without requiring external state.
 
-**Multi-tenant mode.** For SaaS products serving multiple businesses through one WhatsApp number, use `multiTenant: true` with `verifyTokenEnv`. This enables tenant resolution by `phone_number_id`, persistent per-tenant memory (SQLite + FTS5), and builtin `notify_owner` tool for real-time escalation to the business owner. See [`docs/examples/whatsapp-bot/`](../examples/whatsapp-bot/) for a complete working example.
+**Multi-tenant mode.** For SaaS products serving multiple businesses through
+one WhatsApp number, use `multiTenant: true` with `verifyTokenEnv`. This
+enables tenant resolution by `phone_number_id`, governed tenant-scoped memory,
+and the builtin `notify_owner` tool for real-time escalation to the business
+owner. See [`docs/examples/whatsapp-bot/`](../examples/whatsapp-bot/) for a
+complete working example.
 
 **Coexistence mode.** When a tenant uses the same phone number on both the WhatsApp Business App and the Cloud API (Meta's coexistence feature), Kiln can detect when the business owner responds from the app and automatically pause the AI agent.
 

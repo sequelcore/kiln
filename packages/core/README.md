@@ -15,14 +15,14 @@
 
 ## What is this?
 
-`@kilnai/core` is the engine behind [Kiln](https://github.com/sequelcore/kiln) -- a YAML-first framework for building AI agents, teams, and workflows. It provides:
+`@kilnai/core` is the engine behind [Kiln](https://github.com/sequelcore/kiln) -- a control-plane core for building governed AI agents, teams, and workflows. It provides:
 
 - **7 primitives**: Agent, Capability, Workflow, Memory, Task, Channel, Trigger
 - **3 composites**: Team, Router, App
 - **4 provider adapters**: Anthropic, OpenAI, DeepSeek, Ollama
 - **Phase-gated orchestrator** with checkpoint/resume, 3 team strategies
 - **MCP client** (Streamable HTTP) for external tool integration
-- **Memory** (SQLite + FTS5) with 5 scopes, decay curves, auto-compaction
+- **Memory Lattice** governed memory records with scopes, layers, provenance, revisions, relations, lifecycle policy, recall, and bounded resource projection
 - **Knowledge (RAG)** with chunkers, embedding adapters, and retrieval pipeline
 - **Safety pipeline**: PII detection (6 types), content classification (6 categories), 4 policy rails
 - **Eval framework**: 12 scorer types, YAML-configured experiments
@@ -86,7 +86,7 @@ Engine.validateApp(app);
 | `Engine` | 7 primitives, 3 composites, YAML loader, error catalog |
 | `Orchestrator` | Phase machine, checkpoint/resume, strategies |
 | `Agents` | Provider adapters, MCP client, tool cache, circuit breaker |
-| `Memory` | SQLite + FTS5 storage, git sync, decay |
+| `Memory` | Governed Memory Lattice records, SQLite persistence, lifecycle policy, recall, resources |
 | `Safety` | PII scanner, content classifier, policy rails, pipeline |
 | `Knowledge` | Chunkers, embedding adapters, vector store, retrieval |
 | `Eval` | 12 scorers, dataset loader, experiment runner |

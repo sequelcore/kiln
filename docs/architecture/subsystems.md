@@ -39,7 +39,7 @@ principal, parsed message content, and fast-path results.
 **Responsibility:** Assemble the full context window for the turn, manage the
 attentional bottleneck, and enforce token budget per layer.
 
-**Inputs:** `AgentTarget`, `SessionState`, `MemoryStore`, `KnowledgeStore`,
+**Inputs:** `AgentTarget`, `SessionState`, memory candidates, `KnowledgeStore`,
 `SkillRegistry`, `ComplexityScore`.
 
 **Outputs:** `AssembledContext` within token budget.
@@ -61,21 +61,24 @@ attentional bottleneck, and enforce token budget per layer.
 
 ## Memory
 
-**Responsibility:** Persistent storage across scoped layers with explicit
-retention, decay, forgetting, and reconsolidation policy. Separate mutable
-operational memory from immutable audit memory.
+**Responsibility:** Governed memory records across scoped layers with explicit
+retention, decay, forgetting, reconsolidation, provenance, relation, and
+authority policy. Separate mutable operational memory from immutable audit
+memory.
 
-**Inputs:** `memory_store`, `memory_recall`, `memory_forget`, checkpoint
-signals, GDPR delete signals.
+**Inputs:** `memory_save`, `MemoryMutationService` requests, recall candidates,
+context-admission evidence, lifecycle policy actions, checkpoint signals, and
+GDPR delete signals.
 
-**Outputs:** recalled entries, write results, delete confirmations.
+**Outputs:** memory records, graph resources, write results, delete or archive
+confirmations, lifecycle evidence, recall candidates, and memory events.
 
 **Owned state:**
 
 - Layer 0: `SessionState`
-- Layer 1: `MemoryStore`
-- Layer 2: `KnowledgeStore`
-- Audit: append-only log
+- Durable memory records through `MemoryRepository`
+- revisions, relations, context admissions, and archive state
+- audit layer records and append-only audit evidence
 
 **Invariants:**
 
@@ -83,6 +86,8 @@ signals, GDPR delete signals.
 - GDPR forget is explicit and complete.
 - Reconsolidation uses `topic_key` plus scope, not silent overwrite.
 - Decay policy is explicit and layer-specific.
+- Model-facing reads and writes require memory authority.
+- Generic tool allowlists do not grant memory write authority.
 
 **Failure modes:**
 

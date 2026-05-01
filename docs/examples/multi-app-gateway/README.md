@@ -2,7 +2,7 @@
 
 Production gateway hosting multiple AI apps with Docker.
 
-A single Kiln gateway process hosting two independent apps (support + booking), each with multi-tenant configuration, separate memory stores, and independent channel bindings. Includes Docker deployment files.
+A single Kiln gateway process hosting two independent apps (support + booking), each with multi-tenant configuration, isolated governed memory, and independent channel bindings. Includes Docker deployment files.
 
 ## What this demonstrates
 

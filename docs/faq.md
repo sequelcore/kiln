@@ -20,7 +20,13 @@ No. The YAML configuration is the required entry point -- the engine is designed
 
 **How does multi-tenant isolation work?**
 
-Each App loaded by the Gateway receives its own memory namespace (`~/.kiln/gateway/{appName}/`), a separate `SessionRegistry` keyed by `{appName}:{userId}`, its own `ProviderAdapter` and `RuntimeSessionOrchestrator` instances, and a separate `ChannelRegistry`. A message arriving on one App's channel cannot reach another App. Cross-App communication is explicit and typed via `type: delegation` capabilities. See [Multi-Tenant](guides/multi-tenant.md) for deployment details.
+Each App loaded by the Gateway receives its own governed memory base path and
+tenant-scoped records, a separate `SessionRegistry` keyed by
+`{appName}:{userId}`, its own `ProviderAdapter` and
+`RuntimeSessionOrchestrator` instances, and a separate `ChannelRegistry`. A
+message arriving on one App's channel cannot reach another App. Cross-App
+communication is explicit and typed via `type: delegation` capabilities. See
+[Multi-Tenant](guides/multi-tenant.md) for deployment details.
 
 ---
 
@@ -38,7 +44,7 @@ Use `parseAppYaml()` and `validateApp()` from `@kilnai/core` in a Vitest test. P
 
 **Why Bun instead of Node.js?**
 
-Bun provides the runtime, package manager, test runner, and bundler in one binary with startup times roughly 4x faster than Node.js. The Gateway uses `Bun.serve()` for the HTTP server and `bun:sqlite` for the memory store. Node.js 20+ is still required if you use MCP tools that spawn Node.js subprocesses, but the Kiln process itself requires Bun 1.1+.
+Bun provides the runtime, package manager, test runner, and bundler in one binary with startup times roughly 4x faster than Node.js. The Gateway uses `Bun.serve()` for the HTTP server and `bun:sqlite` for local governed memory persistence. Node.js 20+ is still required if you use MCP tools that spawn Node.js subprocesses, but the Kiln process itself requires Bun 1.1+.
 
 ---
 
@@ -102,6 +108,13 @@ The `CostTracker` records token usage keyed by `role:model` tuple (e.g., `assist
 
 ---
 
-**How does memory decay work?**
+**How does governed memory work?**
 
-Agent-scoped memory stores (`agent:{role}`) apply a decay function that reduces the relevance score of entries over time, so older memories are ranked lower in recall results but not deleted. Three curve types are supported: `exponential` (fast drop-off, good for ephemeral patterns), `linear` (steady reduction), and `step` (full relevance until a hard cutoff). When a store exceeds a configured size threshold, `MemoryCompactor` summarizes older entries into compressed form and archives the originals. Configure decay and compaction thresholds in the memory backend options. See [Memory](guides/memory.md) for configuration details.
+Kiln stores memory as scoped records with layer, provenance, revisions,
+relations, lifecycle evidence, and context-admission evidence. Reads use
+bounded `kiln://memory/...` resources, while writes use governed mutation
+services or the `memory_save` tool. Model-facing reads and writes are
+constrained by memory authority rules; allowing the `memory_save` tool alone
+does not grant write permission. Context admission remains owned by
+`ContextGovernor`, so memory is retrieved selectively instead of replayed
+blindly. See [Memory](guides/memory.md) for the current contract.

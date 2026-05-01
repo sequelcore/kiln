@@ -141,6 +141,18 @@ preserve the old internal shape.
 When the repository slice lands, it must delete or replace obsolete memory
 routes, exports, tests, docs, and persistence code in the same slice.
 
+This replacement does not reject research-backed capabilities such as decay,
+retention, forgetting, or compaction. It rejects their pre-lattice
+implementation because that code was bound to the wrong domain model. Those
+capabilities must return as governed policies over `MemoryRecord`,
+`MemoryScope`, `MemoryLayerKind`, provenance, revisions, relations, archive
+state, and mutation events.
+
+Future decay and compaction work must not mutate memory silently inside a
+repository adapter. It must run through a memory application service so policy
+selection, affected records, revisions, derived summaries, archival decisions,
+and emitted events are auditable.
+
 ### 4. Context admission is auditable memory evidence
 
 Memory records may become context candidates, but the model only sees memory
@@ -166,15 +178,17 @@ Memory Lattice data is exposed first through the context resource plane.
 Canonical read-only URI templates:
 
 ```text
-kiln://memory/graph{?scope,layer,query,depth,limit}
-kiln://memory/nodes/{id}
-kiln://memory/nodes/{id}/neighbors{?depth,limit}
-kiln://memory/nodes/{id}/provenance
-kiln://memory/relations/{id}
-kiln://memory/admissions{?sessionId,recordId}
+kiln://memory/graph{?scope,scopeKind,scopeId,layer,query,depth,limit}
+kiln://memory/nodes/{id}{?scope,scopeKind,scopeId}
+kiln://memory/nodes/{id}/lifecycle{?scope,scopeKind,scopeId}
+kiln://memory/nodes/{id}/neighbors{?scope,scopeKind,scopeId,depth,limit}
+kiln://memory/nodes/{id}/provenance{?scope,scopeKind,scopeId}
+kiln://memory/relations/{id}{?scope,scopeKind,scopeId}
+kiln://memory/admissions{?sessionId,recordId,scope,scopeKind,scopeId,layer,limit}
 ```
 
-All reads must be bounded, scope-validated, deterministic, and read-only.
+All reads must be bounded, scope-validated, authority-filtered when exposed to
+model-facing callers, deterministic, and read-only.
 
 These resources are the shared contract for CLI, GUI, TUI, SDK, runtime, and
 MCP. The GUI may have convenience gateway endpoints, but those endpoints must
@@ -199,13 +213,19 @@ graph contract exists. Motion is presentation, not architecture.
 
 ### 7. YAML, CLI, TUI, SDK, and MCP
 
-YAML may eventually declare memory policy: retention, allowed scopes, exposed
-layers, sync policy, and admission policy references. YAML must not declare GUI
-layout.
+YAML may declare model-facing memory authority through `permissions.memory`.
+Retention, sync policy, and admission-policy references remain separate memory
+policy concerns. YAML must not declare GUI layout.
 
 CLI and TUI consume Memory Lattice through the same resource contracts or
 thin operator contracts. MCP consumes the same resources through standard
 resource projection and model-callable resource tools.
+
+Model-facing CLI, TUI, GUI, `kiln run`, and `kiln tools --mcp` surfaces must
+derive memory read/write authority from the effective permission policy. A
+generic `tools: [{ tool: memory_save, action: allow }]` rule only exposes the
+tool; it does not authorize memory mutation. Mutation requires
+`permissions.memory.write` for the requested operation, scope, and layer.
 
 ### 8. Memory changes are domain events
 
@@ -338,8 +358,22 @@ turning the product into a toy visual metaphor.
     runtime event-bus bridging, and GUI/TUI/CLI resource-query invalidation.
 11. Upgrade the GUI renderer with Ehrlich-inspired pseudo-3D graph motion while
     keeping topology, ranking, scope, and relations owned by core contracts.
-12. Add minimal CLI/TUI/MCP/YAML projection only through shared contracts.
-13. Remove stale docs, routes, exports, tests, and internal code.
+12. Add minimal CLI/TUI/MCP/YAML projection only through shared contracts:
+    CLI reads `kiln://memory/...` through the resource registry, MCP/model
+    consumers use shared resource tools through `kiln tools --mcp`, legacy CLI
+    MCP memory tools are removed instead of adapted, model-callable writes use
+    the core governed `memory_save` builtin backed by `MemoryMutationService`,
+    Gateway MCP does not expose `memory_*` or `cross_agent_memory_*` handlers,
+    TUI is deferred until it can consume the same contract directly, and YAML
+    remains policy-only.
+13. Remove stale docs, routes, exports, tests, and internal code. The first
+    cleanup cut deletes Gateway `/api/memory` CRUD, dev `/dev/memory` mutable
+    routes, SDK `useKilnMemory`, and the old Studio Memory Inspector instead
+    of preserving duplicate memory contracts. The final cleanup cut maps
+    tenant conversation exchanges to governed `episodic` tenant records, maps
+    MCP swarm coordination to governed `coordination` records, and deletes the
+    pre-lattice persistence and sync helpers rather than adapting a second
+    memory model.
 
 ---
 

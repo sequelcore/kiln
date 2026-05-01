@@ -98,35 +98,40 @@ fallback text into model context.
 
 ## Memory Write
 
-**Trigger:** memory store call, session end, or skill capture.
+**Trigger:** `memory_save`, lifecycle action, runtime tenant capture, session
+end, or skill capture.
 
 **Stages:**
 
 1. scope resolution
 2. tenant isolation
-3. reconsolidation check
-4. insert or update
-5. decay assignment
-6. audit append
-7. event emission
+3. memory authority check
+4. provenance validation
+5. reconsolidation or lifecycle policy check when applicable
+6. governed mutation through `MemoryMutationService`
+7. revision, relation, archive, or admission evidence write when applicable
+8. event emission
 
 **Gates:**
 
 - tenant isolation
+- operation, scope, and layer authority
 - GDPR delete policy
 
 ## Memory Recall
 
-**Trigger:** memory recall or context assembly retrieval.
+**Trigger:** resource read, lifecycle-aware recall, or context assembly
+retrieval.
 
 **Stages:**
 
 1. scope resolution
-2. query expansion
-3. relevance ranking
-4. budget gating
-5. sanitization
-6. event emission
+2. memory authority check for model-facing callers
+3. query expansion
+4. lifecycle-aware relevance ranking
+5. budget gating by `ContextGovernor`
+6. sanitization
+7. admission or deferral evidence emission
 
 **Gates:**
 

@@ -19,7 +19,7 @@
 
 - **Multi-app gateway** -- host multiple Kiln apps in one Bun/Hono process
 - **8 channel adapters** -- CLI, Web (WebSocket), WhatsApp, Instagram, Messenger, Slack, Email, REST API
-- **Multi-tenant isolation** -- per-tenant memory, system prompts, billing, and channel credentials
+- **Multi-tenant isolation** -- tenant-scoped governed memory, system prompts, billing, and channel credentials
 - **Budget middleware** -- per-tenant token budgets with fail-open enforcement
 - **Trigger runtime** -- webhooks (HMAC-SHA256), event listeners, cron scheduler
 - **Cross-app delegation** -- Kiln-native and A2A protocol support
@@ -109,7 +109,6 @@ When the gateway starts, it automatically mounts:
 | `POST /{path}/release` | Release session back to ai_active |
 | `POST /{path}/operator-message` | Send operator message to end user |
 | `GET /{path}/session-history` | Retrieve full conversation history |
-| `GET /api/memory` | Memory read API |
 
 ## Documentation
 

@@ -1,12 +1,12 @@
-# 07 - Native Operator Surface Experiment
+# 05 - Native Operator Surface Experiment
 
 ## Status
 
 Deferred experimental roadmap.
 
-Do not start this program before `03-managed-agents-cross-provider-subagents.md`
+Do not start this program before `02-managed-agents-cross-provider-subagents.md`
 creates real high-concurrency operator workloads and before
-`04-config-projection-unification.md` defines how local, cloud, team, CI, and
+`03-config-projection-unification.md` defines how local, cloud, team, CI, and
 project configuration are projected into a stable runtime view.
 
 This is a validation track, not a commitment to replace the web GUI.
@@ -270,12 +270,12 @@ This roadmap depends on:
   Defines provider-agnostic session identity and provider-thread metadata.
 - `docs/architecture/tool-execution.md`
   Defines tool authority and execution evidence.
-- `01-memory-lattice-governed-memory.md`
-  Provides governed memory projection and provenance.
-- `03-managed-agents-cross-provider-subagents.md`
+- `docs/architecture/memory.md` and `docs/guides/memory.md`
+  Provide governed memory, lifecycle evidence, projection, and provenance.
+- `02-managed-agents-cross-provider-subagents.md`
   Creates the high-concurrency managed-agent workloads this experiment is meant
   to measure.
-- `04-config-projection-unification.md`
+- `03-config-projection-unification.md`
   Provides config projection and drift-aware runtime configuration so local,
   cloud, team, CI, GUI, native, CLI, and IDE surfaces do not invent separate
   config truth.
@@ -372,8 +372,8 @@ Close this roadmap without implementation if:
 - `docs/architecture/developer-tools.md`
 - `docs/architecture/session-model.md`
 - `docs/architecture/tool-execution.md`
-- `docs/roadmap/03-managed-agents-cross-provider-subagents.md`
-- `docs/roadmap/04-config-projection-unification.md`
+- `docs/roadmap/02-managed-agents-cross-provider-subagents.md`
+- `docs/roadmap/03-config-projection-unification.md`
 - Stack Overflow 2025 Developer Survey:
   https://survey.stackoverflow.co/2025
 - Stack Overflow 2025 AI section:

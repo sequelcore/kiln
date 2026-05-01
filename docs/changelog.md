@@ -36,6 +36,16 @@
   consumer-provided responder, denies sensitive form collection, projects
   through MCP and attached runtime surfaces, and records elicitation metadata
   without logging submitted values.
+- Removed the pre-lattice memory persistence APIs, chunk sync helpers, decay
+  helpers, and duplicate gateway memory stores. Runtime tenant conversation
+  memory now writes governed `episodic` tenant records, MCP swarm coordination
+  writes governed `coordination` records, and Memory Lattice reads remain on the
+  shared resource plane.
+- Added governed memory authority for model-facing surfaces. GUI, TUI,
+  `kiln run`, and `kiln tools --mcp` now derive memory read/write authority
+  from `permissions.memory` and agent-scoped overrides; `memory_save` is backed
+  by `MemoryMutationService`, and generic tool allowlists do not grant memory
+  write access.
 - Added a core `ToolResourceRegistry` and MCP resource projection for read-only
   context snapshots. The dev-tools MCP server now exposes `kiln://tools/catalog`,
   `kiln://session/tasks`, and `kiln://session/monitors` plus templates for
@@ -883,7 +893,7 @@ Six sub-phases implementing biologically-grounded multi-agent coordination:
 ### Memory Quality (Phase 3.6)
 - Added hierarchical topic key support to memory entries with `topicKey`,
   `revisionCount`, and `lastSeenAt` fields in `MemoryEntry` interface.
-- Implemented topic key upsert in `SqliteMemoryStore.save()`: when `topicKey`
+- Implemented topic key upsert in the former SQLite memory save path: when `topicKey`
   is provided, the store performs an upsert (UPDATE if exists, INSERT if new)
   instead of always inserting. Revision count increments on each update.
 - Added direct key lookup bypass: when search query contains "/", the store
@@ -1077,7 +1087,7 @@ Three workstreams extending the MCP tool surface for external CLI agent orchestr
 - `swarm_broadcast`: Broadcast a message to all agents in a swarm (stored, not pushed).
 - `swarm_claim`: Optimistic lock on a named resource within a swarm.
 - `swarm_release`: Release a previously claimed resource (ownership-checked).
-- **`SwarmStore`** (`runtime/src/mcp/swarm-store.ts`): `SqliteMemoryStore`-backed swarm state using tag conventions `_swarm:<swarmId>`, `_member:<agentId>`, `_claim:<resourceId>`, `_broadcast`.
+- **`SwarmStore`** (`runtime/src/mcp/swarm-store.ts`): stored swarm state using tag conventions `_swarm:<swarmId>`, `_member:<agentId>`, `_claim:<resourceId>`, `_broadcast`.
 
 **WS3 — LLM-Based Eval Scorers**
 - `eval_score` extended: now accepts `context` (passages for faithfulness/context-relevance) and `scorerOptions` (per-scorer config).
@@ -1144,7 +1154,7 @@ mcp:
 - **`auth` block in `gateway.yaml`**: Top-level optional config. RS256 requires `jwksUri`; HS256 requires `secretEnv` (env var name). Parsed and validated by `parseGatewayYaml` with the same error accumulation pattern as `observability`.
 - **`buildJwtVerifier()`** (`runtime/src/gateway/jwt-verifier.ts`): Builds a `JwtVerifyFn` from `GatewayAuthConfig`. RS256 uses `jose createRemoteJWKSet` (cached, auto-refreshing on key rotation). HS256 resolves the secret from `process.env` once at startup — fails fast if the env var is missing. Dynamic `import("jose")` so the library is only loaded when JWT auth is configured.
 - **`requireJwt(verify)`** (`runtime/src/gateway/auth-middleware.ts`): New composable middleware. Extracts Bearer token from `Authorization` header, verifies via `JwtVerifyFn`, attaches decoded payload to `c.set("jwtPayload", payload)`. Returns 401 with no error detail leakage on failure.
-- **`GatewayServerConfig.jwtVerifier`**: New optional field. When set, `createGatewayApp` applies `requireJwt` to all API channels (`/path/*`), admin routes (`/admin/:name/*`), outbound routes (`/outbound/:name/*`), handoff routes (`/handoff/:name/*`), and memory routes (`/api/memory/*`). Webhook channels (WhatsApp, Instagram, Messenger, Email) retain their HMAC-SHA256 auth unchanged. Health endpoint is always public.
+- **`GatewayServerConfig.jwtVerifier`**: New optional field. When set, `createGatewayApp` applies `requireJwt` to all API channels (`/path/*`), admin routes (`/admin/:name/*`), outbound routes (`/outbound/:name/*`), and handoff routes (`/handoff/:name/*`). Webhook channels (WhatsApp, Instagram, Messenger, Email) retain their HMAC-SHA256 auth unchanged. Health endpoint is always public.
 - **`startGateway` wiring**: JWT verifier built once at startup after `parseGatewayYaml`. Startup log confirms the active mode. Auth warning suppressed for API channels when gateway-level JWT is configured.
 - **Backward compatible**: No `auth` block → zero behavior change. Existing `apiKeyEnv` deployments continue working exactly as before.
 - **`jose` dependency**: Added to `@kilnai/runtime` dependencies.

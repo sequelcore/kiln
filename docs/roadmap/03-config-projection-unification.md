@@ -1,4 +1,4 @@
-# 04 - Config Projection Unification
+# 03 - Config Projection Unification
 
 ## 1. Doctrine
 
@@ -462,7 +462,7 @@ Upgrades `KilnGlobalConfig` v1 → v2 in place. See §6.
 
 ## 5. Slices
 
-### 04.A - KilnGlobalConfig v2 Schema and Parser
+### 03.A - KilnGlobalConfig v2 Schema and Parser
 
 Scope: `packages/core/src/config/schemas/kiln-global-config.v2.schema.json`,
 updated `packages/cli/src/config/global-config.ts`.
@@ -478,7 +478,7 @@ updated `packages/cli/src/config/global-config.ts`.
 Verification: `bun run typecheck` clean; `bun run test` clean; grep for
 `KilnGlobalConfig` shows no consumer passing a v1 shape without migration.
 
-### 04.B - Install State Schema and Store
+### 03.B - Install State Schema and Store
 
 Scope: `packages/core/src/config/schemas/kiln-install-state.v1.schema.json`,
 `packages/cli/src/config/install-state-store.ts`.
@@ -496,7 +496,7 @@ Scope: `packages/core/src/config/schemas/kiln-install-state.v1.schema.json`,
 Verification: `bun run typecheck` clean; `bun run test` clean; no file write
 outside `~/.kiln/state/` in store code.
 
-### 04.C.1 - Claude Translator
+### 03.C.1 - Claude Translator
 
 Scope: `packages/cli/src/config/translators/claude-translator.ts`.
 
@@ -515,7 +515,7 @@ Scope: `packages/cli/src/config/translators/claude-translator.ts`.
   for all three types; hook round trip; configHash presence; managedFields list
   is accurate.
 
-### 04.C.2 - Codex Translator
+### 03.C.2 - Codex Translator
 
 Scope: `packages/cli/src/config/translators/codex-translator.ts`.
 
@@ -531,7 +531,7 @@ Scope: `packages/cli/src/config/translators/codex-translator.ts`.
 - Unit tests: Windows sandbox injection; model selection precedence; approval
   mode mapping; TOML round trip; managedFields list is accurate.
 
-### 04.C.3 - OpenCode Translator
+### 03.C.3 - OpenCode Translator
 
 Scope: `packages/cli/src/config/translators/opencode-translator.ts`.
 
@@ -548,7 +548,7 @@ Scope: `packages/cli/src/config/translators/opencode-translator.ts`.
 - Unit tests: permission mapping; model selection; MCP type dispatch for all
   three types; managedFields list is accurate.
 
-### 04.D - Engine Registry and kiln status / kiln route
+### 03.D - Engine Registry and kiln status / kiln route
 
 Scope: `packages/cli/src/engines/engine-registry.ts`,
 `packages/cli/src/commands/status.ts`, `packages/cli/src/commands/route.ts`.
@@ -571,7 +571,7 @@ Scope: `packages/cli/src/engines/engine-registry.ts`,
 Verification: `check-engines.sh` is not called from any code path after this
 slice.
 
-### 04.E - kiln sync + Drift Detection + kiln import-native
+### 03.E - kiln sync + Drift Detection + kiln import-native
 
 Scope: `packages/cli/src/commands/sync.ts` (rewrite),
 `packages/cli/src/commands/import-native.ts`.
@@ -588,7 +588,7 @@ Scope: `packages/cli/src/commands/sync.ts` (rewrite),
   native extracts model from codex TOML; import-native merges without
   clobbering unrelated Kiln fields.
 
-### 04.F - kiln uninstall + kiln migrate
+### 03.F - kiln uninstall + kiln migrate
 
 Scope: `packages/cli/src/commands/uninstall.ts`,
 `packages/cli/src/commands/migrate.ts`.
@@ -606,7 +606,7 @@ Scope: `packages/cli/src/commands/uninstall.ts`,
   preserves identity, permissions, mcp, hooks; migrate rejects when v2 schema
   validation fails.
 
-### 04.G - Delete Old sync/, Delete check-engines.sh, Prune Docs
+### 03.G - Delete Old sync/, Delete check-engines.sh, Prune Docs
 
 Scope: `packages/cli/src/sync/` (entire directory),
 `~/.claude/hooks/check-engines.sh`, any doc or comment referencing them.
