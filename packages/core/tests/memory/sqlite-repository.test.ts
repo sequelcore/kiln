@@ -149,6 +149,95 @@ describe("SqliteMemoryRepository", () => {
 
     expect(relations).toEqual([relation]);
   });
+
+  it("lists context admissions oldest-first by default and newest-first when requested", async () => {
+    const saved = await repository.saveRecord(recordInput({
+      content: "Admission ordering record.",
+      scopeId: "kiln",
+      topicKey: "context/admission-order",
+    }));
+
+    await repository.saveContextAdmission({
+      id: "admission-1",
+      recordId: saved.id,
+      sessionId: "session-1",
+      turnId: "turn-1",
+      decision: "admitted",
+      reason: "First decision.",
+      estimatedTokens: 10,
+      baseScore: 1,
+      effectiveScore: 1,
+      createdAt: "2026-04-30T10:00:00.000Z",
+    });
+    await repository.saveContextAdmission({
+      id: "admission-2",
+      recordId: saved.id,
+      sessionId: "session-1",
+      turnId: "turn-2",
+      decision: "deferred",
+      reason: "Second decision.",
+      estimatedTokens: 10,
+      baseScore: 0.5,
+      effectiveScore: 0.5,
+      createdAt: "2026-04-30T10:01:00.000Z",
+    });
+
+    const oldestFirst = await repository.listContextAdmissions({
+      recordId: saved.id,
+      limit: 2,
+    });
+    const newestFirst = await repository.listContextAdmissions({
+      recordId: saved.id,
+      limit: 2,
+      order: "newest_first",
+    });
+
+    expect(oldestFirst.map((admission) => admission.id)).toEqual(["admission-1", "admission-2"]);
+    expect(newestFirst.map((admission) => admission.id)).toEqual(["admission-2", "admission-1"]);
+  });
+
+  it("migrates legacy unique topic storage so lifecycle compaction can group records", async () => {
+    repository.close();
+    rmSync(tmpDir, { recursive: true, force: true });
+    tmpDir = mkdtempSync(join(tmpdir(), "kiln-memory-lattice-"));
+    dbPath = join(tmpDir, "memory.db");
+    const legacyDb = new Database(dbPath);
+    legacyDb.exec(`
+      CREATE TABLE memory_records (
+        id TEXT PRIMARY KEY,
+        layer TEXT NOT NULL,
+        scope_kind TEXT NOT NULL,
+        scope_id TEXT NOT NULL,
+        content TEXT NOT NULL,
+        topic_key TEXT,
+        tags TEXT NOT NULL,
+        provenance TEXT NOT NULL,
+        confidence REAL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT,
+        deleted_at TEXT,
+        UNIQUE(scope_kind, scope_id, topic_key)
+      );
+    `);
+    legacyDb.close();
+    repository = new SqliteMemoryRepository({ dbPath });
+
+    await repository.saveRecord(recordInput({
+      content: "First episodic memory.",
+      scopeId: "kiln",
+      topicKey: "memory/lifecycle",
+    }));
+    await repository.saveRecord(recordInput({
+      content: "Second episodic memory.",
+      scopeId: "kiln",
+      topicKey: "memory/lifecycle",
+    }));
+
+    expect(repository.listRecords({
+      scope: { kind: "project", id: "kiln" },
+      limit: 10,
+    }).filter((record) => record.topicKey === "memory/lifecycle")).toHaveLength(2);
+  });
 });
 
 function recordInput(overrides: {

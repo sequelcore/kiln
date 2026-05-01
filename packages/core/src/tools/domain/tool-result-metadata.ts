@@ -9,6 +9,7 @@ export type CodeToolName = "code_intelligence";
 export type MonitorToolName = "monitor_start" | "monitor_read" | "monitor_stop" | "monitor_list";
 export type TaskStateToolName = "task_list" | "task_update";
 export type ElicitationToolName = "operator_elicit";
+export type MemoryToolName = "memory_save";
 export type ResourceToolName = "resource_list" | "resource_template_list" | "resource_read";
 
 export type FileToolOperation = "read" | "read_many" | "write" | "edit" | "patch";
@@ -49,6 +50,7 @@ export type MonitorStatus = "running" | "exited" | "stopped" | "failed";
 export type TaskStateToolOperation = "list" | "update";
 export type SessionTaskStatus = "pending" | "in_progress" | "blocked" | "completed" | "cancelled";
 export type ElicitationToolOperation = "elicit";
+export type MemoryToolOperation = "save";
 export type ResourceToolOperation = "list" | "list_templates" | "read";
 export type ElicitationMode = "form" | "url";
 export type ElicitationOutcome = "submitted" | "declined" | "cancelled" | "unsupported";
@@ -298,7 +300,24 @@ export interface ResourceToolResultMetadata<TToolName extends ResourceToolName =
   readonly templateCount?: number;
   readonly contentCount?: number;
   readonly mimeType?: string;
-  readonly errorCode?: "invalid_input" | "not_found" | "cursor_error" | "registry_unavailable";
+  readonly errorCode?:
+    | "invalid_input"
+    | "not_found"
+    | "cursor_error"
+    | "registry_unavailable"
+    | "authorization_denied";
+}
+
+export interface MemoryToolResultMetadata<TToolName extends MemoryToolName = MemoryToolName> {
+  readonly toolName: TToolName;
+  readonly kind: "memory";
+  readonly operation: MemoryToolOperation;
+  readonly recordId?: string;
+  readonly scopeKind?: string;
+  readonly scopeId?: string;
+  readonly layer?: string;
+  readonly resourceUri?: string;
+  readonly errorCode?: "invalid_input" | "service_unavailable" | "repository_error";
 }
 
 export type ToolSpecificResultMetadata =
@@ -313,6 +332,7 @@ export type ToolSpecificResultMetadata =
   | MonitorToolResultMetadata
   | TaskStateToolResultMetadata
   | ElicitationToolResultMetadata
+  | MemoryToolResultMetadata
   | ResourceToolResultMetadata;
 
 export type ToolResultMetadata = ToolSpecificResultMetadata & ToolResultResourceLinkMetadata;
@@ -468,6 +488,17 @@ export function elicitationToolMetadata<TToolName extends ElicitationToolName>(
   return {
     toolName,
     kind: "elicitation",
+    ...metadata,
+  };
+}
+
+export function memoryToolMetadata<TToolName extends MemoryToolName>(
+  toolName: TToolName,
+  metadata: Omit<MemoryToolResultMetadata<TToolName>, "toolName" | "kind">,
+): MemoryToolResultMetadata<TToolName> {
+  return {
+    toolName,
+    kind: "memory",
     ...metadata,
   };
 }

@@ -9,11 +9,13 @@ import type {
   MemoryRevisionCreatedEvent,
 } from "../events/index.js";
 import type {
+  MemoryAuthorityPolicy,
   MemoryContextAdmission,
   MemoryRecord,
   MemoryRelation,
   MemoryRevision,
 } from "./domain/index.js";
+import { assertMemoryWriteAuthorized } from "./domain/index.js";
 import type {
   CreateMemoryRecordInput,
   MemoryRepository,
@@ -25,6 +27,7 @@ export interface MemoryMutationServiceOptions {
   readonly eventBus?: EventBus;
   readonly sessionId?: string;
   readonly tenantId?: string;
+  readonly authority?: MemoryAuthorityPolicy;
 }
 
 const DEFAULT_MEMORY_SESSION_ID = "memory";
@@ -34,15 +37,18 @@ export class MemoryMutationService {
   private readonly eventBus: EventBus | undefined;
   private readonly sessionId: string;
   private readonly tenantId: string | undefined;
+  private readonly authority: MemoryAuthorityPolicy | undefined;
 
   constructor(options: MemoryMutationServiceOptions) {
     this.repository = options.repository;
     this.eventBus = options.eventBus;
     this.sessionId = options.sessionId ?? DEFAULT_MEMORY_SESSION_ID;
     this.tenantId = options.tenantId;
+    this.authority = options.authority;
   }
 
   saveRecord(input: CreateMemoryRecordInput): MemoryRecord {
+    this.assertWriteAuthority(input);
     const existing = input.id ? this.repository.getRecord(input.id) : undefined;
     const record = this.repository.saveRecord(input);
     this.emitRecordEvent(existing ? "memory_record_updated" : "memory_record_created", record);
@@ -132,5 +138,16 @@ export class MemoryMutationService {
 
   private emit<T extends Parameters<EventBus["emit"]>[0]>(event: T): void {
     this.eventBus?.emit(event);
+  }
+
+  private assertWriteAuthority(input: CreateMemoryRecordInput): void {
+    if (!this.authority) {
+      return;
+    }
+    assertMemoryWriteAuthorized(this.authority, {
+      operation: "save",
+      scope: input.scope,
+      layer: input.layer,
+    });
   }
 }

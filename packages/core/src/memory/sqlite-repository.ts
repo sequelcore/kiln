@@ -90,6 +90,16 @@ interface MemoryContextAdmissionRow {
   readonly created_at: string;
 }
 
+interface SqliteIndexRow {
+  readonly name: string;
+  readonly unique: number;
+}
+
+interface SqliteIndexInfoRow {
+  readonly seqno: number;
+  readonly name: string;
+}
+
 export class SqliteMemoryRepository implements MemoryRepository {
   private readonly db: Database;
   private inTransaction = false;
@@ -218,6 +228,8 @@ export class SqliteMemoryRepository implements MemoryRepository {
         AND scope_kind = ?
         AND scope_id = ?
         AND topic_key = ?
+      ORDER BY updated_at DESC, created_at DESC, id ASC
+      LIMIT 1
     `).get(definedScope.kind, definedScope.id, requiredText(topicKey, "Memory topic key is required")) as MemoryRecordRow | undefined;
     return row ? this.toRecord(row) : undefined;
   }
@@ -476,6 +488,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
     readonly sessionId?: string;
     readonly recordId?: string;
     readonly limit?: number;
+    readonly order?: "oldest_first" | "newest_first";
   } = {}): readonly MemoryContextAdmission[] {
     const clauses = [];
     const args: SqlBinding[] = [];
@@ -488,12 +501,15 @@ export class SqliteMemoryRepository implements MemoryRepository {
       args.push(query.recordId);
     }
     const limit = this.resolveAdmissionLimit(query.limit);
+    const orderClause = query.order === "newest_first"
+      ? "ORDER BY created_at DESC, id DESC"
+      : "ORDER BY created_at ASC, id ASC";
     const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
     const rows = this.db.prepare(`
       SELECT *
       FROM memory_context_admissions
       ${where}
-      ORDER BY created_at ASC, id ASC
+      ${orderClause}
       LIMIT ?
     `).all(...args, limit) as MemoryContextAdmissionRow[];
     return rows.map((row) => ({
@@ -539,8 +555,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
         confidence REAL,
         created_at TEXT NOT NULL,
         updated_at TEXT,
-        deleted_at TEXT,
-        UNIQUE(scope_kind, scope_id, topic_key)
+        deleted_at TEXT
       );
 
       CREATE INDEX IF NOT EXISTS idx_memory_records_scope
@@ -619,6 +634,90 @@ export class SqliteMemoryRepository implements MemoryRepository {
         archived_at TEXT NOT NULL
       );
     `);
+    this.removeMemoryRecordTopicUniqueness();
+  }
+
+  private removeMemoryRecordTopicUniqueness(): void {
+    if (!this.hasUniqueMemoryRecordTopicIndex()) {
+      return;
+    }
+
+    this.runTransaction(() => {
+      this.db.exec(`
+        DROP INDEX IF EXISTS idx_memory_records_scope;
+        DROP INDEX IF EXISTS idx_memory_records_topic;
+
+        ALTER TABLE memory_records RENAME TO memory_records_with_unique_topic;
+
+        CREATE TABLE memory_records (
+          id TEXT PRIMARY KEY,
+          layer TEXT NOT NULL,
+          scope_kind TEXT NOT NULL,
+          scope_id TEXT NOT NULL,
+          content TEXT NOT NULL,
+          topic_key TEXT,
+          tags TEXT NOT NULL,
+          provenance TEXT NOT NULL,
+          confidence REAL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT,
+          deleted_at TEXT
+        );
+
+        INSERT INTO memory_records (
+          id,
+          layer,
+          scope_kind,
+          scope_id,
+          content,
+          topic_key,
+          tags,
+          provenance,
+          confidence,
+          created_at,
+          updated_at,
+          deleted_at
+        )
+        SELECT
+          id,
+          layer,
+          scope_kind,
+          scope_id,
+          content,
+          topic_key,
+          tags,
+          provenance,
+          confidence,
+          created_at,
+          updated_at,
+          deleted_at
+        FROM memory_records_with_unique_topic;
+
+        DROP TABLE memory_records_with_unique_topic;
+
+        CREATE INDEX IF NOT EXISTS idx_memory_records_scope
+          ON memory_records(scope_kind, scope_id, layer);
+
+        CREATE INDEX IF NOT EXISTS idx_memory_records_topic
+          ON memory_records(scope_kind, scope_id, topic_key);
+      `);
+    });
+  }
+
+  private hasUniqueMemoryRecordTopicIndex(): boolean {
+    const indexes = this.db.prepare("PRAGMA index_list('memory_records')").all() as SqliteIndexRow[];
+    for (const index of indexes) {
+      if (index.unique !== 1) {
+        continue;
+      }
+      const columns = (this.db.prepare(`PRAGMA index_info('${index.name}')`).all() as SqliteIndexInfoRow[])
+        .sort((left, right) => left.seqno - right.seqno)
+        .map((column) => column.name);
+      if (columns.join("|") === "scope_kind|scope_id|topic_key") {
+        return true;
+      }
+    }
+    return false;
   }
 
   private runTransaction<T>(work: () => T): T {

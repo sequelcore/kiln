@@ -3,11 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  defineMemoryAuthorityPolicy,
   EventBus,
   MemoryMutationService,
   SqliteMemoryRepository,
   type CreateMemoryRecordInput,
   type KilnEvent,
+  type MemoryLayerKind,
   type MemoryRepository,
 } from "../../src/index.js";
 
@@ -104,17 +106,124 @@ describe("MemoryMutationService", () => {
       scope: { kind: "project", id: "kiln" },
     });
   });
+
+  it("allows save when write authority explicitly matches scope and layer", () => {
+    const serviceWithAuthority = new MemoryMutationService({
+      repository,
+      authority: defineMemoryAuthorityPolicy({
+        caller: { kind: "agent", id: "worker-1a" },
+        rules: [{
+          access: "write",
+          operations: ["save"],
+          scopeKinds: ["project"],
+          scopeIds: ["kiln"],
+          layers: ["semantic"],
+        }],
+      }),
+    });
+
+    const record = serviceWithAuthority.saveRecord(recordInput({ content: "Authorized memory write." }));
+    expect(record.scope).toEqual({ kind: "project", id: "kiln" });
+    expect(record.layer).toBe("semantic");
+  });
+
+  it("denies save when authority does not allow the scope", () => {
+    const serviceWithAuthority = new MemoryMutationService({
+      repository,
+      authority: defineMemoryAuthorityPolicy({
+        caller: { kind: "agent", id: "worker-1a" },
+        rules: [{
+          access: "write",
+          operations: ["save"],
+          scopeKinds: ["project"],
+          scopeIds: ["kiln"],
+          layers: ["semantic"],
+        }],
+      }),
+    });
+
+    expect(() => serviceWithAuthority.saveRecord(recordInput({
+      content: "Wrong scope write.",
+      scopeId: "other-project",
+    }))).toThrow("scope is not authorized");
+  });
+
+  it("denies save when authority does not allow the layer", () => {
+    const serviceWithAuthority = new MemoryMutationService({
+      repository,
+      authority: defineMemoryAuthorityPolicy({
+        caller: { kind: "agent", id: "worker-1a" },
+        rules: [{
+          access: "write",
+          operations: ["save"],
+          scopeKinds: ["project"],
+          scopeIds: ["kiln"],
+          layers: ["semantic"],
+        }],
+      }),
+    });
+
+    expect(() => serviceWithAuthority.saveRecord(recordInput({
+      content: "Wrong layer write.",
+      layer: "episodic",
+    }))).toThrow("layer is not authorized");
+  });
+
+  it("denies audit writes unless explicitly allowed by authority", () => {
+    const deniedAuditService = new MemoryMutationService({
+      repository,
+      authority: defineMemoryAuthorityPolicy({
+        caller: { kind: "agent", id: "worker-1a" },
+        rules: [{
+          access: "write",
+          operations: ["save"],
+          scopeKinds: ["project"],
+          scopeIds: ["kiln"],
+          layers: ["audit"],
+        }],
+      }),
+    });
+
+    expect(() => deniedAuditService.saveRecord(recordInput({
+      content: "Audit write should fail.",
+      layer: "audit",
+    }))).toThrow("audit layer requires explicit permission");
+
+    const allowedAuditService = new MemoryMutationService({
+      repository,
+      authority: defineMemoryAuthorityPolicy({
+        caller: { kind: "agent", id: "worker-1a" },
+        rules: [{
+          access: "write",
+          operations: ["save"],
+          scopeKinds: ["project"],
+          scopeIds: ["kiln"],
+          layers: ["audit"],
+          allowAuditWrite: true,
+        }],
+      }),
+    });
+
+    const saved = allowedAuditService.saveRecord(recordInput({
+      content: "Audit write allowed.",
+      layer: "audit",
+    }));
+    expect(saved.layer).toBe("audit");
+  });
 });
 
 function recordInput(overrides: {
   readonly id?: string;
   readonly content: string;
   readonly topicKey?: string;
+  readonly layer?: MemoryLayerKind;
+  readonly scopeKind?: "project" | "tenant";
+  readonly scopeId?: string;
 }): CreateMemoryRecordInput {
   return {
     ...(overrides.id ? { id: overrides.id } : {}),
-    layer: "semantic",
-    scope: { kind: "project", id: "kiln" },
+    layer: overrides.layer ?? "semantic",
+    scope: { kind: overrides.scopeKind ?? "project", id: overrides.scopeId ?? "kiln" },
     content: overrides.content,
     topicKey: overrides.topicKey ?? "memory-lattice-test",
     tags: ["memory-lattice"],

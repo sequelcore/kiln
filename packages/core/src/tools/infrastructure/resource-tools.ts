@@ -135,15 +135,51 @@ function resourceError(
   error: unknown,
   uri?: string,
 ): ToolResult {
-  const message = error instanceof Error ? error.message : "Resource operation failed";
-  const errorCode = message.toLowerCase().includes("cursor")
-    ? "cursor_error"
-    : message.toLowerCase().includes("not found") || message.toLowerCase().includes("not be found")
-      ? "not_found"
-      : "invalid_input";
-  return toErrorResult(message, resourceToolMetadata(toolName, {
+  const classified = classifyResourceError(error);
+  return toErrorResult(classified.message, resourceToolMetadata(toolName, {
     operation,
     ...(uri ? { uri } : {}),
-    errorCode,
+    errorCode: classified.errorCode,
   }));
+}
+
+function classifyResourceError(error: unknown): {
+  readonly message: string;
+  readonly errorCode: "invalid_input" | "not_found" | "cursor_error" | "registry_unavailable" | "authorization_denied";
+} {
+  const message = error instanceof Error ? error.message : "Resource operation failed";
+  const loweredMessage = message.toLowerCase();
+  if (isAuthorizationDeniedError(error, loweredMessage)) {
+    return {
+      message: "Resource read denied by authority policy.",
+      errorCode: "authorization_denied",
+    };
+  }
+  if (loweredMessage.includes("cursor")) {
+    return { message, errorCode: "cursor_error" };
+  }
+  if (loweredMessage.includes("not found") || loweredMessage.includes("not be found")) {
+    return { message, errorCode: "not_found" };
+  }
+  return { message, errorCode: "invalid_input" };
+}
+
+function isAuthorizationDeniedError(error: unknown, loweredMessage: string): boolean {
+  if (!error || typeof error !== "object") {
+    return loweredMessage.includes("denied")
+      || loweredMessage.includes("forbidden")
+      || loweredMessage.includes("unauthorized");
+  }
+  const record = error as Record<string, unknown>;
+  const code = typeof record["code"] === "string" ? record["code"].toLowerCase() : "";
+  const name = typeof record["name"] === "string" ? record["name"].toLowerCase() : "";
+  return code.includes("denied")
+    || code.includes("forbidden")
+    || code.includes("unauthorized")
+    || name.includes("denied")
+    || name.includes("forbidden")
+    || name.includes("unauthorized")
+    || loweredMessage.includes("denied")
+    || loweredMessage.includes("forbidden")
+    || loweredMessage.includes("unauthorized");
 }

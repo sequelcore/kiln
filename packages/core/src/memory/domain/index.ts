@@ -1,4 +1,23 @@
 export {
+  assertMemoryReadAuthorized,
+  assertMemoryWriteAuthorized,
+  defineMemoryAuthorityPolicy,
+  evaluateMemoryReadAuthority,
+  evaluateMemoryWriteAuthority,
+  isMemoryAuthorityOperation,
+  MEMORY_AUTHORITY_ACCESS_LEVELS,
+  MEMORY_AUTHORITY_OPERATIONS,
+} from "./authority.js";
+export type {
+  MemoryAuthorityAccessLevel,
+  MemoryAuthorityCaller,
+  MemoryAuthorityOperation,
+  MemoryAuthorityPolicy,
+  MemoryAuthorityReadRequest,
+  MemoryAuthorityRule,
+  MemoryAuthorityWriteRequest,
+} from "./authority.js";
+export {
   defineMemoryScope,
   isMemoryScopeKind,
   MEMORY_SCOPE_KINDS,

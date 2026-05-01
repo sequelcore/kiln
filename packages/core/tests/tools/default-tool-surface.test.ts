@@ -11,7 +11,9 @@ import {
   projectDevToolSchemas,
   TaskStateStore,
 } from "../../src/tools/index.js";
-import { SqliteMemoryRepository } from "../../src/memory/index.js";
+import { defineMemoryAuthorityPolicy, SqliteMemoryRepository } from "../../src/memory/index.js";
+import type { MemoryRepository } from "../../src/memory/repository.js";
+import type { MemoryMutationService } from "../../src/memory/service.js";
 import { makeTempDir, removeTempDir } from "./infrastructure/test-utils.js";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -41,10 +43,64 @@ const BUILTIN_TOOL_NAMES = [
   "task_update",
   "operator_elicit",
   "tool_catalog_search",
+  "memory_save",
   "resource_list",
   "resource_template_list",
   "resource_read",
 ];
+
+function createAuthorityAwareMemoryMutationService(authority: { canWriteMemory?: boolean } | undefined) {
+  return {
+    saveRecord(input: {
+      readonly id?: string;
+      readonly layer: string;
+      readonly scope: { readonly kind: string; readonly id: string };
+    }) {
+      if (authority?.canWriteMemory !== true) {
+        const error = new Error("Memory write denied by authority policy");
+        Object.assign(error, { code: "MEMORY_AUTHORIZATION_DENIED" });
+        throw error;
+      }
+      return {
+        id: input.id ?? "record_authorized",
+        layer: input.layer,
+        scope: input.scope,
+      };
+    },
+  };
+}
+
+function createAuthorityDeniedMemoryReadRepository(repository: MemoryRepository): MemoryRepository {
+  const denyRead = () => {
+    const error = new Error("Memory read denied by authority policy. hidden-payload-token");
+    Object.assign(error, {
+      code: "MEMORY_AUTHORIZATION_DENIED",
+      payload: {
+        hidden: "hidden-payload-token",
+      },
+    });
+    throw error;
+  };
+
+  return {
+    transaction: (work) => repository.transaction(work),
+    saveRecord: (input) => repository.saveRecord(input),
+    getRecord: () => denyRead(),
+    getRecordByTopicKey: () => denyRead(),
+    listRecords: () => denyRead(),
+    searchRecords: () => denyRead(),
+    deleteRecord: (id, scope) => repository.deleteRecord(id, scope),
+    countRecords: (scope) => repository.countRecords(scope),
+    saveRevision: (revision) => repository.saveRevision(revision),
+    listRevisions: () => denyRead(),
+    saveRelation: (relation) => repository.saveRelation(relation),
+    getRelation: () => denyRead(),
+    listRelations: () => denyRead(),
+    saveContextAdmission: (admission) => repository.saveContextAdmission(admission),
+    listContextAdmissions: () => denyRead(),
+    close: () => repository.close(),
+  };
+}
 
 describe("default builtin tool surface", () => {
   it("projects one canonical builtin tool set into registry, names, definitions, capabilities, and execution bridge", () => {
@@ -308,6 +364,157 @@ describe("default builtin tool surface", () => {
       repository.close();
       await removeTempDir(tempDir);
     }
+  });
+
+  it("returns structured authorization-denied metadata for unauthorized memory resource reads", async () => {
+    const tempDir = await makeTempDir();
+    const repository = new SqliteMemoryRepository({ dbPath: join(tempDir, "memory.db") });
+    try {
+      const surface = createDefaultBuiltinToolSurface({
+        memoryResources: {
+          repository: createAuthorityDeniedMemoryReadRepository(repository),
+        },
+      });
+      const result = await surface.bridge.execute({
+        name: "resource_read",
+        input: { uri: "kiln://memory/graph?query=root&limit=5" },
+      });
+
+      expect(result.result.isError).toBe(true);
+      expect(result.result.output).toBe("Resource read denied by authority policy.");
+      expect(result.result.output).not.toContain("hidden-payload-token");
+      expect(result.result.metadata).toMatchObject({
+        toolName: "resource_read",
+        kind: "resource",
+        operation: "read",
+        uri: "kiln://memory/graph?query=root&limit=5",
+        errorCode: "authorization_denied",
+      });
+    } finally {
+      repository.close();
+      await removeTempDir(tempDir);
+    }
+  });
+
+  it("returns a structured tool error when authority denies memory_save", async () => {
+    const surface = createDefaultBuiltinToolSurface({
+      memoryMutations: {
+        callerContext: { authority: { canWriteMemory: false } },
+        createService: ({ callerContext }) => createAuthorityAwareMemoryMutationService(
+          callerContext.authority as { canWriteMemory?: boolean } | undefined,
+        ) as unknown as MemoryMutationService,
+      },
+    });
+    const result = await surface.bridge.execute({
+      name: "memory_save",
+      input: {
+        layer: "semantic",
+        scopeKind: "project",
+        scopeId: "kiln",
+        content: "Denied save should return structured tool metadata.",
+        provenance: {
+          sourceType: "operator",
+          sourceId: "default-tool-surface-test-denied",
+          actor: "test",
+        },
+      },
+    });
+
+    expect(result.result.isError).toBe(true);
+    expect(result.result.output).toContain("denied");
+    expect(result.result.metadata).toMatchObject({
+      toolName: "memory_save",
+      kind: "memory",
+      operation: "save",
+      errorCode: "repository_error",
+      scopeKind: "project",
+      scopeId: "kiln",
+      layer: "semantic",
+    });
+  });
+
+  it("fails closed for memory_save when fallback mutation service inherits zero-rule memory resource authority", async () => {
+    const tempDir = await makeTempDir();
+    const repository = new SqliteMemoryRepository({ dbPath: join(tempDir, "memory.db") });
+    try {
+      const surface = createDefaultBuiltinToolSurface({
+        memoryResources: {
+          repository,
+          authority: defineMemoryAuthorityPolicy({
+            caller: { kind: "agent", id: "surface-zero-rule" },
+            rules: [],
+          }),
+        },
+      });
+      const result = await surface.bridge.execute({
+        name: "memory_save",
+        input: {
+          layer: "semantic",
+          scopeKind: "project",
+          scopeId: "kiln",
+          content: "Denied save should fail closed through fallback service authority.",
+          provenance: {
+            sourceType: "operator",
+            sourceId: "default-tool-surface-fallback-authority-test",
+            actor: "test",
+          },
+        },
+      });
+
+      expect(result.result.isError).toBe(true);
+      expect(result.result.output).toContain("Memory save denied by authority policy.");
+      expect(result.result.metadata).toMatchObject({
+        toolName: "memory_save",
+        kind: "memory",
+        operation: "save",
+        errorCode: "repository_error",
+        scopeKind: "project",
+        scopeId: "kiln",
+        layer: "semantic",
+      });
+    } finally {
+      repository.close();
+      await removeTempDir(tempDir);
+    }
+  });
+
+  it("saves governed memory through the mutation service when caller authority is granted", async () => {
+    const surface = createDefaultBuiltinToolSurface({
+      memoryMutations: {
+        callerContext: { authority: { canWriteMemory: true } },
+        createService: ({ callerContext }) => createAuthorityAwareMemoryMutationService(
+          callerContext.authority as { canWriteMemory?: boolean } | undefined,
+        ) as unknown as MemoryMutationService,
+      },
+    });
+    const result = await surface.bridge.execute({
+      name: "memory_save",
+      input: {
+        layer: "semantic",
+        scopeKind: "project",
+        scopeId: "kiln",
+        content: "Gateway MCP reads memory through resource tools.",
+        topicKey: "memory-lattice-gateway-mcp",
+        tags: ["memory-lattice", "mcp"],
+        provenance: {
+          sourceType: "operator",
+          sourceId: "default-tool-surface-test",
+          actor: "test",
+        },
+      },
+    });
+
+    expect(result.result.isError).toBe(false);
+    const saved = JSON.parse(result.result.output) as {
+      id: string;
+      layer: string;
+      scope: { kind: string; id: string };
+      resourceUri: string;
+    };
+    expect(saved.id).toBe("record_authorized");
+    expect(saved.layer).toBe("semantic");
+    expect(saved.scope).toEqual({ kind: "project", id: "kiln" });
+    expect(saved.resourceUri).toBe("kiln://memory/nodes/record_authorized");
   });
 
   it("stores high-volume tool output as an artifact resource link through the canonical bridge", async () => {

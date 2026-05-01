@@ -48,6 +48,9 @@ export type {
   MediaToolName,
   MediaToolOperation,
   MediaToolResultMetadata,
+  MemoryToolName,
+  MemoryToolOperation,
+  MemoryToolResultMetadata,
   MonitorStatus,
   MonitorToolName,
   MonitorToolOperation,
@@ -83,6 +86,7 @@ export {
   inspectionToolMetadata,
   isFileToolResultMetadata,
   mediaToolMetadata,
+  memoryToolMetadata,
   monitorToolMetadata,
   resourceToolMetadata,
   searchToolMetadata,
@@ -213,6 +217,8 @@ export { OperatorElicitationTool } from "./infrastructure/operator-elicitation-t
 export { ReadTool } from "./infrastructure/read-tool.js";
 export { ReadManyTool } from "./infrastructure/read-many-tool.js";
 export { ResourceListTool, ResourceReadTool, ResourceTemplateListTool } from "./infrastructure/resource-tools.js";
+export type { MemorySaveToolOptions } from "./infrastructure/memory-save-tool.js";
+export { MemorySaveTool } from "./infrastructure/memory-save-tool.js";
 export { WriteTool } from "./infrastructure/write-tool.js";
 export { EditTool } from "./infrastructure/edit-tool.js";
 export { PatchTool } from "./infrastructure/patch-tool.js";
@@ -256,6 +262,9 @@ export type {
   DevToolSchemaProjection,
   DefaultBuiltinToolRegistryOptions,
   DefaultArtifactResourceOptions,
+  DefaultMemoryMutationOptions,
+  DefaultMemoryMutationCallerContext,
+  DefaultMemoryMutationServiceFactoryOptions,
 } from "./default-tool-surface.js";
 export {
   createDefaultBuiltinTools,

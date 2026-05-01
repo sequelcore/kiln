@@ -106,6 +106,24 @@ describe("MemoryGraphProjector", () => {
     expect(depthTwo.edges.map((edge) => edge.id)).toEqual(["relation-1", "relation-2"]);
   });
 
+  it("does not surface soft-deleted relation targets in bounded projections", () => {
+    const root = repository.saveRecord(recordInput({ id: "root", content: "Root memory.", topicKey: "root" }));
+    const live = repository.saveRecord(recordInput({ id: "live", content: "Live memory.", topicKey: "live" }));
+    const deleted = repository.saveRecord(recordInput({ id: "deleted", content: "Deleted memory.", topicKey: "deleted" }));
+    repository.saveRelation(relationInput("relation-live", root.id, live.id, "supports"));
+    repository.saveRelation(relationInput("relation-deleted", root.id, deleted.id, "supports"));
+    repository.deleteRecord(deleted.id);
+
+    const snapshot = projector.project({
+      rootRecordIds: [root.id],
+      depth: 1,
+      limits: { maxNodes: 10, maxEdges: 10 },
+    });
+
+    expect(snapshot.nodes.map((node) => node.recordId)).toEqual([root.id, live.id]);
+    expect(snapshot.edges.map((edge) => edge.id)).toEqual(["relation-live"]);
+  });
+
   it("filters relations by type before expanding targets", () => {
     const root = repository.saveRecord(recordInput({ id: "root", content: "Root memory.", topicKey: "root" }));
     const supported = repository.saveRecord(recordInput({ id: "supported", content: "Supported memory.", topicKey: "supported" }));

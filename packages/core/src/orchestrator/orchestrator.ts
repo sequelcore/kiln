@@ -25,7 +25,6 @@ import { createStrategy } from "./strategies/index.js";
 import type { StrategyHandler } from "./strategies/index.js";
 import { ProviderRegistry } from "../agents/provider-registry.js";
 import type { ProviderAdapter, AgentRole } from "../agents/index.js";
-import type { ProjectMemoryStore } from "../memory/project-store.js";
 import type { CheckpointStore } from "./checkpoint-store.js";
 import type { CheckpointOptions, ReplayOverrides } from "./checkpoint-types.js";
 import type { InterruptRequest, ResumeCommand } from "./interrupt.js";
@@ -35,7 +34,6 @@ import type { DevToolExecutionRequest, DevToolExecutionResult } from "../tools/t
 import { OrchestratorCheckpointSupport } from "./orchestrator-checkpoint-support.js";
 import { OrchestratorInterruptSupport } from "./orchestrator-interrupt-support.js";
 import { OrchestratorDevToolSupport } from "./orchestrator-dev-tool-support.js";
-import { OrchestratorMemorySyncSupport } from "./orchestrator-memory-sync-support.js";
 import { OrchestratorVerificationSupport } from "./orchestrator-verification-support.js";
 
 const DEFAULT_CONFIG: OrchestratorConfig = {
@@ -79,7 +77,6 @@ export class Orchestrator {
   private readonly _providerRegistry: ProviderRegistry;
   private readonly _devToolSupport: OrchestratorDevToolSupport;
   private readonly _verificationSupport: OrchestratorVerificationSupport;
-  private readonly _memorySyncSupport: OrchestratorMemorySyncSupport;
   private readonly _checkpointSupport: OrchestratorCheckpointSupport;
   private readonly _interruptSupport: OrchestratorInterruptSupport;
   private _sessionId: string | null = null;
@@ -120,9 +117,6 @@ export class Orchestrator {
       eventBus: this._eventBus,
       getSessionId: () => this._sessionId ?? "",
       getMaxIterations: () => this._config.maxIterations ?? 3,
-    });
-    this._memorySyncSupport = new OrchestratorMemorySyncSupport({
-      eventBus: this._eventBus,
     });
     this._checkpointSupport = new OrchestratorCheckpointSupport({
       phaseMachine: this._phaseMachine,
@@ -348,21 +342,6 @@ export class Orchestrator {
     request: DevToolExecutionRequest & { readonly role?: string; readonly cwd?: string },
   ): Promise<DevToolExecutionResult> {
     return this._devToolSupport.executeDevTool(request);
-  }
-
-  /** Initialize git-synced memory and run auto-import */
-  initMemorySync(projectPath: string): void {
-    this._memorySyncSupport.initMemorySync(projectPath);
-  }
-
-  /** Get memory sync status (null if not initialized) */
-  memorySyncStatus() {
-    return this._memorySyncSupport.memorySyncStatus();
-  }
-
-  /** Flush project memory with developer attribution */
-  async flushMemory(store: ProjectMemoryStore): Promise<void> {
-    await this._memorySyncSupport.flushMemory(store);
   }
 
   /** Expose TaskTree for TUI/MCP consumers */

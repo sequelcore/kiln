@@ -1,5 +1,5 @@
 # Example Preset -- coding orchestration on the engine
-# 3 agents, 6-phase workflow, 13 MCP tools, scoped memory
+# 3 agents, 6-phase workflow, shared resources, scoped memory policy
 
 name: example
 channels: [cli, web]
@@ -29,8 +29,9 @@ teams:
         goal: Write clean, well-tested code that follows team conventions
         tier: coding
         tools:
-          - kiln_memory_save
-          - kiln_memory_recall
+          - resource_list
+          - resource_template_list
+          - resource_read
           - kiln_phase_gate
           - kiln_task_create
           - kiln_task_score
@@ -45,8 +46,8 @@ teams:
         goal: Optimize code and queries for maximum performance
         tier: fast
         tools:
-          - kiln_memory_save
-          - kiln_memory_search
+          - resource_list
+          - resource_read
           - kiln_cost_summary
 
     workflow:
@@ -65,15 +66,15 @@ teams:
       - name: kiln_phase_start
         description: Start a new phase in the workflow
         tags: [orchestrator]
-      - name: kiln_memory_save
-        description: Save a new memory entry to scoped storage
-        tags: [memory]
-      - name: kiln_memory_recall
-        description: Recall memories by query with token budget
-        tags: [memory]
-      - name: kiln_memory_search
-        description: Full-text search across memory scopes
-        tags: [memory]
+      - name: resource_list
+        description: List shared Kiln resources available to the current session
+        tags: [resources]
+      - name: resource_template_list
+        description: List shared Kiln resource templates, including Memory Lattice templates
+        tags: [resources, memory]
+      - name: resource_read
+        description: Read a bounded kiln:// resource URI such as kiln://memory/graph
+        tags: [resources, memory]
       - name: kiln_phase_gate
         description: Check and enforce phase transition gates
         tags: [orchestrator]

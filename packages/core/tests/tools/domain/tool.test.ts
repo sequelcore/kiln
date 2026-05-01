@@ -71,6 +71,7 @@ describe("tool domain types", () => {
       "task_update",
       "operator_elicit",
       "tool_catalog_search",
+      "memory_save",
       "resource_list",
       "resource_template_list",
       "resource_read",
@@ -186,6 +187,13 @@ describe("tool domain types", () => {
     expect(TOOL_SCHEMAS.task_list.inputSchema.required).toEqual([]);
     expect(TOOL_SCHEMAS.task_update.inputSchema.required).toEqual(["title", "status"]);
     expect(TOOL_SCHEMAS.operator_elicit.inputSchema.required).toEqual(["mode", "message"]);
+    expect(TOOL_SCHEMAS.memory_save.inputSchema.required).toEqual([
+      "layer",
+      "scopeKind",
+      "scopeId",
+      "content",
+      "provenance",
+    ]);
     expect(TOOL_SCHEMAS.resource_list.inputSchema.required).toEqual([]);
     expect(TOOL_SCHEMAS.resource_template_list.inputSchema.required).toEqual([]);
     expect(TOOL_SCHEMAS.resource_read.inputSchema.required).toEqual(["uri"]);

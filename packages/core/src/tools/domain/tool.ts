@@ -122,6 +122,7 @@ export type DevToolName =
   | "task_update"
   | "operator_elicit"
   | "tool_catalog_search"
+  | "memory_save"
   | "resource_list"
   | "resource_template_list"
   | "resource_read";
@@ -860,6 +861,83 @@ export const TOOL_SCHEMAS: Record<
     annotations: {
       readOnly: true,
       idempotent: true,
+    },
+  },
+  memory_save: {
+    name: "memory_save",
+    description: "Save one governed memory record through the core MemoryMutationService. Requires explicit scope, layer, content, and provenance.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: {
+          type: "string",
+          minLength: 1,
+          description: "Optional stable record ID. Supplying an existing ID updates that record through the mutation service.",
+        },
+        layer: {
+          enum: ["working", "episodic", "semantic", "procedural", "coordination", "audit"],
+          description: "Memory layer for this record.",
+        },
+        scopeKind: {
+          enum: ["user", "agent", "team", "project", "org", "app", "tenant", "session"],
+          description: "Memory scope kind.",
+        },
+        scopeId: {
+          type: "string",
+          minLength: 1,
+          description: "Memory scope identifier.",
+        },
+        content: {
+          type: "string",
+          minLength: 1,
+          description: "Memory record content.",
+        },
+        topicKey: {
+          type: "string",
+          minLength: 1,
+          description: "Optional stable topic key used for reconsolidation and graph grouping.",
+        },
+        tags: {
+          type: "array",
+          items: { type: "string" },
+          description: "Optional tags for filtering and discovery.",
+        },
+        confidence: {
+          type: "number",
+          minimum: 0,
+          maximum: 1,
+          description: "Optional confidence score between 0 and 1.",
+        },
+        provenance: {
+          type: "object",
+          properties: {
+            sourceType: {
+              enum: ["session", "turn", "tool_call", "resource", "file", "gateway_app", "agent", "operator"],
+              description: "Origin category for the memory.",
+            },
+            sourceId: {
+              type: "string",
+              minLength: 1,
+              description: "Stable identifier for the source.",
+            },
+            sessionId: { type: "string", minLength: 1 },
+            turnId: { type: "string", minLength: 1 },
+            toolCallId: { type: "string", minLength: 1 },
+            actor: { type: "string", minLength: 1 },
+            capturedAt: {
+              type: "string",
+              description: "ISO timestamp. Defaults to the current time when omitted.",
+            },
+          },
+          required: ["sourceType", "sourceId"],
+          additionalProperties: false,
+        },
+      },
+      required: ["layer", "scopeKind", "scopeId", "content", "provenance"],
+      additionalProperties: false,
+    },
+    annotations: {
+      destructive: true,
     },
   },
   resource_list: {

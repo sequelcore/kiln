@@ -62,6 +62,7 @@ export interface MemoryRepository {
     readonly sessionId?: string;
     readonly recordId?: string;
     readonly limit?: number;
+    readonly order?: "oldest_first" | "newest_first";
   }): readonly MemoryContextAdmission[];
 
   close(): void;

@@ -1,6 +1,9 @@
 import type { ToolDefinition } from "../agents/index.js";
 import type { Capability } from "../engine/domain/capability.js";
+import type { EventBus } from "../events/index.js";
 import { MemoryGraphResourceProvider, type MemoryGraphResourceProviderOptions } from "../memory/resources/index.js";
+import { MemoryMutationService } from "../memory/service.js";
+import type { MemoryRepository } from "../memory/repository.js";
 import { ToolCatalogIndex } from "./domain/tool-catalog.js";
 import {
   ToolResourceNotificationHub,
@@ -21,6 +24,7 @@ import { EditTool } from "./infrastructure/edit-tool.js";
 import { GitTool, type GitToolOptions } from "./infrastructure/git-tool.js";
 import { GlobTool, type GlobToolOptions } from "./infrastructure/glob-tool.js";
 import { GrepTool, type GrepToolOptions } from "./infrastructure/grep-tool.js";
+import { MemorySaveTool, type MemorySaveToolCallerContext } from "./infrastructure/memory-save-tool.js";
 import {
   MonitorListTool,
   MonitorReadTool,
@@ -74,6 +78,7 @@ export interface DefaultBuiltinToolRegistryOptions {
   readonly toolProjection?: DefaultBuiltinToolProjectionOptions;
   readonly workspaceResources?: WorkspaceResourceProviderOptions;
   readonly memoryResources?: MemoryGraphResourceProviderOptions;
+  readonly memoryMutations?: DefaultMemoryMutationOptions;
   readonly artifactResources?: DefaultArtifactResourceOptions;
   readonly resourceNotifications?: ToolResourceNotificationHub | ToolResourceNotificationHubOptions;
   readonly resourceRegistry?: () => ToolResourceRegistry | undefined;
@@ -81,6 +86,23 @@ export interface DefaultBuiltinToolRegistryOptions {
 
 export interface DefaultArtifactResourceOptions {
   readonly store: ArtifactResourceStore;
+}
+
+export interface DefaultMemoryMutationOptions {
+  readonly service?: MemoryMutationService;
+  readonly createService?: (options: DefaultMemoryMutationServiceFactoryOptions) => MemoryMutationService;
+  readonly callerContext?: DefaultMemoryMutationCallerContext;
+  readonly eventBus?: EventBus;
+  readonly sessionId?: string;
+  readonly tenantId?: string;
+}
+
+export interface DefaultMemoryMutationCallerContext extends MemorySaveToolCallerContext {}
+
+export interface DefaultMemoryMutationServiceFactoryOptions {
+  readonly repository?: MemoryRepository;
+  readonly callerContext: DefaultMemoryMutationCallerContext;
+  readonly eventBus?: EventBus;
 }
 
 export interface DefaultBuiltinToolProjectionOptions {
@@ -142,6 +164,7 @@ export function createDefaultBuiltinTools(
   let catalog = new ToolCatalogIndex([]);
   const monitorRegistry = options.monitorRegistry ?? new MonitorRegistry(options.monitor);
   const taskStateStore = options.taskStateStore ?? new TaskStateStore(options.taskState);
+  const memoryMutationCallerContext = resolveMemoryMutationCallerContext(options);
   const tools = [
     new BashTool(options.bash),
     new ReadTool(),
@@ -167,6 +190,10 @@ export function createDefaultBuiltinTools(
     new TaskUpdateTool({ store: taskStateStore }),
     new OperatorElicitationTool(options.operatorElicitation),
     new ToolCatalogSearchTool(() => catalog),
+    new MemorySaveTool({
+      callerContext: memoryMutationCallerContext,
+      service: (callerContext) => resolveMemoryMutationService(options, callerContext),
+    }),
     new ResourceListTool({ resources: options.resourceRegistry ?? (() => undefined) }),
     new ResourceTemplateListTool({ resources: options.resourceRegistry ?? (() => undefined) }),
     new ResourceReadTool({ resources: options.resourceRegistry ?? (() => undefined) }),
@@ -308,6 +335,42 @@ function resolveResourceNotificationHub(
   return options instanceof ToolResourceNotificationHub
     ? options
     : new ToolResourceNotificationHub(options);
+}
+
+function resolveMemoryMutationService(
+  options: DefaultBuiltinToolRegistryOptions,
+  callerContext: DefaultMemoryMutationCallerContext,
+): MemoryMutationService | undefined {
+  if (options.memoryMutations?.service) {
+    return options.memoryMutations.service;
+  }
+  if (options.memoryMutations?.createService) {
+    return options.memoryMutations.createService({
+      repository: options.memoryResources?.repository,
+      callerContext,
+      eventBus: options.memoryMutations.eventBus,
+    });
+  }
+  if (!options.memoryResources) {
+    return undefined;
+  }
+  return new MemoryMutationService({
+    repository: options.memoryResources.repository,
+    eventBus: options.memoryMutations?.eventBus,
+    sessionId: callerContext.sessionId,
+    tenantId: callerContext.tenantId,
+    authority: options.memoryResources.authority,
+  });
+}
+
+function resolveMemoryMutationCallerContext(
+  options: DefaultBuiltinToolRegistryOptions,
+): DefaultMemoryMutationCallerContext {
+  return {
+    ...options.memoryMutations?.callerContext,
+    sessionId: options.memoryMutations?.callerContext?.sessionId ?? options.memoryMutations?.sessionId,
+    tenantId: options.memoryMutations?.callerContext?.tenantId ?? options.memoryMutations?.tenantId,
+  };
 }
 
 function projectTools(

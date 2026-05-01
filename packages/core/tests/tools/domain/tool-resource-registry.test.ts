@@ -105,7 +105,7 @@ describe("ToolResourceRegistry", () => {
       mimeType: "application/json",
     });
     const payload = JSON.parse(result.contents[0]!.text);
-    expect(payload.totalIndexed).toBe(27);
+    expect(payload.totalIndexed).toBe(28);
     expect(payload.entries.map((entry: { name: string }) => entry.name)).toContain("operator_elicit");
   });
 
