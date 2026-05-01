@@ -81,8 +81,6 @@ export { createOutboundRoutes } from "./gateway/outbound-routes.js";
 export type { OutboundRoutesConfig } from "./gateway/outbound-routes.js";
 export { createHandoffRoutes } from "./gateway/handoff-routes.js";
 export type { HandoffRoutesConfig } from "./gateway/handoff-routes.js";
-export { createMemoryRoutes } from "./gateway/memory-routes.js";
-export type { MemoryRoutesConfig } from "./gateway/memory-routes.js";
 export { ApprovalGateRegistry } from "./gateway/approval-registry.js";
 export type { ApprovalTarget } from "./gateway/approval-registry.js";
 export { DevOrchestrator } from "./gateway/dev-orchestrator.js";

@@ -1,8 +1,13 @@
-import type { MemoryEntry, MemoryStore } from "@kilnai/core";
+import {
+  MemoryMutationService,
+  type EventBus,
+  type MemoryRecord,
+  type MemoryRepository,
+  type MemoryScope,
+} from "@kilnai/core";
 
-interface ExtendedMemoryStore extends MemoryStore {
-  listEntries(options?: { limit?: number; tags?: string }): readonly MemoryEntry[];
-}
+const SWARM_RECORD_LIMIT = 500;
+const DEFAULT_SWARM_SCOPE: MemoryScope = { kind: "project", id: "gateway-swarm" };
 
 interface SwarmMemberPayload {
   agentId: string;
@@ -22,14 +27,25 @@ interface SwarmBroadcastPayload {
   sentAt: string;
 }
 
-export class SwarmStore {
-  private readonly store: ExtendedMemoryStore;
+export interface SwarmStoreOptions {
+  readonly repository: MemoryRepository;
+  readonly eventBus?: EventBus;
+  readonly scope?: MemoryScope;
+}
 
-  constructor(store: MemoryStore) {
-    if (!this.isExtendedMemoryStore(store)) {
-      throw new Error("SwarmStore requires a memory store with listEntries");
-    }
-    this.store = store;
+export class SwarmStore {
+  private readonly repository: MemoryRepository;
+  private readonly mutationService: MemoryMutationService;
+  private readonly scope: MemoryScope;
+
+  constructor(options: SwarmStoreOptions) {
+    this.repository = options.repository;
+    this.scope = options.scope ?? DEFAULT_SWARM_SCOPE;
+    this.mutationService = new MemoryMutationService({
+      repository: options.repository,
+      eventBus: options.eventBus,
+      sessionId: "mcp:swarm",
+    });
   }
 
   async join(
@@ -40,7 +56,7 @@ export class SwarmStore {
   ): Promise<{ members: string[] }> {
     const swarmTag = this.swarmTag(swarmId);
     const memberTag = this.memberTag(agentId);
-    const existing = this.store.listEntries({ tags: `${swarmTag},${memberTag}`, limit: 1000000 });
+    const existing = this.listRecords(swarmTag, memberTag);
 
     if (existing.length === 0) {
       const payload: SwarmMemberPayload = {
@@ -48,11 +64,7 @@ export class SwarmStore {
         description,
         joinedAt: new Date().toISOString(),
       };
-      await this.store.save({
-        layer: "project",
-        content: JSON.stringify(payload),
-        tags: [swarmTag, memberTag],
-      });
+      this.saveCoordinationRecord(agentId, payload, [swarmTag, memberTag]);
     }
 
     return { members: this.currentMembers(swarmId) };
@@ -61,14 +73,14 @@ export class SwarmStore {
   async leave(swarmId: string, agentId: string): Promise<void> {
     const swarmTag = this.swarmTag(swarmId);
     const memberTag = this.memberTag(agentId);
-    const memberEntries = this.store.listEntries({ tags: `${swarmTag},${memberTag}`, limit: 1000000 });
-    const claimEntries = this.store.listEntries({ tags: swarmTag, limit: 1000000 }).filter((entry) => {
+    const memberEntries = this.listRecords(swarmTag, memberTag);
+    const claimEntries = this.listRecords(swarmTag).filter((entry) => {
       if (!entry.tags.some((tag) => tag.startsWith("_claim:"))) return false;
       const claim = this.parseJson<SwarmClaimPayload>(entry.content);
       return claim?.agentId === agentId;
     });
     const entries = [...memberEntries, ...claimEntries];
-    await Promise.all(entries.map((entry) => this.store.forget(entry.id)));
+    await Promise.all(entries.map((entry) => this.deleteRecord(entry.id)));
   }
 
   async status(
@@ -77,7 +89,7 @@ export class SwarmStore {
     members: { agentId: string; description?: string; joinedAt: string }[];
     claims: { resourceId: string; agentId: string; claimedAt: string }[];
   }> {
-    const entries = this.store.listEntries({ tags: this.swarmTag(swarmId), limit: 1000000 });
+    const entries = this.listRecords(this.swarmTag(swarmId));
     const members = entries
       .filter((entry) => entry.tags.some((tag) => tag.startsWith("_member:")))
       .map((entry) => this.parseJson<SwarmMemberPayload>(entry.content))
@@ -102,16 +114,16 @@ export class SwarmStore {
   }
 
   async broadcast(swarmId: string, agentId: string, message: string): Promise<{ id: string }> {
-    const id = await this.store.save({
-      layer: "project",
-      content: JSON.stringify({
+    const record = this.saveCoordinationRecord(
+      agentId,
+      {
         agentId,
         message,
         sentAt: new Date().toISOString(),
-      } satisfies SwarmBroadcastPayload),
-      tags: [this.swarmTag(swarmId), "_broadcast", `_from:${agentId}`],
-    });
-    return { id };
+      } satisfies SwarmBroadcastPayload,
+      [this.swarmTag(swarmId), "_broadcast", `_from:${agentId}`],
+    );
+    return { id: record.id };
   }
 
   async claim(
@@ -119,10 +131,7 @@ export class SwarmStore {
     agentId: string,
     resourceId: string,
   ): Promise<{ claimed: boolean; claimedBy?: string }> {
-    const entries = this.store.listEntries({
-      tags: `${this.swarmTag(swarmId)},${this.claimTag(resourceId)}`,
-      limit: 1000000,
-    });
+    const entries = this.listRecords(this.swarmTag(swarmId), this.claimTag(resourceId));
 
     if (entries.length > 0) {
       const existing = this.parseJson<SwarmClaimPayload>(entries[0]!.content);
@@ -132,33 +141,30 @@ export class SwarmStore {
       return { claimed: false, claimedBy: existing?.agentId };
     }
 
-    await this.store.save({
-      layer: "project",
-      content: JSON.stringify({
+    this.saveCoordinationRecord(
+      agentId,
+      {
         agentId,
         resourceId,
         claimedAt: new Date().toISOString(),
-      } satisfies SwarmClaimPayload),
-      tags: [this.swarmTag(swarmId), this.claimTag(resourceId)],
-    });
+      } satisfies SwarmClaimPayload,
+      [this.swarmTag(swarmId), this.claimTag(resourceId)],
+    );
     return { claimed: true };
   }
 
   async release(swarmId: string, agentId: string, resourceId: string): Promise<void> {
-    const entries = this.store.listEntries({
-      tags: `${this.swarmTag(swarmId)},${this.claimTag(resourceId)}`,
-      limit: 1000000,
-    });
+    const entries = this.listRecords(this.swarmTag(swarmId), this.claimTag(resourceId));
     await Promise.all(entries.map(async (entry) => {
       const claim = this.parseJson<SwarmClaimPayload>(entry.content);
       if (claim?.agentId === agentId) {
-        await this.store.forget(entry.id);
+        await this.deleteRecord(entry.id);
       }
     }));
   }
 
   private currentMembers(swarmId: string): string[] {
-    const entries = this.store.listEntries({ tags: this.swarmTag(swarmId), limit: 1000000 });
+    const entries = this.listRecords(this.swarmTag(swarmId));
     return [...new Set(
       entries
         .filter((entry) => entry.tags.some((tag) => tag.startsWith("_member:")))
@@ -166,6 +172,38 @@ export class SwarmStore {
         .filter(Boolean)
         .map((tag) => tag.slice("_member:".length)),
     )];
+  }
+
+  private listRecords(...tags: string[]): readonly MemoryRecord[] {
+    return this.repository.listRecords({
+      scope: this.scope,
+      layer: "coordination",
+      tags,
+      limit: SWARM_RECORD_LIMIT,
+    });
+  }
+
+  private saveCoordinationRecord(
+    agentId: string,
+    payload: SwarmMemberPayload | SwarmClaimPayload | SwarmBroadcastPayload,
+    tags: readonly string[],
+  ): MemoryRecord {
+    return this.mutationService.saveRecord({
+      layer: "coordination",
+      scope: this.scope,
+      content: JSON.stringify(payload),
+      tags,
+      provenance: {
+        sourceType: "agent",
+        sourceId: agentId,
+        actor: agentId,
+        capturedAt: new Date().toISOString(),
+      },
+    });
+  }
+
+  private async deleteRecord(recordId: string): Promise<void> {
+    this.mutationService.deleteRecord(recordId);
   }
 
   private swarmTag(swarmId: string): string {
@@ -186,11 +224,5 @@ export class SwarmStore {
     } catch {
       return undefined;
     }
-  }
-
-  private isExtendedMemoryStore(store: MemoryStore): store is ExtendedMemoryStore {
-    return (
-      typeof (store as Partial<ExtendedMemoryStore>).listEntries === "function"
-    );
   }
 }

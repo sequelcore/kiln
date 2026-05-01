@@ -36,8 +36,8 @@ interface MemoryLatticePanelProps {
   readonly loading: boolean;
   readonly error: Error | null;
   readonly selectedRecordId: string | null;
-  readonly onFiltersChange: (filters: GuiMemoryLatticeGraphRequest) => void;
   readonly onRefresh: () => void;
+  readonly onFiltersChange: (filters: GuiMemoryLatticeGraphRequest) => void;
   readonly onSelectRecord: (recordId: string) => void;
   readonly graphOpen?: boolean;
   readonly onOpenGraph?: () => void;
@@ -93,7 +93,7 @@ export function MemoryLatticePanel(props: MemoryLatticePanelProps) {
       title="Memory Lattice"
       meta={snapshot ? `${nodes.length}/${snapshot.limits.maxNodes}` : "graph"}
       footer={(
-        <div className="flex w-full gap-2">
+        <div className="flex items-center gap-2">
           <Button
             type="button"
             variant={props.graphOpen ? "secondary" : "default"}
@@ -105,7 +105,13 @@ export function MemoryLatticePanel(props: MemoryLatticePanelProps) {
             <Network data-icon="inline-start" aria-hidden="true" />
             {props.graphOpen ? "Graph open" : "Open graph"}
           </Button>
-          <Button type="button" variant="outline" size="icon-sm" aria-label="Refresh Memory Lattice" onClick={props.onRefresh}>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon-sm"
+            aria-label="Refresh Memory Lattice"
+            onClick={props.onRefresh}
+          >
             <RefreshCw aria-hidden="true" />
           </Button>
         </div>
@@ -238,7 +244,7 @@ export function MemoryLatticeSurface(props: Omit<MemoryLatticePanelProps, "filte
             {snapshot ? `${nodes.length}/${snapshot.limits.maxNodes} records` : "graph"}
           </p>
         </div>
-        <Button type="button" variant="outline" size="sm" onClick={props.onRefresh}>
+        <Button type="button" variant="outline" size="xs" onClick={props.onRefresh}>
           <RefreshCw data-icon="inline-start" aria-hidden="true" />
           Refresh
         </Button>
@@ -373,6 +379,8 @@ function MemoryNodeDetail(props: {
   readonly node: GuiMemoryLatticeGraphNode;
   readonly edgeCount: number;
 }) {
+  const lifecycleEvidence = props.node.lifecycleEvidence;
+
   return (
     <section aria-label="Memory record detail" className="rounded-lg border border-border/70 bg-background/70 p-3">
       <div className="flex items-start gap-2">
@@ -393,6 +401,45 @@ function MemoryNodeDetail(props: {
           <dd className="mt-1 font-mono text-foreground">{props.edgeCount}</dd>
         </div>
       </dl>
+      {lifecycleEvidence ? (
+        <>
+          <Separator className="my-3" />
+          <dl className="grid grid-cols-2 gap-2 text-xs">
+            <div>
+              <dt className="text-muted-foreground">Latest admission</dt>
+              <dd className="mt-1 font-mono text-foreground">{lifecycleEvidence.latestAdmissionDecision ?? "n/a"}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">Revisions / admissions</dt>
+              <dd className="mt-1 font-mono text-foreground">
+                {lifecycleEvidence.revisionCount}/{lifecycleEvidence.admissionCount}
+              </dd>
+            </div>
+          </dl>
+          {lifecycleEvidence.tags.length > 0 ? (
+            <div className="mt-2">
+              <p className="text-xs text-muted-foreground">Lifecycle tags</p>
+              <div className="mt-1 flex flex-wrap gap-1">
+                {lifecycleEvidence.tags.map((tag) => (
+                  <Badge key={tag} variant="outline" className="text-[10px]">{tag}</Badge>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          {lifecycleEvidence.relationTypes.length > 0 ? (
+            <div className="mt-2">
+              <p className="text-xs text-muted-foreground">Relation evidence</p>
+              <div className="mt-1 flex flex-wrap gap-1">
+                {lifecycleEvidence.relationTypes.map((relationType) => (
+                  <Badge key={relationType} variant="secondary" className="font-mono text-[10px]">
+                    {relationType}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </>
+      ) : null}
     </section>
   );
 }

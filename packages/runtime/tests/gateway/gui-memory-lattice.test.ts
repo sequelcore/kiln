@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { GUI_MEMORY_LATTICE_QUERY_MAX_LENGTH, type GuiMemoryLatticeGraphResponse } from "@kilnai/gateway-contracts";
+import {
+  GUI_MEMORY_LATTICE_QUERY_MAX_LENGTH,
+  GuiMemoryLatticeGraphResponseSchema,
+  type GuiMemoryLatticeGraphResponse,
+} from "@kilnai/gateway-contracts";
 import { createGuiMemoryLatticeRoutes } from "../../src/gateway/gui-memory-lattice.js";
 
 function graphResponse(): GuiMemoryLatticeGraphResponse {
@@ -12,6 +16,13 @@ function graphResponse(): GuiMemoryLatticeGraphResponse {
         scope: { kind: "project", id: "kiln" },
         label: "memory lattice",
         score: 1,
+        lifecycleEvidence: {
+          tags: ["lifecycle:promoted", "lifecycle:retained"],
+          relationTypes: ["supports", "revises"],
+          revisionCount: 3,
+          admissionCount: 2,
+          latestAdmissionDecision: "admitted",
+        },
       }],
       edges: [],
       limits: { maxNodes: 25, maxEdges: 50 },
@@ -42,7 +53,12 @@ describe("GUI Memory Lattice routes", () => {
     );
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual(graphResponse());
+    const json = await response.json();
+    const parsed = GuiMemoryLatticeGraphResponseSchema.parse(json);
+    expect(parsed).toEqual(graphResponse());
+    expect(parsed.snapshot.nodes[0]?.lifecycleEvidence).toEqual(
+      graphResponse().snapshot.nodes[0]?.lifecycleEvidence,
+    );
     expect(readResource).toHaveBeenCalledWith(
       "kiln://memory/graph?scopeKind=project&scopeId=kiln&layer=semantic&query=admission&depth=1&limit=25",
     );

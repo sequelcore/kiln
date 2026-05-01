@@ -26,9 +26,6 @@ function mcpRequest(method: string, params: Record<string, unknown> = {}, extraH
 
 function makeDeps(overrides?: Partial<GatewayMcpDeps>): GatewayMcpDeps {
   return {
-    getMemoryByScope: vi.fn(async () => [{ id: "m1", content: "test memory" }]),
-    createMemoryEntry: vi.fn(async () => ({ id: "new-1" })),
-    deleteMemoryEntry: vi.fn(async () => true),
     searchKnowledge: vi.fn(async () => ({
       results: [{ content: "knowledge chunk", score: 0.95, source: "docs.md" }],
     })),
@@ -66,10 +63,6 @@ function makeDeps(overrides?: Partial<GatewayMcpDeps>): GatewayMcpDeps {
       enrichments: [{ sessionId: "sess-1", tenantId: "t-1", summary: "Billing question" }],
       nextCursor: undefined,
     })),
-    getCrossAgentMemory: vi.fn(async () => [{ id: "cam-1", content: "shared context", tags: ["_team:team-1"] }]),
-    setCrossAgentMemory: vi.fn(async () => ({ id: "cam-new-1" })),
-    deleteCrossAgentMemory: vi.fn(async () => true),
-    listCrossAgentMemory: vi.fn(async () => [{ id: "cam-1", content: "shared context", tags: ["_team:team-1"] }]),
     checkBudget: vi.fn(async () => ({ allowed: true, remaining: 500, unit: "tokens" })),
     reportUsage: vi.fn(async () => undefined),
     swarmJoin: vi.fn(async () => ({ members: ["agent-1", "agent-2"] })),
@@ -149,8 +142,8 @@ describe("GatewayMcpServer", () => {
   });
 
   describe("tool schemas", () => {
-    it("defines 30 tools (26 original + 4 extensions)", () => {
-      expect(GATEWAY_MCP_TOOLS).toHaveLength(30);
+    it("defines 20 gateway tools after memory moved to the core resource plane", () => {
+      expect(GATEWAY_MCP_TOOLS).toHaveLength(20);
     });
 
     it("all tools have name, description, and inputSchema", () => {
@@ -169,18 +162,18 @@ describe("GatewayMcpServer", () => {
   });
 
   describe("tools/list", () => {
-    it("returns all 30 tools", async () => {
+    it("returns gateway tools without legacy memory contracts", async () => {
       const server = new GatewayMcpServer({ deps: makeDeps() });
       await server.initialize();
       const response = await listTools(server);
-      expect(response.result.tools).toHaveLength(30);
+      expect(response.result.tools).toHaveLength(20);
       const names = response.result.tools.map((t) => t.name);
-      expect(names).toContain("memory_recall");
-      expect(names).toContain("memory_store");
-      expect(names).toContain("memory_delete");
-      expect(names).toContain("memory_search");
-      expect(names).toContain("memory_list");
-      expect(names).toContain("memory_forget");
+      expect(names).not.toContain("memory_recall");
+      expect(names).not.toContain("memory_store");
+      expect(names).not.toContain("memory_delete");
+      expect(names).not.toContain("memory_search");
+      expect(names).not.toContain("memory_list");
+      expect(names).not.toContain("memory_forget");
       expect(names).toContain("knowledge_search");
       expect(names).toContain("knowledge_sources");
       expect(names).toContain("knowledge_ingest");
@@ -193,10 +186,10 @@ describe("GatewayMcpServer", () => {
       expect(names).toContain("eval_score");
       expect(names).toContain("enrichment_get");
       expect(names).toContain("enrichment_list");
-      expect(names).toContain("cross_agent_memory_recall");
-      expect(names).toContain("cross_agent_memory_store");
-      expect(names).toContain("cross_agent_memory_list");
-      expect(names).toContain("cross_agent_memory_delete");
+      expect(names).not.toContain("cross_agent_memory_recall");
+      expect(names).not.toContain("cross_agent_memory_store");
+      expect(names).not.toContain("cross_agent_memory_list");
+      expect(names).not.toContain("cross_agent_memory_delete");
       expect(names).toContain("budget_check");
       expect(names).toContain("budget_report");
       expect(names).toContain("swarm_join");
@@ -216,31 +209,6 @@ describe("GatewayMcpServer", () => {
       deps = makeDeps();
       server = new GatewayMcpServer({ deps });
       await server.initialize();
-    });
-
-    it("memory_recall calls getMemoryByScope with correct args", async () => {
-      const response = await callTool(server, "memory_recall", { scope: "user", query: "test" });
-      expect(deps.getMemoryByScope).toHaveBeenCalledWith("user", "test", undefined);
-      const parsed = JSON.parse(response.result.content[0]!.text);
-      expect(parsed).toEqual([{ id: "m1", content: "test memory" }]);
-    });
-
-    it("memory_store calls createMemoryEntry", async () => {
-      const response = await callTool(server, "memory_store", {
-        scope: "project", key: "k1", content: "hello", tags: "a,b",
-      });
-      expect(deps.createMemoryEntry).toHaveBeenCalledWith({
-        scope: "project", key: "k1", content: "hello", tags: "a,b",
-      });
-      const parsed = JSON.parse(response.result.content[0]!.text);
-      expect(parsed.id).toBe("new-1");
-    });
-
-    it("memory_delete calls deleteMemoryEntry", async () => {
-      const response = await callTool(server, "memory_delete", { id: "m1" });
-      expect(deps.deleteMemoryEntry).toHaveBeenCalledWith("m1");
-      const parsed = JSON.parse(response.result.content[0]!.text);
-      expect(parsed.deleted).toBe(true);
     });
 
     it("knowledge_search calls searchKnowledge", async () => {
@@ -383,41 +351,6 @@ describe("GatewayMcpServer", () => {
       expect(parsed.enrichments).toHaveLength(1);
     });
 
-    it("cross_agent_memory_recall uses getCrossAgentMemory with teamId", async () => {
-      await callTool(server, "cross_agent_memory_recall", { teamId: "team-1", query: "shared context" });
-      expect(deps.getCrossAgentMemory).toHaveBeenCalledWith("team-1", "shared context", undefined);
-    });
-
-    it("cross_agent_memory_recall uses key filter when key provided", async () => {
-      await callTool(server, "cross_agent_memory_recall", { teamId: "team-1", key: "plan-v2" });
-      expect(deps.getCrossAgentMemory).toHaveBeenCalledWith("team-1", undefined, "key:plan-v2");
-    });
-
-    it("cross_agent_memory_store uses setCrossAgentMemory", async () => {
-      await callTool(server, "cross_agent_memory_store", {
-        teamId: "team-1", key: "shared-goal", content: "ship by friday", tags: "priority",
-      });
-      expect(deps.setCrossAgentMemory).toHaveBeenCalledWith("team-1", "shared-goal", "ship by friday", "priority");
-    });
-
-    it("cross_agent_memory_list uses listCrossAgentMemory", async () => {
-      const response = await callTool(server, "cross_agent_memory_list", {
-        teamId: "team-1", tags: "priority", limit: 25,
-      });
-      expect(deps.listCrossAgentMemory).toHaveBeenCalledWith("team-1", "priority", 25);
-      const parsed = JSON.parse(response.result.content[0]!.text);
-      expect(parsed).toHaveLength(1);
-    });
-
-    it("cross_agent_memory_delete uses deleteCrossAgentMemory", async () => {
-      const response = await callTool(server, "cross_agent_memory_delete", {
-        teamId: "team-1", id: "cam-1",
-      });
-      expect(deps.deleteCrossAgentMemory).toHaveBeenCalledWith("team-1", "cam-1");
-      const parsed = JSON.parse(response.result.content[0]!.text);
-      expect(parsed.deleted).toBe(true);
-    });
-
     it("budget_check calls checkBudget with correct args", async () => {
       const response = await callTool(server, "budget_check", { tenantId: "t-1", appName: "my-app" });
       expect(deps.checkBudget).toHaveBeenCalledWith("t-1", "my-app");
@@ -497,24 +430,6 @@ describe("GatewayMcpServer", () => {
       await server.initialize();
     });
 
-    it("memory_recall returns error when dep missing", async () => {
-      const response = await callTool(server, "memory_recall", { scope: "user" });
-      expect(response.result.isError).toBe(true);
-      expect(response.result.content[0]!.text).toBe("Memory recall not available");
-    });
-
-    it("memory_store returns error when dep missing", async () => {
-      const response = await callTool(server, "memory_store", { scope: "user", key: "k", content: "c" });
-      expect(response.result.isError).toBe(true);
-      expect(response.result.content[0]!.text).toBe("Memory store not available");
-    });
-
-    it("memory_delete returns error when dep missing", async () => {
-      const response = await callTool(server, "memory_delete", { id: "m1" });
-      expect(response.result.isError).toBe(true);
-      expect(response.result.content[0]!.text).toBe("Memory delete not available");
-    });
-
     it("knowledge_search returns error when dep missing", async () => {
       const response = await callTool(server, "knowledge_search", { appName: "a", query: "q" });
       expect(response.result.isError).toBe(true);
@@ -577,30 +492,6 @@ describe("GatewayMcpServer", () => {
       expect(response.result.content[0]!.text).toBe("Enrichment list not available");
     });
 
-    it("cross_agent_memory_recall returns error when dep missing", async () => {
-      const response = await callTool(server, "cross_agent_memory_recall", { teamId: "team-1", query: "q" });
-      expect(response.result.isError).toBe(true);
-      expect(response.result.content[0]!.text).toBe("Cross-agent memory not available");
-    });
-
-    it("cross_agent_memory_store returns error when dep missing", async () => {
-      const response = await callTool(server, "cross_agent_memory_store", { teamId: "team-1", key: "k", content: "c" });
-      expect(response.result.isError).toBe(true);
-      expect(response.result.content[0]!.text).toBe("Cross-agent memory not available");
-    });
-
-    it("cross_agent_memory_list returns error when dep missing", async () => {
-      const response = await callTool(server, "cross_agent_memory_list", { teamId: "team-1" });
-      expect(response.result.isError).toBe(true);
-      expect(response.result.content[0]!.text).toBe("Cross-agent memory not available");
-    });
-
-    it("cross_agent_memory_delete returns error when dep missing", async () => {
-      const response = await callTool(server, "cross_agent_memory_delete", { teamId: "team-1", id: "cam-1" });
-      expect(response.result.isError).toBe(true);
-      expect(response.result.content[0]!.text).toBe("Cross-agent memory not available");
-    });
-
     it("budget_check returns error when dep missing", async () => {
       const response = await callTool(server, "budget_check", { tenantId: "t", appName: "a" });
       expect(response.result.isError).toBe(true);
@@ -655,14 +546,14 @@ describe("GatewayMcpServer", () => {
   describe("error handling", () => {
     it("catches exceptions from deps and returns error result", async () => {
       const deps = makeDeps({
-        getMemoryByScope: vi.fn(async () => { throw new Error("DB connection lost"); }),
+        searchKnowledge: vi.fn(async () => { throw new Error("retrieval pipeline lost"); }),
       });
       const server = new GatewayMcpServer({ deps });
       await server.initialize();
 
-      const response = await callTool(server, "memory_recall", { scope: "user" });
+      const response = await callTool(server, "knowledge_search", { appName: "app", query: "deploy" });
       expect(response.result.isError).toBe(true);
-      expect(response.result.content[0]!.text).toBe("DB connection lost");
+      expect(response.result.content[0]!.text).toBe("retrieval pipeline lost");
     });
   });
 

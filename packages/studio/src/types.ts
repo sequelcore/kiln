@@ -1,1 +1,1 @@
-export type View = "graph" | "playground" | "timeline" | "memory" | "eval" | "cost" | "safety";
+export type View = "graph" | "playground" | "timeline" | "eval" | "cost" | "safety";

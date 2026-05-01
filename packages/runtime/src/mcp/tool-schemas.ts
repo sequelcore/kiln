@@ -1,112 +1,6 @@
 // MCP server: tool input schemas for the gateway MCP tools
 // JSON Schema objects used by @modelcontextprotocol/sdk CallToolRequest validation
 
-export const MEMORY_RECALL_SCHEMA = {
-  type: "object" as const,
-  properties: {
-    scope: {
-      type: "string",
-      description: "Memory scope to recall from (user, agent, team, project, org)",
-    },
-    query: {
-      type: "string",
-      description: "Optional FTS5 search query to filter entries",
-    },
-    tags: {
-      type: "string",
-      description: "Optional comma-separated tag filter",
-    },
-  },
-  required: ["scope"],
-};
-
-export const MEMORY_STORE_SCHEMA = {
-  type: "object" as const,
-  properties: {
-    scope: {
-      type: "string",
-      description: "Memory scope (user, agent, team, project, org)",
-    },
-    key: {
-      type: "string",
-      description: "Unique key for the memory entry",
-    },
-    topic_key: {
-      type: "string",
-      description: "Hierarchical key for this memory (e.g. 'architecture/auth-model'). If a memory with this key already exists in the same scope, it will be updated rather than duplicated.",
-    },
-    content: {
-      type: "string",
-      description: "Content to store. Use What/Why/Where/Learned format: **What** (the fact), **Why** (the reasoning), **Where** (affected files or locations), **Learned** (insight for future reference).",
-    },
-    tags: {
-      type: "string",
-      description: "Optional comma-separated tags",
-    },
-  },
-  required: ["scope", "key", "content"],
-};
-
-export const MEMORY_DELETE_SCHEMA = {
-  type: "object" as const,
-  properties: {
-    id: {
-      type: "string",
-      description: "ID of the memory entry to delete",
-    },
-  },
-  required: ["id"],
-};
-
-export const MEMORY_SEARCH_SCHEMA = {
-  type: "object" as const,
-  properties: {
-    query: {
-      type: "string",
-      description: "BM25 search query — type indicates what to save (user: feedback, agent: insight/pattern, project: decision/reference)",
-    },
-    scope: {
-      type: "string",
-      description: "Scope filter — user, agent:{role}, team:{name}, project:{id}, or org (omit for all scopes)",
-    },
-    limit: {
-      type: "number",
-      description: "Max results to return (default: 10)",
-    },
-  },
-  required: ["query"],
-};
-
-export const MEMORY_LIST_SCHEMA = {
-  type: "object" as const,
-  properties: {
-    scope: {
-      type: "string",
-      description: "Memory scope to list (user, agent:{role}, team:{name}, project:{id}, org)",
-    },
-    tags: {
-      type: "string",
-      description: "Optional comma-separated tag filter",
-    },
-    limit: {
-      type: "number",
-      description: "Maximum entries to return (default: 50)",
-    },
-  },
-  required: ["scope"],
-};
-
-export const MEMORY_FORGET_SCHEMA = {
-  type: "object" as const,
-  properties: {
-    id: {
-      type: "string",
-      description: "ID of the memory entry to delete",
-    },
-  },
-  required: ["id"],
-};
-
 export const KNOWLEDGE_SEARCH_SCHEMA = {
   type: "object" as const,
   properties: {
@@ -240,47 +134,6 @@ export const ENRICHMENT_LIST_SCHEMA = {
   required: ["tenantId"],
 };
 
-export const CROSS_AGENT_MEMORY_RECALL_SCHEMA = {
-  type: "object" as const,
-  properties: {
-    teamId: { type: "string", description: "Team ID scoping this memory (injected as _team:<teamId> tag)" },
-    key: { type: "string", description: "Exact key for tag-based lookup" },
-    query: { type: "string", description: "FTS5 search query when exact key is unknown" },
-    tags: { type: "string", description: "Optional additional tag filter" },
-  },
-  required: ["teamId"],
-};
-
-export const CROSS_AGENT_MEMORY_STORE_SCHEMA = {
-  type: "object" as const,
-  properties: {
-    teamId: { type: "string", description: "Team ID scoping this memory" },
-    key: { type: "string", description: "Unique key for the memory entry" },
-    content: { type: "string", description: "Content to store" },
-    tags: { type: "string", description: "Optional comma-separated tags" },
-  },
-  required: ["teamId", "key", "content"],
-};
-
-export const CROSS_AGENT_MEMORY_LIST_SCHEMA = {
-  type: "object" as const,
-  properties: {
-    teamId: { type: "string", description: "Team ID to list memory entries for" },
-    tags: { type: "string", description: "Optional comma-separated tag filter" },
-    limit: { type: "number", description: "Maximum entries to return (default: 50)" },
-  },
-  required: ["teamId"],
-};
-
-export const CROSS_AGENT_MEMORY_DELETE_SCHEMA = {
-  type: "object" as const,
-  properties: {
-    teamId: { type: "string", description: "Team ID owning this entry (validates ownership)" },
-    id: { type: "string", description: "ID of the memory entry to delete" },
-  },
-  required: ["teamId", "id"],
-};
-
 export const BUDGET_CHECK_SCHEMA = {
   type: "object" as const,
   properties: {
@@ -363,40 +216,6 @@ export const SWARM_RELEASE_SCHEMA = {
 /** All tool definitions for the gateway MCP server */
 export const GATEWAY_MCP_TOOLS = [
   {
-    name: "memory_recall",
-    description:
-      "Recall memory entries by scope. Type: user (feedback/preferences), agent (insights/patterns), team (shared decisions), project (references/architecture). Scope: user/agent:{role}/team:{name}/project:{id}/org. Returns content within token budget.",
-    inputSchema: MEMORY_RECALL_SCHEMA,
-  },
-  {
-    name: "memory_store",
-    description:
-      "Store a memory entry. Type (via scope): user (feedback, preferences), agent:{role} (insights, patterns, decisions), team:{name} (shared context), project:{id} (architecture, references). How to use: call after completing a task or making a decision worth remembering.",
-    inputSchema: MEMORY_STORE_SCHEMA,
-  },
-  {
-    name: "memory_delete",
-    description: "Delete a memory entry by its ID",
-    inputSchema: MEMORY_DELETE_SCHEMA,
-  },
-  {
-    name: "memory_search",
-    description:
-      "Full-text search across memory using BM25 ranking. Type guidance: user (feedback, preferences), agent (patterns, decisions), project (architecture, references). Scope filters results to a specific layer (omit for all). Returns key, content, score, snippet, and tags.",
-    inputSchema: MEMORY_SEARCH_SCHEMA,
-  },
-  {
-    name: "memory_list",
-    description:
-      "List memory entries by scope. Returns all entries for the given scope with their keys, content, and tags.",
-    inputSchema: MEMORY_LIST_SCHEMA,
-  },
-  {
-    name: "memory_forget",
-    description: "Delete a memory entry by its ID (alias for memory_delete)",
-    inputSchema: MEMORY_FORGET_SCHEMA,
-  },
-  {
     name: "knowledge_search",
     description: "Search the knowledge base using natural language. Returns ranked results with content and relevance scores.",
     inputSchema: KNOWLEDGE_SEARCH_SCHEMA,
@@ -455,26 +274,6 @@ export const GATEWAY_MCP_TOOLS = [
     name: "enrichment_list",
     description: "List enrichment records for a tenant with cursor-based pagination",
     inputSchema: ENRICHMENT_LIST_SCHEMA,
-  },
-  {
-    name: "cross_agent_memory_recall",
-    description: "Recall shared memory entries from the team scope, accessible by all agents",
-    inputSchema: CROSS_AGENT_MEMORY_RECALL_SCHEMA,
-  },
-  {
-    name: "cross_agent_memory_store",
-    description: "Store a shared memory entry in the team scope so all agents can access it",
-    inputSchema: CROSS_AGENT_MEMORY_STORE_SCHEMA,
-  },
-  {
-    name: "cross_agent_memory_list",
-    description: "List all shared memory entries for a team",
-    inputSchema: CROSS_AGENT_MEMORY_LIST_SCHEMA,
-  },
-  {
-    name: "cross_agent_memory_delete",
-    description: "Delete a shared memory entry by ID (validates team ownership)",
-    inputSchema: CROSS_AGENT_MEMORY_DELETE_SCHEMA,
   },
   {
     name: "budget_check",

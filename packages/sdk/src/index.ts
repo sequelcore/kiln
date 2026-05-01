@@ -8,7 +8,6 @@ export type { UseApprovalReturn } from "./use-approval.js";
 export { useKilnChat } from "./use-kiln-chat.js";
 export { useKilnWsChat } from "./use-kiln-ws-chat.js";
 export { useKilnEvents } from "./use-kiln-events.js";
-export { useKilnMemory } from "./use-kiln-memory.js";
 export { useKilnState } from "./use-kiln-state.js";
 
 export { ApiClient } from "./api-client.js";
@@ -21,10 +20,7 @@ export type {
   ChatOptions,
   UseChatReturn,
   UseEventsReturn,
-  UseMemoryReturn,
   UseStateReturn,
-  MemoryEntry,
-  CreateMemoryInput,
   KilnEventData,
   VisitorInfo,
   WsChatRequest,

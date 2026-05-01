@@ -42,8 +42,6 @@ import type { SafetyPipeline } from "@kilnai/core";
 import type { DevRoutesConfig } from "./dev-routes.js";
 import { createDevRoutes } from "./dev-routes.js";
 import { createDevInspectorHtml } from "./dev-inspector.js";
-import type { MemoryRoutesConfig } from "./memory-routes.js";
-import { createMemoryRoutes } from "./memory-routes.js";
 import type { TriggerRegistry } from "../trigger/trigger-registry.js";
 import type { ConversationEventEmitter } from "./conversation-event-emitter.js";
 import type { KnowledgePipelineResult } from "./knowledge-factory.js";
@@ -97,7 +95,6 @@ export interface GatewayServerConfig {
   readonly auditLog?: AuditLog;
   readonly devMode?: boolean;
   readonly devRoutesConfig?: DevRoutesConfig;
-  readonly memoryRoutesConfig?: MemoryRoutesConfig;
   readonly triggerRegistry?: TriggerRegistry;
   readonly safetyPipelines?: Map<string, SafetyPipeline>;
   readonly studioDistPath?: string;
@@ -277,15 +274,6 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
     }
     const devRoutes = createDevRoutes(config.devRoutesConfig ?? {});
     app.route("/dev", devRoutes);
-  }
-
-  // Production memory routes (available in all modes)
-  if (config.memoryRoutesConfig) {
-    if (jwtMiddleware) {
-      app.use("/api/memory/*", jwtMiddleware);
-    }
-    const memoryRoutes = createMemoryRoutes(config.memoryRoutesConfig);
-    app.route("/api", memoryRoutes);
   }
 
   // Per-app routes

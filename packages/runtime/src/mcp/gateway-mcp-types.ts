@@ -1,32 +1,10 @@
 // MCP server: dependency injection interface for gateway capabilities
 // Decouples tool handlers from concrete gateway wiring
 
-import type { CostSummary, MemorySearchResult } from "@kilnai/core";
+import type { CostSummary } from "@kilnai/core";
 
 /** Dependencies injected into the MCP server from the gateway */
 export interface GatewayMcpDeps {
-  /** Recall memory entries by scope, with optional FTS query and tag filter */
-  readonly getMemoryByScope?: (
-    scope: string,
-    query?: string,
-    tags?: string,
-  ) => Record<string, unknown>[] | Promise<Record<string, unknown>[]>;
-
-  /** Create a memory entry; returns the new entry ID */
-  readonly createMemoryEntry?: (
-    entry: Record<string, unknown>,
-  ) => { id: string } | Promise<{ id: string }>;
-
-  /** Delete a memory entry by ID; returns true if found and deleted */
-  readonly deleteMemoryEntry?: (id: string) => boolean | Promise<boolean>;
-
-  /** Full-text search across memory entries using BM25 ranking */
-  readonly memorySearch?: (
-    query: string,
-    scope?: string,
-    limit?: number,
-  ) => Promise<readonly MemorySearchResult[]>;
-
   /** Search the knowledge base via the retrieval pipeline */
   readonly searchKnowledge?: (
     appName: string,
@@ -98,31 +76,6 @@ export interface GatewayMcpDeps {
     enrichments: readonly Record<string, unknown>[];
     nextCursor?: string;
   }>;
-
-  readonly getCrossAgentMemory?: (
-    teamId: string,
-    query?: string,
-    tags?: string,
-    limit?: number,
-  ) => Record<string, unknown>[] | Promise<Record<string, unknown>[]>;
-
-  readonly setCrossAgentMemory?: (
-    teamId: string,
-    key: string,
-    content: string,
-    tags?: string,
-  ) => { id: string } | Promise<{ id: string }>;
-
-  readonly deleteCrossAgentMemory?: (
-    teamId: string,
-    id: string,
-  ) => boolean | Promise<boolean>;
-
-  readonly listCrossAgentMemory?: (
-    teamId: string,
-    tags?: string,
-    limit?: number,
-  ) => Record<string, unknown>[] | Promise<Record<string, unknown>[]>;
 
   readonly swarmJoin?: (
     swarmId: string,

@@ -35,8 +35,7 @@ interface SdkModules {
 }
 
 const EAGER_TOOL_NAMES = new Set([
-  "memory_recall", "memory_store", "memory_search", "memory_list",
-  "memory_forget", "cost_summary", "safety_check", "cross_agent_memory_recall",
+  "knowledge_search", "cost_summary", "safety_check",
 ] as const);
 
 function buildInstructionsText(
@@ -58,13 +57,13 @@ function buildInstructionsText(
     "",
     "The following additional admin tools are available but not listed here to save context:",
     "knowledge (sources, search, ingest), integrations (list, execute), routing_test,",
-    "eval_score, enrichment (get, list), cross_agent_memory (store, delete),",
+    "eval_score, enrichment (get, list),",
     "budget (check, report), swarm (join, leave, status, broadcast, claim, release).",
-    "18 tools total — call listTools to see all schemas.",
+    "20 tools total — call listTools to see all schemas.",
     "",
     "## Usage Notes",
-    "- memory_* tools operate on scoped memory: user, agent:{role}, team:{name}, project:{id}, org",
-    "- cross_agent_memory_* tools scope by teamId for shared team memory",
+    "- Memory reads use the shared resource plane through resource tools and kiln://memory/... URIs.",
+    "- Memory writes use the core governed memory tool surface, not Gateway MCP handlers.",
     "- swarm_* tools enable multi-agent coordination with optimistic locking",
     "- budget_check/budget_report handle per-tenant billing",
     "- All tools return JSON; isError=true indicates a failure",
@@ -206,18 +205,6 @@ export class GatewayMcpServer {
   ): Promise<{ content: { type: "text"; text: string }[]; isError?: boolean }> {
     try {
       switch (toolName) {
-        case "memory_recall":
-          return await this.handleMemoryRecall(args);
-        case "memory_store":
-          return await this.handleMemoryStore(args);
-        case "memory_delete":
-          return await this.handleMemoryDelete(args);
-        case "memory_search":
-          return await this.handleMemorySearch(args);
-        case "memory_list":
-          return await this.handleMemoryList(args);
-        case "memory_forget":
-          return await this.handleMemoryForget(args);
         case "knowledge_search":
           return await this.handleKnowledgeSearch(args);
         case "knowledge_sources":
@@ -241,14 +228,6 @@ export class GatewayMcpServer {
           return await this.handleEnrichmentGet(args);
         case "enrichment_list":
           return await this.handleEnrichmentList(args);
-        case "cross_agent_memory_recall":
-          return await this.handleCrossAgentMemoryRecall(args);
-        case "cross_agent_memory_store":
-          return await this.handleCrossAgentMemoryStore(args);
-        case "cross_agent_memory_list":
-          return await this.handleCrossAgentMemoryList(args);
-        case "cross_agent_memory_delete":
-          return await this.handleCrossAgentMemoryDelete(args);
         case "budget_check":
           return await this.handleBudgetCheck(args);
         case "budget_report":
@@ -276,71 +255,6 @@ export class GatewayMcpServer {
   // ---------------------------------------------------------------------------
   // Tool handlers
   // ---------------------------------------------------------------------------
-
-  private async handleMemoryRecall(
-    args: Record<string, unknown>,
-  ): Promise<{ content: { type: "text"; text: string }[] }> {
-    if (!this.deps.getMemoryByScope) return this.errorResult("Memory recall not available");
-    const scope = args["scope"] as string;
-    const query = args["query"] as string | undefined;
-    const tags = args["tags"] as string | undefined;
-    const entries = await this.deps.getMemoryByScope(scope, query, tags);
-    return this.jsonResult(entries);
-  }
-
-  private async handleMemoryStore(
-    args: Record<string, unknown>,
-  ): Promise<{ content: { type: "text"; text: string }[] }> {
-    if (!this.deps.createMemoryEntry) return this.errorResult("Memory store not available");
-    const result = await this.deps.createMemoryEntry({
-      scope: args["scope"],
-      key: args["key"],
-      content: args["content"],
-      ...(args["tags"] ? { tags: args["tags"] } : {}),
-      ...(args["topic_key"] ? { topicKey: args["topic_key"] } : {}),
-    });
-    return this.jsonResult(result);
-  }
-
-  private async handleMemoryDelete(
-    args: Record<string, unknown>,
-  ): Promise<{ content: { type: "text"; text: string }[] }> {
-    if (!this.deps.deleteMemoryEntry) return this.errorResult("Memory delete not available");
-    const deleted = await this.deps.deleteMemoryEntry(args["id"] as string);
-    return this.jsonResult({ deleted });
-  }
-
-  private async handleMemorySearch(
-    args: Record<string, unknown>,
-  ): Promise<{ content: { type: "text"; text: string }[] }> {
-    if (!this.deps.memorySearch) return this.errorResult("Memory search not available");
-    const results = await this.deps.memorySearch(
-      args["query"] as string,
-      args["scope"] as string | undefined,
-      args["limit"] as number | undefined,
-    );
-    return this.jsonResult(results);
-  }
-
-  private async handleMemoryList(
-    args: Record<string, unknown>,
-  ): Promise<{ content: { type: "text"; text: string }[] }> {
-    if (!this.deps.getMemoryByScope) return this.errorResult("Memory list not available");
-    const entries = await this.deps.getMemoryByScope(
-      args["scope"] as string,
-      undefined,
-      args["tags"] as string | undefined,
-    );
-    return this.jsonResult(entries);
-  }
-
-  private async handleMemoryForget(
-    args: Record<string, unknown>,
-  ): Promise<{ content: { type: "text"; text: string }[] }> {
-    if (!this.deps.deleteMemoryEntry) return this.errorResult("Memory forget not available");
-    const deleted = await this.deps.deleteMemoryEntry(args["id"] as string);
-    return this.jsonResult({ deleted });
-  }
 
   private async handleKnowledgeSearch(
     args: Record<string, unknown>,
@@ -492,58 +406,6 @@ export class GatewayMcpServer {
       args["cursor"] as string | undefined,
     );
     return this.jsonResult(result);
-  }
-
-  private async handleCrossAgentMemoryRecall(
-    args: Record<string, unknown>,
-  ): Promise<{ content: { type: "text"; text: string }[]; isError?: boolean }> {
-    if (!this.deps.getCrossAgentMemory) return this.errorResult("Cross-agent memory not available");
-    const teamId = args["teamId"] as string;
-    const key = args["key"] as string | undefined;
-    const tags = args["tags"] as string | undefined;
-    const mergedTags = key ? (tags ? `key:${key},${tags}` : `key:${key}`) : tags;
-    const entries = await this.deps.getCrossAgentMemory(
-      teamId,
-      args["query"] as string | undefined,
-      mergedTags,
-    );
-    return this.jsonResult(entries);
-  }
-
-  private async handleCrossAgentMemoryStore(
-    args: Record<string, unknown>,
-  ): Promise<{ content: { type: "text"; text: string }[]; isError?: boolean }> {
-    if (!this.deps.setCrossAgentMemory) return this.errorResult("Cross-agent memory not available");
-    const result = await this.deps.setCrossAgentMemory(
-      args["teamId"] as string,
-      args["key"] as string,
-      args["content"] as string,
-      args["tags"] as string | undefined,
-    );
-    return this.jsonResult(result);
-  }
-
-  private async handleCrossAgentMemoryList(
-    args: Record<string, unknown>,
-  ): Promise<{ content: { type: "text"; text: string }[]; isError?: boolean }> {
-    if (!this.deps.listCrossAgentMemory) return this.errorResult("Cross-agent memory not available");
-    const entries = await this.deps.listCrossAgentMemory(
-      args["teamId"] as string,
-      args["tags"] as string | undefined,
-      args["limit"] as number | undefined,
-    );
-    return this.jsonResult(entries);
-  }
-
-  private async handleCrossAgentMemoryDelete(
-    args: Record<string, unknown>,
-  ): Promise<{ content: { type: "text"; text: string }[]; isError?: boolean }> {
-    if (!this.deps.deleteCrossAgentMemory) return this.errorResult("Cross-agent memory not available");
-    const deleted = await this.deps.deleteCrossAgentMemory(
-      args["teamId"] as string,
-      args["id"] as string,
-    );
-    return this.jsonResult({ deleted });
   }
 
   private async handleBudgetCheck(

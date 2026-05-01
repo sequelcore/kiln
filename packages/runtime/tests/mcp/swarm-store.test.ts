@@ -1,28 +1,28 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { SqliteMemoryStore } from "@kilnai/core";
+import { SqliteMemoryRepository } from "@kilnai/core";
 import { SwarmStore } from "../../src/mcp/swarm-store.js";
 
 describe("SwarmStore", () => {
-  let memoryStore: SqliteMemoryStore;
+  let memoryRepository: SqliteMemoryRepository;
   let swarmStore: SwarmStore;
 
   beforeEach(() => {
-    memoryStore = new SqliteMemoryStore({
-      dbPath: ":memory:",
-      layer: "project",
-    });
-    swarmStore = new SwarmStore(memoryStore);
+    memoryRepository = new SqliteMemoryRepository({ dbPath: ":memory:" });
+    swarmStore = new SwarmStore({ repository: memoryRepository });
   });
 
   afterEach(() => {
-    memoryStore.close();
+    memoryRepository.close();
   });
 
   it("join adds member entry and returns members list", async () => {
     const result = await swarmStore.join("swarm-a", "agent-1", "Planner");
     expect(result.members).toEqual(["agent-1"]);
 
-    const entries = memoryStore.listEntries({ tags: "_swarm:swarm-a,_member:agent-1" });
+    const entries = memoryRepository.listRecords({
+      layer: "coordination",
+      tags: ["_swarm:swarm-a", "_member:agent-1"],
+    });
     expect(entries).toHaveLength(1);
   });
 
@@ -30,7 +30,11 @@ describe("SwarmStore", () => {
     await swarmStore.join("swarm-a", "agent-1");
     await swarmStore.join("swarm-a", "agent-1");
 
-    const entries = memoryStore.listEntries({ tags: "_swarm:swarm-a,_member:agent-1", limit: 1000 });
+    const entries = memoryRepository.listRecords({
+      layer: "coordination",
+      tags: ["_swarm:swarm-a", "_member:agent-1"],
+      limit: 500,
+    });
     expect(entries).toHaveLength(1);
   });
 
@@ -38,7 +42,11 @@ describe("SwarmStore", () => {
     await swarmStore.join("swarm-a", "agent-1");
     await swarmStore.leave("swarm-a", "agent-1");
 
-    const entries = memoryStore.listEntries({ tags: "_swarm:swarm-a,_member:agent-1", limit: 1000 });
+    const entries = memoryRepository.listRecords({
+      layer: "coordination",
+      tags: ["_swarm:swarm-a", "_member:agent-1"],
+      limit: 500,
+    });
     expect(entries).toHaveLength(0);
   });
 
@@ -74,7 +82,11 @@ describe("SwarmStore", () => {
     await swarmStore.claim("swarm-a", "agent-1", "file.ts");
     await swarmStore.release("swarm-a", "agent-1", "file.ts");
 
-    const entries = memoryStore.listEntries({ tags: "_swarm:swarm-a,_claim:file.ts", limit: 1000 });
+    const entries = memoryRepository.listRecords({
+      layer: "coordination",
+      tags: ["_swarm:swarm-a", "_claim:file.ts"],
+      limit: 500,
+    });
     expect(entries).toHaveLength(0);
   });
 
@@ -82,7 +94,11 @@ describe("SwarmStore", () => {
     await swarmStore.claim("swarm-a", "agent-1", "file.ts");
     await swarmStore.release("swarm-a", "agent-2", "file.ts");
 
-    const entries = memoryStore.listEntries({ tags: "_swarm:swarm-a,_claim:file.ts", limit: 1000 });
+    const entries = memoryRepository.listRecords({
+      layer: "coordination",
+      tags: ["_swarm:swarm-a", "_claim:file.ts"],
+      limit: 500,
+    });
     expect(entries).toHaveLength(1);
   });
 
@@ -91,7 +107,11 @@ describe("SwarmStore", () => {
     expect(typeof result.id).toBe("string");
     expect(result.id.length).toBeGreaterThan(0);
 
-    const entries = memoryStore.listEntries({ tags: "_swarm:swarm-a,_broadcast", limit: 1000 });
+    const entries = memoryRepository.listRecords({
+      layer: "coordination",
+      tags: ["_swarm:swarm-a", "_broadcast"],
+      limit: 500,
+    });
     expect(entries).toHaveLength(1);
     const payload = JSON.parse(entries[0]!.content) as { message: string; agentId: string };
     expect(payload.message).toBe("hello");

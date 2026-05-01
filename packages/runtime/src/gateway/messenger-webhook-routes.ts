@@ -2,17 +2,15 @@
 // Resolves tenant by Messenger Page ID, processes messages via provider-adapter runtime orchestrator, replies via Messenger Send API
 
 import { Hono } from "hono";
-import { join } from "node:path";
-import { mkdirSync } from "node:fs";
 import type { ContentPart, ToolDefinition } from "@kilnai/core";
-import { extractText, SqliteMemoryStore } from "@kilnai/core";
+import { extractText } from "@kilnai/core";
 import { toMessengerFormat } from "../channels/message-formatter.js";
 import type { RuntimeSessionOrchestrator, PerCallToolConfig } from "../session/runtime-session-orchestrator.js";
 import type { SessionRegistry } from "../session/session-registry.js";
 import type { TenantRegistry } from "../tenant/tenant-registry.js";
 import { resolveAgentContextAsync } from "../tenant/agent-resolver.js";
 import type { AgentHandoffSummarizer } from "../session/support/summarization/agent-handoff-summarizer.js";
-import type { EventBus } from "@kilnai/core";
+import type { EventBus, MemoryRepository } from "@kilnai/core";
 import { sendMessengerMessage } from "../channels/messenger-api.js";
 import { checkBudget, reportUsage } from "./budget-middleware.js";
 import type { BillingConfig } from "./budget-middleware.js";
@@ -25,6 +23,10 @@ import type { SttAdapter, RetrievalPipeline, ContactMemoryService } from "@kilna
 import { preprocessAudio, createGenericMediaDownloader } from "./audio-preprocessor.js";
 import { formatKnowledgeContext, formatContactContext } from "./context-formatter.js";
 import { projectAdmittedTurnContext } from "./message-pipeline.js";
+import {
+  createTenantConversationMemoryRepository,
+  TenantConversationMemory,
+} from "./tenant-conversation-memory.js";
 
 export interface MessengerWebhookConfig {
   readonly appName: string;
@@ -70,23 +72,20 @@ interface MessengerWebhookPayload {
   }>;
 }
 
-/** Lazily-opened per-tenant memory stores. Keyed by tenantId. */
-const memoryStores = new Map<string, SqliteMemoryStore>();
+/** Lazily-opened app memory repositories. Keyed by resolved app memory base path. */
+const conversationMemoryRepositories = new Map<string, MemoryRepository>();
 
-function getMemoryStore(memoryBasePath: string, tenantId: string): SqliteMemoryStore {
-  let store = memoryStores.get(tenantId);
-  if (store) return store;
+function getConversationMemory(memoryBasePath: string, eventBus?: EventBus): TenantConversationMemory {
+  let repository = conversationMemoryRepositories.get(memoryBasePath);
+  if (!repository) {
+    repository = createTenantConversationMemoryRepository(memoryBasePath);
+    conversationMemoryRepositories.set(memoryBasePath, repository);
+  }
 
-  const dir = join(memoryBasePath, "memory");
-  mkdirSync(dir, { recursive: true });
-
-  store = new SqliteMemoryStore({
-    dbPath: join(dir, `${tenantId}.db`),
-    layer: "user",
-    tenantId,
+  return new TenantConversationMemory({
+    repository,
+    ...(eventBus ? { eventBus } : {}),
   });
-  memoryStores.set(tenantId, store);
-  return store;
 }
 
 /** Tool definition for knowledge_search -- injected when knowledge mode is "tool" */
@@ -242,9 +241,14 @@ async function processMessengerMessage(
   let recalledMemory: string | undefined;
   if (config.memoryBasePath) {
     try {
-      const store = getMemoryStore(config.memoryBasePath, tenantId);
+      const memory = getConversationMemory(config.memoryBasePath, config.eventBus);
       const query = `${senderId} ${messageText}`;
-      recalledMemory = await store.recall(query, 500) || undefined;
+      recalledMemory = memory.recall({
+        tenantId,
+        participantId: senderId,
+        query,
+        tokenBudget: 500,
+      });
     } catch (err) {
       trace.warn("messenger", "Memory recall failed", { tenantId, error: err instanceof Error ? err.message : String(err) });
     }
@@ -509,11 +513,14 @@ async function processMessengerMessage(
   // --- Memory: save what was learned from this exchange ---
   if (config.memoryBasePath && messageText.length > 5) {
     try {
-      const store = getMemoryStore(config.memoryBasePath, tenantId);
-      await store.save({
-        layer: "user",
-        content: `[${senderId}] User: ${messageText}\nAssistant: ${replyText}`,
-        tags: [senderId],
+      const memory = getConversationMemory(config.memoryBasePath, config.eventBus);
+      memory.saveExchange({
+        appName: config.appName,
+        channel: "messenger",
+        tenantId,
+        participantId: senderId,
+        userMessage: messageText,
+        assistantMessage: replyText,
       });
     } catch (err) {
       trace.warn("messenger", "Memory save failed", { tenantId, error: err instanceof Error ? err.message : String(err) });

@@ -5,7 +5,6 @@ import type { AppGraphResponse, EvalExperimentSummary } from "./dev-routes-types
 export interface DevRoutesConfig {
   readonly getEventBus?: () => EventBus | undefined;
   readonly getPhaseState?: () => Record<string, unknown> | Promise<Record<string, unknown>>;
-  readonly getMemorySnapshot?: () => Record<string, unknown>;
   readonly getCostSummary?: () => CostSummary;
   readonly getAppNames?: () => string[];
   readonly getTriggers?: () => { appName: string; name: string; type: string; enabled: boolean }[];
@@ -13,9 +12,6 @@ export interface DevRoutesConfig {
   readonly getAppGraph?: () => AppGraphResponse | undefined;
   readonly getYamlContent?: () => string | undefined;
   readonly putYamlContent?: (content: string) => { ok: boolean; errors?: string[] };
-  readonly getMemoryByScope?: (scope: string, query?: string, tags?: string) => Record<string, unknown>[] | Promise<Record<string, unknown>[]>;
-  readonly createMemoryEntry?: (entry: Record<string, unknown>) => { id: string } | Promise<{ id: string }>;
-  readonly deleteMemoryEntry?: (id: string) => boolean | Promise<boolean>;
   readonly getEvalExperiments?: () => EvalExperimentSummary[];
   readonly approvePhase?: (sessionId?: string) => { ok: boolean; error?: string };
   readonly rejectPhase?: (reason: string, sessionId?: string) => { ok: boolean; error?: string };
@@ -97,12 +93,6 @@ export function createDevRoutes(config: DevRoutesConfig): Hono {
     );
   });
 
-  // GET /memory -- memory contents snapshot
-  app.get("/memory", (c) => {
-    const memory = config.getMemorySnapshot?.() ?? { entries: [] };
-    return c.json(memory);
-  });
-
   // GET /cost -- cost summary
   app.get("/cost", (c) => {
     const cost = config.getCostSummary?.() ?? { totalCostUsd: 0, byRoleModel: {} };
@@ -147,31 +137,6 @@ export function createDevRoutes(config: DevRoutesConfig): Hono {
     if (!result) return c.json({ ok: false, errors: ["YAML editing not available"] }, 400);
     if (!result.ok) return c.json(result, 400);
     return c.json(result);
-  });
-
-  // GET /memory/:scope -- memory entries by scope with optional query/tags
-  app.get("/memory/:scope", async (c) => {
-    const scope = c.req.param("scope");
-    const q = c.req.query("q");
-    const tags = c.req.query("tags");
-    const entries = await (config.getMemoryByScope?.(scope, q, tags) ?? []);
-    return c.json(entries);
-  });
-
-  // POST /memory -- create a memory entry
-  app.post("/memory", async (c) => {
-    const entry = await c.req.json();
-    const result = await config.createMemoryEntry?.(entry as Record<string, unknown>);
-    if (!result) return c.json({ error: "Memory creation not available" }, 400);
-    return c.json(result, 201);
-  });
-
-  // DELETE /memory/:id -- delete a memory entry
-  app.delete("/memory/:id", async (c) => {
-    const id = c.req.param("id");
-    const deleted = await (config.deleteMemoryEntry?.(id) ?? false);
-    if (!deleted) return c.json({ error: "Not found" }, 404);
-    return c.json({ ok: true });
   });
 
   // GET /eval/experiments -- list eval experiment configs

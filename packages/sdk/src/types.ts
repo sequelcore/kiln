@@ -45,15 +45,6 @@ export interface UseEventsReturn {
   clear(): void;
 }
 
-export interface UseMemoryReturn {
-  readonly entries: readonly MemoryEntry[];
-  readonly isLoading: boolean;
-  readonly error: Error | null;
-  refresh(): Promise<void>;
-  create(entry: CreateMemoryInput): Promise<void>;
-  remove(id: string): Promise<void>;
-}
-
 export interface UseStateReturn {
   readonly state: Record<string, unknown>;
   readonly cost: Record<string, unknown>;
@@ -61,21 +52,6 @@ export interface UseStateReturn {
   readonly isLoading: boolean;
   readonly error: Error | null;
   refresh(): Promise<void>;
-}
-
-export interface MemoryEntry {
-  readonly id: string;
-  readonly scope: string;
-  readonly content: string;
-  readonly tags?: readonly string[];
-  readonly metadata?: Record<string, unknown>;
-}
-
-export interface CreateMemoryInput {
-  readonly scope: string;
-  readonly content: string;
-  readonly tags?: readonly string[];
-  readonly metadata?: Record<string, unknown>;
 }
 
 export interface KilnEventData {

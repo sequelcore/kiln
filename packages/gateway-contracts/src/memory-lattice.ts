@@ -40,6 +40,14 @@ export const GuiMemoryLatticeScopeSchema = z.object({
   id: z.string().min(1),
 });
 
+export const GuiMemoryLatticeNodeLifecycleEvidenceSchema = z.object({
+  tags: z.array(z.string()),
+  relationTypes: z.array(z.enum(GUI_MEMORY_LATTICE_RELATION_TYPES)),
+  revisionCount: z.number().int().nonnegative(),
+  admissionCount: z.number().int().nonnegative(),
+  latestAdmissionDecision: z.enum(["admitted", "deferred"]).optional(),
+});
+
 export const GuiMemoryLatticeGraphNodeSchema = z.object({
   id: z.string().min(1),
   recordId: z.string().min(1),
@@ -47,6 +55,7 @@ export const GuiMemoryLatticeGraphNodeSchema = z.object({
   scope: GuiMemoryLatticeScopeSchema,
   label: z.string(),
   score: z.number().optional(),
+  lifecycleEvidence: GuiMemoryLatticeNodeLifecycleEvidenceSchema.optional(),
 });
 
 export const GuiMemoryLatticeGraphEdgeSchema = z.object({
@@ -95,6 +104,7 @@ export type GuiMemoryLatticeScopeKind = typeof GUI_MEMORY_LATTICE_SCOPE_KINDS[nu
 export type GuiMemoryLatticeLayerKind = typeof GUI_MEMORY_LATTICE_LAYER_KINDS[number];
 export type GuiMemoryLatticeRelationType = typeof GUI_MEMORY_LATTICE_RELATION_TYPES[number];
 export type GuiMemoryLatticeScope = z.infer<typeof GuiMemoryLatticeScopeSchema>;
+export type GuiMemoryLatticeNodeLifecycleEvidence = z.infer<typeof GuiMemoryLatticeNodeLifecycleEvidenceSchema>;
 export type GuiMemoryLatticeGraphNode = z.infer<typeof GuiMemoryLatticeGraphNodeSchema>;
 export type GuiMemoryLatticeGraphEdge = z.infer<typeof GuiMemoryLatticeGraphEdgeSchema>;
 export type GuiMemoryLatticeGraphSnapshot = z.infer<typeof GuiMemoryLatticeGraphSnapshotSchema>;

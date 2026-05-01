@@ -1168,8 +1168,8 @@ export function AppShell() {
                 loading={Boolean(memoryLatticeQuery.isFetching)}
                 error={memoryLatticeQuery.error instanceof Error ? memoryLatticeQuery.error : null}
                 selectedRecordId={selectedMemoryRecordId}
-                onFiltersChange={setMemoryFilters}
                 onRefresh={() => void memoryLatticeQuery.refetch()}
+                onFiltersChange={setMemoryFilters}
                 onSelectRecord={setSelectedMemoryRecordId}
                 graphOpen={memorySurfaceOpen}
                 onOpenGraph={openMemorySurface}

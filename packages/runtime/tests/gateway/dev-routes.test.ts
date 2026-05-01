@@ -45,26 +45,6 @@ describe("createDevRoutes", () => {
     });
   });
 
-  describe("GET /memory", () => {
-    it("returns empty entries when no getMemorySnapshot provided", async () => {
-      const app = createDevRoutes({});
-      const res = await request(app, "/memory");
-      expect(res.status).toBe(200);
-      const body = await res.json();
-      expect(body).toEqual({ entries: [] });
-    });
-
-    it("returns snapshot from getMemorySnapshot callback", async () => {
-      const snapshot = { entries: [{ id: "m1", content: "hello" }] };
-      const app = createDevRoutes({ getMemorySnapshot: () => snapshot });
-      const res = await request(app, "/memory");
-      expect(res.status).toBe(200);
-      const body = await res.json();
-      expect(body.entries).toHaveLength(1);
-      expect(body.entries[0].id).toBe("m1");
-    });
-  });
-
   describe("GET /cost", () => {
     it("returns zero cost when no getCostSummary provided", async () => {
       const app = createDevRoutes({});
@@ -175,24 +155,20 @@ describe("createDevRoutes", () => {
   describe("custom config callbacks", () => {
     it("invokes all callbacks when provided", async () => {
       const getPhaseState = vi.fn(() => ({ status: "idle", phase: null }));
-      const getMemorySnapshot = vi.fn(() => ({ entries: [] }));
       const getCostSummary = vi.fn(() => ({ totalCostUsd: 0, byRoleModel: {} }));
       const getAppNames = vi.fn(() => ["my-app"]);
 
       const app = createDevRoutes({
         getPhaseState,
-        getMemorySnapshot,
         getCostSummary,
         getAppNames,
       });
 
       await request(app, "/state");
-      await request(app, "/memory");
       await request(app, "/cost");
       await request(app, "/apps");
 
       expect(getPhaseState).toHaveBeenCalledOnce();
-      expect(getMemorySnapshot).toHaveBeenCalledOnce();
       expect(getCostSummary).toHaveBeenCalledOnce();
       expect(getAppNames).toHaveBeenCalledOnce();
     });
@@ -286,74 +262,13 @@ describe("createDevRoutes", () => {
     });
   });
 
-  describe("GET /memory/:scope", () => {
-    it("returns empty array when no callback", async () => {
+  describe("legacy memory CRUD", () => {
+    it("does not expose mutable memory routes", async () => {
       const app = createDevRoutes({});
-      const res = await request(app, "/memory/user");
-      expect(res.status).toBe(200);
-      const data = await res.json();
-      expect(data).toEqual([]);
-    });
-
-    it("returns entries from callback with scope", async () => {
-      const entries = [{ id: "m1", content: "hello", scope: "user" }];
-      const getMemoryByScope = vi.fn(() => entries);
-      const app = createDevRoutes({ getMemoryByScope });
-      const res = await request(app, "/memory/user");
-      expect(res.status).toBe(200);
-      const data = await res.json();
-      expect(data).toHaveLength(1);
-      expect(getMemoryByScope).toHaveBeenCalledWith("user", undefined, undefined);
-    });
-
-    it("passes query and tags parameters", async () => {
-      const getMemoryByScope = vi.fn(() => []);
-      const app = createDevRoutes({ getMemoryByScope });
-      await request(app, "/memory/agent?q=search&tags=important");
-      expect(getMemoryByScope).toHaveBeenCalledWith("agent", "search", "important");
-    });
-  });
-
-  describe("POST /memory", () => {
-    it("returns 400 when no callback", async () => {
-      const app = createDevRoutes({});
-      const res = await requestWithMethod(app, "/memory", "POST", JSON.stringify({ content: "test" }), "application/json");
-      expect(res.status).toBe(400);
-      const data = await res.json();
-      expect(data.error).toBe("Memory creation not available");
-    });
-
-    it("returns 201 with id when entry created", async () => {
-      const createMemoryEntry = vi.fn(() => ({ id: "mem-abc" }));
-      const app = createDevRoutes({ createMemoryEntry });
-      const res = await requestWithMethod(app, "/memory", "POST", JSON.stringify({ content: "test", scope: "user" }), "application/json");
-      expect(res.status).toBe(201);
-      const data = await res.json();
-      expect(data.id).toBe("mem-abc");
-    });
-  });
-
-  describe("DELETE /memory/:id", () => {
-    it("returns 404 when no callback", async () => {
-      const app = createDevRoutes({});
-      const res = await requestWithMethod(app, "/memory/mem-abc", "DELETE");
-      expect(res.status).toBe(404);
-    });
-
-    it("returns 404 when entry not found", async () => {
-      const app = createDevRoutes({ deleteMemoryEntry: () => false });
-      const res = await requestWithMethod(app, "/memory/mem-abc", "DELETE");
-      expect(res.status).toBe(404);
-    });
-
-    it("returns ok when entry deleted", async () => {
-      const deleteMemoryEntry = vi.fn(() => true);
-      const app = createDevRoutes({ deleteMemoryEntry });
-      const res = await requestWithMethod(app, "/memory/mem-abc", "DELETE");
-      expect(res.status).toBe(200);
-      const data = await res.json();
-      expect(data.ok).toBe(true);
-      expect(deleteMemoryEntry).toHaveBeenCalledWith("mem-abc");
+      await expect(request(app, "/memory")).resolves.toMatchObject({ status: 404 });
+      await expect(request(app, "/memory/user")).resolves.toMatchObject({ status: 404 });
+      await expect(requestWithMethod(app, "/memory", "POST", JSON.stringify({ content: "test" }), "application/json")).resolves.toMatchObject({ status: 404 });
+      await expect(requestWithMethod(app, "/memory/mem-abc", "DELETE")).resolves.toMatchObject({ status: 404 });
     });
   });
 

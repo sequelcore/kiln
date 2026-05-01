@@ -17,13 +17,13 @@ import {
   KilnError,
   OTelExporter,
   SafetyPipeline,
-  SqliteMemoryStore,
+  SqliteMemoryRepository,
   AesSecretStore,
   GroundingRail,
   ModelCapabilityRegistry,
   DeterministicDangerousCommandDetector,
 } from "@kilnai/core";
-import type { ProviderAdapter, ProviderConfig, App, ToolDefinition, MemoryLayer, SttAdapter, Capability, IntegrationAdapter, SecurityConfig } from "@kilnai/core";
+import type { ProviderAdapter, ProviderConfig, App, ToolDefinition, SttAdapter, Capability, IntegrationAdapter, SecurityConfig } from "@kilnai/core";
 import { AnnotationAuthorizer } from "@kilnai/core";
 import type { AppGraphResponse } from "./dev-routes-types.js";
 import { EventBus, McpClient, CostTracker } from "@kilnai/core";
@@ -780,20 +780,16 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
   const studioDistPath = options?.studioDistPath ?? (options?.devMode ? resolveStudioDist() : undefined);
   const guiDistPath = resolveGuiDistPath(options?.guiDistPath, import.meta.url);
 
-  // Initialize dev-mode memory stores (one per layer)
-  let devMemoryStores: Map<MemoryLayer, SqliteMemoryStore> | undefined;
+  // Initialize dev-mode swarm coordination store.
+  let swarmMemoryRepository: SqliteMemoryRepository | undefined;
   if (options?.devMode) {
     const firstResolved = resolvedApps[0];
     if (firstResolved) {
       const devMemoryDir = join(firstResolved.memoryBasePath, "dev");
       mkdirSync(devMemoryDir, { recursive: true });
-      devMemoryStores = new Map<MemoryLayer, SqliteMemoryStore>();
-      for (const layer of ["user", "agent", "project"] as MemoryLayer[]) {
-        devMemoryStores.set(layer, new SqliteMemoryStore({
-          dbPath: join(devMemoryDir, `${layer}.db`),
-          layer,
-        }));
-      }
+      swarmMemoryRepository = new SqliteMemoryRepository({
+        dbPath: join(devMemoryDir, "swarm.db"),
+      });
     }
   }
 
@@ -867,14 +863,6 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
             } : undefined,
           };
         },
-        getMemorySnapshot: () => {
-          if (!devMemoryStores) return { entries: [] };
-          const counts: Record<string, number> = {};
-          for (const [layer, store] of devMemoryStores) {
-            counts[layer] = store.count;
-          }
-          return { layers: counts, total: Object.values(counts).reduce((a, b) => a + b, 0) };
-        },
         getAppNames: () => loadedApps.map((a) => a.name),
         getSafetyMetrics: () => {
           if (safetyPipelines.size === 0) return { enabled: false };
@@ -885,61 +873,6 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
           return { enabled: true, apps };
         },
         getTriggers: () => triggerRegistry.listAll(),
-        getMemoryByScope: async (scope: string, q?: string, tags?: string) => {
-          if (!devMemoryStores) return [];
-          const layer = resolveMemoryLayer(scope);
-          const store = devMemoryStores.get(layer);
-          if (!store) return [];
-
-          if (q) {
-            const results = await store.search(q, 100);
-            return results.map((r) => ({
-              id: r.entry.id,
-              layer: r.entry.layer,
-              content: r.entry.content,
-              tags: r.entry.tags,
-              score: r.score,
-              snippet: r.snippet,
-              createdAt: r.entry.createdAt.toISOString(),
-              lastAccessedAt: r.entry.lastAccessedAt.toISOString(),
-              accessCount: r.entry.accessCount,
-            }));
-          }
-
-          const entries = store.listEntries({ tags });
-          return entries.map((e) => ({
-            id: e.id,
-            layer: e.layer,
-            content: e.content,
-            tags: e.tags,
-            createdAt: e.createdAt.toISOString(),
-            lastAccessedAt: e.lastAccessedAt.toISOString(),
-            accessCount: e.accessCount,
-          }));
-        },
-        createMemoryEntry: async (entry: Record<string, unknown>) => {
-          if (!devMemoryStores) return { id: "" };
-          const layer = resolveMemoryLayer(entry["layer"]);
-          const store = devMemoryStores.get(layer);
-          if (!store) return { id: "" };
-
-          const content = typeof entry["content"] === "string" ? entry["content"] : String(entry["content"] ?? "");
-          const rawTags = Array.isArray(entry["tags"]) ? entry["tags"] : [];
-          const entryTags = rawTags.filter((t): t is string => typeof t === "string");
-
-          const id = await store.save({ layer, content, tags: entryTags });
-          return { id };
-        },
-        deleteMemoryEntry: async (id: string) => {
-          if (!devMemoryStores) return false;
-          for (const store of devMemoryStores.values()) {
-            if (store.hasEntry(id)) {
-              await store.forget(id);
-              return true;
-            }
-          }
-          return false;
-        },
         getAppGraph: () => {
           const firstLoaded = loadedApps[0];
           if (!firstLoaded) return undefined;
@@ -1021,117 +954,12 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
         ? new ProviderScorerLlmBridge(evalProvider, gatewayConfig.mcp.eval.model ?? "claude-haiku-4-5-20251001")
         : undefined;
       const { SwarmStore } = await import("../mcp/swarm-store.js");
-      const swarmStore = devMemoryStores ? new SwarmStore(devMemoryStores.get("project" as MemoryLayer)!) : undefined;
+      const swarmStore = swarmMemoryRepository
+        ? new SwarmStore({ repository: swarmMemoryRepository, eventBus: gatewayEventBus })
+        : undefined;
 
       const mcpServer = new GatewayMcpServer({
         deps: {
-          getMemoryByScope: devMemoryStores
-            ? async (scope: string, q?: string, tags?: string) => {
-                const layer = resolveMemoryLayer(scope);
-                const store = devMemoryStores!.get(layer);
-                if (!store) return [];
-                if (q) {
-                  const results = await store.search(q, 100);
-                  return results.map((r) => ({
-                    id: r.entry.id, layer: r.entry.layer, content: r.entry.content,
-                    tags: r.entry.tags, score: r.score, snippet: r.snippet,
-                  }));
-                }
-                return store.listEntries({ tags }).map((e) => ({
-                  id: e.id, layer: e.layer, content: e.content, tags: e.tags,
-                }));
-              }
-            : undefined,
-          createMemoryEntry: devMemoryStores
-            ? async (entry: Record<string, unknown>) => {
-                const layer = resolveMemoryLayer(entry["scope"]);
-                const store = devMemoryStores!.get(layer);
-                if (!store) return { id: "" };
-                const content = typeof entry["content"] === "string" ? entry["content"] : String(entry["content"] ?? "");
-                const rawTags = typeof entry["tags"] === "string" ? entry["tags"].split(",").map((t) => t.trim()) : [];
-                const id = await store.save({ layer, content, tags: rawTags });
-                return { id };
-              }
-            : undefined,
-          deleteMemoryEntry: devMemoryStores
-            ? async (id: string) => {
-                for (const store of devMemoryStores!.values()) {
-                  if (store.hasEntry(id)) { await store.forget(id); return true; }
-                }
-                return false;
-              }
-            : undefined,
-          getCrossAgentMemory: devMemoryStores
-            ? async (teamId: string, q?: string, tags?: string, limit?: number) => {
-                const store = devMemoryStores!.get("project");
-                if (!store) return [];
-                const teamTag = `_team:${teamId}`;
-                const requiredTags = [teamTag, ...parseCommaTags(tags)];
-                const maxResults = limit ?? 50;
-                if (q) {
-                  const results = await store.search(q, maxResults);
-                  return results
-                    .filter((r) => hasAllTags(r.entry.tags, requiredTags))
-                    .slice(0, maxResults)
-                    .map((r) => ({
-                      id: r.entry.id,
-                      layer: r.entry.layer,
-                      content: r.entry.content,
-                      tags: r.entry.tags,
-                      score: r.score,
-                      snippet: r.snippet,
-                    }));
-                }
-                return store
-                  .listEntries({ tags: requiredTags.join(","), limit: maxResults })
-                  .slice(0, maxResults)
-                  .map((e) => ({
-                    id: e.id,
-                    layer: e.layer,
-                    content: e.content,
-                    tags: e.tags,
-                  }));
-              }
-            : undefined,
-          setCrossAgentMemory: devMemoryStores
-            ? async (teamId: string, key: string, content: string, tags?: string) => {
-                const store = devMemoryStores!.get("project");
-                if (!store) return { id: "" };
-                const teamTag = `_team:${teamId}`;
-                const mergedTags = uniqueTags([teamTag, `key:${key}`, ...parseCommaTags(tags)]);
-                const id = await store.save({ layer: "project", content, tags: mergedTags });
-                return { id };
-              }
-            : undefined,
-          deleteCrossAgentMemory: devMemoryStores
-            ? async (teamId: string, id: string) => {
-                const store = devMemoryStores!.get("project");
-                if (!store) return false;
-                const teamTag = `_team:${teamId}`;
-                const entry = store.listEntries({ limit: 1000000 }).find((e) => e.id === id);
-                if (!entry || !entry.tags.includes(teamTag)) return false;
-                await store.forget(id);
-                return true;
-              }
-            : undefined,
-          listCrossAgentMemory: devMemoryStores
-            ? async (teamId: string, tags?: string, limit?: number) => {
-                const store = devMemoryStores!.get("project");
-                if (!store) return [];
-                const teamTag = `_team:${teamId}`;
-                const tagFilter = uniqueTags([teamTag, ...parseCommaTags(tags)]).join(",");
-                const maxResults = limit ?? 50;
-                return store
-                  .listEntries({ tags: tagFilter, limit: maxResults })
-                  .slice(0, maxResults)
-                  .map((e) => ({
-                    id: e.id,
-                    layer: e.layer,
-                    content: e.content,
-                    tags: e.tags,
-                  }));
-              }
-            : undefined,
           swarmJoin: swarmStore
             ? (swarmId: string, agentId: string, description?: string) =>
                 swarmStore.join(swarmId, agentId, description)
@@ -1410,30 +1238,12 @@ REASONING: <one sentence explanation>`;
   await serveAndWait(honoApp, port, () => {
     triggerRegistry.stop();
     webhookDedup.close();
+    swarmMemoryRepository?.close();
     mcpServerInstance?.close().catch(() => {});
     for (const loaded of loadedApps) {
       loaded.knowledgePipeline?.close().catch(() => {});
     }
   }, bunWebsocket);
-}
-
-const VALID_MEMORY_LAYERS: MemoryLayer[] = ["user", "agent", "project"];
-
-function resolveMemoryLayer(scope: unknown): MemoryLayer {
-  return VALID_MEMORY_LAYERS.includes(scope as MemoryLayer) ? (scope as MemoryLayer) : "project";
-}
-
-function parseCommaTags(tags?: string): string[] {
-  if (!tags) return [];
-  return tags.split(",").map((t) => t.trim()).filter(Boolean);
-}
-
-function uniqueTags(tags: readonly string[]): string[] {
-  return [...new Set(tags.filter(Boolean))];
-}
-
-function hasAllTags(entryTags: readonly string[], requiredTags: readonly string[]): boolean {
-  return requiredTags.every((tag) => entryTags.includes(tag));
 }
 
 /** Create a ProviderAdapter from a provider-adapter runtime config. */
@@ -1635,7 +1445,6 @@ export async function startDevServer(options?: DevServerOptions): Promise<void> 
           },
         };
       },
-      getMemorySnapshot: () => ({ entries: [] }),
       getSafetyMetrics: () => ({ enabled: false }),
       getAppNames: () => app ? [app.name] : [],
       getTriggers: () => [],

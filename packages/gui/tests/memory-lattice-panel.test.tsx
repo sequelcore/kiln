@@ -34,6 +34,13 @@ function graphResponse(): GuiMemoryLatticeGraphResponse {
           layer: "episodic",
           scope: { kind: "session", id: "session-9" },
           label: "Admission evidence",
+          lifecycleEvidence: {
+            tags: ["lifecycle:promoted", "lifecycle:retained"],
+            relationTypes: ["supports", "admitted_to_context"],
+            revisionCount: 4,
+            admissionCount: 3,
+            latestAdmissionDecision: "admitted",
+          },
         },
       ],
       edges: [{
@@ -69,8 +76,8 @@ describe("MemoryLatticePanel", () => {
         loading={false}
         error={null}
         selectedRecordId="record-alpha"
-        onFiltersChange={vi.fn()}
         onRefresh={vi.fn()}
+        onFiltersChange={vi.fn()}
         onSelectRecord={onSelectRecord}
         graphOpen={false}
         onOpenGraph={vi.fn()}
@@ -123,6 +130,16 @@ describe("MemoryLatticePanel", () => {
     expect(screen.getByLabelText("Memory Lattice surface")).toBeInTheDocument();
     await waitFor(() => expect(screen.getByLabelText("Memory graph")).toHaveAttribute("data-renderer", "three"));
     expect(screen.getByRole("heading", { name: "Admission evidence" })).toBeInTheDocument();
+    expect(screen.getByText("Latest admission")).toBeInTheDocument();
+    expect(screen.getByText("admitted")).toBeInTheDocument();
+    expect(screen.getByText("Revisions / admissions")).toBeInTheDocument();
+    expect(screen.getByText("4/3")).toBeInTheDocument();
+    expect(screen.getByText("Lifecycle tags")).toBeInTheDocument();
+    expect(screen.getByText("lifecycle:promoted")).toBeInTheDocument();
+    expect(screen.getByText("lifecycle:retained")).toBeInTheDocument();
+    expect(screen.getByText("Relation evidence")).toBeInTheDocument();
+    expect(screen.getByText("supports")).toBeInTheDocument();
+    expect(screen.getByText("admitted_to_context")).toBeInTheDocument();
   });
 
   it("applies supported graph filters without inventing memory logic", async () => {
@@ -134,8 +151,8 @@ describe("MemoryLatticePanel", () => {
         loading={false}
         error={null}
         selectedRecordId="record-alpha"
-        onFiltersChange={onFiltersChange}
         onRefresh={vi.fn()}
+        onFiltersChange={onFiltersChange}
         onSelectRecord={vi.fn()}
       />,
     );
@@ -173,8 +190,8 @@ describe("MemoryLatticePanel", () => {
         loading={false}
         error={null}
         selectedRecordId="record-alpha"
-        onFiltersChange={onFiltersChange}
         onRefresh={vi.fn()}
+        onFiltersChange={onFiltersChange}
         onSelectRecord={vi.fn()}
       />,
     );
@@ -208,8 +225,8 @@ describe("MemoryLatticePanel", () => {
         loading={false}
         error={null}
         selectedRecordId={null}
-        onFiltersChange={vi.fn()}
         onRefresh={vi.fn()}
+        onFiltersChange={vi.fn()}
         onSelectRecord={vi.fn()}
       />,
     );
@@ -223,8 +240,8 @@ describe("MemoryLatticePanel", () => {
         loading={false}
         error={new Error("Memory Lattice graph fetch failed.")}
         selectedRecordId={null}
-        onFiltersChange={vi.fn()}
         onRefresh={vi.fn()}
+        onFiltersChange={vi.fn()}
         onSelectRecord={vi.fn()}
       />,
     );
@@ -258,13 +275,34 @@ describe("MemoryLatticePanel", () => {
         loading={true}
         error={null}
         selectedRecordId={null}
-        onFiltersChange={vi.fn()}
         onRefresh={vi.fn()}
+        onFiltersChange={vi.fn()}
         onSelectRecord={vi.fn()}
       />,
     );
 
     expect(screen.getByLabelText("Loading Memory Lattice")).toBeInTheDocument();
     expect(container.querySelector(".animate-pulse")).toBeNull();
+  });
+
+  it("refreshes the panel when the compact refresh control is clicked", () => {
+    const onRefresh = vi.fn();
+    render(
+      <MemoryLatticePanel
+        filters={{ depth: 0, limit: 25 }}
+        response={graphResponse()}
+        loading={false}
+        error={null}
+        selectedRecordId="record-alpha"
+        onRefresh={onRefresh}
+        onFiltersChange={vi.fn()}
+        onSelectRecord={vi.fn()}
+        graphOpen={false}
+        onOpenGraph={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh Memory Lattice" }));
+    expect(onRefresh).toHaveBeenCalledTimes(1);
   });
 });
