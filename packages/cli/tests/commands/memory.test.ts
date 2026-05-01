@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { memoryCommand } from "../../src/commands/memory.js";
@@ -15,6 +15,7 @@ const MOCK_APP_CONFIG: KilnAppConfig = {
   },
   buildSystemPrompt: () => "",
   mcpServerName: "kiln",
+  kilnYaml: { version: "1" },
 };
 
 describe("memoryCommand", () => {
@@ -31,22 +32,41 @@ describe("memoryCommand", () => {
     consoleSpy.mockRestore();
   });
 
-  it("prints help when no subcommand given", () => {
-    memoryCommand(MOCK_APP_CONFIG, "", [], tempDir);
+  it("prints help when no subcommand given", async () => {
+    await memoryCommand(MOCK_APP_CONFIG, "", [], tempDir);
 
     const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
     expect(output).toContain("Usage: kiln memory");
-    expect(output).toContain("stats");
+    expect(output).toContain("graph");
+    expect(output).not.toContain("stats");
   });
 
-  it("stats shows file count when memory directory exists", () => {
-    mkdirSync(join(tempDir, ".kiln", "memory"), { recursive: true });
-    writeFileSync(join(tempDir, ".kiln", "memory", "chunk1.jsonl"), "{}\n");
-    writeFileSync(join(tempDir, ".kiln", "memory", "chunk2.jsonl"), "{}\n");
-
-    memoryCommand(MOCK_APP_CONFIG, "stats", [], tempDir);
+  it("reads the Memory Lattice graph through the shared resource plane", async () => {
+    await memoryCommand(MOCK_APP_CONFIG, "graph", ["--scope", "project:kiln", "--query", "lattice", "--limit", "25"], tempDir);
 
     const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
-    expect(output).toContain("Files:     2");
+    const payload = JSON.parse(output);
+    expect(payload.snapshot).toMatchObject({
+      nodes: [],
+      edges: [],
+      limits: { maxNodes: 25, maxEdges: 50 },
+      truncated: false,
+    });
+    expect(payload.filters).toMatchObject({
+      scope: { kind: "project", id: "kiln" },
+      query: "lattice",
+    });
+  });
+
+  it("lists Memory Lattice resource templates for CLI and MCP parity", async () => {
+    await memoryCommand(MOCK_APP_CONFIG, "templates", [], tempDir);
+
+    const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
+    const templates = JSON.parse(output) as { uriTemplate: string }[];
+    expect(templates.map((template) => template.uriTemplate)).toEqual(expect.arrayContaining([
+      "kiln://memory/graph{?scope,scopeKind,scopeId,layer,query,depth,limit}",
+      "kiln://memory/nodes/{id}{?scope,scopeKind,scopeId}",
+      "kiln://memory/admissions{?sessionId,recordId,scope,scopeKind,scopeId,layer,limit}",
+    ]));
   });
 });

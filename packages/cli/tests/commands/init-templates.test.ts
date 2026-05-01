@@ -57,6 +57,14 @@ describe("generateAppYaml", () => {
     expect(parsed["memory"]).toBeDefined();
   });
 
+  it("uses shared resource tools instead of legacy kiln_memory tools", () => {
+    const yaml = generateAppYaml(makeOptions());
+    expect(yaml).toContain("resource_list");
+    expect(yaml).toContain("resource_template_list");
+    expect(yaml).toContain("resource_read");
+    expect(yaml).not.toContain("kiln_memory_");
+  });
+
   it("includes planner and worker agents", () => {
     const yaml = generateAppYaml(makeOptions());
     expect(yaml).toContain("planner:");

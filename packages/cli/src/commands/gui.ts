@@ -62,7 +62,13 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
   const transcriptStore = new TranscriptStore(cwd);
   const contextArtifactCache = await getProjectContextArtifactCache(cwd);
   const builtinToolOptions = createSessionBuiltinToolOptions(
-    await loadConfiguredWebToolSurfaceOptions(appConfig, cwd),
+    await loadConfiguredWebToolSurfaceOptions(appConfig, cwd, {
+      memoryAuthority: {
+        modelFacingSession: true,
+        permissionAgent: "gui",
+        caller: { kind: "operator_surface", id: "gui" },
+      },
+    }),
   );
   const sessionManager = await makeMultiProviderSessionFactory(
     provider,

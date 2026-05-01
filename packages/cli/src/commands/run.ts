@@ -37,9 +37,11 @@ import { TranscriptStore } from "../wrapper/session-store.js";
 import type { ResumeOutcome } from "../wrapper/index.js";
 import { resolveEffectiveModel } from "../config/env-config.js";
 import { readGlobalConfig } from "../config/global-config.js";
+import { loadConfiguredWebToolSurfaceOptions } from "../config/web-tools-config.js";
 import {
   SkillGenerator,
   AnthropicAdapter,
+  createSessionBuiltinToolOptions,
   type ContextArtifact,
   type CanonicalSessionEventKind,
   type ReasoningEffort,
@@ -299,6 +301,17 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
       .map((block) => block.content),
   });
 
+  const builtinToolOptions = createSessionBuiltinToolOptions(
+    await loadConfiguredWebToolSurfaceOptions(appConfig, cwd, {
+      memoryAuthority: {
+        modelFacingSession: true,
+        permissionPolicy: config.permissionPolicy,
+        permissionAgent: resolvedAgent?.name,
+        caller: { kind: "operator_surface", id: "run" },
+      },
+    }),
+  );
+
   const sessionConfig = {
     task,
     systemPrompt: context.systemPrompt,
@@ -313,6 +326,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     outputSchema: flags.outputSchema,
     addDir: flags.addDir,
     localProvider: flags.localProvider,
+    builtinToolOptions,
     model: effectiveModel,
     reasoningEffort: flags.reasoningEffort,
   };

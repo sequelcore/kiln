@@ -66,9 +66,9 @@ teams:
         goal: Implement clean, well-tested code following conventions
         tier: coding
         tools:
-          - kiln_memory_save
-          - kiln_memory_recall
-          - kiln_memory_search
+          - resource_list
+          - resource_template_list
+          - resource_read
           - kiln_cost_track
         count: 2
         sandbox: true
@@ -89,15 +89,15 @@ teams:
       - name: kiln_phase_start
         description: Start a new phase in the workflow
         tags: [orchestrator]
-      - name: kiln_memory_save
-        description: Save a new memory entry to scoped storage
-        tags: [memory]
-      - name: kiln_memory_recall
-        description: Recall memories by query with token budget
-        tags: [memory]
-      - name: kiln_memory_search
-        description: Full-text search across memory scopes
-        tags: [memory]
+      - name: resource_list
+        description: List shared Kiln resources available to the current session
+        tags: [resources]
+      - name: resource_template_list
+        description: List shared Kiln resource templates, including Memory Lattice templates
+        tags: [resources, memory]
+      - name: resource_read
+        description: Read a bounded kiln:// resource URI such as kiln://memory/graph
+        tags: [resources, memory]
       - name: kiln_cost_track
         description: Track token usage and cost for an agent interaction
         tags: [cost]

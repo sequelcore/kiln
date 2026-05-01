@@ -11,7 +11,13 @@
  * - Pure type definitions.
  */
 
-import type { AgentMessage, ExecutionBillingMode, ReasoningEffort } from "@kilnai/core";
+import type {
+  AgentMessage,
+  ExecutionBillingMode,
+  MemoryLayerKind,
+  MemoryScopeKind,
+  ReasoningEffort,
+} from "@kilnai/core";
 
 export type CostTrackingMode =
   | "native"
@@ -51,6 +57,52 @@ export interface KilnFileGovernancePolicy {
   readonly excludeFromContext?: boolean;
 }
 
+export const KILN_MEMORY_AUTHORITY_OPERATIONS = [
+  "save",
+  "read",
+  "revise",
+  "relate",
+  "delete",
+  "forget",
+  "compact",
+  "promote",
+] as const;
+
+export type KilnMemoryAuthorityOperation = typeof KILN_MEMORY_AUTHORITY_OPERATIONS[number];
+export type KilnMemoryAuthorityAccessLevel = "read" | "write";
+
+export interface KilnMemoryAuthorityRule {
+  readonly operations: readonly KilnMemoryAuthorityOperation[];
+  readonly scopeKinds?: readonly MemoryScopeKind[];
+  readonly scopeIds?: readonly string[];
+  readonly layers?: readonly MemoryLayerKind[];
+  readonly allowAuditWrite?: boolean;
+}
+
+export interface KilnMemoryPermissionPolicy {
+  readonly read?: readonly KilnMemoryAuthorityRule[];
+  readonly write?: readonly KilnMemoryAuthorityRule[];
+}
+
+export interface KilnMemoryAuthorityCaller {
+  readonly kind: string;
+  readonly id: string;
+}
+
+export interface KilnMemoryAuthorityPolicyRule {
+  readonly access: KilnMemoryAuthorityAccessLevel;
+  readonly operations: readonly KilnMemoryAuthorityOperation[];
+  readonly scopeKinds?: readonly MemoryScopeKind[];
+  readonly scopeIds?: readonly string[];
+  readonly layers?: readonly MemoryLayerKind[];
+  readonly allowAuditWrite?: boolean;
+}
+
+export interface KilnMemoryAuthorityPolicy {
+  readonly caller: KilnMemoryAuthorityCaller;
+  readonly rules: readonly KilnMemoryAuthorityPolicyRule[];
+}
+
 export type KilnDataDestination =
   | "small-model"
   | "logs"
@@ -72,6 +124,7 @@ export interface KilnAgentPermissionScope {
   readonly tools?: readonly KilnToolPermissionRule[];
   readonly commands?: readonly KilnCommandPermissionRule[];
   readonly fileGovernance?: KilnFileGovernancePolicy;
+  readonly memory?: KilnMemoryPermissionPolicy;
   readonly mcpTools?: readonly string[];
 }
 
@@ -83,6 +136,7 @@ export interface KilnPermissionPolicy {
   readonly tools?: readonly KilnToolPermissionRule[];
   readonly commands?: readonly KilnCommandPermissionRule[];
   readonly fileGovernance?: KilnFileGovernancePolicy;
+  readonly memory?: KilnMemoryPermissionPolicy;
   readonly dataFirewall?: readonly KilnDataFirewallRule[];
   readonly agentScopes?: readonly KilnAgentPermissionScope[];
 }

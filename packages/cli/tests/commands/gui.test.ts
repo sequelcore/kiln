@@ -11,6 +11,8 @@ vi.mock("../../src/commands/gui.js", () => ({
   guiCommand: mockGuiCommand,
 }));
 
+import { createCli } from "../../src/index.js";
+
 const APP_CONFIG: KilnAppConfig = {
   createRegistry: () => {
     throw new Error("createRegistry should not be used in gui CLI parse tests");
@@ -50,7 +52,6 @@ describe("gui CLI command wiring", () => {
       "--dev",
     ];
 
-    const { createCli } = await import("../../src/index.js");
     await createCli(APP_CONFIG);
 
     expect(mockGuiCommand).toHaveBeenCalledWith(APP_CONFIG, {

@@ -1013,7 +1013,13 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   const startupProviderIds = providerIds;
   const contextArtifactCache = await getProjectContextArtifactCache(cwd);
   const builtinToolOptions = createSessionBuiltinToolOptions(
-    await loadConfiguredWebToolSurfaceOptions(appConfig, cwd),
+    await loadConfiguredWebToolSurfaceOptions(appConfig, cwd, {
+      memoryAuthority: {
+        modelFacingSession: true,
+        permissionAgent: "tui",
+        caller: { kind: "operator_surface", id: "tui" },
+      },
+    }),
   );
 
   // Resolve domain display name from app config if available

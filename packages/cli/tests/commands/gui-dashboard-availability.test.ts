@@ -160,6 +160,8 @@ vi.mock("../../src/wrapper/session-manager.js", () => ({
   },
 }));
 
+import { guiCommand } from "../../src/commands/gui.js";
+
 const APP_CONFIG: KilnAppConfig = {
   createRegistry: () => {
     throw new Error("createRegistry should not be used in GUI dashboard availability tests");
@@ -187,7 +189,6 @@ describe("GUI dashboard provider availability", () => {
 
   it("passes configured web tool options into GUI gateway startup", async () => {
     tmpDir = mkdtempSync(join(tmpdir(), "kiln-gui-dashboard-availability-"));
-    const { guiCommand } = await import("../../src/commands/gui.js");
 
     await guiCommand({
       ...APP_CONFIG,
@@ -209,6 +210,17 @@ describe("GUI dashboard provider availability", () => {
     expect(gatewayHarness.lastOptions?.builtinToolOptions).toMatchObject({
       webFetch: expect.any(Object),
       webSearch: expect.any(Object),
+      memoryResources: {
+        authority: {
+          caller: { kind: "operator_surface", id: "gui" },
+        },
+      },
+      memoryMutations: {
+        callerContext: {
+          actorType: "operator_surface",
+          actorId: "gui",
+        },
+      },
     });
   });
 
@@ -221,7 +233,6 @@ describe("GUI dashboard provider availability", () => {
 
   it("marks a direct API provider unavailable without leaking static models when the registry descriptor is unavailable despite healthy health", async () => {
     tmpDir = mkdtempSync(join(tmpdir(), "kiln-gui-dashboard-availability-"));
-    const { guiCommand } = await import("../../src/commands/gui.js");
 
     await guiCommand(APP_CONFIG, {
       cwd: tmpDir,
@@ -252,7 +263,6 @@ describe("GUI dashboard provider availability", () => {
     }];
     gatewayHarness.operatorModels = { openai: ["gpt-5.4"] };
     tmpDir = mkdtempSync(join(tmpdir(), "kiln-gui-dashboard-availability-"));
-    const { guiCommand } = await import("../../src/commands/gui.js");
 
     await guiCommand(APP_CONFIG, {
       cwd: tmpDir,
@@ -281,7 +291,6 @@ describe("GUI dashboard provider availability", () => {
     }];
     gatewayHarness.operatorModels = { claude: [] };
     tmpDir = mkdtempSync(join(tmpdir(), "kiln-gui-dashboard-availability-"));
-    const { guiCommand } = await import("../../src/commands/gui.js");
 
     await guiCommand(APP_CONFIG, {
       cwd: tmpDir,
@@ -301,7 +310,6 @@ describe("GUI dashboard provider availability", () => {
 
   it("starts GUI without a configured provider so runtime discovery can populate the picker", async () => {
     tmpDir = mkdtempSync(join(tmpdir(), "kiln-gui-dashboard-availability-"));
-    const { guiCommand } = await import("../../src/commands/gui.js");
 
     await guiCommand(APP_CONFIG, {
       cwd: tmpDir,
@@ -314,7 +322,6 @@ describe("GUI dashboard provider availability", () => {
 
   it("does not start the local GUI gateway in attach mode", async () => {
     tmpDir = mkdtempSync(join(tmpdir(), "kiln-gui-dashboard-availability-"));
-    const { guiCommand } = await import("../../src/commands/gui.js");
 
     await guiCommand(APP_CONFIG, {
       cwd: tmpDir,
@@ -329,7 +336,6 @@ describe("GUI dashboard provider availability", () => {
   it("rejects an unknown configured provider instead of defaulting to the first advertised provider", async () => {
     configMocks.globalConfig = { provider: "claude" };
     tmpDir = mkdtempSync(join(tmpdir(), "kiln-gui-dashboard-availability-"));
-    const { guiCommand } = await import("../../src/commands/gui.js");
 
     await expect(guiCommand(APP_CONFIG, {
       cwd: tmpDir,
@@ -350,7 +356,6 @@ describe("GUI dashboard provider availability", () => {
       isAvailable: () => true,
     }];
     tmpDir = mkdtempSync(join(tmpdir(), "kiln-gui-dashboard-availability-"));
-    const { guiCommand } = await import("../../src/commands/gui.js");
 
     await guiCommand(APP_CONFIG, {
       cwd: tmpDir,
@@ -380,7 +385,6 @@ describe("GUI dashboard provider availability", () => {
       isAvailable: undefined,
     }];
     tmpDir = mkdtempSync(join(tmpdir(), "kiln-gui-dashboard-availability-"));
-    const { guiCommand } = await import("../../src/commands/gui.js");
 
     await guiCommand(APP_CONFIG, {
       cwd: tmpDir,
@@ -444,7 +448,6 @@ describe("GUI dashboard provider availability", () => {
       },
     ];
     tmpDir = mkdtempSync(join(tmpdir(), "kiln-gui-dashboard-availability-"));
-    const { guiCommand } = await import("../../src/commands/gui.js");
 
     await guiCommand(APP_CONFIG, {
       cwd: tmpDir,
@@ -516,7 +519,6 @@ describe("GUI dashboard provider availability", () => {
       },
     ];
     tmpDir = mkdtempSync(join(tmpdir(), "kiln-gui-dashboard-availability-"));
-    const { guiCommand } = await import("../../src/commands/gui.js");
 
     await guiCommand(APP_CONFIG, {
       cwd: tmpDir,

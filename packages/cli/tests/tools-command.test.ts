@@ -48,25 +48,29 @@ vi.mock("@modelcontextprotocol/sdk/server/stdio.js", () => ({
   StdioServerTransport: class MockStdioServerTransport {},
 }));
 
-vi.mock("@kilnai/core", () => ({
-  createDefaultBuiltinToolSurface: coreMocks.createDefaultBuiltinToolSurface,
-  projectToolResourceDescriptor: coreMocks.projectToolResourceDescriptor,
-  SqliteMemoryRepository: class MockSqliteMemoryRepository {
-    constructor(readonly options: unknown) {}
-  },
-  DevToolsMcpServer: class MockDevToolsMcpServer {
-    constructor(options: unknown) {
-      expect(options).toEqual({
-        bridge: coreMocks.bridge,
-        tools: coreMocks.tools,
-        resources: coreMocks.resources,
-        resourceNotifications: coreMocks.resourceNotifications,
-      });
-    }
-    initialize = coreMocks.initialize;
-    createServer = coreMocks.createServer;
-  },
-}));
+vi.mock("@kilnai/core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@kilnai/core")>();
+  return {
+    ...actual,
+    createDefaultBuiltinToolSurface: coreMocks.createDefaultBuiltinToolSurface,
+    projectToolResourceDescriptor: coreMocks.projectToolResourceDescriptor,
+    SqliteMemoryRepository: class MockSqliteMemoryRepository {
+      constructor(readonly options: unknown) {}
+    },
+    DevToolsMcpServer: class MockDevToolsMcpServer {
+      constructor(options: unknown) {
+        expect(options).toEqual({
+          bridge: coreMocks.bridge,
+          tools: coreMocks.tools,
+          resources: coreMocks.resources,
+          resourceNotifications: coreMocks.resourceNotifications,
+        });
+      }
+      initialize = coreMocks.initialize;
+      createServer = coreMocks.createServer;
+    },
+  };
+});
 
 import { createCli } from "../src/index.js";
 import { toolsCommand } from "../src/commands/tools.js";
@@ -144,6 +148,7 @@ describe("tools command", () => {
 
     const helpOutput = stdoutSpy.mock.calls.map((call) => String(call[0])).join("\n");
     expect(helpOutput).toContain("tools");
+    expect(helpOutput).not.toContain("  serve");
     expect(helpOutput).toContain(
       "Launch native dev tools MCP server over stdio and inspect shared resources (--mcp, --resources, --resource <uri>)",
     );

@@ -40,6 +40,8 @@ vi.mock("@modelcontextprotocol/sdk/server/stdio.js", () => ({
   StdioServerTransport: class {},
 }));
 
+import { toolsCommand } from "../../src/commands/tools.js";
+
 const APP_CONFIG: KilnAppConfig = {
   createRegistry: () => {
     throw new Error("createRegistry should not be used in tools command tests");
@@ -56,14 +58,23 @@ const APP_CONFIG: KilnAppConfig = {
 
 describe("tools command web config", () => {
   it("creates the MCP tools surface from configured web options", async () => {
-    const { toolsCommand } = await import("../../src/commands/tools.js");
-
     await toolsCommand(APP_CONFIG, { mcp: true });
 
     expect(toolsMocks.surfaceOptions).toMatchObject({
       workspaceResources: { rootPath: process.cwd() },
       webFetch: expect.any(Object),
       webSearch: expect.any(Object),
+      memoryResources: {
+        authority: {
+          caller: { kind: "operator_surface", id: "tools-mcp" },
+        },
+      },
+      memoryMutations: {
+        callerContext: {
+          actorType: "operator_surface",
+          actorId: "tools-mcp",
+        },
+      },
     });
     expect(toolsMocks.serverOptions).toMatchObject({
       resources: { marker: "resources" },

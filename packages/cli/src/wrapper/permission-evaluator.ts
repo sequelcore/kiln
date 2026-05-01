@@ -2,7 +2,12 @@ import { normalizePermissionPolicy } from "./permission-normalizer.js";
 import type {
   KilnAgentPermissionScope,
   KilnCommandPermissionRule,
+  KilnMemoryAuthorityCaller,
+  KilnMemoryAuthorityPolicy,
+  KilnMemoryAuthorityPolicyRule,
   KilnFileGovernancePolicy,
+  KilnMemoryAuthorityRule,
+  KilnMemoryPermissionPolicy,
   KilnPermissionAction,
   KilnPermissionApproval,
   KilnPermissionPolicy,
@@ -112,6 +117,7 @@ export function resolveEffectivePermissionPolicy(
     tools: mergeToolRules(basePolicy.tools, matchedScope.tools, inherit),
     commands: mergeCommandRules(basePolicy.commands, matchedScope.commands, inherit),
     fileGovernance: mergeFileGovernance(basePolicy.fileGovernance, matchedScope.fileGovernance, inherit),
+    memory: mergeMemoryPolicy(basePolicy.memory, matchedScope.memory, inherit),
     dataFirewall: inherit ? basePolicy.dataFirewall : [],
     agentScopes: [],
   };
@@ -124,6 +130,21 @@ export function resolveEffectivePermissionPolicy(
       inherit,
       mcpTools: matchedScope.mcpTools,
     },
+  };
+}
+
+export function convertEffectiveMemoryPermissionPolicyToMemoryAuthorityPolicy(
+  effectivePolicy: NormalizedPermissionPolicy,
+  caller: KilnMemoryAuthorityCaller,
+): KilnMemoryAuthorityPolicy {
+  const rules: KilnMemoryAuthorityPolicyRule[] = [
+    ...effectivePolicy.memory.read.map((rule) => toCoreMemoryAuthorityRule("read", rule)),
+    ...effectivePolicy.memory.write.map((rule) => toCoreMemoryAuthorityRule("write", rule)),
+  ];
+
+  return {
+    caller,
+    rules,
   };
 }
 
@@ -384,8 +405,62 @@ function mergeFileGovernance(
   };
 }
 
+function mergeMemoryPolicy(
+  base: KilnMemoryPermissionPolicy | undefined,
+  scoped: KilnMemoryPermissionPolicy | undefined,
+  inherit: boolean,
+): KilnMemoryPermissionPolicy {
+  if (!scoped) {
+    return inherit ? (base ?? {}) : {};
+  }
+  if (!inherit) {
+    return {
+      read: deduplicateMemoryRules(scoped.read ?? []),
+      write: deduplicateMemoryRules(scoped.write ?? []),
+    };
+  }
+  return {
+    read: deduplicateMemoryRules([...(base?.read ?? []), ...(scoped.read ?? [])]),
+    write: deduplicateMemoryRules([...(base?.write ?? []), ...(scoped.write ?? [])]),
+  };
+}
+
 function deduplicateStrings(values: readonly string[]): string[] {
   return [...new Set(values)];
+}
+
+function deduplicateMemoryRules(values: readonly KilnMemoryAuthorityRule[]): KilnMemoryAuthorityRule[] {
+  const seen = new Map<string, number>();
+  values.forEach((rule, index) => {
+    seen.set(memoryRuleKey(rule), index);
+  });
+  return values.filter((rule, index) => seen.get(memoryRuleKey(rule)) === index);
+}
+
+function memoryRuleKey(rule: KilnMemoryAuthorityRule): string {
+  return [
+    rule.operations.join(","),
+    (rule.scopeKinds ?? []).join(","),
+    (rule.scopeIds ?? []).join(","),
+    (rule.layers ?? []).join(","),
+    rule.allowAuditWrite === true ? "audit:allow" : "audit:default",
+  ].join("|");
+}
+
+function toCoreMemoryAuthorityRule(
+  access: "read" | "write",
+  rule: KilnMemoryAuthorityRule,
+): KilnMemoryAuthorityPolicyRule {
+  return {
+    access,
+    operations: [...rule.operations],
+    ...(rule.scopeKinds ? { scopeKinds: [...rule.scopeKinds] } : {}),
+    ...(rule.scopeIds ? { scopeIds: [...rule.scopeIds] } : {}),
+    ...(rule.layers ? { layers: [...rule.layers] } : {}),
+    ...(access === "write" && rule.allowAuditWrite !== undefined
+      ? { allowAuditWrite: rule.allowAuditWrite }
+      : {}),
+  };
 }
 
 function findAgentScope(

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createDefaultBuiltinToolSurface } from "@kilnai/core";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { createWebToolSurfaceOptions } from "../../src/config/web-tools-config.js";
 import type { KilnYaml } from "../../src/kiln-yaml-types.js";
 
@@ -62,6 +62,199 @@ describe("web tool config", () => {
       },
       filters: { depth: 0 },
     });
+  });
+
+  it("applies read-only memory authority defaults for model-facing sessions", async () => {
+    const projectPath = mkdtempSync(join(tmpdir(), "kiln-web-tools-model-memory-"));
+    const scopeId = basename(projectPath);
+    const options = createWebToolSurfaceOptions({
+      config: { version: "1" },
+      projectPath,
+      memoryAuthority: {
+        modelFacingSession: true,
+        caller: { kind: "operator_surface", id: "tui" },
+      },
+    });
+    options.memoryResources?.repository.saveRecord({
+      id: "record-1",
+      layer: "semantic",
+      scope: { kind: "project", id: scopeId },
+      content: "Model-facing memory read seed.",
+      topicKey: "record-1",
+      tags: ["memory"],
+      provenance: {
+        sourceType: "operator",
+        sourceId: "seed",
+        capturedAt: "2026-04-30T12:00:00.000Z",
+      },
+      createdAt: "2026-04-30T12:00:00.000Z",
+    });
+    const surface = createDefaultBuiltinToolSurface(options);
+
+    const readResult = await surface.bridge.execute({
+      name: "resource_read",
+      input: { uri: `kiln://memory/graph?scope=project%3A${encodeURIComponent(scopeId)}&layer=semantic&limit=10` },
+    });
+    const writeResult = await surface.bridge.execute({
+      name: "memory_save",
+      input: {
+        layer: "semantic",
+        scopeKind: "project",
+        scopeId,
+        content: "Write should be denied by default model-facing authority.",
+        provenance: {
+          sourceType: "operator",
+          sourceId: "test",
+          capturedAt: "2026-04-30T12:00:00.000Z",
+        },
+      },
+    });
+
+    expect(options.memoryResources?.authority?.caller).toEqual({ kind: "operator_surface", id: "tui" });
+    expect(options.memoryMutations?.callerContext).toMatchObject({
+      actorType: "operator_surface",
+      actorId: "tui",
+    });
+    expect(readResult.result.isError).toBe(false);
+    expect(writeResult.result.isError).toBe(true);
+    expect(writeResult.result.output).toContain("Memory save denied by authority policy.");
+  });
+
+  it("honors explicit permissions.memory write rules for model-facing sessions", async () => {
+    const projectPath = mkdtempSync(join(tmpdir(), "kiln-web-tools-memory-policy-"));
+    const scopeId = basename(projectPath);
+    const surface = createDefaultBuiltinToolSurface(createWebToolSurfaceOptions({
+      config: {
+        version: "1",
+        permissions: {
+          memory: {
+            write: [{
+              operations: ["save"],
+              scopeKinds: ["project"],
+              scopeIds: [scopeId],
+              layers: ["semantic"],
+            }],
+          },
+        },
+      },
+      projectPath,
+      memoryAuthority: {
+        modelFacingSession: true,
+        caller: { kind: "operator_surface", id: "gui" },
+      },
+    }));
+
+    const writeResult = await surface.bridge.execute({
+      name: "memory_save",
+      input: {
+        layer: "semantic",
+        scopeKind: "project",
+        scopeId,
+        content: "Allowed write.",
+        provenance: {
+          sourceType: "operator",
+          sourceId: "test",
+          capturedAt: "2026-04-30T12:00:00.000Z",
+        },
+      },
+    });
+
+    expect(writeResult.result.isError).toBe(false);
+    expect(writeResult.result.output).toContain(`"id": "${scopeId}"`);
+  });
+
+  it("fails closed when explicit memory policy resolves to zero authority rules", async () => {
+    const projectPath = mkdtempSync(join(tmpdir(), "kiln-web-tools-memory-empty-policy-"));
+    const scopeId = basename(projectPath);
+    const options = createWebToolSurfaceOptions({
+      config: {
+        version: "1",
+        permissions: {
+          memory: {},
+        },
+      },
+      projectPath,
+      memoryAuthority: {
+        modelFacingSession: true,
+        caller: { kind: "operator_surface", id: "gui" },
+      },
+    });
+    options.memoryResources?.repository.saveRecord({
+      id: "record-2",
+      layer: "semantic",
+      scope: { kind: "project", id: scopeId },
+      content: "Denied read seed.",
+      topicKey: "record-2",
+      tags: ["memory"],
+      provenance: {
+        sourceType: "operator",
+        sourceId: "seed",
+        capturedAt: "2026-04-30T12:00:00.000Z",
+      },
+      createdAt: "2026-04-30T12:00:00.000Z",
+    });
+    const surface = createDefaultBuiltinToolSurface(options);
+
+    const readResult = await surface.bridge.execute({
+      name: "resource_read",
+      input: { uri: `kiln://memory/graph?scope=project%3A${encodeURIComponent(scopeId)}&layer=semantic&limit=10` },
+    });
+    const writeResult = await surface.bridge.execute({
+      name: "memory_save",
+      input: {
+        layer: "semantic",
+        scopeKind: "project",
+        scopeId,
+        content: "Write should fail closed with zero explicit rules.",
+        provenance: {
+          sourceType: "operator",
+          sourceId: "test",
+          capturedAt: "2026-04-30T12:00:00.000Z",
+        },
+      },
+    });
+
+    expect(options.memoryResources?.authority?.rules).toHaveLength(0);
+    expect(readResult.result.isError).toBe(true);
+    expect(readResult.result.output).toContain("Resource read denied by authority policy.");
+    expect(writeResult.result.isError).toBe(true);
+    expect(writeResult.result.output).toContain("Memory save denied by authority policy.");
+  });
+
+  it("does not grant memory write authority from generic memory_save tool allow", async () => {
+    const projectPath = mkdtempSync(join(tmpdir(), "kiln-web-tools-memory-tool-allow-"));
+    const scopeId = basename(projectPath);
+    const surface = createDefaultBuiltinToolSurface(createWebToolSurfaceOptions({
+      config: {
+        version: "1",
+        permissions: {
+          tools: [{ tool: "memory_save", action: "allow" }],
+        },
+      },
+      projectPath,
+      memoryAuthority: {
+        modelFacingSession: true,
+        caller: { kind: "operator_surface", id: "gui" },
+      },
+    }));
+
+    const writeResult = await surface.bridge.execute({
+      name: "memory_save",
+      input: {
+        layer: "semantic",
+        scopeKind: "project",
+        scopeId,
+        content: "Write should remain denied without permissions.memory.",
+        provenance: {
+          sourceType: "operator",
+          sourceId: "test",
+          capturedAt: "2026-04-30T12:00:00.000Z",
+        },
+      },
+    });
+
+    expect(writeResult.result.isError).toBe(true);
+    expect(writeResult.result.output).toContain("Memory save denied by authority policy.");
   });
 
   it("adapts an HTTP search provider without making consumers provider-specific", async () => {

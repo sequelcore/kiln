@@ -87,10 +87,10 @@ describe("mcpConfigCommand", () => {
 
   it("passes all flags together", async () => {
     const { generateMcpConfig } = await import("../../src/mcp/config-generator.js");
-    await mcpConfigCommand(APP_CONFIG, { client: "opencode", name: "my-kiln", command: "bun", args: "run ./mcp/index.js" });
+    await mcpConfigCommand(APP_CONFIG, { client: "opencode", name: "my-kiln", command: "bun", args: "run kiln tools --mcp" });
     expect(generateMcpConfig).toHaveBeenCalledWith(
       "opencode",
-      { name: "my-kiln", command: "bun", args: ["run", "./mcp/index.js"] },
+      { name: "my-kiln", command: "bun", args: ["run", "kiln", "tools", "--mcp"] },
       expect.any(String),
     );
   });

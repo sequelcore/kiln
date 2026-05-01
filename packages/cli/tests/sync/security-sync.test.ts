@@ -4,13 +4,15 @@ import * as fs from "node:fs";
 import { join } from "node:path";
 import type { KilnYaml } from "../../src/kiln-yaml-types.js";
 
-let _mockedHomedir: string = "";
+const syncMocks = vi.hoisted(() => ({
+  mockedHomedir: "",
+}));
 
 vi.mock("node:os", async () => {
   const actual = await vi.importActual<typeof import("node:os")>("node:os");
   const mockedOs = {
     ...actual,
-    homedir: () => _mockedHomedir || actual.homedir(),
+    homedir: () => syncMocks.mockedHomedir || actual.homedir(),
   };
   return {
     ...mockedOs,
@@ -19,6 +21,7 @@ vi.mock("node:os", async () => {
 });
 
 import * as os from "node:os";
+import { syncPermissions } from "../../src/sync/security-sync.js";
 
 interface TestPaths {
   rootPath: string;
@@ -64,11 +67,11 @@ describe("syncPermissions", () => {
     fs.mkdirSync(projectPath, { recursive: true });
     fs.mkdirSync(homePath, { recursive: true });
     paths = { rootPath, projectPath, homePath };
-    _mockedHomedir = homePath;
+    syncMocks.mockedHomedir = homePath;
   });
 
   afterEach(() => {
-    _mockedHomedir = "";
+    syncMocks.mockedHomedir = "";
     try {
       fs.rmSync(paths.rootPath, { recursive: true, force: true });
     } catch {
@@ -77,7 +80,6 @@ describe("syncPermissions", () => {
   });
 
   it("merges Claude settings and writes kiln.permissionSync metadata", { timeout: 10_000 }, async () => {
-    const { syncPermissions } = await import("../../src/sync/security-sync.js");
     const claudeSettingsPath = join(paths.projectPath, ".claude", "settings.json");
     fs.mkdirSync(join(paths.projectPath, ".claude"), { recursive: true });
     fs.writeFileSync(
@@ -109,7 +111,6 @@ describe("syncPermissions", () => {
   });
 
   it("merges Codex TOML and writes kiln.permission_sync metadata section", async () => {
-    const { syncPermissions } = await import("../../src/sync/security-sync.js");
     const codexConfigPath = join(paths.homePath, ".codex", "config.toml");
     fs.mkdirSync(join(paths.homePath, ".codex"), { recursive: true });
     fs.writeFileSync(
@@ -146,7 +147,6 @@ describe("syncPermissions", () => {
   });
 
   it("merges OpenCode JSON and writes kiln.permissionSync metadata", async () => {
-    const { syncPermissions } = await import("../../src/sync/security-sync.js");
     const opencodeConfigPath = join(paths.homePath, ".config", "opencode", "opencode.json");
     fs.mkdirSync(join(paths.homePath, ".config", "opencode"), { recursive: true });
     fs.writeFileSync(
@@ -176,8 +176,6 @@ describe("syncPermissions", () => {
   });
 
   it("writes non-empty translation metadata for granular policy across all backends", async () => {
-    const { syncPermissions } = await import("../../src/sync/security-sync.js");
-
     const result = await syncPermissions(buildKilnYaml(), paths.projectPath);
 
     expect(result.errors).toHaveLength(0);

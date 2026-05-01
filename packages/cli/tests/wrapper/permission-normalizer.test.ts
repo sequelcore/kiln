@@ -7,6 +7,8 @@ describe("normalizePermissionPolicy", () => {
     expect(r.tools).toHaveLength(0);
     expect(r.commands).toHaveLength(0);
     expect(r.agentScopes).toHaveLength(0);
+    expect(r.memory.read).toHaveLength(0);
+    expect(r.memory.write).toHaveLength(0);
     expect(r.dataFirewall).toHaveLength(0);
   });
 
@@ -62,5 +64,38 @@ describe("normalizePermissionPolicy", () => {
     expect(r.commands).toHaveLength(1);
     expect(r.commands[0]?.action).toBe("allow");
     expect(r.commands[0]?.shell).toBe("bash");
+  });
+
+  it("normalizes memory authority rules with deduplication", () => {
+    const r = normalizePermissionPolicy({
+      memory: {
+        read: [
+          {
+            operations: ["read"],
+            scopeKinds: ["project"],
+            scopeIds: ["kiln"],
+            layers: ["working"],
+          },
+        ],
+        write: [
+          {
+            operations: ["save"],
+            scopeKinds: ["project"],
+            scopeIds: ["kiln"],
+            layers: ["working"],
+          },
+          {
+            operations: ["save"],
+            scopeKinds: ["project"],
+            scopeIds: ["kiln"],
+            layers: ["working"],
+          },
+        ],
+      },
+    });
+
+    expect(r.memory.read).toHaveLength(1);
+    expect(r.memory.write).toHaveLength(1);
+    expect(r.memory.write[0]?.operations).toEqual(["save"]);
   });
 });

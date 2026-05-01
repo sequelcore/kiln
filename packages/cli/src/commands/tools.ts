@@ -21,9 +21,17 @@ export async function toolsCommand(
   _appConfig: KilnAppConfig,
   flags: ToolsCommandFlags,
 ): Promise<void> {
-  const surface = createDefaultBuiltinToolSurface(
-    await loadConfiguredWebToolSurfaceOptions(_appConfig, process.cwd()),
-  );
+  const memoryAuthority = flags.mcp
+    ? {
+      modelFacingSession: true,
+      permissionPolicy: _appConfig.kilnYaml?.permissions,
+      caller: { kind: "operator_surface" as const, id: "tools-mcp" },
+    }
+    : undefined;
+  const surfaceOptions = memoryAuthority
+    ? await loadConfiguredWebToolSurfaceOptions(_appConfig, process.cwd(), { memoryAuthority })
+    : await loadConfiguredWebToolSurfaceOptions(_appConfig, process.cwd());
+  const surface = createDefaultBuiltinToolSurface(surfaceOptions);
 
   if (flags.resources) {
     console.log(JSON.stringify(surface.resources.list().map(projectToolResourceDescriptor), null, 2));

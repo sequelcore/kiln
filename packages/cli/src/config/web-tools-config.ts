@@ -1,8 +1,12 @@
 import {
   DOCUMENTATION_DOMAINS,
+  MEMORY_LAYER_KINDS,
   PACKAGE_MANAGER_DOMAINS,
   SandboxPolicy,
   SqliteMemoryRepository,
+  MemoryMutationService,
+  type MemoryAuthorityCaller,
+  type MemoryAuthorityPolicy,
   type DefaultBuiltinToolRegistryOptions,
   type NetPolicy,
   type SandboxConfig,
@@ -11,10 +15,15 @@ import {
   type WebSourceMetadata,
 } from "@kilnai/core";
 import { existsSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import type { KilnAppConfig } from "../config.js";
 import { loadKilnConfig } from "./config-merger.js";
 import { KilnYamlError } from "../kiln-yaml.js";
+import {
+  convertEffectiveMemoryPermissionPolicyToMemoryAuthorityPolicy,
+  resolveEffectivePermissionPolicy,
+} from "../wrapper/permission-evaluator.js";
+import type { KilnPermissionPolicy } from "../wrapper/session.js";
 import type {
   KilnYaml,
   KilnYamlWebConfig,
@@ -23,11 +32,25 @@ import type {
 } from "../kiln-yaml-types.js";
 
 type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+type SurfaceMemoryRepository = NonNullable<DefaultBuiltinToolRegistryOptions["memoryResources"]>["repository"];
+
+export interface WebToolSurfaceMemoryAuthorityInput {
+  readonly modelFacingSession?: boolean;
+  readonly permissionPolicy?: KilnPermissionPolicy;
+  readonly permissionAgent?: string;
+  readonly caller?: MemoryAuthorityCaller;
+  readonly policy?: MemoryAuthorityPolicy;
+}
 
 export interface WebToolSurfaceOptionsInput {
   readonly config?: KilnYaml | null;
   readonly projectPath: string;
   readonly fetchImpl?: FetchLike;
+  readonly memoryAuthority?: WebToolSurfaceMemoryAuthorityInput;
+}
+
+export interface LoadConfiguredWebToolSurfaceOptionsInput {
+  readonly memoryAuthority?: WebToolSurfaceMemoryAuthorityInput;
 }
 
 const VALID_NET_POLICIES: readonly KilnYamlWebNetPolicy[] = [
@@ -40,9 +63,10 @@ const VALID_NET_POLICIES: readonly KilnYamlWebNetPolicy[] = [
 export async function loadConfiguredWebToolSurfaceOptions(
   appConfig: KilnAppConfig,
   projectPath: string,
+  options: LoadConfiguredWebToolSurfaceOptionsInput = {},
 ): Promise<DefaultBuiltinToolRegistryOptions> {
   const config = appConfig.kilnYaml ?? await loadKilnConfig(projectPath);
-  return createWebToolSurfaceOptions({ config, projectPath });
+  return createWebToolSurfaceOptions({ config, projectPath, memoryAuthority: options.memoryAuthority });
 }
 
 export function createWebToolSurfaceOptions(
@@ -50,11 +74,14 @@ export function createWebToolSurfaceOptions(
 ): DefaultBuiltinToolRegistryOptions {
   const webConfig = input.config?.web;
   const workspaceResources = { rootPath: input.projectPath };
-  const memoryResources = createProjectMemoryResources(input.projectPath);
+  const memoryAuthority = resolveMemoryAuthorityPolicy(input);
+  const memoryResources = createProjectMemoryResources(input.projectPath, memoryAuthority);
+  const memoryMutations = createMemoryMutationOptions(memoryResources?.repository, memoryAuthority, input.memoryAuthority?.caller);
   if (webConfig?.enabled !== true) {
     return {
       workspaceResources,
       ...(memoryResources ? { memoryResources } : {}),
+      ...(memoryMutations ? { memoryMutations } : {}),
     };
   }
 
@@ -64,6 +91,7 @@ export function createWebToolSurfaceOptions(
   return {
     workspaceResources,
     ...(memoryResources ? { memoryResources } : {}),
+    ...(memoryMutations ? { memoryMutations } : {}),
     webFetch: { networkPolicy },
     webSearch: {
       networkPolicy,
@@ -72,7 +100,10 @@ export function createWebToolSurfaceOptions(
   };
 }
 
-function createProjectMemoryResources(projectPath: string): DefaultBuiltinToolRegistryOptions["memoryResources"] | undefined {
+function createProjectMemoryResources(
+  projectPath: string,
+  authority: MemoryAuthorityPolicy | undefined,
+): DefaultBuiltinToolRegistryOptions["memoryResources"] | undefined {
   if (!existsSync(projectPath)) {
     return undefined;
   }
@@ -81,6 +112,146 @@ function createProjectMemoryResources(projectPath: string): DefaultBuiltinToolRe
   mkdirSync(kilnDir, { recursive: true });
   return {
     repository: new SqliteMemoryRepository({ dbPath: join(kilnDir, "memory.db") }),
+    ...(authority ? { authority } : {}),
+  };
+}
+
+function createMemoryMutationOptions(
+  repository: SurfaceMemoryRepository | undefined,
+  authority: MemoryAuthorityPolicy | undefined,
+  caller: MemoryAuthorityCaller | undefined,
+): DefaultBuiltinToolRegistryOptions["memoryMutations"] | undefined {
+  if (!repository || !authority) {
+    return undefined;
+  }
+  const callerIdentity = caller ?? { kind: "operator_surface", id: "cli" };
+  return {
+    callerContext: {
+      actorType: callerIdentity.kind,
+      actorId: callerIdentity.id,
+      authority,
+    },
+    createService: ({ repository: resourceRepository, eventBus, callerContext }) => {
+      return new MemoryMutationService({
+        repository: resourceRepository ?? repository,
+        eventBus,
+        sessionId: callerContext.sessionId,
+        tenantId: callerContext.tenantId,
+        authority,
+      });
+    },
+  };
+}
+
+function resolveMemoryAuthorityPolicy(input: WebToolSurfaceOptionsInput): MemoryAuthorityPolicy | undefined {
+  const requested = input.memoryAuthority;
+  if (requested?.policy) {
+    return normalizeMemoryAuthorityPolicy(requested.policy);
+  }
+
+  const caller = requested?.caller ?? { kind: "operator_surface", id: "cli" };
+  const projectScopeId = resolveProjectScopeId(input.projectPath);
+  const permissionPolicy = requested?.permissionPolicy ?? (
+    input.config?.permissions as KilnPermissionPolicy | undefined
+  );
+  const permissionAgent = requested?.permissionAgent;
+  const explicit = resolveExplicitMemoryAuthority({
+    permissionPolicy,
+    permissionAgent,
+    caller,
+  });
+  if (explicit) {
+    return explicit;
+  }
+
+  if (requested?.modelFacingSession === true) {
+    return createReadOnlyMemoryAuthority(caller, projectScopeId);
+  }
+  return undefined;
+}
+
+function resolveExplicitMemoryAuthority(input: {
+  readonly permissionPolicy?: KilnPermissionPolicy;
+  readonly permissionAgent?: string;
+  readonly caller: MemoryAuthorityCaller;
+}): MemoryAuthorityPolicy | undefined {
+  if (!input.permissionPolicy) {
+    return undefined;
+  }
+
+  if (!hasExplicitMemoryPermission(input.permissionPolicy, input.permissionAgent)) {
+    return undefined;
+  }
+
+  const effective = resolveEffectivePermissionPolicy(
+    input.permissionPolicy,
+    input.permissionAgent,
+  );
+  return normalizeMemoryAuthorityPolicy(
+    convertEffectiveMemoryPermissionPolicyToMemoryAuthorityPolicy(
+      effective.policy,
+      input.caller,
+    ),
+  );
+}
+
+function hasExplicitMemoryPermission(
+  permissionPolicy: KilnPermissionPolicy,
+  permissionAgent?: string,
+): boolean {
+  if (Object.prototype.hasOwnProperty.call(permissionPolicy, "memory")) {
+    return true;
+  }
+
+  if (!permissionAgent || !permissionPolicy.agentScopes) {
+    return false;
+  }
+
+  for (let index = permissionPolicy.agentScopes.length - 1; index >= 0; index -= 1) {
+    const scope = permissionPolicy.agentScopes[index];
+    if (!scope || scope.agent !== permissionAgent) {
+      continue;
+    }
+    return Object.prototype.hasOwnProperty.call(scope, "memory");
+  }
+  return false;
+}
+
+function createReadOnlyMemoryAuthority(
+  caller: MemoryAuthorityCaller,
+  projectScopeId: string,
+): MemoryAuthorityPolicy {
+  return normalizeMemoryAuthorityPolicy({
+    caller,
+    rules: [{
+      access: "read",
+      operations: ["read"],
+      scopeKinds: ["project"],
+      scopeIds: [projectScopeId],
+      layers: MEMORY_LAYER_KINDS,
+    }],
+  });
+}
+
+function resolveProjectScopeId(projectPath: string): string {
+  const normalized = projectPath.replace(/\\/g, "/").replace(/\/+$/g, "");
+  const scopeId = basename(normalized);
+  return scopeId.trim().length > 0 ? scopeId : normalized;
+}
+
+function normalizeMemoryAuthorityPolicy(policy: MemoryAuthorityPolicy): MemoryAuthorityPolicy {
+  return {
+    caller: {
+      kind: policy.caller.kind.trim(),
+      id: policy.caller.id.trim(),
+    },
+    rules: policy.rules.map((rule) => ({
+      ...rule,
+      operations: [...rule.operations],
+      ...(rule.scopeKinds ? { scopeKinds: [...rule.scopeKinds] } : {}),
+      ...(rule.scopeIds ? { scopeIds: [...rule.scopeIds] } : {}),
+      ...(rule.layers ? { layers: [...rule.layers] } : {}),
+    })),
   };
 }
 

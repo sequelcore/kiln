@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  convertEffectiveMemoryPermissionPolicyToMemoryAuthorityPolicy,
   createPermissionEvaluator,
   resolveEffectivePermissionPolicy,
 } from "../../src/wrapper/permission-evaluator.js";
@@ -154,5 +155,149 @@ describe("permission-evaluator", () => {
     const defaultDecision = evaluator.evaluateTool("WebFetch");
     expect(defaultDecision.source).toBe("default");
     expect(defaultDecision.action).toBe("ask");
+  });
+
+  it("merges root and agent memory policy when inherit=true", () => {
+    const policy: KilnPermissionPolicy = {
+      memory: {
+        read: [
+          {
+            operations: ["read"],
+            scopeKinds: ["project"],
+            scopeIds: ["kiln"],
+            layers: ["working"],
+          },
+        ],
+        write: [
+          {
+            operations: ["save"],
+            scopeKinds: ["project"],
+            scopeIds: ["kiln"],
+            layers: ["working"],
+          },
+        ],
+      },
+      agentScopes: [
+        {
+          agent: "worker",
+          inherit: true,
+          memory: {
+            write: [
+              {
+                operations: ["revise"],
+                scopeKinds: ["project"],
+                scopeIds: ["kiln"],
+                layers: ["working"],
+              },
+            ],
+          },
+        },
+      ],
+    };
+
+    const resolved = resolveEffectivePermissionPolicy(policy, "worker");
+    expect(resolved.policy.memory.read).toHaveLength(1);
+    expect(resolved.policy.memory.write).toHaveLength(2);
+    expect(resolved.policy.memory.write.map((rule) => rule.operations[0])).toEqual(["save", "revise"]);
+  });
+
+  it("replaces root memory policy when agent scope uses inherit=false", () => {
+    const policy: KilnPermissionPolicy = {
+      memory: {
+        read: [
+          {
+            operations: ["read"],
+            scopeKinds: ["project"],
+            scopeIds: ["kiln"],
+            layers: ["working"],
+          },
+        ],
+        write: [
+          {
+            operations: ["save"],
+            scopeKinds: ["project"],
+            scopeIds: ["kiln"],
+            layers: ["working"],
+          },
+        ],
+      },
+      agentScopes: [
+        {
+          agent: "planner",
+          inherit: false,
+          memory: {
+            write: [
+              {
+                operations: ["compact"],
+                scopeKinds: ["project"],
+                scopeIds: ["kiln"],
+                layers: ["semantic"],
+              },
+            ],
+          },
+        },
+      ],
+    };
+
+    const resolved = resolveEffectivePermissionPolicy(policy, "planner");
+    expect(resolved.policy.memory.read).toHaveLength(0);
+    expect(resolved.policy.memory.write).toHaveLength(1);
+    expect(resolved.policy.memory.write[0]?.operations).toEqual(["compact"]);
+  });
+
+  it("converts effective memory permissions into core MemoryAuthorityPolicy", () => {
+    const policy: KilnPermissionPolicy = {
+      memory: {
+        read: [
+          {
+            operations: ["read"],
+            scopeKinds: ["project"],
+            scopeIds: ["kiln"],
+            layers: ["working"],
+          },
+        ],
+      },
+      agentScopes: [
+        {
+          agent: "writer",
+          inherit: true,
+          memory: {
+            write: [
+              {
+                operations: ["save", "revise"],
+                scopeKinds: ["project"],
+                scopeIds: ["kiln"],
+                layers: ["working", "audit"],
+                allowAuditWrite: true,
+              },
+            ],
+          },
+        },
+      ],
+    };
+
+    const resolved = resolveEffectivePermissionPolicy(policy, "writer");
+    const authority = convertEffectiveMemoryPermissionPolicyToMemoryAuthorityPolicy(resolved.policy, {
+      kind: "agent",
+      id: "writer",
+    });
+
+    expect(authority.caller).toEqual({ kind: "agent", id: "writer" });
+    expect(authority.rules).toHaveLength(2);
+    expect(authority.rules[0]).toMatchObject({
+      access: "read",
+      operations: ["read"],
+      scopeKinds: ["project"],
+      scopeIds: ["kiln"],
+      layers: ["working"],
+    });
+    expect(authority.rules[1]).toMatchObject({
+      access: "write",
+      operations: ["save", "revise"],
+      scopeKinds: ["project"],
+      scopeIds: ["kiln"],
+      layers: ["working", "audit"],
+      allowAuditWrite: true,
+    });
   });
 });

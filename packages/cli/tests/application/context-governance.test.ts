@@ -3,6 +3,16 @@ import type { DomainConfig } from "@kilnai/core";
 import type { SessionContext } from "../../src/wrapper/index.js";
 import { governSessionContext } from "../../src/application/context-governance.js";
 
+const runSessionMocks = vi.hoisted(() => ({
+  buildPreamble: vi.fn(() => "PROMPT"),
+}));
+
+vi.mock("../../src/wrapper/preamble-builder.js", () => ({
+  buildPreamble: runSessionMocks.buildPreamble,
+}));
+
+import { runSession } from "../../src/application/run-session.js";
+
 const DOMAIN: DomainConfig = {
   name: "generic",
   displayName: "Generic",
@@ -70,12 +80,7 @@ describe("governSessionContext", () => {
 
 describe("runSession context governance integration", () => {
   it("uses governed context when building prompt", async () => {
-    const buildPreambleMock = vi.fn(() => "PROMPT");
-    vi.doMock("../../src/wrapper/preamble-builder.js", () => ({
-      buildPreamble: buildPreambleMock,
-    }));
-
-    const { runSession } = await import("../../src/application/run-session.js");
+    runSessionMocks.buildPreamble.mockClear();
 
     const fakeSession = {
       run: async function* () {
@@ -142,10 +147,8 @@ describe("runSession context governance integration", () => {
     });
 
     expect(result.sessionSucceeded).toBe(true);
-    expect(buildPreambleMock).toHaveBeenCalledTimes(1);
-    const governedContext = buildPreambleMock.mock.calls[0]?.[0] as SessionContext;
+    expect(runSessionMocks.buildPreamble).toHaveBeenCalledTimes(1);
+    const governedContext = runSessionMocks.buildPreamble.mock.calls[0]?.[0] as SessionContext;
     expect(governedContext.projectedContext?.blocks?.length).toBe(0);
-
-    vi.doUnmock("../../src/wrapper/preamble-builder.js");
   }, 10_000);
 });

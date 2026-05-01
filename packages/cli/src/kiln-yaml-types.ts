@@ -1,3 +1,6 @@
+import type { MemoryLayerKind, MemoryScopeKind } from "@kilnai/core";
+import type { KilnMemoryAuthorityOperation } from "./wrapper/session.js";
+
 export class KilnYamlError extends Error {
   constructor(message: string) {
     super(message);
@@ -44,6 +47,19 @@ export interface KilnYamlFileGovernance {
   allowGlobs?: string[];
 }
 
+export interface KilnYamlMemoryAuthorityRule {
+  operations: KilnMemoryAuthorityOperation[];
+  scopeKinds?: MemoryScopeKind[];
+  scopeIds?: string[];
+  layers?: MemoryLayerKind[];
+  allowAuditWrite?: boolean;
+}
+
+export interface KilnYamlMemoryPermissions {
+  read?: KilnYamlMemoryAuthorityRule[];
+  write?: KilnYamlMemoryAuthorityRule[];
+}
+
 export interface KilnYamlDataFirewallRule {
   destination: string;
   action: "allow" | "redact" | "deny";
@@ -57,6 +73,7 @@ export interface KilnYamlAgentScope {
   tools?: KilnYamlToolRule[];
   commands?: KilnYamlCommandRule[];
   fileGovernance?: KilnYamlFileGovernance;
+  memory?: KilnYamlMemoryPermissions;
   mcpTools?: string[];
 }
 
@@ -68,6 +85,7 @@ export interface KilnYamlPermissions {
   tools?: KilnYamlToolRule[];
   commands?: KilnYamlCommandRule[];
   fileGovernance?: KilnYamlFileGovernance;
+  memory?: KilnYamlMemoryPermissions;
   dataFirewall?: KilnYamlDataFirewallRule[];
   agentScopes?: KilnYamlAgentScope[];
 }

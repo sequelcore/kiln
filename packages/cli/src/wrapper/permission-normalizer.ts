@@ -4,6 +4,7 @@ import type {
   KilnCommandPermissionRule,
   KilnFileGovernancePolicy,
   KilnDataFirewallRule,
+  KilnMemoryAuthorityRule,
 } from "./session.js";
 
 export const SAFE_DEFAULTS_TOOL_RULES: readonly KilnToolPermissionRule[] = [
@@ -62,6 +63,10 @@ export function normalizePermissionPolicy(policy: KilnPermissionPolicy): KilnPer
   tools: readonly KilnToolPermissionRule[];
   commands: readonly KilnCommandPermissionRule[];
   fileGovernance: KilnFileGovernancePolicy;
+  memory: {
+    read: readonly KilnMemoryAuthorityRule[];
+    write: readonly KilnMemoryAuthorityRule[];
+  };
   dataFirewall: readonly KilnDataFirewallRule[];
   agentScopes: readonly import("./session.js").KilnAgentPermissionScope[];
 } {
@@ -78,6 +83,7 @@ export function normalizePermissionPolicy(policy: KilnPermissionPolicy): KilnPer
     (r) => `${r.pattern}::${r.shell ?? "any"}`,
   );
   const fileGovernance = mergeFileGovernance(baseFileGovernance, policy.fileGovernance);
+  const memory = normalizeMemoryPolicy(policy.memory);
   const dataFirewall = [...baseDataFirewall, ...(policy.dataFirewall ?? [])];
 
   return {
@@ -87,6 +93,7 @@ export function normalizePermissionPolicy(policy: KilnPermissionPolicy): KilnPer
     tools,
     commands,
     fileGovernance,
+    memory,
     dataFirewall,
     agentScopes: policy.agentScopes ?? [],
   };
@@ -110,4 +117,23 @@ function mergeFileGovernance(base: KilnFileGovernancePolicy, user: KilnFileGover
 
 function dedupStrings(arr: string[]): string[] {
   return [...new Set(arr)];
+}
+
+function normalizeMemoryPolicy(
+  memory: KilnPermissionPolicy["memory"] | undefined,
+): { read: readonly KilnMemoryAuthorityRule[]; write: readonly KilnMemoryAuthorityRule[] } {
+  return {
+    read: deduplicateByKey([...(memory?.read ?? [])], memoryRuleKey),
+    write: deduplicateByKey([...(memory?.write ?? [])], memoryRuleKey),
+  };
+}
+
+function memoryRuleKey(rule: KilnMemoryAuthorityRule): string {
+  return [
+    rule.operations.join(","),
+    (rule.scopeKinds ?? []).join(","),
+    (rule.scopeIds ?? []).join(","),
+    (rule.layers ?? []).join(","),
+    rule.allowAuditWrite === true ? "audit:allow" : "audit:default",
+  ].join("|");
 }

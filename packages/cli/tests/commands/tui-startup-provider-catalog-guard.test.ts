@@ -368,6 +368,20 @@ describe("tuiCommand startup provider catalog guard", () => {
     expect(runtimeMocks.startTuiGateway).toHaveBeenCalledTimes(1);
     expect(tuiMocks.waitForGateway).toHaveBeenCalledTimes(1);
     expect(tuiMocks.startTui).toHaveBeenCalledTimes(1);
+    const gatewayOptions = runtimeMocks.startTuiGateway.mock.calls[0]?.[0];
+    expect(gatewayOptions?.builtinToolOptions).toMatchObject({
+      memoryResources: {
+        authority: {
+          caller: { kind: "operator_surface", id: "tui" },
+        },
+      },
+      memoryMutations: {
+        callerContext: {
+          actorType: "operator_surface",
+          actorId: "tui",
+        },
+      },
+    });
     const startTuiArgs = tuiMocks.startTui.mock.calls[0] ?? [];
     expect(startTuiArgs[1]).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "claude", models: [] }),

@@ -12,8 +12,8 @@ export { ClaudeSession } from "./wrapper/claude-code-process.js";
 export type { ClaudeSessionConfig } from "./wrapper/claude-code-process.js";
 export type { SessionMode, SessionContext, SessionReport, WrapperConfig } from "./wrapper/index.js";
 export { SessionManager } from "./wrapper/session-manager.js";
-export { KilnMcpServer, KILN_TOOLS } from "./mcp/index.js";
-export type { KilnTool, McpServerInfo } from "./mcp/index.js";
+export { generateConfig, generateMcpConfig } from "./mcp/index.js";
+export type { McpClient, McpClientConfig, McpServerDef } from "./mcp/index.js";
 
 export async function createCli(config: KilnAppConfig): Promise<void> {
   const args = process.argv.slice(2);
@@ -31,7 +31,6 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     status: "Show current phase, tasks, and costs",
     memory: "Browse and search memory layers",
     config: "Edit domain config and provider settings",
-    serve: `Start ${APP_NAME} MCP server (used by Claude Code)`,
     "mcp-config": "Generate MCP client configuration JSON",
     domain: "Manage domain packages (install, list, search, info, remove)",
     gateway: "Start persistent Gateway (multi-app hosting)",
@@ -127,12 +126,6 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     return;
   }
 
-  if (command === "serve") {
-    const { serveCommand } = await import("./commands/serve.js");
-    await serveCommand(config);
-    return;
-  }
-
   if (command === "run") {
     const { task, flags } = parseRunArgs(args.slice(1));
     const { runCommand } = await import("./commands/run.js");
@@ -160,7 +153,7 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
 
   if (command === "memory") {
     const { memoryCommand } = await import("./commands/memory.js");
-    memoryCommand(config, args[1] ?? "", args.slice(2));
+    await memoryCommand(config, args[1] ?? "", args.slice(2));
     return;
   }
 
