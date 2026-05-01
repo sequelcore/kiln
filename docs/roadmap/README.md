@@ -84,6 +84,20 @@ indicates the default read order, not necessarily the active work priority.
   Deferred public benchmark milestone after architecture and product work
   stabilize.
 
+- `06-memory-lifecycle-policy.md`
+  Restores research-backed retention, decay, forgetting, compaction, promotion,
+  and recall salience as governed policy over Memory Lattice. This is a
+  follow-on to `01`, not a rollback to the deleted pre-lattice memory stores.
+  GUI may consume it first for practical testing, but the contracts remain
+  surface-neutral across CLI, TUI, YAML apps, SDK, MCP, IDE, remote surfaces,
+  and managed agents.
+
+- `07-native-operator-surface-experiment.md`
+  Validates whether a native, GPU-accelerated operator surface is justified for
+  high-density managed-agent supervision, replay, timeline, graph, and
+  multi-instance workloads. It is a new surface over the same gateway/runtime
+  contracts, not a replacement for the web GUI and not an editor.
+
 ## Read Order
 
 1. Read the relevant architecture docs in `docs/architecture/` before
@@ -114,7 +128,10 @@ indicates the default read order, not necessarily the active work priority.
 8. Read `04-config-projection-unification.md` when planning harness config
    projection, engine registry, drift detection, sync, uninstall, migrate, or
    config-surface work.
-9. Read `05-external-benchmark-validation.md` only when benchmark work becomes
+9. Read `07-native-operator-surface-experiment.md` when planning native GUI,
+   Rust/GPU UI, high-density managed-agent supervision, multi-instance operator
+   dashboards, desktop-native surfaces, or web-GUI replacement discussions.
+10. Read `05-external-benchmark-validation.md` only when benchmark work becomes
    active.
 
 ## Current Execution Priority
@@ -130,20 +147,29 @@ This is the delivery queue. It is the only priority order in this index.
    limitation and generalize pool semantics across all provider categories.
    This slice unblocks multi-account scaling for opencode-go, codex-oauth, and
    direct API-key providers without special-casing any of them.
-3. Execute `03-managed-agents-cross-provider-subagents.md` after Memory Lattice
-   provides stable memory admission/projection and after the provider
-   credential pool can route child invocations across accounts, wrappers, and
-   direct providers.
-4. Execute `04-config-projection-unification.md` after managed agents and the
+3. Execute `06-memory-lifecycle-policy.md` after Memory Lattice closes and
+   before managed agents start durable memory writes at scale. Lifecycle policy
+   restores retention, decay, forgetting, compaction, promotion, and salience on
+   the governed lattice model.
+4. Execute `03-managed-agents-cross-provider-subagents.md` after Memory Lattice
+   provides stable memory admission/projection, after lifecycle policy handles
+   memory pressure and promotion/forgetting, and after the provider credential
+   pool can route child invocations across accounts, wrappers, and direct
+   providers.
+5. Execute `04-config-projection-unification.md` after managed agents and the
    provider credential pool clarify what global/project config must express. It
    owns harness config
    projection, drift detection, engine registry, and config lifecycle commands.
-5. Keep `05-external-benchmark-validation.md` deferred until the product
+6. Keep `07-native-operator-surface-experiment.md` deferred until managed
+   agents create real high-density workloads and config projection makes
+   local/cloud/team/CI instance boundaries explicit. It may only validate a new
+   operator surface; it must not replace the web GUI by default.
+7. Keep `05-external-benchmark-validation.md` deferred until the product
    surface stabilizes.
 
 ## Current Status
 
-As of 2026-04-30:
+As of 2026-05-01:
 
 - the taxonomy freeze and module mapping slices are closed
 - bounded-context doctrine now lives only in the stable architecture docs, not
@@ -176,6 +202,9 @@ As of 2026-04-30:
 - managed cross-provider agent invocation is tracked as roadmap `03` and is
   intentionally sequenced after governed memory and provider credential pooling
 - external benchmark validation remains deferred
+- native operator surface validation is tracked as roadmap `07` and is
+  intentionally sequenced after managed agents and config projection; it is a
+  surface experiment, not a GUI replacement plan
 - OpenCode Go/Zen is now a first-class direct provider via `opencode-auth` and
   `opencode-provider` modules in `@kilnai/core`; the credential-pool roadmap
   picks up from here
@@ -186,7 +215,9 @@ As of 2026-04-30:
 - roadmap numbering was updated on 2026-04-30 after operator-surface doctrine
   moved to architecture and managed agents became an explicit execution track:
   memory lattice is `01`, provider credential pool is `02`, managed agents is
-  `03`, config projection is `04`, and external benchmark validation is `05`
+  `03`, config projection is `04`, external benchmark validation is `05`,
+  memory lifecycle policy is `06`, and native operator surface validation is
+  `07`
 - shared developer-tool metadata, timeout handling, runtime evidence, MCP
   projection, consumer alignment, and the initial builtin tool expansion are
   complete and promoted to `docs/architecture/developer-tools.md`
