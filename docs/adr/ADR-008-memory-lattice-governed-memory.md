@@ -22,11 +22,9 @@ revisions, and context-admission decisions connect. The first visible consumer
 will be the GUI, but the feature cannot be GUI-owned. CLI, TUI, YAML apps, SDK,
 MCP, and model-callable resources must be able to consume the same contracts.
 
-There are no external consumers for the current memory shape. Kiln is still in
-a phase where clean architecture matters more than compatibility with internal
-intermediate forms. Designing migrations or compatibility shims for a memory
-contract that has not shipped to consumers would create dead code and slow the
-next slices.
+There are no external consumers for intermediate memory contracts. Kiln can
+move directly to the canonical domain model and keep implementation slices
+focused on the target architecture.
 
 Research and product inputs converge on the same shape:
 
@@ -133,18 +131,12 @@ Target tables:
 - `memory_fts`
 - `memory_archive`
 
-Because the current memory shape has no external consumers, the implementation
-must replace it cleanly. Do not create migration code, compatibility readers,
-dual-write paths, legacy fallback tables, or fixtures whose only purpose is to
-preserve the old internal shape.
+Because the memory contract has no external consumers, implementation should
+move directly to the target model instead of preserving transitional internal
+shapes.
 
-When the repository slice lands, it must delete or replace obsolete memory
-routes, exports, tests, docs, and persistence code in the same slice.
-
-This replacement does not reject research-backed capabilities such as decay,
-retention, forgetting, or compaction. It rejects their pre-lattice
-implementation because that code was bound to the wrong domain model. Those
-capabilities must return as governed policies over `MemoryRecord`,
+Research-backed capabilities such as decay, retention, forgetting, and
+compaction are governed policies over `MemoryRecord`,
 `MemoryScope`, `MemoryLayerKind`, provenance, revisions, relations, archive
 state, and mutation events.
 
@@ -288,15 +280,11 @@ core records and relations.
 - GUI, CLI, TUI, SDK, YAML apps, and MCP can converge on one graph contract.
 - Operator surfaces can update automatically from memory domain events without
   manual refresh as the primary workflow.
-- No compatibility debt is introduced for old internal memory shapes.
 - Memory Lattice stays aligned with Kiln's biocybernetic control-plane identity
   without using informal "brain" contracts.
 
 ### Negative / risks
 
-- The clean replacement will break any internal code that still assumes the
-  old `MemoryEntry` shape. That is accepted. The implementation slices must
-  replace callers directly.
 - The graph model can become ornamental if relation semantics are weak.
   Mitigation: relation types and provenance are domain contracts before GUI
   work begins.
@@ -323,16 +311,15 @@ Rejected. It would produce a compelling visual surface quickly, but it would
 create a second memory model and violate the resource-plane rule that surfaces
 project core capabilities instead of owning them.
 
-### B. Keep the current memory store and add graph metadata around it
+### B. Keep simple saved-text memory and add graph metadata around it
 
-Rejected. The current `user | agent | project` layer model and loose tags do
-not represent the target layer/scope/provenance/relation model. Wrapping it
-would preserve the wrong abstraction.
+Rejected. Saved text with loose tags does not represent the target
+layer/scope/provenance/relation model.
 
-### C. Add compatibility migrations from the current memory shape
+### C. Add transitional migration surfaces
 
-Rejected. There are no external consumers for the current shape. Compatibility
-code would be dead weight and contradict the Sequel rule against legacy hacks.
+Rejected. There are no external consumers for intermediate internal shapes.
+The implementation can move directly to the canonical model.
 
 ### D. Use "Atlas" as the feature name
 
@@ -346,8 +333,8 @@ turning the product into a toy visual metaphor.
 ## Implementation Sequence
 
 1. Freeze this ADR and update architecture docs.
-2. Replace the memory domain contracts in `@kilnai/core`.
-3. Replace SQLite persistence and delete obsolete memory paths.
+2. Implement the memory domain contracts in `@kilnai/core`.
+3. Implement SQLite persistence through the repository port.
 4. Add reconsolidation and relation services.
 5. Link memory records to `ContextGovernor` admission evidence.
 6. Add bounded core graph projection.
@@ -360,20 +347,11 @@ turning the product into a toy visual metaphor.
     keeping topology, ranking, scope, and relations owned by core contracts.
 12. Add minimal CLI/TUI/MCP/YAML projection only through shared contracts:
     CLI reads `kiln://memory/...` through the resource registry, MCP/model
-    consumers use shared resource tools through `kiln tools --mcp`, legacy CLI
-    MCP memory tools are removed instead of adapted, model-callable writes use
-    the core governed `memory_save` builtin backed by `MemoryMutationService`,
-    Gateway MCP does not expose `memory_*` or `cross_agent_memory_*` handlers,
-    TUI is deferred until it can consume the same contract directly, and YAML
-    remains policy-only.
-13. Remove stale docs, routes, exports, tests, and internal code. The first
-    cleanup cut deletes Gateway `/api/memory` CRUD, dev `/dev/memory` mutable
-    routes, SDK `useKilnMemory`, and the old Studio Memory Inspector instead
-    of preserving duplicate memory contracts. The final cleanup cut maps
-    tenant conversation exchanges to governed `episodic` tenant records, maps
-    MCP swarm coordination to governed `coordination` records, and deletes the
-    pre-lattice persistence and sync helpers rather than adapting a second
-    memory model.
+    consumers use shared resource tools through `kiln tools --mcp`,
+    model-callable writes use the core governed `memory_save` builtin backed by
+    `MemoryMutationService`, and YAML remains policy-only.
+13. Keep tenant conversation exchanges as governed `episodic` tenant records
+    and MCP swarm coordination as governed `coordination` records.
 
 ---
 
@@ -394,5 +372,4 @@ Each implementation slice must prove:
 - GUI slices are browser-tested before completion
 - animated graph slices prove reduced-motion behavior and do not invent
   production graph topology
-- no migration, compatibility shim, or dual-write path remains
 - no GUI-private memory state exists

@@ -86,7 +86,7 @@ Engine.validateApp(app);
 | `Engine` | 7 primitives, 3 composites, YAML loader, error catalog |
 | `Orchestrator` | Phase machine, checkpoint/resume, strategies |
 | `Agents` | Provider adapters, MCP client, tool cache, circuit breaker |
-| `Memory` | Governed Memory Lattice records, SQLite persistence, lifecycle policy, recall, resources |
+| `Memory` | Governed Memory Lattice records, repository-backed persistence, SQLite adapter, lifecycle policy, recall, resources |
 | `Safety` | PII scanner, content classifier, policy rails, pipeline |
 | `Knowledge` | Chunkers, embedding adapters, vector store, retrieval |
 | `Eval` | 12 scorers, dataset loader, experiment runner |

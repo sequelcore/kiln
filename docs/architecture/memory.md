@@ -60,10 +60,6 @@ claim that Kiln reproduces biological recall or plasticity.
 - Memory Lattice is not GUI state. The GUI may render memory records,
   relations, provenance, revisions, and context-admission decisions, but it
   does not own those rules or persist its own memory graph.
-- Legacy pre-lattice memory stores and helpers are not compatibility surfaces.
-  They were removed because they depended on obsolete `MemoryEntry` storage,
-  git/chunk sync helpers, and old vocabulary that no longer matches the
-  governed memory model.
 
 ## Memory Lattice Contracts
 
@@ -185,8 +181,7 @@ not decay silently just because it is old.
 ### Lifecycle Policy
 
 Retention, decay, forgetting, compaction, promotion, salience, and inhibition
-are implemented as governed lifecycle policy over Memory Lattice. This is not a
-rollback to the deleted pre-lattice memory implementation.
+are implemented as governed lifecycle policy over Memory Lattice.
 
 Lifecycle policy operates on the governed memory model:
 
@@ -199,9 +194,6 @@ Lifecycle policy operates on the governed memory model:
   events
 - recall scoring can use salience, recency, frequency, and cue matching without
   bypassing `ContextGovernor`
-
-Do not restore the former decay helpers or compactor classes as compatibility
-code. They represented the old persistence shape, not the final capability.
 
 The lifecycle domain starts with pure core policy contracts. It defines policy
 sets and proposed lifecycle actions, but it does not project UI state or bypass

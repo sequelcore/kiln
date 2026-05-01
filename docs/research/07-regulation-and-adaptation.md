@@ -67,7 +67,7 @@ as a first-class system condition rather than as isolated metrics.
 
 ## Load-Shaping Rules
 
-The old regulation notes imply a few explicit rules:
+The regulation research implies a few explicit rules:
 
 - corrections should reduce pressure, not merely move it elsewhere
 - retry storms and fallback storms are signs of failed regulation

@@ -106,7 +106,9 @@ handle directly:
 - exact layer defaults in safety
 - predictive regulation versus purely reactive control
 - explicit shared-medium rules in coordination and context
-- reconsolidation rules based on confidence, provenance, and topic coherence
+- domain-specific reconsolidation decisions based on confidence, provenance,
+  topic coherence, and whether a change is a correction, extension,
+  contradiction, or noop
 - quorum and latch behavior in coordination transitions
 - trust-boundary ownership for tool execution and approvals
 
@@ -115,5 +117,5 @@ handle directly:
 Research material should be consolidated into the active documents under
 `docs/research/`.
 
-Git history is sufficient for superseded drafts. The canonical tree should not
+Git history is sufficient for prior drafts. The canonical tree should not
 depend on an archive directory to remain understandable.

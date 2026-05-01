@@ -4,9 +4,9 @@
 
 This document captures the research basis for Kiln's context-governance model.
 
-It absorbs the old attention, salience, working-memory, and shared-medium
-research that was too specific to live only in the synthesis but too distinct
-to smear across unrelated docs.
+It consolidates attention, salience, working-memory, and shared-medium
+research that is too specific to live only in the synthesis but too distinct to
+smear across unrelated docs.
 
 ## Core Conclusion
 

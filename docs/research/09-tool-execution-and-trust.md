@@ -5,9 +5,9 @@
 This document captures the research basis for real tool execution, approval
 gating, trust boundaries, interrupts, and observability in Kiln.
 
-It absorbs the old nervous-system gating, immune checkpoint, cybernetic
-control, and execution-specific research that does not fit cleanly inside the
-memory, safety, or regulation docs alone.
+It consolidates nervous-system gating, immune checkpoint, cybernetic control,
+and execution-specific research that does not fit cleanly inside the memory,
+safety, or regulation docs alone.
 
 ## Core Conclusion
 

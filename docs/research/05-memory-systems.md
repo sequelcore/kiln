@@ -89,7 +89,7 @@ is touched again, Kiln should decide whether to:
 - add a new fact
 - update an existing memory
 - leave the existing memory unchanged
-- delete or retire a memory that is clearly obsolete
+- delete or retire a memory that is no longer valid
 
 This is why mutable memory needs explicit update rules rather than blind merge.
 
@@ -122,11 +122,16 @@ traceability.
 ## Direct Kiln Mappings
 
 - session state maps to working memory
-- transcripts and mutable session-linked recall map to episodic memory
-- knowledge retrieval maps to semantic memory
+- governed `MemoryRecord` entries with operational provenance map to episodic
+  memory
+- knowledge retrieval and durable knowledge records map to semantic memory,
+  but storage adapters are not the contract
 - skills map to procedural memory
-- contact memory maps to scoped user-semantic memory
+- contact and tenant conversation memory map to scoped user or tenant episodic
+  and semantic memory depending on provenance and promotion policy
 - audit traces remain a separate immutable layer
+- coordination records are governed `coordination` memory, but their admission
+  still belongs to context governance
 
 Cross-agent state should not be treated as ordinary memory just because it is
 stored. It behaves more like coordination substrate with memory-like
@@ -135,6 +140,18 @@ coordination rather than inside either one by default.
 
 The main architectural consequence is that mutation rules, retention rules, and
 retrieval rules should differ by layer.
+
+Post-lattice architecture implements these mappings through Memory Lattice:
+
+- `MemoryRepository` is the persistence port
+- `SqliteMemoryRepository` is the current local adapter
+- `MemoryMutationService` owns governed writes
+- lifecycle policy owns decay, forgetting, compaction, promotion, salience, and
+  inhibition
+- `ContextGovernor` remains the only owner of prompt admission
+
+Lifecycle and recall behavior should use Memory Lattice domain contracts rather
+than standalone utility abstractions.
 
 ## Risks / Misuse
 

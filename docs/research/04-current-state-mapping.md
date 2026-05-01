@@ -10,37 +10,51 @@ remaining doctrine or implementation gaps still exist.
 
 ## Memory
 
-Current Kiln already has real layered memory components:
+Current Kiln now has a canonical governed-memory owner:
 
-- session state
-- mutable memory
-- knowledge retrieval
-- audit traces
+- `docs/architecture/memory.md` defines Memory Lattice doctrine
+- `@kilnai/core` owns the memory bounded context
+- `MemoryRepository` is the persistence contract
+- `SqliteMemoryRepository` is the current local adapter, not the architecture
+  contract
+- `MemoryMutationService` owns governed mutation and event emission
+- `kiln://memory/...` resources are the shared read projection
+- `ContextGovernor` owns model-context admission
 
-Main gap:
+Research concepts that are now implemented as canonical architecture:
 
-- no single coherent memory doctrine owner in implementation or docs
-- reconsolidation doctrine is still weaker than the research suggests on
-  confidence, provenance, and same-topic mutation rules
+- explicit scopes and layers
+- provenance-bearing memory records
+- revisions, relations, and context-admission evidence
+- lifecycle policy for decay, forgetting, compaction, promotion, salience, and
+  inhibition
+- recall scoring as a candidate source, not direct prompt injection
+- model-facing memory authority for read and write access
+
+Remaining pressure:
+
+- reconsolidation policy can still become more domain-specific around
+  correction, extension, contradiction, and noop decisions
+- lifecycle policy defaults need operational tuning from real usage
+- semantic knowledge and semantic memory still need clear operator guidance
+  where their retrieval surfaces overlap
 
 ## Context Governance
 
 Current Kiln already has:
 
-- context projection
-- budget logic
-- compaction logic
-- context filtering rules
+- `ContextGovernor` as the canonical owner of admitted-turn context
+- context projection and budget logic
+- admission and deferral evidence
+- memory, knowledge, procedural, and coordination candidates under one
+  admission model
 
 Main gap:
 
-- ownership is fragmented
-- `ContextGovernor` is still an intended architecture shape, not a cleanly
-  realized one
 - the active shared medium behavior of context, memory, and coordination is not
-  yet modeled explicitly enough
-- salience, inhibition, and overflow rules are still spread across unrelated
-  utilities instead of one coherent context doctrine
+  fully modeled as an operational feedback system
+- salience, inhibition, and overflow defaults need tuning against real
+  workloads
 
 ## Safety
 
@@ -65,12 +79,13 @@ Current Kiln already has:
 - task registry behavior
 - chain control
 - shared coordination state
+- governed `coordination` memory records for swarm and cross-agent state
 
 Main gap:
 
-- decay, inhibition, quorum behavior, and shared-medium design are still
-  incomplete or under-specified
-- old terminology still obscures the actual coordination model
+- quorum behavior and shared-medium design are still incomplete or
+  under-specified
+- managed-agent invocation still needs a canonical lifecycle and replay model
 
 ## Tool Execution
 
@@ -123,8 +138,8 @@ Kiln already contains many of the right primitives.
 The biggest problem is not absence of all capability. It is fragmentation,
 naming drift, uneven doctrine, and inconsistent ownership across the system.
 
-That is why the current phase is documentation and architecture refactor before
-deeper implementation refactor.
+That is why remaining work should continue to promote stable research concepts
+into architecture docs before implementing new behavior.
 
 ## Reading Rule
 

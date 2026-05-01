@@ -7,14 +7,18 @@ Accepted (v0.23.2, 2026-03-31)
 Kiln orchestrates 3 CLI backends (Claude Code, Codex CLI, OpenCode) as subprocesses. This is legally safe (real CLI binary handles its own auth) but introduces 5 confirmed technical limitations that required architectural solutions.
 
 ## Decision
-Kiln spawns CLIs as subprocesses with --bare mode and compensates for limitations through preamble injection, permission bypass, and cross-agent memory.
+Kiln spawns CLIs as subprocesses with --bare mode and compensates for
+limitations through preamble injection, permission policy, explicit handoff
+artifacts, and governed coordination memory.
 
 ## Limitations and Solutions
 
 ### 1. Stateless Between Calls
 **Problem:** Subprocess calls do not preserve state across invocations.
 **Status:** Partially mitigated. Claude Code has --resume/--session-id. Codex has resume. OpenCode has --session/--continue.
-**Solution:** Hybrid approach: --session-id for intra-CLI chains, an explicit handoff artifact for cross-CLI handoffs, cross_agent_memory_* MCP tools at CLI boundaries only.
+**Solution:** Hybrid approach: --session-id for intra-CLI chains, explicit
+handoff artifacts for cross-CLI handoffs, and governed coordination memory
+records rather than implicit subprocess state.
 
 ### 2. Startup Latency vs Hook/Skill Loss
 **Problem:** --bare flag skips hooks, skills, plugins, auto-memory. Without it, startup is slow.
@@ -39,7 +43,8 @@ Kiln spawns CLIs as subprocesses with --bare mode and compensates for limitation
 ## Consequences
 - All backends run in --bare mode, reducing startup time but requiring Kiln to compensate for lost hooks/skills
 - Permission management is centralized in Kiln KilnPermissionPolicy, not delegated to backends
-- Cross-CLI handoff requires explicit memory store calls, not implicit state sharing
+- Cross-CLI handoff requires explicit handoff artifacts or governed
+  coordination-memory writes, not implicit state sharing
 
 ## References
 - Claude Code issues: #35718, #36192, #37181

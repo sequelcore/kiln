@@ -43,7 +43,7 @@ Local Kiln Operator Gateway (auto-started on port 4801)
   - RuntimeSessionOrchestrator (provider routing, tool auth, AI guard)
   - SessionRegistry (multi-turn, persistence, concurrency)
   - Safety pipeline (PII, content, rails)
-  - Memory (SQLite, FTS5, decay, compaction)
+  - Memory Lattice resources, governed recall, and lifecycle evidence
   - Knowledge RAG (if configured)
   - MCP tools (25 gateway tools)
   - Cost tracking (per-role:model)

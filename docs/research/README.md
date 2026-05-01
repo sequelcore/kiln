@@ -22,7 +22,9 @@ define the active architecture contract. For doctrine, use
 
 - `04-current-state-mapping.md`
   Mapping from the research model to Kiln's current implementation and the
-  gaps that still matter.
+  gaps that still matter. This document is a snapshot, so it must be updated
+  when implementation slices promote research ideas into canonical
+  architecture.
 
 ## Topical Research
 

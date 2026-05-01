@@ -11,12 +11,18 @@
 
 ### The Problem with Discrete Orchestration
 
-Every major agent orchestration framework today (LangGraph, AutoGen, CrewAI, Kiln pre-field) treats coordination as a discrete routing graph: agents are named nodes, tasks are tree nodes, routing is rule-based or embedding nearest-neighbor, and memory is key-value storage. This works well for structured workflows but has fundamental limits:
+Every major agent orchestration framework today (LangGraph, AutoGen, CrewAI,
+and comparable graph routers) treats coordination as a discrete routing graph:
+agents are named nodes, tasks are tree nodes, routing is rule-based or
+embedding nearest-neighbor, and memory is retrieved as records. This works well
+for structured workflows but has fundamental limits:
 
 - Routing decisions are stateless per-turn — no accumulated signal from prior activity shapes who gets called next
 - Task traversal is explicit (deepen/branch/prune) — no continuous pressure guiding exploration
 - Agents don't influence each other except through explicit tool calls or handoffs
-- Memory decays but doesn't *propagate* — a strong signal in one area of the knowledge space doesn't attract agents toward it
+- Memory lifecycle policy can decay authorized mutable records, but it does not
+  *propagate* signals — a strong signal in one area of the knowledge space does
+  not attract agents toward it
 
 ### The Research Convergence (April 2026)
 
@@ -30,7 +36,7 @@ Key traditions and their relevance:
 | Artificial Potential Fields (Khatib 1986) | Planning as gradient descent on a constructed potential (attractors + repulsors) | Task-tree traversal as navigation on an energy landscape |
 | Mean-Field MARL (Yang et al., ICML 2018) | Scale multi-agent RL by approximating neighbor interactions via aggregate statistics | EventBus + memory as "mean field" — continuous summary of collective state |
 | Active Inference collectives (Heins et al., PNAS 2024) | Collective behavior (flocking, coordination) emerges from agents minimizing surprise — no explicit social rules programmed | Self-organization without hardcoded routing rules |
-| Stigmergy / Pheromones (Salman et al., NMI 2024) | Indirect coordination via persistent environmental traces with evaporation | Most directly applicable to Kiln: memory decay ≈ evaporation, EventBus ≈ medium |
+| Stigmergy / Pheromones (Salman et al., NMI 2024) | Indirect coordination via persistent environmental traces with evaporation | Applicable to Kiln as governed lifecycle decay plus event-driven coordination evidence; not as repository-side memory evaporation |
 | ACO-based LLM routing (AMRO-S 2026, SwarmSys 2025) | Ant Colony Optimization applied to LLM agent routing — pheromone trails over agent/task space, updated asynchronously | Near plug-and-play pattern over Kiln's existing routing and task tree |
 | Hopfield Networks ↔ Attention (Ramsauer et al., ICLR) | Modern Hopfield networks (continuous states) are equivalent to transformer attention; memory as energy minimization toward attractors | Memory recall as attractor convergence, not key-value lookup |
 
@@ -39,7 +45,8 @@ Key traditions and their relevance:
 Kiln already has the substrate that field-based orchestration requires:
 
 - **EventBus** (43 typed events, ring buffer) — shared medium for signal injection
-- **Memory with decay + compaction** — evaporation operator already present
+- **Memory Lattice lifecycle policy** — decay and compaction exist as governed
+  policy over memory records, not as a field propagation operator
 - **Task tree with scoring** (deepen/branch/prune) — discretized potential landscape
 - **Swarm primitives** (join/leave/claim/broadcast/release) — coordination primitives for field entry/exit
 - **Pluggable orchestration strategies** (sequential/supervisor/swarm) — `field` can be added as a new strategy without breaking existing ones
