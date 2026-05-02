@@ -8,11 +8,13 @@ export interface OpenCodeAdapterConfig {
   readonly apiKey: string;
   readonly tier: OpenCodeTier;
   readonly defaultModel: string;
+  readonly internalRetry?: boolean;
 }
 
 export class OpenCodeAdapter extends OpenAICompatAdapter {
   readonly tier: OpenCodeTier;
   readonly defaultModel: string;
+  private readonly internalRetry: boolean;
 
   constructor(config: OpenCodeAdapterConfig) {
     const defaultModel = config.defaultModel.trim();
@@ -27,6 +29,18 @@ export class OpenCodeAdapter extends OpenAICompatAdapter {
     });
     this.tier = config.tier;
     this.defaultModel = defaultModel;
+    this.internalRetry = config.internalRetry ?? true;
+  }
+
+  override retryOptions() {
+    const options = super.retryOptions();
+    if (this.internalRetry) {
+      return options;
+    }
+    return {
+      ...options,
+      maxRetries: 1,
+    };
   }
 
   static async fromAuth(opts: {

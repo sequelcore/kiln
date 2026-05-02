@@ -6,12 +6,12 @@ import {
   OllamaAdapter,
   OpenAIAdapter,
   OpenCodeAdapter,
-  OpenCodeAuth,
   OpenRouterAdapter,
   type DirectProviderId,
   type ProviderAdapter,
 } from "@kilnai/core";
 import type { OpenCodeTier } from "@kilnai/core";
+import { OpenCodeCredentialPoolService } from "@kilnai/runtime";
 
 type EnvMap = Readonly<Record<string, string | undefined>>;
 
@@ -142,17 +142,13 @@ async function createOpenCodeAdapter(
     });
   }
 
-  const auth = new OpenCodeAuth();
-  const file = await auth.loadAuthFile();
-  if (!file || !file.api_key || file.api_key.trim().length === 0) {
+  const service = new OpenCodeCredentialPoolService();
+  const status = await service.listStatus();
+  if (!status.some((entry) => entry.tier === tier)) {
     throw new Error(`Missing required API key for ${context.provider}: OPENCODE_API_KEY`);
   }
-  if (file.tier !== tier) {
-    throw new Error(`Stored OpenCode auth tier is ${file.tier}, not ${tier}`);
-  }
 
-  return new OpenCodeAdapter({
-    apiKey: file.api_key,
+  return await service.createPooledAdapter({
     tier,
     defaultModel: requireSelectedModel(context),
   });

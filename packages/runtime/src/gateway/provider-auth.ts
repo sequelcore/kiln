@@ -1,9 +1,9 @@
 import {
   CODEX_DEVICE_VERIFICATION_URI,
   CodexOAuthAuth,
-  OpenCodeAuth,
   type OpenCodeTier,
 } from "@kilnai/core";
+import { OpenCodeCredentialPoolService } from "../agents/credential-pool/index.js";
 import { getGuiProviderMetadata } from "@kilnai/gateway-contracts";
 import type {
   GuiInboundFrame,
@@ -144,10 +144,10 @@ export async function startProviderAuthRequest(
         requestId,
         tier,
       });
-      await new OpenCodeAuth().saveAuthFile({
-        api_key: apiKey,
+      await new OpenCodeCredentialPoolService().linkCredential({
+        apiKey,
         tier,
-        created_at: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
       });
       providerAuthDebug("api-key auth saved credentials", {
         provider,

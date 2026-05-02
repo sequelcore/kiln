@@ -2,7 +2,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { CodexOAuthAuth, OpenCodeAuth, type CodexOAuthTokenFile, type OpenCodeTier } from "@kilnai/core";
-import { startProviderAuthRequest } from "@kilnai/runtime";
+import { OpenCodeCredentialPoolService, startProviderAuthRequest } from "@kilnai/runtime";
 
 const AUTH_DIR = join(homedir(), ".kiln", "auth");
 const EXPIRING_SOON_MS = 120 * 1000;
@@ -101,6 +101,7 @@ async function runOpenCodeLink(rest: string[]): Promise<void> {
   const tier = parseTier(rest);
   const explicitKey = parseKeyFlag(rest);
   const auth = new OpenCodeAuth();
+  const pool = new OpenCodeCredentialPoolService();
 
   if (explicitKey) {
     const linked = await startProviderAuthRequest({
@@ -118,8 +119,13 @@ async function runOpenCodeLink(rest: string[]): Promise<void> {
     return;
   }
 
-  const imported = await auth.importFromOpenCodeConfig({ tier });
+  const imported = await auth.readFromOpenCodeConfig({ tier });
   if (imported) {
+    await pool.linkCredential({
+      apiKey: imported.api_key,
+      tier: imported.tier,
+      createdAt: imported.created_at,
+    });
     console.log(`Linked OpenCode (${tier}) — imported key from OpenCode config`);
     return;
   }
@@ -146,20 +152,27 @@ async function runOpenCodeLink(rest: string[]): Promise<void> {
 }
 
 async function runOpenCodeStatus(): Promise<void> {
-  const auth = new OpenCodeAuth();
-  const file = await auth.loadAuthFile();
-  if (!file) {
+  const pool = new OpenCodeCredentialPoolService();
+  const entries = await pool.listStatus();
+  if (entries.length === 0) {
     console.log("Not authenticated");
     return;
   }
-  console.log(`Tier: ${file.tier}`);
-  console.log(`Linked at: ${file.created_at}`);
-  console.log(`Key: ${maskKey(file.api_key)}`);
+  console.log("OpenCode");
+  for (const entry of entries) {
+    console.log(`  ${entry.id}`);
+    console.log(`    Tier: ${entry.tier}`);
+    console.log(`    Linked at: ${entry.createdAt}`);
+    console.log(`    Key: ${entry.key}`);
+    if (entry.health) {
+      console.log(`    Requests: ${entry.health.requestCount}`);
+      console.log(`    Cooldown: ${entry.health.cooldownUntil ?? "none"}`);
+    }
+  }
 }
 
 async function runOpenCodeLogout(): Promise<void> {
-  const auth = new OpenCodeAuth();
-  await auth.clearAuthFile();
+  await new OpenCodeCredentialPoolService().clearCredentials();
   console.log("Logged out of OpenCode");
 }
 
@@ -172,11 +185,6 @@ function parseTier(args: readonly string[]): OpenCodeTier {
 function parseKeyFlag(args: readonly string[]): string | null {
   const idx = args.findIndex((a) => a === "--key" || a === "-k");
   return idx >= 0 ? (args[idx + 1] ?? null) : null;
-}
-
-function maskKey(key: string): string {
-  if (key.length <= 8) return "****";
-  return `${key.slice(0, 4)}…${key.slice(-4)}`;
 }
 
 function readLineFromStdin(): Promise<string> {
@@ -204,9 +212,14 @@ async function printAllProviderStatuses(): Promise<void> {
   }
 
   const providerFiles = entries.filter((entry) => entry.endsWith(".json"));
-  if (providerFiles.length === 0) {
+  const providerDirs = entries.filter((entry) => !entry.endsWith(".json"));
+  if (providerFiles.length === 0 && providerDirs.length === 0) {
     console.log("No authenticated providers");
     return;
+  }
+
+  if (providerDirs.includes("opencode")) {
+    await runOpenCodeStatus();
   }
 
   for (const file of providerFiles) {

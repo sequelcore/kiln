@@ -5,23 +5,18 @@ const coreMocks = vi.hoisted(() => {
   const startDeviceAuthorization = vi.fn();
   const pollForAuthorization = vi.fn();
   const saveTokenFile = vi.fn();
-  const saveAuthFile = vi.fn();
+  const linkCredential = vi.fn();
 
   return {
     startDeviceAuthorization,
     pollForAuthorization,
     saveTokenFile,
-    saveAuthFile,
+    linkCredential,
     CodexOAuthAuth: vi.fn(function CodexOAuthAuth() {
       return {
       startDeviceAuthorization,
       pollForAuthorization,
       saveTokenFile,
-      };
-    }),
-    OpenCodeAuth: vi.fn(function OpenCodeAuth() {
-      return {
-        saveAuthFile,
       };
     }),
   };
@@ -30,7 +25,14 @@ const coreMocks = vi.hoisted(() => {
 vi.mock("@kilnai/core", () => ({
   CODEX_DEVICE_VERIFICATION_URI: "https://mock.openai.com/activate",
   CodexOAuthAuth: coreMocks.CodexOAuthAuth,
-  OpenCodeAuth: coreMocks.OpenCodeAuth,
+}));
+
+vi.mock("../../src/agents/credential-pool/index.js", () => ({
+  OpenCodeCredentialPoolService: class MockOpenCodeCredentialPoolService {
+    linkCredential(options: unknown) {
+      return coreMocks.linkCredential(options);
+    }
+  },
 }));
 
 beforeEach(() => {
@@ -39,9 +41,8 @@ beforeEach(() => {
   coreMocks.startDeviceAuthorization.mockReset();
   coreMocks.pollForAuthorization.mockReset();
   coreMocks.saveTokenFile.mockReset();
-  coreMocks.saveAuthFile.mockReset();
+  coreMocks.linkCredential.mockReset();
   coreMocks.CodexOAuthAuth.mockClear();
-  coreMocks.OpenCodeAuth.mockClear();
 });
 
 afterEach(() => {
@@ -107,11 +108,10 @@ describe("startProviderAuthRequest", () => {
 
     await auth.complete();
 
-    expect(coreMocks.OpenCodeAuth).toHaveBeenCalledTimes(1);
-    expect(coreMocks.saveAuthFile).toHaveBeenCalledWith({
-      api_key: "sk-test",
+    expect(coreMocks.linkCredential).toHaveBeenCalledWith({
+      apiKey: "sk-test",
       tier: "zen",
-      created_at: "2026-04-28T20:00:00.000Z",
+      createdAt: "2026-04-28T20:00:00.000Z",
     });
   });
 

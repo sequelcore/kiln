@@ -33,3 +33,15 @@ export type {
   CredentialPoolFactoryConfig,
   LoadCredentialPoolOptions,
 } from "./credential-pool-factory.js";
+
+export {
+  OPENCODE_POOL_PROVIDER_ID,
+  OpenCodeCredentialPoolService,
+  mapOpenCodeProviderError,
+} from "./opencode-credential-pool.js";
+export type {
+  CreateOpenCodePooledAdapterOptions,
+  LinkOpenCodeCredentialOptions,
+  OpenCodeCredentialPoolServiceConfig,
+  OpenCodeCredentialStatus,
+} from "./opencode-credential-pool.js";

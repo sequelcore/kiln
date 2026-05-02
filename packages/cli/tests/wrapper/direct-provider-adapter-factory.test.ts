@@ -14,6 +14,8 @@ const adapterMocks = vi.hoisted(
   (): Record<MockAdapterName, ReturnType<typeof vi.fn>> & {
     readonly codexAuth: ReturnType<typeof vi.fn>;
     readonly opencodeAuthLoad: ReturnType<typeof vi.fn>;
+    readonly opencodePoolListStatus: ReturnType<typeof vi.fn>;
+    readonly opencodePoolCreateAdapter: ReturnType<typeof vi.fn>;
   } => ({
     anthropic: vi.fn(),
     codexAuth: vi.fn(),
@@ -23,6 +25,8 @@ const adapterMocks = vi.hoisted(
     openai: vi.fn(),
     opencode: vi.fn(),
     opencodeAuthLoad: vi.fn(),
+    opencodePoolListStatus: vi.fn(),
+    opencodePoolCreateAdapter: vi.fn(),
     openrouter: vi.fn(),
   }),
 );
@@ -50,14 +54,22 @@ vi.mock("@kilnai/core", async (importOriginal) => {
     OllamaAdapter: makeAdapter("ollama"),
     OpenAIAdapter: makeAdapter("openai"),
     OpenCodeAdapter: makeAdapter("opencode"),
-    OpenCodeAuth: class MockOpenCodeAuth {
-      loadAuthFile() {
-        return adapterMocks.opencodeAuthLoad();
-      }
-    },
     OpenRouterAdapter: makeAdapter("openrouter"),
   };
 });
+
+vi.mock("@kilnai/runtime", () => ({
+  OpenCodeCredentialPoolService: class MockOpenCodeCredentialPoolService {
+    listStatus() {
+      return adapterMocks.opencodePoolListStatus();
+    }
+
+    createPooledAdapter(config: unknown) {
+      adapterMocks.opencodePoolCreateAdapter(config);
+      return { name: "pooled-opencode" };
+    }
+  },
+}));
 
 import { createDirectProviderAdapter } from "../../src/wrapper/direct-provider-adapter-factory.js";
 
@@ -173,34 +185,32 @@ describe("createDirectProviderAdapter", () => {
     ["opencode-go", "go"],
     ["opencode-zen", "zen"],
   ] as const)("creates %s adapters from stored OpenCode auth", async (provider, tier) => {
-    adapterMocks.opencodeAuthLoad.mockResolvedValueOnce({
-      api_key: "stored-key",
+    adapterMocks.opencodePoolListStatus.mockResolvedValueOnce([{
+      id: "stored",
       tier,
-      created_at: "2026-04-27T00:00:00.000Z",
-    });
+    }]);
 
-    await createDirectProviderAdapter({
+    const adapter = await createDirectProviderAdapter({
       provider,
       model: "chosen-model",
     });
 
-    expect(adapterMocks.opencode).toHaveBeenCalledWith({
-      apiKey: "stored-key",
+    expect(adapter).toEqual({ name: "pooled-opencode" });
+    expect(adapterMocks.opencodePoolCreateAdapter).toHaveBeenCalledWith({
       tier,
       defaultModel: "chosen-model",
     });
   });
 
   it("rejects stored OpenCode auth when the tier does not match the requested provider", async () => {
-    adapterMocks.opencodeAuthLoad.mockResolvedValueOnce({
-      api_key: "stored-key",
+    adapterMocks.opencodePoolListStatus.mockResolvedValueOnce([{
+      id: "stored",
       tier: "zen",
-      created_at: "2026-04-27T00:00:00.000Z",
-    });
+    }]);
 
     await expect(createDirectProviderAdapter({
       provider: "opencode-go",
-    })).rejects.toThrow("Stored OpenCode auth tier is zen, not go");
+    })).rejects.toThrow("Missing required API key for opencode-go: OPENCODE_API_KEY");
   });
 
   it("throws a provider-specific error when a required API key is missing", async () => {

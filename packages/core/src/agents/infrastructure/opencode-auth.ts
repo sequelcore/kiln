@@ -92,6 +92,18 @@ export class OpenCodeAuth {
   async importFromOpenCodeConfig(
     opts?: { tier?: OpenCodeTier; sourcePath?: string },
   ): Promise<OpenCodeAuthFile | null> {
+    const authFile = await this.readFromOpenCodeConfig(opts);
+    if (!authFile) {
+      return null;
+    }
+
+    await this.saveAuthFile(authFile);
+    return authFile;
+  }
+
+  async readFromOpenCodeConfig(
+    opts?: { tier?: OpenCodeTier; sourcePath?: string },
+  ): Promise<OpenCodeAuthFile | null> {
     const sourcePath = opts?.sourcePath ?? getDefaultOpenCodeSourcePath();
     const tier = opts?.tier ?? "go";
 
@@ -136,7 +148,6 @@ export class OpenCodeAuth {
       created_at: new Date().toISOString(),
     };
 
-    await this.saveAuthFile(authFile);
     return authFile;
   }
 

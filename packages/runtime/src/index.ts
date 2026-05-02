@@ -24,6 +24,9 @@ export {
   CredentialHealthStore,
   CredentialMigrator,
   CredentialPoolFactory,
+  OPENCODE_POOL_PROVIDER_ID,
+  OpenCodeCredentialPoolService,
+  mapOpenCodeProviderError,
   toHealthRecord,
 } from "./agents/credential-pool/index.js";
 export type {
@@ -35,6 +38,10 @@ export type {
   CredentialPoolFactoryConfig,
   LoadCredentialPoolOptions,
   MigrateLegacyCredentialFileOptions,
+  CreateOpenCodePooledAdapterOptions,
+  LinkOpenCodeCredentialOptions,
+  OpenCodeCredentialPoolServiceConfig,
+  OpenCodeCredentialStatus,
   RuntimeCredentialFile,
   WriteRuntimeCredential,
 } from "./agents/credential-pool/index.js";

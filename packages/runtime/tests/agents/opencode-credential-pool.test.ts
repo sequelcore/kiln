@@ -1,0 +1,196 @@
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { AgentResponse, CreateMessageOptions, ProviderAdapter } from "@kilnai/core";
+import { AllCredentialsExhaustedError } from "@kilnai/core";
+import {
+  OpenCodeCredentialPoolService,
+  mapOpenCodeProviderError,
+} from "../../src/agents/credential-pool/opencode-credential-pool.js";
+
+function makeOptions(): CreateMessageOptions {
+  return {
+    system: "system",
+    messages: [],
+  };
+}
+
+function makeResponse(text: string): AgentResponse {
+  return {
+    parts: [{ type: "text", text }],
+    inputTokens: 1,
+    outputTokens: 1,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    toolCalls: [],
+    stopReason: "stop",
+  };
+}
+
+class TestAdapter implements ProviderAdapter {
+  readonly name = "test";
+
+  constructor(
+    private readonly handler: () => Promise<AgentResponse>,
+  ) {}
+
+  createMessage(): Promise<AgentResponse> {
+    return this.handler();
+  }
+
+  async *streamMessage() {
+    yield { type: "done" as const, content: "" };
+  }
+}
+
+describe("OpenCodeCredentialPoolService", () => {
+  let rootDir: string;
+
+  beforeEach(async () => {
+    rootDir = await mkdtemp(join(tmpdir(), "kiln-opencode-pool-"));
+  });
+
+  afterEach(async () => {
+    await rm(rootDir, { recursive: true, force: true });
+  });
+
+  it("links OpenCode credentials as raw auth files and projects secret-free status", async () => {
+    const service = new OpenCodeCredentialPoolService({ rootDir });
+
+    await service.linkCredential({
+      id: "work",
+      apiKey: "sk-work",
+      tier: "zen",
+      createdAt: "2026-05-02T00:00:00.000Z",
+    });
+
+    const raw = JSON.parse(await readFile(join(rootDir, "opencode", "work.json"), "utf8"));
+    expect(raw).toEqual({
+      api_key: "sk-work",
+      tier: "zen",
+      created_at: "2026-05-02T00:00:00.000Z",
+    });
+
+    const status = await service.listStatus();
+    expect(status).toEqual([{
+      id: "work",
+      label: "work",
+      tier: "zen",
+      createdAt: "2026-05-02T00:00:00.000Z",
+      key: "****",
+      health: undefined,
+    }]);
+    expect(JSON.stringify(status)).not.toContain("sk-work");
+  });
+
+  it("migrates the previous singleton file before writing a new credential", async () => {
+    const service = new OpenCodeCredentialPoolService({ rootDir });
+    await writeFile(join(rootDir, "opencode.json"), JSON.stringify({
+      api_key: "sk-singleton",
+      tier: "go",
+      created_at: "2026-05-01T00:00:00.000Z",
+    }), "utf8");
+
+    await service.linkCredential({
+      id: "second",
+      apiKey: "sk-second",
+      tier: "zen",
+      createdAt: "2026-05-02T00:00:00.000Z",
+    });
+
+    await expect(readFile(join(rootDir, "opencode.json"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    expect(JSON.parse(await readFile(join(rootDir, "opencode", "default.json"), "utf8"))).toMatchObject({
+      api_key: "sk-singleton",
+      tier: "go",
+    });
+    expect(JSON.parse(await readFile(join(rootDir, "opencode", "second.json"), "utf8"))).toMatchObject({
+      api_key: "sk-second",
+      tier: "zen",
+    });
+  });
+
+  it("refuses previous singleton and directory coexistence", async () => {
+    const service = new OpenCodeCredentialPoolService({ rootDir });
+    await mkdir(join(rootDir, "opencode"), { recursive: true });
+    await writeFile(join(rootDir, "opencode", "existing.json"), JSON.stringify({
+      api_key: "sk-existing",
+      tier: "go",
+      created_at: "2026-05-01T00:00:00.000Z",
+    }), "utf8");
+    await writeFile(join(rootDir, "opencode.json"), JSON.stringify({
+      api_key: "sk-singleton",
+      tier: "go",
+      created_at: "2026-05-01T00:00:00.000Z",
+    }), "utf8");
+
+    await expect(service.listStatus()).rejects.toThrow("previous singleton and directory OpenCode credentials cannot coexist");
+  });
+
+  it("creates a pooled adapter that rotates on rate limits", async () => {
+    const service = new OpenCodeCredentialPoolService({ rootDir });
+    await service.linkCredential({ id: "first", apiKey: "sk-first", tier: "go" });
+    await service.linkCredential({ id: "second", apiKey: "sk-second", tier: "go" });
+    const calls: string[] = [];
+
+    const adapter = await service.createPooledAdapter({
+      tier: "go",
+      defaultModel: "model",
+      createAdapter: (auth) => new TestAdapter(async () => {
+        calls.push(auth.api_key);
+        if (auth.api_key === "sk-first") {
+          const error = new Error("rate limited");
+          (error as { status?: number }).status = 429;
+          throw error;
+        }
+        return makeResponse("ok");
+      }),
+    });
+
+    await expect(adapter.createMessage(makeOptions())).resolves.toEqual(makeResponse("ok"));
+    expect(calls).toEqual(["sk-first", "sk-second"]);
+  });
+
+  it("throws AllCredentialsExhaustedError when all matching tier entries are exhausted", async () => {
+    const service = new OpenCodeCredentialPoolService({ rootDir });
+    await service.linkCredential({ id: "only", apiKey: "sk-only", tier: "go" });
+
+    const adapter = await service.createPooledAdapter({
+      tier: "go",
+      defaultModel: "model",
+      createAdapter: () => new TestAdapter(async () => {
+        const error = new Error("rate limited");
+        (error as { status?: number }).status = 429;
+        throw error;
+      }),
+    });
+
+    await expect(adapter.createMessage(makeOptions())).rejects.toBeInstanceOf(AllCredentialsExhaustedError);
+  });
+
+  it("maps provider status codes into credential outcomes", () => {
+    expect(mapOpenCodeProviderError(Object.assign(new Error("rate"), { status: 429 }))).toEqual({ type: "rate-limited" });
+    expect(mapOpenCodeProviderError(Object.assign(new Error("quota"), { status: 402 }))).toEqual({ type: "quota-exceeded" });
+    expect(mapOpenCodeProviderError(Object.assign(new Error("auth"), { status: 401 }))).toEqual({ type: "auth-failed" });
+    expect(mapOpenCodeProviderError(new TypeError("fetch failed"))).toEqual({ type: "connection-failed" });
+  });
+
+  it("can use a custom adapter factory for direct OpenCode adapters", async () => {
+    const service = new OpenCodeCredentialPoolService({ rootDir });
+    await service.linkCredential({ id: "only", apiKey: "sk-only", tier: "zen" });
+    const createAdapter = vi.fn((auth) => new TestAdapter(async () => makeResponse(auth.tier)));
+
+    const adapter = await service.createPooledAdapter({
+      tier: "zen",
+      defaultModel: "model",
+      createAdapter,
+    });
+
+    await adapter.createMessage(makeOptions());
+    expect(createAdapter).toHaveBeenCalledWith({
+      api_key: "sk-only",
+      tier: "zen",
+      created_at: expect.any(String),
+    });
+  });
+});

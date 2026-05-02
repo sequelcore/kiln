@@ -310,9 +310,9 @@ Verification completed:
 - `cmd.exe /c bun run --filter @kilnai/runtime test` — 132 files and 1766 tests
   passed.
 
-### Slice 4 — OpenCode integration
+### Slice 4 — OpenCode integration — Completed 2026-05-02
 
-Wire `opencode-go` and `opencode-zen` through the pool.
+Wired `opencode-go` and `opencode-zen` through the pool.
 
 Auth directory: `~/.kiln/auth/opencode/`. Each file is a `{name}.json` with
 the same shape as the current single `~/.kiln/auth/opencode.json`. The first
@@ -320,15 +320,35 @@ the same shape as the current single `~/.kiln/auth/opencode.json`. The first
 file into `~/.kiln/auth/opencode/default.json` and removes the top-level
 file. No compatibility shim — after migration only the directory form exists.
 
-`OpenCodeAuth` must stop being the long-term owner of pool storage. It may be
-used as a migration reader for the existing single-file shape, but new writes
-go through the runtime credential file service. After migration is complete,
-dead single-file write paths are deleted.
+`OpenCodeAuth` now remains only a core auth-file helper and OpenCode config
+reader. CLI and runtime auth writes go through
+`OpenCodeCredentialPoolService`, which preserves the raw OpenCode auth-file
+shape for each pool entry and migrates the previous singleton file into
+`opencode/default.json`.
 
-Acceptance: `kiln auth opencode link` with a second key creates a second
-entry; `kiln auth opencode status` lists both entries with per-entry health.
-`OpenCodeAdapter` via `PooledProviderAdapter` rotates to the second credential
-on a simulated 429. Pool-entry count is visible in gateway observability.
+Acceptance status:
+
+- `kiln auth opencode link` writes new credentials under
+  `~/.kiln/auth/opencode/{id}.json`.
+- first link against an existing `~/.kiln/auth/opencode.json` migrates it to
+  `~/.kiln/auth/opencode/default.json` and removes the singleton.
+- previous singleton and directory credentials cannot coexist.
+- `kiln auth opencode status` lists pool entries without exposing full API
+  keys and includes per-entry health when available.
+- direct provider creation uses `PooledProviderAdapter` for stored OpenCode
+  credentials and rotates to another matching-tier credential on simulated
+  429s.
+- pool-enabled OpenCode adapters disable provider-internal 429 retry so the
+  pool sees the exhaustion signal.
+
+Verification completed:
+
+- `cmd.exe /c bun x vitest run packages/core/src/agents/infrastructure/__tests__/opencode-auth.test.ts packages/core/src/agents/infrastructure/__tests__/opencode-provider.test.ts packages/runtime/tests/gateway/provider-auth.test.ts packages/runtime/tests/agents/opencode-credential-pool.test.ts packages/cli/tests/wrapper/direct-provider-adapter-factory.test.ts`
+  — 53 tests passed.
+- `cmd.exe /c bun run --filter @kilnai/core test` — 2,904 tests passed.
+- `cmd.exe /c bun run --filter @kilnai/runtime test` — 1,773 tests passed.
+- `cmd.exe /c bun run --filter @kilnai/cli test` — 687 tests passed.
+- `cmd.exe /c bun run typecheck` — passed.
 
 ### Slice 5 — Codex OAuth integration
 
@@ -536,7 +556,7 @@ provider. Confirmed via integration test.
 - No duplicate credential readers. If CLI, gateway, and GUI need credential
   state, they call the same runtime service instead of parsing the same files
   independently.
-- No legacy aliasing. `~/.kiln/auth/opencode.json` (single-file) and
+- No compatibility aliasing. `~/.kiln/auth/opencode.json` (single-file) and
   `~/.kiln/auth/opencode/*.json` (pool) cannot coexist. The migrator writes the
   directory form and deletes the single file at first `link` invocation.
   There is no shim that reads both.
