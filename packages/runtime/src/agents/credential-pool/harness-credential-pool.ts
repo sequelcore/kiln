@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { CredentialPool, type Credential, type CredentialOutcome } from "@kilnai/core";
 import { CredentialFileStore } from "./credential-file-store.js";
 import { CredentialHealthStore } from "./credential-health-store.js";
+import type { CredentialWatcher } from "./credential-watcher.js";
 
 export type HarnessPoolProviderId = "claude-code" | "codex" | "opencode";
 
@@ -13,6 +14,7 @@ export interface HarnessHomeAuth {
 export interface HarnessCredentialPoolServiceConfig {
   readonly rootDir?: string;
   readonly healthStore?: CredentialHealthStore;
+  readonly watcher?: CredentialWatcher;
 }
 
 export interface HarnessCredentialStatus {
@@ -31,10 +33,12 @@ export interface HarnessCredentialStatus {
 export class HarnessCredentialPoolService {
   private readonly rootDir: string;
   private readonly healthStore: CredentialHealthStore;
+  private readonly watcher?: CredentialWatcher;
 
   constructor(config: HarnessCredentialPoolServiceConfig = {}) {
     this.rootDir = config.rootDir ?? join(homedir(), ".kiln", "auth");
     this.healthStore = config.healthStore ?? new CredentialHealthStore({ rootDir: this.rootDir });
+    this.watcher = config.watcher;
   }
 
   async listStatus(provider: HarnessPoolProviderId): Promise<readonly HarnessCredentialStatus[]> {
@@ -60,11 +64,15 @@ export class HarnessCredentialPoolService {
   }
 
   async createPool(provider: HarnessPoolProviderId): Promise<CredentialPool<HarnessHomeAuth>> {
-    return new CredentialPool<HarnessHomeAuth>(provider, {
+    const pool = new CredentialPool<HarnessHomeAuth>(provider, {
       strategy: "fill-first",
       credentials: await this.resolveCredentials(provider),
       statePort: this.healthStore.createStatePort<HarnessHomeAuth>(provider),
     });
+    this.watcher?.onProviderChanged(provider, async () => {
+      pool.reloadCredentials(await this.resolveCredentials(provider));
+    });
+    return pool;
   }
 
   private async resolveCredentials(provider: HarnessPoolProviderId): Promise<readonly Credential<HarnessHomeAuth>[]> {

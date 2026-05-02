@@ -1,6 +1,7 @@
 // Gateway: GatewayServer -- persistent Bun/Hono process hosting multiple Apps
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { createRequire } from "node:module";
 import type { Hono } from "hono";
@@ -18,6 +19,7 @@ import {
 } from "@kilnai/core";
 import {
   CodexOAuthCredentialPoolService,
+  CredentialWatcher,
   DirectProviderCredentialPoolService,
   isPooledDirectProviderId,
 } from "../agents/credential-pool/index.js";
@@ -268,6 +270,10 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
   }
 
   // EventBus: shared across all apps for observability and dev inspector
+  const credentialWatcher = new CredentialWatcher({
+    rootDir: join(homedir(), ".kiln", "auth"),
+  });
+  await credentialWatcher.start();
   const prometheusCollector = new PrometheusCollector();
   const compositeStore = new CompositeEventStore(
     otelExporter ? [otelExporter, prometheusCollector] : [prometheusCollector],
@@ -340,7 +346,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
     const resolved = resolvedApps.find((r) => r.name === loaded.name);
     if (!resolved?.runtimeModeConfig || resolved.runtimeModeConfig.runtime !== "provider-adapter") continue;
 
-    const provider = await createProviderFromConfig(resolved.runtimeModeConfig.provider);
+    const provider = await createProviderFromConfig(resolved.runtimeModeConfig.provider, credentialWatcher);
     const systemPrompt = buildSystemPromptFromApp(resolved.app);
 
     // Discover MCP tools if configured
@@ -1235,6 +1241,7 @@ REASONING: <one sentence explanation>`;
 
   await serveAndWait(honoApp, port, () => {
     triggerRegistry.stop();
+    credentialWatcher.stop();
     webhookDedup.close();
     swarmMemoryRepository?.close();
     mcpServerInstance?.close().catch(() => {});
@@ -1245,7 +1252,10 @@ REASONING: <one sentence explanation>`;
 }
 
 /** Create a ProviderAdapter from a provider-adapter runtime config. */
-async function createProviderFromConfig(config: ProviderConfig): Promise<ProviderAdapter> {
+async function createProviderFromConfig(
+  config: ProviderConfig,
+  credentialWatcher?: CredentialWatcher,
+): Promise<ProviderAdapter> {
   const model = config.model;
   const requireModel = (): string => {
     const selectedModel = model?.trim();
@@ -1259,7 +1269,7 @@ async function createProviderFromConfig(config: ProviderConfig): Promise<Provide
 
   switch (config.name) {
     case "codex-oauth":
-      return await new CodexOAuthCredentialPoolService().createPooledAdapter({ defaultModel: requireModel() });
+      return await new CodexOAuthCredentialPoolService({ watcher: credentialWatcher }).createPooledAdapter({ defaultModel: requireModel() });
     case "anthropic":
     case "openai":
     case "deepseek":
@@ -1269,7 +1279,7 @@ async function createProviderFromConfig(config: ProviderConfig): Promise<Provide
       if (!isPooledDirectProviderId(config.name)) {
         throw new KilnError("CONFIG_INVALID", `Unsupported pooled provider: ${config.name}`);
       }
-      return await new DirectProviderCredentialPoolService().createPooledAdapter({
+      return await new DirectProviderCredentialPoolService({ watcher: credentialWatcher }).createPooledAdapter({
         provider: config.name,
         defaultModel: model,
         openRouterAppUrl: process.env.OPENROUTER_APP_URL,

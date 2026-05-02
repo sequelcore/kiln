@@ -12,12 +12,14 @@ import {
   type ProviderAdapter,
 } from "@kilnai/core";
 import { CredentialHealthStore } from "./credential-health-store.js";
+import type { CredentialWatcher } from "./credential-watcher.js";
 
 export const CODEX_OAUTH_POOL_PROVIDER_ID = "codex-oauth";
 
 export interface CodexOAuthCredentialPoolServiceConfig {
   readonly rootDir?: string;
   readonly healthStore?: CredentialHealthStore;
+  readonly watcher?: CredentialWatcher;
 }
 
 export interface LinkCodexOAuthCredentialOptions {
@@ -52,10 +54,12 @@ const EXPIRING_SOON_MS = 120 * 1000;
 export class CodexOAuthCredentialPoolService {
   private readonly rootDir: string;
   private readonly healthStore: CredentialHealthStore;
+  private readonly watcher?: CredentialWatcher;
 
   constructor(config: CodexOAuthCredentialPoolServiceConfig = {}) {
     this.rootDir = config.rootDir ?? join(homedir(), ".kiln", "auth");
     this.healthStore = config.healthStore ?? new CredentialHealthStore({ rootDir: this.rootDir });
+    this.watcher = config.watcher;
   }
 
   async linkCredential(options: LinkCodexOAuthCredentialOptions): Promise<void> {
@@ -108,7 +112,19 @@ export class CodexOAuthCredentialPoolService {
   }
 
   async createPool(): Promise<CredentialPool<CodexOAuthPoolCredential>> {
-    const credentials = (await this.readCredentials())
+    const pool = new CredentialPool<CodexOAuthPoolCredential>(CODEX_OAUTH_POOL_PROVIDER_ID, {
+      strategy: "fill-first",
+      credentials: await this.loadCredentialsForPool(),
+      statePort: this.healthStore.createStatePort<CodexOAuthPoolCredential>(CODEX_OAUTH_POOL_PROVIDER_ID),
+    });
+    this.watcher?.onProviderChanged(CODEX_OAUTH_POOL_PROVIDER_ID, async () => {
+      pool.reloadCredentials(await this.loadCredentialsForPool());
+    });
+    return pool;
+  }
+
+  private async loadCredentialsForPool(): Promise<Credential<CodexOAuthPoolCredential>[]> {
+    return (await this.readCredentials())
       .map((entry): Credential<CodexOAuthPoolCredential> => ({
         id: entry.id,
         label: entry.id,
@@ -126,12 +142,6 @@ export class CodexOAuthCredentialPoolService {
         cooldownUntil: null,
         softLeaseCount: 0,
       }));
-
-    return new CredentialPool<CodexOAuthPoolCredential>(CODEX_OAUTH_POOL_PROVIDER_ID, {
-      strategy: "fill-first",
-      credentials,
-      statePort: this.healthStore.createStatePort<CodexOAuthPoolCredential>(CODEX_OAUTH_POOL_PROVIDER_ID),
-    });
   }
 
   private async readCredentials(): Promise<ReadonlyArray<{

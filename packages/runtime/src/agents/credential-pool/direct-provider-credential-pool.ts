@@ -17,6 +17,7 @@ import {
 } from "@kilnai/core";
 import { CredentialFileStore } from "./credential-file-store.js";
 import { CredentialHealthStore } from "./credential-health-store.js";
+import type { CredentialWatcher } from "./credential-watcher.js";
 
 export type PooledDirectProviderId = "anthropic" | "openai" | "deepseek" | "openrouter" | "ollama" | "lmstudio";
 
@@ -24,6 +25,7 @@ export interface DirectProviderCredentialPoolServiceConfig {
   readonly rootDir?: string;
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly healthStore?: CredentialHealthStore;
+  readonly watcher?: CredentialWatcher;
 }
 
 export interface DirectProviderAuth {
@@ -93,11 +95,13 @@ export class DirectProviderCredentialPoolService {
   private readonly rootDir: string;
   private readonly env: Readonly<Record<string, string | undefined>>;
   private readonly healthStore: CredentialHealthStore;
+  private readonly watcher?: CredentialWatcher;
 
   constructor(config: DirectProviderCredentialPoolServiceConfig = {}) {
     this.rootDir = config.rootDir ?? join(homedir(), ".kiln", "auth");
     this.env = config.env ?? process.env;
     this.healthStore = config.healthStore ?? new CredentialHealthStore({ rootDir: this.rootDir });
+    this.watcher = config.watcher;
   }
 
   async listStatus(provider: PooledDirectProviderId): Promise<readonly DirectProviderCredentialStatus[]> {
@@ -134,11 +138,15 @@ export class DirectProviderCredentialPoolService {
 
   async createPool(provider: PooledDirectProviderId): Promise<CredentialPool<DirectProviderAuth>> {
     const credentials = await this.resolveCredentials(provider);
-    return new CredentialPool<DirectProviderAuth>(provider, {
+    const pool = new CredentialPool<DirectProviderAuth>(provider, {
       strategy: "fill-first",
       credentials,
       statePort: this.healthStore.createStatePort<DirectProviderAuth>(provider),
     });
+    this.watcher?.onProviderChanged(provider, async () => {
+      pool.reloadCredentials(await this.resolveCredentials(provider));
+    });
+    return pool;
   }
 
   private async resolveCredentials(provider: PooledDirectProviderId): Promise<readonly Credential<DirectProviderAuth>[]> {

@@ -12,12 +12,14 @@ import {
   type ProviderAdapter,
 } from "@kilnai/core";
 import { CredentialHealthStore } from "./credential-health-store.js";
+import type { CredentialWatcher } from "./credential-watcher.js";
 
 export const OPENCODE_POOL_PROVIDER_ID = "opencode";
 
 export interface OpenCodeCredentialPoolServiceConfig {
   readonly rootDir?: string;
   readonly healthStore?: CredentialHealthStore;
+  readonly watcher?: CredentialWatcher;
 }
 
 export interface LinkOpenCodeCredentialOptions {
@@ -49,10 +51,12 @@ export interface CreateOpenCodePooledAdapterOptions {
 export class OpenCodeCredentialPoolService {
   private readonly rootDir: string;
   private readonly healthStore: CredentialHealthStore;
+  private readonly watcher?: CredentialWatcher;
 
   constructor(config: OpenCodeCredentialPoolServiceConfig = {}) {
     this.rootDir = config.rootDir ?? join(homedir(), ".kiln", "auth");
     this.healthStore = config.healthStore ?? new CredentialHealthStore({ rootDir: this.rootDir });
+    this.watcher = config.watcher;
   }
 
   async linkCredential(options: LinkOpenCodeCredentialOptions): Promise<void> {
@@ -113,7 +117,19 @@ export class OpenCodeCredentialPoolService {
   }
 
   async createPool(tier: OpenCodeTier): Promise<CredentialPool<OpenCodeAuthFile>> {
-    const credentials = (await this.readCredentials())
+    const pool = new CredentialPool<OpenCodeAuthFile>(OPENCODE_POOL_PROVIDER_ID, {
+      strategy: "fill-first",
+      credentials: await this.loadCredentialsForPool(tier),
+      statePort: this.healthStore.createStatePort<OpenCodeAuthFile>(OPENCODE_POOL_PROVIDER_ID),
+    });
+    this.watcher?.onProviderChanged(OPENCODE_POOL_PROVIDER_ID, async () => {
+      pool.reloadCredentials(await this.loadCredentialsForPool(tier));
+    });
+    return pool;
+  }
+
+  private async loadCredentialsForPool(tier: OpenCodeTier): Promise<Credential<OpenCodeAuthFile>[]> {
+    return (await this.readCredentials())
       .filter((entry) => entry.auth.tier === tier)
       .map((entry): Credential<OpenCodeAuthFile> => ({
         id: entry.id,
@@ -129,12 +145,6 @@ export class OpenCodeCredentialPoolService {
         cooldownUntil: null,
         softLeaseCount: 0,
       }));
-
-    return new CredentialPool<OpenCodeAuthFile>(OPENCODE_POOL_PROVIDER_ID, {
-      strategy: "fill-first",
-      credentials,
-      statePort: this.healthStore.createStatePort<OpenCodeAuthFile>(OPENCODE_POOL_PROVIDER_ID),
-    });
   }
 
   private async readCredentials(): Promise<ReadonlyArray<{ readonly id: string; readonly auth: OpenCodeAuthFile }>> {

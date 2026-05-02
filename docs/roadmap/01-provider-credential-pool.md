@@ -540,7 +540,7 @@ Verification completed:
   tests passed.
 - `cmd.exe /c bun run --filter @kilnai/cli test` — passed.
 
-### Slice 8 — Cross-process reload
+### Slice 8 — Cross-process reload — Completed 2026-05-02
 
 Add `CredentialWatcher` in `packages/runtime/src/agents/credential-pool/`.
 Watches `~/.kiln/auth/**/*.json` with `st_mtime_ns`-based polling, matching
@@ -556,6 +556,27 @@ synchronous and IO-free.
 Acceptance: `kiln auth opencode link` with a new key in one shell causes the
 pool in a running gateway process to include the new credential within 5 s.
 No restart required.
+
+Completed status:
+
+- `CredentialWatcher` polls `~/.kiln/auth/**/*.json` at 500 ms and uses
+  nanosecond mtime when available, with millisecond fallback.
+- `.health/` metadata is ignored, so health writes do not trigger credential
+  reload loops.
+- runtime pool services register live pools with the watcher and call
+  `reloadCredentials()` when their provider directory changes.
+- direct providers, Codex OAuth, OpenCode API-key pools, and harness home pools
+  support watcher-driven reloads.
+- the gateway starts one watcher at startup, passes it into provider-adapter
+  pool services, and stops it during shutdown.
+
+Verification completed:
+
+- `cmd.exe /c bun x vitest run packages/runtime/tests/agents/credential-watcher.test.ts packages/runtime/tests/agents/direct-provider-credential-pool.test.ts packages/runtime/tests/agents/codex-oauth-credential-pool.test.ts packages/runtime/tests/agents/opencode-credential-pool.test.ts packages/runtime/tests/agents/harness-credential-pool.test.ts`
+  — 24 tests passed.
+- `cmd.exe /c bun run typecheck` — passed.
+- `cmd.exe /c bun run --filter @kilnai/runtime test` — 137 files and 1788
+  tests passed.
 
 ### Slice 9 — Observability
 

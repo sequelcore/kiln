@@ -19,6 +19,14 @@ export type {
 } from "./credential-health-store.js";
 
 export {
+  CredentialWatcher,
+} from "./credential-watcher.js";
+export type {
+  CredentialWatcherConfig,
+  CredentialWatcherListener,
+} from "./credential-watcher.js";
+
+export {
   CredentialPoolFactory,
 } from "./credential-pool-factory.js";
 export type {
