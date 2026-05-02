@@ -164,3 +164,32 @@ export type {
   DirectProviderExecutionProfile,
   ResolvedDirectProviderExecutionProfile,
 } from "./provider-execution-profiles.js";
+
+export {
+  CredentialPool,
+  AllCredentialsExhaustedError,
+  isOk,
+  isRetryable,
+  isAuthError,
+  getResetAt,
+  computeCooldownUntil,
+  DEFAULT_COOLDOWN_POLICY,
+  createCooldownPolicy,
+  selectCredential,
+  createInitialSelectionContext,
+  updateSelectionContext,
+  computePoolMetrics,
+} from "./credential-pool/index.js";
+export type {
+  Credential,
+  Lease,
+  CredentialSource,
+  CredentialOutcome,
+  CooldownPolicy,
+  SelectionStrategy,
+  CredentialPoolStatePort,
+  CredentialPoolConfig,
+  PoolMetrics,
+  CredentialPoolSnapshot,
+  CredentialPoolEntrySnapshot,
+} from "./credential-pool/index.js";

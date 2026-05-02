@@ -38,6 +38,23 @@ harness-wrapped providers (`claude-code`, `codex`, `opencode`).
 
 ## Architecture
 
+### Reference implementation
+
+`hermes-agent` already has the closest working precedent:
+
+- `C:/Proyectos/Sequel/hermes-agent/agent/credential_pool.py` for selection
+  strategies, cooldown expiry, per-entry status, and rotation after exhaustion.
+- `C:/Proyectos/Sequel/hermes-agent/tests/agent/test_credential_pool.py` for
+  behavior tests that cover 402/429 cooldowns, reset timestamps,
+  `round_robin`, `random`, `least_used`, env-seeded credentials, and
+  concurrency.
+- `C:/Proyectos/Sequel/hermes-agent/tools/mcp_oauth_manager.py` for the
+  `st_mtime_ns` disk-change invalidation pattern.
+
+Use Hermes as a behavioral blueprint, not as code to copy. Hermes is pragmatic
+and proven, but its pool owns persistence and provider-specific refresh
+branches. Kiln must keep those responsibilities outside the core domain.
+
 ### Package location
 
 New directory: `packages/core/src/agents/credential-pool/`
@@ -47,38 +64,78 @@ Following Clean Architecture: domain types and selection policy live in
 logic live in `@kilnai/runtime`. CLI commands that read/write credentials
 stay in `@kilnai/cli`.
 
+Runtime support lives under `packages/runtime/src/agents/credential-pool/`:
+
+- credential source readers and writers
+- single-file-to-directory migrations
+- `st_mtime_ns`-based change detection
+- provider-specific error-to-outcome mappers where they depend on transport
+  shape
+
+CLI support stays in `packages/cli/src/commands/auth.ts` and should call
+runtime services instead of reading arbitrary auth files directly.
+
 ### Domain entities
 
-- `Credential<TAuth>` — an auth value plus lease metadata: last-success,
-  last-exhausted, cooldown-until, soft-lease count, and a tier tag for
-  providers that have meaningfully different capability tiers (e.g. Go vs
-  Zen, Pro vs Plus).
+- `Credential<TAuth>` — an auth value plus domain metadata: id, label,
+  provider id, source, priority, optional tier tag, request counters,
+  last-success, last-exhausted, cooldown-until, and soft-lease count.
 - `CredentialPool<TAuth>` — a named, typed collection of `Credential<TAuth>`
-  instances. Exposes `acquire(): Promise<Lease<TAuth>>` and
+  instances. Exposes `acquire(): Lease<TAuth>` and
   `report(lease: Lease<TAuth>, outcome: CredentialOutcome): void`.
 - `SelectionStrategy` — policy enum: `fill-first` (exhaust one credential
   before moving), `round-robin`, `random`, `least-used`. Applies within
   the set of credentials not currently in cooldown.
 - `CooldownPolicy` — defines default cooldown duration (1 h) and the rule
   for accepting a server-supplied `resetAt` override from the error response.
-- `PooledAdapter<T extends ProviderAdapter>` — wraps any existing adapter
-  with pool-aware acquire/report/retry. On caught `PROVIDER_RATE_LIMITED`
-  or `PROVIDER_QUOTA_EXCEEDED`, marks the current lease exhausted and
-  transparently retries on the next available credential until budget is
-  exhausted or no usable credentials remain, at which point it surfaces
-  `ALL_CREDENTIALS_EXHAUSTED`.
 - `CredentialOutcome` — typed discriminated union: `ok`, `rate-limited`
-  (with optional `resetAt`), `quota-exceeded`, `auth-failed`, `unknown-error`.
+  (with optional `resetAt`), `quota-exceeded`, `auth-failed`,
+  `connection-failed`, `unknown-error`.
+- `CredentialPoolSnapshot` — immutable read model for CLI and observability.
+  It contains metadata and health only; it never exposes secret values.
+- `CredentialPoolStatePort` — optional persistence callback interface supplied
+  by runtime. Core emits state transitions through this port; core never reads
+  files or imports runtime.
 
 ### Core contract
 
 ```
-acquire() -> Lease<TAuth>    // blocks if pool temporarily empty, throws if all exhausted
+acquire() -> Lease<TAuth>    // synchronous selection from current in-memory state
 report(lease, outcome)       // updates cooldown state; never throws
+snapshot() -> CredentialPoolSnapshot
 ```
 
 The pool never leaks provider-specific error types. Every error that reaches
 `report()` must first be mapped to `CredentialOutcome` by the adapter layer.
+
+`acquire()` does not do IO and does not block on file reloads. If no credential
+is usable, it throws `ALL_CREDENTIALS_EXHAUSTED` with the last exhaustion cause
+attached. Runtime owns reloading before or around acquisition when files are
+stale.
+
+### Adapter wrapper
+
+`PooledProviderAdapter<TAuth>` wraps any existing `ProviderAdapter` with
+pool-aware acquire/report/retry. It takes:
+
+- a `CredentialPool<TAuth>`
+- a factory `(auth: TAuth) => ProviderAdapter`
+- an `ErrorOutcomeMapper`
+- retry options with an explicit maximum attempts cap
+
+On `rate-limited`, `quota-exceeded`, and provider-specific
+`connection-failed` outcomes, it reports the lease and retries with the next
+available credential. Auth errors and unknown errors are reported and then
+propagated immediately. If all credentials are exhausted, it throws
+`ALL_CREDENTIALS_EXHAUSTED`; the original provider error is attached as
+`cause` but is not surfaced raw.
+
+Streaming retries discard buffered output and rerun the full turn. The wrapper
+must not yield partial text from a failed stream.
+
+Existing provider adapters must not contain credential selection, cooldown, or
+rotation logic. They may expose provider-specific errors, but retry decisions
+belong to the pool wrapper.
 
 ### Cross-process coordination
 
@@ -89,22 +146,84 @@ its cached credential entries and reloads from disk. This ensures that
 another without restart. Pattern derived from `hermes-agent`
 `mcp_oauth_manager.py` mtime-based reload.
 
+Use `st_mtime_ns` where the platform exposes nanosecond precision. Fall back
+to millisecond precision only behind a small runtime helper. The watcher must
+not live in `@kilnai/core`.
+
+### Persistence model
+
+Credential file contents are runtime DTOs, not domain entities. Runtime maps
+DTOs into `Credential<TAuth>` and maps snapshots back to health/status fields
+when persistence is required. Secret-bearing DTOs and health-only snapshots are
+separate types to avoid accidental leakage in CLI or observability output.
+
+There is no global credential store in this roadmap. The source of truth is
+the provider directory under `~/.kiln/auth/<provider>/`, plus env-var fallback
+for single-key direct providers. In-process telemetry resets on restart unless
+explicitly written as per-entry health metadata by runtime.
+
 ## Slice Plan
 
-### Slice 1 — Domain types
+### Slice 0 — Current-state scout and deletion map
 
-Create `packages/core/src/agents/credential-pool/` with:
+Before code, map every current single-credential entry point and decide whether
+it is replaced, migrated, or left as env-only fallback. Expected files include:
+
+- `packages/core/src/agents/infrastructure/opencode-auth.ts`
+- `packages/core/src/agents/infrastructure/codex-oauth-auth.ts`
+- `packages/core/src/agents/infrastructure/openai-compat.ts`
+- `packages/cli/src/wrapper/direct-provider-adapter-factory.ts`
+- `packages/cli/src/commands/auth.ts`
+- `packages/runtime/src/gateway/provider-auth.ts`
+- `packages/runtime/src/gateway/gateway-server.ts`
+
+Acceptance: `docs/plan.md` identifies exact files, tests, deletion points,
+and package ownership. It must explicitly call out any old single-file path
+that will be deleted after migration. No implementation starts until this map
+exists.
+
+### Slice 1 — Core domain types and policies — Completed 2026-05-02
+
+Created `packages/core/src/agents/credential-pool/` with:
+
 - `credential.ts` — `Credential<TAuth>`, `Lease<TAuth>`, `CredentialOutcome`
-- `pool.ts` — `CredentialPool<TAuth>` with `acquire` and `report` contracts
+- `pool.ts` — `CredentialPool<TAuth>` with `acquire`, `report`, and `snapshot`
 - `strategies.ts` — `SelectionStrategy` enum and selection logic
 - `cooldown.ts` — `CooldownPolicy` with default and server-supplied `resetAt`
 - `outcome.ts` — `ALL_CREDENTIALS_EXHAUSTED` error type
+- `state-port.ts` — optional `CredentialPoolStatePort` for runtime-provided
+  persistence callbacks
 
-No IO. Provider-agnostic. Unit tests for each entity with zero mocks needed.
+No IO. Provider-agnostic. No imports from provider infrastructure. This slice
+ports Hermes behavior into pure TypeScript domain code while removing Hermes'
+persistence and provider-refresh branches from the domain.
 
-Acceptance: `bun run typecheck` passes; all pool entity tests pass with
-simulated credential lists; `acquire()` throws `ALL_CREDENTIALS_EXHAUSTED`
-when every credential is in cooldown.
+Acceptance status:
+
+- `fill-first`, `round-robin`, `random`, and `least-used` work against
+  in-memory credentials.
+- 429 and 402 cooldown default to 1 h.
+- server-supplied `resetAt` overrides the default cooldown.
+- expired cooldowns are cleared on acquisition.
+- soft leases are counted and released through `report()`.
+- `snapshot()` returns health without secret values.
+- `acquire()` throws `ALL_CREDENTIALS_EXHAUSTED` when every credential is in
+  cooldown.
+- `bun run typecheck` and targeted unit tests pass.
+
+Verification completed:
+
+- `cmd.exe /c bun x vitest run packages/core/tests/agents/credential-pool.test.ts`
+  — 31 tests passed.
+- `cmd.exe /c bun run typecheck` — passed.
+- `cmd.exe /c bun run --filter @kilnai/core test` — 226 files and 2899 tests
+  passed.
+
+Notes for Slice 2:
+
+- `connection-failed` is a retryable outcome and currently uses the default
+  cooldown. Slice 2 error mappers may refine this per provider.
+- `resetAt` is not capped unless `maxCooldownMs` is explicitly configured.
 
 ### Slice 2 — Adapter wrapper
 
@@ -116,11 +235,46 @@ Takes a `CredentialPool<TAuth>` and a factory `(auth: TAuth) => T`. Implements
 loop. Retry continues only on `rate-limited` or `quota-exceeded` outcomes.
 Auth errors and unknown errors propagate immediately without retry.
 
-Acceptance: unit tests covering single-credential exhaustion, two-credential
-rotation, and mid-stream rate-limit handling (full turn re-run, not partial
-surface). `bun run test` passes.
+Before this slice, remove or bypass provider-internal 429 retry behavior that
+would hide exhaustion from the pool. In particular, `OpenAICompatAdapter`
+currently treats 429 as retryable internally; pool-enabled adapters must map
+429/402 into `CredentialOutcome` instead of consuming them.
 
-### Slice 3 — OpenCode integration
+Acceptance:
+
+- unit tests cover single-credential exhaustion, two-credential rotation,
+  auth failure propagation, unknown error propagation, and all-credentials
+  exhausted.
+- streaming tests prove a mid-stream rate-limit reruns the full turn and does
+  not surface partial text.
+- provider-internal retry no longer masks 429/402 for pool-enabled paths.
+- `bun run test` passes.
+
+### Slice 3 — Runtime credential file service
+
+Add `packages/runtime/src/agents/credential-pool/` with:
+
+- `credential-file-store.ts` — provider directory reader/writer for
+  `~/.kiln/auth/<provider>/*.json`
+- `credential-migrator.ts` — one-way migration from old single files into
+  directory form
+- `credential-pool-factory.ts` — builds core pools from runtime DTOs
+- `credential-health-store.ts` — persists only non-secret health metadata
+  when needed by CLI status
+
+The runtime store owns all filesystem details. Core receives already-parsed
+auth values and emits state transitions through `CredentialPoolStatePort`.
+
+Acceptance:
+
+- malformed credential files fail fast with provider/name context.
+- secret-bearing DTOs are not returned by status/snapshot methods.
+- migration writes the directory entry, verifies it can be read, then deletes
+  the old file.
+- old single-file and new directory forms cannot coexist after migration.
+- targeted runtime tests pass.
+
+### Slice 4 — OpenCode integration
 
 Wire `opencode-go` and `opencode-zen` through the pool.
 
@@ -130,29 +284,32 @@ the same shape as the current single `~/.kiln/auth/opencode.json`. The first
 file into `~/.kiln/auth/opencode/default.json` and removes the top-level
 file. No compatibility shim — after migration only the directory form exists.
 
-`OpenCodeAuth` is extended to load from either form but writes only to the
-directory form. A `OpenCodeCredentialPool` factory in `@kilnai/runtime`
-builds the pool from all `*.json` files in the directory.
+`OpenCodeAuth` must stop being the long-term owner of pool storage. It may be
+used as a migration reader for the existing single-file shape, but new writes
+go through the runtime credential file service. After migration is complete,
+dead single-file write paths are deleted.
 
 Acceptance: `kiln auth opencode link` with a second key creates a second
 entry; `kiln auth opencode status` lists both entries with per-entry health.
 `OpenCodeAdapter` via `PooledProviderAdapter` rotates to the second credential
 on a simulated 429. Pool-entry count is visible in gateway observability.
 
-### Slice 4 — Codex OAuth integration
+### Slice 5 — Codex OAuth integration
 
 Wire `codex-oauth` through the pool.
 
 Auth directory: `~/.kiln/auth/codex-oauth/`. Same directory-of-files pattern.
 Migration: existing `~/.kiln/auth/codex-oauth.json` → `~/.kiln/auth/codex-oauth/default.json`.
 
-`CodexOAuthAuth` extended to load from directory. `CodexOAuthCredentialPool`
-factory mirrors the OpenCode pool factory.
+`CodexOAuthAuth` remains responsible for token refresh for one credential
+value, not for selecting among credentials. Runtime constructs one auth
+instance per leased token file. Any refreshed token is written back to that
+same credential entry, not to a shared singleton path.
 
 Acceptance: two Codex OAuth accounts rotate correctly; `kiln auth codex-oauth
 status` shows per-entry health.
 
-### Slice 5 — Direct API-key providers
+### Slice 6 — Direct API-key and local endpoint providers
 
 Wire `anthropic`, `openai`, `deepseek`, `openrouter`, `ollama`, and
 `lmstudio` through the pool.
@@ -213,7 +370,7 @@ convert a working env-var setup.
 Acceptance: multi-key `anthropic` pool rotates on 429; env-var single-key
 path is not broken; `bun run test` passes.
 
-### Slice 6 — Harness provider passthrough
+### Slice 7 — Harness provider passthrough
 
 For `claude-code`, `codex`, and `opencode` harness wrappers, the pool
 selects which wrapper home directory the subprocess is pointed at. Each pool
@@ -233,22 +390,24 @@ wrapper subprocess, the pool rotates to the next home directory.
 Acceptance: two Codex home directories rotate on simulated 429 subprocess
 exit; wrapper subprocess env is set correctly per entry.
 
-### Slice 7 — Cross-process reload
+### Slice 8 — Cross-process reload
 
 Add `CredentialWatcher` in `packages/runtime/src/agents/credential-pool/`.
-Watches `~/.kiln/auth/**/*.json` with mtime-based polling (500 ms interval
-when active; longer when idle). On mtime change, invalidates the pool for the
+Watches `~/.kiln/auth/**/*.json` with `st_mtime_ns`-based polling, matching
+the Hermes MCP OAuth manager pattern. Use a 500 ms interval when active and a
+longer interval when idle. On mtime change, invalidates the pool for the
 affected provider and reloads credentials from disk.
 
 The watcher is started by the gateway on startup and stopped on shutdown.
-Worker processes that do not run a gateway use a one-shot reload triggered
-by the first `acquire()` call after the file mtime is stale.
+Worker processes that do not run a gateway use a runtime-side one-shot reload
+before acquisition when the file mtime is stale. Core `acquire()` remains
+synchronous and IO-free.
 
 Acceptance: `kiln auth opencode link` with a new key in one shell causes the
 pool in a running gateway process to include the new credential within 5 s.
 No restart required.
 
-### Slice 8 — Observability
+### Slice 9 — Observability
 
 Add per-credential telemetry to each pool entry: request count (success and
 error), last-success timestamp, last-exhausted timestamp, current cooldown
@@ -322,7 +481,7 @@ provider. Confirmed via integration test.
   which talks to the pool. The tool surface does not need to know about pool
   internals.
 - `docs/architecture/operator-surfaces.md` - GUI model picker should display
-  per-credential health (from Slice 8) once the observability endpoint is
+  per-credential health (from Slice 9) once the observability endpoint is
   wired. This is a read-only display concern; the picker does not own pool
   management.
 - `docs/architecture/context-governance.md` — independent. The pool does not
@@ -332,6 +491,15 @@ provider. Confirmed via integration test.
 
 - No dead code. When a slice removes the single-file auth path, that code is
   deleted, not commented out.
+- No boilerplate wrappers. A provider integration must add a real credential
+  source, mapper, or factory. Do not add pass-through classes that only rename
+  existing calls.
+- No redundant pool logic. Selection, cooldown, lease accounting, and health
+  projection live in the credential-pool package only. Provider integrations
+  supply auth values and error mappings.
+- No duplicate credential readers. If CLI, gateway, and GUI need credential
+  state, they call the same runtime service instead of parsing the same files
+  independently.
 - No legacy aliasing. `~/.kiln/auth/opencode.json` (single-file) and
   `~/.kiln/auth/opencode/*.json` (pool) cannot coexist. The migrator writes the
   directory form and deletes the single file at first `link` invocation.
