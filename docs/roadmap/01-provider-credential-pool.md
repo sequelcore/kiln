@@ -264,9 +264,9 @@ Verification completed:
   passed.
 - `cmd.exe /c bun run typecheck` — passed.
 
-### Slice 3 — Runtime credential file service
+### Slice 3 — Runtime credential file service — Completed 2026-05-02
 
-Add `packages/runtime/src/agents/credential-pool/` with:
+Added `packages/runtime/src/agents/credential-pool/` with:
 
 - `credential-file-store.ts` — provider directory reader/writer for
   `~/.kiln/auth/<provider>/*.json`
@@ -279,7 +279,7 @@ Add `packages/runtime/src/agents/credential-pool/` with:
 The runtime store owns all filesystem details. Core receives already-parsed
 auth values and emits state transitions through `CredentialPoolStatePort`.
 
-Acceptance:
+Acceptance status:
 
 - malformed credential files fail fast with provider/name context.
 - secret-bearing DTOs are not returned by status/snapshot methods.
@@ -287,6 +287,28 @@ Acceptance:
   the old file.
 - old single-file and new directory forms cannot coexist after migration.
 - targeted runtime tests pass.
+
+Implementation notes:
+
+- `CredentialFileStore<TAuth>` owns credential DTO validation, provider
+  directory reads/writes, and secret-free file status projection.
+- `CredentialMigrator<TAuth>` performs one-way single-file migration and
+  refuses coexistence with existing directory credentials.
+- `CredentialHealthStore` persists health records under `.health/` so health
+  metadata cannot be mistaken for credential entries.
+- `CredentialPoolFactory<TAuth>` builds core `CredentialPool<TAuth>` instances
+  from runtime files and merges non-secret health state through the core
+  state-port boundary.
+- These runtime services are exported from `@kilnai/runtime`; provider wiring
+  remains in later integration slices.
+
+Verification completed:
+
+- `cmd.exe /c bun x vitest run packages/runtime/tests/agents/credential-pool.test.ts`
+  — 5 tests passed.
+- `cmd.exe /c bun run --filter @kilnai/runtime typecheck` — passed.
+- `cmd.exe /c bun run --filter @kilnai/runtime test` — 132 files and 1766 tests
+  passed.
 
 ### Slice 4 — OpenCode integration
 

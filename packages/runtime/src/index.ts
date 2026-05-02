@@ -18,6 +18,26 @@ export {
 } from "./gateway/gui-provider-models.js";
 export { startProviderAuthRequest } from "./gateway/provider-auth.js";
 export type { ProviderAuthRequest, ProviderAuthResult, ProviderAuthStartResult } from "./gateway/provider-auth.js";
+export {
+  CredentialFileStore,
+  CredentialFileStoreError,
+  CredentialHealthStore,
+  CredentialMigrator,
+  CredentialPoolFactory,
+  toHealthRecord,
+} from "./agents/credential-pool/index.js";
+export type {
+  CredentialFileStatus,
+  CredentialFileStoreConfig,
+  CredentialHealthRecord,
+  CredentialHealthStoreConfig,
+  CredentialMigratorConfig,
+  CredentialPoolFactoryConfig,
+  LoadCredentialPoolOptions,
+  MigrateLegacyCredentialFileOptions,
+  RuntimeCredentialFile,
+  WriteRuntimeCredential,
+} from "./agents/credential-pool/index.js";
 export { createProviderCatalogService } from "./gateway/provider-catalog-service.js";
 export type { ProviderCatalogService, ProviderCatalogSnapshot } from "./gateway/provider-catalog-service.js";
 export {
