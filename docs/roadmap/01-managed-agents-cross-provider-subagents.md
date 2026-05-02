@@ -2,14 +2,15 @@
 
 ## Status
 
-Phase 0 planning and Phase 1 Slice 1 doctrine are complete on 2026-05-02.
-Ready to start Phase 1, Slice 2: foundation boundary and non-boundary.
+Phase 0 planning, Phase 1 Slice 1 doctrine, Phase 1 Slice 2 foundation
+boundary, and Phase 1 Slice 3 canonical core contracts are complete on
+2026-05-02. Ready to start Phase 1, Slice 4: runtime admission and ownership.
 
 Phase 1 must start from the Kiln-native managed agent invocation plan below.
 Do not open an ADR yet, do not select the first adapter yet, and do not start
-implementation before Slice 2 through Slice 7 have converted the doctrine into
-foundation boundaries, contracts, runtime ownership, adapter taxonomy, session
-evidence, and tests.
+implementation before Slice 4 through Slice 7 have converted the canonical
+contracts into runtime ownership, adapter taxonomy, session evidence, and
+tests.
 
 Stable dependency doctrine lives in
 `docs/architecture/provider-credential-pools.md`,
@@ -685,7 +686,7 @@ Deliverable:
 
 ### Slice 2: Foundation Boundary And Non-Boundary
 
-Status: next.
+Status: completed on 2026-05-02.
 
 Define the first production foundation as exactly one parent-turn-requested,
 read-only, plan-mode managed invocation admitted and executed through runtime.
@@ -694,7 +695,38 @@ The foundation request may originate from GUI first for usability, but the
 request and events must be surface-neutral so CLI, TUI, SDK, IDE, and remote
 surfaces can project the same evidence later.
 
-In scope:
+Foundation principle:
+
+- The foundation is small because it must be correct, replayable, governed, and
+  extensible, not because the feature is temporary or prototype-grade.
+- The first increment proves the complete control loop for one child invocation:
+  request, admission, authority, execution, lifecycle, evidence, result
+  handoff, projection, and replay.
+- Every later capability must compose with this loop instead of bypassing it.
+
+Admission profile:
+
+| Profile | Allowed shape | Reason |
+| --- | --- | --- |
+| `foundation-readonly-plan` | One child invocation, one parent turn, plan/read-only execution, bounded timeout, explicit authority profile, transcript or diagnostic pointer, usage when available, result handoff. | Proves the professional substrate without mixing in writes, fanout, scheduling, or provider-native delegation semantics. |
+
+Request boundary:
+
+| Boundary | Foundation decision |
+| --- | --- |
+| Request origin | Parent turn or operator surface. GUI may expose the first button/control, but it submits the same runtime request shape as CLI, TUI, SDK, IDE, and remote surfaces. |
+| Parent scope | Exactly one parent session and one parent turn. |
+| Child scope | Exactly one managed child invocation. |
+| Execution mode | Plan/read-only only. No workspace mutation, memory mutation, or provider write authority. |
+| Provider route | Explicit provider route and adapter kind. No implicit provider selection. |
+| Authority | Explicit `AuthorityProfile`; no implicit inheritance of parent tools, credentials, memory, cwd, workspace, network, or write scope. |
+| Memory | Governed memory/context admission only. Provider-local memory cannot be the source of truth. |
+| Lifecycle | Requested, admitted or denied, started, progress, cancellation, timeout, failure, result handoff, completion, and cleanup evidence must be representable. |
+| Transcript | Transcript pointer or diagnostic pointer required, with redaction/truncation/persistence/retention flags when known. |
+| Usage | Usage and cost captured when available; unknowns remain explicit. |
+| Result | Bounded result handoff to the parent turn, with artifact/resource links instead of unbounded child transcript injection. |
+
+In foundation scope:
 
 - one parent session and one parent turn
 - one child invocation
@@ -702,11 +734,12 @@ In scope:
 - explicit provider route and adapter kind
 - explicit authority profile
 - governed memory admission
-- cancellation
-- timeout
+- cancellation request and terminal cancellation evidence
+- timeout and timeout diagnostic evidence when available
 - usage capture when available
 - transcript or diagnostic pointer
 - result handoff to the parent turn
+- surface-neutral projection over canonical runtime/session evidence
 
 Out of scope:
 
@@ -720,65 +753,161 @@ Out of scope:
 - unbounded nested delegation
 - OpenClaw-style additive auth fallback
 
+Explicit non-boundaries:
+
+- A GUI button is not the feature. GUI is only the first possible projection and
+  request surface.
+- A provider CLI wrapper is not the feature. Harnesses are adapters under Kiln
+  admission.
+- A child chat transcript is not the feature. Transcript pointers are evidence;
+  Kiln lifecycle/session records are the replay ledger.
+- A task runner is not the feature. Existing worker flags, YAML app routing, or
+  provider-local subagent behavior cannot bypass runtime admission.
+- A successful child answer is not enough. The foundation must prove authority,
+  lifecycle, cancellation, timeout, usage, transcript/diagnostic evidence, and
+  result handoff.
+
+Professional quality standard:
+
+- The foundation must follow Sequel/Kiln standards: clean architecture,
+  explicit boundaries, no provider leakage into core, no dead compatibility
+  hacks, fail-closed admission, and test-first implementation.
+- Later slices must be able to add writes, fanout, scheduling, durable
+  workflows, and nested teams without rewriting the foundation contract.
+- Any provider or harness that cannot expose enough evidence is excluded from
+  the foundation increment rather than patched around with prompt conventions.
+
 Exit criteria:
 
-- the foundation has one explicit request path and one explicit result handoff path
-- all deferred behavior is listed as later production increments
-- GUI behavior is described only as a projection over canonical runtime events
+- the foundation has one explicit request path and one explicit result handoff
+  path: met
+- all deferred behavior is listed as later production increments: met
+- GUI behavior is described only as a projection over canonical runtime events:
+  met
+- the first production increment is framed as professional foundation work, not
+  a disposable prototype: met
+- Slice 3 can define contracts without reopening execution scope, write
+  authority, fanout, or provider-native delegation behavior: met
 
 Deliverable:
 
-- exact foundation and non-foundation boundary, including request origin, allowed execution
-  authority, required evidence, and deferred capabilities
+- completed in this roadmap section. Slice 3 can now define canonical core
+  contracts for the `foundation-readonly-plan` boundary.
 
 ### Slice 3: Canonical Core Contracts
 
-Status: pending Slice 2.
+Status: completed on 2026-05-02.
 
 Define core contracts before wiring execution.
 
-Expected contracts:
+Contract placement:
 
-- `ManagedAgentRegistry`
-- `ManagedAgentProvider`
-- `ManagedAgentAdapterDescriptor`
-- `ManagedAgentInvocationRequest`
-- `ManagedAgentInvocationPolicy`
-- `ManagedAgentInvocationAdmission`
-- `ManagedAgentInvocationLifecycle`
-- `ManagedAgentInvocationRecord`
-- `ManagedAgentResultHandoff`
-- `ManagedAgentTranscriptPointer`
-- `ManagedAgentUsageReport`
-- `ManagedAgentDiagnosticArtifact`
+- Core owns type definitions and pure validation for managed invocation
+  requests, admission records, lifecycle state, authority profiles, result
+  handoff, transcript pointers, usage reports, and diagnostic artifacts.
+- Runtime owns execution services and adapter orchestration in Slice 4.
+- Provider and harness adapters own provider-native mapping below the core
+  contract. They do not define canonical semantics.
+- GUI, CLI, TUI, SDK, IDE, and remote surfaces own projections and request
+  initiation only.
 
-Required fields:
+Existing integration points to preserve:
 
-- lineage: `parentSessionId`, `parentTurnId`, `invocationId`, `agentId`,
-  `providerInvocationId`, `childSessionId`, `childTurnId`, and artifact IDs
-- routing: provider route, adapter kind, model route, reasoning profile,
-  credential route, execution mode, cwd/workspace, and timeout
-- authority: tools, permission profile, sandbox, network policy, memory scope,
-  write authority, and unsupported-field rejection
-- lifecycle: requested, admitted, denied, started, progress, retry,
-  result-handoff, completed, failed, cancelled, timed-out, and cleaned-up
-- evidence: transcript pointer, diagnostic artifact pointer, usage/cost,
-  retry/fallback causes, redaction/truncation flags, and retention policy
+| Existing contract | Current role | Slice 3 decision |
+| --- | --- | --- |
+| `SessionEventEnvelope` | Canonical session-event envelope with session, sequence, timestamp, turn, parent event, and source. | Managed invocation lifecycle evidence should extend this envelope instead of creating a parallel event stream. |
+| `agent_invocation_requested/started/completed/failed/cancelled` | Seed event family already consumed by GUI/TUI projections. | Keep as compatibility seed, but broaden the future event payloads to include admission, authority, transcript, usage, retry, timeout, result handoff, and cleanup evidence. |
+| `SessionProviderIdentity` | Provider/model/request identity for routed events and assistant messages. | Reuse for provider/model route where possible; add provider invocation metadata separately so provider IDs do not become core IDs. |
+| `SessionTokenUsage` and `SessionCost` | Token and cost evidence for session events. | Reuse or wrap in `ManagedAgentUsageReport` while preserving provider token classes and explicit unknowns. |
+| `MemoryProvenance` | Memory source/session/turn/tool/actor provenance. | Child invocation identity must map into provenance through `sessionId`, `turnId`, `actor`, and a future invocation-aware source convention. |
+| `MemoryContextAdmission` and `DefaultContextGovernor` audit | Governed memory/context admission evidence. | Child memory admission must use the same governor/audit path, not provider-local memory or prompt stuffing. |
+
+Core contract set:
+
+| Contract | Purpose | Foundation requirement |
+| --- | --- | --- |
+| `ManagedAgentRegistry` | Lists known managed providers/adapters and their descriptors. | Pure registry lookup; no execution side effects. |
+| `ManagedAgentProvider` | Canonical provider identity independent from native provider vocabulary. | Supports direct and harness providers without separate core models. |
+| `ManagedAgentAdapterDescriptor` | Declares adapter kind, capabilities, limits, unsupported fields, evidence quality, and admission profiles. | Admission can fail closed before execution. |
+| `ManagedAgentInvocationRequest` | Surface-neutral request for one managed invocation. | Includes parent lineage, goal, profile, requested provider route, execution mode, authority hints, memory scope, timeout, and output bounds. |
+| `ManagedAgentInvocationPolicy` | Pure policy input describing what is allowed for a request. | Separates requested authority from admitted authority. |
+| `ManagedAgentInvocationAdmission` | Runtime decision to admit or deny a request. | Records admitted profile, authority profile, memory admission references, credential route, and denial reason when rejected. |
+| `ManagedAgentAuthorityProfile` | Canonical authority envelope for tools, permissions, sandbox, workspace, network, credentials, memory, model, reasoning, and write scope. | Defaults to fail-closed; no implicit parent inheritance. |
+| `ManagedAgentInvocationLifecycle` | Canonical lifecycle state model. | Represents requested, admitted, denied, started, progress, retry, cancellation, timeout, result handoff, completion, failure, and cleanup. |
+| `ManagedAgentInvocationRecord` | Durable aggregate tying request, admission, lifecycle, provider metadata, evidence, and result handoff together. | Replay and audit use this record plus canonical session events. |
+| `ManagedAgentResultHandoff` | Bounded result returned to the parent turn. | Contains summary, resource/artifact links, transcript pointer, diagnostic links, usage report, and memory-write proposals. |
+| `ManagedAgentTranscriptPointer` | Inspectable transcript/resource pointer with evidence quality flags. | Must include redaction, truncation, persistence, retention, provider IDs, and access scope when known. |
+| `ManagedAgentUsageReport` | Usage, cost, retry, fallback, and token-class evidence. | Preserves provider token classes and explicit `unknown` values. |
+| `ManagedAgentDiagnosticArtifact` | Bounded diagnostic evidence for timeout, failure, cleanup, retry, or harness runtime state. | Linked by URI/resource ID instead of injecting large diagnostics into parent context. |
+| `ManagedAgentProviderMetadata` | Provider-native IDs, headers, labels, task IDs, thread IDs, child keys, and adapter-specific evidence. | Preserved as metadata; never promoted to core naming. |
+
+Required field groups:
+
+| Group | Fields |
+| --- | --- |
+| Lineage | `parentSessionId`, `parentTurnId`, `invocationId`, `agentId`, `providerInvocationId`, `childSessionId`, `childTurnId`, `requestEventId`, `admissionEventId`, `resultEventId`, and artifact IDs. |
+| Routing | provider route, adapter kind, model route, reasoning profile, credential route, execution mode, cwd/workspace, workspace isolation, timeout, and output bounds. |
+| Authority | tool allowlist/denylist, permission profile, sandbox policy, network policy, memory scope, write authority, credential route, unsupported-field rejection, and inherited-authority denial evidence. |
+| Memory/context | governed context admission IDs, admitted memory scopes/layers, deferred memory/context evidence, and child memory-write proposal policy. |
+| Lifecycle | requested, admitted, denied, started, progress, retry, fallback, cancellation requested, cancellation observed, cancelled, timed out, result handoff, completed, failed, cleanup completed, and cleanup failed. |
+| Evidence | transcript pointer, diagnostic artifact pointer, usage/cost report, provider metadata, retry/fallback causes, redaction/truncation flags, retention policy, and unknown-field markers. |
+
+Foundation request shape:
+
+| Field | Foundation rule |
+| --- | --- |
+| `profile` | Must be `foundation-readonly-plan`. |
+| `executionMode` | Must be plan/read-only. |
+| `writeAuthority` | Must be false/none. |
+| `parentSessionId` and `parentTurnId` | Required. |
+| `requestedProviderRoute` | Required, but final route is admitted by runtime. |
+| `adapterKind` | Required as direct, harness, or future compatible kind. |
+| `authorityHints` | Allowed as request input, but not trusted until converted to `ManagedAgentAuthorityProfile`. |
+| `memoryScope` | Required or explicitly none; must pass governed admission. |
+| `timeout` | Required and bounded. |
+| `resultHandoffPolicy` | Required to prevent unbounded child output injection. |
+
+Contract invariants:
+
+- Core contracts are explicit data contracts and pure validators; they do not
+  execute providers, spawn processes, or read provider credentials.
+- Request and admission are separate records. A request never implies authority.
+- Denial is a first-class result with replayable evidence.
+- Provider-native IDs are preserved but cannot replace Kiln lineage IDs.
+- Transcript and diagnostic data are pointers/resources with flags, not the
+  canonical ledger.
+- Usage and cost can be `unknown`, but missing evidence must be explicit.
+- The foundation contract must be extensible to later writes, fanout,
+  scheduling, worktree/cloud isolation, durable workflows, and nested teams
+  without changing the meaning of a single invocation.
+
+Session-event decision:
+
+- Existing `agent_invocation_*` events remain the compatibility seed.
+- Slice 6 will decide the exact event-family expansion, but Slice 3 requires
+  every event payload to be derivable from `ManagedAgentInvocationRecord`.
+- No GUI-specific DTO may be the source of truth for invocation state.
+- Existing projections should be able to keep rendering coarse
+  requested/started/completed/failed/cancelled states while richer evidence is
+  added incrementally.
 
 Exit criteria:
 
-- contracts live in core, outside GUI state and provider adapters
-- contracts are testable without invoking a real provider
-- session event payloads preserve enough evidence for replay and inspection
+- contracts live in core, outside GUI state and provider adapters: met as a
+  design constraint
+- contracts are testable without invoking a real provider: met as a design
+  constraint through pure request/admission/lifecycle/evidence shapes
+- session event payloads preserve enough evidence for replay and inspection:
+  met as a requirement for Slice 6 event expansion
 
 Deliverable:
 
-- core contract design ready for test-first implementation, with direct and
-  harness adapters represented through the same provider/adapter descriptors
+- completed in this roadmap section. Slice 4 can now define runtime admission
+  and ownership against these core contract boundaries.
 
 ### Slice 4: Runtime Admission And Ownership
 
-Status: pending Slice 3.
+Status: next.
 
 Introduce runtime-owned services around invocation admission, execution, and
 result handoff.
