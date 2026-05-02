@@ -8,6 +8,10 @@ and why a provider is unavailable.
 
 Discovery is not a fallback mechanism. Kiln must not invent static models or
 silently choose a provider when runtime discovery cannot prove availability.
+Credential availability comes from provider credential pools, but it is only
+one input into discovery. Execution also needs provider-specific readiness such
+as CLI availability, model endpoint reachability, local daemon health, and a
+concrete selected model where the provider requires one.
 
 ## Discovery Result
 
@@ -197,3 +201,7 @@ and makes post-hoc diagnosis possible without replaying discovery.
 - model IDs passed to execution are concrete provider model IDs
 - local providers do not imply cloud auth or remote model availability
 - unavailable reasons are actionable, not generic placeholders
+
+## Related
+
+- [Provider Credential Pools](provider-credential-pools.md)

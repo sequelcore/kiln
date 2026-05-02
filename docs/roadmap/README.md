@@ -17,6 +17,7 @@ Read the relevant architecture or guide document before using a roadmap:
   contracts.
 - `docs/architecture/tool-execution.md`,
   `docs/architecture/developer-tools.md`,
+  `docs/architecture/provider-credential-pools.md`,
   `docs/architecture/shared-tooling-intelligence.md`, and
   `docs/architecture/provider-model-discovery.md` for provider, tool, MCP, and
   model-discovery work.
@@ -26,28 +27,23 @@ Read the relevant architecture or guide document before using a roadmap:
 
 ## Active Roadmaps
 
-- `01-provider-credential-pool.md`
-  Generalizes credential management across subscription-auth, direct API-key,
-  local endpoint, and harness-wrapped providers. Introduces provider-agnostic
-  rotation, cooldowns, and cross-process reload.
-
-- `02-managed-agents-cross-provider-subagents.md`
+- `01-managed-agents-cross-provider-subagents.md`
   Defines the managed-agent invocation substrate: cross-provider child agents,
   explicit invocation policy, permissions, memory admission, lifecycle events,
   parallelism, cancellation, and replay.
 
-- `03-config-projection-unification.md`
+- `02-config-projection-unification.md`
   Makes `~/.kiln/config.yaml` the source of truth for harness configuration,
   projects managed Claude/Codex/OpenCode config, and adds drift-aware sync,
   uninstall, migrate, and engine-status workflows.
 
 ## Deferred Roadmaps
 
-- `04-external-benchmark-validation.md`
+- `03-external-benchmark-validation.md`
   Deferred public benchmark and governed external-validation milestone after
   the product surface stabilizes.
 
-- `05-native-operator-surface-experiment.md`
+- `04-native-operator-surface-experiment.md`
   Deferred native, GPU-accelerated operator-surface experiment for high-density
   managed-agent supervision, replay, timeline, graph, and multi-instance
   workloads.
@@ -67,19 +63,21 @@ Read the relevant architecture or guide document before using a roadmap:
 - Memory lifecycle policy completed on 2026-05-01. Stable doctrine lives in
   `docs/architecture/memory.md` and operator-facing resource usage lives in
   `docs/guides/memory.md`.
+- Provider credential pooling completed on 2026-05-02. Stable doctrine lives
+  in `docs/architecture/provider-credential-pools.md` and operator-facing
+  credential usage lives in `docs/guides/provider-credentials.md`.
 
 ## Execution Priority
 
-1. Execute `01-provider-credential-pool.md`.
-2. Execute `02-managed-agents-cross-provider-subagents.md` after provider
+1. Execute `01-managed-agents-cross-provider-subagents.md` after provider
    credential pooling can route child invocations across accounts, wrappers,
    direct API-key providers, and local endpoints.
-3. Execute `03-config-projection-unification.md` after managed agents and the
+2. Execute `02-config-projection-unification.md` after managed agents and the
    provider credential pool clarify what global/project config must express.
-4. Keep `05-native-operator-surface-experiment.md` deferred until managed
+3. Keep `04-native-operator-surface-experiment.md` deferred until managed
    agents create real high-density workloads and config projection makes
    local/cloud/team/CI instance boundaries explicit.
-5. Keep `04-external-benchmark-validation.md` deferred until the evaluated
+4. Keep `03-external-benchmark-validation.md` deferred until the evaluated
    product surface is stable.
 
 ## Rules

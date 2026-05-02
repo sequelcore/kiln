@@ -1,13 +1,14 @@
-# 02 - Managed Agents and Cross-Provider Subagents
+# 01 - Managed Agents and Cross-Provider Subagents
 
 ## Status
 
-Deferred until `01-provider-credential-pool.md` is complete.
+Ready to start after provider credential pooling, governed memory, Memory
+Lattice projection, lifecycle policy, and context-admission boundaries.
 
-Governed memory, Memory Lattice projection, lifecycle policy, and
-context-admission boundaries are complete. Their stable doctrine lives in
-`docs/architecture/memory.md`, `docs/guides/memory.md`, and
-`docs/architecture/context-governance.md`.
+Stable dependency doctrine lives in
+`docs/architecture/provider-credential-pools.md`,
+`docs/guides/provider-credentials.md`, `docs/architecture/memory.md`,
+`docs/guides/memory.md`, and `docs/architecture/context-governance.md`.
 
 ## Goal
 

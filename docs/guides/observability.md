@@ -105,6 +105,20 @@ const prometheus = new PrometheusCollector({ prefix: "kiln" });
 
 The `prefix` option (default: `"kiln"`) is prepended to all metric names.
 
+## Credential Pool Health
+
+Gateway `GET /observability` includes live credential-pool snapshots when
+providers are registered with the runtime observability registry. When gateway
+JWT auth is configured, this endpoint requires a valid bearer token.
+
+Credential-pool observations are secret-free. Each observation includes the
+provider route, pool provider ID, selection strategy, aggregate metrics, and
+entry-level health fields such as credential ID, label, source, priority, tier,
+request count, last success, last exhaustion, and cooldown deadline.
+
+Multiple active pools for the same provider family are reported separately, so
+tiered routes such as `opencode-go` and `opencode-zen` remain distinguishable.
+
 ## CompositeEventStore
 
 `CompositeEventStore` fans out every `save()` call to all registered sinks using `Promise.allSettled()`. This ensures that a failure in one sink (e.g., OTel backend is down) does not prevent other sinks from receiving the event.
@@ -202,6 +216,8 @@ Kiln monitors token output across continuations to detect when a session is prod
 ## Related
 
 - [Model Routing](model-routing.md) -- per-request model selection and routing rules
+- [Provider Credentials](provider-credentials.md) -- credential-pool operation and status
+- [Provider Credential Pools](../architecture/provider-credential-pools.md) -- credential-pool architecture
 - [Enrichment](enrichment.md) -- post-conversation analysis pipeline
 - [Multi-Tenant](multi-tenant.md) -- tenant configuration and billing
 - [Gateway Configuration](../configuration/gateway-yaml.md) -- gateway setup and deployment

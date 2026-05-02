@@ -66,6 +66,10 @@ is documented by concern, not as a single monolith.
   Runtime provider availability, model discovery, operator diagnostics, and
   provider/model selection invariants.
 
+- `provider-credential-pools.md`
+  Provider credential rotation, cooldown, runtime credential sources,
+  cross-process reload, health snapshots, and secret-free observability.
+
 - `runtime-surfaces.md`
   Canonical taxonomy for App Gateway, Operator Gateway, Studio Dev Server,
   CLI, GUI, TUI, SDK/widget, and MCP boundaries.

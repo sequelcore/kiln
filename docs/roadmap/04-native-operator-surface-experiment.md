@@ -1,12 +1,12 @@
-# 05 - Native Operator Surface Experiment
+# 04 - Native Operator Surface Experiment
 
 ## Status
 
 Deferred experimental roadmap.
 
-Do not start this program before `02-managed-agents-cross-provider-subagents.md`
+Do not start this program before `01-managed-agents-cross-provider-subagents.md`
 creates real high-concurrency operator workloads and before
-`03-config-projection-unification.md` defines how local, cloud, team, CI, and
+`02-config-projection-unification.md` defines how local, cloud, team, CI, and
 project configuration are projected into a stable runtime view.
 
 This is a validation track, not a commitment to replace the web GUI.
@@ -272,10 +272,10 @@ This roadmap depends on:
   Defines tool authority and execution evidence.
 - `docs/architecture/memory.md` and `docs/guides/memory.md`
   Provide governed memory, lifecycle evidence, projection, and provenance.
-- `02-managed-agents-cross-provider-subagents.md`
+- `01-managed-agents-cross-provider-subagents.md`
   Creates the high-concurrency managed-agent workloads this experiment is meant
   to measure.
-- `03-config-projection-unification.md`
+- `02-config-projection-unification.md`
   Provides config projection and drift-aware runtime configuration so local,
   cloud, team, CI, GUI, native, CLI, and IDE surfaces do not invent separate
   config truth.
@@ -319,7 +319,7 @@ This roadmap depends on:
 The experiment may become a first-class roadmap implementation only if all of
 the following are true:
 
-- Real `03` managed-agent workloads show web GUI limits after reasonable web
+- Real managed-agent workloads show web GUI limits after reasonable web
   optimizations.
 - The native prototype materially improves at least two of:
   - large-session rendering latency
@@ -372,8 +372,8 @@ Close this roadmap without implementation if:
 - `docs/architecture/developer-tools.md`
 - `docs/architecture/session-model.md`
 - `docs/architecture/tool-execution.md`
-- `docs/roadmap/02-managed-agents-cross-provider-subagents.md`
-- `docs/roadmap/03-config-projection-unification.md`
+- `docs/roadmap/01-managed-agents-cross-provider-subagents.md`
+- `docs/roadmap/02-config-projection-unification.md`
 - Stack Overflow 2025 Developer Survey:
   https://survey.stackoverflow.co/2025
 - Stack Overflow 2025 AI section:
