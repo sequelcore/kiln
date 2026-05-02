@@ -4,14 +4,15 @@
 
 Phase 0 planning, Phase 1 Slice 1 doctrine, Phase 1 Slice 2 foundation
 boundary, Phase 1 Slice 3 canonical core contracts, Phase 1 Slice 4 runtime
-admission ownership, Phase 1 Slice 5 adapter taxonomy, and Phase 1 Slice 6
-session event/replay projection planning are complete on 2026-05-02. Ready to
-start Phase 1, Slice 7: test-first verification plan.
+admission ownership, Phase 1 Slice 5 adapter taxonomy, Phase 1 Slice 6 session
+event/replay projection planning, and Phase 1 Slice 7 test-first verification
+planning are complete on 2026-05-02. Ready to start Phase 1, Slice 8: first
+adapter proof.
 
 Phase 1 must start from the Kiln-native managed agent invocation plan below.
 Do not open an ADR yet, do not select the first adapter yet, and do not start
-implementation before Slice 7 has converted session evidence and projections
-into tests.
+runtime implementation until Slice 8 begins with the Slice 7 failing-test
+sequence.
 
 Stable dependency doctrine lives in
 `docs/architecture/provider-credential-pools.md`,
@@ -1323,40 +1324,122 @@ Deliverable:
 
 ### Slice 7: Test-First Verification Plan
 
-Status: next.
+Status: completed on 2026-05-02.
 
-Write failing tests before implementing runtime behavior.
+Write failing tests before implementing runtime behavior. Slice 7 defines the
+test plan only; the tests themselves are written at the start of Slice 8 so the
+first adapter proof begins red and stays inside the foundation boundary.
 
-Required tests:
+Test-first principle:
 
-- invocation cannot bypass runtime policy
-- child invocation has explicit provider route, adapter kind, execution mode,
-  permission profile, tool authority, working directory, timeout, credential
-  route, and memory scope
-- denied admission emits replayable failure evidence
-- session reload preserves parent-child lineage and lifecycle evidence
-- cancellation request and terminal cancellation are distinct
-- timeout attaches a diagnostic artifact pointer when the adapter provides one
-- transcript pointer records redaction, truncation, persistence, and retention
-  flags
-- usage/cost report preserves provider token classes and explicit unknowns
-- GUI projection renders from canonical events only
+- The first failing tests must describe Kiln-owned admission, lifecycle,
+  evidence, and projection behavior before any adapter runtime exists.
+- A provider harness can only be proven after core contracts and runtime
+  admission fail for the missing managed invocation engine.
+- The test plan must exercise the `foundation-readonly-plan` profile only:
+  one parent turn, one child invocation, bounded read-only authority, explicit
+  provider route, explicit credential route, governed memory/context, bounded
+  timeout, cancellation, transcript pointer, usage evidence, result handoff, and
+  replayable session evidence.
+- No test may require fan-out, DAG execution, write authority, recurring
+  automations, provider-native teams, or provider-native vocabulary in core
+  names.
+
+Existing seams to extend:
+
+| Surface | Existing evidence | Slice 8 test use |
+| --- | --- | --- |
+| Core session events | `packages/core/tests/events/session-event.test.ts` covers the coarse `agent_invocation_*` family. | Extend payload and identity assertions for parent/child lineage, admission profile, authority, transcript, usage, timeout, and handoff evidence. |
+| Runtime session persistence | `packages/runtime/tests/session/runtime-session.test.ts` and `packages/runtime/tests/session/session-serializer.test.ts` append, order, serialize, and reload canonical session events. | Prove denied, admitted, terminal, cancellation, timeout, and result-handoff events survive reload without provider-local state. |
+| Gateway projection | `packages/gateway-contracts/tests/operator-event-presentation.test.ts` renders operator event payloads. | Prove managed invocation details are projected through canonical payloads with redacted/linked evidence. |
+| GUI projection | `packages/gui/tests/session-store.test.ts` and `packages/gui/tests/timeline-visibility.test.ts` already render coarse invocation events. | Prove GUI state derives from canonical events only and never from GUI-local managed-agent state. |
+| TUI projection | `packages/tui/tests/gateway-session.test.ts` maps gateway session events to terminal activity. | Prove TUI receives the same invocation lifecycle through gateway frames. |
+| Context admission | `packages/core/tests/context/governor-memory-admission.test.ts` and `packages/runtime/tests/session/runtime-session-orchestrator.test.ts` lock `DefaultContextGovernor` ownership. | Prove child memory/context admission carries parent lineage and cannot bypass governor evidence. |
+| Credential route | `packages/core/tests/agents/credential-pool.test.ts` and runtime provider credential-pool tests cover credential leasing and secret-free status. | Prove managed invocation accepts a credential route reference and never copies secrets into child records/events. |
+
+First failing-test sequence:
+
+| Order | Target file | Required behavior | Expected initial failure |
+| ---:| --- | --- | --- |
+| 1 | `packages/core/tests/managed-agent/invocation-contracts.test.ts` | `ManagedAgentInvocationRequest`, `ManagedAgentAdmissionDecision`, `ManagedAgentInvocationRecord`, adapter descriptors, authority profile, transcript pointer, diagnostic pointer, usage report, and result handoff preserve the Slice 3 contract. | Managed invocation contract module does not exist. |
+| 2 | `packages/core/tests/managed-agent/admission-policy.test.ts` | `foundation-readonly-plan` denies missing provider route, adapter kind, execution mode, permission profile, tool authority, working directory, timeout, credential route or credentialless declaration, and memory scope. | Admission policy does not exist and current coarse session events cannot enforce request completeness. |
+| 3 | `packages/runtime/tests/managed-agent/invocation-service.test.ts` | Runtime-owned service is the only path to execute a child invocation; direct adapter execution without an admitted decision is rejected. | Runtime has provider/session plumbing but no managed invocation service boundary. |
+| 4 | `packages/runtime/tests/managed-agent/context-and-credential-admission.test.ts` | Child invocation context uses `DefaultContextGovernor` audit evidence and credential route IDs; no secret values or implicit parent memory/write scope enter the child request. | No child-specific governor/credential admission path exists. |
+| 5 | `packages/runtime/tests/session/managed-invocation-session-events.test.ts` | Requested, denied, admitted/start, completed, failed, cancelled, timed-out, cleanup, and result-handoff evidence append as canonical session events with stable sequence ordering. | Current event family is coarse and lacks required managed invocation payloads. |
+| 6 | `packages/runtime/tests/session/session-serializer.test.ts` | Serialized/reloaded sessions reconstruct denied admissions and admitted terminal states with parent-child lineage, cancellation request, terminal cancellation, timeout, transcript, usage, and handoff evidence. | Serializer preserves current coarse payloads but does not reconstruct the richer managed invocation state. |
+| 7 | `packages/gateway-contracts/tests/managed-invocation-presentation.test.ts` | Operator event presentation exposes high-signal invocation state and evidence pointers while keeping raw provider transcript/log output out of inline payloads. | No managed invocation-specific presentation contract exists. |
+| 8 | `packages/gui/tests/managed-invocation-projection.test.ts` | GUI timeline/inspector state reconstructs from canonical events only, including denial, cancellation, timeout, usage unknowns, and transcript retention flags. | GUI currently renders coarse entries but does not reconstruct the full managed invocation record. |
+| 9 | `packages/tui/tests/managed-invocation-gateway-session.test.ts` | TUI activity projection consumes the same gateway event frames as GUI/remote surfaces and does not need provider-specific logic. | TUI has no managed invocation projection test. |
+| 10 | `packages/runtime/tests/managed-agent/result-handoff.test.ts` | Parent receives a bounded result summary plus resource/artifact pointers, not raw child state; child memory writes become proposals unless authority grants writes. | Result handoff contract does not exist. |
+
+Required test fixtures:
+
+- `FakeManagedAgentAdapter` for an admitted direct provider route that returns
+  bounded result, transcript pointer, usage report, and cleanup evidence.
+- `FakeHarnessAdapter` for a harness-style child session with provider-native
+  child IDs and transcript/log pointers.
+- `DeniedDescriptorAdapter` that lacks one required capability at a time so
+  admission fails closed with replayable denial evidence.
+- `TimeoutAdapter` that records a timeout, optional diagnostic artifact pointer,
+  and cleanup state.
+- `CancellationObserverAdapter` that separates cancellation request time from
+  terminal cancellation observation.
+- `UnknownUsageAdapter` that reports provider token classes it knows and
+  explicit `unknown` values for missing token/cost classes.
+- `TranscriptPointerFixture` with redaction, truncation, persistence, retention,
+  and external-resource flags.
+
+Verification order for Slice 8:
+
+1. Add core contract and admission tests first.
+2. Add runtime admission and no-bypass tests second.
+3. Add context/credential admission tests before any adapter execution path.
+4. Add session event append, serialization, and reload tests before projection.
+5. Add gateway, GUI, and TUI projection tests from canonical events.
+6. Add the first adapter proof only after the above tests fail for missing
+   production code.
+
+Commands to run when Slice 8 starts implementing tests and code:
+
+```bash
+cmd.exe /c "node_modules\.bin\vitest.exe run packages/core/tests/managed-agent/invocation-contracts.test.ts packages/core/tests/managed-agent/admission-policy.test.ts"
+cmd.exe /c "node_modules\.bin\vitest.exe run packages/runtime/tests/managed-agent/invocation-service.test.ts packages/runtime/tests/managed-agent/context-and-credential-admission.test.ts packages/runtime/tests/session/managed-invocation-session-events.test.ts packages/runtime/tests/session/session-serializer.test.ts"
+cmd.exe /c "node_modules\.bin\vitest.exe run packages/gateway-contracts/tests/managed-invocation-presentation.test.ts packages/gui/tests/managed-invocation-projection.test.ts packages/tui/tests/managed-invocation-gateway-session.test.ts"
+cmd.exe /c "bun run typecheck"
+cmd.exe /c "bun run test"
+```
+
+Out of scope for Slice 8 tests:
+
+- real provider calls, network calls, or live external credentials
+- write-authority child execution
+- multiple children, parallel fan-out/fan-in, DAG workflows, scheduler behavior,
+  recurring automations, and nested teams
+- provider selection policy beyond the single adapter proof
+- Claude-, Codex-, OpenCode-, Hermes-, or OpenClaw-native terms as core
+  contract names
 
 Exit criteria:
 
-- tests fail for the missing managed-agent engine before implementation starts
-- verification gates are tied to the foundation boundary, not future fan-out or DAG
-  behavior
+- exact failing-test files are named for contracts, admission, runtime service,
+  context/credential admission, session replay, gateway projection, GUI
+  projection, TUI projection, cancellation, timeout, transcript, usage, and
+  result handoff: met
+- tests are ordered so the first adapter proof cannot bypass Kiln runtime
+  policy: met
+- verification gates are tied to the foundation boundary, not future fan-out,
+  DAG, write authority, or scheduled automation behavior: met
+- Slice 8 can start by writing failing tests before production code: met
 
 Deliverable:
 
-- failing test plan and exact test files for contract, runtime admission,
-  session replay, projection, cancellation, timeout, transcript, and usage
-  behavior
+- completed in this roadmap section. Slice 8 can now write the failing tests
+  and implement the first adapter proof against the `foundation-readonly-plan`
+  boundary.
 
 ### Slice 8: First Adapter Proof
 
-Status: pending Slice 7.
+Status: next.
 
 Implement exactly one adapter after Slices 1-7 define the contract and tests.
 
