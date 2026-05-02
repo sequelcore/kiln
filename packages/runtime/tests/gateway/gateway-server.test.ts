@@ -6,6 +6,7 @@ import { join } from "node:path";
 import type { UpgradeWebSocket } from "hono/ws";
 import { createGatewayApp } from "../../src/gateway/gateway-routes.js";
 import type { LoadedApp, GatewayServerConfig } from "../../src/gateway/gateway-routes.js";
+import { CredentialPoolObservabilityRegistry } from "../../src/agents/credential-pool/credential-pool-observability.js";
 import { ChannelRegistry } from "../../src/channels/channel-registry.js";
 import { WebChannel } from "../../src/channels/web-channel.js";
 import type { WebSocketLike } from "../../src/channels/web-channel.js";
@@ -13,7 +14,7 @@ import { SessionRegistry } from "../../src/session/session-registry.js";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { TenantRegistry } from "../../src/tenant/tenant-registry.js";
 import type { App, ProviderAdapter, TenantConfig } from "@kilnai/core";
-import { textParts } from "@kilnai/core";
+import { CredentialPool, textParts } from "@kilnai/core";
 
 const originalFetch = globalThis.fetch;
 
@@ -146,6 +147,99 @@ describe("createGatewayApp", () => {
 
     expect(body.apps[0]!.channels).toEqual(["api"]);
     expect(body.apps[1]!.channels).toEqual(["whatsapp"]);
+  });
+
+  it("GET /observability includes active credential pool health", async () => {
+    const registry = new CredentialPoolObservabilityRegistry();
+    const pool = new CredentialPool("opencode");
+    pool.addCredential("go-primary", "go-primary", { apiKey: "secret" }, { tier: "go" });
+    const secondPool = new CredentialPool("opencode");
+    secondPool.addCredential("go-secondary", "go-secondary", { apiKey: "secret-2" }, { tier: "go" });
+    registry.register("opencode-go", pool);
+    registry.register("opencode-go", secondPool);
+    const app = createGatewayApp({
+      ...makeConfig([]),
+      credentialPoolObservability: registry,
+    });
+
+    const res = await app.request("/observability");
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as {
+      providers: Array<{
+        provider: string;
+        credentialPool: { providerId: string; entries: Array<{ id: string; health: string; requestCount: number }> };
+      }>;
+    };
+    expect(body.providers).toEqual([{
+      provider: "opencode-go",
+      credentialPool: {
+        providerId: "opencode",
+        strategy: "fill-first",
+        metrics: {
+          totalCredentials: 1,
+          availableCount: 1,
+          coolingCount: 0,
+          exhaustedCount: 0,
+          totalRequests: 0,
+        },
+        entries: [{
+          id: "go-primary",
+          label: "go-primary",
+          source: "manual",
+          priority: 0,
+          tier: "go",
+          health: "ok",
+          requestCount: 0,
+          lastSuccess: null,
+          lastExhausted: null,
+          cooldownUntil: null,
+        }],
+      },
+    }, {
+      provider: "opencode-go",
+      credentialPool: {
+        providerId: "opencode",
+        strategy: "fill-first",
+        metrics: {
+          totalCredentials: 1,
+          availableCount: 1,
+          coolingCount: 0,
+          exhaustedCount: 0,
+          totalRequests: 0,
+        },
+        entries: [{
+          id: "go-secondary",
+          label: "go-secondary",
+          source: "manual",
+          priority: 0,
+          tier: "go",
+          health: "ok",
+          requestCount: 0,
+          lastSuccess: null,
+          lastExhausted: null,
+          cooldownUntil: null,
+        }],
+      },
+    }]);
+  });
+
+  it("GET /observability requires gateway JWT when configured", async () => {
+    const verifyJwt = vi.fn().mockResolvedValue({ sub: "operator" });
+    const app = createGatewayApp({
+      ...makeConfig([]),
+      credentialPoolObservability: new CredentialPoolObservabilityRegistry(),
+      jwtVerifier: verifyJwt,
+    });
+
+    const missing = await app.request("/observability");
+    expect(missing.status).toBe(401);
+
+    const authorized = await app.request("/observability", {
+      headers: { Authorization: "Bearer valid-token" },
+    });
+    expect(authorized.status).toBe(200);
+    expect(verifyJwt).toHaveBeenCalledWith("valid-token");
   });
 
   it("multiple apps loaded without interference", async () => {

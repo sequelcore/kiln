@@ -19,9 +19,11 @@ import {
 } from "@kilnai/core";
 import {
   CodexOAuthCredentialPoolService,
+  CredentialPoolObservabilityRegistry,
   CredentialWatcher,
   DirectProviderCredentialPoolService,
   isPooledDirectProviderId,
+  OpenCodeCredentialPoolService,
 } from "../agents/credential-pool/index.js";
 import type { ProviderAdapter, ProviderConfig, App, ToolDefinition, SttAdapter, Capability, IntegrationAdapter, SecurityConfig } from "@kilnai/core";
 import { AnnotationAuthorizer } from "@kilnai/core";
@@ -274,6 +276,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
     rootDir: join(homedir(), ".kiln", "auth"),
   });
   await credentialWatcher.start();
+  const credentialPoolObservability = new CredentialPoolObservabilityRegistry();
   const prometheusCollector = new PrometheusCollector();
   const compositeStore = new CompositeEventStore(
     otelExporter ? [otelExporter, prometheusCollector] : [prometheusCollector],
@@ -346,7 +349,11 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
     const resolved = resolvedApps.find((r) => r.name === loaded.name);
     if (!resolved?.runtimeModeConfig || resolved.runtimeModeConfig.runtime !== "provider-adapter") continue;
 
-    const provider = await createProviderFromConfig(resolved.runtimeModeConfig.provider, credentialWatcher);
+    const provider = await createProviderFromConfig(
+      resolved.runtimeModeConfig.provider,
+      credentialWatcher,
+      credentialPoolObservability,
+    );
     const systemPrompt = buildSystemPromptFromApp(resolved.app);
 
     // Discover MCP tools if configured
@@ -827,6 +834,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
     mcp: gatewayConfig.mcp,
     delegationRegistry,
     healthRegistry,
+    credentialPoolObservability,
     startTime,
     triggerRegistry,
     safetyPipelines,
@@ -1255,6 +1263,7 @@ REASONING: <one sentence explanation>`;
 async function createProviderFromConfig(
   config: ProviderConfig,
   credentialWatcher?: CredentialWatcher,
+  credentialPoolObservability?: CredentialPoolObservabilityRegistry,
 ): Promise<ProviderAdapter> {
   const model = config.model;
   const requireModel = (): string => {
@@ -1269,7 +1278,19 @@ async function createProviderFromConfig(
 
   switch (config.name) {
     case "codex-oauth":
-      return await new CodexOAuthCredentialPoolService({ watcher: credentialWatcher }).createPooledAdapter({ defaultModel: requireModel() });
+      return await new CodexOAuthCredentialPoolService({
+        watcher: credentialWatcher,
+        observability: credentialPoolObservability,
+      }).createPooledAdapter({ defaultModel: requireModel() });
+    case "opencode-go":
+    case "opencode-zen":
+      return await new OpenCodeCredentialPoolService({
+        watcher: credentialWatcher,
+        observability: credentialPoolObservability,
+      }).createPooledAdapter({
+        tier: config.name === "opencode-zen" ? "zen" : "go",
+        defaultModel: requireModel(),
+      });
     case "anthropic":
     case "openai":
     case "deepseek":
@@ -1279,7 +1300,10 @@ async function createProviderFromConfig(
       if (!isPooledDirectProviderId(config.name)) {
         throw new KilnError("CONFIG_INVALID", `Unsupported pooled provider: ${config.name}`);
       }
-      return await new DirectProviderCredentialPoolService({ watcher: credentialWatcher }).createPooledAdapter({
+      return await new DirectProviderCredentialPoolService({
+        watcher: credentialWatcher,
+        observability: credentialPoolObservability,
+      }).createPooledAdapter({
         provider: config.name,
         defaultModel: model,
         openRouterAppUrl: process.env.OPENROUTER_APP_URL,

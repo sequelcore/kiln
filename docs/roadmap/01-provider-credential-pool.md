@@ -578,7 +578,7 @@ Verification completed:
 - `cmd.exe /c bun run --filter @kilnai/runtime test` — 137 files and 1788
   tests passed.
 
-### Slice 9 — Observability
+### Slice 9 — Observability — Completed 2026-05-02
 
 Add per-credential telemetry to each pool entry: request count (success and
 error), last-success timestamp, last-exhausted timestamp, current cooldown
@@ -591,12 +591,39 @@ Surfaced via:
 - Gateway `/observability` endpoint — pool health included in the provider
   section for each active pool.
 
-No new persistent store — telemetry is in-process only and resets on gateway
-restart.
+No new persistent store was added. Gateway observability uses live in-process
+pool snapshots; CLI status reads the existing runtime health projection used by
+the pool services.
 
-Acceptance: `kiln auth opencode status` output includes per-entry health
-columns; gateway observability JSON includes `credentialPool` section per
-provider. Confirmed via integration test.
+Completed status:
+
+- `kiln auth opencode status` now prints per-entry columns for name, tier,
+  request count, and health (`ok`, `cooling`, `exhausted`).
+- `CredentialPoolObservabilityRegistry` tracks live runtime pools without
+  owning credential loading or health persistence.
+- gateway provider-adapter startup registers active Codex OAuth, OpenCode, and
+  direct-provider pools with the observability registry.
+- gateway `/observability` returns one provider section per active pool with a
+  `credentialPool` snapshot containing metrics and non-secret entry health.
+- gateway `/observability` requires the configured gateway JWT when gateway
+  auth is enabled.
+- observability keeps distinct active pools even when multiple apps use the
+  same provider id.
+- OpenCode provider-adapter gateway wiring now supports `opencode-go` and
+  `opencode-zen` pool services directly.
+
+Verification completed:
+
+- `cmd.exe /c bun --cwd packages/cli vitest run tests/commands/auth.test.ts --maxWorkers=1 --reporter=dot`
+  — 1 test passed.
+- `cmd.exe /c bun --cwd packages/runtime vitest run tests/gateway/gateway-server.test.ts --maxWorkers=1 --reporter=dot`
+  — 21 tests passed.
+- `cmd.exe /c bun run typecheck` from `packages/runtime` — passed.
+- `cmd.exe /c bun run typecheck` from `packages/cli` — passed.
+- `cmd.exe /c bun vitest run --maxWorkers=1 --reporter=dot` from
+  `packages/runtime` — 137 files and 1790 tests passed.
+- `cmd.exe /c bun vitest run --maxWorkers=1 --reporter=dot` from
+  `packages/cli` — 66 files and 691 tests passed.
 
 ## Verification Gates
 

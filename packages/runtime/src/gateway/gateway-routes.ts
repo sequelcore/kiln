@@ -43,6 +43,7 @@ import type { DevRoutesConfig } from "./dev-routes.js";
 import { createDevRoutes } from "./dev-routes.js";
 import { createDevInspectorHtml } from "./dev-inspector.js";
 import type { TriggerRegistry } from "../trigger/trigger-registry.js";
+import type { CredentialPoolObservabilityRegistry } from "../agents/credential-pool/credential-pool-observability.js";
 import type { ConversationEventEmitter } from "./conversation-event-emitter.js";
 import type { KnowledgePipelineResult } from "./knowledge-factory.js";
 import type { JwtVerifyFn } from "./jwt-verifier.js";
@@ -96,6 +97,7 @@ export interface GatewayServerConfig {
   readonly devMode?: boolean;
   readonly devRoutesConfig?: DevRoutesConfig;
   readonly triggerRegistry?: TriggerRegistry;
+  readonly credentialPoolObservability?: CredentialPoolObservabilityRegistry;
   readonly safetyPipelines?: Map<string, SafetyPipeline>;
   readonly studioDistPath?: string;
   readonly upgradeWebSocket?: WsRoutesConfig["upgradeWebSocket"];
@@ -147,6 +149,15 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
 
   app.get("/gui/api/dashboard", async (c) => {
     return c.json(await buildAppGatewayGuiDashboard(config));
+  });
+
+  if (jwtMiddleware) {
+    app.use("/observability", jwtMiddleware);
+  }
+  app.get("/observability", async (c) => {
+    return c.json({
+      providers: config.credentialPoolObservability?.snapshot() ?? [],
+    });
   });
 
   app.get("/gui/api/sessions", async (c) => {

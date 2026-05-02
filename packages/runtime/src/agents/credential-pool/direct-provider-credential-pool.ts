@@ -17,6 +17,7 @@ import {
 } from "@kilnai/core";
 import { CredentialFileStore } from "./credential-file-store.js";
 import { CredentialHealthStore } from "./credential-health-store.js";
+import type { CredentialPoolObservabilityRegistry } from "./credential-pool-observability.js";
 import type { CredentialWatcher } from "./credential-watcher.js";
 
 export type PooledDirectProviderId = "anthropic" | "openai" | "deepseek" | "openrouter" | "ollama" | "lmstudio";
@@ -26,6 +27,7 @@ export interface DirectProviderCredentialPoolServiceConfig {
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly healthStore?: CredentialHealthStore;
   readonly watcher?: CredentialWatcher;
+  readonly observability?: CredentialPoolObservabilityRegistry;
 }
 
 export interface DirectProviderAuth {
@@ -41,6 +43,8 @@ export interface DirectProviderCredentialStatus {
   readonly priority: number;
   readonly health?: {
     readonly requestCount: number;
+    readonly lastSuccess: number | null;
+    readonly lastExhausted: number | null;
     readonly cooldownUntil: number | null;
     readonly lastOutcome: CredentialOutcome | null;
   };
@@ -96,12 +100,14 @@ export class DirectProviderCredentialPoolService {
   private readonly env: Readonly<Record<string, string | undefined>>;
   private readonly healthStore: CredentialHealthStore;
   private readonly watcher?: CredentialWatcher;
+  private readonly observability?: CredentialPoolObservabilityRegistry;
 
   constructor(config: DirectProviderCredentialPoolServiceConfig = {}) {
     this.rootDir = config.rootDir ?? join(homedir(), ".kiln", "auth");
     this.env = config.env ?? process.env;
     this.healthStore = config.healthStore ?? new CredentialHealthStore({ rootDir: this.rootDir });
     this.watcher = config.watcher;
+    this.observability = config.observability;
   }
 
   async listStatus(provider: PooledDirectProviderId): Promise<readonly DirectProviderCredentialStatus[]> {
@@ -118,6 +124,8 @@ export class DirectProviderCredentialPoolService {
         health: record
           ? {
               requestCount: record.requestCount,
+              lastSuccess: record.lastSuccess,
+              lastExhausted: record.lastExhausted,
               cooldownUntil: record.cooldownUntil,
               lastOutcome: record.lastOutcome,
             }
@@ -128,6 +136,7 @@ export class DirectProviderCredentialPoolService {
 
   async createPooledAdapter(options: CreateDirectProviderPooledAdapterOptions): Promise<ProviderAdapter> {
     const pool = await this.createPool(options.provider);
+    this.observability?.register(options.provider, pool);
     return new PooledProviderAdapter<DirectProviderAuth>({
       name: options.provider,
       pool,

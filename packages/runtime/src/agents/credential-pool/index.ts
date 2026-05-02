@@ -27,6 +27,13 @@ export type {
 } from "./credential-watcher.js";
 
 export {
+  CredentialPoolObservabilityRegistry,
+} from "./credential-pool-observability.js";
+export type {
+  CredentialPoolObservation,
+} from "./credential-pool-observability.js";
+
+export {
   CredentialPoolFactory,
 } from "./credential-pool-factory.js";
 export type {

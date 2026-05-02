@@ -12,6 +12,7 @@ import {
   type ProviderAdapter,
 } from "@kilnai/core";
 import { CredentialHealthStore } from "./credential-health-store.js";
+import type { CredentialPoolObservabilityRegistry } from "./credential-pool-observability.js";
 import type { CredentialWatcher } from "./credential-watcher.js";
 
 export const CODEX_OAUTH_POOL_PROVIDER_ID = "codex-oauth";
@@ -20,6 +21,7 @@ export interface CodexOAuthCredentialPoolServiceConfig {
   readonly rootDir?: string;
   readonly healthStore?: CredentialHealthStore;
   readonly watcher?: CredentialWatcher;
+  readonly observability?: CredentialPoolObservabilityRegistry;
 }
 
 export interface LinkCodexOAuthCredentialOptions {
@@ -34,6 +36,8 @@ export interface CodexOAuthCredentialStatus {
   readonly status: "valid" | "expiring-soon" | "expired";
   readonly health?: {
     readonly requestCount: number;
+    readonly lastSuccess: number | null;
+    readonly lastExhausted: number | null;
     readonly cooldownUntil: number | null;
     readonly lastOutcome: CredentialOutcome | null;
   };
@@ -55,11 +59,13 @@ export class CodexOAuthCredentialPoolService {
   private readonly rootDir: string;
   private readonly healthStore: CredentialHealthStore;
   private readonly watcher?: CredentialWatcher;
+  private readonly observability?: CredentialPoolObservabilityRegistry;
 
   constructor(config: CodexOAuthCredentialPoolServiceConfig = {}) {
     this.rootDir = config.rootDir ?? join(homedir(), ".kiln", "auth");
     this.healthStore = config.healthStore ?? new CredentialHealthStore({ rootDir: this.rootDir });
     this.watcher = config.watcher;
+    this.observability = config.observability;
   }
 
   async linkCredential(options: LinkCodexOAuthCredentialOptions): Promise<void> {
@@ -83,6 +89,8 @@ export class CodexOAuthCredentialPoolService {
         health: record
           ? {
               requestCount: record.requestCount,
+              lastSuccess: record.lastSuccess,
+              lastExhausted: record.lastExhausted,
               cooldownUntil: record.cooldownUntil,
               lastOutcome: record.lastOutcome,
             }
@@ -100,6 +108,7 @@ export class CodexOAuthCredentialPoolService {
 
   async createPooledAdapter(options: CreateCodexOAuthPooledAdapterOptions): Promise<ProviderAdapter> {
     const pool = await this.createPool();
+    this.observability?.register(CODEX_OAUTH_POOL_PROVIDER_ID, pool);
     return new PooledProviderAdapter<CodexOAuthPoolCredential>({
       name: CODEX_OAUTH_POOL_PROVIDER_ID,
       pool,

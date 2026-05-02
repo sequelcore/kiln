@@ -153,6 +153,12 @@ export { TraceContext } from "./gateway/trace-context.js";
 export { CompositeEventStore } from "./observability/composite-event-store.js";
 export { PrometheusCollector } from "./observability/prometheus-collector.js";
 export type { PrometheusCollectorConfig } from "./observability/prometheus-collector.js";
+export {
+  CredentialPoolObservabilityRegistry,
+} from "./agents/credential-pool/credential-pool-observability.js";
+export type {
+  CredentialPoolObservation,
+} from "./agents/credential-pool/credential-pool-observability.js";
 
 // Session
 export {

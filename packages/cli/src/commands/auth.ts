@@ -169,15 +169,16 @@ async function runOpenCodeStatus(): Promise<void> {
     return;
   }
   console.log("OpenCode");
+  console.log(formatStatusRow(["Name", "Tier", "Requests", "Health"]));
   for (const entry of entries) {
-    console.log(`  ${entry.id}`);
-    console.log(`    Tier: ${entry.tier}`);
-    console.log(`    Linked at: ${entry.createdAt}`);
-    console.log(`    Key: ${entry.key}`);
-    if (entry.health) {
-      console.log(`    Requests: ${entry.health.requestCount}`);
-      console.log(`    Cooldown: ${entry.health.cooldownUntil ?? "none"}`);
-    }
+    console.log(formatStatusRow([
+      entry.id,
+      entry.tier,
+      String(entry.health?.requestCount ?? 0),
+      describeCredentialHealth(entry.health),
+    ]));
+    console.log(`  Linked at: ${entry.createdAt}`);
+    console.log(`  Key: ${entry.key}`);
   }
 }
 
@@ -294,6 +295,20 @@ function describeExpiry(expiresAt: string): string {
     return "expiring soon";
   }
   return "valid";
+}
+
+function describeCredentialHealth(
+  health: { readonly lastExhausted?: number | null; readonly cooldownUntil: number | null } | undefined,
+): "ok" | "cooling" | "exhausted" {
+  if (!health?.cooldownUntil || health.cooldownUntil <= Date.now()) {
+    return "ok";
+  }
+  return health.lastExhausted === null || health.lastExhausted === undefined ? "cooling" : "exhausted";
+}
+
+function formatStatusRow(cells: readonly string[]): string {
+  const widths = [24, 8, 10, 10];
+  return `  ${cells.map((cell, index) => cell.padEnd(widths[index] ?? 10)).join("  ").trimEnd()}`;
 }
 
 function printUsage(): void {
