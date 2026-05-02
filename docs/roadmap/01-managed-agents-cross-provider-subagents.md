@@ -2,13 +2,14 @@
 
 ## Status
 
-Phase 0 planning is complete on 2026-05-02. Ready to start Phase 1, Slice 1:
-Kiln doctrine and vocabulary.
+Phase 0 planning and Phase 1 Slice 1 doctrine are complete on 2026-05-02.
+Ready to start Phase 1, Slice 2: foundation boundary and non-boundary.
 
 Phase 1 must start from the Kiln-native managed agent invocation plan below.
 Do not open an ADR yet, do not select the first adapter yet, and do not start
-implementation before Slice 1 through Slice 7 have converted the plan into
-contracts, runtime ownership, adapter taxonomy, session evidence, and tests.
+implementation before Slice 2 through Slice 7 have converted the doctrine into
+foundation boundaries, contracts, runtime ownership, adapter taxonomy, session
+evidence, and tests.
 
 Stable dependency doctrine lives in
 `docs/architecture/provider-credential-pools.md`,
@@ -105,8 +106,8 @@ credential route, transcript policy, and result handoff contract.
 ## Phase 0: Evidence And Canonical Planning
 
 Phase 0 reduced the roadmap into contract-first slices. These slices are not
-optional polish; they prevent the MVP from becoming a GUI-local subagent feature
-or a wrapper around existing CLI worker behavior.
+optional polish; they prevent the first production increment from becoming a
+GUI-local subagent feature or a wrapper around existing CLI worker behavior.
 
 ### Slice 0: Dependency Readiness Check
 
@@ -118,11 +119,11 @@ managed-agent design.
 
 | Dependency | Readiness | Decision |
 |---|---:|---|
-| Provider credential pooling | Ready enough for MVP planning | No substrate blocker |
-| Governed memory | Ready enough for MVP planning | No substrate blocker |
-| Memory Lattice projection | Ready enough for MVP planning | No substrate blocker |
-| Lifecycle policy | Partially ready | Child-invocation provenance convention must be defined before MVP coding |
-| Context admission | Ready enough for MVP planning | No substrate blocker |
+| Provider credential pooling | Ready enough for foundation planning | No substrate blocker |
+| Governed memory | Ready enough for foundation planning | No substrate blocker |
+| Memory Lattice projection | Ready enough for foundation planning | No substrate blocker |
+| Lifecycle policy | Partially ready | Child-invocation provenance convention must be defined before foundation coding |
+| Context admission | Ready enough for foundation planning | No substrate blocker |
 
 Readiness evidence:
 
@@ -173,7 +174,7 @@ Readiness evidence:
   `packages/core/tests/context/governor-memory-admission.test.ts`, and
   `packages/runtime/tests/session/runtime-session-orchestrator.test.ts`.
 
-Slice 0 blocker before MVP coding:
+Slice 0 blocker before foundation coding:
 
 - Child-invocation provenance is not yet canonical because Slice 2 has not
   defined final `parentSessionId`, `parentTurnId`, `invocationId`, `agentId`,
@@ -233,17 +234,17 @@ Preliminary naming and semantics matrix:
 
 | Provider or surface | Native term | Child work shape | Controller | Kiln treatment |
 | --- | --- | --- | --- | --- |
-| Claude Code | `subagent`, `agent teams`, `forks` | Separate context window, custom prompt, tool/model/permission controls, automatic or explicit invocation, optional background/worktree behavior | Claude Code runtime with operator and configuration controls | Strong MVP candidate, but adapter must normalize `subagent`, `team`, and `fork` into a single Kiln invocation model instead of copying Claude names into core. |
+| Claude Code | `subagent`, `agent teams`, `forks` | Separate context window, custom prompt, tool/model/permission controls, automatic or explicit invocation, optional background/worktree behavior | Claude Code runtime with operator and configuration controls | Strong foundation candidate, but adapter must normalize `subagent`, `team`, and `fork` into a single Kiln invocation model instead of copying Claude names into core. |
 | Claude Agent SDK | `subagent` via Agent tool | Programmatic separate agent instances spawned by the main agent; messages can expose parent linkage through tool-use metadata | SDK application and allowed tools | Good contract reference for parent/child lineage and result handoff. |
 | Codex CLI local implementation | `spawn_agent`, `subagent`, `agent job`, `guardian subagent` | Spawned Codex threads, optional forked context, background jobs, depth and concurrency limits, notifications, inherited services and policies | Codex runtime with model-visible tool constraints | Strong local implementation evidence; the canonical plan must separate local fork behavior from official OpenAI app/cloud behavior. |
 | OpenAI Codex app/cloud | `agents`, `threads`, `worktrees`, `skills`, `automations` | Multiple long-running agents across isolated worktrees/cloud sandboxes with progress review and reusable skills/automations | User/app/cloud control plane | Market signal for parallel work, review queues, isolated execution, and recurring background tasks; not enough by itself for Kiln lineage contracts. |
-| OpenCode | `primary agent`, `subagent`, `task` | Primary agents invoke subagents into child sessions; task output returns a result block and resumable `task_id` | OpenCode session/tool runtime | Strong MVP comparison for parent session ID, resumability, permission narrowing, and manual `@agent` invocation. |
+| OpenCode | `primary agent`, `subagent`, `task` | Primary agents invoke subagents into child sessions; task output returns a result block and resumable `task_id` | OpenCode session/tool runtime | Strong foundation comparison for parent session ID, resumability, permission narrowing, and manual `@agent` invocation. |
 | Hermes | `delegate_task`, `subagent_*` events/hooks | Parent delegates to children, relays progress/thinking/tool events, tracks active children, propagates interrupts, stores parent session lineage | Hermes CLI/gateway runtime | Strong local evidence for lifecycle event vocabulary and interruption behavior; should influence Kiln event envelope. |
 | GitHub Agent HQ / Copilot coding agent | `agent session`, `coding agent` | Asynchronous repository/issue/PR-attached sessions, draft PRs, reviewable logs, multi-agent comparison | GitHub workflow and enterprise controls | Product benchmark for collaboration, review, audit, and repository-native handoff. |
 | Conductor / Temporal / Camunda | `workflow`, `agentic workflow`, `durable execution`, `human-in-the-loop` | Explicit workflow graph, retries, state, observability, durable execution, human approval | Workflow engine | Pattern evidence that enterprise agent execution should be durable, observable, retryable, and governable. |
 | OpenHands | `harness`, `orchestrator`, `control plane` | Cloud/container runtimes with policies, routing, budgets, secrets controls, observability, audit | Software-agent control plane | Strong market signal for Kiln's control-plane posture: authority, budget, audit, and runtime isolation matter as much as spawn mechanics. |
 | LangGraph / CrewAI / Microsoft Agent Framework | `agent`, `crew`, `flow`, `workflow`, `handoff`, `supervisor` | Multi-agent application graphs with explicit routing, state, checkpoints, or handoffs | Application framework | Useful for orchestration vocabulary, but not direct child-process provider evidence unless wrapped by a Kiln adapter. |
-| Google Jules | `asynchronous coding agent`, `tasks`, `plans`, `diffs` | Cloud VM task execution against GitHub repositories, parallel tasks, visible plans/reasoning, GitHub issue integration, and subscription-based limits | Google Labs cloud service | Strong product signal for asynchronous cloud agents, but not enough for Kiln MVP unless an API exposes lineage, cancellation, logs, authority profile, and result handoff. |
+| Google Jules | `asynchronous coding agent`, `tasks`, `plans`, `diffs` | Cloud VM task execution against GitHub repositories, parallel tasks, visible plans/reasoning, GitHub issue integration, and subscription-based limits | Google Labs cloud service | Strong product signal for asynchronous cloud agents, but not enough for Kiln production admission unless an API exposes lineage, cancellation, logs, authority profile, and result handoff. |
 
 Preliminary 2026-05-02 market and user-needs read:
 
@@ -266,7 +267,7 @@ Preliminary 2026-05-02 market and user-needs read:
 
 Preliminary behaviors for the canonical plan:
 
-| Normalize | Reject for MVP | Defer |
+| Normalize | Reject for foundation | Defer |
 | --- | --- | --- |
 | parent/child lineage, child invocation ID, provider session ID, lifecycle events, cancellation, authority profile, credential route, model route, cwd/worktree, result handoff, cost/budget metadata | provider-native terms in core contracts, unbounded nested delegation, implicit permission inheritance without recorded authority profile, child work without observable lifecycle, prompt-only "agent" profiles without execution lineage | agent teams with peer-to-peer communication, scheduled automations, durable workflow replay, cloud sandbox provisioning, cross-provider result comparison, marketplace-style agent discovery |
 
@@ -282,11 +283,11 @@ Second-pass local implementation findings:
 | ECC latest local checkout | `docs/architecture/cross-harness.md` separates durable workflow assets from harness-specific adapters and marks cross-harness sessions as alpha. | Kiln should keep provider adapters thin and keep canonical lifecycle, memory, and authority contracts in Kiln core. |
 | Codex `main` local checkout | `spawn_agent` emits begin/end events, enforces delegation depth, validates role/model/reasoning overrides, supports `fork_context`, records `SubAgentSource::ThreadSpawn`, and starts child threads with inherited services, cwd, sandbox, approval policy, shell/network policy, cancellation token, and parent notification plumbing. `send_input`, `wait_agent`, `close_agent`, and `resume_agent` expose interrupt, timeout, previous-status, and rollout-resume behavior. | Kiln's canonical child invocation should include `parentThreadId`, `childThreadId`, `depth`, `agentRole`, `modelRoute`, `reasoningProfile`, `forkContext`, `authorityProfile`, `cwd`, `sandboxProfile`, `waitTimeout`, `closePreviousStatus`, `resumeSource`, and structured status events. |
 | Codex token and header plumbing | Codex exposes per-agent total token usage, formats open subagents into parent environment context, and marks spawned child requests with `x-openai-subagent: collab_spawn`. | Kiln should normalize usage while preserving provider token classes and should store provider-native lineage headers/labels as adapter metadata, not core contract names. |
-| Codex CSV fanout jobs | `agent_jobs` supports batch child execution from CSV-like inputs with default concurrency 16, max concurrency 64, 30-minute item timeout, progress events for totals/pending/running/completed/failed/ETA, and cancellation that stops new workers while existing work drains or times out. | Bulk fanout is valuable but should not be Slice 1 MVP scope. Treat it as a later adapter capability after single child invocation lifecycle, cancellation, and result handoff are stable. |
+| Codex CSV fanout jobs | `agent_jobs` supports batch child execution from CSV-like inputs with default concurrency 16, max concurrency 64, 30-minute item timeout, progress events for totals/pending/running/completed/failed/ETA, and cancellation that stops new workers while existing work drains or times out. | Bulk fanout is valuable but should not be foundation scope. Treat it as a later adapter capability after single child invocation lifecycle, cancellation, and result handoff are stable. |
 | OpenClaw local checkout | `src/agents/tools/sessions-spawn-tool.ts` exposes native `runtime="subagent"` and optional `runtime="acp"`, validates unsupported routing fields, supports `agentId`, `model`, `thinking`, `cwd`, `runTimeoutSeconds`, `thread`, `mode`, `cleanup`, `sandbox`, `context`, `lightContext`, and inline attachments. ACP fields are explicitly ignored or rejected for native subagents where inappropriate. | Kiln should model runtime kind, execution mode, timeout, sandbox requirement, context mode, attachment policy, and provider-specific unsupported-field validation as explicit admission concerns. |
 | OpenClaw spawn engine | `src/agents/subagent-spawn.ts` builds child keys as `agent:<targetAgentId>:subagent:<uuid>`, enforces valid agent IDs, target allowlists, `requireAgentId`, default max depth 1, max active children 5, sandboxed-parent cannot spawn unsandboxed child, context `fork` only for same-agent spawns, and default isolated context. It patches child session metadata with depth, role, control scope, model/thinking, `spawnedBy`, workspace, and context-engine preparation before starting the child run. | Kiln should make child identity, spawn depth, child capability role, controller scope, target-agent policy, workspace inheritance, sandbox inheritance, and fork-context eligibility canonical rather than provider-specific afterthoughts. |
 | OpenClaw subagent registry and lifecycle | `src/agents/subagent-registry.types.ts` records `runId`, `childSessionKey`, `controllerSessionKey`, `requesterSessionKey`, requester origin/display key, task, cleanup, model, agent/workspace dirs, timeout, spawn mode, timings, outcome, announce retries, pause/yield state, cleanup flags, and attachment retention. `subagent-registry.ts` restores/persists runs, reconciles orphans, retries terminal lifecycle grace windows, cleans browser sessions on lifecycle end, and emits announce/completion behavior. | Kiln should persist a first-class invocation record with retry/recovery metadata, not reconstruct state from transcripts. Timed-out or orphaned children need explicit recoverability and cleanup state. |
-| OpenClaw control and auth | `src/agents/subagent-control.ts` lets only owning controller sessions kill or steer their children, cascades kill to descendants, marks `abortedLastRun`, clears queues, and restarts steer runs with a new `runId`. `docs/auth-credential-semantics.md` defines auth read-through: child/secondary agents can resolve main-agent auth profiles at runtime without copying secrets. | Kiln should keep controller ownership and descendant cancellation explicit, treat steer/restart as a new invocation attempt, and reject OpenClaw-style additive auth fallback for MVP unless represented as an explicit credential-route policy. |
+| OpenClaw control and auth | `src/agents/subagent-control.ts` lets only owning controller sessions kill or steer their children, cascades kill to descendants, marks `abortedLastRun`, clears queues, and restarts steer runs with a new `runId`. `docs/auth-credential-semantics.md` defines auth read-through: child/secondary agents can resolve main-agent auth profiles at runtime without copying secrets. | Kiln should keep controller ownership and descendant cancellation explicit, treat steer/restart as a new invocation attempt, and reject OpenClaw-style additive auth fallback for the foundation unless represented as an explicit credential-route policy. |
 
 Final retry, transcript, and cost-depth findings:
 
@@ -296,7 +297,7 @@ Final retry, transcript, and cost-depth findings:
 | OpenCode latest local checkout | ACP code sends `usage_update` events with used tokens, context size, and USD cost from assistant messages. Session APIs expose messages, children, fork, share, abort, and async prompt behavior. Prompt and command responses include normalized usage, and cancellation routes through `session.abort`. | OpenCode is a strong comparison provider for transcript replay, child-session visibility, usage, cost, and cancellation. Kiln should still record provider-native cost as adapter metadata because currency and pricing rules are provider-owned. |
 | Hermes latest local checkout | Bedrock and auxiliary adapters extract input, output, total, reasoning, and cache token classes where available. Runtime paths classify context overflow, rate limits, overloads, unsupported parameters, auth refresh, provider fallback, and connection failures into retry or fallback behavior. Agent-loop docs describe conversation history, retry/fallback model switching, interruptible calls, and usage metadata. | Hermes confirms retry causes and provider switches must be first-class invocation diagnostics. Kiln should record retry attempt count, retry cause, fallback provider/model, and final stop reason instead of flattening retries into one terminal status. |
 | OpenClaw local checkout | `sessions_history` returns bounded inspectable history but redacts tool payload text, strips image data, truncates text, and removes `details`, `usage`, and `cost` from returned messages. Provider transports separately compute token usage and cost. Registry lifecycle already records run IDs, terminal retry state, orphan recovery, and cleanup behavior. | OpenClaw confirms transcript inspection and billing evidence are separate surfaces. Kiln must not treat a redacted provider history view as the audit ledger, and must preserve explicit redaction/truncation flags in transcript pointers. |
-| Claude Code official costs docs | Claude Code exposes cost and token visibility at the product level, including cost inspection and usage-monitoring guidance, but provider docs do not make Kiln's child-level attribution contract for us. | Claude-family adapters remain MVP candidates, but each adapter must prove child lineage, result handoff, cancellation, usage, and transcript pointers before admission. |
+| Claude Code official costs docs | Claude Code exposes cost and token visibility at the product level, including cost inspection and usage-monitoring guidance, but provider docs do not make Kiln's child-level attribution contract for us. | Claude-family adapters remain foundation candidates, but each adapter must prove child lineage, result handoff, cancellation, usage, and transcript pointers before admission. |
 
 User-pain signals from issue-linked changelogs:
 
@@ -307,8 +308,8 @@ Source: `C:\Proyectos\Sequel\openclaw\CHANGELOG.md`, inspected from the clean
 | --- | --- | --- |
 | Silent or ambiguous completion | OpenClaw changelog entries reference yielded results, missing visible replies, direct-completion fallback, duplicate announces, and parents waking early before a child result is available. | Terminal child state must be replayable and delivered through a canonical result handoff, not only through provider chat text. |
 | Control, cancellation, and orphan cleanup | OpenClaw fixes reference stale/orphan sessions, stop cascade, descendant kill behavior, cleanup retries, and archived-session cleanup. | Child invocations need persisted controller ownership, descendant cancellation semantics, cleanup state, and timeout/orphan recovery evidence. |
-| Permissions and routing ambiguity | OpenClaw fixes reference `allowAgents`, ambiguous multi-channel delivery, sandbox/tool filtering, owner-only controls, and cross-agent bound-account routing. | MVP admission must include authority profile, credential route, target-agent policy, and explicit rejection for unsupported or ambiguous provider fields. |
-| Cost, context, and fanout pressure | OpenClaw fixes reference unbounded fanout/timeouts, duplicate task tokens, timeout partials, and memory-agent behavior. | Bulk fanout and nested teams stay out of MVP until single-child budget, context, timeout, and usage reporting are stable. |
+| Permissions and routing ambiguity | OpenClaw fixes reference `allowAgents`, ambiguous multi-channel delivery, sandbox/tool filtering, owner-only controls, and cross-agent bound-account routing. | Foundation admission must include authority profile, credential route, target-agent policy, and explicit rejection for unsupported or ambiguous provider fields. |
+| Cost, context, and fanout pressure | OpenClaw fixes reference unbounded fanout/timeouts, duplicate task tokens, timeout partials, and memory-agent behavior. | Bulk fanout and nested teams stay out of the foundation increment until single-child budget, context, timeout, and usage reporting are stable. |
 | Transcript and debuggability gaps | OpenClaw changelog entries reference opt-in transcript persistence for debugging, redacted history behavior, and terminal failed-session output. | Transcript pointers must declare persistence, redaction, truncation, and diagnostic artifact availability instead of promising a universal full transcript. |
 
 Initial external evidence inventory:
@@ -345,14 +346,14 @@ Open evidence gaps before a later ADR:
 - Inspect Codex `multi_agents_v2` only if Slice 1 intends to rely on
   peer-to-peer inter-agent messaging rather than parent-orchestrated child runs.
 - Provider-specific transcript export and exact billing validation move to
-  adapter QA after the canonical plan. Slice 0.5 only requires evidence that each MVP
+  adapter QA after the canonical plan. Slice 0.5 only requires evidence that each foundation
   candidate can expose inspectable transcript pointers, redaction state, usage,
   and cost when the provider supports cost.
 - Public forum or social-media deep dives are not required for Slice 0.5 because
   issue-linked changelog signals already expose repeated workflow gaps without
   treating hype as evidence.
 
-MVP admission criteria:
+Foundation admission criteria:
 
 | Required evidence | Minimum provider obligation |
 | --- | --- |
@@ -364,9 +365,9 @@ MVP admission criteria:
 | Usage and cost | Provide token usage when available, provider token classes where available, cost when available, retry attempts, fallback causes, timeout diagnostics, and explicit `unknown` values when unavailable. |
 | Transcript and audit | Provide inspectable transcript pointers with provider IDs plus redaction, truncation, persistence, and retention flags. |
 
-MVP evidence set:
+Foundation evidence set:
 
-- Claude-family providers remain strong MVP candidates, but admission depends on
+- Claude-family providers remain strong foundation candidates, but admission depends on
   proving child lineage, cancellation, result handoff, transcript pointer, and
   usage/cost attribution through the selected adapter.
 - Codex local/CLI is a strong implementation-evidence candidate for invocation
@@ -377,7 +378,7 @@ MVP evidence set:
   usage, and cost.
 - Hermes and OpenClaw are comparison/control-plane evidence for lifecycle,
   retries, diagnostics, cleanup, and policy boundaries. They should not enter
-  MVP unless a concrete adapter is selected and passes the admission criteria.
+  foundation unless a concrete adapter is selected and passes the admission criteria.
 - Codex app/cloud, Jules, GitHub Agent HQ, workflow engines, and agent
   frameworks remain market/control-plane evidence until API-level lineage,
   lifecycle, authority, and result-handoff evidence exists.
@@ -406,7 +407,7 @@ Canonical planning decision from pre-slices:
   evidence until API-level integration evidence is gathered.
 - Not ready to approve bulk fanout, nested peer-to-peer agent teams, marketplace
   skill execution, scheduled automations, or OpenClaw-style additive auth
-  fallback as MVP behavior.
+  fallback as foundation behavior.
 - Slice 1 should start with one observable child invocation per parent turn,
   explicit authority profile, cancellable lifecycle, result handoff, usage
   capture, and adapter metadata for provider-native identifiers.
@@ -494,7 +495,7 @@ Later ADR gate:
   first contract slice is understood
 - confirm `managed agent invocation` as the canonical product and contract term
 - confirm which provider-native concepts are adapter evidence only
-- confirm the MVP's supported adapter families and the minimum observability
+- confirm the foundation's supported adapter families and the required observability
   evidence required for admission
 
 Early market signals to verify during this slice:
@@ -533,7 +534,7 @@ Exit criteria:
   Codex-family, and one OpenCode-family child invocation into Kiln's canonical
   request without leaking provider-native semantics into core contracts
 - any provider that cannot expose enough authority or lifecycle evidence is
-  excluded from the MVP plan or admitted only through a constrained adapter
+  excluded from the foundation plan or admitted only through a constrained adapter
   profile
 
 ## Canonical Sustained Plan
@@ -553,64 +554,145 @@ Final decisions applied to every slice:
 - Direct providers and harness-backed providers share one core contract.
 - Every provider or harness enters through an admission profile; unsupported,
   ambiguous, or unverifiable behavior fails closed.
-- The first runnable proof is one read-only, plan-mode child invocation per
-  parent turn. Fanout, writes, peer-to-peer teams, scheduled automation, and
-  durable workflows are post-MVP.
+- This is a long-term production feature roadmap. The first production
+  foundation is intentionally small: one read-only, plan-mode child invocation
+  per parent turn. Fanout, writes, peer-to-peer teams, scheduled automation, and
+  durable workflows are later professional increments, not discarded scope.
 - GUI may be the first usable surface, but GUI is a projection over canonical
   runtime/session events.
 
 ### Slice 1: Kiln Doctrine And Vocabulary
 
-Status: next.
+Status: completed on 2026-05-02.
 
 State the feature in Kiln terms before creating contracts or adapters.
 
-Canonical terms:
+Doctrine outcome:
 
-- `ManagedAgentInvocation`: the durable governed unit of child work.
-- `ManagedAgentProvider`: a provider, runtime, CLI harness, cloud product, or
-  internal Sequel harness that can execute admitted managed work.
-- `ManagedAgentAdapter`: the boundary that maps provider-native behavior into
-  Kiln evidence.
-- `AuthorityProfile`: the admitted tool, permission, sandbox, workspace,
-  network, credential, memory, model, and reasoning envelope.
-- `ResultHandoff`: the bounded result, artifact pointers, transcript pointer,
-  diagnostic pointers, usage/cost evidence, and memory-write proposals returned
-  to the parent turn.
+- Kiln is not adding "subagents" as a provider feature. Kiln is adding a
+  governed invocation primitive for child work.
+- The durable unit is the invocation, not the provider's agent object, chat
+  thread, task, workflow node, worktree, or background process.
+- Runtime admission is part of the feature, not a wrapper around it. Parent
+  turns and operator surfaces may request managed work, but Kiln decides
+  whether and how the work is admitted.
+- Provider behavior is evidence. Kiln contracts are control-plane doctrine.
 
-Rules:
+Canonical vocabulary:
 
-- provider-native terms such as `subagent`, `task`, `thread`, `session`,
-  `fork`, `crew`, `workflow`, and `automation` never appear as core contract
-  names
-- the core contract applies to direct providers and harness providers equally
-- the first implementation proves one child invocation, not a team or workflow
-- every invocation is governed by runtime admission before execution
+| Term | Meaning | Doctrine |
+| --- | --- | --- |
+| `ManagedAgentInvocation` | The durable governed unit of child work requested by a parent turn or operator surface and admitted by Kiln runtime. | This is the central product and contract term. |
+| `ManagedAgentProvider` | A provider, runtime, CLI harness, cloud product, or internal Sequel harness that can execute admitted managed work. | A provider is not trusted until it passes an admission profile. |
+| `ManagedAgentAdapter` | The boundary that maps provider-native behavior into Kiln lifecycle, authority, evidence, and result contracts. | Adapters translate; they do not define core semantics. |
+| `ManagedAgentAdapterDescriptor` | The declared capabilities, limits, evidence quality, and unsupported-field behavior of an adapter. | The descriptor lets admission fail closed before execution. |
+| `ManagedAgentInvocationRequest` | A surface-neutral request for one managed invocation. | GUI, CLI, TUI, SDK, IDE, and remote surfaces submit the same shape. |
+| `AdmissionProfile` | A named policy envelope describing which managed invocation shape is allowed. | The foundation starts with `foundation-readonly-plan`; other profiles come later. |
+| `AuthorityProfile` | The admitted tool, permission, sandbox, workspace, network, credential, memory, model, and reasoning envelope. | No child receives implicit parent authority. |
+| `CredentialRoute` | The runtime-selected route by which a child may use provider credentials without copying secrets into child state. | Credential access is explicit and auditable. |
+| `MemoryAdmission` | The governed context and memory allowed into the child invocation. | Memory is admitted through governors, not prompt stuffing or provider-local memory. |
+| `ManagedAgentInvocationRecord` | The durable record linking request, admission, lifecycle, provider metadata, result handoff, and replay evidence. | Replay and audit read this record plus session events. |
+| `ManagedAgentLifecycleEvent` | A canonical event describing request, admission, execution, progress, retry, cancellation, timeout, result, failure, or cleanup state. | Provider events map into this vocabulary. |
+| `ManagedAgentTranscriptPointer` | A pointer to inspectable provider or harness conversation evidence, with redaction, truncation, persistence, and retention flags. | A transcript pointer is evidence, not the canonical ledger. |
+| `ManagedAgentUsageReport` | Token, cost, retry, fallback, and provider usage evidence with explicit unknown values. | Usage is normalized without hiding provider token classes. |
+| `ManagedAgentDiagnosticArtifact` | A bounded artifact for timeout, failure, retry, environment, or harness diagnostics. | Diagnostics must be linked without bloating parent context. |
+| `ManagedAgentResultHandoff` | The bounded result, artifact pointers, transcript pointer, diagnostic pointers, usage/cost evidence, and memory-write proposals returned to the parent turn. | The parent receives evidence, not raw provider state. |
+| `ProviderMetadata` | Provider-native IDs, labels, headers, run IDs, thread IDs, task IDs, child keys, and other adapter-specific evidence. | Provider metadata is preserved but does not become core naming. |
+
+Forbidden core vocabulary:
+
+| Provider-native word | Seen in evidence | Kiln mapping rule |
+| --- | --- | --- |
+| `subagent` | Claude Code, Claude Agent SDK, OpenCode, OpenClaw, Hermes events | Adapter metadata only. Map to `ManagedAgentInvocation`. |
+| `task` | OpenCode, Jules, provider products | Adapter metadata only. A task may request or represent an invocation but is not the core unit. |
+| `thread`, `session`, `run` | Codex, Claude-family, OpenCode, GitHub/Codex/Jules-style products | Provider lineage IDs only. Map into `parentSessionId`, `providerInvocationId`, `childSessionId`, and `ProviderMetadata`. |
+| `fork`, `worktree`, `cloud sandbox` | Codex, Claude Code, OpenCode, Codex app/cloud, Jules | Adapter capability or workspace isolation metadata, not the invocation model. |
+| `crew`, `team`, `agent team` | CrewAI, Claude multi-agent research/product language, market material | Later orchestration vocabulary only. Not allowed in foundation core contracts. |
+| `workflow`, `DAG`, `automation` | Temporal, Conductor, Camunda, LangGraph, Microsoft Agent Framework, Codex automations | Future durable orchestration evidence only. Not Slice 1-8 core behavior. |
+| `skill` | Claude Code, Codex app/cloud, OWASP Agentic Skills evidence | Tool/capability metadata only. Marketplace or skill execution is a later professional increment. |
+| `delegate_task`, `spawn_agent`, `sessions_spawn` | Hermes, Codex CLI, OpenClaw | Provider command names only. Map to adapter execution methods below core. |
+
+Provider-to-Kiln mapping rules:
+
+- Claude Code `subagent`, Claude Agent SDK `subagent`, Codex `spawn_agent`,
+  OpenCode `task`, Hermes `delegate_task`, and OpenClaw `sessions_spawn` all
+  map to `ManagedAgentInvocation`.
+- Provider-native parent/child IDs are never discarded. They are stored as
+  `ProviderMetadata` and linked to Kiln lineage fields.
+- Provider-native transcripts are not replay authority. Kiln stores canonical
+  lifecycle/session evidence and links transcript resources with redaction,
+  truncation, persistence, and retention flags.
+- Provider-native usage and cost fields are normalized into
+  `ManagedAgentUsageReport` while preserving provider token classes and explicit
+  `unknown` values.
+- Provider-native retry, fallback, timeout, orphan recovery, and cleanup signals
+  become lifecycle or diagnostic evidence, not generic failures.
+
+Direct and harness adapter doctrine:
+
+| Adapter family | What it wraps | Same Kiln contract? | Doctrine |
+| --- | --- | ---: | --- |
+| Direct provider adapter | Provider APIs or SDKs that expose runs, sessions, tools, usage, transcripts, and cancellation directly. | Yes | Map API-native evidence into Kiln request, admission, lifecycle, transcript, usage, and result handoff records. |
+| Harness adapter | Local CLI/runtime/harness behavior, stdout/events/files/transcripts, local session IDs, and process control. | Yes | Capture evidence honestly, constrain cwd/sandbox/credentials where possible, and mark unsupported or unverifiable behavior explicitly. |
+| Market evidence only | Product surfaces or frameworks without enough API/control evidence. | No runtime admission | Keep as roadmap evidence until an adapter can prove lineage, lifecycle, authority, cancellation, transcript, usage, and result handoff. |
+
+Authority doctrine:
+
+- parent turns request managed work; Kiln runtime admits or denies it
+- parent permissions, memory, credentials, cwd, sandbox, network, and write
+  scope are never inherited implicitly
+- write authority is out of the foundation increment and requires explicit policy plus memory/write
+  proposals later
+- OpenClaw-style additive auth fallback is rejected for the foundation unless represented
+  as a future explicit credential-route policy
+- unsupported or ambiguous provider fields fail closed during admission
+
+Evidence doctrine:
+
+- the canonical ledger is Kiln session/lifecycle evidence, not provider chat
+  history
+- transcript pointers are inspection resources with declared redaction,
+  truncation, persistence, and retention behavior
+- usage/cost evidence must distinguish provider token classes when available
+  and preserve `unknown` instead of inventing numbers
+- timeout, retry, fallback, cancellation, orphan recovery, and cleanup evidence
+  must remain visible because the pre-slice research found repeated user pain
+  around silent completion, stuck children, unclear ownership, and missing
+  debuggability
+- result handoff returns bounded parent-readable output plus links, artifacts,
+  diagnostics, usage, transcript pointers, and memory-write proposals
+
+Naming decision:
+
+- Keep `ManagedAgentInvocation` as the central name. It is clearer and more
+  usable than `RegulatedAgentInvocation`, while the doctrine still makes
+  regulation explicit through admission, authority, lifecycle, and evidence.
+- Use governed/regulatory language in services, policies, docs, and behavior;
+  keep the type name product-readable.
 
 Exit criteria:
 
-- this roadmap has one canonical vocabulary table
+- this roadmap has one canonical vocabulary table: met
 - direct-provider and harness-provider behavior are described as adapter
-  mappings, not separate core models
+  mappings, not separate core models: met
 - Slice 2 can define contracts without picking Claude, Codex, OpenCode, Hermes,
-  or OpenClaw as the foundation
+  or OpenClaw as the foundation: met
 
 Deliverable:
 
-- updated roadmap section or companion spec defining the canonical vocabulary,
-  forbidden core terms, provider-to-Kiln mapping rules, and direct/harness
-  adapter doctrine
+- completed in this roadmap section. Slice 2 can now define the exact foundation
+  boundary without reopening provider vocabulary or adapter-family doctrine.
 
-### Slice 2: MVP Boundary And Non-Boundary
+### Slice 2: Foundation Boundary And Non-Boundary
 
-Status: pending Slice 1.
+Status: next.
 
-Define the first vertical slice as exactly one parent-turn-requested,
+Define the first production foundation as exactly one parent-turn-requested,
 read-only, plan-mode managed invocation admitted and executed through runtime.
 
-The MVP request may originate from GUI first for usability, but the request and
-events must be surface-neutral so CLI, TUI, SDK, IDE, and remote surfaces can
-project the same evidence later.
+The foundation request may originate from GUI first for usability, but the
+request and events must be surface-neutral so CLI, TUI, SDK, IDE, and remote
+surfaces can project the same evidence later.
 
 In scope:
 
@@ -640,13 +722,13 @@ Out of scope:
 
 Exit criteria:
 
-- the MVP has one explicit request path and one explicit result handoff path
-- all deferred behavior is listed as post-MVP work
+- the foundation has one explicit request path and one explicit result handoff path
+- all deferred behavior is listed as later production increments
 - GUI behavior is described only as a projection over canonical runtime events
 
 Deliverable:
 
-- exact MVP and non-MVP boundary, including request origin, allowed execution
+- exact foundation and non-foundation boundary, including request origin, allowed execution
   authority, required evidence, and deferred capabilities
 
 ### Slice 3: Canonical Core Contracts
@@ -749,11 +831,11 @@ Adapter kinds:
 | --- | --- | --- | --- |
 | Direct provider adapter | Calls a provider API or SDK that exposes sessions, runs, usage, cancellation, and transcripts directly. | Claude Agent SDK, future OpenAI/Codex APIs, hosted agent APIs. | Admit only if lineage, lifecycle, authority, cancellation, usage, and result handoff can be mapped explicitly. |
 | Harness adapter | Wraps a local CLI/runtime/harness and captures events, files, stdout, transcripts, and provider-local IDs. | Claude Code CLI, Codex CLI, OpenCode, Hermes, OpenClaw, internal Sequel harnesses. | Admit only if cwd, sandbox/workspace, credentials, cancellation, transcript pointers, and cleanup behavior can be constrained or honestly marked unknown. |
-| Market evidence only | Product or framework evidence without sufficient API-level control. | Codex app/cloud without adapter evidence, Jules, GitHub Agent HQ, LangGraph, CrewAI, Temporal, Conductor, Camunda. | Do not admit to MVP. Use as evidence for future orchestration and control-plane needs. |
+| Market evidence only | Product or framework evidence without sufficient API-level control. | Codex app/cloud without adapter evidence, Jules, GitHub Agent HQ, LangGraph, CrewAI, Temporal, Conductor, Camunda. | Do not admit to the foundation increment. Use as evidence for future orchestration and control-plane needs. |
 
 Admission profiles:
 
-- `mvp-readonly-plan`: one child, read-only, plan mode, bounded tools,
+- `foundation-readonly-plan`: one child, read-only, plan mode, bounded tools,
   no write authority, bounded timeout, transcript pointer required
 - `diagnostic-only`: allowed to inspect but not execute child work when a
   provider lacks cancellation or authority evidence
@@ -834,7 +916,7 @@ Required tests:
 Exit criteria:
 
 - tests fail for the missing managed-agent engine before implementation starts
-- verification gates are tied to the MVP boundary, not future fan-out or DAG
+- verification gates are tied to the foundation boundary, not future fan-out or DAG
   behavior
 
 Deliverable:
@@ -851,7 +933,7 @@ Implement exactly one adapter after Slices 1-7 define the contract and tests.
 
 Selection rule:
 
-- choose the adapter that can satisfy `mvp-readonly-plan` with the least hidden
+- choose the adapter that can satisfy `foundation-readonly-plan` with the least hidden
   behavior, the clearest lifecycle evidence, and the cleanest transcript/result
   handoff
 - do not choose a provider because its vocabulary matches Kiln; choose it
@@ -878,10 +960,10 @@ Exit criteria:
 
 Deliverable:
 
-- one working adapter proof for `mvp-readonly-plan`, chosen by evidence and
+- one working adapter proof for `foundation-readonly-plan`, chosen by evidence and
   admission fit rather than provider preference
 
-### Slice 9: Post-MVP Expansion Order
+### Slice 9: Long-Term Expansion Order
 
 Status: pending Slice 8.
 
