@@ -3,14 +3,14 @@
 ## Status
 
 Phase 0 planning, Phase 1 Slice 1 doctrine, Phase 1 Slice 2 foundation
-boundary, and Phase 1 Slice 3 canonical core contracts are complete on
-2026-05-02. Ready to start Phase 1, Slice 4: runtime admission and ownership.
+boundary, Phase 1 Slice 3 canonical core contracts, and Phase 1 Slice 4
+runtime admission ownership are complete on 2026-05-02. Ready to start Phase 1,
+Slice 5: adapter taxonomy and admission profiles.
 
 Phase 1 must start from the Kiln-native managed agent invocation plan below.
 Do not open an ADR yet, do not select the first adapter yet, and do not start
-implementation before Slice 4 through Slice 7 have converted the canonical
-contracts into runtime ownership, adapter taxonomy, session evidence, and
-tests.
+implementation before Slice 5 through Slice 7 have converted runtime ownership
+into adapter taxonomy, session evidence, and tests.
 
 Stable dependency doctrine lives in
 `docs/architecture/provider-credential-pools.md`,
@@ -907,12 +907,39 @@ Deliverable:
 
 ### Slice 4: Runtime Admission And Ownership
 
-Status: next.
+Status: completed on 2026-05-02.
 
 Introduce runtime-owned services around invocation admission, execution, and
 result handoff.
 
-Expected services and ports:
+Runtime ownership principle:
+
+- Runtime owns admission, execution coordination, lifecycle persistence,
+  cancellation, timeout, cleanup, and result handoff.
+- Core owns contracts and pure validation.
+- Adapters execute only admitted work.
+- Operator surfaces and parent turns request work but cannot create child work
+  directly.
+- Existing session infrastructure remains the replay substrate:
+  `RuntimeSession.appendSessionEvents` enforces ordered canonical event
+  persistence, `RuntimeSessionOrchestrator` owns provider/tool execution flow,
+  and `DefaultContextGovernor` owns admitted context.
+
+Existing runtime seams to respect:
+
+| Existing seam | Current role | Slice 4 ownership decision |
+| --- | --- | --- |
+| `RuntimeSession` | Persists conversation history, session ledger, exact artifacts, canonical session events, active agent state, and optimistic versioning. | Managed invocation records and lifecycle events must persist through runtime session state or a runtime-owned store linked to session events. |
+| `RuntimeSession.appendSessionEvents` | Validates `kilnSessionId` and event sequence before appending canonical events. | Managed invocation events must use this ordered event path; no GUI-local event store. |
+| `RuntimeSessionOrchestrator` | Coordinates provider calls, routing, tool execution, approval gate, telemetry, and fallback response behavior. | Managed invocation execution is a sibling runtime service, not a GUI wrapper and not provider-owned orchestration. |
+| `RuntimeSessionToolExecutor` and approval gate | Enforce tool execution and approval behavior through runtime dependencies. | Child tool authority must be derived by runtime admission and passed into execution ports explicitly. |
+| `DefaultContextGovernor` | Projects governed context and records memory admissions. | Child context and memory must pass through the same governor path before execution. |
+| `MemoryAuthorityPolicy` and memory mutation services | Enforce scope, layer, and operation authority for model-facing memory access and route durable mutations through governed services. | Child memory read/write authority must be explicit, fail-closed, and separate from generic tool authority. |
+| `CredentialPoolFactory`, `CredentialPool`, and pooled adapters | Load provider credentials, health state, lease/outcome/cooldown state, and retry behavior through runtime infrastructure. | Child credential access must be a runtime-selected credential route, not copied secrets, provider-local rotation, or provider-local fallback. |
+| Memory lifecycle evaluator and application service | Keep lifecycle evaluation pure and route material lifecycle changes through validated application services. | Managed invocation lifecycle evidence may inform memory lifecycle later, but runtime must not mutate memory lifecycle outside governed services. |
+| `runtime-session-event-ledger.ts` | Maps runtime events into canonical session events for surfaces. | Slice 6 should extend this projection family for managed invocation evidence. Slice 4 must require every lifecycle transition to be eventable. |
+
+Expected runtime services and ports:
 
 - `ManagedAgentInvocationService`
 - `ManagedAgentAdmissionService`
@@ -921,6 +948,17 @@ Expected services and ports:
 - `ManagedAgentResultHandoffService`
 - `ManagedAgentProjectionService`
 
+Service ownership:
+
+| Service or port | Owner | Responsibility | Must not do |
+| --- | --- | --- | --- |
+| `ManagedAgentInvocationService` | Runtime | Orchestrates request validation, admission, record creation, execution dispatch, lifecycle persistence, cancellation/timeout coordination, and result handoff. | Must not call provider-native spawn APIs before admission. |
+| `ManagedAgentAdmissionService` | Runtime using core validators | Converts request plus provider descriptor into admitted or denied invocation evidence. | Must not trust requested authority or inherited parent scope. |
+| `ManagedAgentPolicyEvaluator` | Core/runtime boundary | Applies admission profiles, authority constraints, memory/context rules, credential-route policy, timeout bounds, and unsupported-field rejection. | Must not execute providers or inspect provider-local state that belongs to adapters. |
+| `ManagedAgentExecutionPort` | Runtime port implemented by adapters later | Executes an already admitted invocation and streams lifecycle/evidence updates back to runtime. | Must not broaden authority, choose credentials, or create unmanaged child sessions. |
+| `ManagedAgentResultHandoffService` | Runtime | Produces bounded parent-turn result handoff with links, transcript pointer, diagnostics, usage, and memory-write proposals. | Must not inject unbounded child transcript into parent context. |
+| `ManagedAgentProjectionService` | Runtime/projection layer | Builds surface-neutral projection records from canonical invocation/session events. | Must not make GUI DTOs the source of truth. |
+
 Runtime responsibilities:
 
 - validate parent request shape
@@ -928,29 +966,100 @@ Runtime responsibilities:
 - derive authority profile
 - admit governed memory and context
 - select credential route without copying secrets into child state
+- enforce memory authority separately from tool authority
+- preserve provider credential retry/cooldown semantics as runtime evidence
 - persist the invocation record before execution
 - emit lifecycle events
 - cancel, time out, and clean up child work
 - persist result handoff and replay evidence
 
+Foundation runtime flow:
+
+1. Parent turn or operator surface submits `ManagedAgentInvocationRequest`.
+2. Runtime validates shape and resolves `ManagedAgentAdapterDescriptor`.
+3. `ManagedAgentAdmissionService` evaluates `foundation-readonly-plan`.
+4. Runtime derives `ManagedAgentAuthorityProfile`, credential route, timeout,
+   memory scope, and result handoff policy.
+5. `DefaultContextGovernor` admits or defers child context/memory.
+6. Runtime persists `ManagedAgentInvocationRecord` before execution.
+7. Runtime emits requested/admitted or denied lifecycle evidence.
+8. Runtime calls `ManagedAgentExecutionPort` with only admitted authority.
+9. Adapter streams provider-native progress into runtime-owned lifecycle
+   updates; runtime records canonical evidence.
+10. Runtime handles cancellation, timeout, retry/fallback evidence, and cleanup.
+11. `ManagedAgentResultHandoffService` emits bounded parent-turn handoff.
+12. `ManagedAgentProjectionService` exposes the same evidence to GUI, CLI, TUI,
+    SDK, IDE, and remote surfaces.
+
+Admission fail-closed rules:
+
+- missing parent session, parent turn, profile, provider route, adapter kind, or
+  timeout denies admission
+- requested write authority denies `foundation-readonly-plan`
+- missing credential route denies admission unless the profile explicitly
+  allows credentialless diagnostic work
+- missing governed memory/context admission evidence denies admission when
+  memory scope is requested
+- unsupported provider fields deny admission unless the adapter descriptor marks
+  them as safely ignored and auditable
+- adapters without cancellation or transcript/diagnostic evidence cannot be
+  admitted to `foundation-readonly-plan`
+- memory read/write authority denies by default unless the admitted profile and
+  `MemoryAuthorityPolicy` allow the exact scope, layer, and operation
+- provider credential auth failures remain non-retryable unless the credential
+  pool marks a later route as explicitly available
+
+Cancellation and timeout ownership:
+
+- Runtime owns cancellation request state, terminal cancellation state, and
+  timeout deadlines.
+- Adapters may observe and execute cancellation, but they do not define the
+  canonical cancellation contract.
+- Timeout must produce lifecycle evidence and a diagnostic artifact pointer when
+  the adapter can provide one.
+- Cleanup success or failure remains visible; it is not hidden behind terminal
+  completion.
+
+Result handoff ownership:
+
+- Runtime owns the parent-turn handoff.
+- The adapter may provide raw output, transcript IDs, files, logs, usage, and
+  diagnostics.
+- Runtime normalizes those into bounded summary, resource links, transcript
+  pointer, diagnostic artifact pointers, usage report, and memory-write
+  proposals.
+- Parent context receives the bounded handoff, not raw child state.
+
+Projection ownership:
+
+- GUI may initiate and display the first foundation invocation, but runtime
+  events remain the source of truth.
+- CLI, TUI, SDK, IDE, and remote surfaces must be able to render the same
+  invocation from canonical session/runtime evidence.
+- Existing coarse `agent_invocation_*` projections can remain while Slice 6
+  expands event detail.
+
 Exit criteria:
 
 - parent agents and operator surfaces can request invocation but cannot bypass
-  runtime admission
+  runtime admission: met
 - provider selection, permission profile, tool authority, credentials, and
-  memory admission are runtime-owned decisions
+  memory admission are runtime-owned decisions: met
 - provider adapters execute admitted requests but never create unmanaged child
-  work directly
+  work directly: met
+- cancellation, timeout, cleanup, result handoff, and projection ownership are
+  assigned to runtime: met
+- Slice 5 can now define adapter taxonomy without giving adapters ownership of
+  admission or canonical semantics: met
 
 Deliverable:
 
-- runtime service and port plan proving that parent turns, GUI, CLI, TUI, SDK,
-  IDE, and remote surfaces request work but do not admit or execute unmanaged
-  child work
+- completed in this roadmap section. Slice 5 can now define adapter taxonomy
+  and admission profiles against these runtime ownership boundaries.
 
 ### Slice 5: Adapter Taxonomy And Admission Profiles
 
-Status: pending Slice 4.
+Status: next.
 
 Define adapter kinds before writing the first adapter.
 
