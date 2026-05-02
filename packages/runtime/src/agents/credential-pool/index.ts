@@ -40,6 +40,17 @@ export type {
 } from "./direct-provider-credential-pool.js";
 
 export {
+  HarnessCredentialPoolService,
+  isHarnessPoolProviderId,
+} from "./harness-credential-pool.js";
+export type {
+  HarnessCredentialPoolServiceConfig,
+  HarnessCredentialStatus,
+  HarnessHomeAuth,
+  HarnessPoolProviderId,
+} from "./harness-credential-pool.js";
+
+export {
   CODEX_OAUTH_POOL_PROVIDER_ID,
   CodexOAuthCredentialPoolService,
   mapCodexOAuthProviderError,

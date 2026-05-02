@@ -490,7 +490,7 @@ exceeded the 180 s command timeout before returning a final aggregate result.
 The package suites directly affected by Slice 6 were then run independently
 and passed.
 
-### Slice 7 — Harness provider passthrough
+### Slice 7 — Harness provider passthrough — Completed 2026-05-02
 
 For `claude-code`, `codex`, and `opencode` harness wrappers, the pool
 selects which wrapper home directory the subprocess is pointed at. Each pool
@@ -509,6 +509,36 @@ wrapper subprocess, the pool rotates to the next home directory.
 
 Acceptance: two Codex home directories rotate on simulated 429 subprocess
 exit; wrapper subprocess env is set correctly per entry.
+
+Completed status:
+
+- `HarnessCredentialPoolService` reads provider directory entries for
+  `claude-code`, `codex`, and `opencode` from `~/.kiln/auth/<provider>/`.
+- each harness credential auth value is a `homeDir`; missing `homeDir` fails
+  fast during pool construction.
+- CLI harness providers are wrapped by `PooledHarnessSession` and lease a home
+  before creating the concrete wrapper session.
+- leased homes are projected into wrapper-specific environment variables:
+  `CLAUDE_HOME`, `CODEX_HOME`, and `OPENCODE_CONFIG_DIR`.
+- retryable 429/quota/connection outcomes cool down the current home and retry
+  on the next available home.
+- failed harness attempts are buffered and discarded, so partial text from a
+  failed attempt is not emitted before retry.
+- if no harness pool entries exist, the existing default wrapper environment is
+  used without fabricating synthetic credentials.
+
+Verification completed:
+
+- `cmd.exe /c bun x vitest run packages/runtime/tests/agents/harness-credential-pool.test.ts packages/cli/tests/wrapper/pooled-harness-session.test.ts`
+  — 4 tests passed.
+- `cmd.exe /c bun x vitest run packages/cli/tests/wrapper/session-registry.test.ts packages/cli/tests/wrapper/codex-session.test.ts`
+  — 106 tests passed.
+- `cmd.exe /c bun x vitest run packages/cli/tests/wrapper/opencode-session.test.ts packages/cli/tests/wrapper/claude-code-process.test.ts`
+  — 48 tests passed.
+- `cmd.exe /c bun run typecheck` — passed.
+- `cmd.exe /c bun run --filter @kilnai/runtime test` — 136 files and 1785
+  tests passed.
+- `cmd.exe /c bun run --filter @kilnai/cli test` — passed.
 
 ### Slice 8 — Cross-process reload
 

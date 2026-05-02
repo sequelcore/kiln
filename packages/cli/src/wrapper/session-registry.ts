@@ -14,10 +14,16 @@ import {
   type DefaultBuiltinToolRegistryOptions,
   type ReasoningEffort,
 } from "@kilnai/core";
-import type { OperatorSurfaceController } from "@kilnai/runtime";
+import {
+  HarnessCredentialPoolService,
+  type HarnessHomeAuth,
+  type HarnessPoolProviderId,
+  type OperatorSurfaceController,
+} from "@kilnai/runtime";
 import { ClaudeSession } from "./claude-code-process.js";
 import { CodexSession } from "./codex-session.js";
 import { OpenCodeSession } from "./opencode-session.js";
+import { PooledHarnessSession } from "./pooled-harness-session.js";
 import { ProviderSession } from "./provider-session.js";
 import { WorktreeManager } from "./worktree-manager.js";
 import { normalizePermissionPolicy } from "./permission-normalizer.js";
@@ -912,6 +918,36 @@ export class SessionRegistry {
 
 const DEFAULT_POLICY: KilnPermissionPolicy = { approval: "on-request", sandbox: "read-only" };
 
+const HARNESS_PROVIDER_HOME_ENV: Record<HarnessPoolProviderId, string> = {
+  "claude-code": "CLAUDE_HOME",
+  codex: "CODEX_HOME",
+  opencode: "OPENCODE_CONFIG_DIR",
+};
+
+function withHarnessHomeEnv(
+  provider: HarnessPoolProviderId,
+  env: Record<string, string> | undefined,
+  auth: HarnessHomeAuth,
+): Record<string, string> {
+  return {
+    ...(env ?? {}),
+    [HARNESS_PROVIDER_HOME_ENV[provider]]: auth.homeDir,
+  };
+}
+
+function createPooledHarnessSession(
+  provider: HarnessPoolProviderId,
+  createSession: (auth: HarnessHomeAuth) => IKilnSession,
+  createDefaultSession: () => IKilnSession,
+): IKilnSession {
+  return new PooledHarnessSession({
+    provider,
+    pool: new HarnessCredentialPoolService().createPool(provider),
+    createSession,
+    createDefaultSession,
+  });
+}
+
 function buildDirectProviderCapabilities(provider: DirectApiProviderId): SessionCapabilities {
   return {
     mcp: false,
@@ -1015,12 +1051,12 @@ export function createDefaultRegistry(): {
       create: (config) => {
         const translated = translatePermission(config.permissionPolicy, "claude") as ClaudeTranslationEnvelope;
         const cfg = translated.config;
-        return new ClaudeSession({
+        const createSession = (env: Record<string, string> | undefined) => new ClaudeSession({
           task: config.task,
           systemPrompt: config.systemPrompt ?? "",
           mcpServers: config.mcpServers,
           cwd: config.cwd ?? process.cwd(),
-          env: config.env,
+          env,
           permissionMode: cfg.permissionMode,
           allowDangerouslySkipPermissions: cfg.allowDangerouslySkipPermissions,
           nativeRules: translated.nativeRules,
@@ -1032,6 +1068,11 @@ export function createDefaultRegistry(): {
           sessionLedgerOwner: config.sessionLedgerOwner,
           model: config.model,
         });
+        return createPooledHarnessSession(
+          "claude-code",
+          (auth) => createSession(withHarnessHomeEnv("claude-code", config.env, auth)),
+          () => createSession(config.env),
+        );
       },
     },
     {
@@ -1052,11 +1093,11 @@ export function createDefaultRegistry(): {
       create: (config) => {
         const translated = translatePermission(config.permissionPolicy, "codex") as CodexTranslationEnvelope;
         const cfg = translated.config;
-        return new CodexSession({
+        const createSession = (env: Record<string, string> | undefined) => new CodexSession({
           task: config.task,
           model: config.model,
           cwd: config.cwd,
-          env: config.env,
+          env,
           approvalMode: cfg.approvalMode,
           sandboxMode: cfg.sandboxMode,
           ephemeral: config.ephemeral,
@@ -1073,6 +1114,11 @@ export function createDefaultRegistry(): {
           resumeSessionId: config.resumeSessionId,
           sessionLedgerOwner: config.sessionLedgerOwner,
         });
+        return createPooledHarnessSession(
+          "codex",
+          (auth) => createSession(withHarnessHomeEnv("codex", config.env, auth)),
+          () => createSession(config.env),
+        );
       },
     },
     {
@@ -1093,17 +1139,18 @@ export function createDefaultRegistry(): {
       create: (config) => {
         const translated = translatePermission(config.permissionPolicy, "opencode") as OpenCodeTranslationEnvelope;
         const cfg = translated.config;
-        return new OpenCodeSession({
+        const mcpServers = config.mcpServers
+          ? Object.entries(config.mcpServers).map(([name, v]) => ({
+              name,
+              url: v.command,
+            }))
+          : [];
+        const createSession = (env: Record<string, string> | undefined) => new OpenCodeSession({
           task: config.task,
           model: config.model,
           cwd: config.cwd ?? process.cwd(),
-          env: config.env,
-          mcpServers: config.mcpServers
-            ? Object.entries(config.mcpServers).map(([name, v]) => ({
-                name,
-                url: v.command,
-              }))
-            : [],
+          env,
+          mcpServers,
           permissionDefault: cfg.permissionDefault,
           sandboxMode: config.permissionPolicy.sandbox,
           nativeRules: translated.nativeRules,
@@ -1114,6 +1161,11 @@ export function createDefaultRegistry(): {
           resumeSessionId: (config as { resumeSessionId?: string }).resumeSessionId,
           sessionLedgerOwner: config.sessionLedgerOwner,
         });
+        return createPooledHarnessSession(
+          "opencode",
+          (auth) => createSession(withHarnessHomeEnv("opencode", config.env, auth)),
+          () => createSession(config.env),
+        );
       },
     },
     ...directProviders,
