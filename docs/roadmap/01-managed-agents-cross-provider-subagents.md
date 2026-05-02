@@ -3,14 +3,15 @@
 ## Status
 
 Phase 0 planning, Phase 1 Slice 1 doctrine, Phase 1 Slice 2 foundation
-boundary, Phase 1 Slice 3 canonical core contracts, and Phase 1 Slice 4
-runtime admission ownership are complete on 2026-05-02. Ready to start Phase 1,
-Slice 5: adapter taxonomy and admission profiles.
+boundary, Phase 1 Slice 3 canonical core contracts, Phase 1 Slice 4 runtime
+admission ownership, Phase 1 Slice 5 adapter taxonomy, and Phase 1 Slice 6
+session event/replay projection planning are complete on 2026-05-02. Ready to
+start Phase 1, Slice 7: test-first verification plan.
 
 Phase 1 must start from the Kiln-native managed agent invocation plan below.
 Do not open an ADR yet, do not select the first adapter yet, and do not start
-implementation before Slice 5 through Slice 7 have converted runtime ownership
-into adapter taxonomy, session evidence, and tests.
+implementation before Slice 7 has converted session evidence and projections
+into tests.
 
 Stable dependency doctrine lives in
 `docs/architecture/provider-credential-pools.md`,
@@ -1059,55 +1060,201 @@ Deliverable:
 
 ### Slice 5: Adapter Taxonomy And Admission Profiles
 
-Status: next.
+Status: completed on 2026-05-02.
 
 Define adapter kinds before writing the first adapter.
+
+Taxonomy principle:
+
+- Adapters are evidence translators and execution ports, not semantic owners.
+- Every adapter is admitted through declared capabilities, evidence quality, and
+  fail-closed unsupported-field behavior.
+- Direct providers and harness-backed providers share the same core
+  `ManagedAgentInvocation` contract. The adapter family changes how evidence is
+  gathered, not what Kiln requires.
+- Product and framework surfaces that cannot expose enough control-plane
+  evidence remain market evidence only until a real adapter can prove the
+  admission profile.
 
 Adapter kinds:
 
 | Adapter kind | Shape | Examples | Admission stance |
 | --- | --- | --- | --- |
-| Direct provider adapter | Calls a provider API or SDK that exposes sessions, runs, usage, cancellation, and transcripts directly. | Claude Agent SDK, future OpenAI/Codex APIs, hosted agent APIs. | Admit only if lineage, lifecycle, authority, cancellation, usage, and result handoff can be mapped explicitly. |
-| Harness adapter | Wraps a local CLI/runtime/harness and captures events, files, stdout, transcripts, and provider-local IDs. | Claude Code CLI, Codex CLI, OpenCode, Hermes, OpenClaw, internal Sequel harnesses. | Admit only if cwd, sandbox/workspace, credentials, cancellation, transcript pointers, and cleanup behavior can be constrained or honestly marked unknown. |
+| Direct provider adapter | Calls a provider API or SDK that exposes sessions, runs, usage, cancellation, and transcripts directly. | Claude Agent SDK, future OpenAI/Codex APIs, hosted agent APIs. | Admit only if lineage, lifecycle, authority, cancellation, usage, transcript/diagnostic evidence, and result handoff can be mapped explicitly. |
+| Harness adapter | Wraps a local CLI/runtime/harness and captures events, files, stdout, transcripts, and provider-local IDs. | Claude Code CLI, Codex CLI, OpenCode, Hermes, OpenClaw, internal Sequel harnesses. | Admit only if cwd, sandbox/workspace, credentials, cancellation, transcript pointers, cleanup behavior, and provider-local IDs can be constrained or honestly marked unknown. |
+| Control-plane comparison adapter | Represents a system whose implementation informs Kiln behavior but is not selected for the foundation proof yet. | Hermes, OpenClaw, OpenHands-style control-plane patterns. | Use for validation and future adapter planning; do not execute foundation work unless promoted to direct or harness adapter and admitted. |
 | Market evidence only | Product or framework evidence without sufficient API-level control. | Codex app/cloud without adapter evidence, Jules, GitHub Agent HQ, LangGraph, CrewAI, Temporal, Conductor, Camunda. | Do not admit to the foundation increment. Use as evidence for future orchestration and control-plane needs. |
+
+Capability gates:
+
+| Gate | Required for `foundation-readonly-plan` | Notes |
+| --- | --- | --- |
+| Lineage | Required | Must expose or reconstruct parent session, parent turn, Kiln invocation ID, provider child ID, and result/artifact IDs. |
+| Lifecycle | Required | Must map request, admission, start, progress, terminal state, timeout, cancellation, and cleanup into runtime-owned evidence. |
+| Authority | Required | Must accept explicit tool, permission, sandbox/workspace, network, memory, credential, model, and reasoning constraints or fail closed. |
+| Cancellation | Required | Must support cancellation request and terminal cancellation evidence, or be rejected for the foundation profile. |
+| Timeout | Required | Must support a bounded timeout and terminal timeout evidence. Diagnostic artifact is required when the adapter can provide it. |
+| Transcript/diagnostic pointer | Required | Must provide inspectable evidence pointer with redaction, truncation, persistence, and retention flags when known. |
+| Usage/cost | Required when available | Must preserve provider token classes and explicit `unknown` values. Cost can be unknown if provider lacks cost evidence. |
+| Credential route | Required unless credentialless | Must use runtime-selected credential route or declare credentialless execution. No secret copying into child state. |
+| Result handoff | Required | Must return bounded summary and resource/artifact pointers instead of raw child state. |
+| Cleanup | Required | Must expose cleanup success/failure or declare cleanup unsupported and fail admission if cleanup is needed. |
 
 Admission profiles:
 
-- `foundation-readonly-plan`: one child, read-only, plan mode, bounded tools,
-  no write authority, bounded timeout, transcript pointer required
-- `diagnostic-only`: allowed to inspect but not execute child work when a
-  provider lacks cancellation or authority evidence
-- `rejected`: provider cannot expose enough lifecycle, authority, or result
-  evidence
+| Profile | Allowed behavior | Required evidence | Typical use |
+| --- | --- | --- | --- |
+| `foundation-readonly-plan` | One child, one parent turn, plan/read-only execution, bounded tools, no write authority, bounded timeout, explicit authority profile. | Lineage, lifecycle, cancellation, timeout, transcript/diagnostic pointer, usage when available, credential route, result handoff, cleanup state. | First production foundation proof. |
+| `diagnostic-only` | Inspect adapter capability or provider state without executing managed child work. | Capability descriptor, reason execution is not admitted, and diagnostic output. | Provider research, health checks, or explaining why a provider is not admitted. |
+| `comparison-only` | Use provider implementation evidence to validate Kiln doctrine without runtime execution. | Source/version evidence and mapped capability gaps. | Hermes/OpenClaw/OpenHands-style control-plane comparison until promoted. |
+| `rejected` | No execution. | Denial reason and missing/unsafe capability list. | Providers that cannot expose enough lifecycle, authority, cancellation, transcript, or result evidence. |
+
+Adapter descriptor requirements:
+
+- adapter kind
+- provider/native surface name
+- supported admission profiles
+- supported execution modes
+- lifecycle events exposed or reconstructable
+- cancellation behavior
+- timeout behavior
+- transcript and diagnostic evidence behavior
+- usage and cost evidence behavior
+- credential route behavior
+- cwd/workspace/sandbox behavior
+- tool and permission constraint behavior
+- memory/context behavior
+- unsupported-field policy: reject, safely ignore with audit, or unsupported
+- cleanup behavior
+- known provider-native IDs and metadata fields
+
+Unsupported-field policy:
+
+| Policy | Meaning | Foundation stance |
+| --- | --- | --- |
+| `reject` | The adapter refuses a requested field it cannot honor. | Preferred default. |
+| `ignore-with-audit` | The adapter safely ignores a provider-native field and records that fact. | Allowed only when ignoring cannot broaden authority or hide evidence. |
+| `unsupported` | The adapter cannot represent the field safely. | Denies `foundation-readonly-plan`. |
+
+First adapter selection rubric:
+
+| Criterion | Weight | Reason |
+| --- | ---:| --- |
+| Clean lineage and lifecycle evidence | High | Foundation replay depends on stable parent/child identity and terminal states. |
+| Explicit authority constraint support | High | Kiln cannot admit child work if provider/harness authority is implicit. |
+| Cancellation and timeout evidence | High | Pre-slice user-pain evidence showed stuck/silent child work is a core risk. |
+| Transcript/diagnostic pointer quality | High | Debuggability and audit cannot rely on opaque provider history. |
+| Result handoff clarity | High | Parent context must receive bounded evidence, not raw child state. |
+| Usage/cost evidence | Medium | Cost must be captured when available and unknown when unavailable. |
+| Implementation complexity | Medium | First proof should minimize hidden behavior, not maximize provider coverage. |
+| Market importance | Low | Market signal validates direction but does not override control-plane evidence. |
+
+Candidate stance after Slice 5:
+
+- Claude-family remains a strong candidate because official docs expose
+  subagents and cost visibility, but it still needs adapter proof for
+  child-level attribution and transcript/result handoff.
+- Codex local/CLI remains a strong candidate because local implementation
+  evidence covers fork/resume, cancellation, rollout-backed history, usage, and
+  parent notifications.
+- OpenCode remains a strong candidate because local implementation evidence
+  covers child sessions, resumability, permission narrowing, cancellation,
+  usage/cost, and transcript replay.
+- Hermes and OpenClaw remain comparison/control-plane evidence unless promoted
+  deliberately to an admitted harness adapter.
+- Codex app/cloud, Jules, GitHub Agent HQ, workflow engines, and agent
+  frameworks remain market/control-plane evidence until API-level lineage,
+  authority, lifecycle, cancellation, transcript, and result-handoff evidence
+  exists.
 
 Exit criteria:
 
-- first adapter selection is a data-backed choice, not a provider preference
-- direct and harness adapters share one Kiln contract
-- providers that cannot meet the admission criteria fail closed
+- first adapter selection is a data-backed choice, not a provider preference:
+  met
+- direct and harness adapters share one Kiln contract: met
+- providers that cannot meet the admission criteria fail closed: met
+- adapter descriptor requirements and unsupported-field policy are explicit:
+  met
+- Slice 6 can now define event/replay projections without making adapter-native
+  events the source of truth: met
 
 Deliverable:
 
-- adapter taxonomy, admission profiles, and adapter selection rubric for the
-  first proof implementation
+- completed in this roadmap section. Slice 6 can now define session events,
+  replay, and projections for admitted adapter evidence.
 
 ### Slice 6: Session Events, Replay, And Projections
 
-Status: pending Slice 5.
+Status: completed on 2026-05-02.
 
 Extend session evidence so every operator surface can answer what happened
 without provider-local knowledge.
 
-Required event families:
+Projection principle:
 
-- invocation requested, admitted, denied, and started
-- provider progress, provider retry, fallback, and warning
-- cancellation requested, cancellation observed, and cancellation terminal state
-- timeout observed and diagnostic artifact attached
-- result handoff emitted and parent turn linked
-- transcript pointer attached with redaction/truncation/persistence flags
-- usage/cost attached with provider token classes and unknown values preserved
-- cleanup completed or cleanup failed
+- Canonical session events are the replay ledger for operator surfaces.
+- `ManagedAgentInvocationRecord` is the durable aggregate; session events are
+  its ordered projection into conversation/session history.
+- Provider-native transcripts, logs, thread IDs, run IDs, and task IDs are
+  evidence pointers or metadata. They are not the ledger.
+- GUI, CLI, TUI, SDK, IDE, and remote surfaces must be able to reconstruct the
+  same invocation state from canonical events without provider-local knowledge.
+- Existing coarse `agent_invocation_*` events remain compatible while richer
+  payloads are added.
+
+Existing projection seams to preserve:
+
+| Existing seam | Current behavior | Slice 6 decision |
+| --- | --- | --- |
+| `CanonicalSessionEventKind` | Includes `agent_invocation_requested`, `agent_invocation_started`, `agent_invocation_completed`, `agent_invocation_failed`, and `agent_invocation_cancelled`. | Keep these as the stable coarse event family and enrich payloads instead of replacing them immediately. |
+| `RuntimeSession.appendSessionEvents` | Enforces `kilnSessionId` and sequence ordering. | Managed invocation events must append through the same ordered path. |
+| `session-serializer` and runtime session storage | Persist and reload canonical session events. | Replay must reconstruct invocation state from serialized canonical events. |
+| `gateway-contracts` `OperatorSessionEvent` | Surfaces receive canonical event kind plus payload. | New managed invocation evidence must remain payload-driven and surface-neutral. |
+| `presentOperatorEventPayload` / `agentPresentation` | Presents coarse invocation events to inline/activity/inspector surfaces. | Keep coarse rendering while adding richer details for admission, authority, transcript, usage, timeout, and handoff. |
+| GUI session store timeline | Builds timeline entries from canonical session events. | GUI must continue to derive invocation state from events, not from GUI-local managed-agent state. |
+| TUI gateway session mapper | Maps canonical events to activity output when the presentation targets activity surfaces. | TUI must receive the same canonical invocation evidence through gateway frames. |
+
+Required event families for foundation:
+
+| Family | Coarse event compatibility | Required evidence |
+| --- | --- | --- |
+| Request | `agent_invocation_requested` | `invocationId`, parent lineage, requested profile, requested provider route, adapter kind, input summary, request source. |
+| Admission | `agent_invocation_requested` payload or future `agent_invocation_admitted/denied` expansion | admitted/denied status, admitted profile, authority profile summary, credential route, memory admission IDs, denial reason. |
+| Start | `agent_invocation_started` | provider route, adapter descriptor ID, attempt, child/provider IDs when known, timeout deadline, admitted execution mode. |
+| Progress | future progress expansion or runtime activity events linked by `invocationId` | provider-native progress, step labels, retry/fallback warnings, bounded progress summaries. |
+| Retry/fallback | future expansion or started/failed payload fields | attempt count, cause, provider/model fallback, retryable/non-retryable classification. |
+| Cancellation | `agent_invocation_cancelled` plus future requested/observed distinction | requested by, requested at, observed at, terminal state, adapter response, descendant behavior when applicable. |
+| Timeout | `agent_invocation_failed` with timeout status or future timed-out event | timeout deadline, observed duration, diagnostic artifact pointer, cleanup state. |
+| Result handoff | `agent_invocation_completed` | result summary, output message/resource IDs, artifact links, transcript pointer, diagnostic pointers, memory-write proposals. |
+| Usage/cost | `cost_updated` linked by `invocationId` or invocation payload usage report | token classes, cost when known, unknown markers, provider billing metadata. |
+| Cleanup | future cleanup expansion or terminal payload | cleanup completed/failed, retained artifacts, removed temporary resources, cleanup error. |
+
+Event payload requirements:
+
+| Payload group | Required fields |
+| --- | --- |
+| Lineage | `invocationId`, `agentId`, `parentSessionId`, `parentTurnId`, `childSessionId` when known, `childTurnId` when known, provider invocation IDs in metadata. |
+| Admission | `profile`, `admissionStatus`, `authorityProfileId` or summary, `credentialRouteId`, memory/context admission IDs, denial reason if denied. |
+| Provider metadata | provider route, adapter kind, adapter descriptor ID, provider-native IDs, model/reasoning route, workspace/sandbox descriptor. |
+| Lifecycle | lifecycle state, attempt, started/completed timestamps or duration, retry/fallback cause, cancellation cause, timeout cause, cleanup status. |
+| Evidence pointers | transcript pointer, diagnostic artifact pointers, result artifact/resource links, redaction/truncation/persistence/retention flags. |
+| Usage | token usage, provider token classes, cost, billing mode, explicit `unknown` values, usage source. |
+| Handoff | bounded result summary, output message ID, parent turn link, memory-write proposal links. |
+
+Replay reconstruction rules:
+
+- Sort canonical events by `kilnSessionId`, `sequence`, timestamp, and event ID
+  using existing session-event ordering rules.
+- Group invocation events by `invocationId`.
+- Reconstruct the current invocation state from the latest lifecycle event and
+  attached evidence pointers.
+- Preserve denied admissions as terminal invocation records.
+- Preserve cancellation request and terminal cancellation separately when both
+  are available.
+- Treat missing transcript, usage, or cleanup details as explicit `unknown`
+  evidence, not absence of state.
+- Provider-native IDs may help lookup external evidence, but cannot be required
+  to reconstruct Kiln state.
 
 Projection rules:
 
@@ -1116,23 +1263,67 @@ Projection rules:
 - provider-native transcripts are pointers/resources, not the canonical ledger
 - memory writes from children are proposals unless the authority profile grants
   explicit write admission
+- low-signal telemetry stays out of inline transcript surfaces unless it is
+  necessary for operator action
+- high-signal lifecycle changes, failures, cancellations, result handoffs, and
+  approval needs can target inline/activity/inspector surfaces
+- raw provider or harness output must be summarized and linked as resources
+  when it is large, redacted, truncated, or noisy
+
+Surface-specific expectations:
+
+| Surface | Required behavior |
+| --- | --- |
+| GUI | Timeline derives invocation state from canonical events and shows richer details through inspector/activity surfaces. |
+| TUI | Gateway session maps invocation events to activity entries without needing provider-specific logic. |
+| CLI | Can render a compact invocation lifecycle and link transcript/diagnostic resources from the same events. |
+| SDK/React | Receives stable event payloads usable for custom projections without provider vocabulary. |
+| IDE/remote future surfaces | Reuse gateway/operator event frames; no separate invocation state namespace. |
+
+Backward compatibility path:
+
+- Keep the five existing coarse `agent_invocation_*` event kinds during the
+  foundation implementation.
+- Add richer payload fields first.
+- Slice 7 tests should lock reconstruction from the coarse family plus payload
+  evidence.
+- Later event-kind expansion is allowed only if coarse events become
+  insufficient for replay clarity; expansion must preserve projection behavior
+  for existing GUI/TUI consumers.
+
+Session/replay quality gates:
+
+- every admitted or denied invocation has at least one canonical session event
+- every terminal invocation has completed, failed, cancelled, or timed-out
+  evidence
+- every result handoff links back to parent session and parent turn
+- transcript pointers include redaction/truncation/persistence/retention flags
+  when known
+- usage reports preserve provider token classes or explicit unknowns
+- cleanup state remains visible when the adapter exposes it
+- session reload reconstructs the same invocation state as live operation
 
 Exit criteria:
 
-- session reload reconstructs parent-child lineage and lifecycle evidence
-- GUI renders invocation state from canonical events only
+- session reload reconstructs parent-child lineage and lifecycle evidence: met
+  as a projection requirement
+- GUI renders invocation state from canonical events only: met as a projection
+  requirement
 - CLI/TUI/IDE future consumers can project the same events without GUI-specific
-  DTOs
+  DTOs: met as a gateway/operator contract requirement
+- coarse event compatibility and richer payload evolution are both documented:
+  met
+- Slice 7 can now write tests for replay, projection, cancellation, timeout,
+  transcript, usage, and result handoff behavior: met
 
 Deliverable:
 
-- canonical event families and projection rules for replay, GUI display,
-  future CLI/TUI/SDK/IDE display, result handoff, transcript pointers, usage,
-  cancellation, timeout, and cleanup
+- completed in this roadmap section. Slice 7 can now turn these event/replay
+  requirements into failing tests.
 
 ### Slice 7: Test-First Verification Plan
 
-Status: pending Slice 6.
+Status: next.
 
 Write failing tests before implementing runtime behavior.
 
