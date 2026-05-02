@@ -167,6 +167,7 @@ export type {
 
 export {
   CredentialPool,
+  PooledProviderAdapter,
   AllCredentialsExhaustedError,
   isOk,
   isRetryable,
@@ -192,4 +193,6 @@ export type {
   PoolMetrics,
   CredentialPoolSnapshot,
   CredentialPoolEntrySnapshot,
+  ErrorOutcomeMapper,
+  PooledProviderAdapterConfig,
 } from "./credential-pool/index.js";

@@ -1,7 +1,14 @@
 import { describe, it, expect, beforeEach } from "vitest";
+import type {
+  AgentResponse,
+  AgentStreamEvent,
+  CreateMessageOptions,
+  ProviderAdapter,
+} from "../../src/agents/index.js";
 import {
   CredentialPool,
   AllCredentialsExhaustedError,
+  PooledProviderAdapter,
   isOk,
   isRetryable,
   isAuthError,
@@ -10,8 +17,60 @@ import {
   DEFAULT_COOLDOWN_POLICY,
   createCooldownPolicy,
 } from "../../src/agents/credential-pool/index.js";
+import { textPart } from "../../src/engine/domain/content.js";
 
 type TestAuth = { readonly apiKey: string };
+
+function makeMessageOptions(): CreateMessageOptions {
+  return {
+    system: "system",
+    messages: [{ role: "user", parts: [textPart("hello")] }],
+  };
+}
+
+function makeResponse(text: string): AgentResponse {
+  return {
+    parts: [textPart(text)],
+    inputTokens: 1,
+    outputTokens: 1,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    toolCalls: [],
+    stopReason: "stop",
+  };
+}
+
+class TestProviderError extends Error {
+  constructor(
+    message: string,
+    readonly outcome: "rate-limited" | "auth-failed" | "unknown-error",
+  ) {
+    super(message);
+  }
+}
+
+class TestAdapter implements ProviderAdapter {
+  readonly name: string;
+
+  constructor(
+    readonly auth: TestAuth,
+    private readonly createMessageHandler: (auth: TestAuth) => Promise<AgentResponse>,
+    private readonly streamMessageHandler?: (auth: TestAuth) => AsyncGenerator<AgentStreamEvent>,
+  ) {
+    this.name = `test-${auth.apiKey}`;
+  }
+
+  createMessage(): Promise<AgentResponse> {
+    return this.createMessageHandler(this.auth);
+  }
+
+  streamMessage(): AsyncGenerator<AgentStreamEvent> {
+    if (!this.streamMessageHandler) {
+      throw new Error("stream handler missing");
+    }
+    return this.streamMessageHandler(this.auth);
+  }
+}
 
 describe("CredentialPool", () => {
   let pool: CredentialPool<TestAuth>;
@@ -296,6 +355,142 @@ describe("CredentialPool", () => {
 
       expect(snapshot.entries[0]!.health).toBe("ok");
     });
+  });
+});
+
+describe("PooledProviderAdapter", () => {
+  function createPool(): CredentialPool<TestAuth> {
+    const pool = new CredentialPool<TestAuth>("test-provider", {
+      strategy: "fill-first",
+    });
+    pool.addCredential("cred-1", "First", { apiKey: "key-1" });
+    pool.addCredential("cred-2", "Second", { apiKey: "key-2" });
+    return pool;
+  }
+
+  function mapError(error: unknown) {
+    if (error instanceof TestProviderError) {
+      if (error.outcome === "rate-limited") {
+        return { type: "rate-limited" as const };
+      }
+      if (error.outcome === "auth-failed") {
+        return { type: "auth-failed" as const };
+      }
+      return { type: "unknown-error" as const, message: error.message };
+    }
+    return { type: "unknown-error" as const };
+  }
+
+  it("retries createMessage with the next credential on a retryable outcome", async () => {
+    const pool = createPool();
+    const calls: string[] = [];
+    const adapter = new PooledProviderAdapter<TestAuth>({
+      name: "pooled-test",
+      pool,
+      createAdapter: (auth) => new TestAdapter(auth, async (usedAuth) => {
+        calls.push(usedAuth.apiKey);
+        if (usedAuth.apiKey === "key-1") {
+          throw new TestProviderError("rate limited", "rate-limited");
+        }
+        return makeResponse("ok");
+      }),
+      mapError,
+    });
+
+    const response = await adapter.createMessage(makeMessageOptions());
+
+    expect(response.parts).toEqual([textPart("ok")]);
+    expect(calls).toEqual(["key-1", "key-2"]);
+    expect(pool.snapshot().entries.find((entry) => entry.id === "cred-1")?.health).toBe("exhausted");
+    expect(pool.snapshot().entries.find((entry) => entry.id === "cred-2")?.requestCount).toBe(1);
+  });
+
+  it("wraps single-credential exhaustion as AllCredentialsExhaustedError", async () => {
+    const pool = new CredentialPool<TestAuth>("test-provider");
+    pool.addCredential("cred-1", "Only", { apiKey: "key-1" });
+    const providerError = new TestProviderError("rate limited", "rate-limited");
+    const adapter = new PooledProviderAdapter<TestAuth>({
+      name: "pooled-test",
+      pool,
+      createAdapter: (auth) => new TestAdapter(auth, async () => {
+        throw providerError;
+      }),
+      mapError,
+    });
+
+    await expect(adapter.createMessage(makeMessageOptions())).rejects.toMatchObject({
+      name: "AllCredentialsExhaustedError",
+      cause: providerError,
+      lastOutcome: { type: "rate-limited" },
+    });
+  });
+
+  it("propagates auth failures without retrying", async () => {
+    const pool = createPool();
+    const calls: string[] = [];
+    const providerError = new TestProviderError("auth failed", "auth-failed");
+    const adapter = new PooledProviderAdapter<TestAuth>({
+      name: "pooled-test",
+      pool,
+      createAdapter: (auth) => new TestAdapter(auth, async (usedAuth) => {
+        calls.push(usedAuth.apiKey);
+        throw providerError;
+      }),
+      mapError,
+    });
+
+    await expect(adapter.createMessage(makeMessageOptions())).rejects.toBe(providerError);
+    expect(calls).toEqual(["key-1"]);
+    expect(pool.snapshot().entries[0]!.lastSuccess).toBeNull();
+  });
+
+  it("propagates unknown errors without retrying", async () => {
+    const pool = createPool();
+    const calls: string[] = [];
+    const providerError = new TestProviderError("unknown", "unknown-error");
+    const adapter = new PooledProviderAdapter<TestAuth>({
+      name: "pooled-test",
+      pool,
+      createAdapter: (auth) => new TestAdapter(auth, async (usedAuth) => {
+        calls.push(usedAuth.apiKey);
+        throw providerError;
+      }),
+      mapError,
+    });
+
+    await expect(adapter.createMessage(makeMessageOptions())).rejects.toBe(providerError);
+    expect(calls).toEqual(["key-1"]);
+  });
+
+  it("discards partial stream output from failed attempts and reruns the stream", async () => {
+    const pool = createPool();
+    const adapter = new PooledProviderAdapter<TestAuth>({
+      name: "pooled-test",
+      pool,
+      createAdapter: (auth) => new TestAdapter(
+        auth,
+        async () => makeResponse("unused"),
+        async function* stream(usedAuth) {
+          if (usedAuth.apiKey === "key-1") {
+            yield { type: "text", content: "partial" };
+            throw new TestProviderError("rate limited", "rate-limited");
+          }
+          yield { type: "text", content: "complete" };
+          yield { type: "done", content: "" };
+        },
+      ),
+      mapError,
+    });
+
+    const events: AgentStreamEvent[] = [];
+    for await (const event of adapter.streamMessage(makeMessageOptions())) {
+      events.push(event);
+    }
+
+    expect(events).toEqual([
+      { type: "text", content: "complete" },
+      { type: "done", content: "" },
+    ]);
   });
 });
 

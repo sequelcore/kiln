@@ -225,30 +225,44 @@ Notes for Slice 2:
   cooldown. Slice 2 error mappers may refine this per provider.
 - `resetAt` is not capped unless `maxCooldownMs` is explicitly configured.
 
-### Slice 2 — Adapter wrapper
+### Slice 2 — Adapter wrapper — Completed 2026-05-02
 
-Add `PooledProviderAdapter<T extends ProviderAdapter>` in
+Added `PooledProviderAdapter<TAuth, TAdapter extends ProviderAdapter>` in
 `packages/core/src/agents/credential-pool/pooled-adapter.ts`.
 
-Takes a `CredentialPool<TAuth>` and a factory `(auth: TAuth) => T`. Implements
+The wrapper takes a `CredentialPool<TAuth>`, a factory `(auth: TAuth) => TAdapter`,
+an `ErrorOutcomeMapper`, and an optional maximum-attempt cap. It implements
 `createMessage` and `streamMessage` with the acquire → call → report → retry
-loop. Retry continues only on `rate-limited` or `quota-exceeded` outcomes.
-Auth errors and unknown errors propagate immediately without retry.
+loop. Retry continues only for retryable `CredentialOutcome` values:
+`rate-limited`, `quota-exceeded`, and `connection-failed`. Auth errors and
+unknown errors are reported and then propagated immediately.
 
-Before this slice, remove or bypass provider-internal 429 retry behavior that
-would hide exhaustion from the pool. In particular, `OpenAICompatAdapter`
-currently treats 429 as retryable internally; pool-enabled adapters must map
-429/402 into `CredentialOutcome` instead of consuming them.
+Streaming retries buffer one attempt at a time. Failed attempts discard buffered
+events and rerun the full stream; callers receive only the successful attempt's
+events.
 
-Acceptance:
+Acceptance status:
 
 - unit tests cover single-credential exhaustion, two-credential rotation,
   auth failure propagation, unknown error propagation, and all-credentials
   exhausted.
 - streaming tests prove a mid-stream rate-limit reruns the full turn and does
   not surface partial text.
-- provider-internal retry no longer masks 429/402 for pool-enabled paths.
-- `bun run test` passes.
+- no provider adapter now owns pool selection, cooldown, or rotation behavior.
+- provider-internal 429/402 retry bypass remains an integration requirement for
+  the later provider wiring slices; there are no pool-enabled provider paths in
+  this core wrapper slice.
+- `PooledProviderAdapter`, `ErrorOutcomeMapper`, and
+  `PooledProviderAdapterConfig` are exported from the credential-pool module and
+  the core agents index.
+
+Verification completed:
+
+- `cmd.exe /c bun x vitest run packages/core/tests/agents/credential-pool.test.ts`
+  — 36 tests passed.
+- `cmd.exe /c bun run --filter @kilnai/core test` — 226 files and 2904 tests
+  passed.
+- `cmd.exe /c bun run typecheck` — passed.
 
 ### Slice 3 — Runtime credential file service
 

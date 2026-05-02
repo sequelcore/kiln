@@ -50,3 +50,9 @@ export {
   type CredentialPoolEntrySnapshot,
   CredentialPool,
 } from "./pool.js";
+
+export {
+  PooledProviderAdapter,
+  type ErrorOutcomeMapper,
+  type PooledProviderAdapterConfig,
+} from "./pooled-adapter.js";
