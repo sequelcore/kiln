@@ -25,6 +25,7 @@ const RETRYABLE_STATUSES = new Set([429, 500, 529]);
 interface AnthropicAdapterConfig {
   readonly apiKey: string;
   readonly defaultModel?: string;
+  readonly internalRetry?: boolean;
 }
 
 export class AnthropicAdapter implements ProviderAdapter {
@@ -32,10 +33,12 @@ export class AnthropicAdapter implements ProviderAdapter {
 
   private readonly client: Anthropic;
   private readonly model: string;
+  private readonly internalRetry: boolean;
 
   constructor(config: AnthropicAdapterConfig) {
     this.client = new Anthropic({ apiKey: config.apiKey });
     this.model = config.defaultModel ?? CLAUDE_SONNET;
+    this.internalRetry = config.internalRetry ?? true;
   }
 
   async createMessage(options: CreateMessageOptions): Promise<AgentResponse> {
@@ -281,6 +284,15 @@ export class AnthropicAdapter implements ProviderAdapter {
 
   /** @internal Retry options exposed for test overriding */
   retryOptions(): RetryOptions {
+    if (!this.internalRetry) {
+      return {
+        maxRetries: 1,
+        baseDelayMs: BASE_DELAY_MS,
+        isRetryable: (error: unknown): boolean =>
+          !(error instanceof Anthropic.APIError) ||
+          RETRYABLE_STATUSES.has(error.status ?? 0),
+      };
+    }
     return {
       maxRetries: MAX_RETRIES,
       baseDelayMs: BASE_DELAY_MS,

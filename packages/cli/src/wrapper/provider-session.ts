@@ -62,6 +62,7 @@ const PROVIDER_PRIORITY: Record<ProviderSessionConfig["provider"], number> = {
   openrouter: 6,
   deepseek: 7,
   ollama: 8,
+  lmstudio: 9,
 };
 
 function getDefaultBillingMode(
@@ -75,7 +76,7 @@ function getDefaultBillingMode(
   ) {
     return profile.defaultBillingMode;
   }
-  return provider === "ollama" ? "free" : "metered";
+  return provider === "ollama" || provider === "lmstudio" ? "free" : "metered";
 }
 
 function resolveExecutionMode(config: ProviderSessionConfig): DirectProviderExecutionMode {

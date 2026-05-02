@@ -9,13 +9,14 @@ type MockAdapter = {
 };
 
 const adapterMocks = vi.hoisted(
-  (): Record<"codex-oauth" | "anthropic" | "openai" | "deepseek" | "openrouter" | "ollama", MockAdapter> => ({
+  (): Record<"codex-oauth" | "anthropic" | "openai" | "deepseek" | "openrouter" | "ollama" | "lmstudio", MockAdapter> => ({
     "codex-oauth": { ctor: vi.fn(), stream: vi.fn() },
     anthropic: { ctor: vi.fn(), stream: vi.fn() },
     openai: { ctor: vi.fn(), stream: vi.fn() },
     deepseek: { ctor: vi.fn(), stream: vi.fn() },
     openrouter: { ctor: vi.fn(), stream: vi.fn() },
     ollama: { ctor: vi.fn(), stream: vi.fn() },
+    lmstudio: { ctor: vi.fn(), stream: vi.fn() },
   }),
 );
 
@@ -77,6 +78,7 @@ vi.mock("@kilnai/core", async (importOriginal) => {
     DeepSeekAdapter: makeAdapter("deepseek"),
     OpenRouterAdapter: makeAdapter("openrouter"),
     OllamaAdapter: makeAdapter("ollama"),
+    LmStudioAdapter: makeAdapter("lmstudio"),
     createDefaultBuiltinToolSurface: coreSurfaceMocks.createDefaultBuiltinToolSurface.mockImplementation(() => ({
       tools: [],
       toolNames: ["mock_builtin"],
@@ -205,6 +207,71 @@ vi.mock("@kilnai/runtime", () => {
       processMessage = runtimeMocks.processMessage;
     },
     RuntimeSession: MockRuntimeSession,
+    CodexOAuthCredentialPoolService: class MockCodexOAuthCredentialPoolService {
+      async createPooledAdapter(config: { defaultModel?: string }) {
+        const Adapter = makeAdapter("codex-oauth");
+        return new Adapter(config);
+      }
+    },
+    DirectProviderCredentialPoolService: class MockDirectProviderCredentialPoolService {
+      private readonly env: Record<string, string | undefined>;
+
+      constructor(config?: { env?: Record<string, string | undefined> }) {
+        this.env = config?.env ?? {};
+      }
+
+      async listStatus(provider: string) {
+        if (provider === "ollama" || provider === "lmstudio") return [{ id: "env" }];
+        const envKey = {
+          anthropic: "ANTHROPIC_API_KEY",
+          openai: "OPENAI_API_KEY",
+          deepseek: "DEEPSEEK_API_KEY",
+          openrouter: "OPENROUTER_API_KEY",
+        }[provider];
+        return envKey && this.env[envKey] ? [{ id: "env" }] : [];
+      }
+
+      async createPooledAdapter(config: {
+        provider: keyof typeof adapterMocks;
+        defaultModel?: string;
+        openRouterAppUrl?: string;
+        openRouterAppName?: string;
+      }) {
+        const Adapter = makeAdapter(config.provider);
+        const adapterConfig = (() => {
+          switch (config.provider) {
+            case "anthropic":
+              return { apiKey: this.env.ANTHROPIC_API_KEY, defaultModel: config.defaultModel };
+            case "openai":
+              return { apiKey: this.env.OPENAI_API_KEY, defaultModel: config.defaultModel };
+            case "deepseek":
+              return { apiKey: this.env.DEEPSEEK_API_KEY, defaultModel: config.defaultModel };
+            case "openrouter":
+              return {
+                apiKey: this.env.OPENROUTER_API_KEY,
+                defaultModel: config.defaultModel,
+                appUrl: config.openRouterAppUrl,
+                appName: config.openRouterAppName,
+              };
+            case "ollama":
+              return { baseUrl: this.env.OLLAMA_BASE_URL, defaultModel: config.defaultModel };
+            case "lmstudio":
+              return { apiKey: this.env.LMSTUDIO_API_KEY, baseUrl: this.env.LMSTUDIO_BASE_URL, defaultModel: config.defaultModel };
+            default:
+              return { defaultModel: config.defaultModel };
+          }
+        })();
+        return new Adapter(adapterConfig);
+      }
+    },
+    isPooledDirectProviderId: (provider: string) => (
+      provider === "anthropic"
+      || provider === "openai"
+      || provider === "deepseek"
+      || provider === "openrouter"
+      || provider === "ollama"
+      || provider === "lmstudio"
+    ),
   };
 });
 
@@ -268,6 +335,7 @@ describe("ProviderSession implements IKilnSession", () => {
     expect(new ProviderSession(baseConfig({ provider: "openrouter" })).capabilities.priority).toBe(6);
     expect(new ProviderSession(baseConfig({ provider: "deepseek" })).capabilities.priority).toBe(7);
     expect(new ProviderSession(baseConfig({ provider: "ollama" })).capabilities.priority).toBe(8);
+    expect(new ProviderSession(baseConfig({ provider: "lmstudio" })).capabilities.priority).toBe(9);
   });
 
   it("dispose resolves and is a no-op", async () => {

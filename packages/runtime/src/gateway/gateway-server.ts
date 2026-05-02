@@ -7,11 +7,6 @@ import type { Hono } from "hono";
 import {
   parseGatewayYaml,
   parseAppYaml,
-  AnthropicAdapter,
-  OpenAIAdapter,
-  DeepSeekAdapter,
-  OllamaAdapter,
-  OpenRouterAdapter,
   KilnError,
   OTelExporter,
   SafetyPipeline,
@@ -21,7 +16,11 @@ import {
   ModelCapabilityRegistry,
   DeterministicDangerousCommandDetector,
 } from "@kilnai/core";
-import { CodexOAuthCredentialPoolService } from "../agents/credential-pool/index.js";
+import {
+  CodexOAuthCredentialPoolService,
+  DirectProviderCredentialPoolService,
+  isPooledDirectProviderId,
+} from "../agents/credential-pool/index.js";
 import type { ProviderAdapter, ProviderConfig, App, ToolDefinition, SttAdapter, Capability, IntegrationAdapter, SecurityConfig } from "@kilnai/core";
 import { AnnotationAuthorizer } from "@kilnai/core";
 import type { AppGraphResponse } from "./dev-routes-types.js";
@@ -1247,7 +1246,6 @@ REASONING: <one sentence explanation>`;
 
 /** Create a ProviderAdapter from a provider-adapter runtime config. */
 async function createProviderFromConfig(config: ProviderConfig): Promise<ProviderAdapter> {
-  const apiKey = config.apiKeyEnv ? process.env[config.apiKeyEnv] ?? "" : "";
   const model = config.model;
   const requireModel = (): string => {
     const selectedModel = model?.trim();
@@ -1263,19 +1261,19 @@ async function createProviderFromConfig(config: ProviderConfig): Promise<Provide
     case "codex-oauth":
       return await new CodexOAuthCredentialPoolService().createPooledAdapter({ defaultModel: requireModel() });
     case "anthropic":
-      return new AnthropicAdapter({ apiKey, defaultModel: model });
     case "openai":
-      return new OpenAIAdapter({ apiKey, defaultModel: model });
     case "deepseek":
-      return new DeepSeekAdapter({ apiKey, defaultModel: model });
-    case "ollama":
-      return new OllamaAdapter({ defaultModel: model });
     case "openrouter":
-      return new OpenRouterAdapter({
-        apiKey,
+    case "ollama":
+    case "lmstudio":
+      if (!isPooledDirectProviderId(config.name)) {
+        throw new KilnError("CONFIG_INVALID", `Unsupported pooled provider: ${config.name}`);
+      }
+      return await new DirectProviderCredentialPoolService().createPooledAdapter({
+        provider: config.name,
         defaultModel: model,
-        appUrl: process.env.OPENROUTER_APP_URL,
-        appName: process.env.OPENROUTER_APP_NAME,
+        openRouterAppUrl: process.env.OPENROUTER_APP_URL,
+        openRouterAppName: process.env.OPENROUTER_APP_NAME,
       });
     default:
       throw new KilnError("CONFIG_INVALID", `Unknown provider: ${config.name}`, {

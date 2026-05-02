@@ -9,6 +9,7 @@ export type DirectProviderId =
   | "deepseek"
   | "openrouter"
   | "ollama"
+  | "lmstudio"
   | "opencode-go"
   | "opencode-zen";
 
@@ -89,6 +90,12 @@ const DIRECT_PROVIDER_EXECUTION_PROFILES: ReadonlyMap<DirectProviderId, DirectPr
   }],
   ["ollama", {
     provider: "ollama",
+    defaultExecutionMode: "text-only",
+    defaultBillingMode: "free",
+    supportsStructuredToolCalls: true,
+  }],
+  ["lmstudio", {
+    provider: "lmstudio",
     defaultExecutionMode: "text-only",
     defaultBillingMode: "free",
     supportsStructuredToolCalls: true,

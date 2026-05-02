@@ -300,6 +300,7 @@ export async function discoverGuiDirectProviderModelDiscovery(
     deepSeekDiscovery,
     openRouterDiscovery,
     ollamaDiscovery,
+    lmStudioDiscovery,
     codexOauthDiscovery,
   ] = await Promise.all([
     discoverOpenCodeDirectModelDiscovery(providerAvailability),
@@ -308,6 +309,7 @@ export async function discoverGuiDirectProviderModelDiscovery(
     discoverDeepSeekModelDiscovery(providerAvailability.deepseek),
     discoverOpenRouterModelDiscovery(providerAvailability.openrouter),
     discoverOllamaModelDiscovery(providerAvailability.ollama),
+    discoverLmStudioModelDiscovery(providerAvailability.lmstudio),
     discoverCodexOauthModelDiscovery(providerAvailability["codex-oauth"]),
   ]);
   return Object.fromEntries([
@@ -317,6 +319,7 @@ export async function discoverGuiDirectProviderModelDiscovery(
     ...(deepSeekDiscovery ? [["deepseek", deepSeekDiscovery] as const] : []),
     ...(openRouterDiscovery ? [["openrouter", openRouterDiscovery] as const] : []),
     ...(ollamaDiscovery ? [["ollama", ollamaDiscovery] as const] : []),
+    ...(lmStudioDiscovery ? [["lmstudio", lmStudioDiscovery] as const] : []),
     ...Object.entries(openCodeDirectDiscovery),
   ]);
 }
@@ -1162,6 +1165,54 @@ function extractOllamaLocalModelNames(data: { readonly models?: unknown } | unde
     }
     return [];
   }));
+}
+
+async function discoverLmStudioModelDiscovery(
+  available: boolean | undefined,
+): Promise<GuiCliProviderModelDiscovery | undefined> {
+  if (available !== true) {
+    return undefined;
+  }
+  const baseUrl = process.env.LMSTUDIO_BASE_URL?.trim() || "http://localhost:1234/v1";
+  const token = process.env.LMSTUDIO_API_KEY?.trim();
+  let parsed: { readonly data?: unknown; readonly models?: unknown } | undefined;
+  try {
+    const response = await fetch(`${baseUrl.replace(/\/$/, "")}/models`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      signal: AbortSignal.timeout(800),
+    });
+    if (!response.ok) {
+      return unavailableCliProviderDiscovery(
+        "daemon_unreachable",
+        `LM Studio server is not reachable at ${baseUrl}.`,
+        "not_required",
+      );
+    }
+    const data = await response.json();
+    parsed = typeof data === "object" && data !== null
+      ? data as { readonly data?: unknown; readonly models?: unknown }
+      : undefined;
+  } catch {
+    return unavailableCliProviderDiscovery(
+      "daemon_unreachable",
+      `LM Studio server is not reachable at ${baseUrl}.`,
+      "not_required",
+    );
+  }
+
+  const models = extractProviderModelIds(parsed);
+  return models.length > 0
+    ? {
+        models,
+        status: "available",
+        reason: "LM Studio models discovered.",
+        authState: token ? "authenticated" : "not_required",
+      }
+    : unavailableCliProviderDiscovery(
+        "empty_model_list",
+        "LM Studio server returned no loaded models.",
+        "not_required",
+      );
 }
 
 async function discoverOpenCodeDirectModelDiscovery(

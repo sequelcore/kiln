@@ -27,6 +27,19 @@ export type {
 } from "./credential-pool-factory.js";
 
 export {
+  DirectProviderCredentialPoolService,
+  isPooledDirectProviderId,
+  mapDirectProviderError,
+} from "./direct-provider-credential-pool.js";
+export type {
+  CreateDirectProviderPooledAdapterOptions,
+  DirectProviderAuth,
+  DirectProviderCredentialPoolServiceConfig,
+  DirectProviderCredentialStatus,
+  PooledDirectProviderId,
+} from "./direct-provider-credential-pool.js";
+
+export {
   CODEX_OAUTH_POOL_PROVIDER_ID,
   CodexOAuthCredentialPoolService,
   mapCodexOAuthProviderError,

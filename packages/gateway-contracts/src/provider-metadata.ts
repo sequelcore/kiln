@@ -85,6 +85,12 @@ export const GUI_PROVIDER_METADATA = {
     group: "direct-api",
     free: true,
   },
+  lmstudio: {
+    id: "lmstudio",
+    label: "LM Studio",
+    group: "direct-api",
+    free: true,
+  },
 } as const satisfies Readonly<Record<string, GuiProviderMetadata>>;
 
 export const GUI_PROVIDER_DISPLAY_ORDER = Object.keys(GUI_PROVIDER_METADATA);

@@ -1,17 +1,14 @@
 import {
-  AnthropicAdapter,
-  DeepSeekAdapter,
-  OllamaAdapter,
-  OpenAIAdapter,
   OpenCodeAdapter,
-  OpenRouterAdapter,
   type DirectProviderId,
   type ProviderAdapter,
 } from "@kilnai/core";
 import type { OpenCodeTier } from "@kilnai/core";
 import {
   CodexOAuthCredentialPoolService,
+  DirectProviderCredentialPoolService,
   OpenCodeCredentialPoolService,
+  isPooledDirectProviderId,
 } from "@kilnai/runtime";
 
 type EnvMap = Readonly<Record<string, string | undefined>>;
@@ -28,7 +25,6 @@ interface DirectProviderAdapterContext {
   readonly provider: DirectProviderId;
   readonly model?: string;
   readonly resolveEnv: (name: string) => string | undefined;
-  readonly requireApiKey: (name: string) => string;
 }
 
 type DirectProviderAdapterDefinition = {
@@ -43,56 +39,29 @@ function requireSelectedModel(context: DirectProviderAdapterContext): string {
   return model;
 }
 
-function createApiKeyAdapter(
-  envName: string,
-  create: (apiKey: string, context: DirectProviderAdapterContext) => ProviderAdapter,
-): DirectProviderAdapterDefinition {
-  return {
-    create: (context) => create(context.requireApiKey(envName), context),
-  };
-}
-
 const DIRECT_PROVIDER_ADAPTERS: Readonly<Record<DirectProviderId, DirectProviderAdapterDefinition>> = {
   "codex-oauth": {
     create: (context) => new CodexOAuthCredentialPoolService().createPooledAdapter({
       defaultModel: requireSelectedModel(context),
     }),
   },
-  anthropic: createApiKeyAdapter(
-    "ANTHROPIC_API_KEY",
-    (apiKey, context) => new AnthropicAdapter({
-      apiKey,
-      defaultModel: context.model,
-    }),
-  ),
-  openai: createApiKeyAdapter(
-    "OPENAI_API_KEY",
-    (apiKey, context) => new OpenAIAdapter({
-      apiKey,
-      defaultModel: context.model,
-    }),
-  ),
-  deepseek: createApiKeyAdapter(
-    "DEEPSEEK_API_KEY",
-    (apiKey, context) => new DeepSeekAdapter({
-      apiKey,
-      defaultModel: context.model,
-    }),
-  ),
-  openrouter: createApiKeyAdapter(
-    "OPENROUTER_API_KEY",
-    (apiKey, context) => new OpenRouterAdapter({
-      apiKey,
-      defaultModel: context.model,
-      appUrl: context.resolveEnv("OPENROUTER_APP_URL"),
-      appName: context.resolveEnv("OPENROUTER_APP_NAME"),
-    }),
-  ),
+  anthropic: {
+    create: createPooledDirectProviderAdapter,
+  },
+  openai: {
+    create: createPooledDirectProviderAdapter,
+  },
+  deepseek: {
+    create: createPooledDirectProviderAdapter,
+  },
+  openrouter: {
+    create: createPooledDirectProviderAdapter,
+  },
   ollama: {
-    create: (context) => new OllamaAdapter({
-      baseUrl: context.resolveEnv("OLLAMA_BASE_URL"),
-      defaultModel: context.model,
-    }),
+    create: createPooledDirectProviderAdapter,
+  },
+  lmstudio: {
+    create: createPooledDirectProviderAdapter,
   },
   "opencode-go": {
     create: (context) => createOpenCodeAdapter("go", context),
@@ -113,19 +82,39 @@ export async function createDirectProviderAdapter(
   const processEnv = options.processEnv ?? process.env;
   const resolveEnv = (name: string): string | undefined =>
     options.runtimeEnv?.[name] ?? options.configEnv?.[name] ?? processEnv[name];
-  const requireApiKey = (name: string): string => {
-    const apiKey = resolveEnv(name);
-    if (!apiKey || apiKey.trim().length === 0) {
-      throw new Error(`Missing required API key for ${options.provider}: ${name}`);
-    }
-    return apiKey;
-  };
-
   return await definition.create({
     provider: options.provider,
     model: options.model,
     resolveEnv,
-    requireApiKey,
+  });
+}
+
+async function createPooledDirectProviderAdapter(
+  context: DirectProviderAdapterContext,
+): Promise<ProviderAdapter> {
+  if (!isPooledDirectProviderId(context.provider)) {
+    throw new Error(`Unsupported pooled direct provider: ${context.provider}`);
+  }
+  const service = new DirectProviderCredentialPoolService({
+    env: {
+      ANTHROPIC_API_KEY: context.resolveEnv("ANTHROPIC_API_KEY"),
+      OPENAI_API_KEY: context.resolveEnv("OPENAI_API_KEY"),
+      DEEPSEEK_API_KEY: context.resolveEnv("DEEPSEEK_API_KEY"),
+      OPENROUTER_API_KEY: context.resolveEnv("OPENROUTER_API_KEY"),
+      OLLAMA_BASE_URL: context.resolveEnv("OLLAMA_BASE_URL"),
+      LMSTUDIO_API_KEY: context.resolveEnv("LMSTUDIO_API_KEY"),
+      LMSTUDIO_BASE_URL: context.resolveEnv("LMSTUDIO_BASE_URL"),
+    },
+  });
+  const status = await service.listStatus(context.provider);
+  if (status.length === 0) {
+    throw new Error(`Missing required credentials for ${context.provider}`);
+  }
+  return await service.createPooledAdapter({
+    provider: context.provider,
+    defaultModel: context.model,
+    openRouterAppUrl: context.resolveEnv("OPENROUTER_APP_URL"),
+    openRouterAppName: context.resolveEnv("OPENROUTER_APP_NAME"),
   });
 }
 

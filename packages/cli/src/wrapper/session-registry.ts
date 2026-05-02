@@ -32,7 +32,8 @@ export type DirectApiProviderId =
   | "openai"
   | "deepseek"
   | "openrouter"
-  | "ollama";
+  | "ollama"
+  | "lmstudio";
 export type ProviderId = CliHarnessProviderId | DirectApiProviderId;
 export type ProviderDisplayGroup = "subscription" | "harness" | "direct-api";
 
@@ -52,6 +53,7 @@ const DIRECT_PROVIDER_COST_TIERS: Record<DirectApiProviderId, "low" | "medium" |
   deepseek: "medium",
   openrouter: "low",
   ollama: "low",
+  lmstudio: "low",
 };
 const DIRECT_PROVIDER_PRIORITIES: Record<DirectApiProviderId, number> = {
   "codex-oauth": 1,
@@ -62,6 +64,7 @@ const DIRECT_PROVIDER_PRIORITIES: Record<DirectApiProviderId, number> = {
   openrouter: 6,
   deepseek: 7,
   ollama: 8,
+  lmstudio: 9,
 };
 const RUNTIME_MODEL_DISCOVERY_PROVIDER_IDS = new Set<ProviderId>([
   "codex-oauth",
@@ -987,6 +990,7 @@ export function createDefaultRegistry(): {
     createDirectProviderDescriptor("deepseek", () => hasNonEmptyEnv("DEEPSEEK_API_KEY")),
     createDirectProviderDescriptor("openrouter", () => hasNonEmptyEnv("OPENROUTER_API_KEY")),
     createDirectProviderDescriptor("ollama"),
+    createDirectProviderDescriptor("lmstudio"),
   ];
 
   const providers: SessionProviderDescriptor[] = [

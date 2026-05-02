@@ -21,6 +21,7 @@ const PROVIDER_DEFAULTS: Record<string, ProviderDefaults> = {
   openai: { model: "gpt-4o", apiKeyEnv: "OPENAI_API_KEY" },
   deepseek: { model: "deepseek-chat", apiKeyEnv: "DEEPSEEK_API_KEY" },
   ollama: { model: "llama3.2", apiKeyEnv: "" },
+  lmstudio: { model: "qwen/qwen3.5-9b", apiKeyEnv: "" },
 };
 
 /** Generate app.yaml content for the initialized project */

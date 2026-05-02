@@ -45,6 +45,7 @@ const DIRECT_PROVIDER_MODELS = {
   deepseek: "deepseek-chat",
   openrouter: "nvidia/nemotron-3-nano-30b-a3b:free",
   ollama: "llama3.1",
+  lmstudio: "qwen/qwen3.5-9b",
 } as const satisfies Record<
   Exclude<ProviderId, "claude" | "codex" | "opencode">,
   string
@@ -149,6 +150,7 @@ const CAPABILITIES: Record<string, SessionCapabilities> = {
   openrouter: { ...MOCK_CAPA, priority: 6, mcp: false, costTrackingMode: "computed" },
   deepseek: { ...MOCK_CAPA, priority: 7, mcp: false, costTrackingMode: "computed" },
   ollama: { ...MOCK_CAPA, priority: 8, mcp: false, costTrackingMode: "computed" },
+  lmstudio: { ...MOCK_CAPA, priority: 9, mcp: false, costTrackingMode: "computed" },
 };
 
 const COST_TIERS = {
@@ -163,6 +165,7 @@ const COST_TIERS = {
   openrouter: "low",
   deepseek: "medium",
   ollama: "low",
+  lmstudio: "low",
 } as const;
 
 const ALL_PROVIDER_IDS = [
@@ -177,6 +180,7 @@ const ALL_PROVIDER_IDS = [
   "deepseek",
   "openrouter",
   "ollama",
+  "lmstudio",
 ] as const;
 
 const GRANULAR_POLICY = {
@@ -305,7 +309,7 @@ describe("SessionRegistry", () => {
     it("list() returns all providers with healthy status", () => {
       const { registry } = createDefaultRegistry();
       const providers = registry.list();
-      expect(providers).toHaveLength(11);
+      expect(providers).toHaveLength(ALL_PROVIDER_IDS.length);
       const ids = providers.map((p) => p.id).sort();
       expect(ids).toEqual([...ALL_PROVIDER_IDS].sort());
       for (const p of providers) {

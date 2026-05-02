@@ -5,6 +5,7 @@ type MockAdapterName =
   | "anthropic"
   | "codexOauth"
   | "deepseek"
+  | "lmstudio"
   | "ollama"
   | "openai"
   | "opencode"
@@ -13,6 +14,8 @@ type MockAdapterName =
 const adapterMocks = vi.hoisted(
   (): Record<MockAdapterName, ReturnType<typeof vi.fn>> & {
     readonly codexPoolCreateAdapter: ReturnType<typeof vi.fn>;
+    readonly directPoolCreateAdapter: ReturnType<typeof vi.fn>;
+    readonly directPoolListStatus: ReturnType<typeof vi.fn>;
     readonly opencodeAuthLoad: ReturnType<typeof vi.fn>;
     readonly opencodePoolListStatus: ReturnType<typeof vi.fn>;
     readonly opencodePoolCreateAdapter: ReturnType<typeof vi.fn>;
@@ -21,6 +24,9 @@ const adapterMocks = vi.hoisted(
     codexPoolCreateAdapter: vi.fn(),
     codexOauth: vi.fn(),
     deepseek: vi.fn(),
+    directPoolCreateAdapter: vi.fn(),
+    directPoolListStatus: vi.fn(),
+    lmstudio: vi.fn(),
     ollama: vi.fn(),
     openai: vi.fn(),
     opencode: vi.fn(),
@@ -60,6 +66,22 @@ vi.mock("@kilnai/runtime", () => ({
       return { name: "pooled-codex-oauth" };
     }
   },
+  DirectProviderCredentialPoolService: class MockDirectProviderCredentialPoolService {
+    constructor(config: unknown) {
+      adapterMocks.directPoolListStatus("constructor", config);
+    }
+
+    listStatus(provider: unknown) {
+      return adapterMocks.directPoolListStatus("listStatus", provider) ?? [{ id: "env" }];
+    }
+
+    createPooledAdapter(config: unknown) {
+      adapterMocks.directPoolCreateAdapter(config);
+      return { name: "pooled-direct" };
+    }
+  },
+  isPooledDirectProviderId: (provider: string) =>
+    ["anthropic", "openai", "deepseek", "openrouter", "ollama", "lmstudio"].includes(provider),
   OpenCodeCredentialPoolService: class MockOpenCodeCredentialPoolService {
     listStatus() {
       return adapterMocks.opencodePoolListStatus();
@@ -98,25 +120,32 @@ describe("createDirectProviderAdapter", () => {
       runtimeEnv: { OPENAI_API_KEY: "runtime-key" },
     });
 
-    expect(adapterMocks.openai).toHaveBeenCalledWith({
-      apiKey: "runtime-key",
+    expect(adapterMocks.directPoolCreateAdapter).toHaveBeenCalledWith({
+      provider: "openai",
       defaultModel: "gpt-5.4",
+      openRouterAppUrl: undefined,
+      openRouterAppName: undefined,
+    });
+    expect(adapterMocks.directPoolListStatus).toHaveBeenCalledWith("constructor", {
+      env: expect.objectContaining({ OPENAI_API_KEY: "runtime-key" }),
     });
   });
 
   it.each([
-    ["anthropic", "ANTHROPIC_API_KEY", "anthropic"],
-    ["deepseek", "DEEPSEEK_API_KEY", "deepseek"],
-    ["openai", "OPENAI_API_KEY", "openai"],
-  ] as const)("creates %s adapters from the provider env table", async (provider, envName, adapterName) => {
+    ["anthropic", "ANTHROPIC_API_KEY"],
+    ["deepseek", "DEEPSEEK_API_KEY"],
+    ["openai", "OPENAI_API_KEY"],
+  ] as const)("creates %s adapters from the provider env table", async (provider, envName) => {
     await createDirectProviderAdapter({
       provider,
       configEnv: { [envName]: `${provider}-key` },
     });
 
-    expect(adapterMocks[adapterName]).toHaveBeenCalledWith({
-      apiKey: `${provider}-key`,
+    expect(adapterMocks.directPoolCreateAdapter).toHaveBeenCalledWith({
+      provider,
       defaultModel: undefined,
+      openRouterAppUrl: undefined,
+      openRouterAppName: undefined,
     });
   });
 
@@ -131,11 +160,11 @@ describe("createDirectProviderAdapter", () => {
       },
     });
 
-    expect(adapterMocks.openrouter).toHaveBeenCalledWith({
-      apiKey: "openrouter-key",
+    expect(adapterMocks.directPoolCreateAdapter).toHaveBeenCalledWith({
+      provider: "openrouter",
       defaultModel: "openrouter/model",
-      appName: "Kiln Dev",
-      appUrl: "https://kiln.local",
+      openRouterAppName: "Kiln Dev",
+      openRouterAppUrl: "https://kiln.local",
     });
   });
 
@@ -159,9 +188,26 @@ describe("createDirectProviderAdapter", () => {
       runtimeEnv: { OLLAMA_BASE_URL: "http://127.0.0.1:11435" },
     });
 
-    expect(adapterMocks.ollama).toHaveBeenCalledWith({
-      baseUrl: "http://127.0.0.1:11435",
+    expect(adapterMocks.directPoolCreateAdapter).toHaveBeenCalledWith({
+      provider: "ollama",
       defaultModel: "llama3.2",
+      openRouterAppUrl: undefined,
+      openRouterAppName: undefined,
+    });
+  });
+
+  it("creates LM Studio adapters without requiring an API key", async () => {
+    await createDirectProviderAdapter({
+      provider: "lmstudio",
+      model: "qwen/qwen3.5-9b",
+      runtimeEnv: { LMSTUDIO_BASE_URL: "http://127.0.0.1:1234/v1" },
+    });
+
+    expect(adapterMocks.directPoolCreateAdapter).toHaveBeenCalledWith({
+      provider: "lmstudio",
+      defaultModel: "qwen/qwen3.5-9b",
+      openRouterAppUrl: undefined,
+      openRouterAppName: undefined,
     });
   });
 
@@ -215,12 +261,9 @@ describe("createDirectProviderAdapter", () => {
   });
 
   it("throws a provider-specific error when a required API key is missing", async () => {
-    await expect(
-      createDirectProviderAdapter({
-        provider: "anthropic",
-        configEnv: { ANTHROPIC_API_KEY: "  " },
-      }),
-    ).rejects.toThrow("Missing required API key for anthropic: ANTHROPIC_API_KEY");
+    adapterMocks.directPoolListStatus.mockImplementation((method) => method === "listStatus" ? [] : undefined);
+    await expect(createDirectProviderAdapter({ provider: "anthropic" }))
+      .rejects.toThrow("Missing required credentials for anthropic");
   });
 
   it("fails fast for unsupported direct provider ids", async () => {

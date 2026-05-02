@@ -20,6 +20,7 @@ interface OpenAICompatConfig {
   readonly baseUrl: string;
   readonly defaultModel: string;
   readonly providerName: string;
+  readonly internalRetry?: boolean;
 }
 
 type OpenAIContent = string | readonly OpenAIContentBlock[];
@@ -102,12 +103,14 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
   protected readonly apiKey: string;
   protected readonly baseUrl: string;
   protected readonly model: string;
+  private readonly internalRetry: boolean;
 
   constructor(config: OpenAICompatConfig) {
     this.name = config.providerName;
     this.apiKey = config.apiKey;
     this.baseUrl = config.baseUrl;
     this.model = config.defaultModel;
+    this.internalRetry = config.internalRetry ?? true;
   }
 
   async createMessage(options: CreateMessageOptions): Promise<AgentResponse> {
@@ -347,6 +350,16 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
 
   /** @internal Retry options exposed for test overriding */
   retryOptions(): RetryOptions {
+    if (!this.internalRetry) {
+      return {
+        maxRetries: 1,
+        baseDelayMs: BASE_DELAY_MS,
+        isRetryable: (error: unknown): boolean => {
+          const status = (error as Record<string, unknown>).status;
+          return typeof status !== "number" || RETRYABLE_STATUSES.has(status);
+        },
+      };
+    }
     return {
       maxRetries: MAX_RETRIES,
       baseDelayMs: BASE_DELAY_MS,

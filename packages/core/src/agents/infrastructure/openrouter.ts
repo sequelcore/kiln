@@ -17,12 +17,14 @@ export class OpenRouterAdapter extends OpenAICompatAdapter {
     defaultModel?: string;
     appUrl?: string;
     appName?: string;
+    internalRetry?: boolean;
   }) {
     super({
       apiKey: config.apiKey,
       baseUrl: "https://openrouter.ai/api/v1",
       defaultModel: config.defaultModel ?? NEMOTRON_NANO_FREE,
       providerName: "openrouter",
+      internalRetry: config.internalRetry,
     });
     this.appUrl = config.appUrl;
     this.appName = config.appName;

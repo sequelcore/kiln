@@ -373,7 +373,7 @@ Verification completed:
   — 33 tests passed.
 - `cmd.exe /c bun run typecheck` — passed.
 
-### Slice 6 — Direct API-key and local endpoint providers
+### Slice 6 — Direct API-key and local endpoint providers — Completed 2026-05-02
 
 Wire `anthropic`, `openai`, `deepseek`, `openrouter`, `ollama`, and
 `lmstudio` through the pool.
@@ -432,7 +432,63 @@ checks for a directory, then for env-var; it never requires the user to
 convert a working env-var setup.
 
 Acceptance: multi-key `anthropic` pool rotates on 429; env-var single-key
-path is not broken; `bun run test` passes.
+path is not broken; direct local providers do not force API keys; affected
+package test suites pass.
+
+Completed status:
+
+- `DirectProviderCredentialPoolService` resolves directory credentials first
+  for `anthropic`, `openai`, `deepseek`, `openrouter`, `ollama`, and
+  `lmstudio`.
+- if no directory credentials exist, env-var credentials are projected as a
+  synthetic `env` pool entry.
+- API-key providers fail with an empty pool when neither directory nor env
+  credentials exist.
+- `ollama` does not require an API key and uses `OLLAMA_BASE_URL` or
+  `http://localhost:11434`.
+- `lmstudio` is a first-class direct provider with provider metadata,
+  execution profile, CLI registry identity, init-template defaults, GUI model
+  discovery, and a dedicated OpenAI-compatible adapter using
+  `LMSTUDIO_BASE_URL` or `http://localhost:1234/v1`.
+- `lmstudio` does not require an API key; `LMSTUDIO_API_KEY` is optional for
+  endpoints that do require bearer auth.
+- CLI direct-provider factory and gateway provider-adapter runtime both use
+  the runtime pool service instead of parsing provider credentials locally.
+- pooled OpenAI-compatible and Anthropic adapters disable provider-internal
+  retries so 429s reach the credential pool and trigger rotation.
+- provider-session priority and billing fallbacks include `lmstudio` as a
+  local/free provider.
+
+Deferred outside this credential-pool slice:
+
+- role-based LM Studio worker profiles (`fast-local`, `coding-local`,
+  `coding-alt-local`) and model load/unload orchestration remain a separate
+  local-provider scheduling concern. Slice 6 only makes `lmstudio` a
+  first-class pooled direct provider.
+
+Verification completed:
+
+- `cmd.exe /c bun x vitest run packages/runtime/tests/agents/direct-provider-credential-pool.test.ts packages/runtime/tests/agents/credential-pool.test.ts packages/cli/tests/wrapper/direct-provider-adapter-factory.test.ts`
+  — 23 tests passed.
+- `cmd.exe /c bun x vitest run packages/core/src/agents/infrastructure/__tests__/opencode-provider.test.ts packages/core/tests/agents/infrastructure/openai-compat.test.ts packages/core/tests/agents/infrastructure/anthropic.test.ts packages/core/tests/agents/infrastructure/openrouter.test.ts`
+  — 59 tests passed.
+- `cmd.exe /c bun run typecheck` — passed.
+- `cmd.exe /c bun x vitest run packages/runtime/tests/agents/direct-provider-credential-pool.test.ts packages/cli/tests/wrapper/direct-provider-adapter-factory.test.ts packages/cli/tests/wrapper/session-registry.test.ts packages/core/tests/agents/provider-execution-profiles.test.ts`
+  — 103 tests passed.
+- `cmd.exe /c bun x vitest run packages/cli/tests/wrapper/provider-session.test.ts packages/cli/tests/wrapper/session-registry.test.ts packages/cli/tests/wrapper/direct-provider-adapter-factory.test.ts`
+  — 106 tests passed.
+- `cmd.exe /c bun x vitest run packages/runtime/tests/agents/direct-provider-credential-pool.test.ts packages/core/tests/agents/provider-execution-profiles.test.ts`
+  — 25 tests passed.
+- `cmd.exe /c bun run --filter @kilnai/core test` — 226 files and 2904 tests
+  passed.
+- `cmd.exe /c bun run --filter @kilnai/runtime test` — 135 files and 1783
+  tests passed.
+- `cmd.exe /c bun run --filter @kilnai/cli test` — passed.
+
+Note: `cmd.exe /c bun run test` was attempted, but the monorepo command
+exceeded the 180 s command timeout before returning a final aggregate result.
+The package suites directly affected by Slice 6 were then run independently
+and passed.
 
 ### Slice 7 — Harness provider passthrough
 
