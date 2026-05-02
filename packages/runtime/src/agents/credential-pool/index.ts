@@ -19,20 +19,25 @@ export type {
 } from "./credential-health-store.js";
 
 export {
-  CredentialMigrator,
-} from "./credential-migrator.js";
-export type {
-  CredentialMigratorConfig,
-  MigrateLegacyCredentialFileOptions,
-} from "./credential-migrator.js";
-
-export {
   CredentialPoolFactory,
 } from "./credential-pool-factory.js";
 export type {
   CredentialPoolFactoryConfig,
   LoadCredentialPoolOptions,
 } from "./credential-pool-factory.js";
+
+export {
+  CODEX_OAUTH_POOL_PROVIDER_ID,
+  CodexOAuthCredentialPoolService,
+  mapCodexOAuthProviderError,
+} from "./codex-oauth-credential-pool.js";
+export type {
+  CodexOAuthCredentialPoolServiceConfig,
+  CodexOAuthCredentialStatus,
+  CodexOAuthPoolCredential,
+  CreateCodexOAuthPooledAdapterOptions,
+  LinkCodexOAuthCredentialOptions,
+} from "./codex-oauth-credential-pool.js";
 
 export {
   OPENCODE_POOL_PROVIDER_ID,

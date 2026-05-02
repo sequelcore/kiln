@@ -84,33 +84,7 @@ describe("OpenCodeCredentialPoolService", () => {
     expect(JSON.stringify(status)).not.toContain("sk-work");
   });
 
-  it("migrates the previous singleton file before writing a new credential", async () => {
-    const service = new OpenCodeCredentialPoolService({ rootDir });
-    await writeFile(join(rootDir, "opencode.json"), JSON.stringify({
-      api_key: "sk-singleton",
-      tier: "go",
-      created_at: "2026-05-01T00:00:00.000Z",
-    }), "utf8");
-
-    await service.linkCredential({
-      id: "second",
-      apiKey: "sk-second",
-      tier: "zen",
-      createdAt: "2026-05-02T00:00:00.000Z",
-    });
-
-    await expect(readFile(join(rootDir, "opencode.json"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
-    expect(JSON.parse(await readFile(join(rootDir, "opencode", "default.json"), "utf8"))).toMatchObject({
-      api_key: "sk-singleton",
-      tier: "go",
-    });
-    expect(JSON.parse(await readFile(join(rootDir, "opencode", "second.json"), "utf8"))).toMatchObject({
-      api_key: "sk-second",
-      tier: "zen",
-    });
-  });
-
-  it("refuses previous singleton and directory coexistence", async () => {
+  it("ignores unrelated singleton files and only reads directory credentials", async () => {
     const service = new OpenCodeCredentialPoolService({ rootDir });
     await mkdir(join(rootDir, "opencode"), { recursive: true });
     await writeFile(join(rootDir, "opencode", "existing.json"), JSON.stringify({
@@ -124,7 +98,11 @@ describe("OpenCodeCredentialPoolService", () => {
       created_at: "2026-05-01T00:00:00.000Z",
     }), "utf8");
 
-    await expect(service.listStatus()).rejects.toThrow("previous singleton and directory OpenCode credentials cannot coexist");
+    await expect(service.listStatus()).resolves.toEqual([expect.objectContaining({
+      id: "existing",
+      key: "sk-e…ting",
+    })]);
+    expect(await readFile(join(rootDir, "opencode.json"), "utf8")).toContain("sk-singleton");
   });
 
   it("creates a pooled adapter that rotates on rate limits", async () => {

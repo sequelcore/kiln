@@ -3,7 +3,10 @@ import {
   CodexOAuthAuth,
   type OpenCodeTier,
 } from "@kilnai/core";
-import { OpenCodeCredentialPoolService } from "../agents/credential-pool/index.js";
+import {
+  CodexOAuthCredentialPoolService,
+  OpenCodeCredentialPoolService,
+} from "../agents/credential-pool/index.js";
 import { getGuiProviderMetadata } from "@kilnai/gateway-contracts";
 import type {
   GuiInboundFrame,
@@ -113,7 +116,7 @@ export async function startProviderAuthRequest(
           hasAccessToken: tokenFile.access_token.trim().length > 0,
           hasRefreshToken: tokenFile.refresh_token.trim().length > 0,
         });
-        await auth.saveTokenFile(tokenFile);
+        await new CodexOAuthCredentialPoolService().linkCredential({ tokenFile });
         providerAuthDebug("device-code auth completion saved token", {
           provider,
           requestId,

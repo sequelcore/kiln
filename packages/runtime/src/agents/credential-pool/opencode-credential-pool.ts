@@ -56,7 +56,6 @@ export class OpenCodeCredentialPoolService {
   }
 
   async linkCredential(options: LinkOpenCodeCredentialOptions): Promise<void> {
-    await this.migratePreviousSingletonIfNeeded();
     const id = options.id ?? `${options.tier}-${Date.now()}`;
     assertSafeCredentialId(id);
     const file: OpenCodeAuthFile = {
@@ -96,7 +95,6 @@ export class OpenCodeCredentialPoolService {
     for (const file of files) {
       await unlink(join(this.providerDirectory(), file));
     }
-    await removeIfExists(this.previousSingletonFilePath());
   }
 
   async createPooledAdapter(options: CreateOpenCodePooledAdapterOptions): Promise<ProviderAdapter> {
@@ -140,7 +138,6 @@ export class OpenCodeCredentialPoolService {
   }
 
   private async readCredentials(): Promise<ReadonlyArray<{ readonly id: string; readonly auth: OpenCodeAuthFile }>> {
-    await this.migratePreviousSingletonIfNeeded();
     const files = await this.listCredentialFileNames();
     const credentials = await Promise.all(files.map(async (fileName) => {
       const filePath = join(this.providerDirectory(), fileName);
@@ -152,25 +149,6 @@ export class OpenCodeCredentialPoolService {
       };
     }));
     return credentials.sort((a, b) => a.id.localeCompare(b.id));
-  }
-
-  private async migratePreviousSingletonIfNeeded(): Promise<void> {
-    const hasPreviousSingleton = await fileExists(this.previousSingletonFilePath());
-    if (!hasPreviousSingleton) {
-      return;
-    }
-
-    const directoryFiles = await this.listCredentialFileNames();
-    if (directoryFiles.length > 0) {
-      throw new Error("previous singleton and directory OpenCode credentials cannot coexist");
-    }
-
-    const parsed = JSON.parse(await readFile(this.previousSingletonFilePath(), "utf8")) as unknown;
-    const auth = validateOpenCodeAuthFile(parsed, this.previousSingletonFilePath());
-    await mkdir(this.providerDirectory(), { recursive: true });
-    await writeFile(this.credentialFilePath("default"), `${JSON.stringify(auth, null, 2)}\n`, "utf8");
-    validateOpenCodeAuthFile(JSON.parse(await readFile(this.credentialFilePath("default"), "utf8")), this.credentialFilePath("default"));
-    await unlink(this.previousSingletonFilePath());
   }
 
   private async listCredentialFileNames(): Promise<readonly string[]> {
@@ -194,10 +172,6 @@ export class OpenCodeCredentialPoolService {
 
   private credentialFilePath(id: string): string {
     return join(this.providerDirectory(), `${id}.json`);
-  }
-
-  private previousSingletonFilePath(): string {
-    return join(this.rootDir, "opencode.json");
   }
 }
 
@@ -260,28 +234,6 @@ function maskKey(key: string): string {
 function assertSafeCredentialId(id: string): void {
   if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(id)) {
     throw new Error(`Invalid OpenCode credential id: ${id}`);
-  }
-}
-
-async function fileExists(filePath: string): Promise<boolean> {
-  try {
-    await readFile(filePath, "utf8");
-    return true;
-  } catch (error) {
-    if (isNodeError(error) && error.code === "ENOENT") {
-      return false;
-    }
-    throw error;
-  }
-}
-
-async function removeIfExists(filePath: string): Promise<void> {
-  try {
-    await unlink(filePath);
-  } catch (error) {
-    if (!isNodeError(error) || error.code !== "ENOENT") {
-      throw error;
-    }
   }
 }
 

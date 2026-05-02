@@ -4,19 +4,18 @@ import { startProviderAuthRequest } from "../../src/gateway/provider-auth.js";
 const coreMocks = vi.hoisted(() => {
   const startDeviceAuthorization = vi.fn();
   const pollForAuthorization = vi.fn();
-  const saveTokenFile = vi.fn();
-  const linkCredential = vi.fn();
+  const linkCodexCredential = vi.fn();
+  const linkOpenCodeCredential = vi.fn();
 
   return {
     startDeviceAuthorization,
     pollForAuthorization,
-    saveTokenFile,
-    linkCredential,
+    linkCodexCredential,
+    linkOpenCodeCredential,
     CodexOAuthAuth: vi.fn(function CodexOAuthAuth() {
       return {
-      startDeviceAuthorization,
-      pollForAuthorization,
-      saveTokenFile,
+        startDeviceAuthorization,
+        pollForAuthorization,
       };
     }),
   };
@@ -28,9 +27,14 @@ vi.mock("@kilnai/core", () => ({
 }));
 
 vi.mock("../../src/agents/credential-pool/index.js", () => ({
+  CodexOAuthCredentialPoolService: class MockCodexOAuthCredentialPoolService {
+    linkCredential(options: unknown) {
+      return coreMocks.linkCodexCredential(options);
+    }
+  },
   OpenCodeCredentialPoolService: class MockOpenCodeCredentialPoolService {
     linkCredential(options: unknown) {
-      return coreMocks.linkCredential(options);
+      return coreMocks.linkOpenCodeCredential(options);
     }
   },
 }));
@@ -40,8 +44,8 @@ beforeEach(() => {
   vi.setSystemTime(new Date("2026-04-28T20:00:00.000Z"));
   coreMocks.startDeviceAuthorization.mockReset();
   coreMocks.pollForAuthorization.mockReset();
-  coreMocks.saveTokenFile.mockReset();
-  coreMocks.linkCredential.mockReset();
+  coreMocks.linkCodexCredential.mockReset();
+  coreMocks.linkOpenCodeCredential.mockReset();
   coreMocks.CodexOAuthAuth.mockClear();
 });
 
@@ -88,11 +92,13 @@ describe("startProviderAuthRequest", () => {
       userCode: "ABCD-EFGH",
       intervalSeconds: 5,
     });
-    expect(coreMocks.saveTokenFile).toHaveBeenCalledWith({
-      access_token: "access-token",
-      refresh_token: "refresh-token",
-      expires_at: "2026-04-28T21:00:00.000Z",
-      client_id: "client-id",
+    expect(coreMocks.linkCodexCredential).toHaveBeenCalledWith({
+      tokenFile: {
+        access_token: "access-token",
+        refresh_token: "refresh-token",
+        expires_at: "2026-04-28T21:00:00.000Z",
+        client_id: "client-id",
+      },
     });
   });
 
@@ -108,7 +114,7 @@ describe("startProviderAuthRequest", () => {
 
     await auth.complete();
 
-    expect(coreMocks.linkCredential).toHaveBeenCalledWith({
+    expect(coreMocks.linkOpenCodeCredential).toHaveBeenCalledWith({
       apiKey: "sk-test",
       tier: "zen",
       createdAt: "2026-04-28T20:00:00.000Z",

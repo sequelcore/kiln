@@ -1,8 +1,12 @@
 import { readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { CodexOAuthAuth, OpenCodeAuth, type CodexOAuthTokenFile, type OpenCodeTier } from "@kilnai/core";
-import { OpenCodeCredentialPoolService, startProviderAuthRequest } from "@kilnai/runtime";
+import { OpenCodeAuth, type CodexOAuthTokenFile, type OpenCodeTier } from "@kilnai/core";
+import {
+  CodexOAuthCredentialPoolService,
+  OpenCodeCredentialPoolService,
+  startProviderAuthRequest,
+} from "@kilnai/runtime";
 
 const AUTH_DIR = join(homedir(), ".kiln", "auth");
 const EXPIRING_SOON_MS = 120 * 1000;
@@ -80,20 +84,26 @@ async function runCodexLogin(): Promise<void> {
 }
 
 async function runCodexStatus(): Promise<void> {
-  const auth = new CodexOAuthAuth();
-  const tokenFile = await auth.loadTokenFile();
-  if (!tokenFile) {
+  const pool = new CodexOAuthCredentialPoolService();
+  const entries = await pool.listStatus();
+  if (entries.length === 0) {
     console.log("Not authenticated");
     return;
   }
-
-  console.log(`Token expiry: ${tokenFile.expires_at}`);
-  console.log(`Status: ${describeExpiry(tokenFile.expires_at)}`);
+  console.log("Codex OAuth");
+  for (const entry of entries) {
+    console.log(`  ${entry.id}`);
+    console.log(`    Token expiry: ${entry.expiresAt}`);
+    console.log(`    Status: ${entry.status}`);
+    if (entry.health) {
+      console.log(`    Requests: ${entry.health.requestCount}`);
+      console.log(`    Cooldown: ${entry.health.cooldownUntil ?? "none"}`);
+    }
+  }
 }
 
 async function runCodexLogout(): Promise<void> {
-  const auth = new CodexOAuthAuth();
-  await auth.clearTokenFile();
+  await new CodexOAuthCredentialPoolService().clearCredentials();
   console.log("Logged out");
 }
 
@@ -221,6 +231,9 @@ async function printAllProviderStatuses(): Promise<void> {
   if (providerDirs.includes("opencode")) {
     await runOpenCodeStatus();
   }
+  if (providerDirs.includes("codex-oauth")) {
+    await runCodexStatus();
+  }
 
   for (const file of providerFiles) {
     const tokenPath = join(AUTH_DIR, file);
@@ -235,6 +248,13 @@ async function printAllProviderStatuses(): Promise<void> {
       console.log("OpenCode");
       console.log(`  Tier: ${authFile.tier}`);
       console.log(`  Linked at: ${authFile.created_at}`);
+      continue;
+    }
+
+    if (file === "codex-oauth.json") {
+      const pool = new CodexOAuthCredentialPoolService();
+      await pool.listStatus();
+      await runCodexStatus();
       continue;
     }
 

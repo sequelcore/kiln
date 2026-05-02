@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -6,7 +6,6 @@ import {
   CredentialFileStore,
   CredentialFileStoreError,
   CredentialHealthStore,
-  CredentialMigrator,
   CredentialPoolFactory,
 } from "../../src/agents/credential-pool/index.js";
 
@@ -68,48 +67,6 @@ describe("runtime credential pool services", () => {
       providerId: "anthropic",
     });
     await expect(store.readProviderCredentials("anthropic")).rejects.toBeInstanceOf(CredentialFileStoreError);
-  });
-
-  it("migrates a legacy single file into provider directory form and deletes the old file", async () => {
-    const legacyPath = join(rootDir, "opencode.json");
-    await writeFile(legacyPath, JSON.stringify({ api_key: "sk-legacy", tier: "go" }), "utf8");
-    const store = new CredentialFileStore<{ readonly api_key: string; readonly tier: string }>({ rootDir });
-    const migrator = new CredentialMigrator({ store });
-
-    const migrated = await migrator.migrateLegacyCredentialFile({
-      providerId: "opencode",
-      legacyFilePath: legacyPath,
-      id: "default",
-      label: "Default",
-    });
-
-    expect(migrated).toBe(true);
-    await expect(readFile(legacyPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
-    const credentials = await store.readProviderCredentials("opencode");
-    expect(credentials).toMatchObject([{
-      id: "default",
-      auth: { api_key: "sk-legacy", tier: "go" },
-    }]);
-  });
-
-  it("refuses migration when legacy and directory credentials would coexist", async () => {
-    const legacyPath = join(rootDir, "opencode.json");
-    await writeFile(legacyPath, JSON.stringify({ api_key: "sk-legacy" }), "utf8");
-    const store = new CredentialFileStore<TestAuth>({ rootDir });
-    await store.writeCredential({
-      providerId: "opencode",
-      id: "existing",
-      label: "Existing",
-      auth: { apiKey: "sk-existing" },
-    });
-    const migrator = new CredentialMigrator({ store });
-
-    await expect(migrator.migrateLegacyCredentialFile({
-      providerId: "opencode",
-      legacyFilePath: legacyPath,
-      id: "default",
-      label: "Default",
-    })).rejects.toThrow("already has directory credentials");
   });
 
   it("builds a core pool from runtime DTOs and persists health through the state port", async () => {

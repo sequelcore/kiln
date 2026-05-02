@@ -12,13 +12,13 @@ type MockAdapterName =
 
 const adapterMocks = vi.hoisted(
   (): Record<MockAdapterName, ReturnType<typeof vi.fn>> & {
-    readonly codexAuth: ReturnType<typeof vi.fn>;
+    readonly codexPoolCreateAdapter: ReturnType<typeof vi.fn>;
     readonly opencodeAuthLoad: ReturnType<typeof vi.fn>;
     readonly opencodePoolListStatus: ReturnType<typeof vi.fn>;
     readonly opencodePoolCreateAdapter: ReturnType<typeof vi.fn>;
   } => ({
     anthropic: vi.fn(),
-    codexAuth: vi.fn(),
+    codexPoolCreateAdapter: vi.fn(),
     codexOauth: vi.fn(),
     deepseek: vi.fn(),
     ollama: vi.fn(),
@@ -45,11 +45,6 @@ vi.mock("@kilnai/core", async (importOriginal) => {
     ...actual,
     AnthropicAdapter: makeAdapter("anthropic"),
     CodexOAuthAdapter: makeAdapter("codexOauth"),
-    CodexOAuthAuth: class MockCodexOAuthAuth {
-      constructor() {
-        adapterMocks.codexAuth();
-      }
-    },
     DeepSeekAdapter: makeAdapter("deepseek"),
     OllamaAdapter: makeAdapter("ollama"),
     OpenAIAdapter: makeAdapter("openai"),
@@ -59,6 +54,12 @@ vi.mock("@kilnai/core", async (importOriginal) => {
 });
 
 vi.mock("@kilnai/runtime", () => ({
+  CodexOAuthCredentialPoolService: class MockCodexOAuthCredentialPoolService {
+    createPooledAdapter(config: unknown) {
+      adapterMocks.codexPoolCreateAdapter(config);
+      return { name: "pooled-codex-oauth" };
+    }
+  },
   OpenCodeCredentialPoolService: class MockOpenCodeCredentialPoolService {
     listStatus() {
       return adapterMocks.opencodePoolListStatus();
@@ -138,17 +139,17 @@ describe("createDirectProviderAdapter", () => {
     });
   });
 
-  it("creates a Codex OAuth adapter with a fresh OAuth auth object", async () => {
-    await createDirectProviderAdapter({
+  it("creates a Codex OAuth adapter from the credential pool", async () => {
+    const adapter = await createDirectProviderAdapter({
       provider: "codex-oauth",
       model: "gpt-5.4",
     });
 
-    expect(adapterMocks.codexAuth).toHaveBeenCalledTimes(1);
-    expect(adapterMocks.codexOauth).toHaveBeenCalledWith({
-      auth: expect.any(Object),
+    expect(adapter).toEqual({ name: "pooled-codex-oauth" });
+    expect(adapterMocks.codexPoolCreateAdapter).toHaveBeenCalledWith({
       defaultModel: "gpt-5.4",
     });
+    expect(adapterMocks.codexOauth).not.toHaveBeenCalled();
   });
 
   it("creates Ollama adapters without requiring an API key", async () => {

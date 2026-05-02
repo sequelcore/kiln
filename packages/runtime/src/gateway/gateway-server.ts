@@ -9,8 +9,6 @@ import {
   parseAppYaml,
   AnthropicAdapter,
   OpenAIAdapter,
-  CodexOAuthAdapter,
-  CodexOAuthAuth,
   DeepSeekAdapter,
   OllamaAdapter,
   OpenRouterAdapter,
@@ -23,6 +21,7 @@ import {
   ModelCapabilityRegistry,
   DeterministicDangerousCommandDetector,
 } from "@kilnai/core";
+import { CodexOAuthCredentialPoolService } from "../agents/credential-pool/index.js";
 import type { ProviderAdapter, ProviderConfig, App, ToolDefinition, SttAdapter, Capability, IntegrationAdapter, SecurityConfig } from "@kilnai/core";
 import { AnnotationAuthorizer } from "@kilnai/core";
 import type { AppGraphResponse } from "./dev-routes-types.js";
@@ -342,7 +341,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
     const resolved = resolvedApps.find((r) => r.name === loaded.name);
     if (!resolved?.runtimeModeConfig || resolved.runtimeModeConfig.runtime !== "provider-adapter") continue;
 
-    const provider = createProviderFromConfig(resolved.runtimeModeConfig.provider);
+    const provider = await createProviderFromConfig(resolved.runtimeModeConfig.provider);
     const systemPrompt = buildSystemPromptFromApp(resolved.app);
 
     // Discover MCP tools if configured
@@ -944,7 +943,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
           ? process.env[gatewayConfig.mcp.auth.keyEnv]
           : undefined;
       const evalProvider = gatewayConfig.mcp.eval
-        ? createProviderFromConfig({
+        ? await createProviderFromConfig({
             name: gatewayConfig.mcp.eval.provider,
             model: gatewayConfig.mcp.eval.model,
             apiKeyEnv: gatewayConfig.mcp.eval.apiKeyEnv,
@@ -1247,7 +1246,7 @@ REASONING: <one sentence explanation>`;
 }
 
 /** Create a ProviderAdapter from a provider-adapter runtime config. */
-function createProviderFromConfig(config: ProviderConfig): ProviderAdapter {
+async function createProviderFromConfig(config: ProviderConfig): Promise<ProviderAdapter> {
   const apiKey = config.apiKeyEnv ? process.env[config.apiKeyEnv] ?? "" : "";
   const model = config.model;
   const requireModel = (): string => {
@@ -1262,7 +1261,7 @@ function createProviderFromConfig(config: ProviderConfig): ProviderAdapter {
 
   switch (config.name) {
     case "codex-oauth":
-      return new CodexOAuthAdapter({ auth: new CodexOAuthAuth(), defaultModel: requireModel() });
+      return await new CodexOAuthCredentialPoolService().createPooledAdapter({ defaultModel: requireModel() });
     case "anthropic":
       return new AnthropicAdapter({ apiKey, defaultModel: model });
     case "openai":

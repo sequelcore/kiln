@@ -1,7 +1,5 @@
 import {
   AnthropicAdapter,
-  CodexOAuthAdapter,
-  CodexOAuthAuth,
   DeepSeekAdapter,
   OllamaAdapter,
   OpenAIAdapter,
@@ -11,7 +9,10 @@ import {
   type ProviderAdapter,
 } from "@kilnai/core";
 import type { OpenCodeTier } from "@kilnai/core";
-import { OpenCodeCredentialPoolService } from "@kilnai/runtime";
+import {
+  CodexOAuthCredentialPoolService,
+  OpenCodeCredentialPoolService,
+} from "@kilnai/runtime";
 
 type EnvMap = Readonly<Record<string, string | undefined>>;
 
@@ -53,8 +54,7 @@ function createApiKeyAdapter(
 
 const DIRECT_PROVIDER_ADAPTERS: Readonly<Record<DirectProviderId, DirectProviderAdapterDefinition>> = {
   "codex-oauth": {
-    create: (context) => new CodexOAuthAdapter({
-      auth: new CodexOAuthAuth(),
+    create: (context) => new CodexOAuthCredentialPoolService().createPooledAdapter({
       defaultModel: requireSelectedModel(context),
     }),
   },

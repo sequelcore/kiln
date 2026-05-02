@@ -270,8 +270,6 @@ Added `packages/runtime/src/agents/credential-pool/` with:
 
 - `credential-file-store.ts` — provider directory reader/writer for
   `~/.kiln/auth/<provider>/*.json`
-- `credential-migrator.ts` — one-way migration from old single files into
-  directory form
 - `credential-pool-factory.ts` — builds core pools from runtime DTOs
 - `credential-health-store.ts` — persists only non-secret health metadata
   when needed by CLI status
@@ -283,17 +281,16 @@ Acceptance status:
 
 - malformed credential files fail fast with provider/name context.
 - secret-bearing DTOs are not returned by status/snapshot methods.
-- migration writes the directory entry, verifies it can be read, then deletes
-  the old file.
-- old single-file and new directory forms cannot coexist after migration.
+- credential services read and write only provider directory entries.
+- singleton auth files are outside the credential-pool runtime contract.
 - targeted runtime tests pass.
 
 Implementation notes:
 
 - `CredentialFileStore<TAuth>` owns credential DTO validation, provider
   directory reads/writes, and secret-free file status projection.
-- `CredentialMigrator<TAuth>` performs one-way single-file migration and
-  refuses coexistence with existing directory credentials.
+- No migrator is included. Provider integrations that adopt the pool must
+  write the canonical directory form directly.
 - `CredentialHealthStore` persists health records under `.health/` so health
   metadata cannot be mistaken for credential entries.
 - `CredentialPoolFactory<TAuth>` builds core `CredentialPool<TAuth>` instances
@@ -315,24 +312,19 @@ Verification completed:
 Wired `opencode-go` and `opencode-zen` through the pool.
 
 Auth directory: `~/.kiln/auth/opencode/`. Each file is a `{name}.json` with
-the same shape as the current single `~/.kiln/auth/opencode.json`. The first
-`link` command targeting a directory-less setup migrates the existing single
-file into `~/.kiln/auth/opencode/default.json` and removes the top-level
-file. No compatibility shim — after migration only the directory form exists.
+the same shape as the previous single `~/.kiln/auth/opencode.json`. There is
+no singleton migration: this slice writes and reads only the directory form.
 
 `OpenCodeAuth` now remains only a core auth-file helper and OpenCode config
 reader. CLI and runtime auth writes go through
 `OpenCodeCredentialPoolService`, which preserves the raw OpenCode auth-file
-shape for each pool entry and migrates the previous singleton file into
-`opencode/default.json`.
+shape for each pool entry.
 
 Acceptance status:
 
 - `kiln auth opencode link` writes new credentials under
   `~/.kiln/auth/opencode/{id}.json`.
-- first link against an existing `~/.kiln/auth/opencode.json` migrates it to
-  `~/.kiln/auth/opencode/default.json` and removes the singleton.
-- previous singleton and directory credentials cannot coexist.
+- singleton `~/.kiln/auth/opencode.json` is not read, migrated, or deleted.
 - `kiln auth opencode status` lists pool entries without exposing full API
   keys and includes per-entry health when available.
 - direct provider creation uses `PooledProviderAdapter` for stored OpenCode
@@ -350,20 +342,36 @@ Verification completed:
 - `cmd.exe /c bun run --filter @kilnai/cli test` — 687 tests passed.
 - `cmd.exe /c bun run typecheck` — passed.
 
-### Slice 5 — Codex OAuth integration
+### Slice 5 — Codex OAuth integration — Completed 2026-05-02
 
 Wire `codex-oauth` through the pool.
 
 Auth directory: `~/.kiln/auth/codex-oauth/`. Same directory-of-files pattern.
-Migration: existing `~/.kiln/auth/codex-oauth.json` → `~/.kiln/auth/codex-oauth/default.json`.
+No singleton migration. Existing `~/.kiln/auth/codex-oauth.json` is not read,
+migrated, or deleted.
 
 `CodexOAuthAuth` remains responsible for token refresh for one credential
 value, not for selecting among credentials. Runtime constructs one auth
 instance per leased token file. Any refreshed token is written back to that
 same credential entry, not to a shared singleton path.
 
-Acceptance: two Codex OAuth accounts rotate correctly; `kiln auth codex-oauth
-status` shows per-entry health.
+Current status:
+
+- `CodexOAuthCredentialPoolService` writes token files under
+  `~/.kiln/auth/codex-oauth/{id}.json`.
+- singleton `~/.kiln/auth/codex-oauth.json` is not read, migrated, or deleted.
+- direct provider creation uses `PooledProviderAdapter` for stored Codex OAuth
+  credentials.
+- each pooled lease constructs `CodexOAuthAuth` with that credential entry's
+  token path, so refresh writes back to the leased token file.
+- `kiln auth codex status` lists pool entries without exposing access or
+  refresh tokens and includes per-entry health when available.
+
+Verification completed:
+
+- `cmd.exe /c bun x vitest run packages/runtime/tests/agents/credential-pool.test.ts packages/runtime/tests/agents/opencode-credential-pool.test.ts packages/runtime/tests/agents/codex-oauth-credential-pool.test.ts packages/runtime/tests/gateway/provider-auth.test.ts packages/cli/tests/wrapper/direct-provider-adapter-factory.test.ts`
+  — 33 tests passed.
+- `cmd.exe /c bun run typecheck` — passed.
 
 ### Slice 6 — Direct API-key and local endpoint providers
 
@@ -556,10 +564,10 @@ provider. Confirmed via integration test.
 - No duplicate credential readers. If CLI, gateway, and GUI need credential
   state, they call the same runtime service instead of parsing the same files
   independently.
-- No compatibility aliasing. `~/.kiln/auth/opencode.json` (single-file) and
-  `~/.kiln/auth/opencode/*.json` (pool) cannot coexist. The migrator writes the
-  directory form and deletes the single file at first `link` invocation.
-  There is no shim that reads both.
+- No compatibility aliasing. Singleton auth files such as
+  `~/.kiln/auth/opencode.json` and `~/.kiln/auth/codex-oauth.json` are not
+  read, migrated, or deleted by provider-pool services. Only the directory
+  form is canonical.
 - DDD: pool domain types in `@kilnai/core`. File IO and file watcher in
   `@kilnai/runtime`. CLI commands in `@kilnai/cli`. No package may import
   upward.
