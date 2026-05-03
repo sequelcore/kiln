@@ -1,0 +1,234 @@
+import { createSessionEvent } from "@kilnai/core";
+import type {
+  CanonicalAgentInvocationCancelledEvent,
+  CanonicalAgentInvocationCompletedEvent,
+  CanonicalAgentInvocationFailedEvent,
+  CanonicalAgentInvocationStartedEvent,
+  CanonicalSessionEvent,
+  ManagedAgentAdmissionDecision,
+  ManagedAgentInvocationRecord,
+  ManagedAgentInvocationRequest,
+  SessionAgentInvocationEvidence,
+  SessionEventSource,
+} from "@kilnai/core";
+import type { RuntimeSession } from "../../session/runtime-session.js";
+
+export interface AppendManagedInvocationSessionEventsInput {
+  readonly session: RuntimeSession;
+  readonly request: ManagedAgentInvocationRequest;
+  readonly decision: ManagedAgentAdmissionDecision;
+  readonly record?: ManagedAgentInvocationRecord;
+  readonly durationMs?: number;
+  readonly timestamp?: Date;
+}
+
+export function appendManagedInvocationSessionEvents(
+  input: AppendManagedInvocationSessionEventsInput,
+): readonly CanonicalSessionEvent[] {
+  const source = makeSource();
+  const timestamp = input.timestamp ?? new Date();
+  const events: CanonicalSessionEvent[] = [];
+  let sequence = input.session.nextSessionEventSequence();
+  const nextSequence = () => sequence++;
+
+  const requested = createSessionEvent<"agent_invocation_requested">({
+    kilnSessionId: input.session.id,
+    sequence: nextSequence(),
+    kind: "agent_invocation_requested",
+    turnId: input.request.parentTurnId,
+    invocationId: input.request.invocationId,
+    agentId: input.request.agentId,
+    parentSessionId: input.request.parentSessionId,
+    requestedBy: input.request.requestedBy,
+    requestSource: input.request.requestSource,
+    inputSummary: input.request.input.summary,
+    source,
+    timestamp,
+  });
+  events.push(requested);
+
+  if (input.decision.status === "denied") {
+    const denied = createSessionEvent<"agent_invocation_failed">({
+      kilnSessionId: input.session.id,
+      sequence: nextSequence(),
+      kind: "agent_invocation_failed",
+      turnId: input.request.parentTurnId,
+      parentEventId: requested.eventId,
+      invocationId: input.request.invocationId,
+      agentId: input.request.agentId,
+      parentSessionId: input.request.parentSessionId,
+      errorCode: "ADMISSION_DENIED",
+      errorMessage: formatAdmissionDenied(input.decision),
+      retriable: false,
+      source,
+      timestamp,
+    });
+    events.push(denied);
+    input.session.appendSessionEvents(events);
+    return events;
+  }
+
+  if (!input.record) {
+    throw new Error("Managed invocation record is required when admission is admitted");
+  }
+
+  const started = createSessionEvent<"agent_invocation_started">({
+    kilnSessionId: input.session.id,
+    sequence: nextSequence(),
+    kind: "agent_invocation_started",
+    turnId: input.record.parentTurnId,
+    parentEventId: requested.eventId,
+    invocationId: input.record.invocationId,
+    agentId: input.record.agentId,
+    parentSessionId: input.record.parentSessionId,
+    attempt: 1,
+    source,
+    timestamp,
+  });
+  events.push(started);
+
+  const terminal = mapTerminalEvent({
+    session: input.session,
+    request: input.request,
+    record: input.record,
+    started,
+    sequence: nextSequence(),
+    timestamp,
+    durationMs: input.durationMs,
+    source,
+  });
+  if (terminal) {
+    events.push(terminal);
+  }
+
+  input.session.appendSessionEvents(events);
+  return events;
+}
+
+function mapTerminalEvent(input: {
+  readonly session: RuntimeSession;
+  readonly request: ManagedAgentInvocationRequest;
+  readonly record: ManagedAgentInvocationRecord;
+  readonly started: CanonicalAgentInvocationStartedEvent;
+  readonly sequence: number;
+  readonly timestamp: Date;
+  readonly durationMs?: number;
+  readonly source: SessionEventSource;
+}): CanonicalAgentInvocationCompletedEvent | CanonicalAgentInvocationFailedEvent | CanonicalAgentInvocationCancelledEvent | undefined {
+  const evidence = collectEvidence(input.record);
+  switch (input.record.lifecycleState) {
+    case "completed":
+      return createSessionEvent<"agent_invocation_completed">({
+        kilnSessionId: input.session.id,
+        sequence: input.sequence,
+        kind: "agent_invocation_completed",
+        turnId: input.record.parentTurnId,
+        parentEventId: input.started.eventId,
+        invocationId: input.record.invocationId,
+        agentId: input.record.agentId,
+        parentSessionId: input.record.parentSessionId,
+        durationMs: input.durationMs,
+        resultSummary: input.record.resultHandoff?.summary,
+        ...(evidence !== undefined ? { managedInvocationEvidence: evidence } : {}),
+        source: input.source,
+        timestamp: input.timestamp,
+      });
+    case "cancelled":
+      return createSessionEvent<"agent_invocation_cancelled">({
+        kilnSessionId: input.session.id,
+        sequence: input.sequence,
+        kind: "agent_invocation_cancelled",
+        turnId: input.record.parentTurnId,
+        parentEventId: input.started.eventId,
+        invocationId: input.record.invocationId,
+        agentId: input.record.agentId,
+        parentSessionId: input.record.parentSessionId,
+        reason: "Managed invocation cancelled.",
+        cancelledBy: "runtime",
+        ...(evidence !== undefined ? { managedInvocationEvidence: evidence } : {}),
+        source: input.source,
+        timestamp: input.timestamp,
+      });
+    case "timed-out":
+      return createSessionEvent<"agent_invocation_failed">({
+        kilnSessionId: input.session.id,
+        sequence: input.sequence,
+        kind: "agent_invocation_failed",
+        turnId: input.record.parentTurnId,
+        parentEventId: input.started.eventId,
+        invocationId: input.record.invocationId,
+        agentId: input.record.agentId,
+        parentSessionId: input.record.parentSessionId,
+        errorCode: "ENGINE_TIMEOUT",
+        errorMessage: "Managed invocation timed out.",
+        retriable: true,
+        ...(evidence !== undefined ? { managedInvocationEvidence: evidence } : {}),
+        source: input.source,
+        timestamp: input.timestamp,
+      });
+    case "failed":
+      return createSessionEvent<"agent_invocation_failed">({
+        kilnSessionId: input.session.id,
+        sequence: input.sequence,
+        kind: "agent_invocation_failed",
+        turnId: input.record.parentTurnId,
+        parentEventId: input.started.eventId,
+        invocationId: input.record.invocationId,
+        agentId: input.record.agentId,
+        parentSessionId: input.record.parentSessionId,
+        errorCode: "ENGINE_FAILURE",
+        errorMessage: "Managed invocation failed.",
+        retriable: true,
+        ...(evidence !== undefined ? { managedInvocationEvidence: evidence } : {}),
+        source: input.source,
+        timestamp: input.timestamp,
+      });
+    default:
+      return undefined;
+  }
+}
+
+function formatAdmissionDenied(decision: Extract<ManagedAgentAdmissionDecision, { readonly status: "denied" }>): string {
+  const suffix = decision.missingCapabilities.length > 0
+    ? ` missingCapabilities=${decision.missingCapabilities.join(",")}`
+    : "";
+  return `${decision.reason}${suffix}`;
+}
+
+function collectEvidence(record: ManagedAgentInvocationRecord): SessionAgentInvocationEvidence | undefined {
+  const evidence: {
+    childSessionId?: string;
+    childTurnId?: string;
+    transcript?: SessionAgentInvocationEvidence["transcript"];
+    diagnostics?: SessionAgentInvocationEvidence["diagnostics"];
+    usage?: SessionAgentInvocationEvidence["usage"];
+    resultHandoff?: SessionAgentInvocationEvidence["resultHandoff"];
+  } = {};
+  if (record.childSessionId) {
+    evidence.childSessionId = record.childSessionId;
+  }
+  if (record.childTurnId) {
+    evidence.childTurnId = record.childTurnId;
+  }
+  if (record.transcript) {
+    evidence.transcript = record.transcript;
+  }
+  if (record.diagnostics && record.diagnostics.length > 0) {
+    evidence.diagnostics = record.diagnostics;
+  }
+  if (record.usage) {
+    evidence.usage = record.usage;
+  }
+  if (record.resultHandoff) {
+    evidence.resultHandoff = record.resultHandoff;
+  }
+  return Object.keys(evidence).length > 0 ? evidence : undefined;
+}
+
+function makeSource(): SessionEventSource {
+  return {
+    actor: "runtime",
+    surface: "runtime",
+    component: "managed-invocation",
+  };
+}

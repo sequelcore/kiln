@@ -198,3 +198,4 @@ export type {
   ErrorOutcomeMapper,
   PooledProviderAdapterConfig,
 } from "./credential-pool/index.js";
+export * from "./managed-invocation/index.js";

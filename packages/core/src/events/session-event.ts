@@ -185,6 +185,48 @@ export interface SessionAgentInvocationIdentity {
   readonly requestSource?: string;
 }
 
+export interface SessionAgentInvocationTranscriptPointer {
+  readonly uri: string;
+  readonly redacted: boolean | "unknown";
+  readonly truncated: boolean | "unknown";
+  readonly persisted: boolean | "unknown";
+  readonly retention: "session" | "durable" | "external" | "unknown";
+}
+
+export interface SessionAgentInvocationDiagnosticPointer {
+  readonly uri: string;
+  readonly kind: "timeout" | "failure" | "adapter" | "cleanup";
+}
+
+export interface SessionAgentInvocationTokenClassUsage {
+  readonly name: string;
+  readonly value: number | "unknown";
+}
+
+export interface SessionAgentInvocationUsageReport {
+  readonly source: "adapter" | "provider" | "runtime" | "unknown";
+  readonly tokenClasses: readonly SessionAgentInvocationTokenClassUsage[];
+  readonly cost: {
+    readonly currency: string | "unknown";
+    readonly amount: number | "unknown";
+  };
+}
+
+export interface SessionAgentInvocationResultHandoff {
+  readonly summary: string;
+  readonly resourceUris: readonly string[];
+  readonly memoryWriteProposalUris: readonly string[];
+}
+
+export interface SessionAgentInvocationEvidence {
+  readonly childSessionId?: string;
+  readonly childTurnId?: string;
+  readonly transcript?: SessionAgentInvocationTranscriptPointer;
+  readonly diagnostics?: readonly SessionAgentInvocationDiagnosticPointer[];
+  readonly usage?: SessionAgentInvocationUsageReport;
+  readonly resultHandoff?: SessionAgentInvocationResultHandoff;
+}
+
 export interface CanonicalAgentInvocationRequestedEvent extends SessionEventEnvelope<"agent_invocation_requested">, SessionAgentInvocationIdentity {
   readonly inputSummary?: string;
 }
@@ -197,17 +239,20 @@ export interface CanonicalAgentInvocationCompletedEvent extends SessionEventEnve
   readonly durationMs?: number;
   readonly resultSummary?: string;
   readonly outputMessageId?: string;
+  readonly managedInvocationEvidence?: SessionAgentInvocationEvidence;
 }
 
 export interface CanonicalAgentInvocationFailedEvent extends SessionEventEnvelope<"agent_invocation_failed">, SessionAgentInvocationIdentity {
   readonly errorCode?: string;
   readonly errorMessage: string;
   readonly retriable?: boolean;
+  readonly managedInvocationEvidence?: SessionAgentInvocationEvidence;
 }
 
 export interface CanonicalAgentInvocationCancelledEvent extends SessionEventEnvelope<"agent_invocation_cancelled">, SessionAgentInvocationIdentity {
   readonly reason?: string;
   readonly cancelledBy?: string;
+  readonly managedInvocationEvidence?: SessionAgentInvocationEvidence;
 }
 
 export interface CanonicalContinuityDecidedEvent extends SessionEventEnvelope<"continuity_decided"> {

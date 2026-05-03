@@ -67,6 +67,15 @@ export type {
   RuntimeCredentialFile,
   WriteRuntimeCredential,
 } from "./agents/credential-pool/index.js";
+export {
+  ManagedAgentRuntimeAdmissionError,
+  RuntimeManagedAgentInvocationService,
+} from "./agents/managed-invocation/index.js";
+export type {
+  ManagedAgentRuntimeAdapter,
+  ManagedAgentRuntimeInvocationInput,
+  ManagedAgentRuntimeInvocationResult,
+} from "./agents/managed-invocation/index.js";
 export { createProviderCatalogService } from "./gateway/provider-catalog-service.js";
 export type { ProviderCatalogService, ProviderCatalogSnapshot } from "./gateway/provider-catalog-service.js";
 export {

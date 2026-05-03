@@ -1439,7 +1439,32 @@ Deliverable:
 
 ### Slice 8: First Adapter Proof
 
-Status: next.
+Status: in progress as of 2026-05-02.
+
+Started implementation on 2026-05-02:
+
+- added core managed-invocation contracts for requests, adapter descriptors,
+  invocation records, transcript pointers, diagnostics, usage reports, and
+  bounded result handoff
+- added fail-closed `foundation-readonly-plan` admission policy
+- added runtime invocation service boundary so adapters execute only after an
+  admitted core decision
+- verified the first Slice 8 increment with targeted managed-agent tests and
+  full TypeScript typecheck
+
+Continued implementation on 2026-05-03:
+
+- added runtime context/credential admission helper requiring
+  `DefaultContextGovernor` audit evidence, explicit child memory/write
+  authority, credential route IDs, and secret-free child request/evidence
+- added canonical session-event mapping for requested, denied, started,
+  completed, cancelled, timed-out, and failed managed invocations
+- kept the coarse `agent_invocation_*` event family while adding structured
+  `managedInvocationEvidence` payload for child lineage, transcript pointers,
+  diagnostics, usage unknowns, and result handoff
+- verified the expanded Slice 8 increment with targeted core/runtime
+  managed-invocation tests, session serializer/runtime-session regression
+  tests, and full TypeScript typecheck
 
 Implement exactly one adapter after Slices 1-7 define the contract and tests.
 

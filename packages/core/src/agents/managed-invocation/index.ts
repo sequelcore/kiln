@@ -1,0 +1,549 @@
+import { defineMemoryScope } from "../../memory/domain/scope.js";
+import type { MemoryScope } from "../../memory/domain/scope.js";
+
+export const MANAGED_AGENT_ADMISSION_PROFILES = [
+  "foundation-readonly-plan",
+  "diagnostic-only",
+  "comparison-only",
+  "rejected",
+] as const;
+
+export type ManagedAgentAdmissionProfile = typeof MANAGED_AGENT_ADMISSION_PROFILES[number];
+
+export const MANAGED_AGENT_ADAPTER_KINDS = ["direct", "harness"] as const;
+
+export type ManagedAgentAdapterKind = typeof MANAGED_AGENT_ADAPTER_KINDS[number];
+
+export const MANAGED_AGENT_EXECUTION_MODES = [
+  "direct-provider",
+  "local-harness",
+  "cli-harness",
+  "remote-harness",
+] as const;
+
+export type ManagedAgentExecutionMode = typeof MANAGED_AGENT_EXECUTION_MODES[number];
+
+export type ManagedAgentUnsupportedFieldPolicy = "reject" | "ignore-with-audit" | "unsupported";
+
+export type ManagedAgentLifecycleState =
+  | "requested"
+  | "denied"
+  | "admitted"
+  | "started"
+  | "completed"
+  | "failed"
+  | "cancelled"
+  | "timed-out"
+  | "cleaned-up";
+
+export interface ManagedAgentProviderRoute {
+  readonly providerId: string;
+  readonly surface: string;
+  readonly model?: string;
+  readonly reasoningEffort?: string;
+}
+
+export interface ManagedAgentToolAuthority {
+  readonly allowedToolNames: readonly string[];
+  readonly writeAllowed: boolean;
+  readonly networkAllowed: boolean;
+}
+
+export interface ManagedAgentWorkingDirectory {
+  readonly path: string;
+  readonly mode: "read-only" | "workspace-write" | "isolated-worktree" | "sandbox";
+}
+
+export type ManagedAgentCredentialRoute =
+  | {
+    readonly mode: "runtime-selected";
+    readonly routeId: string;
+  }
+  | {
+    readonly mode: "credentialless";
+  };
+
+export interface ManagedAgentMemoryScope {
+  readonly scope: MemoryScope;
+  readonly access: "none" | "read-only" | "write-proposals";
+}
+
+export interface ManagedAgentAuthorityProfile {
+  readonly authorityProfileId: string;
+  readonly permissionProfile: string;
+  readonly toolAuthority: ManagedAgentToolAuthority;
+  readonly workingDirectory: ManagedAgentWorkingDirectory;
+  readonly timeoutMs: number;
+  readonly credentialRoute: ManagedAgentCredentialRoute;
+  readonly memoryScope: ManagedAgentMemoryScope;
+}
+
+export interface ManagedAgentInvocationInput {
+  readonly summary: string;
+  readonly prompt?: string;
+  readonly resourceUris?: readonly string[];
+}
+
+export interface ManagedAgentInvocationRequest {
+  readonly invocationId: string;
+  readonly agentId: string;
+  readonly parentSessionId: string;
+  readonly parentTurnId: string;
+  readonly profile: ManagedAgentAdmissionProfile;
+  readonly requestedBy: string;
+  readonly requestSource: string;
+  readonly providerRoute: ManagedAgentProviderRoute;
+  readonly adapterKind: ManagedAgentAdapterKind;
+  readonly executionMode: ManagedAgentExecutionMode;
+  readonly authority: ManagedAgentAuthorityProfile;
+  readonly input: ManagedAgentInvocationInput;
+}
+
+export interface ManagedAgentAdapterDescriptor {
+  readonly adapterDescriptorId: string;
+  readonly providerId: string;
+  readonly adapterKind: ManagedAgentAdapterKind;
+  readonly supportedProfiles: readonly ManagedAgentAdmissionProfile[];
+  readonly supportedExecutionModes: readonly ManagedAgentExecutionMode[];
+  readonly lifecycle: {
+    readonly exposesStart: boolean;
+    readonly exposesTerminal: boolean;
+    readonly exposesCleanup: boolean;
+  };
+  readonly cancellation: {
+    readonly supported: boolean;
+  };
+  readonly timeout: {
+    readonly supported: boolean;
+    readonly diagnosticArtifactOnTimeout: boolean;
+  };
+  readonly transcript: {
+    readonly supported: boolean;
+    readonly redactionKnown: boolean;
+    readonly truncationKnown: boolean;
+    readonly persistenceKnown: boolean;
+    readonly retentionKnown: boolean;
+  };
+  readonly usage: {
+    readonly supported: boolean;
+    readonly preservesProviderTokenClasses: boolean;
+    readonly supportsExplicitUnknowns: boolean;
+  };
+  readonly resultHandoff: {
+    readonly boundedSummary: boolean;
+    readonly resourcePointers: boolean;
+  };
+  readonly credentialRoute: {
+    readonly supported: boolean;
+  };
+  readonly memoryContext: {
+    readonly governedAdmission: boolean;
+  };
+  readonly unsupportedFieldPolicy: ManagedAgentUnsupportedFieldPolicy;
+  readonly cleanup: {
+    readonly supported: boolean;
+  };
+}
+
+export interface ManagedAgentTranscriptPointer {
+  readonly uri: string;
+  readonly redacted: boolean | "unknown";
+  readonly truncated: boolean | "unknown";
+  readonly persisted: boolean | "unknown";
+  readonly retention: "session" | "durable" | "external" | "unknown";
+}
+
+export interface ManagedAgentDiagnosticPointer {
+  readonly uri: string;
+  readonly kind: "timeout" | "failure" | "adapter" | "cleanup";
+}
+
+export interface ManagedAgentTokenClassUsage {
+  readonly name: string;
+  readonly value: number | "unknown";
+}
+
+export interface ManagedAgentUsageReport {
+  readonly source: "adapter" | "provider" | "runtime" | "unknown";
+  readonly tokenClasses: readonly ManagedAgentTokenClassUsage[];
+  readonly cost: {
+    readonly currency: string | "unknown";
+    readonly amount: number | "unknown";
+  };
+}
+
+export interface ManagedAgentResultHandoff {
+  readonly summary: string;
+  readonly resourceUris: readonly string[];
+  readonly memoryWriteProposalUris: readonly string[];
+}
+
+export interface ManagedAgentInvocationRecord {
+  readonly invocationId: string;
+  readonly agentId: string;
+  readonly parentSessionId: string;
+  readonly parentTurnId: string;
+  readonly profile: ManagedAgentAdmissionProfile;
+  readonly lifecycleState: ManagedAgentLifecycleState;
+  readonly providerRoute: ManagedAgentProviderRoute;
+  readonly adapterKind: ManagedAgentAdapterKind;
+  readonly executionMode: ManagedAgentExecutionMode;
+  readonly authority: ManagedAgentAuthorityProfile;
+  readonly childSessionId?: string;
+  readonly childTurnId?: string;
+  readonly transcript?: ManagedAgentTranscriptPointer;
+  readonly diagnostics?: readonly ManagedAgentDiagnosticPointer[];
+  readonly usage?: ManagedAgentUsageReport;
+  readonly resultHandoff?: ManagedAgentResultHandoff;
+}
+
+export type ManagedAgentAdmissionDecision =
+  | {
+    readonly status: "admitted";
+    readonly invocationId: string;
+    readonly profile: ManagedAgentAdmissionProfile;
+    readonly adapterDescriptorId: string;
+    readonly authorityProfileId: string;
+    readonly credentialRouteId?: string;
+    readonly memoryScope: MemoryScope;
+  }
+  | {
+    readonly status: "denied";
+    readonly invocationId?: string;
+    readonly profile?: ManagedAgentAdmissionProfile;
+    readonly reason: string;
+    readonly missingCapabilities: readonly string[];
+  };
+
+export function defineManagedAgentInvocationRequest(input: ManagedAgentInvocationRequest): ManagedAgentInvocationRequest {
+  const authority = requireAuthority(input.authority);
+  return {
+    invocationId: requireText(input.invocationId, "Managed invocation id is required"),
+    agentId: requireText(input.agentId, "Managed invocation agent id is required"),
+    parentSessionId: requireText(input.parentSessionId, "Managed invocation parent session id is required"),
+    parentTurnId: requireText(input.parentTurnId, "Managed invocation parent turn id is required"),
+    profile: requireAdmissionProfile(input.profile),
+    requestedBy: requireText(input.requestedBy, "Managed invocation requester is required"),
+    requestSource: requireText(input.requestSource, "Managed invocation request source is required"),
+    providerRoute: requireProviderRoute(input.providerRoute),
+    adapterKind: requireAdapterKind(input.adapterKind),
+    executionMode: requireExecutionMode(input.executionMode),
+    authority,
+    input: {
+      summary: requireText(input.input?.summary, "Managed invocation input summary is required"),
+      ...(input.input?.prompt !== undefined ? { prompt: input.input.prompt } : {}),
+      ...(input.input?.resourceUris !== undefined ? { resourceUris: input.input.resourceUris.map((uri) => requireText(uri, "Managed invocation resource uri is required")) } : {}),
+    },
+  };
+}
+
+export function defineManagedAgentAdapterDescriptor(input: ManagedAgentAdapterDescriptor): ManagedAgentAdapterDescriptor {
+  return {
+    adapterDescriptorId: requireText(input.adapterDescriptorId, "Managed adapter descriptor id is required"),
+    providerId: requireText(input.providerId, "Managed adapter provider id is required"),
+    adapterKind: requireAdapterKind(input.adapterKind),
+    supportedProfiles: input.supportedProfiles.map(requireAdmissionProfile),
+    supportedExecutionModes: input.supportedExecutionModes.map(requireExecutionMode),
+    lifecycle: {
+      exposesStart: input.lifecycle.exposesStart === true,
+      exposesTerminal: input.lifecycle.exposesTerminal === true,
+      exposesCleanup: input.lifecycle.exposesCleanup === true,
+    },
+    cancellation: { supported: input.cancellation.supported === true },
+    timeout: {
+      supported: input.timeout.supported === true,
+      diagnosticArtifactOnTimeout: input.timeout.diagnosticArtifactOnTimeout === true,
+    },
+    transcript: {
+      supported: input.transcript.supported === true,
+      redactionKnown: input.transcript.redactionKnown === true,
+      truncationKnown: input.transcript.truncationKnown === true,
+      persistenceKnown: input.transcript.persistenceKnown === true,
+      retentionKnown: input.transcript.retentionKnown === true,
+    },
+    usage: {
+      supported: input.usage.supported === true,
+      preservesProviderTokenClasses: input.usage.preservesProviderTokenClasses === true,
+      supportsExplicitUnknowns: input.usage.supportsExplicitUnknowns === true,
+    },
+    resultHandoff: {
+      boundedSummary: input.resultHandoff.boundedSummary === true,
+      resourcePointers: input.resultHandoff.resourcePointers === true,
+    },
+    credentialRoute: { supported: input.credentialRoute.supported === true },
+    memoryContext: { governedAdmission: input.memoryContext.governedAdmission === true },
+    unsupportedFieldPolicy: requireUnsupportedFieldPolicy(input.unsupportedFieldPolicy),
+    cleanup: { supported: input.cleanup.supported === true },
+  };
+}
+
+export function defineManagedAgentInvocationRecord(input: ManagedAgentInvocationRecord): ManagedAgentInvocationRecord {
+  return {
+    invocationId: requireText(input.invocationId, "Managed invocation record id is required"),
+    agentId: requireText(input.agentId, "Managed invocation record agent id is required"),
+    parentSessionId: requireText(input.parentSessionId, "Managed invocation record parent session id is required"),
+    parentTurnId: requireText(input.parentTurnId, "Managed invocation record parent turn id is required"),
+    profile: requireAdmissionProfile(input.profile),
+    lifecycleState: requireLifecycleState(input.lifecycleState),
+    providerRoute: requireProviderRoute(input.providerRoute),
+    adapterKind: requireAdapterKind(input.adapterKind),
+    executionMode: requireExecutionMode(input.executionMode),
+    authority: requireAuthority(input.authority),
+    ...(input.childSessionId !== undefined ? { childSessionId: requireText(input.childSessionId, "Managed invocation child session id is required") } : {}),
+    ...(input.childTurnId !== undefined ? { childTurnId: requireText(input.childTurnId, "Managed invocation child turn id is required") } : {}),
+    ...(input.transcript !== undefined ? { transcript: requireTranscript(input.transcript) } : {}),
+    ...(input.diagnostics !== undefined ? { diagnostics: input.diagnostics.map(requireDiagnosticPointer) } : {}),
+    ...(input.usage !== undefined ? { usage: requireUsageReport(input.usage) } : {}),
+    ...(input.resultHandoff !== undefined ? { resultHandoff: requireResultHandoff(input.resultHandoff) } : {}),
+  };
+}
+
+export function evaluateManagedAgentAdmission(
+  request: ManagedAgentInvocationRequest,
+  descriptor: ManagedAgentAdapterDescriptor,
+): ManagedAgentAdmissionDecision {
+  const missingCapabilities: string[] = [];
+  collectRequestGaps(request, missingCapabilities);
+
+  const profile = request.profile;
+  if (profile !== "foundation-readonly-plan") {
+    missingCapabilities.push("profile.foundation-readonly-plan");
+  }
+
+  if (!descriptor.supportedProfiles?.includes("foundation-readonly-plan")) {
+    missingCapabilities.push("descriptor.supportedProfiles.foundation-readonly-plan");
+  }
+  if (request.executionMode && !descriptor.supportedExecutionModes?.includes(request.executionMode)) {
+    missingCapabilities.push("descriptor.supportedExecutionModes");
+  }
+  if (request.adapterKind && descriptor.adapterKind !== request.adapterKind) {
+    missingCapabilities.push("descriptor.adapterKind");
+  }
+  if (request.providerRoute?.providerId && descriptor.providerId !== request.providerRoute.providerId) {
+    missingCapabilities.push("descriptor.providerId");
+  }
+
+  collectDescriptorGaps(descriptor, missingCapabilities);
+
+  if (missingCapabilities.length > 0) {
+    return {
+      status: "denied",
+      invocationId: request.invocationId,
+      profile: request.profile,
+      reason: `foundation-readonly-plan denied: ${missingCapabilities.join(", ")}`,
+      missingCapabilities,
+    };
+  }
+
+  return {
+    status: "admitted",
+    invocationId: request.invocationId,
+    profile: "foundation-readonly-plan",
+    adapterDescriptorId: descriptor.adapterDescriptorId,
+    authorityProfileId: request.authority.authorityProfileId,
+    ...(request.authority.credentialRoute.mode === "runtime-selected"
+      ? { credentialRouteId: request.authority.credentialRoute.routeId }
+      : {}),
+    memoryScope: request.authority.memoryScope.scope,
+  };
+}
+
+function collectRequestGaps(request: ManagedAgentInvocationRequest, missingCapabilities: string[]): void {
+  if (!hasText(request.invocationId)) missingCapabilities.push("request.invocationId");
+  if (!hasText(request.agentId)) missingCapabilities.push("request.agentId");
+  if (!hasText(request.parentSessionId)) missingCapabilities.push("request.parentSessionId");
+  if (!hasText(request.parentTurnId)) missingCapabilities.push("request.parentTurnId");
+  if (!request.providerRoute || !hasText(request.providerRoute.providerId) || !hasText(request.providerRoute.surface)) {
+    missingCapabilities.push("request.providerRoute");
+  }
+  if (!MANAGED_AGENT_ADAPTER_KINDS.includes(request.adapterKind)) missingCapabilities.push("request.adapterKind");
+  if (!MANAGED_AGENT_EXECUTION_MODES.includes(request.executionMode)) missingCapabilities.push("request.executionMode");
+  if (!request.authority) {
+    missingCapabilities.push("request.authority");
+    return;
+  }
+  if (!hasText(request.authority.permissionProfile)) missingCapabilities.push("request.authority.permissionProfile");
+  if (!request.authority.toolAuthority) {
+    missingCapabilities.push("request.authority.toolAuthority");
+  } else {
+    if (request.authority.toolAuthority.writeAllowed !== false) missingCapabilities.push("request.authority.toolAuthority.writeAllowed.false");
+    if (request.authority.toolAuthority.networkAllowed !== false) missingCapabilities.push("request.authority.toolAuthority.networkAllowed.false");
+  }
+  if (!request.authority.workingDirectory || !hasText(request.authority.workingDirectory.path)) {
+    missingCapabilities.push("request.authority.workingDirectory");
+  }
+  if (typeof request.authority.timeoutMs !== "number" || request.authority.timeoutMs <= 0) {
+    missingCapabilities.push("request.authority.timeoutMs");
+  }
+  if (!request.authority.credentialRoute) {
+    missingCapabilities.push("request.authority.credentialRoute");
+  } else if (request.authority.credentialRoute.mode === "runtime-selected" && !hasText(request.authority.credentialRoute.routeId)) {
+    missingCapabilities.push("request.authority.credentialRoute.routeId");
+  } else if (request.authority.credentialRoute.mode !== "runtime-selected" && request.authority.credentialRoute.mode !== "credentialless") {
+    missingCapabilities.push("request.authority.credentialRoute.mode");
+  }
+  if (!request.authority.memoryScope?.scope) {
+    missingCapabilities.push("request.authority.memoryScope");
+  }
+}
+
+function collectDescriptorGaps(descriptor: ManagedAgentAdapterDescriptor, missingCapabilities: string[]): void {
+  if (descriptor.lifecycle?.exposesStart !== true) missingCapabilities.push("lifecycle.exposesStart");
+  if (descriptor.lifecycle?.exposesTerminal !== true) missingCapabilities.push("lifecycle.exposesTerminal");
+  if (descriptor.lifecycle?.exposesCleanup !== true) missingCapabilities.push("lifecycle.exposesCleanup");
+  if (descriptor.cancellation?.supported !== true) missingCapabilities.push("cancellation.supported");
+  if (descriptor.timeout?.supported !== true) missingCapabilities.push("timeout.supported");
+  if (descriptor.transcript?.supported !== true) missingCapabilities.push("transcript.supported");
+  if (descriptor.transcript?.redactionKnown !== true) missingCapabilities.push("transcript.redactionKnown");
+  if (descriptor.transcript?.truncationKnown !== true) missingCapabilities.push("transcript.truncationKnown");
+  if (descriptor.transcript?.persistenceKnown !== true) missingCapabilities.push("transcript.persistenceKnown");
+  if (descriptor.transcript?.retentionKnown !== true) missingCapabilities.push("transcript.retentionKnown");
+  if (descriptor.usage?.supported !== true) missingCapabilities.push("usage.supported");
+  if (descriptor.usage?.preservesProviderTokenClasses !== true) missingCapabilities.push("usage.preservesProviderTokenClasses");
+  if (descriptor.usage?.supportsExplicitUnknowns !== true) missingCapabilities.push("usage.supportsExplicitUnknowns");
+  if (descriptor.resultHandoff?.boundedSummary !== true) missingCapabilities.push("resultHandoff.boundedSummary");
+  if (descriptor.resultHandoff?.resourcePointers !== true) missingCapabilities.push("resultHandoff.resourcePointers");
+  if (descriptor.credentialRoute?.supported !== true) missingCapabilities.push("credentialRoute.supported");
+  if (descriptor.memoryContext?.governedAdmission !== true) missingCapabilities.push("memoryContext.governedAdmission");
+  if (descriptor.unsupportedFieldPolicy !== "reject") missingCapabilities.push("unsupportedFieldPolicy.reject");
+  if (descriptor.cleanup?.supported !== true) missingCapabilities.push("cleanup.supported");
+}
+
+function requireAuthority(input: ManagedAgentAuthorityProfile): ManagedAgentAuthorityProfile {
+  const credentialRoute = input.credentialRoute;
+  if (credentialRoute.mode === "runtime-selected") {
+    requireText(credentialRoute.routeId, "Managed invocation credential route id is required");
+  } else if (credentialRoute.mode !== "credentialless") {
+    throw new Error(`Unsupported managed invocation credential route mode: ${(credentialRoute as { readonly mode?: string }).mode ?? ""}`);
+  }
+
+  return {
+    authorityProfileId: requireText(input.authorityProfileId, "Managed invocation authority profile id is required"),
+    permissionProfile: requireText(input.permissionProfile, "Managed invocation permission profile is required"),
+    toolAuthority: {
+      allowedToolNames: input.toolAuthority.allowedToolNames.map((name) => requireText(name, "Managed invocation tool name is required")),
+      writeAllowed: input.toolAuthority.writeAllowed === true,
+      networkAllowed: input.toolAuthority.networkAllowed === true,
+    },
+    workingDirectory: {
+      path: requireText(input.workingDirectory.path, "Managed invocation working directory is required"),
+      mode: input.workingDirectory.mode,
+    },
+    timeoutMs: requirePositiveNumber(input.timeoutMs, "Managed invocation timeout must be greater than zero"),
+    credentialRoute,
+    memoryScope: {
+      scope: defineMemoryScope(input.memoryScope.scope),
+      access: input.memoryScope.access,
+    },
+  };
+}
+
+function requireProviderRoute(input: ManagedAgentProviderRoute): ManagedAgentProviderRoute {
+  return {
+    providerId: requireText(input.providerId, "Managed invocation provider id is required"),
+    surface: requireText(input.surface, "Managed invocation provider surface is required"),
+    ...(input.model !== undefined ? { model: requireText(input.model, "Managed invocation model is required") } : {}),
+    ...(input.reasoningEffort !== undefined ? { reasoningEffort: requireText(input.reasoningEffort, "Managed invocation reasoning effort is required") } : {}),
+  };
+}
+
+function requireTranscript(input: ManagedAgentTranscriptPointer): ManagedAgentTranscriptPointer {
+  return {
+    uri: requireText(input.uri, "Managed invocation transcript uri is required"),
+    redacted: input.redacted,
+    truncated: input.truncated,
+    persisted: input.persisted,
+    retention: input.retention,
+  };
+}
+
+function requireDiagnosticPointer(input: ManagedAgentDiagnosticPointer): ManagedAgentDiagnosticPointer {
+  return {
+    uri: requireText(input.uri, "Managed invocation diagnostic uri is required"),
+    kind: input.kind,
+  };
+}
+
+function requireUsageReport(input: ManagedAgentUsageReport): ManagedAgentUsageReport {
+  return {
+    source: input.source,
+    tokenClasses: input.tokenClasses.map((entry) => ({
+      name: requireText(entry.name, "Managed invocation token class name is required"),
+      value: entry.value,
+    })),
+    cost: input.cost,
+  };
+}
+
+function requireResultHandoff(input: ManagedAgentResultHandoff): ManagedAgentResultHandoff {
+  return {
+    summary: requireText(input.summary, "Managed invocation result handoff summary is required"),
+    resourceUris: input.resourceUris.map((uri) => requireText(uri, "Managed invocation result resource uri is required")),
+    memoryWriteProposalUris: input.memoryWriteProposalUris.map((uri) => requireText(uri, "Managed invocation memory proposal uri is required")),
+  };
+}
+
+function requireAdmissionProfile(value: ManagedAgentAdmissionProfile): ManagedAgentAdmissionProfile {
+  if (!MANAGED_AGENT_ADMISSION_PROFILES.includes(value)) {
+    throw new Error(`Unsupported managed invocation profile: ${value as string}`);
+  }
+  return value;
+}
+
+function requireAdapterKind(value: ManagedAgentAdapterKind): ManagedAgentAdapterKind {
+  if (!MANAGED_AGENT_ADAPTER_KINDS.includes(value)) {
+    throw new Error(`Unsupported managed invocation adapter kind: ${value as string}`);
+  }
+  return value;
+}
+
+function requireExecutionMode(value: ManagedAgentExecutionMode): ManagedAgentExecutionMode {
+  if (!MANAGED_AGENT_EXECUTION_MODES.includes(value)) {
+    throw new Error(`Unsupported managed invocation execution mode: ${value as string}`);
+  }
+  return value;
+}
+
+function requireUnsupportedFieldPolicy(value: ManagedAgentUnsupportedFieldPolicy): ManagedAgentUnsupportedFieldPolicy {
+  if (value !== "reject" && value !== "ignore-with-audit" && value !== "unsupported") {
+    throw new Error(`Unsupported managed invocation unsupported-field policy: ${value as string}`);
+  }
+  return value;
+}
+
+function requireLifecycleState(value: ManagedAgentLifecycleState): ManagedAgentLifecycleState {
+  const states: readonly ManagedAgentLifecycleState[] = [
+    "requested",
+    "denied",
+    "admitted",
+    "started",
+    "completed",
+    "failed",
+    "cancelled",
+    "timed-out",
+    "cleaned-up",
+  ];
+  if (!states.includes(value)) {
+    throw new Error(`Unsupported managed invocation lifecycle state: ${value as string}`);
+  }
+  return value;
+}
+
+function requirePositiveNumber(value: number, message: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    throw new Error(message);
+  }
+  return value;
+}
+
+function requireText(value: string | undefined, message: string): string {
+  const trimmed = value?.trim() ?? "";
+  if (trimmed.length === 0) {
+    throw new Error(message);
+  }
+  return trimmed;
+}
+
+function hasText(value: string | undefined): boolean {
+  return (value?.trim() ?? "").length > 0;
+}
