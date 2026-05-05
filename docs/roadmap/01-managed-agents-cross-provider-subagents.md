@@ -9,8 +9,8 @@ ownership, adapter taxonomy, and session event/replay projection rules.
 The roadmap was then expanded with a documented implementation-proof extension:
 Slice 7 converts the plan into a test-first verification sequence, Slice 8
 proves one admitted `foundation-readonly-plan` adapter path, and Slice 9 closes
-the long-term expansion order. Slice 7 is complete. Slice 8 is in progress as
-of 2026-05-03.
+the long-term expansion order. Slice 7 and Slice 8 are complete. Slice 9 is
+next as of 2026-05-04.
 
 Do not open an ADR yet. Do not treat the original six planning slices as
 unfinished. The remaining work belongs to the proof extension, not to the
@@ -28,7 +28,7 @@ This roadmap has two layers:
 | Layer | Slices | Status | Meaning |
 | --- | --- | --- | --- |
 | Original canonical planning plan | 1-6 | Complete on 2026-05-02 | Defines the official Kiln-native design and boundaries. |
-| Implementation-proof extension | 7-9 | In progress | Proves the design with tests, one first adapter path, and the future expansion order. |
+| Implementation-proof extension | 7-9 | Slice 9 pending | Proves the design with tests, one first adapter path, and the future expansion order. |
 
 The expanded slices are intentional, but they must be read as an extension:
 
@@ -41,8 +41,8 @@ The expanded slices are intentional, but they must be read as an extension:
 Completion accounting:
 
 - Original `01` planning objective: complete.
-- Current expanded `01` roadmap objective: not complete until Slice 8 produces
-  one working adapter proof and Slice 9 records the expansion order.
+- Current expanded `01` roadmap objective: not complete until Slice 9 records
+  the expansion order after the first adapter proof.
 
 ## Goal
 
@@ -1464,7 +1464,7 @@ Deliverable:
 
 ### Slice 8: First Adapter Proof
 
-Status: in progress as of 2026-05-02.
+Status: completed on 2026-05-04.
 
 Started implementation on 2026-05-02:
 
@@ -1491,6 +1491,21 @@ Continued implementation on 2026-05-03:
   managed-invocation tests, session serializer/runtime-session regression
   tests, and full TypeScript typecheck
 
+Completed proof on 2026-05-04:
+
+- selected the OpenCode-configured CLI harness path for the first proof because
+  the existing CLI subscription boundary exposes lifecycle, cost, cleanup, and
+  transcript-relevant events while direct HTTP provider adapters do not yet
+  expose managed child-session evidence
+- added `ManagedCliHarnessAdapter`, a real runtime adapter around the injected
+  `CliSessionFactory` boundary
+- proved one admitted `foundation-readonly-plan` invocation through
+  `RuntimeManagedAgentInvocationService`
+- recorded child session ID, transcript pointer, usage/cost evidence, bounded
+  result handoff, timeout diagnostics, and canonical replay events
+- kept the proof deterministic with fake CLI sessions; no live provider call or
+  external credential is required for the foundation test
+
 Implement exactly one adapter after Slices 1-7 define the contract and tests.
 
 Selection rule:
@@ -1515,19 +1530,22 @@ Candidate evidence:
 
 Exit criteria:
 
-- one adapter executes an admitted read-only plan invocation
-- lifecycle, cancellation, transcript pointer, usage/cost evidence, and result
-  handoff are replayable
-- no provider-native term leaks into core contract names
+- one adapter executes an admitted read-only plan invocation: met by
+  `ManagedCliHarnessAdapter` configured with provider route `opencode` and
+  execution mode `cli-harness`
+- lifecycle, timeout, transcript pointer, usage/cost evidence, and result
+  handoff are replayable: met through structured `managedInvocationEvidence`
+  on canonical `agent_invocation_*` events
+- no provider-native term leaks into core contract names: met
 
 Deliverable:
 
-- one working adapter proof for `foundation-readonly-plan`, chosen by evidence and
-  admission fit rather than provider preference
+- completed in runtime and tests. Slice 9 can now record the expansion order
+  after one replayable single-child path exists.
 
 ### Slice 9: Long-Term Expansion Order
 
-Status: pending Slice 8.
+Status: next.
 
 Only after one single-child path is replayable:
 

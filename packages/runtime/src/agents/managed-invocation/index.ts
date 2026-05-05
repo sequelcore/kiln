@@ -26,6 +26,12 @@ export {
 export type {
   AppendManagedInvocationSessionEventsInput,
 } from "./session-events.js";
+export {
+  ManagedCliHarnessAdapter,
+} from "./cli-harness-adapter.js";
+export type {
+  ManagedCliHarnessAdapterConfig,
+} from "./cli-harness-adapter.js";
 export { ManagedAgentRuntimeAdmissionError } from "./errors.js";
 
 export interface ManagedAgentRuntimeInvocationInput {
