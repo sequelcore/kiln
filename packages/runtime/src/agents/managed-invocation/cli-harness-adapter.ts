@@ -2,14 +2,12 @@ import {
   defineManagedAgentAdapterWriteAuthorityDescriptor,
   defineManagedAgentAdapterDescriptor,
   defineManagedAgentInvocationRecord,
-  defineManagedAgentWriteEvidence,
 } from "@kilnai/core";
 import type {
   ManagedAgentAdapterDescriptor,
   ManagedAgentAdapterWriteAuthorityDescriptor,
   ManagedAgentInvocationRecord,
   ManagedAgentProviderRoute,
-  ManagedAgentWriteEvidence,
 } from "@kilnai/core";
 import type {
   CliSession,
@@ -20,6 +18,7 @@ import type {
   ManagedAgentRuntimeAdapter,
   ManagedAgentRuntimeInvocationInput,
 } from "./index.js";
+import { collectManagedAgentLiveWriteEvidence } from "./live-write-event-bridge.js";
 
 export interface ManagedCliHarnessAdapterConfig {
   readonly providerId: string;
@@ -138,10 +137,10 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
     const collected = raced;
     const lifecycleState = collected.error || collected.completed?.isError ? "failed" : "completed";
     const summary = summarizeResult(collected);
-    const writeEvidence = collectWriteEvidence(request, collected.fileChanges);
-    const writeResourceUris = writeEvidence
-      .filter((evidence) => evidence.kind === "write-attempt-completed")
-      .flatMap((evidence) => evidence.resourceUris);
+    const writeEvidence = collectManagedAgentLiveWriteEvidence({
+      request,
+      fileChanges: collected.fileChanges,
+    });
     return defineManagedAgentInvocationRecord({
       ...this.baseRecord(input, childSessionId),
       lifecycleState,
@@ -159,11 +158,11 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
         summary,
         resourceUris: [
           managedInvocationUri(request.invocationId, "transcript"),
-          ...writeResourceUris,
+          ...writeEvidence.attemptResourceUris,
         ],
         memoryWriteProposalUris: [],
       },
-      ...(writeEvidence.length > 0 ? { writeEvidence } : {}),
+      ...(writeEvidence.evidence.length > 0 ? { writeEvidence: writeEvidence.evidence } : {}),
     });
   }
 
@@ -247,86 +246,6 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
       ...(error !== undefined ? { error } : {}),
     };
   }
-}
-
-function collectWriteEvidence(
-  request: ManagedAgentRuntimeInvocationInput["request"],
-  fileChanges: readonly Extract<CliSessionEvent, { readonly type: "file_changed" }>[],
-): ManagedAgentWriteEvidence[] {
-  if (fileChanges.length === 0) {
-    return [];
-  }
-
-  const writeAuthority = request.authority.writeAuthority;
-  if (writeAuthority === undefined || writeAuthority.scope.workspace.mode !== "apply-approved") {
-    throw new Error("Managed CLI harness returned workspace writes without admitted apply-approved write authority");
-  }
-
-  return fileChanges.flatMap((change, index) => {
-    assertPathWithinWriteAuthority(change.path, writeAuthority.scope.workspace.allowedPaths, writeAuthority.scope.workspace.deniedPaths);
-    const ordinal = index + 1;
-    const proposalId = `${request.invocationId}:write-proposal:${ordinal}`;
-    const decisionId = `${request.invocationId}:write-decision:${ordinal}`;
-    const attemptId = `${request.invocationId}:write-attempt:${ordinal}`;
-    const proposalUri = managedInvocationUri(request.invocationId, `write-proposals/${ordinal}`);
-    const decisionUri = managedInvocationUri(request.invocationId, `write-decisions/${ordinal}`);
-    const attemptUri = managedInvocationUri(request.invocationId, `write-attempts/${ordinal}`);
-    const recordedAt = new Date().toISOString();
-    const summary = `${change.changeType} ${change.path}`;
-
-    return [
-      defineManagedAgentWriteEvidence({
-        evidenceId: `${proposalId}:evidence`,
-        invocationId: request.invocationId,
-        kind: "write-proposal-created",
-        proposalId,
-        summary: `Workspace write proposal recorded for ${summary}`,
-        resourceUris: [proposalUri],
-        recordedAt,
-      }),
-      defineManagedAgentWriteEvidence({
-        evidenceId: `${decisionId}:evidence`,
-        invocationId: request.invocationId,
-        kind: "write-proposal-approved",
-        proposalId,
-        decisionId,
-        summary: `Workspace write proposal approved for ${summary}`,
-        resourceUris: [decisionUri],
-        recordedAt,
-      }),
-      defineManagedAgentWriteEvidence({
-        evidenceId: `${attemptId}:evidence`,
-        invocationId: request.invocationId,
-        kind: "write-attempt-completed",
-        proposalId,
-        decisionId,
-        attemptId,
-        summary: `Workspace write attempt completed for ${summary}`,
-        resourceUris: [attemptUri],
-        recordedAt,
-      }),
-    ];
-  });
-}
-
-function assertPathWithinWriteAuthority(path: string, allowedPaths: readonly string[], deniedPaths: readonly string[]): void {
-  const normalizedPath = normalizePath(path);
-  const denied = deniedPaths.some((deniedPath) => isSameOrChildPath(normalizedPath, normalizePath(deniedPath)));
-  if (denied) {
-    throw new Error(`Managed CLI harness write path is denied: ${path}`);
-  }
-  const allowed = allowedPaths.some((allowedPath) => isSameOrChildPath(normalizedPath, normalizePath(allowedPath)));
-  if (!allowed) {
-    throw new Error(`Managed CLI harness write path is outside admitted scope: ${path}`);
-  }
-}
-
-function isSameOrChildPath(path: string, parent: string): boolean {
-  return path === parent || path.startsWith(`${parent}/`);
-}
-
-function normalizePath(path: string): string {
-  return requireText(path, "Managed write file path is required").replace(/\\/g, "/").replace(/\/+$/, "");
 }
 
 function transcriptPointer(invocationId: string): ManagedAgentInvocationRecord["transcript"] {

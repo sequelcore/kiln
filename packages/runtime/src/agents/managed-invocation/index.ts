@@ -29,6 +29,13 @@ export type {
   AppendManagedInvocationSessionEventsInput,
 } from "./session-events.js";
 export {
+  collectManagedAgentLiveWriteEvidence,
+} from "./live-write-event-bridge.js";
+export type {
+  ManagedAgentLiveWriteEventBridgeInput,
+  ManagedAgentLiveWriteEventBridgeResult,
+} from "./live-write-event-bridge.js";
+export {
   ManagedCliHarnessAdapter,
 } from "./cli-harness-adapter.js";
 export type {

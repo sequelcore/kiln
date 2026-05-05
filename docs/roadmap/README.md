@@ -38,6 +38,11 @@ Read the relevant architecture or guide document before using a roadmap:
   runtime enforcement, memory/artifact mutation boundaries, replay evidence,
   and the first approved-write proof path.
 
+- `01.6-managed-agent-live-adapter-hardening.md`
+  Proves the completed managed-agent and write-authority contracts against live
+  provider and harness behavior, with opt-in live tests, clone scouting, event
+  bridge hardening, and adapter-specific evidence validation.
+
 - `02-config-projection-unification.md`
   Makes `~/.kiln/config.yaml` the source of truth for harness configuration,
   projects managed Claude/Codex/OpenCode config, and adds drift-aware sync,
@@ -77,15 +82,17 @@ Read the relevant architecture or guide document before using a roadmap:
 
 1. `01-managed-agents-cross-provider-subagents.md` is complete as the managed
    invocation foundation.
-2. Execute `01.5-managed-agent-write-authority.md` before broader managed-agent
-   expansion so write authority is solved at the Kiln contract boundary rather
-   than inside one provider or harness.
-3. Execute `02-config-projection-unification.md` after managed agents and the
+2. `01.5-managed-agent-write-authority.md` is complete as the governed
+   write-authority foundation.
+3. Execute `01.6-managed-agent-live-adapter-hardening.md` before broader
+   managed-agent expansion so live provider behavior is proven against the
+   completed Kiln contracts.
+4. Execute `02-config-projection-unification.md` after managed agents and the
    provider credential pool clarify what global/project config must express.
-4. Keep `04-native-operator-surface-experiment.md` deferred until managed
+5. Keep `04-native-operator-surface-experiment.md` deferred until managed
    agents create real high-density workloads and config projection makes
    local/cloud/team/CI instance boundaries explicit.
-5. Keep `03-external-benchmark-validation.md` deferred until the evaluated
+6. Keep `03-external-benchmark-validation.md` deferred until the evaluated
    product surface is stable.
 
 ## Rules
