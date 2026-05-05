@@ -48,6 +48,7 @@ export {
 } from "./cli-harness-adapter.js";
 export type {
   ManagedCliHarnessAdapterConfig,
+  ManagedCliHarnessFilesystemBoundaryConfig,
 } from "./cli-harness-adapter.js";
 export { ManagedAgentRuntimeAdmissionError } from "./errors.js";
 
@@ -209,7 +210,8 @@ export class RuntimeManagedAgentInvocationService {
       if (record.authority.writeAuthority !== undefined) {
         throw new ManagedAgentRuntimeAdmissionError("Managed agent adapter returned write authority for a non-write admission");
       }
-      if ((record.writeEvidence?.length ?? 0) > 0) {
+      const nonDeniedWriteEvidence = record.writeEvidence?.filter((evidence) => evidence.kind !== "write-authority-denied") ?? [];
+      if (nonDeniedWriteEvidence.length > 0) {
         throw new ManagedAgentRuntimeAdmissionError("Managed agent adapter returned write evidence for a non-write admission");
       }
       if ((record.resultHandoff?.memoryWriteProposalUris.length ?? 0) > 0) {

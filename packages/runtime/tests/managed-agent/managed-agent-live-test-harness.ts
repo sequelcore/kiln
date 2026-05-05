@@ -31,6 +31,19 @@ export interface ManagedAgentLiveHarnessWriteRequestOptions {
   readonly invocationId: string;
   readonly workspaceRoot: string;
   readonly allowedPaths: readonly string[];
+  readonly providerId?: string;
+  readonly model?: string;
+  readonly summary?: string;
+  readonly prompt?: string;
+}
+
+export interface ManagedAgentLiveHarnessReadOnlyRequestOptions {
+  readonly invocationId: string;
+  readonly workspaceRoot: string;
+  readonly providerId?: string;
+  readonly model?: string;
+  readonly summary?: string;
+  readonly prompt?: string;
 }
 
 export interface ManagedAgentLiveFilesystemAndEvidenceExpectation {
@@ -67,13 +80,15 @@ export async function withManagedAgentLiveFixtureWorkspace<T>(
     await options.onWorkspaceCreated?.(workspace);
     return await run(workspace);
   } finally {
-    await rm(workspaceRoot, { recursive: true, force: true });
+    await removeWorkspaceWithRetry(workspaceRoot);
   }
 }
 
 export function makeManagedAgentLiveHarnessWriteRequest(
   options: ManagedAgentLiveHarnessWriteRequestOptions,
 ): ManagedAgentInvocationRequest {
+  const providerId = options.providerId ?? "live-fixture";
+  const model = options.model ?? "fixture";
   return defineManagedAgentInvocationRequest({
     invocationId: options.invocationId,
     agentId: "agent-live-proof",
@@ -83,9 +98,9 @@ export function makeManagedAgentLiveHarnessWriteRequest(
     requestedBy: "operator",
     requestSource: "manual",
     providerRoute: {
-      providerId: "live-fixture",
+      providerId,
       surface: "cli-harness",
-      model: "fixture",
+      model,
     },
     adapterKind: "harness",
     executionMode: "cli-harness",
@@ -104,7 +119,7 @@ export function makeManagedAgentLiveHarnessWriteRequest(
       timeoutMs: 120000,
       credentialRoute: {
         mode: "runtime-selected",
-        routeId: "credential-route:live-fixture",
+        routeId: `credential-route:${providerId}`,
       },
       memoryScope: {
         scope: { kind: "project", id: "kiln" },
@@ -142,8 +157,57 @@ export function makeManagedAgentLiveHarnessWriteRequest(
       }),
     },
     input: {
-      summary: "Apply an approved live fixture update.",
-      prompt: "Apply only the approved fixture update and report evidence.",
+      summary: options.summary ?? "Apply an approved live fixture update.",
+      prompt: options.prompt ?? "Apply only the approved fixture update and report evidence.",
+    },
+  });
+}
+
+export function makeManagedAgentLiveHarnessReadOnlyRequest(
+  options: ManagedAgentLiveHarnessReadOnlyRequestOptions,
+): ManagedAgentInvocationRequest {
+  const providerId = options.providerId ?? "live-fixture";
+  const model = options.model ?? "fixture";
+  return defineManagedAgentInvocationRequest({
+    invocationId: options.invocationId,
+    agentId: "agent-live-proof",
+    parentSessionId: "session-parent",
+    parentTurnId: "session-parent:turn:1",
+    profile: "foundation-readonly-plan",
+    requestedBy: "operator",
+    requestSource: "manual",
+    providerRoute: {
+      providerId,
+      surface: "cli-harness",
+      model,
+    },
+    adapterKind: "harness",
+    executionMode: "cli-harness",
+    authority: {
+      authorityProfileId: "foundation-readonly",
+      permissionProfile: "read-only",
+      toolAuthority: {
+        allowedToolNames: ["read", "rg"],
+        writeAllowed: false,
+        networkAllowed: false,
+      },
+      workingDirectory: {
+        path: options.workspaceRoot,
+        mode: "read-only",
+      },
+      timeoutMs: 120000,
+      credentialRoute: {
+        mode: "runtime-selected",
+        routeId: `credential-route:${providerId}`,
+      },
+      memoryScope: {
+        scope: { kind: "project", id: "kiln" },
+        access: "read-only",
+      },
+    },
+    input: {
+      summary: options.summary ?? "Inspect the live fixture without writing.",
+      prompt: options.prompt ?? "Inspect the live fixture and report what would change.",
     },
   });
 }
@@ -191,4 +255,17 @@ function requireRelativeSafeSegment(value: string): string {
     throw new Error("Live fixture workspace prefix must be a single path segment");
   }
   return value;
+}
+
+async function removeWorkspaceWithRetry(workspaceRoot: string): Promise<void> {
+  const attempts = 5;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      await rm(workspaceRoot, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      if (attempt === attempts) throw error;
+      await new Promise((resolve) => setTimeout(resolve, attempt * 100));
+    }
+  }
 }

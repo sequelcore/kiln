@@ -1,4 +1,11 @@
 import {
+  mkdir,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
+import { dirname } from "node:path";
+import {
   defineManagedAgentAdapterWriteAuthorityDescriptor,
   defineManagedAgentAdapterDescriptor,
   defineManagedAgentInvocationRecord,
@@ -18,18 +25,29 @@ import type {
   ManagedAgentRuntimeAdapter,
   ManagedAgentRuntimeInvocationInput,
 } from "./index.js";
-import { collectManagedAgentLiveWriteEvidence } from "./live-write-event-bridge.js";
+import {
+  collectManagedAgentLiveWriteDecisionEvidence,
+  collectManagedAgentLiveWriteEvidence,
+} from "./live-write-event-bridge.js";
 
 export interface ManagedCliHarnessAdapterConfig {
   readonly providerId: string;
   readonly model: string;
   readonly factory: CliSessionFactory;
   readonly writeAuthority?: ManagedAgentAdapterWriteAuthorityDescriptor;
+  readonly filesystemBoundary?: ManagedCliHarnessFilesystemBoundaryConfig;
+}
+
+export interface ManagedCliHarnessFilesystemBoundaryConfig {
+  readonly enabled: boolean;
+  readonly trackedPaths: readonly string[];
+  readonly restoreReadOnlyViolations?: boolean;
 }
 
 interface CollectedCliHarnessEvidence {
   readonly text: string;
   readonly fileChanges: readonly Extract<CliSessionEvent, { readonly type: "file_changed" }>[];
+  readonly writeDecisions: readonly Extract<CliSessionEvent, { readonly type: "write_decision" }>[];
   readonly usage: {
     readonly inputTokens?: number;
     readonly outputTokens?: number;
@@ -42,16 +60,28 @@ interface CollectedCliHarnessEvidence {
 
 const TIMEOUT = Symbol("managed-cli-harness-timeout");
 
+interface FilesystemBoundarySnapshot {
+  readonly entries: readonly FilesystemBoundarySnapshotEntry[];
+}
+
+interface FilesystemBoundarySnapshotEntry {
+  readonly path: string;
+  readonly existed: boolean;
+  readonly contents?: string;
+}
+
 export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
   readonly descriptor: ManagedAgentAdapterDescriptor;
   private readonly providerId: string;
   private readonly model: string;
   private readonly factory: CliSessionFactory;
+  private readonly filesystemBoundary?: ManagedCliHarnessFilesystemBoundaryConfig;
 
   constructor(config: ManagedCliHarnessAdapterConfig) {
     this.providerId = requireText(config.providerId, "Managed CLI harness provider id is required");
     this.model = requireText(config.model, "Managed CLI harness model is required");
     this.factory = config.factory;
+    this.filesystemBoundary = config.filesystemBoundary;
     const writeAuthority = config.writeAuthority !== undefined
       ? defineManagedAgentAdapterWriteAuthorityDescriptor(config.writeAuthority)
       : undefined;
@@ -103,6 +133,7 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
     const cwd = request.authority.workingDirectory.path;
     const system = request.input.summary;
     const prompt = request.input.prompt ?? request.input.summary;
+    const filesystemSnapshot = await snapshotFilesystemBoundary(this.filesystemBoundary);
     const session = this.factory(system, cwd, { kilnSessionId: childSessionId });
     const runPromise = this.collectRunEvidence(session, {
       kilnSessionId: childSessionId,
@@ -135,12 +166,45 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
 
     await session.dispose();
     const collected = raced;
+    const filesystemChanges = await collectFilesystemBoundaryChanges(filesystemSnapshot);
+    const readOnlyFilesystemViolation = request.authority.writeAuthority === undefined && filesystemChanges.length > 0;
+    if (readOnlyFilesystemViolation && this.filesystemBoundary?.restoreReadOnlyViolations === true) {
+      await restoreFilesystemBoundary(filesystemSnapshot);
+    }
     const lifecycleState = collected.error || collected.completed?.isError ? "failed" : "completed";
     const summary = summarizeResult(collected);
     const writeEvidence = collectManagedAgentLiveWriteEvidence({
       request,
-      fileChanges: collected.fileChanges,
+      fileChanges: readOnlyFilesystemViolation
+        ? []
+        : mergeFileChanges(collected.fileChanges, filesystemChanges),
     });
+    const writeDecisionEvidence = collectManagedAgentLiveWriteDecisionEvidence({
+      request,
+      decisions: [
+        ...collected.writeDecisions.map((decision) => ({
+          source: "tool-result" as const,
+          status: decision.status,
+          providerRequestId: decision.providerRequestId,
+          actor: decision.actor,
+          reason: decision.reason,
+          resourceUris: decision.resourceUris,
+        })),
+        ...(readOnlyFilesystemViolation
+          ? [{
+            source: "tool-result" as const,
+            status: "denied" as const,
+            providerRequestId: "filesystem-boundary-1",
+            actor: "kiln-filesystem-boundary",
+            reason: `Live harness modified files during read-only invocation: ${filesystemChanges.map((change) => change.path).join(", ")}`,
+          }]
+          : []),
+      ],
+    });
+    const collectedWriteEvidence = [
+      ...writeDecisionEvidence,
+      ...writeEvidence.evidence,
+    ];
     return defineManagedAgentInvocationRecord({
       ...this.baseRecord(input, childSessionId),
       lifecycleState,
@@ -158,11 +222,12 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
         summary,
         resourceUris: [
           managedInvocationUri(request.invocationId, "transcript"),
+          ...writeDecisionEvidence.flatMap((evidence) => evidence.resourceUris),
           ...writeEvidence.attemptResourceUris,
         ],
         memoryWriteProposalUris: [],
       },
-      ...(writeEvidence.evidence.length > 0 ? { writeEvidence: writeEvidence.evidence } : {}),
+      ...(collectedWriteEvidence.length > 0 ? { writeEvidence: collectedWriteEvidence } : {}),
     });
   }
 
@@ -200,6 +265,7 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
   ): Promise<CollectedCliHarnessEvidence> {
     const textParts: string[] = [];
     const fileChanges: Extract<CliSessionEvent, { readonly type: "file_changed" }>[] = [];
+    const writeDecisions: Extract<CliSessionEvent, { readonly type: "write_decision" }>[] = [];
     let inputTokens: number | undefined;
     let outputTokens: number | undefined;
     let cacheReadTokens: number | undefined;
@@ -223,6 +289,10 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
         fileChanges.push(event);
         continue;
       }
+      if (event.type === "write_decision") {
+        writeDecisions.push(event);
+        continue;
+      }
       if (event.type === "completed") {
         completed = event;
         costUsd = event.totalUsd;
@@ -236,6 +306,7 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
     return {
       text: textParts.join("").trim(),
       fileChanges,
+      writeDecisions,
       usage: {
         ...(inputTokens !== undefined ? { inputTokens } : {}),
         ...(outputTokens !== undefined ? { outputTokens } : {}),
@@ -275,6 +346,115 @@ function usageReport(usage: CollectedCliHarnessEvidence["usage"]): ManagedAgentI
 
 function unknownUsageReport(): ManagedAgentInvocationRecord["usage"] {
   return usageReport({});
+}
+
+async function snapshotFilesystemBoundary(
+  config: ManagedCliHarnessFilesystemBoundaryConfig | undefined,
+): Promise<FilesystemBoundarySnapshot | undefined> {
+  if (config?.enabled !== true) return undefined;
+
+  const entries = await Promise.all(config.trackedPaths.map(async (path) => {
+    try {
+      return {
+        path,
+        existed: true,
+        contents: await readFile(path, "utf8"),
+      } satisfies FilesystemBoundarySnapshotEntry;
+    } catch {
+      return {
+        path,
+        existed: false,
+      } satisfies FilesystemBoundarySnapshotEntry;
+    }
+  }));
+
+  return { entries };
+}
+
+async function collectFilesystemBoundaryChanges(
+  snapshot: FilesystemBoundarySnapshot | undefined,
+): Promise<Extract<CliSessionEvent, { readonly type: "file_changed" }>[]> {
+  if (snapshot === undefined) return [];
+
+  const changes: Extract<CliSessionEvent, { readonly type: "file_changed" }>[] = [];
+  for (const entry of snapshot.entries) {
+    let currentContents: string | undefined;
+    let exists = true;
+    try {
+      currentContents = await readFile(entry.path, "utf8");
+    } catch {
+      exists = false;
+    }
+
+    if (!entry.existed && exists) {
+      changes.push({
+        type: "file_changed",
+        path: entry.path,
+        changeType: "created",
+        linesAdded: countLines(currentContents ?? ""),
+        linesRemoved: 0,
+        diffTruncated: true,
+      });
+      continue;
+    }
+    if (entry.existed && !exists) {
+      changes.push({
+        type: "file_changed",
+        path: entry.path,
+        changeType: "deleted",
+        linesAdded: 0,
+        linesRemoved: countLines(entry.contents ?? ""),
+        diffTruncated: true,
+      });
+      continue;
+    }
+    if (entry.existed && exists && currentContents !== entry.contents) {
+      changes.push({
+        type: "file_changed",
+        path: entry.path,
+        changeType: "modified",
+        linesAdded: countLines(currentContents ?? ""),
+        linesRemoved: countLines(entry.contents ?? ""),
+        diffTruncated: true,
+      });
+    }
+  }
+
+  return changes;
+}
+
+async function restoreFilesystemBoundary(snapshot: FilesystemBoundarySnapshot | undefined): Promise<void> {
+  if (snapshot === undefined) return;
+
+  for (const entry of snapshot.entries) {
+    if (!entry.existed) {
+      await rm(entry.path, { force: true });
+      continue;
+    }
+    await mkdir(dirname(entry.path), { recursive: true });
+    await writeFile(entry.path, entry.contents ?? "", "utf8");
+  }
+}
+
+function mergeFileChanges(
+  emittedChanges: readonly Extract<CliSessionEvent, { readonly type: "file_changed" }>[],
+  filesystemChanges: readonly Extract<CliSessionEvent, { readonly type: "file_changed" }>[],
+): Extract<CliSessionEvent, { readonly type: "file_changed" }>[] {
+  const merged = new Map<string, Extract<CliSessionEvent, { readonly type: "file_changed" }>>();
+  for (const change of emittedChanges) {
+    merged.set(change.path, change);
+  }
+  for (const change of filesystemChanges) {
+    if (!merged.has(change.path)) {
+      merged.set(change.path, change);
+    }
+  }
+  return [...merged.values()];
+}
+
+function countLines(contents: string): number {
+  if (contents.length === 0) return 0;
+  return contents.split(/\r\n|\r|\n/).length;
 }
 
 function summarizeResult(collected: CollectedCliHarnessEvidence): string {

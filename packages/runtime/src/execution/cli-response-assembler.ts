@@ -16,6 +16,14 @@ type CliResponseAssemblerEvent =
       diffTruncated?: boolean;
     }
   | {
+      type: "write_decision";
+      status: "approved" | "denied";
+      providerRequestId?: string;
+      actor?: string;
+      reason: string;
+      resourceUris?: readonly string[];
+    }
+  | {
       type: "cost_update";
       usd: number;
       provider?: string;

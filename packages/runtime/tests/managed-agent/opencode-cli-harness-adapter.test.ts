@@ -1,3 +1,6 @@
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   defineManagedAgentInvocationRequest,
@@ -337,6 +340,88 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
         writeEvidence: result.record.writeEvidence,
       },
     });
+  });
+
+  it("records read-only OpenCode write denials as replayable authority-denied evidence", async () => {
+    const run = vi.fn((options: CliSessionRunOptions) => eventStream([
+      { type: "text_delta", content: "Write denied by policy." },
+      {
+        type: "write_decision",
+        status: "denied",
+        providerRequestId: "opencode-denial-1",
+        actor: "opencode-policy",
+        reason: "OpenCode denied edit permission for proof.txt.",
+      },
+      { type: "completed", totalUsd: 0.01, durationMs: 20, isError: false, isPreflightCrash: false },
+    ]));
+    const dispose = vi.fn().mockResolvedValue(undefined);
+    const adapter = new ManagedCliHarnessAdapter({
+      providerId: "opencode",
+      model: "sonic",
+      factory: () => ({ run, dispose }),
+    });
+    const service = new RuntimeManagedAgentInvocationService();
+    const request = makeRequest();
+
+    const result = await service.invoke(request, adapter);
+
+    expect(result.status).toBe("completed");
+    if (result.status !== "completed") {
+      throw new Error("Expected completed managed read-only denial result");
+    }
+    expect(result.record.writeEvidence).toEqual([{
+      evidenceId: "invocation-opencode-1:write-authority-denied:opencode-denial-1",
+      invocationId: "invocation-opencode-1",
+      kind: "write-authority-denied",
+      summary: "Live write authority denied by opencode-policy: OpenCode denied edit permission for proof.txt.",
+      resourceUris: ["kiln://managed-invocations/invocation-opencode-1/write-denials/opencode-denial-1"],
+      recordedAt: expect.any(String),
+    }]);
+    expect(result.record.resultHandoff.resourceUris).toContain(
+      "kiln://managed-invocations/invocation-opencode-1/write-denials/opencode-denial-1",
+    );
+  });
+
+  it("detects and restores silent filesystem changes during read-only live harness runs", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "kiln-managed-cli-boundary-"));
+    const proofPath = join(workspaceRoot, "proof.txt");
+    await writeFile(proofPath, "before\n", "utf8");
+
+    try {
+      const run = vi.fn(() =>
+        (async function* stream(): AsyncGenerator<CliSessionEvent> {
+          await writeFile(proofPath, "after", "utf8");
+          yield { type: "text_delta", content: "Attempted fixture update." };
+          yield { type: "completed", totalUsd: 0.01, durationMs: 20, isError: false, isPreflightCrash: false };
+        })(),
+      );
+      const dispose = vi.fn().mockResolvedValue(undefined);
+      const adapter = new ManagedCliHarnessAdapter({
+        providerId: "opencode",
+        model: "sonic",
+        factory: () => ({ run, dispose }),
+        filesystemBoundary: {
+          enabled: true,
+          trackedPaths: [proofPath],
+          restoreReadOnlyViolations: true,
+        },
+      });
+      const service = new RuntimeManagedAgentInvocationService();
+
+      const result = await service.invoke(makeRequest(), adapter);
+
+      expect(result.status).toBe("completed");
+      if (result.status !== "completed") {
+        throw new Error("Expected completed managed read-only boundary result");
+      }
+      await expect(readFile(proofPath, "utf8")).resolves.toBe("before\n");
+      expect(result.record.writeEvidence?.map((evidence) => evidence.kind)).toEqual([
+        "write-authority-denied",
+      ]);
+      expect(result.record.writeEvidence?.[0]?.summary).toContain("Live harness modified files during read-only invocation");
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
   });
 
   it("returns a timed-out record with diagnostic evidence and disposes the CLI session", async () => {

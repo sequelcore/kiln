@@ -1,6 +1,7 @@
 import { spawn, execSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
+import { isAbsolute, resolve } from "node:path";
 import { appendExecutionIdentity, resolveExecutionIdentity } from "@kilnai/core";
 import type {
   SessionEvent,
@@ -134,6 +135,7 @@ export interface OpenCodeSessionConfig {
   readonly permissionPolicy?: KilnPermissionPolicy;
   readonly resumeSessionId?: string;
   readonly sessionLedgerOwner?: "wrapper" | "host";
+  readonly strictPermissionConfig?: boolean;
 }
 
 const OPENCODE_SANDBOX_WARNING =
@@ -391,6 +393,9 @@ export class OpenCodeSession implements IKilnSession {
             query: { directory: cwd },
           })
           .catch((err: unknown) => {
+            if (this._config.strictPermissionConfig === true) {
+              throw err;
+            }
             console.debug(
               `[opencode] config.update failed: ${err instanceof Error ? err.message : String(err)}`,
             );
@@ -632,12 +637,49 @@ export class OpenCodeSession implements IKilnSession {
                 output: outputStr,
               };
             } else if (part.state?.status === "error") {
+              if (isOpenCodeWriteTool(part.tool)) {
+                yield {
+                  type: "write_decision",
+                  status: "denied",
+                  providerRequestId: part.callID,
+                  actor: "opencode-policy",
+                  reason: part.state.error ?? "OpenCode denied write tool execution",
+                };
+              }
               yield {
                 type: "tool_result",
                 toolName: part.tool ?? "unknown",
                 output: part.state.error ?? "Tool failed",
               };
             }
+          }
+          continue;
+        }
+
+        if (event.payload.type === "session.diff") {
+          const props = event.payload.properties as {
+            sessionID?: string;
+            diff?: Array<{
+              file?: string;
+              additions?: number;
+              deletions?: number;
+              status?: "added" | "deleted" | "modified";
+            }>;
+          } | undefined;
+          if (props?.sessionID !== this._remoteSessionId) continue;
+
+          for (const diff of props.diff ?? []) {
+            if (typeof diff.file !== "string" || diff.file.trim().length === 0) continue;
+            const additions = diff.additions;
+            const deletions = diff.deletions;
+            yield {
+              type: "file_changed",
+              path: normalizeOpenCodeDiffPath(cwd, diff.file),
+              changeType: mapOpenCodeDiffStatus(diff.status),
+              ...(typeof additions === "number" && Number.isInteger(additions) && additions >= 0 ? { linesAdded: additions } : {}),
+              ...(typeof deletions === "number" && Number.isInteger(deletions) && deletions >= 0 ? { linesRemoved: deletions } : {}),
+              diffTruncated: true,
+            };
           }
           continue;
         }
@@ -838,6 +880,15 @@ export class OpenCodeSession implements IKilnSession {
 
   private _killServeProcess(): void {
     if (this.serveProcess && !this.serveProcess.killed) {
+      const pid = this.serveProcess.pid;
+      if (process.platform === "win32" && typeof pid === "number") {
+        try {
+          execSync(`taskkill /PID ${pid} /T /F`, { stdio: "ignore" });
+          return;
+        } catch {
+          // Fall back to Node's kill below.
+        }
+      }
       this.serveProcess.kill("SIGTERM");
     }
   }
@@ -849,4 +900,24 @@ export class OpenCodeSession implements IKilnSession {
     this._killServeProcess();
     this.serveProcess = null;
   }
+}
+
+function isOpenCodeWriteTool(toolName: string | undefined): boolean {
+  const normalized = toolName?.trim().toLowerCase();
+  return normalized === "edit" ||
+    normalized === "write" ||
+    normalized === "apply_patch" ||
+    normalized === "multiedit" ||
+    normalized === "notebookedit";
+}
+
+function normalizeOpenCodeDiffPath(cwd: string, file: string): string {
+  const trimmed = file.trim();
+  return isAbsolute(trimmed) ? trimmed : resolve(cwd, trimmed);
+}
+
+function mapOpenCodeDiffStatus(status: "added" | "deleted" | "modified" | undefined): "created" | "modified" | "deleted" {
+  if (status === "added") return "created";
+  if (status === "deleted") return "deleted";
+  return "modified";
 }

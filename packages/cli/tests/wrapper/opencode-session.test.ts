@@ -470,6 +470,91 @@ describe("OpenCodeSession.run() integration", () => {
     expect(events).toContainEqual({ type: "tool_result", toolName: "bash", output: "hi\n" });
   });
 
+  it("run() maps session.diff events to provider-neutral file_changed events", async () => {
+    const mock = makeMockClient("ses_diff", [
+      {
+        directory: "/tmp",
+        payload: {
+          type: "session.diff",
+          properties: {
+            sessionID: "ses_diff",
+            diff: [{
+              file: "proof.txt",
+              patch: "diff --git a/proof.txt b/proof.txt",
+              additions: 1,
+              deletions: 1,
+              status: "modified",
+            }],
+          },
+        },
+      },
+      {
+        directory: "/tmp",
+        payload: { type: "session.status", properties: { sessionID: "ses_diff", status: { type: "idle" } } },
+      },
+    ], 0.003);
+    vi.mocked(createOpencodeClient).mockReturnValueOnce(mock as any);
+
+    const session = new OpenCodeSession(baseConfig({ cwd: "/tmp/kiln-opencode-live" }));
+    const events: object[] = [];
+    for await (const event of await session.run({ prompt: "test", cwd: "/tmp/kiln-opencode-live" })) {
+      events.push(event);
+    }
+
+    expect(events).toContainEqual({
+      type: "file_changed",
+      path: expect.stringContaining("proof.txt"),
+      changeType: "modified",
+      linesAdded: 1,
+      linesRemoved: 1,
+      diffTruncated: true,
+    });
+    expect(JSON.stringify(events)).not.toContain("diff --git");
+  });
+
+  it("run() maps denied write tool errors to provider-neutral write decisions", async () => {
+    const mock = makeMockClient("ses_denied", [
+      {
+        directory: "/tmp",
+        payload: {
+          type: "message.part.updated",
+          properties: {
+            sessionID: "ses_denied",
+            part: {
+              type: "tool",
+              tool: "edit",
+              callID: "call_edit_denied",
+              state: {
+                status: "error",
+                input: { filePath: "/tmp/proof.txt" },
+                error: "Permission denied for edit",
+              },
+            },
+          },
+        },
+      },
+      {
+        directory: "/tmp",
+        payload: { type: "session.status", properties: { sessionID: "ses_denied", status: { type: "idle" } } },
+      },
+    ], 0.003);
+    vi.mocked(createOpencodeClient).mockReturnValueOnce(mock as any);
+
+    const session = new OpenCodeSession(baseConfig());
+    const events: object[] = [];
+    for await (const event of await session.run({ prompt: "test" })) {
+      events.push(event);
+    }
+
+    expect(events).toContainEqual({
+      type: "write_decision",
+      status: "denied",
+      providerRequestId: "call_edit_denied",
+      actor: "opencode-policy",
+      reason: "Permission denied for edit",
+    });
+  });
+
   it("run() yields completed with cost from session prompt response", async () => {
     const mock = makeMockClient("ses_cost", [
       {

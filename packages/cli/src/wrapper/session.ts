@@ -151,6 +151,16 @@ export type SessionEvent =
       changeType: "created" | "modified" | "deleted";
       linesAdded?: number;
       linesRemoved?: number;
+      diffPreview?: string;
+      diffTruncated?: boolean;
+    }
+  | {
+      type: "write_decision";
+      status: "approved" | "denied";
+      providerRequestId?: string;
+      actor?: string;
+      reason: string;
+      resourceUris?: readonly string[];
     }
   | {
       type: "cost_update";
