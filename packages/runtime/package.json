@@ -17,7 +17,8 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --maxWorkers=1"
+    "test": "vitest run --maxWorkers=1",
+    "test:live": "vitest run tests/managed-agent/*.live.test.ts --maxWorkers=1"
   },
   "license": "Apache-2.0",
   "repository": {
