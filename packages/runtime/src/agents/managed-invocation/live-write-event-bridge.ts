@@ -30,6 +30,29 @@ export interface ManagedAgentLiveWriteChange {
   readonly diffTruncated?: boolean;
 }
 
+export type ManagedAgentLiveWriteDecisionSource =
+  | "permission-event"
+  | "approval-event"
+  | "patch-approval"
+  | "tool-result";
+
+export type ManagedAgentLiveWriteDecisionStatus = "approved" | "denied";
+
+export interface ManagedAgentLiveWriteDecision {
+  readonly source: ManagedAgentLiveWriteDecisionSource;
+  readonly status: ManagedAgentLiveWriteDecisionStatus;
+  readonly providerRequestId?: string;
+  readonly actor?: string;
+  readonly reason: string;
+  readonly resourceUris?: readonly string[];
+}
+
+export interface ManagedAgentLiveWriteDecisionEvidenceInput {
+  readonly request: ManagedAgentInvocationRequest;
+  readonly decisions: readonly ManagedAgentLiveWriteDecision[];
+  readonly recordedAt?: string;
+}
+
 export interface ManagedAgentLiveWriteEventBridgeResult {
   readonly evidence: readonly ManagedAgentWriteEvidence[];
   readonly attemptResourceUris: readonly string[];
@@ -123,6 +146,70 @@ export function collectManagedAgentLiveWriteEvidence(
   };
 }
 
+export function collectManagedAgentLiveWriteDecisionEvidence(
+  input: ManagedAgentLiveWriteDecisionEvidenceInput,
+): ManagedAgentWriteEvidence[] {
+  return input.decisions.map((decision, index) => {
+    const ordinal = requireDecisionOrdinal(decision.providerRequestId, index + 1);
+    const actor = decision.actor !== undefined
+      ? requireText(decision.actor, "Managed live write decision actor is required")
+      : "operator";
+    const reason = requireText(decision.reason, "Managed live write decision reason is required");
+    const recordedAt = input.recordedAt ?? new Date().toISOString();
+    const writeAuthority = input.request.authority.writeAuthority;
+
+    if (decision.status === "approved") {
+      if (writeAuthority === undefined || writeAuthority.scope.workspace.mode !== "apply-approved") {
+        throw new ManagedAgentRuntimeAdmissionError("Managed live write approval requires admitted apply-approved write authority");
+      }
+
+      const proposalId = `${input.request.invocationId}:write-proposal:${ordinal}`;
+      const decisionId = `${input.request.invocationId}:write-decision:${ordinal}`;
+      return defineManagedAgentWriteEvidence({
+        evidenceId: `${decisionId}:evidence`,
+        invocationId: input.request.invocationId,
+        kind: "write-proposal-approved",
+        proposalId,
+        decisionId,
+        summary: `Live write decision approved by ${actor}: ${reason}`,
+        resourceUris: decision.resourceUris?.map((uri) => requireText(uri, "Managed live write decision resource uri is required"))
+          ?? [managedInvocationUri(input.request.invocationId, `write-decisions/${ordinal}`)],
+        recordedAt,
+      });
+    }
+
+    if (decision.status === "denied") {
+      if (writeAuthority === undefined) {
+        return defineManagedAgentWriteEvidence({
+          evidenceId: `${input.request.invocationId}:write-authority-denied:${ordinal}`,
+          invocationId: input.request.invocationId,
+          kind: "write-authority-denied",
+          summary: `Live write authority denied by ${actor}: ${reason}`,
+          resourceUris: decision.resourceUris?.map((uri) => requireText(uri, "Managed live write denial resource uri is required"))
+            ?? [managedInvocationUri(input.request.invocationId, `write-denials/${ordinal}`)],
+          recordedAt,
+        });
+      }
+
+      const proposalId = `${input.request.invocationId}:write-proposal:${ordinal}`;
+      const decisionId = `${input.request.invocationId}:write-decision:${ordinal}`;
+      return defineManagedAgentWriteEvidence({
+        evidenceId: `${decisionId}:evidence`,
+        invocationId: input.request.invocationId,
+        kind: "write-proposal-denied",
+        proposalId,
+        decisionId,
+        summary: `Live write decision denied by ${actor}: ${reason}`,
+        resourceUris: decision.resourceUris?.map((uri) => requireText(uri, "Managed live write decision resource uri is required"))
+          ?? [managedInvocationUri(input.request.invocationId, `write-decisions/${ordinal}`)],
+        recordedAt,
+      });
+    }
+
+    throw new ManagedAgentRuntimeAdmissionError(`Unsupported managed live write decision status: ${decision.status as string}`);
+  });
+}
+
 function assertPathWithinWriteAuthority(path: string, allowedPaths: readonly string[], deniedPaths: readonly string[]): void {
   const normalizedPath = normalizePath(path);
   const denied = deniedPaths.some((deniedPath) => isSameOrChildPath(normalizedPath, normalizePath(deniedPath)));
@@ -148,6 +235,13 @@ function requireNonNegativeInteger(value: number, message: string): number {
     throw new ManagedAgentRuntimeAdmissionError(message);
   }
   return value;
+}
+
+function requireDecisionOrdinal(providerRequestId: string | undefined, fallback: number): string {
+  if (providerRequestId === undefined) {
+    return fallback.toString();
+  }
+  return requireText(providerRequestId, "Managed live write provider request id is required");
 }
 
 function managedInvocationUri(invocationId: string, resource: string): string {

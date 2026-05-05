@@ -29,10 +29,15 @@ export type {
   AppendManagedInvocationSessionEventsInput,
 } from "./session-events.js";
 export {
+  collectManagedAgentLiveWriteDecisionEvidence,
   collectManagedAgentLiveWriteEvidence,
   normalizeManagedAgentLiveWriteChanges,
 } from "./live-write-event-bridge.js";
 export type {
+  ManagedAgentLiveWriteDecision,
+  ManagedAgentLiveWriteDecisionEvidenceInput,
+  ManagedAgentLiveWriteDecisionSource,
+  ManagedAgentLiveWriteDecisionStatus,
   ManagedAgentLiveWriteEventBridgeInput,
   ManagedAgentLiveWriteEventBridgeResult,
   ManagedAgentLiveWriteChange,

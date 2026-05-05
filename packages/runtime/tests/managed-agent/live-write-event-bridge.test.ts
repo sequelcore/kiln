@@ -8,6 +8,7 @@ import type { ManagedAgentInvocationRequest } from "@kilnai/core";
 import { ManagedAgentRuntimeAdmissionError } from "../../src/agents/managed-invocation/index.js";
 import {
   collectManagedAgentLiveWriteEvidence,
+  collectManagedAgentLiveWriteDecisionEvidence,
   normalizeManagedAgentLiveWriteChanges,
 } from "../../src/agents/managed-invocation/live-write-event-bridge.js";
 import type { CliSessionEvent } from "../../src/execution/cli-session-contract.js";
@@ -218,6 +219,95 @@ describe("managed agent live write event bridge", () => {
     expect(() => collectManagedAgentLiveWriteEvidence({
       request: makeWriteRequest(),
       fileChanges: [fixtureFileChange("C:/Proyectos/Sequel/kiln/packages/core/src/escape.ts")],
+      recordedAt: "2026-05-05T12:00:00.000Z",
+    })).toThrow(ManagedAgentRuntimeAdmissionError);
+  });
+
+  it("normalizes approved live permission decisions into write approval evidence", () => {
+    const evidence = collectManagedAgentLiveWriteDecisionEvidence({
+      request: makeWriteRequest(),
+      decisions: [{
+        source: "patch-approval",
+        status: "approved",
+        providerRequestId: "codex-approval-1",
+        actor: "operator",
+        reason: "Approved bounded fixture update.",
+      }],
+      recordedAt: "2026-05-05T12:00:00.000Z",
+    });
+
+    expect(evidence).toEqual([{
+      evidenceId: "invocation-live-write-1:write-decision:codex-approval-1:evidence",
+      invocationId: "invocation-live-write-1",
+      kind: "write-proposal-approved",
+      proposalId: "invocation-live-write-1:write-proposal:codex-approval-1",
+      decisionId: "invocation-live-write-1:write-decision:codex-approval-1",
+      summary: "Live write decision approved by operator: Approved bounded fixture update.",
+      resourceUris: ["kiln://managed-invocations/invocation-live-write-1/write-decisions/codex-approval-1"],
+      recordedAt: "2026-05-05T12:00:00.000Z",
+    }]);
+    expect(JSON.stringify(evidence)).not.toContain("patch-approval");
+  });
+
+  it("normalizes denied live permission decisions into proposal denial evidence", () => {
+    const evidence = collectManagedAgentLiveWriteDecisionEvidence({
+      request: makeWriteRequest(),
+      decisions: [{
+        source: "permission-event",
+        status: "denied",
+        providerRequestId: "opencode-permission-1",
+        actor: "operator",
+        reason: "Denied edit outside the requested task.",
+      }],
+      recordedAt: "2026-05-05T12:00:00.000Z",
+    });
+
+    expect(evidence).toEqual([{
+      evidenceId: "invocation-live-write-1:write-decision:opencode-permission-1:evidence",
+      invocationId: "invocation-live-write-1",
+      kind: "write-proposal-denied",
+      proposalId: "invocation-live-write-1:write-proposal:opencode-permission-1",
+      decisionId: "invocation-live-write-1:write-decision:opencode-permission-1",
+      summary: "Live write decision denied by operator: Denied edit outside the requested task.",
+      resourceUris: ["kiln://managed-invocations/invocation-live-write-1/write-decisions/opencode-permission-1"],
+      recordedAt: "2026-05-05T12:00:00.000Z",
+    }]);
+    expect(JSON.stringify(evidence)).not.toContain("permission-event");
+  });
+
+  it("records read-only live write permission denials as write-authority denied evidence", () => {
+    const evidence = collectManagedAgentLiveWriteDecisionEvidence({
+      request: makeReadOnlyRequest(),
+      decisions: [{
+        source: "permission-event",
+        status: "denied",
+        providerRequestId: "readonly-permission-1",
+        actor: "kiln-policy",
+        reason: "Read-only managed invocation cannot write.",
+      }],
+      recordedAt: "2026-05-05T12:00:00.000Z",
+    });
+
+    expect(evidence).toEqual([{
+      evidenceId: "invocation-live-write-1:write-authority-denied:readonly-permission-1",
+      invocationId: "invocation-live-write-1",
+      kind: "write-authority-denied",
+      summary: "Live write authority denied by kiln-policy: Read-only managed invocation cannot write.",
+      resourceUris: ["kiln://managed-invocations/invocation-live-write-1/write-denials/readonly-permission-1"],
+      recordedAt: "2026-05-05T12:00:00.000Z",
+    }]);
+  });
+
+  it("rejects approved live permission decisions without admitted write authority", () => {
+    expect(() => collectManagedAgentLiveWriteDecisionEvidence({
+      request: makeReadOnlyRequest(),
+      decisions: [{
+        source: "patch-approval",
+        status: "approved",
+        providerRequestId: "readonly-approval-1",
+        actor: "operator",
+        reason: "Provider attempted to approve a read-only write.",
+      }],
       recordedAt: "2026-05-05T12:00:00.000Z",
     })).toThrow(ManagedAgentRuntimeAdmissionError);
   });
