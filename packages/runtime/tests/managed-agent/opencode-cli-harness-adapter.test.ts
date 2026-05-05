@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   defineManagedAgentInvocationRequest,
+  defineManagedAgentWriteAuthority,
+  defineManagedAgentWriteScope,
   type ManagedAgentInvocationRequest,
 } from "@kilnai/core";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
@@ -56,6 +58,81 @@ function makeRequest(timeoutMs = 120000): ManagedAgentInvocationRequest {
     input: {
       summary: "Inspect the managed invocation contract.",
       prompt: "Read the relevant files and return a compact review.",
+    },
+  });
+}
+
+function makeWriteRequest(): ManagedAgentInvocationRequest {
+  return defineManagedAgentInvocationRequest({
+    invocationId: "invocation-opencode-write-1",
+    agentId: "agent-implementer",
+    parentSessionId: "session-parent",
+    parentTurnId: "session-parent:turn:1",
+    profile: "foundation-apply-approved-writes",
+    requestedBy: "operator",
+    requestSource: "manual",
+    providerRoute: {
+      providerId: "opencode",
+      surface: "cli-harness",
+      model: "sonic",
+    },
+    adapterKind: "harness",
+    executionMode: "cli-harness",
+    authority: {
+      authorityProfileId: "foundation-apply-approved",
+      permissionProfile: "apply-approved-writes",
+      toolAuthority: {
+        allowedToolNames: ["read", "rg", "apply-patch"],
+        writeAllowed: true,
+        networkAllowed: false,
+      },
+      workingDirectory: {
+        path: "C:/Proyectos/Sequel/kiln",
+        mode: "workspace-write",
+      },
+      timeoutMs: 120000,
+      credentialRoute: {
+        mode: "runtime-selected",
+        routeId: "credential-route:opencode:primary",
+      },
+      memoryScope: {
+        scope: { kind: "project", id: "kiln" },
+        access: "write-proposals",
+      },
+      writeAuthority: defineManagedAgentWriteAuthority({
+        profile: "foundation-apply-approved-writes",
+        scope: defineManagedAgentWriteScope({
+          workspace: {
+            mode: "apply-approved",
+            allowedPaths: ["C:/Proyectos/Sequel/kiln/packages/runtime/tests/fixtures"],
+            deniedPaths: ["C:/Proyectos/Sequel/kiln/.git"],
+          },
+          memory: {
+            mode: "propose",
+            scope: { kind: "project", id: "kiln" },
+            operations: ["create", "update"],
+          },
+          artifacts: {
+            mode: "propose",
+            resourceUris: ["kiln://managed-invocations/invocation-opencode-write-1/write"],
+            retention: "session",
+          },
+          tools: {
+            allowedToolNames: ["read", "rg", "apply-patch"],
+            deniedToolNames: ["git-commit"],
+          },
+        }),
+        approval: {
+          mode: "policy-approved",
+          evidenceRequired: true,
+          approver: "operator",
+          evidenceUris: ["kiln://managed-invocations/invocation-opencode-write-1/approval"],
+        },
+      }),
+    },
+    input: {
+      summary: "Apply an approved fixture update.",
+      prompt: "Apply only the approved fixture update and report evidence.",
     },
   });
 }
@@ -171,6 +248,93 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
         usage: {
           cost: { currency: "USD", amount: 0.02 },
         },
+      },
+    });
+  });
+
+  it("proves admitted write authority with replayable proposal, decision, attempt, and terminal evidence", async () => {
+    const run = vi.fn((options: CliSessionRunOptions) => eventStream([
+      { type: "text_delta", content: "Approved fixture update applied." },
+      {
+        type: "file_changed",
+        path: "C:/Proyectos/Sequel/kiln/packages/runtime/tests/fixtures/managed-write-proof.txt",
+        changeType: "modified",
+        linesAdded: 1,
+        linesRemoved: 0,
+        diffPreview: "diff --git a/managed-write-proof.txt b/managed-write-proof.txt",
+        diffTruncated: true,
+      },
+      { type: "completed", totalUsd: 0.01, durationMs: 20, isError: false, isPreflightCrash: false },
+    ]));
+    const dispose = vi.fn().mockResolvedValue(undefined);
+    const adapter = new ManagedCliHarnessAdapter({
+      providerId: "opencode",
+      model: "sonic",
+      factory: () => ({ run, dispose }),
+      writeAuthority: {
+        proposalSupported: true,
+        approvedApplySupported: true,
+        memoryProposalSupported: true,
+        rollbackEvidence: true,
+        cleanupEvidence: true,
+        scopeReduction: true,
+      },
+    });
+    const service = new RuntimeManagedAgentInvocationService();
+    const request = makeWriteRequest();
+
+    const result = await service.invoke(request, adapter);
+
+    expect(result.status).toBe("completed");
+    if (result.status !== "completed") {
+      throw new Error("Expected completed managed write invocation result");
+    }
+    expect(result.decision.writeAuthority).toEqual(request.authority.writeAuthority);
+    expect(result.record.writeEvidence?.map((evidence) => evidence.kind)).toEqual([
+      "write-proposal-created",
+      "write-proposal-approved",
+      "write-attempt-completed",
+    ]);
+    expect(result.record.writeEvidence?.flatMap((evidence) => evidence.resourceUris)).toEqual([
+      "kiln://managed-invocations/invocation-opencode-write-1/write-proposals/1",
+      "kiln://managed-invocations/invocation-opencode-write-1/write-decisions/1",
+      "kiln://managed-invocations/invocation-opencode-write-1/write-attempts/1",
+    ]);
+    expect(JSON.stringify(result.record.writeEvidence)).not.toContain("diff --git");
+    expect(result.record.resultHandoff).toMatchObject({
+      summary: "Approved fixture update applied.",
+      resourceUris: [
+        "kiln://managed-invocations/invocation-opencode-write-1/transcript",
+        "kiln://managed-invocations/invocation-opencode-write-1/write-attempts/1",
+      ],
+      memoryWriteProposalUris: [],
+    });
+
+    const runtimeSession = new RuntimeSession({
+      sessionId: request.parentSessionId,
+      appName: "test-app",
+      tenantId: "tenant-a",
+      userId: "user-1",
+      systemPrompt: "test",
+    });
+    const events = appendManagedInvocationSessionEvents({
+      session: runtimeSession,
+      request,
+      decision: result.decision,
+      record: result.record,
+      durationMs: 20,
+      timestamp: new Date("2026-05-04T12:00:00.000Z"),
+    });
+
+    expect(events.map((event) => event.kind)).toEqual([
+      "agent_invocation_requested",
+      "agent_invocation_started",
+      "agent_invocation_completed",
+    ]);
+    expect(events[2]).toMatchObject({
+      managedInvocationEvidence: {
+        writeAuthority: request.authority.writeAuthority,
+        writeEvidence: result.record.writeEvidence,
       },
     });
   });

@@ -260,4 +260,55 @@ describe("managed agent runtime write boundary", () => {
     })).rejects.toBeInstanceOf(ManagedAgentRuntimeAdmissionError);
     expect(invoke).toHaveBeenCalledTimes(1);
   });
+
+  it("rejects adapter write evidence returned for a read-only admission", async () => {
+    const readonlyRequest = defineManagedAgentInvocationRequest({
+      ...makeRequest(),
+      profile: "foundation-readonly-plan",
+      authority: {
+        ...makeRequest().authority,
+        permissionProfile: "read-only",
+        toolAuthority: {
+          allowedToolNames: ["read", "rg"],
+          writeAllowed: false,
+          networkAllowed: false,
+        },
+        workingDirectory: {
+          path: "C:/Proyectos/Sequel/kiln",
+          mode: "read-only",
+        },
+        memoryScope: {
+          scope: { kind: "project", id: "kiln" },
+          access: "read-only",
+        },
+        writeAuthority: undefined,
+      },
+    } as ManagedAgentInvocationRequest);
+    const record = defineManagedAgentInvocationRecord({
+      ...makeRecord(readonlyRequest),
+      writeEvidence: [{
+        evidenceId: "readonly-write-evidence",
+        invocationId: readonlyRequest.invocationId,
+        kind: "write-attempt-completed",
+        proposalId: "readonly-write-proposal",
+        decisionId: "readonly-write-decision",
+        attemptId: "readonly-write-attempt",
+        summary: "Read-only adapter claimed a write.",
+        resourceUris: ["kiln://managed-invocations/invocation-write-1/write-attempts/1"],
+        recordedAt: "2026-05-04T12:00:00.000Z",
+      }],
+    });
+    const invoke = vi.fn(async () => record);
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor({
+        supportedProfiles: ["foundation-readonly-plan"],
+        writeAuthority: undefined,
+      }),
+      invoke,
+    };
+    const service = new RuntimeManagedAgentInvocationService();
+
+    await expect(service.invoke(readonlyRequest, adapter)).rejects.toBeInstanceOf(ManagedAgentRuntimeAdmissionError);
+    expect(invoke).toHaveBeenCalledTimes(1);
+  });
 });

@@ -194,6 +194,9 @@ export class RuntimeManagedAgentInvocationService {
       if (record.authority.writeAuthority !== undefined) {
         throw new ManagedAgentRuntimeAdmissionError("Managed agent adapter returned write authority for a non-write admission");
       }
+      if ((record.writeEvidence?.length ?? 0) > 0) {
+        throw new ManagedAgentRuntimeAdmissionError("Managed agent adapter returned write evidence for a non-write admission");
+      }
       if ((record.resultHandoff?.memoryWriteProposalUris.length ?? 0) > 0) {
         throw new ManagedAgentRuntimeAdmissionError("Managed agent adapter returned memory write proposals for a non-write admission");
       }
