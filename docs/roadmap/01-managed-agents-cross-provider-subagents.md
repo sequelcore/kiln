@@ -2,22 +2,47 @@
 
 ## Status
 
-Phase 0 planning, Phase 1 Slice 1 doctrine, Phase 1 Slice 2 foundation
-boundary, Phase 1 Slice 3 canonical core contracts, Phase 1 Slice 4 runtime
-admission ownership, Phase 1 Slice 5 adapter taxonomy, Phase 1 Slice 6 session
-event/replay projection planning, and Phase 1 Slice 7 test-first verification
-planning are complete on 2026-05-02. Ready to start Phase 1, Slice 8: first
-adapter proof.
+The original six-slice canonical planning plan is complete. Slices 1-6 define
+the managed-agent doctrine, foundation boundary, core contracts, runtime
+ownership, adapter taxonomy, and session event/replay projection rules.
 
-Phase 1 must start from the Kiln-native managed agent invocation plan below.
-Do not open an ADR yet, do not select the first adapter yet, and do not start
-runtime implementation until Slice 8 begins with the Slice 7 failing-test
-sequence.
+The roadmap was then expanded with a documented implementation-proof extension:
+Slice 7 converts the plan into a test-first verification sequence, Slice 8
+proves one admitted `foundation-readonly-plan` adapter path, and Slice 9 closes
+the long-term expansion order. Slice 7 is complete. Slice 8 is in progress as
+of 2026-05-03.
+
+Do not open an ADR yet. Do not treat the original six planning slices as
+unfinished. The remaining work belongs to the proof extension, not to the
+canonical planning phase.
 
 Stable dependency doctrine lives in
 `docs/architecture/provider-credential-pools.md`,
 `docs/guides/provider-credentials.md`, `docs/architecture/memory.md`,
 `docs/guides/memory.md`, and `docs/architecture/context-governance.md`.
+
+## Scope Accounting
+
+This roadmap has two layers:
+
+| Layer | Slices | Status | Meaning |
+| --- | --- | --- | --- |
+| Original canonical planning plan | 1-6 | Complete on 2026-05-02 | Defines the official Kiln-native design and boundaries. |
+| Implementation-proof extension | 7-9 | In progress | Proves the design with tests, one first adapter path, and the future expansion order. |
+
+The expanded slices are intentional, but they must be read as an extension:
+
+- Slice 7 is not another design slice; it is the test-first verification plan.
+- Slice 8 is not another planning slice; it is the first real implementation
+  proof for one read-only child invocation path.
+- Slice 9 is not required before implementation proof; it records the expansion
+  order after one replayable path exists.
+
+Completion accounting:
+
+- Original `01` planning objective: complete.
+- Current expanded `01` roadmap objective: not complete until Slice 8 produces
+  one working adapter proof and Slice 9 records the expansion order.
 
 ## Goal
 
