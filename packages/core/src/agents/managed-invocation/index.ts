@@ -1,8 +1,22 @@
 import { defineMemoryScope } from "../../memory/domain/scope.js";
 import type { MemoryScope } from "../../memory/domain/scope.js";
+import {
+  defineManagedAgentAdapterWriteAuthorityDescriptor,
+  defineManagedAgentWriteAuthority,
+  isManagedAgentWriteAuthorityProfile,
+} from "./write-authority.js";
+import type {
+  ManagedAgentAdapterWriteAuthorityDescriptor,
+  ManagedAgentWriteAuthority,
+} from "./write-authority.js";
+
+export * from "./write-authority.js";
 
 export const MANAGED_AGENT_ADMISSION_PROFILES = [
   "foundation-readonly-plan",
+  "foundation-propose-writes",
+  "foundation-apply-approved-writes",
+  "foundation-memory-write-proposals",
   "diagnostic-only",
   "comparison-only",
   "rejected",
@@ -76,6 +90,7 @@ export interface ManagedAgentAuthorityProfile {
   readonly timeoutMs: number;
   readonly credentialRoute: ManagedAgentCredentialRoute;
   readonly memoryScope: ManagedAgentMemoryScope;
+  readonly writeAuthority?: ManagedAgentWriteAuthority;
 }
 
 export interface ManagedAgentInvocationInput {
@@ -139,6 +154,7 @@ export interface ManagedAgentAdapterDescriptor {
   readonly memoryContext: {
     readonly governedAdmission: boolean;
   };
+  readonly writeAuthority?: ManagedAgentAdapterWriteAuthorityDescriptor;
   readonly unsupportedFieldPolicy: ManagedAgentUnsupportedFieldPolicy;
   readonly cleanup: {
     readonly supported: boolean;
@@ -206,6 +222,7 @@ export type ManagedAgentAdmissionDecision =
     readonly authorityProfileId: string;
     readonly credentialRouteId?: string;
     readonly memoryScope: MemoryScope;
+    readonly writeAuthority?: ManagedAgentWriteAuthority;
   }
   | {
     readonly status: "denied";
@@ -272,6 +289,7 @@ export function defineManagedAgentAdapterDescriptor(input: ManagedAgentAdapterDe
     },
     credentialRoute: { supported: input.credentialRoute.supported === true },
     memoryContext: { governedAdmission: input.memoryContext.governedAdmission === true },
+    writeAuthority: defineManagedAgentAdapterWriteAuthorityDescriptor(input.writeAuthority),
     unsupportedFieldPolicy: requireUnsupportedFieldPolicy(input.unsupportedFieldPolicy),
     cleanup: { supported: input.cleanup.supported === true },
   };
@@ -306,12 +324,16 @@ export function evaluateManagedAgentAdmission(
   collectRequestGaps(request, missingCapabilities);
 
   const profile = request.profile;
-  if (profile !== "foundation-readonly-plan") {
-    missingCapabilities.push("profile.foundation-readonly-plan");
+  if (profile === "foundation-readonly-plan") {
+    collectReadonlyAuthorityGaps(request, missingCapabilities);
+  } else if (isManagedAgentWriteAuthorityProfile(profile)) {
+    collectWriteAuthorityGaps(request, descriptor, missingCapabilities);
+  } else {
+    missingCapabilities.push("profile.foundation-managed-invocation");
   }
 
-  if (!descriptor.supportedProfiles?.includes("foundation-readonly-plan")) {
-    missingCapabilities.push("descriptor.supportedProfiles.foundation-readonly-plan");
+  if (!descriptor.supportedProfiles?.includes(profile)) {
+    missingCapabilities.push(`descriptor.supportedProfiles.${profile}`);
   }
   if (request.executionMode && !descriptor.supportedExecutionModes?.includes(request.executionMode)) {
     missingCapabilities.push("descriptor.supportedExecutionModes");
@@ -338,13 +360,14 @@ export function evaluateManagedAgentAdmission(
   return {
     status: "admitted",
     invocationId: request.invocationId,
-    profile: "foundation-readonly-plan",
+    profile,
     adapterDescriptorId: descriptor.adapterDescriptorId,
     authorityProfileId: request.authority.authorityProfileId,
     ...(request.authority.credentialRoute.mode === "runtime-selected"
       ? { credentialRouteId: request.authority.credentialRoute.routeId }
       : {}),
     memoryScope: request.authority.memoryScope.scope,
+    ...(request.authority.writeAuthority !== undefined ? { writeAuthority: request.authority.writeAuthority } : {}),
   };
 }
 
@@ -366,7 +389,11 @@ function collectRequestGaps(request: ManagedAgentInvocationRequest, missingCapab
   if (!request.authority.toolAuthority) {
     missingCapabilities.push("request.authority.toolAuthority");
   } else {
-    if (request.authority.toolAuthority.writeAllowed !== false) missingCapabilities.push("request.authority.toolAuthority.writeAllowed.false");
+    if (request.profile === "foundation-apply-approved-writes") {
+      if (request.authority.toolAuthority.writeAllowed !== true) missingCapabilities.push("request.authority.toolAuthority.writeAllowed.true");
+    } else if (request.authority.toolAuthority.writeAllowed !== false) {
+      missingCapabilities.push("request.authority.toolAuthority.writeAllowed.false");
+    }
     if (request.authority.toolAuthority.networkAllowed !== false) missingCapabilities.push("request.authority.toolAuthority.networkAllowed.false");
   }
   if (!request.authority.workingDirectory || !hasText(request.authority.workingDirectory.path)) {
@@ -384,6 +411,83 @@ function collectRequestGaps(request: ManagedAgentInvocationRequest, missingCapab
   }
   if (!request.authority.memoryScope?.scope) {
     missingCapabilities.push("request.authority.memoryScope");
+  }
+}
+
+function collectReadonlyAuthorityGaps(request: ManagedAgentInvocationRequest, missingCapabilities: string[]): void {
+  if (request.authority?.writeAuthority !== undefined) {
+    missingCapabilities.push("request.authority.writeAuthority.none");
+  }
+  if (request.authority?.memoryScope?.access === "write-proposals") {
+    missingCapabilities.push("request.authority.memoryScope.readOnly");
+  }
+}
+
+function collectWriteAuthorityGaps(
+  request: ManagedAgentInvocationRequest,
+  descriptor: ManagedAgentAdapterDescriptor,
+  missingCapabilities: string[],
+): void {
+  const writeAuthority = request.authority?.writeAuthority;
+  const descriptorWriteAuthority = defineManagedAgentAdapterWriteAuthorityDescriptor(descriptor.writeAuthority);
+
+  if (writeAuthority === undefined) {
+    missingCapabilities.push("request.authority.writeAuthority");
+    return;
+  }
+
+  if (writeAuthority.profile !== request.profile) {
+    missingCapabilities.push("request.authority.writeAuthority.profile");
+  }
+  if (!descriptorWriteAuthority.proposalSupported) {
+    missingCapabilities.push("writeAuthority.proposalSupported");
+  }
+  if (!descriptorWriteAuthority.scopeReduction) {
+    missingCapabilities.push("writeAuthority.scopeReduction");
+  }
+
+  const requiresMemoryProposal =
+    request.profile === "foundation-memory-write-proposals" ||
+    writeAuthority.scope.memory.mode !== "none" ||
+    request.authority.memoryScope.access === "write-proposals";
+  if (requiresMemoryProposal && !descriptorWriteAuthority.memoryProposalSupported) {
+    missingCapabilities.push("writeAuthority.memoryProposalSupported");
+  }
+
+  if (request.profile === "foundation-propose-writes") {
+    if (writeAuthority.scope.workspace.mode === "apply-approved") {
+      missingCapabilities.push("request.authority.writeAuthority.workspace.proposeOnly");
+    }
+    if (writeAuthority.approval.evidenceRequired !== true) {
+      missingCapabilities.push("request.authority.writeAuthority.approval.evidenceRequired");
+    }
+  }
+
+  if (request.profile === "foundation-memory-write-proposals") {
+    if (writeAuthority.scope.memory.mode !== "propose") {
+      missingCapabilities.push("request.authority.writeAuthority.memory.propose");
+    }
+  }
+
+  if (request.profile === "foundation-apply-approved-writes") {
+    if (!descriptorWriteAuthority.approvedApplySupported) {
+      missingCapabilities.push("writeAuthority.approvedApplySupported");
+    }
+    if (!descriptorWriteAuthority.rollbackEvidence) {
+      missingCapabilities.push("writeAuthority.rollbackEvidence");
+    }
+    if (!descriptorWriteAuthority.cleanupEvidence) {
+      missingCapabilities.push("writeAuthority.cleanupEvidence");
+    }
+    if (request.authority.workingDirectory.mode === "read-only") {
+      missingCapabilities.push("request.authority.workingDirectory.writable");
+    }
+    if (writeAuthority.scope.workspace.mode !== "apply-approved") {
+      missingCapabilities.push("request.authority.writeAuthority.workspace.applyApproved");
+    }
+    if (writeAuthority.approval.mode === "none" || writeAuthority.approval.evidenceRequired !== true) {
+      missingCapabilities.push("request.authority.writeAuthority.approval.requiredBeforeApply");
+    }
   }
 }
 
@@ -435,6 +539,7 @@ function requireAuthority(input: ManagedAgentAuthorityProfile): ManagedAgentAuth
       scope: defineMemoryScope(input.memoryScope.scope),
       access: input.memoryScope.access,
     },
+    ...(input.writeAuthority !== undefined ? { writeAuthority: defineManagedAgentWriteAuthority(input.writeAuthority) } : {}),
   };
 }
 

@@ -1588,8 +1588,10 @@ Closure decision:
 - `01` is now closed as the canonical managed-agent invocation foundation.
 - Later work should start a new roadmap or implementation phase rather than
   extending `01` again.
-- The next implementation roadmap should begin with write-authority proposals
-  or a second adapter proof, depending on product priority.
+- The next implementation roadmap is
+  `docs/roadmap/01.5-managed-agent-write-authority.md`; it begins with
+  provider-neutral write-authority proposals and approval boundaries before
+  broader managed-agent expansion.
 
 Deliverable:
 
