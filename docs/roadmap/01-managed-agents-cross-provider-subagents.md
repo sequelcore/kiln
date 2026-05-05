@@ -9,8 +9,7 @@ ownership, adapter taxonomy, and session event/replay projection rules.
 The roadmap was then expanded with a documented implementation-proof extension:
 Slice 7 converts the plan into a test-first verification sequence, Slice 8
 proves one admitted `foundation-readonly-plan` adapter path, and Slice 9 closes
-the long-term expansion order. Slice 7 and Slice 8 are complete. Slice 9 is
-next as of 2026-05-04.
+the long-term expansion order. Slices 7-9 are complete as of 2026-05-04.
 
 Do not open an ADR yet. Do not treat the original six planning slices as
 unfinished. The remaining work belongs to the proof extension, not to the
@@ -28,7 +27,7 @@ This roadmap has two layers:
 | Layer | Slices | Status | Meaning |
 | --- | --- | --- | --- |
 | Original canonical planning plan | 1-6 | Complete on 2026-05-02 | Defines the official Kiln-native design and boundaries. |
-| Implementation-proof extension | 7-9 | Slice 9 pending | Proves the design with tests, one first adapter path, and the future expansion order. |
+| Implementation-proof extension | 7-9 | Complete on 2026-05-04 | Proves the design with tests, one first adapter path, and the future expansion order. |
 
 The expanded slices are intentional, but they must be read as an extension:
 
@@ -41,8 +40,8 @@ The expanded slices are intentional, but they must be read as an extension:
 Completion accounting:
 
 - Original `01` planning objective: complete.
-- Current expanded `01` roadmap objective: not complete until Slice 9 records
-  the expansion order after the first adapter proof.
+- Current expanded `01` roadmap objective: complete. The next work belongs to
+  later implementation roadmaps, not additional hidden slices in `01`.
 
 ## Goal
 
@@ -1545,7 +1544,22 @@ Deliverable:
 
 ### Slice 9: Long-Term Expansion Order
 
-Status: next.
+Status: completed on 2026-05-04.
+
+Slice 9 closes `01` after the first replayable single-child path. It does not
+authorize every expansion immediately; it fixes the order in which later
+roadmaps must add capability without weakening the Kiln control-plane boundary.
+
+Post-proof baseline:
+
+- first replayable child path: `ManagedCliHarnessAdapter` configured for
+  provider route `opencode` and execution mode `cli-harness`
+- admitted profile: `foundation-readonly-plan`
+- proven evidence: child session ID, canonical lifecycle events, structured
+  `managedInvocationEvidence`, transcript pointer, usage/cost report, timeout
+  diagnostics, result handoff, and session replay projection
+- proof constraint: deterministic fake CLI sessions; no live provider call or
+  external credential is required for the foundation test
 
 Only after one single-child path is replayable:
 
@@ -1569,8 +1583,16 @@ Sustained verification gates:
 - provider-specific behavior remains adapter metadata unless promoted through a
   later ADR
 
+Closure decision:
+
+- `01` is now closed as the canonical managed-agent invocation foundation.
+- Later work should start a new roadmap or implementation phase rather than
+  extending `01` again.
+- The next implementation roadmap should begin with write-authority proposals
+  or a second adapter proof, depending on product priority.
+
 Deliverable:
 
-- ordered expansion backlog for write authority, bounded parallelism,
-  fanout/fanin, scheduling, isolation, durable workflows, nested teams, and
-  scheduled automations
+- completed. Ordered expansion backlog recorded for write authority, bounded
+  parallelism, fanout/fanin, scheduling, isolation, durable workflows, nested
+  teams, and scheduled automations.
