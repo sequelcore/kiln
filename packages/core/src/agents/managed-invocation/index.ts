@@ -3,14 +3,17 @@ import type { MemoryScope } from "../../memory/domain/scope.js";
 import {
   defineManagedAgentAdapterWriteAuthorityDescriptor,
   defineManagedAgentWriteAuthority,
+  defineManagedAgentWriteEvidence,
   isManagedAgentWriteAuthorityProfile,
 } from "./write-authority.js";
 import type {
   ManagedAgentAdapterWriteAuthorityDescriptor,
   ManagedAgentWriteAuthority,
+  ManagedAgentWriteEvidence,
 } from "./write-authority.js";
 
 export * from "./write-authority.js";
+export * from "./write-integration.js";
 
 export const MANAGED_AGENT_ADMISSION_PROFILES = [
   "foundation-readonly-plan",
@@ -211,6 +214,7 @@ export interface ManagedAgentInvocationRecord {
   readonly diagnostics?: readonly ManagedAgentDiagnosticPointer[];
   readonly usage?: ManagedAgentUsageReport;
   readonly resultHandoff?: ManagedAgentResultHandoff;
+  readonly writeEvidence?: readonly ManagedAgentWriteEvidence[];
 }
 
 export type ManagedAgentAdmissionDecision =
@@ -313,6 +317,7 @@ export function defineManagedAgentInvocationRecord(input: ManagedAgentInvocation
     ...(input.diagnostics !== undefined ? { diagnostics: input.diagnostics.map(requireDiagnosticPointer) } : {}),
     ...(input.usage !== undefined ? { usage: requireUsageReport(input.usage) } : {}),
     ...(input.resultHandoff !== undefined ? { resultHandoff: requireResultHandoff(input.resultHandoff) } : {}),
+    ...(input.writeEvidence !== undefined ? { writeEvidence: input.writeEvidence.map(defineManagedAgentWriteEvidence) } : {}),
   };
 }
 

@@ -7,6 +7,9 @@ import type {
 import {
   defineManagedAgentInvocationRecord,
   defineManagedAgentInvocationRequest,
+  defineManagedAgentWriteAuthority,
+  defineManagedAgentWriteEvidence,
+  defineManagedAgentWriteScope,
 } from "@kilnai/core";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import {
@@ -67,6 +70,82 @@ function makeRequest(sessionId = "session-parent", turnId = `${sessionId}:turn:1
   });
 }
 
+function makeWriteScope() {
+  return defineManagedAgentWriteScope({
+    workspace: {
+      mode: "propose",
+      allowedPaths: ["C:/Proyectos/Sequel/kiln/packages/core/src/agents/managed-invocation"],
+      deniedPaths: ["C:/Proyectos/Sequel/kiln/.git"],
+    },
+    memory: {
+      mode: "propose",
+      scope: { kind: "project", id: "kiln" },
+      operations: ["create", "update"],
+    },
+    artifacts: {
+      mode: "propose",
+      resourceUris: ["kiln://artifacts/managed-agent-write/proposal-1"],
+      retention: "session",
+    },
+    tools: {
+      allowedToolNames: ["read", "rg"],
+      deniedToolNames: ["git-commit"],
+    },
+  });
+}
+
+function makeWriteRequest(sessionId = "session-parent", turnId = `${sessionId}:turn:1`): ManagedAgentInvocationRequest {
+  return defineManagedAgentInvocationRequest({
+    invocationId: "invocation-write-1",
+    agentId: "agent-implementer",
+    parentSessionId: sessionId,
+    parentTurnId: turnId,
+    profile: "foundation-propose-writes",
+    requestedBy: "operator",
+    requestSource: "manual",
+    providerRoute: {
+      providerId: "opencode",
+      surface: "cli-harness",
+      model: "sonic",
+    },
+    adapterKind: "harness",
+    executionMode: "cli-harness",
+    authority: {
+      authorityProfileId: "authority:foundation-propose-writes",
+      permissionProfile: "propose-writes",
+      toolAuthority: {
+        allowedToolNames: ["read", "rg"],
+        writeAllowed: false,
+        networkAllowed: false,
+      },
+      workingDirectory: {
+        path: "C:/Proyectos/Sequel/kiln",
+        mode: "read-only",
+      },
+      timeoutMs: 120000,
+      credentialRoute: {
+        mode: "runtime-selected",
+        routeId: "credential-route:opencode:primary",
+      },
+      memoryScope: {
+        scope: { kind: "project", id: "kiln" },
+        access: "write-proposals",
+      },
+      writeAuthority: defineManagedAgentWriteAuthority({
+        profile: "foundation-propose-writes",
+        scope: makeWriteScope(),
+        approval: {
+          mode: "required-before-apply",
+          evidenceRequired: true,
+        },
+      }),
+    },
+    input: {
+      summary: "Propose managed invocation write authority changes",
+    },
+  });
+}
+
 function makeDecision(status: "admitted" | "denied"): ManagedAgentAdmissionDecision {
   if (status === "denied") {
     return {
@@ -85,6 +164,28 @@ function makeDecision(status: "admitted" | "denied"): ManagedAgentAdmissionDecis
     authorityProfileId: "foundation-readonly",
     credentialRouteId: "credential-route:opencode:primary",
     memoryScope: { kind: "project", id: "kiln" },
+  };
+}
+
+function makeWriteDecision(status: "admitted" | "denied", request = makeWriteRequest()): ManagedAgentAdmissionDecision {
+  if (status === "denied") {
+    return {
+      status: "denied",
+      invocationId: request.invocationId,
+      profile: request.profile,
+      reason: "foundation-propose-writes denied: writeAuthority.proposalSupported",
+      missingCapabilities: ["writeAuthority.proposalSupported"],
+    };
+  }
+  return {
+    status: "admitted",
+    invocationId: request.invocationId,
+    profile: request.profile,
+    adapterDescriptorId: "adapter:opencode:harness",
+    authorityProfileId: request.authority.authorityProfileId,
+    credentialRouteId: "credential-route:opencode:primary",
+    memoryScope: request.authority.memoryScope.scope,
+    writeAuthority: request.authority.writeAuthority,
   };
 }
 
@@ -128,6 +229,54 @@ function makeRecord(lifecycleState: ManagedAgentInvocationRecord["lifecycleState
       resourceUris: ["kiln://artifacts/invocation-1/result"],
       memoryWriteProposalUris: ["kiln://memory/write-proposals/1"],
     },
+  });
+}
+
+function makeWriteRecord(request = makeWriteRequest()): ManagedAgentInvocationRecord {
+  return defineManagedAgentInvocationRecord({
+    invocationId: request.invocationId,
+    agentId: request.agentId,
+    parentSessionId: request.parentSessionId,
+    parentTurnId: request.parentTurnId,
+    profile: request.profile,
+    lifecycleState: "completed",
+    providerRoute: request.providerRoute,
+    adapterKind: request.adapterKind,
+    executionMode: request.executionMode,
+    authority: request.authority,
+    childSessionId: "child-session-write-1",
+    transcript: {
+      uri: "kiln://artifacts/invocation-write-1/transcript",
+      redacted: "unknown",
+      truncated: false,
+      persisted: true,
+      retention: "session",
+    },
+    resultHandoff: {
+      summary: "Write proposal returned.",
+      resourceUris: ["kiln://artifacts/invocation-write-1/result"],
+      memoryWriteProposalUris: ["kiln://memory/write-proposals/write-proposal-1"],
+    },
+    writeEvidence: [
+      defineManagedAgentWriteEvidence({
+        evidenceId: "write-evidence-1",
+        invocationId: request.invocationId,
+        kind: "write-proposal-created",
+        proposalId: "write-proposal-1",
+        summary: "Child produced a bounded write proposal.",
+        resourceUris: ["kiln://artifacts/invocation-write-1/proposal"],
+        recordedAt: "2026-05-04T19:40:00.000Z",
+      }),
+      defineManagedAgentWriteEvidence({
+        evidenceId: "write-evidence-2",
+        invocationId: request.invocationId,
+        kind: "write-cleanup-pending",
+        proposalId: "write-proposal-1",
+        summary: "No apply attempt ran; cleanup remains pending until approval.",
+        resourceUris: ["kiln://artifacts/invocation-write-1/cleanup"],
+        recordedAt: "2026-05-04T19:41:00.000Z",
+      }),
+    ],
   });
 }
 
@@ -259,5 +408,87 @@ describe("appendManagedInvocationSessionEvents", () => {
         expect(events[2]).toMatchObject({ reason: expect.stringContaining("cancelled") });
       }
     }
+  });
+
+  it("projects admitted write authority and write evidence through canonical managed invocation events", () => {
+    const session = makeSession();
+    const request = makeWriteRequest(session.id, `${session.id}:turn:1`);
+    const record = makeWriteRecord(request);
+    const events = appendManagedInvocationSessionEvents({
+      session,
+      request,
+      decision: makeWriteDecision("admitted", request),
+      record,
+      timestamp: new Date("2026-05-04T19:42:00.000Z"),
+    });
+
+    expect(events.map((event) => event.kind)).toEqual([
+      "agent_invocation_requested",
+      "agent_invocation_started",
+      "agent_invocation_completed",
+    ]);
+    const evidence = (events[2] as { managedInvocationEvidence?: Record<string, unknown> }).managedInvocationEvidence;
+
+    expect(evidence).toMatchObject({
+      writeAuthority: {
+        profile: "foundation-propose-writes",
+        scope: {
+          workspace: {
+            mode: "propose",
+            allowedPaths: ["C:/Proyectos/Sequel/kiln/packages/core/src/agents/managed-invocation"],
+          },
+          memory: {
+            mode: "propose",
+            scope: { kind: "project", id: "kiln" },
+          },
+        },
+        approval: {
+          mode: "required-before-apply",
+          evidenceRequired: true,
+        },
+      },
+      writeEvidence: [
+        {
+          evidenceId: "write-evidence-1",
+          kind: "write-proposal-created",
+          proposalId: "write-proposal-1",
+          resourceUris: ["kiln://artifacts/invocation-write-1/proposal"],
+        },
+        {
+          evidenceId: "write-evidence-2",
+          kind: "write-cleanup-pending",
+          proposalId: "write-proposal-1",
+          resourceUris: ["kiln://artifacts/invocation-write-1/cleanup"],
+        },
+      ],
+    });
+  });
+
+  it("projects denied write authority as replayable failure evidence", () => {
+    const session = makeSession();
+    const request = makeWriteRequest(session.id, `${session.id}:turn:1`);
+    const events = appendManagedInvocationSessionEvents({
+      session,
+      request,
+      decision: makeWriteDecision("denied", request),
+      timestamp: new Date("2026-05-04T19:43:00.000Z"),
+    });
+
+    expect(events.map((event) => event.kind)).toEqual([
+      "agent_invocation_requested",
+      "agent_invocation_failed",
+    ]);
+    const evidence = (events[1] as { managedInvocationEvidence?: Record<string, unknown> }).managedInvocationEvidence;
+
+    expect(evidence).toMatchObject({
+      writeAuthority: {
+        profile: "foundation-propose-writes",
+      },
+      writeEvidence: [{
+        kind: "write-authority-denied",
+        invocationId: request.invocationId,
+        summary: expect.stringContaining("writeAuthority.proposalSupported"),
+      }],
+    });
   });
 });

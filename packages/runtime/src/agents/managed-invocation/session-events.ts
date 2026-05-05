@@ -11,6 +11,7 @@ import type {
   SessionAgentInvocationEvidence,
   SessionEventSource,
 } from "@kilnai/core";
+import { defineManagedAgentWriteEvidence } from "@kilnai/core";
 import type { RuntimeSession } from "../../session/runtime-session.js";
 
 export interface AppendManagedInvocationSessionEventsInput {
@@ -48,6 +49,7 @@ export function appendManagedInvocationSessionEvents(
   events.push(requested);
 
   if (input.decision.status === "denied") {
+    const evidence = collectDeniedEvidence(input.request, input.decision, timestamp);
     const denied = createSessionEvent<"agent_invocation_failed">({
       kilnSessionId: input.session.id,
       sequence: nextSequence(),
@@ -60,6 +62,7 @@ export function appendManagedInvocationSessionEvents(
       errorCode: "ADMISSION_DENIED",
       errorMessage: formatAdmissionDenied(input.decision),
       retriable: false,
+      ...(evidence !== undefined ? { managedInvocationEvidence: evidence } : {}),
       source,
       timestamp,
     });
@@ -203,6 +206,8 @@ function collectEvidence(record: ManagedAgentInvocationRecord): SessionAgentInvo
     diagnostics?: SessionAgentInvocationEvidence["diagnostics"];
     usage?: SessionAgentInvocationEvidence["usage"];
     resultHandoff?: SessionAgentInvocationEvidence["resultHandoff"];
+    writeAuthority?: SessionAgentInvocationEvidence["writeAuthority"];
+    writeEvidence?: SessionAgentInvocationEvidence["writeEvidence"];
   } = {};
   if (record.childSessionId) {
     evidence.childSessionId = record.childSessionId;
@@ -222,7 +227,36 @@ function collectEvidence(record: ManagedAgentInvocationRecord): SessionAgentInvo
   if (record.resultHandoff) {
     evidence.resultHandoff = record.resultHandoff;
   }
+  if (record.authority.writeAuthority) {
+    evidence.writeAuthority = record.authority.writeAuthority;
+  }
+  if (record.writeEvidence && record.writeEvidence.length > 0) {
+    evidence.writeEvidence = record.writeEvidence;
+  }
   return Object.keys(evidence).length > 0 ? evidence : undefined;
+}
+
+function collectDeniedEvidence(
+  request: ManagedAgentInvocationRequest,
+  decision: Extract<ManagedAgentAdmissionDecision, { readonly status: "denied" }>,
+  timestamp: Date,
+): SessionAgentInvocationEvidence | undefined {
+  if (!request.authority.writeAuthority) {
+    return undefined;
+  }
+  return {
+    writeAuthority: request.authority.writeAuthority,
+    writeEvidence: [
+      defineManagedAgentWriteEvidence({
+        evidenceId: `${request.invocationId}:write-authority-denied`,
+        invocationId: request.invocationId,
+        kind: "write-authority-denied",
+        summary: formatAdmissionDenied(decision),
+        resourceUris: [],
+        recordedAt: timestamp.toISOString(),
+      }),
+    ],
+  };
 }
 
 function makeSource(): SessionEventSource {

@@ -1,5 +1,10 @@
 import type { ExecutionBillingMode } from "../agents/execution-identity.js";
 
+import type {
+  ManagedAgentWriteAuthority,
+  ManagedAgentWriteEvidence,
+} from "../agents/managed-invocation/write-authority.js";
+
 export type CanonicalSessionEventKind =
   | "turn_started"
   | "user_message"
@@ -225,6 +230,8 @@ export interface SessionAgentInvocationEvidence {
   readonly diagnostics?: readonly SessionAgentInvocationDiagnosticPointer[];
   readonly usage?: SessionAgentInvocationUsageReport;
   readonly resultHandoff?: SessionAgentInvocationResultHandoff;
+  readonly writeAuthority?: ManagedAgentWriteAuthority;
+  readonly writeEvidence?: readonly ManagedAgentWriteEvidence[];
 }
 
 export interface CanonicalAgentInvocationRequestedEvent extends SessionEventEnvelope<"agent_invocation_requested">, SessionAgentInvocationIdentity {

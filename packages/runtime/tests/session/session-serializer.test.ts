@@ -195,6 +195,45 @@ describe("serializeSession / deserializeSession", () => {
         agentId: "agent-planner",
         durationMs: 950,
         resultSummary: "Plan generated",
+        managedInvocationEvidence: {
+          writeAuthority: {
+            profile: "foundation-propose-writes",
+            scope: {
+              workspace: {
+                mode: "propose",
+                allowedPaths: ["C:/Proyectos/Sequel/kiln/packages/core/src"],
+                deniedPaths: ["C:/Proyectos/Sequel/kiln/.git"],
+              },
+              memory: {
+                mode: "propose",
+                scope: { kind: "project", id: "kiln" },
+                operations: ["create", "update"],
+              },
+              artifacts: {
+                mode: "propose",
+                resourceUris: ["kiln://artifacts/inv-1/proposal"],
+                retention: "session",
+              },
+              tools: {
+                allowedToolNames: ["read", "rg"],
+                deniedToolNames: ["git-commit"],
+              },
+            },
+            approval: {
+              mode: "required-before-apply",
+              evidenceRequired: true,
+            },
+          },
+          writeEvidence: [{
+            evidenceId: "write-evidence-1",
+            invocationId: "inv-1",
+            kind: "write-proposal-created",
+            proposalId: "write-proposal-1",
+            summary: "Write proposal created.",
+            resourceUris: ["kiln://artifacts/inv-1/proposal"],
+            recordedAt: "2026-05-04T19:44:00.000Z",
+          }],
+        },
       }),
       createSessionEvent({
         kilnSessionId: session.id,
@@ -238,6 +277,16 @@ describe("serializeSession / deserializeSession", () => {
     expect(restored.sessionEvents[4]).toMatchObject({
       kind: "agent_invocation_completed",
       resultSummary: "Plan generated",
+      managedInvocationEvidence: {
+        writeAuthority: {
+          profile: "foundation-propose-writes",
+        },
+        writeEvidence: [{
+          evidenceId: "write-evidence-1",
+          kind: "write-proposal-created",
+          resourceUris: ["kiln://artifacts/inv-1/proposal"],
+        }],
+      },
     });
     expect(restored.sessionEvents[0]?.timestamp).toBeInstanceOf(Date);
   });
