@@ -30,10 +30,13 @@ export type {
 } from "./session-events.js";
 export {
   collectManagedAgentLiveWriteEvidence,
+  normalizeManagedAgentLiveWriteChanges,
 } from "./live-write-event-bridge.js";
 export type {
   ManagedAgentLiveWriteEventBridgeInput,
   ManagedAgentLiveWriteEventBridgeResult,
+  ManagedAgentLiveWriteChange,
+  ManagedAgentLiveWriteChangeSource,
 } from "./live-write-event-bridge.js";
 export {
   ManagedCliHarnessAdapter,

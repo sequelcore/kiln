@@ -14,9 +14,39 @@ export interface ManagedAgentLiveWriteEventBridgeInput {
   readonly recordedAt?: string;
 }
 
+export type ManagedAgentLiveWriteChangeSource =
+  | "cli-session"
+  | "session-diff"
+  | "patch-update"
+  | "tool-result";
+
+export interface ManagedAgentLiveWriteChange {
+  readonly source: ManagedAgentLiveWriteChangeSource;
+  readonly path: string;
+  readonly changeType: Extract<CliSessionEvent, { readonly type: "file_changed" }>["changeType"];
+  readonly linesAdded?: number;
+  readonly linesRemoved?: number;
+  readonly diffPreview?: string;
+  readonly diffTruncated?: boolean;
+}
+
 export interface ManagedAgentLiveWriteEventBridgeResult {
   readonly evidence: readonly ManagedAgentWriteEvidence[];
   readonly attemptResourceUris: readonly string[];
+}
+
+export function normalizeManagedAgentLiveWriteChanges(
+  changes: readonly ManagedAgentLiveWriteChange[],
+): Extract<CliSessionEvent, { readonly type: "file_changed" }>[] {
+  return changes.map((change) => ({
+    type: "file_changed",
+    path: requireText(change.path, "Managed live write change path is required"),
+    changeType: change.changeType,
+    ...(change.linesAdded !== undefined ? { linesAdded: requireNonNegativeInteger(change.linesAdded, "Managed live write added line count is invalid") } : {}),
+    ...(change.linesRemoved !== undefined ? { linesRemoved: requireNonNegativeInteger(change.linesRemoved, "Managed live write removed line count is invalid") } : {}),
+    ...(change.diffPreview !== undefined ? { diffPreview: requireText(change.diffPreview, "Managed live write diff preview is required") } : {}),
+    ...(change.diffTruncated !== undefined ? { diffTruncated: change.diffTruncated === true } : {}),
+  }));
 }
 
 export function collectManagedAgentLiveWriteEvidence(
@@ -111,6 +141,13 @@ function isSameOrChildPath(path: string, parent: string): boolean {
 
 function normalizePath(path: string): string {
   return requireText(path, "Managed live write file path is required").replace(/\\/g, "/").replace(/\/+$/, "");
+}
+
+function requireNonNegativeInteger(value: number, message: string): number {
+  if (!Number.isInteger(value) || value < 0) {
+    throw new ManagedAgentRuntimeAdmissionError(message);
+  }
+  return value;
 }
 
 function managedInvocationUri(invocationId: string, resource: string): string {

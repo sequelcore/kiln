@@ -8,6 +8,7 @@ import type { ManagedAgentInvocationRequest } from "@kilnai/core";
 import { ManagedAgentRuntimeAdmissionError } from "../../src/agents/managed-invocation/index.js";
 import {
   collectManagedAgentLiveWriteEvidence,
+  normalizeManagedAgentLiveWriteChanges,
 } from "../../src/agents/managed-invocation/live-write-event-bridge.js";
 import type { CliSessionEvent } from "../../src/execution/cli-session-contract.js";
 
@@ -141,6 +142,68 @@ describe("managed agent live write event bridge", () => {
       "kiln://managed-invocations/invocation-live-write-1/write-attempts/1",
     ]);
     expect(JSON.stringify(result.evidence)).not.toContain("diff --git");
+  });
+
+  it("normalizes OpenCode-style session diff changes before collecting write evidence", () => {
+    const fileChanges = normalizeManagedAgentLiveWriteChanges([{
+      source: "session-diff",
+      path: "C:/Proyectos/Sequel/kiln/packages/runtime/tests/fixtures/live-write-proof.txt",
+      changeType: "modified",
+      linesAdded: 2,
+      linesRemoved: 1,
+      diffPreview: "diff --git a/live-write-proof.txt b/live-write-proof.txt",
+      diffTruncated: true,
+    }]);
+
+    const result = collectManagedAgentLiveWriteEvidence({
+      request: makeWriteRequest(),
+      fileChanges,
+      recordedAt: "2026-05-05T12:00:00.000Z",
+    });
+
+    expect(fileChanges).toEqual([{
+      type: "file_changed",
+      path: "C:/Proyectos/Sequel/kiln/packages/runtime/tests/fixtures/live-write-proof.txt",
+      changeType: "modified",
+      linesAdded: 2,
+      linesRemoved: 1,
+      diffPreview: "diff --git a/live-write-proof.txt b/live-write-proof.txt",
+      diffTruncated: true,
+    }]);
+    expect(result.evidence.map((evidence) => evidence.kind)).toEqual([
+      "write-proposal-created",
+      "write-proposal-approved",
+      "write-attempt-completed",
+    ]);
+  });
+
+  it("normalizes Codex-style patch update changes without leaking provider vocabulary into evidence", () => {
+    const fileChanges = normalizeManagedAgentLiveWriteChanges([{
+      source: "patch-update",
+      path: "C:/Proyectos/Sequel/kiln/packages/runtime/tests/fixtures/live-write-proof.txt",
+      changeType: "modified",
+      linesAdded: 1,
+      linesRemoved: 0,
+      diffPreview: "*** Begin Patch\n*** Update File: live-write-proof.txt",
+      diffTruncated: true,
+    }]);
+
+    const result = collectManagedAgentLiveWriteEvidence({
+      request: makeWriteRequest(),
+      fileChanges,
+      recordedAt: "2026-05-05T12:00:00.000Z",
+    });
+
+    expect(fileChanges[0]).toMatchObject({
+      type: "file_changed",
+      path: "C:/Proyectos/Sequel/kiln/packages/runtime/tests/fixtures/live-write-proof.txt",
+      changeType: "modified",
+    });
+    expect(fileChanges[0]).not.toHaveProperty("source");
+    expect(JSON.stringify(result.evidence)).not.toContain("Patch");
+    expect(result.attemptResourceUris).toEqual([
+      "kiln://managed-invocations/invocation-live-write-1/write-attempts/1",
+    ]);
   });
 
   it("rejects live file changes for read-only managed invocations", () => {
