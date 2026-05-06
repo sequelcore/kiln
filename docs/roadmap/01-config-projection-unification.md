@@ -761,6 +761,41 @@ Verification: `bun run typecheck` clean; `bun run test` clean; focused runtime
 managed-invocation tests clean. Live direct-provider tests remain gated by
 provider-specific flags.
 
+### 01.D.3 - Direct Provider Write Evidence
+
+Scope: `packages/runtime/src/agents/managed-invocation/`,
+`packages/runtime/src/session/`, `packages/runtime/src/gateway/`,
+`packages/cli/src/config/managed-agent-routes.ts`.
+
+- Add write-capable direct-provider managed routes only after the runtime can
+  prove the same evidence contract used by harness routes: proposal, approval,
+  attempted write, retained filesystem state, rollback or cleanup evidence, and
+  bounded resource URIs.
+- Reuse Kiln builtin write tools, runtime tool authority, filesystem sandbox,
+  managed invocation write evidence collectors, and parent session event
+  appenders. Do not introduce provider-specific write state or direct-provider
+  diff payloads in session events.
+- Direct providers may request `foundation-propose-writes` only when the route
+  can produce proposal evidence without mutating files. They may request
+  `foundation-apply-approved-writes` only when policy-approved evidence,
+  tracked-path observation, rollback/cleanup evidence, and scope reduction are
+  all available.
+- Config projection keeps write-capable direct routes unhealthy until their
+  provider family has deterministic denial tests, deterministic approved-write
+  tests, and opt-in live proof for the provider family.
+- Unit tests: read-only direct route still denies writes; propose-write route
+  emits proposal evidence without modifying files; apply-approved route records
+  proposal, approval, and attempt evidence; out-of-scope write is denied and
+  leaves no retained mutation; terminal session events link evidence through
+  `kiln://` resources without raw diffs.
+- Live tests: provider-specific opt-in direct-provider approved-write proof uses
+  an isolated fixture workspace, bounded tracked paths, cleanup, and replay
+  assertions. It never runs as part of normal deterministic CI.
+
+Verification: `bun run typecheck` clean; `bun run test` clean; focused runtime
+managed-invocation write tests clean; provider-specific live proof gated by
+`KILN_LIVE_MANAGED_AGENT_TESTS=1` plus direct-provider write flags.
+
 ### 01.E - kiln sync + Drift Detection + kiln import-native
 
 Scope: `packages/cli/src/commands/sync.ts` (rewrite),
@@ -777,6 +812,14 @@ Scope: `packages/cli/src/commands/sync.ts` (rewrite),
   user key preserved through sync; clean state → all targets written; import-
   native extracts model from codex TOML; import-native merges without
   clobbering unrelated Kiln fields.
+- Implementation progress: native projection install state and managed-field
+  drift detection are implemented for permission sync targets. Permission sync
+  writes `.kiln/install-state.json`, preserves unmanaged native keys, and
+  aborts only the target whose managed fields drifted. `kiln sync
+  --permissions --force` and `kiln sync --force` now require operator
+  confirmation before overwriting drifted managed permission fields. `kiln
+  sync --target <target>` now scopes execution through the same canonical
+  target selector used by legacy per-surface flags.
 
 ### 01.F - kiln uninstall + kiln migrate
 

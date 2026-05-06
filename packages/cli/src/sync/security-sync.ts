@@ -6,6 +6,15 @@ import { translatePermission } from "../wrapper/session-registry.js";
 import type { BackendConfig } from "../wrapper/session-registry.js";
 import type { KilnPermissionPolicy } from "../wrapper/session.js";
 import type { KilnYaml } from "../kiln-yaml-types.js";
+import {
+  createNativeProjectionSnapshot,
+  detectNativeProjectionDrift,
+  readNativeProjectionInstallState,
+  upsertNativeProjectionTargetState,
+  writeNativeProjectionInstallState,
+  type NativeProjectionInstallState,
+  type NativeProjectionTargetState,
+} from "./native-projection-state.js";
 
 const DEFAULT_POLICY: KilnPermissionPolicy = { approval: "on-request", sandbox: "read-only" };
 
@@ -38,6 +47,16 @@ export interface SyncResult {
   codex: boolean;
   opencode: boolean;
   errors: string[];
+}
+
+export interface SyncPermissionsOptions {
+  readonly force?: boolean;
+}
+
+interface PermissionTargetResult {
+  readonly ok: boolean;
+  readonly snapshot?: NativeProjectionTargetState;
+  readonly error?: string;
 }
 
 function ensureDir(dirPath: string): void {
@@ -74,39 +93,56 @@ function toPermissionSyncMetadata(translated: BackendConfig): PermissionSyncMeta
 export async function syncPermissions(
   kilnYaml: KilnYaml,
   projectPath: string,
+  options: SyncPermissionsOptions = {},
 ): Promise<SyncResult> {
   const errors: string[] = [];
   const policy = kilnYaml.permissions ?? DEFAULT_POLICY;
+  const kilnDir = join(projectPath, ".kiln");
+  let installState = readNativeProjectionInstallState(kilnDir);
 
-  const [claudeResult, codexResult, opencodeResult] = await Promise.allSettled([
-    syncClaudePermissions(policy, projectPath),
-    syncCodexPermissions(policy),
-    syncOpenCodePermissions(policy),
-  ]);
-
-  const claude = claudeResult.status === "fulfilled" ? claudeResult.value : false;
-  if (claudeResult.status === "rejected") {
-    errors.push(`Claude Code: ${claudeResult.reason instanceof Error ? claudeResult.reason.message : String(claudeResult.reason)}`);
+  const claudeResult = await syncClaudePermissions(policy, projectPath, installState, options);
+  if (claudeResult.snapshot) {
+    installState = upsertNativeProjectionTargetState(installState, claudeResult.snapshot);
+  }
+  if (claudeResult.error) {
+    errors.push(`Claude Code: ${claudeResult.error}`);
   }
 
-  const codex = codexResult.status === "fulfilled" ? codexResult.value : false;
-  if (codexResult.status === "rejected") {
-    errors.push(`Codex: ${codexResult.reason instanceof Error ? codexResult.reason.message : String(codexResult.reason)}`);
+  const codexResult = await syncCodexPermissions(policy, installState, options);
+  if (codexResult.snapshot) {
+    installState = upsertNativeProjectionTargetState(installState, codexResult.snapshot);
+  }
+  if (codexResult.error) {
+    errors.push(`Codex: ${codexResult.error}`);
   }
 
-  const opencode = opencodeResult.status === "fulfilled" ? opencodeResult.value : false;
-  if (opencodeResult.status === "rejected") {
-    errors.push(`OpenCode: ${opencodeResult.reason instanceof Error ? opencodeResult.reason.message : String(opencodeResult.reason)}`);
+  const opencodeResult = await syncOpenCodePermissions(policy, installState, options);
+  if (opencodeResult.snapshot) {
+    installState = upsertNativeProjectionTargetState(installState, opencodeResult.snapshot);
+  }
+  if (opencodeResult.error) {
+    errors.push(`OpenCode: ${opencodeResult.error}`);
   }
 
-  return { claude, codex, opencode, errors };
+  writeNativeProjectionInstallState(kilnDir, installState);
+
+  return {
+    claude: claudeResult.ok,
+    codex: codexResult.ok,
+    opencode: opencodeResult.ok,
+    errors,
+  };
 }
 
 async function syncClaudePermissions(
   policy: KilnPermissionPolicy,
   projectPath: string,
-): Promise<boolean> {
+  installState: NativeProjectionInstallState,
+  options: SyncPermissionsOptions,
+): Promise<PermissionTargetResult> {
+  const targetId = "claude-settings";
   const target = join(projectPath, ".claude", "settings.json");
+  const managedFields = ["permissions", "kiln.permissionSync"];
   let existing: Record<string, unknown> = {};
   if (existsSync(target)) {
     try {
@@ -114,6 +150,13 @@ async function syncClaudePermissions(
     } catch {
       existing = {};
     }
+  }
+  const drift = detectNativeProjectionDrift({ targetId, state: installState, currentDocument: existing });
+  if (drift && !options.force) {
+    return {
+      ok: false,
+      error: `managed field drift detected: ${drift.driftedFields.join(", ")}`,
+    };
   }
 
   const translated = translatePermission(policy, "claude");
@@ -139,11 +182,25 @@ async function syncClaudePermissions(
   const merged: Record<string, unknown> = { ...existing, permissions, kiln };
   ensureDir(dirname(target));
   writeFileSync(target, JSON.stringify(merged, null, 2) + "\n", "utf-8");
-  return true;
+  return {
+    ok: true,
+    snapshot: createNativeProjectionSnapshot({
+      targetId,
+      filePath: target,
+      document: merged,
+      managedFields,
+    }),
+  };
 }
 
-async function syncCodexPermissions(policy: KilnPermissionPolicy): Promise<boolean> {
+async function syncCodexPermissions(
+  policy: KilnPermissionPolicy,
+  installState: NativeProjectionInstallState,
+  options: SyncPermissionsOptions,
+): Promise<PermissionTargetResult> {
+  const targetId = "codex-config";
   const target = join(os.homedir(), ".codex", "config.toml");
+  const managedFields = ["approval_policy", "sandbox_mode", "kiln.permission_sync"];
   let doc: Record<string, unknown> = {};
   if (existsSync(target)) {
     try {
@@ -152,6 +209,13 @@ async function syncCodexPermissions(policy: KilnPermissionPolicy): Promise<boole
     } catch {
       doc = {};
     }
+  }
+  const drift = detectNativeProjectionDrift({ targetId, state: installState, currentDocument: doc });
+  if (drift && !options.force) {
+    return {
+      ok: false,
+      error: `managed field drift detected: ${drift.driftedFields.join(", ")}`,
+    };
   }
 
   const translated = translatePermission(policy, "codex");
@@ -172,11 +236,25 @@ async function syncCodexPermissions(policy: KilnPermissionPolicy): Promise<boole
 
   ensureDir(dirname(target));
   writeFileSync(target, stringifyToml(merged as Record<string, unknown>), "utf-8");
-  return true;
+  return {
+    ok: true,
+    snapshot: createNativeProjectionSnapshot({
+      targetId,
+      filePath: target,
+      document: merged,
+      managedFields,
+    }),
+  };
 }
 
-async function syncOpenCodePermissions(policy: KilnPermissionPolicy): Promise<boolean> {
+async function syncOpenCodePermissions(
+  policy: KilnPermissionPolicy,
+  installState: NativeProjectionInstallState,
+  options: SyncPermissionsOptions,
+): Promise<PermissionTargetResult> {
+  const targetId = "opencode-config";
   const target = join(os.homedir(), ".config", "opencode", "opencode.json");
+  const managedFields = ["permission", "kiln.permissionSync"];
   let existing: Record<string, unknown> = {};
   if (existsSync(target)) {
     try {
@@ -186,6 +264,13 @@ async function syncOpenCodePermissions(policy: KilnPermissionPolicy): Promise<bo
     } catch {
       existing = {};
     }
+  }
+  const drift = detectNativeProjectionDrift({ targetId, state: installState, currentDocument: existing });
+  if (drift && !options.force) {
+    return {
+      ok: false,
+      error: `managed field drift detected: ${drift.driftedFields.join(", ")}`,
+    };
   }
 
   const translated = translatePermission(policy, "opencode");
@@ -200,5 +285,13 @@ async function syncOpenCodePermissions(policy: KilnPermissionPolicy): Promise<bo
   const merged: Record<string, unknown> = { ...existing, permission, kiln };
   ensureDir(dirname(target));
   writeFileSync(target, JSON.stringify(merged, null, 2) + "\n", "utf-8");
-  return true;
+  return {
+    ok: true,
+    snapshot: createNativeProjectionSnapshot({
+      targetId,
+      filePath: target,
+      document: merged,
+      managedFields,
+    }),
+  };
 }

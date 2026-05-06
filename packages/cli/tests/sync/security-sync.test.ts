@@ -199,4 +199,91 @@ describe("syncPermissions", () => {
     expect((opencodeMetadata.representableRules as unknown[]).length).toBeGreaterThan(0);
     expect((opencodeMetadata.unsupportedRules as unknown[]).length).toBeGreaterThan(0);
   });
+
+  it("records native projection install state after permission sync", async () => {
+    const result = await syncPermissions(buildKilnYaml(), paths.projectPath);
+
+    expect(result.errors).toHaveLength(0);
+    const state = readJson(join(paths.projectPath, ".kiln", "install-state.json"));
+    expect(state.version).toBe(1);
+    const targets = asRecord(state.targets);
+    expect(Object.keys(targets).sort()).toEqual([
+      "claude-settings",
+      "codex-config",
+      "opencode-config",
+    ]);
+    expect(asRecord(targets["codex-config"]).managedFields).toEqual([
+      "approval_policy",
+      "sandbox_mode",
+      "kiln.permission_sync",
+    ]);
+  });
+
+  it("aborts only the target whose managed fields drifted", async () => {
+    const first = await syncPermissions(buildKilnYaml(), paths.projectPath);
+    expect(first.errors).toHaveLength(0);
+
+    const codexConfigPath = join(paths.homePath, ".codex", "config.toml");
+    const codexConfig = parseToml(fs.readFileSync(codexConfigPath, "utf-8")) as Record<string, unknown>;
+    fs.writeFileSync(
+      codexConfigPath,
+      [
+        `model = "${codexConfig.model as string}"`,
+        "approval_policy = \"never\"",
+        `sandbox_mode = "${codexConfig.sandbox_mode as string}"`,
+        "",
+        "[kiln]",
+        "legacy = \"keep\"",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    const second = await syncPermissions(buildKilnYaml(), paths.projectPath);
+
+    expect(second.claude).toBe(true);
+    expect(second.codex).toBe(false);
+    expect(second.opencode).toBe(true);
+    expect(second.errors).toEqual([
+      "Codex: managed field drift detected: approval_policy, kiln.permission_sync",
+    ]);
+    const after = parseToml(fs.readFileSync(codexConfigPath, "utf-8")) as Record<string, unknown>;
+    expect(after.approval_policy).toBe("never");
+  });
+
+  it("force overwrites drifted managed fields and refreshes install state", async () => {
+    const first = await syncPermissions(buildKilnYaml(), paths.projectPath);
+    expect(first.errors).toHaveLength(0);
+
+    const codexConfigPath = join(paths.homePath, ".codex", "config.toml");
+    fs.writeFileSync(
+      codexConfigPath,
+      [
+        "model = \"gpt-5.4\"",
+        "approval_policy = \"never\"",
+        "sandbox_mode = \"read-only\"",
+        "",
+        "[kiln]",
+        "legacy = \"keep\"",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    const second = await syncPermissions(buildKilnYaml(), paths.projectPath, { force: true });
+
+    expect(second.errors).toHaveLength(0);
+    expect(second.codex).toBe(true);
+    const after = parseToml(fs.readFileSync(codexConfigPath, "utf-8")) as Record<string, unknown>;
+    expect(after.model).toBe("gpt-5.4");
+    expect(after.approval_policy).toBe("on-request");
+    expect(after.sandbox_mode).toBe("workspace-write");
+    expect(asRecord(after.kiln).legacy).toBe("keep");
+
+    const state = readJson(join(paths.projectPath, ".kiln", "install-state.json"));
+    const codexTarget = asRecord(asRecord(state.targets)["codex-config"]);
+    expect(codexTarget.managedFields).toEqual([
+      "approval_policy",
+      "sandbox_mode",
+      "kiln.permission_sync",
+    ]);
+  });
 });
