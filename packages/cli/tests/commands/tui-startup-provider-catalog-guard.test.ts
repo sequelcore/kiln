@@ -191,6 +191,13 @@ vi.mock("@kilnai/tui", () => ({
 
 vi.mock("@kilnai/runtime", () => ({
   getProjectContextArtifactCache: runtimeMocks.getProjectContextArtifactCache,
+  createAttachedRuntimeBuiltinToolSurface: vi.fn(() => ({
+    toolDefinitions: [],
+    callBuiltinTools: new Map(),
+    capabilities: new Map(),
+    toolAuthority: new Map(),
+  })),
+  ManagedDirectProviderRuntimeAdapter: class MockManagedDirectProviderRuntimeAdapter {},
   resolveGuiOperatorDiscoveryResults: runtimeMocks.resolveGuiOperatorDiscoveryResults,
   projectGuiOperatorModels: runtimeMocks.projectGuiOperatorModels,
   createProviderCatalogService: runtimeMocks.createProviderCatalogService,

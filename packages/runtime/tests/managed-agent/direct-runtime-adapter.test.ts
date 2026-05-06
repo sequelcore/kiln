@@ -1,0 +1,433 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { describe, expect, it, vi } from "vitest";
+import type {
+  AgentResponse,
+  ProviderAdapter,
+  ToolDefinition,
+} from "@kilnai/core";
+import {
+  createSessionBuiltinToolOptions,
+  defineManagedAgentInvocationRequest,
+  textParts,
+} from "@kilnai/core";
+import { RuntimeManagedAgentInvocationService } from "../../src/agents/managed-invocation/index.js";
+import { ManagedDirectProviderRuntimeAdapter } from "../../src/agents/managed-invocation/direct-runtime-adapter.js";
+import { createAttachedRuntimeBuiltinToolSurface } from "../../src/gateway/attached-runtime-tool-surface.js";
+import { RuntimeSession } from "../../src/session/runtime-session.js";
+
+const READ_TOOL: ToolDefinition = {
+  name: "read",
+  description: "Read a governed resource.",
+  inputSchema: {},
+  tags: new Set(["read"]),
+};
+
+const WRITE_TOOL: ToolDefinition = {
+  name: "write",
+  description: "Write a governed resource.",
+  inputSchema: {},
+  tags: new Set(["write"]),
+};
+
+function response(
+  text: string,
+  toolCalls: AgentResponse["toolCalls"] = [],
+): AgentResponse {
+  return {
+    parts: textParts(text),
+    inputTokens: 10,
+    outputTokens: 5,
+    cacheReadTokens: 1,
+    cacheWriteTokens: 0,
+    toolCalls,
+    stopReason: toolCalls.length > 0 ? "tool_use" : "end_turn",
+  };
+}
+
+function providerWithResponses(responses: readonly AgentResponse[]): ProviderAdapter {
+  let index = 0;
+  return {
+    name: "openai",
+    createMessage: vi.fn(async () => responses[Math.min(index++, responses.length - 1)]!),
+    streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+  };
+}
+
+function request(overrides: Partial<Parameters<typeof defineManagedAgentInvocationRequest>[0]> = {}) {
+  return defineManagedAgentInvocationRequest({
+    invocationId: "inv-direct-1",
+    agentId: "direct-readonly:foundation-readonly-plan",
+    parentSessionId: "parent-session",
+    parentTurnId: "parent-session:turn:1",
+    profile: "foundation-readonly-plan",
+    requestedBy: "assistant",
+    requestSource: "test",
+    providerRoute: {
+      providerId: "openai",
+      surface: "direct-provider",
+      model: "gpt-test",
+    },
+    adapterKind: "direct",
+    executionMode: "direct-provider",
+    authority: {
+      authorityProfileId: "authority:direct-readonly:foundation-readonly-plan",
+      permissionProfile: "read-only",
+      toolAuthority: {
+        allowedToolNames: ["read"],
+        writeAllowed: false,
+        networkAllowed: false,
+      },
+      workingDirectory: {
+        path: "C:/repo",
+        mode: "read-only",
+      },
+      timeoutMs: 5000,
+      credentialRoute: {
+        mode: "runtime-selected",
+        routeId: "credential-route:openai:runtime-selected",
+      },
+      memoryScope: {
+        scope: { kind: "project", id: "repo" },
+        access: "read-only",
+      },
+    },
+    input: {
+      summary: "Inspect docs.",
+      prompt: "Read the docs and summarize risks.",
+    },
+    ...overrides,
+  });
+}
+
+describe("ManagedDirectProviderRuntimeAdapter", () => {
+  it("runs a child RuntimeSessionOrchestrator and returns the shared managed invocation record shape", async () => {
+    const provider = providerWithResponses([
+      response("reading", [{ id: "tool-1", name: "read", input: { uri: "kiln://docs/a" } }]),
+      response("Direct child completed."),
+    ]);
+    const readTool = vi.fn(async () => "doc contents");
+    const adapter = new ManagedDirectProviderRuntimeAdapter({
+      providerId: "openai",
+      model: "gpt-test",
+      provider,
+      tools: [READ_TOOL],
+      builtinTools: new Map([["read", readTool]]),
+    });
+    const service = new RuntimeManagedAgentInvocationService();
+
+    const result = await service.invoke(request(), adapter);
+
+    expect(result.status).toBe("completed");
+    if (result.status !== "completed") {
+      throw new Error("expected completed");
+    }
+    expect(readTool).toHaveBeenCalledWith(
+      { uri: "kiln://docs/a" },
+      expect.objectContaining({ sandbox: expect.any(Object) }),
+    );
+    expect(provider.createMessage).toHaveBeenCalledTimes(2);
+    expect(result.record).toMatchObject({
+      invocationId: "inv-direct-1",
+      lifecycleState: "completed",
+      adapterKind: "direct",
+      executionMode: "direct-provider",
+      childSessionId: "parent-session:managed:inv-direct-1",
+      resultHandoff: {
+        summary: "Direct child completed.",
+        resourceUris: ["kiln://managed-invocations/inv-direct-1/transcript"],
+        memoryWriteProposalUris: [],
+      },
+      usage: {
+        source: "runtime",
+        tokenClasses: [
+          { name: "input", value: 20 },
+          { name: "output", value: 10 },
+          { name: "cache_read", value: 2 },
+          { name: "cache_write", value: 0 },
+        ],
+      },
+    });
+  });
+
+  it("keeps read-only authority from executing unlisted write tools", async () => {
+    const provider = providerWithResponses([
+      response("writing", [{ id: "tool-1", name: "write", input: { path: "x", content: "bad" } }]),
+      response("Write was denied."),
+    ]);
+    const writeTool = vi.fn(async () => "wrote");
+    const adapter = new ManagedDirectProviderRuntimeAdapter({
+      providerId: "openai",
+      model: "gpt-test",
+      provider,
+      tools: [READ_TOOL, WRITE_TOOL],
+      builtinTools: new Map([["write", writeTool]]),
+    });
+    const service = new RuntimeManagedAgentInvocationService();
+
+    const result = await service.invoke(request(), adapter);
+
+    expect(result.status).toBe("completed");
+    expect(writeTool).not.toHaveBeenCalled();
+    const secondCall = (provider.createMessage as ReturnType<typeof vi.fn>).mock.calls[1]?.[0] as {
+      messages: Array<{ role: string; parts: Array<{ type: string; content?: string }> }>;
+    };
+    const toolResult = secondCall.messages.at(-1)?.parts[0];
+    expect(toolResult?.content).toContain('Tool "write" is not available');
+  });
+
+  it("records a failed invocation when the child provider fails", async () => {
+    const provider: ProviderAdapter = {
+      name: "openai",
+      createMessage: vi.fn(async () => {
+        throw new Error("provider exploded");
+      }),
+      streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+    };
+    const adapter = new ManagedDirectProviderRuntimeAdapter({
+      providerId: "openai",
+      model: "gpt-test",
+      provider,
+      tools: [READ_TOOL],
+      builtinTools: new Map(),
+    });
+
+    const result = await new RuntimeManagedAgentInvocationService().invoke(request(), adapter);
+
+    expect(result.status).toBe("completed");
+    if (result.status !== "completed") {
+      throw new Error("expected completed");
+    }
+    expect(result.record.lifecycleState).toBe("failed");
+    expect(result.record.resultHandoff?.summary).toContain("Direct provider managed invocation failed.");
+    expect(result.record.diagnostics).toEqual([{
+      uri: "kiln://managed-invocations/inv-direct-1/failure",
+      kind: "failure",
+    }]);
+  });
+
+  it("returns a timed-out invocation record when the child runtime exceeds authority timeout", async () => {
+    const provider: ProviderAdapter = {
+      name: "openai",
+      createMessage: vi.fn(() => new Promise<AgentResponse>(() => undefined)),
+      streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+    };
+    const adapter = new ManagedDirectProviderRuntimeAdapter({
+      providerId: "openai",
+      model: "gpt-test",
+      provider,
+      tools: [READ_TOOL],
+      builtinTools: new Map(),
+    });
+
+    const result = await new RuntimeManagedAgentInvocationService().invoke(request({
+      authority: {
+        ...request().authority,
+        timeoutMs: 1,
+      },
+    }), adapter);
+
+    expect(result.status).toBe("completed");
+    if (result.status !== "completed") {
+      throw new Error("expected completed");
+    }
+    expect(result.record.lifecycleState).toBe("timed-out");
+    expect(result.record.diagnostics).toEqual([{
+      uri: "kiln://managed-invocations/inv-direct-1/timeout",
+      kind: "timeout",
+    }]);
+  });
+
+  it("integrates through managed_agent.invoke with Kiln builtin tools and returns only bounded handoff", async () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), "kiln-direct-child-"));
+    const docPath = join(tmpDir, "managed-agent-risk.txt");
+    const childOnlyMarker = "INTERNAL_DIRECT_CHILD_EVIDENCE";
+    writeFileSync(
+      docPath,
+      `Managed agent direct-provider integration fixture.\n${childOnlyMarker}\nRisk: retain bounded handoff only.\n`,
+      "utf8",
+    );
+    const provider: ProviderAdapter = {
+      name: "openai",
+      createMessage: vi.fn(async (input) => {
+        const serializedInput = JSON.stringify(input);
+        if (!serializedInput.includes(childOnlyMarker)) {
+          return response("reading governed fixture", [{
+            id: "read-fixture-1",
+            name: "read",
+            input: {
+              filePath: docPath,
+              limit: 3,
+            },
+          }]);
+        }
+        return response("Direct child found one bounded managed-agent risk.");
+      }),
+      streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+    };
+    const childSurface = createAttachedRuntimeBuiltinToolSurface({
+      builtinToolOptions: createSessionBuiltinToolOptions(),
+    });
+    const adapter = new ManagedDirectProviderRuntimeAdapter({
+      providerId: "openai",
+      model: "gpt-5.4-mini",
+      provider,
+      tools: childSurface.toolDefinitions,
+      builtinTools: childSurface.callBuiltinTools,
+      capabilityMap: childSurface.capabilities,
+      toolAuthority: childSurface.toolAuthority,
+    });
+    const parentSurface = createAttachedRuntimeBuiltinToolSurface({
+      managedInvocation: {
+        routes: [{
+          routeId: "openai-direct-readonly",
+          providerId: "openai",
+          adapter,
+          surface: "direct-provider",
+          profiles: {
+            "foundation-readonly-plan": {
+              authorityProfileId: "authority:openai-direct-readonly:foundation-readonly-plan",
+              permissionProfile: "read-only",
+              allowedToolNames: ["read"],
+              writeAllowed: false,
+              networkAllowed: false,
+              workingDirectory: {
+                path: tmpDir,
+                mode: "read-only",
+              },
+              timeoutMs: 5000,
+              credentialRoute: {
+                mode: "runtime-selected",
+                routeId: "credential-route:openai:runtime-selected",
+              },
+              memoryScope: {
+                scope: { kind: "project", id: "direct-child-test" },
+                access: "read-only",
+              },
+            },
+          },
+        }],
+      },
+    });
+    const parentSession = new RuntimeSession({
+      sessionId: "parent-direct-session",
+      appName: "managed-agent-test",
+      tenantId: "tenant-a",
+      userId: "operator-1",
+      systemPrompt: "test",
+    });
+    parentSession.addUserMessage(textParts("Delegate direct child fixture review."));
+
+    try {
+      const result = await parentSurface.callBuiltinTools.get("managed_agent.invoke")?.({
+        profile: "foundation-readonly-plan",
+        routeId: "openai-direct-readonly",
+        providerRoute: {
+          providerId: "openai",
+          model: "gpt-5.4-mini",
+        },
+        task: "Read the admitted fixture and report bounded managed-agent risks.",
+      }, {
+        session: parentSession,
+        toolCall: {
+          id: "managed-direct-tool-call-1",
+          name: "managed_agent.invoke",
+          input: {},
+        },
+      }) as {
+        readonly output: string;
+        readonly isError: boolean;
+        readonly metadata: Record<string, unknown>;
+      };
+
+      expect(result.isError).toBe(false);
+      expect(result.output).toContain("Direct child found one bounded managed-agent risk.");
+      expect(result.output).not.toContain(childOnlyMarker);
+      expect(provider.createMessage).toHaveBeenCalledTimes(2);
+      expect(JSON.stringify((provider.createMessage as ReturnType<typeof vi.fn>).mock.calls[1]?.[0]))
+        .toContain(childOnlyMarker);
+      expect(parentSession.sessionEvents.map((event) => event.kind)).toEqual([
+        "agent_invocation_requested",
+        "agent_invocation_started",
+        "agent_invocation_completed",
+      ]);
+      const terminalEvent = parentSession.sessionEvents[2];
+      expect(terminalEvent).toMatchObject({
+        resultSummary: "Direct child found one bounded managed-agent risk.",
+        managedInvocationEvidence: {
+          childSessionId: expect.stringContaining("parent-direct-session:managed:"),
+        },
+      });
+      expect(JSON.stringify(terminalEvent)).not.toContain(childOnlyMarker);
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("applies managed working-directory sandbox to direct-provider builtin file tools", async () => {
+    const workspaceRoot = mkdtempSync(join(tmpdir(), "kiln-direct-child-workspace-"));
+    const outsideRoot = mkdtempSync(join(tmpdir(), "kiln-direct-child-outside-"));
+    const outsidePath = join(outsideRoot, "outside-secret.txt");
+    const outsideMarker = "OUTSIDE_DIRECT_CHILD_MARKER";
+    writeFileSync(outsidePath, outsideMarker, "utf8");
+    const provider: ProviderAdapter = {
+      name: "openai",
+      createMessage: vi.fn(async (input) => {
+        const serializedInput = JSON.stringify(input);
+        if (!serializedInput.includes("Read access denied")) {
+          return response("reading outside file", [{
+            id: "read-outside-1",
+            name: "read",
+            input: {
+              filePath: outsidePath,
+            },
+          }]);
+        }
+        return response("Outside read was denied by the managed sandbox.");
+      }),
+      streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+    };
+    const childSurface = createAttachedRuntimeBuiltinToolSurface({
+      builtinToolOptions: createSessionBuiltinToolOptions(),
+    });
+    const adapter = new ManagedDirectProviderRuntimeAdapter({
+      providerId: "openai",
+      model: "gpt-test",
+      provider,
+      tools: childSurface.toolDefinitions,
+      builtinTools: childSurface.callBuiltinTools,
+      capabilityMap: childSurface.capabilities,
+      toolAuthority: childSurface.toolAuthority,
+    });
+
+    try {
+      const result = await new RuntimeManagedAgentInvocationService().invoke(request({
+        authority: {
+          ...request().authority,
+          workingDirectory: {
+            path: workspaceRoot,
+            mode: "read-only",
+          },
+        },
+        input: {
+          summary: "Attempt an out-of-scope read.",
+          prompt: "Read the requested file and report the result.",
+        },
+      }), adapter);
+
+      expect(result.status).toBe("completed");
+      if (result.status !== "completed") {
+        throw new Error("expected completed");
+      }
+      expect(result.record.resultHandoff?.summary).toBe("Outside read was denied by the managed sandbox.");
+      expect(provider.createMessage).toHaveBeenCalledTimes(2);
+      const secondCall = JSON.stringify((provider.createMessage as ReturnType<typeof vi.fn>).mock.calls[1]?.[0]);
+      expect(secondCall).toContain("Read access denied");
+      expect(secondCall).not.toContain(outsideMarker);
+    } finally {
+      rmSync(workspaceRoot, { recursive: true, force: true });
+      rmSync(outsideRoot, { recursive: true, force: true });
+    }
+  });
+});

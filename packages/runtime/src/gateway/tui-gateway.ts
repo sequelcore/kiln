@@ -18,6 +18,7 @@ import {
   EventBus,
   type ApprovalRequestedEvent,
   type ApprovalReceivedEvent,
+  type CanonicalSessionEvent,
   type KilnEvent,
   type ToolAuthorizedEvent,
   type ReasoningEffort,
@@ -33,7 +34,12 @@ import {
   createAttachedRuntimeBuiltinToolSurface,
   type AttachedRuntimeBuiltinToolSurface,
 } from "./attached-runtime-tool-surface.js";
+import {
+  attachManagedInvocationSessionEventSink,
+  type ManagedInvocationToolOptions,
+} from "../agents/managed-invocation/runtime-tool.js";
 import { createOperatorThemeBridge } from "./operator-theme-bridge.js";
+import { toOperatorSessionEventFrame } from "./operator-session-event-frame.js";
 import {
   projectGuiOperatorModels,
   providerRequiresSelectedModelMessage,
@@ -89,6 +95,7 @@ export interface TuiGatewayOptions {
   /** Initial shared execution mode for operator work. */
   readonly executionMode?: OperatorExecutionMode;
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
+  readonly managedInvocation?: ManagedInvocationToolOptions;
   readonly getProviderAvailability?: () => Promise<Record<string, boolean>> | Record<string, boolean>;
 }
 
@@ -325,6 +332,10 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
   const activityStreamer = new TuiActivityStreamer(approvalRegistry);
   const builtinToolSurface = createAttachedRuntimeBuiltinToolSurface({
     builtinToolOptions,
+    managedInvocation: attachManagedInvocationSessionEventSink(
+      options.managedInvocation,
+      { publish: (events) => activityStreamer.forwardSessionEvents(events) },
+    ),
   });
   let activeOperatorSurface: { theme: { setTheme: ReturnType<typeof createOperatorThemeBridge>["request"] } } | undefined;
 
@@ -638,6 +649,10 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
               const turnBuiltinToolSurface = createAttachedRuntimeBuiltinToolSurface({
                 builtinToolOptions,
                 executionMode,
+                managedInvocation: attachManagedInvocationSessionEventSink(
+                  options.managedInvocation,
+                  { publish: (events) => activityStreamer.forwardSessionEvents(events) },
+                ),
                 operatorSurface: {
                   theme: {
                     setTheme: operatorThemeBridge.request,
@@ -709,6 +724,10 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
                 routedModel || undefined,
                 createAttachedRuntimeBuiltinToolSurface({
                   builtinToolOptions,
+                  managedInvocation: attachManagedInvocationSessionEventSink(
+                    options.managedInvocation,
+                    { publish: (events) => activityStreamer.forwardSessionEvents(events) },
+                  ),
                   operatorSurface: {
                     theme: {
                       setTheme: operatorThemeBridge.request,
@@ -881,6 +900,17 @@ class TuiActivityStreamer {
         payload: input.payload,
       },
     } satisfies GuiInboundFrame));
+  }
+
+  forwardSessionEvents(events: readonly CanonicalSessionEvent[]): void {
+    if (!this.ws) return;
+    for (const event of events) {
+      const sequence = this.nextLiveSequence() ?? event.sequence;
+      this.ws.send(JSON.stringify(toOperatorSessionEventFrame(event, {
+        eventId: `${event.eventId}:live`,
+        sequence,
+      }) satisfies GuiInboundFrame));
+    }
   }
 
   private emitActivityPhase(input: {

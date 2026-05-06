@@ -41,9 +41,23 @@ interface OpenAIToolFunction {
   };
 }
 
+interface OpenAIToolCallRequest {
+  readonly id: string;
+  readonly type: "function";
+  readonly function: {
+    readonly name: string;
+    readonly arguments: string;
+  };
+}
+
+type OpenAIMessage =
+  | { readonly role: "system" | "user"; readonly content: OpenAIContent }
+  | { readonly role: "assistant"; readonly content: OpenAIContent | null; readonly tool_calls?: readonly OpenAIToolCallRequest[] }
+  | { readonly role: "tool"; readonly tool_call_id: string; readonly content: string };
+
 interface OpenAIRequestBody {
   model: string;
-  messages: { role: string; content: OpenAIContent }[];
+  messages: OpenAIMessage[];
   max_tokens: number;
   tools?: OpenAIToolFunction[];
   tool_choice?: string | { type: string; function?: { name: string } };
@@ -250,18 +264,63 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
           // Degrade to text placeholder for unsupported types
           blocks.push({ type: "text", text: `[${part.type}: unsupported]` });
           break;
+        case "tool_use":
+        case "tool_result":
+          blocks.push({ type: "text", text: `[${part.type}: represented separately]` });
+          break;
       }
     }
     return blocks;
   }
 
+  private mapMessageToOpenAI(
+    message: CreateMessageOptions["messages"][number],
+  ): readonly OpenAIMessage[] {
+    const toolResults = message.parts.filter((part) => part.type === "tool_result");
+    const nonToolResultParts = message.parts.filter((part) => part.type !== "tool_result");
+    const messages: OpenAIMessage[] = [];
+
+    if (nonToolResultParts.length > 0) {
+      const toolUses = nonToolResultParts.filter((part) => part.type === "tool_use");
+      const visibleParts = nonToolResultParts.filter((part) => part.type !== "tool_use");
+
+      if (message.role === "assistant" && toolUses.length > 0) {
+        const content = visibleParts.length > 0 ? this.mapPartsToOpenAI(visibleParts) : null;
+        messages.push({
+          role: "assistant",
+          content,
+          tool_calls: toolUses.map((part): OpenAIToolCallRequest => ({
+            id: part.id,
+            type: "function",
+            function: {
+              name: part.name,
+              arguments: JSON.stringify(part.input),
+            },
+          })),
+        });
+      } else {
+        messages.push({
+          role: message.role,
+          content: this.mapPartsToOpenAI(nonToolResultParts),
+        });
+      }
+    }
+
+    for (const part of toolResults) {
+      messages.push({
+        role: "tool",
+        tool_call_id: part.toolUseId,
+        content: part.content,
+      });
+    }
+
+    return messages;
+  }
+
   private buildRequestBody(options: CreateMessageOptions): OpenAIRequestBody {
-    const messages: { role: string; content: OpenAIContent }[] = [
+    const messages: OpenAIMessage[] = [
       { role: "system", content: options.system },
-      ...options.messages.map((msg) => ({
-        role: msg.role,
-        content: this.mapPartsToOpenAI(msg.parts),
-      })),
+      ...options.messages.flatMap((message) => this.mapMessageToOpenAI(message)),
     ];
 
     const body: OpenAIRequestBody = {

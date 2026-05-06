@@ -37,6 +37,8 @@ import { TranscriptStore } from "../wrapper/session-store.js";
 import type { ResumeOutcome } from "../wrapper/index.js";
 import { resolveEffectiveModel } from "../config/env-config.js";
 import { readGlobalConfig } from "../config/global-config.js";
+import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
+import { resolveManagedInvocationToolOptions } from "../config/managed-agent-routes.js";
 import { loadConfiguredWebToolSurfaceOptions } from "../config/web-tools-config.js";
 import {
   SkillGenerator,
@@ -311,6 +313,13 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
       },
     }),
   );
+  const managedInvocationResolution = await resolveManagedInvocationToolOptions(globalConfig, {
+    cwd,
+    registry,
+    surface: "run",
+    directAdapterFactory: createManagedDirectProviderAdapterFactory({ builtinToolOptions, runtimeEnv: env }),
+  });
+  const managedInvocation = appConfig.managedInvocation ?? managedInvocationResolution.managedInvocation;
 
   const sessionConfig = {
     task,
@@ -327,6 +336,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     addDir: flags.addDir,
     localProvider: flags.localProvider,
     builtinToolOptions,
+    managedInvocation,
     model: effectiveModel,
     reasoningEffort: flags.reasoningEffort,
   };

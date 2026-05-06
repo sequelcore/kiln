@@ -32,6 +32,13 @@ vi.mock("@kilnai/runtime", () => ({
   getProjectContextArtifactCache: vi.fn().mockResolvedValue({
     set: vi.fn(),
   }),
+  createAttachedRuntimeBuiltinToolSurface: vi.fn(() => ({
+    toolDefinitions: [],
+    callBuiltinTools: new Map(),
+    capabilities: new Map(),
+    toolAuthority: new Map(),
+  })),
+  ManagedDirectProviderRuntimeAdapter: class MockManagedDirectProviderRuntimeAdapter {},
 }));
 
 vi.mock("@kilnai/core", async (importOriginal) => {

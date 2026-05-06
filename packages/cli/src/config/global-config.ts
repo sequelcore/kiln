@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { parse, stringify } from "yaml";
 import { KilnYamlError } from "../kiln-yaml.js";
 import type {
+  KilnManagedAgentsConfig,
   KilnHooksConfig,
   KilnYamlWebConfig,
   KilnYamlMcp,
@@ -34,6 +35,7 @@ export interface KilnGlobalConfig {
   identity?: KilnGlobalIdentity;
   tui?: KilnGlobalTuiConfig;
   gui?: KilnGlobalGuiConfig;
+  managedAgents?: KilnManagedAgentsConfig;
 }
 
 export function resolveGlobalConfigPath(): string {

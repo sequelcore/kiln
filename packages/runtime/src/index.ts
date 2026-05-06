@@ -68,13 +68,27 @@ export type {
   WriteRuntimeCredential,
 } from "./agents/credential-pool/index.js";
 export {
+  attachManagedInvocationSessionEventSink,
+  createManagedInvocationToolExecutor,
+  MANAGED_AGENT_INVOKE_CAPABILITY,
+  MANAGED_AGENT_INVOKE_TOOL,
+  MANAGED_AGENT_INVOKE_TOOL_NAME,
+  ManagedCliHarnessAdapter,
+  ManagedDirectProviderRuntimeAdapter,
   ManagedAgentRuntimeAdmissionError,
   RuntimeManagedAgentInvocationService,
 } from "./agents/managed-invocation/index.js";
 export type {
+  ManagedCliHarnessAdapterConfig,
+  ManagedCliHarnessFilesystemBoundaryConfig,
+  ManagedDirectProviderRuntimeAdapterConfig,
   ManagedAgentRuntimeAdapter,
   ManagedAgentRuntimeInvocationInput,
   ManagedAgentRuntimeInvocationResult,
+  ManagedInvocationSessionEventSink,
+  ManagedInvocationRouteProfile,
+  ManagedInvocationToolOptions,
+  ManagedInvocationToolRoute,
 } from "./agents/managed-invocation/index.js";
 export { createProviderCatalogService } from "./gateway/provider-catalog-service.js";
 export type { ProviderCatalogService, ProviderCatalogSnapshot } from "./gateway/provider-catalog-service.js";

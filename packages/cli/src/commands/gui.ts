@@ -3,6 +3,8 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { KilnAppConfig } from "../config.js";
 import { readGlobalConfig } from "../config/global-config.js";
+import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
+import { resolveManagedInvocationToolOptions } from "../config/managed-agent-routes.js";
 import { loadConfiguredWebToolSurfaceOptions } from "../config/web-tools-config.js";
 import { resolveEffectiveProvider } from "../config/env-config.js";
 import { loadResumeSidebarInfo } from "../application/resume-sidebar-info.js";
@@ -70,6 +72,13 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
       },
     }),
   );
+  const managedInvocationResolution = await resolveManagedInvocationToolOptions(globalConfig, {
+    cwd,
+    registry,
+    surface: "gui",
+    directAdapterFactory: createManagedDirectProviderAdapterFactory({ builtinToolOptions }),
+  });
+  const managedInvocation = appConfig.managedInvocation ?? managedInvocationResolution.managedInvocation;
   const sessionManager = await makeMultiProviderSessionFactory(
     provider,
     providerIds,
@@ -80,6 +89,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
     contextArtifactCache,
     builtinToolOptions,
     "gui",
+    managedInvocation,
   );
   const bootstrapContext = await resolveGuiBootstrapContext(appConfig, cwd, contextArtifactCache);
   const managedWindowShutdownMonitor = createManagedGuiWindowShutdownMonitor();
@@ -108,6 +118,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
     onConnectionCountChange: managedWindowShutdownMonitor.onConnectionCountChange,
     onManagedWindowClose: managedWindowShutdownMonitor.onManagedWindowClose,
     builtinToolOptions,
+    managedInvocation,
     operatorTransport: {
       sessionManager,
       systemPrompt: bootstrapContext.systemPrompt,
@@ -117,6 +128,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
       },
       contextArtifactCache,
       executionMode: flags.plan ? "plan" : "execute",
+      managedInvocation,
       workingDirectory: cwd,
       domainLabel: bootstrapContext.domainLabel,
     },

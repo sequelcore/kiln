@@ -1,4 +1,4 @@
-import type { ExecutionBillingMode, ProviderAdapter, ContentPart, ToolDefinition, ReasoningEffort } from "@kilnai/core";
+import type { ExecutionBillingMode, ProviderAdapter, ContentPart, ToolDefinition, ReasoningEffort, ToolCall } from "@kilnai/core";
 import type { McpClient } from "@kilnai/core";
 import type { EventBus } from "@kilnai/core";
 import type { ContextAuditEntry } from "@kilnai/core";
@@ -15,6 +15,18 @@ import type { ToolCache } from "@kilnai/core";
 import type { ModelRouter } from "@kilnai/core";
 import type { EscalationDetector, EscalationSignal } from "./support/escalation/escalation-detector.js";
 import type { ContextSummarizer } from "./support/summarization/context-summarizer.js";
+import type { RuntimeSession } from "./runtime-session.js";
+
+export interface RuntimeBuiltinToolExecutionContext {
+  readonly session: RuntimeSession;
+  readonly toolCall: ToolCall;
+  readonly sandbox?: unknown;
+}
+
+export type RuntimeBuiltinToolExecutor = (
+  input: Record<string, unknown>,
+  context?: RuntimeBuiltinToolExecutionContext,
+) => Promise<unknown>;
 
 export interface OrchestratorDeps {
   readonly provider: ProviderAdapter;
@@ -23,7 +35,7 @@ export interface OrchestratorDeps {
   readonly maxToolRounds?: number;
   readonly tools?: readonly ToolDefinition[];
   readonly mcpClients?: readonly McpClient[];
-  readonly builtinTools?: ReadonlyMap<string, (input: Record<string, unknown>) => Promise<unknown>>;
+  readonly builtinTools?: ReadonlyMap<string, RuntimeBuiltinToolExecutor>;
   readonly eventBus?: EventBus;
   readonly escalationDetector?: EscalationDetector;
   readonly contextSummarizer?: ContextSummarizer;

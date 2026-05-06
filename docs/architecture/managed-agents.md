@@ -129,6 +129,11 @@ summaries.
 
 ## Runtime Adapters
 
+Managed invocation is an adapter-neutral contract. Runtime routes may execute
+through an external coding harness or through a Kiln-owned child runtime
+session. Both route families reduce to the same managed invocation lifecycle,
+authority decisions, evidence model, and parent session events.
+
 The managed CLI harness adapter is the first runtime implementation. It creates
 a provider session, streams provider-neutral CLI events, collects usage, records
 terminal state, and converts write-related events into canonical evidence.
@@ -146,6 +151,59 @@ session times out after a bounded write event, the timeout record still includes
 the observed write evidence and linked resource URIs. Provider errors containing
 cancel or abort semantics map to the canonical `cancelled` lifecycle state.
 
+The direct-provider adapter creates a child `RuntimeSessionOrchestrator` instead
+of launching a CLI harness. It reuses the provider adapter contract, runtime
+builtin tool execution, per-call tool allowlists, tool authority checks, context
+admission, session accounting, and managed invocation record shape. It does not
+reimplement file tools, memory tools, approval checks, or tool-call execution.
+Direct-provider routes are eligible only when the provider supports model tool
+calls and Kiln can enforce the configured authority through its own runtime tool
+surface.
+
+Direct-provider builtin tools execute with a request-scoped sandbox derived
+from the admitted managed authority. Read-only routes can read only inside the
+managed working directory or explicitly admitted write scope, cannot write, and
+cannot use network tools unless the request authority admits network access.
+Models may still hallucinate hidden or out-of-scope tool calls, but the runtime
+allowlist and sandbox deny them before tool execution.
+
+CLI configuration resolves direct-provider managed routes through the same
+provider adapter factory used by native Kiln sessions. A direct route becomes
+healthy only when the route names a direct provider, selects a tool-call-capable
+model, the provider is available through the session registry, required
+credentials can be resolved, and Kiln can attach the runtime builtin tool
+surface for that operator surface. Harness routes and direct routes share the
+same managed invocation admission and result contract; only their execution
+adapter differs.
+
+## Runtime Tool Surface
+
+`managed_agent.invoke` is the runtime-owned model-callable entrypoint for parent
+sessions that need a governed child invocation. It is not part of the core
+developer-tool registry and is not exposed by default. Runtime operator surfaces
+attach it only when they provide an explicit managed invocation route registry.
+The shared attachment point is `createAttachedRuntimeBuiltinToolSurface`, so GUI,
+TUI, operator gateway, and CLI direct-provider executable sessions use the same
+tool definition, authority projection, executor, and route contract instead of
+surface-specific implementations.
+
+The model supplies a bounded task, a configured provider route, and a requested
+managed invocation profile. The runtime maps that input to a
+`ManagedAgentInvocationRequest` using configured route defaults for adapter,
+execution mode, credential route, memory scope, timeout, working directory, and
+authority. The model does not provide arbitrary authority directly.
+
+The tool is classified as approval-gated authority. A GUI/TUI/CLI parent turn
+must pass the normal tool authority path before the child can be spawned. Once
+approved, the tool calls `RuntimeManagedAgentInvocationService`, appends
+`agent_invocation_requested`, `agent_invocation_started`, and terminal
+`agent_invocation_*` events to the parent runtime session, streams those
+canonical events through any configured `ManagedInvocationSessionEventSink`, and
+returns only the bounded child result handoff plus resource pointers.
+
+Plan mode excludes `managed_agent.invoke`; planning turns may inspect and submit
+plans, but may not spawn managed child work.
+
 ## Live Adapter Evidence
 
 Live adapter support is opt-in and must be proven per provider family. A provider
@@ -161,13 +219,17 @@ Current status:
 | Claude Code family | Scouted, not live-proven in Kiln. | Permission modes and tool names are adapter research only. |
 | Hermes Agent | Scouted as ACP-style future adapter candidate. | `delegate_task`, ACP permission, and terminal concepts are adapter inputs only. |
 | OpenClaw | Scouted as future harness or ACP adapter candidate. | Session, subagent, and tool-policy names are not Kiln contract fields. |
-| Direct API providers | Deterministic tool-result reduction exists; live proof remains separate. | Direct providers must execute through Kiln tool authority and evidence boundaries. |
+| OpenAI direct API | Opt-in live read-only proof exists for builtin `read`; approved-write proof remains separate. | Direct providers execute through Kiln builtin tool authority, working-directory sandbox, and evidence boundaries. |
+| Other direct API providers | Child runtime-session adapter exists with deterministic builtin tool sandbox proof; provider-family live proof remains separate. | Direct providers execute through Kiln builtin tool authority, working-directory sandbox, and evidence boundaries. |
 
 Live tests are disabled by default. They require
 `KILN_LIVE_MANAGED_AGENT_TESTS=1` plus provider-specific flags such as
-`KILN_LIVE_OPENCODE_TESTS=1` or `KILN_LIVE_CODEX_TESTS=1`. Live tests must use
-isolated fixture workspaces, bounded tracked paths, read-only denial cases,
-approved-write positive cases, cleanup, and replay assertions.
+`KILN_LIVE_OPENCODE_TESTS=1`, `KILN_LIVE_CODEX_TESTS=1`, or
+`KILN_LIVE_OPENAI_DIRECT_TESTS=1`. OpenAI direct live proof uses
+`KILN_LIVE_OPENAI_DIRECT_MODEL` when set and otherwise defaults to
+`gpt-4o-mini`. Live tests must use isolated fixture workspaces, bounded tracked
+paths, read-only denial cases, approved-write positive cases, cleanup, and
+replay assertions.
 
 ## Session Events And Replay
 

@@ -153,6 +153,45 @@ models:
   codex: gpt-5.4
   opencode: "openai/gpt-4o:free"
 
+managedAgents:
+  enabled: true
+  defaultProfile: foundation-readonly-plan
+  defaultProvider: codex
+  requireApproval: true
+  routes:
+    - id: codex-readonly
+      kind: harness
+      provider: codex
+      model: gpt-5.3-codex-spark
+      profiles:
+        - foundation-readonly-plan
+      workingDirectory: project
+      timeoutMs: 120000
+      tools:
+        allowed: ["read", "tree", "grep", "glob"]
+        network: false
+        writes: false
+      memory:
+        access: read-only
+      credentials:
+        mode: runtime-selected
+    - id: openai-readonly
+      kind: direct
+      provider: openai
+      model: gpt-5.4-mini
+      profiles:
+        - foundation-readonly-plan
+      workingDirectory: project
+      timeoutMs: 120000
+      tools:
+        allowed: ["read", "tree", "grep", "glob"]
+        network: false
+        writes: false
+      memory:
+        access: read-only
+      credentials:
+        mode: runtime-selected
+
 components:
   include:
     - baseline:core
@@ -184,6 +223,47 @@ for `defaultWorker` is crossed, the next task routes to `routing.fallback`. If
 `dailyTokenCeiling: null`, that engine is unbounded. `budgetAware: false`
 disables routing decisions entirely — honest default when no ceilings are
 declared. No live API probes. No network calls. Declarative and deterministic.
+
+**Managed agent route projection.** `managedAgents` declares which governed
+child-invocation routes local operator surfaces may expose. The model never
+receives ambient delegation authority. The CLI resolves this declarative config
+through the engine registry and provider credential state into
+`ManagedInvocationToolOptions`, then passes that object to GUI, TUI, CLI run,
+and any operator gateway session. If `managedAgents.enabled: true` but no
+healthy route can be resolved, Kiln fails closed and reports diagnostics in
+`kiln status`; it does not expose `managed_agent.invoke`.
+
+`managedAgents.routes` is an allowlist. Each route maps one route kind, provider
+family, model, supported managed invocation profiles, workspace scope, memory
+scope, timeout, credential mode, and tool authority to a runtime adapter route.
+Route kinds are explicit:
+
+- `harness`: child work runs through a managed external coding harness adapter
+  such as Codex or OpenCode.
+- `direct`: child work runs through a Kiln-owned child runtime session using a
+  native provider adapter and Kiln's own tool authority.
+
+No surface receives a different managed-agent model. GUI, TUI, CLI run, and
+operator gateway sessions consume the same resolved route registry.
+
+When `routes` is omitted and `managedAgents.enabled: true`, Kiln may synthesize
+one default read-only route from `defaultProvider` only if the engine registry
+or direct-provider registry proves that provider is available and the matching
+adapter kind can enforce Kiln authority. Direct-provider synthesis additionally
+requires provider support for model tool calls and a Kiln-owned builtin tool
+surface; a raw text-only provider is not eligible. The synthesized default is
+always:
+
+- `foundation-readonly-plan`
+- project working directory in read-only mode
+- no workspace writes
+- no memory writes
+- no network unless explicitly enabled by policy
+- approval required
+- bounded timeout
+
+Write-capable profiles are never synthesized. They require explicit route
+declaration and live-proven adapter support.
 
 ### 3.2 Component Hierarchy
 
@@ -443,7 +523,8 @@ failure.
 **`kiln status`**
 Reads engine registry (probes if stale), reads install state, and prints:
 engine availability + billing + daily budget usage, last sync timestamp, config
-hash, drift status per target, and active routing assignment. No writes.
+hash, drift status per target, managed-agent route health, and active routing
+assignment. No writes.
 
 **`kiln uninstall [target]`**
 Strips only managed sections (those listed in `managedFields`) from each target's
@@ -469,11 +550,19 @@ updated `packages/cli/src/config/global-config.ts`.
 
 - Add `version: "2"` discriminant to the interface.
 - Add `engines`, `routing`, `routing.budget`, `models`, `components` fields.
+- Add `managedAgents` fields: `enabled`, `defaultProfile`,
+  `defaultProvider`, `requireApproval`, and explicit route declarations.
+- Managed-agent routes require `kind: "harness" | "direct"`. Harness routes
+  resolve through external CLI adapters. Direct routes resolve through child
+  runtime sessions backed by native provider adapters and Kiln builtin tools.
 - Move `tui`/`gui` theme prefs to `ui.theme` (neutral key).
 - Write JSON Schema file. Parser validates against it on read.
 - Unit tests: valid v2 doc passes; missing `version` throws; unknown field
   in strict mode throws; `engines` with unknown billing mode throws;
-  `routing.budget` with `dailyTokenCeiling: null` passes.
+  `routing.budget` with `dailyTokenCeiling: null` passes; managed-agent route
+  with unsupported route kind, unsupported profile, negative timeout, missing
+  provider, direct route without tool-call-capable provider support, or writable
+  synthesized default is rejected.
 
 Verification: `bun run typecheck` clean; `bun run test` clean; grep for
 `KilnGlobalConfig` shows no consumer passing a v1 shape without migration.
@@ -561,7 +650,8 @@ Scope: `packages/cli/src/engines/engine-registry.ts`,
   Returns `{ withinBudget: boolean, tokensUsed: number, ceiling: number | null }`.
 - `kiln status` command prints: engine table (id / enabled / billing /
   available / daily tokens used / ceiling), last sync timestamp, config hash,
-  drift status per target.
+  drift status per target, and managed-agent route health when managed agents
+  are configured.
 - `kiln route` prints the resolved `defaultWorker` or `fallback` based on
   availability and budget status when `budgetAware: true`.
 - Unit tests: probe timeout (2s) surfaces `available: false`; binary-not-found
@@ -570,6 +660,106 @@ Scope: `packages/cli/src/engines/engine-registry.ts`,
 
 Verification: `check-engines.sh` is not called from any code path after this
 slice.
+
+### 01.D.1 - Managed Agent Route Resolver and Operator Projection
+
+Scope: `packages/cli/src/config/managed-agent-routes.ts`,
+`packages/cli/src/commands/gui.ts`, `packages/cli/src/commands/tui.ts`,
+`packages/cli/src/commands/run.ts`, `packages/runtime/src/agents/managed-invocation/`.
+
+- Implement `resolveManagedInvocationToolOptions(config, context)` as the only
+  CLI-owned projection from `KilnGlobalConfig.managedAgents` to runtime
+  `ManagedInvocationToolOptions`.
+- Consume the engine registry and provider credential state. A route is healthy
+  only when the provider engine is enabled, available, has a supported
+  managed-invocation adapter, and has usable credentials or an explicit
+  credentialless route.
+- Resolve `kind: harness` routes to `ManagedCliHarnessAdapter` for Codex and
+  OpenCode harness providers. Claude remains unsupported until live proof
+  exists.
+- Resolve `kind: direct` routes only when the provider registry exposes a
+  native provider adapter with model tool-call support and Kiln can attach the
+  same builtin tool authority used by the parent runtime. Direct route
+  resolution is asynchronous because constructing the adapter may validate
+  credential pools and provider-family eligibility.
+- If `managedAgents.enabled: true` and no explicit route is declared, synthesize
+  at most one read-only route from `defaultProvider`. The synthesized route must
+  choose `kind: harness` or `kind: direct` from provider capability, use
+  `foundation-readonly-plan`, read-only workspace authority, read-only memory
+  scope, no network, no writes, bounded timeout, and required approval.
+- Reject or mark unhealthy any route that requests write-capable profiles
+  without explicit write authority and live-proven adapter support.
+- Pass the resolved `ManagedInvocationToolOptions` into `guiCommand`,
+  `tuiCommand`, `run`, and local operator gateway sessions. Do not create
+  per-surface route resolution.
+- Surface route health in `kiln status`: route id, provider, model, profiles,
+  availability, and denial reason when unhealthy.
+- GUI/TUI behavior: `managed_agent.invoke` appears only when at least one
+  healthy route exists. Missing or unhealthy routes fail closed with operator
+  diagnostics, not silent omission.
+- Unit tests: disabled config exposes no routes; enabled config with healthy
+  Codex synthesizes readonly route; enabled config with unavailable Codex fails
+  closed and reports status; explicit OpenCode route resolves adapter config;
+  write profile without write authority is rejected; GUI/TUI/run receive the
+  same resolved object.
+- Integration test: start GUI gateway with a resolved read-only route, send a
+  model turn that calls `managed_agent.invoke`, and assert canonical
+  `agent_invocation_*` events stream through the operator session event
+  contract. Covered by `packages/runtime/tests/gateway/gui-gateway.test.ts`.
+- TUI parity test: start TUI gateway with a resolved read-only route, run a
+  direct-provider parent turn that calls `managed_agent.invoke`, and assert the
+  same canonical `agent_invocation_*` frames stream through the operator
+  session event contract. Covered by
+  `packages/runtime/tests/gateway/tui-gateway-clear.test.ts`.
+
+Verification: `bun run typecheck` clean; `bun run test` clean; focused runtime
+gateway managed-invocation tests clean; optional live proof remains gated by
+`KILN_LIVE_MANAGED_AGENT_TESTS=1`.
+
+### 01.D.2 - Direct Provider Managed Runtime Adapter
+
+Scope: `packages/runtime/src/agents/managed-invocation/`,
+`packages/runtime/src/session/`, `packages/runtime/src/gateway/`.
+
+- Add a direct-provider managed invocation adapter that creates a child
+  `RuntimeSessionOrchestrator` instead of launching an external CLI harness.
+- Reuse the existing provider adapter registry, `RuntimeBuiltinToolRegistry`,
+  `AttachedRuntimeBuiltinToolSurface`, tool authority checks, context governor,
+  session event appending, and managed invocation evidence collector. Do not
+  duplicate file, memory, approval, or tool-call execution logic inside the
+  adapter.
+- Map the managed invocation request into a bounded child runtime session:
+  configured model, credential route, working directory, memory scope, context
+  packet, builtin tools, timeout, cancellation signal, and approval authority.
+- Reduce child tool calls, child session events, usage, terminal output, write
+  evidence, failures, and cancellation into the same provider-neutral
+  `ManagedAgentInvocationResult` used by harness routes.
+- Treat direct providers as read-only until both denial and approved-write live
+  proof exist for that provider family. Write-capable direct routes stay
+  unhealthy even if declared.
+- Unit tests: direct route builds one child runtime session; readonly authority
+  denies write tools; child tool-call failures become failed invocation results;
+  timeout cancels the child session; event sink receives requested, started,
+  and terminal events; route output matches harness result shape.
+- Integration test: invoke a direct read-only child route with a deterministic
+  mock provider that calls Kiln builtin read/search tools and returns a bounded
+  handoff without leaking child transcript into parent context. Covered for
+  builtin `read` by
+  `packages/runtime/tests/managed-agent/direct-runtime-adapter.test.ts`.
+- Boundary test: a direct child provider that attempts a builtin `read` outside
+  its admitted working directory receives a sandbox denial and the parent
+  handoff never receives the out-of-scope file contents. Covered by
+  `packages/runtime/tests/managed-agent/direct-runtime-adapter.test.ts`.
+- Opt-in OpenAI live proof: direct-provider child runtime uses the real OpenAI
+  credential pool and builtin `read` tool against an isolated fixture workspace.
+  Covered by
+  `packages/runtime/tests/managed-agent/openai-direct-live-proof.live.test.ts`
+  when `KILN_LIVE_MANAGED_AGENT_TESTS=1` and
+  `KILN_LIVE_OPENAI_DIRECT_TESTS=1`.
+
+Verification: `bun run typecheck` clean; `bun run test` clean; focused runtime
+managed-invocation tests clean. Live direct-provider tests remain gated by
+provider-specific flags.
 
 ### 01.E - kiln sync + Drift Detection + kiln import-native
 
@@ -667,6 +857,9 @@ receives a `KilnConfigError` instructing them to run `kiln migrate`.
   operator action.
 - **GUI config editor.** Config mutation via the GUI surface is not in this
   slice. The GUI reads `kiln status` output; it does not write config.
+- **Unrestricted child delegation.** Managed-agent config projection exposes
+  governed routes only. It does not let the model choose arbitrary providers,
+  credentials, working directories, write scopes, or memory authority.
 - **Antigravity target.** Deferred to v2 until adoption warrants it. No
   translator, no slice, no migration path in v1.
 - **Remote component registry or fetch.** Components ship bundled in

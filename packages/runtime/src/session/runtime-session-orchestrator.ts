@@ -1,5 +1,4 @@
-import type { ContentPart, ToolDefinition } from "@kilnai/core";
-import type { EventBus } from "@kilnai/core";
+import type { ContentPart, EventBus, ToolDefinition } from "@kilnai/core";
 import {
   extractText,
   getInvalidToolInputDetails,
@@ -18,6 +17,7 @@ import type {
   OrchestrateResult,
   GovernedRuntimeContext,
   PerCallToolConfig,
+  RuntimeBuiltinToolExecutor,
   ToolExecutionSummary,
 } from "./runtime-session-orchestrator.types.js";
 
@@ -29,6 +29,8 @@ export type {
   OrchestrateResult,
   GovernedRuntimeContext,
   PerCallToolConfig,
+  RuntimeBuiltinToolExecutionContext,
+  RuntimeBuiltinToolExecutor,
   ToolExecutionSummary,
 } from "./runtime-session-orchestrator.types.js";
 
@@ -88,7 +90,7 @@ export class RuntimeSessionOrchestrator {
     session: RuntimeSession,
     userParts: readonly ContentPart[],
     governedContext?: GovernedRuntimeContext,
-    callBuiltinTools?: ReadonlyMap<string, (input: Record<string, unknown>) => Promise<unknown>>,
+    callBuiltinTools?: ReadonlyMap<string, RuntimeBuiltinToolExecutor>,
     perCallConfig?: PerCallToolConfig,
   ): Promise<OrchestrateResult> {
     if (session.sessionMode !== "ai_active") {

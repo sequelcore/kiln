@@ -24,7 +24,7 @@ import type {
 import { DefaultContextGovernor, extractText, textParts, GroundingRail, renderProjectedContext, skillConfigToContextCandidate } from "@kilnai/core";
 import type { AbuseDetectionConfig } from "../session/repetitive-abuse-detector.js";
 import { detectRepetitiveAbuse } from "../session/repetitive-abuse-detector.js";
-import type { RuntimeSessionOrchestrator, OrchestrateResult, PerCallToolConfig, ToolExecutionSummary } from "../session/runtime-session-orchestrator.js";
+import type { RuntimeSessionOrchestrator, OrchestrateResult, PerCallToolConfig, RuntimeBuiltinToolExecutor, ToolExecutionSummary } from "../session/runtime-session-orchestrator.js";
 import type { SessionRegistry } from "../session/session-registry.js";
 import type { BillingConfig } from "./budget-middleware.js";
 import { checkBudget, reportUsage } from "./budget-middleware.js";
@@ -87,7 +87,7 @@ export interface AdmittedTurnContext {
   readonly tenant?: TenantConfig;
   readonly handoffSummarizer?: AgentHandoffSummarizer;
   readonly eventBus?: EventBus;
-  readonly callBuiltinTools?: ReadonlyMap<string, (input: Record<string, unknown>) => Promise<unknown>>;
+  readonly callBuiltinTools?: ReadonlyMap<string, RuntimeBuiltinToolExecutor>;
   readonly perCallConfig?: PerCallToolConfig;
   readonly traceId?: string;
   readonly activeAgentId?: string;

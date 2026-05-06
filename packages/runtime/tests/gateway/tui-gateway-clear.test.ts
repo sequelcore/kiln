@@ -1,8 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UpgradeWebSocket } from "hono/ws";
 import { execSync } from "node:child_process";
+import {
+  defineManagedAgentAdapterDescriptor,
+  defineManagedAgentInvocationRecord,
+  textParts,
+  type ManagedAgentInvocationRequest,
+} from "@kilnai/core";
 import * as messagePipelineModule from "../../src/gateway/message-pipeline.js";
 import * as guiProviderModelsModule from "../../src/gateway/gui-provider-models.js";
+import type { ManagedInvocationToolOptions } from "../../src/agents/managed-invocation/runtime-tool.js";
+import type { ManagedAgentRuntimeAdapter } from "../../src/agents/managed-invocation/index.js";
+import { RuntimeSession } from "../../src/session/runtime-session.js";
 
 const tuiSocketHarness = vi.hoisted(() => {
   type HandlerFactory = Parameters<UpgradeWebSocket>[0];
@@ -93,6 +102,105 @@ function makeSessionManager() {
     setProvider: vi.fn(),
     getModel: vi.fn(() => "claude-sonnet-4-6"),
     setModel: vi.fn(),
+  };
+}
+
+function makeManagedInvocationOptions(): ManagedInvocationToolOptions {
+  const adapter: ManagedAgentRuntimeAdapter = {
+    descriptor: defineManagedAgentAdapterDescriptor({
+      adapterDescriptorId: "adapter:opencode:harness",
+      providerId: "opencode",
+      adapterKind: "harness",
+      supportedProfiles: ["foundation-readonly-plan"],
+      supportedExecutionModes: ["cli-harness"],
+      lifecycle: {
+        exposesStart: true,
+        exposesTerminal: true,
+        exposesCleanup: true,
+      },
+      cancellation: { supported: true },
+      timeout: { supported: true, diagnosticArtifactOnTimeout: true },
+      transcript: {
+        supported: true,
+        redactionKnown: true,
+        truncationKnown: true,
+        persistenceKnown: true,
+        retentionKnown: true,
+      },
+      usage: {
+        supported: true,
+        preservesProviderTokenClasses: true,
+        supportsExplicitUnknowns: true,
+      },
+      resultHandoff: {
+        boundedSummary: true,
+        resourcePointers: true,
+      },
+      credentialRoute: { supported: true },
+      memoryContext: { governedAdmission: true },
+      unsupportedFieldPolicy: "reject",
+      cleanup: { supported: true },
+    }),
+    invoke: vi.fn(async ({ request }: { readonly request: ManagedAgentInvocationRequest }) =>
+      defineManagedAgentInvocationRecord({
+        invocationId: request.invocationId,
+        agentId: request.agentId,
+        parentSessionId: request.parentSessionId,
+        parentTurnId: request.parentTurnId,
+        profile: request.profile,
+        lifecycleState: "completed",
+        providerRoute: request.providerRoute,
+        adapterKind: request.adapterKind,
+        executionMode: request.executionMode,
+        authority: request.authority,
+        childSessionId: `${request.parentSessionId}:managed:${request.invocationId}`,
+        childTurnId: `${request.parentSessionId}:managed:${request.invocationId}:turn:1`,
+        transcript: {
+          uri: `kiln://managed-invocations/${request.invocationId}/transcript`,
+          redacted: "unknown",
+          truncated: false,
+          persisted: true,
+          retention: "session",
+        },
+        resultHandoff: {
+          summary: "TUI child review completed.",
+          resourceUris: [`kiln://managed-invocations/${request.invocationId}/transcript`],
+          memoryWriteProposalUris: [],
+        },
+      })),
+  };
+
+  return {
+    routes: [{
+      routeId: "opencode-readonly",
+      providerId: "opencode",
+      adapter,
+      surface: "cli-harness",
+      profiles: {
+        "foundation-readonly-plan": {
+          authorityProfileId: "authority:opencode-readonly:foundation-readonly-plan",
+          permissionProfile: "read-only",
+          allowedToolNames: ["read", "grep", "glob"],
+          writeAllowed: false,
+          networkAllowed: false,
+          workingDirectory: {
+            path: "C:/Proyectos/Sequel/kiln",
+            mode: "read-only",
+          },
+          timeoutMs: 120000,
+          credentialRoute: {
+            mode: "runtime-selected",
+            routeId: "credential-route:opencode:runtime-selected",
+          },
+          memoryScope: {
+            scope: { kind: "project", id: "kiln" },
+            access: "read-only",
+          },
+        },
+      },
+    }],
+    requestedBy: "assistant",
+    requestSource: "tui",
   };
 }
 
@@ -656,6 +764,135 @@ describe("TUI gateway message fail-closed behavior", () => {
       expect(processSpy).toHaveBeenCalledOnce();
     } finally {
       processSpy.mockRestore();
+      gateway.shutdown();
+    }
+  });
+
+  it("streams managed invocation session events from a TUI turn", async () => {
+    stubBunServe();
+    const discoverySpy = vi
+      .spyOn(guiProviderModelsModule, "resolveGuiOperatorDiscoveryResults")
+      .mockResolvedValue([{
+        provider: "openai",
+        available: true,
+        models: ["gpt-5.4-mini"],
+        modelCapabilities: {
+          "gpt-5.4-mini": {
+            supportsFunctionTools: true,
+            supportsRuntimeTools: true,
+          },
+        },
+        status: "available",
+        reason: "OpenAI models discovered.",
+        authState: "authenticated",
+        lastCheckedAt: "2026-05-06T12:00:00.000Z",
+      }]);
+    const processSpy = vi.spyOn(messagePipelineModule, "processAdmittedTurn").mockImplementation(async (input) => {
+      const session = new RuntimeSession({
+        sessionId: "tui-parent-session",
+        appName: "kiln-tui",
+        tenantId: "tui",
+        userId: "operator-1",
+        systemPrompt: "You are a helpful assistant.",
+      });
+      session.addUserMessage(textParts("Delegate a managed read-only review."));
+      await input.turnCapture?.start?.(session.id, 10);
+      const managedInvoke = input.callBuiltinTools?.get("managed_agent.invoke");
+      if (!managedInvoke) {
+        throw new Error("managed_agent.invoke was not attached to the TUI turn surface");
+      }
+      expect(input.perCallConfig?.toolAllowlist?.has("managed_agent.invoke")).toBe(true);
+      expect(input.perCallConfig?.toolAuthority?.get("managed_agent.invoke")).toMatchObject({
+        allowed: false,
+        requiresApproval: true,
+      });
+
+      const toolResult = await managedInvoke({
+        profile: "foundation-readonly-plan",
+        routeId: "opencode-readonly",
+        providerRoute: {
+          providerId: "opencode",
+          model: "openai/gpt-4o:free",
+        },
+        task: "Inspect the managed invocation docs and report risks.",
+      }, {
+        session,
+        toolCall: {
+          id: "tool-call-managed-1",
+          name: "managed_agent.invoke",
+          input: {},
+        },
+      });
+      await input.turnCapture?.finish?.(session.id);
+
+      expect(toolResult.isError).toBe(false);
+      expect(toolResult.output).toContain("TUI child review completed.");
+      return {
+        ok: true,
+        result: {
+          parts: [{ type: "text", text: "Parent TUI turn completed." }],
+          inputTokens: 1,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          queued: false,
+          sessionId: session.id,
+          sessionMode: "mode-a",
+          traceId: "trace-managed-tui",
+        },
+      } as never;
+    });
+    const sessionManager = {
+      ...makeSessionManager(),
+      getProvider: vi.fn(() => "openai"),
+      getModel: vi.fn(() => "gpt-5.4-mini"),
+    };
+    const { startTuiGateway } = await import("../../src/gateway/tui-gateway.js");
+
+    const gateway = await startTuiGateway({
+      sessionManager,
+      managedInvocation: makeManagedInvocationOptions(),
+    });
+    try {
+      const { handlers, mockWs, wsCtx } = tuiSocketHarness.simulateConnection({ userId: "operator-1" });
+      await handlers.onOpen?.(new Event("open"), wsCtx);
+      await handlers.onMessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            type: "message",
+            content: "delegate from tui",
+          }),
+        }),
+        wsCtx,
+      );
+
+      const outboundFrames = mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string) as {
+        type: string;
+        content?: string;
+        event?: { kind: string; payload: Record<string, unknown> };
+      });
+      const sessionEventFrames = outboundFrames.filter((frame) => frame.type === "session_event");
+
+      expect(outboundFrames).toContainEqual({ type: "thinking" });
+      expect(outboundFrames).toContainEqual(expect.objectContaining({
+        type: "done",
+        content: "Parent TUI turn completed.",
+      }));
+      expect(sessionEventFrames.map((frame) => frame.event?.kind)).toEqual([
+        "agent_invocation_requested",
+        "agent_invocation_started",
+        "agent_invocation_completed",
+      ]);
+      expect(sessionEventFrames[2]?.event?.payload).toMatchObject({
+        resultSummary: "TUI child review completed.",
+        managedInvocationEvidence: {
+          childSessionId: expect.stringContaining("tui-parent-session:managed:"),
+        },
+      });
+      expect(processSpy).toHaveBeenCalledOnce();
+    } finally {
+      processSpy.mockRestore();
+      discoverySpy.mockRestore();
       gateway.shutdown();
     }
   });

@@ -27,11 +27,17 @@ import type {
   OperatorSurfaceController,
   OperatorSurfaceThemeController,
 } from "../operator/operator-surface-controller.js";
-import type { PerCallToolConfig } from "../session/runtime-session-orchestrator.js";
+import type { PerCallToolConfig, RuntimeBuiltinToolExecutor } from "../session/runtime-session-orchestrator.js";
+import {
+  createManagedInvocationToolExecutor,
+  MANAGED_AGENT_INVOKE_CAPABILITY,
+  MANAGED_AGENT_INVOKE_TOOL,
+  type ManagedInvocationToolOptions,
+} from "../agents/managed-invocation/runtime-tool.js";
 import { authorityFromCapability } from "./tool-authority.js";
 
 export interface AttachedRuntimeBuiltinToolSurface {
-  readonly callBuiltinTools: ReadonlyMap<string, (input: Record<string, unknown>) => Promise<unknown>>;
+  readonly callBuiltinTools: ReadonlyMap<string, RuntimeBuiltinToolExecutor>;
   readonly toolDefinitions: readonly ToolDefinition[];
   readonly capabilities: ReadonlyMap<string, Capability>;
   readonly toolAuthority: ReadonlyMap<string, AuthorityDescriptor>;
@@ -44,6 +50,7 @@ export interface AttachedRuntimeBuiltinToolSurfaceOptions {
   readonly operatorSurface?: OperatorSurfaceController;
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
   readonly executionMode?: OperatorExecutionMode;
+  readonly managedInvocation?: ManagedInvocationToolOptions;
 }
 
 const DEFAULT_CORE_BUILTIN_TOOL_SURFACE = createDefaultBuiltinToolSurface();
@@ -120,7 +127,7 @@ export function createAttachedRuntimeBuiltinToolSurface(
     ? buildRuntimeSurface(createDefaultBuiltinToolSurface(options.builtinToolOptions))
     : DEFAULT_BUILTIN_TOOL_SURFACE;
 
-  if (!themeController && options.executionMode !== "plan") {
+  if (!themeController && options.executionMode !== "plan" && !options.managedInvocation) {
     return baseSurface;
   }
 
@@ -147,6 +154,16 @@ export function createAttachedRuntimeBuiltinToolSurface(
       toolAuthority.set(SUBMIT_PLAN_TOOL.name, authority);
     }
     toolDefinitions.push(SUBMIT_PLAN_TOOL);
+  }
+
+  if (options.managedInvocation) {
+    callBuiltinTools.set(MANAGED_AGENT_INVOKE_TOOL.name, createManagedInvocationToolExecutor(options.managedInvocation));
+    capabilities.set(MANAGED_AGENT_INVOKE_TOOL.name, MANAGED_AGENT_INVOKE_CAPABILITY);
+    const authority = authorityFromCapability(MANAGED_AGENT_INVOKE_TOOL.name, MANAGED_AGENT_INVOKE_CAPABILITY);
+    if (authority) {
+      toolAuthority.set(MANAGED_AGENT_INVOKE_TOOL.name, authority);
+    }
+    toolDefinitions.push(MANAGED_AGENT_INVOKE_TOOL);
   }
 
   return {
@@ -256,11 +273,15 @@ function buildPlanModePerCallConfig(
 
 function buildBuiltinToolExecutors(
   surface: DefaultBuiltinToolSurface,
-): ReadonlyMap<string, (input: Record<string, unknown>) => Promise<unknown>> {
-  const executors = new Map<string, (input: Record<string, unknown>) => Promise<unknown>>();
+): ReadonlyMap<string, RuntimeBuiltinToolExecutor> {
+  const executors = new Map<string, RuntimeBuiltinToolExecutor>();
   for (const toolName of surface.toolNames) {
-    executors.set(toolName, async (input: Record<string, unknown>) => {
-      const execution = await surface.bridge.execute({ name: toolName, input });
+    executors.set(toolName, async (input, context) => {
+      const execution = await surface.bridge.execute({
+        name: toolName,
+        input,
+        ...(context?.sandbox !== undefined ? { sandbox: context.sandbox } : {}),
+      });
       const result = execution.result;
       const resourceLinks = projectToolResultResourceLinks(result);
       const resourceLinkContent = (result.content ?? []).filter(isResourceLinkContent);

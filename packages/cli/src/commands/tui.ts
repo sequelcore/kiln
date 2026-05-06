@@ -14,6 +14,8 @@ import {
 } from "../application/context-artifact-keys.js";
 import { readGlobalConfig } from "../config/global-config.js";
 import { resolveEffectiveProvider } from "../config/env-config.js";
+import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
+import { resolveManagedInvocationToolOptions } from "../config/managed-agent-routes.js";
 import { loadConfiguredWebToolSurfaceOptions } from "../config/web-tools-config.js";
 import {
   createDefaultRegistry,
@@ -44,7 +46,11 @@ import {
   resolveGuiOperatorDiscoveryResults,
   resolveGuiProviderSwitch,
 } from "@kilnai/runtime";
-import type { CliSessionFactoryContext, CliSessionRunOptions } from "@kilnai/runtime";
+import type {
+  CliSessionFactoryContext,
+  CliSessionRunOptions,
+  ManagedInvocationToolOptions,
+} from "@kilnai/runtime";
 import { persistTuiThemePreference } from "../application/operator-theme-preferences.js";
 
 export interface TuiFlags {
@@ -64,6 +70,7 @@ interface TuiBootstrapOptions {
   readonly contextArtifactCache: ContextArtifactCache;
   readonly systemPrompt: string;
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
+  readonly managedInvocation?: ManagedInvocationToolOptions;
 }
 
 interface TuiBootstrapResult {
@@ -365,6 +372,7 @@ export async function makeMultiProviderSessionFactory(
   contextArtifactCache: ContextArtifactCache,
   builtinToolOptions?: DefaultBuiltinToolRegistryOptions,
   transcriptSurface: OperatorTranscriptSurface = "tui",
+  managedInvocation?: ManagedInvocationToolOptions,
 ): Promise<MultiProviderSessionManager> {
   const providers = providerIds;
   
@@ -458,6 +466,7 @@ export async function makeMultiProviderSessionFactory(
           reasoningEffort: options.reasoningEffort,
           ...(context?.operatorSurface ? { operatorSurface: context.operatorSurface } : {}),
           builtinToolOptions: sessionBuiltinToolOptions,
+          ...(managedInvocation ? { managedInvocation } : {}),
         });
         activeSession = resumedSession;
         const capturedId = options.kilnSessionId ?? context?.kilnSessionId ?? resumedFrom ?? resumedSession.sessionId;
@@ -758,6 +767,7 @@ async function bootstrapGatewaySession(
     contextArtifactCache,
     executionMode: flags.plan ? "plan" : "execute",
     builtinToolOptions: options.builtinToolOptions,
+    managedInvocation: options.managedInvocation,
   });
 
   writeTuiBootstrapStatus("Connecting to local gateway...");
@@ -1021,6 +1031,13 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
       },
     }),
   );
+  const managedInvocationResolution = await resolveManagedInvocationToolOptions(globalConfig, {
+    cwd,
+    registry,
+    surface: "tui",
+    directAdapterFactory: createManagedDirectProviderAdapterFactory({ builtinToolOptions }),
+  });
+  const managedInvocation = appConfig.managedInvocation ?? managedInvocationResolution.managedInvocation;
 
   // Resolve domain display name from app config if available
   let domain = "kiln";
@@ -1053,6 +1070,8 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     transcriptStore,
     contextArtifactCache,
     builtinToolOptions,
+    "tui",
+    managedInvocation,
   );
 
   const bootstrap = await bootstrapTuiSession({
@@ -1062,6 +1081,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     contextArtifactCache,
     systemPrompt,
     builtinToolOptions,
+    managedInvocation,
   });
 
   const shutdown = (code = 0, error?: unknown) => {

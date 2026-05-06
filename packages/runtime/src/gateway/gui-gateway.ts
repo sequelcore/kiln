@@ -8,6 +8,7 @@ import {
   textParts,
   type ApprovalReceivedEvent,
   type ApprovalRequestedEvent,
+  type CanonicalSessionEvent,
   type KilnEvent,
   type ModelRoutedEvent,
   type ReasoningEffort,
@@ -46,7 +47,12 @@ import {
   createAttachedRuntimeBuiltinToolSurface,
   type AttachedRuntimeBuiltinToolSurface,
 } from "./attached-runtime-tool-surface.js";
+import {
+  attachManagedInvocationSessionEventSink,
+  type ManagedInvocationToolOptions,
+} from "../agents/managed-invocation/runtime-tool.js";
 import { createOperatorThemeBridge } from "./operator-theme-bridge.js";
+import { toOperatorSessionEventFrame } from "./operator-session-event-frame.js";
 import { projectMemoryLatticeInvalidationFrame } from "./gui-memory-lattice-events.js";
 import { createGuiMemoryLatticeRoutes } from "./gui-memory-lattice.js";
 import {
@@ -103,6 +109,7 @@ export interface StartGuiGatewayOptions {
   readonly onManagedWindowClose?: () => void;
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
   readonly operatorTransport?: OperatorSessionTransportOptions;
+  readonly managedInvocation?: ManagedInvocationToolOptions;
 }
 
 export interface GuiGateway {
@@ -390,6 +397,7 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
       getDiscoverySnapshot: getOperatorDiscoverySnapshot,
       onDiscoveryUpdated: (listener) => operatorCatalog?.subscribe((snapshot) => listener(snapshot.discovery)) ?? (() => {}),
       builtinToolOptions,
+      managedInvocation: options.managedInvocation,
       onReady: (url) => {
         operatorWsUrl = url;
       },
@@ -490,6 +498,7 @@ function wireOperatorTransport(
     getDiscoverySnapshot: () => readonly GuiProviderDiscoveryResult[];
     onDiscoveryUpdated: (listener: (discovery: readonly GuiProviderDiscoveryResult[]) => void) => () => void;
     builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
+    managedInvocation?: ManagedInvocationToolOptions;
     onReady: (wsUrl: string) => void;
     onSocketOpen?: () => void;
     onSocketClose?: () => void;
@@ -500,6 +509,7 @@ function wireOperatorTransport(
   const activityStreamer = new GuiActivityStreamer(approvalRegistry);
   const builtinToolSurface = createAttachedRuntimeBuiltinToolSurface({
     builtinToolOptions: input.builtinToolOptions,
+    managedInvocation: input.managedInvocation,
   });
   let activeOperatorSurface: { theme: { setTheme: ReturnType<typeof createOperatorThemeBridge>["request"] } } | undefined;
   const executor = new CliSubscriptionExecutor(
@@ -898,6 +908,10 @@ function wireOperatorTransport(
               const turnBuiltinToolSurface = createAttachedRuntimeBuiltinToolSurface({
                 builtinToolOptions: input.builtinToolOptions,
                 executionMode,
+                managedInvocation: attachManagedInvocationSessionEventSink(
+                  input.managedInvocation,
+                  { publish: (events) => activityStreamer.forwardSessionEvents(events) },
+                ),
                 operatorSurface: {
                   theme: {
                     setTheme: operatorThemeBridge.request,
@@ -979,9 +993,13 @@ function wireOperatorTransport(
                   routedModel || undefined,
                   createAttachedRuntimeBuiltinToolSurface({
                     builtinToolOptions: input.builtinToolOptions,
-                  operatorSurface: {
-                    theme: {
-                      setTheme: operatorThemeBridge.request,
+                    managedInvocation: attachManagedInvocationSessionEventSink(
+                      input.managedInvocation,
+                      { publish: (events) => activityStreamer.forwardSessionEvents(events) },
+                    ),
+                    operatorSurface: {
+                      theme: {
+                        setTheme: operatorThemeBridge.request,
                       },
                     },
                   }),
@@ -1488,6 +1506,17 @@ class GuiActivityStreamer {
           },
         },
       });
+    }
+  }
+
+  forwardSessionEvents(events: readonly CanonicalSessionEvent[]): void {
+    if (!this.ws) return;
+    for (const event of events) {
+      const sequence = this.nextLiveSequence() ?? event.sequence;
+      this.ws.send(JSON.stringify(toOperatorSessionEventFrame(event, {
+        eventId: `${event.eventId}:live`,
+        sequence,
+      }) satisfies GuiInboundFrame));
     }
   }
 }

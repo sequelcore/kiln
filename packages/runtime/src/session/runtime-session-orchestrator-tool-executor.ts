@@ -24,6 +24,7 @@ import type {
   DangerousCommandRequestLike,
   OrchestratorDeps,
   PerCallToolConfig,
+  RuntimeBuiltinToolExecutor,
   ToolExecutionSummary,
   CommandShell,
 } from "./runtime-session-orchestrator.types.js";
@@ -180,6 +181,8 @@ export interface RuntimeSessionToolExecutionResult {
 }
 
 export class RuntimeSessionToolExecutor {
+  private currentSession: RuntimeSession | undefined;
+
   constructor(
     private readonly deps: OrchestratorDeps,
     private readonly eventBus: EventBus | undefined,
@@ -188,7 +191,7 @@ export class RuntimeSessionToolExecutor {
       description: string,
     ) => Promise<{ approved: boolean; reason?: string }>,
     private readonly emitError: (sessionId: string, message: string) => void,
-    private readonly callBuiltinTools?: ReadonlyMap<string, (input: Record<string, unknown>) => Promise<unknown>>,
+    private readonly callBuiltinTools?: ReadonlyMap<string, RuntimeBuiltinToolExecutor>,
   ) {}
 
   async executeToolCalls(
@@ -196,6 +199,8 @@ export class RuntimeSessionToolExecutor {
     toolCalls: readonly ToolCall[],
     perCallConfig?: PerCallToolConfig,
   ): Promise<RuntimeSessionToolExecutionResult> {
+    this.currentSession = session;
+    try {
     const resultParts: Array<{
       readonly type: "tool_result";
       readonly toolUseId: string;
@@ -405,6 +410,9 @@ export class RuntimeSessionToolExecutor {
     }
 
     return { resultParts, toolExecutions };
+    } finally {
+      this.currentSession = undefined;
+    }
   }
 
   private formatInvalidToolInputMessage(
@@ -816,11 +824,20 @@ export class RuntimeSessionToolExecutor {
   }
 
   private async executeTool(toolCall: ToolCall): Promise<unknown> {
+    const context = this.currentSession ? { session: this.currentSession, toolCall } : undefined;
     const callBuiltin = this.callBuiltinTools?.get(toolCall.name);
-    if (callBuiltin) return callBuiltin(toolCall.input);
+    if (callBuiltin) {
+      return callBuiltin.length >= 2
+        ? callBuiltin(toolCall.input, context)
+        : callBuiltin(toolCall.input);
+    }
 
     const depBuiltin = this.deps.builtinTools?.get(toolCall.name);
-    if (depBuiltin) return depBuiltin(toolCall.input);
+    if (depBuiltin) {
+      return depBuiltin.length >= 2
+        ? depBuiltin(toolCall.input, context)
+        : depBuiltin(toolCall.input);
+    }
 
     if (this.deps.mcpClients) {
       for (const client of this.deps.mcpClients) {

@@ -169,6 +169,61 @@ describe("OpenAIAdapter", () => {
     ]);
   });
 
+  it("serializes prior tool use and tool result messages for follow-up calls", async () => {
+    const mockFetch = mockFetchResponse(makeOpenAIResponse());
+    vi.stubGlobal("fetch", mockFetch);
+
+    await adapter.createMessage(makeOptions({
+      messages: [
+        { role: "user", parts: textParts("Read the fixture.") },
+        {
+          role: "assistant",
+          parts: [
+            { type: "text", text: "Reading now." },
+            {
+              type: "tool_use",
+              id: "call_read_1",
+              name: "read",
+              input: { filePath: "proof.txt" },
+            },
+          ],
+        },
+        {
+          role: "user",
+          parts: [{
+            type: "tool_result",
+            toolUseId: "call_read_1",
+            content: "fixture contents",
+            isError: false,
+          }],
+        },
+      ],
+    }));
+
+    const body = JSON.parse(mockFetch.mock.calls[0]![1].body);
+    expect(body.messages).toEqual([
+      { role: "system", content: "You are a helpful assistant." },
+      { role: "user", content: "Read the fixture." },
+      {
+        role: "assistant",
+        content: "Reading now.",
+        tool_calls: [{
+          id: "call_read_1",
+          type: "function",
+          function: {
+            name: "read",
+            arguments: "{\"filePath\":\"proof.txt\"}",
+          },
+        }],
+      },
+      {
+        role: "tool",
+        tool_call_id: "call_read_1",
+        content: "fixture contents",
+      },
+    ]);
+  });
+
   it("preserves malformed function-call arguments as invalid tool input", async () => {
     const body = makeOpenAIResponse({
       choices: [

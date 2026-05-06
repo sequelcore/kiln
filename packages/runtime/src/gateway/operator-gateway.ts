@@ -10,7 +10,7 @@ export type OnResumeSession = (sessionId: string, provider?: string) => void | P
 
 type BaseOperatorSessionTransportOptions = Pick<
   TuiGatewayOptions,
-  "sessionManager" | "systemPrompt" | "onClear" | "onProviderSwitch" | "contextArtifactCache" | "eventBus" | "executionMode"
+  "sessionManager" | "systemPrompt" | "onClear" | "onProviderSwitch" | "contextArtifactCache" | "eventBus" | "executionMode" | "managedInvocation"
 >;
 
 export interface OperatorSessionTransportOptions extends BaseOperatorSessionTransportOptions {

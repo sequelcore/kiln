@@ -78,6 +78,13 @@ const configMocks = vi.hoisted(() => ({
 
 vi.mock("@kilnai/runtime", () => ({
   getProjectContextArtifactCache: vi.fn().mockResolvedValue({}),
+  createAttachedRuntimeBuiltinToolSurface: vi.fn(() => ({
+    toolDefinitions: [],
+    callBuiltinTools: new Map(),
+    capabilities: new Map(),
+    toolAuthority: new Map(),
+  })),
+  ManagedDirectProviderRuntimeAdapter: class MockManagedDirectProviderRuntimeAdapter {},
   startGuiGateway: gatewayHarness.startGuiGateway,
 }));
 

@@ -10,7 +10,6 @@ biological system, and not a legacy compatibility shell for old abstractions.
 ## Canonical References
 
 - Architecture: [docs/architecture/README.md](docs/architecture/README.md)
-- Engineering standards: [docs/architecture/engineering-standards.md](docs/architecture/engineering-standards.md)
 - Research synthesis: [docs/research/README.md](docs/research/README.md)
 - Roadmap: [docs/roadmap/README.md](docs/roadmap/README.md)
 - Transitional entrypoint: [docs/architecture.md](docs/architecture.md)

@@ -89,4 +89,33 @@ describe("statusCommand", () => {
     const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
     expect(output).toContain("Memory files:     2");
   });
+
+  it("shows managed-agent route health", async () => {
+    const kilnDir = join(tempDir, ".kiln");
+    mkdirSync(kilnDir, { recursive: true });
+    writeKilnYaml(kilnDir, {
+      ...defaultKilnYaml("python"),
+      managedAgents: {
+        enabled: true,
+        defaultProvider: "codex",
+        defaultProfile: "foundation-readonly-plan",
+        requireApproval: true,
+        routes: [{
+          id: "codex-readonly",
+          kind: "harness",
+          provider: "codex",
+          model: "gpt-5.3-codex-spark",
+          profiles: ["foundation-readonly-plan"],
+        }],
+      },
+    });
+
+    await statusCommand(MOCK_APP_CONFIG, tempDir);
+
+    const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
+    expect(output).toContain("Managed agent routes:");
+    expect(output).toContain("codex-readonly");
+    expect(output).toContain("harness/codex gpt-5.3-codex-spark");
+    expect(output).toContain("available");
+  });
 });

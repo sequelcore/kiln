@@ -18,6 +18,7 @@ import {
   HarnessCredentialPoolService,
   type HarnessHomeAuth,
   type HarnessPoolProviderId,
+  type ManagedInvocationToolOptions,
   type OperatorSurfaceController,
 } from "@kilnai/runtime";
 import { ClaudeSession } from "./claude-code-process.js";
@@ -158,6 +159,7 @@ export interface ProviderCreateConfig {
   readonly localProvider?: string;
   readonly operatorSurface?: OperatorSurfaceController;
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
+  readonly managedInvocation?: ManagedInvocationToolOptions;
 }
 
 export interface ClaudeBackendConfig {
@@ -992,6 +994,7 @@ function createDirectProviderSession(
     executionProfile: profile,
     ...(config.operatorSurface ? { operatorSurface: config.operatorSurface } : {}),
     ...(config.builtinToolOptions ? { builtinToolOptions: config.builtinToolOptions } : {}),
+    ...(config.managedInvocation ? { managedInvocation: config.managedInvocation } : {}),
   });
 }
 

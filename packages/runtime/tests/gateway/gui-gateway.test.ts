@@ -3,7 +3,16 @@ import { execSync, spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CodexOAuthAuth, GPT4O, OpenCodeAuth, OPENCODE_BASE_URL } from "@kilnai/core";
+import {
+  CodexOAuthAuth,
+  GPT4O,
+  OpenCodeAuth,
+  OPENCODE_BASE_URL,
+  defineManagedAgentAdapterDescriptor,
+  defineManagedAgentInvocationRecord,
+  textParts,
+  type ManagedAgentInvocationRequest,
+} from "@kilnai/core";
 import type { GuiProviderDescriptor } from "@kilnai/gateway-contracts";
 import { Hono } from "hono";
 import type { UpgradeWebSocket } from "hono/ws";
@@ -21,6 +30,9 @@ import {
   resolveGuiProviderSwitch,
   type GuiCliProviderModelDiscovery,
 } from "../../src/gateway/gui-provider-models.js";
+import type { ManagedInvocationToolOptions } from "../../src/agents/managed-invocation/runtime-tool.js";
+import type { ManagedAgentRuntimeAdapter } from "../../src/agents/managed-invocation/index.js";
+import { RuntimeSession } from "../../src/session/runtime-session.js";
 
 const guiSocketHarness = vi.hoisted(() => {
   type HandlerFactory = Parameters<UpgradeWebSocket>[0];
@@ -185,6 +197,105 @@ function makeGuiOperatorDiscoveryFromModels(
     directProviderDiscovery,
     lastCheckedAt: "2026-04-28T12:00:00.000Z",
   });
+}
+
+function makeManagedInvocationOptions(): ManagedInvocationToolOptions {
+  const adapter: ManagedAgentRuntimeAdapter = {
+    descriptor: defineManagedAgentAdapterDescriptor({
+      adapterDescriptorId: "adapter:opencode:harness",
+      providerId: "opencode",
+      adapterKind: "harness",
+      supportedProfiles: ["foundation-readonly-plan"],
+      supportedExecutionModes: ["cli-harness"],
+      lifecycle: {
+        exposesStart: true,
+        exposesTerminal: true,
+        exposesCleanup: true,
+      },
+      cancellation: { supported: true },
+      timeout: { supported: true, diagnosticArtifactOnTimeout: true },
+      transcript: {
+        supported: true,
+        redactionKnown: true,
+        truncationKnown: true,
+        persistenceKnown: true,
+        retentionKnown: true,
+      },
+      usage: {
+        supported: true,
+        preservesProviderTokenClasses: true,
+        supportsExplicitUnknowns: true,
+      },
+      resultHandoff: {
+        boundedSummary: true,
+        resourcePointers: true,
+      },
+      credentialRoute: { supported: true },
+      memoryContext: { governedAdmission: true },
+      unsupportedFieldPolicy: "reject",
+      cleanup: { supported: true },
+    }),
+    invoke: vi.fn(async ({ request }: { readonly request: ManagedAgentInvocationRequest }) =>
+      defineManagedAgentInvocationRecord({
+        invocationId: request.invocationId,
+        agentId: request.agentId,
+        parentSessionId: request.parentSessionId,
+        parentTurnId: request.parentTurnId,
+        profile: request.profile,
+        lifecycleState: "completed",
+        providerRoute: request.providerRoute,
+        adapterKind: request.adapterKind,
+        executionMode: request.executionMode,
+        authority: request.authority,
+        childSessionId: `${request.parentSessionId}:managed:${request.invocationId}`,
+        childTurnId: `${request.parentSessionId}:managed:${request.invocationId}:turn:1`,
+        transcript: {
+          uri: `kiln://managed-invocations/${request.invocationId}/transcript`,
+          redacted: "unknown",
+          truncated: false,
+          persisted: true,
+          retention: "session",
+        },
+        resultHandoff: {
+          summary: "GUI child review completed.",
+          resourceUris: [`kiln://managed-invocations/${request.invocationId}/transcript`],
+          memoryWriteProposalUris: [],
+        },
+      })),
+  };
+
+  return {
+    routes: [{
+      routeId: "opencode-readonly",
+      providerId: "opencode",
+      adapter,
+      surface: "cli-harness",
+      profiles: {
+        "foundation-readonly-plan": {
+          authorityProfileId: "authority:opencode-readonly:foundation-readonly-plan",
+          permissionProfile: "read-only",
+          allowedToolNames: ["read", "grep", "glob"],
+          writeAllowed: false,
+          networkAllowed: false,
+          workingDirectory: {
+            path: "C:/Proyectos/Sequel/kiln",
+            mode: "read-only",
+          },
+          timeoutMs: 120000,
+          credentialRoute: {
+            mode: "runtime-selected",
+            routeId: "credential-route:opencode:runtime-selected",
+          },
+          memoryScope: {
+            scope: { kind: "project", id: "kiln" },
+            access: "read-only",
+          },
+        },
+      },
+    }],
+    requestedBy: "assistant",
+    requestSource: "gui",
+  };
 }
 
 function projectDirectProviderDiscoveryForTest(
@@ -1112,6 +1223,136 @@ describe("startGuiGateway static mount", () => {
       expect(processAdmittedTurn).toHaveBeenCalledTimes(1);
       expect(factory).not.toHaveBeenCalled();
     } finally {
+      resolveGuiOperatorDiscoverySpy.mockRestore();
+      gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
+
+  it("streams managed invocation session events from a GUI turn", async () => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    const resolveGuiOperatorDiscoverySpy = vi
+      .spyOn(guiProviderModelsModule, "resolveGuiOperatorDiscoveryResults")
+      .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
+    vi.mocked(processAdmittedTurn).mockReset();
+    vi.mocked(processAdmittedTurn).mockImplementation(async (input) => {
+      const session = new RuntimeSession({
+        sessionId: "gui-parent-session",
+        appName: "kiln-gui",
+        tenantId: "gui",
+        userId: "operator-1",
+        systemPrompt: "You are a helpful assistant.",
+      });
+      session.addUserMessage(textParts("Delegate a managed read-only review."));
+      await input.turnCapture?.start?.(session.id, 10);
+      const managedInvoke = input.callBuiltinTools?.get("managed_agent.invoke");
+      if (!managedInvoke) {
+        throw new Error("managed_agent.invoke was not attached to the GUI turn surface");
+      }
+      expect(input.perCallConfig?.toolAllowlist?.has("managed_agent.invoke")).toBe(true);
+      expect(input.perCallConfig?.toolAuthority?.get("managed_agent.invoke")).toMatchObject({
+        allowed: false,
+        requiresApproval: true,
+      });
+
+      const toolResult = await managedInvoke({
+        profile: "foundation-readonly-plan",
+        routeId: "opencode-readonly",
+        providerRoute: {
+          providerId: "opencode",
+          model: "openai/gpt-4o:free",
+        },
+        task: "Inspect the managed invocation docs and report risks.",
+      }, {
+        session,
+        toolCall: {
+          id: "tool-call-managed-1",
+          name: "managed_agent.invoke",
+          input: {},
+        },
+      });
+      await input.turnCapture?.finish?.(session.id);
+
+      expect(toolResult.isError).toBe(false);
+      expect(toolResult.output).toContain("GUI child review completed.");
+      return {
+        ok: true,
+        result: {
+          parts: [{ type: "text", text: "Parent turn completed." }],
+          inputTokens: 1,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          queued: false,
+          sessionId: session.id,
+          sessionMode: "mode-a",
+          traceId: "trace-managed-gui",
+        },
+      } as never;
+    });
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
+        port: port ?? 4810,
+        stop,
+      })),
+    });
+
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+
+    try {
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        getSnapshot: async () => ({ } as never),
+        managedInvocation: makeManagedInvocationOptions(),
+        operatorTransport: {
+          sessionManager: {
+            factory: vi.fn() as never,
+            getProvider: () => "openai",
+            setProvider: vi.fn(),
+            getModel: () => GPT4O,
+            setModel: vi.fn(),
+          },
+        },
+      });
+
+      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
+      await handlers.onOpen!(new Event("open"), wsCtx);
+      await handlers.onMessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({ type: "message", content: "delegate from gui" }),
+        }),
+        wsCtx,
+      );
+
+      const outboundFrames = mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string) as {
+        type: string;
+        content?: string;
+        event?: { kind: string; payload: Record<string, unknown> };
+      });
+      const sessionEventFrames = outboundFrames.filter((frame) => frame.type === "session_event");
+
+      expect(outboundFrames).toContainEqual({ type: "thinking" });
+      expect(outboundFrames).toContainEqual(expect.objectContaining({
+        type: "done",
+        content: "Parent turn completed.",
+      }));
+      expect(sessionEventFrames.map((frame) => frame.event?.kind)).toEqual([
+        "agent_invocation_requested",
+        "agent_invocation_started",
+        "agent_invocation_completed",
+      ]);
+      expect(sessionEventFrames[2]?.event?.payload).toMatchObject({
+        resultSummary: "GUI child review completed.",
+        managedInvocationEvidence: {
+          childSessionId: expect.stringContaining("gui-parent-session:managed:"),
+        },
+      });
+      expect(processAdmittedTurn).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.mocked(processAdmittedTurn).mockReset();
       resolveGuiOperatorDiscoverySpy.mockRestore();
       gateway?.shutdown();
       rmSync(distDir, { recursive: true, force: true });

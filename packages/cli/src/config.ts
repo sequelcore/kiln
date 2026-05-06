@@ -1,4 +1,5 @@
 import type { DomainConfig, DomainRegistry } from "@kilnai/core";
+import type { ManagedInvocationToolOptions } from "@kilnai/runtime";
 import type { KilnYaml, KilnHooksConfig } from "./kiln-yaml.js";
 import type { ProjectedContext } from "./application/context-types.js";
 
@@ -36,6 +37,7 @@ export interface KilnAppConfig {
   readonly studioDistPath?: string;
   readonly kilnYaml?: KilnYaml;
   readonly hooks?: KilnHooksConfig;
+  readonly managedInvocation?: ManagedInvocationToolOptions;
 }
 
 export { defaultBuildSystemPrompt };

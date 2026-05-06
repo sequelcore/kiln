@@ -51,6 +51,10 @@ is documented by concern, not as a single monolith.
   Tool policy, execution flow, timeout/retry/fallback behavior, and command
   safety boundaries.
 
+- `engineering-standards.md`
+  Canonical implementation standards: no dead code, no redundancy, explicit
+  ports, Clean Architecture boundaries, surface parity, and verification rules.
+
 - `developer-tools.md`
   Canonical builtin developer-tool surface: command, file, search, patch,
   stat/tree, image/OCR, controlled web tools, verbosity, metadata, and shared

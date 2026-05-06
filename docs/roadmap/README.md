@@ -32,7 +32,9 @@ Read the relevant architecture or guide document before using a roadmap:
 - `01-config-projection-unification.md`
   Makes `~/.kiln/config.yaml` the source of truth for harness configuration,
   projects managed Claude/Codex/OpenCode config, and adds drift-aware sync,
-  uninstall, migrate, and engine-status workflows.
+  uninstall, migrate, engine-status workflows, and governed managed-agent route
+  projection for both harness-backed and direct-provider child execution across
+  operator surfaces.
 
 ## Deferred Roadmaps
 

@@ -28,6 +28,7 @@ export type {
   KilnYamlProvider,
   KilnYamlSkillGeneration,
   KilnYamlWebConfig,
+  KilnManagedAgentsConfig,
   KilnHooksConfig,
 } from "./kiln-yaml-types.js";
 
@@ -76,6 +77,7 @@ export function mergeKilnYaml(base: KilnYaml, override: Partial<KilnYaml>): Kiln
     model: override.model ?? base.model,
     permissions: override.permissions ?? base.permissions,
     providers: override.providers ?? base.providers,
+    managedAgents: override.managedAgents ?? base.managedAgents,
     web: mergeWeb(base.web, override.web),
     contextGovernance: override.contextGovernance ?? base.contextGovernance,
     hooks: override.hooks ?? base.hooks,

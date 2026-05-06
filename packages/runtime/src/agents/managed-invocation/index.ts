@@ -44,12 +44,29 @@ export type {
   ManagedAgentLiveWriteChangeSource,
 } from "./live-write-event-bridge.js";
 export {
+  ManagedDirectProviderRuntimeAdapter,
+  type ManagedDirectProviderRuntimeAdapterConfig,
+} from "./direct-runtime-adapter.js";
+export {
   ManagedCliHarnessAdapter,
 } from "./cli-harness-adapter.js";
 export type {
   ManagedCliHarnessAdapterConfig,
   ManagedCliHarnessFilesystemBoundaryConfig,
 } from "./cli-harness-adapter.js";
+export {
+  attachManagedInvocationSessionEventSink,
+  createManagedInvocationToolExecutor,
+  MANAGED_AGENT_INVOKE_CAPABILITY,
+  MANAGED_AGENT_INVOKE_TOOL,
+  MANAGED_AGENT_INVOKE_TOOL_NAME,
+} from "./runtime-tool.js";
+export type {
+  ManagedInvocationSessionEventSink,
+  ManagedInvocationRouteProfile,
+  ManagedInvocationToolOptions,
+  ManagedInvocationToolRoute,
+} from "./runtime-tool.js";
 export { ManagedAgentRuntimeAdmissionError } from "./errors.js";
 
 export interface ManagedAgentRuntimeInvocationInput {

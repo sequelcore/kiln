@@ -123,6 +123,55 @@ export interface KilnYamlWebConfig {
   readonly searchProvider?: KilnYamlWebSearchProvider;
 }
 
+export type KilnManagedAgentRouteKind = "harness" | "direct";
+
+export type KilnManagedAgentProfile =
+  | "foundation-readonly-plan"
+  | "foundation-propose-writes"
+  | "foundation-apply-approved-writes"
+  | "foundation-memory-write-proposals";
+
+export interface KilnManagedAgentToolsConfig {
+  readonly allowed?: readonly string[];
+  readonly network?: boolean;
+  readonly writes?: boolean;
+}
+
+export interface KilnManagedAgentMemoryConfig {
+  readonly access?: "none" | "read-only" | "write-proposals";
+}
+
+export type KilnManagedAgentCredentialsConfig =
+  | {
+    readonly mode: "runtime-selected";
+    readonly routeId?: string;
+  }
+  | {
+    readonly mode: "credentialless";
+  };
+
+export interface KilnManagedAgentRouteConfig {
+  readonly id: string;
+  readonly kind: KilnManagedAgentRouteKind;
+  readonly provider: string;
+  readonly model?: string;
+  readonly profiles?: readonly KilnManagedAgentProfile[];
+  readonly workingDirectory?: "project";
+  readonly timeoutMs?: number;
+  readonly tools?: KilnManagedAgentToolsConfig;
+  readonly memory?: KilnManagedAgentMemoryConfig;
+  readonly credentials?: KilnManagedAgentCredentialsConfig;
+}
+
+export interface KilnManagedAgentsConfig {
+  readonly enabled?: boolean;
+  readonly defaultProfile?: KilnManagedAgentProfile;
+  readonly defaultProvider?: string;
+  readonly model?: string;
+  readonly requireApproval?: boolean;
+  readonly routes?: readonly KilnManagedAgentRouteConfig[];
+}
+
 export interface KilnYamlQualityGate {
   readonly name: string;
   readonly command: string;
@@ -231,6 +280,7 @@ export interface KilnYaml {
   readonly model?: KilnYamlModel;
   readonly permissions?: KilnYamlPermissions;
   readonly providers?: Record<string, KilnYamlProvider>;
+  readonly managedAgents?: KilnManagedAgentsConfig;
   readonly web?: KilnYamlWebConfig;
   readonly skillGeneration?: KilnYamlSkillGeneration;
   readonly qualityGates?: readonly KilnYamlQualityGate[];

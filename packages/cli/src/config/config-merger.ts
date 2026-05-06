@@ -11,6 +11,7 @@ export function globalToKilnYaml(global: KilnGlobalConfig): KilnYaml {
     model: global.model ? { default: global.model } : undefined,
     permissions: global.permissions,
     mcp: global.mcp,
+    managedAgents: global.managedAgents,
     web: global.web,
     hooks: global.hooks,
   };
