@@ -4,10 +4,25 @@ import { createSessionBuiltinToolOptions } from "@kilnai/core";
 import { loadKilnConfig } from "../config/config-merger.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
 import { resolveManagedInvocationToolOptions } from "../config/managed-agent-routes.js";
+import { readGlobalConfig } from "../config/global-config.js";
+import {
+  EngineRegistry,
+  resolveEngineRoute,
+  type EngineProbeResult,
+  type EngineRouteContext,
+} from "../engines/engine-registry.js";
 import type { KilnAppConfig } from "../config.js";
 import { createDefaultRegistry } from "../wrapper/session-registry.js";
 
-export async function statusCommand(_appConfig: KilnAppConfig, projectPath?: string): Promise<void> {
+export interface StatusCommandOptions extends EngineRouteContext {
+  readonly engineRegistry?: Pick<EngineRegistry, "probeAll">;
+}
+
+export async function statusCommand(
+  _appConfig: KilnAppConfig,
+  projectPath?: string,
+  options: StatusCommandOptions = {},
+): Promise<void> {
   const root = projectPath ?? process.cwd();
   const kilnDir = join(root, ".kiln");
   const projectConfigPath = join(kilnDir, "kiln.yaml");
@@ -30,6 +45,14 @@ export async function statusCommand(_appConfig: KilnAppConfig, projectPath?: str
   console.log(`  Parallel Workers: ${config.parallelWorkers ?? 2}`);
   console.log(`  Provider:         ${config.provider ?? "—"}`);
   console.log(`  Mode:             ${config.mode ?? "—"}`);
+
+  const globalConfig = readGlobalConfig();
+  if (globalConfig) {
+    const engineRegistry = options.engineRegistry ?? new EngineRegistry();
+    const route = resolveEngineRoute(globalConfig, options);
+    const engineHealth = engineRegistry.probeAll(globalConfig);
+    printEngineStatus(engineHealth, route.worker, route.reason);
+  }
 
   const { registry } = createDefaultRegistry();
   const builtinToolOptions = createSessionBuiltinToolOptions();
@@ -54,4 +77,22 @@ export async function statusCommand(_appConfig: KilnAppConfig, projectPath?: str
   }
 
   console.log("");
+}
+
+function printEngineStatus(
+  engineHealth: readonly EngineProbeResult[],
+  resolvedWorker: string | undefined,
+  routeReason: string,
+): void {
+  if (engineHealth.length === 0 && !resolvedWorker) {
+    return;
+  }
+
+  console.log(`\n  Engine routes:`);
+  for (const engine of engineHealth) {
+    const status = engine.available ? "available" : `unavailable - ${engine.reason ?? "unknown"}`;
+    console.log(`    - ${engine.engineId}: ${status}`);
+  }
+  console.log(`    Resolved worker: ${resolvedWorker ?? "—"}`);
+  console.log(`    Route reason:    ${routeReason}`);
 }

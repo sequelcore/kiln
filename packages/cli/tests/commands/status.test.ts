@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { statusCommand } from "../../src/commands/status.js";
 import { writeKilnYaml, defaultKilnYaml } from "../../src/kiln-yaml.js";
+import { writeGlobalConfig } from "../../src/config/global-config.js";
 import type { KilnAppConfig } from "../../src/config.js";
 
 const MOCK_APP_CONFIG: KilnAppConfig = {
@@ -123,5 +124,44 @@ describe("statusCommand", () => {
     expect(output).toContain("codex-readonly");
     expect(output).toContain("harness/codex gpt-5.3-codex-spark");
     expect(output).toContain("available");
+  });
+
+  it("shows configured engine route health", async () => {
+    const kilnDir = join(tempDir, ".kiln");
+    mkdirSync(kilnDir, { recursive: true });
+    writeKilnYaml(kilnDir, { ...defaultKilnYaml("python") });
+    writeGlobalConfig({
+      version: "2",
+      engines: {
+        codex: { enabled: true, billing: "plus-quota" },
+        opencode: { enabled: true, billing: "free" },
+      },
+      routing: {
+        defaultWorker: "codex",
+        fallback: "opencode",
+        budgetAware: true,
+        budget: {
+          codex: { dailyTokenCeiling: 100 },
+        },
+      },
+    });
+
+    await statusCommand(MOCK_APP_CONFIG, tempDir, {
+      engineRegistry: {
+        probeAll: () => [
+          { engineId: "codex", enabled: true, available: false, reason: "not found" },
+          { engineId: "opencode", enabled: true, available: true },
+        ],
+      },
+      getDailyTokensUsed: (engineId) => engineId === "codex" ? 125 : 0,
+    });
+
+    const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
+    expect(output).toContain("Engine routes:");
+    expect(output).toContain("codex");
+    expect(output).toContain("unavailable - not found");
+    expect(output).toContain("opencode");
+    expect(output).toContain("Resolved worker: opencode");
+    expect(output).toContain("budget-ceiling");
   });
 });
