@@ -6,8 +6,8 @@ Deferred experimental roadmap.
 
 Do not start this program before managed invocation creates real
 high-concurrency operator workloads and before
-`01-config-projection-unification.md` defines how local, cloud, team, CI, and
-project configuration are projected into a stable runtime view.
+`docs/architecture/config-projection.md` defines how local, cloud, team, CI,
+and project configuration are projected into a stable runtime view.
 
 This is a validation track, not a commitment to replace the web GUI.
 
@@ -275,7 +275,7 @@ This roadmap depends on:
 - `docs/architecture/managed-agents.md`
   Defines the managed invocation lifecycle, authority, replay, and live adapter
   evidence that high-density operator workloads must project.
-- `01-config-projection-unification.md`
+- `docs/architecture/config-projection.md`
   Provides config projection and drift-aware runtime configuration so local,
   cloud, team, CI, GUI, native, CLI, and IDE surfaces do not invent separate
   config truth.
@@ -373,7 +373,7 @@ Close this roadmap without implementation if:
 - `docs/architecture/session-model.md`
 - `docs/architecture/tool-execution.md`
 - `docs/architecture/managed-agents.md`
-- `docs/roadmap/01-config-projection-unification.md`
+- `docs/architecture/config-projection.md`
 - Stack Overflow 2025 Developer Survey:
   https://survey.stackoverflow.co/2025
 - Stack Overflow 2025 AI section:

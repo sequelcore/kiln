@@ -7,6 +7,9 @@ routing, permissions, MCP servers, hooks, managed agents, UI preferences, and
 identity. Project `kiln.yaml` overrides it where needed, and `kiln sync` pushes
 the derived backend configs into native CLIs.
 
+The architecture contract is `docs/architecture/config-projection.md`. This
+guide is the operator-facing usage view.
+
 ## File Location
 
 - Default: `~/.kiln/config.yaml`
@@ -138,7 +141,8 @@ supported native engine settings into the v2 contract.
 
 ## Agent Sync
 
-Run `kiln sync --agents` (or `kiln sync` with no flags) to push agent definitions from `~/.kiln/agents/` and `.kiln/agents/` to all three CLIs:
+Run `kiln sync --agents` (or `kiln sync` with no flags) to push agent
+definitions from `~/.kiln/agents/` and `.kiln/agents/` to enabled native CLIs:
 
 | Target | Location | Format |
 |--------|----------|--------|
@@ -146,11 +150,14 @@ Run `kiln sync --agents` (or `kiln sync` with no flags) to push agent definition
 | Codex | `~/.codex/agents/<name>.toml` | TOML role file |
 | OpenCode | `~/.config/opencode/agents/<name>.md` | YAML frontmatter + markdown |
 
-Agent definitions are translated from Kiln's `.md` format automatically. Sync is one-way (Kiln -> CLIs).
+Agent definitions are translated from Kiln's `.md` format automatically. Sync
+is one-way (Kiln -> CLIs). Drift in a projected agent file aborts that target
+unless `--force` is confirmed.
 
 ## Skills Sync
 
-Run `kiln sync --skills` (or `kiln sync` with no flags) to copy skill directories from `~/.kiln/skills/` and `.kiln/skills/` to all three CLIs.
+Run `kiln sync --skills` (or `kiln sync` with no flags) to copy skill
+directories from `~/.kiln/skills/` and `.kiln/skills/` to enabled native CLIs.
 
 | Target | Location |
 |--------|----------|
@@ -158,4 +165,20 @@ Run `kiln sync --skills` (or `kiln sync` with no flags) to copy skill directorie
 | Codex | `~/.codex/skills/<name>/` |
 | OpenCode | `~/.config/opencode/skills/<name>/` |
 
-Project skills override global skills with the same name. Only top-level files within each skill directory are copied. Sync is one-way (Kiln -> CLIs).
+Project skills override global skills with the same name. Only top-level files
+within each skill directory are copied. Sync is one-way (Kiln -> CLIs). Drift in
+a projected skill file aborts that target unless `--force` is confirmed.
+
+## Drift, Backups, And Disabled Engines
+
+`kiln sync` records managed native targets in `.kiln/install-state.json`.
+Document targets track managed fields; file targets track the whole file. If a
+managed field or managed file changes outside Kiln, the next sync aborts that
+target unless `--force` is confirmed.
+
+Before overwriting an existing projected native file, Kiln writes a backup under
+`.kiln/backups/<target-id>/`. Backups are append-only in v1.
+
+When `engines.<id>.enabled: false` is set for `claude`, `codex`, or `opencode`,
+`kiln sync` removes recorded managed projections for that harness and does not
+write new permission, hook, agent, or skill projections for it.

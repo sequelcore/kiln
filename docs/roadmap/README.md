@@ -15,6 +15,9 @@ Read the relevant architecture or guide document before using a roadmap:
   budgets, overflow, and audit.
 - `docs/architecture/context-resource-plane.md` for read-only resource
   contracts.
+- `docs/architecture/config-projection.md` and `docs/guides/global-config.md`
+  for global config v2, native harness projection, install-state, drift-aware
+  sync/uninstall/import-native behavior, and managed-agent route projection.
 - `docs/architecture/managed-agents.md` for managed invocation, child authority,
   write evidence, live adapter proofs, and replay invariants.
 - `docs/architecture/tool-execution.md`,
@@ -29,12 +32,7 @@ Read the relevant architecture or guide document before using a roadmap:
 
 ## Active Roadmaps
 
-- `01-config-projection-unification.md`
-  Makes `~/.kiln/config.yaml` the source of truth for harness configuration,
-  projects managed Claude/Codex/OpenCode config, and adds drift-aware sync,
-  uninstall, migrate, engine-status workflows, and governed managed-agent route
-  projection for both harness-backed and direct-provider child execution across
-  operator surfaces.
+No active roadmap is currently open.
 
 ## Deferred Roadmaps
 
@@ -68,15 +66,16 @@ Read the relevant architecture or guide document before using a roadmap:
 - Managed agent invocation, write authority, and live adapter hardening
   completed on 2026-05-06. Stable doctrine lives in
   `docs/architecture/managed-agents.md`.
+- Config projection unification completed on 2026-05-06. Stable doctrine lives
+  in `docs/architecture/config-projection.md`; operator usage lives in
+  `docs/guides/global-config.md`.
 
 ## Execution Priority
 
-1. Execute `01-config-projection-unification.md` after managed agents and the
-   provider credential pool clarify what global/project config must express.
-2. Keep `03-native-operator-surface-experiment.md` deferred until managed
+1. Keep `03-native-operator-surface-experiment.md` deferred until managed
    agents create real high-density workloads and config projection makes
    local/cloud/team/CI instance boundaries explicit.
-3. Keep `02-external-benchmark-validation.md` deferred until the evaluated
+2. Keep `02-external-benchmark-validation.md` deferred until the evaluated
    product surface is stable.
 
 ## Rules

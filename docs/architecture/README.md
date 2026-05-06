@@ -82,6 +82,11 @@ is documented by concern, not as a single monolith.
   Canonical taxonomy for App Gateway, Operator Gateway, Studio Dev Server,
   CLI, GUI, TUI, SDK/widget, and MCP boundaries.
 
+- `config-projection.md`
+  Global config v2, native harness projection, install-state, drift detection,
+  sync/uninstall/import-native behavior, engine enablement removal, and
+  managed-agent route projection.
+
 - `operator-surfaces.md`
   Canonical human operator surface model: GUI, CLI, TUI, IDE, remote, future
   desktop wrapper, supervision evidence, and surface ownership rules.
