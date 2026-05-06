@@ -152,6 +152,7 @@ describe("tools command", () => {
     const helpOutput = stdoutSpy.mock.calls.map((call) => String(call[0])).join("\n");
     expect(helpOutput).toContain("import-native");
     expect(helpOutput).toContain("uninstall");
+    expect(helpOutput).toContain("route");
     expect(helpOutput).toContain("tools");
     expect(helpOutput).not.toContain("  serve");
     expect(helpOutput).toContain(

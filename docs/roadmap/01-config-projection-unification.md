@@ -654,6 +654,10 @@ Scope: `packages/cli/src/engines/engine-registry.ts`,
 - Unit tests: probe timeout (2s) surfaces `available: false`; binary-not-found
   surfaces `available: false`; budget ceiling crossed routes to fallback;
   `budgetAware: false` ignores budget and routes to defaultWorker.
+- Implementation progress: `EngineRegistry` now probes enabled known harness
+  engines with bounded `--version` checks, computes per-engine budget status,
+  and `kiln route` prints the resolved `defaultWorker` or `fallback` from v2
+  global routing config.
 
 Verification: shell-based engine probes are not called from any code path after
 this slice.
