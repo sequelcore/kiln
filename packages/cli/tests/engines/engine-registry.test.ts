@@ -67,6 +67,16 @@ describe("EngineRegistry", () => {
     });
   });
 
+  it("resolves fallback when default worker is unavailable", () => {
+    const route = resolveEngineRoute(baseConfig, {
+      isEngineAvailable: (engineId) => engineId !== "codex",
+    });
+
+    expect(route.worker).toBe("opencode");
+    expect(route.reason).toBe("unavailable");
+    expect(route.defaultWorker).toBe("codex");
+  });
+
   it("keeps default worker when budget awareness is disabled", () => {
     const route = resolveEngineRoute({
       ...baseConfig,

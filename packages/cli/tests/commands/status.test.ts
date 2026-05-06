@@ -162,6 +162,6 @@ describe("statusCommand", () => {
     expect(output).toContain("unavailable - not found");
     expect(output).toContain("opencode");
     expect(output).toContain("Resolved worker: opencode");
-    expect(output).toContain("budget-ceiling");
+    expect(output).toContain("unavailable");
   });
 });

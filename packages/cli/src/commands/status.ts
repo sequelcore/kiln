@@ -49,8 +49,14 @@ export async function statusCommand(
   const globalConfig = readGlobalConfig();
   if (globalConfig) {
     const engineRegistry = options.engineRegistry ?? new EngineRegistry();
-    const route = resolveEngineRoute(globalConfig, options);
     const engineHealth = engineRegistry.probeAll(globalConfig);
+    const availability = Object.fromEntries(
+      engineHealth.map((engine) => [engine.engineId, engine.available]),
+    );
+    const route = resolveEngineRoute(globalConfig, {
+      ...options,
+      isEngineAvailable: (engineId) => availability[engineId] ?? options.isEngineAvailable?.(engineId) ?? true,
+    });
     printEngineStatus(engineHealth, route.worker, route.reason);
   }
 

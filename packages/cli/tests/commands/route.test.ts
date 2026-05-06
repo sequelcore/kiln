@@ -47,12 +47,23 @@ describe("routeCommand", () => {
   it("prints resolved route", () => {
     routeCommand({
       getDailyTokensUsed: () => 15,
+      isEngineAvailable: () => true,
     });
 
     const output = consoleSpy.mock.calls.map((call) => String(call[0])).join("\n");
     expect(output).toContain("Resolved worker: opencode");
     expect(output).toContain("Reason:          budget-ceiling");
     expect(output).toContain("Default worker:  codex");
+  });
+
+  it("falls back when default worker is unavailable", () => {
+    routeCommand({
+      isEngineAvailable: (engineId) => engineId !== "codex",
+    });
+
+    const output = consoleSpy.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(output).toContain("Resolved worker: opencode");
+    expect(output).toContain("Reason:          unavailable");
   });
 
   it("uses default config when no global config exists", () => {

@@ -29,7 +29,7 @@ export interface EngineBudgetStatus {
 
 export interface EngineRouteResolution {
   readonly worker: string | undefined;
-  readonly reason: "default" | "budget-ceiling" | "missing-default";
+  readonly reason: "default" | "budget-ceiling" | "missing-default" | "unavailable";
   readonly defaultWorker?: string;
   readonly fallback?: string;
   readonly budget?: EngineBudgetStatus;
@@ -42,6 +42,7 @@ export interface EngineRegistryOptions {
 
 export interface EngineRouteContext {
   readonly getDailyTokensUsed?: (engineId: string) => number;
+  readonly isEngineAvailable?: (engineId: string) => boolean;
 }
 
 const ENGINE_COMMANDS: Readonly<Record<string, string>> = {
@@ -119,6 +120,14 @@ export function resolveEngineRoute(
   const fallback = config.routing?.fallback;
   if (!defaultWorker) {
     return { worker: undefined, reason: "missing-default" };
+  }
+  if (context.isEngineAvailable?.(defaultWorker) === false && fallback) {
+    return {
+      worker: fallback,
+      reason: "unavailable",
+      defaultWorker,
+      fallback,
+    };
   }
 
   if (config.routing?.budgetAware === true) {

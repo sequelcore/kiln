@@ -659,6 +659,8 @@ Scope: `packages/cli/src/engines/engine-registry.ts`,
   and `kiln route` prints the resolved `defaultWorker` or `fallback` from v2
   global routing config. `kiln status` now prints configured engine route
   health and the resolved worker when v2 global engine routing config exists.
+  Route resolution falls back when the default worker is unavailable or over
+  budget.
 
 Verification: shell-based engine probes are not called from any code path after
 this slice.
