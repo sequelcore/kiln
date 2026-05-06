@@ -841,6 +841,11 @@ Scope: `packages/cli/src/commands/sync.ts` (rewrite),
   for Claude, Codex, and OpenCode now live in harness translator modules;
   `native-permission-projection.ts` retains only native file IO, drift checks,
   install-state updates, and serialization.
+- Implementation progress: hook projection now records install-state entries
+  for both the Claude settings hook registration and whole-file hook scripts.
+  Native projection state supports document field targets and file targets, so
+  drift detection, forced overwrite, and uninstall use the same install-state
+  contract instead of hook-specific exceptions.
 
 ### 01.F - kiln uninstall
 

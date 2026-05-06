@@ -1,9 +1,10 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { extname, join } from "node:path";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 import { stripJsonComments } from "../config/json-comments.js";
 import {
   detectNativeProjectionDrift,
+  detectNativeProjectionFileDrift,
   readNativeProjectionInstallState,
   removeNativeProjectionTargetState,
   stripManagedFields,
@@ -76,6 +77,21 @@ export function uninstallNativeTargets(projectPath: string, options: UninstallNa
     if (!existsSync(target.filePath)) {
       skipped.push(targetId);
       errors.push(`${targetId}: native file not found at ${target.filePath}`);
+      continue;
+    }
+
+    if (target.projectionKind === "file") {
+      const currentContent = readFileSync(target.filePath, "utf-8");
+      const drift = detectNativeProjectionFileDrift({ targetId, state: installState, currentContent });
+      if (drift && !options.force) {
+        skipped.push(targetId);
+        errors.push(`${targetId}: managed file drift detected: ${drift.driftedFields.join(", ")}`);
+        continue;
+      }
+
+      unlinkSync(target.filePath);
+      installState = removeNativeProjectionTargetState(installState, targetId);
+      removed.push(targetId);
       continue;
     }
 

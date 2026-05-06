@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   createNativeProjectionSnapshot,
+  createNativeProjectionFileSnapshot,
+  detectNativeProjectionFileDrift,
   detectNativeProjectionDrift,
   emptyNativeProjectionInstallState,
   mergeManagedFields,
@@ -50,6 +52,31 @@ describe("native projection install state", () => {
     })).toEqual({
       targetId: "codex",
       driftedFields: ["approval_policy"],
+    });
+  });
+
+  it("detects drift for whole-file managed projection targets", () => {
+    const target = createNativeProjectionFileSnapshot({
+      targetId: "claude-autoformat-hook",
+      filePath: "C:/repo/.claude/hooks/autoformat.sh",
+      content: "#!/bin/sh\nexit 0\n",
+      updatedAt: "2026-05-06T12:00:00.000Z",
+    });
+    const state = upsertNativeProjectionTargetState(emptyNativeProjectionInstallState(), target);
+
+    expect(detectNativeProjectionFileDrift({
+      targetId: "claude-autoformat-hook",
+      state,
+      currentContent: "#!/bin/sh\nexit 0\n",
+    })).toBeUndefined();
+
+    expect(detectNativeProjectionFileDrift({
+      targetId: "claude-autoformat-hook",
+      state,
+      currentContent: "#!/bin/sh\necho drift\n",
+    })).toEqual({
+      targetId: "claude-autoformat-hook",
+      driftedFields: ["$file"],
     });
   });
 

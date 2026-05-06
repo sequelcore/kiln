@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { allSelectedSyncTargetsFailed, parseSyncFlags, syncCommand } from "../../src/commands/sync.js";
+import {
+  allSelectedSyncTargetsFailed,
+  parseSyncFlags,
+  requiresForceSyncConfirmation,
+  syncCommand,
+} from "../../src/commands/sync.js";
 
 describe("syncCommand", () => {
   it("is a function exported from commands/sync", () => {
@@ -66,6 +71,13 @@ describe("syncCommand", () => {
       agentsMd: true,
       skills: true,
     })).toBe(false);
+  });
+
+  it("requires force confirmation for projection targets that own install-state drift", () => {
+    expect(requiresForceSyncConfirmation(parseSyncFlags(["--permissions", "--force"]))).toBe(true);
+    expect(requiresForceSyncConfirmation(parseSyncFlags(["--hooks", "--force"]))).toBe(true);
+    expect(requiresForceSyncConfirmation(parseSyncFlags(["--agents", "--force"]))).toBe(false);
+    expect(requiresForceSyncConfirmation(parseSyncFlags(["--force"]))).toBe(true);
   });
 
   it("accepts appConfig, subcommand, and args parameters", async () => {

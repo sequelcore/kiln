@@ -1,5 +1,16 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
+import {
+  createNativeProjectionFileSnapshot,
+  createNativeProjectionSnapshot,
+  detectNativeProjectionDrift,
+  detectNativeProjectionFileDrift,
+  readNativeProjectionInstallState,
+  upsertNativeProjectionTargetState,
+  writeNativeProjectionInstallState,
+  type NativeProjectionInstallState,
+  type NativeProjectionTargetState,
+} from "./native-projection-state.js";
 
 const DEFAULT_HOOK_CONTENT = `#!/bin/sh
 # Kiln autoformat hook
@@ -25,11 +36,29 @@ export interface NativeHookProjectionResult {
   errors: string[];
 }
 
+export interface NativeHookProjectionOptions {
+  readonly force?: boolean;
+}
+
+interface HookTargetResult {
+  readonly ok: boolean;
+  readonly snapshots: readonly NativeProjectionTargetState[];
+  readonly error?: string;
+}
+
+const HOOK_PROJECTION_TARGET_IDS = {
+  claudeSettings: "claude-hook-settings",
+  claudeFile: "claude-autoformat-hook",
+  codexFile: "codex-autoformat-hook",
+} as const;
+
 export async function syncNativeHookProjections(
   projectPath: string,
   kilnDir: string,
+  options: NativeHookProjectionOptions = {},
 ): Promise<NativeHookProjectionResult> {
   const errors: string[] = [];
+  let installState = readNativeProjectionInstallState(kilnDir);
 
   const sourcePath = join(kilnDir, "hooks", "autoformat.sh");
   const sourceContent = existsSync(sourcePath)
@@ -44,24 +73,40 @@ export async function syncNativeHookProjections(
   }
 
   const [claudeResult, codexResult] = await Promise.allSettled([
-    syncClaudeHook(projectPath, sourceContent),
-    syncCodexHook(projectPath, sourceContent),
+    syncClaudeHook(projectPath, sourceContent, installState, options),
+    syncCodexHook(projectPath, sourceContent, installState, options),
   ]);
 
-  const claudeHook = claudeResult.status === "fulfilled" ? claudeResult.value : false;
+  const claudeHook = claudeResult.status === "fulfilled" ? claudeResult.value.ok : false;
+  if (claudeResult.status === "fulfilled") {
+    for (const snapshot of claudeResult.value.snapshots) {
+      installState = upsertNativeProjectionTargetState(installState, snapshot);
+    }
+  }
   if (claudeResult.status === "rejected") {
     errors.push(`Claude Code: ${claudeResult.reason instanceof Error ? claudeResult.reason.message : String(claudeResult.reason)}`);
+  } else if (claudeResult.value.error) {
+    errors.push(`Claude Code: ${claudeResult.value.error}`);
   }
 
   const skippedWindows = process.platform === "win32";
   const codexHook = skippedWindows
     ? false
     : codexResult.status === "fulfilled"
-      ? codexResult.value
+      ? codexResult.value.ok
       : false;
+  if (!skippedWindows && codexResult.status === "fulfilled") {
+    for (const snapshot of codexResult.value.snapshots) {
+      installState = upsertNativeProjectionTargetState(installState, snapshot);
+    }
+  }
   if (!skippedWindows && codexResult.status === "rejected") {
     errors.push(`Codex: ${codexResult.reason instanceof Error ? codexResult.reason.message : String(codexResult.reason)}`);
+  } else if (!skippedWindows && codexResult.status === "fulfilled" && codexResult.value.error) {
+    errors.push(`Codex: ${codexResult.value.error}`);
   }
+
+  writeNativeProjectionInstallState(kilnDir, installState);
 
   return { claudeHook, codexHook, skippedWindows, errors };
 }
@@ -69,7 +114,10 @@ export async function syncNativeHookProjections(
 async function syncClaudeHook(
   projectPath: string,
   sourceContent: string,
-): Promise<boolean> {
+  installState: NativeProjectionInstallState,
+  options: NativeHookProjectionOptions,
+): Promise<HookTargetResult> {
+  const snapshots: NativeProjectionTargetState[] = [];
   const hooksDir = join(projectPath, ".claude", "hooks");
   const hookPath = join(hooksDir, "autoformat.sh");
 
@@ -77,7 +125,20 @@ async function syncClaudeHook(
     mkdirSync(hooksDir, { recursive: true });
   }
 
-  writeFileSync(hookPath, sourceContent, "utf-8");
+  if (existsSync(hookPath)) {
+    const drift = detectNativeProjectionFileDrift({
+      targetId: HOOK_PROJECTION_TARGET_IDS.claudeFile,
+      state: installState,
+      currentContent: readFileSync(hookPath, "utf-8"),
+    });
+    if (drift && !options.force) {
+      return {
+        ok: false,
+        snapshots,
+        error: `managed file drift detected: ${drift.driftedFields.join(", ")}`,
+      };
+    }
+  }
 
   const settingsPath = join(projectPath, ".claude", "settings.json");
   let settings: Record<string, unknown> = {};
@@ -89,6 +150,26 @@ async function syncClaudeHook(
     }
   }
 
+  const settingsDrift = detectNativeProjectionDrift({
+    targetId: HOOK_PROJECTION_TARGET_IDS.claudeSettings,
+    state: installState,
+    currentDocument: settings,
+  });
+  if (settingsDrift && !options.force) {
+    return {
+      ok: false,
+      snapshots,
+      error: `managed field drift detected: ${settingsDrift.driftedFields.join(", ")}`,
+    };
+  }
+
+  writeFileSync(hookPath, sourceContent, "utf-8");
+  snapshots.push(createNativeProjectionFileSnapshot({
+    targetId: HOOK_PROJECTION_TARGET_IDS.claudeFile,
+    filePath: hookPath,
+    content: sourceContent,
+  }));
+
   const existingHooks = (settings["hooks"] as Record<string, unknown> | undefined) ?? {};
   const autoformatEntry: Record<string, unknown> = {
     command: "sh",
@@ -99,16 +180,24 @@ async function syncClaudeHook(
 
   const merged = { ...settings, hooks };
   writeFileSync(settingsPath, JSON.stringify(merged, null, 2) + "\n", "utf-8");
+  snapshots.push(createNativeProjectionSnapshot({
+    targetId: HOOK_PROJECTION_TARGET_IDS.claudeSettings,
+    filePath: settingsPath,
+    document: merged,
+    managedFields: ["hooks.autoformat"],
+  }));
 
-  return true;
+  return { ok: true, snapshots };
 }
 
 async function syncCodexHook(
   projectPath: string,
   sourceContent: string,
-): Promise<boolean> {
+  installState: NativeProjectionInstallState,
+  options: NativeHookProjectionOptions,
+): Promise<HookTargetResult> {
   if (process.platform === "win32") {
-    return false;
+    return { ok: false, snapshots: [] };
   }
 
   const hooksDir = join(projectPath, ".codex", "hooks");
@@ -118,7 +207,29 @@ async function syncCodexHook(
     mkdirSync(hooksDir, { recursive: true });
   }
 
+  if (existsSync(hookPath)) {
+    const drift = detectNativeProjectionFileDrift({
+      targetId: HOOK_PROJECTION_TARGET_IDS.codexFile,
+      state: installState,
+      currentContent: readFileSync(hookPath, "utf-8"),
+    });
+    if (drift && !options.force) {
+      return {
+        ok: false,
+        snapshots: [],
+        error: `managed file drift detected: ${drift.driftedFields.join(", ")}`,
+      };
+    }
+  }
+
   writeFileSync(hookPath, sourceContent, "utf-8");
 
-  return true;
+  return {
+    ok: true,
+    snapshots: [createNativeProjectionFileSnapshot({
+      targetId: HOOK_PROJECTION_TARGET_IDS.codexFile,
+      filePath: hookPath,
+      content: sourceContent,
+    })],
+  };
 }

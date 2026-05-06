@@ -59,6 +59,13 @@ export function allSelectedSyncTargetsFailed(flags: SyncFlags, failures: SyncFai
   return selectedFailures.length > 0 && selectedFailures.every((failure) => failure);
 }
 
+export function requiresForceSyncConfirmation(flags: SyncFlags): boolean {
+  return flags.force && (
+    isSyncTargetSelected(flags, "permissions")
+    || isSyncTargetSelected(flags, "hooks")
+  );
+}
+
 function isSyncTargetSelected(flags: SyncFlags, target: SyncTargetId): boolean {
   return flags.syncAll || flags.targets.includes(target);
 }
@@ -88,8 +95,8 @@ function readFlagValues(args: readonly string[], flag: string): string[] {
   return values;
 }
 
-async function confirmForcePermissionSync(): Promise<boolean> {
-  process.stdout.write("Force overwrite managed native permission fields? [y/N]: ");
+async function confirmForceNativeProjectionSync(): Promise<boolean> {
+  process.stdout.write("Force overwrite managed native projection fields/files? [y/N]: ");
 
   const rl = readline.createInterface({
     input: process.stdin,
@@ -125,7 +132,9 @@ export async function syncCommand(
     console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
     process.exit(1);
   }
+  const forceNativeProjectionSync = requiresForceSyncConfirmation(flags);
   const forcePermissionSync = flags.force && isSyncTargetSelected(flags, "permissions");
+  const forceHookSync = flags.force && isSyncTargetSelected(flags, "hooks");
 
   const root = process.cwd();
   const kilnDir = join(root, ".kiln");
@@ -136,10 +145,10 @@ export async function syncCommand(
     process.exit(1);
   }
 
-  if (forcePermissionSync) {
-    const approved = await confirmForcePermissionSync();
+  if (forceNativeProjectionSync) {
+    const approved = await confirmForceNativeProjectionSync();
     if (!approved) {
-      console.error("Error: permission sync force override cancelled");
+      console.error("Error: native projection force override cancelled");
       process.exit(1);
     }
   }
@@ -158,7 +167,7 @@ export async function syncCommand(
   }
 
   if (isSyncTargetSelected(flags, "hooks")) {
-    hookResult = await syncNativeHookProjections(root, kilnDir);
+    hookResult = await syncNativeHookProjections(root, kilnDir, { force: forceHookSync });
     allErrors.push(...hookResult.errors);
   }
 

@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 export interface NativeProjectionTargetState {
   readonly targetId: string;
   readonly filePath: string;
+  readonly projectionKind?: "document" | "file";
   readonly contentHash: string;
   readonly managedFields: readonly string[];
   readonly managedFieldHashes: Readonly<Record<string, string>>;
@@ -21,6 +22,13 @@ export interface NativeProjectionSnapshotInput {
   readonly filePath: string;
   readonly document: Record<string, unknown>;
   readonly managedFields: readonly string[];
+  readonly updatedAt?: string;
+}
+
+export interface NativeProjectionFileSnapshotInput {
+  readonly targetId: string;
+  readonly filePath: string;
+  readonly content: string;
   readonly updatedAt?: string;
 }
 
@@ -79,6 +87,23 @@ export function createNativeProjectionSnapshot(
   };
 }
 
+export function createNativeProjectionFileSnapshot(
+  input: NativeProjectionFileSnapshotInput,
+): NativeProjectionTargetState {
+  const contentHash = hashStableValue(input.content);
+  return {
+    targetId: requireText(input.targetId, "targetId"),
+    filePath: requireText(input.filePath, "filePath"),
+    projectionKind: "file",
+    contentHash,
+    managedFields: ["$file"],
+    managedFieldHashes: {
+      "$file": contentHash,
+    },
+    updatedAt: input.updatedAt ?? new Date().toISOString(),
+  };
+}
+
 export function upsertNativeProjectionTargetState(
   state: NativeProjectionInstallState,
   target: NativeProjectionTargetState,
@@ -121,6 +146,21 @@ export function detectNativeProjectionDrift(input: {
 
   return driftedFields.length > 0
     ? { targetId: input.targetId, driftedFields }
+    : undefined;
+}
+
+export function detectNativeProjectionFileDrift(input: {
+  readonly targetId: string;
+  readonly state: NativeProjectionInstallState;
+  readonly currentContent: string;
+}): NativeProjectionDrift | undefined {
+  const target = input.state.targets[input.targetId];
+  if (!target) {
+    return undefined;
+  }
+  const currentHash = hashStableValue(input.currentContent);
+  return currentHash !== target.managedFieldHashes["$file"]
+    ? { targetId: input.targetId, driftedFields: ["$file"] }
     : undefined;
 }
 

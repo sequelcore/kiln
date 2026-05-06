@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { join } from "node:path";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -9,11 +9,12 @@ const projectPath = testDir;
 const kilnDir = join(testDir, ".kiln");
 
 describe("syncNativeHookProjections", () => {
-  beforeAll(() => {
+  beforeEach(() => {
+    fs.rmSync(testDir, { recursive: true, force: true });
     fs.mkdirSync(join(kilnDir, "hooks"), { recursive: true });
   });
 
-  afterAll(() => {
+  afterEach(() => {
     try {
       fs.rmSync(testDir, { recursive: true, force: true });
     } catch { /* ignore */ }
@@ -73,5 +74,60 @@ describe("syncNativeHookProjections", () => {
 
     const hooksDir = join(projectPath, ".claude", "hooks");
     expect(fs.existsSync(hooksDir)).toBe(true);
+  });
+
+  it("records install state and aborts the drifted hook file target only", async () => {
+    const isolated = fs.mkdtempSync(join(os.tmpdir(), "kiln-hook-drift-"));
+    const isolatedKilnDir = join(isolated, ".kiln");
+    try {
+      const first = await syncNativeHookProjections(isolated, isolatedKilnDir);
+      expect(first.errors).toHaveLength(0);
+
+      const hookPath = join(isolated, ".claude", "hooks", "autoformat.sh");
+      fs.writeFileSync(hookPath, "#!/bin/sh\necho user drift\n", "utf-8");
+
+      const second = await syncNativeHookProjections(isolated, isolatedKilnDir);
+
+      expect(second.claudeHook).toBe(false);
+      expect(second.errors).toEqual([
+        "Claude Code: managed file drift detected: $file",
+      ]);
+      expect(fs.readFileSync(hookPath, "utf-8")).toContain("user drift");
+
+      const settings = JSON.parse(
+        fs.readFileSync(join(isolated, ".claude", "settings.json"), "utf-8"),
+      ) as Record<string, unknown>;
+      expect(settings.hooks).toBeDefined();
+
+      const state = JSON.parse(
+        fs.readFileSync(join(isolatedKilnDir, "install-state.json"), "utf-8"),
+      ) as { targets: Record<string, unknown> };
+      const expectedTargets = [
+        "claude-autoformat-hook",
+        "claude-hook-settings",
+        ...(process.platform === "win32" ? [] : ["codex-autoformat-hook"]),
+      ];
+      expect(Object.keys(state.targets).sort()).toEqual(expectedTargets.sort());
+    } finally {
+      fs.rmSync(isolated, { recursive: true, force: true });
+    }
+  });
+
+  it("force overwrites drifted managed hook files", async () => {
+    const isolated = fs.mkdtempSync(join(os.tmpdir(), "kiln-hook-force-"));
+    const isolatedKilnDir = join(isolated, ".kiln");
+    try {
+      await syncNativeHookProjections(isolated, isolatedKilnDir);
+      const hookPath = join(isolated, ".claude", "hooks", "autoformat.sh");
+      fs.writeFileSync(hookPath, "#!/bin/sh\necho user drift\n", "utf-8");
+
+      const result = await syncNativeHookProjections(isolated, isolatedKilnDir, { force: true });
+
+      expect(result.errors).toHaveLength(0);
+      expect(result.claudeHook).toBe(true);
+      expect(fs.readFileSync(hookPath, "utf-8")).toContain("Kiln autoformat hook");
+    } finally {
+      fs.rmSync(isolated, { recursive: true, force: true });
+    }
   });
 });

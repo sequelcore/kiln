@@ -5,6 +5,7 @@ import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 import { describe, expect, it } from "vitest";
 import { uninstallNativeTargets } from "../../src/commands/uninstall.js";
 import {
+  createNativeProjectionFileSnapshot,
   createNativeProjectionSnapshot,
   emptyNativeProjectionInstallState,
   readNativeProjectionInstallState,
@@ -150,6 +151,76 @@ describe("uninstallNativeTargets", () => {
         kiln: { legacy: true },
       });
       expect(readNativeProjectionInstallState(kilnDir).targets).toEqual({});
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("removes whole-file managed targets when uninstalling hooks", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-uninstall-hook-file-"));
+    const hookPath = join(root, "project", ".claude", "hooks", "autoformat.sh");
+    const kilnDir = join(root, "project", ".kiln");
+    const content = "#!/bin/sh\nexit 0\n";
+
+    try {
+      writeFileSyncRecursive(hookPath, content, "utf-8");
+      writeNativeProjectionInstallState(
+        kilnDir,
+        upsertNativeProjectionTargetState(
+          emptyNativeProjectionInstallState(),
+          createNativeProjectionFileSnapshot({
+            targetId: "claude-autoformat-hook",
+            filePath: hookPath,
+            content,
+            updatedAt: "2026-05-06T12:00:00.000Z",
+          }),
+        ),
+      );
+
+      const result = uninstallNativeTargets(join(root, "project"), { target: "claude-autoformat-hook" });
+
+      expect(result).toEqual({
+        removed: ["claude-autoformat-hook"],
+        skipped: [],
+        errors: [],
+      });
+      expect(() => readFileSync(hookPath, "utf-8")).toThrow();
+      expect(readNativeProjectionInstallState(kilnDir).targets).toEqual({});
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("skips drifted whole-file managed targets unless force is set", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-uninstall-hook-file-drift-"));
+    const hookPath = join(root, "project", ".claude", "hooks", "autoformat.sh");
+    const kilnDir = join(root, "project", ".kiln");
+    const projected = "#!/bin/sh\nexit 0\n";
+    const drifted = "#!/bin/sh\necho user drift\n";
+
+    try {
+      writeFileSyncRecursive(hookPath, drifted, "utf-8");
+      writeNativeProjectionInstallState(
+        kilnDir,
+        upsertNativeProjectionTargetState(
+          emptyNativeProjectionInstallState(),
+          createNativeProjectionFileSnapshot({
+            targetId: "claude-autoformat-hook",
+            filePath: hookPath,
+            content: projected,
+            updatedAt: "2026-05-06T12:00:00.000Z",
+          }),
+        ),
+      );
+
+      const result = uninstallNativeTargets(join(root, "project"), { target: "claude-autoformat-hook" });
+
+      expect(result.removed).toEqual([]);
+      expect(result.skipped).toEqual(["claude-autoformat-hook"]);
+      expect(result.errors).toEqual([
+        "claude-autoformat-hook: managed file drift detected: $file",
+      ]);
+      expect(readFileSync(hookPath, "utf-8")).toBe(drifted);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
