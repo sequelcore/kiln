@@ -164,4 +164,37 @@ describe("statusCommand", () => {
     expect(output).toContain("Resolved worker: opencode");
     expect(output).toContain("unavailable");
   });
+
+  it("shows managed-agent routes synthesized from enabled global engines", async () => {
+    const kilnDir = join(tempDir, ".kiln");
+    mkdirSync(kilnDir, { recursive: true });
+    writeKilnYaml(kilnDir, { ...defaultKilnYaml("python") });
+    writeGlobalConfig({
+      version: "2",
+      engines: {
+        claude: { enabled: true, billing: "subscription" },
+        codex: { enabled: true, billing: "plus-quota" },
+      },
+      routing: {
+        defaultWorker: "claude",
+      },
+      models: {
+        codex: "gpt-5.4-mini",
+      },
+    });
+
+    await statusCommand(MOCK_APP_CONFIG, tempDir, {
+      engineRegistry: {
+        probeAll: () => [
+          { engineId: "claude", enabled: true, available: true },
+          { engineId: "codex", enabled: true, available: true },
+        ],
+      },
+    });
+
+    const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
+    expect(output).toContain("Managed agent routes:");
+    expect(output).toContain("codex-readonly");
+    expect(output).toContain("harness/codex gpt-5.4-mini");
+  });
 });

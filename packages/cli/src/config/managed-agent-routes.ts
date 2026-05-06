@@ -49,6 +49,12 @@ export interface ResolveManagedInvocationToolOptionsContext {
 
 export interface ManagedAgentRouteConfigSource {
   readonly managedAgents?: KilnManagedAgentsConfig;
+  readonly engines?: Record<string, { readonly enabled?: boolean }>;
+  readonly routing?: { readonly defaultWorker?: string };
+  readonly models?: {
+    readonly default?: string;
+    readonly [engine: string]: string | undefined;
+  };
 }
 
 const SUPPORTED_HARNESS_PROVIDERS = new Set<string>(["codex", "opencode"]);
@@ -64,20 +70,20 @@ export async function resolveManagedInvocationToolOptions(
   config: ManagedAgentRouteConfigSource | null | undefined,
   context: ResolveManagedInvocationToolOptionsContext,
 ): Promise<ManagedInvocationRouteResolution> {
-  const managedAgents = config?.managedAgents;
-  if (!managedAgents?.enabled) {
+  if (!config || config.managedAgents?.enabled === false) {
     return { routeHealth: [] };
   }
 
-  const routeConfigs = managedAgents.routes && managedAgents.routes.length > 0
-    ? managedAgents.routes
-    : [synthesizeDefaultRoute(managedAgents)];
+  const routeConfigs = resolveRouteConfigs(config);
+  if (routeConfigs.length === 0) {
+    return { routeHealth: [] };
+  }
 
   const routes: ManagedInvocationToolRoute[] = [];
   const routeHealth: ManagedAgentRouteHealth[] = [];
 
   for (const routeConfig of routeConfigs) {
-    const resolved = await resolveRouteConfig(routeConfig, context);
+    const resolved = await resolveRouteConfig(routeConfig, context, config);
     routeHealth.push(resolved.health);
     if (resolved.route) {
       routes.push(resolved.route);
@@ -96,16 +102,57 @@ export async function resolveManagedInvocationToolOptions(
   };
 }
 
+function resolveRouteConfigs(
+  config: ManagedAgentRouteConfigSource,
+): readonly KilnManagedAgentRouteConfig[] {
+  const managedAgents = config.managedAgents;
+  if (managedAgents?.routes && managedAgents.routes.length > 0) {
+    return managedAgents.routes;
+  }
+  if (managedAgents?.enabled === true) {
+    return [synthesizeDefaultRoute(managedAgents)];
+  }
+  const route = synthesizeRouteFromEnabledEngines(config);
+  return route ? [route] : [];
+}
+
 function synthesizeDefaultRoute(
   managedAgents: KilnManagedAgentsConfig,
 ): KilnManagedAgentRouteConfig {
   const provider = managedAgents.defaultProvider ?? "codex";
+  return synthesizeReadonlyRoute({
+    provider,
+    model: managedAgents.model,
+    profile: managedAgents.defaultProfile,
+  });
+}
+
+function synthesizeRouteFromEnabledEngines(
+  config: ManagedAgentRouteConfigSource,
+): KilnManagedAgentRouteConfig | undefined {
+  const provider = resolveDefaultChildProvider(config);
+  if (!provider) {
+    return undefined;
+  }
+  return synthesizeReadonlyRoute({
+    provider,
+    model: config.models?.[provider],
+    profile: READONLY_PROFILE,
+  });
+}
+
+function synthesizeReadonlyRoute(input: {
+  readonly provider: string;
+  readonly model?: string;
+  readonly profile?: KilnManagedAgentProfile;
+}): KilnManagedAgentRouteConfig {
+  const { provider } = input;
   return {
     id: `${provider}-readonly`,
     kind: SUPPORTED_HARNESS_PROVIDERS.has(provider) ? "harness" : "direct",
     provider,
-    model: managedAgents.model ?? DEFAULT_MODELS[provider],
-    profiles: [managedAgents.defaultProfile ?? READONLY_PROFILE],
+    model: input.model ?? DEFAULT_MODELS[provider],
+    profiles: [input.profile ?? READONLY_PROFILE],
     workingDirectory: "project",
     timeoutMs: DEFAULT_TIMEOUT_MS,
     tools: {
@@ -118,9 +165,29 @@ function synthesizeDefaultRoute(
   };
 }
 
+function resolveDefaultChildProvider(
+  config: ManagedAgentRouteConfigSource,
+): string | undefined {
+  const defaultWorker = config.routing?.defaultWorker;
+  if (defaultWorker && isEnabledSupportedChildEngine(config, defaultWorker)) {
+    return defaultWorker;
+  }
+  return Array.from(SUPPORTED_HARNESS_PROVIDERS)
+    .find((provider) => isEnabledSupportedChildEngine(config, provider));
+}
+
+function isEnabledSupportedChildEngine(
+  config: ManagedAgentRouteConfigSource,
+  provider: string,
+): boolean {
+  return SUPPORTED_HARNESS_PROVIDERS.has(provider)
+    && config.engines?.[provider]?.enabled === true;
+}
+
 async function resolveRouteConfig(
   routeConfig: KilnManagedAgentRouteConfig,
   context: ResolveManagedInvocationToolOptionsContext,
+  config: ManagedAgentRouteConfigSource,
 ): Promise<{
   readonly health: ManagedAgentRouteHealth;
   readonly route?: ManagedInvocationToolRoute;
@@ -136,6 +203,10 @@ async function resolveRouteConfig(
 
   if (profiles.some((profile) => profile !== READONLY_PROFILE) || routeConfig.tools?.writes === true) {
     return unhealthy(baseHealth, "Write-capable managed invocation routes require explicit write authority and live-proven adapter support.");
+  }
+
+  if (config.engines?.[routeConfig.provider]?.enabled === false) {
+    return unhealthy(baseHealth, `Provider '${routeConfig.provider}' is disabled in engine config.`);
   }
 
   if (routeConfig.kind !== "harness" && routeConfig.kind !== "direct") {

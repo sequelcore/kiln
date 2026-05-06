@@ -150,6 +150,78 @@ describe("resolveManagedInvocationToolOptions", () => {
     });
   });
 
+  it("synthesizes a read-only harness route from enabled supported engines", async () => {
+    const result = await resolveManagedInvocationToolOptions({
+      version: "2",
+      engines: {
+        claude: { enabled: true, billing: "subscription" },
+        codex: { enabled: true, billing: "plus-quota" },
+        opencode: { enabled: false, billing: "free" },
+      },
+      routing: {
+        defaultWorker: "claude",
+      },
+      models: {
+        codex: "gpt-5.4-mini",
+      },
+    }, {
+      cwd: "C:/repo",
+      registry: createRegistry("codex"),
+      surface: "gui",
+    });
+
+    expect(result.routeHealth).toEqual([{
+      routeId: "codex-readonly",
+      kind: "harness",
+      provider: "codex",
+      model: "gpt-5.4-mini",
+      profiles: ["foundation-readonly-plan"],
+      available: true,
+    }]);
+    expect(result.managedInvocation?.routes[0]?.routeId).toBe("codex-readonly");
+    expect(result.managedInvocation?.requestSource).toBe("gui");
+  });
+
+  it("does not reuse the global default model across managed child engine namespaces", async () => {
+    const result = await resolveManagedInvocationToolOptions({
+      version: "2",
+      engines: {
+        codex: { enabled: true, billing: "plus-quota" },
+      },
+      models: {
+        default: "claude-opus-4-7",
+      },
+    }, {
+      cwd: "C:/repo",
+      registry: createRegistry("codex"),
+      surface: "gui",
+    });
+
+    expect(result.routeHealth[0]).toMatchObject({
+      routeId: "codex-readonly",
+      provider: "codex",
+      model: "gpt-5.3-codex-spark",
+      available: true,
+    });
+  });
+
+  it("does not synthesize managed routes when no supported child engine is enabled", async () => {
+    await expect(resolveManagedInvocationToolOptions({
+      version: "2",
+      engines: {
+        claude: { enabled: true, billing: "subscription" },
+        codex: { enabled: false, billing: "plus-quota" },
+        opencode: { enabled: false, billing: "free" },
+      },
+    }, {
+      cwd: "C:/repo",
+      registry: createRegistry("codex"),
+      surface: "gui",
+    })).resolves.toEqual({
+      routeHealth: [],
+    });
+  });
+
   it("resolves an explicit healthy Codex harness route", async () => {
     const result = await resolveManagedInvocationToolOptions(baseConfig({
       routes: [{
@@ -200,6 +272,34 @@ describe("resolveManagedInvocationToolOptions", () => {
         scope: { kind: "project", id: "repo" },
         access: "read-only",
       },
+    });
+  });
+
+  it("keeps explicit routes unhealthy when their engine is disabled", async () => {
+    const result = await resolveManagedInvocationToolOptions({
+      ...baseConfig({
+        routes: [{
+          id: "codex-readonly",
+          kind: "harness",
+          provider: "codex",
+          model: "gpt-5.3-codex-spark",
+          profiles: ["foundation-readonly-plan"],
+        }],
+      }),
+      engines: {
+        codex: { enabled: false, billing: "plus-quota" },
+      },
+    }, {
+      cwd: "C:/repo",
+      registry: createRegistry("codex"),
+      surface: "gui",
+    });
+
+    expect(result.managedInvocation).toBeUndefined();
+    expect(result.routeHealth[0]).toMatchObject({
+      routeId: "codex-readonly",
+      available: false,
+      reason: "Provider 'codex' is disabled in engine config.",
     });
   });
 

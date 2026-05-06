@@ -181,11 +181,13 @@ adapter differs.
 `managed_agent.invoke` is the runtime-owned model-callable entrypoint for parent
 sessions that need a governed child invocation. It is not part of the core
 developer-tool registry and is not exposed by default. Runtime operator surfaces
-attach it only when they provide an explicit managed invocation route registry.
-The shared attachment point is `createAttachedRuntimeBuiltinToolSurface`, so GUI,
-TUI, operator gateway, and CLI direct-provider executable sessions use the same
-tool definition, authority projection, executor, and route contract instead of
-surface-specific implementations.
+attach it only when the CLI provides a resolved managed invocation route
+registry. That registry may come from explicit `managedAgents.routes` or from
+the default read-only route synthesized from enabled supported child engines.
+The shared attachment point is `createAttachedRuntimeBuiltinToolSurface`, so
+GUI, TUI, operator gateway, and CLI direct-provider executable sessions use the
+same tool definition, authority projection, executor, and route contract instead
+of surface-specific implementations.
 
 The model supplies a bounded task, a configured provider route, and a requested
 managed invocation profile. The runtime maps that input to a

@@ -62,7 +62,13 @@ export async function statusCommand(
 
   const { registry } = createDefaultRegistry();
   const builtinToolOptions = createSessionBuiltinToolOptions();
-  const managedInvocationResolution = await resolveManagedInvocationToolOptions(config, {
+  const managedInvocationConfig = globalConfig
+    ? {
+      ...globalConfig,
+      managedAgents: config.managedAgents ?? globalConfig.managedAgents,
+    }
+    : config;
+  const managedInvocationResolution = await resolveManagedInvocationToolOptions(managedInvocationConfig, {
     cwd: root,
     registry,
     surface: "operator",

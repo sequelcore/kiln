@@ -39,6 +39,20 @@ Kiln-owned MCP client request timeout for that server. Use it for servers with
 long-running tools when the tool's own input does not expose a millisecond
 `timeout` field.
 
+Managed child invocation is derived from enabled supported engines. If `codex`
+or `opencode` is enabled, GUI, TUI, CLI run, and operator gateway sessions may
+receive one synthesized `foundation-readonly-plan` route for
+`managed_agent.invoke`. `routing.defaultWorker` is preferred when it names one
+of those supported child engines; otherwise Kiln chooses the first enabled
+supported child engine. `managedAgents.routes` declares explicit allowlisted
+routes, and `managedAgents.enabled: false` disables the runtime tool even when a
+supported engine is enabled. A route whose provider has
+`engines.<provider>.enabled: false` is unhealthy even if it is explicitly
+declared. Synthesized child routes use `models.<engine>` when present, then the
+adapter's safe default for that engine. They do not inherit `models.default`,
+because model IDs are provider-specific. Write-capable routes are never
+synthesized.
+
 Supported operator themes are `kiln-dark`, `kiln-light`, `system-follow`,
 `dracula`, `catppuccin-mocha`, `nord`, `tokyo-night`, `gruvbox-dark`,
 `rose-pine`, `kanagawa-wave`, `everforest-dark`, `ayu-dark`, `one-dark`, and

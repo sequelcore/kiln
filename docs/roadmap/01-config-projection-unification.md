@@ -224,13 +224,13 @@ for `defaultWorker` is crossed, the next task routes to `routing.fallback`. If
 disables routing decisions entirely — honest default when no ceilings are
 declared. No live API probes. No network calls. Declarative and deterministic.
 
-**Managed agent route projection.** `managedAgents` declares which governed
-child-invocation routes local operator surfaces may expose. The model never
-receives ambient delegation authority. The CLI resolves this declarative config
-through the engine registry and provider credential state into
-`ManagedInvocationToolOptions`, then passes that object to GUI, TUI, CLI run,
-and any operator gateway session. If `managedAgents.enabled: true` but no
-healthy route can be resolved, Kiln fails closed and reports diagnostics in
+**Managed agent route projection.** Enabled engines declare the governed child
+execution surfaces local operator sessions may expose. The model never receives
+ambient delegation authority. The CLI resolves global engine availability plus
+optional `managedAgents` route overrides through the engine registry and
+provider credential state into `ManagedInvocationToolOptions`, then passes that
+object to GUI, TUI, CLI run, and any operator gateway session. If no healthy
+route can be resolved, Kiln fails closed and reports diagnostics in
 `kiln status`; it does not expose `managed_agent.invoke`.
 
 `managedAgents.routes` is an allowlist. Each route maps one route kind, provider
@@ -246,13 +246,17 @@ Route kinds are explicit:
 No surface receives a different managed-agent model. GUI, TUI, CLI run, and
 operator gateway sessions consume the same resolved route registry.
 
-When `routes` is omitted and `managedAgents.enabled: true`, Kiln may synthesize
-one default read-only route from `defaultProvider` only if the engine registry
-or direct-provider registry proves that provider is available and the matching
-adapter kind can enforce Kiln authority. Direct-provider synthesis additionally
-requires provider support for model tool calls and a Kiln-owned builtin tool
-surface; a raw text-only provider is not eligible. The synthesized default is
-always:
+When `managedAgents.routes` is omitted, Kiln synthesizes at most one default
+read-only harness route from an enabled supported child engine. It prefers
+`routing.defaultWorker` when that worker is a supported child engine; otherwise
+it chooses the first enabled supported child engine. `managedAgents.enabled:
+false` is the explicit kill switch. Synthesized child routes use
+`models.<engine>` when present and otherwise use the adapter's safe model
+default; they do not inherit `models.default` across provider namespaces.
+Explicit routes whose provider has `engines.<provider>.enabled: false` are
+unhealthy. The engine registry remains the availability authority.
+Direct-provider routes are not synthesized; they require explicit route
+declaration and direct adapter support. The synthesized default is always:
 
 - `foundation-readonly-plan`
 - project working directory in read-only mode
@@ -672,8 +676,8 @@ Scope: `packages/cli/src/config/managed-agent-routes.ts`,
 `packages/cli/src/commands/run.ts`, `packages/runtime/src/agents/managed-invocation/`.
 
 - Implement `resolveManagedInvocationToolOptions(config, context)` as the only
-  CLI-owned projection from `KilnGlobalConfig.managedAgents` to runtime
-  `ManagedInvocationToolOptions`.
+  CLI-owned projection from `KilnGlobalConfig` engine availability plus
+  optional `managedAgents` overrides to runtime `ManagedInvocationToolOptions`.
 - Consume the engine registry and provider credential state. A route is healthy
   only when the provider engine is enabled, available, has a supported
   managed-invocation adapter, and has usable credentials or an explicit
@@ -686,11 +690,12 @@ Scope: `packages/cli/src/config/managed-agent-routes.ts`,
   same builtin tool authority used by the parent runtime. Direct route
   resolution is asynchronous because constructing the adapter may validate
   credential pools and provider-family eligibility.
-- If `managedAgents.enabled: true` and no explicit route is declared, synthesize
-  at most one read-only route from `defaultProvider`. The synthesized route must
-  choose `kind: harness` or `kind: direct` from provider capability, use
-  `foundation-readonly-plan`, read-only workspace authority, read-only memory
-  scope, no network, no writes, bounded timeout, and required approval.
+- If no explicit route is declared, synthesize at most one read-only harness
+  route from the enabled supported child engines. Prefer `routing.defaultWorker`
+  when it is Codex or OpenCode; otherwise choose the first enabled supported
+  child engine. The synthesized route must use `foundation-readonly-plan`,
+  read-only workspace authority, read-only memory scope, no network, no writes,
+  bounded timeout, and required approval.
 - Reject or mark unhealthy any route that requests write-capable profiles
   without explicit write authority and live-proven adapter support.
 - Pass the resolved `ManagedInvocationToolOptions` into `guiCommand`,
@@ -701,11 +706,11 @@ Scope: `packages/cli/src/config/managed-agent-routes.ts`,
 - GUI/TUI behavior: `managed_agent.invoke` appears only when at least one
   healthy route exists. Missing or unhealthy routes fail closed with operator
   diagnostics, not silent omission.
-- Unit tests: disabled config exposes no routes; enabled config with healthy
-  Codex synthesizes readonly route; enabled config with unavailable Codex fails
-  closed and reports status; explicit OpenCode route resolves adapter config;
-  write profile without write authority is rejected; GUI/TUI/run receive the
-  same resolved object.
+- Unit tests: explicit disabled config exposes no routes; enabled supported
+  engine synthesizes readonly route; enabled supported engine with unavailable
+  provider fails closed and reports status; explicit OpenCode route resolves
+  adapter config; write profile without write authority is rejected; GUI/TUI/run
+  receive the same resolved object.
 - Integration test: start GUI gateway with a resolved read-only route, send a
   model turn that calls `managed_agent.invoke`, and assert canonical
   `agent_invocation_*` events stream through the operator session event
