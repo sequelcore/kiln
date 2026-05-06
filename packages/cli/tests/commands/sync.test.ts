@@ -76,7 +76,8 @@ describe("syncCommand", () => {
   it("requires force confirmation for projection targets that own install-state drift", () => {
     expect(requiresForceSyncConfirmation(parseSyncFlags(["--permissions", "--force"]))).toBe(true);
     expect(requiresForceSyncConfirmation(parseSyncFlags(["--hooks", "--force"]))).toBe(true);
-    expect(requiresForceSyncConfirmation(parseSyncFlags(["--agents", "--force"]))).toBe(false);
+    expect(requiresForceSyncConfirmation(parseSyncFlags(["--agents", "--force"]))).toBe(true);
+    expect(requiresForceSyncConfirmation(parseSyncFlags(["--skills", "--force"]))).toBe(false);
     expect(requiresForceSyncConfirmation(parseSyncFlags(["--force"]))).toBe(true);
   });
 

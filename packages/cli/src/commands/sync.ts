@@ -63,6 +63,7 @@ export function requiresForceSyncConfirmation(flags: SyncFlags): boolean {
   return flags.force && (
     isSyncTargetSelected(flags, "permissions")
     || isSyncTargetSelected(flags, "hooks")
+    || isSyncTargetSelected(flags, "agents")
   );
 }
 
@@ -135,6 +136,7 @@ export async function syncCommand(
   const forceNativeProjectionSync = requiresForceSyncConfirmation(flags);
   const forcePermissionSync = flags.force && isSyncTargetSelected(flags, "permissions");
   const forceHookSync = flags.force && isSyncTargetSelected(flags, "hooks");
+  const forceAgentSync = flags.force && isSyncTargetSelected(flags, "agents");
 
   const root = process.cwd();
   const kilnDir = join(root, ".kiln");
@@ -172,7 +174,7 @@ export async function syncCommand(
   }
 
   if (isSyncTargetSelected(flags, "agents")) {
-    agentResult = await syncNativeAgentProjections(root);
+    agentResult = await syncNativeAgentProjections(root, { force: forceAgentSync });
     allErrors.push(...agentResult.errors);
   }
 

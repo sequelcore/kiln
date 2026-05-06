@@ -846,6 +846,10 @@ Scope: `packages/cli/src/commands/sync.ts` (rewrite),
   Native projection state supports document field targets and file targets, so
   drift detection, forced overwrite, and uninstall use the same install-state
   contract instead of hook-specific exceptions.
+- Implementation progress: native agent projection now records one whole-file
+  install-state target per projected agent file across Claude, Codex, and
+  OpenCode. Drifted agent files abort only their provider target unless
+  `kiln sync --agents --force` is confirmed.
 
 ### 01.F - kiln uninstall
 

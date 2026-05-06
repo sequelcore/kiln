@@ -1,9 +1,18 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import { join } from "node:path";
 import { stringify } from "yaml";
 import { loadAgentDefinitions } from "../application/agent-loader.js";
 import type { KilnAgentDefinition } from "../application/agent-loader.js";
+import {
+  createNativeProjectionFileSnapshot,
+  detectNativeProjectionFileDrift,
+  readNativeProjectionInstallState,
+  upsertNativeProjectionTargetState,
+  writeNativeProjectionInstallState,
+  type NativeProjectionInstallState,
+  type NativeProjectionTargetState,
+} from "./native-projection-state.js";
 
 export interface NativeAgentProjectionResult {
   claude: boolean;
@@ -11,6 +20,24 @@ export interface NativeAgentProjectionResult {
   opencode: boolean;
   synced: number;
   errors: string[];
+}
+
+export interface NativeAgentProjectionOptions {
+  readonly force?: boolean;
+}
+
+interface NativeAgentProjectionTarget {
+  readonly key: "claude" | "codex" | "opencode";
+  readonly label: "Claude Code" | "Codex" | "OpenCode";
+  readonly dir: string;
+  readonly extension: "md" | "toml";
+  readonly render: (agent: KilnAgentDefinition) => string;
+}
+
+interface NativeAgentFileSyncResult {
+  readonly ok: boolean;
+  readonly snapshot?: NativeProjectionTargetState;
+  readonly error?: string;
 }
 
 function escapeTomlString(value: string): string {
@@ -70,9 +97,14 @@ export function agentToOpenCodeMd(agent: KilnAgentDefinition): string {
   return `---\n${yamlFrontmatter}\n---\n${body}`;
 }
 
-export async function syncNativeAgentProjections(projectPath: string): Promise<NativeAgentProjectionResult> {
+export async function syncNativeAgentProjections(
+  projectPath: string,
+  options: NativeAgentProjectionOptions = {},
+): Promise<NativeAgentProjectionResult> {
   const errors: string[] = [];
   let synced = 0;
+  const kilnDir = join(projectPath, ".kiln");
+  let installState = readNativeProjectionInstallState(kilnDir);
 
   let agents: KilnAgentDefinition[];
   try {
@@ -92,64 +124,110 @@ export async function syncNativeAgentProjections(projectPath: string): Promise<N
     return { claude: true, codex: true, opencode: true, synced: 0, errors: [] };
   }
 
-  const claudeDir = join(os.homedir(), ".claude", "agents");
-  const codexDir = join(os.homedir(), ".codex", "agents");
-  const opencodeDir = join(os.homedir(), ".config", "opencode", "agents");
+  const targets: NativeAgentProjectionTarget[] = [
+    {
+      key: "claude",
+      label: "Claude Code",
+      dir: join(os.homedir(), ".claude", "agents"),
+      extension: "md",
+      render: agentToClaudeMd,
+    },
+    {
+      key: "codex",
+      label: "Codex",
+      dir: join(os.homedir(), ".codex", "agents"),
+      extension: "toml",
+      render: agentToCodexToml,
+    },
+    {
+      key: "opencode",
+      label: "OpenCode",
+      dir: join(os.homedir(), ".config", "opencode", "agents"),
+      extension: "md",
+      render: agentToOpenCodeMd,
+    },
+  ];
 
   let claude = true;
   let codex = true;
   let opencode = true;
 
-  try {
-    mkdirSync(claudeDir, { recursive: true });
-  } catch (error) {
-    claude = false;
-    errors.push(`Claude Code mkdir failed: ${error instanceof Error ? error.message : String(error)}`);
-  }
-
-  for (const agent of agents) {
-    try {
-      writeFileSync(join(claudeDir, `${agent.name}.md`), agentToClaudeMd(agent), "utf-8");
-      synced += 1;
-    } catch (error) {
+  const setTargetFailed = (targetKey: NativeAgentProjectionTarget["key"]): void => {
+    if (targetKey === "claude") {
       claude = false;
-      errors.push(`Claude Code agent "${agent.name}" failed: ${error instanceof Error ? error.message : String(error)}`);
+      return;
     }
-  }
-
-  try {
-    mkdirSync(codexDir, { recursive: true });
-  } catch (error) {
-    codex = false;
-    errors.push(`Codex mkdir failed: ${error instanceof Error ? error.message : String(error)}`);
-  }
-
-  for (const agent of agents) {
-    try {
-      writeFileSync(join(codexDir, `${agent.name}.toml`), agentToCodexToml(agent), "utf-8");
-      synced += 1;
-    } catch (error) {
+    if (targetKey === "codex") {
       codex = false;
-      errors.push(`Codex agent "${agent.name}" failed: ${error instanceof Error ? error.message : String(error)}`);
+      return;
     }
-  }
-
-  try {
-    mkdirSync(opencodeDir, { recursive: true });
-  } catch (error) {
     opencode = false;
-    errors.push(`OpenCode mkdir failed: ${error instanceof Error ? error.message : String(error)}`);
-  }
+  };
 
-  for (const agent of agents) {
+  for (const target of targets) {
     try {
-      writeFileSync(join(opencodeDir, `${agent.name}.md`), agentToOpenCodeMd(agent), "utf-8");
-      synced += 1;
+      mkdirSync(target.dir, { recursive: true });
     } catch (error) {
-      opencode = false;
-      errors.push(`OpenCode agent "${agent.name}" failed: ${error instanceof Error ? error.message : String(error)}`);
+      setTargetFailed(target.key);
+      errors.push(`${target.label} mkdir failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    for (const agent of agents) {
+      const result = syncAgentFile(agent, target, installState, options);
+      if (!result.ok) {
+        setTargetFailed(target.key);
+        errors.push(`${target.label} agent "${agent.name}" failed: ${result.error ?? "unknown error"}`);
+        continue;
+      }
+      if (result.snapshot) {
+        installState = upsertNativeProjectionTargetState(installState, result.snapshot);
+      }
+      synced += 1;
     }
   }
+
+  writeNativeProjectionInstallState(kilnDir, installState);
 
   return { claude, codex, opencode, synced, errors };
+}
+
+function syncAgentFile(
+  agent: KilnAgentDefinition,
+  target: NativeAgentProjectionTarget,
+  installState: NativeProjectionInstallState,
+  options: NativeAgentProjectionOptions,
+): NativeAgentFileSyncResult {
+  const filePath = join(target.dir, `${agent.name}.${target.extension}`);
+  const targetId = `${target.key}-agent:${agent.name}`;
+  try {
+    if (existsSync(filePath)) {
+      const drift = detectNativeProjectionFileDrift({
+        targetId,
+        state: installState,
+        currentContent: readFileSync(filePath, "utf-8"),
+      });
+      if (drift && !options.force) {
+        return {
+          ok: false,
+          error: `managed file drift detected: ${drift.driftedFields.join(", ")}`,
+        };
+      }
+    }
+
+    const content = target.render(agent);
+    writeFileSync(filePath, content, "utf-8");
+    return {
+      ok: true,
+      snapshot: createNativeProjectionFileSnapshot({
+        targetId,
+        filePath,
+        content,
+      }),
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
