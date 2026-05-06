@@ -19,6 +19,10 @@ import {
   type NativeProjectionTargetState,
 } from "./native-projection-state.js";
 import { backupNativeProjectionFile } from "./native-projection-backup.js";
+import {
+  isNativeProjectionHarnessDisabled,
+  type NativeProjectionSyncOptions,
+} from "./native-projection-policy.js";
 
 const DEFAULT_POLICY: KilnPermissionPolicy = { approval: "on-request", sandbox: "read-only" };
 
@@ -29,9 +33,7 @@ export interface NativePermissionProjectionResult {
   errors: string[];
 }
 
-export interface NativePermissionProjectionOptions {
-  readonly force?: boolean;
-}
+export interface NativePermissionProjectionOptions extends NativeProjectionSyncOptions {}
 
 interface PermissionTargetResult {
   readonly ok: boolean;
@@ -53,7 +55,9 @@ export async function syncNativePermissionProjections(
   const kilnDir = join(projectPath, ".kiln");
   let installState = readNativeProjectionInstallState(kilnDir);
 
-  const claudeResult = await syncClaudePermissions(policy, projectPath, installState, options);
+  const claudeResult = isNativeProjectionHarnessDisabled(options, "claude")
+    ? skippedPermissionTarget()
+    : await syncClaudePermissions(policy, projectPath, installState, options);
   if (claudeResult.snapshot) {
     installState = upsertNativeProjectionTargetState(installState, claudeResult.snapshot);
   }
@@ -61,7 +65,9 @@ export async function syncNativePermissionProjections(
     errors.push(`Claude Code: ${claudeResult.error}`);
   }
 
-  const codexResult = await syncCodexPermissions(policy, kilnDir, installState, options);
+  const codexResult = isNativeProjectionHarnessDisabled(options, "codex")
+    ? skippedPermissionTarget()
+    : await syncCodexPermissions(policy, kilnDir, installState, options);
   if (codexResult.snapshot) {
     installState = upsertNativeProjectionTargetState(installState, codexResult.snapshot);
   }
@@ -69,7 +75,9 @@ export async function syncNativePermissionProjections(
     errors.push(`Codex: ${codexResult.error}`);
   }
 
-  const opencodeResult = await syncOpenCodePermissions(policy, kilnDir, installState, options);
+  const opencodeResult = isNativeProjectionHarnessDisabled(options, "opencode")
+    ? skippedPermissionTarget()
+    : await syncOpenCodePermissions(policy, kilnDir, installState, options);
   if (opencodeResult.snapshot) {
     installState = upsertNativeProjectionTargetState(installState, opencodeResult.snapshot);
   }
@@ -85,6 +93,10 @@ export async function syncNativePermissionProjections(
     opencode: opencodeResult.ok,
     errors,
   };
+}
+
+function skippedPermissionTarget(): PermissionTargetResult {
+  return { ok: true };
 }
 
 async function syncClaudePermissions(

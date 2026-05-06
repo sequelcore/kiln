@@ -12,6 +12,10 @@ import {
   type NativeProjectionTargetState,
 } from "./native-projection-state.js";
 import { backupNativeProjectionFile } from "./native-projection-backup.js";
+import {
+  isNativeProjectionHarnessDisabled,
+  type NativeProjectionSyncOptions,
+} from "./native-projection-policy.js";
 
 const DEFAULT_HOOK_CONTENT = `#!/bin/sh
 # Kiln autoformat hook
@@ -37,9 +41,7 @@ export interface NativeHookProjectionResult {
   errors: string[];
 }
 
-export interface NativeHookProjectionOptions {
-  readonly force?: boolean;
-}
+export interface NativeHookProjectionOptions extends NativeProjectionSyncOptions {}
 
 interface HookTargetResult {
   readonly ok: boolean;
@@ -73,23 +75,27 @@ export async function syncNativeHookProjections(
     writeFileSync(sourcePath, DEFAULT_HOOK_CONTENT, "utf-8");
   }
 
-  let claudeHook = false;
-  try {
-    const claudeResult = await syncClaudeHook(projectPath, kilnDir, sourceContent, installState, options);
-    claudeHook = claudeResult.ok;
-    for (const snapshot of claudeResult.snapshots) {
-      installState = upsertNativeProjectionTargetState(installState, snapshot);
+  let claudeHook = true;
+  if (!isNativeProjectionHarnessDisabled(options, "claude")) {
+    claudeHook = false;
+    try {
+      const claudeResult = await syncClaudeHook(projectPath, kilnDir, sourceContent, installState, options);
+      claudeHook = claudeResult.ok;
+      for (const snapshot of claudeResult.snapshots) {
+        installState = upsertNativeProjectionTargetState(installState, snapshot);
+      }
+      if (claudeResult.error) {
+        errors.push(`Claude Code: ${claudeResult.error}`);
+      }
+    } catch (error) {
+      errors.push(`Claude Code: ${error instanceof Error ? error.message : String(error)}`);
     }
-    if (claudeResult.error) {
-      errors.push(`Claude Code: ${claudeResult.error}`);
-    }
-  } catch (error) {
-    errors.push(`Claude Code: ${error instanceof Error ? error.message : String(error)}`);
   }
 
   const skippedWindows = process.platform === "win32";
-  let codexHook = false;
-  if (!skippedWindows) {
+  let codexHook = true;
+  if (!skippedWindows && !isNativeProjectionHarnessDisabled(options, "codex")) {
+    codexHook = false;
     try {
       const codexResult = await syncCodexHook(projectPath, kilnDir, sourceContent, installState, options);
       codexHook = codexResult.ok;

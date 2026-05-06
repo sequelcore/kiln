@@ -11,6 +11,10 @@ import {
   type NativeProjectionTargetState,
 } from "./native-projection-state.js";
 import { backupNativeProjectionFile } from "./native-projection-backup.js";
+import {
+  isNativeProjectionHarnessDisabled,
+  type NativeProjectionSyncOptions,
+} from "./native-projection-policy.js";
 
 export interface NativeSkillProjectionResult {
   claude: boolean;
@@ -20,9 +24,7 @@ export interface NativeSkillProjectionResult {
   errors: string[];
 }
 
-export interface NativeSkillProjectionOptions {
-  readonly force?: boolean;
-}
+export interface NativeSkillProjectionOptions extends NativeProjectionSyncOptions {}
 
 export function discoverSkillDirs(projectPath: string): Map<string, string> {
   const discovered = new Map<string, string>();
@@ -100,7 +102,7 @@ export async function syncNativeSkillProjections(
     opencode = false;
   };
 
-  for (const target of targets) {
+  for (const target of targets.filter((target) => !isNativeProjectionHarnessDisabled(options, target.key))) {
     try {
       mkdirSync(target.dir, { recursive: true });
     } catch (error) {

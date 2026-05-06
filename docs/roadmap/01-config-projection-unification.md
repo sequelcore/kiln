@@ -527,7 +527,10 @@ target fails. Kiln does not roll back native files automatically. It reports all
 target errors it observes and exits non-zero on any target failure. Before
 overwriting an existing native projection file, Kiln writes a project-local
 backup under `.kiln/backups/<target-id>/`. New files are not backed up. Backups
-are append-only in v1; Kiln does not auto-prune them.
+are append-only in v1; Kiln does not auto-prune them. If global config marks a
+known harness engine as `enabled: false`, sync first uninstalls recorded managed
+native projections for that harness and excludes it from new permission, hook,
+agent, and skill projection writes.
 
 **`kiln status`**
 Reads engine registry (probes if stale), reads install state, and prints:
@@ -869,6 +872,10 @@ Scope: `packages/cli/src/commands/sync.ts` (rewrite),
   backups before overwriting existing native files. Permission, hook, agent,
   and skill projections use the same backup utility, so the no-rollback sync
   contract still has an operator recovery path without per-harness backup code.
+- Implementation progress: `engines.<id>.enabled: false` now strips recorded
+  managed projections for that harness during native sync and prevents the same
+  sync run from re-projecting permission, hook, agent, or skill files for the
+  disabled harness.
 
 ### 01.F - kiln uninstall
 
@@ -956,10 +963,4 @@ the v2 contract. There is no silent fallback and no compatibility parser.
 
 ## 8. Open Questions
 
-1. **`engines.<id>.enabled: false` and projected config removal.** If an
-   operator sets `engines.codex.enabled: false` in `config.yaml` and runs
-   `kiln sync`, should Kiln immediately strip the codex managed sections from
-   `~/.codex/config.toml`, or should it only stop projecting future changes and
-   leave the existing config in place? The strip behavior is cleaner but
-   requires tracking which targets were previously enabled. The leave-in-place
-   behavior is safer but leaves stale Kiln metadata in the native file.
+No open questions remain for this roadmap slice.

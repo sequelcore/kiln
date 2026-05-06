@@ -128,7 +128,7 @@ function resolveTargetIds(state: NativeProjectionInstallState, target: string | 
   }
   if (HARNESS_TARGETS.has(normalized)) {
     const targetIds = Object.keys(state.targets).filter((targetId) => targetId.startsWith(`${normalized}-`));
-    return targetIds.length > 0 ? targetIds : [TARGET_ALIASES[normalized]!];
+    return targetIds;
   }
   return [TARGET_ALIASES[normalized] ?? normalized];
 }

@@ -14,6 +14,10 @@ import {
   type NativeProjectionTargetState,
 } from "./native-projection-state.js";
 import { backupNativeProjectionFile } from "./native-projection-backup.js";
+import {
+  isNativeProjectionHarnessDisabled,
+  type NativeProjectionSyncOptions,
+} from "./native-projection-policy.js";
 
 export interface NativeAgentProjectionResult {
   claude: boolean;
@@ -23,9 +27,7 @@ export interface NativeAgentProjectionResult {
   errors: string[];
 }
 
-export interface NativeAgentProjectionOptions {
-  readonly force?: boolean;
-}
+export interface NativeAgentProjectionOptions extends NativeProjectionSyncOptions {}
 
 interface NativeAgentProjectionTarget {
   readonly key: "claude" | "codex" | "opencode";
@@ -165,7 +167,7 @@ export async function syncNativeAgentProjections(
     opencode = false;
   };
 
-  for (const target of targets) {
+  for (const target of targets.filter((target) => !isNativeProjectionHarnessDisabled(options, target.key))) {
     try {
       mkdirSync(target.dir, { recursive: true });
     } catch (error) {

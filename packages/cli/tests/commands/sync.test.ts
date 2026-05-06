@@ -2,15 +2,21 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const syncMocks = vi.hoisted(() => ({
   loadKilnConfig: vi.fn(),
+  readGlobalConfig: vi.fn(),
   syncNativePermissionProjections: vi.fn(),
   syncNativeHookProjections: vi.fn(),
   syncNativeAgentProjections: vi.fn(),
   writeAgentsMdProjection: vi.fn(),
   syncNativeSkillProjections: vi.fn(),
+  uninstallNativeTargets: vi.fn(),
 }));
 
 vi.mock("../../src/config/config-merger.js", () => ({
   loadKilnConfig: syncMocks.loadKilnConfig,
+}));
+
+vi.mock("../../src/config/global-config.js", () => ({
+  readGlobalConfig: syncMocks.readGlobalConfig,
 }));
 
 vi.mock("../../src/config/native-permission-projection.js", () => ({
@@ -31,6 +37,10 @@ vi.mock("../../src/application/agents-md-projection.js", () => ({
 
 vi.mock("../../src/config/native-skill-projection.js", () => ({
   syncNativeSkillProjections: syncMocks.syncNativeSkillProjections,
+}));
+
+vi.mock("../../src/commands/uninstall.js", () => ({
+  uninstallNativeTargets: syncMocks.uninstallNativeTargets,
 }));
 
 import {
@@ -54,6 +64,7 @@ describe("syncCommand", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     syncMocks.loadKilnConfig.mockResolvedValue({ version: "1", domain: "typescript" });
+    syncMocks.readGlobalConfig.mockReturnValue(null);
     syncMocks.syncNativePermissionProjections.mockResolvedValue({ claude: true, codex: true, opencode: true, errors: [] });
     syncMocks.syncNativeHookProjections.mockResolvedValue({
       claudeHook: true,
@@ -64,6 +75,7 @@ describe("syncCommand", () => {
     syncMocks.syncNativeAgentProjections.mockResolvedValue({ claude: true, codex: true, opencode: true, errors: [] });
     syncMocks.writeAgentsMdProjection.mockResolvedValue({ written: true, path: "AGENTS.md", errors: [] });
     syncMocks.syncNativeSkillProjections.mockResolvedValue({ claude: true, codex: true, opencode: true, synced: 0, errors: [] });
+    syncMocks.uninstallNativeTargets.mockReturnValue({ removed: [], skipped: [], errors: [] });
   });
 
   it("is a function exported from commands/sync", () => {
@@ -140,6 +152,30 @@ describe("syncCommand", () => {
       consoleLogSpy.mockRestore();
       consoleErrorSpy.mockRestore();
     }
+  });
+
+  it("uninstalls and skips native projections for disabled engines", async () => {
+    const consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    syncMocks.readGlobalConfig.mockReturnValue({
+      version: "2",
+      engines: { codex: { enabled: false } },
+    });
+
+    try {
+      await syncCommand(MOCK_APP_CONFIG, undefined, ["--permissions"]);
+    } finally {
+      consoleLogSpy.mockRestore();
+    }
+
+    expect(syncMocks.uninstallNativeTargets).toHaveBeenCalledWith(process.cwd(), {
+      target: "codex",
+      force: false,
+    });
+    expect(syncMocks.syncNativePermissionProjections).toHaveBeenCalledWith(
+      { version: "1", domain: "typescript" },
+      process.cwd(),
+      { force: false, disabledHarnesses: ["codex"] },
+    );
   });
 
   it("accepts appConfig, subcommand, and args parameters", async () => {

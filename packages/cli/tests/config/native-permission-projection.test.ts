@@ -223,6 +223,22 @@ describe("syncNativePermissionProjections", () => {
     ]);
   });
 
+  it("does not project disabled harness permission targets", async () => {
+    const codexConfigPath = join(paths.homePath, ".codex", "config.toml");
+    fs.mkdirSync(join(paths.homePath, ".codex"), { recursive: true });
+    fs.writeFileSync(codexConfigPath, "model = \"gpt-5.4\"\n", "utf-8");
+
+    const result = await syncNativePermissionProjections(buildKilnYaml(), paths.projectPath, {
+      disabledHarnesses: ["codex"],
+    });
+
+    expect(result.errors).toHaveLength(0);
+    expect(result.codex).toBe(true);
+    expect(fs.readFileSync(codexConfigPath, "utf-8")).toBe("model = \"gpt-5.4\"\n");
+    const state = readJson(join(paths.projectPath, ".kiln", "install-state.json"));
+    expect(Object.keys(asRecord(state.targets))).not.toContain("codex-config");
+  });
+
   it("aborts only the target whose managed fields drifted", async () => {
     const first = await syncNativePermissionProjections(buildKilnYaml(), paths.projectPath);
     expect(first.errors).toHaveLength(0);

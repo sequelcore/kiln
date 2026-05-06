@@ -143,6 +143,22 @@ describe("uninstallNativeTargets", () => {
     }
   });
 
+  it("treats harness uninstall with no recorded targets as a no-op", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-uninstall-empty-harness-"));
+
+    try {
+      const result = uninstallNativeTargets(join(root, "project"), { target: "codex" });
+
+      expect(result).toEqual({
+        removed: [],
+        skipped: [],
+        errors: [],
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("skips drifted managed fields unless force is set", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-uninstall-drift-"));
     const opencodeConfigPath = join(root, "home", ".config", "opencode", "opencode.json");
