@@ -17,14 +17,6 @@ export interface SyncFlags {
   readonly syncAll: boolean;
 }
 
-export interface SyncFailureStates {
-  readonly permissions: boolean;
-  readonly hooks: boolean;
-  readonly agents: boolean;
-  readonly agentsMd: boolean;
-  readonly skills: boolean;
-}
-
 export function parseSyncFlags(args: readonly string[]): SyncFlags {
   const explicitTargets = readFlagValues(args, "--target").flatMap((value) =>
     value.split(",").map((target) => target.trim()).filter(Boolean)
@@ -45,18 +37,6 @@ export function parseSyncFlags(args: readonly string[]): SyncFlags {
     force: args.includes("--force"),
     syncAll,
   };
-}
-
-export function allSelectedSyncTargetsFailed(flags: SyncFlags, failures: SyncFailureStates): boolean {
-  const selectedFailures = [
-    isSyncTargetSelected(flags, "permissions") ? failures.permissions : undefined,
-    isSyncTargetSelected(flags, "hooks") ? failures.hooks : undefined,
-    isSyncTargetSelected(flags, "agents") ? failures.agents : undefined,
-    isSyncTargetSelected(flags, "agents-md") ? failures.agentsMd : undefined,
-    isSyncTargetSelected(flags, "skills") ? failures.skills : undefined,
-  ].filter((failure): failure is boolean => failure !== undefined);
-
-  return selectedFailures.length > 0 && selectedFailures.every((failure) => failure);
 }
 
 export function requiresForceSyncConfirmation(flags: SyncFlags): boolean {
@@ -240,31 +220,7 @@ export async function syncCommand(
     console.log("");
   }
 
-  const permAllFailed = permResult
-    ? !permResult.claude && !permResult.codex && !permResult.opencode
-    : false;
-  const hookAllFailed = hookResult
-    ? !hookResult.claudeHook && (!hookResult.codexHook || hookResult.skippedWindows)
-    : false;
-  const agentAllFailed = agentResult
-    ? !agentResult.claude && !agentResult.codex && !agentResult.opencode
-    : false;
-  const agentsMdAllFailed = agentsMdResult
-    ? !agentsMdResult.written
-    : false;
-  const skillsAllFailed = skillsResult
-    ? !skillsResult.claude && !skillsResult.codex && !skillsResult.opencode
-    : false;
-
-  const allFailed = allSelectedSyncTargetsFailed(flags, {
-    permissions: permAllFailed,
-    hooks: hookAllFailed,
-    agents: agentAllFailed,
-    agentsMd: agentsMdAllFailed,
-    skills: skillsAllFailed,
-  });
-
-  if (allFailed) {
+  if (allErrors.length > 0) {
     process.exit(1);
   }
 }

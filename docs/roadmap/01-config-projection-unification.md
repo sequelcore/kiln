@@ -521,8 +521,10 @@ managed fields for each target first; aborts with per-target diagnostics if
 drift is detected. For each target, translates config to a managed patch, merges
 the patch into the existing native file preserving non-managed keys, and updates
 `managedFields` in install-state. Writes `~/.kiln/state/install-state.json` on
-success. Accepts `--target <id>` to limit scope. Exits non-zero on any target
-failure.
+success. Accepts `--target <id>` to limit scope. Sync executes serially by
+projection surface and target; successful writes remain committed if a later
+target fails. Kiln does not roll back native files automatically. It reports all
+target errors it observes and exits non-zero on any target failure.
 
 **`kiln status`**
 Reads engine registry (probes if stale), reads install state, and prints:
@@ -854,6 +856,10 @@ Scope: `packages/cli/src/commands/sync.ts` (rewrite),
   install-state target per copied skill file across Claude, Codex, and
   OpenCode. Drifted skill files abort only their provider target unless
   `kiln sync --skills --force` is confirmed.
+- Implementation progress: `kiln sync` now exits non-zero for any selected
+  target error, including partial failures where one harness succeeds and
+  another fails. This makes the documented serial, no-rollback contract
+  observable to callers.
 
 ### 01.F - kiln uninstall
 
@@ -941,21 +947,14 @@ the v2 contract. There is no silent fallback and no compatibility parser.
 
 ## 8. Open Questions
 
-1. **`kiln sync` execution order and atomicity.** Should translators run in
-   parallel (faster) or serial (easier to reason about partial failure)? If one
-   target fails mid-sync — for example, codex drift is detected after claude has
-   already been written — does Kiln roll back the claude write, or does it
-   commit what succeeded and report the failure? The current spec says "exits
-   non-zero on any target failure" but does not define atomicity guarantees.
-
-2. **Native file backup policy.** When `kiln sync` is about to merge managed
+1. **Native file backup policy.** When `kiln sync` is about to merge managed
    sections into an existing native file, should it write a backup before
    touching it? A natural location is `~/.kiln/backups/<target>/<timestamp>.bak`.
    Questions: is backup opt-in or always-on? What is the pruning policy (count
    limit, age limit, or manual `kiln prune-backups`)? Does `kiln import-native`
    also create a backup before overwriting the Kiln config?
 
-3. **`engines.<id>.enabled: false` and projected config removal.** If an
+2. **`engines.<id>.enabled: false` and projected config removal.** If an
    operator sets `engines.codex.enabled: false` in `config.yaml` and runs
    `kiln sync`, should Kiln immediately strip the codex managed sections from
    `~/.codex/config.toml`, or should it only stop projecting future changes and
