@@ -24,6 +24,7 @@ export type CliSessionEvent =
       linesRemoved?: number;
       diffPreview?: string;
       diffTruncated?: boolean;
+      resourceUris?: readonly string[];
     }
   | {
       type: "write_decision";

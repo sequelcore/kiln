@@ -28,6 +28,7 @@ export interface ManagedAgentLiveWriteChange {
   readonly linesRemoved?: number;
   readonly diffPreview?: string;
   readonly diffTruncated?: boolean;
+  readonly resourceUris?: readonly string[];
 }
 
 export type ManagedAgentLiveWriteDecisionSource =
@@ -69,6 +70,9 @@ export function normalizeManagedAgentLiveWriteChanges(
     ...(change.linesRemoved !== undefined ? { linesRemoved: requireNonNegativeInteger(change.linesRemoved, "Managed live write removed line count is invalid") } : {}),
     ...(change.diffPreview !== undefined ? { diffPreview: requireText(change.diffPreview, "Managed live write diff preview is required") } : {}),
     ...(change.diffTruncated !== undefined ? { diffTruncated: change.diffTruncated === true } : {}),
+    ...(change.resourceUris !== undefined
+      ? { resourceUris: change.resourceUris.map((uri) => requireText(uri, "Managed live write resource uri is required")) }
+      : {}),
   }));
 }
 
@@ -101,6 +105,10 @@ export function collectManagedAgentLiveWriteEvidence(
     const proposalUri = managedInvocationUri(input.request.invocationId, `write-proposals/${ordinal}`);
     const decisionUri = managedInvocationUri(input.request.invocationId, `write-decisions/${ordinal}`);
     const attemptUri = managedInvocationUri(input.request.invocationId, `write-attempts/${ordinal}`);
+    const attemptResourceUris = [
+      attemptUri,
+      ...(change.resourceUris?.map((uri) => requireText(uri, "Managed live write resource uri is required")) ?? []),
+    ];
     const recordedAt = input.recordedAt ?? new Date().toISOString();
     const summary = `${change.changeType} ${change.path}`;
 
@@ -132,7 +140,7 @@ export function collectManagedAgentLiveWriteEvidence(
         decisionId,
         attemptId,
         summary: `Workspace write attempt completed for ${summary}`,
-        resourceUris: [attemptUri],
+        resourceUris: attemptResourceUris,
         recordedAt,
       }),
     ];

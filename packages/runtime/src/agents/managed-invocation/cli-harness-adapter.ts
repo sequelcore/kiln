@@ -14,6 +14,8 @@ import type {
   ManagedAgentAdapterDescriptor,
   ManagedAgentAdapterWriteAuthorityDescriptor,
   ManagedAgentInvocationRecord,
+  ManagedAgentInvocationRequest,
+  ManagedAgentWriteEvidence,
   ManagedAgentProviderRoute,
 } from "@kilnai/core";
 import type {
@@ -45,17 +47,17 @@ export interface ManagedCliHarnessFilesystemBoundaryConfig {
 }
 
 interface CollectedCliHarnessEvidence {
-  readonly text: string;
-  readonly fileChanges: readonly Extract<CliSessionEvent, { readonly type: "file_changed" }>[];
-  readonly writeDecisions: readonly Extract<CliSessionEvent, { readonly type: "write_decision" }>[];
+  readonly textParts: string[];
+  readonly fileChanges: Extract<CliSessionEvent, { readonly type: "file_changed" }>[];
+  readonly writeDecisions: Extract<CliSessionEvent, { readonly type: "write_decision" }>[];
   readonly usage: {
-    readonly inputTokens?: number;
-    readonly outputTokens?: number;
-    readonly cacheReadTokens?: number;
-    readonly costUsd?: number;
+    inputTokens?: number;
+    outputTokens?: number;
+    cacheReadTokens?: number;
+    costUsd?: number;
   };
-  readonly completed?: Extract<CliSessionEvent, { readonly type: "completed" }>;
-  readonly error?: Extract<CliSessionEvent, { readonly type: "error" }>;
+  completed?: Extract<CliSessionEvent, { readonly type: "completed" }>;
+  error?: Extract<CliSessionEvent, { readonly type: "error" }>;
 }
 
 const TIMEOUT = Symbol("managed-cli-harness-timeout");
@@ -135,18 +137,30 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
     const prompt = request.input.prompt ?? request.input.summary;
     const filesystemSnapshot = await snapshotFilesystemBoundary(this.filesystemBoundary);
     const session = this.factory(system, cwd, { kilnSessionId: childSessionId });
+    const collected = createEmptyCollectedEvidence();
     const runPromise = this.collectRunEvidence(session, {
       kilnSessionId: childSessionId,
       prompt,
       cwd,
       system,
-    });
+    }, collected);
     const timeoutPromise = sleep(request.authority.timeoutMs).then(() => TIMEOUT);
     const raced = await Promise.race([runPromise, timeoutPromise]);
 
     if (typeof raced === "symbol") {
       runPromise.catch(() => undefined);
       await session.dispose();
+      const filesystemChanges = await collectFilesystemBoundaryChanges(filesystemSnapshot);
+      const readOnlyFilesystemViolation = request.authority.writeAuthority === undefined && filesystemChanges.length > 0;
+      if (readOnlyFilesystemViolation && this.filesystemBoundary?.restoreReadOnlyViolations === true) {
+        await restoreFilesystemBoundary(filesystemSnapshot);
+      }
+      const writeEvidence = collectWriteEvidence({
+        request,
+        collected,
+        filesystemChanges,
+        readOnlyFilesystemViolation,
+      });
       return defineManagedAgentInvocationRecord({
         ...this.baseRecord(input, childSessionId),
         lifecycleState: "timed-out",
@@ -155,56 +169,33 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
           kind: "timeout",
         }],
         transcript: transcriptPointer(request.invocationId),
-        usage: unknownUsageReport(),
+        usage: usageReport(collected.usage),
         resultHandoff: {
           summary: "Managed CLI harness invocation timed out.",
-          resourceUris: [managedInvocationUri(request.invocationId, "timeout")],
+          resourceUris: [
+            managedInvocationUri(request.invocationId, "timeout"),
+            ...writeEvidence.resultResourceUris,
+          ],
           memoryWriteProposalUris: [],
         },
+        ...(writeEvidence.evidence.length > 0 ? { writeEvidence: writeEvidence.evidence } : {}),
       });
     }
 
     await session.dispose();
-    const collected = raced;
     const filesystemChanges = await collectFilesystemBoundaryChanges(filesystemSnapshot);
     const readOnlyFilesystemViolation = request.authority.writeAuthority === undefined && filesystemChanges.length > 0;
     if (readOnlyFilesystemViolation && this.filesystemBoundary?.restoreReadOnlyViolations === true) {
       await restoreFilesystemBoundary(filesystemSnapshot);
     }
-    const lifecycleState = collected.error || collected.completed?.isError ? "failed" : "completed";
+    const lifecycleState = resolveLifecycleState(collected);
     const summary = summarizeResult(collected);
-    const writeEvidence = collectManagedAgentLiveWriteEvidence({
+    const writeEvidence = collectWriteEvidence({
       request,
-      fileChanges: readOnlyFilesystemViolation
-        ? []
-        : mergeFileChanges(collected.fileChanges, filesystemChanges),
+      collected,
+      filesystemChanges,
+      readOnlyFilesystemViolation,
     });
-    const writeDecisionEvidence = collectManagedAgentLiveWriteDecisionEvidence({
-      request,
-      decisions: [
-        ...collected.writeDecisions.map((decision) => ({
-          source: "tool-result" as const,
-          status: decision.status,
-          providerRequestId: decision.providerRequestId,
-          actor: decision.actor,
-          reason: decision.reason,
-          resourceUris: decision.resourceUris,
-        })),
-        ...(readOnlyFilesystemViolation
-          ? [{
-            source: "tool-result" as const,
-            status: "denied" as const,
-            providerRequestId: "filesystem-boundary-1",
-            actor: "kiln-filesystem-boundary",
-            reason: `Live harness modified files during read-only invocation: ${filesystemChanges.map((change) => change.path).join(", ")}`,
-          }]
-          : []),
-      ],
-    });
-    const collectedWriteEvidence = [
-      ...writeDecisionEvidence,
-      ...writeEvidence.evidence,
-    ];
     return defineManagedAgentInvocationRecord({
       ...this.baseRecord(input, childSessionId),
       lifecycleState,
@@ -222,12 +213,11 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
         summary,
         resourceUris: [
           managedInvocationUri(request.invocationId, "transcript"),
-          ...writeDecisionEvidence.flatMap((evidence) => evidence.resourceUris),
-          ...writeEvidence.attemptResourceUris,
+          ...writeEvidence.resultResourceUris,
         ],
         memoryWriteProposalUris: [],
       },
-      ...(collectedWriteEvidence.length > 0 ? { writeEvidence: collectedWriteEvidence } : {}),
+      ...(writeEvidence.evidence.length > 0 ? { writeEvidence: writeEvidence.evidence } : {}),
     });
   }
 
@@ -262,61 +252,100 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
   private async collectRunEvidence(
     session: CliSession,
     options: Parameters<CliSession["run"]>[0],
+    collected: CollectedCliHarnessEvidence,
   ): Promise<CollectedCliHarnessEvidence> {
-    const textParts: string[] = [];
-    const fileChanges: Extract<CliSessionEvent, { readonly type: "file_changed" }>[] = [];
-    const writeDecisions: Extract<CliSessionEvent, { readonly type: "write_decision" }>[] = [];
-    let inputTokens: number | undefined;
-    let outputTokens: number | undefined;
-    let cacheReadTokens: number | undefined;
-    let costUsd: number | undefined;
-    let completed: Extract<CliSessionEvent, { readonly type: "completed" }> | undefined;
-    let error: Extract<CliSessionEvent, { readonly type: "error" }> | undefined;
-
     for await (const event of session.run(options)) {
       if (event.type === "text_delta" && event.isThinking !== true) {
-        textParts.push(event.content);
+        collected.textParts.push(event.content);
         continue;
       }
       if (event.type === "cost_update") {
-        inputTokens = event.inputTokens ?? inputTokens;
-        outputTokens = event.outputTokens ?? outputTokens;
-        cacheReadTokens = event.cacheReadTokens ?? cacheReadTokens;
-        costUsd = event.usd;
+        collected.usage.inputTokens = event.inputTokens ?? collected.usage.inputTokens;
+        collected.usage.outputTokens = event.outputTokens ?? collected.usage.outputTokens;
+        collected.usage.cacheReadTokens = event.cacheReadTokens ?? collected.usage.cacheReadTokens;
+        collected.usage.costUsd = event.usd;
         continue;
       }
       if (event.type === "file_changed") {
-        fileChanges.push(event);
+        collected.fileChanges.push(event);
         continue;
       }
       if (event.type === "write_decision") {
-        writeDecisions.push(event);
+        collected.writeDecisions.push(event);
         continue;
       }
       if (event.type === "completed") {
-        completed = event;
-        costUsd = event.totalUsd;
+        collected.completed = event;
+        collected.usage.costUsd = event.totalUsd;
         continue;
       }
       if (event.type === "error") {
-        error = event;
+        collected.error = event;
       }
     }
 
-    return {
-      text: textParts.join("").trim(),
-      fileChanges,
-      writeDecisions,
-      usage: {
-        ...(inputTokens !== undefined ? { inputTokens } : {}),
-        ...(outputTokens !== undefined ? { outputTokens } : {}),
-        ...(cacheReadTokens !== undefined ? { cacheReadTokens } : {}),
-        ...(costUsd !== undefined ? { costUsd } : {}),
-      },
-      ...(completed !== undefined ? { completed } : {}),
-      ...(error !== undefined ? { error } : {}),
-    };
+    return collected;
   }
+}
+
+function createEmptyCollectedEvidence(): CollectedCliHarnessEvidence {
+  return {
+    textParts: [],
+    fileChanges: [],
+    writeDecisions: [],
+    usage: {},
+  };
+}
+
+function collectWriteEvidence(input: {
+  readonly request: ManagedAgentInvocationRequest;
+  readonly collected: CollectedCliHarnessEvidence;
+  readonly filesystemChanges: readonly Extract<CliSessionEvent, { readonly type: "file_changed" }>[];
+  readonly readOnlyFilesystemViolation: boolean;
+}): {
+  readonly evidence: readonly ManagedAgentWriteEvidence[];
+  readonly resultResourceUris: readonly string[];
+} {
+  const writeEvidence = collectManagedAgentLiveWriteEvidence({
+    request: input.request,
+    fileChanges: input.readOnlyFilesystemViolation
+      ? []
+      : mergeFileChanges(input.collected.fileChanges, input.filesystemChanges),
+  });
+  const writeDecisionEvidence = collectManagedAgentLiveWriteDecisionEvidence({
+    request: input.request,
+    decisions: [
+      ...input.collected.writeDecisions.map((decision) => ({
+        source: "tool-result" as const,
+        status: decision.status,
+        providerRequestId: decision.providerRequestId,
+        actor: decision.actor,
+        reason: decision.reason,
+        resourceUris: decision.resourceUris,
+      })),
+      ...(input.readOnlyFilesystemViolation
+        ? [{
+          source: "tool-result" as const,
+          status: "denied" as const,
+          providerRequestId: "filesystem-boundary-1",
+          actor: "kiln-filesystem-boundary",
+          reason: `Live harness modified files during read-only invocation: ${input.filesystemChanges.map((change) => change.path).join(", ")}`,
+        }]
+        : []),
+    ],
+  });
+  const evidence = [
+    ...writeDecisionEvidence,
+    ...writeEvidence.evidence,
+  ];
+
+  return {
+    evidence,
+    resultResourceUris: [
+      ...writeDecisionEvidence.flatMap((item) => item.resourceUris),
+      ...writeEvidence.attemptResourceUris,
+    ],
+  };
 }
 
 function transcriptPointer(invocationId: string): ManagedAgentInvocationRecord["transcript"] {
@@ -342,10 +371,6 @@ function usageReport(usage: CollectedCliHarnessEvidence["usage"]): ManagedAgentI
       amount: usage.costUsd ?? "unknown",
     },
   };
-}
-
-function unknownUsageReport(): ManagedAgentInvocationRecord["usage"] {
-  return usageReport({});
 }
 
 async function snapshotFilesystemBoundary(
@@ -457,12 +482,25 @@ function countLines(contents: string): number {
   return contents.split(/\r\n|\r|\n/).length;
 }
 
+function resolveLifecycleState(collected: CollectedCliHarnessEvidence): ManagedAgentInvocationRecord["lifecycleState"] {
+  if (collected.error !== undefined) {
+    return isCancellationError(collected.error) ? "cancelled" : "failed";
+  }
+  return collected.completed?.isError ? "failed" : "completed";
+}
+
+function isCancellationError(error: Extract<CliSessionEvent, { readonly type: "error" }>): boolean {
+  const normalized = `${error.code} ${error.message}`.toLowerCase();
+  return normalized.includes("cancel") || normalized.includes("abort");
+}
+
 function summarizeResult(collected: CollectedCliHarnessEvidence): string {
   if (collected.error) {
     return `[${collected.error.code}] ${collected.error.message}`;
   }
-  return collected.text.length > 0
-    ? collected.text
+  const text = collected.textParts.join("").trim();
+  return text.length > 0
+    ? text
     : "Managed CLI harness invocation completed without text output.";
 }
 

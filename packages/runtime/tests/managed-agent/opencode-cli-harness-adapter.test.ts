@@ -9,6 +9,7 @@ import {
   type ManagedAgentInvocationRequest,
 } from "@kilnai/core";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
+import { serializeSession, deserializeSession } from "../../src/session/session-serializer.js";
 import { appendManagedInvocationSessionEvents } from "../../src/agents/managed-invocation/session-events.js";
 import {
   ManagedCliHarnessAdapter,
@@ -65,7 +66,7 @@ function makeRequest(timeoutMs = 120000): ManagedAgentInvocationRequest {
   });
 }
 
-function makeWriteRequest(): ManagedAgentInvocationRequest {
+function makeWriteRequest(timeoutMs = 120000): ManagedAgentInvocationRequest {
   return defineManagedAgentInvocationRequest({
     invocationId: "invocation-opencode-write-1",
     agentId: "agent-implementer",
@@ -93,7 +94,7 @@ function makeWriteRequest(): ManagedAgentInvocationRequest {
         path: "C:/Proyectos/Sequel/kiln",
         mode: "workspace-write",
       },
-      timeoutMs: 120000,
+      timeoutMs,
       credentialRoute: {
         mode: "runtime-selected",
         routeId: "credential-route:opencode:primary",
@@ -450,5 +451,208 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
       kind: "timeout",
     }]);
     expect(dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves partial write evidence when a live harness times out after a bounded file change", async () => {
+    const run = vi.fn(() =>
+      (async function* partialWriteThenTimeout(): AsyncGenerator<CliSessionEvent> {
+        yield {
+          type: "file_changed",
+          path: "C:/Proyectos/Sequel/kiln/packages/runtime/tests/fixtures/managed-write-proof.txt",
+          changeType: "modified",
+          linesAdded: 1,
+          linesRemoved: 1,
+          diffPreview: "diff --git a/managed-write-proof.txt b/managed-write-proof.txt",
+          diffTruncated: true,
+          resourceUris: ["kiln://managed-invocations/invocation-opencode-write-1/diffs/1"],
+        } as CliSessionEvent;
+        await new Promise(() => undefined);
+      })(),
+    );
+    const dispose = vi.fn().mockResolvedValue(undefined);
+    const adapter = new ManagedCliHarnessAdapter({
+      providerId: "opencode",
+      model: "sonic",
+      factory: () => ({ run, dispose }),
+      writeAuthority: {
+        proposalSupported: true,
+        approvedApplySupported: true,
+        memoryProposalSupported: true,
+        rollbackEvidence: true,
+        cleanupEvidence: true,
+        scopeReduction: true,
+      },
+    });
+    const service = new RuntimeManagedAgentInvocationService();
+
+    const result = await service.invoke(makeWriteRequest(1), adapter);
+
+    expect(result.status).toBe("completed");
+    if (result.status !== "completed") {
+      throw new Error("Expected completed managed timeout result");
+    }
+    expect(result.record.lifecycleState).toBe("timed-out");
+    expect(result.record.writeEvidence?.map((evidence) => evidence.kind)).toEqual([
+      "write-proposal-created",
+      "write-proposal-approved",
+      "write-attempt-completed",
+    ]);
+    expect(result.record.writeEvidence?.[2]?.resourceUris).toEqual([
+      "kiln://managed-invocations/invocation-opencode-write-1/write-attempts/1",
+      "kiln://managed-invocations/invocation-opencode-write-1/diffs/1",
+    ]);
+    expect(JSON.stringify(result.record.writeEvidence)).not.toContain("diff --git");
+    expect(result.record.resultHandoff?.resourceUris).toContain(
+      "kiln://managed-invocations/invocation-opencode-write-1/diffs/1",
+    );
+  });
+
+  it("records cancellation during a pending write decision without dropping denied write evidence", async () => {
+    const run = vi.fn(() => eventStream([
+      {
+        type: "write_decision",
+        status: "denied",
+        providerRequestId: "opencode-cancelled-approval-1",
+        actor: "operator",
+        reason: "Operator cancelled the pending write approval.",
+        resourceUris: ["kiln://managed-invocations/invocation-opencode-write-1/write-decisions/opencode-cancelled-approval-1"],
+      },
+      {
+        type: "error",
+        code: "USER_CANCELLED",
+        message: "Operator cancelled the managed write.",
+        isRetryable: false,
+      },
+    ]));
+    const dispose = vi.fn().mockResolvedValue(undefined);
+    const adapter = new ManagedCliHarnessAdapter({
+      providerId: "opencode",
+      model: "sonic",
+      factory: () => ({ run, dispose }),
+      writeAuthority: {
+        proposalSupported: true,
+        approvedApplySupported: true,
+        memoryProposalSupported: true,
+        rollbackEvidence: true,
+        cleanupEvidence: true,
+        scopeReduction: true,
+      },
+    });
+    const service = new RuntimeManagedAgentInvocationService();
+    const request = makeWriteRequest();
+
+    const result = await service.invoke(request, adapter);
+
+    expect(result.status).toBe("completed");
+    if (result.status !== "completed") {
+      throw new Error("Expected completed managed cancellation result");
+    }
+    expect(result.record.lifecycleState).toBe("cancelled");
+    expect(result.record.writeEvidence?.map((evidence) => evidence.kind)).toEqual([
+      "write-proposal-denied",
+    ]);
+
+    const runtimeSession = new RuntimeSession({
+      sessionId: request.parentSessionId,
+      appName: "test-app",
+      tenantId: "tenant-a",
+      userId: "user-1",
+      systemPrompt: "test",
+    });
+    const events = appendManagedInvocationSessionEvents({
+      session: runtimeSession,
+      request,
+      decision: result.decision,
+      record: result.record,
+      durationMs: 20,
+      timestamp: new Date("2026-05-06T12:00:00.000Z"),
+    });
+
+    expect(events.map((event) => event.kind)).toEqual([
+      "agent_invocation_requested",
+      "agent_invocation_started",
+      "agent_invocation_cancelled",
+    ]);
+    expect(events[2]).toMatchObject({
+      managedInvocationEvidence: {
+        writeEvidence: result.record.writeEvidence,
+      },
+    });
+  });
+
+  it("reconstructs artifact-linked live write evidence after session serialization reload", async () => {
+    const run = vi.fn(() => eventStream([
+      {
+        type: "file_changed",
+        path: "C:/Proyectos/Sequel/kiln/packages/runtime/tests/fixtures/managed-write-proof.txt",
+        changeType: "modified",
+        linesAdded: 2,
+        linesRemoved: 1,
+        diffPreview: "diff --git a/managed-write-proof.txt b/managed-write-proof.txt",
+        diffTruncated: true,
+        resourceUris: ["kiln://managed-invocations/invocation-opencode-write-1/diffs/1"],
+      } as CliSessionEvent,
+      { type: "completed", totalUsd: 0.01, durationMs: 20, isError: false, isPreflightCrash: false },
+    ]));
+    const dispose = vi.fn().mockResolvedValue(undefined);
+    const adapter = new ManagedCliHarnessAdapter({
+      providerId: "opencode",
+      model: "sonic",
+      factory: () => ({ run, dispose }),
+      writeAuthority: {
+        proposalSupported: true,
+        approvedApplySupported: true,
+        memoryProposalSupported: true,
+        rollbackEvidence: true,
+        cleanupEvidence: true,
+        scopeReduction: true,
+      },
+    });
+    const service = new RuntimeManagedAgentInvocationService();
+    const request = makeWriteRequest();
+
+    const result = await service.invoke(request, adapter);
+
+    expect(result.status).toBe("completed");
+    if (result.status !== "completed") {
+      throw new Error("Expected completed managed write result");
+    }
+
+    const runtimeSession = new RuntimeSession({
+      sessionId: request.parentSessionId,
+      appName: "test-app",
+      tenantId: "tenant-a",
+      userId: "user-1",
+      systemPrompt: "test",
+    });
+    appendManagedInvocationSessionEvents({
+      session: runtimeSession,
+      request,
+      decision: result.decision,
+      record: result.record,
+      durationMs: 20,
+      timestamp: new Date("2026-05-06T12:00:00.000Z"),
+    });
+
+    const restored = deserializeSession(serializeSession(runtimeSession));
+    const terminalEvent = restored.sessionEvents[2];
+
+    expect(terminalEvent).toMatchObject({
+      kind: "agent_invocation_completed",
+      managedInvocationEvidence: {
+        writeEvidence: [{
+          kind: "write-proposal-created",
+        }, {
+          kind: "write-proposal-approved",
+        }, {
+          kind: "write-attempt-completed",
+          resourceUris: [
+            "kiln://managed-invocations/invocation-opencode-write-1/write-attempts/1",
+            "kiln://managed-invocations/invocation-opencode-write-1/diffs/1",
+          ],
+        }],
+      },
+    });
+    expect(JSON.stringify(restored.sessionEvents)).not.toContain("diff --git");
   });
 });
