@@ -1,12 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { copyFileSync, mkdirSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import { join } from "node:path";
 
+const fsMocks = vi.hoisted(() => ({
+  files: new Map<string, string>(),
+}));
+
 vi.mock("node:fs", () => ({
-  copyFileSync: vi.fn(),
+  existsSync: vi.fn((path: string) => fsMocks.files.has(path)),
   mkdirSync: vi.fn(),
+  readFileSync: vi.fn((path: string) => fsMocks.files.get(path) ?? ""),
   readdirSync: vi.fn(),
+  writeFileSync: vi.fn((path: string, content: string) => {
+    fsMocks.files.set(path, content);
+  }),
 }));
 
 vi.mock("node:os", () => ({
@@ -17,9 +25,11 @@ vi.mock("node:os", () => ({
 
 import { discoverSkillDirs, syncNativeSkillProjections } from "../../src/config/native-skill-projection.js";
 
-const copyFileSyncMock = copyFileSync as unknown as ReturnType<typeof vi.fn>;
+const existsSyncMock = existsSync as unknown as ReturnType<typeof vi.fn>;
 const mkdirSyncMock = mkdirSync as unknown as ReturnType<typeof vi.fn>;
+const readFileSyncMock = readFileSync as unknown as ReturnType<typeof vi.fn>;
 const readdirSyncMock = readdirSync as unknown as ReturnType<typeof vi.fn>;
+const writeFileSyncMock = writeFileSync as unknown as ReturnType<typeof vi.fn>;
 const homedirMock = os.homedir as unknown as ReturnType<typeof vi.fn>;
 
 function dirent(name: string, isDirectory: boolean): { name: string; isDirectory: () => boolean; isFile: () => boolean } {
@@ -33,14 +43,21 @@ function dirent(name: string, isDirectory: boolean): { name: string; isDirectory
 describe("native-skill-projection", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    copyFileSyncMock.mockReset();
+    existsSyncMock.mockReset();
     mkdirSyncMock.mockReset();
+    readFileSyncMock.mockReset();
     readdirSyncMock.mockReset();
+    writeFileSyncMock.mockReset();
     homedirMock.mockReset();
+    fsMocks.files.clear();
 
     homedirMock.mockReturnValue("/home/tester");
     mkdirSyncMock.mockImplementation(() => undefined);
-    copyFileSyncMock.mockImplementation(() => undefined);
+    existsSyncMock.mockImplementation((path: string) => fsMocks.files.has(path));
+    readFileSyncMock.mockImplementation((path: string) => fsMocks.files.get(path) ?? "");
+    writeFileSyncMock.mockImplementation((path: string, content: string) => {
+      fsMocks.files.set(path, content);
+    });
   });
 
   it("returns synced:0 and all true when no skill directories exist", async () => {
@@ -58,7 +75,7 @@ describe("native-skill-projection", () => {
       errors: [],
     });
     expect(mkdirSyncMock).not.toHaveBeenCalled();
-    expect(copyFileSyncMock).not.toHaveBeenCalled();
+    expect(writeFileSyncMock).not.toHaveBeenCalled();
   });
 
   it("discoverSkillDirs() returns global skills when no project dir", () => {
@@ -144,6 +161,8 @@ describe("native-skill-projection", () => {
       }
       throw new Error(`Unexpected path: ${targetPath}`);
     });
+    fsMocks.files.set(join(skillSourceDir, "SKILL.md"), "# Planner\n");
+    fsMocks.files.set(join(skillSourceDir, "notes.txt"), "notes\n");
 
     const result = await syncNativeSkillProjections(projectPath);
 
@@ -151,18 +170,20 @@ describe("native-skill-projection", () => {
     expect(result.codex).toBe(true);
     expect(result.opencode).toBe(true);
     expect(result.synced).toBe(3);
-    expect(copyFileSyncMock).toHaveBeenCalledTimes(6);
-    expect(copyFileSyncMock).toHaveBeenCalledWith(
-      join(skillSourceDir, "SKILL.md"),
+    expect(writeFileSyncMock).toHaveBeenCalledWith(
       join("/home/tester", ".claude", "skills", "planner", "SKILL.md"),
+      "# Planner\n",
+      "utf-8",
     );
-    expect(copyFileSyncMock).toHaveBeenCalledWith(
-      join(skillSourceDir, "SKILL.md"),
+    expect(writeFileSyncMock).toHaveBeenCalledWith(
       join("/home/tester", ".codex", "skills", "planner", "SKILL.md"),
+      "# Planner\n",
+      "utf-8",
     );
-    expect(copyFileSyncMock).toHaveBeenCalledWith(
-      join(skillSourceDir, "SKILL.md"),
+    expect(writeFileSyncMock).toHaveBeenCalledWith(
       join("/home/tester", ".config", "opencode", "skills", "planner", "SKILL.md"),
+      "# Planner\n",
+      "utf-8",
     );
   });
 
@@ -185,10 +206,11 @@ describe("native-skill-projection", () => {
       throw new Error(`Unexpected path: ${targetPath}`);
     });
 
-    copyFileSyncMock.mockImplementation((_sourcePath: string, targetPath: string) => {
+    writeFileSyncMock.mockImplementation((targetPath: string, content: string) => {
       if (targetPath.includes(".codex")) {
         throw new Error("codex write failed");
       }
+      fsMocks.files.set(targetPath, content);
     });
 
     const result = await syncNativeSkillProjections(projectPath);
@@ -198,5 +220,88 @@ describe("native-skill-projection", () => {
     expect(result.opencode).toBe(true);
     expect(result.synced).toBe(2);
     expect(result.errors.some((entry) => entry.includes("codex write failed"))).toBe(true);
+  });
+
+  it("records install state for each projected skill file", async () => {
+    const projectPath = "/workspace/project";
+    const globalDir = join("/home/tester", ".kiln", "skills");
+    const projectDir = join(projectPath, ".kiln", "skills");
+    const skillSourceDir = join(globalDir, "planner");
+
+    readdirSyncMock.mockImplementation((targetPath: string) => {
+      if (targetPath === globalDir) {
+        return [dirent("planner", true)];
+      }
+      if (targetPath === projectDir) {
+        throw new Error("ENOENT");
+      }
+      if (targetPath === skillSourceDir) {
+        return [dirent("SKILL.md", false), dirent("notes.txt", false)];
+      }
+      throw new Error(`Unexpected path: ${targetPath}`);
+    });
+    fsMocks.files.set(join(skillSourceDir, "SKILL.md"), "# Planner\n");
+    fsMocks.files.set(join(skillSourceDir, "notes.txt"), "notes\n");
+
+    const result = await syncNativeSkillProjections(projectPath);
+
+    expect(result.errors).toHaveLength(0);
+    const state = JSON.parse(fsMocks.files.get(join(projectPath, ".kiln", "install-state.json")) ?? "{}") as {
+      targets: Record<string, { projectionKind?: string; managedFields: string[] }>;
+    };
+    expect(Object.keys(state.targets).sort()).toEqual([
+      "claude-skill:planner/SKILL.md",
+      "claude-skill:planner/notes.txt",
+      "codex-skill:planner/SKILL.md",
+      "codex-skill:planner/notes.txt",
+      "opencode-skill:planner/SKILL.md",
+      "opencode-skill:planner/notes.txt",
+    ]);
+    expect(state.targets["claude-skill:planner/SKILL.md"]).toMatchObject({
+      projectionKind: "file",
+      managedFields: ["$file"],
+    });
+  });
+
+  it("aborts only drifted projected skill files unless force is set", async () => {
+    const projectPath = "/workspace/project";
+    const globalDir = join("/home/tester", ".kiln", "skills");
+    const projectDir = join(projectPath, ".kiln", "skills");
+    const skillSourceDir = join(globalDir, "planner");
+    const codexSkillPath = join("/home/tester", ".codex", "skills", "planner", "SKILL.md");
+
+    readdirSyncMock.mockImplementation((targetPath: string) => {
+      if (targetPath === globalDir) {
+        return [dirent("planner", true)];
+      }
+      if (targetPath === projectDir) {
+        throw new Error("ENOENT");
+      }
+      if (targetPath === skillSourceDir) {
+        return [dirent("SKILL.md", false)];
+      }
+      throw new Error(`Unexpected path: ${targetPath}`);
+    });
+    fsMocks.files.set(join(skillSourceDir, "SKILL.md"), "# Planner\n");
+
+    const first = await syncNativeSkillProjections(projectPath);
+    expect(first.errors).toHaveLength(0);
+    fsMocks.files.set(codexSkillPath, "user drift\n");
+
+    const second = await syncNativeSkillProjections(projectPath);
+
+    expect(second.claude).toBe(true);
+    expect(second.codex).toBe(false);
+    expect(second.opencode).toBe(true);
+    expect(second.errors).toEqual([
+      "Codex skill \"planner\" file \"SKILL.md\" failed: managed file drift detected: $file",
+    ]);
+    expect(fsMocks.files.get(codexSkillPath)).toBe("user drift\n");
+
+    const forced = await syncNativeSkillProjections(projectPath, { force: true });
+
+    expect(forced.codex).toBe(true);
+    expect(forced.errors).toHaveLength(0);
+    expect(fsMocks.files.get(codexSkillPath)).toBe("# Planner\n");
   });
 });

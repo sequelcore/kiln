@@ -77,7 +77,7 @@ describe("syncCommand", () => {
     expect(requiresForceSyncConfirmation(parseSyncFlags(["--permissions", "--force"]))).toBe(true);
     expect(requiresForceSyncConfirmation(parseSyncFlags(["--hooks", "--force"]))).toBe(true);
     expect(requiresForceSyncConfirmation(parseSyncFlags(["--agents", "--force"]))).toBe(true);
-    expect(requiresForceSyncConfirmation(parseSyncFlags(["--skills", "--force"]))).toBe(false);
+    expect(requiresForceSyncConfirmation(parseSyncFlags(["--skills", "--force"]))).toBe(true);
     expect(requiresForceSyncConfirmation(parseSyncFlags(["--force"]))).toBe(true);
   });
 

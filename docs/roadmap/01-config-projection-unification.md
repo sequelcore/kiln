@@ -850,6 +850,10 @@ Scope: `packages/cli/src/commands/sync.ts` (rewrite),
   install-state target per projected agent file across Claude, Codex, and
   OpenCode. Drifted agent files abort only their provider target unless
   `kiln sync --agents --force` is confirmed.
+- Implementation progress: native skill projection now records one whole-file
+  install-state target per copied skill file across Claude, Codex, and
+  OpenCode. Drifted skill files abort only their provider target unless
+  `kiln sync --skills --force` is confirmed.
 
 ### 01.F - kiln uninstall
 

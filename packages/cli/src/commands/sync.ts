@@ -64,6 +64,7 @@ export function requiresForceSyncConfirmation(flags: SyncFlags): boolean {
     isSyncTargetSelected(flags, "permissions")
     || isSyncTargetSelected(flags, "hooks")
     || isSyncTargetSelected(flags, "agents")
+    || isSyncTargetSelected(flags, "skills")
   );
 }
 
@@ -137,6 +138,7 @@ export async function syncCommand(
   const forcePermissionSync = flags.force && isSyncTargetSelected(flags, "permissions");
   const forceHookSync = flags.force && isSyncTargetSelected(flags, "hooks");
   const forceAgentSync = flags.force && isSyncTargetSelected(flags, "agents");
+  const forceSkillSync = flags.force && isSyncTargetSelected(flags, "skills");
 
   const root = process.cwd();
   const kilnDir = join(root, ".kiln");
@@ -184,7 +186,7 @@ export async function syncCommand(
   }
 
   if (isSyncTargetSelected(flags, "skills")) {
-    skillsResult = await syncNativeSkillProjections(root);
+    skillsResult = await syncNativeSkillProjections(root, { force: forceSkillSync });
     allErrors.push(...skillsResult.errors);
   }
 
