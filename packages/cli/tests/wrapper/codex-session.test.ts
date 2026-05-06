@@ -236,7 +236,7 @@ describe("CodexSession.run() JSONL parsing", () => {
     expect(spawnArgs).toContain("model_reasoning_effort=high");
   });
 
-  it("run() passes explicit approval and sandbox args instead of relying on full-auto", async () => {
+  it("run() passes explicit approval config and sandbox args instead of relying on full-auto", async () => {
     const { proc, emitLine, resolveExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
     vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
@@ -258,8 +258,8 @@ describe("CodexSession.run() JSONL parsing", () => {
     const spawnArgs = spawnCall?.[1] as string[] | undefined;
     expect(spawnArgs).toBeDefined();
     expect(spawnArgs).not.toContain("--full-auto");
-    expect(spawnArgs).toContain("--ask-for-approval");
-    expect(spawnArgs).toContain("untrusted");
+    expect(spawnArgs).toContain("-c");
+    expect(spawnArgs).toContain('approval_policy="untrusted"');
     expect(spawnArgs).toContain("--sandbox");
     expect(spawnArgs).toContain("read-only");
   });
@@ -502,6 +502,88 @@ describe("CodexSession.run() JSONL parsing", () => {
     const events = await collectPromise;
     expect(events).toContainEqual({ type: "tool_use", toolName: "bash", input: { command: "echo hello" } });
     expect(events).toContainEqual({ type: "tool_result", toolName: "bash", output: "hello\n" });
+  });
+
+  it("run() maps completed Codex file_change items to provider-neutral file_changed events", async () => {
+    const { proc, emitLine, resolveExit } = makeMockProc();
+    vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
+    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.128.0"));
+
+    const session = new CodexSession(baseConfig({ cwd: "C:\\tmp\\kiln-codex-live" }));
+    const collectPromise = collectEvents(session.run({ prompt: "test", cwd: "C:\\tmp\\kiln-codex-live" }));
+
+    emitLine({ type: "thread.started", thread_id: "t1" });
+    emitLine({ type: "turn.started" });
+    emitLine({
+      type: "item.completed",
+      item: {
+        id: "patch-1",
+        type: "file_change",
+        changes: [
+          { path: "added.txt", kind: "add" },
+          { path: "deleted.txt", kind: "delete" },
+          { path: "modified.txt", kind: "update" },
+        ],
+        status: "completed",
+      },
+    });
+    emitLine({ type: "turn.completed", usage: { input_tokens: 100, cached_input_tokens: 0, output_tokens: 20 } });
+    resolveExit(0);
+
+    const events = await collectPromise;
+
+    expect(events).toContainEqual({
+      type: "file_changed",
+      path: expect.stringContaining("added.txt"),
+      changeType: "created",
+      diffTruncated: true,
+    });
+    expect(events).toContainEqual({
+      type: "file_changed",
+      path: expect.stringContaining("deleted.txt"),
+      changeType: "deleted",
+      diffTruncated: true,
+    });
+    expect(events).toContainEqual({
+      type: "file_changed",
+      path: expect.stringContaining("modified.txt"),
+      changeType: "modified",
+      diffTruncated: true,
+    });
+  });
+
+  it("run() maps failed Codex file_change items to provider-neutral write denials without accepted file changes", async () => {
+    const { proc, emitLine, resolveExit } = makeMockProc();
+    vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
+    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.128.0"));
+
+    const session = new CodexSession(baseConfig());
+    const collectPromise = collectEvents(session.run({ prompt: "test" }));
+
+    emitLine({ type: "thread.started", thread_id: "t1" });
+    emitLine({ type: "turn.started" });
+    emitLine({
+      type: "item.completed",
+      item: {
+        id: "patch-denied-1",
+        type: "file_change",
+        changes: [{ path: "proof.txt", kind: "update" }],
+        status: "failed",
+      },
+    });
+    emitLine({ type: "turn.completed", usage: { input_tokens: 100, cached_input_tokens: 0, output_tokens: 20 } });
+    resolveExit(0);
+
+    const events = await collectPromise;
+
+    expect(events).toContainEqual({
+      type: "write_decision",
+      status: "denied",
+      providerRequestId: "patch-denied-1",
+      actor: "codex-policy",
+      reason: "Codex file change was not applied",
+    });
+    expect(events.some((event) => event.type === "file_changed")).toBe(false);
   });
 
   it("run() yields tool_use for mcp_tool_call item", async () => {

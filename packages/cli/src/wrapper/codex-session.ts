@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { spawn, execSync } from "node:child_process";
+import { isAbsolute, resolve } from "node:path";
 import {
   CODEX_DEFAULT_MODEL,
   appendExecutionIdentity,
@@ -109,6 +110,11 @@ interface CodexJsonlLine {
     todos?: unknown[];
     path?: string;
     change_type?: string;
+    changes?: Array<{
+      path?: string;
+      kind?: string;
+    }>;
+    status?: string;
   };
   usage?: {
     input_tokens?: number;
@@ -180,8 +186,8 @@ export class CodexSession implements IKilnSession {
     const args = [
       "exec",
       "--json",
-      "--ask-for-approval",
-      this.config.approvalMode ?? "on-request",
+      "-c",
+      `approval_policy="${this.config.approvalMode ?? "on-request"}"`,
       "--sandbox",
       this.config.sandboxMode ?? "read-only",
     ];
@@ -386,10 +392,22 @@ export class CodexSession implements IKilnSession {
               break;
 
             case "file_change":
+              for (const fileChange of normalizeCodexFileChanges(item, cwd)) {
+                yield fileChange;
+              }
+              if (item.status === "failed") {
+                yield {
+                  type: "write_decision",
+                  status: "denied",
+                  providerRequestId: item.id,
+                  actor: "codex-policy",
+                  reason: "Codex file change was not applied",
+                };
+              }
               yield {
                 type: "tool_result",
                 toolName: "file_change",
-                output: `File ${item.path ?? "unknown"}: ${item.change_type ?? "modified"}`,
+                output: summarizeCodexFileChange(item),
               };
               break;
 
@@ -608,4 +626,51 @@ export class CodexSession implements IKilnSession {
     this._abortListener = null;
     this._killProcess();
   }
+}
+
+function normalizeCodexFileChanges(
+  item: NonNullable<CodexJsonlLine["item"]>,
+  cwd: string,
+): Extract<SessionEvent, { readonly type: "file_changed" }>[] {
+  if (Array.isArray(item.changes)) {
+    if (item.status === "failed") return [];
+    return item.changes.flatMap((change) => {
+      if (typeof change.path !== "string" || change.path.trim().length === 0) return [];
+      return [{
+        type: "file_changed",
+        path: normalizeCodexPath(cwd, change.path),
+        changeType: mapCodexChangeKind(change.kind),
+        diffTruncated: true,
+      }];
+    });
+  }
+
+  if (typeof item.path !== "string" || item.path.trim().length === 0) return [];
+  return [{
+    type: "file_changed",
+    path: normalizeCodexPath(cwd, item.path),
+    changeType: mapCodexChangeKind(item.change_type),
+    diffTruncated: true,
+  }];
+}
+
+function normalizeCodexPath(cwd: string, path: string): string {
+  const trimmed = path.trim();
+  return isAbsolute(trimmed) ? trimmed : resolve(cwd, trimmed);
+}
+
+function mapCodexChangeKind(kind: string | undefined): "created" | "modified" | "deleted" {
+  if (kind === "add" || kind === "created") return "created";
+  if (kind === "delete" || kind === "deleted") return "deleted";
+  return "modified";
+}
+
+function summarizeCodexFileChange(item: NonNullable<CodexJsonlLine["item"]>): string {
+  if (Array.isArray(item.changes)) {
+    const changes = item.changes
+      .map((change) => `${change.kind ?? "update"} ${change.path ?? "unknown"}`)
+      .join(", ");
+    return `File changes ${item.status ?? "completed"}: ${changes}`;
+  }
+  return `File ${item.path ?? "unknown"}: ${item.change_type ?? "modified"}`;
 }
