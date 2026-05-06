@@ -18,17 +18,17 @@ const DEFAULT_HOOK_CONTENT = `#!/bin/sh
 exit 0
 `;
 
-export interface HookSyncResult {
+export interface NativeHookProjectionResult {
   claudeHook: boolean;
   codexHook: boolean;
   skippedWindows: boolean;
   errors: string[];
 }
 
-export async function syncHooks(
+export async function syncNativeHookProjections(
   projectPath: string,
   kilnDir: string,
-): Promise<HookSyncResult> {
+): Promise<NativeHookProjectionResult> {
   const errors: string[] = [];
 
   const sourcePath = join(kilnDir, "hooks", "autoformat.sh");

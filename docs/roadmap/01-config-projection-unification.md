@@ -35,7 +35,7 @@ targets are deferred to future roadmap slices if adoption warrants them.
 ### 2.1 Current sync/ is flat and hardcoded
 
 `packages/cli/src/sync/` contains independent legacy projection modules —
-`agent-sync.ts`, `hook-sync.ts`, `skill-sync.ts`, `agents-md-sync.ts` — each
+`agent-sync.ts`, `skill-sync.ts`, `agents-md-sync.ts` — each
 with hardcoded target paths for exactly three harnesses (claude, codex,
 opencode). Each module is a one-shot write with no record of what it wrote, no
 hash of what it wrote against, and no ability to undo.
@@ -847,13 +847,16 @@ Scope: `packages/cli/src/commands/uninstall.ts`.
   `sync/` to `config/native-projection-state.ts`, so uninstall and permission
   sync now depend on the config/projection state contract instead of a
   sync-owned helper.
+- Implementation progress: native hook projection moved from `sync/` to
+  `config/native-hook-projection.ts`; `sync.ts` remains the command
+  orchestrator while hook projection IO is owned by config/projection code.
 
 ### 01.G - Delete Old sync/, Delete check-engines.sh, Prune Docs
 
 Scope: `packages/cli/src/sync/` (entire directory),
 `~/.claude/hooks/check-engines.sh`, any doc or comment referencing them.
 
-- Delete: `agent-sync.ts`, `agent-sync.test.ts`, `hook-sync.ts`,
+- Delete: `agent-sync.ts`, `agent-sync.test.ts`,
   `skill-sync.ts`, `skill-sync.test.ts`, `agents-md-sync.ts`,
   `agents-md-sync.test.ts`.
 - Delete: `check-engines.sh` from the user home hook path. Remove any reference

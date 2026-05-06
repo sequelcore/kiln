@@ -2,7 +2,7 @@ import { join } from "node:path";
 import readline from "node:readline";
 import { loadKilnConfig } from "../config/config-merger.js";
 import { syncNativePermissionProjections } from "../config/native-permission-projection.js";
-import { syncHooks } from "../sync/hook-sync.js";
+import { syncNativeHookProjections } from "../config/native-hook-projection.js";
 import { syncAgentsMd } from "../sync/agents-md-sync.js";
 import { syncAgents } from "../sync/agent-sync.js";
 import { syncSkills } from "../sync/skill-sync.js";
@@ -145,7 +145,7 @@ export async function syncCommand(
   }
 
   let permResult: Awaited<ReturnType<typeof syncNativePermissionProjections>> | null = null;
-  let hookResult: Awaited<ReturnType<typeof syncHooks>> | null = null;
+  let hookResult: Awaited<ReturnType<typeof syncNativeHookProjections>> | null = null;
   let agentResult: Awaited<ReturnType<typeof syncAgents>> | null = null;
   let agentsMdResult: Awaited<ReturnType<typeof syncAgentsMd>> | null = null;
   let skillsResult: Awaited<ReturnType<typeof syncSkills>> | null = null;
@@ -158,7 +158,7 @@ export async function syncCommand(
   }
 
   if (isSyncTargetSelected(flags, "hooks")) {
-    hookResult = await syncHooks(root, kilnDir);
+    hookResult = await syncNativeHookProjections(root, kilnDir);
     allErrors.push(...hookResult.errors);
   }
 

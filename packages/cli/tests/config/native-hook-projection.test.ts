@@ -2,13 +2,13 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { join } from "node:path";
 import * as fs from "node:fs";
 import * as os from "node:os";
-import { syncHooks } from "../../src/sync/hook-sync.js";
+import { syncNativeHookProjections } from "../../src/config/native-hook-projection.js";
 
 const testDir = join(os.tmpdir(), "kiln-hook-test-" + Date.now());
 const projectPath = testDir;
 const kilnDir = join(testDir, ".kiln");
 
-describe("syncHooks", () => {
+describe("syncNativeHookProjections", () => {
   beforeAll(() => {
     fs.mkdirSync(join(kilnDir, "hooks"), { recursive: true });
   });
@@ -20,7 +20,7 @@ describe("syncHooks", () => {
   });
 
   it("succeeds and creates default hook content", async () => {
-    const result = await syncHooks(projectPath, kilnDir);
+    const result = await syncNativeHookProjections(projectPath, kilnDir);
 
     expect(result.claudeHook).toBe(true);
     expect(result.errors).toHaveLength(0);
@@ -36,7 +36,7 @@ describe("syncHooks", () => {
     const sourcePath = join(kilnDir, "hooks", "autoformat.sh");
     fs.writeFileSync(sourcePath, customContent, "utf-8");
 
-    const result = await syncHooks(projectPath, kilnDir);
+    const result = await syncNativeHookProjections(projectPath, kilnDir);
 
     expect(result.claudeHook).toBe(true);
 
@@ -47,7 +47,7 @@ describe("syncHooks", () => {
   });
 
   it("registers hook in settings.json", async () => {
-    await syncHooks(projectPath, kilnDir);
+    await syncNativeHookProjections(projectPath, kilnDir);
 
     const settingsPath = join(projectPath, ".claude", "settings.json");
     expect(fs.existsSync(settingsPath)).toBe(true);
@@ -61,7 +61,7 @@ describe("syncHooks", () => {
     fs.mkdirSync(join(projectPath, ".claude"), { recursive: true });
     fs.writeFileSync(settingsPath, JSON.stringify({ mcpServers: { kiln: {} } }), "utf-8");
 
-    await syncHooks(projectPath, kilnDir);
+    await syncNativeHookProjections(projectPath, kilnDir);
 
     const content = fs.readFileSync(settingsPath, "utf-8");
     expect(content).toContain("mcpServers");
@@ -69,7 +69,7 @@ describe("syncHooks", () => {
   });
 
   it("creates .claude/hooks directory if needed", async () => {
-    await syncHooks(projectPath, kilnDir);
+    await syncNativeHookProjections(projectPath, kilnDir);
 
     const hooksDir = join(projectPath, ".claude", "hooks");
     expect(fs.existsSync(hooksDir)).toBe(true);
