@@ -10,7 +10,7 @@ import {
   readNativeProjectionInstallState,
   upsertNativeProjectionTargetState,
   writeNativeProjectionInstallState,
-} from "../../src/sync/native-projection-state.js";
+} from "../../src/config/native-projection-state.js";
 
 describe("uninstallNativeTargets", () => {
   it("strips only managed TOML fields and removes target install state", () => {

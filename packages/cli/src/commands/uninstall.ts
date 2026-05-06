@@ -10,7 +10,7 @@ import {
   writeNativeProjectionInstallState,
   type NativeProjectionInstallState,
   type NativeProjectionTargetState,
-} from "../sync/native-projection-state.js";
+} from "../config/native-projection-state.js";
 import type { KilnAppConfig } from "../config.js";
 
 export interface UninstallNativeOptions {

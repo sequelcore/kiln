@@ -843,6 +843,10 @@ Scope: `packages/cli/src/commands/uninstall.ts`.
   managed-agent route resolution, and schema tests. A global v1→v2
   `kiln migrate` command is intentionally not planned because current code has
   no v1 producer or consumer; adding one would be compatibility scaffolding.
+- Implementation progress: native projection install-state ownership moved from
+  `sync/` to `config/native-projection-state.ts`, so uninstall and permission
+  sync now depend on the config/projection state contract instead of a
+  sync-owned helper.
 
 ### 01.G - Delete Old sync/, Delete check-engines.sh, Prune Docs
 

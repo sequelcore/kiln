@@ -17,7 +17,7 @@ import {
   writeNativeProjectionInstallState,
   type NativeProjectionInstallState,
   type NativeProjectionTargetState,
-} from "./native-projection-state.js";
+} from "../config/native-projection-state.js";
 
 const DEFAULT_POLICY: KilnPermissionPolicy = { approval: "on-request", sandbox: "read-only" };
 

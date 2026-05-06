@@ -12,7 +12,7 @@ import {
   stripManagedFields,
   upsertNativeProjectionTargetState,
   writeNativeProjectionInstallState,
-} from "../../src/sync/native-projection-state.js";
+} from "../../src/config/native-projection-state.js";
 
 describe("native projection install state", () => {
   it("detects drift only when managed fields change", () => {
