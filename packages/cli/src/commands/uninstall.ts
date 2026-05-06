@@ -34,6 +34,8 @@ const TARGET_ALIASES: Readonly<Record<string, string>> = {
   "opencode-config": "opencode-config",
 };
 
+const HARNESS_TARGETS = new Set(["claude", "codex", "opencode"]);
+
 export async function uninstallCommand(
   _appConfig: KilnAppConfig,
   targetArg: string | undefined,
@@ -123,6 +125,10 @@ function resolveTargetIds(state: NativeProjectionInstallState, target: string | 
   const normalized = target?.trim();
   if (!normalized) {
     return Object.keys(state.targets);
+  }
+  if (HARNESS_TARGETS.has(normalized)) {
+    const targetIds = Object.keys(state.targets).filter((targetId) => targetId.startsWith(`${normalized}-`));
+    return targetIds.length > 0 ? targetIds : [TARGET_ALIASES[normalized]!];
   }
   return [TARGET_ALIASES[normalized] ?? normalized];
 }

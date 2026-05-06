@@ -869,6 +869,10 @@ Scope: `packages/cli/src/commands/uninstall.ts`.
   projection install state, strips only recorded managed fields, preserves
   unmanaged native keys, removes target install-state entries, and requires
   `--force` before stripping drifted managed fields.
+- Implementation progress: harness target aliases such as `codex` now resolve
+  to every recorded managed target for that harness, including config,
+  projected agents, projected skills, and whole-file hook targets. Exact target
+  IDs remain supported for surgical uninstall.
 - Implementation progress: global config v2 is now the active CLI contract
   consumed by config merge, GUI, TUI, run, native import, theme persistence,
   managed-agent route resolution, and schema tests. A global v1→v2
