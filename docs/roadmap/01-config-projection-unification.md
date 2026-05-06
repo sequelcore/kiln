@@ -819,7 +819,10 @@ Scope: `packages/cli/src/commands/sync.ts` (rewrite),
   target selector used by legacy per-surface flags. `kiln import-native codex`
   and `kiln import-native opencode` now extract native model and permission
   settings into Kiln global config, confirm with a diff, write the merged
-  config, and re-project accepted permission drift.
+  config, and re-project accepted permission drift. Permission projection rules
+  for Claude, Codex, and OpenCode now live in harness translator modules;
+  `security-sync.ts` retains only native file IO, drift checks, install-state
+  updates, and serialization.
 
 ### 01.F - kiln uninstall
 

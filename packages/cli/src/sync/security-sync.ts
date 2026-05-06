@@ -3,8 +3,10 @@ import { dirname, join } from "node:path";
 import os from "node:os";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 import { stripJsonComments } from "../config/json-comments.js";
-import { translatePermission } from "../wrapper/session-registry.js";
-import type { BackendConfig } from "../wrapper/session-registry.js";
+import { translateClaudePermissionProjection } from "../config/translators/claude-translator.js";
+import { translateCodexPermissionProjection } from "../config/translators/codex-translator.js";
+import { translateOpenCodePermissionProjection } from "../config/translators/opencode-translator.js";
+import { PERMISSION_PROJECTION_TARGET_IDS } from "../config/translators/permission-projection.js";
 import type { KilnPermissionPolicy } from "../wrapper/session.js";
 import type { KilnYaml } from "../kiln-yaml-types.js";
 import {
@@ -38,33 +40,6 @@ interface PermissionTargetResult {
 
 function ensureDir(dirPath: string): void {
   mkdirSync(dirPath, { recursive: true });
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
-    return value as Record<string, unknown>;
-  }
-  return {};
-}
-
-interface PermissionSyncMetadata {
-  backend: string;
-  representableRules: readonly unknown[];
-  unsupportedRules: readonly unknown[];
-  constraintInstructions: readonly string[];
-  warnings: readonly string[];
-  nativeRules: unknown;
-}
-
-function toPermissionSyncMetadata(translated: BackendConfig): PermissionSyncMetadata {
-  return {
-    backend: translated.backend,
-    representableRules: translated.representableRules.map((rule) => ({ ...rule })),
-    unsupportedRules: translated.unsupportedRules.map((rule) => ({ ...rule })),
-    constraintInstructions: [...translated.constraintInstructions],
-    warnings: [...translated.warnings],
-    nativeRules: translated.nativeRules,
-  };
 }
 
 export async function syncPermissions(
@@ -117,9 +92,8 @@ async function syncClaudePermissions(
   installState: NativeProjectionInstallState,
   options: SyncPermissionsOptions,
 ): Promise<PermissionTargetResult> {
-  const targetId = "claude-settings";
+  const targetId = PERMISSION_PROJECTION_TARGET_IDS.claude;
   const target = join(projectPath, ".claude", "settings.json");
-  const managedFields = ["permissions", "kiln.permissionSync"];
   let existing: Record<string, unknown> = {};
   if (existsSync(target)) {
     try {
@@ -136,36 +110,16 @@ async function syncClaudePermissions(
     };
   }
 
-  const translated = translatePermission(policy, "claude");
-  const cfg = translated.config as { permissionMode: string; allowDangerouslySkipPermissions: boolean };
-
-  const allow: string[] = [];
-  const deny: string[] = [];
-
-  if (cfg.allowDangerouslySkipPermissions) {
-    allow.push("Write", "Edit", "Bash", "NotebookEdit", "WebFetch", "Read");
-  } else if (cfg.permissionMode === "default") {
-    allow.push("Read", "WebFetch");
-  } else if (cfg.permissionMode === "plan") {
-    deny.push("Write", "Edit", "Bash", "NotebookEdit", "WebFetch");
-  }
-
-  const permissions = { allow, deny };
-  const kiln = {
-    ...asRecord(existing.kiln),
-    permissionSync: toPermissionSyncMetadata(translated),
-  };
-
-  const merged: Record<string, unknown> = { ...existing, permissions, kiln };
+  const projection = translateClaudePermissionProjection({ policy, existingDocument: existing });
   ensureDir(dirname(target));
-  writeFileSync(target, JSON.stringify(merged, null, 2) + "\n", "utf-8");
+  writeFileSync(target, JSON.stringify(projection.document, null, 2) + "\n", "utf-8");
   return {
     ok: true,
     snapshot: createNativeProjectionSnapshot({
-      targetId,
+      targetId: projection.targetId,
       filePath: target,
-      document: merged,
-      managedFields,
+      document: projection.document,
+      managedFields: projection.managedFields,
     }),
   };
 }
@@ -175,9 +129,8 @@ async function syncCodexPermissions(
   installState: NativeProjectionInstallState,
   options: SyncPermissionsOptions,
 ): Promise<PermissionTargetResult> {
-  const targetId = "codex-config";
+  const targetId = PERMISSION_PROJECTION_TARGET_IDS.codex;
   const target = join(os.homedir(), ".codex", "config.toml");
-  const managedFields = ["approval_policy", "sandbox_mode", "kiln.permission_sync"];
   let doc: Record<string, unknown> = {};
   if (existsSync(target)) {
     try {
@@ -195,31 +148,16 @@ async function syncCodexPermissions(
     };
   }
 
-  const translated = translatePermission(policy, "codex");
-  const cfg = translated.config as { approvalMode: string; sandboxMode: string };
-
-  const approvalPolicy = cfg.approvalMode;
-  const sandboxMode = cfg.sandboxMode;
-
-  const merged: Record<string, unknown> = {
-    ...doc,
-    approval_policy: approvalPolicy,
-    sandbox_mode: sandboxMode,
-    kiln: {
-      ...asRecord(doc.kiln),
-      permission_sync: toPermissionSyncMetadata(translated),
-    },
-  };
-
+  const projection = translateCodexPermissionProjection({ policy, existingDocument: doc });
   ensureDir(dirname(target));
-  writeFileSync(target, stringifyToml(merged as Record<string, unknown>), "utf-8");
+  writeFileSync(target, stringifyToml(projection.document), "utf-8");
   return {
     ok: true,
     snapshot: createNativeProjectionSnapshot({
-      targetId,
+      targetId: projection.targetId,
       filePath: target,
-      document: merged,
-      managedFields,
+      document: projection.document,
+      managedFields: projection.managedFields,
     }),
   };
 }
@@ -229,9 +167,8 @@ async function syncOpenCodePermissions(
   installState: NativeProjectionInstallState,
   options: SyncPermissionsOptions,
 ): Promise<PermissionTargetResult> {
-  const targetId = "opencode-config";
+  const targetId = PERMISSION_PROJECTION_TARGET_IDS.opencode;
   const target = join(os.homedir(), ".config", "opencode", "opencode.json");
-  const managedFields = ["permission", "kiln.permissionSync"];
   let existing: Record<string, unknown> = {};
   if (existsSync(target)) {
     try {
@@ -250,25 +187,16 @@ async function syncOpenCodePermissions(
     };
   }
 
-  const translated = translatePermission(policy, "opencode");
-  const cfg = translated.config as { permissionDefault: string };
-
-  const permission = { default: cfg.permissionDefault };
-  const kiln = {
-    ...asRecord(existing.kiln),
-    permissionSync: toPermissionSyncMetadata(translated),
-  };
-
-  const merged: Record<string, unknown> = { ...existing, permission, kiln };
+  const projection = translateOpenCodePermissionProjection({ policy, existingDocument: existing });
   ensureDir(dirname(target));
-  writeFileSync(target, JSON.stringify(merged, null, 2) + "\n", "utf-8");
+  writeFileSync(target, JSON.stringify(projection.document, null, 2) + "\n", "utf-8");
   return {
     ok: true,
     snapshot: createNativeProjectionSnapshot({
-      targetId,
+      targetId: projection.targetId,
       filePath: target,
-      document: merged,
-      managedFields,
+      document: projection.document,
+      managedFields: projection.managedFields,
     }),
   };
 }
