@@ -43,6 +43,10 @@ is documented by concern, not as a single monolith.
   Coordination model, allocation, task registry, chain control, role
   activation, and shared-state coordination.
 
+- `managed-agents.md`
+  Provider-neutral managed child invocation, admission, authority profiles,
+  write evidence, live adapter proofs, terminal events, and replay invariants.
+
 - `tool-execution.md`
   Tool policy, execution flow, timeout/retry/fallback behavior, and command
   safety boundaries.

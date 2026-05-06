@@ -33,6 +33,7 @@ Start here for Kiln identity and system design:
 - [Context Governance](architecture/context-governance.md)
 - [Safety](architecture/safety.md)
 - [Coordination](architecture/coordination.md)
+- [Managed Agents](architecture/managed-agents.md)
 - [Tool Execution](architecture/tool-execution.md)
 - [Adaptation](architecture/adaptation.md)
 - [Invariants](architecture/invariants.md)

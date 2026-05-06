@@ -15,6 +15,8 @@ Read the relevant architecture or guide document before using a roadmap:
   budgets, overflow, and audit.
 - `docs/architecture/context-resource-plane.md` for read-only resource
   contracts.
+- `docs/architecture/managed-agents.md` for managed invocation, child authority,
+  write evidence, live adapter proofs, and replay invariants.
 - `docs/architecture/tool-execution.md`,
   `docs/architecture/developer-tools.md`,
   `docs/architecture/provider-credential-pools.md`,
@@ -27,34 +29,18 @@ Read the relevant architecture or guide document before using a roadmap:
 
 ## Active Roadmaps
 
-- `01-managed-agents-cross-provider-subagents.md`
-  Defines the managed-agent invocation substrate: cross-provider child agents,
-  explicit invocation policy, permissions, memory admission, lifecycle events,
-  parallelism, cancellation, and replay.
-
-- `01.5-managed-agent-write-authority.md`
-  Extends the managed-agent invocation foundation with Kiln-owned,
-  provider-neutral write authority: write scopes, proposals, approvals,
-  runtime enforcement, memory/artifact mutation boundaries, replay evidence,
-  and the first approved-write proof path.
-
-- `01.6-managed-agent-live-adapter-hardening.md`
-  Proves the completed managed-agent and write-authority contracts against live
-  provider and harness behavior, with opt-in live tests, clone scouting, event
-  bridge hardening, and adapter-specific evidence validation.
-
-- `02-config-projection-unification.md`
+- `01-config-projection-unification.md`
   Makes `~/.kiln/config.yaml` the source of truth for harness configuration,
   projects managed Claude/Codex/OpenCode config, and adds drift-aware sync,
   uninstall, migrate, and engine-status workflows.
 
 ## Deferred Roadmaps
 
-- `03-external-benchmark-validation.md`
+- `02-external-benchmark-validation.md`
   Deferred public benchmark and governed external-validation milestone after
   the product surface stabilizes.
 
-- `04-native-operator-surface-experiment.md`
+- `03-native-operator-surface-experiment.md`
   Deferred native, GPU-accelerated operator-surface experiment for high-density
   managed-agent supervision, replay, timeline, graph, and multi-instance
   workloads.
@@ -77,22 +63,18 @@ Read the relevant architecture or guide document before using a roadmap:
 - Provider credential pooling completed on 2026-05-02. Stable doctrine lives
   in `docs/architecture/provider-credential-pools.md` and operator-facing
   credential usage lives in `docs/guides/provider-credentials.md`.
+- Managed agent invocation, write authority, and live adapter hardening
+  completed on 2026-05-06. Stable doctrine lives in
+  `docs/architecture/managed-agents.md`.
 
 ## Execution Priority
 
-1. `01-managed-agents-cross-provider-subagents.md` is complete as the managed
-   invocation foundation.
-2. `01.5-managed-agent-write-authority.md` is complete as the governed
-   write-authority foundation.
-3. Execute `01.6-managed-agent-live-adapter-hardening.md` before broader
-   managed-agent expansion so live provider behavior is proven against the
-   completed Kiln contracts.
-4. Execute `02-config-projection-unification.md` after managed agents and the
+1. Execute `01-config-projection-unification.md` after managed agents and the
    provider credential pool clarify what global/project config must express.
-5. Keep `04-native-operator-surface-experiment.md` deferred until managed
+2. Keep `03-native-operator-surface-experiment.md` deferred until managed
    agents create real high-density workloads and config projection makes
    local/cloud/team/CI instance boundaries explicit.
-6. Keep `03-external-benchmark-validation.md` deferred until the evaluated
+3. Keep `02-external-benchmark-validation.md` deferred until the evaluated
    product surface is stable.
 
 ## Rules

@@ -85,7 +85,9 @@ Main gap:
 
 - quorum behavior and shared-medium design are still incomplete or
   under-specified
-- managed-agent invocation still needs a canonical lifecycle and replay model
+- managed-agent invocation now has a canonical lifecycle and replay model in
+  `docs/architecture/managed-agents.md`; future coordination work should use
+  that boundary rather than redefining child execution semantics
 
 ## Tool Execution
 
