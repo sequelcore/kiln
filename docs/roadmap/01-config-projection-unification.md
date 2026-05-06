@@ -524,7 +524,10 @@ the patch into the existing native file preserving non-managed keys, and updates
 success. Accepts `--target <id>` to limit scope. Sync executes serially by
 projection surface and target; successful writes remain committed if a later
 target fails. Kiln does not roll back native files automatically. It reports all
-target errors it observes and exits non-zero on any target failure.
+target errors it observes and exits non-zero on any target failure. Before
+overwriting an existing native projection file, Kiln writes a project-local
+backup under `.kiln/backups/<target-id>/`. New files are not backed up. Backups
+are append-only in v1; Kiln does not auto-prune them.
 
 **`kiln status`**
 Reads engine registry (probes if stale), reads install state, and prints:
@@ -543,6 +546,8 @@ One-shot opt-in drift absorption. Reads the harness native config, extracts
 Kiln-relevant fields (engines, model, permissions, MCP servers), merges into a
 candidate `KilnGlobalConfig` v2, and presents a diff for confirmation. On
 acceptance, writes the merged config and re-projects. Does not recurse.
+`import-native` writes Kiln config, not native projection files, so it is
+outside the native projection backup policy.
 
 ## 5. Slices
 
@@ -860,6 +865,10 @@ Scope: `packages/cli/src/commands/sync.ts` (rewrite),
   target error, including partial failures where one harness succeeds and
   another fails. This makes the documented serial, no-rollback contract
   observable to callers.
+- Implementation progress: native projection writes now create project-local
+  backups before overwriting existing native files. Permission, hook, agent,
+  and skill projections use the same backup utility, so the no-rollback sync
+  contract still has an operator recovery path without per-harness backup code.
 
 ### 01.F - kiln uninstall
 
@@ -947,14 +956,7 @@ the v2 contract. There is no silent fallback and no compatibility parser.
 
 ## 8. Open Questions
 
-1. **Native file backup policy.** When `kiln sync` is about to merge managed
-   sections into an existing native file, should it write a backup before
-   touching it? A natural location is `~/.kiln/backups/<target>/<timestamp>.bak`.
-   Questions: is backup opt-in or always-on? What is the pruning policy (count
-   limit, age limit, or manual `kiln prune-backups`)? Does `kiln import-native`
-   also create a backup before overwriting the Kiln config?
-
-2. **`engines.<id>.enabled: false` and projected config removal.** If an
+1. **`engines.<id>.enabled: false` and projected config removal.** If an
    operator sets `engines.codex.enabled: false` in `config.yaml` and runs
    `kiln sync`, should Kiln immediately strip the codex managed sections from
    `~/.codex/config.toml`, or should it only stop projecting future changes and

@@ -10,6 +10,7 @@ import {
   type NativeProjectionInstallState,
   type NativeProjectionTargetState,
 } from "./native-projection-state.js";
+import { backupNativeProjectionFile } from "./native-projection-backup.js";
 
 export interface NativeSkillProjectionResult {
   claude: boolean;
@@ -126,6 +127,7 @@ export async function syncNativeSkillProjections(
             fileName: sourceEntry.name,
             sourceFile,
             targetFile,
+            kilnDir,
             installState,
             options,
           });
@@ -164,6 +166,7 @@ function syncSkillFile(input: {
   readonly fileName: string;
   readonly sourceFile: string;
   readonly targetFile: string;
+  readonly kilnDir: string;
   readonly installState: NativeProjectionInstallState;
   readonly options: NativeSkillProjectionOptions;
 }): SkillFileSyncResult {
@@ -184,6 +187,7 @@ function syncSkillFile(input: {
     }
 
     const content = readFileSync(input.sourceFile, "utf-8");
+    backupNativeProjectionFile({ kilnDir: input.kilnDir, targetId, filePath: input.targetFile });
     writeFileSync(input.targetFile, content, "utf-8");
     return {
       ok: true,

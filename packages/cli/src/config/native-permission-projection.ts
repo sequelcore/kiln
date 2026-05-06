@@ -18,6 +18,7 @@ import {
   type NativeProjectionInstallState,
   type NativeProjectionTargetState,
 } from "./native-projection-state.js";
+import { backupNativeProjectionFile } from "./native-projection-backup.js";
 
 const DEFAULT_POLICY: KilnPermissionPolicy = { approval: "on-request", sandbox: "read-only" };
 
@@ -60,7 +61,7 @@ export async function syncNativePermissionProjections(
     errors.push(`Claude Code: ${claudeResult.error}`);
   }
 
-  const codexResult = await syncCodexPermissions(policy, installState, options);
+  const codexResult = await syncCodexPermissions(policy, kilnDir, installState, options);
   if (codexResult.snapshot) {
     installState = upsertNativeProjectionTargetState(installState, codexResult.snapshot);
   }
@@ -68,7 +69,7 @@ export async function syncNativePermissionProjections(
     errors.push(`Codex: ${codexResult.error}`);
   }
 
-  const opencodeResult = await syncOpenCodePermissions(policy, installState, options);
+  const opencodeResult = await syncOpenCodePermissions(policy, kilnDir, installState, options);
   if (opencodeResult.snapshot) {
     installState = upsertNativeProjectionTargetState(installState, opencodeResult.snapshot);
   }
@@ -112,6 +113,7 @@ async function syncClaudePermissions(
 
   const projection = translateClaudePermissionProjection({ policy, existingDocument: existing });
   ensureDir(dirname(target));
+  backupNativeProjectionFile({ kilnDir: join(projectPath, ".kiln"), targetId, filePath: target });
   writeFileSync(target, JSON.stringify(projection.document, null, 2) + "\n", "utf-8");
   return {
     ok: true,
@@ -126,6 +128,7 @@ async function syncClaudePermissions(
 
 async function syncCodexPermissions(
   policy: KilnPermissionPolicy,
+  kilnDir: string,
   installState: NativeProjectionInstallState,
   options: NativePermissionProjectionOptions,
 ): Promise<PermissionTargetResult> {
@@ -150,6 +153,7 @@ async function syncCodexPermissions(
 
   const projection = translateCodexPermissionProjection({ policy, existingDocument: doc });
   ensureDir(dirname(target));
+  backupNativeProjectionFile({ kilnDir, targetId, filePath: target });
   writeFileSync(target, stringifyToml(projection.document), "utf-8");
   return {
     ok: true,
@@ -164,6 +168,7 @@ async function syncCodexPermissions(
 
 async function syncOpenCodePermissions(
   policy: KilnPermissionPolicy,
+  kilnDir: string,
   installState: NativeProjectionInstallState,
   options: NativePermissionProjectionOptions,
 ): Promise<PermissionTargetResult> {
@@ -189,6 +194,7 @@ async function syncOpenCodePermissions(
 
   const projection = translateOpenCodePermissionProjection({ policy, existingDocument: existing });
   ensureDir(dirname(target));
+  backupNativeProjectionFile({ kilnDir, targetId, filePath: target });
   writeFileSync(target, JSON.stringify(projection.document, null, 2) + "\n", "utf-8");
   return {
     ok: true,

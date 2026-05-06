@@ -131,6 +131,10 @@ describe("syncNativePermissionProjections", () => {
 
     expect(result.errors).toHaveLength(0);
     expect(result.codex).toBe(true);
+    const backupDir = join(paths.projectPath, ".kiln", "backups", "codex-config");
+    const backupFiles = fs.readdirSync(backupDir);
+    expect(backupFiles).toHaveLength(1);
+    expect(fs.readFileSync(join(backupDir, backupFiles[0]!), "utf-8")).toContain("model = \"gpt-5.4\"");
     const config = parseToml(fs.readFileSync(codexConfigPath, "utf-8")) as Record<string, unknown>;
     expect(config.model).toBe("gpt-5.4");
     expect(config.approval_policy).toBe("on-request");

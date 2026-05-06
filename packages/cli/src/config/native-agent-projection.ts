@@ -13,6 +13,7 @@ import {
   type NativeProjectionInstallState,
   type NativeProjectionTargetState,
 } from "./native-projection-state.js";
+import { backupNativeProjectionFile } from "./native-projection-backup.js";
 
 export interface NativeAgentProjectionResult {
   claude: boolean;
@@ -173,7 +174,7 @@ export async function syncNativeAgentProjections(
     }
 
     for (const agent of agents) {
-      const result = syncAgentFile(agent, target, installState, options);
+      const result = syncAgentFile(agent, target, kilnDir, installState, options);
       if (!result.ok) {
         setTargetFailed(target.key);
         errors.push(`${target.label} agent "${agent.name}" failed: ${result.error ?? "unknown error"}`);
@@ -194,6 +195,7 @@ export async function syncNativeAgentProjections(
 function syncAgentFile(
   agent: KilnAgentDefinition,
   target: NativeAgentProjectionTarget,
+  kilnDir: string,
   installState: NativeProjectionInstallState,
   options: NativeAgentProjectionOptions,
 ): NativeAgentFileSyncResult {
@@ -215,6 +217,7 @@ function syncAgentFile(
     }
 
     const content = target.render(agent);
+    backupNativeProjectionFile({ kilnDir, targetId, filePath });
     writeFileSync(filePath, content, "utf-8");
     return {
       ok: true,

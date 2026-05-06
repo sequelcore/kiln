@@ -11,6 +11,7 @@ import {
   type NativeProjectionInstallState,
   type NativeProjectionTargetState,
 } from "./native-projection-state.js";
+import { backupNativeProjectionFile } from "./native-projection-backup.js";
 
 const DEFAULT_HOOK_CONTENT = `#!/bin/sh
 # Kiln autoformat hook
@@ -72,38 +73,35 @@ export async function syncNativeHookProjections(
     writeFileSync(sourcePath, DEFAULT_HOOK_CONTENT, "utf-8");
   }
 
-  const [claudeResult, codexResult] = await Promise.allSettled([
-    syncClaudeHook(projectPath, sourceContent, installState, options),
-    syncCodexHook(projectPath, sourceContent, installState, options),
-  ]);
-
-  const claudeHook = claudeResult.status === "fulfilled" ? claudeResult.value.ok : false;
-  if (claudeResult.status === "fulfilled") {
-    for (const snapshot of claudeResult.value.snapshots) {
+  let claudeHook = false;
+  try {
+    const claudeResult = await syncClaudeHook(projectPath, kilnDir, sourceContent, installState, options);
+    claudeHook = claudeResult.ok;
+    for (const snapshot of claudeResult.snapshots) {
       installState = upsertNativeProjectionTargetState(installState, snapshot);
     }
-  }
-  if (claudeResult.status === "rejected") {
-    errors.push(`Claude Code: ${claudeResult.reason instanceof Error ? claudeResult.reason.message : String(claudeResult.reason)}`);
-  } else if (claudeResult.value.error) {
-    errors.push(`Claude Code: ${claudeResult.value.error}`);
+    if (claudeResult.error) {
+      errors.push(`Claude Code: ${claudeResult.error}`);
+    }
+  } catch (error) {
+    errors.push(`Claude Code: ${error instanceof Error ? error.message : String(error)}`);
   }
 
   const skippedWindows = process.platform === "win32";
-  const codexHook = skippedWindows
-    ? false
-    : codexResult.status === "fulfilled"
-      ? codexResult.value.ok
-      : false;
-  if (!skippedWindows && codexResult.status === "fulfilled") {
-    for (const snapshot of codexResult.value.snapshots) {
-      installState = upsertNativeProjectionTargetState(installState, snapshot);
+  let codexHook = false;
+  if (!skippedWindows) {
+    try {
+      const codexResult = await syncCodexHook(projectPath, kilnDir, sourceContent, installState, options);
+      codexHook = codexResult.ok;
+      for (const snapshot of codexResult.snapshots) {
+        installState = upsertNativeProjectionTargetState(installState, snapshot);
+      }
+      if (codexResult.error) {
+        errors.push(`Codex: ${codexResult.error}`);
+      }
+    } catch (error) {
+      errors.push(`Codex: ${error instanceof Error ? error.message : String(error)}`);
     }
-  }
-  if (!skippedWindows && codexResult.status === "rejected") {
-    errors.push(`Codex: ${codexResult.reason instanceof Error ? codexResult.reason.message : String(codexResult.reason)}`);
-  } else if (!skippedWindows && codexResult.status === "fulfilled" && codexResult.value.error) {
-    errors.push(`Codex: ${codexResult.value.error}`);
   }
 
   writeNativeProjectionInstallState(kilnDir, installState);
@@ -113,6 +111,7 @@ export async function syncNativeHookProjections(
 
 async function syncClaudeHook(
   projectPath: string,
+  kilnDir: string,
   sourceContent: string,
   installState: NativeProjectionInstallState,
   options: NativeHookProjectionOptions,
@@ -163,6 +162,7 @@ async function syncClaudeHook(
     };
   }
 
+  backupNativeProjectionFile({ kilnDir, targetId: HOOK_PROJECTION_TARGET_IDS.claudeFile, filePath: hookPath });
   writeFileSync(hookPath, sourceContent, "utf-8");
   snapshots.push(createNativeProjectionFileSnapshot({
     targetId: HOOK_PROJECTION_TARGET_IDS.claudeFile,
@@ -179,6 +179,7 @@ async function syncClaudeHook(
   const hooks = { ...existingHooks, autoformat: autoformatEntry };
 
   const merged = { ...settings, hooks };
+  backupNativeProjectionFile({ kilnDir, targetId: HOOK_PROJECTION_TARGET_IDS.claudeSettings, filePath: settingsPath });
   writeFileSync(settingsPath, JSON.stringify(merged, null, 2) + "\n", "utf-8");
   snapshots.push(createNativeProjectionSnapshot({
     targetId: HOOK_PROJECTION_TARGET_IDS.claudeSettings,
@@ -192,6 +193,7 @@ async function syncClaudeHook(
 
 async function syncCodexHook(
   projectPath: string,
+  kilnDir: string,
   sourceContent: string,
   installState: NativeProjectionInstallState,
   options: NativeHookProjectionOptions,
@@ -222,6 +224,7 @@ async function syncCodexHook(
     }
   }
 
+  backupNativeProjectionFile({ kilnDir, targetId: HOOK_PROJECTION_TARGET_IDS.codexFile, filePath: hookPath });
   writeFileSync(hookPath, sourceContent, "utf-8");
 
   return {
