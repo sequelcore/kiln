@@ -24,8 +24,8 @@ Global config may declare how local operator surfaces and harnesses attach to or
 project that runtime, but it is not the source of app topology.
 
 The engine registry is a first-class Kiln primitive. Session-start availability
-probing replaces the `~/.claude/hooks/check-engines.sh` shell workaround.
-`check-engines.sh` is deleted at slice close; nothing references it after.
+probing replaces legacy shell-based engine probes. No operator surface should
+depend on a harness-specific shell workaround for engine availability.
 
 **V1 targets: claude, codex, opencode.** Three harnesses. No others. Additional
 targets are deferred to future roadmap slices if adoption warrants them.
@@ -64,12 +64,12 @@ projected artifacts.
 
 ### 2.5 No unified engine registry
 
-`~/.claude/hooks/check-engines.sh` is a shell script that probes for codex and
-opencode binaries. It is Claude Code-specific, has no programmatic API, cannot
-be consumed by the GUI or runtime, and has no integration with the session
-routing logic. Starting a harness directly — running `claude`, `codex`, or
-`opencode` without going through Kiln — yields a different config than
-Kiln-managed invocations. The control plane does not govern these surfaces.
+Legacy shell-based engine probes were Claude Code-specific, had no
+programmatic API, could not be consumed by the GUI or runtime, and had no
+integration with session routing. Starting a harness directly — running
+`claude`, `codex`, or `opencode` without going through Kiln — yields a
+different config than Kiln-managed invocations. The control plane does not
+govern these surfaces.
 
 ### 2.6 Divergent model namespaces
 
@@ -494,8 +494,8 @@ The result is surfaced via:
 - `kiln route` — prints the resolved worker for the current session context.
 - TUI/GUI — engine availability bar, updated once per session start.
 
-`check-engines.sh` is deleted at slice 01.G close. No code may reference it
-after that slice ships.
+No code may depend on a harness-specific shell probe after the engine registry
+ships.
 
 ### 3.6 Schema Validation
 
@@ -655,8 +655,8 @@ Scope: `packages/cli/src/engines/engine-registry.ts`,
   surfaces `available: false`; budget ceiling crossed routes to fallback;
   `budgetAware: false` ignores budget and routes to defaultWorker.
 
-Verification: `check-engines.sh` is not called from any code path after this
-slice.
+Verification: shell-based engine probes are not called from any code path after
+this slice.
 
 ### 01.D.1 - Managed Agent Route Resolver and Operator Projection
 
@@ -851,16 +851,12 @@ Scope: `packages/cli/src/commands/uninstall.ts`.
   `config/native-hook-projection.ts`; `sync.ts` remains the command
   orchestrator while hook projection IO is owned by config/projection code.
 
-### 01.G - Delete Old sync/, Delete check-engines.sh, Prune Docs
+### 01.G - Delete Old sync/ and Prune Docs
 
-Scope: obsolete `packages/cli/src/sync/` references,
-`~/.claude/hooks/check-engines.sh`, any doc or comment referencing them.
+Scope: obsolete `packages/cli/src/sync/` references and stale projection docs.
 
 - Delete obsolete `sync/` module references after moving projection ownership to
   `config/` and `application/`.
-- Delete: `check-engines.sh` from the user home hook path. Remove any reference
-  to it in CLAUDE.md memory files (those are outside this repo; document the
-  deletion in the commit message).
 - Remove any import of `sync/` modules from CLI command files. Verify with
   grep: no `from.*sync/`.
 - Update `packages/cli/src/index.ts` exports to remove deleted modules.
@@ -869,7 +865,7 @@ Scope: obsolete `packages/cli/src/sync/` references,
   native skill projection moved to `config/native-skill-projection.ts`, and
   AGENTS.md generation moved to `application/agents-md-projection.ts`.
 - Verification: `bun run typecheck` clean; `bun run test` clean; grep for
-  `check-engines.sh` in the repo returns zero results; grep for `../sync`
+  legacy shell probe names in the repo returns zero results; grep for `../sync`
   imports returns zero results.
 
 Each slice: one atomic concern. No slice merges translator work with registry
