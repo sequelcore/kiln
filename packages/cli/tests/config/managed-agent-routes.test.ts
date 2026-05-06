@@ -68,7 +68,7 @@ function createRegistry(provider: ProviderId, available = true): SessionRegistry
 
 function baseConfig(overrides: Partial<KilnGlobalConfig["managedAgents"]> = {}): KilnGlobalConfig {
   return {
-    version: "1",
+    version: "2",
     managedAgents: {
       enabled: true,
       defaultProvider: "codex",

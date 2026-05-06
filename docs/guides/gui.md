@@ -83,9 +83,8 @@ If no supported browser host is available, `kiln gui` fails closed and tells you
 
 ## Theme Persistence
 
-GUI theme preference is stored in `~/.kiln/config.yaml` under `gui.theme`. If
-`gui.theme` is absent, Kiln falls back to `tui.theme` during the transition
-period, then to `kiln-dark`.
+GUI theme preference is stored in `~/.kiln/config.yaml` under the shared
+`ui.theme` key. If `ui.theme` is absent, Kiln falls back to `kiln-dark`.
 
 GUI and TUI use the same operator theme catalog from
 `@kilnai/gateway-contracts`: `kiln-dark`, `kiln-light`, `system-follow`,
@@ -98,10 +97,10 @@ cross-terminal OS theme bridge.
 Connected executable providers can call the runtime `operator_set_theme` tool
 to request a live GUI theme change. The request is acknowledged over the same
 operator WebSocket as other GUI control frames. `scope: "session"` applies only
-to the live window; `scope: "persisted"` also saves `gui.theme`. The CLI exposes
+to the live window; `scope: "persisted"` also saves `ui.theme`. The CLI exposes
 the same operator tool contract for parity, but because it has no live visual
-surface it only accepts persisted theme changes and writes the shared GUI/TUI
-defaults.
+surface it only accepts persisted theme changes and writes the shared operator
+default.
 
 ## Design System
 

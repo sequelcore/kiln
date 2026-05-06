@@ -138,6 +138,11 @@ vi.mock("../../src/wrapper/session-manager.js", () => ({
     prepare = mockSessionManagerPrepare;
   },
 }));
+vi.mock("../../src/config/global-config.js", () => ({
+  readGlobalConfig: vi.fn(() => null),
+  resolveGlobalDefaultProvider: () => undefined,
+  resolveGlobalUiTheme: () => undefined,
+}));
 
 // We test makeMultiProviderSessionFactory via a lightweight re-implementation
 // that mirrors the exported function's logic — this keeps tests fast and

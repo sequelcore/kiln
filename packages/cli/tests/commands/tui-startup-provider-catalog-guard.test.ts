@@ -97,7 +97,11 @@ const runtimeMocks = vi.hoisted(() => ({
 }));
 
 const configMocks = vi.hoisted(() => ({
-  globalConfig: null as { provider?: string; tui?: { theme?: string } } | null,
+  globalConfig: null as {
+    routing?: { defaultWorker?: string };
+    engines?: Record<string, { enabled?: boolean }>;
+    ui?: { theme?: string };
+  } | null,
   readGlobalConfig: vi.fn(() => configMocks.globalConfig),
   resolveEffectiveProvider: vi.fn((provider: string | undefined, globalProvider?: string) => {
     const value = provider?.trim() || globalProvider?.trim();
@@ -208,6 +212,12 @@ vi.mock("@kilnai/runtime", () => ({
 
 vi.mock("../../src/config/global-config.js", () => ({
   readGlobalConfig: configMocks.readGlobalConfig,
+  resolveGlobalDefaultProvider: (config: typeof configMocks.globalConfig) => {
+    if (!config) return undefined;
+    return config.routing?.defaultWorker
+      ?? Object.entries(config.engines ?? {}).find(([, engine]) => engine.enabled)?.[0];
+  },
+  resolveGlobalUiTheme: (config: typeof configMocks.globalConfig) => config?.ui?.theme,
 }));
 
 vi.mock("../../src/config/env-config.js", () => ({

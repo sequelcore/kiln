@@ -3,6 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("../../src/config/global-config.js", () => ({
   readGlobalConfig: vi.fn(),
   writeGlobalConfig: vi.fn(),
+  defaultGlobalConfig: () => ({
+    version: "2",
+    routing: { defaultWorker: "claude", budgetAware: false },
+    components: { include: ["baseline:core"] },
+  }),
+  resolveGlobalUiTheme: (config: { ui?: { theme?: string } } | null) => config?.ui?.theme,
 }));
 
 import { readGlobalConfig, writeGlobalConfig } from "../../src/config/global-config.js";
@@ -22,26 +28,24 @@ describe("operator theme preferences", () => {
   });
 
   it("resolves GUI theme preference from request, then GUI config, then TUI config", () => {
-    expect(resolveGuiThemePreference("dracula", { gui: { theme: "night-owl" } })).toBe("dracula");
-    expect(resolveGuiThemePreference(undefined, { gui: { theme: "night-owl" }, tui: { theme: "dracula" } })).toBe("night-owl");
-    expect(resolveGuiThemePreference(undefined, { tui: { theme: "dracula" } })).toBe("dracula");
+    expect(resolveGuiThemePreference("dracula", { version: "2", ui: { theme: "night-owl" } })).toBe("dracula");
+    expect(resolveGuiThemePreference(undefined, { version: "2", ui: { theme: "night-owl" } })).toBe("night-owl");
     expect(resolveGuiThemePreference(undefined, null)).toBe("kiln-dark");
   });
 
-  it("persists operator theme defaults for both GUI and TUI surfaces", () => {
-    readGlobalConfigMock.mockReturnValue({ version: "1", gui: { theme: "kiln-dark" } });
+  it("persists operator theme defaults into neutral UI config", () => {
+    readGlobalConfigMock.mockReturnValue({ version: "2", ui: { theme: "kiln-dark" } });
 
     persistOperatorThemePreference("night-owl");
 
     expect(writeGlobalConfigMock).toHaveBeenCalledWith({
-      version: "1",
-      gui: { theme: "night-owl" },
-      tui: { theme: "night-owl" },
+      version: "2",
+      ui: { theme: "night-owl" },
     });
   });
 
   it("lets CLI operator theme tool persist defaults but rejects live session changes", async () => {
-    readGlobalConfigMock.mockReturnValue({});
+    readGlobalConfigMock.mockReturnValue(null);
     const controller = createCliOperatorThemeController();
 
     await expect(controller.setTheme({ theme: "dracula", scope: "session" })).resolves.toEqual({
@@ -53,8 +57,10 @@ describe("operator theme preferences", () => {
       appliedTheme: "dracula",
     });
     expect(writeGlobalConfigMock).toHaveBeenCalledWith({
-      gui: { theme: "dracula" },
-      tui: { theme: "dracula" },
+      version: "2",
+      routing: { defaultWorker: "claude", budgetAware: false },
+      components: { include: ["baseline:core"] },
+      ui: { theme: "dracula" },
     });
   });
 });

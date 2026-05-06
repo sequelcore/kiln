@@ -1,5 +1,11 @@
 import { isOperatorThemeName, type OperatorThemeName, type OperatorThemeScope } from "@kilnai/gateway-contracts";
-import { readGlobalConfig, writeGlobalConfig, type KilnGlobalConfig } from "../config/global-config.js";
+import {
+  defaultGlobalConfig,
+  readGlobalConfig,
+  resolveGlobalUiTheme,
+  writeGlobalConfig,
+  type KilnGlobalConfig,
+} from "../config/global-config.js";
 import type { OperatorSurfaceThemeController } from "@kilnai/runtime";
 
 export type OperatorThemePreference = OperatorThemeName;
@@ -14,8 +20,7 @@ export function resolveGuiThemePreference(
 ): OperatorThemePreference {
   return (
     parseOperatorThemePreference(requestedTheme)
-    ?? parseOperatorThemePreference(globalConfig?.gui?.theme)
-    ?? parseOperatorThemePreference(globalConfig?.tui?.theme)
+    ?? parseOperatorThemePreference(resolveGlobalUiTheme(globalConfig))
     ?? "kiln-dark"
   );
 }
@@ -24,36 +29,14 @@ export function persistGuiThemePreference(
   theme: string,
   configOverride?: KilnGlobalConfig | null,
 ): void {
-  const resolvedTheme = parseOperatorThemePreference(theme);
-  if (!resolvedTheme) {
-    return;
-  }
-  const current = configOverride ?? readGlobalConfig() ?? {};
-  writeGlobalConfig({
-    ...current,
-    gui: {
-      ...current.gui,
-      theme: resolvedTheme,
-    },
-  });
+  persistOperatorThemePreference(theme, configOverride);
 }
 
 export function persistTuiThemePreference(
   theme: string,
   configOverride?: KilnGlobalConfig | null,
 ): void {
-  const resolvedTheme = parseOperatorThemePreference(theme);
-  if (!resolvedTheme) {
-    return;
-  }
-  const current = configOverride ?? readGlobalConfig() ?? {};
-  writeGlobalConfig({
-    ...current,
-    tui: {
-      ...current.tui,
-      theme: resolvedTheme,
-    },
-  });
+  persistOperatorThemePreference(theme, configOverride);
 }
 
 export function persistOperatorThemePreference(
@@ -64,15 +47,11 @@ export function persistOperatorThemePreference(
   if (!resolvedTheme) {
     return;
   }
-  const current = configOverride ?? readGlobalConfig() ?? {};
+  const current = configOverride ?? readGlobalConfig() ?? defaultGlobalConfig();
   writeGlobalConfig({
     ...current,
-    gui: {
-      ...current.gui,
-      theme: resolvedTheme,
-    },
-    tui: {
-      ...current.tui,
+    ui: {
+      ...current.ui,
       theme: resolvedTheme,
     },
   });

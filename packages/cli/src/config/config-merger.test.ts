@@ -8,6 +8,19 @@ vi.mock("../kiln-yaml.js", () => ({
 
 vi.mock("./global-config.js", () => ({
   readGlobalConfig: vi.fn(),
+  resolveGlobalDefaultProvider: (config: {
+    routing?: { defaultWorker?: string };
+    engines?: Record<string, { enabled?: boolean }>;
+  }) => config.routing?.defaultWorker ?? Object.entries(config.engines ?? {}).find(([, engine]) => engine.enabled)?.[0],
+  resolveGlobalDefaultModel: (config: {
+    routing?: { defaultWorker?: string };
+    engines?: Record<string, { enabled?: boolean }>;
+    models?: Record<string, string | undefined>;
+  }) => {
+    const provider = config.routing?.defaultWorker
+      ?? Object.entries(config.engines ?? {}).find(([, engine]) => engine.enabled)?.[0];
+    return (provider ? config.models?.[provider] : undefined) ?? config.models?.default;
+  },
 }));
 
 import type { KilnYaml } from "../kiln-yaml-types.js";
@@ -40,9 +53,10 @@ describe("config-merger", () => {
 
   it("returns global-converted-to-KilnYaml when only global config exists", async () => {
     const globalConfig: KilnGlobalConfig = {
-      version: "1",
-      provider: "codex",
-      model: "gpt-5.4",
+      version: "2",
+      engines: { codex: { enabled: true, billing: "plus-quota" } },
+      routing: { defaultWorker: "codex", budgetAware: false },
+      models: { codex: "gpt-5.4" },
       permissions: { approval: "never", sandbox: "workspace-write" },
       mcp: { servers: { shared: { type: "stdio", command: "srv" } } },
       hooks: {
@@ -85,9 +99,10 @@ describe("config-merger", () => {
 
   it("merges global as base with project as override - project scalar wins", async () => {
     const globalConfig: KilnGlobalConfig = {
-      version: "1",
-      provider: "codex",
-      model: "gpt-5.4",
+      version: "2",
+      engines: { codex: { enabled: true, billing: "plus-quota" } },
+      routing: { defaultWorker: "codex", budgetAware: false },
+      models: { codex: "gpt-5.4" },
     };
     const projectConfig: KilnYaml = {
       version: "1",
@@ -125,7 +140,7 @@ describe("config-merger", () => {
 
   it("MCP servers are additive - global + project servers both present in result", async () => {
     const globalConfig: KilnGlobalConfig = {
-      version: "1",
+      version: "2",
       mcp: { servers: { globalSrv: { type: "stdio", command: "global" } } },
     };
     const projectConfig: KilnYaml = {
@@ -155,9 +170,10 @@ describe("config-merger", () => {
 
   it("globalToKilnYaml() maps provider, model, permissions, mcp, hooks correctly", () => {
     const globalConfig: KilnGlobalConfig = {
-      version: "1",
-      provider: "codex",
-      model: "gpt-5.4",
+      version: "2",
+      engines: { codex: { enabled: true, billing: "plus-quota" } },
+      routing: { defaultWorker: "codex", budgetAware: false },
+      models: { default: "claude-opus-4-7", codex: "gpt-5.4" },
       permissions: { approval: "on-request", sandbox: "read-only" },
       mcp: { servers: { one: { type: "stdio", command: "one" } } },
       hooks: {
@@ -179,8 +195,9 @@ describe("config-merger", () => {
 
   it("globalToKilnYaml() maps undefined model to undefined", () => {
     const globalConfig: KilnGlobalConfig = {
-      version: "1",
-      provider: "claude",
+      version: "2",
+      engines: { claude: { enabled: true, billing: "subscription" } },
+      routing: { defaultWorker: "claude", budgetAware: false },
     };
 
     expect(globalToKilnYaml(globalConfig)).toEqual({

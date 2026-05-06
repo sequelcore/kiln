@@ -92,6 +92,18 @@ export function upsertNativeProjectionTargetState(
   };
 }
 
+export function removeNativeProjectionTargetState(
+  state: NativeProjectionInstallState,
+  targetId: string,
+): NativeProjectionInstallState {
+  const targets: Record<string, NativeProjectionTargetState> = { ...state.targets };
+  delete targets[targetId];
+  return {
+    version: 1,
+    targets,
+  };
+}
+
 export function detectNativeProjectionDrift(input: {
   readonly targetId: string;
   readonly state: NativeProjectionInstallState;
@@ -124,6 +136,17 @@ export function mergeManagedFields(input: {
   return merged;
 }
 
+export function stripManagedFields(input: {
+  readonly currentDocument: Record<string, unknown>;
+  readonly managedFields: readonly string[];
+}): Record<string, unknown> {
+  const stripped = cloneRecord(input.currentDocument);
+  for (const fieldPath of input.managedFields) {
+    deletePathValue(stripped, fieldPath);
+  }
+  return stripped;
+}
+
 function getPathValue(source: Record<string, unknown>, fieldPath: string): unknown {
   const segments = parseFieldPath(fieldPath);
   let cursor: unknown = source;
@@ -148,6 +171,24 @@ function setPathValue(target: Record<string, unknown>, fieldPath: string, value:
     cursor = cursor[segment] as Record<string, unknown>;
   }
   cursor[segments[segments.length - 1]!] = value;
+}
+
+function deletePathValue(target: Record<string, unknown>, fieldPath: string): boolean {
+  const segments = parseFieldPath(fieldPath);
+  return deletePathSegments(target, segments, 0);
+}
+
+function deletePathSegments(target: Record<string, unknown>, segments: readonly string[], index: number): boolean {
+  const segment = segments[index]!;
+  if (index === segments.length - 1) {
+    delete target[segment];
+  } else {
+    const next = target[segment];
+    if (isRecord(next) && deletePathSegments(next, segments, index + 1)) {
+      delete target[segment];
+    }
+  }
+  return Object.keys(target).length === 0;
 }
 
 function parseFieldPath(fieldPath: string): readonly string[] {

@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { KilnAppConfig } from "../config.js";
-import { readGlobalConfig } from "../config/global-config.js";
+import { readGlobalConfig, resolveGlobalDefaultProvider } from "../config/global-config.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
 import { resolveManagedInvocationToolOptions } from "../config/managed-agent-routes.js";
 import { loadConfiguredWebToolSurfaceOptions } from "../config/web-tools-config.js";
@@ -60,7 +60,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
   const { registry } = createDefaultRegistry();
   const providerDisplay = getProviderDisplayInfo(registry);
   const providerIds = providerDisplay.map((provider) => provider.id);
-  const provider = parseProvider(resolveEffectiveProvider(flags.provider, globalConfig?.provider), providerIds);
+  const provider = parseProvider(resolveEffectiveProvider(flags.provider, resolveGlobalDefaultProvider(globalConfig)), providerIds);
   const transcriptStore = new TranscriptStore(cwd);
   const contextArtifactCache = await getProjectContextArtifactCache(cwd);
   const builtinToolOptions = createSessionBuiltinToolOptions(

@@ -17,16 +17,18 @@ describe("gui command helpers", () => {
     rmSync(tmpConfigHome, { recursive: true, force: true });
   });
 
-  it("resolves GUI theme from gui.theme first, then tui.theme, then default", async () => {
+  it("resolves GUI theme from ui.theme, then default", async () => {
     const { resolveGuiThemePreference } = await import("../../src/commands/gui-options.js");
+    const { defaultGlobalConfig } = await import("../../src/config/global-config.js");
 
     expect(resolveGuiThemePreference(undefined, {
-      gui: { theme: "kiln-light" },
-      tui: { theme: "kiln-dark" },
+      ...defaultGlobalConfig(),
+      ui: { theme: "kiln-light" },
     })).toBe("kiln-light");
 
     expect(resolveGuiThemePreference(undefined, {
-      tui: { theme: "system-follow" },
+      ...defaultGlobalConfig(),
+      ui: { theme: "system-follow" },
     })).toBe("system-follow");
 
     expect(resolveGuiThemePreference(undefined, null)).toBe("kiln-dark");
@@ -43,7 +45,8 @@ describe("gui command helpers", () => {
       "utf-8",
     );
 
-    expect(written).toContain("gui:");
+    expect(written).toContain("version: \"2\"");
+    expect(written).toContain("ui:");
     expect(written).toContain("theme: kiln-light");
     expect(buildGuiUrl("http://localhost:5183/gui/", "kiln-light")).toBe("http://localhost:5183/gui/?theme=kiln-light");
     expect(buildGuiAttachUrl("http://localhost:3800", "kiln-light")).toBe("http://localhost:3800/gui/?theme=kiln-light");

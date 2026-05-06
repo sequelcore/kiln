@@ -65,8 +65,16 @@ const registryMocks = vi.hoisted(() => {
 });
 
 const configMocks = vi.hoisted(() => ({
-  globalConfig: null as { provider?: string } | null,
+  globalConfig: null as {
+    routing?: { defaultProvider?: string };
+    ui?: { theme?: string };
+  } | null,
   readGlobalConfig: vi.fn(() => configMocks.globalConfig),
+  resolveGlobalDefaultProvider: vi.fn((config: { routing?: { defaultProvider?: string } } | null) => {
+    const provider = config?.routing?.defaultProvider?.trim() ?? "";
+    return provider.length > 0 ? provider : undefined;
+  }),
+  resolveGlobalUiTheme: vi.fn((config: { ui?: { theme?: string } } | null) => config?.ui?.theme),
   resolveEffectiveProvider: vi.fn((provider: string | undefined, globalProvider?: string) => {
     const normalize = (value?: string) => {
       const trimmed = value?.trim() ?? "";
@@ -104,6 +112,8 @@ vi.mock("@kilnai/core", async (importOriginal) => {
 
 vi.mock("../../src/config/global-config.js", () => ({
   readGlobalConfig: configMocks.readGlobalConfig,
+  resolveGlobalDefaultProvider: configMocks.resolveGlobalDefaultProvider,
+  resolveGlobalUiTheme: configMocks.resolveGlobalUiTheme,
 }));
 
 vi.mock("../../src/config/env-config.js", () => ({
@@ -341,7 +351,7 @@ describe("GUI dashboard provider availability", () => {
   });
 
   it("rejects an unknown configured provider instead of defaulting to the first advertised provider", async () => {
-    configMocks.globalConfig = { provider: "claude" };
+    configMocks.globalConfig = { routing: { defaultProvider: "claude" } };
     tmpDir = mkdtempSync(join(tmpdir(), "kiln-gui-dashboard-availability-"));
 
     await expect(guiCommand(APP_CONFIG, {

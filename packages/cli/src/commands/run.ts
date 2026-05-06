@@ -36,7 +36,7 @@ import { ApprovalMemoryStore as ApprovalMemoryStoreImpl } from "../wrapper/index
 import { TranscriptStore } from "../wrapper/session-store.js";
 import type { ResumeOutcome } from "../wrapper/index.js";
 import { resolveEffectiveModel } from "../config/env-config.js";
-import { readGlobalConfig } from "../config/global-config.js";
+import { readGlobalConfig, resolveGlobalDefaultModel } from "../config/global-config.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
 import { resolveManagedInvocationToolOptions } from "../config/managed-agent-routes.js";
 import { loadConfiguredWebToolSurfaceOptions } from "../config/web-tools-config.js";
@@ -215,7 +215,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
   }
 
   const globalConfig = readGlobalConfig();
-  const effectiveModel = resolveEffectiveModel(flags.model, globalConfig?.model) ?? resolvedAgent?.model;
+  const effectiveModel = resolveEffectiveModel(flags.model, resolveGlobalDefaultModel(globalConfig)) ?? resolvedAgent?.model;
   const config = buildConfig(flags, mode);
   const runtimeAppConfig = appendAgentInstructionsToSystemPrompt(appConfig, resolvedAgent);
   const sessionId = randomUUID();

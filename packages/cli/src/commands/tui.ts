@@ -12,7 +12,7 @@ import {
   buildCliProjectSummaryArtifactKey,
   buildCliSessionSummaryArtifactKey,
 } from "../application/context-artifact-keys.js";
-import { readGlobalConfig } from "../config/global-config.js";
+import { readGlobalConfig, resolveGlobalDefaultProvider, resolveGlobalUiTheme } from "../config/global-config.js";
 import { resolveEffectiveProvider } from "../config/env-config.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
 import { resolveManagedInvocationToolOptions } from "../config/managed-agent-routes.js";
@@ -1019,7 +1019,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   const cwd = flags.cwd ?? process.cwd();
   const globalConfig = readGlobalConfig();
   const startupTransport = resolveTuiStartupTransport(flags);
-  const provider = parseProvider(resolveEffectiveProvider(flags.provider, globalConfig?.provider), providerIds);
+  const provider = parseProvider(resolveEffectiveProvider(flags.provider, resolveGlobalDefaultProvider(globalConfig)), providerIds);
   const startupProviderIds = providerIds;
   const contextArtifactCache = await getProjectContextArtifactCache(cwd);
   const builtinToolOptions = createSessionBuiltinToolOptions(
@@ -1105,7 +1105,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
 
   for (const [ev, handler] of handlers) process.on(ev, handler);
 
-  const resolvedTheme = themes[flags.theme ?? globalConfig?.tui?.theme ?? "kiln-dark"] ?? kilnDark;
+  const resolvedTheme = themes[flags.theme ?? resolveGlobalUiTheme(globalConfig) ?? "kiln-dark"] ?? kilnDark;
 
   // Session list loader for sidebar browser
   async function loadSessionList() {

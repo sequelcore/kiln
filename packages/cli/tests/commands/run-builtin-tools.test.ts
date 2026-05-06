@@ -90,6 +90,7 @@ vi.mock("../../src/application/repo-summary-cache.js", () => ({
 
 vi.mock("../../src/config/global-config.js", () => ({
   readGlobalConfig: vi.fn(() => undefined),
+  resolveGlobalDefaultModel: vi.fn(() => undefined),
 }));
 
 vi.mock("../../src/config/env-config.js", () => ({

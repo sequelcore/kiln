@@ -538,9 +538,6 @@ Kiln-relevant fields (engines, model, permissions, MCP servers), merges into a
 candidate `KilnGlobalConfig` v2, and presents a diff for confirmation. On
 acceptance, writes the merged config and re-projects. Does not recurse.
 
-**`kiln migrate`**
-Upgrades `KilnGlobalConfig` v1 → v2 in place. See §6.
-
 ## 5. Slices
 
 ### 01.A - KilnGlobalConfig v2 Schema and Parser
@@ -819,25 +816,30 @@ Scope: `packages/cli/src/commands/sync.ts` (rewrite),
   --permissions --force` and `kiln sync --force` now require operator
   confirmation before overwriting drifted managed permission fields. `kiln
   sync --target <target>` now scopes execution through the same canonical
-  target selector used by legacy per-surface flags.
+  target selector used by legacy per-surface flags. `kiln import-native codex`
+  and `kiln import-native opencode` now extract native model and permission
+  settings into Kiln global config, confirm with a diff, write the merged
+  config, and re-project accepted permission drift.
 
-### 01.F - kiln uninstall + kiln migrate
+### 01.F - kiln uninstall
 
-Scope: `packages/cli/src/commands/uninstall.ts`,
-`packages/cli/src/commands/migrate.ts`.
+Scope: `packages/cli/src/commands/uninstall.ts`.
 
 - `kiln uninstall [target]` reads install state, strips managed sections
   (by `managedFields` dotted paths) from each native file, leaves user-added
   keys intact. Warns on hash mismatch without stripping (drift). Accepts
   `--force` to strip regardless of hash.
-- `kiln migrate` reads v1 config, applies the migration transform (see §6),
-  writes v2. Does not delete v1 fields that have no v2 equivalent — logs them
-  as "unmapped" for the operator to review. Runs schema validation on the
-  produced v2 doc before writing.
 - Unit tests: uninstall strips only managed fields, non-managed keys survive;
-  uninstall with drifted file warns and skips without `--force`; migrate v1→v2
-  preserves identity, permissions, mcp, hooks; migrate rejects when v2 schema
-  validation fails.
+  uninstall with drifted file warns and skips without `--force`.
+- Implementation progress: `kiln uninstall [target]` now reads native
+  projection install state, strips only recorded managed fields, preserves
+  unmanaged native keys, removes target install-state entries, and requires
+  `--force` before stripping drifted managed fields.
+- Implementation progress: global config v2 is now the active CLI contract
+  consumed by config merge, GUI, TUI, run, native import, theme persistence,
+  managed-agent route resolution, and schema tests. A global v1→v2
+  `kiln migrate` command is intentionally not planned because current code has
+  no v1 producer or consumer; adding one would be compatibility scaffolding.
 
 ### 01.G - Delete Old sync/, Delete check-engines.sh, Prune Docs
 
@@ -860,32 +862,17 @@ Scope: `packages/cli/src/sync/` (entire directory),
 Each slice: one atomic concern. No slice merges translator work with registry
 work. No slice deletes old code before the replacement is verified.
 
-## 6. Migration
+## 6. Obsolete Global Configs
 
-`kiln migrate` upgrades v1 → v2 in place. Steps:
+Global config v1 is historical state from an earlier internal loader. Current
+Kiln code does not produce v1 global configs, does not consume v1 global
+configs, and does not expose a `kiln migrate` command. Adding one now would be
+a compatibility shell without a live consumer.
 
-1. Read `~/.kiln/config.yaml`. Confirm `version: "1"` (or absent).
-2. Read native harness configs (if accessible) to pre-populate `engines` and
-   per-harness `models` overrides. Codex TOML at `~/.codex/config.toml`
-   provides `approval_policy`, `sandbox_mode`, and model. OpenCode JSON at
-   `~/.config/opencode/opencode.json` provides `permission` and `model`.
-3. Apply transform:
-   - `version: "1"` → `version: "2"`.
-   - `provider` → `engines.<provider>.enabled: true`; all other engines
-     default to `enabled: false` unless found in native configs. V1 engines
-     are scoped to claude, codex, opencode only.
-   - `model` → `models.default`; per-harness overrides from native configs.
-   - `permissions`, `mcp`, `hooks`, `identity` → carried forward unchanged.
-   - `tui.theme` / `gui.theme` → `ui.theme` (last one wins if both present).
-   - `components.include` initialized to `["baseline:core"]`.
-   - `routing.budgetAware` initialized to `false` (no ceilings declared by default).
-4. Validate the produced v2 doc against the JSON Schema. Abort if invalid.
-5. Write to `~/.kiln/config.yaml`. Create a `.kiln/config.yaml.v1.bak` backup.
-6. Run `kiln sync` automatically on success.
-
-No back-compat shim after migration. The v1 parser path is removed when the
-migration command ships. Any caller that tries to load a v1 doc after 01.F
-receives a `KilnConfigError` instructing them to run `kiln migrate`.
+If `~/.kiln/config.yaml` contains a v1 shape, Kiln fails fast and asks the
+operator to recreate the file as v2 or use `kiln import-native codex` /
+`kiln import-native opencode` to import supported native engine settings into
+the v2 contract. There is no silent fallback and no compatibility parser.
 
 ## 7. Non-Goals
 
@@ -924,15 +911,7 @@ receives a `KilnConfigError` instructing them to run `kiln migrate`.
    limit, age limit, or manual `kiln prune-backups`)? Does `kiln import-native`
    also create a backup before overwriting the Kiln config?
 
-3. **Migration without prior sync (no install-state).** If a user has a v1
-   `~/.kiln/config.yaml` that was never synced — so no `install-state.json`
-   exists — `kiln migrate` still needs to produce a valid v2 doc and then run
-   `kiln sync`. What does the state file look like after migration of a
-   never-synced config? Is the absence of install-state a normal condition
-   `kiln migrate` handles gracefully, or does it require `kiln sync` to have
-   run at least once before migration is valid?
-
-4. **`engines.<id>.enabled: false` and projected config removal.** If an
+3. **`engines.<id>.enabled: false` and projected config removal.** If an
    operator sets `engines.codex.enabled: false` in `config.yaml` and runs
    `kiln sync`, should Kiln immediately strip the codex managed sections from
    `~/.codex/config.toml`, or should it only stop projecting future changes and

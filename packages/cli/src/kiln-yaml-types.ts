@@ -9,13 +9,14 @@ export class KilnYamlError extends Error {
 }
 
 export interface KilnYamlMcpServer {
-  type?: "stdio" | "http";
+  type?: "stdio" | "http" | "kiln-bundled";
   command?: string;
   args?: string[];
   env?: Record<string, string>;
   url?: string;
   headers?: Record<string, string>;
   enabled?: boolean;
+  module?: string;
 }
 
 export interface KilnYamlMcp {

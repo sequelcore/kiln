@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import os from "node:os";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
+import { stripJsonComments } from "../config/json-comments.js";
 import { translatePermission } from "../wrapper/session-registry.js";
 import type { BackendConfig } from "../wrapper/session-registry.js";
 import type { KilnPermissionPolicy } from "../wrapper/session.js";
@@ -17,30 +18,6 @@ import {
 } from "./native-projection-state.js";
 
 const DEFAULT_POLICY: KilnPermissionPolicy = { approval: "on-request", sandbox: "read-only" };
-
-function stripJsonComments(text: string): string {
-  const lines = text.split("\n");
-  const result: string[] = [];
-  for (const line of lines) {
-    let inString = false;
-    let commentIndex = -1;
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i]!;
-      if (ch === '"' && (i === 0 || line[i - 1]! !== "\\")) {
-        inString = !inString;
-      } else if (!inString && ch === "/" && i + 1 < line.length && line[i + 1] === "/") {
-        commentIndex = i;
-        break;
-      }
-    }
-    if (commentIndex >= 0) {
-      result.push(line.slice(0, commentIndex).trimEnd());
-    } else {
-      result.push(line);
-    }
-  }
-  return result.join("\n");
-}
 
 export interface SyncResult {
   claude: boolean;

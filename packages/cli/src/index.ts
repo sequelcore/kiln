@@ -40,6 +40,8 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     auth: "Authenticate subscription-backed providers (codex login/status/logout)",
     cron: "Manage scheduled jobs (list, add, remove, run)",
     sync: "Sync permissions and hooks to Claude Code, Codex, and OpenCode (--permissions, --hooks, --all)",
+    "import-native": "Import supported native engine config into Kiln global config (codex, opencode)",
+    uninstall: "Remove Kiln-managed native projections without deleting unmanaged native settings",
     tools: "Launch native dev tools MCP server over stdio and inspect shared resources (--mcp, --resources, --resource <uri>)",
     tui: "Interactive terminal chat (TUI mode)",
   };
@@ -239,6 +241,18 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
   if (command === "sync") {
     const { syncCommand } = await import("./commands/sync.js");
     await syncCommand(config, undefined, args.slice(1));
+    return;
+  }
+
+  if (command === "import-native") {
+    const { importNativeCommand } = await import("./commands/import-native.js");
+    await importNativeCommand(config, args[1], args.slice(2));
+    return;
+  }
+
+  if (command === "uninstall") {
+    const { uninstallCommand } = await import("./commands/uninstall.js");
+    await uninstallCommand(config, args[1], args.slice(2));
     return;
   }
 

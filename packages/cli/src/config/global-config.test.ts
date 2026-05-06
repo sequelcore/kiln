@@ -18,6 +18,9 @@ import { KilnYamlError } from "../kiln-yaml.js";
 import {
   defaultGlobalConfig,
   readGlobalConfig,
+  resolveGlobalDefaultModel,
+  resolveGlobalDefaultProvider,
+  resolveGlobalUiTheme,
   resolveGlobalConfigPath,
   writeGlobalConfig,
 } from "./global-config.js";
@@ -76,16 +79,76 @@ describe("global-config", () => {
   it("readGlobalConfig() parses and returns valid config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
-      ["version: \"1\"", "provider: codex", "model: gpt-5.4"].join("\n"),
+      [
+        "version: \"2\"",
+        "engines:",
+        "  codex:",
+        "    enabled: true",
+        "    billing: plus-quota",
+        "routing:",
+        "  defaultWorker: codex",
+        "  budgetAware: false",
+        "models:",
+        "  default: claude-opus-4-7",
+        "  codex: gpt-5.4",
+      ].join("\n"),
     );
 
     const config = readGlobalConfig();
 
     expect(config).toEqual({
-      version: "1",
-      provider: "codex",
-      model: "gpt-5.4",
+      version: "2",
+      engines: {
+        codex: {
+          enabled: true,
+          billing: "plus-quota",
+        },
+      },
+      routing: {
+        defaultWorker: "codex",
+        budgetAware: false,
+      },
+      models: {
+        default: "claude-opus-4-7",
+        codex: "gpt-5.4",
+      },
     });
+  });
+
+  it("readGlobalConfig() rejects v1 configs", () => {
+    existsSyncMock.mockReturnValue(true);
+    readFileSyncMock.mockReturnValue(["version: \"1\"", "provider: codex"].join("\n"));
+
+    expect(() => readGlobalConfig()).toThrow(
+      'Global config version must be "2". Recreate the config as v2 or use `kiln import-native`',
+    );
+  });
+
+  it("readGlobalConfig() rejects unknown top-level fields and invalid billing modes", () => {
+    existsSyncMock.mockReturnValue(true);
+    readFileSyncMock.mockReturnValue(["version: \"2\"", "provider: codex"].join("\n"));
+    expect(() => readGlobalConfig()).toThrow("Unknown global config field: provider");
+
+    readFileSyncMock.mockReturnValue(
+      ["version: \"2\"", "engines:", "  codex:", "    billing: credits"].join("\n"),
+    );
+    expect(() => readGlobalConfig()).toThrow("engines.codex.billing has an unknown billing mode");
+  });
+
+  it("readGlobalConfig() accepts null budget ceilings", () => {
+    existsSyncMock.mockReturnValue(true);
+    readFileSyncMock.mockReturnValue(
+      [
+        "version: \"2\"",
+        "routing:",
+        "  budgetAware: true",
+        "  budget:",
+        "    opencode:",
+        "      dailyTokenCeiling: null",
+      ].join("\n"),
+    );
+
+    expect(readGlobalConfig()?.routing?.budget?.opencode?.dailyTokenCeiling).toBeNull();
   });
 
   it("readGlobalConfig() throws KilnYamlError when file is not a YAML object", () => {
@@ -98,9 +161,9 @@ describe("global-config", () => {
 
   it("writeGlobalConfig() creates parent directories and writes stringified YAML", () => {
     writeGlobalConfig({
-      version: "1",
-      provider: "codex",
-      model: "gpt-5.4",
+      version: "2",
+      routing: { defaultWorker: "codex", budgetAware: false },
+      models: { codex: "gpt-5.4" },
     });
 
     expect(mkdirSyncMock).toHaveBeenCalledWith(join("/home/test-user", ".kiln"), {
@@ -112,17 +175,42 @@ describe("global-config", () => {
       expect.any(String),
       "utf-8",
     );
-    expect(String(writeFileSyncMock.mock.calls[0]?.[1])).toContain("provider: codex");
+    expect(String(writeFileSyncMock.mock.calls[0]?.[1])).toContain("defaultWorker: codex");
   });
 
   it("defaultGlobalConfig() returns expected shape", () => {
     expect(defaultGlobalConfig()).toEqual({
-      version: "1",
-      provider: "claude",
+      version: "2",
+      engines: {
+        claude: { enabled: true, billing: "subscription" },
+        codex: { enabled: false, billing: "plus-quota" },
+        opencode: { enabled: false, billing: "free" },
+      },
+      routing: {
+        defaultWorker: "claude",
+        budgetAware: false,
+      },
       permissions: {
         approval: "on-request",
         sandbox: "read-only",
       },
+      components: {
+        include: ["baseline:core"],
+      },
     });
+  });
+
+  it("resolves provider, model, and UI theme through projection helpers", () => {
+    const config = {
+      version: "2" as const,
+      engines: { codex: { enabled: true as const } },
+      routing: { defaultWorker: "codex" },
+      models: { default: "fallback-model", codex: "gpt-5.4" },
+      ui: { theme: "night-owl" },
+    };
+
+    expect(resolveGlobalDefaultProvider(config)).toBe("codex");
+    expect(resolveGlobalDefaultModel(config)).toBe("gpt-5.4");
+    expect(resolveGlobalUiTheme(config)).toBe("night-owl");
   });
 });

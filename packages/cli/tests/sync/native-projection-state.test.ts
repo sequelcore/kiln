@@ -8,6 +8,8 @@ import {
   emptyNativeProjectionInstallState,
   mergeManagedFields,
   readNativeProjectionInstallState,
+  removeNativeProjectionTargetState,
+  stripManagedFields,
   upsertNativeProjectionTargetState,
   writeNativeProjectionInstallState,
 } from "../../src/sync/native-projection-state.js";
@@ -105,6 +107,68 @@ describe("native projection install state", () => {
         permission_sync: {
           backend: "codex",
         },
+      },
+    });
+  });
+
+  it("strips managed fields while preserving unmanaged native keys", () => {
+    const stripped = stripManagedFields({
+      currentDocument: {
+        approval_policy: "on-request",
+        userSetting: true,
+        kiln: {
+          permission_sync: { backend: "codex" },
+          legacy: "keep",
+        },
+      },
+      managedFields: ["approval_policy", "kiln.permission_sync"],
+    });
+
+    expect(stripped).toEqual({
+      userSetting: true,
+      kiln: {
+        legacy: "keep",
+      },
+    });
+  });
+
+  it("removes empty parent objects after stripping nested managed fields", () => {
+    const stripped = stripManagedFields({
+      currentDocument: {
+        kiln: {
+          permission_sync: { backend: "codex" },
+        },
+      },
+      managedFields: ["kiln.permission_sync"],
+    });
+
+    expect(stripped).toEqual({});
+  });
+
+  it("removes target state by id without affecting other targets", () => {
+    const codexTarget = createNativeProjectionSnapshot({
+      targetId: "codex",
+      filePath: "C:/Users/test/.codex/config.toml",
+      document: { approval_policy: "on-request" },
+      managedFields: ["approval_policy"],
+      updatedAt: "2026-05-06T12:00:00.000Z",
+    });
+    const opencodeTarget = createNativeProjectionSnapshot({
+      targetId: "opencode",
+      filePath: "C:/Users/test/.config/opencode/opencode.json",
+      document: { permission: { default: "ask" } },
+      managedFields: ["permission"],
+      updatedAt: "2026-05-06T12:00:00.000Z",
+    });
+    const state = upsertNativeProjectionTargetState(
+      upsertNativeProjectionTargetState(emptyNativeProjectionInstallState(), codexTarget),
+      opencodeTarget,
+    );
+
+    expect(removeNativeProjectionTargetState(state, "codex")).toEqual({
+      version: 1,
+      targets: {
+        opencode: opencodeTarget,
       },
     });
   });

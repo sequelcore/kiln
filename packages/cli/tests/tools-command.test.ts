@@ -79,6 +79,9 @@ const APP_CONFIG: KilnAppConfig = {
   createRegistry: () => {
     throw new Error("createRegistry should not be used in tools command tests");
   },
+  kilnYaml: {
+    version: "1",
+  },
 };
 
 describe("tools command", () => {
@@ -147,6 +150,8 @@ describe("tools command", () => {
     await expect(createCli(APP_CONFIG)).rejects.toThrow("process.exit:0");
 
     const helpOutput = stdoutSpy.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(helpOutput).toContain("import-native");
+    expect(helpOutput).toContain("uninstall");
     expect(helpOutput).toContain("tools");
     expect(helpOutput).not.toContain("  serve");
     expect(helpOutput).toContain(

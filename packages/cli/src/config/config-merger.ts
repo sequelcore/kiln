@@ -1,14 +1,19 @@
 import { join } from "node:path";
-import { readGlobalConfig } from "./global-config.js";
+import {
+  readGlobalConfig,
+  resolveGlobalDefaultModel,
+  resolveGlobalDefaultProvider,
+} from "./global-config.js";
 import { mergeKilnYaml, readKilnYaml } from "../kiln-yaml.js";
 import type { KilnYaml } from "../kiln-yaml-types.js";
 import type { KilnGlobalConfig } from "./global-config.js";
 
 export function globalToKilnYaml(global: KilnGlobalConfig): KilnYaml {
+  const model = resolveGlobalDefaultModel(global);
   return {
-    version: global.version ?? "1",
-    provider: global.provider,
-    model: global.model ? { default: global.model } : undefined,
+    version: "1",
+    provider: resolveGlobalDefaultProvider(global),
+    model: model ? { default: model } : undefined,
     permissions: global.permissions,
     mcp: global.mcp,
     managedAgents: global.managedAgents,

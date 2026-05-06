@@ -19,16 +19,22 @@ const MOCK_APP_CONFIG: KilnAppConfig = {
 };
 
 describe("statusCommand", () => {
+  const originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
   let tempDir: string;
+  let tempConfigHome: string;
   let consoleSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), "kiln-status-"));
+    tempConfigHome = mkdtempSync(join(tmpdir(), "kiln-status-config-"));
+    process.env.XDG_CONFIG_HOME = tempConfigHome;
     consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
   });
 
   afterEach(() => {
     rmSync(tempDir, { recursive: true, force: true });
+    rmSync(tempConfigHome, { recursive: true, force: true });
+    process.env.XDG_CONFIG_HOME = originalXdgConfigHome;
     consoleSpy.mockRestore();
   });
 
