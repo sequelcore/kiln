@@ -47,15 +47,15 @@ export async function statusCommand(
   console.log(`  Mode:             ${config.mode ?? "—"}`);
 
   const globalConfig = readGlobalConfig();
+  let engineAvailability: ReadonlyMap<string, boolean> = new Map();
+
   if (globalConfig) {
     const engineRegistry = options.engineRegistry ?? new EngineRegistry();
     const engineHealth = engineRegistry.probeAll(globalConfig);
-    const availability = Object.fromEntries(
-      engineHealth.map((engine) => [engine.engineId, engine.available]),
-    );
+    engineAvailability = new Map(engineHealth.map((engine) => [engine.engineId, engine.available]));
     const route = resolveEngineRoute(globalConfig, {
       ...options,
-      isEngineAvailable: (engineId) => availability[engineId] ?? options.isEngineAvailable?.(engineId) ?? true,
+      isEngineAvailable: (engineId) => engineAvailability.get(engineId) ?? options.isEngineAvailable?.(engineId) ?? true,
     });
     printEngineStatus(engineHealth, route.worker, route.reason);
   }
@@ -72,6 +72,7 @@ export async function statusCommand(
     cwd: root,
     registry,
     surface: "operator",
+    isProviderAvailable: (provider) => engineAvailability.get(provider),
     directAdapterFactory: createManagedDirectProviderAdapterFactory({ builtinToolOptions }),
   });
   if (managedInvocationResolution.routeHealth.length > 0) {

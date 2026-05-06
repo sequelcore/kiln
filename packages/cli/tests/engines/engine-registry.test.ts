@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   EngineRegistry,
+  resolveEngineAvailabilityMap,
   resolveEngineRoute,
   type EngineProbeRunner,
 } from "../../src/engines/engine-registry.js";
@@ -46,6 +47,17 @@ describe("EngineRegistry", () => {
       available: false,
       reason: "not found",
     });
+  });
+
+  it("builds an availability map from session-start engine probes", () => {
+    const registry = new EngineRegistry({
+      runner: (command) => ({ status: command === "codex" ? 1 : 0 }),
+    });
+
+    const availability = resolveEngineAvailabilityMap(baseConfig, registry);
+
+    expect(availability.get("codex")).toBe(false);
+    expect(availability.get("opencode")).toBe(true);
   });
 
   it("resolves fallback when budget-aware routing crosses the ceiling", () => {

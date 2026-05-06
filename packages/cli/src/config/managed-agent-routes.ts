@@ -44,6 +44,7 @@ export interface ResolveManagedInvocationToolOptionsContext {
   readonly cwd: string;
   readonly registry: SessionRegistry;
   readonly surface: ManagedAgentOperatorSurface;
+  readonly isProviderAvailable?: (provider: string) => boolean | undefined;
   readonly directAdapterFactory?: (route: KilnManagedAgentRouteConfig) => ManagedAgentRuntimeAdapter | Promise<ManagedAgentRuntimeAdapter | undefined> | undefined;
 }
 
@@ -221,7 +222,7 @@ async function resolveRouteConfig(
     return unhealthy(baseHealth, `Provider '${routeConfig.provider}' does not have a live-proven managed harness adapter.`);
   }
 
-  if (!isProviderAvailable(context.registry, routeConfig.provider)) {
+  if (!isProviderAvailable(context, routeConfig.provider)) {
     return unhealthy(baseHealth, `Provider '${routeConfig.provider}' is unavailable.`);
   }
 
@@ -277,7 +278,7 @@ async function resolveDirectRouteConfig(
   readonly health: ManagedAgentRouteHealth;
   readonly route?: ManagedInvocationToolRoute;
 }> {
-  if (!isProviderAvailable(context.registry, routeConfig.provider)) {
+  if (!isProviderAvailable(context, routeConfig.provider)) {
     return unhealthy(baseHealth, `Provider '${routeConfig.provider}' is unavailable.`);
   }
   const model = routeConfig.model;
@@ -333,8 +334,14 @@ function unhealthy(
   };
 }
 
-function isProviderAvailable(registry: SessionRegistry, provider: string): boolean {
-  const descriptor = registry.list().find((entry) => entry.id === provider);
+function isProviderAvailable(
+  context: ResolveManagedInvocationToolOptionsContext,
+  provider: string,
+): boolean {
+  if (context.isProviderAvailable?.(provider) === false) {
+    return false;
+  }
+  const descriptor = context.registry.list().find((entry) => entry.id === provider);
   if (!descriptor || descriptor.health === "suppressed") {
     return false;
   }

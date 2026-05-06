@@ -184,6 +184,9 @@ developer-tool registry and is not exposed by default. Runtime operator surfaces
 attach it only when the CLI provides a resolved managed invocation route
 registry. That registry may come from explicit `managedAgents.routes` or from
 the default read-only route synthesized from enabled supported child engines.
+For harness-backed child engines, route health includes the session-start engine
+availability probe; a configured child engine that is missing locally does not
+receive `managed_agent.invoke` authority.
 The shared attachment point is `createAttachedRuntimeBuiltinToolSurface`, so
 GUI, TUI, operator gateway, and CLI direct-provider executable sessions use the
 same tool definition, authority projection, executor, and route contract instead

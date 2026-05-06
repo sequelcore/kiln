@@ -725,6 +725,12 @@ Verification: `bun run typecheck` clean; `bun run test` clean; focused runtime
 gateway managed-invocation tests clean; optional live proof remains gated by
 `KILN_LIVE_MANAGED_AGENT_TESTS=1`.
 
+Implementation note: GUI, TUI, CLI run, and `kiln status` pass session-start
+`EngineRegistry` probe availability into the managed-agent route resolver. A
+route is unhealthy when the target harness engine is enabled in config but not
+available on the machine, even if the session provider registry can construct a
+provider descriptor.
+
 ### 01.D.2 - Direct Provider Managed Runtime Adapter
 
 Scope: `packages/runtime/src/agents/managed-invocation/`,

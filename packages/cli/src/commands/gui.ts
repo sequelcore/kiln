@@ -7,6 +7,7 @@ import { createManagedDirectProviderAdapterFactory } from "../config/managed-age
 import { resolveManagedInvocationToolOptions } from "../config/managed-agent-routes.js";
 import { loadConfiguredWebToolSurfaceOptions } from "../config/web-tools-config.js";
 import { resolveEffectiveProvider } from "../config/env-config.js";
+import { resolveEngineAvailabilityMap } from "../engines/engine-registry.js";
 import { loadResumeSidebarInfo } from "../application/resume-sidebar-info.js";
 import { SessionStore, TranscriptStore } from "../wrapper/session-store.js";
 import { loadSessionDetail } from "./gui-session-detail.js";
@@ -72,10 +73,12 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
       },
     }),
   );
+  const engineAvailability = resolveEngineAvailabilityMap(globalConfig);
   const managedInvocationResolution = await resolveManagedInvocationToolOptions(globalConfig, {
     cwd,
     registry,
     surface: "gui",
+    isProviderAvailable: (providerId) => engineAvailability.get(providerId),
     directAdapterFactory: createManagedDirectProviderAdapterFactory({ builtinToolOptions }),
   });
   const managedInvocation = appConfig.managedInvocation ?? managedInvocationResolution.managedInvocation;

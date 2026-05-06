@@ -40,6 +40,7 @@ import { readGlobalConfig, resolveGlobalDefaultModel } from "../config/global-co
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
 import { resolveManagedInvocationToolOptions } from "../config/managed-agent-routes.js";
 import { loadConfiguredWebToolSurfaceOptions } from "../config/web-tools-config.js";
+import { resolveEngineAvailabilityMap } from "../engines/engine-registry.js";
 import {
   SkillGenerator,
   AnthropicAdapter,
@@ -313,10 +314,12 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
       },
     }),
   );
+  const engineAvailability = resolveEngineAvailabilityMap(globalConfig);
   const managedInvocationResolution = await resolveManagedInvocationToolOptions(globalConfig, {
     cwd,
     registry,
     surface: "run",
+    isProviderAvailable: (providerId) => engineAvailability.get(providerId),
     directAdapterFactory: createManagedDirectProviderAdapterFactory({ builtinToolOptions, runtimeEnv: env }),
   });
   const managedInvocation = appConfig.managedInvocation ?? managedInvocationResolution.managedInvocation;

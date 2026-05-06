@@ -48,10 +48,11 @@ supported child engine. `managedAgents.routes` declares explicit allowlisted
 routes, and `managedAgents.enabled: false` disables the runtime tool even when a
 supported engine is enabled. A route whose provider has
 `engines.<provider>.enabled: false` is unhealthy even if it is explicitly
-declared. Synthesized child routes use `models.<engine>` when present, then the
-adapter's safe default for that engine. They do not inherit `models.default`,
-because model IDs are provider-specific. Write-capable routes are never
-synthesized.
+declared. A route is also unhealthy when the session-start engine probe cannot
+find or execute the target harness. Synthesized child routes use
+`models.<engine>` when present, then the adapter's safe default for that engine.
+They do not inherit `models.default`, because model IDs are provider-specific.
+Write-capable routes are never synthesized.
 
 Supported operator themes are `kiln-dark`, `kiln-light`, `system-follow`,
 `dracula`, `catppuccin-mocha`, `nord`, `tokyo-night`, `gruvbox-dark`,

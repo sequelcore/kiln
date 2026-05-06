@@ -17,6 +17,7 @@ import { resolveEffectiveProvider } from "../config/env-config.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
 import { resolveManagedInvocationToolOptions } from "../config/managed-agent-routes.js";
 import { loadConfiguredWebToolSurfaceOptions } from "../config/web-tools-config.js";
+import { resolveEngineAvailabilityMap } from "../engines/engine-registry.js";
 import {
   createDefaultRegistry,
   getProviderDisplayInfo,
@@ -1031,10 +1032,12 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
       },
     }),
   );
+  const engineAvailability = resolveEngineAvailabilityMap(globalConfig);
   const managedInvocationResolution = await resolveManagedInvocationToolOptions(globalConfig, {
     cwd,
     registry,
     surface: "tui",
+    isProviderAvailable: (providerId) => engineAvailability.get(providerId),
     directAdapterFactory: createManagedDirectProviderAdapterFactory({ builtinToolOptions }),
   });
   const managedInvocation = appConfig.managedInvocation ?? managedInvocationResolution.managedInvocation;

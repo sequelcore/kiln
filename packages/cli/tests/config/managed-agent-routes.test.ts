@@ -352,6 +352,31 @@ describe("resolveManagedInvocationToolOptions", () => {
     }]);
   });
 
+  it("fails closed when engine probing marks the provider unavailable", async () => {
+    const result = await resolveManagedInvocationToolOptions({
+      version: "2",
+      engines: {
+        codex: { enabled: true, billing: "plus-quota" },
+      },
+    }, {
+      cwd: "C:/repo",
+      registry: createRegistry("codex"),
+      surface: "gui",
+      isProviderAvailable: (provider) => provider !== "codex",
+    });
+
+    expect(result.managedInvocation).toBeUndefined();
+    expect(result.routeHealth).toEqual([{
+      routeId: "codex-readonly",
+      kind: "harness",
+      provider: "codex",
+      model: "gpt-5.3-codex-spark",
+      profiles: ["foundation-readonly-plan"],
+      available: false,
+      reason: "Provider 'codex' is unavailable.",
+    }]);
+  });
+
   it("keeps direct routes unhealthy until the direct provider adapter slice exists", async () => {
     const result = await resolveManagedInvocationToolOptions(baseConfig({
       routes: [{

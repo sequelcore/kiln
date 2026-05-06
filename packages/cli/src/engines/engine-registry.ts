@@ -95,6 +95,16 @@ export class EngineRegistry {
   }
 }
 
+export function resolveEngineAvailabilityMap(
+  config: KilnGlobalConfig | null | undefined,
+  registry: Pick<EngineRegistry, "probeAll"> = new EngineRegistry(),
+): ReadonlyMap<string, boolean> {
+  if (!config) {
+    return new Map();
+  }
+  return new Map(registry.probeAll(config).map((engine) => [engine.engineId, engine.available]));
+}
+
 export function getEngineBudgetStatus(
   config: KilnGlobalConfig,
   engineId: string,

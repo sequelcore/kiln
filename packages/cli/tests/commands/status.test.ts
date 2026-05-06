@@ -162,7 +162,9 @@ describe("statusCommand", () => {
     expect(output).toContain("unavailable - not found");
     expect(output).toContain("opencode");
     expect(output).toContain("Resolved worker: opencode");
-    expect(output).toContain("unavailable");
+    expect(output).toContain("Managed agent routes:");
+    expect(output).toContain("codex-readonly");
+    expect(output).toContain("unavailable - Provider 'codex' is unavailable.");
   });
 
   it("shows managed-agent routes synthesized from enabled global engines", async () => {
