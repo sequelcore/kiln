@@ -13,7 +13,7 @@ import {
   writeGlobalConfig,
   type KilnGlobalConfig,
 } from "../config/global-config.js";
-import { syncPermissions } from "../sync/security-sync.js";
+import { syncNativePermissionProjections } from "../config/native-permission-projection.js";
 import type { KilnAppConfig } from "../config.js";
 import type { KilnYamlPermissions } from "../kiln-yaml-types.js";
 
@@ -174,7 +174,7 @@ export async function importNativeCommand(
   }
 
   writeGlobalConfig(plan.after);
-  const syncResult = await syncPermissions(globalToKilnYaml(plan.after), process.cwd(), { force: true });
+  const syncResult = await syncNativePermissionProjections(globalToKilnYaml(plan.after), process.cwd(), { force: true });
   if (syncResult.errors.length > 0) {
     console.error("Error: imported config was written, but native re-projection failed:");
     for (const error of syncResult.errors) {

@@ -34,8 +34,8 @@ targets are deferred to future roadmap slices if adoption warrants them.
 
 ### 2.1 Current sync/ is flat and hardcoded
 
-`packages/cli/src/sync/` contains five independent modules — `agent-sync.ts`,
-`hook-sync.ts`, `skill-sync.ts`, `security-sync.ts`, `agents-md-sync.ts` — each
+`packages/cli/src/sync/` contains independent legacy projection modules —
+`agent-sync.ts`, `hook-sync.ts`, `skill-sync.ts`, `agents-md-sync.ts` — each
 with hardcoded target paths for exactly three harnesses (claude, codex,
 opencode). Each module is a one-shot write with no record of what it wrote, no
 hash of what it wrote against, and no ability to undo.
@@ -589,8 +589,8 @@ Scope: `packages/cli/src/config/translators/claude-translator.ts`.
 - Implements `HarnessTranslator` for target `claude`.
 - Reads `models.default` (no per-harness override for claude — it owns the
   default).
-- Maps `permissions` → `{ allow, deny }` arrays. Logic extracted from
-  `security-sync.ts:syncClaudePermissions`.
+- Maps `permissions` → `{ allow, deny }` arrays. Logic lives in the translator,
+  while native IO is handled by `native-permission-projection.ts`.
 - Maps `mcp.servers` → `mcpServers` block. Dispatches by type: `http` → http
   block; `stdio` → stdio block; `kiln-bundled` → resolves module path at sync
   time and emits stdio block.
@@ -610,8 +610,8 @@ Scope: `packages/cli/src/config/translators/codex-translator.ts`.
 - Always emits `[windows] sandbox = "unelevated"` when `process.platform ===
   "win32"`. This is unconditional — the control plane enforces the known-good
   Windows config without asking.
-- Maps `permissions` → `approval_policy` + `sandbox_mode`. Logic extracted from
-  `security-sync.ts:syncCodexPermissions`.
+- Maps `permissions` → `approval_policy` + `sandbox_mode`. Logic lives in the
+  translator, while native IO is handled by `native-permission-projection.ts`.
 - Embeds `[kiln] projected_at` and `config_hash`.
 - Returns patch object and `managedFields` list for install-state.
 - Unit tests: Windows sandbox injection; model selection precedence; approval
@@ -821,8 +821,8 @@ Scope: `packages/cli/src/commands/sync.ts` (rewrite),
   settings into Kiln global config, confirm with a diff, write the merged
   config, and re-project accepted permission drift. Permission projection rules
   for Claude, Codex, and OpenCode now live in harness translator modules;
-  `security-sync.ts` retains only native file IO, drift checks, install-state
-  updates, and serialization.
+  `native-permission-projection.ts` retains only native file IO, drift checks,
+  install-state updates, and serialization.
 
 ### 01.F - kiln uninstall
 
@@ -854,8 +854,8 @@ Scope: `packages/cli/src/sync/` (entire directory),
 `~/.claude/hooks/check-engines.sh`, any doc or comment referencing them.
 
 - Delete: `agent-sync.ts`, `agent-sync.test.ts`, `hook-sync.ts`,
-  `skill-sync.ts`, `skill-sync.test.ts`, `security-sync.ts`,
-  `agents-md-sync.ts`, `agents-md-sync.test.ts`.
+  `skill-sync.ts`, `skill-sync.test.ts`, `agents-md-sync.ts`,
+  `agents-md-sync.test.ts`.
 - Delete: `check-engines.sh` from the user home hook path. Remove any reference
   to it in CLAUDE.md memory files (those are outside this repo; document the
   deletion in the commit message).

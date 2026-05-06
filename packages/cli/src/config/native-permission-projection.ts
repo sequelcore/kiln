@@ -2,11 +2,11 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import os from "node:os";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
-import { stripJsonComments } from "../config/json-comments.js";
-import { translateClaudePermissionProjection } from "../config/translators/claude-translator.js";
-import { translateCodexPermissionProjection } from "../config/translators/codex-translator.js";
-import { translateOpenCodePermissionProjection } from "../config/translators/opencode-translator.js";
-import { PERMISSION_PROJECTION_TARGET_IDS } from "../config/translators/permission-projection.js";
+import { stripJsonComments } from "./json-comments.js";
+import { translateClaudePermissionProjection } from "./translators/claude-translator.js";
+import { translateCodexPermissionProjection } from "./translators/codex-translator.js";
+import { translateOpenCodePermissionProjection } from "./translators/opencode-translator.js";
+import { PERMISSION_PROJECTION_TARGET_IDS } from "./translators/permission-projection.js";
 import type { KilnPermissionPolicy } from "../wrapper/session.js";
 import type { KilnYaml } from "../kiln-yaml-types.js";
 import {
@@ -17,18 +17,18 @@ import {
   writeNativeProjectionInstallState,
   type NativeProjectionInstallState,
   type NativeProjectionTargetState,
-} from "../config/native-projection-state.js";
+} from "./native-projection-state.js";
 
 const DEFAULT_POLICY: KilnPermissionPolicy = { approval: "on-request", sandbox: "read-only" };
 
-export interface SyncResult {
+export interface NativePermissionProjectionResult {
   claude: boolean;
   codex: boolean;
   opencode: boolean;
   errors: string[];
 }
 
-export interface SyncPermissionsOptions {
+export interface NativePermissionProjectionOptions {
   readonly force?: boolean;
 }
 
@@ -42,11 +42,11 @@ function ensureDir(dirPath: string): void {
   mkdirSync(dirPath, { recursive: true });
 }
 
-export async function syncPermissions(
+export async function syncNativePermissionProjections(
   kilnYaml: KilnYaml,
   projectPath: string,
-  options: SyncPermissionsOptions = {},
-): Promise<SyncResult> {
+  options: NativePermissionProjectionOptions = {},
+): Promise<NativePermissionProjectionResult> {
   const errors: string[] = [];
   const policy = kilnYaml.permissions ?? DEFAULT_POLICY;
   const kilnDir = join(projectPath, ".kiln");
@@ -90,7 +90,7 @@ async function syncClaudePermissions(
   policy: KilnPermissionPolicy,
   projectPath: string,
   installState: NativeProjectionInstallState,
-  options: SyncPermissionsOptions,
+  options: NativePermissionProjectionOptions,
 ): Promise<PermissionTargetResult> {
   const targetId = PERMISSION_PROJECTION_TARGET_IDS.claude;
   const target = join(projectPath, ".claude", "settings.json");
@@ -127,7 +127,7 @@ async function syncClaudePermissions(
 async function syncCodexPermissions(
   policy: KilnPermissionPolicy,
   installState: NativeProjectionInstallState,
-  options: SyncPermissionsOptions,
+  options: NativePermissionProjectionOptions,
 ): Promise<PermissionTargetResult> {
   const targetId = PERMISSION_PROJECTION_TARGET_IDS.codex;
   const target = join(os.homedir(), ".codex", "config.toml");
@@ -165,7 +165,7 @@ async function syncCodexPermissions(
 async function syncOpenCodePermissions(
   policy: KilnPermissionPolicy,
   installState: NativeProjectionInstallState,
-  options: SyncPermissionsOptions,
+  options: NativePermissionProjectionOptions,
 ): Promise<PermissionTargetResult> {
   const targetId = PERMISSION_PROJECTION_TARGET_IDS.opencode;
   const target = join(os.homedir(), ".config", "opencode", "opencode.json");

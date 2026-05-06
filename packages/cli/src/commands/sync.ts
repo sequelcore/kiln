@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import readline from "node:readline";
 import { loadKilnConfig } from "../config/config-merger.js";
-import { syncPermissions } from "../sync/security-sync.js";
+import { syncNativePermissionProjections } from "../config/native-permission-projection.js";
 import { syncHooks } from "../sync/hook-sync.js";
 import { syncAgentsMd } from "../sync/agents-md-sync.js";
 import { syncAgents } from "../sync/agent-sync.js";
@@ -144,7 +144,7 @@ export async function syncCommand(
     }
   }
 
-  let permResult: Awaited<ReturnType<typeof syncPermissions>> | null = null;
+  let permResult: Awaited<ReturnType<typeof syncNativePermissionProjections>> | null = null;
   let hookResult: Awaited<ReturnType<typeof syncHooks>> | null = null;
   let agentResult: Awaited<ReturnType<typeof syncAgents>> | null = null;
   let agentsMdResult: Awaited<ReturnType<typeof syncAgentsMd>> | null = null;
@@ -153,7 +153,7 @@ export async function syncCommand(
   const allErrors: string[] = [];
 
   if (isSyncTargetSelected(flags, "permissions")) {
-    permResult = await syncPermissions(kilnYaml, root, { force: forcePermissionSync });
+    permResult = await syncNativePermissionProjections(kilnYaml, root, { force: forcePermissionSync });
     allErrors.push(...permResult.errors);
   }
 

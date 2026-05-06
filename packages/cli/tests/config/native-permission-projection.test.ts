@@ -21,7 +21,7 @@ vi.mock("node:os", async () => {
 });
 
 import * as os from "node:os";
-import { syncPermissions } from "../../src/sync/security-sync.js";
+import { syncNativePermissionProjections } from "../../src/config/native-permission-projection.js";
 
 interface TestPaths {
   rootPath: string;
@@ -57,11 +57,11 @@ function asRecord(value: unknown): Record<string, unknown> {
   return {};
 }
 
-describe("syncPermissions", () => {
+describe("syncNativePermissionProjections", () => {
   let paths: TestPaths;
 
   beforeEach(() => {
-    const rootPath = fs.mkdtempSync(join(os.tmpdir(), "kiln-security-sync-"));
+    const rootPath = fs.mkdtempSync(join(os.tmpdir(), "kiln-native-permission-projection-"));
     const projectPath = join(rootPath, "project");
     const homePath = join(rootPath, "home");
     fs.mkdirSync(projectPath, { recursive: true });
@@ -92,7 +92,7 @@ describe("syncPermissions", () => {
       "utf-8",
     );
 
-    const result = await syncPermissions(buildKilnYaml(), paths.projectPath);
+    const result = await syncNativePermissionProjections(buildKilnYaml(), paths.projectPath);
 
     expect(result.errors).toHaveLength(0);
     expect(result.claude).toBe(true);
@@ -127,7 +127,7 @@ describe("syncPermissions", () => {
       "utf-8",
     );
 
-    const result = await syncPermissions(buildKilnYaml(), paths.projectPath);
+    const result = await syncNativePermissionProjections(buildKilnYaml(), paths.projectPath);
 
     expect(result.errors).toHaveLength(0);
     expect(result.codex).toBe(true);
@@ -159,7 +159,7 @@ describe("syncPermissions", () => {
       "utf-8",
     );
 
-    const result = await syncPermissions(buildKilnYaml(), paths.projectPath);
+    const result = await syncNativePermissionProjections(buildKilnYaml(), paths.projectPath);
 
     expect(result.errors).toHaveLength(0);
     expect(result.opencode).toBe(true);
@@ -176,7 +176,7 @@ describe("syncPermissions", () => {
   });
 
   it("writes non-empty translation metadata for granular policy across all backends", async () => {
-    const result = await syncPermissions(buildKilnYaml(), paths.projectPath);
+    const result = await syncNativePermissionProjections(buildKilnYaml(), paths.projectPath);
 
     expect(result.errors).toHaveLength(0);
     const claudeSettingsPath = join(paths.projectPath, ".claude", "settings.json");
@@ -201,7 +201,7 @@ describe("syncPermissions", () => {
   });
 
   it("records native projection install state after permission sync", async () => {
-    const result = await syncPermissions(buildKilnYaml(), paths.projectPath);
+    const result = await syncNativePermissionProjections(buildKilnYaml(), paths.projectPath);
 
     expect(result.errors).toHaveLength(0);
     const state = readJson(join(paths.projectPath, ".kiln", "install-state.json"));
@@ -220,7 +220,7 @@ describe("syncPermissions", () => {
   });
 
   it("aborts only the target whose managed fields drifted", async () => {
-    const first = await syncPermissions(buildKilnYaml(), paths.projectPath);
+    const first = await syncNativePermissionProjections(buildKilnYaml(), paths.projectPath);
     expect(first.errors).toHaveLength(0);
 
     const codexConfigPath = join(paths.homePath, ".codex", "config.toml");
@@ -238,7 +238,7 @@ describe("syncPermissions", () => {
       "utf-8",
     );
 
-    const second = await syncPermissions(buildKilnYaml(), paths.projectPath);
+    const second = await syncNativePermissionProjections(buildKilnYaml(), paths.projectPath);
 
     expect(second.claude).toBe(true);
     expect(second.codex).toBe(false);
@@ -251,7 +251,7 @@ describe("syncPermissions", () => {
   });
 
   it("force overwrites drifted managed fields and refreshes install state", async () => {
-    const first = await syncPermissions(buildKilnYaml(), paths.projectPath);
+    const first = await syncNativePermissionProjections(buildKilnYaml(), paths.projectPath);
     expect(first.errors).toHaveLength(0);
 
     const codexConfigPath = join(paths.homePath, ".codex", "config.toml");
@@ -268,7 +268,7 @@ describe("syncPermissions", () => {
       "utf-8",
     );
 
-    const second = await syncPermissions(buildKilnYaml(), paths.projectPath, { force: true });
+    const second = await syncNativePermissionProjections(buildKilnYaml(), paths.projectPath, { force: true });
 
     expect(second.errors).toHaveLength(0);
     expect(second.codex).toBe(true);
