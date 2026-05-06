@@ -3,13 +3,13 @@ import { join } from "node:path";
 import { loadAgentDefinitions } from "../application/agent-loader.js";
 import { loadKilnConfig } from "../config/config-merger.js";
 
-export interface AgentsMdSyncResult {
+export interface AgentsMdProjectionResult {
   written: boolean;
   path: string;
   errors: string[];
 }
 
-export async function syncAgentsMd(projectPath: string): Promise<AgentsMdSyncResult> {
+export async function writeAgentsMdProjection(projectPath: string): Promise<AgentsMdProjectionResult> {
   const targetPath = join(projectPath, "AGENTS.md");
 
   try {

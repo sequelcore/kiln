@@ -5,7 +5,7 @@ import { stringify } from "yaml";
 import { loadAgentDefinitions } from "../application/agent-loader.js";
 import type { KilnAgentDefinition } from "../application/agent-loader.js";
 
-export interface AgentSyncResult {
+export interface NativeAgentProjectionResult {
   claude: boolean;
   codex: boolean;
   opencode: boolean;
@@ -70,7 +70,7 @@ export function agentToOpenCodeMd(agent: KilnAgentDefinition): string {
   return `---\n${yamlFrontmatter}\n---\n${body}`;
 }
 
-export async function syncAgents(projectPath: string): Promise<AgentSyncResult> {
+export async function syncNativeAgentProjections(projectPath: string): Promise<NativeAgentProjectionResult> {
   const errors: string[] = [];
   let synced = 0;
 

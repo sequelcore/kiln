@@ -11,17 +11,17 @@ vi.mock("node:fs", async (importOriginal) => {
   };
 });
 
-vi.mock("../application/agent-loader.js", () => ({
+vi.mock("../../src/application/agent-loader.js", () => ({
   loadAgentDefinitions: vi.fn(),
 }));
 
-vi.mock("../config/config-merger.js", () => ({
+vi.mock("../../src/config/config-merger.js", () => ({
   loadKilnConfig: vi.fn(),
 }));
 
-import { loadAgentDefinitions } from "../application/agent-loader.js";
-import { loadKilnConfig } from "../config/config-merger.js";
-import { syncAgentsMd } from "./agents-md-sync.js";
+import { loadAgentDefinitions } from "../../src/application/agent-loader.js";
+import { loadKilnConfig } from "../../src/config/config-merger.js";
+import { writeAgentsMdProjection } from "../../src/application/agents-md-projection.js";
 
 const PROJECT_PATH = "/workspace/project";
 const TARGET_PATH = join(PROJECT_PATH, "AGENTS.md");
@@ -35,7 +35,7 @@ function writtenContent(callIndex = 0): string {
   return String(writeFileSyncMock.mock.calls[callIndex]?.[1] ?? "");
 }
 
-describe("agents-md-sync", () => {
+describe("agents-md-projection", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     readFileSyncMock.mockReset();
@@ -69,7 +69,7 @@ describe("agents-md-sync", () => {
       parallelWorkers: 2,
     });
 
-    const result = await syncAgentsMd(PROJECT_PATH);
+    const result = await writeAgentsMdProjection(PROJECT_PATH);
     const content = writtenContent();
 
     expect(result).toEqual({
@@ -104,7 +104,7 @@ describe("agents-md-sync", () => {
       domain: "default",
     });
 
-    const result = await syncAgentsMd(PROJECT_PATH);
+    const result = await writeAgentsMdProjection(PROJECT_PATH);
     const content = writtenContent();
 
     expect(result.written).toBe(true);
@@ -123,7 +123,7 @@ describe("agents-md-sync", () => {
     ]);
     loadKilnConfigMock.mockResolvedValue(null);
 
-    const result = await syncAgentsMd(PROJECT_PATH);
+    const result = await writeAgentsMdProjection(PROJECT_PATH);
     const content = writtenContent();
 
     expect(result.written).toBe(true);
@@ -139,7 +139,7 @@ describe("agents-md-sync", () => {
       throw new Error("disk full");
     });
 
-    const result = await syncAgentsMd(PROJECT_PATH);
+    const result = await writeAgentsMdProjection(PROJECT_PATH);
 
     expect(result.written).toBe(false);
     expect(result.path).toBe(TARGET_PATH);
@@ -166,8 +166,8 @@ describe("agents-md-sync", () => {
       parallelWorkers: 1,
     });
 
-    const firstResult = await syncAgentsMd(PROJECT_PATH);
-    const secondResult = await syncAgentsMd(PROJECT_PATH);
+    const firstResult = await writeAgentsMdProjection(PROJECT_PATH);
+    const secondResult = await writeAgentsMdProjection(PROJECT_PATH);
 
     expect(firstResult.written).toBe(true);
     expect(secondResult.written).toBe(true);

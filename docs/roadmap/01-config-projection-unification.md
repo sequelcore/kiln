@@ -32,13 +32,13 @@ targets are deferred to future roadmap slices if adoption warrants them.
 
 ## 2. Problem Statement
 
-### 2.1 Current sync/ is flat and hardcoded
+### 2.1 Previous sync/ was flat and hardcoded
 
-`packages/cli/src/sync/` contains independent legacy projection modules —
-`agent-sync.ts`, `skill-sync.ts`, `agents-md-sync.ts` — each
-with hardcoded target paths for exactly three harnesses (claude, codex,
-opencode). Each module is a one-shot write with no record of what it wrote, no
-hash of what it wrote against, and no ability to undo.
+`packages/cli/src/sync/` used to contain independent projection modules with
+hardcoded target paths for exactly three harnesses (claude, codex, opencode).
+Those responsibilities now live under config/application ownership:
+permission, hook, agent, and skill native projections live in `config/`, while
+AGENTS.md generation lives in `application/`.
 
 ### 2.2 No install state or provenance
 
@@ -853,21 +853,24 @@ Scope: `packages/cli/src/commands/uninstall.ts`.
 
 ### 01.G - Delete Old sync/, Delete check-engines.sh, Prune Docs
 
-Scope: `packages/cli/src/sync/` (entire directory),
+Scope: obsolete `packages/cli/src/sync/` references,
 `~/.claude/hooks/check-engines.sh`, any doc or comment referencing them.
 
-- Delete: `agent-sync.ts`, `agent-sync.test.ts`,
-  `skill-sync.ts`, `skill-sync.test.ts`, `agents-md-sync.ts`,
-  `agents-md-sync.test.ts`.
+- Delete obsolete `sync/` module references after moving projection ownership to
+  `config/` and `application/`.
 - Delete: `check-engines.sh` from the user home hook path. Remove any reference
   to it in CLAUDE.md memory files (those are outside this repo; document the
   deletion in the commit message).
 - Remove any import of `sync/` modules from CLI command files. Verify with
-  grep: no `from.*sync/agent-sync`, `from.*sync/hook-sync`, etc.
+  grep: no `from.*sync/`.
 - Update `packages/cli/src/index.ts` exports to remove deleted modules.
+- Implementation progress: `packages/cli/src/sync/` has no remaining source
+  modules. Native agent projection moved to `config/native-agent-projection.ts`,
+  native skill projection moved to `config/native-skill-projection.ts`, and
+  AGENTS.md generation moved to `application/agents-md-projection.ts`.
 - Verification: `bun run typecheck` clean; `bun run test` clean; grep for
-  `check-engines.sh` in the repo returns zero results; grep for
-  `packages/cli/src/sync/` in imports returns zero results.
+  `check-engines.sh` in the repo returns zero results; grep for `../sync`
+  imports returns zero results.
 
 Each slice: one atomic concern. No slice merges translator work with registry
 work. No slice deletes old code before the replacement is verified.

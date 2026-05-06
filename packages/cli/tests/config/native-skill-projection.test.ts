@@ -15,7 +15,7 @@ vi.mock("node:os", () => ({
   },
 }));
 
-import { discoverSkillDirs, syncSkills } from "./skill-sync.js";
+import { discoverSkillDirs, syncNativeSkillProjections } from "../../src/config/native-skill-projection.js";
 
 const copyFileSyncMock = copyFileSync as unknown as ReturnType<typeof vi.fn>;
 const mkdirSyncMock = mkdirSync as unknown as ReturnType<typeof vi.fn>;
@@ -30,7 +30,7 @@ function dirent(name: string, isDirectory: boolean): { name: string; isDirectory
   };
 }
 
-describe("skill-sync", () => {
+describe("native-skill-projection", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     copyFileSyncMock.mockReset();
@@ -48,7 +48,7 @@ describe("skill-sync", () => {
       throw new Error("ENOENT");
     });
 
-    const result = await syncSkills("/workspace/project");
+    const result = await syncNativeSkillProjections("/workspace/project");
 
     expect(result).toEqual({
       claude: true,
@@ -145,7 +145,7 @@ describe("skill-sync", () => {
       throw new Error(`Unexpected path: ${targetPath}`);
     });
 
-    const result = await syncSkills(projectPath);
+    const result = await syncNativeSkillProjections(projectPath);
 
     expect(result.claude).toBe(true);
     expect(result.codex).toBe(true);
@@ -191,7 +191,7 @@ describe("skill-sync", () => {
       }
     });
 
-    const result = await syncSkills(projectPath);
+    const result = await syncNativeSkillProjections(projectPath);
 
     expect(result.claude).toBe(true);
     expect(result.codex).toBe(false);

@@ -13,24 +13,24 @@ vi.mock("node:os", () => ({
   },
 }));
 
-vi.mock("../application/agent-loader.js", () => ({
+vi.mock("../../src/application/agent-loader.js", () => ({
   loadAgentDefinitions: vi.fn(),
 }));
 
-import { loadAgentDefinitions } from "../application/agent-loader.js";
+import { loadAgentDefinitions } from "../../src/application/agent-loader.js";
 import {
   agentToClaudeMd,
   agentToCodexToml,
   agentToOpenCodeMd,
-  syncAgents,
-} from "./agent-sync.js";
+  syncNativeAgentProjections,
+} from "../../src/config/native-agent-projection.js";
 
 const mkdirSyncMock = mkdirSync as unknown as ReturnType<typeof vi.fn>;
 const writeFileSyncMock = writeFileSync as unknown as ReturnType<typeof vi.fn>;
 const homedirMock = os.homedir as unknown as ReturnType<typeof vi.fn>;
 const loadAgentDefinitionsMock = loadAgentDefinitions as unknown as ReturnType<typeof vi.fn>;
 
-describe("agent-sync", () => {
+describe("native-agent-projection", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mkdirSyncMock.mockReset();
@@ -46,7 +46,7 @@ describe("agent-sync", () => {
   it("returns synced:0 and all true when no agents defined", async () => {
     loadAgentDefinitionsMock.mockResolvedValue([]);
 
-    const result = await syncAgents("/workspace/project");
+    const result = await syncNativeAgentProjections("/workspace/project");
 
     expect(result).toEqual({
       claude: true,
@@ -147,7 +147,7 @@ describe("agent-sync", () => {
       }
     });
 
-    const result = await syncAgents("/workspace/project");
+    const result = await syncNativeAgentProjections("/workspace/project");
 
     expect(result.claude).toBe(true);
     expect(result.codex).toBe(false);

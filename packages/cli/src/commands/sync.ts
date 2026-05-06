@@ -3,9 +3,9 @@ import readline from "node:readline";
 import { loadKilnConfig } from "../config/config-merger.js";
 import { syncNativePermissionProjections } from "../config/native-permission-projection.js";
 import { syncNativeHookProjections } from "../config/native-hook-projection.js";
-import { syncAgentsMd } from "../sync/agents-md-sync.js";
-import { syncAgents } from "../sync/agent-sync.js";
-import { syncSkills } from "../sync/skill-sync.js";
+import { writeAgentsMdProjection } from "../application/agents-md-projection.js";
+import { syncNativeAgentProjections } from "../config/native-agent-projection.js";
+import { syncNativeSkillProjections } from "../config/native-skill-projection.js";
 import type { KilnAppConfig } from "../config.js";
 
 export const SYNC_TARGETS = ["permissions", "hooks", "agents", "agents-md", "skills"] as const;
@@ -146,9 +146,9 @@ export async function syncCommand(
 
   let permResult: Awaited<ReturnType<typeof syncNativePermissionProjections>> | null = null;
   let hookResult: Awaited<ReturnType<typeof syncNativeHookProjections>> | null = null;
-  let agentResult: Awaited<ReturnType<typeof syncAgents>> | null = null;
-  let agentsMdResult: Awaited<ReturnType<typeof syncAgentsMd>> | null = null;
-  let skillsResult: Awaited<ReturnType<typeof syncSkills>> | null = null;
+  let agentResult: Awaited<ReturnType<typeof syncNativeAgentProjections>> | null = null;
+  let agentsMdResult: Awaited<ReturnType<typeof writeAgentsMdProjection>> | null = null;
+  let skillsResult: Awaited<ReturnType<typeof syncNativeSkillProjections>> | null = null;
 
   const allErrors: string[] = [];
 
@@ -163,17 +163,17 @@ export async function syncCommand(
   }
 
   if (isSyncTargetSelected(flags, "agents")) {
-    agentResult = await syncAgents(root);
+    agentResult = await syncNativeAgentProjections(root);
     allErrors.push(...agentResult.errors);
   }
 
   if (isSyncTargetSelected(flags, "agents-md")) {
-    agentsMdResult = await syncAgentsMd(root);
+    agentsMdResult = await writeAgentsMdProjection(root);
     allErrors.push(...agentsMdResult.errors);
   }
 
   if (isSyncTargetSelected(flags, "skills")) {
-    skillsResult = await syncSkills(root);
+    skillsResult = await syncNativeSkillProjections(root);
     allErrors.push(...skillsResult.errors);
   }
 

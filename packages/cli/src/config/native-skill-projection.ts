@@ -2,7 +2,7 @@ import { copyFileSync, mkdirSync, readdirSync } from "node:fs";
 import os from "node:os";
 import { join } from "node:path";
 
-export interface SkillSyncResult {
+export interface NativeSkillProjectionResult {
   claude: boolean;
   codex: boolean;
   opencode: boolean;
@@ -44,7 +44,7 @@ interface SkillTarget {
   dir: string;
 }
 
-export async function syncSkills(projectPath: string): Promise<SkillSyncResult> {
+export async function syncNativeSkillProjections(projectPath: string): Promise<NativeSkillProjectionResult> {
   const errors: string[] = [];
   let synced = 0;
   const skillDirs = discoverSkillDirs(projectPath);
