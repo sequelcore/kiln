@@ -145,6 +145,87 @@ describe("operator event presentation", () => {
     expect(completed.surfaces).toEqual(["conversation_inline", "activity_panel", "inspector"]);
   });
 
+  it("presents managed invocation tool route details without structured placeholders", () => {
+    const started = presentOperatorEventPayload("tool_call_started", {
+      toolCallId: "tool-1",
+      toolName: "managed_agent.invoke",
+      input: {
+        profile: "foundation-readonly-plan",
+        providerRoute: {
+          providerId: "codex-oauth",
+          model: "gpt-5.4-mini",
+        },
+        task: "Inspect docs/architecture/managed-agents.md.",
+        summary: "Inspect managed agents architecture doc",
+      },
+    });
+    const completed = presentOperatorEventPayload("tool_call_completed", {
+      toolCallId: "tool-1",
+      toolName: "managed_agent.invoke",
+      input: {
+        profile: "foundation-readonly-plan",
+        providerRoute: {
+          providerId: "codex-oauth",
+          model: "gpt-5.4-mini",
+        },
+        task: "Inspect docs/architecture/managed-agents.md.",
+        summary: "Inspect managed agents architecture doc",
+      },
+      outputSummary: JSON.stringify({
+        output: "Inspection completed.",
+        isError: false,
+        metadata: {
+          kind: "managed-invocation",
+          invocationId: "inv-1",
+          routeId: "codex-oauth",
+          status: "completed",
+          profile: "foundation-readonly-plan",
+          providerRoute: {
+            providerId: "codex-oauth",
+            model: "gpt-5.4-mini",
+            surface: "direct-provider",
+          },
+          adapterKind: "direct",
+          executionMode: "runtime-direct",
+          authorityProfileId: "authority:foundation-readonly-plan",
+          childSessionId: "child-session-1",
+        },
+      }),
+      status: { state: "succeeded" },
+    });
+
+    expect(started.summary).toBe("foundation-readonly-plan via codex-oauth/gpt-5.4-mini · Execution in progress");
+    expect(started.details).toEqual([
+      { label: "Tool", value: "managed_agent.invoke" },
+      { label: "Tool call ID", value: "tool-1" },
+      { label: "Profile", value: "foundation-readonly-plan" },
+      { label: "Provider", value: "codex-oauth" },
+      { label: "Model", value: "gpt-5.4-mini" },
+      { label: "Task", value: "Inspect docs/architecture/managed-agents.md." },
+      { label: "Summary", value: "Inspect managed agents architecture doc" },
+    ]);
+    expect(completed.summary).toBe("foundation-readonly-plan via codex-oauth/gpt-5.4-mini (direct-provider) · Inspection completed.");
+    expect(completed.details).toEqual([
+      { label: "Tool", value: "managed_agent.invoke" },
+      { label: "Tool call ID", value: "tool-1" },
+      { label: "Status", value: "succeeded" },
+      { label: "Result", value: "Inspection completed." },
+      { label: "Profile", value: "foundation-readonly-plan" },
+      { label: "Provider", value: "codex-oauth" },
+      { label: "Model", value: "gpt-5.4-mini" },
+      { label: "Surface", value: "direct-provider" },
+      { label: "Adapter", value: "direct" },
+      { label: "Execution", value: "runtime-direct" },
+      { label: "Authority", value: "authority:foundation-readonly-plan" },
+      { label: "Invocation ID", value: "inv-1" },
+      { label: "Route ID", value: "codex-oauth" },
+      { label: "Child session", value: "child-session-1" },
+      { label: "Task", value: "Inspect docs/architecture/managed-agents.md." },
+      { label: "Summary", value: "Inspect managed agents architecture doc" },
+    ]);
+    expect(completed.details).not.toContainEqual({ label: "Provider Route", value: "Structured value" });
+  });
+
   it("keeps low-signal runtime telemetry out of the inline transcript", () => {
     const routed = presentOperatorEventPayload("provider_routed", {
       provider: {

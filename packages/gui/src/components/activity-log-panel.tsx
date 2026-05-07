@@ -63,6 +63,7 @@ export function ActivityLogPanel(props: ActivityLogPanelProps) {
   const selectedPresentation = selectedEvent
     ? presentOperatorEventPayload(selectedEvent.eventKind, detailsPayloadForEvent(selectedEvent))
     : null;
+  const selectedDetails = selectedEvent?.presentationDetails ?? selectedPresentation?.details ?? [];
 
   useEffect(() => {
     if (events.length === 0) {
@@ -142,7 +143,7 @@ export function ActivityLogPanel(props: ActivityLogPanelProps) {
                   {formatCreatedAt(selectedEvent.createdAt)}
                 </p>
               </div>
-              <DetailList items={selectedPresentation?.details ?? []} />
+              <DetailList items={selectedDetails} />
             </section>
           ) : (
             <div className="grid h-full place-items-center text-center">

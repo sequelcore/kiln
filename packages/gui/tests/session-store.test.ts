@@ -216,6 +216,79 @@ describe("session-store", () => {
     expect(state.routedModel).toBe("sonnet");
   });
 
+  it("keeps managed invocation tool identity inspectable in live timeline details", () => {
+    useSessionStore.getState().onSessionEvent({
+      eventId: "evt-managed-start",
+      kilnSessionId: "session-live",
+      sequence: 1,
+      timestamp: "2026-05-07T08:10:00.000Z",
+      kind: "tool_call_started",
+      payload: {
+        toolCallId: "tool-managed",
+        toolName: "managed_agent.invoke",
+        input: {
+          profile: "foundation-readonly-plan",
+          providerRoute: {
+            providerId: "codex-oauth",
+            model: "gpt-5.4-mini",
+          },
+          task: "Inspect docs/architecture/managed-agents.md.",
+          summary: "Inspect managed agents architecture doc",
+        },
+      },
+    });
+    useSessionStore.getState().onSessionEvent({
+      eventId: "evt-managed-complete",
+      kilnSessionId: "session-live",
+      sequence: 2,
+      timestamp: "2026-05-07T08:10:01.000Z",
+      kind: "tool_call_completed",
+      payload: {
+        toolCallId: "tool-managed",
+        toolName: "managed_agent.invoke",
+        outputSummary: JSON.stringify({
+          output: "Inspection completed.",
+          isError: false,
+          metadata: {
+            kind: "managed-invocation",
+            invocationId: "inv-1",
+            routeId: "codex-oauth",
+            status: "completed",
+            profile: "foundation-readonly-plan",
+            providerRoute: {
+              providerId: "codex-oauth",
+              model: "gpt-5.4-mini",
+              surface: "direct-provider",
+            },
+            adapterKind: "direct",
+            executionMode: "runtime-direct",
+            authorityProfileId: "authority:foundation-readonly-plan",
+            childSessionId: "child-session-1",
+          },
+        }),
+        status: { state: "succeeded" },
+      },
+    });
+
+    const completedEntry = useSessionStore.getState().timelineEntries.find(
+      (entry) => entry.type === "event" && entry.eventKind === "tool_call_completed",
+    );
+
+    expect(completedEntry).toMatchObject({
+      type: "event",
+      eventKind: "tool_call_completed",
+      summary: "foundation-readonly-plan via codex-oauth/gpt-5.4-mini (direct-provider) · Inspection completed.",
+    });
+    expect(completedEntry?.type).toBe("event");
+    if (completedEntry?.type !== "event") {
+      return;
+    }
+    expect(completedEntry.presentationDetails).toContainEqual({ label: "Provider", value: "codex-oauth" });
+    expect(completedEntry.presentationDetails).toContainEqual({ label: "Model", value: "gpt-5.4-mini" });
+    expect(completedEntry.presentationDetails).toContainEqual({ label: "Surface", value: "direct-provider" });
+    expect(completedEntry.presentationDetails).not.toContainEqual({ label: "Provider Route", value: "Structured value" });
+  });
+
   it("tracks session telemetry from cost updates and canonical file-change events", () => {
     useSessionStore.setState({
       activeProvider: "claude",

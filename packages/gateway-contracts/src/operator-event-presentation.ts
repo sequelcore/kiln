@@ -642,6 +642,60 @@ function toolResultText(payload: Record<string, unknown>): string | null {
   return compactText(raw);
 }
 
+function toolResultMetadata(payload: Record<string, unknown>): Record<string, unknown> | null {
+  const envelope = parseToolResultEnvelope(toolResultEnvelopeText(payload));
+  const payloadMetadata = asRecord(payload.metadata);
+  if (!envelope?.metadata && !payloadMetadata) {
+    return null;
+  }
+  return {
+    ...(envelope?.metadata ?? {}),
+    ...(payloadMetadata ?? {}),
+  };
+}
+
+function managedInvocationToolIdentity(payload: Record<string, unknown>): Record<string, unknown> | null {
+  if (readString(payload.toolName) !== "managed_agent.invoke") {
+    return null;
+  }
+  const input = asRecord(payload.input);
+  const metadata = toolResultMetadata(payload);
+  const providerRoute = asRecord(metadata?.providerRoute) ?? asRecord(input?.providerRoute);
+  const profile = readString(metadata?.profile) ?? readString(input?.profile);
+  if (!profile && !providerRoute) {
+    return null;
+  }
+  return {
+    ...(input ?? {}),
+    ...(metadata ?? {}),
+    ...(profile ? { profile } : {}),
+    ...(providerRoute ? { providerRoute } : {}),
+  };
+}
+
+function addManagedInvocationToolDetails(
+  details: OperatorEventDetailItem[],
+  identity: Record<string, unknown>,
+  options: { readonly includeRuntimeEvidence: boolean },
+): void {
+  const providerRoute = asRecord(identity.providerRoute);
+  addItem(details, "Profile", identity.profile);
+  addItem(details, "Provider", providerRoute?.providerId);
+  addItem(details, "Model", providerRoute?.model);
+  addItem(details, "Surface", providerRoute?.surface);
+  if (options.includeRuntimeEvidence) {
+    addItem(details, "Adapter", identity.adapterKind);
+    addItem(details, "Execution", identity.executionMode);
+    addItem(details, "Authority", identity.authorityProfileId);
+    addItem(details, "Invocation ID", identity.invocationId);
+    addItem(details, "Route ID", identity.routeId);
+    addItem(details, "Child session", identity.childSessionId);
+    addItem(details, "Child turn", identity.childTurnId);
+  }
+  addItem(details, "Task", identity.task);
+  addItem(details, "Summary", identity.summary);
+}
+
 function providerIdentity(payload: Record<string, unknown>): { provider: string | null; model: string | null } {
   const provider = asRecord(payload.provider);
   return {
@@ -672,14 +726,19 @@ function providerRoutedPresentation(payload: Record<string, unknown>): OperatorE
 function toolStartedPresentation(payload: Record<string, unknown>): OperatorEventPresentation {
   const toolName = readString(payload.toolName) ?? "tool";
   const input = asRecord(payload.input) ?? payload;
+  const managedInvocation = managedInvocationToolIdentity(payload);
+  const managedInvocationSummary = managedInvocation ? invocationRouteSummary(managedInvocation) : null;
   const details: OperatorEventDetailItem[] = [];
   addItem(details, "Tool", toolName);
   addItem(details, "Tool call ID", payload.toolCallId);
-  addPrimitiveItems(details, input, 7, ["toolName", "toolCallId", "input"]);
+  if (managedInvocation) {
+    addManagedInvocationToolDetails(details, managedInvocation, { includeRuntimeEvidence: false });
+  }
+  addPrimitiveItems(details, input, 10, ["toolName", "toolCallId", "input", "profile", "providerRoute", "routeId", "task", "summary", "resourceUris"]);
   return {
     title: `Using ${toolName}`,
-    summary: "Execution in progress",
-    compactText: toolName,
+    summary: managedInvocationSummary ? `${managedInvocationSummary} · Execution in progress` : "Execution in progress",
+    compactText: managedInvocationSummary ?? toolName,
     tone: "running",
     details,
     surfaces: INLINE_ACTIVITY_SURFACES,
@@ -692,16 +751,22 @@ function toolCompletedPresentation(payload: Record<string, unknown>): OperatorEv
   const statusValue = readString(status?.state) ?? readString(payload.status);
   const toolPresentation = projectToolResultPresentation(toolName, payload);
   const result = toolPresentation?.summary ?? toolResultText(payload);
+  const managedInvocation = managedInvocationToolIdentity(payload);
+  const managedInvocationSummary = managedInvocation ? invocationRouteSummary(managedInvocation) : null;
+  const summary = managedInvocationSummary && result ? `${managedInvocationSummary} · ${result}` : result;
   const details: OperatorEventDetailItem[] = [];
   addItem(details, "Tool", toolName);
   addItem(details, "Tool call ID", payload.toolCallId);
   addItem(details, "Status", statusValue);
   addItem(details, "Result", result);
-  addPrimitiveItems(details, asRecord(payload.input), 8, ["toolName", "toolCallId", "input", "status", "result"]);
+  if (managedInvocation) {
+    addManagedInvocationToolDetails(details, managedInvocation, { includeRuntimeEvidence: true });
+  }
+  addPrimitiveItems(details, asRecord(payload.input), 16, ["toolName", "toolCallId", "input", "status", "result", "profile", "providerRoute", "routeId", "task", "summary", "resourceUris"]);
   return {
     title: `Completed ${toolName}`,
-    summary: result ?? undefined,
-    compactText: result ?? toolName,
+    summary: summary ?? undefined,
+    compactText: summary ?? managedInvocationSummary ?? toolName,
     tone: statusValue === "succeeded" || statusValue === "success" ? "success" : "error",
     details,
     surfaces: INLINE_ACTIVITY_SURFACES,

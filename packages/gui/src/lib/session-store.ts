@@ -8,6 +8,7 @@ import type {
   GuiSessionDetail,
   GuiSessionEvent,
   GuiSessionSummary,
+  OperatorEventDetailItem,
   OperatorSessionEventKind,
   ToolResultPresentation,
 } from "@kilnai/gateway-contracts";
@@ -488,11 +489,12 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
         title: presentation.title,
         summary: presentation.summary,
         tone: presentation.tone,
+        presentationDetails: presentation.details,
         toolPresentation: presentation.toolPresentation,
         details: {
           toolCallId,
           toolName,
-          ...input,
+          input,
         },
       });
       continue;
@@ -522,6 +524,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
         title: presentation.title,
         summary: presentation.summary,
         tone: presentation.tone,
+        presentationDetails: presentation.details,
         toolPresentation: presentation.toolPresentation,
         details: {
           toolCallId,
@@ -805,6 +808,7 @@ export interface TimelineEventEntry {
   readonly summary?: string;
   readonly tone: "info" | "running" | "success" | "warning" | "error";
   readonly details?: unknown;
+  readonly presentationDetails?: readonly OperatorEventDetailItem[];
   readonly toolPresentation?: ToolResultPresentation;
   readonly sessionId?: string;
 }
@@ -1554,11 +1558,12 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             title: presentation.title,
             summary: presentation.summary,
             tone: presentation.tone,
+            presentationDetails: presentation.details,
             toolPresentation: presentation.toolPresentation,
             details: {
               toolCallId: readString(payload.toolCallId) ?? event.eventId,
               toolName,
-              ...input,
+              input,
             },
           },
         ],
@@ -1592,6 +1597,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             title: presentation.title,
             summary: presentation.summary,
             tone: presentation.tone,
+            presentationDetails: presentation.details,
             toolPresentation: presentation.toolPresentation,
             details: {
               toolCallId: readString(payload.toolCallId) ?? event.eventId,
