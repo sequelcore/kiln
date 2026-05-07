@@ -441,6 +441,11 @@ The model-callable `kiln_config.read` tool exposes the same views to admitted
 runtime tool surfaces. Setup surfaces should consume the same contract rather
 than parsing YAML or native files directly.
 
+Agents may propose bounded setup changes through `kiln_config.propose_change`.
+The tool validates `skill.upsert`, `agent.upsert`, and `agent.attach_skills`
+payloads and returns a structured proposal with diagnostics and preview diff;
+it does not write files. Applying a proposal is a separate approval-gated flow.
+
 When managed invocation is enabled, Kiln exposes a compact admitted agent
 catalog to the `managed_agent.invoke` tool description. Parent assistants should
 select a configured `agentProfile` when the child task clearly matches a

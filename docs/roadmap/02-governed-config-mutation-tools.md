@@ -113,8 +113,10 @@ closed and require a fresh proposal.
    gateway contracts, and CLI proposal services validate `skill.upsert`,
    `agent.upsert`, and `agent.attach_skills` against canonical `SKILL.md` and
    Kiln agent-profile parsers without writing files.
-4. Add `kiln_config.propose_change` for `skill.upsert`,
-   `agent.upsert`, and `agent.attach_skills`.
+4. Completed 2026-05-07: add `kiln_config.propose_change` for
+   `skill.upsert`, `agent.upsert`, and `agent.attach_skills`. The model-callable
+   tool returns structured proposals from the canonical validators and does not
+   write files.
 5. Add approval-gated `kiln_config.apply_change` for those first operations.
 6. Wire apply to existing sync/projection services and emit config mutation
    events.

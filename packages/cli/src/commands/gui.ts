@@ -8,7 +8,7 @@ import { withContextCandidates } from "../application/agent-skill-context.js";
 import { resolveInstructionProfileContextCandidates } from "../application/instruction-profile-context.js";
 import { readKilnYaml } from "../kiln-yaml.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
-import { createKilnConfigReadTool } from "../application/config-read-tool.js";
+import { createKilnConfigTools } from "../application/config-tools.js";
 import { discoverManagedAgentProviderModels } from "../config/managed-agent-provider-models.js";
 import { resolveManagedInvocationToolOptions } from "../config/managed-agent-routes.js";
 import { loadConfiguredWebToolSurfaceOptions, resolveProjectMemoryScope } from "../config/web-tools-config.js";
@@ -90,7 +90,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
     ...configuredBuiltinToolOptions,
     additionalTools: [
       ...(configuredBuiltinToolOptions.additionalTools ?? []),
-      createKilnConfigReadTool(cwd),
+      ...createKilnConfigTools(cwd),
     ],
   });
   const engineAvailability = resolveEngineAvailabilityMap(globalConfig);

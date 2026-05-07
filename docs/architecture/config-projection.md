@@ -154,7 +154,9 @@ Configuration mutation starts with structured proposals, not patches. A
 proposal records operation id, normalized payload, affected canonical paths,
 native projection effects, authority impact, validation diagnostics, preview
 diff, and rollback hint. Skill and agent profile proposals validate against the
-same `SKILL.md` and Kiln agent-profile parsers used by runtime discovery.
+same `SKILL.md` and Kiln agent-profile parsers used by runtime discovery. The
+model-callable `kiln_config.propose_change` tool may create those proposals but
+must not write files; apply remains a separate approval-gated operation.
 
 ## Install State And Drift
 

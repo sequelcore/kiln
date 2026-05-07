@@ -25,7 +25,7 @@ import { resolveInstructionProfileContextCandidates } from "../application/instr
 import { readKilnYaml } from "../kiln-yaml.js";
 import { resolveEffectiveProvider } from "../config/env-config.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
-import { createKilnConfigReadTool } from "../application/config-read-tool.js";
+import { createKilnConfigTools } from "../application/config-tools.js";
 import { discoverManagedAgentProviderModels } from "../config/managed-agent-provider-models.js";
 import { resolveManagedInvocationToolOptions } from "../config/managed-agent-routes.js";
 import { loadConfiguredWebToolSurfaceOptions } from "../config/web-tools-config.js";
@@ -1074,7 +1074,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     ...configuredBuiltinToolOptions,
     additionalTools: [
       ...(configuredBuiltinToolOptions.additionalTools ?? []),
-      createKilnConfigReadTool(cwd),
+      ...createKilnConfigTools(cwd),
     ],
   });
   const engineAvailability = resolveEngineAvailabilityMap(globalConfig);
