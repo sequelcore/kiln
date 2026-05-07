@@ -6,7 +6,7 @@ import type {
   ManagedAgentMemoryScope,
   ManagedAgentWorkingDirectory,
 } from "@kilnai/core";
-import { isDirectProviderId } from "@kilnai/core";
+import { isDirectProviderId, ModelCapabilityRegistry } from "@kilnai/core";
 import {
   ManagedCliHarnessAdapter,
   type ManagedAgentRuntimeAdapter,
@@ -82,6 +82,7 @@ const HARNESS_READONLY_RESULT_HANDOFF_MODELS: Record<string, readonly string[] |
   codex: "*",
   opencode: ["opencode/minimax-m2.5-free"],
 };
+const MODEL_CAPABILITIES = new ModelCapabilityRegistry();
 
 export async function resolveManagedInvocationToolOptions(
   config: ManagedAgentRouteConfigSource | null | undefined,
@@ -340,6 +341,7 @@ async function resolveRouteConfig(
     model,
     adapter,
     surface: "cli-harness",
+    taskSuitability: MODEL_CAPABILITIES.taskSuitability(routeConfig.provider, model),
     profiles: {
       [READONLY_PROFILE]: buildReadonlyProfile(routeConfig, context.cwd),
     },
@@ -404,6 +406,7 @@ async function resolveDirectRouteConfig(
     model,
     adapter,
     surface: "direct-provider",
+    taskSuitability: MODEL_CAPABILITIES.taskSuitability(routeConfig.provider, model),
     profiles: {
       [READONLY_PROFILE]: buildReadonlyProfile(routeConfig, context.cwd),
     },

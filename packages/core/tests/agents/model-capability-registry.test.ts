@@ -76,4 +76,31 @@ describe("ModelCapabilityRegistry", () => {
     expect(models.has("deepseek-chat")).toBe(true);
     expect(models.has("ollama-local")).toBe(true);
   });
+
+  it("returns static task suitability evidence for configured model routes", () => {
+    expect(registry.taskSuitability("codex-oauth", "gpt-5.4-mini")).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          task: "mechanical-edit",
+          level: "preferred",
+          source: "static-profile",
+        }),
+        expect.objectContaining({
+          task: "frontend-design",
+          level: "limited",
+          source: "static-profile",
+        }),
+      ]),
+    );
+    expect(registry.taskSuitability("opencode", "opencode/minimax-m2.5-free")).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          task: "architecture-review",
+          level: "capable",
+          source: "static-profile",
+        }),
+      ]),
+    );
+    expect(registry.taskSuitability("openrouter", "openrouter/free")).toEqual([]);
+  });
 });

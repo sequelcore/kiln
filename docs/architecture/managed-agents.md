@@ -343,6 +343,13 @@ remains the managed invocation record and `agent_invocation_*` events. Surfaces
 render the same validated intent natively or through deterministic text fallback
 instead of parsing markdown tables from the parent assistant response.
 
+The model-facing tool description also carries advisory task suitability for
+healthy managed routes when the selected provider/model has static capability
+evidence. Parent agents may use this to prefer, for example, a coding route for
+bounded backend work or a reasoning route for architecture review. Suitability
+is not authority: unavailable routes, unhealthy provider/model pairs, unknown
+agent profiles, missing skills, or denied authority profiles still fail closed.
+
 Replay must reconstruct terminal state, authority, result handoff, and write
 evidence after session serialization. Transcript and result handoff URIs emitted
 by managed invocation records must be readable through the shared `resource_read`

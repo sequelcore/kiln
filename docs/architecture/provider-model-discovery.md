@@ -100,6 +100,7 @@ Current capability fields include:
 - `supportsVision`
 - `defaultReasoningEffort`
 - `supportedReasoningEfforts`
+- `taskSuitability`
 
 Tool-capability fields are intentionally split:
 
@@ -131,6 +132,33 @@ render a reasoning selector for that model, and CLI requests should not invent a
 default. If a model does advertise supported efforts, the default is
 `defaultReasoningEffort` when present, otherwise the first advertised supported
 effort.
+
+## Task Suitability
+
+Technical model capability is not the same as task suitability. A model may
+support tools and still be a poor first choice for visual frontend design,
+research synthesis, architecture review, or mechanical edits. Kiln represents
+task suitability as explicit evidence, not as prompt folklore.
+
+Canonical task suitability records use:
+
+- `task`: one of `architecture-review`, `backend-coding`, `frontend-design`,
+  `mechanical-edit`, `research`, or `test-writing`
+- `level`: `preferred`, `capable`, or `limited`
+- `source`: `static-profile`, `live-proof`, `operator-override`, or
+  `evaluation`
+- `reason`: short operator-facing explanation
+
+Static suitability belongs in `ModelCapabilityRegistry`. It is advisory and
+must identify itself as `static-profile`. Live harness proof, operator
+overrides, and evaluation results may add or supersede suitability evidence in
+later slices, but they must preserve the same record shape and source.
+
+Parent sessions and managed invocation tool descriptions may use task
+suitability to choose among admitted routes. They must still respect route
+health, provider availability, authority profile admission, configured agent
+profiles, and skill admission. Suitability can choose between eligible routes;
+it cannot make an unavailable or unauthorized route admissible.
 
 ## Provider Classes
 

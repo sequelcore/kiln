@@ -392,6 +392,20 @@ describe("resolveManagedInvocationToolOptions", () => {
       adapterKind: "harness",
       providerId: "codex",
     });
+    expect(result.managedInvocation?.routes[0]?.taskSuitability).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          task: "backend-coding",
+          level: "capable",
+          source: "static-profile",
+        }),
+        expect.objectContaining({
+          task: "mechanical-edit",
+          level: "preferred",
+          source: "static-profile",
+        }),
+      ]),
+    );
     expect(result.managedInvocation?.routes[0]?.profiles["foundation-readonly-plan"]).toMatchObject({
       authorityProfileId: "authority:codex-readonly:foundation-readonly-plan",
       permissionProfile: "read-only",
@@ -535,6 +549,15 @@ describe("resolveManagedInvocationToolOptions", () => {
       available: true,
     }]);
     expect(result.managedInvocation?.routes[0]?.providerId).toBe("opencode");
+    expect(result.managedInvocation?.routes[0]?.taskSuitability).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          task: "architecture-review",
+          level: "capable",
+          source: "static-profile",
+        }),
+      ]),
+    );
   });
 
   it("fails closed for advertised OpenCode models without live-proven result handoff support", async () => {

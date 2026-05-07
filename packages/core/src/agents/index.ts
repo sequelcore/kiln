@@ -135,6 +135,12 @@ export { executeWithRetry } from "./tool-execution-engine.js";
 export type { ToolExecutor } from "./tool-execution-engine.js";
 export { SlidingWindowRateLimiter } from "./sliding-window-rate-limiter.js";
 export { ModelCapabilityRegistry } from "./model-capability-registry.js";
+export type {
+  ModelTaskSuitability,
+  ModelTaskSuitabilityLevel,
+  ModelTaskSuitabilitySource,
+  ModelTaskSuitabilityTask,
+} from "./model-capability-registry.js";
 export {
   normalizeToolCall,
   normalizeToolInput,

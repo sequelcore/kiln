@@ -57,12 +57,20 @@ the flag to use the configured route hierarchy.
 | `mistralai/mistral-small-3.1-24b:free` | OpenRouter | medium | yes | yes | no | 128K |
 | `ollama-local` | Ollama | low | no | yes | no | 128K |
 
-The registry exposes two methods:
+The registry exposes these methods:
 
 - `get(model)` -- returns the full `ModelCapabilityProfile` for a specific model.
 - `eligible(request)` -- filters models by required capabilities (`hasTools`, `requiresStreaming`). Models that lack a required capability are excluded before routing rules evaluate.
+- `taskSuitability(provider, model)` -- returns advisory task evidence such as
+  `backend-coding:preferred:static-profile` or
+  `frontend-design:limited:static-profile`.
 
 Profiles include pricing data (`inputPer1M`, `outputPer1M`) sourced from a single `MODEL_CATALOG` used by both the registry and the cost tracker.
+
+Task suitability is not an execution gate. It is model-selection evidence for
+parent sessions, managed child routing, and future settings surfaces. A route
+still has to pass provider discovery, route health, authority admission, and
+tool-capability checks before execution.
 
 ## Complexity Scoring
 

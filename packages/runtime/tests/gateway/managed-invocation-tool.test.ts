@@ -160,6 +160,14 @@ function makeManagedRoute(routeId: string, model: string, adapter = makeAdapter(
     model,
     adapter,
     surface: "cli-harness",
+    taskSuitability: [
+      {
+        task: "architecture-review" as const,
+        level: "capable" as const,
+        source: "static-profile" as const,
+        reason: "Test suitability evidence.",
+      },
+    ],
     profiles: {
       "foundation-readonly-plan": {
         authorityProfileId: `authority:${routeId}:foundation-readonly-plan`,
@@ -272,6 +280,7 @@ describe("managed invocation runtime tool", () => {
 
     expect(tool?.description).toContain("Configured healthy managed invocation routes");
     expect(tool?.description).toContain("opencode-readonly-a");
+    expect(tool?.description).toContain("taskSuitability=architecture-review:capable:static-profile");
     expect(tool?.description).toContain("Configured unavailable managed invocation routes");
     expect(tool?.description).toContain("openrouter-readonly");
     expect(tool?.description).toContain("Configured admitted agent profiles");

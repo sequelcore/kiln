@@ -14,6 +14,24 @@ interface CapabilityFlags {
   readonly maxContextTokens: number;
 }
 
+export type ModelTaskSuitabilityTask =
+  | "architecture-review"
+  | "backend-coding"
+  | "frontend-design"
+  | "mechanical-edit"
+  | "research"
+  | "test-writing";
+
+export type ModelTaskSuitabilityLevel = "preferred" | "capable" | "limited";
+export type ModelTaskSuitabilitySource = "static-profile" | "live-proof" | "operator-override" | "evaluation";
+
+export interface ModelTaskSuitability {
+  readonly task: ModelTaskSuitabilityTask;
+  readonly level: ModelTaskSuitabilityLevel;
+  readonly source: ModelTaskSuitabilitySource;
+  readonly reason: string;
+}
+
 const MODEL_CAPABILITIES: ReadonlyMap<string, CapabilityFlags> = new Map([
   // Anthropic
   ["claude-opus-4-6", { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: true, supportsVision: true, supportsAudio: false, maxContextTokens: 200_000 }],
@@ -42,6 +60,57 @@ const MODEL_CAPABILITIES: ReadonlyMap<string, CapabilityFlags> = new Map([
   ["gpt-5.4-mini", { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: true, supportsVision: true, supportsAudio: false, maxContextTokens: 200_000 }],
   ["gpt-5.3-codex", { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: true, supportsVision: true, supportsAudio: false, maxContextTokens: 200_000 }],
   ["gpt-5.3-codex-spark", { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: true, supportsVision: true, supportsAudio: false, maxContextTokens: 200_000 }],
+]);
+
+const TASK_SUITABILITY: ReadonlyMap<string, readonly ModelTaskSuitability[]> = new Map([
+  ["gpt-5.4", [
+    preferred("architecture-review", "High-quality reasoning profile for architecture and boundary decisions."),
+    preferred("backend-coding", "Strong coding profile for complex implementation and cross-file changes."),
+    preferred("test-writing", "Strong reasoning and structured-output support for test design."),
+    capable("research", "Strong reasoning profile; verify external facts through governed research tools."),
+    capable("mechanical-edit", "Capable, but usually more model than repetitive edits require."),
+    capable("frontend-design", "Capable for frontend implementation; pair with explicit design skills for visual quality."),
+  ]],
+  ["gpt-5.4-mini", [
+    capable("architecture-review", "Efficient reasoning profile for bounded architecture review."),
+    capable("backend-coding", "Efficient coding profile for moderate implementation tasks."),
+    capable("test-writing", "Good fit for bounded test authoring and verification planning."),
+    capable("research", "Good fit for bounded research when paired with governed sources."),
+    preferred("mechanical-edit", "Fast, lower-cost fit for repetitive edits and small projections."),
+    limited("frontend-design", "Use with frontend-design skills or a stronger design-specialized route for visual work."),
+  ]],
+  ["gpt-5.3-codex", [
+    preferred("backend-coding", "Coding-specialized profile for complex implementation."),
+    preferred("test-writing", "Coding-specialized profile for behavior tests and regression coverage."),
+    capable("architecture-review", "Useful for implementation-sensitive architecture review."),
+    capable("mechanical-edit", "Strong enough for edits, but often more model than mechanical work requires."),
+    limited("frontend-design", "Coding-specialized profile is not treated as a visual-design specialist."),
+    limited("research", "Use a research-specialized route when external evidence is central."),
+  ]],
+  ["gpt-5.3-codex-spark", [
+    preferred("mechanical-edit", "Fast coding profile for repetitive, low-risk edits."),
+    capable("backend-coding", "Good fit for bounded implementation with clear scope."),
+    capable("test-writing", "Good fit for small tests and mechanical test updates."),
+    limited("architecture-review", "Use a stronger reasoning route for architecture-sensitive decisions."),
+    limited("frontend-design", "Not treated as a visual-design specialist."),
+    limited("research", "Use a research-specialized route when source evaluation matters."),
+  ]],
+  ["opencode/minimax-m2.5-free", [
+    capable("architecture-review", "Live-proven as a read-only managed child for architecture-risk handoff."),
+    capable("research", "Usable for bounded read-only synthesis when no external browsing is required."),
+    capable("mechanical-edit", "Appropriate for economical mechanical worker tasks when write authority is admitted."),
+    limited("backend-coding", "Use for bounded implementation only after task scope and tests are explicit."),
+    limited("frontend-design", "Not treated as a visual-design specialist."),
+    limited("test-writing", "Use for simple tests; prefer stronger reasoning for test strategy."),
+  ]],
+  ["qwen/qwen3-coder:free", [
+    capable("backend-coding", "Coder-oriented free route when upstream capacity is healthy."),
+    capable("test-writing", "Coder-oriented route for bounded test updates."),
+    capable("mechanical-edit", "Useful for economical mechanical edits when available."),
+    limited("frontend-design", "Not treated as a visual-design specialist."),
+    limited("architecture-review", "Prefer a stronger reasoning route for architectural decisions."),
+    limited("research", "Prefer a research-specialized route for evidence-heavy tasks."),
+  ]],
 ]);
 
 function buildProfiles(): ReadonlyMap<string, ModelCapabilityProfile> {
@@ -98,8 +167,38 @@ export class ModelCapabilityRegistry {
     return MODEL_CAPABILITIES.get(model)?.supportsTools ?? false;
   }
 
+  /** Return advisory task suitability evidence for a provider/model route */
+  taskSuitability(provider: string, model: string): readonly ModelTaskSuitability[] {
+    return TASK_SUITABILITY.get(`${provider}/${model}`) ?? TASK_SUITABILITY.get(model) ?? [];
+  }
+
   /** Return all known model profiles */
   all(): readonly ModelCapabilityProfile[] {
     return ALL_PROFILES;
   }
+}
+
+function preferred(task: ModelTaskSuitabilityTask, reason: string): ModelTaskSuitability {
+  return suitability(task, "preferred", reason);
+}
+
+function capable(task: ModelTaskSuitabilityTask, reason: string): ModelTaskSuitability {
+  return suitability(task, "capable", reason);
+}
+
+function limited(task: ModelTaskSuitabilityTask, reason: string): ModelTaskSuitability {
+  return suitability(task, "limited", reason);
+}
+
+function suitability(
+  task: ModelTaskSuitabilityTask,
+  level: ModelTaskSuitabilityLevel,
+  reason: string,
+): ModelTaskSuitability {
+  return {
+    task,
+    level,
+    source: "static-profile",
+    reason,
+  };
 }

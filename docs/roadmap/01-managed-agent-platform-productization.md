@@ -105,11 +105,13 @@ surface-specific behavior, or provider compatibility glue.
    gates, review posture, and delegation while preserving markdown as the
    human-readable body. Context assembly and native projection summaries expose
    those facets without duplicating doctrine into harness-specific files.
-5. Add a route/model capability catalog that combines static provider metadata,
-   live proof, operator overrides, and evaluation results. Parent sessions
-   should see task suitability such as `frontend-design`, `backend-coding`,
-   `architecture-review`, `research`, `mechanical-edit`, `test-writing`, and
-   recommended skill pairings.
+5. Started 2026-05-07: add a route/model capability catalog. Static
+   `ModelCapabilityRegistry` evidence now exposes task suitability for
+   `frontend-design`, `backend-coding`, `architecture-review`, `research`,
+   `mechanical-edit`, and `test-writing`, and managed invocation tool
+   descriptions surface that evidence to parent sessions. Remaining work:
+   merge live proof, operator overrides, evaluation results, and recommended
+   skill pairings into the same evidence shape.
 6. Improve parent tool guidance so operators can ask for delegated work in
    natural language while the model sees a bounded catalog of admissible agents,
    skills, routes, context modes, and task-affinity hints.

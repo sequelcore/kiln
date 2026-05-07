@@ -9,6 +9,7 @@ import type {
   ManagedAgentInvocationRecord,
   ManagedAgentProviderRoute,
   ManagedAgentWorkingDirectory,
+  ModelTaskSuitability,
   CanonicalSessionEvent,
   ToolDefinition,
 } from "@kilnai/core";
@@ -43,6 +44,7 @@ export interface ManagedInvocationToolRoute {
   readonly model?: string;
   readonly adapter: ManagedAgentRuntimeAdapter;
   readonly surface?: string;
+  readonly taskSuitability?: readonly ModelTaskSuitability[];
   readonly profiles: Partial<Record<ManagedAgentAdmissionProfile, ManagedInvocationRouteProfile>>;
 }
 
@@ -622,7 +624,10 @@ function resolveRoute(
 function buildManagedRouteCatalogDescription(options: ManagedInvocationToolOptions): string {
   const healthy = options.routes.length > 0
     ? options.routes
-        .map((route) => `- ${route.routeId}: providerRoute.providerId=${route.providerId}${route.model ? `, model=${route.model}` : ""}, surface=${route.surface ?? route.adapter.descriptor.supportedExecutionModes[0] ?? "configured"}, profiles=${Object.keys(route.profiles).join(",")}`)
+        .map((route) => {
+          const suitability = formatTaskSuitability(route.taskSuitability);
+          return `- ${route.routeId}: providerRoute.providerId=${route.providerId}${route.model ? `, model=${route.model}` : ""}, surface=${route.surface ?? route.adapter.descriptor.supportedExecutionModes[0] ?? "configured"}, profiles=${Object.keys(route.profiles).join(",")}${suitability ? `, taskSuitability=${suitability}` : ""}`;
+        })
         .join("\n")
     : "- none";
   const unavailable = options.unavailableRoutes && options.unavailableRoutes.length > 0
@@ -636,6 +641,15 @@ function buildManagedRouteCatalogDescription(options: ManagedInvocationToolOptio
     "Configured unavailable managed invocation routes:",
     unavailable,
   ].join("\n");
+}
+
+function formatTaskSuitability(suitability: readonly ModelTaskSuitability[] | undefined): string | undefined {
+  if (!suitability || suitability.length === 0) {
+    return undefined;
+  }
+  return suitability
+    .map((entry) => `${entry.task}:${entry.level}:${entry.source}`)
+    .join(";");
 }
 
 function buildManagedAgentSelectionDescription(options: ManagedInvocationToolOptions): string {
