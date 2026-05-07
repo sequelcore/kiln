@@ -7,7 +7,7 @@
 | Setting | Value |
 |---------|-------|
 | Domain | default |
-| Default Provider | codex |
+| Default Provider | codex-oauth |
 | Default Model | gpt-5.4-mini |
 | Max Depth | 3 |
 | Parallel Workers | 1 |
