@@ -45,7 +45,7 @@ usage view.
 | `identity` | `KilnGlobalIdentity` | Global identity values used for personalization and prompt context. |
 | `identity.name` | `string` | Default operator name for generated prompt context and UI personalization. |
 | `identity.timezone` | `string` | Default timezone identifier for prompt context and scheduling-aware flows. |
-| `instructionProfiles` | `Record<string, unknown>` | Durable operator/team doctrine such as engineering standards, workflow sequence, review posture, and communication norms. Target schema; implementation is tracked by `docs/roadmap/04-agent-context-capability-model.md`. |
+| `instructionProfiles` | `Record<string, unknown>` | Durable operator/team doctrine such as engineering standards, workflow sequence, review posture, and communication norms. Target schema; implementation is tracked by `docs/roadmap/02-agent-context-capability-model.md`. |
 | `activeInstructionProfiles` | `string[]` | Ordered instruction profile ids selected for global prompt context. Target field; not yet fully enforced across all surfaces. |
 | `ui.theme` | `string` | Default operator theme name from the shared GUI/TUI theme catalog. |
 | `components.include` | `string[]` | Bundled component set identifiers enabled for the operator. |
