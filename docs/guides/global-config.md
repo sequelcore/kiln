@@ -231,6 +231,24 @@ displayName: Sequel Engineering
 description: Engineering standards, workflow, and quality doctrine.
 tags:
   - engineering
+doctrine:
+  principles:
+    - No dead code.
+    - No redundancy.
+    - No legacy compatibility hacks without real consumers.
+    - Respect DDD and Clean Architecture boundaries.
+  workflow:
+    - Scout before broad or architecture-sensitive changes.
+    - Plan when work crosses contracts or bounded contexts.
+    - Use TDD for behavior changes when practical.
+  qualityGates:
+    - Run focused checks before broad gates.
+    - Verify before claiming complete.
+  reviewPosture:
+    - Findings before summaries.
+    - Treat missing tests, hidden coupling, unclear authority, and boundary drift as real risks.
+  delegation:
+    - Use configured specialist profiles for architecture, TDD, implementation, and review.
 ---
 
 Use DDD and Clean Architecture boundaries. Do not keep dead code, redundancy,
@@ -368,6 +386,11 @@ first", "review before commit", and "verify before done". Generated
 `AGENTS.md` and native harness projections may point to these profiles or carry
 profile ids as harness-readable metadata, but the source of truth remains the
 Kiln instruction profile file.
+
+Use the `doctrine` frontmatter for standards that surfaces or child agents must
+inspect structurally. Keep explanatory nuance in the markdown body. This avoids
+duplicating long prompts in `AGENTS.md`, `CLAUDE.md`, Codex agent TOML files,
+OpenCode agent files, GUI prompts, and SDK consumers.
 
 ## Skills Sync
 

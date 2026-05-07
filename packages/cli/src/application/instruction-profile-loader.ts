@@ -8,9 +8,18 @@ export interface KilnInstructionProfileDefinition {
   readonly displayName?: string;
   readonly description?: string;
   readonly tags?: readonly string[];
+  readonly doctrine?: KilnInstructionDoctrineDefinition;
   readonly instructions: string;
   readonly filePath: string;
   readonly scope: "global" | "project";
+}
+
+export interface KilnInstructionDoctrineDefinition {
+  readonly principles?: readonly string[];
+  readonly workflow?: readonly string[];
+  readonly qualityGates?: readonly string[];
+  readonly reviewPosture?: readonly string[];
+  readonly delegation?: readonly string[];
 }
 
 interface ParsedFrontmatter {
@@ -49,6 +58,28 @@ function asStringArray(value: unknown): readonly string[] | undefined {
   return values.length > 0 ? [...new Set(values)] : undefined;
 }
 
+function asDoctrine(value: unknown): KilnInstructionDoctrineDefinition | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const record = value as Record<string, unknown>;
+  const principles = asStringArray(record.principles);
+  const workflow = asStringArray(record.workflow);
+  const qualityGates = asStringArray(record.qualityGates);
+  const reviewPosture = asStringArray(record.reviewPosture);
+  const delegation = asStringArray(record.delegation);
+  const doctrine: KilnInstructionDoctrineDefinition = {
+    ...(principles ? { principles } : {}),
+    ...(workflow ? { workflow } : {}),
+    ...(qualityGates ? { qualityGates } : {}),
+    ...(reviewPosture ? { reviewPosture } : {}),
+    ...(delegation ? { delegation } : {}),
+  };
+
+  return Object.keys(doctrine).length > 0 ? doctrine : undefined;
+}
+
 function parseInstructionProfile(
   raw: string,
   filePath: string,
@@ -79,12 +110,14 @@ function parseInstructionProfile(
   const displayName = asNonEmptyString(record.displayName);
   const description = asNonEmptyString(record.description);
   const tags = asStringArray(record.tags);
+  const doctrine = asDoctrine(record.doctrine);
 
   return {
     name,
     ...(displayName ? { displayName } : {}),
     ...(description ? { description } : {}),
     ...(tags ? { tags } : {}),
+    ...(doctrine ? { doctrine } : {}),
     instructions: parsed.body,
     filePath,
     scope,

@@ -39,6 +39,18 @@ describe("instruction profile loader", () => {
         "description: Global engineering doctrine",
         "tags:",
         "  - engineering",
+        "doctrine:",
+        "  principles:",
+        "    - No dead code.",
+        "    - No redundancy.",
+        "  workflow:",
+        "    - Scout before broad changes.",
+        "  qualityGates:",
+        "    - Verify before claiming complete.",
+        "  reviewPosture:",
+        "    - Findings before summaries.",
+        "  delegation:",
+        "    - Delegate architecture-sensitive work to specialist profiles.",
       ].join("\n"),
       "\nNo dead code.\n",
     ));
@@ -61,11 +73,20 @@ describe("instruction profile loader", () => {
     });
   });
 
-  it("resolves selected profiles as required governed instruction context", () => {
+  it("resolves selected profiles as required governed instruction context with structured doctrine", () => {
     const userHome = join(root, "home");
     const projectPath = join(root, "project");
     writeProfile(userHome, "sequel", profile(
-      "name: sequel-engineering",
+      [
+        "name: sequel-engineering",
+        "doctrine:",
+        "  principles:",
+        "    - No dead code.",
+        "  workflow:",
+        "    - Use TDD for behavior changes.",
+        "  qualityGates:",
+        "    - Run focused tests before broad gates.",
+      ].join("\n"),
       "\nTDD before implementation.\n",
     ));
 
@@ -83,6 +104,9 @@ describe("instruction profile loader", () => {
     expect(candidates[0]?.required).toBe(true);
     expect(candidates[0]?.source).toContain("sequel.md");
     expect(candidates[0]?.content).toContain("Instruction Profile\nname: sequel-engineering");
+    expect(candidates[0]?.content).toContain("doctrine:\nprinciples:\n- No dead code.");
+    expect(candidates[0]?.content).toContain("workflow:\n- Use TDD for behavior changes.");
+    expect(candidates[0]?.content).toContain("qualityGates:\n- Run focused tests before broad gates.");
     expect(String(candidates[0]?.content)).toContain("TDD before implementation.");
   });
 

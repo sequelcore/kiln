@@ -16,7 +16,7 @@
 
 Read these canonical Kiln instruction profiles before work. They are the source of durable operator/team doctrine; this AGENTS.md section is only a projection.
 
-- sequel-engineering (global): C:\Users\R3XED\.kiln\instructions\sequel-engineering.md
+- sequel-engineering (global): C:\Users\R3XED\.kiln\instructions\sequel-engineering.md - doctrine: principles, workflow, quality gates, review posture, delegation
 
 ## Agents
 

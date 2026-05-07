@@ -99,9 +99,12 @@ surface-specific behavior, or provider compatibility glue.
 3. Add evaluated first-party defaults for agent/team selection after live
    harnesses compare configured agents against fixed rubrics for quality,
    evidence use, permission compliance, cost, duration, and actionable output.
-4. Promote the Sequel engineering doctrine shape into a canonical first-party
-   instruction-profile contract: clean architecture, DDD, no dead code, no
-   redundancy, TDD, review gates, verification gates, and delegated workflow.
+4. Completed 2026-05-07: promote the Sequel engineering doctrine shape into a
+   canonical first-party instruction-profile contract. Instruction profiles now
+   support structured `doctrine` facets for principles, workflow, quality
+   gates, review posture, and delegation while preserving markdown as the
+   human-readable body. Context assembly and native projection summaries expose
+   those facets without duplicating doctrine into harness-specific files.
 5. Add a route/model capability catalog that combines static provider metadata,
    live proof, operator overrides, and evaluation results. Parent sessions
    should see task suitability such as `frontend-design`, `backend-coding`,

@@ -5,6 +5,7 @@ import type { KilnAgentDefinition } from "./agent-loader.js";
 import {
   findInstructionProfile,
   loadInstructionProfiles,
+  type KilnInstructionDoctrineDefinition,
   type KilnInstructionProfileDefinition,
 } from "./instruction-profile-loader.js";
 
@@ -62,10 +63,32 @@ export function instructionProfileToContextCandidate(
       profile.description ? `description: ${profile.description}` : undefined,
       `scope: ${profile.scope}`,
       profile.tags && profile.tags.length > 0 ? `tags: ${profile.tags.join(", ")}` : undefined,
+      profile.doctrine ? formatDoctrine(profile.doctrine) : undefined,
       "instructions:",
       profile.instructions,
     ].filter((line): line is string => line !== undefined).join("\n"),
   };
+}
+
+function formatDoctrine(doctrine: KilnInstructionDoctrineDefinition): string {
+  return [
+    "doctrine:",
+    ...formatDoctrineList("principles", doctrine.principles),
+    ...formatDoctrineList("workflow", doctrine.workflow),
+    ...formatDoctrineList("qualityGates", doctrine.qualityGates),
+    ...formatDoctrineList("reviewPosture", doctrine.reviewPosture),
+    ...formatDoctrineList("delegation", doctrine.delegation),
+  ].join("\n");
+}
+
+function formatDoctrineList(label: string, values: readonly string[] | undefined): readonly string[] {
+  if (!values || values.length === 0) {
+    return [];
+  }
+  return [
+    `${label}:`,
+    ...values.map((value) => `- ${value}`),
+  ];
 }
 
 function selectedInstructionProfileIds(

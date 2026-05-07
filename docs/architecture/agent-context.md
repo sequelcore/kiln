@@ -86,6 +86,22 @@ displayName: Sequel Engineering
 description: Engineering standards and collaboration doctrine.
 tags:
   - engineering
+doctrine:
+  principles:
+    - No dead code.
+    - No redundancy.
+    - Respect DDD and Clean Architecture boundaries.
+  workflow:
+    - Scout before broad or architecture-sensitive changes.
+    - Use TDD for behavior changes when practical.
+  qualityGates:
+    - Run focused checks before broad gates.
+    - Verify before claiming complete.
+  reviewPosture:
+    - Findings before summaries.
+    - Treat missing tests and boundary drift as real risks.
+  delegation:
+    - Use specialist child profiles for architecture, TDD, implementation, and review when the task crosses boundaries.
 ---
 
 No dead code. No redundancy. Use Clean Architecture boundaries. Verify before
@@ -101,6 +117,13 @@ An instruction profile is the place where Kiln carries an operator or team's
 working "soul": standards, habits, taste, non-negotiables, and expected
 workflow. This must be canonical Kiln state, not a one-off `AGENTS.md` prompt
 that only one harness happens to read.
+
+The markdown body is the human-readable doctrine. The optional `doctrine`
+frontmatter is the structured surface contract. It lets GUI, TUI, CLI, SDK,
+managed invocation, and native harness projections expose principles,
+workflow, quality gates, review posture, and delegation rules without parsing
+freeform prose. Surfaces may summarize these facets, but they must not invent
+new doctrine outside the canonical profile.
 
 ## Agent Profiles
 
@@ -289,6 +312,8 @@ The active implementation owns:
   `contextMode` resolution
 - native projection of canonical agent, skill, and instruction-profile
   references into harness-readable surfaces
+- structured instruction-profile doctrine facets in context candidates and
+  native projection summaries
 
 ## Research Inputs
 

@@ -1,7 +1,11 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadAgentDefinitions } from "../application/agent-loader.js";
-import { findInstructionProfile, loadInstructionProfiles } from "./instruction-profile-loader.js";
+import {
+  findInstructionProfile,
+  loadInstructionProfiles,
+  type KilnInstructionDoctrineDefinition,
+} from "./instruction-profile-loader.js";
 import { loadKilnConfig } from "../config/config-merger.js";
 
 export interface AgentsMdProjectionResult {
@@ -60,7 +64,7 @@ export async function writeAgentsMdProjection(projectPath: string): Promise<Agen
         const profileLines = kilnYaml.activeInstructionProfiles.map((profileId) => {
           const profile = findInstructionProfile(instructionProfiles, profileId);
           return profile
-            ? `- ${profile.name} (${profile.scope}): ${profile.filePath}`
+            ? `- ${profile.name} (${profile.scope}): ${profile.filePath}${formatDoctrineSummary(profile.doctrine)}`
             : `- ${profileId} (missing; run kiln sync after creating the canonical profile)`;
         });
         lines.push(
@@ -102,4 +106,20 @@ export async function writeAgentsMdProjection(projectPath: string): Promise<Agen
     const message = error instanceof Error ? error.message : String(error);
     return { written: false, path: targetPath, errors: [message] };
   }
+}
+
+function formatDoctrineSummary(doctrine: KilnInstructionDoctrineDefinition | undefined): string {
+  if (!doctrine) {
+    return "";
+  }
+
+  const facets = [
+    doctrine.principles && doctrine.principles.length > 0 ? "principles" : undefined,
+    doctrine.workflow && doctrine.workflow.length > 0 ? "workflow" : undefined,
+    doctrine.qualityGates && doctrine.qualityGates.length > 0 ? "quality gates" : undefined,
+    doctrine.reviewPosture && doctrine.reviewPosture.length > 0 ? "review posture" : undefined,
+    doctrine.delegation && doctrine.delegation.length > 0 ? "delegation" : undefined,
+  ].filter((facet): facet is string => facet !== undefined);
+
+  return facets.length > 0 ? ` - doctrine: ${facets.join(", ")}` : "";
 }

@@ -83,6 +83,11 @@ describe("agents-md-projection", () => {
       name: "sequel-engineering",
       scope: "global",
       filePath: "/home/tester/.kiln/instructions/sequel-engineering.md",
+      doctrine: {
+        principles: ["No dead code."],
+        workflow: ["Scout first."],
+        qualityGates: ["Run tests."],
+      },
     }]);
 
     const result = await writeAgentsMdProjection(PROJECT_PATH);
@@ -104,6 +109,7 @@ describe("agents-md-projection", () => {
     expect(content).toContain("|------|---------|------|-------|-------|--------|----------------------|");
     expect(content).toContain("## Active Instruction Profiles");
     expect(content).toContain("sequel-engineering (global): /home/tester/.kiln/instructions/sequel-engineering.md");
+    expect(content).toContain("doctrine: principles, workflow, quality gates");
     expect(content).toContain("cinema");
     expect(content).toContain("codex");
     expect(content).toContain("gpt-5.4");
