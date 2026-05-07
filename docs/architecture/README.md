@@ -32,6 +32,10 @@ is documented by concern, not as a single monolith.
   Context assembly, budget enforcement, attention bottleneck, and context
   policy.
 
+- `agent-context.md`
+  Canonical operator identity, instruction profiles, agent profiles, skills,
+  managed child context, precedence, admission, and surface parity.
+
 - `session-model.md`
   Canonical provider-agnostic session identity, provider-thread metadata,
   resume semantics, and cross-surface invariants.

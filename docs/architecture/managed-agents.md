@@ -26,7 +26,10 @@ closed.
 
 The parent session never lends ambient authority to the child. Context,
 credentials, memory access, tool access, filesystem access, timeout, transcript
-persistence, and result handoff are explicitly admitted per invocation.
+persistence, and result handoff are explicitly admitted per invocation. Agent
+profile selection, skill access, and child context mode follow
+[`agent-context.md`](agent-context.md); they are requests that the runtime must
+resolve, admit, and record before execution.
 
 ## Non-Boundaries
 
@@ -182,21 +185,38 @@ adapter differs.
 sessions that need a governed child invocation. It is not part of the core
 developer-tool registry and is not exposed by default. Runtime operator surfaces
 attach it only when the CLI provides a resolved managed invocation route
-registry. That registry may come from explicit `managedAgents.routes` or from
-the default read-only route synthesized from enabled supported child engines.
-For harness-backed child engines, route health includes the session-start engine
-availability probe; a configured child engine that is missing locally does not
-receive `managed_agent.invoke` authority.
+registry. That registry may come from explicit `managedAgents.routes`, from
+eligible ordered `routing.routes`, or from the default read-only route
+synthesized from enabled supported child engines. Direct-provider projections
+must name a tool-call-capable model that can execute Kiln runtime tools; opaque
+provider aliases that cannot be proven tool-capable remain unhealthy instead of
+being exposed as child authority. For harness-backed child engines, route health
+includes the session-start engine availability probe, the provider-advertised
+model catalog, and model-specific live proof for the requested managed profile;
+a configured child engine that is missing locally or names an unadvertised model
+does not receive `managed_agent.invoke` authority.
+Unhealthy configured routes are still carried as diagnostics so a failed tool
+call can explain why the route is unavailable rather than pretending it was
+never configured.
 The shared attachment point is `createAttachedRuntimeBuiltinToolSurface`, so
 GUI, TUI, operator gateway, and CLI direct-provider executable sessions use the
 same tool definition, authority projection, executor, and route contract instead
 of surface-specific implementations.
+The attached tool definition is generated from the resolved route registry. It
+lists healthy and unavailable route ids, constrains model-facing provider ids to
+configured routes, and instructs parent agents to treat failed or unavailable
+children as missing evidence during comparisons. Surfaces must not add
+surface-local managed-agent prompt rules that diverge from this generated tool
+contract.
 
 The model supplies a bounded task, a configured provider route, and a requested
 managed invocation profile. The runtime maps that input to a
 `ManagedAgentInvocationRequest` using configured route defaults for adapter,
 execution mode, credential route, memory scope, timeout, working directory, and
 authority. The model does not provide arbitrary authority directly.
+When multiple routes share the same provider/profile, admission requires
+`routeId` or an exact configured model match. Ambiguous provider-only selection
+fails closed instead of silently picking the first route.
 
 The tool is classified as approval-gated authority. A GUI/TUI/CLI parent turn
 must pass the normal tool authority path before the child can be spawned. Once
@@ -211,15 +231,17 @@ plans, but may not spawn managed child work.
 
 ## Live Adapter Evidence
 
-Live adapter support is opt-in and must be proven per provider family. A provider
-is live-proven only after both read-only denial and approved-write fixture proofs
-pass through managed invocation.
+Live adapter support is opt-in and must be proven per provider family and
+profile. A provider is healthy for `foundation-readonly-plan` only after it can
+produce a substantive read-only result handoff. Write denial and approved-write
+fixture proofs prove write-evidence capture, but they do not by themselves prove
+read-only analysis handoff quality.
 
 Current status:
 
 | Provider family | Status | Contract treatment |
 | --- | --- | --- |
-| OpenCode harness | Live-proven for read-only denial and approved bounded write. | OpenCode permission and session diff events reduce to `write_decision` and `file_changed`. |
+| OpenCode harness | Live-proven for write-denial and approved bounded-write evidence; read-only analysis handoff is admitted only for `opencode/minimax-m2.5-free`. | OpenCode permission and session diff events reduce to `write_decision` and `file_changed`. Other OpenCode models stay unhealthy for `foundation-readonly-plan` until that model has substantive result-handoff proof. |
 | Codex harness | Live-proven for read-only no-accepted-write and approved bounded write. | Codex file-change and patch-approval output reduce to canonical write evidence. |
 | Claude Code family | Scouted, not live-proven in Kiln. | Permission modes and tool names are adapter research only. |
 | Hermes Agent | Scouted as ACP-style future adapter candidate. | `delegate_task`, ACP permission, and terminal concepts are adapter inputs only. |
@@ -277,6 +299,14 @@ The child returns a bounded summary and resource pointers. The parent receives
 stable handoff references, not raw child context, raw tool logs, or unbounded
 diffs. Child memory writes become proposals unless a profile explicitly admits
 memory proposal authority.
+
+A terminal `completed` state requires a substantive result handoff. For
+read-only harness invocations, a provider process that exits successfully
+without non-thinking text is a failed managed invocation, not a successful empty
+review. Write-capable profiles may complete without text only when canonical
+write evidence provides the substantive handoff. This keeps parent agents,
+operators, replay, and future SDK surfaces from treating an empty child run as
+usable work.
 
 ## Verification
 

@@ -4,16 +4,21 @@
 
 `~/.kiln/config.yaml` is the global source of truth for engine defaults,
 routing, permissions, MCP servers, hooks, managed agents, UI preferences, and
-identity. Global agents and skills live next to it under `~/.kiln/agents/` and
-`~/.kiln/skills/`. Project `kiln.yaml` and `.kiln/agents|skills` override them
-where needed. Harness integration is capability-driven: Kiln uses runtime
-config injection for Kiln-launched processes only when a harness supports it,
-and `kiln sync` pushes derived backend configs into native CLIs when native
-projection is required.
+operator identity. It is not a monolithic personality file. Durable behavioral
+doctrine belongs in instruction profiles, executable roles belong in agent
+profiles, and reusable procedures belong in skills. Global agents and skills
+live next to the config under `~/.kiln/agents/` and `~/.kiln/skills/`. Project
+`kiln.yaml` and `.kiln/agents|skills` override them where needed.
+
+Harness integration is capability-driven: Kiln uses runtime config injection
+for Kiln-launched processes only when a harness supports it, and `kiln sync`
+pushes derived backend configs into native CLIs when native projection is
+required.
 
 The architecture contracts are `docs/architecture/config-projection.md` and
-`docs/architecture/harness-integration-capabilities.md`. This guide is the
-operator-facing usage view.
+`docs/architecture/harness-integration-capabilities.md`. Agent-context doctrine
+is `docs/architecture/agent-context.md`. This guide is the operator-facing
+usage view.
 
 ## File Location
 
@@ -48,20 +53,36 @@ Kiln-owned MCP client request timeout for that server. Use it for servers with
 long-running tools when the tool's own input does not expose a millisecond
 `timeout` field.
 
-Managed child invocation is derived from enabled supported engines. If `codex`
-or `opencode` is enabled, GUI, TUI, CLI run, and operator gateway sessions may
-receive one synthesized `foundation-readonly-plan` route for
-`managed_agent.invoke`. `routing.defaultWorker` is preferred when it names one
-of those supported child engines; otherwise Kiln chooses the first enabled
-supported child engine. `managedAgents.routes` declares explicit allowlisted
-routes, and `managedAgents.enabled: false` disables the runtime tool even when a
-supported engine is enabled. A route whose provider has
+Managed child invocation is derived from the same canonical routing hierarchy
+unless `managedAgents.routes` declares an explicit allowlist. When
+`routing.routes` is present, GUI, TUI, CLI run, and operator gateway sessions
+project eligible direct providers and harnesses with live-proven read-only
+result handoff into synthesized read-only `foundation-readonly-plan` routes for
+`managed_agent.invoke`.
+Direct-provider projections require an explicit model and that model must be
+known tool-call-capable for Kiln runtime tools. If no ordered route list exists,
+Kiln falls back to the enabled supported child engines: `routing.defaultWorker`
+is preferred when it names `codex` or `opencode`; otherwise Kiln chooses the
+first enabled supported child engine. `managedAgents.routes` declares explicit
+allowlisted routes, and `managedAgents.enabled: false` disables the runtime tool
+even when a supported engine is enabled. A route whose provider has
 `engines.<provider>.enabled: false` is unhealthy even if it is explicitly
 declared. A route is also unhealthy when the session-start engine probe cannot
-find or execute the target harness. Synthesized child routes use
-`models.<engine>` when present, then the adapter's safe default for that engine.
-They do not inherit `models.default`, because model IDs are provider-specific.
-Write-capable routes are never synthesized.
+find or execute the target harness. Harness routes are also unhealthy when the
+provider does not advertise the configured model or when that provider/model has
+not live-proven substantive result handoff for the requested managed profile.
+The current safe default for OpenCode read-only child invocations is
+`opencode/minimax-m2.5-free`; OpenCode models that merely appear in a free tier
+remain unavailable until they pass the same managed handoff proof. Synthesized
+child routes use `models.<engine>` when present, then the adapter's safe default
+for that engine. They do not inherit
+`models.default`, because model IDs are provider-specific. Write-capable routes
+are never synthesized.
+At runtime, Kiln projects the resolved route registry into the
+`managed_agent.invoke` tool definition so parent agents can see configured
+route ids and unavailable-route diagnostics. If multiple managed routes share a
+provider/profile, parent agents must select by `routeId` or by an exact
+configured model; provider-only selection fails closed as ambiguous.
 
 Supported operator themes are `kiln-dark`, `kiln-light`, `system-follow`,
 `dracula`, `catppuccin-mocha`, `nord`, `tokyo-night`, `gruvbox-dark`,
