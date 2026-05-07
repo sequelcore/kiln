@@ -182,6 +182,12 @@ export {
 export type {
   CredentialPoolObservation,
 } from "./agents/credential-pool/credential-pool-observability.js";
+export {
+  ProviderModelRouteHealthStore,
+} from "./agents/provider-route-health/index.js";
+export type {
+  ProviderModelRouteHealthStoreConfig,
+} from "./agents/provider-route-health/index.js";
 
 // Session
 export {

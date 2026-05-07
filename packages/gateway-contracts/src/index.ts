@@ -2,6 +2,7 @@ export type {
   GuiProviderDescriptor,
   GuiProviderDiscoveryResult,
   GuiProviderModelCapabilities,
+  GuiProviderModelRouteHealth,
   GuiProviderReasoningEffort,
   OperatorExecutionMode,
   GuiProviderDiscoveryStatus,

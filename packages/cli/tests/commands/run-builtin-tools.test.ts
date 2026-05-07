@@ -26,6 +26,8 @@ const runWiringMocks = vi.hoisted(() => {
     computeEvalScore: vi.fn(() => undefined),
     capturedSessionConfigs: [] as unknown[],
     capturedRunSessionInputs: [] as unknown[],
+    evaluateRouteHealth: vi.fn().mockResolvedValue({ healthy: true }),
+    recordRouteOutcome: vi.fn().mockResolvedValue(undefined),
   };
 });
 
@@ -53,6 +55,15 @@ vi.mock("@kilnai/runtime", () => ({
       authState: "authenticated",
     },
   }),
+  ProviderModelRouteHealthStore: class {
+    evaluateRouteHealth(providerId: string, modelId: string) {
+      return runWiringMocks.evaluateRouteHealth(providerId, modelId);
+    }
+
+    recordOutcome(input: unknown) {
+      return runWiringMocks.recordRouteOutcome(input);
+    }
+  },
   ManagedDirectProviderRuntimeAdapter: class MockManagedDirectProviderRuntimeAdapter {},
 }));
 
@@ -61,6 +72,13 @@ vi.mock("@kilnai/core", async (importOriginal) => {
   return {
     ...actual,
     createSessionBuiltinToolOptions: runWiringMocks.createSessionBuiltinToolOptions,
+    formatProviderModelRouteCooldown: (decision: { reason?: string }) => decision.reason ?? "cooling down",
+    mapProviderModelRouteErrorToOutcome: (message: string) => {
+      if (message.includes("rate-limited") || message.includes("429")) {
+        return { type: "rate-limited" };
+      }
+      return { type: "unknown-error", message };
+    },
   };
 });
 
@@ -205,6 +223,8 @@ describe("run command builtin tool wiring", () => {
     vi.clearAllMocks();
     runWiringMocks.capturedSessionConfigs.length = 0;
     runWiringMocks.capturedRunSessionInputs.length = 0;
+    runWiringMocks.evaluateRouteHealth.mockResolvedValue({ healthy: true });
+    runWiringMocks.recordRouteOutcome.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -285,6 +305,47 @@ describe("run command builtin tool wiring", () => {
         },
       },
     })).toEqual({ ok: true });
+  });
+
+  it("checks route health before direct provider execution and records success", async () => {
+    await runCommand(APP_CONFIG, "ship it", { provider: "openrouter", model: "qwen/qwen3-coder:free" });
+
+    expect(runWiringMocks.evaluateRouteHealth).toHaveBeenCalledWith("openrouter", "qwen/qwen3-coder:free");
+    expect(runWiringMocks.recordRouteOutcome).toHaveBeenCalledWith({
+      providerId: "openrouter",
+      modelId: "qwen/qwen3-coder:free",
+      outcome: { type: "ok" },
+    });
+  });
+
+  it("records retryable direct provider failures as route health outcomes", async () => {
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => {
+      throw new Error("process.exit");
+    }) as never);
+    runWiringMocks.runSession.mockResolvedValueOnce({
+      finalCostUsd: 0,
+      sessionSucceeded: false,
+      lastError: "All credentials in the pool are exhausted: last outcome rate-limited; last error openrouter API error 429",
+      accumulatedText: "",
+      toolCallCount: 0,
+      turnDepth: 0,
+      transcript: [],
+      exactArtifacts: [],
+      submittedPlan: undefined,
+    });
+
+    await expect(runCommand(APP_CONFIG, "ship it", {
+      provider: "openrouter",
+      model: "qwen/qwen3-coder:free",
+    })).rejects.toThrow("process.exit");
+
+    expect(runWiringMocks.recordRouteOutcome).toHaveBeenCalledWith({
+      providerId: "openrouter",
+      modelId: "qwen/qwen3-coder:free",
+      outcome: { type: "rate-limited" },
+      errorMessage: "All credentials in the pool are exhausted: last outcome rate-limited; last error openrouter API error 429",
+    });
+    exit.mockRestore();
   });
 
   it("removes process signal handlers after a completed run", async () => {

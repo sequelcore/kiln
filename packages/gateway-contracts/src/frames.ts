@@ -59,11 +59,18 @@ export interface GuiProviderModelCapabilities {
   readonly supportedReasoningEfforts?: readonly GuiProviderReasoningEffort[];
 }
 
+export interface GuiProviderModelRouteHealth {
+  readonly healthy: boolean;
+  readonly reason?: string;
+  readonly cooldownUntil?: number;
+}
+
 export interface GuiProviderDiscoveryResult {
   readonly provider: string;
   readonly available: boolean;
   readonly models: readonly string[];
   readonly modelCapabilities?: Readonly<Record<string, GuiProviderModelCapabilities>>;
+  readonly modelRouteHealth?: Readonly<Record<string, GuiProviderModelRouteHealth>>;
   readonly status: GuiProviderDiscoveryStatus;
   readonly reason: string;
   readonly authState: GuiProviderAuthState;

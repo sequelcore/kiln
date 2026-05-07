@@ -5,6 +5,7 @@ import {
   type GuiInboundFrame,
   type GuiProviderDiscoveryResult,
   type GuiProviderModelCapabilities,
+  type GuiProviderModelRouteHealth,
   type GuiProviderReasoningEffort,
   type OperatorExecutionMode,
 } from "@kilnai/gateway-contracts";
@@ -243,6 +244,15 @@ function findProviderModelCapabilities(
 ): GuiProviderModelCapabilities | undefined {
   if (!provider || !model) return undefined;
   return discovery.find((entry) => entry.provider === provider)?.modelCapabilities?.[model];
+}
+
+function findProviderModelRouteHealth(
+  discovery: readonly GuiProviderDiscoveryResult[],
+  provider: string | undefined,
+  model: string | undefined,
+): GuiProviderModelRouteHealth | undefined {
+  if (!provider || !model) return undefined;
+  return discovery.find((entry) => entry.provider === provider)?.modelRouteHealth?.[model];
 }
 
 export function buildTuiDoneFramePayload(input: {
@@ -633,6 +643,18 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
                 ws.send(JSON.stringify({
                   type: "error",
                   message: `Provider '${activeProvider}' does not advertise model '${activeModel}'`,
+                }));
+                return;
+              }
+              const activeModelRouteHealth = findProviderModelRouteHealth(
+                currentDiscovery,
+                activeProvider,
+                activeModel,
+              );
+              if (activeModelRouteHealth && !activeModelRouteHealth.healthy) {
+                ws.send(JSON.stringify({
+                  type: "error",
+                  message: activeModelRouteHealth.reason ?? `Provider '${activeProvider}' model '${activeModel}' is cooling down`,
                 }));
                 return;
               }
@@ -1187,7 +1209,7 @@ async function resolveTuiProviderDiscovery(
   return resolveGuiOperatorDiscoveryResults(providerAvailability);
 }
 
-function resolveTuiProviderSwitch(input: {
+export function resolveTuiProviderSwitch(input: {
   readonly provider: unknown;
   readonly model: unknown;
   readonly models?: Record<string, string[]>;
@@ -1228,6 +1250,13 @@ function resolveTuiProviderSwitch(input: {
   }
   if (!providerModels.includes(model)) {
     return { ok: false, error: `Provider '${provider}' does not advertise model '${model}'` };
+  }
+  const routeHealth = discoveryResult?.modelRouteHealth?.[model];
+  if (routeHealth && !routeHealth.healthy) {
+    return {
+      ok: false,
+      error: routeHealth.reason ?? `Provider '${provider}' model '${model}' is cooling down`,
+    };
   }
 
   return { ok: true, provider, model };

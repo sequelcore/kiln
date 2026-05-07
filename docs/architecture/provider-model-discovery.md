@@ -176,6 +176,32 @@ model ID. If no selected model exists, the canonical error wording is:
 Provider '<provider>' requires a selected model.
 ```
 
+## Provider And Model Route Health
+
+Discovery proves that a provider can advertise and admit a model. It does not
+prove that the provider/model route is healthy for immediate execution. A route
+may be discoverable and still be temporarily unusable because the upstream model
+is rate-limited, quota-exhausted, overloaded, or connection-failing.
+
+Kiln tracks route health at the provider/model boundary, separate from
+credential health:
+
+- credential health answers "which secret/account can be used?"
+- provider/model route health answers "is this advertised execution route
+  cooling down?"
+
+Execution surfaces must consult both before admitting work. Retryable route
+outcomes such as `rate-limited`, `quota-exceeded`, and `connection-failed`
+place the provider/model route in cooldown. A selected route in cooldown is not
+healthy just because discovery still lists the model.
+
+For OpenRouter free capacity, model-specific `:free` routes are volatile
+candidates. `openrouter/free` is the stable free router because OpenRouter
+selects an available free model at request time. Kiln must not hardcode a
+single `:free` model as a durable fallback. If a specific free model is
+rate-limited, route health should cool that model down and routing should prefer
+another healthy candidate or `openrouter/free` when policy allows it.
+
 ## Operator UX
 
 Provider pickers show concise unavailable reasons while preserving structured

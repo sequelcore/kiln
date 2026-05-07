@@ -88,11 +88,18 @@ const GuiProviderModelCapabilitiesSchema = z.object({
   supportedReasoningEfforts: z.array(z.enum(["minimal", "low", "medium", "high", "xhigh"])).optional(),
 });
 
+const GuiProviderModelRouteHealthSchema = z.object({
+  healthy: z.boolean(),
+  reason: z.string().optional(),
+  cooldownUntil: z.number().optional(),
+});
+
 const GuiProviderDiscoveryResultSchema = z.object({
   provider: z.string(),
   available: z.boolean(),
   models: z.array(z.string()),
   modelCapabilities: z.record(z.string(), GuiProviderModelCapabilitiesSchema).optional(),
+  modelRouteHealth: z.record(z.string(), GuiProviderModelRouteHealthSchema).optional(),
   status: z.enum([
     "available",
     "missing_auth",

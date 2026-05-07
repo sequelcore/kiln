@@ -237,6 +237,12 @@ Credential pools govern authentication and provider-request cooldown. They do
 not schedule local model loading, LM Studio profile activation, or local daemon
 lifecycle. Those concerns belong to provider availability and model discovery.
 
+Credential pools also do not replace provider/model route health. A credential
+can be valid while a specific advertised model route is cooling down, such as an
+OpenRouter free upstream returning a model-specific `429`. Runtime routing must
+combine credential health with provider/model route health before admitting
+work or selecting fallbacks.
+
 `connection-failed` currently uses the default cooldown policy. Provider-specific
 backoff refinement can be added through the existing outcome and cooldown
 contracts without changing the pool boundary.

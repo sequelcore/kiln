@@ -3,7 +3,9 @@ import {
   CodexOAuthAuth,
   OpenCodeAuth,
   OPENCODE_BASE_URL,
+  formatProviderModelRouteCooldown,
 } from "@kilnai/core";
+import { ProviderModelRouteHealthStore } from "../agents/provider-route-health/index.js";
 import {
   GUI_PROVIDER_DISPLAY_ORDER,
   getGuiProviderMetadata,
@@ -13,6 +15,7 @@ import {
   type GuiProviderDiscoveryResult,
   type GuiProviderDiscoveryStatus,
   type GuiProviderModelCapabilities,
+  type GuiProviderModelRouteHealth,
   type GuiProviderReasoningEffort,
 } from "@kilnai/gateway-contracts";
 
@@ -28,6 +31,7 @@ export interface GuiCliOperatorModelDiscovery {
 export interface GuiCliProviderModelDiscovery {
   readonly models: string[];
   readonly modelCapabilities?: Readonly<Record<string, GuiProviderModelCapabilities>>;
+  readonly modelRouteHealth?: Readonly<Record<string, GuiProviderModelRouteHealth>>;
   readonly status: GuiProviderDiscoveryStatus;
   readonly reason: string;
   readonly authState: GuiProviderAuthState;
@@ -82,10 +86,11 @@ export async function discoverGuiCliOperatorModels(): Promise<GuiCliOperatorMode
 
 export async function resolveGuiOperatorDiscoveryResults(
   providerAvailability: Readonly<Record<string, boolean>>,
+  routeHealthStore: ProviderModelRouteHealthStore = new ProviderModelRouteHealthStore(),
 ): Promise<GuiProviderDiscoveryResult[]> {
   const [cliModels, directProviderDiscovery] = await Promise.all([
     discoverGuiCliOperatorModels(),
-    discoverGuiDirectProviderModelDiscovery(providerAvailability),
+    discoverGuiDirectProviderModelDiscovery(providerAvailability, process.env, routeHealthStore),
   ]);
   return buildGuiOperatorDiscoveryResults({
     opencodeModels: cliModels.opencodeModels,
@@ -166,11 +171,15 @@ export function buildGuiOperatorDiscoveryResults(input: {
       const modelCapabilities = available
         ? filterModelCapabilities(directDiscovery.modelCapabilities, directModels)
         : undefined;
+      const modelRouteHealth = available
+        ? filterModelRouteHealth(directDiscovery.modelRouteHealth, directModels)
+        : undefined;
       results.push({
         provider,
         available,
         models: available ? directModels : [],
         ...(modelCapabilities ? { modelCapabilities } : {}),
+        ...(modelRouteHealth ? { modelRouteHealth } : {}),
         status,
         reason: directDiscovery.reason,
         authState: directDiscovery.authState,
@@ -272,6 +281,21 @@ function filterModelCapabilities(
   return Object.keys(filtered).length > 0 ? filtered : undefined;
 }
 
+function filterModelRouteHealth(
+  routeHealth: Readonly<Record<string, GuiProviderModelRouteHealth>> | undefined,
+  models: readonly string[],
+): Readonly<Record<string, GuiProviderModelRouteHealth>> | undefined {
+  if (!routeHealth) return undefined;
+  const filtered: Record<string, GuiProviderModelRouteHealth> = {};
+  for (const model of models) {
+    const health = routeHealth[model];
+    if (health) {
+      filtered[model] = health;
+    }
+  }
+  return Object.keys(filtered).length > 0 ? filtered : undefined;
+}
+
 function defaultUnavailableStatus(group: GuiProviderDescriptor["group"]): GuiProviderDiscoveryStatus {
   return group === "harness" ? "cli_missing" : "missing_auth";
 }
@@ -293,6 +317,7 @@ function defaultUnavailableReason(label: string, status: GuiProviderDiscoverySta
 export async function discoverGuiDirectProviderModelDiscovery(
   providerAvailability: Readonly<Record<string, boolean>>,
   env: Readonly<Record<string, string | undefined>> = process.env,
+  routeHealthStore?: ProviderModelRouteHealthStore,
 ): Promise<Record<string, GuiCliProviderModelDiscovery>> {
   const [
     openCodeDirectDiscovery,
@@ -313,7 +338,7 @@ export async function discoverGuiDirectProviderModelDiscovery(
     discoverLmStudioModelDiscovery(providerAvailability.lmstudio, env),
     discoverCodexOauthModelDiscovery(providerAvailability["codex-oauth"]),
   ]);
-  return Object.fromEntries([
+  const discoveries = Object.fromEntries([
     ...(codexOauthDiscovery ? [["codex-oauth", codexOauthDiscovery] as const] : []),
     ...(openAiDiscovery ? [["openai", openAiDiscovery] as const] : []),
     ...(anthropicDiscovery ? [["anthropic", anthropicDiscovery] as const] : []),
@@ -323,6 +348,43 @@ export async function discoverGuiDirectProviderModelDiscovery(
     ...(lmStudioDiscovery ? [["lmstudio", lmStudioDiscovery] as const] : []),
     ...Object.entries(openCodeDirectDiscovery),
   ]);
+  return routeHealthStore
+    ? await attachProviderModelRouteHealth(discoveries, routeHealthStore)
+    : discoveries;
+}
+
+async function attachProviderModelRouteHealth(
+  discoveries: Record<string, GuiCliProviderModelDiscovery>,
+  routeHealthStore: ProviderModelRouteHealthStore,
+): Promise<Record<string, GuiCliProviderModelDiscovery>> {
+  const entries = await Promise.all(Object.entries(discoveries).map(async ([provider, discovery]) => {
+    if (discovery.status !== "available" || discovery.models.length === 0) {
+      return [provider, discovery] as const;
+    }
+    const routeHealthEntries = await Promise.all(discovery.models.map(async (model) => {
+      const decision = await routeHealthStore.evaluateRouteHealth(provider, model);
+      return [model, decision] as const;
+    }));
+    const unhealthyRouteHealth = Object.fromEntries(routeHealthEntries.flatMap(([model, decision]) => (
+      decision.healthy
+        ? []
+        : [[
+            model,
+            {
+              healthy: false,
+              reason: formatProviderModelRouteCooldown(decision),
+              ...(decision.cooldownUntil ? { cooldownUntil: decision.cooldownUntil } : {}),
+            } satisfies GuiProviderModelRouteHealth,
+          ] as const]
+    )));
+    return [
+      provider,
+      Object.keys(unhealthyRouteHealth).length > 0
+        ? { ...discovery, modelRouteHealth: unhealthyRouteHealth }
+        : discovery,
+    ] as const;
+  }));
+  return Object.fromEntries(entries);
 }
 
 async function discoverCodexOauthModelDiscovery(
@@ -1709,6 +1771,13 @@ export function resolveGuiProviderSwitch(input: {
     return {
       ok: false,
       error: `Provider '${nextProvider}' does not advertise model '${requestedModel}'`,
+    };
+  }
+  const routeHealth = discoveryResult?.modelRouteHealth?.[requestedModel];
+  if (routeHealth && !routeHealth.healthy) {
+    return {
+      ok: false,
+      error: routeHealth.reason ?? `Provider '${nextProvider}' model '${requestedModel}' is cooling down`,
     };
   }
   return {

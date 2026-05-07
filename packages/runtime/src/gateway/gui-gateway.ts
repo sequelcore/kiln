@@ -63,6 +63,7 @@ import {
   type GuiOutboundFrame,
   type GuiProviderDiscoveryResult,
   type GuiProviderModelCapabilities,
+  type GuiProviderModelRouteHealth,
   type GuiProviderReasoningEffort,
   type GuiSessionDetail,
   type GuiSessionSummary,
@@ -895,6 +896,18 @@ function wireOperatorTransport(
                 } satisfies GuiInboundFrame));
                 return;
               }
+              const activeModelRouteHealth = findProviderModelRouteHealth(
+                currentDiscovery,
+                activeProvider,
+                activeModel,
+              );
+              if (activeModelRouteHealth && !activeModelRouteHealth.healthy) {
+                ws.send(JSON.stringify({
+                  type: "error",
+                  message: activeModelRouteHealth.reason ?? `Provider '${activeProvider}' model '${activeModel}' is cooling down`,
+                } satisfies GuiInboundFrame));
+                return;
+              }
               const activeModelCapabilities = findProviderModelCapabilities(
                 currentDiscovery,
                 activeProvider,
@@ -1090,6 +1103,15 @@ function findProviderModelCapabilities(
 ): GuiProviderModelCapabilities | undefined {
   if (!provider || !model) return undefined;
   return discovery.find((entry) => entry.provider === provider)?.modelCapabilities?.[model];
+}
+
+function findProviderModelRouteHealth(
+  discovery: readonly GuiProviderDiscoveryResult[],
+  provider: string | undefined,
+  model: string | undefined,
+): GuiProviderModelRouteHealth | undefined {
+  if (!provider || !model) return undefined;
+  return discovery.find((entry) => entry.provider === provider)?.modelRouteHealth?.[model];
 }
 
 async function applyResumeSelection(

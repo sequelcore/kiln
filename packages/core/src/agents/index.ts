@@ -166,6 +166,17 @@ export type {
   DirectProviderExecutionProfile,
   ResolvedDirectProviderExecutionProfile,
 } from "./provider-execution-profiles.js";
+export {
+  createProviderModelRouteHealthRecord,
+  evaluateProviderModelRouteHealth,
+  formatProviderModelRouteCooldown,
+  mapProviderModelRouteErrorToOutcome,
+} from "./provider-model-route-health.js";
+export type {
+  ProviderModelRouteHealthDecision,
+  ProviderModelRouteHealthRecord,
+  ProviderModelRouteKey,
+} from "./provider-model-route-health.js";
 
 export {
   CredentialPool,

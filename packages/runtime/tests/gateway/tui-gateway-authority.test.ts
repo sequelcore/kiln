@@ -95,6 +95,35 @@ describe("TUI authority forwarding", () => {
     });
   });
 
+  it("rejects provider switches to cooling direct provider model routes", async () => {
+    const { resolveTuiProviderSwitch } = await import("../../src/gateway/tui-gateway.js");
+
+    const resolution = resolveTuiProviderSwitch({
+      provider: "openrouter",
+      model: "qwen/qwen3-coder:free",
+      discovery: [{
+        provider: "openrouter",
+        available: true,
+        models: ["openrouter/free", "qwen/qwen3-coder:free"],
+        modelRouteHealth: {
+          "qwen/qwen3-coder:free": {
+            healthy: false,
+            reason: "qwen route is temporarily rate-limited.",
+          },
+        },
+        status: "available",
+        reason: "OpenRouter models discovered.",
+        authState: "authenticated",
+        lastCheckedAt: "2026-04-28T12:00:00.000Z",
+      }],
+    });
+
+    expect(resolution).toEqual({
+      ok: false,
+      error: "qwen route is temporarily rate-limited.",
+    });
+  });
+
   it("fails closed when live Codex OAuth discovery says the model has function tools disabled", async () => {
     const { buildTuiTurnPerCallConfig, deriveTuiAuthorityStatusFromPerCallConfig } = await import("../../src/gateway/tui-gateway.js");
     const cfg = buildTuiTurnPerCallConfig("codex-oauth", "gpt-disabled", undefined, {

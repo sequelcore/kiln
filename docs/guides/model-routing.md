@@ -23,6 +23,13 @@ models across 5 providers. These profiles are capability and cost metadata, not
 the execution source of truth. Operator surfaces and direct CLI execution must
 use runtime provider discovery for available model IDs before admitting work.
 
+Provider/model route health is evaluated after discovery and before execution.
+If a route recently failed with a retryable provider outcome, Kiln treats that
+specific provider/model as cooling down until its health record expires. For
+OpenRouter free testing, prefer `openrouter/free` over a specific `:free` model
+unless a route policy intentionally pins a model; the free router lets
+OpenRouter choose currently available free capacity.
+
 | Model | Provider | Quality | Tools | Streaming | Vision | Context |
 |-------|----------|---------|-------|-----------|--------|---------|
 | `claude-opus-4-6` | Anthropic | high | yes | yes | yes | 200K |

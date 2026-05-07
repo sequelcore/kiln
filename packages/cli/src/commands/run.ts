@@ -54,9 +54,12 @@ import {
   type ReasoningEffort,
   type SessionEventSource,
   VerificationResult,
+  formatProviderModelRouteCooldown,
+  mapProviderModelRouteErrorToOutcome,
   scoreComplexity,
 } from "@kilnai/core";
 import {
+  ProviderModelRouteHealthStore,
   discoverGuiDirectProviderModelDiscovery,
   getProjectContextArtifactCache,
 } from "@kilnai/runtime";
@@ -356,6 +359,17 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     }
   }
 
+  const directRouteHealthStore = isDirectApiProvider(preferredProvider) && effectiveModel
+    ? new ProviderModelRouteHealthStore()
+    : undefined;
+  if (directRouteHealthStore && isDirectApiProvider(preferredProvider) && effectiveModel) {
+    const health = await directRouteHealthStore.evaluateRouteHealth(preferredProvider, effectiveModel);
+    if (!health.healthy) {
+      console.error(`Error: ${formatProviderModelRouteCooldown(health)}`);
+      process.exit(1);
+    }
+  }
+
   const requirements = buildRunSessionRequirements(preferredProvider);
 
   const startedAt = new Date().toISOString();
@@ -480,6 +494,17 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     sessionHooks.sessionEnd();
     unregisterSignalHandlers();
   });
+
+  if (directRouteHealthStore && isDirectApiProvider(preferredProvider) && effectiveModel) {
+    await directRouteHealthStore.recordOutcome({
+      providerId: preferredProvider,
+      modelId: effectiveModel,
+      outcome: sessionSucceeded
+        ? { type: "ok" }
+        : mapProviderModelRouteErrorToOutcome(lastError ?? "Provider ended with unknown error"),
+      ...(lastError ? { errorMessage: lastError } : {}),
+    });
+  }
 
   try {
     for (const [seq, entry] of transcript.entries()) {

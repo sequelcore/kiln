@@ -420,6 +420,47 @@ describe("startGuiGateway static mount", () => {
     });
   });
 
+  it("projects unhealthy direct provider model routes into structured discovery", () => {
+    const discovery = buildGuiOperatorDiscoveryResults({
+      opencodeModels: [],
+      codexModels: [],
+      providerAvailability: { openrouter: true },
+      directProviderDiscovery: {
+        openrouter: {
+          models: ["openrouter/free", "qwen/qwen3-coder:free"],
+          modelRouteHealth: {
+            "qwen/qwen3-coder:free": {
+              healthy: false,
+              reason: "Provider/model route 'openrouter/qwen/qwen3-coder:free' is cooling down.",
+              cooldownUntil: 1_777_777_777_000,
+            },
+            "unused/free": {
+              healthy: false,
+              reason: "This model is not advertised.",
+            },
+          },
+          status: "available",
+          reason: "OpenRouter models discovered.",
+          authState: "authenticated",
+        },
+      },
+      lastCheckedAt: "2026-04-28T12:00:00.000Z",
+    });
+
+    expect(discovery.find((entry) => entry.provider === "openrouter")).toMatchObject({
+      provider: "openrouter",
+      available: true,
+      models: ["openrouter/free", "qwen/qwen3-coder:free"],
+      modelRouteHealth: {
+        "qwen/qwen3-coder:free": {
+          healthy: false,
+          reason: "Provider/model route 'openrouter/qwen/qwen3-coder:free' is cooling down.",
+          cooldownUntil: 1_777_777_777_000,
+        },
+      },
+    });
+  });
+
   it("uses one provider readiness wording path for switches and prompt execution", () => {
     const resolution = resolveGuiProviderSwitch({
       provider: "openai",
@@ -3394,6 +3435,34 @@ describe("resolveGuiProviderSwitch", () => {
     }
     expect(resolution.error).toContain("anthropic");
     expect(resolution.error).toContain("gpt-5.4");
+  });
+
+  it("rejects requested models that are cooling down", () => {
+    const resolution = resolveGuiProviderSwitch({
+      provider: "openrouter",
+      model: "qwen/qwen3-coder:free",
+      discovery: [{
+        provider: "openrouter",
+        available: true,
+        models: ["openrouter/free", "qwen/qwen3-coder:free"],
+        modelRouteHealth: {
+          "qwen/qwen3-coder:free": {
+            healthy: false,
+            reason: "qwen route is temporarily rate-limited.",
+          },
+        },
+        status: "available",
+        reason: "OpenRouter models discovered.",
+        authState: "authenticated",
+        lastCheckedAt: "2026-04-28T12:00:00.000Z",
+      }],
+    });
+
+    expect(resolution.ok).toBe(false);
+    if (resolution.ok) {
+      throw new Error("expected cooling provider-model route resolution failure");
+    }
+    expect(resolution.error).toBe("qwen route is temporarily rate-limited.");
   });
 
   it("rejects unknown providers even when the models map contains them", () => {
