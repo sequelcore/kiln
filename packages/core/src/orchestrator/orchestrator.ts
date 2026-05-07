@@ -28,7 +28,7 @@ import type { ProviderAdapter, AgentRole } from "../agents/index.js";
 import type { CheckpointStore } from "./checkpoint-store.js";
 import type { CheckpointOptions, ReplayOverrides } from "./checkpoint-types.js";
 import type { InterruptRequest, ResumeCommand } from "./interrupt.js";
-import { attachFieldUpdater, startFieldPropagator, startFieldInhibitor, startStabilityMonitor } from "../field/field-service.js";
+import { acquireFieldRuntime, attachFieldUpdater, type FieldRuntimeLease } from "../field/field-service.js";
 import type { DevTool } from "../tools/domain/tool.js";
 import type { DevToolExecutionRequest, DevToolExecutionResult } from "../tools/tool-executor.js";
 import { OrchestratorCheckpointSupport } from "./orchestrator-checkpoint-support.js";
@@ -82,14 +82,13 @@ export class Orchestrator {
   private _sessionId: string | null = null;
   private _task: string | null = null;
   private _team: Team | null = null;
+  private _fieldRuntimeLease: FieldRuntimeLease | null = null;
 
   constructor(config?: Partial<OrchestratorConfig>) {
     this._config = { ...DEFAULT_CONFIG, ...config };
     this._eventBus = new EventBus();
     attachFieldUpdater(this._eventBus);
-    startFieldPropagator();
-    startFieldInhibitor();
-    startStabilityMonitor();
+    this._fieldRuntimeLease = acquireFieldRuntime();
     this._costTracker = new CostTracker();
     // PhaseMachine is constructed without a sessionId; it gets set in start()
     this._phaseMachine = new PhaseMachine(this._eventBus, this._config);
@@ -162,6 +161,11 @@ export class Orchestrator {
       loadCheckpointMetadata: (checkpointId) => this._checkpointSupport.loadCheckpointMetadata(checkpointId),
       resume: (checkpointId) => this.resume(checkpointId),
     });
+  }
+
+  dispose(): void {
+    this._fieldRuntimeLease?.release();
+    this._fieldRuntimeLease = null;
   }
 
   /** Expose EventBus for external subscribers (TUI, MCP) */

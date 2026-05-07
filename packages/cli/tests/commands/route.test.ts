@@ -8,7 +8,7 @@ const globalConfigMocks = vi.hoisted(() => ({
 
 vi.mock("../../src/config/global-config.js", () => ({
   defaultGlobalConfig: () => ({
-    version: "2",
+    version: "1",
     engines: {
       claude: { enabled: true, billing: "subscription" },
     },
@@ -23,7 +23,7 @@ describe("routeCommand", () => {
   beforeEach(() => {
     consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     globalConfigMocks.config = {
-      version: "2",
+      version: "1",
       engines: {
         codex: { enabled: true },
         opencode: { enabled: true },

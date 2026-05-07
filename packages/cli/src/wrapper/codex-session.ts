@@ -274,27 +274,36 @@ export class CodexSession implements IKilnSession {
     let exitCode: number | null = null;
 
     const stdoutLines: string[] = [];
+    const stderrChunks: string[] = [];
     let buf = "";
+    const onStdoutData = (chunk: Buffer): void => {
+      buf += chunk.toString();
+      const lines = buf.split("\n");
+      buf = lines.pop() ?? "";
+      for (const line of lines) {
+        if (line.trim()) stdoutLines.push(line.trim());
+      }
+    };
+    const onStderrData = (chunk: Buffer): void => {
+      stderrChunks.push(chunk.toString());
+    };
 
     try {
-      proc.stdout?.on("data", (chunk: Buffer) => {
-        buf += chunk.toString();
-        const lines = buf.split("\n");
-        buf = lines.pop() ?? "";
-        for (const line of lines) {
-          if (line.trim()) stdoutLines.push(line.trim());
-        }
-      });
+      proc.stdout?.on("data", onStdoutData);
+      proc.stderr?.on("data", onStderrData);
 
       exitCode = await new Promise<number | null>((resolve) => {
-        proc.on("exit", (code: number | null) => resolve(code));
-        proc.on("error", () => resolve(-1));
+        proc.once("close", (code: number | null) => resolve(code));
+        proc.once("error", () => resolve(-1));
       });
 
       if (buf.trim()) stdoutLines.push(buf.trim());
     } catch {
       // stream error — continue to parse what we have
     } finally {
+      proc.stdout?.off("data", onStdoutData);
+      proc.stderr?.off("data", onStderrData);
+      this._process = null;
       if (this._abortListener && options.abortSignal) {
         options.abortSignal.removeEventListener("abort", this._abortListener);
         this._abortListener = null;
@@ -552,7 +561,8 @@ export class CodexSession implements IKilnSession {
     }
 
     if (!turnCompleted && exitCode !== 0 && exitCode !== null) {
-      const msg = lastError ?? `codex exited with code ${exitCode}`;
+      const stderrText = stderrChunks.join("").trim();
+      const msg = lastError ?? (stderrText.length > 0 ? stderrText : `codex exited with code ${exitCode}`);
       yield {
         type: "error",
         code: "CODEX_EXIT_ERROR",

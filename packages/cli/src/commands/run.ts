@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import readline from "node:readline";
 import { SessionManager } from "../wrapper/session-manager.js";
-import { createDefaultRegistry, isDirectApiProvider } from "../wrapper/session-registry.js";
+import { createDefaultRegistry } from "../wrapper/session-registry.js";
 import { cleanupRegistry } from "../wrapper/cleanup-registry.js";
 import type {
   ApprovalMemoryStore,
@@ -87,6 +87,13 @@ function resolveMode(flags: RunFlags): SessionMode {
 
 const DEFAULT_POLICY: KilnPermissionPolicy = { approval: "never", sandbox: "workspace-write" };
 const PLAN_POLICY: KilnPermissionPolicy = { approval: "untrusted", sandbox: "read-only" };
+
+export function buildRunSessionRequirements(preferredProvider: ProviderId | undefined): SessionRequirements {
+  return {
+    preferredProvider,
+    requiresMcp: preferredProvider === undefined,
+  };
+}
 
 function buildConfig(flags: RunFlags, mode: SessionMode): WrapperConfig {
   return {
@@ -272,10 +279,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     env[`${config.provider.toUpperCase()}_API_KEY`] = config.apiKey;
   }
 
-  const requirements: SessionRequirements = {
-    preferredProvider,
-    requiresMcp: !isDirectApiProvider(preferredProvider),
-  };
+  const requirements = buildRunSessionRequirements(preferredProvider);
 
   const startedAt = new Date().toISOString();
   const initialMetadata = deriveSessionMetadata({
@@ -350,11 +354,25 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
   });
   const approvalMemoryStore: ApprovalMemoryStore = new ApprovalMemoryStoreImpl(cwd);
 
+  let signalHandlersRegistered = false;
+  let shutdownStarted = false;
+  const unregisterSignalHandlers = (): void => {
+    if (!signalHandlersRegistered) return;
+    process.off("SIGINT", shutdown);
+    process.off("SIGTERM", shutdown);
+    signalHandlersRegistered = false;
+  };
   const shutdown = (): void => {
-    void cleanupRegistry.runAll();
+    if (shutdownStarted) return;
+    shutdownStarted = true;
+    unregisterSignalHandlers();
+    void cleanupRegistry.runAll().finally(() => {
+      process.exit(130);
+    });
   };
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
+  signalHandlersRegistered = true;
 
   sessionHooks.sessionStart();
   const {
@@ -381,9 +399,10 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     approvalMemoryStore,
     env,
     sessionHooks,
+  }).finally(() => {
+    sessionHooks.sessionEnd();
+    unregisterSignalHandlers();
   });
-
-  sessionHooks.sessionEnd();
 
   try {
     for (const [seq, entry] of transcript.entries()) {

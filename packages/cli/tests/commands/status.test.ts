@@ -131,7 +131,7 @@ describe("statusCommand", () => {
     mkdirSync(kilnDir, { recursive: true });
     writeKilnYaml(kilnDir, { ...defaultKilnYaml("python") });
     writeGlobalConfig({
-      version: "2",
+      version: "1",
       engines: {
         codex: { enabled: true, billing: "plus-quota" },
         opencode: { enabled: true, billing: "free" },
@@ -172,7 +172,7 @@ describe("statusCommand", () => {
     mkdirSync(kilnDir, { recursive: true });
     writeKilnYaml(kilnDir, { ...defaultKilnYaml("python") });
     writeGlobalConfig({
-      version: "2",
+      version: "1",
       engines: {
         claude: { enabled: true, billing: "subscription" },
         codex: { enabled: true, billing: "plus-quota" },

@@ -34,7 +34,7 @@ describe("import-native command helpers", () => {
 
   it("merges imported Codex fields without clobbering unrelated Kiln fields", () => {
     const currentConfig: KilnGlobalConfig = {
-      version: "2",
+      version: "1",
       identity: { name: "Ricardo", timezone: "America/Tijuana" },
       engines: {
         claude: { enabled: true, billing: "subscription" },
@@ -64,7 +64,7 @@ describe("import-native command helpers", () => {
     });
 
     expect(plan.after).toEqual({
-      version: "2",
+      version: "1",
       identity: { name: "Ricardo", timezone: "America/Tijuana" },
       engines: {
         claude: { enabled: true, billing: "subscription" },

@@ -1,12 +1,14 @@
-import { existsSync, readFileSync } from "node:fs";
+import { copyFileSync, existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import readline from "node:readline";
 import { stringify as stringifyYaml } from "yaml";
 import { parse as parseToml } from "smol-toml";
 import { globalToKilnYaml } from "../config/config-merger.js";
+import { HARNESSES_WITH_NATIVE_CONFIG_IMPORT } from "../config/harness-integration-capabilities.js";
 import { stripJsonComments } from "../config/json-comments.js";
 import {
+  CANONICAL_GLOBAL_CONFIG_VERSION,
   defaultGlobalConfig,
   readGlobalConfig,
   resolveGlobalConfigPath,
@@ -15,9 +17,10 @@ import {
 } from "../config/global-config.js";
 import { syncNativePermissionProjections } from "../config/native-permission-projection.js";
 import type { KilnAppConfig } from "../config.js";
+import { KilnYamlError } from "../kiln-yaml.js";
 import type { KilnYamlPermissions } from "../kiln-yaml-types.js";
 
-export const IMPORT_NATIVE_TARGETS = ["codex", "opencode"] as const;
+export const IMPORT_NATIVE_TARGETS = HARNESSES_WITH_NATIVE_CONFIG_IMPORT;
 export type ImportNativeTargetId = typeof IMPORT_NATIVE_TARGETS[number];
 
 export interface ImportNativePlan {
@@ -151,13 +154,13 @@ export async function importNativeCommand(
     process.exit(1);
   }
 
-  const currentConfig = readGlobalConfig();
+  const currentGlobal = readCurrentGlobalConfigForImport();
   const nativeDocument = readNativeDocument(target, nativeConfigPath);
   const plan = createImportNativePlan({
     target,
     nativeConfigPath,
-    globalConfigPath: resolveGlobalConfigPath(),
-    currentConfig,
+    globalConfigPath: currentGlobal.path,
+    currentConfig: currentGlobal.config,
     nativeDocument,
   });
 
@@ -166,6 +169,9 @@ export async function importNativeCommand(
     return;
   }
 
+  if (currentGlobal.invalid) {
+    console.log(`Existing global config is invalid and will be backed up before writing canonical config: ${currentGlobal.invalid.reason}`);
+  }
   console.log(plan.diff);
   const approved = args.includes("--yes") || await confirmImportNative();
   if (!approved) {
@@ -173,6 +179,10 @@ export async function importNativeCommand(
     process.exit(1);
   }
 
+  if (currentGlobal.invalid) {
+    const backupPath = backupInvalidGlobalConfig(currentGlobal.path);
+    console.log(`Backed up invalid global config to ${backupPath}`);
+  }
   writeGlobalConfig(plan.after);
   const syncResult = await syncNativePermissionProjections(globalToKilnYaml(plan.after), process.cwd(), { force: true });
   if (syncResult.errors.length > 0) {
@@ -184,6 +194,41 @@ export async function importNativeCommand(
   }
 
   console.log(`Imported ${plan.extractedFields.join(", ")} from ${target} native config.`);
+}
+
+interface CurrentGlobalConfigForImport {
+  readonly path: string;
+  readonly config: KilnGlobalConfig | null;
+  readonly invalid?: {
+    readonly reason: string;
+  };
+}
+
+function readCurrentGlobalConfigForImport(): CurrentGlobalConfigForImport {
+  const path = resolveGlobalConfigPath();
+  try {
+    return {
+      path,
+      config: readGlobalConfig(),
+    };
+  } catch (error) {
+    if (!(error instanceof KilnYamlError)) {
+      throw error;
+    }
+    return {
+      path,
+      config: null,
+      invalid: {
+        reason: error.message,
+      },
+    };
+  }
+}
+
+function backupInvalidGlobalConfig(path: string): string {
+  const backupPath = `${path}.invalid-${new Date().toISOString().replace(/[:.]/g, "-")}.bak`;
+  copyFileSync(path, backupPath);
+  return backupPath;
 }
 
 interface ImportedNativeConfig {
@@ -224,7 +269,7 @@ function mergeImportedGlobalConfig(
     : base.models;
   return {
     ...base,
-    version: "2",
+    version: CANONICAL_GLOBAL_CONFIG_VERSION,
     engines,
     routing,
     models,

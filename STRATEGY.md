@@ -281,18 +281,22 @@ Current status (2026-05-07):
 - `managed_agent.invoke` is the shared runtime-owned child invocation tool for
   GUI, TUI, operator gateway, and CLI direct-provider executable sessions when
   managed-agent routes are healthy.
-- Config projection unification is complete. Global config v2, native harness
+- Config projection unification is complete. Canonical global config, native harness
   projection, install-state, drift detection, backups, `sync`, `uninstall`,
   `import-native`, disabled-engine removal, and managed-agent route projection
   are documented in `docs/architecture/config-projection.md` and
   `docs/guides/global-config.md`.
-- No active roadmap is open. `docs/roadmap/README.md` lists only deferred
-  tracks until a new accepted execution track is justified.
+- Harness integration capability modeling is active. The accepted track is
+  `docs/roadmap/03-harness-integration-capability-model.md`, and stable
+  doctrine lives in `docs/architecture/harness-integration-capabilities.md`.
 
 Sequencing decision (2026-05-07):
 
 The previous GUI parity, shared-tooling, managed-agent, and config-projection
 tracks are closed. Do not continue feature work by extending their old roadmaps.
+Harness integration capability modeling is the current active track because the
+Claude Code, Codex, and OpenCode integration boundary now needs capability
+truth instead of native-projection assumptions.
 
 The next implementation roadmap must be created only when one of these is true:
 
@@ -304,9 +308,9 @@ The next implementation roadmap must be created only when one of these is true:
 3. A new architecture gap is identified in canonical docs and accepted as an
    active execution track.
 
-Until then, implementation work should be limited to correctness fixes,
-doctrine cleanup, live-test hardening, and removing contradictions between code,
-architecture, guides, and roadmap state.
+Until then, implementation work should be limited to the active harness
+capability track, correctness fixes, doctrine cleanup, live-test hardening, and
+removing contradictions between code, architecture, guides, and roadmap state.
 
 ### Phase H - Example and Consumer Realignment
 
@@ -364,8 +368,8 @@ Kiln reaches strategic coherence when:
 This section is a delivery queue, not a restatement of the long-term phase
 order above.
 
-1. Keep active roadmap state honest: no implementation roadmap is active until
-   a new track is explicitly accepted.
+1. Keep the harness integration capability roadmap honest and close it once its
+   stable doctrine is absorbed.
 2. Dogfood managed-agent invocation and config projection through GUI, CLI run,
    and TUI maintenance paths; record only reproducible correctness gaps.
 3. Preserve TUI maintenance mode. Do not delete or expand the TUI without a new

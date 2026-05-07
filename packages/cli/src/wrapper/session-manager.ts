@@ -285,7 +285,7 @@ export class SessionManager {
       }
     }
 
-    return {
+    const report: SessionReport = {
       sessionId,
       task: this.orchestrator?.task ?? "",
       domain: this.domain?.displayName ?? "Unknown",
@@ -301,6 +301,9 @@ export class SessionManager {
         : undefined,
       evalScore,
     };
+    this.orchestrator?.dispose();
+    this.orchestrator = null;
+    return report;
   }
 
   async cleanupWorktree(context: SessionContext): Promise<void> {

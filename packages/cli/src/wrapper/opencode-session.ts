@@ -236,6 +236,118 @@ function applyGranularPermissionOverrides(
   return next;
 }
 
+function toPermissionPayload(config: OpenCodeSessionConfig): OpenCodePermissionPayload {
+  const approval = derivePermissionPolicy(
+    config.permissionDefault,
+    config.sandboxMode,
+    config.permissionPolicy,
+  ).approval;
+  const permValue: OpenCodePermissionValue =
+    approval === "never" ? "allow" : approval === "untrusted" ? "deny" : "ask";
+  return applyGranularPermissionOverrides(
+    {
+      edit: permValue,
+      bash: permValue,
+      webfetch: permValue,
+    },
+    config.nativeRules,
+  );
+}
+
+function asJsonObject(value: unknown, label: string): Record<string, unknown> {
+  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  throw new Error(`${label} must be a JSON object when provided`);
+}
+
+function buildOpenCodeMcpEntry(config: OpenCodeSessionConfig): Record<string, unknown> | undefined {
+  const mcpEntryPath = config.mcpServerEntryPath;
+  if (!mcpEntryPath || !existsSync(mcpEntryPath)) {
+    return undefined;
+  }
+  return {
+    type: "local",
+    command: ["node", mcpEntryPath],
+    enabled: true,
+  };
+}
+
+function mergeRecordField(
+  base: Record<string, unknown>,
+  runtime: Record<string, unknown>,
+  field: string,
+): Record<string, unknown> | undefined {
+  if (base[field] === undefined && runtime[field] === undefined) {
+    return undefined;
+  }
+  return {
+    ...(base[field] === undefined ? {} : asJsonObject(base[field], field)),
+    ...(runtime[field] === undefined ? {} : asJsonObject(runtime[field], field)),
+  };
+}
+
+function mergeOpenCodeRuntimeConfig(
+  base: Record<string, unknown>,
+  runtime: Record<string, unknown>,
+): Record<string, unknown> {
+  const merged: Record<string, unknown> = { ...base, ...runtime };
+  for (const field of ["permission", "mcp", "experimental"]) {
+    const value = mergeRecordField(base, runtime, field);
+    if (value !== undefined) {
+      merged[field] = value;
+    }
+  }
+  return merged;
+}
+
+export function buildOpenCodeRuntimeConfigContent(config: OpenCodeSessionConfig): string {
+  const document: Record<string, unknown> = {
+    permission: toPermissionPayload(config),
+    experimental: { batch_tool: true },
+  };
+
+  if (config.model) {
+    document.model = config.model;
+  }
+
+  const mcpEntry = buildOpenCodeMcpEntry(config);
+  if (mcpEntry !== undefined) {
+    document.mcp = { kiln: mcpEntry };
+  }
+
+  return JSON.stringify(document);
+}
+
+export function buildOpenCodeRuntimeConfigEnv(
+  env: Record<string, string | undefined> | undefined,
+  config: OpenCodeSessionConfig,
+): Record<string, string | undefined> {
+  const runtimeConfig = JSON.parse(buildOpenCodeRuntimeConfigContent(config)) as Record<string, unknown>;
+  const existingRaw = env?.OPENCODE_CONFIG_CONTENT;
+  if (existingRaw === undefined || existingRaw.trim().length === 0) {
+    return {
+      ...(env ?? {}),
+      OPENCODE_CONFIG_CONTENT: JSON.stringify(runtimeConfig),
+    };
+  }
+
+  let existing: Record<string, unknown>;
+  try {
+    existing = asJsonObject(JSON.parse(existingRaw), "OPENCODE_CONFIG_CONTENT");
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      throw new Error("OPENCODE_CONFIG_CONTENT must be valid JSON when provided");
+    }
+    throw error;
+  }
+
+  return {
+    ...(env ?? {}),
+    OPENCODE_CONFIG_CONTENT: JSON.stringify(mergeOpenCodeRuntimeConfig(existing, runtimeConfig)),
+  };
+}
+
 function buildFileGovernanceInstructions(
   nativeRules?: OpenCodeNativeRuleMetadata,
 ): string[] {
@@ -376,17 +488,7 @@ export class OpenCodeSession implements IKilnSession {
       const client = asOpencodeClient(createOpencodeClient({ baseUrl }));
 
       if (!isResumingTurn) {
-        const approval = this._capabilities.permissionPolicy.approval;
-        const permValue: OpenCodePermissionValue =
-          approval === "never" ? "allow" : approval === "untrusted" ? "deny" : "ask";
-        const permissionPayload = applyGranularPermissionOverrides(
-          {
-            edit: permValue,
-            bash: permValue,
-            webfetch: permValue,
-          },
-          this._config.nativeRules,
-        );
+        const permissionPayload = toPermissionPayload(this._config);
         await client.config
           .update({
             body: { permission: permissionPayload },
@@ -401,13 +503,8 @@ export class OpenCodeSession implements IKilnSession {
             );
           });
 
-        const mcpEntryPath = this._config.mcpServerEntryPath;
-        if (mcpEntryPath && existsSync(mcpEntryPath)) {
-          const mcpEntry: Record<string, unknown> = {
-            type: "local",
-            command: ["node", mcpEntryPath],
-            enabled: true,
-          };
+        const mcpEntry = buildOpenCodeMcpEntry(this._config);
+        if (mcpEntry !== undefined) {
           await client.config
             .update({
               body: { mcp: { kiln: mcpEntry } },
@@ -418,8 +515,8 @@ export class OpenCodeSession implements IKilnSession {
                 `[opencode] MCP config.update failed: ${err instanceof Error ? err.message : String(err)}`,
               );
             });
-        } else if (mcpEntryPath) {
-          debug(`MCP server entry not found at ${mcpEntryPath}, skipping runtime MCP registration`);
+        } else if (this._config.mcpServerEntryPath) {
+          debug(`MCP server entry not found at ${this._config.mcpServerEntryPath}, skipping runtime MCP registration`);
         }
 
         await client.config
@@ -798,7 +895,7 @@ export class OpenCodeSession implements IKilnSession {
   ): Promise<number> {
     const opencodePath = this._findOpencodePath();
     const args = ["serve", "--port", String(port)];
-    const spawnEnv = { ...process.env, ...env };
+    const spawnEnv = buildOpenCodeRuntimeConfigEnv({ ...process.env, ...env }, this._config);
 
     debug(`[opencode] spawning: ${opencodePath} ${args.join(" ")}`);
     debug(`[opencode] cwd: ${cwd}`);

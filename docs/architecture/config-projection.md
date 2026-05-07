@@ -4,14 +4,20 @@ Kiln treats `~/.kiln/config.yaml` as the global source of truth for local
 operator and harness configuration. Project `kiln.yaml` may override it for a
 workspace, but native harness files are projected artifacts, not source state.
 
-Supported v1 projection targets are Claude Code, Codex, and OpenCode. Additional
-harnesses require a new roadmap slice when adoption justifies the cost.
+Supported native projection targets are Claude Code, Codex, and OpenCode.
+Harness integration strategy is capability-driven; see
+`harness-integration-capabilities.md` for runtime config injection, plugin,
+MCP, hook, and proof rules. Additional harnesses require a new roadmap slice
+when adoption justifies the cost.
 
 ## Ownership
 
 The config projection boundary is owned by the CLI config layer.
 
-- `packages/cli/src/config/global-config.ts` owns global config v2 validation.
+- `packages/cli/src/config/global-config.ts` owns canonical global config
+  validation.
+- `packages/cli/src/config/harness-integration-capabilities.ts` owns harness
+  integration capability declarations.
 - `packages/cli/src/config/config-merger.ts` merges global and project config.
 - `packages/cli/src/config/native-*-projection.ts` owns native file IO for
   permissions, hooks, agents, and skills.
@@ -30,24 +36,29 @@ runtime tool options.
 
 ## Global Config
 
-Global config v2 is the active contract. It includes:
+Global config is the active user-level contract. It includes:
 
 - `engines` for harness availability and billing metadata
 - `routing` and optional budget-aware fallback behavior
 - `models.default` and provider-specific `models.<engine>` values
-- `permissions`, `mcp`, `hooks`, `agents`, and `skills`
+- `permissions`, `mcp`, and `hooks`
 - `managedAgents` route policy
 - `identity`, `ui.theme`, and bundled `components`
 
-Global config v1 is historical only. Current Kiln code does not produce or
-consume v1 global config, and Kiln does not expose a `kiln migrate` command. An
-old config must be recreated as v2 or imported from supported native settings
-through `kiln import-native codex` or `kiln import-native opencode`.
+The current canonical schema version is `"1"`. Kiln does not support
+compatibility shims for obsolete or partial global config files. Invalid global
+config is an adoption error: commands that intentionally write a canonical
+replacement must back up the invalid file before writing.
+
+Agents and skills are canonical filesystem config, not inline YAML fields.
+Global definitions live under `~/.kiln/agents/` and `~/.kiln/skills/`; project
+definitions live under `.kiln/agents/` and `.kiln/skills/`. Native harness
+agent and skill files remain generated projections.
 
 ## Sync Contract
 
-`kiln sync` projects the merged Kiln config into supported native harness files.
-Projection is one-way.
+`kiln sync` projects the merged Kiln config into supported native harness files
+when native projection is the selected harness strategy. Projection is one-way.
 
 Sync executes serially by projection surface and target. Successful writes remain
 committed if a later target fails; Kiln does not automatically roll native files
@@ -74,7 +85,7 @@ contract and are preserved by document-field projection.
 
 `kiln import-native <target>` is the explicit path to absorb selected native
 settings into Kiln config. It is not reverse sync. It supports Codex and
-OpenCode native settings that Kiln can represent in global config v2.
+OpenCode native settings that Kiln can represent in canonical global config.
 
 `kiln uninstall [target]` removes only recorded managed projection state.
 Harness aliases such as `codex` resolve to all recorded targets for that
@@ -100,10 +111,14 @@ support.
 ## Invariants
 
 - Native harness files are projected artifacts.
+- Harness integration decisions come from the shared capability model, not
+  scattered per-command conditionals.
 - Drift is an error condition, not a steady state.
 - Projection targets are explicit and bounded to Claude Code, Codex, and
-  OpenCode in v1.
+  OpenCode.
 - Model names are provider-specific; cross-provider defaults must not be blindly
   copied into harness config.
 - Config projection must be shared by all operator surfaces.
 - Managed-agent route projection is governed config, not assistant preference.
+- Agent and skill definitions are canonical only under Kiln-owned agent and
+  skill directories, never in native harness folders.

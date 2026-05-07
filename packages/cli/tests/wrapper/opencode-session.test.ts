@@ -1,5 +1,9 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { OpenCodeSession } from "../../src/wrapper/opencode-session.js";
+import {
+  OpenCodeSession,
+  buildOpenCodeRuntimeConfigContent,
+  buildOpenCodeRuntimeConfigEnv,
+} from "../../src/wrapper/opencode-session.js";
 import type { OpenCodeSessionConfig } from "../../src/wrapper/opencode-session.js";
 import type { IKilnSession } from "../../src/wrapper/session.js";
 
@@ -126,6 +130,65 @@ describe("OpenCodeSession implements IKilnSession", () => {
     const session = new OpenCodeSession(baseConfig());
     await session.dispose();
     await expect(session.dispose()).resolves.toBeUndefined();
+  });
+});
+
+describe("OpenCode runtime config injection", () => {
+  it("builds process-scoped OPENCODE_CONFIG_CONTENT from Kiln session config", () => {
+    const content = buildOpenCodeRuntimeConfigContent(baseConfig({
+      model: "openai/gpt-4o:free",
+      permissionDefault: "ask",
+      nativeRules: {
+        tools: [{ tool: "Edit", action: "deny" }],
+        commands: [{ pattern: "*", shell: "bash", action: "allow" }],
+        fileGovernance: { denyGlobs: [], askGlobs: [], allowGlobs: [] },
+      },
+    }));
+
+    expect(JSON.parse(content)).toEqual({
+      model: "openai/gpt-4o:free",
+      permission: {
+        edit: "deny",
+        bash: "allow",
+        webfetch: "ask",
+      },
+      experimental: { batch_tool: true },
+    });
+  });
+
+  it("merges existing OPENCODE_CONFIG_CONTENT while letting Kiln-owned fields win", () => {
+    const env = buildOpenCodeRuntimeConfigEnv(
+      {
+        OPENCODE_CONFIG_CONTENT: JSON.stringify({
+          theme: "system",
+          permission: { edit: "allow" },
+          experimental: { unrelated: true },
+        }),
+      },
+      baseConfig({ permissionDefault: "deny" }),
+    );
+
+    expect(JSON.parse(env.OPENCODE_CONFIG_CONTENT)).toEqual({
+      theme: "system",
+      permission: {
+        edit: "deny",
+        bash: "deny",
+        webfetch: "deny",
+      },
+      experimental: {
+        unrelated: true,
+        batch_tool: true,
+      },
+    });
+  });
+
+  it("fails fast when existing OPENCODE_CONFIG_CONTENT is not a JSON object", () => {
+    expect(() =>
+      buildOpenCodeRuntimeConfigEnv(
+        { OPENCODE_CONFIG_CONTENT: "[]" },
+        baseConfig(),
+      )
+    ).toThrow("OPENCODE_CONFIG_CONTENT must be a JSON object when provided");
   });
 });
 

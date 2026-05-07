@@ -157,7 +157,7 @@ describe("syncCommand", () => {
   it("uninstalls and skips native projections for disabled engines", async () => {
     const consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     syncMocks.readGlobalConfig.mockReturnValue({
-      version: "2",
+      version: "1",
       engines: { codex: { enabled: false } },
     });
 

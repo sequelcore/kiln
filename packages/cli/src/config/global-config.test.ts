@@ -80,7 +80,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        "version: \"2\"",
+        "version: \"1\"",
         "engines:",
         "  codex:",
         "    enabled: true",
@@ -97,7 +97,7 @@ describe("global-config", () => {
     const config = readGlobalConfig();
 
     expect(config).toEqual({
-      version: "2",
+      version: "1",
       engines: {
         codex: {
           enabled: true,
@@ -115,22 +115,22 @@ describe("global-config", () => {
     });
   });
 
-  it("readGlobalConfig() rejects v1 configs", () => {
+  it("readGlobalConfig() rejects non-canonical configs", () => {
     existsSyncMock.mockReturnValue(true);
-    readFileSyncMock.mockReturnValue(["version: \"1\"", "provider: codex"].join("\n"));
+    readFileSyncMock.mockReturnValue(["version: \"2\"", "provider: codex"].join("\n"));
 
     expect(() => readGlobalConfig()).toThrow(
-      'Global config version must be "2". Recreate the config as v2 or use `kiln import-native`',
+      'Global config version must be "1". Recreate the canonical config through an explicit adoption flow.',
     );
   });
 
   it("readGlobalConfig() rejects unknown top-level fields and invalid billing modes", () => {
     existsSyncMock.mockReturnValue(true);
-    readFileSyncMock.mockReturnValue(["version: \"2\"", "provider: codex"].join("\n"));
+    readFileSyncMock.mockReturnValue(["version: \"1\"", "provider: codex"].join("\n"));
     expect(() => readGlobalConfig()).toThrow("Unknown global config field: provider");
 
     readFileSyncMock.mockReturnValue(
-      ["version: \"2\"", "engines:", "  codex:", "    billing: credits"].join("\n"),
+      ["version: \"1\"", "engines:", "  codex:", "    billing: credits"].join("\n"),
     );
     expect(() => readGlobalConfig()).toThrow("engines.codex.billing has an unknown billing mode");
   });
@@ -139,7 +139,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        "version: \"2\"",
+        "version: \"1\"",
         "routing:",
         "  budgetAware: true",
         "  budget:",
@@ -161,7 +161,7 @@ describe("global-config", () => {
 
   it("writeGlobalConfig() creates parent directories and writes stringified YAML", () => {
     writeGlobalConfig({
-      version: "2",
+      version: "1",
       routing: { defaultWorker: "codex", budgetAware: false },
       models: { codex: "gpt-5.4" },
     });
@@ -180,7 +180,7 @@ describe("global-config", () => {
 
   it("defaultGlobalConfig() returns expected shape", () => {
     expect(defaultGlobalConfig()).toEqual({
-      version: "2",
+      version: "1",
       engines: {
         claude: { enabled: true, billing: "subscription" },
         codex: { enabled: false, billing: "plus-quota" },
@@ -202,7 +202,7 @@ describe("global-config", () => {
 
   it("resolves provider, model, and UI theme through projection helpers", () => {
     const config = {
-      version: "2" as const,
+      version: "1" as const,
       engines: { codex: { enabled: true as const } },
       routing: { defaultWorker: "codex" },
       models: { default: "fallback-model", codex: "gpt-5.4" },

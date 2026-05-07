@@ -4,7 +4,7 @@ vi.mock("../../src/config/global-config.js", () => ({
   readGlobalConfig: vi.fn(),
   writeGlobalConfig: vi.fn(),
   defaultGlobalConfig: () => ({
-    version: "2",
+    version: "1",
     routing: { defaultWorker: "claude", budgetAware: false },
     components: { include: ["baseline:core"] },
   }),
@@ -28,18 +28,18 @@ describe("operator theme preferences", () => {
   });
 
   it("resolves GUI theme preference from request, then GUI config, then TUI config", () => {
-    expect(resolveGuiThemePreference("dracula", { version: "2", ui: { theme: "night-owl" } })).toBe("dracula");
-    expect(resolveGuiThemePreference(undefined, { version: "2", ui: { theme: "night-owl" } })).toBe("night-owl");
+    expect(resolveGuiThemePreference("dracula", { version: "1", ui: { theme: "night-owl" } })).toBe("dracula");
+    expect(resolveGuiThemePreference(undefined, { version: "1", ui: { theme: "night-owl" } })).toBe("night-owl");
     expect(resolveGuiThemePreference(undefined, null)).toBe("kiln-dark");
   });
 
   it("persists operator theme defaults into neutral UI config", () => {
-    readGlobalConfigMock.mockReturnValue({ version: "2", ui: { theme: "kiln-dark" } });
+    readGlobalConfigMock.mockReturnValue({ version: "1", ui: { theme: "kiln-dark" } });
 
     persistOperatorThemePreference("night-owl");
 
     expect(writeGlobalConfigMock).toHaveBeenCalledWith({
-      version: "2",
+      version: "1",
       ui: { theme: "night-owl" },
     });
   });
@@ -57,7 +57,7 @@ describe("operator theme preferences", () => {
       appliedTheme: "dracula",
     });
     expect(writeGlobalConfigMock).toHaveBeenCalledWith({
-      version: "2",
+      version: "1",
       routing: { defaultWorker: "claude", budgetAware: false },
       components: { include: ["baseline:core"] },
       ui: { theme: "dracula" },

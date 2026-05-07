@@ -68,7 +68,7 @@ function createRegistry(provider: ProviderId, available = true): SessionRegistry
 
 function baseConfig(overrides: Partial<KilnGlobalConfig["managedAgents"]> = {}): KilnGlobalConfig {
   return {
-    version: "2",
+    version: "1",
     managedAgents: {
       enabled: true,
       defaultProvider: "codex",
@@ -152,7 +152,7 @@ describe("resolveManagedInvocationToolOptions", () => {
 
   it("synthesizes a read-only harness route from enabled supported engines", async () => {
     const result = await resolveManagedInvocationToolOptions({
-      version: "2",
+      version: "1",
       engines: {
         claude: { enabled: true, billing: "subscription" },
         codex: { enabled: true, billing: "plus-quota" },
@@ -184,7 +184,7 @@ describe("resolveManagedInvocationToolOptions", () => {
 
   it("does not reuse the global default model across managed child engine namespaces", async () => {
     const result = await resolveManagedInvocationToolOptions({
-      version: "2",
+      version: "1",
       engines: {
         codex: { enabled: true, billing: "plus-quota" },
       },
@@ -207,7 +207,7 @@ describe("resolveManagedInvocationToolOptions", () => {
 
   it("does not synthesize managed routes when no supported child engine is enabled", async () => {
     await expect(resolveManagedInvocationToolOptions({
-      version: "2",
+      version: "1",
       engines: {
         claude: { enabled: true, billing: "subscription" },
         codex: { enabled: false, billing: "plus-quota" },
@@ -354,7 +354,7 @@ describe("resolveManagedInvocationToolOptions", () => {
 
   it("fails closed when engine probing marks the provider unavailable", async () => {
     const result = await resolveManagedInvocationToolOptions({
-      version: "2",
+      version: "1",
       engines: {
         codex: { enabled: true, billing: "plus-quota" },
       },

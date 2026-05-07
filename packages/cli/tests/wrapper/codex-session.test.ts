@@ -62,6 +62,8 @@ interface MockProc {
 interface ProcController {
   proc: MockProc;
   emitLine: (obj: object) => void;
+  emitExit: (code: number) => void;
+  resolveClose: (code: number) => void;
   resolveExit: (code: number) => void;
   flushExit: (code: number) => void;
 }
@@ -70,6 +72,7 @@ function makeMockProc(): ProcController {
   const stdout = new EventEmitter();
   const stderr = new EventEmitter();
   let exitHandler: ((code: number) => void) | null = null;
+  let closeHandler: ((code: number) => void) | null = null;
 
   const proc: MockProc = {
     stdout,
@@ -78,10 +81,12 @@ function makeMockProc(): ProcController {
     pid: 12345,
     on: vi.fn((event: string, handler: (code: number) => void) => {
       if (event === "exit") exitHandler = handler;
+      if (event === "close") closeHandler = handler;
       return proc;
     }),
     once: vi.fn((event: string, handler: (code: number) => void) => {
       if (event === "exit") exitHandler = handler;
+      if (event === "close") closeHandler = handler;
       return proc;
     }),
   };
@@ -91,12 +96,23 @@ function makeMockProc(): ProcController {
     emitLine: (obj: object) => {
       stdout.emit("data", Buffer.from(JSON.stringify(obj) + "\n"));
     },
-    resolveExit: (code: number) => {
-      stdout.emit("end");
+    emitExit: (code: number) => {
       exitHandler?.(code);
+    },
+    resolveClose: (code: number) => {
+      stdout.emit("end");
+      stderr.emit("end");
+      closeHandler?.(code);
+    },
+    resolveExit: (code: number) => {
+      exitHandler?.(code);
+      stdout.emit("end");
+      stderr.emit("end");
+      closeHandler?.(code);
     },
     flushExit: (code: number) => {
       exitHandler?.(code);
+      closeHandler?.(code);
     },
   };
 }
@@ -936,8 +952,52 @@ describe("CodexSession lifecycle", () => {
     mockExecSync.mockReset();
   });
 
-  it("dispose() calls kill() on subprocess", async () => {
+  it("run() waits for process close before completing", async () => {
+    const { proc, emitLine, emitExit, resolveClose } = makeMockProc();
+    vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
+    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
+
+    const session = new CodexSession(baseConfig());
+    let settled = false;
+    const collectPromise = collectEvents(session.run({ prompt: "test" })).then((events) => {
+      settled = true;
+      return events;
+    });
+
+    emitLine({ type: "thread.started", thread_id: "t1" });
+    emitLine({ type: "turn.started" });
+    emitLine({ type: "turn.completed", usage: { input_tokens: 10, cached_input_tokens: 0, output_tokens: 5 } });
+    emitExit(0);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(settled).toBe(false);
+
+    resolveClose(0);
+    const events = await collectPromise;
+    expect(events).toContainEqual(expect.objectContaining({ type: "completed", isError: false }));
+  });
+
+  it("run() drains stderr from the Codex subprocess", async () => {
     const { proc, emitLine, resolveExit } = makeMockProc();
+    vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
+    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
+
+    const session = new CodexSession(baseConfig());
+    const collectPromise = collectEvents(session.run({ prompt: "test" }));
+
+    expect(proc.stderr.listenerCount("data")).toBeGreaterThan(0);
+
+    proc.stderr.emit("data", Buffer.from("diagnostic noise"));
+    emitLine({ type: "thread.started", thread_id: "t1" });
+    emitLine({ type: "turn.started" });
+    emitLine({ type: "turn.completed", usage: { input_tokens: 10, cached_input_tokens: 0, output_tokens: 5 } });
+    resolveExit(0);
+
+    await expect(collectPromise).resolves.toContainEqual(expect.objectContaining({ type: "completed", isError: false }));
+  });
+
+  it("dispose() calls kill() on a running subprocess", async () => {
+    const { proc, emitLine, flushExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
     vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
 
@@ -950,10 +1010,10 @@ describe("CodexSession lifecycle", () => {
 
     emitLine({ type: "thread.started", thread_id: "t1" });
     emitLine({ type: "turn.started" });
-    resolveExit(0);
 
     await new Promise((r) => setTimeout(r, 5));
     await session.dispose();
+    flushExit(1);
     await runPromise;
 
     expect(proc.kill).toHaveBeenCalledWith("SIGTERM");

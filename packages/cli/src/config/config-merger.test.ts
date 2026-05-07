@@ -53,7 +53,7 @@ describe("config-merger", () => {
 
   it("returns global-converted-to-KilnYaml when only global config exists", async () => {
     const globalConfig: KilnGlobalConfig = {
-      version: "2",
+      version: "1",
       engines: { codex: { enabled: true, billing: "plus-quota" } },
       routing: { defaultWorker: "codex", budgetAware: false },
       models: { codex: "gpt-5.4" },
@@ -99,7 +99,7 @@ describe("config-merger", () => {
 
   it("merges global as base with project as override - project scalar wins", async () => {
     const globalConfig: KilnGlobalConfig = {
-      version: "2",
+      version: "1",
       engines: { codex: { enabled: true, billing: "plus-quota" } },
       routing: { defaultWorker: "codex", budgetAware: false },
       models: { codex: "gpt-5.4" },
@@ -140,7 +140,7 @@ describe("config-merger", () => {
 
   it("MCP servers are additive - global + project servers both present in result", async () => {
     const globalConfig: KilnGlobalConfig = {
-      version: "2",
+      version: "1",
       mcp: { servers: { globalSrv: { type: "stdio", command: "global" } } },
     };
     const projectConfig: KilnYaml = {
@@ -170,7 +170,7 @@ describe("config-merger", () => {
 
   it("globalToKilnYaml() maps provider, model, permissions, mcp, hooks correctly", () => {
     const globalConfig: KilnGlobalConfig = {
-      version: "2",
+      version: "1",
       engines: { codex: { enabled: true, billing: "plus-quota" } },
       routing: { defaultWorker: "codex", budgetAware: false },
       models: { default: "claude-opus-4-7", codex: "gpt-5.4" },
@@ -195,7 +195,7 @@ describe("config-merger", () => {
 
   it("globalToKilnYaml() maps undefined model to undefined", () => {
     const globalConfig: KilnGlobalConfig = {
-      version: "2",
+      version: "1",
       engines: { claude: { enabled: true, billing: "subscription" } },
       routing: { defaultWorker: "claude", budgetAware: false },
     };

@@ -83,9 +83,14 @@ is documented by concern, not as a single monolith.
   CLI, GUI, TUI, SDK/widget, and MCP boundaries.
 
 - `config-projection.md`
-  Global config v2, native harness projection, install-state, drift detection,
+  Canonical global config, native harness projection, install-state, drift detection,
   sync/uninstall/import-native behavior, engine enablement removal, and
   managed-agent route projection.
+
+- `harness-integration-capabilities.md`
+  Canonical capability model for Claude Code, Codex, and OpenCode integration:
+  runtime config injection, native projection, plugin packaging, MCP runtime
+  tools, hooks, and proof requirements.
 
 - `operator-surfaces.md`
   Canonical human operator surface model: GUI, CLI, TUI, IDE, remote, future

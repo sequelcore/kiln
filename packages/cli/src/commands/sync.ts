@@ -9,7 +9,11 @@ import { syncNativeAgentProjections } from "../config/native-agent-projection.js
 import { syncNativeSkillProjections } from "../config/native-skill-projection.js";
 import { uninstallNativeTargets } from "./uninstall.js";
 import type { KilnAppConfig } from "../config.js";
-import type { NativeProjectionHarness } from "../config/native-projection-policy.js";
+import {
+  NATIVE_PROJECTION_HARNESSES,
+  supportsNativeProjection,
+  type NativeProjectionHarness,
+} from "../config/native-projection-policy.js";
 
 export const SYNC_TARGETS = ["permissions", "hooks", "agents", "agents-md", "skills"] as const;
 export type SyncTargetId = typeof SYNC_TARGETS[number];
@@ -262,6 +266,7 @@ export async function syncCommand(
 function resolveDisabledNativeProjectionHarnesses(
   globalConfig: KilnGlobalConfig | null,
 ): readonly NativeProjectionHarness[] {
-  const harnesses: readonly NativeProjectionHarness[] = ["claude", "codex", "opencode"];
-  return harnesses.filter((harness) => globalConfig?.engines?.[harness]?.enabled === false);
+  return NATIVE_PROJECTION_HARNESSES.filter((harness) =>
+    supportsNativeProjection(harness) && globalConfig?.engines?.[harness]?.enabled === false
+  );
 }

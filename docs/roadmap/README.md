@@ -15,9 +15,12 @@ Read the relevant architecture or guide document before using a roadmap:
   budgets, overflow, and audit.
 - `docs/architecture/context-resource-plane.md` for read-only resource
   contracts.
-- `docs/architecture/config-projection.md` and `docs/guides/global-config.md`
-  for global config v2, native harness projection, install-state, drift-aware
-  sync/uninstall/import-native behavior, and managed-agent route projection.
+- `docs/architecture/config-projection.md`,
+  `docs/architecture/harness-integration-capabilities.md`, and
+  `docs/guides/global-config.md` for canonical global config, harness
+  integration capabilities, native harness projection, install-state,
+  drift-aware sync/uninstall/import-native behavior, and managed-agent route
+  projection.
 - `docs/architecture/managed-agents.md` for managed invocation, child authority,
   write evidence, live adapter proofs, and replay invariants.
 - `docs/architecture/tool-execution.md`,
@@ -32,7 +35,10 @@ Read the relevant architecture or guide document before using a roadmap:
 
 ## Active Roadmaps
 
-No active roadmap is currently open.
+- `03-harness-integration-capability-model.md`
+  Active capability-driven integration track for Claude Code, Codex, and
+  OpenCode. It replaces implicit native-projection assumptions with explicit
+  runtime injection, native projection, plugin, MCP, and hook capabilities.
 
 ## Deferred Roadmaps
 

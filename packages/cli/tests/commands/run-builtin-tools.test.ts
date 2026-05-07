@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import type { KilnAppConfig } from "../../src/config.js";
-import { runCommand } from "../../src/commands/run.js";
+import { buildRunSessionRequirements, runCommand } from "../../src/commands/run.js";
 
 const runWiringMocks = vi.hoisted(() => {
   const builtinToolSurfaceOptions = { id: "surface-options" };
@@ -25,6 +25,7 @@ const runWiringMocks = vi.hoisted(() => {
     printReport: vi.fn(),
     computeEvalScore: vi.fn(() => undefined),
     capturedSessionConfigs: [] as unknown[],
+    capturedRunSessionInputs: [] as unknown[],
   };
 });
 
@@ -56,6 +57,7 @@ vi.mock("../../src/config/web-tools-config.js", () => ({
 vi.mock("../../src/application/run-session.js", () => ({
   runSession: vi.fn(async (input: { sessionConfig: unknown }) => {
     runWiringMocks.capturedSessionConfigs.push(input.sessionConfig);
+    runWiringMocks.capturedRunSessionInputs.push(input);
     return runWiringMocks.runSession();
   }),
 }));
@@ -138,7 +140,17 @@ vi.mock("../../src/wrapper/session-registry.js", () => ({
     registry: {},
     worktreeManager: {},
   })),
-  isDirectApiProvider: vi.fn(() => true),
+  isDirectApiProvider: vi.fn((provider?: string) =>
+    provider === "anthropic"
+    || provider === "openai"
+    || provider === "deepseek"
+    || provider === "openrouter"
+    || provider === "ollama"
+    || provider === "lmstudio"
+    || provider === "codex-oauth"
+    || provider === "opencode-go"
+    || provider === "opencode-zen"
+  ),
 }));
 
 vi.mock("../../src/wrapper/cleanup-registry.js", () => ({
@@ -174,6 +186,7 @@ describe("run command builtin tool wiring", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     runWiringMocks.capturedSessionConfigs.length = 0;
+    runWiringMocks.capturedRunSessionInputs.length = 0;
   });
 
   afterEach(() => {
@@ -200,5 +213,38 @@ describe("run command builtin tool wiring", () => {
     expect(runWiringMocks.capturedSessionConfigs[0]).toMatchObject({
       builtinToolOptions: { id: "session-builtin-tool-options" },
     });
+  });
+
+  it("does not require MCP when a harness provider is explicitly selected", async () => {
+    await runCommand(APP_CONFIG, "use codex", { provider: "codex" });
+
+    expect(runWiringMocks.capturedRunSessionInputs).toHaveLength(1);
+    expect(runWiringMocks.capturedRunSessionInputs[0]).toMatchObject({
+      requirements: {
+        preferredProvider: "codex",
+        requiresMcp: false,
+      },
+    });
+  });
+
+  it("requires MCP only when no provider is explicitly selected", () => {
+    expect(buildRunSessionRequirements(undefined)).toEqual({
+      preferredProvider: undefined,
+      requiresMcp: true,
+    });
+    expect(buildRunSessionRequirements("codex")).toEqual({
+      preferredProvider: "codex",
+      requiresMcp: false,
+    });
+  });
+
+  it("removes process signal handlers after a completed run", async () => {
+    const beforeSigint = process.listenerCount("SIGINT");
+    const beforeSigterm = process.listenerCount("SIGTERM");
+
+    await runCommand(APP_CONFIG, "cleanup lifecycle", { provider: "codex" });
+
+    expect(process.listenerCount("SIGINT")).toBe(beforeSigint);
+    expect(process.listenerCount("SIGTERM")).toBe(beforeSigterm);
   });
 });

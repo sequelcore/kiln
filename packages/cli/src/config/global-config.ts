@@ -48,27 +48,16 @@ export interface KilnGlobalComponentsConfig {
   readonly include?: readonly string[];
 }
 
-export interface KilnGlobalAgentConfig {
-  readonly name: string;
-  readonly role?: string;
-  readonly model?: string;
-}
-
-export interface KilnGlobalSkillConfig {
-  readonly name: string;
-  readonly path?: string;
-}
+export const CANONICAL_GLOBAL_CONFIG_VERSION = "1" as const;
 
 export interface KilnGlobalConfig {
-  readonly version: "2";
+  readonly version: typeof CANONICAL_GLOBAL_CONFIG_VERSION;
   readonly identity?: KilnGlobalIdentity;
   readonly engines?: Record<string, KilnGlobalEngineConfig>;
   readonly routing?: KilnGlobalRoutingConfig;
   readonly permissions?: KilnYamlPermissions;
   readonly mcp?: KilnYamlMcp;
   readonly hooks?: KilnHooksConfig;
-  readonly agents?: readonly KilnGlobalAgentConfig[];
-  readonly skills?: readonly KilnGlobalSkillConfig[];
   readonly models?: KilnGlobalModelsConfig;
   readonly managedAgents?: KilnManagedAgentsConfig;
   readonly web?: KilnYamlWebConfig;
@@ -84,8 +73,6 @@ const ROOT_FIELDS = new Set([
   "permissions",
   "mcp",
   "hooks",
-  "agents",
-  "skills",
   "models",
   "managedAgents",
   "web",
@@ -130,7 +117,7 @@ export function writeGlobalConfig(config: KilnGlobalConfig): void {
 
 export function defaultGlobalConfig(): KilnGlobalConfig {
   return {
-    version: "2",
+    version: CANONICAL_GLOBAL_CONFIG_VERSION,
     engines: {
       claude: { enabled: true, billing: "subscription" },
       codex: { enabled: false, billing: "plus-quota" },
@@ -174,9 +161,9 @@ export function validateGlobalConfig(config: unknown): void {
   if (!isRecord(config)) {
     throw new KilnYamlError("Global config must be an object");
   }
-  if (config.version !== "2") {
+  if (config.version !== CANONICAL_GLOBAL_CONFIG_VERSION) {
     throw new KilnYamlError(
-      'Global config version must be "2". Recreate the config as v2 or use `kiln import-native` for supported native engine settings.',
+      `Global config version must be "${CANONICAL_GLOBAL_CONFIG_VERSION}". Recreate the canonical config through an explicit adoption flow.`,
     );
   }
   for (const key of Object.keys(config)) {

@@ -15,6 +15,11 @@ let updater: FieldUpdater | null = null;
 const propagator = new FieldPropagator(fieldStore);
 let inhibitor: FieldInhibitor | null = null;
 let stabilityMonitor: StabilityMonitor | null = null;
+let runtimeLeaseCount = 0;
+
+export interface FieldRuntimeLease {
+  release(): void;
+}
 
 fieldStore.snapshot().then((snapshot) => {
   latestSnapshot = snapshot;
@@ -69,4 +74,29 @@ export function startStabilityMonitor(config?: StabilityConfig): StabilityMonito
 
 export function stopStabilityMonitor(): void {
   stabilityMonitor?.stop();
+}
+
+export function acquireFieldRuntime(config?: {
+  readonly inhibitor?: FieldInhibitorConfig;
+  readonly stability?: StabilityConfig;
+}): FieldRuntimeLease {
+  if (runtimeLeaseCount === 0) {
+    startFieldPropagator();
+    startFieldInhibitor(config?.inhibitor);
+    startStabilityMonitor(config?.stability);
+  }
+  runtimeLeaseCount++;
+
+  let released = false;
+  return {
+    release: () => {
+      if (released) return;
+      released = true;
+      runtimeLeaseCount = Math.max(0, runtimeLeaseCount - 1);
+      if (runtimeLeaseCount !== 0) return;
+      stopFieldPropagator();
+      stopFieldInhibitor();
+      stopStabilityMonitor();
+    },
+  };
 }

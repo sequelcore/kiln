@@ -4,11 +4,16 @@
 
 `~/.kiln/config.yaml` is the global source of truth for engine defaults,
 routing, permissions, MCP servers, hooks, managed agents, UI preferences, and
-identity. Project `kiln.yaml` overrides it where needed, and `kiln sync` pushes
-the derived backend configs into native CLIs.
+identity. Global agents and skills live next to it under `~/.kiln/agents/` and
+`~/.kiln/skills/`. Project `kiln.yaml` and `.kiln/agents|skills` override them
+where needed. Harness integration is capability-driven: Kiln uses runtime
+config injection for Kiln-launched processes only when a harness supports it,
+and `kiln sync` pushes derived backend configs into native CLIs when native
+projection is required.
 
-The architecture contract is `docs/architecture/config-projection.md`. This
-guide is the operator-facing usage view.
+The architecture contracts are `docs/architecture/config-projection.md` and
+`docs/architecture/harness-integration-capabilities.md`. This guide is the
+operator-facing usage view.
 
 ## File Location
 
@@ -19,7 +24,7 @@ guide is the operator-facing usage view.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `version` | `string` | Global config schema version. Current version is `"2"`. |
+| `version` | `string` | Canonical global config schema guard. Current version is `"1"`. |
 | `engines` | `Record<string, KilnGlobalEngineConfig>` | Engine availability and billing metadata. |
 | `routing.defaultWorker` | `string` | Default engine/provider route for operator sessions. |
 | `routing.fallback` | `string` | Optional fallback route for budget-aware routing. |
@@ -76,7 +81,7 @@ Priority order: CLI flag > environment variable > `~/.kiln/config.yaml` > built-
 ## Example
 
 ```yaml
-version: "2"
+version: "1"
 engines:
   claude:
     enabled: true
@@ -132,12 +137,11 @@ this instead of `readKilnYaml()` in command-level code. `kiln sync`
 materializes the merged result into native CLI configs; edit Kiln config files,
 not the generated native configs directly.
 
-## Obsolete Configs
+## Invalid Configs
 
-Global config v1 is historical only. Current Kiln code does not produce or
-consume v1 global config. If an old `~/.kiln/config.yaml` exists, recreate it as
-v2 or run `kiln import-native codex` / `kiln import-native opencode` to import
-supported native engine settings into the v2 contract.
+Kiln has one canonical global config schema. Partial or obsolete files are not
+loaded as compatibility inputs. Commands that intentionally replace invalid
+global config must write a backup first, then write canonical config.
 
 ## Agent Sync
 
@@ -177,7 +181,7 @@ managed field or managed file changes outside Kiln, the next sync aborts that
 target unless `--force` is confirmed.
 
 Before overwriting an existing projected native file, Kiln writes a backup under
-`.kiln/backups/<target-id>/`. Backups are append-only in v1.
+`.kiln/backups/<target-id>/`. Backups are append-only.
 
 When `engines.<id>.enabled: false` is set for `claude`, `codex`, or `opencode`,
 `kiln sync` removes recorded managed projections for that harness and does not
