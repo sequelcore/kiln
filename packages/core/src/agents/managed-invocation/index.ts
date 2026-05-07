@@ -100,6 +100,18 @@ export interface ManagedAgentInvocationInput {
   readonly summary: string;
   readonly prompt?: string;
   readonly resourceUris?: readonly string[];
+  readonly context?: ManagedAgentInvocationContextSelection;
+}
+
+export type ManagedAgentInvocationContextMode = "isolated" | "resources" | "fork";
+
+export interface ManagedAgentInvocationContextSelection {
+  readonly mode: ManagedAgentInvocationContextMode;
+  readonly agentProfile?: string;
+  readonly skills?: readonly string[];
+  readonly admittedAgentProfile?: string;
+  readonly admittedSkills?: readonly string[];
+  readonly deniedSkills?: readonly string[];
 }
 
 export interface ManagedAgentInvocationRequest {
@@ -254,6 +266,7 @@ export function defineManagedAgentInvocationRequest(input: ManagedAgentInvocatio
       summary: requireText(input.input?.summary, "Managed invocation input summary is required"),
       ...(input.input?.prompt !== undefined ? { prompt: input.input.prompt } : {}),
       ...(input.input?.resourceUris !== undefined ? { resourceUris: input.input.resourceUris.map((uri) => requireText(uri, "Managed invocation resource uri is required")) } : {}),
+      ...(input.input?.context !== undefined ? { context: requireInvocationContext(input.input.context) } : {}),
     },
   };
 }
@@ -555,6 +568,24 @@ function requireProviderRoute(input: ManagedAgentProviderRoute): ManagedAgentPro
     ...(input.model !== undefined ? { model: requireText(input.model, "Managed invocation model is required") } : {}),
     ...(input.reasoningEffort !== undefined ? { reasoningEffort: requireText(input.reasoningEffort, "Managed invocation reasoning effort is required") } : {}),
   };
+}
+
+function requireInvocationContext(input: ManagedAgentInvocationContextSelection): ManagedAgentInvocationContextSelection {
+  return {
+    mode: requireContextMode(input.mode),
+    ...(input.agentProfile !== undefined ? { agentProfile: requireText(input.agentProfile, "Managed invocation agent profile is required") } : {}),
+    ...(input.skills !== undefined ? { skills: input.skills.map((skill) => requireText(skill, "Managed invocation skill is required")) } : {}),
+    ...(input.admittedAgentProfile !== undefined ? { admittedAgentProfile: requireText(input.admittedAgentProfile, "Managed invocation admitted agent profile is required") } : {}),
+    ...(input.admittedSkills !== undefined ? { admittedSkills: input.admittedSkills.map((skill) => requireText(skill, "Managed invocation admitted skill is required")) } : {}),
+    ...(input.deniedSkills !== undefined ? { deniedSkills: input.deniedSkills.map((skill) => requireText(skill, "Managed invocation denied skill is required")) } : {}),
+  };
+}
+
+function requireContextMode(input: ManagedAgentInvocationContextMode): ManagedAgentInvocationContextMode {
+  if (input === "isolated" || input === "resources" || input === "fork") {
+    return input;
+  }
+  throw new Error("Managed invocation context mode is not supported");
 }
 
 function requireTranscript(input: ManagedAgentTranscriptPointer): ManagedAgentTranscriptPointer {

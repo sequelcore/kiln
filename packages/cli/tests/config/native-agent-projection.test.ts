@@ -80,6 +80,9 @@ describe("native-agent-projection", () => {
     const md = agentToClaudeMd({
       name: "planner",
       role: "Planning specialist",
+      description: "Plans implementation work",
+      goal: "Produce a verified implementation plan",
+      tier: "reasoning",
       tools: ["read", "write"],
       model: "gpt-5.4",
       skills: ["sequel-spring"],
@@ -90,6 +93,8 @@ describe("native-agent-projection", () => {
     expect(md).toContain("---\n");
     expect(md).toContain("name: planner");
     expect(md).toContain("role: Planning specialist");
+    expect(md).toContain("description: Plans implementation work");
+    expect(md).toContain("goal: Produce a verified implementation plan");
     expect(md).toContain("tools:");
     expect(md).toContain("- read");
     expect(md).toContain("model: gpt-5.4");
@@ -102,46 +107,58 @@ describe("native-agent-projection", () => {
     const toml = agentToCodexToml({
       name: "planner",
       role: "Planning specialist",
+      description: "Plans implementation work",
+      goal: "Produce a verified implementation plan",
+      tier: "reasoning",
       model: "gpt-5.4",
       instructions: "Plan first.",
       scope: "project",
     });
 
     expect(toml).toContain('name = "planner"');
-    expect(toml).toContain('description = "Planning specialist"');
-    expect(toml).toContain('developer_instructions = """Plan first."""');
+    expect(toml).toContain('description = "Plans implementation work"');
+    expect(toml).toContain('Goal: Produce a verified implementation plan');
+    expect(toml).toContain("Plan first.");
     expect(toml).toContain('model = "gpt-5.4"');
   });
 
-  it("agentToCodexToml() uses role as developer_instructions fallback when no instructions", () => {
+  it("agentToCodexToml() uses canonical goal when no instructions", () => {
     const toml = agentToCodexToml({
       name: "planner",
       role: "Planning specialist",
+      goal: "Produce a verified implementation plan",
+      tier: "reasoning",
       scope: "project",
     });
 
-    expect(toml).toContain('developer_instructions = """Planning specialist"""');
+    expect(toml).toContain('developer_instructions = """Goal: Produce a verified implementation plan"""');
   });
 
   it("agentToOpenCodeMd() generates frontmatter + body", () => {
     const md = agentToOpenCodeMd({
       name: "planner",
       role: "Planning specialist",
+      description: "Plans implementation work",
+      goal: "Produce a verified implementation plan",
+      tier: "reasoning",
       model: "gpt-5.4-mini",
       instructions: "Follow the checklist.",
       scope: "project",
     });
 
     expect(md).toContain("---\n");
-    expect(md).toContain("description: Planning specialist");
+    expect(md).toContain("description: Plans implementation work");
     expect(md).toContain("model: gpt-5.4-mini");
-    expect(md).toContain("---\nFollow the checklist.");
+    expect(md).toContain("Goal: Produce a verified implementation plan");
+    expect(md).toContain("Follow the checklist.");
   });
 
   it("agentToOpenCodeMd() omits model from frontmatter when not set", () => {
     const md = agentToOpenCodeMd({
       name: "planner",
       role: "Planning specialist",
+      goal: "Produce a verified implementation plan",
+      tier: "reasoning",
       scope: "project",
     });
 
@@ -154,6 +171,8 @@ describe("native-agent-projection", () => {
       {
         name: "planner",
         role: "Planning specialist",
+        goal: "Produce a verified implementation plan",
+        tier: "reasoning",
         instructions: "Plan first.",
         scope: "project",
       },
@@ -179,6 +198,8 @@ describe("native-agent-projection", () => {
       {
         name: "planner",
         role: "Planning specialist",
+        goal: "Produce a verified implementation plan",
+        tier: "reasoning",
         instructions: "Plan first.",
         scope: "project",
       },
@@ -206,6 +227,8 @@ describe("native-agent-projection", () => {
       {
         name: "planner",
         role: "Planning specialist",
+        goal: "Produce a verified implementation plan",
+        tier: "reasoning",
         instructions: "Plan first.",
         scope: "project",
       },

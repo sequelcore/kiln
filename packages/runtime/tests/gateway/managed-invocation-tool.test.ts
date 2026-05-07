@@ -146,6 +146,36 @@ function makeSurface(
   });
 }
 
+function makeManagedRoute(routeId: string, model: string, adapter = makeAdapter()) {
+  return {
+    routeId,
+    providerId: "opencode",
+    model,
+    adapter,
+    surface: "cli-harness",
+    profiles: {
+      "foundation-readonly-plan": {
+        authorityProfileId: `authority:${routeId}:foundation-readonly-plan`,
+        permissionProfile: "read-only",
+        allowedToolNames: ["read", "grep", "glob"],
+        workingDirectory: {
+          path: "C:/Proyectos/Sequel/kiln",
+          mode: "read-only" as const,
+        },
+        timeoutMs: 120000,
+        credentialRoute: {
+          mode: "runtime-selected" as const,
+          routeId: `credential-route:${routeId}`,
+        },
+        memoryScope: {
+          scope: { kind: "project" as const, id: "kiln" },
+          access: "read-only" as const,
+        },
+      },
+    },
+  };
+}
+
 describe("managed invocation runtime tool", () => {
   it("is not exposed unless managed invocation routes are configured", () => {
     const surface = createAttachedRuntimeBuiltinToolSurface();
@@ -179,6 +209,51 @@ describe("managed invocation runtime tool", () => {
       requiresApproval: true,
     });
     expect(planConfig.toolAllowlist?.has("managed_agent.invoke")).toBe(false);
+  });
+
+  it("projects configured managed routes into the model-facing tool definition", () => {
+    const surface = createAttachedRuntimeBuiltinToolSurface({
+      managedInvocation: {
+        routes: [
+          makeManagedRoute("opencode-readonly-a", "model-a"),
+          makeManagedRoute("opencode-readonly-b", "model-b"),
+        ],
+        unavailableRoutes: [{
+          routeId: "openrouter-readonly",
+          providerId: "openrouter",
+          model: "openrouter/free",
+          profiles: ["foundation-readonly-plan"],
+          reason: "model is not tool-call-capable",
+        }],
+      },
+    });
+
+    const tool = surface.toolDefinitions.find((definition) => definition.name === "managed_agent.invoke");
+    const schema = tool?.inputSchema as {
+      readonly properties?: {
+        readonly routeId?: { readonly enum?: readonly string[] };
+        readonly providerRoute?: {
+          readonly properties?: {
+            readonly providerId?: { readonly enum?: readonly string[] };
+          };
+        };
+      };
+    };
+
+    expect(tool?.description).toContain("Configured healthy managed invocation routes");
+    expect(tool?.description).toContain("opencode-readonly-a");
+    expect(tool?.description).toContain("Configured unavailable managed invocation routes");
+    expect(tool?.description).toContain("openrouter-readonly");
+    expect(tool?.description).toContain("For comparison tasks");
+    expect(schema.properties?.routeId?.enum).toEqual([
+      "opencode-readonly-a",
+      "opencode-readonly-b",
+      "openrouter-readonly",
+    ]);
+    expect(schema.properties?.providerRoute?.properties?.providerId?.enum).toEqual([
+      "opencode",
+      "openrouter",
+    ]);
   });
 
   it("composes managed invocation session event sinks for operator surfaces", async () => {
@@ -246,7 +321,7 @@ describe("managed invocation runtime tool", () => {
       profile: "foundation-readonly-plan",
       providerRoute: {
         providerId: "opencode",
-        model: "sonic",
+        model: "opencode-default-model",
       },
       task: "Inspect the managed invocation tool contract and report risks.",
     }, context) as {
@@ -272,7 +347,7 @@ describe("managed invocation runtime tool", () => {
         providerRoute: {
           providerId: "opencode",
           surface: "cli-harness",
-          model: "sonic",
+          model: "opencode-default-model",
         },
         adapterKind: "harness",
         executionMode: "cli-harness",
@@ -289,7 +364,7 @@ describe("managed invocation runtime tool", () => {
       providerRoute: {
         providerId: "opencode",
         surface: "cli-harness",
-        model: "sonic",
+        model: "opencode-default-model",
       },
       authority: {
         authorityProfileId: "authority:opencode:readonly",
@@ -321,6 +396,206 @@ describe("managed invocation runtime tool", () => {
         childSessionId: result.metadata.childSessionId,
       },
     });
+  });
+
+  it("admits requested agent profile and skills through the configured context resolver", async () => {
+    const adapter = makeAdapter();
+    const surface = createAttachedRuntimeBuiltinToolSurface({
+      managedInvocation: {
+        routes: [makeManagedRoute("opencode-readonly", "model-a", adapter)],
+        contextResolver: vi.fn(async () => ({
+          promptPrefix: "## Child Agent Profile\nname: architecture-reviewer\n\nSkill\nname: ddd-review",
+          admittedAgentProfile: "architecture-reviewer",
+          admittedSkills: ["ddd-review"],
+        })),
+      },
+    });
+    const session = makeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-1",
+        name: "managed_agent.invoke",
+        input: {},
+      },
+    };
+
+    const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+      routeId: "opencode-readonly",
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "opencode",
+        model: "model-a",
+      },
+      agentProfile: "architecture-reviewer",
+      skills: ["ddd-review"],
+      contextMode: "isolated",
+      task: "Inspect the managed invocation tool contract and report risks.",
+    }, context) as {
+      readonly isError: boolean;
+      readonly metadata: {
+        readonly context?: Record<string, unknown>;
+      };
+    };
+
+    expect(result.isError).toBe(false);
+    expect(result.metadata.context).toEqual({
+      mode: "isolated",
+      agentProfile: "architecture-reviewer",
+      skills: ["ddd-review"],
+      admittedAgentProfile: "architecture-reviewer",
+      admittedSkills: ["ddd-review"],
+    });
+    expect((adapter.invoke as ReturnType<typeof vi.fn>).mock.calls[0]?.[0].request.input).toMatchObject({
+      context: result.metadata.context,
+      prompt: expect.stringContaining("## Child Agent Profile"),
+    });
+    expect(session.sessionEvents).toEqual([
+      expect.objectContaining({
+        kind: "agent_invocation_requested",
+        invocationContext: result.metadata.context,
+      }),
+      expect.objectContaining({
+        kind: "agent_invocation_started",
+        invocationContext: result.metadata.context,
+      }),
+      expect.objectContaining({
+        kind: "agent_invocation_completed",
+        invocationContext: result.metadata.context,
+      }),
+    ]);
+  });
+
+  it("fails closed when profile or skill context is requested without a resolver", async () => {
+    const surface = makeSurface();
+    const session = makeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-1",
+        name: "managed_agent.invoke",
+        input: {},
+      },
+    };
+
+    const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "opencode",
+        model: "opencode-default-model",
+      },
+      agentProfile: "architecture-reviewer",
+      task: "Inspect the managed invocation tool contract and report risks.",
+    }, context) as {
+      readonly output: string;
+      readonly isError: boolean;
+    };
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain("context resolver is not configured");
+  });
+
+  it("rejects provider model overrides that do not match the configured managed route", async () => {
+    const surface = makeSurface();
+    const session = makeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-1",
+        name: "managed_agent.invoke",
+        input: {},
+      },
+    };
+
+    const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "opencode",
+        model: "sonic",
+      },
+      task: "Inspect the managed invocation tool contract and report risks.",
+    }, context) as {
+      readonly output: string;
+      readonly isError: boolean;
+    };
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain("No managed invocation route is configured");
+  });
+
+  it("fails closed when provider/profile selection is ambiguous without routeId", async () => {
+    const surface = createAttachedRuntimeBuiltinToolSurface({
+      managedInvocation: {
+        routes: [
+          makeManagedRoute("opencode-readonly-a", "model-a"),
+          makeManagedRoute("opencode-readonly-b", "model-b"),
+        ],
+      },
+    });
+    const session = makeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-1",
+        name: "managed_agent.invoke",
+        input: {},
+      },
+    };
+
+    const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "opencode",
+      },
+      task: "Inspect the managed invocation tool contract and report risks.",
+    }, context) as {
+      readonly output: string;
+      readonly isError: boolean;
+    };
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain("route selection is ambiguous");
+    expect(result.output).toContain("opencode-readonly-a, opencode-readonly-b");
+  });
+
+  it("reports configured but unavailable managed routes with their health reason", async () => {
+    const surface = createAttachedRuntimeBuiltinToolSurface({
+      managedInvocation: {
+        routes: [],
+        unavailableRoutes: [{
+          routeId: "openrouter-readonly",
+          providerId: "openrouter",
+          model: "openrouter/free",
+          profiles: ["foundation-readonly-plan"],
+          reason: "Direct provider route 'openrouter-readonly' requires a tool-call-capable model; 'openrouter/openrouter/free' is not eligible.",
+        }],
+      },
+    });
+    const session = makeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-1",
+        name: "managed_agent.invoke",
+        input: {},
+      },
+    };
+
+    const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "openrouter",
+        model: "openrouter/free",
+      },
+      task: "Inspect the managed invocation tool contract and report risks.",
+    }, context) as {
+      readonly output: string;
+      readonly isError: boolean;
+    };
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain("Managed invocation route 'openrouter-readonly' is unavailable");
+    expect(result.output).toContain("requires a tool-call-capable model");
   });
 
   it("records the effective route model and persists readable handoff resources", async () => {

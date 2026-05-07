@@ -226,6 +226,7 @@ export class SessionManager {
       memorySnapshot,
       sessionLedger,
       renderLedger: renderSessionLedger,
+      artifacts: this.appConfig.contextCandidates,
       exactArtifacts,
       artifactCache: governancePolicy.useCache ? this.contextArtifactCache : undefined,
       moduleArtifactKeys,

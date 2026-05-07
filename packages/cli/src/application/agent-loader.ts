@@ -2,15 +2,36 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { parse } from "yaml";
+import type { AgentTier } from "@kilnai/core";
 
 export interface KilnAgentDefinition {
   readonly name: string;
   readonly role: string;
+  readonly description?: string;
+  readonly goal: string;
+  readonly backstory?: string;
+  readonly tier: AgentTier;
   readonly tools?: readonly string[];
   readonly model?: string;
   readonly skills?: readonly string[];
+  readonly mode?: KilnAgentMode;
+  readonly structured?: boolean;
+  readonly count?: number;
+  readonly sandbox?: boolean;
+  readonly modalities?: readonly string[];
+  readonly authorityProfile?: string;
+  readonly routeId?: string;
+  readonly providerRoute?: KilnAgentProviderRoute;
   readonly instructions?: string;
   readonly scope: "global" | "project";
+}
+
+export type KilnAgentMode = "primary" | "subagent" | "managed-child" | "all";
+
+export interface KilnAgentProviderRoute {
+  readonly providerId: string;
+  readonly model?: string;
+  readonly reasoningEffort?: string;
 }
 
 interface ParsedFrontmatter {
@@ -52,6 +73,42 @@ function asStringArray(value: unknown): readonly string[] | undefined {
   return entries.length > 0 ? entries : undefined;
 }
 
+function asBoolean(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function asPositiveInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
+}
+
+function asAgentTier(value: unknown): AgentTier | undefined {
+  return value === "reasoning" || value === "coding" || value === "fast" ? value : undefined;
+}
+
+function asAgentMode(value: unknown): KilnAgentMode | undefined {
+  return value === "primary" || value === "subagent" || value === "managed-child" || value === "all"
+    ? value
+    : undefined;
+}
+
+function asProviderRoute(value: unknown): KilnAgentProviderRoute | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  const providerId = asNonEmptyString(record.providerId);
+  if (!providerId) {
+    return undefined;
+  }
+  const model = asNonEmptyString(record.model);
+  const reasoningEffort = asNonEmptyString(record.reasoningEffort);
+  return {
+    providerId,
+    ...(model ? { model } : {}),
+    ...(reasoningEffort ? { reasoningEffort } : {}),
+  };
+}
+
 function parseAgentDefinition(raw: string, scope: "global" | "project"): KilnAgentDefinition | undefined {
   const parsed = parseFrontmatter(raw);
   if (!parsed) {
@@ -72,21 +129,45 @@ function parseAgentDefinition(raw: string, scope: "global" | "project"): KilnAge
   const record = frontmatter as Record<string, unknown>;
   const name = asNonEmptyString(record.name);
   const role = asNonEmptyString(record.role);
-  if (!name || !role) {
+  const goal = asNonEmptyString(record.goal);
+  const tier = asAgentTier(record.tier);
+  if (!name || !role || !goal || !tier) {
     return undefined;
   }
 
+  const description = asNonEmptyString(record.description);
+  const backstory = asNonEmptyString(record.backstory);
   const tools = asStringArray(record.tools);
   const model = asNonEmptyString(record.model);
   const skills = asStringArray(record.skills);
+  const mode = asAgentMode(record.mode);
+  const structured = asBoolean(record.structured);
+  const count = asPositiveInteger(record.count);
+  const sandbox = asBoolean(record.sandbox);
+  const modalities = asStringArray(record.modalities);
+  const authorityProfile = asNonEmptyString(record.authorityProfile);
+  const routeId = asNonEmptyString(record.routeId);
+  const providerRoute = asProviderRoute(record.providerRoute);
   const instructions = parsed.body.length > 0 ? parsed.body : undefined;
 
   return {
     name,
     role,
+    ...(description ? { description } : {}),
+    goal,
+    ...(backstory ? { backstory } : {}),
+    tier,
     ...(tools ? { tools } : {}),
     ...(model ? { model } : {}),
     ...(skills ? { skills } : {}),
+    ...(mode ? { mode } : {}),
+    ...(structured !== undefined ? { structured } : {}),
+    ...(count !== undefined ? { count } : {}),
+    ...(sandbox !== undefined ? { sandbox } : {}),
+    ...(modalities ? { modalities } : {}),
+    ...(authorityProfile ? { authorityProfile } : {}),
+    ...(routeId ? { routeId } : {}),
+    ...(providerRoute ? { providerRoute } : {}),
     ...(instructions ? { instructions } : {}),
     scope,
   };

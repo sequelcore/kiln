@@ -21,7 +21,13 @@ const READONLY_POLICY: KilnPermissionPolicy = {
 };
 
 function createRegistry(provider: ProviderId, available = true): SessionRegistry {
-  const descriptor: SessionProviderDescriptor = {
+  return createRegistryForProviders([{ provider, available }]);
+}
+
+function createRegistryForProviders(
+  providers: readonly { readonly provider: ProviderId; readonly available?: boolean }[],
+): SessionRegistry {
+  const descriptors: SessionProviderDescriptor[] = providers.map(({ provider, available = true }) => ({
     id: provider,
     costTier: "low",
     capabilities: {
@@ -62,8 +68,8 @@ function createRegistry(provider: ProviderId, available = true): SessionRegistry
       },
       async dispose() {},
     }),
-  };
-  return new SessionRegistry([descriptor]);
+  }));
+  return new SessionRegistry(descriptors);
 }
 
 function baseConfig(overrides: Partial<KilnGlobalConfig["managedAgents"]> = {}): KilnGlobalConfig {
@@ -79,11 +85,11 @@ function baseConfig(overrides: Partial<KilnGlobalConfig["managedAgents"]> = {}):
   };
 }
 
-function makeDirectAdapter(): ManagedAgentRuntimeAdapter {
+function makeDirectAdapter(providerId = "openai"): ManagedAgentRuntimeAdapter {
   return {
     descriptor: defineManagedAgentAdapterDescriptor({
-      adapterDescriptorId: "adapter:openai:direct-provider",
-      providerId: "openai",
+      adapterDescriptorId: `adapter:${providerId}:direct-provider`,
+      providerId,
       adapterKind: "direct",
       supportedProfiles: ["foundation-readonly-plan"],
       supportedExecutionModes: ["direct-provider"],
@@ -132,6 +138,11 @@ function makeDirectAdapter(): ManagedAgentRuntimeAdapter {
 }
 
 describe("resolveManagedInvocationToolOptions", () => {
+  const OPENCODE_UNADVERTISED_MODEL_REASON =
+    "Provider 'opencode' does not advertise model 'openai/gpt-4o:free'.";
+  const OPENCODE_UNPROVEN_MODEL_REASON =
+    "Provider 'opencode' model 'opencode/nemotron-3-super-free' does not have live-proven read-only managed result handoff support for foundation-readonly-plan.";
+
   it("does not expose managed invocation when config is absent or disabled", async () => {
     await expect(resolveManagedInvocationToolOptions(null, {
       cwd: "C:/repo",
@@ -203,6 +214,125 @@ describe("resolveManagedInvocationToolOptions", () => {
       model: "gpt-5.3-codex-spark",
       available: true,
     });
+  });
+
+  it("projects ordered routing routes into read-only managed routes when no explicit managed routes exist", async () => {
+    const result = await resolveManagedInvocationToolOptions({
+      version: "1",
+      engines: {
+        "codex-oauth": { enabled: true, billing: "subscription" },
+        openrouter: { enabled: true, billing: "api-key" },
+        codex: { enabled: true, billing: "plus-quota" },
+        opencode: { enabled: true, billing: "free" },
+      },
+      routing: {
+        routes: [
+          { provider: "codex-oauth", model: "gpt-5.4-mini" },
+          { provider: "openrouter", model: "qwen/qwen3-coder:free" },
+          { provider: "codex", model: "gpt-5.4-mini" },
+          { provider: "opencode", model: "openai/gpt-4o:free" },
+        ],
+      },
+    }, {
+      cwd: "C:/repo",
+      registry: createRegistryForProviders([
+        { provider: "codex-oauth" },
+        { provider: "openrouter" },
+        { provider: "codex" },
+        { provider: "opencode" },
+      ]),
+      surface: "gui",
+      providerModels: {
+        opencode: ["opencode/minimax-m2.5-free"],
+      },
+      directAdapterFactory: (route) => makeDirectAdapter(route.provider),
+    });
+
+    expect(result.routeHealth).toEqual([{
+      routeId: "codex-oauth-readonly",
+      kind: "direct",
+      provider: "codex-oauth",
+      model: "gpt-5.4-mini",
+      profiles: ["foundation-readonly-plan"],
+      available: true,
+    }, {
+      routeId: "openrouter-readonly",
+      kind: "direct",
+      provider: "openrouter",
+      model: "qwen/qwen3-coder:free",
+      profiles: ["foundation-readonly-plan"],
+      available: true,
+    }, {
+      routeId: "codex-readonly",
+      kind: "harness",
+      provider: "codex",
+      model: "gpt-5.4-mini",
+      profiles: ["foundation-readonly-plan"],
+      available: true,
+    }, {
+      routeId: "opencode-readonly",
+      kind: "harness",
+      provider: "opencode",
+      model: "openai/gpt-4o:free",
+      profiles: ["foundation-readonly-plan"],
+      available: false,
+      reason: OPENCODE_UNADVERTISED_MODEL_REASON,
+    }]);
+    expect(result.managedInvocation?.routes.map((route) => route.routeId)).toEqual([
+      "codex-oauth-readonly",
+      "openrouter-readonly",
+      "codex-readonly",
+    ]);
+    expect(result.managedInvocation?.unavailableRoutes).toContainEqual({
+      routeId: "opencode-readonly",
+      providerId: "opencode",
+      model: "openai/gpt-4o:free",
+      profiles: ["foundation-readonly-plan"],
+      reason: OPENCODE_UNADVERTISED_MODEL_REASON,
+    });
+  });
+
+  it("exposes unhealthy direct routing projections as unavailable tool routes", async () => {
+    const result = await resolveManagedInvocationToolOptions({
+      version: "1",
+      engines: {
+        openrouter: { enabled: true, billing: "api-key" },
+        codex: { enabled: true, billing: "plus-quota" },
+      },
+      routing: {
+        routes: [
+          { provider: "openrouter", model: "openrouter/free" },
+          { provider: "codex", model: "gpt-5.4-mini" },
+        ],
+      },
+    }, {
+      cwd: "C:/repo",
+      registry: createRegistryForProviders([
+        { provider: "openrouter" },
+        { provider: "codex" },
+      ]),
+      surface: "gui",
+      directAdapterFactory: () => {
+        throw new Error("Direct provider route 'openrouter-readonly' requires a tool-call-capable model; 'openrouter/openrouter/free' is not eligible.");
+      },
+    });
+
+    expect(result.routeHealth[0]).toMatchObject({
+      routeId: "openrouter-readonly",
+      kind: "direct",
+      provider: "openrouter",
+      model: "openrouter/free",
+      available: false,
+      reason: "Direct provider route 'openrouter-readonly' requires a tool-call-capable model; 'openrouter/openrouter/free' is not eligible.",
+    });
+    expect(result.managedInvocation?.routes.map((route) => route.routeId)).toEqual(["codex-readonly"]);
+    expect(result.managedInvocation?.unavailableRoutes).toEqual([{
+      routeId: "openrouter-readonly",
+      providerId: "openrouter",
+      model: "openrouter/free",
+      profiles: ["foundation-readonly-plan"],
+      reason: "Direct provider route 'openrouter-readonly' requires a tool-call-capable model; 'openrouter/openrouter/free' is not eligible.",
+    }]);
   });
 
   it("does not synthesize managed routes when no supported child engine is enabled", async () => {
@@ -303,7 +433,7 @@ describe("resolveManagedInvocationToolOptions", () => {
     });
   });
 
-  it("synthesizes one read-only harness route when enabled without explicit routes", async () => {
+  it("fails closed for OpenCode read-only routes when the configured model is not advertised", async () => {
     const result = await resolveManagedInvocationToolOptions(baseConfig({
       defaultProvider: "opencode",
       model: "openai/gpt-4o:free",
@@ -311,6 +441,9 @@ describe("resolveManagedInvocationToolOptions", () => {
       cwd: "C:/repo",
       registry: createRegistry("opencode"),
       surface: "tui",
+      providerModels: {
+        opencode: ["opencode/minimax-m2.5-free"],
+      },
     });
 
     expect(result.routeHealth).toEqual([{
@@ -319,10 +452,58 @@ describe("resolveManagedInvocationToolOptions", () => {
       provider: "opencode",
       model: "openai/gpt-4o:free",
       profiles: ["foundation-readonly-plan"],
+      available: false,
+      reason: OPENCODE_UNADVERTISED_MODEL_REASON,
+    }]);
+    expect(result.managedInvocation).toBeUndefined();
+  });
+
+  it("resolves the live-proven OpenCode read-only handoff model when it is advertised", async () => {
+    const result = await resolveManagedInvocationToolOptions(baseConfig({
+      defaultProvider: "opencode",
+    }), {
+      cwd: "C:/repo",
+      registry: createRegistry("opencode"),
+      surface: "tui",
+      providerModels: {
+        opencode: ["opencode/minimax-m2.5-free"],
+      },
+    });
+
+    expect(result.routeHealth).toEqual([{
+      routeId: "opencode-readonly",
+      kind: "harness",
+      provider: "opencode",
+      model: "opencode/minimax-m2.5-free",
+      profiles: ["foundation-readonly-plan"],
       available: true,
     }]);
-    expect(result.managedInvocation?.routes[0]?.routeId).toBe("opencode-readonly");
-    expect(result.managedInvocation?.requestSource).toBe("tui");
+    expect(result.managedInvocation?.routes[0]?.providerId).toBe("opencode");
+  });
+
+  it("fails closed for advertised OpenCode models without live-proven result handoff support", async () => {
+    const result = await resolveManagedInvocationToolOptions(baseConfig({
+      defaultProvider: "opencode",
+      model: "opencode/nemotron-3-super-free",
+    }), {
+      cwd: "C:/repo",
+      registry: createRegistry("opencode"),
+      surface: "tui",
+      providerModels: {
+        opencode: ["opencode/minimax-m2.5-free", "opencode/nemotron-3-super-free"],
+      },
+    });
+
+    expect(result.routeHealth).toEqual([{
+      routeId: "opencode-readonly",
+      kind: "harness",
+      provider: "opencode",
+      model: "opencode/nemotron-3-super-free",
+      profiles: ["foundation-readonly-plan"],
+      available: false,
+      reason: OPENCODE_UNPROVEN_MODEL_REASON,
+    }]);
+    expect(result.managedInvocation).toBeUndefined();
   });
 
   it("fails closed when the provider is unavailable", async () => {

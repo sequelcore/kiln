@@ -57,6 +57,14 @@ export function agentToClaudeMd(agent: KilnAgentDefinition): string {
     role: agent.role,
   };
 
+  if (agent.description) {
+    frontmatter.description = agent.description;
+  }
+
+  if (agent.goal) {
+    frontmatter.goal = agent.goal;
+  }
+
   if (agent.tools && agent.tools.length > 0) {
     frontmatter.tools = [...agent.tools];
   }
@@ -69,16 +77,20 @@ export function agentToClaudeMd(agent: KilnAgentDefinition): string {
     frontmatter.skills = [...agent.skills];
   }
 
+  if (agent.mode) {
+    frontmatter.mode = agent.mode;
+  }
+
   const yamlFrontmatter = stringify(frontmatter).trimEnd();
   const body = agent.instructions ?? "";
   return `---\n${yamlFrontmatter}\n---\n${body}`;
 }
 
 export function agentToCodexToml(agent: KilnAgentDefinition): string {
-  const instructions = agent.instructions ?? agent.role;
+  const instructions = buildNativeAgentInstructions(agent);
   const lines = [
     `name = "${escapeTomlString(agent.name)}"`,
-    `description = "${escapeTomlString(agent.role)}"`,
+    `description = "${escapeTomlString(agent.description ?? agent.role)}"`,
     `developer_instructions = """${escapeTomlMultiline(instructions)}"""`,
   ];
 
@@ -90,14 +102,28 @@ export function agentToCodexToml(agent: KilnAgentDefinition): string {
 }
 
 export function agentToOpenCodeMd(agent: KilnAgentDefinition): string {
-  const frontmatter: Record<string, string> = { description: agent.role };
+  const frontmatter: Record<string, unknown> = { description: agent.description ?? agent.role };
   if (agent.model) {
     frontmatter.model = agent.model;
   }
+  if (agent.mode) {
+    frontmatter.mode = agent.mode;
+  }
+  if (agent.skills && agent.skills.length > 0) {
+    frontmatter.skills = [...agent.skills];
+  }
 
   const yamlFrontmatter = stringify(frontmatter).trimEnd();
-  const body = agent.instructions ?? "";
+  const body = buildNativeAgentInstructions(agent);
   return `---\n${yamlFrontmatter}\n---\n${body}`;
+}
+
+function buildNativeAgentInstructions(agent: KilnAgentDefinition): string {
+  return [
+    `Goal: ${agent.goal}`,
+    agent.backstory ? `Backstory: ${agent.backstory}` : undefined,
+    agent.instructions,
+  ].filter((line): line is string => Boolean(line)).join("\n\n");
 }
 
 export async function syncNativeAgentProjections(

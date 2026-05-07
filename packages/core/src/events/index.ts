@@ -187,6 +187,7 @@ export interface ToolCalledEvent extends KilnEvent {
   readonly taskId?: string;
   readonly workerIndex?: number;
   readonly toolInput?: Record<string, unknown>;
+  readonly metadata?: Record<string, unknown>;
   readonly annotations?: Record<string, unknown>;
   readonly authorizationLevel?: number;
 }

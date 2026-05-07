@@ -256,6 +256,37 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
     });
   });
 
+  it("fails a completed read-only harness run that returns no result handoff", async () => {
+    const run = vi.fn(() => eventStream([
+      { type: "completed", totalUsd: 0.01, durationMs: 25, isError: false, isPreflightCrash: false },
+    ]));
+    const dispose = vi.fn().mockResolvedValue(undefined);
+    const adapter = new ManagedCliHarnessAdapter({
+      providerId: "opencode",
+      model: "sonic",
+      factory: () => ({ run, dispose }),
+    });
+    const service = new RuntimeManagedAgentInvocationService();
+    const request = makeRequest();
+
+    const result = await service.invoke(request, adapter);
+
+    expect(result.status).toBe("completed");
+    if (result.status !== "completed") {
+      throw new Error("Expected completed service envelope with failed invocation record");
+    }
+    expect(result.record.lifecycleState).toBe("failed");
+    expect(result.record.diagnostics).toEqual([{
+      uri: "kiln://managed-invocations/invocation-opencode-1/diagnostics",
+      kind: "failure",
+    }]);
+    expect(result.record.resultHandoff).toMatchObject({
+      summary: "Managed CLI harness invocation failed: the child process completed without a result handoff.",
+      resourceUris: ["kiln://managed-invocations/invocation-opencode-1/transcript"],
+      memoryWriteProposalUris: [],
+    });
+  });
+
   it("proves admitted write authority with replayable proposal, decision, attempt, and terminal evidence", async () => {
     const run = vi.fn((options: CliSessionRunOptions) => eventStream([
       { type: "text_delta", content: "Approved fixture update applied." },

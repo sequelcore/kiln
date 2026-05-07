@@ -19,6 +19,13 @@ const MOCK_APP_CONFIG: KilnAppConfig = {
   mcpServerName: "kiln",
 };
 
+vi.mock("../../src/config/managed-agent-provider-models.js", () => ({
+  discoverManagedAgentProviderModels: vi.fn().mockResolvedValue({
+    codex: ["gpt-5.3-codex-spark", "gpt-5.4-mini"],
+    opencode: ["opencode/minimax-m2.5-free"],
+  }),
+}));
+
 describe("statusCommand", () => {
   const originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
   let tempDir: string;

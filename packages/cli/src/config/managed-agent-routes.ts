@@ -6,6 +6,7 @@ import type {
   ManagedAgentMemoryScope,
   ManagedAgentWorkingDirectory,
 } from "@kilnai/core";
+import { isDirectProviderId } from "@kilnai/core";
 import {
   ManagedCliHarnessAdapter,
   type ManagedAgentRuntimeAdapter,
@@ -23,6 +24,7 @@ import type {
   ProviderId,
   SessionRegistry,
 } from "../wrapper/session-registry.js";
+import { createManagedInvocationContextResolver } from "./managed-invocation-context-resolver.js";
 
 export type ManagedAgentOperatorSurface = "gui" | "tui" | "run" | "operator";
 
@@ -46,6 +48,7 @@ export interface ResolveManagedInvocationToolOptionsContext {
   readonly registry: SessionRegistry;
   readonly surface: ManagedAgentOperatorSurface;
   readonly isProviderAvailable?: (provider: string) => boolean | undefined;
+  readonly providerModels?: Readonly<Record<string, readonly string[] | undefined>>;
   readonly directAdapterFactory?: (route: KilnManagedAgentRouteConfig) => ManagedAgentRuntimeAdapter | Promise<ManagedAgentRuntimeAdapter | undefined> | undefined;
   readonly artifactStore?: ArtifactResourceStore;
 }
@@ -53,7 +56,13 @@ export interface ResolveManagedInvocationToolOptionsContext {
 export interface ManagedAgentRouteConfigSource {
   readonly managedAgents?: KilnManagedAgentsConfig;
   readonly engines?: Record<string, { readonly enabled?: boolean }>;
-  readonly routing?: { readonly defaultWorker?: string };
+  readonly routing?: {
+    readonly defaultWorker?: string;
+    readonly routes?: readonly {
+      readonly provider: string;
+      readonly model?: string;
+    }[];
+  };
   readonly models?: {
     readonly default?: string;
     readonly [engine: string]: string | undefined;
@@ -66,7 +75,11 @@ const DEFAULT_ALLOWED_TOOLS = ["read", "tree", "grep", "glob"] as const;
 const DEFAULT_TIMEOUT_MS = 120000;
 const DEFAULT_MODELS: Record<string, string> = {
   codex: "gpt-5.3-codex-spark",
-  opencode: "openai/gpt-4o:free",
+  opencode: "opencode/minimax-m2.5-free",
+};
+const HARNESS_READONLY_RESULT_HANDOFF_MODELS: Record<string, readonly string[] | "*"> = {
+  codex: "*",
+  opencode: ["opencode/minimax-m2.5-free"],
 };
 
 export async function resolveManagedInvocationToolOptions(
@@ -98,9 +111,19 @@ export async function resolveManagedInvocationToolOptions(
     ...(routes.length > 0 ? {
       managedInvocation: {
         routes,
+        unavailableRoutes: routeHealth
+          .filter((route) => !route.available)
+          .map((route) => ({
+            routeId: route.routeId,
+            providerId: route.provider,
+            ...(route.model ? { model: route.model } : {}),
+            profiles: route.profiles,
+            reason: route.reason ?? "Route is unavailable.",
+          })),
         requestedBy: "assistant",
         requestSource: context.surface,
         ...(context.artifactStore ? { artifactStore: context.artifactStore } : {}),
+        contextResolver: createManagedInvocationContextResolver(context.cwd),
       },
     } : {}),
   };
@@ -112,6 +135,10 @@ function resolveRouteConfigs(
   const managedAgents = config.managedAgents;
   if (managedAgents?.routes && managedAgents.routes.length > 0) {
     return managedAgents.routes;
+  }
+  const routingRoutes = synthesizeRoutesFromRouting(config);
+  if (routingRoutes.length > 0) {
+    return routingRoutes;
   }
   if (managedAgents?.enabled === true) {
     return [synthesizeDefaultRoute(managedAgents)];
@@ -143,6 +170,48 @@ function synthesizeRouteFromEnabledEngines(
     model: config.models?.[provider],
     profile: READONLY_PROFILE,
   });
+}
+
+function synthesizeRoutesFromRouting(
+  config: ManagedAgentRouteConfigSource,
+): readonly KilnManagedAgentRouteConfig[] {
+  const routes = config.routing?.routes
+    ?.map((route) => synthesizeRouteFromRoutingCandidate(route, config))
+    .filter((route): route is KilnManagedAgentRouteConfig => route !== undefined);
+  return routes ? dedupeRouteConfigs(routes) : [];
+}
+
+function synthesizeRouteFromRoutingCandidate(
+  route: { readonly provider: string; readonly model?: string },
+  config: ManagedAgentRouteConfigSource,
+): KilnManagedAgentRouteConfig | undefined {
+  const provider = route.provider.trim();
+  if (!provider) {
+    return undefined;
+  }
+  if (!SUPPORTED_HARNESS_PROVIDERS.has(provider) && !isDirectProviderId(provider)) {
+    return undefined;
+  }
+  return synthesizeReadonlyRoute({
+    provider,
+    model: route.model ?? config.models?.[provider],
+    profile: READONLY_PROFILE,
+  });
+}
+
+function dedupeRouteConfigs(
+  routes: readonly KilnManagedAgentRouteConfig[],
+): readonly KilnManagedAgentRouteConfig[] {
+  const seen = new Set<string>();
+  const deduped: KilnManagedAgentRouteConfig[] = [];
+  for (const route of routes) {
+    if (seen.has(route.id)) {
+      continue;
+    }
+    seen.add(route.id);
+    deduped.push(route);
+  }
+  return deduped;
 }
 
 function synthesizeReadonlyRoute(input: {
@@ -233,6 +302,19 @@ async function resolveRouteConfig(
   if (!model) {
     return unhealthy(baseHealth, `Managed invocation route '${routeConfig.id}' requires a model.`);
   }
+  const advertisedModels = context.providerModels?.[routeConfig.provider];
+  if (advertisedModels && advertisedModels.length === 0) {
+    return unhealthy(baseHealth, `Provider '${routeConfig.provider}' did not advertise any models.`);
+  }
+  if (advertisedModels && !advertisedModels.includes(model)) {
+    return unhealthy(baseHealth, `Provider '${routeConfig.provider}' does not advertise model '${model}'.`);
+  }
+  if (!supportsReadonlyResultHandoff(routeConfig.provider, model)) {
+    return unhealthy(
+      baseHealth,
+      `Provider '${routeConfig.provider}' model '${model}' does not have live-proven read-only managed result handoff support for foundation-readonly-plan.`,
+    );
+  }
 
   const adapter = new ManagedCliHarnessAdapter({
     providerId: routeConfig.provider,
@@ -258,6 +340,11 @@ async function resolveRouteConfig(
     },
     route,
   };
+}
+
+function supportsReadonlyResultHandoff(provider: string, model: string): boolean {
+  const supportedModels = HARNESS_READONLY_RESULT_HANDOFF_MODELS[provider];
+  return supportedModels === "*" || supportedModels?.includes(model) === true;
 }
 
 function buildReadonlyProfile(routeConfig: KilnManagedAgentRouteConfig, cwd: string) {

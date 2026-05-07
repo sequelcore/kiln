@@ -62,6 +62,9 @@ export {
   MANAGED_AGENT_INVOKE_TOOL_NAME,
 } from "./runtime-tool.js";
 export type {
+  ManagedInvocationContextResolution,
+  ManagedInvocationContextResolver,
+  ManagedInvocationContextResolverInput,
   ManagedInvocationSessionEventSink,
   ManagedInvocationRouteProfile,
   ManagedInvocationToolOptions,

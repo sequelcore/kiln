@@ -86,7 +86,7 @@ export function appendManagedInvocationSessionEvents(
     invocationId: input.record.invocationId,
     agentId: input.record.agentId,
     parentSessionId: input.record.parentSessionId,
-    ...managedInvocationIdentity(input.record),
+    ...managedInvocationIdentity(input.record, input.request),
     attempt: 1,
     source,
     timestamp,
@@ -133,7 +133,7 @@ function mapTerminalEvent(input: {
         invocationId: input.record.invocationId,
         agentId: input.record.agentId,
         parentSessionId: input.record.parentSessionId,
-        ...managedInvocationIdentity(input.record),
+        ...managedInvocationIdentity(input.record, input.request),
         durationMs: input.durationMs,
         resultSummary: input.record.resultHandoff?.summary,
         ...(evidence !== undefined ? { managedInvocationEvidence: evidence } : {}),
@@ -150,7 +150,7 @@ function mapTerminalEvent(input: {
         invocationId: input.record.invocationId,
         agentId: input.record.agentId,
         parentSessionId: input.record.parentSessionId,
-        ...managedInvocationIdentity(input.record),
+        ...managedInvocationIdentity(input.record, input.request),
         reason: "Managed invocation cancelled.",
         cancelledBy: "runtime",
         ...(evidence !== undefined ? { managedInvocationEvidence: evidence } : {}),
@@ -167,7 +167,7 @@ function mapTerminalEvent(input: {
         invocationId: input.record.invocationId,
         agentId: input.record.agentId,
         parentSessionId: input.record.parentSessionId,
-        ...managedInvocationIdentity(input.record),
+        ...managedInvocationIdentity(input.record, input.request),
         errorCode: "ENGINE_TIMEOUT",
         errorMessage: "Managed invocation timed out.",
         retriable: true,
@@ -185,7 +185,7 @@ function mapTerminalEvent(input: {
         invocationId: input.record.invocationId,
         agentId: input.record.agentId,
         parentSessionId: input.record.parentSessionId,
-        ...managedInvocationIdentity(input.record),
+        ...managedInvocationIdentity(input.record, input.request),
         errorCode: "ENGINE_FAILURE",
         errorMessage: "Managed invocation failed.",
         retriable: true,
@@ -207,13 +207,18 @@ function formatAdmissionDenied(decision: Extract<ManagedAgentAdmissionDecision, 
 
 function managedInvocationIdentity(
   source: ManagedAgentInvocationRequest | ManagedAgentInvocationRecord,
-): Pick<CanonicalAgentInvocationStartedEvent, "profile" | "providerRoute" | "adapterKind" | "executionMode" | "authorityProfileId"> {
+  request?: ManagedAgentInvocationRequest,
+): Pick<CanonicalAgentInvocationStartedEvent, "profile" | "providerRoute" | "adapterKind" | "executionMode" | "authorityProfileId" | "invocationContext"> {
+  const invocationContext = "input" in source
+    ? source.input.context
+    : request?.input.context;
   return {
     profile: source.profile,
     providerRoute: source.providerRoute,
     adapterKind: source.adapterKind,
     executionMode: source.executionMode,
     authorityProfileId: source.authority.authorityProfileId,
+    ...(invocationContext ? { invocationContext } : {}),
   };
 }
 

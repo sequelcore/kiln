@@ -5,6 +5,7 @@ import type {
   ManagedAgentAuthorityProfile,
   ManagedAgentCredentialRoute,
   ManagedAgentMemoryScope,
+  ManagedAgentInvocationContextMode,
   ManagedAgentInvocationRecord,
   ManagedAgentProviderRoute,
   ManagedAgentWorkingDirectory,
@@ -44,12 +45,22 @@ export interface ManagedInvocationToolRoute {
   readonly profiles: Partial<Record<ManagedAgentAdmissionProfile, ManagedInvocationRouteProfile>>;
 }
 
+export interface ManagedInvocationUnavailableRoute {
+  readonly routeId: string;
+  readonly providerId: string;
+  readonly model?: string;
+  readonly profiles: readonly ManagedAgentAdmissionProfile[];
+  readonly reason: string;
+}
+
 export interface ManagedInvocationToolOptions {
   readonly routes: readonly ManagedInvocationToolRoute[];
+  readonly unavailableRoutes?: readonly ManagedInvocationUnavailableRoute[];
   readonly requestedBy?: string;
   readonly requestSource?: string;
   readonly artifactStore?: ArtifactResourceStore;
   readonly sessionEventSink?: ManagedInvocationSessionEventSink;
+  readonly contextResolver?: ManagedInvocationContextResolver;
 }
 
 export interface ManagedInvocationSessionEventSink {
@@ -59,6 +70,24 @@ export interface ManagedInvocationSessionEventSink {
   ): void | Promise<void>;
 }
 
+export interface ManagedInvocationContextResolverInput {
+  readonly agentProfile?: string;
+  readonly skills: readonly string[];
+  readonly contextMode: ManagedAgentInvocationContextMode;
+  readonly task: string;
+}
+
+export interface ManagedInvocationContextResolution {
+  readonly promptPrefix?: string;
+  readonly admittedAgentProfile?: string;
+  readonly admittedSkills?: readonly string[];
+  readonly deniedSkills?: readonly string[];
+}
+
+export type ManagedInvocationContextResolver = (
+  input: ManagedInvocationContextResolverInput,
+) => ManagedInvocationContextResolution | Promise<ManagedInvocationContextResolution>;
+
 interface ManagedInvocationToolInput {
   readonly profile: ManagedAgentAdmissionProfile;
   readonly routeId?: string;
@@ -66,6 +95,9 @@ interface ManagedInvocationToolInput {
   readonly task: string;
   readonly summary: string;
   readonly resourceUris?: readonly string[];
+  readonly agentProfile?: string;
+  readonly skills?: readonly string[];
+  readonly contextMode: ManagedAgentInvocationContextMode;
 }
 
 interface ManagedInvocationToolResult {
@@ -99,7 +131,7 @@ export const MANAGED_AGENT_INVOKE_TOOL: ToolDefinition = {
           },
           model: {
             type: "string",
-            description: "Optional provider model override allowed by the configured route.",
+            description: "Optional configured model selector. When supplied, it must match the selected managed route.",
           },
           reasoningEffort: {
             type: "string",
@@ -122,6 +154,21 @@ export const MANAGED_AGENT_INVOKE_TOOL: ToolDefinition = {
         items: { type: "string" },
         description: "Optional governed resource URIs to make available to the child.",
       },
+      agentProfile: {
+        type: "string",
+        description: "Optional configured Kiln agent profile to request for the child. The runtime must resolve and admit it before execution.",
+      },
+      skills: {
+        type: "array",
+        items: { type: "string" },
+        description: "Optional configured Kiln skills to request for the child. The runtime must resolve and admit them before execution.",
+      },
+      contextMode: {
+        type: "string",
+        enum: ["isolated", "resources", "fork"],
+        default: "isolated",
+        description: "Child context mode. isolated is default; fork requires explicit runtime support and policy admission.",
+      },
     },
     required: ["profile", "providerRoute", "task"],
     additionalProperties: false,
@@ -137,11 +184,86 @@ export const MANAGED_AGENT_INVOKE_CAPABILITY: Capability = {
   annotations: { destructive: true },
 };
 
+export function createManagedAgentInvokeToolDefinition(
+  options: ManagedInvocationToolOptions,
+): ToolDefinition {
+  const routeIds = unique([
+    ...options.routes.map((route) => route.routeId),
+    ...(options.unavailableRoutes ?? []).map((route) => route.routeId),
+  ]);
+  const providerIds = unique([
+    ...options.routes.map((route) => route.providerId),
+    ...(options.unavailableRoutes ?? []).map((route) => route.providerId),
+  ]);
+  const schema = cloneToolSchema(MANAGED_AGENT_INVOKE_TOOL.inputSchema);
+  const properties = readSchemaProperties(schema);
+  const routeId = readSchemaProperty(properties.routeId);
+  if (routeId && routeIds.length > 0) {
+    routeId.enum = routeIds;
+    routeId.description = "Configured managed invocation route id. Prefer this when selecting a child route.";
+  }
+  const providerRoute = readSchemaProperty(properties.providerRoute);
+  const providerRouteProperties = readSchemaProperties(providerRoute);
+  const providerId = readSchemaProperty(providerRouteProperties.providerId);
+  if (providerId && providerIds.length > 0) {
+    providerId.enum = providerIds;
+    providerId.description = "Configured managed provider id. It must correspond to the selected route.";
+  }
+  return {
+    ...MANAGED_AGENT_INVOKE_TOOL,
+    description: [
+      MANAGED_AGENT_INVOKE_TOOL.description,
+      "",
+      buildManagedRouteCatalogDescription(options),
+      "",
+      "For comparison tasks, invoke one managed child per selected route, then compare only successful handoffs. Report unavailable, failed, cancelled, or timed-out child invocations separately as missing evidence; do not treat them as opinions.",
+      "Use routeId when the user asks for a specific route or when more than one route shares a provider. Omit providerRoute.model unless the user explicitly selected an exact configured model.",
+    ].join("\n"),
+    inputSchema: schema,
+  };
+}
+
 export function createManagedInvocationToolExecutor(
   options: ManagedInvocationToolOptions,
 ): RuntimeBuiltinToolExecutor {
   const service = new RuntimeManagedAgentInvocationService();
   return async (input, context) => executeManagedInvocationTool(input, context, options, service);
+}
+
+export function createManagedInvocationToolCallMetadataResolver(
+  options: ManagedInvocationToolOptions,
+): (input: Record<string, unknown>) => Record<string, unknown> | undefined {
+  return (rawInput) => {
+    const parsed = parseInput(rawInput);
+    if (!parsed.ok) {
+      return undefined;
+    }
+    const routeResolution = resolveRoute(options.routes, parsed.input);
+    if (routeResolution.status !== "found") {
+      return undefined;
+    }
+    const route = routeResolution.route;
+    const profileDefaults = route.profiles[parsed.input.profile];
+    if (!profileDefaults) {
+      return undefined;
+    }
+    return {
+      kind: "managed-invocation",
+      profile: parsed.input.profile,
+      routeId: route.routeId,
+      providerRoute: {
+        providerId: route.providerId,
+        surface: route.surface ?? route.adapter.descriptor.supportedExecutionModes[0] ?? "cli-harness",
+        ...(parsed.input.providerRoute.model ?? route.model ? { model: parsed.input.providerRoute.model ?? route.model } : {}),
+        ...(parsed.input.providerRoute.reasoningEffort ? { reasoningEffort: parsed.input.providerRoute.reasoningEffort } : {}),
+      },
+      adapterKind: route.adapter.descriptor.adapterKind,
+      executionMode: route.adapter.descriptor.supportedExecutionModes[0] ?? "cli-harness",
+      authorityProfileId: profileDefaults.authorityProfileId,
+      task: parsed.input.task,
+      summary: parsed.input.summary,
+    };
+  };
 }
 
 export function attachManagedInvocationSessionEventSink(
@@ -178,15 +300,40 @@ async function executeManagedInvocationTool(
     return errorResult(parsed.error);
   }
 
-  const route = resolveRoute(options.routes, parsed.input);
-  if (!route) {
+  const routeResolution = resolveRoute(options.routes, parsed.input);
+  if (routeResolution.status === "ambiguous") {
+    return errorResult(routeResolution.reason);
+  }
+  if (routeResolution.status === "missing") {
+    const unavailableRoute = resolveUnavailableRoute(options.unavailableRoutes ?? [], parsed.input);
+    if (unavailableRoute) {
+      return errorResult(
+        `Managed invocation route '${unavailableRoute.routeId}' is unavailable for provider '${parsed.input.providerRoute.providerId}' and profile '${parsed.input.profile}': ${unavailableRoute.reason}`,
+        {
+          routeId: unavailableRoute.routeId,
+          providerRoute: {
+            providerId: unavailableRoute.providerId,
+            ...(unavailableRoute.model ? { model: unavailableRoute.model } : {}),
+          },
+        },
+      );
+    }
     return errorResult(`No managed invocation route is configured for provider '${parsed.input.providerRoute.providerId}' and profile '${parsed.input.profile}'.`);
   }
+  const route = routeResolution.route;
 
   const profileDefaults = route.profiles[parsed.input.profile];
   if (!profileDefaults) {
     return errorResult(`Managed invocation route '${route.routeId}' does not allow profile '${parsed.input.profile}'.`);
   }
+
+  const contextResolution = await resolveInvocationContext(parsed.input, options);
+  if (!contextResolution.ok) {
+    return errorResult(contextResolution.error);
+  }
+  const prompt = contextResolution.resolution.promptPrefix
+    ? `${contextResolution.resolution.promptPrefix}\n\nTask:\n${parsed.input.task}`
+    : parsed.input.task;
 
   const invocationId = buildInvocationId(context.session.id, context.session.userTurnCount, context.toolCall.id);
   const request = defineManagedAgentInvocationRequest({
@@ -221,8 +368,16 @@ async function executeManagedInvocationTool(
     },
     input: {
       summary: parsed.input.summary,
-      prompt: parsed.input.task,
+      prompt,
       ...(parsed.input.resourceUris ? { resourceUris: parsed.input.resourceUris } : {}),
+      context: {
+        mode: parsed.input.contextMode,
+        ...(parsed.input.agentProfile ? { agentProfile: parsed.input.agentProfile } : {}),
+        ...(parsed.input.skills ? { skills: parsed.input.skills } : {}),
+        ...(contextResolution.resolution.admittedAgentProfile ? { admittedAgentProfile: contextResolution.resolution.admittedAgentProfile } : {}),
+        ...(contextResolution.resolution.admittedSkills ? { admittedSkills: contextResolution.resolution.admittedSkills } : {}),
+        ...(contextResolution.resolution.deniedSkills ? { deniedSkills: contextResolution.resolution.deniedSkills } : {}),
+      },
     },
   });
 
@@ -258,6 +413,7 @@ async function executeManagedInvocationTool(
         adapterKind: request.adapterKind,
         executionMode: request.executionMode,
         authorityProfileId: request.authority.authorityProfileId,
+        context: request.input.context,
         missingCapabilities: result.decision.missingCapabilities,
         sessionEventIds: events.map((event) => event.eventId),
       },
@@ -280,6 +436,7 @@ async function executeManagedInvocationTool(
       adapterKind: result.record.adapterKind,
       executionMode: result.record.executionMode,
       authorityProfileId: result.record.authority.authorityProfileId,
+      context: request.input.context,
       childSessionId: result.record.childSessionId,
       childTurnId: result.record.childTurnId,
       resultHandoff: result.record.resultHandoff,
@@ -292,11 +449,79 @@ async function executeManagedInvocationTool(
 function resolveRoute(
   routes: readonly ManagedInvocationToolRoute[],
   input: ManagedInvocationToolInput,
-): ManagedInvocationToolRoute | undefined {
+): {
+  readonly status: "found";
+  readonly route: ManagedInvocationToolRoute;
+} | {
+  readonly status: "missing";
+} | {
+  readonly status: "ambiguous";
+  readonly reason: string;
+} {
+  const matches = routes.filter((route) =>
+    route.providerId === input.providerRoute.providerId
+    && (!input.routeId || route.routeId === input.routeId)
+    && (!input.providerRoute.model || route.model === input.providerRoute.model)
+    && route.profiles[input.profile] !== undefined
+  );
+  if (matches.length === 1) {
+    return { status: "found", route: matches[0]! };
+  }
+  if (matches.length > 1) {
+    return {
+      status: "ambiguous",
+      reason: `Managed invocation route selection is ambiguous for provider '${input.providerRoute.providerId}' and profile '${input.profile}'. Specify routeId. Matching routes: ${matches.map((route) => route.routeId).join(", ")}.`,
+    };
+  }
+  return { status: "missing" };
+}
+
+function buildManagedRouteCatalogDescription(options: ManagedInvocationToolOptions): string {
+  const healthy = options.routes.length > 0
+    ? options.routes
+        .map((route) => `- ${route.routeId}: providerRoute.providerId=${route.providerId}${route.model ? `, model=${route.model}` : ""}, surface=${route.surface ?? route.adapter.descriptor.supportedExecutionModes[0] ?? "configured"}, profiles=${Object.keys(route.profiles).join(",")}`)
+        .join("\n")
+    : "- none";
+  const unavailable = options.unavailableRoutes && options.unavailableRoutes.length > 0
+    ? options.unavailableRoutes
+        .map((route) => `- ${route.routeId}: providerRoute.providerId=${route.providerId}${route.model ? `, model=${route.model}` : ""}, profiles=${route.profiles.join(",")}, reason=${route.reason}`)
+        .join("\n")
+    : "- none";
+  return [
+    "Configured healthy managed invocation routes:",
+    healthy,
+    "Configured unavailable managed invocation routes:",
+    unavailable,
+  ].join("\n");
+}
+
+function unique(values: readonly string[]): string[] {
+  return Array.from(new Set(values.filter((value) => value.trim().length > 0)));
+}
+
+function cloneToolSchema(schema: Record<string, unknown>): Record<string, unknown> {
+  return JSON.parse(JSON.stringify(schema)) as Record<string, unknown>;
+}
+
+function readSchemaProperties(value: unknown): Record<string, unknown> {
+  const record = readRecord(value);
+  const properties = readRecord(record?.properties);
+  return properties ?? {};
+}
+
+function readSchemaProperty(value: unknown): Record<string, unknown> | undefined {
+  return readRecord(value);
+}
+
+function resolveUnavailableRoute(
+  routes: readonly ManagedInvocationUnavailableRoute[],
+  input: ManagedInvocationToolInput,
+): ManagedInvocationUnavailableRoute | undefined {
   return routes.find((route) =>
     route.providerId === input.providerRoute.providerId
     && (!input.routeId || route.routeId === input.routeId)
-    && route.profiles[input.profile] !== undefined
+    && (!input.providerRoute.model || route.model === input.providerRoute.model)
+    && route.profiles.includes(input.profile)
   );
 }
 
@@ -438,6 +663,13 @@ function parseInput(input: Record<string, unknown>): { readonly ok: true; readon
   const resourceUris = Array.isArray(input.resourceUris)
     ? input.resourceUris.map(readText).filter((uri): uri is string => uri !== undefined)
     : undefined;
+  const skills = Array.isArray(input.skills)
+    ? unique(input.skills.map(readText).filter((skill): skill is string => skill !== undefined))
+    : undefined;
+  const contextMode = parseContextMode(input.contextMode);
+  if (!contextMode) {
+    return { ok: false, error: "managed_agent.invoke contextMode is not supported." };
+  }
   return {
     ok: true,
     input: {
@@ -452,11 +684,66 @@ function parseInput(input: Record<string, unknown>): { readonly ok: true; readon
       task,
       summary: readText(input.summary) ?? task,
       ...(resourceUris && resourceUris.length > 0 ? { resourceUris } : {}),
+      ...(readText(input.agentProfile) ? { agentProfile: readText(input.agentProfile) } : {}),
+      ...(skills && skills.length > 0 ? { skills } : {}),
+      contextMode,
     },
   };
 }
 
-function errorResult(output: string): ManagedInvocationToolResult {
+async function resolveInvocationContext(
+  input: ManagedInvocationToolInput,
+  options: ManagedInvocationToolOptions,
+): Promise<
+  | { readonly ok: true; readonly resolution: ManagedInvocationContextResolution }
+  | { readonly ok: false; readonly error: string }
+> {
+  const needsResolver = Boolean(input.agentProfile || input.skills?.length || input.contextMode === "fork");
+  if (!needsResolver) {
+    return { ok: true, resolution: {} };
+  }
+  if (!options.contextResolver) {
+    return {
+      ok: false,
+      error: "Managed invocation context resolver is not configured for requested agentProfile, skills, or fork context.",
+    };
+  }
+  try {
+    const resolution = await options.contextResolver({
+      agentProfile: input.agentProfile,
+      skills: input.skills ?? [],
+      contextMode: input.contextMode,
+      task: input.task,
+    });
+    if (resolution.deniedSkills && resolution.deniedSkills.length > 0) {
+      return {
+        ok: false,
+        error: `Managed invocation denied skill(s): ${resolution.deniedSkills.join(", ")}`,
+      };
+    }
+    return { ok: true, resolution };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+function parseContextMode(input: unknown): ManagedAgentInvocationContextMode | undefined {
+  if (input === undefined) {
+    return "isolated";
+  }
+  if (input === "isolated" || input === "resources" || input === "fork") {
+    return input;
+  }
+  return undefined;
+}
+
+function errorResult(
+  output: string,
+  metadata: Record<string, unknown> = {},
+): ManagedInvocationToolResult {
   return {
     output,
     isError: true,
@@ -464,6 +751,7 @@ function errorResult(output: string): ManagedInvocationToolResult {
       toolName: MANAGED_AGENT_INVOKE_TOOL_NAME,
       kind: "managed-invocation",
       status: "failed",
+      ...metadata,
     },
   };
 }

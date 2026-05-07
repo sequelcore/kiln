@@ -288,6 +288,7 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
         routes: [{
           routeId: "openai-direct-readonly",
           providerId: "openai",
+          model: "gpt-5.4-mini",
           adapter,
           surface: "direct-provider",
           profiles: {

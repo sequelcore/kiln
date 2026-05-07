@@ -56,6 +56,18 @@ vi.mock("@kilnai/runtime", () => ({
       authState: "authenticated",
     },
   }),
+  discoverCodexCliModelDiscovery: vi.fn().mockResolvedValue({
+    models: ["gpt-5.3-codex-spark", "gpt-5.4-mini"],
+    status: "available",
+    reason: "Codex models discovered.",
+    authState: "authenticated",
+  }),
+  discoverOpencodeCliModelDiscovery: vi.fn().mockResolvedValue({
+    models: ["opencode/minimax-m2.5-free"],
+    status: "available",
+    reason: "OpenCode models discovered.",
+    authState: "authenticated",
+  }),
   ProviderModelRouteHealthStore: class {
     evaluateRouteHealth(providerId: string, modelId: string) {
       return runWiringMocks.evaluateRouteHealth(providerId, modelId);
@@ -64,6 +76,12 @@ vi.mock("@kilnai/runtime", () => ({
     recordOutcome(input: unknown) {
       return runWiringMocks.recordRouteOutcome(input);
     }
+  },
+  ManagedCliHarnessAdapter: class MockManagedCliHarnessAdapter {
+    readonly descriptor = {
+      adapterKind: "harness",
+      supportedExecutionModes: ["cli-harness"],
+    };
   },
   ManagedDirectProviderRuntimeAdapter: class MockManagedDirectProviderRuntimeAdapter {},
 }));
@@ -193,7 +211,18 @@ vi.mock("../../src/wrapper/session-manager.js", () => ({
 
 vi.mock("../../src/wrapper/session-registry.js", () => ({
   createDefaultRegistry: vi.fn(() => ({
-    registry: {},
+    registry: {
+      list: () => [
+        {
+          id: "openrouter",
+          isAvailable: () => true,
+        },
+        {
+          id: "codex",
+          isAvailable: () => true,
+        },
+      ],
+    },
     worktreeManager: {},
   })),
   getRuntimeProviderAvailability: vi.fn(() => ({

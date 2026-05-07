@@ -3,6 +3,7 @@ import type { ExecutionBillingMode } from "../agents/execution-identity.js";
 import type {
   ManagedAgentAdapterKind,
   ManagedAgentAdmissionProfile,
+  ManagedAgentInvocationContextMode,
   ManagedAgentExecutionMode,
   ManagedAgentProviderRoute,
   ManagedAgentWriteAuthority,
@@ -152,6 +153,7 @@ export interface CanonicalToolCallStartedEvent extends SessionEventEnvelope<"too
   readonly toolCallId: string;
   readonly toolName: string;
   readonly input?: Record<string, unknown>;
+  readonly metadata?: Record<string, unknown>;
 }
 
 export interface CanonicalToolCallCompletedEvent extends SessionEventEnvelope<"tool_call_completed"> {
@@ -197,6 +199,16 @@ export interface SessionAgentInvocationIdentity {
   readonly adapterKind?: ManagedAgentAdapterKind;
   readonly executionMode?: ManagedAgentExecutionMode;
   readonly authorityProfileId?: string;
+  readonly invocationContext?: SessionAgentInvocationContext;
+}
+
+export interface SessionAgentInvocationContext {
+  readonly mode: ManagedAgentInvocationContextMode;
+  readonly agentProfile?: string;
+  readonly skills?: readonly string[];
+  readonly admittedAgentProfile?: string;
+  readonly admittedSkills?: readonly string[];
+  readonly deniedSkills?: readonly string[];
 }
 
 export interface SessionAgentInvocationTranscriptPointer {

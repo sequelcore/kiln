@@ -3,7 +3,9 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { KilnAppConfig } from "../config.js";
 import { readGlobalConfig, resolveGlobalDefaultModel, resolveGlobalDefaultProvider } from "../config/global-config.js";
+import { withGlobalIdentityContext } from "../config/operator-identity-context.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
+import { discoverManagedAgentProviderModels } from "../config/managed-agent-provider-models.js";
 import { resolveManagedInvocationToolOptions } from "../config/managed-agent-routes.js";
 import { loadConfiguredWebToolSurfaceOptions } from "../config/web-tools-config.js";
 import { resolveEffectiveProvider } from "../config/env-config.js";
@@ -48,6 +50,7 @@ export interface GuiFlags {
 export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {}): Promise<void> {
   const cwd = flags.cwd ?? process.cwd();
   const globalConfig = readGlobalConfig();
+  const runtimeAppConfig = withGlobalIdentityContext(appConfig, globalConfig);
   const themePreference = resolveGuiThemePreference(flags.theme, globalConfig);
   if (flags.connect) {
     await guiAttachCommand(flags.connect, themePreference, flags);
@@ -66,7 +69,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
   const transcriptStore = new TranscriptStore(cwd);
   const contextArtifactCache = await getProjectContextArtifactCache(cwd);
   const builtinToolOptions = createSessionBuiltinToolOptions(
-    await loadConfiguredWebToolSurfaceOptions(appConfig, cwd, {
+    await loadConfiguredWebToolSurfaceOptions(runtimeAppConfig, cwd, {
       memoryAuthority: {
         modelFacingSession: true,
         permissionAgent: "gui",
@@ -75,11 +78,13 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
     }),
   );
   const engineAvailability = resolveEngineAvailabilityMap(globalConfig);
+  const managedAgentProviderModels = await discoverManagedAgentProviderModels();
   const managedInvocationResolution = await resolveManagedInvocationToolOptions(globalConfig, {
     cwd,
     registry,
     surface: "gui",
     isProviderAvailable: (providerId) => engineAvailability.get(providerId),
+    providerModels: managedAgentProviderModels,
     directAdapterFactory: createManagedDirectProviderAdapterFactory({ builtinToolOptions }),
     artifactStore: builtinToolOptions.artifactResources?.store,
   });
@@ -99,7 +104,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
   if (startupModel) {
     sessionManager.setModel(startupModel);
   }
-  const bootstrapContext = await resolveGuiBootstrapContext(appConfig, cwd, contextArtifactCache);
+  const bootstrapContext = await resolveGuiBootstrapContext(runtimeAppConfig, cwd, contextArtifactCache);
   const managedWindowShutdownMonitor = createManagedGuiWindowShutdownMonitor();
   const workspaceExplorer = createLocalWorkspaceExplorer(cwd);
   const { startGuiGateway } = await import("@kilnai/runtime");

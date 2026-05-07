@@ -1,4 +1,5 @@
 import type { DomainConfig, DomainRegistry } from "@kilnai/core";
+import type { ContextCandidate } from "@kilnai/core";
 import type { ManagedInvocationToolOptions } from "@kilnai/runtime";
 import type { KilnYaml, KilnHooksConfig } from "./kiln-yaml.js";
 import type { ProjectedContext } from "./application/context-types.js";
@@ -34,6 +35,7 @@ function defaultBuildSystemPrompt(opts: SystemPromptOptions): string {
 export interface KilnAppConfig {
   readonly createRegistry: () => DomainRegistry;
   readonly buildSystemPrompt?: (opts: SystemPromptOptions) => string;
+  readonly contextCandidates?: readonly ContextCandidate[];
   readonly studioDistPath?: string;
   readonly kilnYaml?: KilnYaml;
   readonly hooks?: KilnHooksConfig;

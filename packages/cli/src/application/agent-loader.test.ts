@@ -79,13 +79,17 @@ describe("agent-loader", () => {
     expect(readdirSyncMock).toHaveBeenCalledWith(PROJECT_AGENTS_DIR);
   });
 
-  it("parses frontmatter correctly (name, role, tools, model, skills)", async () => {
+  it("parses canonical agent profile frontmatter", async () => {
     configureDirectories(["architect.md"], []);
     configureFiles({
       [join(GLOBAL_AGENTS_DIR, "architect.md")]: markdownWithFrontmatter(
         [
           "name: Architect",
           "role: System architect",
+          "description: Reviews system boundaries",
+          "goal: Keep architecture coherent",
+          "backstory: Staff engineer perspective",
+          "tier: reasoning",
           "tools:",
           "  - read",
           "  - write",
@@ -93,6 +97,17 @@ describe("agent-loader", () => {
           "skills:",
           "  - sequel-spring",
           "  - refactor",
+          "mode: managed-child",
+          "structured: true",
+          "count: 2",
+          "sandbox: true",
+          "modalities:",
+          "  - text",
+          "authorityProfile: foundation-readonly-plan",
+          "routeId: codex-oauth-readonly",
+          "providerRoute:",
+          "  providerId: codex-oauth",
+          "  model: gpt-5.4-mini",
         ].join("\n"),
       ),
     });
@@ -103,9 +118,24 @@ describe("agent-loader", () => {
       {
         name: "Architect",
         role: "System architect",
+        description: "Reviews system boundaries",
+        goal: "Keep architecture coherent",
+        backstory: "Staff engineer perspective",
+        tier: "reasoning",
         tools: ["read", "write"],
         model: "claude-sonnet-4-6",
         skills: ["sequel-spring", "refactor"],
+        mode: "managed-child",
+        structured: true,
+        count: 2,
+        sandbox: true,
+        modalities: ["text"],
+        authorityProfile: "foundation-readonly-plan",
+        routeId: "codex-oauth-readonly",
+        providerRoute: {
+          providerId: "codex-oauth",
+          model: "gpt-5.4-mini",
+        },
         scope: "global",
       },
     ]);
@@ -115,7 +145,7 @@ describe("agent-loader", () => {
     configureDirectories(["planner.md"], []);
     configureFiles({
       [join(GLOBAL_AGENTS_DIR, "planner.md")]: markdownWithFrontmatter(
-        ["name: Planner", "role: Planning specialist"].join("\n"),
+        ["name: Planner", "role: Planning specialist", "goal: Produce plans", "tier: reasoning"].join("\n"),
         "\n# Plan\n\nCreate a concrete implementation plan.\n",
       ),
     });
@@ -129,16 +159,16 @@ describe("agent-loader", () => {
     configureDirectories(["shared.md", "global-only.md"], ["shared.md", "project-only.md"]);
     configureFiles({
       [join(GLOBAL_AGENTS_DIR, "shared.md")]: markdownWithFrontmatter(
-        ["name: Shared", "role: Global role"].join("\n"),
+        ["name: Shared", "role: Global role", "goal: Global goal", "tier: fast"].join("\n"),
       ),
       [join(GLOBAL_AGENTS_DIR, "global-only.md")]: markdownWithFrontmatter(
-        ["name: GlobalOnly", "role: Global only role"].join("\n"),
+        ["name: GlobalOnly", "role: Global only role", "goal: Global only goal", "tier: coding"].join("\n"),
       ),
       [join(PROJECT_AGENTS_DIR, "shared.md")]: markdownWithFrontmatter(
-        ["name: Shared", "role: Project role"].join("\n"),
+        ["name: Shared", "role: Project role", "goal: Project goal", "tier: reasoning"].join("\n"),
       ),
       [join(PROJECT_AGENTS_DIR, "project-only.md")]: markdownWithFrontmatter(
-        ["name: ProjectOnly", "role: Project only role"].join("\n"),
+        ["name: ProjectOnly", "role: Project only role", "goal: Project only goal", "tier: fast"].join("\n"),
       ),
     });
 
@@ -148,6 +178,8 @@ describe("agent-loader", () => {
     expect(findAgent(definitions, "shared")).toEqual({
       name: "Shared",
       role: "Project role",
+      goal: "Project goal",
+      tier: "reasoning",
       scope: "project",
     });
     expect(findAgent(definitions, "globalonly")?.scope).toBe("global");
@@ -167,11 +199,11 @@ describe("agent-loader", () => {
     expect(definitions).toEqual([]);
   });
 
-  it("skips files missing required role field", async () => {
+  it("skips files missing required canonical fields", async () => {
     configureDirectories(["missing-role.md"], []);
     configureFiles({
       [join(GLOBAL_AGENTS_DIR, "missing-role.md")]: markdownWithFrontmatter(
-        ["name: MissingRole"].join("\n"),
+        ["name: MissingRole", "role: Worker"].join("\n"),
       ),
     });
 
@@ -182,8 +214,8 @@ describe("agent-loader", () => {
 
   it("findAgent() returns correct definition case-insensitively", () => {
     const definitions: KilnAgentDefinition[] = [
-      { name: "Planner", role: "Planning specialist", scope: "global" },
-      { name: "Code-Reviewer", role: "Review specialist", scope: "project" },
+      { name: "Planner", role: "Planning specialist", goal: "Plan work", tier: "reasoning", scope: "global" },
+      { name: "Code-Reviewer", role: "Review specialist", goal: "Review code", tier: "coding", scope: "project" },
     ];
 
     expect(findAgent(definitions, "planner")).toBe(definitions[0]);
@@ -192,7 +224,7 @@ describe("agent-loader", () => {
 
   it("findAgent() returns undefined for unknown name", () => {
     const definitions: KilnAgentDefinition[] = [
-      { name: "Planner", role: "Planning specialist", scope: "global" },
+      { name: "Planner", role: "Planning specialist", goal: "Plan work", tier: "reasoning", scope: "global" },
     ];
 
     expect(findAgent(definitions, "unknown")).toBeUndefined();

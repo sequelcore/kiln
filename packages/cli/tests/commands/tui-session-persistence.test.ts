@@ -127,6 +127,18 @@ vi.mock("@kilnai/runtime", () => ({
     toolAuthority: new Map(),
   })),
   ManagedDirectProviderRuntimeAdapter: class MockManagedDirectProviderRuntimeAdapter {},
+  discoverCodexCliModelDiscovery: vi.fn().mockResolvedValue({
+    models: ["gpt-5.3-codex-spark", "gpt-5.4-mini"],
+    status: "available",
+    reason: "Codex models discovered.",
+    authState: "authenticated",
+  }),
+  discoverOpencodeCliModelDiscovery: vi.fn().mockResolvedValue({
+    models: ["opencode/minimax-m2.5-free"],
+    status: "available",
+    reason: "OpenCode models discovered.",
+    authState: "authenticated",
+  }),
   resolveGuiOperatorDiscoveryResults: mockResolveGuiOperatorDiscoveryResults,
   projectGuiOperatorModels: mockProjectGuiOperatorModels,
   createProviderCatalogService: mockCreateProviderCatalogService,

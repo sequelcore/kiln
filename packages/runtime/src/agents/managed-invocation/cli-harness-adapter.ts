@@ -188,14 +188,14 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
     if (readOnlyFilesystemViolation && this.filesystemBoundary?.restoreReadOnlyViolations === true) {
       await restoreFilesystemBoundary(filesystemSnapshot);
     }
-    const lifecycleState = resolveLifecycleState(collected);
-    const summary = summarizeResult(collected);
     const writeEvidence = collectWriteEvidence({
       request,
       collected,
       filesystemChanges,
       readOnlyFilesystemViolation,
     });
+    const lifecycleState = resolveLifecycleState(collected, writeEvidence);
+    const summary = summarizeResult(collected, writeEvidence);
     return defineManagedAgentInvocationRecord({
       ...this.baseRecord(input, childSessionId),
       lifecycleState,
@@ -482,11 +482,20 @@ function countLines(contents: string): number {
   return contents.split(/\r\n|\r|\n/).length;
 }
 
-function resolveLifecycleState(collected: CollectedCliHarnessEvidence): ManagedAgentInvocationRecord["lifecycleState"] {
+function resolveLifecycleState(
+  collected: CollectedCliHarnessEvidence,
+  writeEvidence: ReturnType<typeof collectWriteEvidence>,
+): ManagedAgentInvocationRecord["lifecycleState"] {
   if (collected.error !== undefined) {
     return isCancellationError(collected.error) ? "cancelled" : "failed";
   }
-  return collected.completed?.isError ? "failed" : "completed";
+  if (collected.completed?.isError) {
+    return "failed";
+  }
+  if (!hasSubstantiveResultHandoff(collected, writeEvidence)) {
+    return "failed";
+  }
+  return "completed";
 }
 
 function isCancellationError(error: Extract<CliSessionEvent, { readonly type: "error" }>): boolean {
@@ -494,14 +503,27 @@ function isCancellationError(error: Extract<CliSessionEvent, { readonly type: "e
   return normalized.includes("cancel") || normalized.includes("abort");
 }
 
-function summarizeResult(collected: CollectedCliHarnessEvidence): string {
+function summarizeResult(
+  collected: CollectedCliHarnessEvidence,
+  writeEvidence: ReturnType<typeof collectWriteEvidence>,
+): string {
   if (collected.error) {
     return `[${collected.error.code}] ${collected.error.message}`;
   }
   const text = collected.textParts.join("").trim();
   return text.length > 0
     ? text
-    : "Managed CLI harness invocation completed without text output.";
+    : writeEvidence.evidence.length > 0
+      ? "Managed CLI harness invocation completed with write evidence and no text output."
+      : "Managed CLI harness invocation failed: the child process completed without a result handoff.";
+}
+
+function hasSubstantiveResultHandoff(
+  collected: CollectedCliHarnessEvidence,
+  writeEvidence: ReturnType<typeof collectWriteEvidence>,
+): boolean {
+  return collected.textParts.join("").trim().length > 0
+    || writeEvidence.evidence.length > 0;
 }
 
 function managedInvocationUri(invocationId: string, resource: string): string {

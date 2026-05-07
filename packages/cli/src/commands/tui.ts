@@ -18,8 +18,10 @@ import {
   resolveGlobalDefaultProvider,
   resolveGlobalUiTheme,
 } from "../config/global-config.js";
+import { withGlobalIdentityContext } from "../config/operator-identity-context.js";
 import { resolveEffectiveProvider } from "../config/env-config.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
+import { discoverManagedAgentProviderModels } from "../config/managed-agent-provider-models.js";
 import { resolveManagedInvocationToolOptions } from "../config/managed-agent-routes.js";
 import { loadConfiguredWebToolSurfaceOptions } from "../config/web-tools-config.js";
 import { resolveEngineAvailabilityMap } from "../engines/engine-registry.js";
@@ -1024,13 +1026,14 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
 
   const cwd = flags.cwd ?? process.cwd();
   const globalConfig = readGlobalConfig();
+  const runtimeAppConfig = withGlobalIdentityContext(appConfig, globalConfig);
   const startupTransport = resolveTuiStartupTransport(flags);
   const provider = parseProvider(resolveEffectiveProvider(flags.provider, resolveGlobalDefaultProvider(globalConfig)), providerIds);
   const startupModel = resolveGlobalDefaultModel(globalConfig);
   const startupProviderIds = providerIds;
   const contextArtifactCache = await getProjectContextArtifactCache(cwd);
   const builtinToolOptions = createSessionBuiltinToolOptions(
-    await loadConfiguredWebToolSurfaceOptions(appConfig, cwd, {
+    await loadConfiguredWebToolSurfaceOptions(runtimeAppConfig, cwd, {
       memoryAuthority: {
         modelFacingSession: true,
         permissionAgent: "tui",
@@ -1039,11 +1042,13 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     }),
   );
   const engineAvailability = resolveEngineAvailabilityMap(globalConfig);
+  const managedAgentProviderModels = await discoverManagedAgentProviderModels();
   const managedInvocationResolution = await resolveManagedInvocationToolOptions(globalConfig, {
     cwd,
     registry,
     surface: "tui",
     isProviderAvailable: (providerId) => engineAvailability.get(providerId),
+    providerModels: managedAgentProviderModels,
     directAdapterFactory: createManagedDirectProviderAdapterFactory({ builtinToolOptions }),
     artifactStore: builtinToolOptions.artifactResources?.store,
   });
@@ -1055,7 +1060,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   try {
     const { SessionManager } = await import("../wrapper/session-manager.js");
     const wrapperConfig = { mode: "cli-wrapper" as const, permissionPolicy: { approval: "never" as const, sandbox: "workspace-write" as const } };
-    const manager = new SessionManager(wrapperConfig, appConfig, contextArtifactCache);
+    const manager = new SessionManager(wrapperConfig, runtimeAppConfig, contextArtifactCache);
     const context = await manager.prepare("interactive", cwd, undefined, undefined, undefined);
     domain = context.domain.displayName;
     systemPrompt = context.systemPrompt;

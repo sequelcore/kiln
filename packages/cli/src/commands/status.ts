@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { createSessionBuiltinToolOptions } from "@kilnai/core";
 import { loadKilnConfig } from "../config/config-merger.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
+import { discoverManagedAgentProviderModels } from "../config/managed-agent-provider-models.js";
 import { resolveManagedInvocationToolOptions } from "../config/managed-agent-routes.js";
 import { readGlobalConfig } from "../config/global-config.js";
 import {
@@ -62,6 +63,7 @@ export async function statusCommand(
 
   const { registry } = createDefaultRegistry();
   const builtinToolOptions = createSessionBuiltinToolOptions();
+  const managedAgentProviderModels = await discoverManagedAgentProviderModels();
   const managedInvocationConfig = globalConfig
     ? {
       ...globalConfig,
@@ -73,6 +75,7 @@ export async function statusCommand(
     registry,
     surface: "operator",
     isProviderAvailable: (provider) => engineAvailability.get(provider),
+    providerModels: managedAgentProviderModels,
     directAdapterFactory: createManagedDirectProviderAdapterFactory({ builtinToolOptions }),
   });
   if (managedInvocationResolution.routeHealth.length > 0) {

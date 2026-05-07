@@ -135,6 +135,40 @@ describe("global-config", () => {
     expect(() => readGlobalConfig()).toThrow("engines.codex.billing has an unknown billing mode");
   });
 
+  it("readGlobalConfig() validates global identity fields", () => {
+    existsSyncMock.mockReturnValue(true);
+    readFileSyncMock.mockReturnValue(
+      [
+        "version: \"1\"",
+        "identity:",
+        "  name: Ricardo",
+        "  timezone: America/Tijuana",
+      ].join("\n"),
+    );
+    expect(readGlobalConfig()?.identity).toEqual({
+      name: "Ricardo",
+      timezone: "America/Tijuana",
+    });
+
+    readFileSyncMock.mockReturnValue(
+      [
+        "version: \"1\"",
+        "identity:",
+        "  personality: helpful",
+      ].join("\n"),
+    );
+    expect(() => readGlobalConfig()).toThrow("Unknown identity field: personality");
+
+    readFileSyncMock.mockReturnValue(
+      [
+        "version: \"1\"",
+        "identity:",
+        "  timezone: \"\"",
+      ].join("\n"),
+    );
+    expect(() => readGlobalConfig()).toThrow("identity.timezone must be a non-empty string");
+  });
+
   it("readGlobalConfig() accepts null budget ceilings", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(

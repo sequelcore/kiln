@@ -165,6 +165,43 @@ describe("SessionManager context governor integration", () => {
     );
   });
 
+  it("passes app-level context candidates into the core governor", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+
+    const artifactCache = {
+      get: vi.fn().mockReturnValue(undefined),
+      set: vi.fn(),
+      delete: vi.fn().mockReturnValue(false),
+      listByKind: vi.fn().mockReturnValue([]),
+    };
+    const contextCandidates = [{
+      kind: "procedural" as const,
+      source: "runtime-skill:/workspace/project/.kiln/skills/review/SKILL.md",
+      content: "Skill\nname: review",
+      required: true,
+    }];
+    const manager = new SessionManager(
+      { mode: "api-key", permissionPolicy: {} as never },
+      {
+        createRegistry: () => ({
+          loadInstalledDomains: vi.fn(),
+          detectAndMerge: vi.fn().mockReturnValue({ displayName: "CLI Test Domain" }),
+        }) as never,
+        buildSystemPrompt: vi.fn().mockReturnValue("system prompt"),
+        contextCandidates,
+      },
+      artifactCache,
+    );
+
+    await manager.prepare("candidate test", "/workspace/project");
+
+    expect(coreGovernorProjectMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        artifacts: contextCandidates,
+      }),
+    );
+  });
+
   it("passes resume ledger and replay artifacts through the core renderLedger path", async () => {
     const { SessionManager } = await import("../session-manager.js");
 

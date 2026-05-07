@@ -19,11 +19,16 @@ import type {
 } from "../wrapper/index.js";
 import type { KilnAppConfig } from "../config.js";
 import { defaultBuildSystemPrompt } from "../config.js";
+import { withGlobalIdentityContext } from "../config/operator-identity-context.js";
 import {
   findAgent,
   loadAgentDefinitions,
   type KilnAgentDefinition,
 } from "../application/agent-loader.js";
+import {
+  resolveAgentSkillContextCandidates,
+  withContextCandidates,
+} from "../application/agent-skill-context.js";
 import {
   computeEvalScore,
   printContextGovernancePreview,
@@ -44,6 +49,7 @@ import { resolveEffectiveModel } from "../config/env-config.js";
 import { readGlobalConfig, resolveGlobalDefaultModel } from "../config/global-config.js";
 import { resolveProviderRouteCandidates } from "../config/provider-route-candidates.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
+import { discoverManagedAgentProviderModels } from "../config/managed-agent-provider-models.js";
 import { resolveManagedInvocationToolOptions } from "../config/managed-agent-routes.js";
 import { loadConfiguredWebToolSurfaceOptions } from "../config/web-tools-config.js";
 import { resolveEngineAvailabilityMap } from "../engines/engine-registry.js";
@@ -230,7 +236,7 @@ function appendAgentInstructionsToSystemPrompt(
   appConfig: KilnAppConfig,
   agent?: KilnAgentDefinition,
 ): KilnAppConfig {
-  const instructions = agent?.instructions?.trim();
+  const instructions = renderAgentProfilePromptContext(agent);
   if (!instructions) {
     return appConfig;
   }
@@ -245,6 +251,27 @@ function appendAgentInstructionsToSystemPrompt(
       return `${basePrompt}\n\n${instructions}`;
     },
   };
+}
+
+function renderAgentProfilePromptContext(agent?: KilnAgentDefinition): string | undefined {
+  if (!agent) {
+    return undefined;
+  }
+  return [
+    "## Agent Profile",
+    `name: ${agent.name}`,
+    `role: ${agent.role}`,
+    agent.description ? `description: ${agent.description}` : undefined,
+    agent.goal ? `goal: ${agent.goal}` : undefined,
+    agent.backstory ? `backstory: ${agent.backstory}` : undefined,
+    agent.tier ? `tier: ${agent.tier}` : undefined,
+    agent.mode ? `mode: ${agent.mode}` : undefined,
+    agent.authorityProfile ? `authorityProfile: ${agent.authorityProfile}` : undefined,
+    agent.routeId ? `routeId: ${agent.routeId}` : undefined,
+    agent.skills?.length ? `skills: ${agent.skills.join(", ")}` : undefined,
+    agent.instructions ? "instructions:" : undefined,
+    agent.instructions,
+  ].filter((line): line is string => Boolean(line)).join("\n");
 }
 
 function parseSubmittedPlan(line: string): string | undefined {
@@ -359,7 +386,19 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     ?? resolveEffectiveModel(flags.model, resolveGlobalDefaultModel(globalConfig))
     ?? resolvedAgent?.model;
   const config = buildConfig({ ...flags, provider: preferredProvider }, mode);
-  const runtimeAppConfig = appendAgentInstructionsToSystemPrompt(appConfig, resolvedAgent);
+  let identityAppConfig = withGlobalIdentityContext(appConfig, globalConfig);
+  if (resolvedAgent) {
+    try {
+      identityAppConfig = withContextCandidates(
+        identityAppConfig,
+        resolveAgentSkillContextCandidates(resolvedAgent, cwd),
+      );
+    } catch (error) {
+      console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
+      process.exit(1);
+    }
+  }
+  const runtimeAppConfig = appendAgentInstructionsToSystemPrompt(identityAppConfig, resolvedAgent);
   const sessionId = randomUUID();
   const { registry, worktreeManager } = createDefaultRegistry();
   const contextArtifactCache: ContextArtifactCache = await getProjectContextArtifactCache(cwd);
@@ -471,11 +510,13 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     }),
   );
   const engineAvailability = resolveEngineAvailabilityMap(globalConfig);
+  const managedAgentProviderModels = await discoverManagedAgentProviderModels();
   const managedInvocationResolution = await resolveManagedInvocationToolOptions(globalConfig, {
     cwd,
     registry,
     surface: "run",
     isProviderAvailable: (providerId) => engineAvailability.get(providerId),
+    providerModels: managedAgentProviderModels,
     directAdapterFactory: createManagedDirectProviderAdapterFactory({ builtinToolOptions, runtimeEnv: env }),
     artifactStore: builtinToolOptions.artifactResources?.store,
   });

@@ -86,6 +86,11 @@ const ROOT_FIELDS = new Set([
   "components",
 ]);
 
+const IDENTITY_FIELDS = new Set([
+  "name",
+  "timezone",
+]);
+
 export function resolveGlobalConfigPath(): string {
   const xdgConfigHome = process.env.XDG_CONFIG_HOME;
   if (xdgConfigHome) {
@@ -196,10 +201,37 @@ export function validateGlobalConfig(config: unknown): void {
   validateRecordField(config, "web");
   validateRecordField(config, "ui");
   validateRecordField(config, "components");
+  validateIdentity(config.identity);
   validateEngines(config.engines);
   validateRouting(config.routing);
   validateComponents(config.components);
   validateManagedAgents(config.managedAgents);
+}
+
+function validateIdentity(value: unknown): void {
+  if (value === undefined) {
+    return;
+  }
+  if (!isRecord(value)) {
+    throw new KilnYamlError("identity must be an object");
+  }
+  for (const key of Object.keys(value)) {
+    if (!IDENTITY_FIELDS.has(key)) {
+      throw new KilnYamlError(`Unknown identity field: ${key}`);
+    }
+  }
+  validateOptionalNonEmptyString(value, "name", "identity.name");
+  validateOptionalNonEmptyString(value, "timezone", "identity.timezone");
+}
+
+function validateOptionalNonEmptyString(record: Record<string, unknown>, key: string, path: string): void {
+  const value = record[key];
+  if (value === undefined) {
+    return;
+  }
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new KilnYamlError(`${path} must be a non-empty string`);
+  }
 }
 
 function validateEngines(value: unknown): void {
