@@ -126,6 +126,13 @@ identifiers remain available for direct runtime sessions.
 | `opencode-go` | OpenCode Go subscription — flat-rate access ($10/mo) to Go-tier model set. Manage with `kiln auth opencode --tier go`. |
 | `opencode-zen` | OpenCode Zen gateway — pay-per-request credits, access to Zen-tier model set. Manage with `kiln auth opencode --tier zen`. |
 
+Provider credentials are not global-config fields. Keep API keys in the
+operator environment or in credential-pool files under `~/.kiln/auth/`; keep
+only availability, routing, models, permissions, and managed-agent policy in
+`~/.kiln/config.yaml`. For OpenRouter on a single local machine, prefer
+`OPENROUTER_API_KEY`; use `~/.kiln/auth/openrouter/` only through an explicit
+credential adoption flow when Kiln needs pool rotation or multiple accounts.
+
 ## Relationship to kiln.yaml
 
 Global config establishes user-level defaults that apply across every Kiln

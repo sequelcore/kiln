@@ -74,9 +74,30 @@ provider directory:
 ```
 
 When a direct provider directory has no files, Kiln may fall back to a single
-environment credential for that provider. This preserves ordinary local
-development while keeping multi-account rotation on the canonical directory
-form.
+environment credential for that provider. This is the recommended local setup
+for single-account API-key gateways such as OpenRouter: keep the key in the
+operator's environment and keep routing, models, and managed-agent policy in
+Kiln config. Do not put API keys in `~/.kiln/config.yaml` or project
+`.kiln/kiln.yaml`.
+
+On Windows, persist an OpenRouter key for new terminals with:
+
+```cmd
+setx OPENROUTER_API_KEY "<openrouter-api-key>"
+```
+
+Open a new terminal before running Kiln again; `setx` does not update the
+already-running shell. For a one-off current terminal session, set the process
+environment instead of writing config:
+
+```cmd
+set OPENROUTER_API_KEY=<openrouter-api-key>
+```
+
+Credential files under `~/.kiln/auth/<provider>/` remain the canonical long-term
+pooling shape when Kiln manages multiple accounts, priorities, health, and
+rotation. For OpenRouter, prefer the environment variable until an explicit
+`kiln auth openrouter` adoption flow writes and validates the credential file.
 
 Supported environment fallbacks:
 

@@ -140,6 +140,12 @@ for rotation and cooldown.
 Direct providers first load canonical credential files from
 `~/.kiln/auth/<provider>/`. If no files exist, direct providers may synthesize a
 single environment credential from the provider's environment variables.
+Environment fallback is the preferred local setup for single-key gateways such
+as OpenRouter because it keeps secrets outside declarative config while avoiding
+manual credential-file authoring. Credential files are reserved for explicit
+adoption flows, multi-account pools, priority selection, cooldown, and rotation.
+Secrets must never be stored in `~/.kiln/config.yaml` or project
+`.kiln/kiln.yaml`; those files describe routing and policy only.
 
 Current environment fallbacks are:
 
