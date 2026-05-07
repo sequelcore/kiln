@@ -7,7 +7,7 @@ import { withGlobalIdentityContext } from "../config/operator-identity-context.j
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
 import { discoverManagedAgentProviderModels } from "../config/managed-agent-provider-models.js";
 import { resolveManagedInvocationToolOptions } from "../config/managed-agent-routes.js";
-import { loadConfiguredWebToolSurfaceOptions } from "../config/web-tools-config.js";
+import { loadConfiguredWebToolSurfaceOptions, resolveProjectMemoryScope } from "../config/web-tools-config.js";
 import { resolveEffectiveProvider } from "../config/env-config.js";
 import { resolveEngineAvailabilityMap } from "../engines/engine-registry.js";
 import { loadResumeSidebarInfo } from "../application/resume-sidebar-info.js";
@@ -132,6 +132,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
     onManagedWindowClose: managedWindowShutdownMonitor.onManagedWindowClose,
     builtinToolOptions,
     managedInvocation,
+    memoryLatticeDefaultScope: resolveProjectMemoryScope(cwd),
     operatorTransport: {
       sessionManager,
       systemPrompt: bootstrapContext.systemPrompt,

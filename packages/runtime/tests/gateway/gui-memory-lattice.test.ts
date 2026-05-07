@@ -64,6 +64,48 @@ describe("GUI Memory Lattice routes", () => {
     );
   });
 
+  it("applies the configured default scope when the GUI does not send an explicit scope", async () => {
+    const readResource = vi.fn().mockResolvedValue({
+      contents: [{
+        uri: "kiln://memory/graph",
+        mimeType: "application/json",
+        text: JSON.stringify(graphResponse()),
+      }],
+    });
+    const app = createGuiMemoryLatticeRoutes({
+      resources: { readResource },
+      defaultScope: { kind: "project", id: "kiln" },
+    });
+
+    const response = await app.request("http://localhost/memory/graph?depth=0&limit=25");
+
+    expect(response.status).toBe(200);
+    expect(readResource).toHaveBeenCalledWith(
+      "kiln://memory/graph?scopeKind=project&scopeId=kiln&depth=0&limit=25",
+    );
+  });
+
+  it("does not override an explicit GUI memory scope", async () => {
+    const readResource = vi.fn().mockResolvedValue({
+      contents: [{
+        uri: "kiln://memory/graph",
+        mimeType: "application/json",
+        text: JSON.stringify(graphResponse()),
+      }],
+    });
+    const app = createGuiMemoryLatticeRoutes({
+      resources: { readResource },
+      defaultScope: { kind: "project", id: "kiln" },
+    });
+
+    const response = await app.request("http://localhost/memory/graph?scopeKind=session&scopeId=s-1&depth=0&limit=25");
+
+    expect(response.status).toBe(200);
+    expect(readResource).toHaveBeenCalledWith(
+      "kiln://memory/graph?scopeKind=session&scopeId=s-1&depth=0&limit=25",
+    );
+  });
+
   it("rejects unsupported query parameters before resource reads", async () => {
     const readResource = vi.fn();
     const app = createGuiMemoryLatticeRoutes({ resources: { readResource } });

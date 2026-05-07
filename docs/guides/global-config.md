@@ -45,6 +45,8 @@ usage view.
 | `identity` | `KilnGlobalIdentity` | Global identity values used for personalization and prompt context. |
 | `identity.name` | `string` | Default operator name for generated prompt context and UI personalization. |
 | `identity.timezone` | `string` | Default timezone identifier for prompt context and scheduling-aware flows. |
+| `instructionProfiles` | `Record<string, unknown>` | Durable operator/team doctrine such as engineering standards, workflow sequence, review posture, and communication norms. Target schema; implementation is tracked by `docs/roadmap/04-agent-context-capability-model.md`. |
+| `activeInstructionProfiles` | `string[]` | Ordered instruction profile ids selected for global prompt context. Target field; not yet fully enforced across all surfaces. |
 | `ui.theme` | `string` | Default operator theme name from the shared GUI/TUI theme catalog. |
 | `components.include` | `string[]` | Bundled component set identifiers enabled for the operator. |
 
@@ -157,6 +159,8 @@ permissions:
 identity:
   name: Ricardo
   timezone: America/Tijuana
+activeInstructionProfiles:
+  - sequel-engineering
 ui:
   theme: kiln-dark
 components:
@@ -335,6 +339,13 @@ or DDD validation. If no configured profile matches a one-off read-only task,
 the parent may omit `agentProfile` and invoke a generic governed child. Parents
 must not invent profile names; unknown profiles fail closed during context
 resolution.
+
+Canonical instruction profiles are the intended home for durable workflow
+standards such as "no dead code", "no redundancy", "DDD", "Clean
+Architecture", "TDD first", "review before commit", and "verify before done".
+Until the instruction-profile implementation is complete, generated
+`AGENTS.md` and native harness projections may carry this doctrine as a
+compatibility projection, but they are not the long-term source of truth.
 
 ## Skills Sync
 

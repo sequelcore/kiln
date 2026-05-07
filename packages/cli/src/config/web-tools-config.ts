@@ -13,6 +13,7 @@ import {
   type WebSearchProvider,
   type WebSearchProviderResponse,
   type WebSourceMetadata,
+  type MemoryScope,
 } from "@kilnai/core";
 import { existsSync, mkdirSync } from "node:fs";
 import { basename, join } from "node:path";
@@ -231,6 +232,13 @@ function createReadOnlyMemoryAuthority(
       layers: MEMORY_LAYER_KINDS,
     }],
   });
+}
+
+export function resolveProjectMemoryScope(projectPath: string): MemoryScope {
+  return {
+    kind: "project",
+    id: resolveProjectScopeId(projectPath),
+  };
 }
 
 function resolveProjectScopeId(projectPath: string): string {

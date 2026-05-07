@@ -16,8 +16,13 @@ surface, or bake community prompt packs into product defaults.
 ## Scope
 
 - Promote `docs/architecture/agent-context.md` as the canonical doctrine.
-- Make global identity an admitted prompt-context source instead of passive
-  config.
+- Make global identity an admitted prompt-context source rich enough to carry
+  operator facts, communication preferences, collaboration style, organization
+  roots, and escalation expectations without becoming a monolithic
+  personality prompt.
+- Add canonical instruction profiles for durable operator/team doctrine:
+  engineering standards, review posture, workflow sequence, planning/TDD rules,
+  quality gates, communication norms, and project-specific non-negotiables.
 - Replace partial CLI agent shapes with a canonical agent profile contract.
 - Ensure `kiln run --agent` resolves default skills through `SkillRegistry` and
   context admission.
@@ -34,6 +39,8 @@ surface, or bake community prompt packs into product defaults.
 ## Non-Goals
 
 - Do not create a broad `personality` string.
+- Do not leave operator workflow and standards stranded in generated
+  `AGENTS.md`, `CLAUDE.md`, or native harness files as the only source of truth.
 - Do not make child agents inherit the full parent transcript by default.
 - Do not make skills grant tool or filesystem authority.
 - Do not move credentials into agent profiles.
@@ -48,6 +55,11 @@ surface, or bake community prompt packs into product defaults.
   agents, skills, and managed child context.
 - `KilnGlobalIdentity` is either used as admitted prompt context or removed
   from the schema; passive config is not allowed.
+- At least one canonical instruction profile can be selected by global config,
+  project config, agent profile, or session mode and is admitted into prompt
+  context with provenance.
+- The Sequel engineering workflow can be represented without copying its full
+  text into every agent profile or native harness projection.
 - One canonical agent profile type is used by CLI, runtime, managed
   invocation, and native projection.
 - Agent default skills are resolved through `SkillRegistry` and admitted
@@ -73,3 +85,8 @@ surface, or bake community prompt packs into product defaults.
 3. Deferred: add an operator-facing configuration wizard that creates a minimal
    personal Kiln setup from canonical profiles and skills. Until there is a
    real consumer need, configuration remains explicit YAML plus guides.
+4. Add write-capable managed child authority profiles after read-only child
+   invocation, profile admission, approval, evidence, and rollback contracts are
+   stable. Coder, fast-coder, TDD, and refactoring profiles should be able to
+   request bounded write authority through explicit profiles instead of being
+   permanently limited to read-only analysis.

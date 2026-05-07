@@ -66,6 +66,7 @@ import {
   type GuiProviderModelCapabilities,
   type GuiProviderModelRouteHealth,
   type GuiProviderReasoningEffort,
+  type GuiMemoryLatticeScope,
   type GuiSessionDetail,
   type GuiSessionSummary,
   type OperatorExecutionMode,
@@ -112,6 +113,7 @@ export interface StartGuiGatewayOptions {
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
   readonly operatorTransport?: OperatorSessionTransportOptions;
   readonly managedInvocation?: ManagedInvocationToolOptions;
+  readonly memoryLatticeDefaultScope?: GuiMemoryLatticeScope;
 }
 
 export interface GuiGateway {
@@ -282,7 +284,10 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
 
   app.get("/health", (c) => c.json({ status: "ok", channel: "gui", connections: activeConnections }));
   app.get("/gui-api/health", (c) => c.json({ status: "ok", channel: "gui", connections: activeConnections }));
-  app.route("/gui/api", createGuiMemoryLatticeRoutes({ resources: memoryLatticeResources }));
+  app.route("/gui/api", createGuiMemoryLatticeRoutes({
+    resources: memoryLatticeResources,
+    ...(options.memoryLatticeDefaultScope ? { defaultScope: options.memoryLatticeDefaultScope } : {}),
+  }));
 
   app.get("/gui/api/dashboard", async (c) => {
     const nextDiscovery = getOperatorDiscoverySnapshot();

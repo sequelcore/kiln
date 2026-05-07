@@ -30,13 +30,22 @@ different contracts.
 
 ## Operator Identity
 
-Operator identity is intentionally small. It may include:
+Operator identity is not a full workflow doctrine, but it must be rich enough
+for Kiln to understand who the operator is and how the operator expects work to
+be conducted. A poor identity surface produces generic assistants even when the
+rest of the runtime is powerful.
+
+It may include:
 
 - name
 - timezone
 - locale or preferred language
 - UI preferences
 - short communication preferences
+- organization and project roots
+- preferred review posture
+- preferred collaboration style
+- default escalation expectations
 
 It must not include broad architectural doctrine, route authority, tool
 permissions, or agent role behavior. Those belong to instruction profiles,
@@ -54,6 +63,9 @@ Instruction profiles hold durable doctrine such as:
 - project architecture rules
 - testing and verification policy
 - communication preferences
+- default workflow and delegation protocol
+- review gates and quality bars
+- preferred planning, scouting, TDD, and implementation sequence
 - product principles
 - organization security policy
 
@@ -61,6 +73,11 @@ Instruction profiles are not executable agents. They are high-precedence
 context sources that shape agent behavior across surfaces. They should be
 stored as scoped documents or references, not repeated inside every agent
 definition.
+
+An instruction profile is the place where Kiln carries an operator or team's
+working "soul": standards, habits, taste, non-negotiables, and expected
+workflow. This must be canonical Kiln state, not a one-off `AGENTS.md` prompt
+that only one harness happens to read.
 
 ## Agent Profiles
 
@@ -85,6 +102,12 @@ A profile may also declare:
 
 Profiles do not own credentials. They may request a provider route, but runtime
 credential routing remains a provider/credential-pool responsibility.
+
+Profiles also do not automatically imply read-only execution. A profile may be
+eligible for different managed authority profiles depending on context: scout
+and reviewer profiles may default to read-only, while coder, fast-coder, TDD,
+or refactoring profiles may request write-capable child authority when the
+parent session and operator approval admit it.
 
 Every surface must consume the same profile contract:
 

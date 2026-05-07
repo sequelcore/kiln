@@ -3,6 +3,7 @@ import {
   GUI_MEMORY_LATTICE_QUERY_MAX_LENGTH,
   GuiMemoryLatticeGraphResponseSchema,
   type GuiMemoryLatticeError,
+  type GuiMemoryLatticeScope,
 } from "@kilnai/gateway-contracts";
 
 interface RuntimeResourceContent {
@@ -23,6 +24,7 @@ export interface GuiMemoryLatticeResourceReader {
 
 export interface GuiMemoryLatticeRoutesOptions {
   readonly resources: GuiMemoryLatticeResourceReader;
+  readonly defaultScope?: GuiMemoryLatticeScope;
 }
 
 const MEMORY_GRAPH_QUERY_KEYS = [
@@ -41,7 +43,7 @@ export function createGuiMemoryLatticeRoutes(options: GuiMemoryLatticeRoutesOpti
   const app = new Hono();
 
   app.get("/memory/graph", async (c) => {
-    const resourceUri = buildMemoryGraphResourceUri(new URL(c.req.url).searchParams);
+    const resourceUri = buildMemoryGraphResourceUri(new URL(c.req.url).searchParams, options.defaultScope);
     if (typeof resourceUri !== "string") {
       return c.json(resourceUri, 400);
     }
@@ -61,7 +63,10 @@ export function createGuiMemoryLatticeRoutes(options: GuiMemoryLatticeRoutesOpti
   return app;
 }
 
-function buildMemoryGraphResourceUri(query: URLSearchParams): string | GuiMemoryLatticeError {
+function buildMemoryGraphResourceUri(
+  query: URLSearchParams,
+  defaultScope: GuiMemoryLatticeScope | undefined,
+): string | GuiMemoryLatticeError {
   for (const key of query.keys()) {
     if (!MEMORY_GRAPH_QUERY_KEY_SET.has(key)) {
       return {
@@ -80,6 +85,13 @@ function buildMemoryGraphResourceUri(query: URLSearchParams): string | GuiMemory
   }
 
   const resourceQuery = new URLSearchParams();
+  const hasExplicitScope = Boolean(query.get("scope")?.trim())
+    || Boolean(query.get("scopeKind")?.trim())
+    || Boolean(query.get("scopeId")?.trim());
+  if (!hasExplicitScope && defaultScope) {
+    resourceQuery.set("scopeKind", defaultScope.kind);
+    resourceQuery.set("scopeId", defaultScope.id);
+  }
   for (const key of MEMORY_GRAPH_QUERY_KEYS) {
     const value = query.get(key)?.trim();
     if (value) {

@@ -38,6 +38,26 @@ Read the relevant architecture or guide document before using a roadmap:
 - `docs/roadmap/04.5-presentation-intent-contract.md` for the active
   presentation-intent track until its stable doctrine is promoted into
   architecture and guide documentation.
+- `docs/roadmap/05-managed-agent-platform-productization.md` for the active
+  managed-agent productization track that turns the governed runtime foundation
+  into a coherent cross-surface product platform.
+- `docs/roadmap/06-governed-config-mutation-tools.md` for the active governed
+  config-mutation track that lets agents inspect, propose, and apply approved
+  canonical Kiln configuration changes.
+
+## Roadmap Layers
+
+The managed-agent and setup work is split by architectural responsibility:
+
+- `04-agent-context-capability-model.md` defines the canonical model: identity,
+  instruction profiles, agent profiles, skills, context admission, precedence,
+  and harness projection.
+- `05-managed-agent-platform-productization.md` turns that model into product:
+  first-party defaults, natural delegation, setup surfaces, presentation,
+  write-capable managed child profiles, and operator workflow.
+- `06-governed-config-mutation-tools.md` makes the setup governable by agents:
+  config reads, structured proposals, approval-gated apply, sync/projection,
+  and audit evidence.
 
 ## Active Roadmaps
 
@@ -54,6 +74,17 @@ Read the relevant architecture or guide document before using a roadmap:
 - `04.5-presentation-intent-contract.md`
   Active presentation contract track for validated agent/tool display intents
   across GUI, TUI, CLI, SDK/widget, and future operator surfaces.
+
+- `05-managed-agent-platform-productization.md`
+  Active productization track for Kiln's managed-agent differentiator:
+  canonical config, direct providers and harnesses under one contract,
+  governed child invocation, immutable evidence, reusable agent identity, and
+  natural delegation across all surfaces.
+
+- `06-governed-config-mutation-tools.md`
+  Active governed configuration track for native tools that read effective
+  config, propose bounded config changes, apply approved changes, emit audit
+  events, and run sync/projection through canonical Kiln services.
 
 ## Deferred Roadmaps
 
