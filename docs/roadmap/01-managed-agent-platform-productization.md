@@ -122,21 +122,18 @@ surface-specific behavior, or provider compatibility glue.
    `foundation-approved-patch`, or equivalent names after the authority model is
    finalized. These routes must produce diff/write evidence and require
    approval according to policy.
-8. Add canonical project-root resolution and repo-shim projection. `kiln sync`
-   currently treats the current working directory as the project root for
-   repo-local artifacts such as `AGENTS.md`; that is not a durable contract for
-   generated `AGENTS.md`, generated `CLAUDE.md`, nested worktrees, or direct
-   harness use from subdirectories. Sync must resolve a project root from an
-   explicit `--project`/`--cwd` value, then the nearest `.kiln/kiln.yaml`, then
-   the nearest repository root, and fail closed for repo-level shims when the
-   root is ambiguous or lacks project identity. Evolve `agents-md` into a
-   bounded repo-shims target that generates project `AGENTS.md`, `CLAUDE.md`,
-   and future repo instruction shims from the merged canonical Kiln config
-   instead of maintaining hand-written repo guidance. Repo-shim generation
-   should be backed by a deterministic repo scout plus a governed managed-agent
-   review skill: the agent may propose project context from real repo evidence,
-   but Kiln owns schema validation, approval, generated-file signatures, drift
-   detection, backups, and projection status.
+8. Started 2026-05-07: add canonical project-root resolution and repo-shim
+   projection. `kiln sync` now resolves a project root from explicit
+   `--project`/`--cwd`, then nearest `.kiln/kiln.yaml`, then nearest git root,
+   and the old `agents-md` target has been replaced by `repo-shims`.
+   `kiln sync --repo-shims` generates signed project `AGENTS.md` for Codex CLI
+   and OpenCode plus signed project `CLAUDE.md` for Claude Code from the merged
+   canonical Kiln config and deterministic repo evidence. Existing unmanaged
+   guidance files and drifted managed files block unless `--force` is explicit,
+   and forced overwrites write backups under `.kiln/backups/repo-shims/`.
+   Remaining work: add the repo-context adoption command and governed
+   managed-agent review skill so an agent may propose project context from real
+   repo evidence while Kiln owns schema validation and operator approval.
 9. Design the cross-surface configuration surface:
    - GUI: dedicated Settings/Setup surface or sidebar mode.
    - TUI: equivalent command/screen.

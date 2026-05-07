@@ -6,7 +6,8 @@ const syncMocks = vi.hoisted(() => ({
   syncNativePermissionProjections: vi.fn(),
   syncNativeHookProjections: vi.fn(),
   syncNativeAgentProjections: vi.fn(),
-  writeAgentsMdProjection: vi.fn(),
+  resolveProjectRoot: vi.fn(),
+  writeRepoShimProjections: vi.fn(),
   syncNativeSkillProjections: vi.fn(),
   uninstallNativeTargets: vi.fn(),
 }));
@@ -31,8 +32,12 @@ vi.mock("../../src/config/native-agent-projection.js", () => ({
   syncNativeAgentProjections: syncMocks.syncNativeAgentProjections,
 }));
 
-vi.mock("../../src/application/agents-md-projection.js", () => ({
-  writeAgentsMdProjection: syncMocks.writeAgentsMdProjection,
+vi.mock("../../src/application/project-root-resolver.js", () => ({
+  resolveProjectRoot: syncMocks.resolveProjectRoot,
+}));
+
+vi.mock("../../src/application/repo-shim-projection.js", () => ({
+  writeRepoShimProjections: syncMocks.writeRepoShimProjections,
 }));
 
 vi.mock("../../src/config/native-skill-projection.js", () => ({
@@ -73,7 +78,21 @@ describe("syncCommand", () => {
       errors: [],
     });
     syncMocks.syncNativeAgentProjections.mockResolvedValue({ claude: true, codex: true, opencode: true, errors: [] });
-    syncMocks.writeAgentsMdProjection.mockResolvedValue({ written: true, path: "AGENTS.md", errors: [] });
+    syncMocks.resolveProjectRoot.mockReturnValue({
+      rootPath: process.cwd(),
+      source: "git",
+      hasKilnYaml: false,
+      hasGitRoot: true,
+      projectName: "kiln",
+    });
+    syncMocks.writeRepoShimProjections.mockResolvedValue({
+      written: true,
+      targets: [
+        { kind: "agents-md", path: "AGENTS.md", written: true, status: "written", errors: [] },
+        { kind: "claude-md", path: "CLAUDE.md", written: true, status: "written", errors: [] },
+      ],
+      errors: [],
+    });
     syncMocks.syncNativeSkillProjections.mockResolvedValue({ claude: true, codex: true, opencode: true, synced: 0, errors: [] });
     syncMocks.uninstallNativeTargets.mockReturnValue({ removed: [], skipped: [], errors: [] });
   });
@@ -87,6 +106,7 @@ describe("syncCommand", () => {
       targets: [],
       force: false,
       syncAll: true,
+      projectPath: undefined,
     });
   });
 
@@ -95,14 +115,25 @@ describe("syncCommand", () => {
       targets: ["permissions"],
       force: true,
       syncAll: false,
+      projectPath: undefined,
     });
   });
 
   it("parses explicit target values and comma-separated target lists", () => {
-    expect(parseSyncFlags(["--target", "permissions,hooks", "--target=agents-md"])).toEqual({
-      targets: ["permissions", "hooks", "agents-md"],
+    expect(parseSyncFlags(["--target", "permissions,hooks", "--target=repo-shims"])).toEqual({
+      targets: ["permissions", "hooks", "repo-shims"],
       force: false,
       syncAll: false,
+      projectPath: undefined,
+    });
+  });
+
+  it("parses explicit project paths for repo-aware sync targets", () => {
+    expect(parseSyncFlags(["--repo-shims", "--project", "C:/work/project"])).toEqual({
+      targets: ["repo-shims"],
+      force: false,
+      syncAll: false,
+      projectPath: "C:/work/project",
     });
   });
 
@@ -111,12 +142,13 @@ describe("syncCommand", () => {
       targets: ["permissions", "skills"],
       force: false,
       syncAll: false,
+      projectPath: undefined,
     });
   });
 
   it("rejects unknown explicit targets", () => {
     expect(() => parseSyncFlags(["--target", "unknown"])).toThrow(
-      'Unknown sync target "unknown". Valid targets: permissions, hooks, agents, agents-md, skills',
+      'Unknown sync target "unknown". Valid targets: permissions, hooks, agents, repo-shims, skills',
     );
   });
 
@@ -124,10 +156,15 @@ describe("syncCommand", () => {
     expect(() => parseSyncFlags(["--target", "--force"])).toThrow("--target requires a value");
   });
 
+  it("rejects duplicate project root flags", () => {
+    expect(() => parseSyncFlags(["--project", "a", "--cwd", "b"])).toThrow("--project or --cwd may be specified only once");
+  });
+
   it("requires force confirmation for projection targets that own install-state drift", () => {
     expect(requiresForceSyncConfirmation(parseSyncFlags(["--permissions", "--force"]))).toBe(true);
     expect(requiresForceSyncConfirmation(parseSyncFlags(["--hooks", "--force"]))).toBe(true);
     expect(requiresForceSyncConfirmation(parseSyncFlags(["--agents", "--force"]))).toBe(true);
+    expect(requiresForceSyncConfirmation(parseSyncFlags(["--repo-shims", "--force"]))).toBe(true);
     expect(requiresForceSyncConfirmation(parseSyncFlags(["--skills", "--force"]))).toBe(true);
     expect(requiresForceSyncConfirmation(parseSyncFlags(["--force"]))).toBe(true);
   });
@@ -175,12 +212,58 @@ describe("syncCommand", () => {
     );
   });
 
+  it("uses resolved project root for repo-aware projections", async () => {
+    const consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    syncMocks.resolveProjectRoot.mockReturnValue({
+      rootPath: "C:/resolved/project",
+      source: "kiln-yaml",
+      hasKilnYaml: true,
+      hasGitRoot: true,
+      projectName: "project",
+    });
+
+    try {
+      await syncCommand(MOCK_APP_CONFIG, undefined, ["--repo-shims", "--project", "C:/resolved/project/packages/api"]);
+    } finally {
+      consoleLogSpy.mockRestore();
+    }
+
+    expect(syncMocks.resolveProjectRoot).toHaveBeenCalledWith({ explicitPath: "C:/resolved/project/packages/api" });
+    expect(syncMocks.loadKilnConfig).toHaveBeenCalledWith("C:/resolved/project");
+    expect(syncMocks.writeRepoShimProjections).toHaveBeenCalledWith("C:/resolved/project", { force: false });
+  });
+
+  it("fails repo-shim sync when no project root can be resolved", async () => {
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: string | number | null) => {
+      throw new Error(`process.exit:${code}`);
+    }) as never);
+    const consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    syncMocks.resolveProjectRoot.mockReturnValue({
+      rootPath: "C:/loose-folder",
+      source: "cwd",
+      hasKilnYaml: false,
+      hasGitRoot: false,
+      projectName: "loose-folder",
+    });
+
+    try {
+      await expect(syncCommand(MOCK_APP_CONFIG, undefined, ["--repo-shims"])).rejects.toThrow("process.exit:1");
+    } finally {
+      exitSpy.mockRestore();
+      consoleLogSpy.mockRestore();
+      consoleErrorSpy.mockRestore();
+    }
+
+    expect(syncMocks.writeRepoShimProjections).not.toHaveBeenCalled();
+  });
+
   it("prints harness capability diagnostics from the canonical capability model", async () => {
     const consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     let output = "";
 
     try {
-      await syncCommand(MOCK_APP_CONFIG, undefined, ["--agents-md"]);
+      await syncCommand(MOCK_APP_CONFIG, undefined, ["--repo-shims"]);
       output = consoleLogSpy.mock.calls.map((call) => call.join(" ")).join("\n");
     } finally {
       consoleLogSpy.mockRestore();

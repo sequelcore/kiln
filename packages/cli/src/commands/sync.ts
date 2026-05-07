@@ -3,19 +3,21 @@ import readline from "node:readline";
 import { loadKilnConfig } from "../config/config-merger.js";
 import { syncNativePermissionProjections } from "../config/native-permission-projection.js";
 import { syncNativeHookProjections } from "../config/native-hook-projection.js";
-import { writeAgentsMdProjection } from "../application/agents-md-projection.js";
+import { resolveProjectRoot } from "../application/project-root-resolver.js";
+import { writeRepoShimProjections } from "../application/repo-shim-projection.js";
 import { syncNativeAgentProjections } from "../config/native-agent-projection.js";
 import { syncNativeSkillProjections } from "../config/native-skill-projection.js";
 import { listHarnessIntegrationCapabilities } from "../config/harness-integration-capabilities.js";
 import type { KilnAppConfig } from "../config.js";
 
-export const SYNC_TARGETS = ["permissions", "hooks", "agents", "agents-md", "skills"] as const;
+export const SYNC_TARGETS = ["permissions", "hooks", "agents", "repo-shims", "skills"] as const;
 export type SyncTargetId = typeof SYNC_TARGETS[number];
 
 export interface SyncFlags {
   readonly targets: readonly SyncTargetId[];
   readonly force: boolean;
   readonly syncAll: boolean;
+  readonly projectPath?: string;
 }
 
 export function parseSyncFlags(args: readonly string[]): SyncFlags {
@@ -26,7 +28,7 @@ export function parseSyncFlags(args: readonly string[]): SyncFlags {
     args.includes("--permissions") ? "permissions" : undefined,
     args.includes("--hooks") ? "hooks" : undefined,
     args.includes("--agents") ? "agents" : undefined,
-    args.includes("--agents-md") ? "agents-md" : undefined,
+    args.includes("--repo-shims") ? "repo-shims" : undefined,
     args.includes("--skills") ? "skills" : undefined,
   ].filter((target): target is SyncTargetId => target !== undefined);
 
@@ -37,6 +39,7 @@ export function parseSyncFlags(args: readonly string[]): SyncFlags {
     targets,
     force: args.includes("--force"),
     syncAll,
+    projectPath: readOptionalSingleFlagValue(args, ["--project", "--cwd"]),
   };
 }
 
@@ -45,6 +48,7 @@ export function requiresForceSyncConfirmation(flags: SyncFlags): boolean {
     isSyncTargetSelected(flags, "permissions")
     || isSyncTargetSelected(flags, "hooks")
     || isSyncTargetSelected(flags, "agents")
+    || isSyncTargetSelected(flags, "repo-shims")
     || isSyncTargetSelected(flags, "skills")
   );
 }
@@ -78,8 +82,16 @@ function readFlagValues(args: readonly string[], flag: string): string[] {
   return values;
 }
 
+function readOptionalSingleFlagValue(args: readonly string[], flags: readonly string[]): string | undefined {
+  const values = flags.flatMap((flag) => readFlagValues(args, flag));
+  if (values.length > 1) {
+    throw new Error(`${flags.join(" or ")} may be specified only once`);
+  }
+  return values[0];
+}
+
 async function confirmForceNativeProjectionSync(): Promise<boolean> {
-  process.stdout.write("Force overwrite managed native projection fields/files? [y/N]: ");
+  process.stdout.write("Force overwrite managed projection fields/files? [y/N]: ");
 
   const rl = readline.createInterface({
     input: process.stdin,
@@ -119,9 +131,11 @@ export async function syncCommand(
   const forcePermissionSync = flags.force && isSyncTargetSelected(flags, "permissions");
   const forceHookSync = flags.force && isSyncTargetSelected(flags, "hooks");
   const forceAgentSync = flags.force && isSyncTargetSelected(flags, "agents");
+  const forceRepoShimSync = flags.force && isSyncTargetSelected(flags, "repo-shims");
   const forceSkillSync = flags.force && isSyncTargetSelected(flags, "skills");
 
-  const root = process.cwd();
+  const projectRoot = resolveProjectRoot({ explicitPath: flags.projectPath });
+  const root = projectRoot.rootPath;
   const kilnDir = join(root, ".kiln");
   const disabledHarnesses = [] as const;
 
@@ -142,7 +156,7 @@ export async function syncCommand(
   let permResult: Awaited<ReturnType<typeof syncNativePermissionProjections>> | null = null;
   let hookResult: Awaited<ReturnType<typeof syncNativeHookProjections>> | null = null;
   let agentResult: Awaited<ReturnType<typeof syncNativeAgentProjections>> | null = null;
-  let agentsMdResult: Awaited<ReturnType<typeof writeAgentsMdProjection>> | null = null;
+  let repoShimResult: Awaited<ReturnType<typeof writeRepoShimProjections>> | null = null;
   let skillsResult: Awaited<ReturnType<typeof syncNativeSkillProjections>> | null = null;
 
   const allErrors: string[] = [];
@@ -171,9 +185,17 @@ export async function syncCommand(
     allErrors.push(...agentResult.errors);
   }
 
-  if (isSyncTargetSelected(flags, "agents-md")) {
-    agentsMdResult = await writeAgentsMdProjection(root);
-    allErrors.push(...agentsMdResult.errors);
+  if (isSyncTargetSelected(flags, "repo-shims")) {
+    if (!projectRoot.hasKilnYaml && !projectRoot.hasGitRoot) {
+      repoShimResult = {
+        written: false,
+        targets: [],
+        errors: [`repo-shims: unable to resolve a Kiln project root from ${root}`],
+      };
+    } else {
+      repoShimResult = await writeRepoShimProjections(root, { force: forceRepoShimSync });
+    }
+    allErrors.push(...repoShimResult.errors);
   }
 
   if (isSyncTargetSelected(flags, "skills")) {
@@ -188,7 +210,7 @@ export async function syncCommand(
     ? " (Windows: Codex hooks skipped)"
     : "";
 
-  if (permResult || hookResult || agentResult || agentsMdResult || skillsResult) {
+  if (permResult || hookResult || agentResult || repoShimResult || skillsResult) {
     console.log("\nSync Results:");
     console.log("─".repeat(40));
 
@@ -213,8 +235,13 @@ export async function syncCommand(
       console.log(`Agent sync (OpenCode):    ${agentResult.opencode ? "OK" : "FAIL"}`);
     }
 
-    if (agentsMdResult) {
-      console.log(`AGENTS.md:              ${agentsMdResult.path} ${agentsMdResult.written ? "OK" : "FAIL"}`);
+    if (repoShimResult) {
+      if (repoShimResult.targets.length === 0) {
+        console.log(`Repo shims:            ${repoShimResult.written ? "OK" : "FAIL"}`);
+      }
+      for (const target of repoShimResult.targets) {
+        console.log(`${target.path}: ${target.status === "blocked" ? "FAIL" : "OK"} (${target.status})`);
+      }
     }
 
     if (skillsResult) {
@@ -226,7 +253,7 @@ export async function syncCommand(
     console.log("─".repeat(40));
   }
 
-  if (permResult || hookResult || agentResult || agentsMdResult || skillsResult) {
+  if (permResult || hookResult || agentResult || repoShimResult || skillsResult) {
     console.log("");
     console.log("Harness capabilities:");
     for (const capability of listHarnessIntegrationCapabilities()) {

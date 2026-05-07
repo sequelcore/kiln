@@ -105,9 +105,10 @@ shim, sync must fail closed instead of writing generated instructions into an
 incidental current working directory. Running sync from a subdirectory of the
 same project must resolve the same repo-shim target paths.
 
-`AGENTS.md` is the current partial repo-shim projection. Long term, it should be
-evolved into a repo-shims target that can generate `AGENTS.md`, `CLAUDE.md`, and
-future harness-specific repo entrypoints from one projection pipeline. The
+`kiln sync --repo-shims` generates repo instruction entrypoints. `AGENTS.md` is
+the shared repo shim for Codex CLI and OpenCode. `CLAUDE.md` is the repo shim
+for Claude Code. Future harness-specific repo entrypoints must be added to the
+same projection pipeline instead of creating another source of truth. The
 projection may summarize canonical doctrine and link profile ids, but it must
 not become a second source of truth for identity, workflow, agent profiles,
 skills, route policy, or permissions.
@@ -121,12 +122,14 @@ detection, backups, and projection writes.
 
 Generated repo shims must contain a stable Kiln signature and projection
 metadata: target kind, project root identity, source profile ids, generator
-version, and content hash. Config/status surfaces use that metadata to classify
-each repo guidance file as current managed projection, stale managed projection,
-managed file with drift, unmanaged existing guidance, missing projection, or
-blocked by ambiguous root. Unmanaged files are never overwritten silently; Kiln
-may recommend adoption or backup, but the adoption command must make the source
-and target explicit.
+version, and content hash. Sync uses that metadata to block unmanaged files and
+drifted managed files unless `--force` is explicit; forced overwrites are backed
+up under `.kiln/backups/repo-shims/`. Config/status surfaces use the same
+metadata to classify each repo guidance file as current managed projection,
+stale managed projection, managed file with drift, unmanaged existing guidance,
+missing projection, or blocked by ambiguous root. Unmanaged files are never
+overwritten silently; Kiln may recommend adoption or backup, but the adoption
+command must make the source and target explicit.
 
 ## Install State And Drift
 
