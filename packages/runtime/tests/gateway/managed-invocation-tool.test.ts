@@ -734,9 +734,10 @@ describe("managed invocation runtime tool", () => {
     const transcript = await surface.readResource(result.metadata.transcript?.uri ?? "");
     expect(transcript.contents[0]).toMatchObject({
       mimeType: "text/markdown",
-      text: expect.stringContaining("Model: opencode-default-model"),
     });
-    expect(String("text" in transcript.contents[0]! ? transcript.contents[0]!.text : "")).toContain("Child review completed.");
+    const transcriptText = String("text" in transcript.contents[0]! ? transcript.contents[0]!.text : "");
+    expect(transcriptText).toContain("Model: opencode-default-model");
+    expect(transcriptText).toContain("Child review completed.");
   });
 
   it("fails closed when invoked outside a runtime session context", async () => {

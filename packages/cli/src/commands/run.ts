@@ -29,6 +29,8 @@ import {
   resolveAgentSkillContextCandidates,
   withContextCandidates,
 } from "../application/agent-skill-context.js";
+import { resolveInstructionProfileContextCandidates } from "../application/instruction-profile-context.js";
+import { readKilnYaml } from "../kiln-yaml.js";
 import {
   computeEvalScore,
   printContextGovernancePreview,
@@ -271,6 +273,7 @@ function renderAgentProfilePromptContext(agent?: KilnAgentDefinition): string | 
     agent.authorityProfile ? `authorityProfile: ${agent.authorityProfile}` : undefined,
     agent.routeId ? `routeId: ${agent.routeId}` : undefined,
     agent.skills?.length ? `skills: ${agent.skills.join(", ")}` : undefined,
+    agent.instructionProfiles?.length ? `instructionProfiles: ${agent.instructionProfiles.join(", ")}` : undefined,
     agent.instructions ? "instructions:" : undefined,
     agent.instructions,
   ].filter((line): line is string => Boolean(line)).join("\n");
@@ -389,6 +392,15 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     ?? resolvedAgent?.model;
   const config = buildConfig({ ...flags, provider: preferredProvider }, mode);
   let identityAppConfig = withGlobalIdentityContext(appConfig, globalConfig);
+  identityAppConfig = withContextCandidates(
+    identityAppConfig,
+    resolveInstructionProfileContextCandidates({
+      projectPath: cwd,
+      globalConfig,
+      projectConfig: readKilnYaml(join(cwd, ".kiln")),
+      agent: resolvedAgent,
+    }),
+  );
   if (resolvedAgent) {
     try {
       identityAppConfig = withContextCandidates(

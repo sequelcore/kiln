@@ -12,25 +12,31 @@
 | Max Depth | 3 |
 | Parallel Workers | 1 |
 
+## Active Instruction Profiles
+
+Read these canonical Kiln instruction profiles before work. They are the source of durable operator/team doctrine; this AGENTS.md section is only a projection.
+
+- sequel-engineering (global): C:\Users\R3XED\.kiln\instructions\sequel-engineering.md
+
 ## Agents
 
-| Name | Display | Role | Tools | Model | Skills |
-|------|---------|------|-------|-------|--------|
-| adversarial-reviewer (global) | Herkabe | Adversarial reviewer | read, grep, glob | gpt-5.4 | - |
-| architect (global) | Piama | Software architect | read, grep, glob, web | gpt-5.4 | - |
-| architecture-planner (global) | Lloyd | Architecture planner | read, grep, glob | gpt-5.4 | - |
-| coder (global) | Reese | Coding implementation specialist | read, grep, glob, write, bash | gpt-5.3-codex | - |
-| ddd-validator (global) | Ida | DDD and Clean Architecture validator | read, grep, glob | gpt-5.4-mini | - |
-| fast-coder (global) | Stevie | Fast implementation specialist | read, grep, glob, write, bash | gpt-5.3-codex-spark | - |
-| opencode (global) | Craig | OpenCode implementation worker | read, grep, glob, write, bash | gpt-5.4-mini | - |
-| planner (global) | Hal | Implementation planner | read, grep, glob | gpt-5.4 | - |
-| react-ts-reviewer (global) | Cynthia | React TypeScript reviewer | read, grep, glob | gpt-5.4-mini | - |
-| refactoring-specialist (global) | Jamie | Refactoring specialist | read, grep, glob, write, bash | gpt-5.4 | - |
-| researcher (global) | Abe | Technical researcher | read, grep, glob, web | gpt-5.4 | - |
-| reviewer (global) | Lois | Code quality reviewer | read, grep, glob | gpt-5.4-mini | - |
-| scout (global) | Dewey | Read-only context scout | read, grep, glob | gpt-5.4-mini | - |
-| spring-boot-reviewer (global) | Spangler | Spring Boot reviewer | read, grep, glob | gpt-5.4-mini | - |
-| tdd (global) | Malcolm | TDD guide | read, grep, glob, write, bash | gpt-5.4 | - |
+| Name | Display | Role | Tools | Model | Skills | Instruction Profiles |
+|------|---------|------|-------|-------|--------|----------------------|
+| adversarial-reviewer (global) | Herkabe | Adversarial reviewer | read, grep, glob | gpt-5.4 | - | - |
+| architect (global) | Piama | Software architect | read, grep, glob, web | gpt-5.4 | - | - |
+| architecture-planner (global) | Lloyd | Architecture planner | read, grep, glob | gpt-5.4 | - | - |
+| coder (global) | Reese | Coding implementation specialist | read, grep, glob, write, bash | gpt-5.3-codex | - | - |
+| ddd-validator (global) | Ida | DDD and Clean Architecture validator | read, grep, glob | gpt-5.4-mini | - | - |
+| fast-coder (global) | Stevie | Fast implementation specialist | read, grep, glob, write, bash | gpt-5.3-codex-spark | - | - |
+| opencode (global) | Craig | OpenCode implementation worker | read, grep, glob, write, bash | gpt-5.4-mini | - | - |
+| planner (global) | Hal | Implementation planner | read, grep, glob | gpt-5.4 | - | - |
+| react-ts-reviewer (global) | Cynthia | React TypeScript reviewer | read, grep, glob | gpt-5.4-mini | - | - |
+| refactoring-specialist (global) | Jamie | Refactoring specialist | read, grep, glob, write, bash | gpt-5.4 | - | - |
+| researcher (global) | Abe | Technical researcher | read, grep, glob, web | gpt-5.4 | - | - |
+| reviewer (global) | Lois | Code quality reviewer | read, grep, glob | gpt-5.4-mini | - | - |
+| scout (global) | Dewey | Read-only context scout | read, grep, glob | gpt-5.4-mini | - | - |
+| spring-boot-reviewer (global) | Spangler | Spring Boot reviewer | read, grep, glob | gpt-5.4-mini | - | - |
+| tdd (global) | Malcolm | TDD guide | read, grep, glob, write, bash | gpt-5.4 | - | - |
 
 ## Usage
 

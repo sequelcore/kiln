@@ -85,7 +85,7 @@ surface-specific behavior, or provider compatibility glue.
 ## First Implementation Slices
 
 1. Complete presentation-intent support from
-   `docs/roadmap/02-presentation-intent-contract.md` so multi-agent
+   `docs/roadmap/01-presentation-intent-contract.md` so multi-agent
    comparison, risk reports, diagnostics, and resource bundles render as
    validated semantic output across all surfaces.
 2. Add immutable managed-invocation capability snapshots at admission time:

@@ -2,10 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-vi.mock("node:fs", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("node:fs")>();
+vi.mock("node:fs", () => {
   return {
-    ...actual,
     readFileSync: vi.fn(),
     writeFileSync: vi.fn(),
   };
@@ -19,8 +17,15 @@ vi.mock("../../src/config/config-merger.js", () => ({
   loadKilnConfig: vi.fn(),
 }));
 
+vi.mock("../../src/application/instruction-profile-loader.js", () => ({
+  loadInstructionProfiles: vi.fn(),
+  findInstructionProfile: vi.fn((profiles, name) =>
+    profiles.find((profile: { name: string }) => profile.name === name)),
+}));
+
 import { loadAgentDefinitions } from "../../src/application/agent-loader.js";
 import { loadKilnConfig } from "../../src/config/config-merger.js";
+import { loadInstructionProfiles } from "../../src/application/instruction-profile-loader.js";
 import { writeAgentsMdProjection } from "../../src/application/agents-md-projection.js";
 
 const PROJECT_PATH = "/workspace/project";
@@ -30,6 +35,7 @@ const readFileSyncMock = readFileSync as unknown as ReturnType<typeof vi.fn>;
 const writeFileSyncMock = writeFileSync as unknown as ReturnType<typeof vi.fn>;
 const loadAgentDefinitionsMock = loadAgentDefinitions as unknown as ReturnType<typeof vi.fn>;
 const loadKilnConfigMock = loadKilnConfig as unknown as ReturnType<typeof vi.fn>;
+const loadInstructionProfilesMock = loadInstructionProfiles as unknown as ReturnType<typeof vi.fn>;
 
 function writtenContent(callIndex = 0): string {
   return String(writeFileSyncMock.mock.calls[callIndex]?.[1] ?? "");
@@ -42,6 +48,8 @@ describe("agents-md-projection", () => {
     writeFileSyncMock.mockReset();
     loadAgentDefinitionsMock.mockReset();
     loadKilnConfigMock.mockReset();
+    loadInstructionProfilesMock.mockReset();
+    loadInstructionProfilesMock.mockReturnValue([]);
   });
 
   it("generates correct markdown with agents and kiln.yaml present", async () => {
@@ -53,6 +61,7 @@ describe("agents-md-projection", () => {
         tools: ["read", "write"],
         model: "gpt-5.4",
         skills: ["sequel-spring"],
+        instructionProfiles: ["sequel-engineering"],
         scope: "project",
       },
       {
@@ -68,7 +77,13 @@ describe("agents-md-projection", () => {
       model: { default: "gpt-5.4" },
       maxDepth: 6,
       parallelWorkers: 2,
+      activeInstructionProfiles: ["sequel-engineering"],
     });
+    loadInstructionProfilesMock.mockReturnValue([{
+      name: "sequel-engineering",
+      scope: "global",
+      filePath: "/home/tester/.kiln/instructions/sequel-engineering.md",
+    }]);
 
     const result = await writeAgentsMdProjection(PROJECT_PATH);
     const content = writtenContent();
@@ -85,8 +100,10 @@ describe("agents-md-projection", () => {
     expect(content).toContain("| Setting | Value |");
     expect(content).toContain("|---------|-------|");
     expect(content).toContain("## Agents");
-    expect(content).toContain("| Name | Display | Role | Tools | Model | Skills |");
-    expect(content).toContain("|------|---------|------|-------|-------|--------|");
+    expect(content).toContain("| Name | Display | Role | Tools | Model | Skills | Instruction Profiles |");
+    expect(content).toContain("|------|---------|------|-------|-------|--------|----------------------|");
+    expect(content).toContain("## Active Instruction Profiles");
+    expect(content).toContain("sequel-engineering (global): /home/tester/.kiln/instructions/sequel-engineering.md");
     expect(content).toContain("cinema");
     expect(content).toContain("codex");
     expect(content).toContain("gpt-5.4");
@@ -97,6 +114,7 @@ describe("agents-md-projection", () => {
     expect(content).toContain("Scout (global)");
     expect(content).toContain("read, write");
     expect(content).toContain("sequel-spring");
+    expect(content).toContain("sequel-engineering");
   });
 
   it("generates file with no agents (empty state message)", async () => {
@@ -111,8 +129,8 @@ describe("agents-md-projection", () => {
 
     expect(result.written).toBe(true);
     expect(content).toContain("No agent profiles defined. Create .kiln/agents/<name>.md to add one.");
-    expect(content).toContain("| Name | Display | Role | Tools | Model | Skills |");
-    expect(content).toContain("|------|---------|------|-------|-------|--------|");
+    expect(content).toContain("| Name | Display | Role | Tools | Model | Skills | Instruction Profiles |");
+    expect(content).toContain("|------|---------|------|-------|-------|--------|----------------------|");
   });
 
   it("generates file when kiln.yaml is null (no Team Configuration table)", async () => {

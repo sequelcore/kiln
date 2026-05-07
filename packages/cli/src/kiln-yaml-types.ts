@@ -269,6 +269,7 @@ export interface KilnContextGovernanceConfig {
 
 export interface KilnYaml {
   readonly version: "1";
+  readonly activeInstructionProfiles?: readonly string[];
   readonly domain?: string;
   readonly provider?: string;
   readonly channels?: string[];

@@ -169,6 +169,27 @@ describe("global-config", () => {
     expect(() => readGlobalConfig()).toThrow("identity.timezone must be a non-empty string");
   });
 
+  it("readGlobalConfig() validates active instruction profiles", () => {
+    existsSyncMock.mockReturnValue(true);
+    readFileSyncMock.mockReturnValue(
+      [
+        "version: \"1\"",
+        "activeInstructionProfiles:",
+        "  - sequel-engineering",
+      ].join("\n"),
+    );
+    expect(readGlobalConfig()?.activeInstructionProfiles).toEqual(["sequel-engineering"]);
+
+    readFileSyncMock.mockReturnValue(
+      [
+        "version: \"1\"",
+        "activeInstructionProfiles:",
+        "  - \"\"",
+      ].join("\n"),
+    );
+    expect(() => readGlobalConfig()).toThrow("activeInstructionProfiles must be an array of non-empty strings");
+  });
+
   it("readGlobalConfig() accepts null budget ceilings", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(

@@ -65,6 +65,7 @@ export function writeKilnYaml(kilnDir: string, config: KilnYaml): void {
 export function mergeKilnYaml(base: KilnYaml, override: Partial<KilnYaml>): KilnYaml {
   return {
     version: override.version ?? base.version ?? "1",
+    activeInstructionProfiles: mergeStringList(base.activeInstructionProfiles, override.activeInstructionProfiles),
     domain: override.domain ?? base.domain,
     provider: override.provider ?? base.provider,
     channels: override.channels ?? base.channels,
@@ -82,6 +83,21 @@ export function mergeKilnYaml(base: KilnYaml, override: Partial<KilnYaml>): Kiln
     contextGovernance: override.contextGovernance ?? base.contextGovernance,
     hooks: override.hooks ?? base.hooks,
   };
+}
+
+function mergeStringList(
+  base: readonly string[] | undefined,
+  override: readonly string[] | undefined,
+): readonly string[] | undefined {
+  if (!base && !override) return undefined;
+  const values = new Set<string>();
+  for (const entry of [...(base ?? []), ...(override ?? [])]) {
+    const normalized = entry.trim();
+    if (normalized.length > 0) {
+      values.add(normalized);
+    }
+  }
+  return [...values];
 }
 
 function mergeWeb(

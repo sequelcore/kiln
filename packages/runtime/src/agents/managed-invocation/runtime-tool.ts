@@ -98,6 +98,7 @@ export interface ManagedInvocationContextResolution {
   readonly promptPrefix?: string;
   readonly admittedAgentProfile?: string;
   readonly admittedSkills?: readonly string[];
+  readonly admittedInstructionProfiles?: readonly string[];
   readonly deniedSkills?: readonly string[];
 }
 
@@ -416,6 +417,7 @@ async function executeManagedInvocationTool(
         ...(parsed.input.skills ? { skills: parsed.input.skills } : {}),
         ...(contextResolution.resolution.admittedAgentProfile ? { admittedAgentProfile: contextResolution.resolution.admittedAgentProfile } : {}),
         ...(contextResolution.resolution.admittedSkills ? { admittedSkills: contextResolution.resolution.admittedSkills } : {}),
+        ...(contextResolution.resolution.admittedInstructionProfiles ? { admittedInstructionProfiles: contextResolution.resolution.admittedInstructionProfiles } : {}),
         ...(contextResolution.resolution.deniedSkills ? { deniedSkills: contextResolution.resolution.deniedSkills } : {}),
       },
     },
@@ -784,7 +786,7 @@ async function resolveInvocationContext(
   | { readonly ok: true; readonly resolution: ManagedInvocationContextResolution }
   | { readonly ok: false; readonly error: string }
 > {
-  const needsResolver = Boolean(input.agentProfile || input.skills?.length || input.contextMode === "fork");
+  const needsResolver = Boolean(options.contextResolver || input.agentProfile || input.skills?.length || input.contextMode === "fork");
   if (!needsResolver) {
     return { ok: true, resolution: {} };
   }

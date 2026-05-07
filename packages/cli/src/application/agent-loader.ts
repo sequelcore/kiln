@@ -16,6 +16,7 @@ export interface KilnAgentDefinition {
   readonly tools?: readonly string[];
   readonly model?: string;
   readonly skills?: readonly string[];
+  readonly instructionProfiles?: readonly string[];
   readonly mode?: KilnAgentMode;
   readonly structured?: boolean;
   readonly count?: number;
@@ -144,6 +145,7 @@ function parseAgentDefinition(raw: string, scope: "global" | "project"): KilnAge
   const tools = asStringArray(record.tools);
   const model = asNonEmptyString(record.model);
   const skills = asStringArray(record.skills);
+  const instructionProfiles = asStringArray(record.instructionProfiles);
   const mode = asAgentMode(record.mode);
   const structured = asBoolean(record.structured);
   const count = asPositiveInteger(record.count);
@@ -166,6 +168,7 @@ function parseAgentDefinition(raw: string, scope: "global" | "project"): KilnAge
     ...(tools ? { tools } : {}),
     ...(model ? { model } : {}),
     ...(skills ? { skills } : {}),
+    ...(instructionProfiles ? { instructionProfiles } : {}),
     ...(mode ? { mode } : {}),
     ...(structured !== undefined ? { structured } : {}),
     ...(count !== undefined ? { count } : {}),

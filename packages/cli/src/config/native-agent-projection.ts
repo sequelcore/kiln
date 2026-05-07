@@ -85,6 +85,10 @@ export function agentToClaudeMd(agent: KilnAgentDefinition): string {
     frontmatter.skills = [...agent.skills];
   }
 
+  if (agent.instructionProfiles && agent.instructionProfiles.length > 0) {
+    frontmatter.instructionProfiles = [...agent.instructionProfiles];
+  }
+
   if (agent.mode) {
     frontmatter.mode = agent.mode;
   }
@@ -137,6 +141,9 @@ export function agentToOpenCodeMd(agent: KilnAgentDefinition): string {
   if (agent.skills && agent.skills.length > 0) {
     frontmatter.skills = [...agent.skills];
   }
+  if (agent.instructionProfiles && agent.instructionProfiles.length > 0) {
+    frontmatter.instructionProfiles = [...agent.instructionProfiles];
+  }
 
   const yamlFrontmatter = stringify(frontmatter).trimEnd();
   const body = buildNativeAgentInstructions(agent);
@@ -148,6 +155,7 @@ function buildNativeAgentInstructions(agent: KilnAgentDefinition): string {
     agent.displayName ? `Display name: ${agent.displayName}` : undefined,
     `Goal: ${agent.goal}`,
     agent.backstory ? `Backstory: ${agent.backstory}` : undefined,
+    agent.instructionProfiles?.length ? `Instruction profiles: ${agent.instructionProfiles.join(", ")}` : undefined,
     agent.instructions,
   ].filter((line): line is string => Boolean(line)).join("\n\n");
 }

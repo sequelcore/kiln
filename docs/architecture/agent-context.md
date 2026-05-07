@@ -51,9 +51,10 @@ It must not include broad architectural doctrine, route authority, tool
 permissions, or agent role behavior. Those belong to instruction profiles,
 routes, permissions, or agent profiles.
 
-Kiln currently accepts global `identity.name` and `identity.timezone`. The
-target contract is to project admitted identity facts into prompt context and
-operator surfaces with provenance instead of leaving them as passive config.
+Kiln accepts global `identity.name` and `identity.timezone` and projects them
+as required `instruction` context blocks with provenance through the
+`DefaultContextGovernor`. Identity values are not appended as passive prompt
+text and are not allowed to become broad workflow doctrine.
 
 ## Instruction Profiles
 
@@ -73,6 +74,28 @@ Instruction profiles are not executable agents. They are high-precedence
 context sources that shape agent behavior across surfaces. They should be
 stored as scoped documents or references, not repeated inside every agent
 definition.
+
+Canonical instruction profiles live in `~/.kiln/instructions/*.md` and
+`.kiln/instructions/*.md`. The file format is markdown with YAML
+frontmatter:
+
+```markdown
+---
+name: sequel-engineering
+displayName: Sequel Engineering
+description: Engineering standards and collaboration doctrine.
+tags:
+  - engineering
+---
+
+No dead code. No redundancy. Use Clean Architecture boundaries. Verify before
+claiming complete.
+```
+
+Global `activeInstructionProfiles`, project `activeInstructionProfiles`, and
+agent `instructionProfiles` select profiles by stable id. Project profiles
+override global profiles with the same id. Selected profiles fail closed when
+the referenced canonical profile cannot be found.
 
 An instruction profile is the place where Kiln carries an operator or team's
 working "soul": standards, habits, taste, non-negotiables, and expected
@@ -98,6 +121,7 @@ A profile may also declare:
 - mode: primary, subagent, managed-child, or all
 - allowed tools or permission profile
 - default skills
+- default instruction profiles
 - managed authority profile constraints
 
 Profiles do not own credentials. They may request a provider route, but runtime
@@ -117,6 +141,10 @@ Every surface must consume the same profile contract:
 - SDK/widget session configuration
 - managed child invocation
 - native harness projection
+
+Agent `instructionProfiles` are references, not copied doctrine. They select
+additional canonical instruction profiles for that agent when the profile is
+used by `kiln run --agent` or managed child invocation.
 
 Surface-specific renderers may project smaller views, but they must not invent
 local semantics.
@@ -140,6 +168,8 @@ is subject to context budget.
 
 Skills are not permissions. A skill may teach an agent how to use a tool, but
 tool authority still comes from Kiln's tool and managed invocation policy.
+Agent default skills are resolved through `SkillRegistry`, loaded as governed
+procedural context, and fail closed when a referenced skill is unavailable.
 
 ## Managed Child Context
 
@@ -151,6 +181,7 @@ context through:
 
 - explicit task text
 - selected agent profile
+- selected instruction profiles
 - admitted skills
 - resource URIs
 - governed memory/context candidates
@@ -240,21 +271,24 @@ No surface owns agent context semantics.
 If a surface cannot display the full detail inline, it must expose a resource
 or detail view rather than dropping the evidence.
 
+Managed child invocation events carry requested and admitted child context:
+context mode, agent profile, skills, instruction profiles, provider route,
+model, adapter, execution mode, authority profile, invocation id, child
+session, and child turn. General operator identity and instruction profiles are
+available through the context governance audit as `instruction` blocks.
+
 ## Implementation Slices
 
-1. Add this doctrine to the roadmap and use it as the target for all related
-   implementation.
-2. Promote global identity from passive config to admitted prompt context.
-3. Replace partial agent-definition shapes with one canonical agent profile
-   contract.
-4. Route `kiln run --agent` skills through `SkillRegistry` and context
-   admission.
-5. Extend `managed_agent.invoke` with requested `agentProfile`, `skills`, and
-   `contextMode`.
-6. Record admitted and denied profile/skill/context evidence in canonical
-   session events.
-7. Project the same agent and skill contracts into native harness configs based
-   on harness capability declarations.
+The active implementation owns:
+
+- identity as admitted `instruction` context
+- instruction profile loading from global and project scopes
+- agent profile loading from global and project scopes
+- agent default skill admission through `SkillRegistry`
+- managed child `agentProfile`, `skills`, `instructionProfiles`, and
+  `contextMode` resolution
+- native projection of canonical agent, skill, and instruction-profile
+  references into harness-readable surfaces
 
 ## Research Inputs
 

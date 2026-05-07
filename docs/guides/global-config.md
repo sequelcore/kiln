@@ -6,9 +6,10 @@
 routing, permissions, MCP servers, hooks, managed agents, UI preferences, and
 operator identity. It is not a monolithic personality file. Durable behavioral
 doctrine belongs in instruction profiles, executable roles belong in agent
-profiles, and reusable procedures belong in skills. Global agents and skills
-live next to the config under `~/.kiln/agents/` and `~/.kiln/skills/`. Project
-`kiln.yaml` and `.kiln/agents|skills` override them where needed.
+profiles, and reusable procedures belong in skills. Global instruction
+profiles, agents, and skills live next to the config under
+`~/.kiln/instructions/`, `~/.kiln/agents/`, and `~/.kiln/skills/`. Project
+`kiln.yaml` and `.kiln/instructions|agents|skills` override them where needed.
 
 Harness integration is capability-driven: Kiln uses runtime config injection
 for Kiln-launched processes only when a harness supports it, and `kiln sync`
@@ -45,8 +46,7 @@ usage view.
 | `identity` | `KilnGlobalIdentity` | Global identity values used for personalization and prompt context. |
 | `identity.name` | `string` | Default operator name for generated prompt context and UI personalization. |
 | `identity.timezone` | `string` | Default timezone identifier for prompt context and scheduling-aware flows. |
-| `instructionProfiles` | `Record<string, unknown>` | Durable operator/team doctrine such as engineering standards, workflow sequence, review posture, and communication norms. Target schema; implementation is tracked by `docs/roadmap/01-agent-context-capability-model.md`. |
-| `activeInstructionProfiles` | `string[]` | Ordered instruction profile ids selected for global prompt context. Target field; not yet fully enforced across all surfaces. |
+| `activeInstructionProfiles` | `string[]` | Ordered canonical instruction profile ids selected for global governed prompt context. Profiles are loaded from `~/.kiln/instructions/*.md` and may be overridden by project profiles with the same id. |
 | `ui.theme` | `string` | Default operator theme name from the shared GUI/TUI theme catalog. |
 | `components.include` | `string[]` | Bundled component set identifiers enabled for the operator. |
 
@@ -87,9 +87,10 @@ provider/profile, parent agents must select by `routeId` or by an exact
 configured model; provider-only selection fails closed as ambiguous.
 The same runtime tool can request `agentProfile`, `skills`, and `contextMode`.
 GUI, TUI, and CLI-launched managed invocations resolve those fields from
-`.kiln/agents`, `~/.kiln/agents`, `.kiln/skills`, and `~/.kiln/skills`. Missing
-profiles, missing skills, or `contextMode: "fork"` fail closed instead of
-falling back to ambient parent context.
+`.kiln/agents`, `~/.kiln/agents`, `.kiln/instructions`,
+`~/.kiln/instructions`, `.kiln/skills`, and `~/.kiln/skills`. Missing profiles,
+missing instruction profiles, missing skills, or `contextMode: "fork"` fail
+closed instead of falling back to ambient parent context.
 
 Supported operator themes are `kiln-dark`, `kiln-light`, `system-follow`,
 `dracula`, `catppuccin-mocha`, `nord`, `tokyo-night`, `gruvbox-dark`,
@@ -211,11 +212,30 @@ permissions:
 identity:
   name: Ricardo
   timezone: America/Tijuana
+activeInstructionProfiles:
+  - sequel-engineering
 ui:
   theme: kiln-dark
 components:
   include:
     - baseline:core
+```
+
+Durable instruction profiles live under `~/.kiln/instructions/` or
+`.kiln/instructions/`. Example:
+
+```markdown
+---
+name: sequel-engineering
+displayName: Sequel Engineering
+description: Engineering standards, workflow, and quality doctrine.
+tags:
+  - engineering
+---
+
+Use DDD and Clean Architecture boundaries. Do not keep dead code, redundancy,
+compatibility hacks, or boilerplate. Scout before broad changes, write tests
+for behavior changes, verify before claiming complete, and keep commits atomic.
 ```
 
 Matching global agent profiles live under `~/.kiln/agents/`. They must use the
@@ -233,6 +253,8 @@ mode: managed-child
 skills:
   - architecture-review
   - ddd-review
+instructionProfiles:
+  - sequel-engineering
 providerRoute:
   providerId: codex-oauth
   model: gpt-5.4-mini
@@ -340,12 +362,12 @@ the parent may omit `agentProfile` and invoke a generic governed child. Parents
 must not invent profile names; unknown profiles fail closed during context
 resolution.
 
-Canonical instruction profiles are the intended home for durable workflow
-standards such as "no dead code", "no redundancy", "DDD", "Clean
-Architecture", "TDD first", "review before commit", and "verify before done".
-Until the instruction-profile implementation is complete, generated
-`AGENTS.md` and native harness projections may carry this doctrine as a
-compatibility projection, but they are not the long-term source of truth.
+Canonical instruction profiles are the home for durable workflow standards
+such as "no dead code", "no redundancy", "DDD", "Clean Architecture", "TDD
+first", "review before commit", and "verify before done". Generated
+`AGENTS.md` and native harness projections may point to these profiles or carry
+profile ids as harness-readable metadata, but the source of truth remains the
+Kiln instruction profile file.
 
 ## Skills Sync
 

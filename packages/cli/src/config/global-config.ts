@@ -59,6 +59,7 @@ export const CANONICAL_GLOBAL_CONFIG_VERSION = "1" as const;
 export interface KilnGlobalConfig {
   readonly version: typeof CANONICAL_GLOBAL_CONFIG_VERSION;
   readonly identity?: KilnGlobalIdentity;
+  readonly activeInstructionProfiles?: readonly string[];
   readonly engines?: Record<string, KilnGlobalEngineConfig>;
   readonly routing?: KilnGlobalRoutingConfig;
   readonly permissions?: KilnYamlPermissions;
@@ -74,6 +75,7 @@ export interface KilnGlobalConfig {
 const ROOT_FIELDS = new Set([
   "version",
   "identity",
+  "activeInstructionProfiles",
   "engines",
   "routing",
   "permissions",
@@ -202,6 +204,7 @@ export function validateGlobalConfig(config: unknown): void {
   validateRecordField(config, "ui");
   validateRecordField(config, "components");
   validateIdentity(config.identity);
+  validateStringArray(config.activeInstructionProfiles, "activeInstructionProfiles");
   validateEngines(config.engines);
   validateRouting(config.routing);
   validateComponents(config.components);
@@ -231,6 +234,15 @@ function validateOptionalNonEmptyString(record: Record<string, unknown>, key: st
   }
   if (typeof value !== "string" || value.trim().length === 0) {
     throw new KilnYamlError(`${path} must be a non-empty string`);
+  }
+}
+
+function validateStringArray(value: unknown, path: string): void {
+  if (value === undefined) {
+    return;
+  }
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string" || entry.trim().length === 0)) {
+    throw new KilnYamlError(`${path} must be an array of non-empty strings`);
   }
 }
 

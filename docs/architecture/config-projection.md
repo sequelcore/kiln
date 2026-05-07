@@ -21,6 +21,8 @@ The config projection boundary is owned by the CLI config layer.
 - `packages/cli/src/config/config-merger.ts` merges global and project config.
 - `packages/cli/src/config/native-*-projection.ts` owns native file IO for
   permissions, hooks, agents, and skills.
+- `packages/cli/src/application/instruction-profile-loader.ts` owns canonical
+  instruction profile loading from Kiln filesystem config.
 - `packages/cli/src/config/native-projection-state.ts` owns install-state,
   managed-field hashes, whole-file hashes, and drift detection.
 - `packages/cli/src/config/managed-agent-routes.ts` projects enabled engine and
@@ -50,10 +52,12 @@ compatibility shims for obsolete or partial global config files. Invalid global
 config is an adoption error: commands that intentionally write a canonical
 replacement must back up the invalid file before writing.
 
-Agents and skills are canonical filesystem config, not inline YAML fields.
-Global definitions live under `~/.kiln/agents/` and `~/.kiln/skills/`; project
-definitions live under `.kiln/agents/` and `.kiln/skills/`. Native harness
-agent and skill files remain generated projections.
+Instruction profiles, agents, and skills are canonical filesystem config, not
+inline YAML fields. Global definitions live under `~/.kiln/instructions/`,
+`~/.kiln/agents/`, and `~/.kiln/skills/`; project definitions live under
+`.kiln/instructions/`, `.kiln/agents/`, and `.kiln/skills/`. Native harness
+agent and skill files remain generated projections, and `AGENTS.md` may project
+active instruction profile ids and canonical file paths for direct harness use.
 
 ## Sync Contract
 
@@ -132,5 +136,5 @@ substantive read-only result handoff remains unavailable for
 - `routing.routes` is the default managed-agent route source; explicit
   `managedAgents.routes` is an allowlist override, not a second routing graph to
   keep in sync.
-- Agent and skill definitions are canonical only under Kiln-owned agent and
-  skill directories, never in native harness folders.
+- Instruction profile, agent, and skill definitions are canonical only under
+  Kiln-owned directories, never in native harness folders.

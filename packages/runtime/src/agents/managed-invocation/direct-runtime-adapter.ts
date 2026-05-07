@@ -8,9 +8,11 @@ import type {
   ToolDefinition,
 } from "@kilnai/core";
 import {
+  DefaultContextGovernor,
   defineManagedAgentAdapterDescriptor,
   defineManagedAgentInvocationRecord,
   extractText,
+  renderProjectedContext,
   SandboxPolicy,
   textParts,
 } from "@kilnai/core";
@@ -173,9 +175,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
       const result = await orchestrator.processMessage(
         childSession,
         textParts(request.input.prompt ?? request.input.summary),
-        request.input.resourceUris && request.input.resourceUris.length > 0
-          ? { content: `Admitted resources:\n${request.input.resourceUris.join("\n")}` }
-          : undefined,
+        buildManagedResourceContext(request.input.resourceUris),
         builtinTools,
         perCallConfig,
       );
@@ -252,6 +252,26 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
       ...(route.reasoningEffort !== undefined ? { reasoningEffort: route.reasoningEffort } : {}),
     };
   }
+}
+
+function buildManagedResourceContext(resourceUris: readonly string[] | undefined) {
+  if (!resourceUris || resourceUris.length === 0) {
+    return undefined;
+  }
+  const projected = new DefaultContextGovernor<undefined, "artifact", "balanced">().project({
+    artifacts: [{
+      kind: "artifact",
+      source: "managed-invocation:resource-uris",
+      required: true,
+      score: 1,
+      content: `Admitted resources:\n${resourceUris.join("\n")}`,
+    }],
+  });
+  const audit = projected.auditTrail?.[projected.auditTrail.length - 1];
+  return {
+    content: renderProjectedContext(projected),
+    ...(audit ? { audit } : {}),
+  };
 }
 
 function filterMap<T>(source: ReadonlyMap<string, T>, allowedNames: ReadonlySet<string>): ReadonlyMap<string, T> {

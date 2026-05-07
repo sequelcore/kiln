@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { join } from "node:path";
 import type { KilnAppConfig } from "../config.js";
 import {
   loadResumeSidebarInfo,
@@ -19,6 +20,9 @@ import {
   resolveGlobalUiTheme,
 } from "../config/global-config.js";
 import { withGlobalIdentityContext } from "../config/operator-identity-context.js";
+import { withContextCandidates } from "../application/agent-skill-context.js";
+import { resolveInstructionProfileContextCandidates } from "../application/instruction-profile-context.js";
+import { readKilnYaml } from "../kiln-yaml.js";
 import { resolveEffectiveProvider } from "../config/env-config.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
 import { discoverManagedAgentProviderModels } from "../config/managed-agent-provider-models.js";
@@ -1026,7 +1030,14 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
 
   const cwd = flags.cwd ?? process.cwd();
   const globalConfig = readGlobalConfig();
-  const runtimeAppConfig = withGlobalIdentityContext(appConfig, globalConfig);
+  const runtimeAppConfig = withContextCandidates(
+    withGlobalIdentityContext(appConfig, globalConfig),
+    resolveInstructionProfileContextCandidates({
+      projectPath: cwd,
+      globalConfig,
+      projectConfig: readKilnYaml(join(cwd, ".kiln")),
+    }),
+  );
   const startupTransport = resolveTuiStartupTransport(flags);
   const provider = parseProvider(resolveEffectiveProvider(flags.provider, resolveGlobalDefaultProvider(globalConfig)), providerIds);
   const startupModel = resolveGlobalDefaultModel(globalConfig);

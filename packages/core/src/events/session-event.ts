@@ -206,8 +206,10 @@ export interface SessionAgentInvocationContext {
   readonly mode: ManagedAgentInvocationContextMode;
   readonly agentProfile?: string;
   readonly skills?: readonly string[];
+  readonly instructionProfiles?: readonly string[];
   readonly admittedAgentProfile?: string;
   readonly admittedSkills?: readonly string[];
+  readonly admittedInstructionProfiles?: readonly string[];
   readonly deniedSkills?: readonly string[];
 }
 

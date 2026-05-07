@@ -5,10 +5,20 @@ import type {
   ManagedInvocationContextResolution,
 } from "@kilnai/runtime";
 import { findAgent, loadAgentDefinitions } from "../application/agent-loader.js";
+import { resolveInstructionProfileContextCandidates } from "../application/instruction-profile-context.js";
+import { readGlobalConfig } from "./global-config.js";
+import type { KilnGlobalConfig } from "./global-config.js";
+import { readKilnYaml } from "../kiln-yaml.js";
+import type { KilnYaml } from "../kiln-yaml-types.js";
+import { join } from "node:path";
 
 export function createManagedInvocationContextResolver(
   projectPath: string,
   userHome = homedir(),
+  config: {
+    readonly globalConfig?: KilnGlobalConfig | null;
+    readonly projectConfig?: KilnYaml | null;
+  } = {},
 ): ManagedInvocationContextResolver {
   return async (input) => {
     if (input.contextMode === "fork") {
@@ -18,6 +28,7 @@ export function createManagedInvocationContextResolver(
     const sections: string[] = [];
     let admittedAgentProfile: string | undefined;
     let profileSkills: readonly string[] = [];
+    let agentInstructionProfiles: readonly string[] = [];
     if (input.agentProfile) {
       const definitions = await loadAgentDefinitions(projectPath);
       const agent = findAgent(definitions, input.agentProfile);
@@ -26,6 +37,7 @@ export function createManagedInvocationContextResolver(
       }
       admittedAgentProfile = agent.name;
       profileSkills = agent.skills ?? [];
+      agentInstructionProfiles = agent.instructionProfiles ?? [];
       sections.push([
         "## Child Agent Profile",
         `name: ${agent.name}`,
@@ -36,10 +48,19 @@ export function createManagedInvocationContextResolver(
         agent.goal ? `goal: ${agent.goal}` : undefined,
         agent.backstory ? `backstory: ${agent.backstory}` : undefined,
         agent.tier ? `tier: ${agent.tier}` : undefined,
+        agent.instructionProfiles?.length ? `instructionProfiles: ${agent.instructionProfiles.join(", ")}` : undefined,
         agent.instructions ? "instructions:" : undefined,
         agent.instructions,
       ].filter((line): line is string => Boolean(line)).join("\n"));
     }
+
+    const admittedInstructionProfiles = resolveManagedInstructionProfiles(
+      projectPath,
+      userHome,
+      agentInstructionProfiles,
+      sections,
+      config,
+    );
 
     const admittedSkills = resolveManagedInvocationSkills(
       unique([
@@ -55,8 +76,39 @@ export function createManagedInvocationContextResolver(
       ...(sections.length > 0 ? { promptPrefix: sections.join("\n\n") } : {}),
       ...(admittedAgentProfile ? { admittedAgentProfile } : {}),
       ...(admittedSkills.length > 0 ? { admittedSkills } : {}),
+      ...(admittedInstructionProfiles.length > 0 ? { admittedInstructionProfiles } : {}),
     } satisfies ManagedInvocationContextResolution;
   };
+}
+
+function resolveManagedInstructionProfiles(
+  projectPath: string,
+  userHome: string,
+  agentInstructionProfiles: readonly string[],
+  sections: string[],
+  config: {
+    readonly globalConfig?: KilnGlobalConfig | null;
+    readonly projectConfig?: KilnYaml | null;
+  },
+): readonly string[] {
+  const candidates = resolveInstructionProfileContextCandidates({
+    projectPath,
+    userHome,
+    globalConfig: config.globalConfig === undefined ? readGlobalConfig() : config.globalConfig,
+    projectConfig: config.projectConfig === undefined ? readKilnYaml(join(projectPath, ".kiln")) : config.projectConfig,
+    agent: agentInstructionProfiles.length > 0
+      ? { name: "managed-child", instructionProfiles: agentInstructionProfiles }
+      : undefined,
+  });
+  const admitted: string[] = [];
+  for (const candidate of candidates) {
+    const match = /^Instruction Profile\nname: ([^\n]+)/u.exec(candidate.content);
+    if (match?.[1]) {
+      admitted.push(match[1]);
+    }
+    sections.push(candidate.content);
+  }
+  return admitted;
 }
 
 function unique(values: readonly string[]): readonly string[] {

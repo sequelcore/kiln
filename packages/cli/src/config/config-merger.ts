@@ -12,6 +12,7 @@ export function globalToKilnYaml(global: KilnGlobalConfig): KilnYaml {
   const model = resolveGlobalDefaultModel(global);
   return {
     version: "1",
+    activeInstructionProfiles: global.activeInstructionProfiles,
     provider: resolveGlobalDefaultProvider(global),
     model: model ? { default: model } : undefined,
     permissions: global.permissions,

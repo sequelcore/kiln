@@ -436,4 +436,40 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
       rmSync(outsideRoot, { recursive: true, force: true });
     }
   });
+
+  it("admits explicit resource URI context with DefaultContextGovernor audit", async () => {
+    const provider: ProviderAdapter = {
+      name: "openai",
+      createMessage: vi.fn(async (input) => {
+        expect(JSON.stringify(input)).toContain("kiln://artifacts/managed-invocations/example/content");
+        return response("Resource context was admitted.");
+      }),
+      streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+    };
+    const adapter = new ManagedDirectProviderRuntimeAdapter({
+      providerId: "openai",
+      model: "gpt-test",
+      provider,
+      tools: [],
+      builtinTools: new Map(),
+    });
+
+    const result = await new RuntimeManagedAgentInvocationService().invoke(request({
+      input: {
+        summary: "Read admitted resource.",
+        prompt: "Use the admitted resource URI.",
+        resourceUris: ["kiln://artifacts/managed-invocations/example/content"],
+        context: {
+          mode: "resources",
+        },
+      },
+    }), adapter);
+
+    expect(result.status).toBe("completed");
+    if (result.status !== "completed") {
+      throw new Error("expected completed");
+    }
+    expect(result.record.lifecycleState).toBe("completed");
+    expect(result.record.resultHandoff?.summary).toBe("Resource context was admitted.");
+  });
 });

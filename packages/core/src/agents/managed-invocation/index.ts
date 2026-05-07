@@ -109,8 +109,10 @@ export interface ManagedAgentInvocationContextSelection {
   readonly mode: ManagedAgentInvocationContextMode;
   readonly agentProfile?: string;
   readonly skills?: readonly string[];
+  readonly instructionProfiles?: readonly string[];
   readonly admittedAgentProfile?: string;
   readonly admittedSkills?: readonly string[];
+  readonly admittedInstructionProfiles?: readonly string[];
   readonly deniedSkills?: readonly string[];
 }
 
@@ -575,8 +577,10 @@ function requireInvocationContext(input: ManagedAgentInvocationContextSelection)
     mode: requireContextMode(input.mode),
     ...(input.agentProfile !== undefined ? { agentProfile: requireText(input.agentProfile, "Managed invocation agent profile is required") } : {}),
     ...(input.skills !== undefined ? { skills: input.skills.map((skill) => requireText(skill, "Managed invocation skill is required")) } : {}),
+    ...(input.instructionProfiles !== undefined ? { instructionProfiles: input.instructionProfiles.map((profile) => requireText(profile, "Managed invocation instruction profile is required")) } : {}),
     ...(input.admittedAgentProfile !== undefined ? { admittedAgentProfile: requireText(input.admittedAgentProfile, "Managed invocation admitted agent profile is required") } : {}),
     ...(input.admittedSkills !== undefined ? { admittedSkills: input.admittedSkills.map((skill) => requireText(skill, "Managed invocation admitted skill is required")) } : {}),
+    ...(input.admittedInstructionProfiles !== undefined ? { admittedInstructionProfiles: input.admittedInstructionProfiles.map((profile) => requireText(profile, "Managed invocation admitted instruction profile is required")) } : {}),
     ...(input.deniedSkills !== undefined ? { deniedSkills: input.deniedSkills.map((skill) => requireText(skill, "Managed invocation denied skill is required")) } : {}),
   };
 }

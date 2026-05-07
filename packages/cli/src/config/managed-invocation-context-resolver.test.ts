@@ -66,7 +66,10 @@ describe("managed invocation context resolver", () => {
     const root = createTempRoot();
     writeAgent(root);
     writeSkill(root);
-    const resolver = createManagedInvocationContextResolver(root, root);
+    const resolver = createManagedInvocationContextResolver(root, root, {
+      globalConfig: null,
+      projectConfig: null,
+    });
 
     const resolved = await resolver({
       agentProfile: "architecture-reviewer",
@@ -87,7 +90,10 @@ describe("managed invocation context resolver", () => {
 
   it("fails closed for fork mode until policy support exists", async () => {
     const root = createTempRoot();
-    const resolver = createManagedInvocationContextResolver(root, root);
+    const resolver = createManagedInvocationContextResolver(root, root, {
+      globalConfig: null,
+      projectConfig: null,
+    });
 
     await expect(resolver({
       skills: [],

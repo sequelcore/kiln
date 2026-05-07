@@ -693,13 +693,15 @@ function managedInvocationContext(identity: Record<string, unknown>): Record<str
   const mode = readString(identity.contextMode);
   const agentProfile = readString(identity.agentProfile);
   const skills = readStringList(identity.skills);
-  if (!mode && !agentProfile && skills.length === 0) {
+  const instructionProfiles = readStringList(identity.instructionProfiles);
+  if (!mode && !agentProfile && skills.length === 0 && instructionProfiles.length === 0) {
     return null;
   }
   return {
     ...(mode ? { mode } : {}),
     ...(agentProfile ? { agentProfile } : {}),
     ...(skills.length > 0 ? { skills } : {}),
+    ...(instructionProfiles.length > 0 ? { instructionProfiles } : {}),
   };
 }
 
@@ -712,9 +714,11 @@ function addManagedInvocationContextDetails(
   addItem(details, "Context mode", context?.mode);
   addItem(details, "Agent profile", context?.agentProfile);
   addItem(details, "Skills", formatStringList(context?.skills));
+  addItem(details, "Instruction profiles", formatStringList(context?.instructionProfiles));
   if (options.includeResolution) {
     addItem(details, "Admitted profile", context?.admittedAgentProfile);
     addItem(details, "Admitted skills", formatStringList(context?.admittedSkills));
+    addItem(details, "Admitted instruction profiles", formatStringList(context?.admittedInstructionProfiles));
     addItem(details, "Denied skills", formatStringList(context?.deniedSkills));
   }
 }

@@ -1,6 +1,7 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadAgentDefinitions } from "../application/agent-loader.js";
+import { findInstructionProfile, loadInstructionProfiles } from "./instruction-profile-loader.js";
 import { loadKilnConfig } from "../config/config-merger.js";
 
 export interface AgentsMdProjectionResult {
@@ -14,6 +15,7 @@ export async function writeAgentsMdProjection(projectPath: string): Promise<Agen
 
   try {
     const agents = await loadAgentDefinitions(projectPath);
+    const instructionProfiles = loadInstructionProfiles(projectPath);
     const kilnYaml = await loadKilnConfig(projectPath);
 
     const domain = kilnYaml?.domain ?? "default";
@@ -28,7 +30,10 @@ export async function writeAgentsMdProjection(projectPath: string): Promise<Agen
         const tools = agent.tools && agent.tools.length > 0 ? agent.tools.join(", ") : "-";
         const skills = agent.skills && agent.skills.length > 0 ? agent.skills.join(", ") : "-";
         const displayName = agent.displayName ?? "-";
-        return `| ${agent.name} (${agent.scope}) | ${displayName} | ${agent.role} | ${tools} | ${agent.model ?? "-"} | ${skills} |`;
+        const instructionProfiles = agent.instructionProfiles && agent.instructionProfiles.length > 0
+          ? agent.instructionProfiles.join(", ")
+          : "-";
+        return `| ${agent.name} (${agent.scope}) | ${displayName} | ${agent.role} | ${tools} | ${agent.model ?? "-"} | ${skills} | ${instructionProfiles} |`;
       });
 
     const lines: string[] = [
@@ -51,13 +56,29 @@ export async function writeAgentsMdProjection(projectPath: string): Promise<Agen
         `| Parallel Workers | ${parallelWorkers} |`,
         "",
       );
+      if (kilnYaml.activeInstructionProfiles && kilnYaml.activeInstructionProfiles.length > 0) {
+        const profileLines = kilnYaml.activeInstructionProfiles.map((profileId) => {
+          const profile = findInstructionProfile(instructionProfiles, profileId);
+          return profile
+            ? `- ${profile.name} (${profile.scope}): ${profile.filePath}`
+            : `- ${profileId} (missing; run kiln sync after creating the canonical profile)`;
+        });
+        lines.push(
+          "## Active Instruction Profiles",
+          "",
+          "Read these canonical Kiln instruction profiles before work. They are the source of durable operator/team doctrine; this AGENTS.md section is only a projection.",
+          "",
+          ...profileLines,
+          "",
+        );
+      }
     }
 
     lines.push(
       "## Agents",
       "",
-      "| Name | Display | Role | Tools | Model | Skills |",
-      "|------|---------|------|-------|-------|--------|",
+      "| Name | Display | Role | Tools | Model | Skills | Instruction Profiles |",
+      "|------|---------|------|-------|-------|--------|----------------------|",
       ...rows,
       "",
     );

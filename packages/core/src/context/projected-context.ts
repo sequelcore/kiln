@@ -1,4 +1,5 @@
 export type ProjectedContextBlockKind =
+  | "instruction"
   | "memory"
   | "summary"
   | "artifact"

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { KilnAppConfig } from "../config.js";
 import {
   buildOperatorIdentityContext,
+  buildOperatorIdentityContextCandidate,
   withGlobalIdentityContext,
 } from "./operator-identity-context.js";
 
@@ -23,7 +24,7 @@ describe("operator identity context", () => {
     ].join("\n"));
   });
 
-  it("appends identity to the configured system prompt builder", () => {
+  it("adds identity as required governed context instead of passive prompt text", () => {
     const buildSystemPrompt = vi.fn().mockReturnValue("base prompt");
     const appConfig: KilnAppConfig = {
       createRegistry: vi.fn(),
@@ -37,6 +38,9 @@ describe("operator identity context", () => {
       },
     });
 
+    expect(wrapped.contextCandidates).toEqual([
+      buildOperatorIdentityContextCandidate({ name: "Ricardo" }),
+    ]);
     expect(wrapped.buildSystemPrompt?.({
       task: "test",
       domain: {
@@ -53,13 +57,7 @@ describe("operator identity context", () => {
         estimatedTokens: 0,
       },
       projectPath: "C:/repo",
-    })).toBe([
-      "base prompt",
-      "",
-      "## Operator Identity",
-      "Source: ~/.kiln/config.yaml identity.",
-      "- Operator name: Ricardo",
-    ].join("\n"));
+    })).toBe("base prompt");
     expect(buildSystemPrompt).toHaveBeenCalledOnce();
   });
 

@@ -83,6 +83,8 @@ export interface ProjectContextInput<
 
 function classifyGovernanceSource(block: ProjectedContextBlock): string {
   switch (block.kind) {
+    case "instruction":
+      return "instruction";
     case "ledger":
       return "ledger";
     case "artifact":
