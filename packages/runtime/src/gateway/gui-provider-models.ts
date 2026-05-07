@@ -292,6 +292,7 @@ function defaultUnavailableReason(label: string, status: GuiProviderDiscoverySta
 
 export async function discoverGuiDirectProviderModelDiscovery(
   providerAvailability: Readonly<Record<string, boolean>>,
+  env: Readonly<Record<string, string | undefined>> = process.env,
 ): Promise<Record<string, GuiCliProviderModelDiscovery>> {
   const [
     openCodeDirectDiscovery,
@@ -303,13 +304,13 @@ export async function discoverGuiDirectProviderModelDiscovery(
     lmStudioDiscovery,
     codexOauthDiscovery,
   ] = await Promise.all([
-    discoverOpenCodeDirectModelDiscovery(providerAvailability),
-    discoverOpenAiModelDiscovery(providerAvailability.openai),
-    discoverAnthropicModelDiscovery(providerAvailability.anthropic),
-    discoverDeepSeekModelDiscovery(providerAvailability.deepseek),
-    discoverOpenRouterModelDiscovery(providerAvailability.openrouter),
-    discoverOllamaModelDiscovery(providerAvailability.ollama),
-    discoverLmStudioModelDiscovery(providerAvailability.lmstudio),
+    discoverOpenCodeDirectModelDiscovery(providerAvailability, env),
+    discoverOpenAiModelDiscovery(providerAvailability.openai, env),
+    discoverAnthropicModelDiscovery(providerAvailability.anthropic, env),
+    discoverDeepSeekModelDiscovery(providerAvailability.deepseek, env),
+    discoverOpenRouterModelDiscovery(providerAvailability.openrouter, env),
+    discoverOllamaModelDiscovery(providerAvailability.ollama, env),
+    discoverLmStudioModelDiscovery(providerAvailability.lmstudio, env),
     discoverCodexOauthModelDiscovery(providerAvailability["codex-oauth"]),
   ]);
   return Object.fromEntries([
@@ -677,11 +678,12 @@ function redactDebugBody(body: string): string {
 
 async function discoverOpenAiModelDiscovery(
   available: boolean | undefined,
+  env: Readonly<Record<string, string | undefined>>,
 ): Promise<GuiCliProviderModelDiscovery | undefined> {
   if (available !== true) {
     return undefined;
   }
-  const token = process.env.OPENAI_API_KEY?.trim() ?? "";
+  const token = env.OPENAI_API_KEY?.trim() ?? "";
   if (token.length === 0) {
     return unavailableCliProviderDiscovery(
       "missing_auth",
@@ -764,11 +766,12 @@ function isUsableOpenAiChatModelId(modelId: string): boolean {
 
 async function discoverAnthropicModelDiscovery(
   available: boolean | undefined,
+  env: Readonly<Record<string, string | undefined>>,
 ): Promise<GuiCliProviderModelDiscovery | undefined> {
   if (available !== true) {
     return undefined;
   }
-  const token = process.env.ANTHROPIC_API_KEY?.trim() ?? "";
+  const token = env.ANTHROPIC_API_KEY?.trim() ?? "";
   if (token.length === 0) {
     return unavailableCliProviderDiscovery(
       "missing_auth",
@@ -885,11 +888,12 @@ function anthropicMessagesCapability(capabilities: unknown): boolean | undefined
 
 async function discoverDeepSeekModelDiscovery(
   available: boolean | undefined,
+  env: Readonly<Record<string, string | undefined>>,
 ): Promise<GuiCliProviderModelDiscovery | undefined> {
   if (available !== true) {
     return undefined;
   }
-  const token = process.env.DEEPSEEK_API_KEY?.trim() ?? "";
+  const token = env.DEEPSEEK_API_KEY?.trim() ?? "";
   if (token.length === 0) {
     return unavailableCliProviderDiscovery(
       "missing_auth",
@@ -966,11 +970,12 @@ function isUsableDeepSeekChatModelId(modelId: string): boolean {
 
 async function discoverOpenRouterModelDiscovery(
   available: boolean | undefined,
+  env: Readonly<Record<string, string | undefined>>,
 ): Promise<GuiCliProviderModelDiscovery | undefined> {
   if (available !== true) {
     return undefined;
   }
-  const token = process.env.OPENROUTER_API_KEY?.trim() ?? "";
+  const token = env.OPENROUTER_API_KEY?.trim() ?? "";
   if (token.length === 0) {
     return unavailableCliProviderDiscovery(
       "missing_auth",
@@ -1106,13 +1111,15 @@ function openRouterModality(architecture: unknown): string | undefined {
 
 async function discoverOllamaModelDiscovery(
   available: boolean | undefined,
+  env: Readonly<Record<string, string | undefined>>,
 ): Promise<GuiCliProviderModelDiscovery | undefined> {
   if (available !== true) {
     return undefined;
   }
   let parsed: { readonly models?: unknown } | undefined;
   try {
-    const response = await fetch("http://localhost:11434/api/tags", {
+    const baseUrl = env.OLLAMA_BASE_URL?.trim() || "http://localhost:11434";
+    const response = await fetch(`${baseUrl.replace(/\/$/, "")}/api/tags`, {
       signal: AbortSignal.timeout(800),
     });
     if (!response.ok) {
@@ -1169,12 +1176,13 @@ function extractOllamaLocalModelNames(data: { readonly models?: unknown } | unde
 
 async function discoverLmStudioModelDiscovery(
   available: boolean | undefined,
+  env: Readonly<Record<string, string | undefined>>,
 ): Promise<GuiCliProviderModelDiscovery | undefined> {
   if (available !== true) {
     return undefined;
   }
-  const baseUrl = process.env.LMSTUDIO_BASE_URL?.trim() || "http://localhost:1234/v1";
-  const token = process.env.LMSTUDIO_API_KEY?.trim();
+  const baseUrl = env.LMSTUDIO_BASE_URL?.trim() || "http://localhost:1234/v1";
+  const token = env.LMSTUDIO_API_KEY?.trim();
   let parsed: { readonly data?: unknown; readonly models?: unknown } | undefined;
   try {
     const response = await fetch(`${baseUrl.replace(/\/$/, "")}/models`, {
@@ -1217,6 +1225,7 @@ async function discoverLmStudioModelDiscovery(
 
 async function discoverOpenCodeDirectModelDiscovery(
   providerAvailability: Readonly<Record<string, boolean>>,
+  env: Readonly<Record<string, string | undefined>>,
 ): Promise<Record<string, GuiCliProviderModelDiscovery>> {
   const allTargets: readonly OpenCodeDirectProviderDiscoveryTarget[] = [
     {
@@ -1238,7 +1247,7 @@ async function discoverOpenCodeDirectModelDiscovery(
   }
   const auth = new OpenCodeAuth();
   const authFile = await auth.loadAuthFile().catch(() => null);
-  const envToken = process.env.OPENCODE_API_KEY?.trim() ?? "";
+  const envToken = env.OPENCODE_API_KEY?.trim() ?? "";
   if (envToken.length > 0) {
     return Object.fromEntries(await Promise.all(
       targets.map(async (target) => [

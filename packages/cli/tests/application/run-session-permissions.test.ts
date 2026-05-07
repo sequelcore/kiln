@@ -107,6 +107,7 @@ describe("runSession tool permission gating", () => {
 
     expect(createdProviders).toEqual(["openrouter"]);
     expect(result.sessionSucceeded).toBe(false);
+    expect(result.lastError).toBe("Missing required API key");
     expect(result.successfulProviderId).toBeUndefined();
     expect(reportSuccess).not.toHaveBeenCalled();
     expect(reportFailure).toHaveBeenCalledWith("openrouter", false);

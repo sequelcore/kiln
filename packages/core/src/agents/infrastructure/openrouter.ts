@@ -5,7 +5,7 @@ export const STEP_FLASH_FREE = "stepfun/step-3.5-flash:free";
 export const TRINITY_LARGE_FREE = "arcee-ai/trinity-large-preview:free";
 export const LLAMA_33_70B_FREE = "meta-llama/llama-3.3-70b-instruct:free";
 export const GEMMA_3_27B_FREE = "google/gemma-3-27b-it:free";
-export const QWEN3_CODER_FREE = "qwen/qwen3-coder-480b-a35b-instruct:free";
+export const QWEN3_CODER_FREE = "qwen/qwen3-coder:free";
 export const MISTRAL_SMALL_FREE = "mistralai/mistral-small-3.1-24b:free";
 
 export class OpenRouterAdapter extends OpenAICompatAdapter {

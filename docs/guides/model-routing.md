@@ -18,7 +18,10 @@ call. Each routing decision is emitted as both an internal EventBus event
 
 ## Model Capability Registry
 
-The `ModelCapabilityRegistry` maintains static capability profiles for 17 built-in models across 5 providers:
+The `ModelCapabilityRegistry` maintains static capability profiles for built-in
+models across 5 providers. These profiles are capability and cost metadata, not
+the execution source of truth. Operator surfaces and direct CLI execution must
+use runtime provider discovery for available model IDs before admitting work.
 
 | Model | Provider | Quality | Tools | Streaming | Vision | Context |
 |-------|----------|---------|-------|-----------|--------|---------|
@@ -36,7 +39,7 @@ The `ModelCapabilityRegistry` maintains static capability profiles for 17 built-
 | `arcee-ai/trinity-large-preview:free` | OpenRouter | medium | yes | yes | no | 131K |
 | `meta-llama/llama-3.3-70b-instruct:free` | OpenRouter | medium | yes | yes | no | 128K |
 | `google/gemma-3-27b-it:free` | OpenRouter | medium | yes | yes | yes | 131K |
-| `qwen/qwen3-coder-480b-a35b-instruct:free` | OpenRouter | medium | yes | yes | no | 262K |
+| `qwen/qwen3-coder:free` | OpenRouter | medium | yes | yes | no | 262K |
 | `mistralai/mistral-small-3.1-24b:free` | OpenRouter | medium | yes | yes | no | 128K |
 | `ollama-local` | Ollama | low | no | yes | no | 128K |
 

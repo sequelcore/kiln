@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import type { KilnAppConfig } from "../../src/config.js";
-import { buildRunSessionRequirements, runCommand } from "../../src/commands/run.js";
+import { buildRunSessionRequirements, resolveRunProviderModelAdmission, runCommand } from "../../src/commands/run.js";
 
 const runWiringMocks = vi.hoisted(() => {
   const builtinToolSurfaceOptions = { id: "surface-options" };
@@ -39,6 +39,20 @@ vi.mock("@kilnai/runtime", () => ({
     capabilities: new Map(),
     toolAuthority: new Map(),
   })),
+  discoverGuiDirectProviderModelDiscovery: vi.fn().mockResolvedValue({
+    openai: {
+      models: ["gpt-4o"],
+      status: "available",
+      reason: "OpenAI models discovered.",
+      authState: "authenticated",
+    },
+    openrouter: {
+      models: ["qwen/qwen3-coder:free"],
+      status: "available",
+      reason: "OpenRouter models discovered.",
+      authState: "authenticated",
+    },
+  }),
   ManagedDirectProviderRuntimeAdapter: class MockManagedDirectProviderRuntimeAdapter {},
 }));
 
@@ -140,6 +154,10 @@ vi.mock("../../src/wrapper/session-registry.js", () => ({
     registry: {},
     worktreeManager: {},
   })),
+  getRuntimeProviderAvailability: vi.fn(() => ({
+    openai: true,
+    openrouter: true,
+  })),
   isDirectApiProvider: vi.fn((provider?: string) =>
     provider === "anthropic"
     || provider === "openai"
@@ -194,7 +212,7 @@ describe("run command builtin tool wiring", () => {
   });
 
   it("builds model-facing governed builtin tool options and passes them into sessionConfig", async () => {
-    await runCommand(APP_CONFIG, "ship it", { provider: "openai", apiKey: "sk-test" });
+    await runCommand(APP_CONFIG, "ship it", { provider: "openai", model: "gpt-4o", apiKey: "sk-test" });
 
     expect(runWiringMocks.loadConfiguredWebToolSurfaceOptions).toHaveBeenCalledWith(
       APP_CONFIG,
@@ -236,6 +254,37 @@ describe("run command builtin tool wiring", () => {
       preferredProvider: "codex",
       requiresMcp: false,
     });
+  });
+
+  it("fails direct-provider admission when discovery does not advertise the selected model", () => {
+    expect(resolveRunProviderModelAdmission({
+      provider: "openrouter",
+      model: "qwen/qwen3-coder-480b-a35b-instruct:free",
+      discovery: {
+        openrouter: {
+          models: ["qwen/qwen3-coder:free"],
+          status: "available",
+          reason: "OpenRouter models discovered.",
+        },
+      },
+    })).toEqual({
+      ok: false,
+      error: "Provider 'openrouter' does not advertise model 'qwen/qwen3-coder-480b-a35b-instruct:free'",
+    });
+  });
+
+  it("admits direct provider execution only for discovered model ids", () => {
+    expect(resolveRunProviderModelAdmission({
+      provider: "openrouter",
+      model: "qwen/qwen3-coder:free",
+      discovery: {
+        openrouter: {
+          models: ["qwen/qwen3-coder:free"],
+          status: "available",
+          reason: "OpenRouter models discovered.",
+        },
+      },
+    })).toEqual({ ok: true });
   });
 
   it("removes process signal handlers after a completed run", async () => {

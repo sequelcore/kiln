@@ -15,7 +15,8 @@ concrete selected model where the provider requires one.
 
 ## Discovery Result
 
-GUI and TUI consume the same structured discovery result:
+GUI, TUI, and direct CLI execution consume the same structured discovery
+result:
 
 - `provider`
 - `available`
@@ -69,6 +70,13 @@ or admitting work. If the catalog is still pending, that operation awaits the
 in-flight discovery; if discovery proves the provider/model unavailable, the
 operation fails closed. Turn records keep the discovery evidence used for
 admission.
+
+`kiln run --provider <direct-provider>` performs the same fail-closed model
+admission before creating a provider session. The selected model must be present
+in live runtime discovery for that provider; stale static IDs and typos are
+rejected before the chat/completions request. Command-line `--api-key` values
+participate in discovery for that process only, the same way they participate
+in execution.
 
 ## Model Capabilities
 

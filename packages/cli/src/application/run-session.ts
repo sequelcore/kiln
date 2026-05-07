@@ -86,6 +86,7 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
     const providerId = candidates[candidateIndex]!;
     let isPreflightCrash = false;
     let providerDeniedByPolicy = false;
+    let attemptError: string | null = null;
 
     const session = options.registry.createSession(providerId, options.sessionConfig);
     options.cleanupRegistry.register(async () => session.dispose());
@@ -132,7 +133,8 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
                   ts: new Date().toISOString(),
                   event: { type: "tool_use", toolName: `${event.toolName} [DENIED]` },
                 });
-                lastError = `Provider ${providerId} denied tool "${event.toolName}" by policy`;
+                attemptError = `Provider ${providerId} denied tool "${event.toolName}" by policy`;
+                lastError = attemptError;
                 options.registry.reportFailure(providerId, false);
                 providerDeniedByPolicy = true;
                 break;
@@ -153,7 +155,8 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
                   ts: new Date().toISOString(),
                   event: { type: "tool_use", toolName: `${event.toolName} [DENIED]` },
                 });
-                lastError = `Provider ${providerId} denied MCP tool "${event.toolName}" by policy`;
+                attemptError = `Provider ${providerId} denied MCP tool "${event.toolName}" by policy`;
+                lastError = attemptError;
                 options.registry.reportFailure(providerId, false);
                 providerDeniedByPolicy = true;
                 break;
@@ -182,7 +185,8 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
                     ts: new Date().toISOString(),
                     event: { type: "tool_use", toolName: `${event.toolName} [DENIED]` },
                   });
-                  lastError = `Provider ${providerId} denied command "${command}" by policy`;
+                  attemptError = `Provider ${providerId} denied command "${command}" by policy`;
+                  lastError = attemptError;
                   options.registry.reportFailure(providerId, false);
                   providerDeniedByPolicy = true;
                   break;
@@ -202,7 +206,8 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
                   ts: new Date().toISOString(),
                   event: { type: "tool_use", toolName: `${event.toolName} [DENIED]` },
                 });
-                lastError = `Provider ${providerId} denied file path "${filePath}" by policy`;
+                attemptError = `Provider ${providerId} denied file path "${filePath}" by policy`;
+                lastError = attemptError;
                 exactArtifacts.add(lastError);
                 options.registry.reportFailure(providerId, false);
                 providerDeniedByPolicy = true;
@@ -222,7 +227,8 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
                   ts: new Date().toISOString(),
                   event: { type: "tool_use", toolName: `${event.toolName} [DENIED]` },
                 });
-                lastError = `Provider ${providerId} denied tool "${event.toolName}" by policy`;
+                attemptError = `Provider ${providerId} denied tool "${event.toolName}" by policy`;
+                lastError = attemptError;
                 options.registry.reportFailure(providerId, false);
                 providerDeniedByPolicy = true;
                 break;
@@ -241,7 +247,8 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
                   ts: new Date().toISOString(),
                   event: { type: "tool_use", toolName: `${event.toolName} [DENIED]` },
                 });
-                lastError = `Provider ${providerId} denied command "${command}" by policy`;
+                attemptError = `Provider ${providerId} denied command "${command}" by policy`;
+                lastError = attemptError;
                 options.registry.reportFailure(providerId, false);
                 providerDeniedByPolicy = true;
                 break;
@@ -291,13 +298,14 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
           case "completed": {
             isPreflightCrash = event.isPreflightCrash;
             if (event.isPreflightCrash) {
-              lastError = `Provider ${providerId} crashed before starting`;
+              attemptError = `Provider ${providerId} crashed before starting`;
+              lastError = attemptError;
               exactArtifacts.add(lastError);
               options.registry.reportFailure(providerId, true);
               break;
             }
             if (event.isError) {
-              lastError = `Provider ${providerId} ended with error`;
+              lastError = attemptError ?? `Provider ${providerId} ended with error`;
               exactArtifacts.add(lastError);
               options.registry.reportFailure(providerId, false);
               break;
@@ -308,7 +316,8 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
             break;
           }
           case "error": {
-            lastError = event.message;
+            attemptError = event.message;
+            lastError = attemptError;
             if (event.message.trim() !== "") {
               exactArtifacts.add(`Provider error: ${event.message}`);
             }

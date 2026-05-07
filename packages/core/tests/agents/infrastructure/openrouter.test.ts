@@ -185,7 +185,7 @@ describe("model constants", () => {
     expect(TRINITY_LARGE_FREE).toBe("arcee-ai/trinity-large-preview:free");
     expect(LLAMA_33_70B_FREE).toBe("meta-llama/llama-3.3-70b-instruct:free");
     expect(GEMMA_3_27B_FREE).toBe("google/gemma-3-27b-it:free");
-    expect(QWEN3_CODER_FREE).toBe("qwen/qwen3-coder-480b-a35b-instruct:free");
+    expect(QWEN3_CODER_FREE).toBe("qwen/qwen3-coder:free");
     expect(MISTRAL_SMALL_FREE).toBe("mistralai/mistral-small-3.1-24b:free");
   });
 });

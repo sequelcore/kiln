@@ -33,7 +33,7 @@ const MODEL_CAPABILITIES: ReadonlyMap<string, CapabilityFlags> = new Map([
   ["arcee-ai/trinity-large-preview:free", { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: true, supportsVision: false, supportsAudio: false, maxContextTokens: 131_000 }],
   ["meta-llama/llama-3.3-70b-instruct:free", { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: false, supportsVision: false, supportsAudio: false, maxContextTokens: 128_000 }],
   ["google/gemma-3-27b-it:free", { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: true, supportsVision: true, supportsAudio: false, maxContextTokens: 131_000 }],
-  ["qwen/qwen3-coder-480b-a35b-instruct:free", { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: true, supportsVision: false, supportsAudio: false, maxContextTokens: 262_000 }],
+  ["qwen/qwen3-coder:free", { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: true, supportsVision: false, supportsAudio: false, maxContextTokens: 262_000 }],
   ["mistralai/mistral-small-3.1-24b:free", { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: false, supportsVision: false, supportsAudio: false, maxContextTokens: 128_000 }],
   // Ollama / Local
   ["ollama-local", { supportsTools: false, supportsStreaming: true, supportsStructuredOutput: false, supportsVision: false, supportsAudio: false, maxContextTokens: 128_000 }],

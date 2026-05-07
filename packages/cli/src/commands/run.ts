@@ -3,7 +3,11 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import readline from "node:readline";
 import { SessionManager } from "../wrapper/session-manager.js";
-import { createDefaultRegistry } from "../wrapper/session-registry.js";
+import {
+  createDefaultRegistry,
+  getRuntimeProviderAvailability,
+  isDirectApiProvider,
+} from "../wrapper/session-registry.js";
 import { cleanupRegistry } from "../wrapper/cleanup-registry.js";
 import type {
   ApprovalMemoryStore,
@@ -52,7 +56,10 @@ import {
   VerificationResult,
   scoreComplexity,
 } from "@kilnai/core";
-import { getProjectContextArtifactCache } from "@kilnai/runtime";
+import {
+  discoverGuiDirectProviderModelDiscovery,
+  getProjectContextArtifactCache,
+} from "@kilnai/runtime";
 import type { ContextArtifactCache } from "@kilnai/core";
 import {
   buildCliPlanSummaryArtifactKey,
@@ -93,6 +100,56 @@ export function buildRunSessionRequirements(preferredProvider: ProviderId | unde
     preferredProvider,
     requiresMcp: preferredProvider === undefined,
   };
+}
+
+interface RunProviderModelDiscovery {
+  readonly models: readonly string[];
+  readonly status: string;
+  readonly reason: string;
+}
+
+export type RunProviderModelAdmission =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly error: string };
+
+export function resolveRunProviderModelAdmission(input: {
+  readonly provider: ProviderId | undefined;
+  readonly model: string | undefined;
+  readonly discovery: Readonly<Record<string, RunProviderModelDiscovery | undefined>>;
+}): RunProviderModelAdmission {
+  if (!isDirectApiProvider(input.provider)) {
+    return { ok: true };
+  }
+
+  const discovery = input.discovery[input.provider];
+  if (!discovery) {
+    return {
+      ok: false,
+      error: `Provider '${input.provider}' is unavailable`,
+    };
+  }
+  if (discovery.status !== "available") {
+    return {
+      ok: false,
+      error: discovery.reason,
+    };
+  }
+
+  const model = input.model?.trim() ?? "";
+  if (model.length === 0) {
+    return {
+      ok: false,
+      error: `Provider '${input.provider}' requires a selected model.`,
+    };
+  }
+  if (!discovery.models.includes(model)) {
+    return {
+      ok: false,
+      error: `Provider '${input.provider}' does not advertise model '${model}'`,
+    };
+  }
+
+  return { ok: true };
 }
 
 function buildConfig(flags: RunFlags, mode: SessionMode): WrapperConfig {
@@ -277,6 +334,26 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
   }
   if (config.mode === "byok" && config.provider && config.apiKey) {
     env[`${config.provider.toUpperCase()}_API_KEY`] = config.apiKey;
+  }
+
+  if (isDirectApiProvider(preferredProvider)) {
+    const providerAvailability = {
+      ...getRuntimeProviderAvailability(registry),
+      [preferredProvider]: true,
+    };
+    const directProviderDiscovery = await discoverGuiDirectProviderModelDiscovery(providerAvailability, {
+      ...process.env,
+      ...env,
+    });
+    const admission = resolveRunProviderModelAdmission({
+      provider: preferredProvider,
+      model: effectiveModel,
+      discovery: directProviderDiscovery,
+    });
+    if (!admission.ok) {
+      console.error(`Error: ${admission.error}`);
+      process.exit(1);
+    }
   }
 
   const requirements = buildRunSessionRequirements(preferredProvider);
