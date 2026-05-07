@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import type { IKilnSession, SessionEvent } from "../../src/wrapper/session.js";
 import { ProviderSession } from "../../src/wrapper/provider-session.js";
 import type { ProviderSessionConfig } from "../../src/wrapper/provider-session.js";
+import { AllCredentialsExhaustedError } from "@kilnai/core";
 
 type MockAdapter = {
   readonly ctor: ReturnType<typeof vi.fn>;
@@ -752,6 +753,30 @@ describe("ProviderSession.run()", () => {
       type: "error",
       code: "PROVIDER_SESSION_ERROR",
       message: "provider stream exploded",
+      isRetryable: false,
+    });
+    expect(events).toContainEqual(expect.objectContaining({ type: "completed", isError: true }));
+  });
+
+  it("includes credential pool exhaustion outcome and provider cause in streaming errors", async () => {
+    const providerError = new Error("openrouter API error 429: free-model rate limit");
+    const errStream = (async function* () {
+      throw new AllCredentialsExhaustedError(providerError, { type: "rate-limited" });
+    })();
+    adapterMocks.openrouter.stream.mockReturnValue(errStream);
+
+    const session = new ProviderSession(baseConfig({
+      provider: "openrouter",
+      model: "qwen/qwen3-coder:free",
+      env: { OPENROUTER_API_KEY: "cfg-key" },
+      executionMode: "text-only",
+    }));
+    const events = await collectEvents(session.run({ prompt: "error test" }));
+
+    expect(events).toContainEqual({
+      type: "error",
+      code: "PROVIDER_SESSION_ERROR",
+      message: "All credentials in the pool are exhausted: last outcome rate-limited; last error openrouter API error 429: free-model rate limit",
       isRetryable: false,
     });
     expect(events).toContainEqual(expect.objectContaining({ type: "completed", isError: true }));

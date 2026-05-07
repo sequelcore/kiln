@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  AllCredentialsExhaustedError,
   EventBus,
   KilnError,
   appendExecutionIdentity,
@@ -234,7 +235,7 @@ export class ProviderSession implements IKilnSession {
         : "PROVIDER_SESSION_ERROR";
       const message = this.executionMode === "kiln-executable"
         ? formatExecutableSessionError(err)
-        : (err instanceof Error ? err.message : String(err));
+        : formatProviderSessionError(err);
       yield { type: "error", code, message, isRetryable: false };
       yield { type: "completed", totalUsd: 0, durationMs: Date.now() - startedAt, isError: true, isPreflightCrash: false };
     }
@@ -556,6 +557,9 @@ export class ProviderSession implements IKilnSession {
 }
 
 function formatExecutableSessionError(error: unknown): string {
+  if (error instanceof AllCredentialsExhaustedError) {
+    return formatCredentialPoolExhaustion(error);
+  }
   if (error instanceof KilnError) {
     const status = typeof error.context.status === "number" ? error.context.status : undefined;
     const responseBody = typeof error.context.responseBody === "string"
@@ -580,5 +584,57 @@ function formatExecutableSessionError(error: unknown): string {
     }
     return `${error.message} (${suffixParts.join(": ")})`;
   }
+  return formatProviderSessionError(error);
+}
+
+function formatProviderSessionError(error: unknown): string {
+  if (error instanceof AllCredentialsExhaustedError) {
+    return formatCredentialPoolExhaustion(error);
+  }
+  return readErrorMessage(error);
+}
+
+function formatCredentialPoolExhaustion(error: AllCredentialsExhaustedError): string {
+  const details = [
+    formatCredentialOutcome(error.lastOutcome),
+    formatCredentialCause(error.cause),
+  ].filter((detail): detail is string => Boolean(detail));
+
+  if (details.length === 0) {
+    return error.message;
+  }
+  return `${error.message}: ${details.join("; ")}`;
+}
+
+function formatCredentialOutcome(outcome: AllCredentialsExhaustedError["lastOutcome"]): string | undefined {
+  if (!outcome) {
+    return undefined;
+  }
+  switch (outcome.type) {
+    case "rate-limited":
+      return outcome.resetAt
+        ? `last outcome rate-limited until ${new Date(outcome.resetAt).toISOString()}`
+        : "last outcome rate-limited";
+    case "quota-exceeded":
+      return "last outcome quota-exceeded";
+    case "auth-failed":
+      return "last outcome auth-failed";
+    case "connection-failed":
+      return "last outcome connection-failed";
+    case "unknown-error":
+      return outcome.message ? `last outcome unknown-error: ${outcome.message}` : "last outcome unknown-error";
+    case "ok":
+      return "last outcome ok";
+  }
+}
+
+function formatCredentialCause(cause: unknown): string | undefined {
+  if (cause === null || cause === undefined) {
+    return undefined;
+  }
+  return `last error ${readErrorMessage(cause)}`;
+}
+
+function readErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
