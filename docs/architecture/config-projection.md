@@ -76,6 +76,42 @@ If global config marks a known harness engine as `enabled: false`, sync first
 uninstalls recorded managed projections for that harness and excludes that
 harness from new permission, hook, agent, and skill projection writes.
 
+## Project Roots And Repo Shims
+
+Global native projections and repo-local instruction shims are different target
+families.
+
+Global native projections write into harness-owned user config locations such as
+Claude Code, Codex, and OpenCode config, agent, and skill directories. They make
+direct standalone harness use see Kiln's canonical operator doctrine and agent
+roster.
+
+Repo shims write into a specific project root, such as generated `AGENTS.md` and
+generated `CLAUDE.md`. They are scoped project entrypoints for harnesses that
+load repository guidance before Kiln runtime exists. Repo shims must be derived
+from the merged canonical config for that project: global config, global
+instruction profiles, global agents, global skills, project `kiln.yaml`, and
+project `.kiln/instructions|agents|skills`.
+
+Repo-shim projection must resolve the project root before writing. The durable
+resolution order is:
+
+1. explicit CLI path such as `--project` or `--cwd`
+2. nearest ancestor containing `.kiln/kiln.yaml`
+3. nearest repository root when it can be treated as a Kiln project root
+
+If the root is ambiguous or lacks enough Kiln project identity for a repo-local
+shim, sync must fail closed instead of writing generated instructions into an
+incidental current working directory. Running sync from a subdirectory of the
+same project must resolve the same repo-shim target paths.
+
+`AGENTS.md` is the current partial repo-shim projection. Long term, it should be
+evolved into a repo-shims target that can generate `AGENTS.md`, `CLAUDE.md`, and
+future harness-specific repo entrypoints from one projection pipeline. The
+projection may summarize canonical doctrine and link profile ids, but it must
+not become a second source of truth for identity, workflow, agent profiles,
+skills, route policy, or permissions.
+
 ## Install State And Drift
 
 `.kiln/install-state.json` records each managed projection target. Document
@@ -132,6 +168,8 @@ substantive read-only result handoff remains unavailable for
 - Model names are provider-specific; cross-provider defaults must not be blindly
   copied into harness config.
 - Config projection must be shared by all operator surfaces.
+- Repo-local generated shims require an explicitly resolved project root; the
+  command's current working directory is not a sufficient architecture contract.
 - Managed-agent route projection is governed config, not assistant preference.
 - `routing.routes` is the default managed-agent route source; explicit
   `managedAgents.routes` is an allowlist override, not a second routing graph to

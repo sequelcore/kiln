@@ -122,13 +122,24 @@ surface-specific behavior, or provider compatibility glue.
    `foundation-approved-patch`, or equivalent names after the authority model is
    finalized. These routes must produce diff/write evidence and require
    approval according to policy.
-8. Design the cross-surface configuration surface:
+8. Add canonical project-root resolution and repo-shim projection. `kiln sync`
+   currently treats the current working directory as the project root for
+   repo-local artifacts such as `AGENTS.md`; that is not a durable contract for
+   generated `AGENTS.md`, generated `CLAUDE.md`, nested worktrees, or direct
+   harness use from subdirectories. Sync must resolve a project root from an
+   explicit `--project`/`--cwd` value, then the nearest `.kiln/kiln.yaml`, then
+   the nearest repository root, and fail closed for repo-level shims when the
+   root is ambiguous or lacks project identity. Evolve `agents-md` into a
+   bounded repo-shims target that generates project `AGENTS.md`, `CLAUDE.md`,
+   and future repo instruction shims from the merged canonical Kiln config
+   instead of maintaining hand-written repo guidance.
+9. Design the cross-surface configuration surface:
    - GUI: dedicated Settings/Setup surface or sidebar mode.
    - TUI: equivalent command/screen.
    - CLI: deterministic `kiln config/status/sync` commands.
    - SDK/widget: read-only config/status descriptors first, mutation later
      behind explicit authority.
-9. Move theme selection and provider/setup diagnostics out of the always-visible
+10. Move theme selection and provider/setup diagnostics out of the always-visible
    chat topbar once the configuration surface exists; keep only controls that
    are needed for the active operator workflow.
 
@@ -151,6 +162,9 @@ surface-specific behavior, or provider compatibility glue.
 - Kiln can project the same operator/team doctrine into GUI, TUI, CLI,
   SDK/widget, Claude Code, Codex, and OpenCode without duplicating the doctrine
   text across every native file.
+- Repo-level `AGENTS.md` and `CLAUDE.md` are generated from the same resolved
+  project root and canonical Kiln doctrine; running sync from a subdirectory
+  resolves the same root or refuses to write.
 - Implementation-capable agents can be admitted through bounded write profiles
   with approval and evidence instead of being limited to analysis-only children.
 - Native provider files remain projections of Kiln config; deleting or changing

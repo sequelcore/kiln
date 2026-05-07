@@ -388,6 +388,14 @@ Native projection is independent from routing eligibility. Setting
 but Kiln may still project canonical agents, skills, permissions, and shims into
 the native harness so direct use of that harness sees the same doctrine.
 
+Repo-level shims are separate from global native harness projection. Generated
+`AGENTS.md` and future generated `CLAUDE.md` belong to a resolved project root;
+they should be regenerated from canonical Kiln config, not edited as durable
+source files. Long term, `kiln sync` must resolve the target project explicitly
+or by walking to the nearest Kiln project root before writing these files. If it
+cannot identify the project root, repo-shim sync should fail instead of writing
+instructions into whichever directory the command happened to run from.
+
 When managed invocation is enabled, Kiln exposes a compact admitted agent
 catalog to the `managed_agent.invoke` tool description. Parent assistants should
 select a configured `agentProfile` when the child task clearly matches a
