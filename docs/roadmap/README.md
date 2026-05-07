@@ -36,11 +36,11 @@ No active roadmap is currently open.
 
 ## Deferred Roadmaps
 
-- `02-external-benchmark-validation.md`
+- `01-external-benchmark-validation.md`
   Deferred public benchmark and governed external-validation milestone after
   the product surface stabilizes.
 
-- `03-native-operator-surface-experiment.md`
+- `02-native-operator-surface-experiment.md`
   Deferred native, GPU-accelerated operator-surface experiment for high-density
   managed-agent supervision, replay, timeline, graph, and multi-instance
   workloads.
@@ -72,10 +72,10 @@ No active roadmap is currently open.
 
 ## Execution Priority
 
-1. Keep `03-native-operator-surface-experiment.md` deferred until managed
+1. Keep `02-native-operator-surface-experiment.md` deferred until managed
    agents create real high-density workloads and config projection makes
    local/cloud/team/CI instance boundaries explicit.
-2. Keep `02-external-benchmark-validation.md` deferred until the evaluated
+2. Keep `01-external-benchmark-validation.md` deferred until the evaluated
    product surface is stable.
 
 ## Rules
