@@ -249,6 +249,13 @@ export type OperatorSessionEventKind =
 
 export type GuiSessionEventKind = OperatorSessionEventKind;
 
+export type OperatorAgentInvocationSessionEventKind =
+  | "agent_invocation_requested"
+  | "agent_invocation_started"
+  | "agent_invocation_completed"
+  | "agent_invocation_failed"
+  | "agent_invocation_cancelled";
+
 export interface OperatorSessionEventSource {
   readonly actor: "user" | "assistant" | "system" | "tool" | "runtime";
   readonly surface: "cli" | "tui" | "gui" | "ide" | "gateway" | "runtime";
@@ -256,6 +263,64 @@ export interface OperatorSessionEventSource {
 }
 
 export type GuiSessionEventSource = OperatorSessionEventSource;
+
+export interface OperatorManagedAgentProviderRoute {
+  readonly providerId: string;
+  readonly surface: string;
+  readonly model?: string;
+  readonly reasoningEffort?: string;
+}
+
+export interface OperatorManagedAgentRouteHealthSnapshot {
+  readonly status: "healthy";
+  readonly reason: string;
+}
+
+export interface OperatorManagedAgentProviderModelProofSnapshot {
+  readonly status: "live-proven" | "configured" | "unproven";
+  readonly source: string;
+  readonly requiresToolCalls?: boolean;
+}
+
+export interface OperatorManagedAgentResourcePlaneSnapshot {
+  readonly available: boolean;
+  readonly resourceUris: readonly string[];
+  readonly reason?: string;
+}
+
+export interface OperatorManagedAgentChildIdentitySnapshot {
+  readonly agentId: string;
+  readonly requestedAgentProfile?: string;
+  readonly admittedAgentProfile?: string;
+  readonly displayName?: string;
+}
+
+export interface OperatorManagedAgentCapabilitySnapshot {
+  readonly snapshotId: string;
+  readonly capturedAt: string;
+  readonly routeId: string;
+  readonly routeHealth: OperatorManagedAgentRouteHealthSnapshot;
+  readonly providerModelProof: OperatorManagedAgentProviderModelProofSnapshot;
+  readonly providerRoute: OperatorManagedAgentProviderRoute;
+  readonly adapterKind: "direct" | "harness";
+  readonly executionMode: "direct-provider" | "local-harness" | "cli-harness" | "remote-harness";
+  readonly adapterDescriptor: Record<string, unknown>;
+  readonly authorityProfile: Record<string, unknown>;
+  readonly contextMode: "isolated" | "resources" | "fork";
+  readonly resourcePlane: OperatorManagedAgentResourcePlaneSnapshot;
+  readonly childIdentity: OperatorManagedAgentChildIdentitySnapshot;
+}
+
+export interface OperatorManagedAgentInvocationEventPayload extends Record<string, unknown> {
+  readonly invocationId: string;
+  readonly agentId: string;
+  readonly profile?: string;
+  readonly providerRoute?: OperatorManagedAgentProviderRoute;
+  readonly adapterKind?: "direct" | "harness";
+  readonly executionMode?: "direct-provider" | "local-harness" | "cli-harness" | "remote-harness";
+  readonly authorityProfileId?: string;
+  readonly capabilitySnapshot?: OperatorManagedAgentCapabilitySnapshot;
+}
 
 export interface OperatorSessionEvent {
   readonly eventId: string;
@@ -267,6 +332,11 @@ export interface OperatorSessionEvent {
   readonly parentEventId?: string;
   readonly source?: OperatorSessionEventSource;
   readonly payload: Record<string, unknown>;
+}
+
+export interface OperatorManagedAgentInvocationSessionEvent extends OperatorSessionEvent {
+  readonly kind: OperatorAgentInvocationSessionEventKind;
+  readonly payload: OperatorManagedAgentInvocationEventPayload;
 }
 
 export type GuiSessionEvent = OperatorSessionEvent;

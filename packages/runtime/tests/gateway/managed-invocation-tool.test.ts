@@ -758,6 +758,9 @@ describe("managed invocation runtime tool", () => {
     });
     const transcriptText = String("text" in transcript.contents[0]! ? transcript.contents[0]!.text : "");
     expect(transcriptText).toContain("Model: opencode-default-model");
+    expect(transcriptText).toContain("## Capability Snapshot");
+    expect(transcriptText).toContain("Route ID: opencode-readonly");
+    expect(transcriptText).toContain("Provider proof: live-proven");
     expect(transcriptText).toContain("Child review completed.");
   });
 

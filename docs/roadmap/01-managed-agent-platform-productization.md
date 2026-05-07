@@ -90,9 +90,12 @@ surface-specific behavior, or provider compatibility glue.
    availability, and projected child identity. Runtime records, session events,
    managed tool metadata, and operator presentation details now carry the
    admitted snapshot.
-2. Continue snapshot consumption for replay/resource-read flows and SDK/widget
-   contracts so every non-GUI consumer uses the admitted snapshot instead of
-   recomputing live mutable capability state.
+2. Completed 2026-05-07: extend snapshot consumption to resource-read and
+   external consumer contracts. Managed invocation transcripts and diagnostics
+   include the admitted snapshot, gateway contracts export the operator-facing
+   snapshot payload shape, and the React SDK re-exports those types for
+   downstream surfaces. Widget event rendering remains deferred until the widget
+   grows operator-session event support.
 3. Add evaluated first-party defaults for agent/team selection after live
    harnesses compare configured agents against fixed rubrics for quality,
    evidence use, permission compliance, cost, duration, and actionable output.

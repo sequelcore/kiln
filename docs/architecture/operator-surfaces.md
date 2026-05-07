@@ -83,6 +83,8 @@ For managed child invocations, normal surfaces render selected
 `ManagedAgentCapabilitySnapshot` fields as detail rows and keep the full
 snapshot for inspector/replay. They must not infer current provider health or
 model capability from live config when explaining a completed child run.
+Gateway contracts export the serializable operator-facing snapshot shape, and
+SDK consumers should use that shape instead of parsing ad hoc payload fields.
 
 Rich result display uses the shared presentation-intent contract. Agents and
 tools may propose a semantic intent such as a comparison table, risk matrix,

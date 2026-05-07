@@ -23,6 +23,14 @@ operator events to display-safe presentation:
 GUI and TUI may render those projections differently, but they should consume
 this shared presenter instead of duplicating event-specific display logic.
 
+Managed child invocation events carry an operator-facing
+`OperatorManagedAgentCapabilitySnapshot`. The snapshot records the admitted
+route id/health, provider-model proof, adapter/execution mode, authority
+profile, context mode, resource-plane availability, and child identity. SDK,
+widget, GUI, TUI, CLI, and future consumers should display or audit this
+snapshot instead of recomputing provider health or model capability from live
+configuration after the fact.
+
 ### Presentation Intent
 
 `src/presentation-intent.ts` defines the closed semantic display contract for

@@ -96,7 +96,9 @@ Adapters must return records with the exact snapshot admitted by the runtime.
 `RuntimeManagedAgentInvocationService` rejects terminal records that omit,
 broaden, or replace the snapshot. Operator surfaces render selected snapshot
 fields as human-readable details and keep the full object available for replay
-and audit.
+and audit. Managed invocation transcript and diagnostic resources also embed
+the snapshot summary, so `resource_read` does not need live route health or
+provider catalog state to explain what happened.
 
 ## Authority Profiles
 

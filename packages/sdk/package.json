@@ -25,9 +25,11 @@
   },
   "peerDependencies": {
     "@kilnai/core": "^1.0.7",
+    "@kilnai/gateway-contracts": "^1.0.7",
     "react": "^19.0.0"
   },
   "devDependencies": {
+    "@kilnai/gateway-contracts": "workspace:*",
     "@testing-library/react": "^16.1.0",
     "@types/react": "^19.0.0",
     "jsdom": "^25.0.0",

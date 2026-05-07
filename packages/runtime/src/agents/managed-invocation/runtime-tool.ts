@@ -819,6 +819,19 @@ function formatManagedInvocationTranscript(record: ManagedAgentInvocationRecord)
     `Surface: ${record.providerRoute.surface}`,
     `Adapter: ${record.adapterKind}`,
     `Execution: ${record.executionMode}`,
+    "",
+    "## Capability Snapshot",
+    "",
+    `Snapshot ID: ${record.capabilitySnapshot.snapshotId}`,
+    `Captured at: ${record.capabilitySnapshot.capturedAt}`,
+    `Route ID: ${record.capabilitySnapshot.routeId}`,
+    `Route health: ${record.capabilitySnapshot.routeHealth.status}`,
+    `Route health reason: ${record.capabilitySnapshot.routeHealth.reason}`,
+    `Provider proof: ${record.capabilitySnapshot.providerModelProof.status}`,
+    `Provider proof source: ${record.capabilitySnapshot.providerModelProof.source}`,
+    `Context mode: ${record.capabilitySnapshot.contextMode}`,
+    `Resource plane: ${record.capabilitySnapshot.resourcePlane.available ? "available" : "unavailable"}`,
+    `Child identity: ${formatChildIdentity(record.capabilitySnapshot.childIdentity)}`,
     record.childSessionId ? `Child session: ${record.childSessionId}` : undefined,
     record.childTurnId ? `Child turn: ${record.childTurnId}` : undefined,
     "",
@@ -837,9 +850,16 @@ function formatManagedInvocationDiagnostic(record: ManagedAgentInvocationRecord,
     `Status: ${record.lifecycleState}`,
     `Provider: ${record.providerRoute.providerId}`,
     record.providerRoute.model ? `Model: ${record.providerRoute.model}` : undefined,
+    `Capability snapshot: ${record.capabilitySnapshot.snapshotId}`,
+    `Route health: ${record.capabilitySnapshot.routeHealth.status}`,
+    `Provider proof: ${record.capabilitySnapshot.providerModelProof.status}`,
     "",
     record.resultHandoff?.summary ?? "No diagnostic summary was recorded.",
   ].filter((line): line is string => line !== undefined).join("\n");
+}
+
+function formatChildIdentity(identity: ManagedAgentInvocationRecord["capabilitySnapshot"]["childIdentity"]): string {
+  return identity.displayName ?? identity.admittedAgentProfile ?? identity.requestedAgentProfile ?? identity.agentId;
 }
 
 function parseInput(input: Record<string, unknown>): { readonly ok: true; readonly input: ManagedInvocationToolInput } | { readonly ok: false; readonly error: string } {

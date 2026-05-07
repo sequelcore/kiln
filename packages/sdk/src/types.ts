@@ -1,4 +1,9 @@
 import type { ContentPart } from "@kilnai/core";
+import type {
+  OperatorManagedAgentCapabilitySnapshot,
+  OperatorManagedAgentInvocationEventPayload,
+  OperatorSessionEvent,
+} from "@kilnai/gateway-contracts";
 
 export interface KilnConfig {
   readonly baseUrl: string;
@@ -59,6 +64,12 @@ export interface KilnEventData {
   readonly timestamp: string;
   readonly data: Record<string, unknown>;
 }
+
+export type {
+  OperatorManagedAgentCapabilitySnapshot,
+  OperatorManagedAgentInvocationEventPayload,
+  OperatorSessionEvent,
+};
 
 /** WebSocket chat request frame (client -> server) */
 export interface WsChatRequest {
