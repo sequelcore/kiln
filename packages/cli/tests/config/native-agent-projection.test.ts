@@ -79,6 +79,8 @@ describe("native-agent-projection", () => {
   it("agentToClaudeMd() generates correct frontmatter + body", () => {
     const md = agentToClaudeMd({
       name: "planner",
+      displayName: "Hal",
+      nicknameCandidates: ["Planning Hal"],
       role: "Planning specialist",
       description: "Plans implementation work",
       goal: "Produce a verified implementation plan",
@@ -92,6 +94,9 @@ describe("native-agent-projection", () => {
 
     expect(md).toContain("---\n");
     expect(md).toContain("name: planner");
+    expect(md).toContain("displayName: Hal");
+    expect(md).toContain("nicknameCandidates:");
+    expect(md).toContain("- Planning Hal");
     expect(md).toContain("role: Planning specialist");
     expect(md).toContain("description: Plans implementation work");
     expect(md).toContain("goal: Produce a verified implementation plan");
@@ -106,6 +111,8 @@ describe("native-agent-projection", () => {
   it("agentToCodexToml() generates name, description, developer_instructions, model", () => {
     const toml = agentToCodexToml({
       name: "planner",
+      displayName: "Hal",
+      nicknameCandidates: ["Planning Hal"],
       role: "Planning specialist",
       description: "Plans implementation work",
       goal: "Produce a verified implementation plan",
@@ -118,6 +125,8 @@ describe("native-agent-projection", () => {
     expect(toml).toContain('name = "planner"');
     expect(toml).toContain('description = "Plans implementation work"');
     expect(toml).toContain('Goal: Produce a verified implementation plan');
+    expect(toml).toContain("Display name: Hal");
+    expect(toml).toContain('nickname_candidates = ["Hal", "Planning Hal"]');
     expect(toml).toContain("Plan first.");
     expect(toml).toContain('model = "gpt-5.4"');
   });
@@ -125,18 +134,22 @@ describe("native-agent-projection", () => {
   it("agentToCodexToml() uses canonical goal when no instructions", () => {
     const toml = agentToCodexToml({
       name: "planner",
+      displayName: "Hal",
       role: "Planning specialist",
       goal: "Produce a verified implementation plan",
       tier: "reasoning",
       scope: "project",
     });
 
-    expect(toml).toContain('developer_instructions = """Goal: Produce a verified implementation plan"""');
+    expect(toml).toContain("Display name: Hal");
+    expect(toml).toContain("Goal: Produce a verified implementation plan");
+    expect(toml).toContain('nickname_candidates = ["Hal"]');
   });
 
   it("agentToOpenCodeMd() generates frontmatter + body", () => {
     const md = agentToOpenCodeMd({
       name: "planner",
+      displayName: "Hal",
       role: "Planning specialist",
       description: "Plans implementation work",
       goal: "Produce a verified implementation plan",
@@ -147,9 +160,12 @@ describe("native-agent-projection", () => {
     });
 
     expect(md).toContain("---\n");
+    expect(md).toContain("name: planner");
+    expect(md).toContain("displayName: Hal");
     expect(md).toContain("description: Plans implementation work");
     expect(md).toContain("model: gpt-5.4-mini");
     expect(md).toContain("Goal: Produce a verified implementation plan");
+    expect(md).toContain("Display name: Hal");
     expect(md).toContain("Follow the checklist.");
   });
 

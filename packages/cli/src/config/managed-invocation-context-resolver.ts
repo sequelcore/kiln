@@ -29,6 +29,8 @@ export function createManagedInvocationContextResolver(
       sections.push([
         "## Child Agent Profile",
         `name: ${agent.name}`,
+        agent.displayName ? `displayName: ${agent.displayName}` : undefined,
+        agent.nicknameCandidates?.length ? `nicknameCandidates: ${agent.nicknameCandidates.join(", ")}` : undefined,
         `role: ${agent.role}`,
         agent.description ? `description: ${agent.description}` : undefined,
         agent.goal ? `goal: ${agent.goal}` : undefined,

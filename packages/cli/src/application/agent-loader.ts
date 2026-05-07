@@ -6,6 +6,8 @@ import type { AgentTier } from "@kilnai/core";
 
 export interface KilnAgentDefinition {
   readonly name: string;
+  readonly displayName?: string;
+  readonly nicknameCandidates?: readonly string[];
   readonly role: string;
   readonly description?: string;
   readonly goal: string;
@@ -136,6 +138,8 @@ function parseAgentDefinition(raw: string, scope: "global" | "project"): KilnAge
   }
 
   const description = asNonEmptyString(record.description);
+  const displayName = asNonEmptyString(record.displayName);
+  const nicknameCandidates = asStringArray(record.nicknameCandidates);
   const backstory = asNonEmptyString(record.backstory);
   const tools = asStringArray(record.tools);
   const model = asNonEmptyString(record.model);
@@ -152,6 +156,8 @@ function parseAgentDefinition(raw: string, scope: "global" | "project"): KilnAge
 
   return {
     name,
+    ...(displayName ? { displayName } : {}),
+    ...(nicknameCandidates ? { nicknameCandidates } : {}),
     role,
     ...(description ? { description } : {}),
     goal,
@@ -231,5 +237,16 @@ export function findAgent(
     return undefined;
   }
 
-  return definitions.find((definition) => definition.name.toLowerCase() === target);
+  const canonicalMatch = definitions.find((definition) => definition.name.toLowerCase() === target);
+  if (canonicalMatch) {
+    return canonicalMatch;
+  }
+
+  const nicknameMatches = definitions.filter((definition) => {
+    const displayName = definition.displayName?.toLowerCase();
+    const nicknames = definition.nicknameCandidates?.map((nickname) => nickname.toLowerCase()) ?? [];
+    return displayName === target || nicknames.includes(target);
+  });
+
+  return nicknameMatches.length === 1 ? nicknameMatches[0] : undefined;
 }

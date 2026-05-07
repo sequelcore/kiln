@@ -260,6 +260,8 @@ function renderAgentProfilePromptContext(agent?: KilnAgentDefinition): string | 
   return [
     "## Agent Profile",
     `name: ${agent.name}`,
+    agent.displayName ? `displayName: ${agent.displayName}` : undefined,
+    agent.nicknameCandidates?.length ? `nicknameCandidates: ${agent.nicknameCandidates.join(", ")}` : undefined,
     `role: ${agent.role}`,
     agent.description ? `description: ${agent.description}` : undefined,
     agent.goal ? `goal: ${agent.goal}` : undefined,

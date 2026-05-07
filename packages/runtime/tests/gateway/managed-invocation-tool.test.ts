@@ -218,6 +218,24 @@ describe("managed invocation runtime tool", () => {
           makeManagedRoute("opencode-readonly-a", "model-a"),
           makeManagedRoute("opencode-readonly-b", "model-b"),
         ],
+        agentCatalog: [
+          {
+            name: "scout",
+            displayName: "Dewey",
+            role: "Read-only context scout",
+            goal: "Map impacted files",
+            tier: "fast",
+          },
+          {
+            name: "tdd",
+            displayName: "Malcolm",
+            nicknameCandidates: ["tdd-guide"],
+            role: "TDD guide",
+            goal: "Write tests first",
+            tier: "reasoning",
+            skills: ["test-generator"],
+          },
+        ],
         unavailableRoutes: [{
           routeId: "openrouter-readonly",
           providerId: "openrouter",
@@ -232,6 +250,11 @@ describe("managed invocation runtime tool", () => {
     const schema = tool?.inputSchema as {
       readonly properties?: {
         readonly routeId?: { readonly enum?: readonly string[] };
+        readonly agentProfile?: { readonly enum?: readonly string[] };
+        readonly skills?: {
+          readonly items?: { readonly enum?: readonly string[] };
+          readonly maxItems?: number;
+        };
         readonly providerRoute?: {
           readonly properties?: {
             readonly providerId?: { readonly enum?: readonly string[] };
@@ -244,6 +267,14 @@ describe("managed invocation runtime tool", () => {
     expect(tool?.description).toContain("opencode-readonly-a");
     expect(tool?.description).toContain("Configured unavailable managed invocation routes");
     expect(tool?.description).toContain("openrouter-readonly");
+    expect(tool?.description).toContain("Configured admitted agent profiles");
+    expect(tool?.description).toContain("Configured admitted skills: test-generator");
+    expect(tool?.description).toContain("scout (Dewey)");
+    expect(tool?.description).toContain("tdd (Malcolm/tdd-guide)");
+    expect(tool?.description).toContain("Selection policy");
+    expect(tool?.description).toContain("Do not invent agentProfile names");
+    expect(tool?.description).toContain("Do not invent skill names");
+    expect(tool?.description).toContain("Do not use contextMode=resources without resourceUris");
     expect(tool?.description).toContain("For comparison tasks");
     expect(schema.properties?.routeId?.enum).toEqual([
       "opencode-readonly-a",
@@ -254,6 +285,43 @@ describe("managed invocation runtime tool", () => {
       "opencode",
       "openrouter",
     ]);
+    expect(schema.properties?.agentProfile?.enum).toEqual([
+      "scout",
+      "Dewey",
+      "tdd",
+      "Malcolm",
+      "tdd-guide",
+    ]);
+    expect(schema.properties?.skills?.items?.enum).toEqual(["test-generator"]);
+  });
+
+  it("prevents invented managed child skills when the admitted catalog has none", () => {
+    const surface = createAttachedRuntimeBuiltinToolSurface({
+      managedInvocation: {
+        routes: [makeManagedRoute("opencode-readonly", "model-a")],
+        agentCatalog: [{
+          name: "architect",
+          displayName: "Piama",
+          role: "Software architect",
+          goal: "Review architecture",
+          tier: "reasoning",
+        }],
+      },
+    });
+
+    const tool = surface.toolDefinitions.find((definition) => definition.name === "managed_agent.invoke");
+    const schema = tool?.inputSchema as {
+      readonly properties?: {
+        readonly skills?: {
+          readonly description?: string;
+          readonly maxItems?: number;
+        };
+      };
+    };
+
+    expect(tool?.description).toContain("Configured admitted skills: none");
+    expect(schema.properties?.skills?.maxItems).toBe(0);
+    expect(schema.properties?.skills?.description).toContain("Omit skills");
   });
 
   it("composes managed invocation session event sinks for operator surfaces", async () => {
@@ -493,6 +561,36 @@ describe("managed invocation runtime tool", () => {
 
     expect(result.isError).toBe(true);
     expect(result.output).toContain("context resolver is not configured");
+  });
+
+  it("fails closed when resources context mode is requested without governed resource URIs", async () => {
+    const surface = makeSurface();
+    const session = makeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-1",
+        name: "managed_agent.invoke",
+        input: {},
+      },
+    };
+
+    const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "opencode",
+        model: "opencode-default-model",
+      },
+      contextMode: "resources",
+      task: "Inspect the managed invocation tool contract and report risks.",
+    }, context) as {
+      readonly output: string;
+      readonly isError: boolean;
+    };
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain("contextMode resources requires at least one resourceUris entry");
+    expect((surface.callBuiltinTools.get("managed_agent.invoke"))).toBeDefined();
   });
 
   it("rejects provider model overrides that do not match the configured managed route", async () => {

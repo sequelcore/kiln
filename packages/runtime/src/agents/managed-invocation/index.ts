@@ -66,6 +66,7 @@ export type {
   ManagedInvocationContextResolver,
   ManagedInvocationContextResolverInput,
   ManagedInvocationSessionEventSink,
+  ManagedInvocationAgentCatalogEntry,
   ManagedInvocationRouteProfile,
   ManagedInvocationToolOptions,
   ManagedInvocationToolRoute,

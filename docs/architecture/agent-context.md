@@ -74,6 +74,7 @@ Agent profiles describe executable roles. A valid profile declares:
 A profile may also declare:
 
 - description
+- nickname candidates or aliases for operator-facing surfaces
 - backstory
 - instructions
 - preferred provider/model route

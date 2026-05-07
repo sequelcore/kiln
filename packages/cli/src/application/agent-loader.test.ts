@@ -85,6 +85,9 @@ describe("agent-loader", () => {
       [join(GLOBAL_AGENTS_DIR, "architect.md")]: markdownWithFrontmatter(
         [
           "name: Architect",
+          "displayName: Piama",
+          "nicknameCandidates:",
+          "  - Architect Piama",
           "role: System architect",
           "description: Reviews system boundaries",
           "goal: Keep architecture coherent",
@@ -117,6 +120,8 @@ describe("agent-loader", () => {
     expect(definitions).toEqual([
       {
         name: "Architect",
+        displayName: "Piama",
+        nicknameCandidates: ["Architect Piama"],
         role: "System architect",
         description: "Reviews system boundaries",
         goal: "Keep architecture coherent",
@@ -220,6 +225,55 @@ describe("agent-loader", () => {
 
     expect(findAgent(definitions, "planner")).toBe(definitions[0]);
     expect(findAgent(definitions, "CODE-REVIEWER")).toBe(definitions[1]);
+  });
+
+  it("findAgent() resolves unique display names and nicknames", () => {
+    const definitions: KilnAgentDefinition[] = [
+      {
+        name: "tdd",
+        displayName: "Malcolm",
+        nicknameCandidates: ["Malcolm Wilkerson"],
+        role: "TDD specialist",
+        goal: "Write tests first",
+        tier: "reasoning",
+        scope: "global",
+      },
+      {
+        name: "coder",
+        displayName: "Reese",
+        role: "Coding specialist",
+        goal: "Implement code",
+        tier: "coding",
+        scope: "global",
+      },
+    ];
+
+    expect(findAgent(definitions, "malcolm")).toBe(definitions[0]);
+    expect(findAgent(definitions, "Malcolm Wilkerson")).toBe(definitions[0]);
+    expect(findAgent(definitions, "reese")).toBe(definitions[1]);
+  });
+
+  it("findAgent() does not resolve ambiguous nicknames", () => {
+    const definitions: KilnAgentDefinition[] = [
+      {
+        name: "reviewer-one",
+        displayName: "Reviewer",
+        role: "Review specialist",
+        goal: "Review code",
+        tier: "reasoning",
+        scope: "global",
+      },
+      {
+        name: "reviewer-two",
+        nicknameCandidates: ["Reviewer"],
+        role: "Second review specialist",
+        goal: "Review code",
+        tier: "reasoning",
+        scope: "global",
+      },
+    ];
+
+    expect(findAgent(definitions, "Reviewer")).toBeUndefined();
   });
 
   it("findAgent() returns undefined for unknown name", () => {

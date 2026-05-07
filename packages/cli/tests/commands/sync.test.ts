@@ -154,7 +154,7 @@ describe("syncCommand", () => {
     }
   });
 
-  it("uninstalls and skips native projections for disabled engines", async () => {
+  it("does not treat disabled routing engines as disabled native projections", async () => {
     const consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     syncMocks.readGlobalConfig.mockReturnValue({
       version: "1",
@@ -167,14 +167,11 @@ describe("syncCommand", () => {
       consoleLogSpy.mockRestore();
     }
 
-    expect(syncMocks.uninstallNativeTargets).toHaveBeenCalledWith(process.cwd(), {
-      target: "codex",
-      force: false,
-    });
+    expect(syncMocks.uninstallNativeTargets).not.toHaveBeenCalled();
     expect(syncMocks.syncNativePermissionProjections).toHaveBeenCalledWith(
       { version: "1", domain: "typescript" },
       process.cwd(),
-      { force: false, disabledHarnesses: ["codex"] },
+      { force: false, disabledHarnesses: [] },
     );
   });
 

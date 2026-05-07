@@ -27,7 +27,8 @@ export async function writeAgentsMdProjection(projectPath: string): Promise<Agen
       .map((agent) => {
         const tools = agent.tools && agent.tools.length > 0 ? agent.tools.join(", ") : "-";
         const skills = agent.skills && agent.skills.length > 0 ? agent.skills.join(", ") : "-";
-        return `| ${agent.name} (${agent.scope}) | ${agent.role} | ${tools} | ${agent.model ?? "-"} | ${skills} |`;
+        const displayName = agent.displayName ?? "-";
+        return `| ${agent.name} (${agent.scope}) | ${displayName} | ${agent.role} | ${tools} | ${agent.model ?? "-"} | ${skills} |`;
       });
 
     const lines: string[] = [
@@ -55,8 +56,8 @@ export async function writeAgentsMdProjection(projectPath: string): Promise<Agen
     lines.push(
       "## Agents",
       "",
-      "| Name | Role | Tools | Model | Skills |",
-      "|------|------|-------|-------|--------|",
+      "| Name | Display | Role | Tools | Model | Skills |",
+      "|------|---------|------|-------|-------|--------|",
       ...rows,
       "",
     );

@@ -1,19 +1,12 @@
 import { join } from "node:path";
 import readline from "node:readline";
 import { loadKilnConfig } from "../config/config-merger.js";
-import { readGlobalConfig, type KilnGlobalConfig } from "../config/global-config.js";
 import { syncNativePermissionProjections } from "../config/native-permission-projection.js";
 import { syncNativeHookProjections } from "../config/native-hook-projection.js";
 import { writeAgentsMdProjection } from "../application/agents-md-projection.js";
 import { syncNativeAgentProjections } from "../config/native-agent-projection.js";
 import { syncNativeSkillProjections } from "../config/native-skill-projection.js";
-import { uninstallNativeTargets } from "./uninstall.js";
 import type { KilnAppConfig } from "../config.js";
-import {
-  NATIVE_PROJECTION_HARNESSES,
-  supportsNativeProjection,
-  type NativeProjectionHarness,
-} from "../config/native-projection-policy.js";
 
 export const SYNC_TARGETS = ["permissions", "hooks", "agents", "agents-md", "skills"] as const;
 export type SyncTargetId = typeof SYNC_TARGETS[number];
@@ -57,13 +50,6 @@ export function requiresForceSyncConfirmation(flags: SyncFlags): boolean {
 
 function isSyncTargetSelected(flags: SyncFlags, target: SyncTargetId): boolean {
   return flags.syncAll || flags.targets.includes(target);
-}
-
-function isNativeProjectionSyncSelected(flags: SyncFlags): boolean {
-  return isSyncTargetSelected(flags, "permissions")
-    || isSyncTargetSelected(flags, "hooks")
-    || isSyncTargetSelected(flags, "agents")
-    || isSyncTargetSelected(flags, "skills");
 }
 
 function parseSyncTargetId(target: string): SyncTargetId {
@@ -136,8 +122,7 @@ export async function syncCommand(
 
   const root = process.cwd();
   const kilnDir = join(root, ".kiln");
-  const globalConfig = readGlobalConfig();
-  const disabledHarnesses = resolveDisabledNativeProjectionHarnesses(globalConfig);
+  const disabledHarnesses = [] as const;
 
   const kilnYaml = await loadKilnConfig(root);
   if (!kilnYaml) {
@@ -160,16 +145,6 @@ export async function syncCommand(
   let skillsResult: Awaited<ReturnType<typeof syncNativeSkillProjections>> | null = null;
 
   const allErrors: string[] = [];
-
-  if (isNativeProjectionSyncSelected(flags) && disabledHarnesses.length > 0) {
-    for (const harness of disabledHarnesses) {
-      const uninstallResult = uninstallNativeTargets(root, {
-        target: harness,
-        force: forceNativeProjectionSync,
-      });
-      allErrors.push(...uninstallResult.errors.map((error) => `Disabled ${harness}: ${error}`));
-    }
-  }
 
   if (isSyncTargetSelected(flags, "permissions")) {
     permResult = await syncNativePermissionProjections(kilnYaml, root, {
@@ -261,12 +236,4 @@ export async function syncCommand(
   if (allErrors.length > 0) {
     process.exit(1);
   }
-}
-
-function resolveDisabledNativeProjectionHarnesses(
-  globalConfig: KilnGlobalConfig | null,
-): readonly NativeProjectionHarness[] {
-  return NATIVE_PROJECTION_HARNESSES.filter((harness) =>
-    supportsNativeProjection(harness) && globalConfig?.engines?.[harness]?.enabled === false
-  );
 }

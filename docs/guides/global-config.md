@@ -301,9 +301,13 @@ global config must write a backup first, then write canonical config.
 
 Kiln agent profiles are canonical executable roles. A valid `.kiln/agents/*.md`
 or `~/.kiln/agents/*.md` file must declare `name`, `role`, `goal`, and `tier`.
-Optional fields include `description`, `backstory`, `model`, `tools`, `skills`,
-`mode`, `authorityProfile`, `routeId`, and `providerRoute`. Incomplete agent
-files are ignored instead of being projected as legacy partial agents.
+Optional fields include `displayName`, `nicknameCandidates`, `description`,
+`backstory`, `model`, `tools`, `skills`, `mode`, `authorityProfile`, `routeId`,
+and `providerRoute`. `name` is the stable profile id used in configuration and
+events. `displayName` and `nicknameCandidates` are operator-facing identity
+hints that native harness projections may expose without changing the canonical
+id. Incomplete agent files are ignored instead of being projected as legacy
+partial agents.
 
 Run `kiln sync --agents` (or `kiln sync` with no flags) to push agent
 definitions from `~/.kiln/agents/` and `.kiln/agents/` to enabled native CLIs:
@@ -317,6 +321,20 @@ definitions from `~/.kiln/agents/` and `.kiln/agents/` to enabled native CLIs:
 Agent definitions are translated from Kiln's `.md` format automatically. Sync
 is one-way (Kiln -> CLIs). Drift in a projected agent file aborts that target
 unless `--force` is confirmed.
+
+Native projection is independent from routing eligibility. Setting
+`engines.<id>.enabled: false` removes that engine from Kiln's runtime routing,
+but Kiln may still project canonical agents, skills, permissions, and shims into
+the native harness so direct use of that harness sees the same doctrine.
+
+When managed invocation is enabled, Kiln exposes a compact admitted agent
+catalog to the `managed_agent.invoke` tool description. Parent assistants should
+select a configured `agentProfile` when the child task clearly matches a
+profile, such as scout/context discovery, TDD, implementation, research, review,
+or DDD validation. If no configured profile matches a one-off read-only task,
+the parent may omit `agentProfile` and invoke a generic governed child. Parents
+must not invent profile names; unknown profiles fail closed during context
+resolution.
 
 ## Skills Sync
 

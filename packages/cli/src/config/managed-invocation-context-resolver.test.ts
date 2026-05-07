@@ -20,6 +20,9 @@ function writeAgent(root: string): void {
     [
       "---",
       "name: architecture-reviewer",
+      "displayName: Lloyd",
+      "nicknameCandidates:",
+      "  - architecture-review",
       "role: reviewer",
       "goal: Review architecture",
       "tier: reasoning",
@@ -77,6 +80,8 @@ describe("managed invocation context resolver", () => {
       admittedSkills: ["ddd-review"],
     });
     expect(resolved.promptPrefix).toContain("Review architecture boundaries.");
+    expect(resolved.promptPrefix).toContain("displayName: Lloyd");
+    expect(resolved.promptPrefix).toContain("nicknameCandidates: architecture-review");
     expect(resolved.promptPrefix).toContain("Check bounded contexts.");
   });
 

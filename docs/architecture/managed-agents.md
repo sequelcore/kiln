@@ -221,6 +221,14 @@ When multiple routes share the same provider/profile, admission requires
 `routeId` or an exact configured model match. Ambiguous provider-only selection
 fails closed instead of silently picking the first route.
 
+The model-facing `managed_agent.invoke` schema is narrowed from the admitted
+route and agent catalogs. `agentProfile` is limited to configured profile ids
+and aliases; `skills` is limited to admitted skill names and is closed when no
+skills are configured. Parent assistants may choose a configured child profile
+without the operator naming one, but they must not invent profiles or skills.
+If no configured profile matches a one-off read-only task, the parent omits
+`agentProfile` and invokes a generic governed child.
+
 `agentProfile`, `skills`, and `contextMode: "fork"` fail closed when the active
 surface has not configured a context resolver. `contextMode: "isolated"` is the
 default. `contextMode: "resources"` admits only explicitly provided resources.

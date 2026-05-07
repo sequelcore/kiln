@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import {
   defineManagedAgentAdapterDescriptor,
   defineManagedAgentInvocationRecord,
@@ -403,6 +406,59 @@ describe("resolveManagedInvocationToolOptions", () => {
         access: "read-only",
       },
     });
+  });
+
+  it("exposes canonical agent profiles as managed invocation selection catalog", async () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-managed-agent-catalog-"));
+    try {
+      const agentsDir = join(root, ".kiln", "agents");
+      mkdirSync(agentsDir, { recursive: true });
+      writeFileSync(
+        join(agentsDir, "tdd.md"),
+        [
+          "---",
+          "name: tdd",
+          "displayName: Malcolm",
+          "nicknameCandidates:",
+          "  - tdd-guide",
+          "role: TDD guide",
+          "goal: Write tests before behavior changes",
+          "tier: reasoning",
+          "skills:",
+          "  - test-generator",
+          "---",
+          "Write failing tests first.",
+          "",
+        ].join("\n"),
+        "utf-8",
+      );
+
+      const result = await resolveManagedInvocationToolOptions(baseConfig({
+        routes: [{
+          id: "codex-readonly",
+          kind: "harness",
+          provider: "codex",
+          model: "gpt-5.3-codex-spark",
+          profiles: ["foundation-readonly-plan"],
+        }],
+      }), {
+        cwd: root,
+        registry: createRegistry("codex"),
+        surface: "gui",
+      });
+
+      expect(result.managedInvocation?.agentCatalog).toContainEqual(expect.objectContaining({
+        name: "tdd",
+        displayName: "Malcolm",
+        nicknameCandidates: ["tdd-guide"],
+        role: "TDD guide",
+        goal: "Write tests before behavior changes",
+        tier: "reasoning",
+        skills: ["test-generator"],
+      }));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("keeps explicit routes unhealthy when their engine is disabled", async () => {

@@ -56,11 +56,28 @@ export interface ManagedInvocationUnavailableRoute {
 export interface ManagedInvocationToolOptions {
   readonly routes: readonly ManagedInvocationToolRoute[];
   readonly unavailableRoutes?: readonly ManagedInvocationUnavailableRoute[];
+  readonly agentCatalog?: readonly ManagedInvocationAgentCatalogEntry[];
   readonly requestedBy?: string;
   readonly requestSource?: string;
   readonly artifactStore?: ArtifactResourceStore;
   readonly sessionEventSink?: ManagedInvocationSessionEventSink;
   readonly contextResolver?: ManagedInvocationContextResolver;
+}
+
+export interface ManagedInvocationAgentCatalogEntry {
+  readonly name: string;
+  readonly displayName?: string;
+  readonly nicknameCandidates?: readonly string[];
+  readonly role: string;
+  readonly goal: string;
+  readonly tier: string;
+  readonly skills?: readonly string[];
+  readonly routeId?: string;
+  readonly providerRoute?: {
+    readonly providerId: string;
+    readonly model?: string;
+    readonly reasoningEffort?: string;
+  };
 }
 
 export interface ManagedInvocationSessionEventSink {
@@ -152,7 +169,7 @@ export const MANAGED_AGENT_INVOKE_TOOL: ToolDefinition = {
       resourceUris: {
         type: "array",
         items: { type: "string" },
-        description: "Optional governed resource URIs to make available to the child.",
+        description: "Optional governed resource URIs to make available to the child. Required when contextMode is resources.",
       },
       agentProfile: {
         type: "string",
@@ -161,13 +178,13 @@ export const MANAGED_AGENT_INVOKE_TOOL: ToolDefinition = {
       skills: {
         type: "array",
         items: { type: "string" },
-        description: "Optional configured Kiln skills to request for the child. The runtime must resolve and admit them before execution.",
+        description: "Optional configured Kiln skills to request for the child. Only request skills from the configured agent profile or an explicitly known Kiln skill catalog; do not invent skill names.",
       },
       contextMode: {
         type: "string",
         enum: ["isolated", "resources", "fork"],
         default: "isolated",
-        description: "Child context mode. isolated is default; fork requires explicit runtime support and policy admission.",
+        description: "Child context mode. Use isolated by default. Use resources only when resourceUris is non-empty. fork requires explicit runtime support and policy admission.",
       },
     },
     required: ["profile", "providerRoute", "task"],
@@ -209,6 +226,24 @@ export function createManagedAgentInvokeToolDefinition(
     providerId.enum = providerIds;
     providerId.description = "Configured managed provider id. It must correspond to the selected route.";
   }
+  const agentProfile = readSchemaProperty(properties.agentProfile);
+  const agentProfileNames = managedInvocationAgentProfileNames(options);
+  if (agentProfile && agentProfileNames.length > 0) {
+    agentProfile.enum = agentProfileNames;
+    agentProfile.description = "Optional configured Kiln agent profile to request for the child. Use only one of these admitted names or aliases; omit for a generic governed child.";
+  }
+  const skills = readSchemaProperty(properties.skills);
+  const skillNames = managedInvocationSkillNames(options);
+  if (skills) {
+    const items = readSchemaProperty(skills.items);
+    if (skillNames.length > 0 && items) {
+      items.enum = skillNames;
+      skills.description = "Optional configured Kiln skills to request for the child. Use only these admitted skill names.";
+    } else {
+      skills.maxItems = 0;
+      skills.description = "No Kiln skills are configured for managed child invocation. Omit skills.";
+    }
+  }
   return {
     ...MANAGED_AGENT_INVOKE_TOOL,
     description: [
@@ -216,7 +251,12 @@ export function createManagedAgentInvokeToolDefinition(
       "",
       buildManagedRouteCatalogDescription(options),
       "",
+      buildManagedAgentSelectionDescription(options),
+      "",
       "For comparison tasks, invoke one managed child per selected route, then compare only successful handoffs. Report unavailable, failed, cancelled, or timed-out child invocations separately as missing evidence; do not treat them as opinions.",
+      "For delegated work, choose an admitted agentProfile from the configured agent catalog when a profile clearly matches the child task. If no profile matches, omit agentProfile and invoke a generic governed child with the narrowest read-only route. Do not invent agentProfile names.",
+      "Only request skills that are listed on a configured agent profile or otherwise known from the Kiln skill catalog. Do not invent skill names; unknown skills fail closed.",
+      "Use contextMode=isolated unless you are also passing governed resourceUris. Do not use contextMode=resources without resourceUris.",
       "Use routeId when the user asks for a specific route or when more than one route shares a provider. Omit providerRoute.model unless the user explicitly selected an exact configured model.",
     ].join("\n"),
     inputSchema: schema,
@@ -495,6 +535,49 @@ function buildManagedRouteCatalogDescription(options: ManagedInvocationToolOptio
   ].join("\n");
 }
 
+function buildManagedAgentSelectionDescription(options: ManagedInvocationToolOptions): string {
+  const catalog = options.agentCatalog ?? [];
+  const agents = catalog.length > 0
+    ? catalog.map((agent) => {
+        const aliases = [
+          ...(agent.displayName ? [agent.displayName] : []),
+          ...(agent.nicknameCandidates ?? []),
+        ];
+        const routeHint = agent.routeId
+          ? `, routeId=${agent.routeId}`
+          : agent.providerRoute
+            ? `, providerRoute.providerId=${agent.providerRoute.providerId}${agent.providerRoute.model ? `, model=${agent.providerRoute.model}` : ""}`
+            : "";
+        const skills = agent.skills && agent.skills.length > 0 ? `, skills=${agent.skills.join(",")}` : "";
+        return `- ${agent.name}${aliases.length > 0 ? ` (${aliases.join("/")})` : ""}: role=${agent.role}, goal=${agent.goal}, tier=${agent.tier}${skills}${routeHint}`;
+      }).join("\n")
+    : "- none";
+  return [
+    "Configured admitted agent profiles:",
+    agents,
+    `Configured admitted skills: ${managedInvocationSkillNames(options).join(", ") || "none"}`,
+    "Selection policy:",
+    "- Use scout/context profiles before broad or ambiguous implementation.",
+    "- Use tdd/test profiles before behavior-changing work.",
+    "- Use coding profiles for bounded implementation subtasks.",
+    "- Use reviewer/validator profiles for quality gates, architecture checks, and risk review.",
+    "- Use researcher profiles for external or evidence-dependent questions.",
+    "- Omit agentProfile for one-off generic read-only child tasks that do not match a configured profile.",
+  ].join("\n");
+}
+
+function managedInvocationAgentProfileNames(options: ManagedInvocationToolOptions): readonly string[] {
+  return unique((options.agentCatalog ?? []).flatMap((agent) => [
+    agent.name,
+    ...(agent.displayName ? [agent.displayName] : []),
+    ...(agent.nicknameCandidates ?? []),
+  ]));
+}
+
+function managedInvocationSkillNames(options: ManagedInvocationToolOptions): readonly string[] {
+  return unique((options.agentCatalog ?? []).flatMap((agent) => agent.skills ?? []));
+}
+
 function unique(values: readonly string[]): string[] {
   return Array.from(new Set(values.filter((value) => value.trim().length > 0)));
 }
@@ -669,6 +752,9 @@ function parseInput(input: Record<string, unknown>): { readonly ok: true; readon
   const contextMode = parseContextMode(input.contextMode);
   if (!contextMode) {
     return { ok: false, error: "managed_agent.invoke contextMode is not supported." };
+  }
+  if (contextMode === "resources" && (!resourceUris || resourceUris.length === 0)) {
+    return { ok: false, error: "managed_agent.invoke contextMode resources requires at least one resourceUris entry. Use contextMode isolated when no governed resources are supplied." };
   }
   return {
     ok: true,

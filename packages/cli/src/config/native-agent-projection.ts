@@ -57,6 +57,14 @@ export function agentToClaudeMd(agent: KilnAgentDefinition): string {
     role: agent.role,
   };
 
+  if (agent.displayName) {
+    frontmatter.displayName = agent.displayName;
+  }
+
+  if (agent.nicknameCandidates && agent.nicknameCandidates.length > 0) {
+    frontmatter.nicknameCandidates = [...agent.nicknameCandidates];
+  }
+
   if (agent.description) {
     frontmatter.description = agent.description;
   }
@@ -98,11 +106,28 @@ export function agentToCodexToml(agent: KilnAgentDefinition): string {
     lines.push(`model = "${escapeTomlString(agent.model)}"`);
   }
 
+  const nicknameCandidates = nativeNicknameCandidates(agent);
+  if (nicknameCandidates.length > 0) {
+    const renderedNicknames = nicknameCandidates
+      .map((nickname) => `"${escapeTomlString(nickname)}"`)
+      .join(", ");
+    lines.push(`nickname_candidates = [${renderedNicknames}]`);
+  }
+
   return `${lines.join("\n")}\n`;
 }
 
 export function agentToOpenCodeMd(agent: KilnAgentDefinition): string {
-  const frontmatter: Record<string, unknown> = { description: agent.description ?? agent.role };
+  const frontmatter: Record<string, unknown> = {
+    name: agent.name,
+    description: agent.description ?? agent.role,
+  };
+  if (agent.displayName) {
+    frontmatter.displayName = agent.displayName;
+  }
+  if (agent.nicknameCandidates && agent.nicknameCandidates.length > 0) {
+    frontmatter.nicknameCandidates = [...agent.nicknameCandidates];
+  }
   if (agent.model) {
     frontmatter.model = agent.model;
   }
@@ -120,10 +145,22 @@ export function agentToOpenCodeMd(agent: KilnAgentDefinition): string {
 
 function buildNativeAgentInstructions(agent: KilnAgentDefinition): string {
   return [
+    agent.displayName ? `Display name: ${agent.displayName}` : undefined,
     `Goal: ${agent.goal}`,
     agent.backstory ? `Backstory: ${agent.backstory}` : undefined,
     agent.instructions,
   ].filter((line): line is string => Boolean(line)).join("\n\n");
+}
+
+function nativeNicknameCandidates(agent: KilnAgentDefinition): readonly string[] {
+  const nicknames = new Set<string>();
+  if (agent.displayName) {
+    nicknames.add(agent.displayName);
+  }
+  for (const nickname of agent.nicknameCandidates ?? []) {
+    nicknames.add(nickname);
+  }
+  return [...nicknames];
 }
 
 export async function syncNativeAgentProjections(

@@ -25,6 +25,7 @@ import type {
   SessionRegistry,
 } from "../wrapper/session-registry.js";
 import { createManagedInvocationContextResolver } from "./managed-invocation-context-resolver.js";
+import { loadAgentDefinitions } from "../application/agent-loader.js";
 
 export type ManagedAgentOperatorSurface = "gui" | "tui" | "run" | "operator";
 
@@ -97,6 +98,17 @@ export async function resolveManagedInvocationToolOptions(
 
   const routes: ManagedInvocationToolRoute[] = [];
   const routeHealth: ManagedAgentRouteHealth[] = [];
+  const agentCatalog = (await loadAgentDefinitions(context.cwd)).map((agent) => ({
+    name: agent.name,
+    ...(agent.displayName ? { displayName: agent.displayName } : {}),
+    ...(agent.nicknameCandidates ? { nicknameCandidates: agent.nicknameCandidates } : {}),
+    role: agent.role,
+    goal: agent.goal,
+    tier: agent.tier,
+    ...(agent.skills ? { skills: agent.skills } : {}),
+    ...(agent.routeId ? { routeId: agent.routeId } : {}),
+    ...(agent.providerRoute ? { providerRoute: agent.providerRoute } : {}),
+  }));
 
   for (const routeConfig of routeConfigs) {
     const resolved = await resolveRouteConfig(routeConfig, context, config);
@@ -111,6 +123,7 @@ export async function resolveManagedInvocationToolOptions(
     ...(routes.length > 0 ? {
       managedInvocation: {
         routes,
+        ...(agentCatalog.length > 0 ? { agentCatalog } : {}),
         unavailableRoutes: routeHealth
           .filter((route) => !route.available)
           .map((route) => ({

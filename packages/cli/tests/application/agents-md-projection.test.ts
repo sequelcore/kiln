@@ -48,6 +48,7 @@ describe("agents-md-projection", () => {
     loadAgentDefinitionsMock.mockResolvedValue([
       {
         name: "Planner",
+        displayName: "Hal",
         role: "Planning specialist",
         tools: ["read", "write"],
         model: "gpt-5.4",
@@ -84,14 +85,15 @@ describe("agents-md-projection", () => {
     expect(content).toContain("| Setting | Value |");
     expect(content).toContain("|---------|-------|");
     expect(content).toContain("## Agents");
-    expect(content).toContain("| Name | Role | Tools | Model | Skills |");
-    expect(content).toContain("|------|------|-------|-------|--------|");
+    expect(content).toContain("| Name | Display | Role | Tools | Model | Skills |");
+    expect(content).toContain("|------|---------|------|-------|-------|--------|");
     expect(content).toContain("cinema");
     expect(content).toContain("codex");
     expect(content).toContain("gpt-5.4");
     expect(content).toContain("6");
     expect(content).toContain("2");
     expect(content).toContain("Planner (project)");
+    expect(content).toContain("Hal");
     expect(content).toContain("Scout (global)");
     expect(content).toContain("read, write");
     expect(content).toContain("sequel-spring");
@@ -109,8 +111,8 @@ describe("agents-md-projection", () => {
 
     expect(result.written).toBe(true);
     expect(content).toContain("No agent profiles defined. Create .kiln/agents/<name>.md to add one.");
-    expect(content).toContain("| Name | Role | Tools | Model | Skills |");
-    expect(content).toContain("|------|------|-------|-------|--------|");
+    expect(content).toContain("| Name | Display | Role | Tools | Model | Skills |");
+    expect(content).toContain("|------|---------|------|-------|-------|--------|");
   });
 
   it("generates file when kiln.yaml is null (no Team Configuration table)", async () => {
