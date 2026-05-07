@@ -638,4 +638,34 @@ describe("default builtin tool surface", () => {
       },
     });
   });
+
+  it("supports surface-owned read-only additional tools in deferred projection", async () => {
+    const surface = createDefaultBuiltinToolSurface({
+      additionalTools: [{
+        name: "kiln_config.read",
+        description: "Read config.",
+        inputSchema: { type: "object", properties: {}, additionalProperties: false },
+        annotations: { readOnly: true, idempotent: true },
+        execute: async () => ({ output: "{}", isError: false }),
+      }],
+      toolProjection: {
+        mode: "deferred",
+        alwaysOnTools: ["read"],
+      },
+    });
+
+    expect(surface.toolNames).toContain("kiln_config.read");
+    expect(surface.registry.has("kiln_config.read")).toBe(true);
+    await expect(surface.bridge.execute({
+      name: "kiln_config.read",
+      input: {},
+    })).resolves.toMatchObject({
+      attempts: 1,
+      fallbackUsed: false,
+      result: {
+        output: "{}",
+        isError: false,
+      },
+    });
+  });
 });

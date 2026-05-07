@@ -8,6 +8,7 @@ import { withContextCandidates } from "../application/agent-skill-context.js";
 import { resolveInstructionProfileContextCandidates } from "../application/instruction-profile-context.js";
 import { readKilnYaml } from "../kiln-yaml.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
+import { createKilnConfigReadTool } from "../application/config-read-tool.js";
 import { discoverManagedAgentProviderModels } from "../config/managed-agent-provider-models.js";
 import { resolveManagedInvocationToolOptions } from "../config/managed-agent-routes.js";
 import { loadConfiguredWebToolSurfaceOptions, resolveProjectMemoryScope } from "../config/web-tools-config.js";
@@ -78,15 +79,20 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
   const startupModel = resolveGlobalDefaultModel(globalConfig);
   const transcriptStore = new TranscriptStore(cwd);
   const contextArtifactCache = await getProjectContextArtifactCache(cwd);
-  const builtinToolOptions = createSessionBuiltinToolOptions(
-    await loadConfiguredWebToolSurfaceOptions(runtimeAppConfig, cwd, {
+  const configuredBuiltinToolOptions = await loadConfiguredWebToolSurfaceOptions(runtimeAppConfig, cwd, {
       memoryAuthority: {
         modelFacingSession: true,
         permissionAgent: "gui",
         caller: { kind: "operator_surface", id: "gui" },
       },
-    }),
-  );
+    });
+  const builtinToolOptions = createSessionBuiltinToolOptions({
+    ...configuredBuiltinToolOptions,
+    additionalTools: [
+      ...(configuredBuiltinToolOptions.additionalTools ?? []),
+      createKilnConfigReadTool(cwd),
+    ],
+  });
   const engineAvailability = resolveEngineAvailabilityMap(globalConfig);
   const managedAgentProviderModels = await discoverManagedAgentProviderModels();
   const managedInvocationResolution = await resolveManagedInvocationToolOptions(globalConfig, {

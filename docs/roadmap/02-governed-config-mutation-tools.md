@@ -104,8 +104,10 @@ closed and require a fresh proposal.
    and `kiln config read` consume the shared service for effective config,
    project/global source status, project-context status, repo-shim status,
    native projection install-state, and harness capabilities.
-2. Add `kiln_config.read` for read-only effective config and projection status
-   in model-callable tool surfaces, backed by the same config-status service.
+2. Completed 2026-05-07: add `kiln_config.read` for read-only effective config
+   and projection status in model-callable tool surfaces. The tool is registered
+   through surface-owned additional builtin tools for CLI, GUI, and TUI sessions
+   and returns the same bounded views as `kiln config read`.
 3. Add proposal domain types and validators for skill and agent profile changes.
 4. Add `kiln_config.propose_change` for `skill.upsert`,
    `agent.upsert`, and `agent.attach_skills`.

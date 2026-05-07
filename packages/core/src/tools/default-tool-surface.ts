@@ -63,6 +63,7 @@ export interface DevToolSchemaProjection {
 }
 
 export interface DefaultBuiltinToolRegistryOptions {
+  readonly additionalTools?: readonly DevTool[];
   readonly bash?: BashToolOptions;
   readonly grep?: GrepToolOptions;
   readonly glob?: GlobToolOptions;
@@ -197,6 +198,7 @@ export function createDefaultBuiltinTools(
     new ResourceListTool({ resources: options.resourceRegistry ?? (() => undefined) }),
     new ResourceTemplateListTool({ resources: options.resourceRegistry ?? (() => undefined) }),
     new ResourceReadTool({ resources: options.resourceRegistry ?? (() => undefined) }),
+    ...(options.additionalTools ?? []),
   ];
   catalog = ToolCatalogIndex.fromTools(tools);
   return tools;
@@ -387,6 +389,7 @@ function projectTools(
     "resource_list",
     "resource_template_list",
     "resource_read",
+    "kiln_config.read",
   ]);
   return tools.filter((tool) => requested.has(tool.name));
 }

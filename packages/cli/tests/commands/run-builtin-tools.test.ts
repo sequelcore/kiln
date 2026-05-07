@@ -302,7 +302,10 @@ describe("run command builtin tool wiring", () => {
         },
       },
     );
-    expect(runWiringMocks.createSessionBuiltinToolOptions).toHaveBeenCalledWith({ id: "surface-options" });
+    expect(runWiringMocks.createSessionBuiltinToolOptions).toHaveBeenCalledWith({
+      id: "surface-options",
+      additionalTools: [expect.objectContaining({ name: "kiln_config.read" })],
+    });
     expect(runWiringMocks.capturedSessionConfigs).toHaveLength(1);
     expect(runWiringMocks.capturedSessionConfigs[0]).toMatchObject({
       builtinToolOptions: { id: "session-builtin-tool-options" },

@@ -146,7 +146,9 @@ effective config availability, repo-shim projection status, native projection
 install-state status, and harness integration capabilities. CLI commands,
 future runtime tools, GUI/TUI setup screens, SDK/widget descriptors, and audit
 events must consume that shared contract instead of re-reading YAML or native
-files independently.
+files independently. The model-callable `kiln_config.read` tool is a read-only
+projection of this contract; it may inspect effective config and status but
+must not mutate configuration or native provider files.
 
 ## Install State And Drift
 

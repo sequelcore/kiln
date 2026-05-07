@@ -51,6 +51,7 @@ import { resolveEffectiveModel } from "../config/env-config.js";
 import { readGlobalConfig, resolveGlobalDefaultModel } from "../config/global-config.js";
 import { resolveProviderRouteCandidates } from "../config/provider-route-candidates.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
+import { createKilnConfigReadTool } from "../application/config-read-tool.js";
 import { discoverManagedAgentProviderModels } from "../config/managed-agent-provider-models.js";
 import { resolveManagedInvocationToolOptions } from "../config/managed-agent-routes.js";
 import { loadConfiguredWebToolSurfaceOptions } from "../config/web-tools-config.js";
@@ -513,16 +514,21 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
       .map((block) => block.content),
   });
 
-  const builtinToolOptions = createSessionBuiltinToolOptions(
-    await loadConfiguredWebToolSurfaceOptions(appConfig, cwd, {
+  const configuredBuiltinToolOptions = await loadConfiguredWebToolSurfaceOptions(appConfig, cwd, {
       memoryAuthority: {
         modelFacingSession: true,
         permissionPolicy: config.permissionPolicy,
         permissionAgent: resolvedAgent?.name,
         caller: { kind: "operator_surface", id: "run" },
       },
-    }),
-  );
+    });
+  const builtinToolOptions = createSessionBuiltinToolOptions({
+    ...configuredBuiltinToolOptions,
+    additionalTools: [
+      ...(configuredBuiltinToolOptions.additionalTools ?? []),
+      createKilnConfigReadTool(cwd),
+    ],
+  });
   const engineAvailability = resolveEngineAvailabilityMap(globalConfig);
   const managedAgentProviderModels = await discoverManagedAgentProviderModels();
   const managedInvocationResolution = await resolveManagedInvocationToolOptions(globalConfig, {

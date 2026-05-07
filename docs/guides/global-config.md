@@ -437,8 +437,9 @@ kiln config read skills
 sync, merges global and project config through the canonical loaders, reports
 adopted project-context status, classifies generated repo shims, summarizes
 native projection install-state, and exposes harness capability diagnostics.
-Future `kiln_config.read` tools and setup surfaces should consume the same
-contract rather than parsing YAML or native files directly.
+The model-callable `kiln_config.read` tool exposes the same views to admitted
+runtime tool surfaces. Setup surfaces should consume the same contract rather
+than parsing YAML or native files directly.
 
 When managed invocation is enabled, Kiln exposes a compact admitted agent
 catalog to the `managed_agent.invoke` tool description. Parent assistants should
