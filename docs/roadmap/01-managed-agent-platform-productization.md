@@ -84,42 +84,38 @@ surface-specific behavior, or provider compatibility glue.
 
 ## First Implementation Slices
 
-1. Complete presentation-intent support from
-   `docs/roadmap/01-presentation-intent-contract.md` so multi-agent
-   comparison, risk reports, diagnostics, and resource bundles render as
-   validated semantic output across all surfaces.
-2. Add immutable managed-invocation capability snapshots at admission time:
+1. Add immutable managed-invocation capability snapshots at admission time:
    route health, provider/model proof, adapter descriptor, authority profile,
    context mode, resource-plane availability, and projected child identity.
-3. Use those snapshots for invocation records, replay, resource reads, GUI
+2. Use those snapshots for invocation records, replay, resource reads, GUI
    Activity, CLI/TUI output, and SDK/widget contracts instead of recomputing
    live mutable capability state.
-4. Add evaluated first-party defaults for agent/team selection after live
+3. Add evaluated first-party defaults for agent/team selection after live
    harnesses compare configured agents against fixed rubrics for quality,
    evidence use, permission compliance, cost, duration, and actionable output.
-5. Promote the Sequel engineering doctrine shape into a canonical first-party
+4. Promote the Sequel engineering doctrine shape into a canonical first-party
    instruction-profile contract: clean architecture, DDD, no dead code, no
    redundancy, TDD, review gates, verification gates, and delegated workflow.
-6. Add a route/model capability catalog that combines static provider metadata,
+5. Add a route/model capability catalog that combines static provider metadata,
    live proof, operator overrides, and evaluation results. Parent sessions
    should see task suitability such as `frontend-design`, `backend-coding`,
    `architecture-review`, `research`, `mechanical-edit`, `test-writing`, and
    recommended skill pairings.
-7. Improve parent tool guidance so operators can ask for delegated work in
+6. Improve parent tool guidance so operators can ask for delegated work in
    natural language while the model sees a bounded catalog of admissible agents,
    skills, routes, context modes, and task-affinity hints.
-8. Add bounded write-capable managed routes for implementation roles:
+7. Add bounded write-capable managed routes for implementation roles:
    `foundation-workspace-write-implementation`,
    `foundation-approved-patch`, or equivalent names after the authority model is
    finalized. These routes must produce diff/write evidence and require
    approval according to policy.
-9. Design the cross-surface configuration surface:
+8. Design the cross-surface configuration surface:
    - GUI: dedicated Settings/Setup surface or sidebar mode.
    - TUI: equivalent command/screen.
    - CLI: deterministic `kiln config/status/sync` commands.
    - SDK/widget: read-only config/status descriptors first, mutation later
      behind explicit authority.
-10. Move theme selection and provider/setup diagnostics out of the always-visible
+9. Move theme selection and provider/setup diagnostics out of the always-visible
    chat topbar once the configuration surface exists; keep only controls that
    are needed for the active operator workflow.
 

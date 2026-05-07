@@ -34,14 +34,11 @@ Read the relevant architecture or guide document before using a roadmap:
   model-discovery work.
 - `docs/architecture/operator-surfaces.md`, `docs/guides/gui-parity.md`, and
   `docs/guides/tui-maintenance.md` for GUI, TUI, CLI, IDE, desktop, and remote
-  operator surfaces.
-- `docs/roadmap/01-presentation-intent-contract.md` for the active
-  presentation-intent track until its stable doctrine is promoted into
-  architecture and guide documentation.
-- `docs/roadmap/02-managed-agent-platform-productization.md` for the active
+  operator surfaces, including presentation-intent doctrine.
+- `docs/roadmap/01-managed-agent-platform-productization.md` for the active
   managed-agent productization track that turns the governed runtime foundation
   into a coherent cross-surface product platform.
-- `docs/roadmap/03-governed-config-mutation-tools.md` for the active governed
+- `docs/roadmap/02-governed-config-mutation-tools.md` for the active governed
   config-mutation track that lets agents inspect, propose, and apply approved
   canonical Kiln configuration changes.
 
@@ -49,38 +46,34 @@ Read the relevant architecture or guide document before using a roadmap:
 
 The managed-agent and setup work is split by architectural responsibility:
 
-- `02-managed-agent-platform-productization.md` turns the canonical agent
+- `01-managed-agent-platform-productization.md` turns the canonical agent
   context model into product:
   first-party defaults, natural delegation, setup surfaces, presentation,
   write-capable managed child profiles, and operator workflow.
-- `03-governed-config-mutation-tools.md` makes the setup governable by agents:
+- `02-governed-config-mutation-tools.md` makes the setup governable by agents:
   config reads, structured proposals, approval-gated apply, sync/projection,
   and audit evidence.
 
 ## Active Roadmaps
 
-- `01-presentation-intent-contract.md`
-  Active presentation contract track for validated agent/tool display intents
-  across GUI, TUI, CLI, SDK/widget, and future operator surfaces.
-
-- `02-managed-agent-platform-productization.md`
+- `01-managed-agent-platform-productization.md`
   Active productization track for Kiln's managed-agent differentiator:
   canonical config, direct providers and harnesses under one contract,
   governed child invocation, immutable evidence, reusable agent identity, and
   natural delegation across all surfaces.
 
-- `03-governed-config-mutation-tools.md`
+- `02-governed-config-mutation-tools.md`
   Active governed configuration track for native tools that read effective
   config, propose bounded config changes, apply approved changes, emit audit
   events, and run sync/projection through canonical Kiln services.
 
 ## Deferred Roadmaps
 
-- `04-external-benchmark-validation.md`
+- `03-external-benchmark-validation.md`
   Deferred public benchmark and governed external-validation milestone after
   the product surface stabilizes.
 
-- `05-native-operator-surface-experiment.md`
+- `04-native-operator-surface-experiment.md`
   Deferred native, GPU-accelerated operator-surface experiment for high-density
   managed-agent supervision, replay, timeline, graph, and multi-instance
   workloads.
@@ -119,13 +112,20 @@ The managed-agent and setup work is split by architectural responsibility:
   `docs/guides/global-config.md`; implementation covers governed operator
   identity, instruction profiles, agent profiles, skills, managed child context
   admission, and native harness projection references.
+- Presentation intent contract completed on 2026-05-07. Stable doctrine lives
+  in `docs/architecture/session-model.md`,
+  `docs/architecture/operator-surfaces.md`,
+  `docs/architecture/developer-tools.md`, and
+  `packages/gateway-contracts/README.md`; implementation covers the closed
+  `PresentationIntent` union, validation, tool-result projection, GUI native
+  rendering, CLI/TUI text fallback, and managed invocation route evidence.
 
 ## Execution Priority
 
-1. Keep `05-native-operator-surface-experiment.md` deferred until managed
+1. Keep `04-native-operator-surface-experiment.md` deferred until managed
    agents create real high-density workloads and config projection makes
    local/cloud/team/CI instance boundaries explicit.
-2. Keep `04-external-benchmark-validation.md` deferred until the evaluated
+2. Keep `03-external-benchmark-validation.md` deferred until the evaluated
    product surface is stable.
 
 ## Rules
