@@ -85,6 +85,10 @@ export function agentToClaudeMd(agent: KilnAgentDefinition): string {
     frontmatter.skills = [...agent.skills];
   }
 
+  if (agent.taskAffinity && agent.taskAffinity.length > 0) {
+    frontmatter.taskAffinity = [...agent.taskAffinity];
+  }
+
   if (agent.instructionProfiles && agent.instructionProfiles.length > 0) {
     frontmatter.instructionProfiles = [...agent.instructionProfiles];
   }
@@ -141,6 +145,9 @@ export function agentToOpenCodeMd(agent: KilnAgentDefinition): string {
   if (agent.skills && agent.skills.length > 0) {
     frontmatter.skills = [...agent.skills];
   }
+  if (agent.taskAffinity && agent.taskAffinity.length > 0) {
+    frontmatter.taskAffinity = [...agent.taskAffinity];
+  }
   if (agent.instructionProfiles && agent.instructionProfiles.length > 0) {
     frontmatter.instructionProfiles = [...agent.instructionProfiles];
   }
@@ -156,6 +163,7 @@ function buildNativeAgentInstructions(agent: KilnAgentDefinition): string {
     `Goal: ${agent.goal}`,
     agent.backstory ? `Backstory: ${agent.backstory}` : undefined,
     agent.instructionProfiles?.length ? `Instruction profiles: ${agent.instructionProfiles.join(", ")}` : undefined,
+    agent.taskAffinity?.length ? `Task affinity: ${agent.taskAffinity.join(", ")}` : undefined,
     agent.instructions,
   ].filter((line): line is string => Boolean(line)).join("\n\n");
 }

@@ -114,9 +114,14 @@ surface-specific behavior, or provider compatibility glue.
    merged evidence to parent sessions. Remaining work: merge live proof,
    evaluation results, and recommended skill pairings into the same evidence
    shape.
-6. Improve parent tool guidance so operators can ask for delegated work in
-   natural language while the model sees a bounded catalog of admissible agents,
-   skills, routes, context modes, and task-affinity hints.
+6. Completed 2026-05-07: improve parent tool guidance so operators can ask for
+   delegated work in natural language while the model sees a bounded catalog of
+   admissible agents, skills, routes, context modes, and task-affinity hints.
+   `managed_agent.invoke` now projects the full configured skill catalog,
+   route task-suitability evidence, explicit agent `taskAffinity`, unavailable
+   route diagnostics, and context-mode rules into one tool contract. Parent
+   models are instructed to choose from admitted ids only; unknown profiles or
+   skills still fail closed at runtime.
 7. Add bounded write-capable managed routes for implementation roles:
    `foundation-workspace-write-implementation`,
    `foundation-approved-patch`, or equivalent names after the authority model is

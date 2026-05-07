@@ -141,6 +141,8 @@ A profile may also declare:
 - backstory
 - instructions
 - preferred provider/model route
+- task affinity hints such as `architecture-review`, `backend-coding`,
+  `frontend-design`, `mechanical-edit`, `research`, and `test-writing`
 - mode: primary, subagent, managed-child, or all
 - allowed tools or permission profile
 - default skills
@@ -168,6 +170,12 @@ Every surface must consume the same profile contract:
 Agent `instructionProfiles` are references, not copied doctrine. They select
 additional canonical instruction profiles for that agent when the profile is
 used by `kiln run --agent` or managed child invocation.
+
+Agent `taskAffinity` is advisory selection evidence. It helps parent sessions
+choose an appropriate configured child for natural-language delegation, but it
+does not grant tools, credentials, filesystem access, or write authority.
+Kiln must not infer hidden task affinity from profile names; if a profile needs
+task-selection behavior, declare it explicitly in the canonical agent profile.
 
 Surface-specific renderers may project smaller views, but they must not invent
 local semantics.
@@ -299,6 +307,12 @@ context mode, agent profile, skills, instruction profiles, provider route,
 model, adapter, execution mode, authority profile, invocation id, child
 session, and child turn. General operator identity and instruction profiles are
 available through the context governance audit as `instruction` blocks.
+
+The model-facing `managed_agent.invoke` tool description projects a bounded
+catalog of admitted routes, profiles, task-suitability evidence, configured
+skills, context-mode rules, and unavailable-route diagnostics. This lets an
+operator ask for delegated work naturally while the parent model still chooses
+only from admitted ids. Unknown agent profiles or skills fail closed.
 
 ## Implementation Slices
 

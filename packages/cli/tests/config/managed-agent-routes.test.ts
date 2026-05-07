@@ -441,7 +441,11 @@ describe("resolveManagedInvocationToolOptions", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-managed-agent-catalog-"));
     try {
       const agentsDir = join(root, ".kiln", "agents");
+      const testSkillDir = join(root, ".kiln", "skills", "test-generator");
+      const repoReviewSkillDir = join(root, ".kiln", "skills", "repo-review");
       mkdirSync(agentsDir, { recursive: true });
+      mkdirSync(testSkillDir, { recursive: true });
+      mkdirSync(repoReviewSkillDir, { recursive: true });
       writeFileSync(
         join(agentsDir, "tdd.md"),
         [
@@ -453,10 +457,42 @@ describe("resolveManagedInvocationToolOptions", () => {
           "role: TDD guide",
           "goal: Write tests before behavior changes",
           "tier: reasoning",
+          "taskAffinity:",
+          "  - test-writing",
           "skills:",
           "  - test-generator",
           "---",
           "Write failing tests first.",
+          "",
+        ].join("\n"),
+        "utf-8",
+      );
+      writeFileSync(
+        join(testSkillDir, "SKILL.md"),
+        [
+          "---",
+          "name: test-generator",
+          "description: Generate focused tests.",
+          "tags:",
+          "  - test",
+          "---",
+          "",
+          "Write tests.",
+          "",
+        ].join("\n"),
+        "utf-8",
+      );
+      writeFileSync(
+        join(repoReviewSkillDir, "SKILL.md"),
+        [
+          "---",
+          "name: repo-review",
+          "description: Review repository evidence.",
+          "tags:",
+          "  - review",
+          "---",
+          "",
+          "Review repo facts.",
           "",
         ].join("\n"),
         "utf-8",
@@ -472,6 +508,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         }],
       }), {
         cwd: root,
+        userHome: root,
         registry: createRegistry("codex"),
         surface: "gui",
       });
@@ -483,8 +520,21 @@ describe("resolveManagedInvocationToolOptions", () => {
         role: "TDD guide",
         goal: "Write tests before behavior changes",
         tier: "reasoning",
+        taskAffinity: ["test-writing"],
         skills: ["test-generator"],
       }));
+      expect(result.managedInvocation?.skillCatalog).toEqual([
+        {
+          name: "repo-review",
+          description: "Review repository evidence.",
+          tags: ["review"],
+        },
+        {
+          name: "test-generator",
+          description: "Generate focused tests.",
+          tags: ["test"],
+        },
+      ]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

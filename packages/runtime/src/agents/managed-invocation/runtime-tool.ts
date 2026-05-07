@@ -10,6 +10,7 @@ import type {
   ManagedAgentProviderRoute,
   ManagedAgentWorkingDirectory,
   ModelTaskSuitability,
+  ModelTaskSuitabilityTask,
   CanonicalSessionEvent,
   ToolDefinition,
 } from "@kilnai/core";
@@ -60,6 +61,7 @@ export interface ManagedInvocationToolOptions {
   readonly routes: readonly ManagedInvocationToolRoute[];
   readonly unavailableRoutes?: readonly ManagedInvocationUnavailableRoute[];
   readonly agentCatalog?: readonly ManagedInvocationAgentCatalogEntry[];
+  readonly skillCatalog?: readonly ManagedInvocationSkillCatalogEntry[];
   readonly requestedBy?: string;
   readonly requestSource?: string;
   readonly artifactStore?: ArtifactResourceStore;
@@ -75,12 +77,19 @@ export interface ManagedInvocationAgentCatalogEntry {
   readonly goal: string;
   readonly tier: string;
   readonly skills?: readonly string[];
+  readonly taskAffinity?: readonly ModelTaskSuitabilityTask[];
   readonly routeId?: string;
   readonly providerRoute?: {
     readonly providerId: string;
     readonly model?: string;
     readonly reasoningEffort?: string;
   };
+}
+
+export interface ManagedInvocationSkillCatalogEntry {
+  readonly name: string;
+  readonly description: string;
+  readonly tags?: readonly string[];
 }
 
 export interface ManagedInvocationSessionEventSink {
@@ -673,6 +682,8 @@ function buildManagedAgentSelectionDescription(options: ManagedInvocationToolOpt
     "Configured admitted agent profiles:",
     agents,
     `Configured admitted skills: ${managedInvocationSkillNames(options).join(", ") || "none"}`,
+    buildManagedSkillCatalogDescription(options),
+    buildManagedTaskAffinityDescription(options),
     "Selection policy:",
     "- Use scout/context profiles before broad or ambiguous implementation.",
     "- Use tdd/test profiles before behavior-changing work.",
@@ -680,6 +691,29 @@ function buildManagedAgentSelectionDescription(options: ManagedInvocationToolOpt
     "- Use reviewer/validator profiles for quality gates, architecture checks, and risk review.",
     "- Use researcher profiles for external or evidence-dependent questions.",
     "- Omit agentProfile for one-off generic read-only child tasks that do not match a configured profile.",
+  ].join("\n");
+}
+
+function buildManagedSkillCatalogDescription(options: ManagedInvocationToolOptions): string {
+  const skillCatalog = options.skillCatalog ?? [];
+  if (skillCatalog.length === 0) {
+    return "Configured skill catalog: none";
+  }
+  const rows = skillCatalog.map((skill) => {
+    const tags = skill.tags && skill.tags.length > 0 ? `, tags=${skill.tags.join(",")}` : "";
+    return `- ${skill.name}: ${skill.description}${tags}`;
+  });
+  return ["Configured skill catalog:", ...rows].join("\n");
+}
+
+function buildManagedTaskAffinityDescription(options: ManagedInvocationToolOptions): string {
+  const routeRows = managedRouteTaskAffinityRows(options.routes);
+  const agentRows = managedAgentTaskAffinityRows(options.agentCatalog ?? []);
+  return [
+    "Task-affinity hints:",
+    routeRows.length > 0 ? `Routes: ${routeRows.join("; ")}` : "Routes: no task suitability evidence",
+    agentRows.length > 0 ? `Agent profiles: ${agentRows.join("; ")}` : "Agent profiles: no configured agent profiles",
+    "Skills: request a skill only when its name appears in the configured skill catalog or on the selected agent profile.",
   ].join("\n");
 }
 
@@ -692,7 +726,28 @@ function managedInvocationAgentProfileNames(options: ManagedInvocationToolOption
 }
 
 function managedInvocationSkillNames(options: ManagedInvocationToolOptions): readonly string[] {
-  return unique((options.agentCatalog ?? []).flatMap((agent) => agent.skills ?? []));
+  return unique([
+    ...(options.skillCatalog ?? []).map((skill) => skill.name),
+    ...(options.agentCatalog ?? []).flatMap((agent) => agent.skills ?? []),
+  ]);
+}
+
+function managedRouteTaskAffinityRows(routes: readonly ManagedInvocationToolRoute[]): readonly string[] {
+  return routes.flatMap((route) => {
+    const suitability = route.taskSuitability ?? [];
+    const preferredOrCapable = suitability.filter((entry) => entry.level === "preferred" || entry.level === "capable");
+    if (preferredOrCapable.length === 0) {
+      return [];
+    }
+    return [`${route.routeId} -> ${preferredOrCapable.map((entry) => `${entry.task}:${entry.level}`).join(",")}`];
+  });
+}
+
+function managedAgentTaskAffinityRows(agents: readonly ManagedInvocationAgentCatalogEntry[]): readonly string[] {
+  return agents.flatMap((agent) => {
+    const tasks = agent.taskAffinity ?? [];
+    return tasks.length > 0 ? [`${agent.name} -> ${tasks.join(",")}`] : [];
+  });
 }
 
 function managedAgentDisplayName(

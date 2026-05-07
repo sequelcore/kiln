@@ -240,6 +240,7 @@ describe("managed invocation runtime tool", () => {
             role: "Read-only context scout",
             goal: "Map impacted files",
             tier: "fast",
+            taskAffinity: ["research", "architecture-review"],
           },
           {
             name: "tdd",
@@ -249,6 +250,19 @@ describe("managed invocation runtime tool", () => {
             goal: "Write tests first",
             tier: "reasoning",
             skills: ["test-generator"],
+            taskAffinity: ["test-writing"],
+          },
+        ],
+        skillCatalog: [
+          {
+            name: "test-generator",
+            description: "Generate focused tests.",
+            tags: ["test"],
+          },
+          {
+            name: "repo-review",
+            description: "Review repository evidence.",
+            tags: ["review"],
           },
         ],
         unavailableRoutes: [{
@@ -285,6 +299,11 @@ describe("managed invocation runtime tool", () => {
     expect(tool?.description).toContain("openrouter-readonly");
     expect(tool?.description).toContain("Configured admitted agent profiles");
     expect(tool?.description).toContain("Configured admitted skills: test-generator");
+    expect(tool?.description).toContain("Configured skill catalog");
+    expect(tool?.description).toContain("repo-review: Review repository evidence");
+    expect(tool?.description).toContain("Task-affinity hints");
+    expect(tool?.description).toContain("Routes: opencode-readonly-a -> architecture-review:capable");
+    expect(tool?.description).toContain("Agent profiles: scout -> research,architecture-review");
     expect(tool?.description).toContain("scout (Dewey)");
     expect(tool?.description).toContain("tdd (Malcolm/tdd-guide)");
     expect(tool?.description).toContain("Selection policy");
@@ -308,7 +327,7 @@ describe("managed invocation runtime tool", () => {
       "Malcolm",
       "tdd-guide",
     ]);
-    expect(schema.properties?.skills?.items?.enum).toEqual(["test-generator"]);
+    expect(schema.properties?.skills?.items?.enum).toEqual(["test-generator", "repo-review"]);
   });
 
   it("prevents invented managed child skills when the admitted catalog has none", () => {
@@ -322,6 +341,7 @@ describe("managed invocation runtime tool", () => {
           goal: "Review architecture",
           tier: "reasoning",
         }],
+        skillCatalog: [],
       },
     });
 

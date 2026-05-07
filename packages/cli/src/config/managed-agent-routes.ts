@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import { basename } from "node:path";
 import type {
   ArtifactResourceStore,
@@ -7,7 +8,7 @@ import type {
   ModelTaskSuitability,
   ManagedAgentWorkingDirectory,
 } from "@kilnai/core";
-import { isDirectProviderId, ModelCapabilityRegistry } from "@kilnai/core";
+import { isDirectProviderId, ModelCapabilityRegistry, SkillRegistry } from "@kilnai/core";
 import {
   ManagedCliHarnessAdapter,
   type ManagedAgentRuntimeAdapter,
@@ -54,6 +55,7 @@ export interface ResolveManagedInvocationToolOptionsContext {
   readonly providerModels?: Readonly<Record<string, readonly string[] | undefined>>;
   readonly directAdapterFactory?: (route: KilnManagedAgentRouteConfig) => ManagedAgentRuntimeAdapter | Promise<ManagedAgentRuntimeAdapter | undefined> | undefined;
   readonly artifactStore?: ArtifactResourceStore;
+  readonly userHome?: string;
 }
 
 export interface ManagedAgentRouteConfigSource {
@@ -110,9 +112,12 @@ export async function resolveManagedInvocationToolOptions(
     goal: agent.goal,
     tier: agent.tier,
     ...(agent.skills ? { skills: agent.skills } : {}),
+    ...(agent.taskAffinity ? { taskAffinity: agent.taskAffinity } : {}),
     ...(agent.routeId ? { routeId: agent.routeId } : {}),
     ...(agent.providerRoute ? { providerRoute: agent.providerRoute } : {}),
   }));
+  const userHome = context.userHome ?? homedir();
+  const skillCatalog = loadManagedInvocationSkillCatalog(context.cwd, userHome);
 
   for (const routeConfig of routeConfigs) {
     const resolved = await resolveRouteConfig(routeConfig, context, config);
@@ -128,6 +133,7 @@ export async function resolveManagedInvocationToolOptions(
       managedInvocation: {
         routes,
         ...(agentCatalog.length > 0 ? { agentCatalog } : {}),
+        ...(skillCatalog.length > 0 ? { skillCatalog } : {}),
         unavailableRoutes: routeHealth
           .filter((route) => !route.available)
           .map((route) => ({
@@ -140,10 +146,26 @@ export async function resolveManagedInvocationToolOptions(
         requestedBy: "assistant",
         requestSource: context.surface,
         ...(context.artifactStore ? { artifactStore: context.artifactStore } : {}),
-        contextResolver: createManagedInvocationContextResolver(context.cwd),
+        contextResolver: createManagedInvocationContextResolver(context.cwd, userHome),
       },
     } : {}),
   };
+}
+
+function loadManagedInvocationSkillCatalog(projectPath: string, userHome: string): readonly {
+  readonly name: string;
+  readonly description: string;
+  readonly tags?: readonly string[];
+}[] {
+  const registry = new SkillRegistry();
+  registry.discoverAll(projectPath, userHome);
+  return registry.all()
+    .map((skill) => ({
+      name: skill.name,
+      description: skill.description,
+      ...(skill.tags.length > 0 ? { tags: skill.tags } : {}),
+    }))
+    .sort((left, right) => left.name.localeCompare(right.name));
 }
 
 function resolveRouteConfigs(

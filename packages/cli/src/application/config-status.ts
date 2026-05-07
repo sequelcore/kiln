@@ -288,6 +288,8 @@ async function readAgentIndexes(projectPath: string): Promise<unknown> {
       model: agent.model,
       tools: agent.tools,
       skills: agent.skills,
+      taskAffinity: agent.taskAffinity,
+      routeId: agent.routeId,
     })),
   };
 }

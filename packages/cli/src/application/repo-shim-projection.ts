@@ -342,11 +342,12 @@ function renderRepoShimBody(input: {
 function formatAgentRow(agent: KilnAgentDefinition): string {
   const tools = agent.tools && agent.tools.length > 0 ? agent.tools.join(", ") : "-";
   const skills = agent.skills && agent.skills.length > 0 ? agent.skills.join(", ") : "-";
+  const taskAffinity = agent.taskAffinity && agent.taskAffinity.length > 0 ? `; tasks: ${agent.taskAffinity.join(", ")}` : "";
   const displayName = agent.displayName ?? "-";
   const instructionProfiles = agent.instructionProfiles && agent.instructionProfiles.length > 0
     ? agent.instructionProfiles.join(", ")
     : "-";
-  return `| ${agent.name} (${agent.scope}) | ${displayName} | ${agent.role} | ${tools} | ${agent.model ?? "-"} | ${skills} | ${instructionProfiles} |`;
+  return `| ${agent.name} (${agent.scope}) | ${displayName} | ${agent.role}${taskAffinity} | ${tools} | ${agent.model ?? "-"} | ${skills} | ${instructionProfiles} |`;
 }
 
 function formatProfilePath(profile: KilnInstructionProfileDefinition, projectPath: string): string {

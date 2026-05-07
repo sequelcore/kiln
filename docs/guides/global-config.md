@@ -364,11 +364,15 @@ Kiln agent profiles are canonical executable roles. A valid `.kiln/agents/*.md`
 or `~/.kiln/agents/*.md` file must declare `name`, `role`, `goal`, and `tier`.
 Optional fields include `displayName`, `nicknameCandidates`, `description`,
 `backstory`, `model`, `tools`, `skills`, `mode`, `authorityProfile`, `routeId`,
-and `providerRoute`. `name` is the stable profile id used in configuration and
-events. `displayName` and `nicknameCandidates` are operator-facing identity
-hints that native harness projections may expose without changing the canonical
-id. Incomplete agent files are ignored instead of being projected as legacy
-partial agents.
+`providerRoute`, and `taskAffinity`. `name` is the stable profile id used in
+configuration and events. `displayName` and `nicknameCandidates` are
+operator-facing identity hints that native harness projections may expose
+without changing the canonical id. `taskAffinity` is an advisory selection list
+using task ids such as `architecture-review`, `backend-coding`,
+`frontend-design`, `mechanical-edit`, `research`, and `test-writing`; it helps
+parent sessions select a configured child but does not grant authority.
+Incomplete agent files are ignored instead of being projected as legacy partial
+agents.
 
 Run `kiln sync --agents` (or `kiln sync` with no flags) to push agent
 definitions from `~/.kiln/agents/` and `.kiln/agents/` to enabled native CLIs:
@@ -471,6 +475,12 @@ or DDD validation. If no configured profile matches a one-off read-only task,
 the parent may omit `agentProfile` and invoke a generic governed child. Parents
 must not invent profile names; unknown profiles fail closed during context
 resolution.
+
+The model-facing tool also projects configured route ids, provider/model task
+suitability, agent-profile task affinity, the configured skill catalog, and
+unavailable-route diagnostics. This is why an operator can say "use the right
+child agent for this review" instead of spelling out every route field; the
+parent still chooses only from bounded Kiln ids.
 
 Canonical instruction profiles are the home for durable workflow standards
 such as "no dead code", "no redundancy", "DDD", "Clean Architecture", "TDD

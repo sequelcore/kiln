@@ -175,6 +175,7 @@ function normalizeAgentUpsert(projectPath: string, rawPayload: unknown): Normali
   const displayName = optionalText(payload.displayName, "displayName", diagnostics);
   const tools = optionalStringList(payload.tools, "tools", diagnostics);
   const skills = optionalStringList(payload.skills, "skills", diagnostics);
+  const taskAffinity = optionalTaskAffinity(payload.taskAffinity, diagnostics);
   const model = optionalText(payload.model, "model", diagnostics);
   const instructions = optionalText(payload.instructions, "instructions", diagnostics);
   const normalized = removeUndefined({
@@ -185,6 +186,7 @@ function normalizeAgentUpsert(projectPath: string, rawPayload: unknown): Normali
     tier,
     tools,
     skills,
+    taskAffinity,
     model,
     instructions,
   });
@@ -270,9 +272,27 @@ function renderExistingAgent(agent: KilnAgentDefinition): string {
     tier: agent.tier,
     tools: agent.tools,
     skills: agent.skills,
+    taskAffinity: agent.taskAffinity,
     model: agent.model,
     instructions: agent.instructions,
   }));
+}
+
+function optionalTaskAffinity(value: unknown, diagnostics: KilnConfigValidationDiagnostic[]): readonly string[] {
+  const entries = optionalStringList(value, "taskAffinity", diagnostics);
+  const supported = new Set([
+    "architecture-review",
+    "backend-coding",
+    "frontend-design",
+    "mechanical-edit",
+    "research",
+    "test-writing",
+  ]);
+  const invalid = entries.filter((entry) => !supported.has(entry));
+  for (const entry of invalid) {
+    diagnostics.push({ severity: "error", field: "taskAffinity", message: `Unsupported task affinity: ${entry}` });
+  }
+  return entries.filter((entry) => supported.has(entry));
 }
 
 function requireId(value: unknown, field: string, diagnostics: KilnConfigValidationDiagnostic[]): string {

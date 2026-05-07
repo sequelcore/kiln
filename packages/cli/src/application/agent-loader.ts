@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { parse } from "yaml";
-import type { AgentTier } from "@kilnai/core";
+import type { AgentTier, ModelTaskSuitabilityTask } from "@kilnai/core";
 
 export interface KilnAgentDefinition {
   readonly name: string;
@@ -17,6 +17,7 @@ export interface KilnAgentDefinition {
   readonly model?: string;
   readonly skills?: readonly string[];
   readonly instructionProfiles?: readonly string[];
+  readonly taskAffinity?: readonly ModelTaskSuitabilityTask[];
   readonly mode?: KilnAgentMode;
   readonly structured?: boolean;
   readonly count?: number;
@@ -94,6 +95,22 @@ function asAgentMode(value: unknown): KilnAgentMode | undefined {
     : undefined;
 }
 
+function asTaskAffinity(value: unknown): readonly ModelTaskSuitabilityTask[] | undefined {
+  const entries = asStringArray(value);
+  if (!entries) {
+    return undefined;
+  }
+  const supported = entries.filter((entry): entry is ModelTaskSuitabilityTask =>
+    entry === "architecture-review"
+    || entry === "backend-coding"
+    || entry === "frontend-design"
+    || entry === "mechanical-edit"
+    || entry === "research"
+    || entry === "test-writing"
+  );
+  return supported.length > 0 ? supported : undefined;
+}
+
 function asProviderRoute(value: unknown): KilnAgentProviderRoute | undefined {
   if (!value || typeof value !== "object") {
     return undefined;
@@ -146,6 +163,7 @@ function parseAgentDefinition(raw: string, scope: "global" | "project"): KilnAge
   const model = asNonEmptyString(record.model);
   const skills = asStringArray(record.skills);
   const instructionProfiles = asStringArray(record.instructionProfiles);
+  const taskAffinity = asTaskAffinity(record.taskAffinity);
   const mode = asAgentMode(record.mode);
   const structured = asBoolean(record.structured);
   const count = asPositiveInteger(record.count);
@@ -169,6 +187,7 @@ function parseAgentDefinition(raw: string, scope: "global" | "project"): KilnAge
     ...(model ? { model } : {}),
     ...(skills ? { skills } : {}),
     ...(instructionProfiles ? { instructionProfiles } : {}),
+    ...(taskAffinity ? { taskAffinity } : {}),
     ...(mode ? { mode } : {}),
     ...(structured !== undefined ? { structured } : {}),
     ...(count !== undefined ? { count } : {}),
