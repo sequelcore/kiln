@@ -88,8 +88,8 @@ describe("syncCommand", () => {
     syncMocks.writeRepoShimProjections.mockResolvedValue({
       written: true,
       targets: [
-        { kind: "agents-md", path: "AGENTS.md", written: true, status: "written", errors: [] },
-        { kind: "claude-md", path: "CLAUDE.md", written: true, status: "written", errors: [] },
+        { kind: "agents", path: "AGENTS.md", written: true, status: "written", errors: [] },
+        { kind: "claude", path: "CLAUDE.md", written: true, status: "written", errors: [] },
       ],
       errors: [],
     });

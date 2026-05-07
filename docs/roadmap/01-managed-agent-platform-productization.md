@@ -124,8 +124,7 @@ surface-specific behavior, or provider compatibility glue.
    approval according to policy.
 8. Started 2026-05-07: add canonical project-root resolution and repo-shim
    projection. `kiln sync` now resolves a project root from explicit
-   `--project`/`--cwd`, then nearest `.kiln/kiln.yaml`, then nearest git root,
-   and the old `agents-md` target has been replaced by `repo-shims`.
+   `--project`/`--cwd`, then nearest `.kiln/kiln.yaml`, then nearest git root.
    `kiln sync --repo-shims` generates signed project `AGENTS.md` for Codex CLI
    and OpenCode plus signed project `CLAUDE.md` for Claude Code from the merged
    canonical Kiln config and deterministic repo evidence. Existing unmanaged
