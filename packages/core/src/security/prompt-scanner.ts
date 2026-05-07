@@ -271,6 +271,7 @@ const SEVERITY_ORDER: readonly ("low" | "medium" | "high" | "critical")[] = [
 // Detection-time only normalization for common obfuscation vectors.
 // Original input is preserved for reporting/audit paths.
 const INVISIBLE_CHAR_DETECTION_PATTERN = /[\u200B\u200C\u200D\uFEFF\u2060\u00AD\u200E\u200F\u202A-\u202E]/u;
+const DETECTION_NORMALIZATION_CANDIDATE_PATTERN = /[^\x00-\x7F\u0009\u000A\u000D]/u;
 const WHITESPACE_CHAR_PATTERN = /\s/u;
 
 const CONFUSABLE_CHAR_MAP: Readonly<Record<string, string>> = {
@@ -370,6 +371,10 @@ function normalizeForDetection(input: string): DetectionNormalizedInput {
   };
 }
 
+function shouldNormalizeForDetection(input: string): boolean {
+  return DETECTION_NORMALIZATION_CANDIDATE_PATTERN.test(input);
+}
+
 function normalizedMatchStartInOriginal(
   normalizedMatch: RegExpExecArray,
   normalizedInput: DetectionNormalizedInput,
@@ -437,18 +442,29 @@ export class PromptScanner {
     const threats: PromptThreat[] = [];
     const educational = isEducationalContext(input);
     const allowedPatterns = this.config.allowedPatterns ?? [];
-    const normalizedInput = normalizeForDetection(input);
+    const normalizedInput = shouldNormalizeForDetection(input)
+      ? normalizeForDetection(input)
+      : null;
 
     for (const p of INJECTION_PATTERNS) {
       // Check if this pattern name is in the whitelist
       if (allowedPatterns.includes(p.name)) continue;
 
       const directMatch = p.pattern.exec(input);
-      const normalizedMatch = directMatch ? null : p.pattern.exec(normalizedInput.text);
+      const normalizedMatch = directMatch || !normalizedInput ? null : p.pattern.exec(normalizedInput.text);
       if (!directMatch && !normalizedMatch) continue;
-      const matchStart = directMatch
-        ? directMatch.index
-        : normalizedMatchStartInOriginal(normalizedMatch!, normalizedInput);
+
+      let matchStart: number;
+      let matchedSnippet: string;
+      if (directMatch) {
+        matchStart = directMatch.index;
+        matchedSnippet = directMatch[0];
+      } else if (normalizedMatch && normalizedInput) {
+        matchStart = normalizedMatchStartInOriginal(normalizedMatch, normalizedInput);
+        matchedSnippet = normalizedMatchInOriginal(input, normalizedMatch, normalizedInput);
+      } else {
+        continue;
+      }
 
       let severity = p.severity;
 
@@ -459,9 +475,6 @@ export class PromptScanner {
         severity = "low";
       }
 
-      const matchedSnippet = directMatch
-        ? directMatch[0]
-        : normalizedMatchInOriginal(input, normalizedMatch!, normalizedInput);
       threats.push({
         pattern: p.name,
         severity,

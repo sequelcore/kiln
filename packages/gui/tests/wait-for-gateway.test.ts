@@ -16,6 +16,7 @@ describe("waitForGateway", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.resetAllMocks();
   });
 
@@ -36,39 +37,49 @@ describe("waitForGateway", () => {
   });
 
   it("Throws GatewayTimeoutError after timeoutMs", async () => {
+    vi.useFakeTimers();
     fetchMock.mockResolvedValue({
       ok: false,
       status: 503,
     });
 
-    await expect(
-      waitForGateway("http://localhost:3800", {
-        intervalMs: 50,
-        timeoutMs: 150,
-      })
-    ).rejects.toThrow(GatewayTimeoutError);
+    const waitPromise = waitForGateway("http://localhost:3800", {
+      intervalMs: 50,
+      timeoutMs: 150,
+    });
+    const rejection = expect(waitPromise).rejects.toThrow(GatewayTimeoutError);
+
+    await vi.advanceTimersByTimeAsync(200);
+
+    await rejection;
   });
 
   it("Respects intervalMs", async () => {
+    vi.useFakeTimers();
     fetchMock.mockResolvedValue({
       ok: false,
     });
 
-    const start = Date.now();
+    const waitPromise = waitForGateway("http://localhost:3800", {
+      intervalMs: 100,
+      timeoutMs: 350,
+    });
+    const rejection = expect(waitPromise).rejects.toThrow(GatewayTimeoutError);
 
-    await expect(
-      waitForGateway("http://localhost:3800", {
-        intervalMs: 100,
-        timeoutMs: 350,
-      })
-    ).rejects.toThrow(GatewayTimeoutError);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
 
-    const elapsed = Date.now() - start;
+    await vi.advanceTimersByTimeAsync(100);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
 
-    // Depending on scheduler jitter, this can be 3 or 4 calls.
-    expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(3);
-    expect(fetchMock.mock.calls.length).toBeLessThanOrEqual(4);
-    expect(elapsed).toBeGreaterThanOrEqual(280);
-    expect(elapsed).toBeLessThan(500);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+
+    await vi.advanceTimersByTimeAsync(100);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+
+    await vi.advanceTimersByTimeAsync(100);
+    await rejection;
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 });
