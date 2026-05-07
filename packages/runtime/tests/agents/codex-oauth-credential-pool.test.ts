@@ -112,6 +112,16 @@ describe("CodexOAuthCredentialPoolService", () => {
     expect(await readFile(join(rootDir, "codex-oauth.json"), "utf8")).toContain("access-singleton");
   });
 
+  it("resolves valid access tokens from canonical pooled credential files", async () => {
+    const service = new CodexOAuthCredentialPoolService({ rootDir });
+    await service.linkCredential({ id: "pooled", tokenFile: token({ access_token: "access-pooled" }) });
+    await writeFile(join(rootDir, "codex-oauth.json"), JSON.stringify(token({
+      access_token: "access-singleton",
+    })), "utf8");
+
+    await expect(service.getValidAccessToken()).resolves.toBe("access-pooled");
+  });
+
   it("creates a pooled adapter that rotates on rate limits and binds each token path", async () => {
     const service = new CodexOAuthCredentialPoolService({ rootDir });
     await service.linkCredential({ id: "first", tokenFile: token({ access_token: "access-first" }) });

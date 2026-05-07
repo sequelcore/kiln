@@ -99,6 +99,21 @@ export class CodexOAuthCredentialPoolService {
     });
   }
 
+  async getValidAccessToken(): Promise<string> {
+    const credentials = await this.readCredentials();
+    for (const credential of credentials) {
+      try {
+        const token = await new CodexOAuthAuth({ tokenPath: credential.tokenPath }).getValidAccessToken();
+        if (token.trim().length > 0) {
+          return token;
+        }
+      } catch {
+        continue;
+      }
+    }
+    return "";
+  }
+
   async clearCredentials(): Promise<void> {
     const files = await this.listCredentialFileNames();
     for (const file of files) {

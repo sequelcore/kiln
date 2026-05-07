@@ -209,6 +209,58 @@ describe("CodexOAuthAdapter", () => {
       expect(body.reasoning).toEqual({ effort: "high" });
     });
 
+    it("maps provider-safe tool names back to canonical tool names", async () => {
+      mockFetch.mockResolvedValueOnce(sseResponse([
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_tools",
+              status: "completed",
+              output: [
+                {
+                  type: "function_call",
+                  call_id: "call_1",
+                  name: "mcp_memory_store",
+                  arguments: JSON.stringify({ key: "answer" }),
+                },
+              ],
+              usage: { input_tokens: 1, output_tokens: 1 },
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter("gpt-5.4");
+      const response = await adapter.createMessage(createOptions({
+        tools: [
+          {
+            name: "mcp.memory.store",
+            description: "Store memory.",
+            inputSchema: {
+              type: "object",
+              properties: {
+                key: { type: "string" },
+              },
+              required: ["key"],
+            },
+            tags: new Set(["memory"]),
+          },
+        ],
+      }));
+
+      const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(String(init.body)) as { tools?: Array<{ name: string }> };
+      expect(body.tools?.[0]?.name).toBe("mcp_memory_store");
+      expect(response.toolCalls).toEqual([
+        {
+          id: "call_1",
+          name: "mcp.memory.store",
+          input: { key: "answer" },
+        },
+      ]);
+    });
+
     it("calls auth.getValidAccessToken() before each request", async () => {
       mockFetch.mockResolvedValueOnce(sseResponse([
         {

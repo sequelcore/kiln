@@ -1,10 +1,10 @@
 import { execSync } from "node:child_process";
 import {
-  CodexOAuthAuth,
   OpenCodeAuth,
   OPENCODE_BASE_URL,
   formatProviderModelRouteCooldown,
 } from "@kilnai/core";
+import { CodexOAuthCredentialPoolService } from "../agents/credential-pool/index.js";
 import { ProviderModelRouteHealthStore } from "../agents/provider-route-health/index.js";
 import {
   GUI_PROVIDER_DISPLAY_ORDER,
@@ -395,7 +395,7 @@ async function discoverCodexOauthModelDiscovery(
   }
   let token = "";
   try {
-    token = await new CodexOAuthAuth().getValidAccessToken();
+    token = await new CodexOAuthCredentialPoolService().getValidAccessToken();
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
     return unavailableCliProviderDiscovery(

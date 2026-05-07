@@ -57,6 +57,16 @@ interface ResponsesRequestBody {
   readonly tools?: readonly ResponsesTool[];
 }
 
+interface ResponsesRequest {
+  readonly body: ResponsesRequestBody;
+  readonly toolNames: ToolNameMapping;
+}
+
+interface ToolNameMapping {
+  toProviderName(canonicalName: string): string;
+  toCanonicalName(providerName: string): string;
+}
+
 interface ResponsesOutputItem {
   readonly type?: string;
   readonly id?: string;
@@ -123,14 +133,16 @@ export class CodexOAuthAdapter implements ProviderAdapter {
   }
 
   async createMessage(options: CreateMessageOptions): Promise<AgentResponse> {
-    const body = this.buildRequestBody(options);
+    const request = this.buildRequest(options);
+    const { body } = request;
     const response = await this.postWith401Retry(body);
     const completed = await this.consumeStreamingResponse(response);
-    return this.mapResponse(completed);
+    return this.mapResponse(completed, request.toolNames);
   }
 
   async *streamMessage(options: CreateMessageOptions): AsyncGenerator<AgentStreamEvent> {
-    const body = this.buildRequestBody(options);
+    const request = this.buildRequest(options);
+    const { body } = request;
     const response = await this.postWith401Retry(body);
     const shouldBufferText = (options.tools?.length ?? 0) > 0;
     let collectedText = "";
@@ -170,8 +182,11 @@ export class CodexOAuthAdapter implements ProviderAdapter {
             type: "tool_use",
             content: JSON.stringify({
               id: added.item.call_id ?? added.item.id ?? "",
-              name: added.item.name ?? "",
-              input: normalizeToolInput(added.item.name ?? "", added.item.arguments),
+              name: request.toolNames.toCanonicalName(added.item.name ?? ""),
+              input: normalizeToolInput(
+                request.toolNames.toCanonicalName(added.item.name ?? ""),
+                added.item.arguments,
+              ),
             }),
           };
         }
@@ -250,7 +265,7 @@ export class CodexOAuthAdapter implements ProviderAdapter {
             collectedFunctionCallArguments,
           )
           : completed.response ?? {};
-        const mapped = this.mapResponse(completedResponse);
+        const mapped = this.mapResponse(completedResponse, request.toolNames);
         if (shouldBufferText) {
           for (const part of mapped.parts) {
             if (part.type === "text" && part.text.length > 0) {
@@ -273,18 +288,19 @@ export class CodexOAuthAdapter implements ProviderAdapter {
     }
   }
 
-  private buildRequestBody(
+  private buildRequest(
     options: CreateMessageOptions,
-  ): ResponsesRequestBody {
+  ): ResponsesRequest {
     const input: ResponsesInputItem[] = [];
+    const toolNames = createToolNameMapping(collectCanonicalToolNames(options));
 
     for (const message of options.messages) {
-      input.push(...this.mapMessageToInputItems(message.role, message.parts));
+      input.push(...this.mapMessageToInputItems(message.role, message.parts, toolNames));
     }
 
     const tools = options.tools?.map((tool) => ({
       type: "function" as const,
-      name: tool.name,
+      name: toolNames.toProviderName(tool.name),
       description: tool.description,
       parameters: toStrictToolSchema(tool.inputSchema),
       strict: true,
@@ -299,20 +315,24 @@ export class CodexOAuthAdapter implements ProviderAdapter {
     }
 
     return {
-      model: this.model,
-      instructions: options.system,
-      input,
-      store: false,
-      stream: true,
-      max_output_tokens: options.maxTokens,
-      ...(options.reasoningEffort ? { reasoning: { effort: options.reasoningEffort } } : {}),
-      ...(tools ? { tools } : {}),
+      body: {
+        model: this.model,
+        instructions: options.system,
+        input,
+        store: false,
+        stream: true,
+        max_output_tokens: options.maxTokens,
+        ...(options.reasoningEffort ? { reasoning: { effort: options.reasoningEffort } } : {}),
+        ...(tools ? { tools } : {}),
+      },
+      toolNames,
     };
   }
 
   private mapMessageToInputItems(
     role: "user" | "assistant",
     parts: readonly ContentPart[],
+    toolNames: ToolNameMapping,
   ): ResponsesInputItem[] {
     const items: ResponsesInputItem[] = [];
     const textContent = extractText(parts);
@@ -329,7 +349,7 @@ export class CodexOAuthAdapter implements ProviderAdapter {
         items.push({
           type: "function_call",
           call_id: part.id,
-          name: part.name,
+          name: toolNames.toProviderName(part.name),
           arguments: JSON.stringify(part.input),
         });
         continue;
@@ -396,7 +416,7 @@ export class CodexOAuthAdapter implements ProviderAdapter {
     });
   }
 
-  private mapResponse(response: ResponsesResponse): AgentResponse & {
+  private mapResponse(response: ResponsesResponse, toolNames: ToolNameMapping): AgentResponse & {
     readonly cost: {
       readonly inputPer1M: number;
       readonly outputPer1M: number;
@@ -421,10 +441,11 @@ export class CodexOAuthAdapter implements ProviderAdapter {
       }
 
       if (item.type === "function_call") {
+        const canonicalName = toolNames.toCanonicalName(item.name ?? "");
         toolCalls.push({
           id: item.call_id ?? item.id ?? "",
-          name: item.name ?? "",
-          input: normalizeToolInput(item.name ?? "", item.arguments),
+          name: canonicalName,
+          input: normalizeToolInput(canonicalName, item.arguments),
         });
       }
     }
@@ -964,6 +985,57 @@ function jsonValuesEqual(left: unknown, right: unknown): boolean {
     return leftKeys.every((key) => jsonValuesEqual(left[key], right[key]));
   }
   return false;
+}
+
+function collectCanonicalToolNames(options: CreateMessageOptions): string[] {
+  const names = new Set(options.tools?.map((tool) => tool.name) ?? []);
+  for (const message of options.messages) {
+    for (const part of message.parts) {
+      if (part.type === "tool_use") {
+        names.add(part.name);
+      }
+    }
+  }
+  return [...names];
+}
+
+function createToolNameMapping(canonicalNames: readonly string[]): ToolNameMapping {
+  const canonicalToProvider = new Map<string, string>();
+  const providerToCanonical = new Map<string, string>();
+  const usedProviderNames = new Set<string>();
+
+  for (const canonicalName of canonicalNames) {
+    if (canonicalToProvider.has(canonicalName)) {
+      continue;
+    }
+    const baseName = toResponsesToolName(canonicalName);
+    let providerName = baseName;
+    let suffix = 2;
+    while (usedProviderNames.has(providerName)) {
+      providerName = `${baseName}_${suffix}`;
+      suffix += 1;
+    }
+    usedProviderNames.add(providerName);
+    canonicalToProvider.set(canonicalName, providerName);
+    providerToCanonical.set(providerName, canonicalName);
+  }
+
+  return {
+    toProviderName: (canonicalName) =>
+      canonicalToProvider.get(canonicalName) ?? toResponsesToolName(canonicalName),
+    toCanonicalName: (providerName) => providerToCanonical.get(providerName) ?? providerName,
+  };
+}
+
+function toResponsesToolName(name: string): string {
+  if (/^[a-zA-Z0-9_-]+$/.test(name)) {
+    return name;
+  }
+  const normalized = name
+    .replace(/[^a-zA-Z0-9_-]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return normalized.length > 0 ? normalized : "tool";
 }
 
 function toStrictToolSchema(schema: Record<string, unknown>): Record<string, unknown> {

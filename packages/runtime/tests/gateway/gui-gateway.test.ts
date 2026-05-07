@@ -4,7 +4,6 @@ import { EventEmitter } from "node:events";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  CodexOAuthAuth,
   GPT4O,
   OpenCodeAuth,
   OPENCODE_BASE_URL,
@@ -32,6 +31,7 @@ import {
 } from "../../src/gateway/gui-provider-models.js";
 import type { ManagedInvocationToolOptions } from "../../src/agents/managed-invocation/runtime-tool.js";
 import type { ManagedAgentRuntimeAdapter } from "../../src/agents/managed-invocation/index.js";
+import { CodexOAuthCredentialPoolService } from "../../src/agents/credential-pool/codex-oauth-credential-pool.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 
 const guiSocketHarness = vi.hoisted(() => {
@@ -3009,7 +3009,7 @@ describe("discoverGuiDirectProviderModelDiscovery", () => {
 
   it("discovers codex-oauth models from live OAuth auth and the Codex models endpoint", async () => {
     const codexAuthSpy = vi
-      .spyOn(CodexOAuthAuth.prototype, "getValidAccessToken")
+      .spyOn(CodexOAuthCredentialPoolService.prototype, "getValidAccessToken")
       .mockResolvedValue("test-codex-token");
     const fetchSpy = vi.fn(async (url: string) => {
       const requestedUrl = new URL(url);
@@ -3099,7 +3099,7 @@ describe("discoverGuiDirectProviderModelDiscovery", () => {
 
   it("diagnoses missing codex-oauth OAuth credentials", async () => {
     const codexAuthSpy = vi
-      .spyOn(CodexOAuthAuth.prototype, "getValidAccessToken")
+      .spyOn(CodexOAuthCredentialPoolService.prototype, "getValidAccessToken")
       .mockResolvedValue("");
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
@@ -3122,7 +3122,7 @@ describe("discoverGuiDirectProviderModelDiscovery", () => {
 
   it("diagnoses expired codex-oauth OAuth credentials", async () => {
     const codexAuthSpy = vi
-      .spyOn(CodexOAuthAuth.prototype, "getValidAccessToken")
+      .spyOn(CodexOAuthCredentialPoolService.prototype, "getValidAccessToken")
       .mockRejectedValue(new Error("refresh token expired"));
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
@@ -3145,7 +3145,7 @@ describe("discoverGuiDirectProviderModelDiscovery", () => {
 
   it("diagnoses codex-oauth model endpoint failure", async () => {
     const codexAuthSpy = vi
-      .spyOn(CodexOAuthAuth.prototype, "getValidAccessToken")
+      .spyOn(CodexOAuthCredentialPoolService.prototype, "getValidAccessToken")
       .mockResolvedValue("test-codex-token-endpoint-failure");
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 503 })));
 
@@ -3166,7 +3166,7 @@ describe("discoverGuiDirectProviderModelDiscovery", () => {
 
   it("diagnoses an empty codex-oauth model response", async () => {
     const codexAuthSpy = vi
-      .spyOn(CodexOAuthAuth.prototype, "getValidAccessToken")
+      .spyOn(CodexOAuthCredentialPoolService.prototype, "getValidAccessToken")
       .mockResolvedValue("test-codex-token-empty-models");
     vi.stubGlobal("fetch", vi.fn(async () => ({
       ok: true,
@@ -3190,7 +3190,7 @@ describe("discoverGuiDirectProviderModelDiscovery", () => {
 
   it("reuses in-flight and cached codex-oauth model discovery", async () => {
     const codexAuthSpy = vi
-      .spyOn(CodexOAuthAuth.prototype, "getValidAccessToken")
+      .spyOn(CodexOAuthCredentialPoolService.prototype, "getValidAccessToken")
       .mockResolvedValue("test-codex-token-cache");
     const fetchSpy = vi.fn(async () => ({
       ok: true,
