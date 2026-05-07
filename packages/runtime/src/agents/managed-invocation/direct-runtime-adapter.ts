@@ -112,14 +112,14 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
       userId: request.requestedBy,
       systemPrompt: request.input.summary,
     });
-    const execution = this.runChildRuntime(request, childSession);
+    const execution = this.runChildRuntime(input, childSession);
     const timeout = sleep(request.authority.timeoutMs).then(() => TIMEOUT);
     const raced: ManagedAgentInvocationRecord | typeof TIMEOUT = await Promise.race([execution, timeout]);
 
     if (raced === TIMEOUT) {
       execution.catch(() => undefined);
       return defineManagedAgentInvocationRecord({
-        ...this.baseRecord(request),
+        ...this.baseRecord(input),
         lifecycleState: "timed-out",
         childSessionId,
         childTurnId,
@@ -141,9 +141,10 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
   }
 
   private async runChildRuntime(
-    request: ManagedAgentInvocationRequest,
+    input: ManagedAgentRuntimeInvocationInput,
     childSession: RuntimeSession,
   ): Promise<ManagedAgentInvocationRecord> {
+    const request = input.request;
     const childSessionId = childSession.id;
     const childTurnId = `${childSessionId}:turn:1`;
     try {
@@ -182,7 +183,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
       const summary = clipSummary(extractText(result.parts));
 
       return defineManagedAgentInvocationRecord({
-        ...this.baseRecord(request),
+        ...this.baseRecord(input),
         lifecycleState: "completed",
         childSessionId,
         childTurnId,
@@ -208,7 +209,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
       });
     } catch (err) {
       return defineManagedAgentInvocationRecord({
-        ...this.baseRecord(request),
+        ...this.baseRecord(input),
         lifecycleState: "failed",
         childSessionId,
         childTurnId,
@@ -227,10 +228,11 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
     }
   }
 
-  private baseRecord(request: ManagedAgentInvocationRequest): Omit<
+  private baseRecord(input: ManagedAgentRuntimeInvocationInput): Omit<
     ManagedAgentInvocationRecord,
     "lifecycleState" | "childSessionId" | "childTurnId" | "transcript" | "diagnostics" | "usage" | "resultHandoff" | "writeEvidence"
   > {
+    const request = input.request;
     return {
       invocationId: request.invocationId,
       agentId: request.agentId,
@@ -241,6 +243,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
       adapterKind: request.adapterKind,
       executionMode: request.executionMode,
       authority: request.authority,
+      capabilitySnapshot: input.admission.capabilitySnapshot,
     };
   }
 

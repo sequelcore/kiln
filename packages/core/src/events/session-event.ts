@@ -3,6 +3,7 @@ import type { ExecutionBillingMode } from "../agents/execution-identity.js";
 import type {
   ManagedAgentAdapterKind,
   ManagedAgentAdmissionProfile,
+  ManagedAgentCapabilitySnapshot,
   ManagedAgentInvocationContextMode,
   ManagedAgentExecutionMode,
   ManagedAgentProviderRoute,
@@ -199,6 +200,7 @@ export interface SessionAgentInvocationIdentity {
   readonly adapterKind?: ManagedAgentAdapterKind;
   readonly executionMode?: ManagedAgentExecutionMode;
   readonly authorityProfileId?: string;
+  readonly capabilitySnapshot?: ManagedAgentCapabilitySnapshot;
   readonly invocationContext?: SessionAgentInvocationContext;
 }
 

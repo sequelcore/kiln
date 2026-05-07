@@ -6,6 +6,7 @@ import type {
 } from "@kilnai/core";
 import {
   defineManagedAgentAdapterDescriptor,
+  buildManagedAgentCapabilitySnapshot,
   defineManagedAgentInvocationRequest,
   defineManagedAgentInvocationRecord,
 } from "@kilnai/core";
@@ -97,7 +98,12 @@ function makeDescriptor(overrides: Partial<ManagedAgentAdapterDescriptor> = {}):
   });
 }
 
-function makeRecord(): ManagedAgentInvocationRecord {
+function makeRecord(
+  capabilitySnapshot = buildManagedAgentCapabilitySnapshot(makeRequest(), makeDescriptor(), {
+    capturedAt: "2026-05-07T08:00:00.000Z",
+    routeId: "opencode-readonly",
+  }),
+): ManagedAgentInvocationRecord {
   const request = makeRequest();
   return defineManagedAgentInvocationRecord({
     invocationId: request.invocationId,
@@ -110,6 +116,7 @@ function makeRecord(): ManagedAgentInvocationRecord {
     adapterKind: request.adapterKind,
     executionMode: request.executionMode,
     authority: request.authority,
+    capabilitySnapshot,
     childSessionId: "child-session-1",
     transcript: {
       uri: "kiln://artifacts/invocation-1/transcript",
@@ -133,7 +140,7 @@ function makeRecord(): ManagedAgentInvocationRecord {
 
 describe("RuntimeManagedAgentInvocationService", () => {
   it("admits through core policy before invoking the runtime adapter", async () => {
-    const invoke = vi.fn(async () => makeRecord());
+    const invoke = vi.fn(async ({ admission }) => makeRecord(admission.capabilitySnapshot));
     const adapter: ManagedAgentRuntimeAdapter = {
       descriptor: makeDescriptor(),
       invoke,

@@ -95,6 +95,15 @@ diff previews, cost updates, provider routing, assistant deltas, continuity
 decisions, and turn completion are emitted as canonical operator session
 events.
 
+Managed child invocations use the same event stream. The
+`agent_invocation_requested`, `agent_invocation_started`,
+`agent_invocation_completed`, `agent_invocation_failed`, and
+`agent_invocation_cancelled` events carry canonical child identity plus the
+admission-time `ManagedAgentCapabilitySnapshot` when the invocation was
+admitted. Replay and audit must use that snapshot rather than recomputing route
+health, provider proof, adapter descriptor, resource-plane availability, or
+child identity from mutable runtime state.
+
 The shared transport contract is:
 
 ```text

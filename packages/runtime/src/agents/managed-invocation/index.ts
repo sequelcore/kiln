@@ -6,6 +6,8 @@ import {
 import type {
   ManagedAgentAdapterDescriptor,
   ManagedAgentAdmissionDecision,
+  ManagedAgentCapabilitySnapshot,
+  ManagedAgentCapabilitySnapshotInput,
   ManagedAgentInvocationRecord,
   ManagedAgentInvocationRequest,
 } from "@kilnai/core";
@@ -98,8 +100,9 @@ export class RuntimeManagedAgentInvocationService {
   async invoke(
     request: ManagedAgentInvocationRequest,
     adapter: ManagedAgentRuntimeAdapter,
+    capabilitySnapshotInput: ManagedAgentCapabilitySnapshotInput = {},
   ): Promise<ManagedAgentRuntimeInvocationResult> {
-    const decision = evaluateManagedAgentAdmission(request, adapter.descriptor);
+    const decision = evaluateManagedAgentAdmission(request, adapter.descriptor, capabilitySnapshotInput);
     if (decision.status === "denied") {
       return {
         status: "denied",
@@ -152,7 +155,11 @@ export class RuntimeManagedAgentInvocationService {
       throw new ManagedAgentRuntimeAdmissionError("Managed agent admission profile does not match request");
     }
 
-    const runtimeDecision = evaluateManagedAgentAdmission(input.request, input.adapter.descriptor);
+    const runtimeDecision = evaluateManagedAgentAdmission(
+      input.request,
+      input.adapter.descriptor,
+      snapshotInputFromAdmission(input.admission.capabilitySnapshot),
+    );
     if (runtimeDecision.status !== "admitted") {
       throw new ManagedAgentRuntimeAdmissionError(`Managed agent runtime admission no longer satisfies adapter policy: ${runtimeDecision.reason}`);
     }
@@ -226,6 +233,9 @@ export class RuntimeManagedAgentInvocationService {
     if (!sameJson(record.authority, request.authority)) {
       throw new ManagedAgentRuntimeAdmissionError("Managed agent adapter returned authority outside the admitted request");
     }
+    if (!sameJson(record.capabilitySnapshot, admission.capabilitySnapshot)) {
+      throw new ManagedAgentRuntimeAdmissionError("Managed agent adapter returned capability snapshot outside the admitted request");
+    }
 
     if (admission.writeAuthority === undefined) {
       if (record.authority.writeAuthority !== undefined) {
@@ -252,4 +262,15 @@ export class RuntimeManagedAgentInvocationService {
 
 function sameJson(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function snapshotInputFromAdmission(snapshot: ManagedAgentCapabilitySnapshot): ManagedAgentCapabilitySnapshotInput {
+  return {
+    capturedAt: snapshot.capturedAt,
+    routeId: snapshot.routeId,
+    routeHealth: snapshot.routeHealth,
+    providerModelProof: snapshot.providerModelProof,
+    resourcePlane: snapshot.resourcePlane,
+    childIdentity: snapshot.childIdentity,
+  };
 }

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  buildManagedAgentCapabilitySnapshot,
   defineManagedAgentAdapterDescriptor,
   defineManagedAgentInvocationRecord,
   defineManagedAgentInvocationRequest,
@@ -151,6 +152,10 @@ function admitted(request: ManagedAgentInvocationRequest): Extract<ManagedAgentA
     credentialRouteId: "credential-route:opencode:primary",
     memoryScope: request.authority.memoryScope.scope,
     writeAuthority: request.authority.writeAuthority,
+    capabilitySnapshot: buildManagedAgentCapabilitySnapshot(request, makeDescriptor(), {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode-write",
+    }),
   };
 }
 
@@ -166,6 +171,10 @@ function makeRecord(request: ManagedAgentInvocationRequest): ManagedAgentInvocat
     adapterKind: request.adapterKind,
     executionMode: request.executionMode,
     authority: request.authority,
+    capabilitySnapshot: buildManagedAgentCapabilitySnapshot(request, makeDescriptor(), {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode-write",
+    }),
     childSessionId: "child-session-1",
     transcript: {
       uri: "kiln://managed-invocations/invocation-write-1/transcript",

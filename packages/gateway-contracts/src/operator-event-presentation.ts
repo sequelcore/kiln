@@ -836,6 +836,7 @@ function addManagedInvocationToolDetails(
     addItem(details, "Adapter", identity.adapterKind);
     addItem(details, "Execution", identity.executionMode);
     addItem(details, "Authority", identity.authorityProfileId);
+    addManagedCapabilitySnapshotDetails(details, identity);
     addItem(details, "Invocation ID", identity.invocationId);
     addItem(details, "Route ID", identity.routeId);
     addItem(details, "Child session", identity.childSessionId);
@@ -843,6 +844,28 @@ function addManagedInvocationToolDetails(
   }
   addItem(details, "Task", identity.task);
   addItem(details, "Summary", identity.summary);
+}
+
+function addManagedCapabilitySnapshotDetails(
+  details: OperatorEventDetailItem[],
+  identity: Record<string, unknown>,
+): void {
+  const snapshot = asRecord(identity.capabilitySnapshot);
+  if (!snapshot) {
+    return;
+  }
+  const routeHealth = asRecord(snapshot.routeHealth);
+  const providerModelProof = asRecord(snapshot.providerModelProof);
+  const resourcePlane = asRecord(snapshot.resourcePlane);
+  const childIdentity = asRecord(snapshot.childIdentity);
+  addItem(details, "Capability snapshot", snapshot.snapshotId);
+  addItem(details, "Captured", snapshot.capturedAt);
+  addItem(details, "Route health", routeHealth?.status);
+  addItem(details, "Route health reason", routeHealth?.reason);
+  addItem(details, "Provider proof", providerModelProof?.status);
+  addItem(details, "Provider proof source", providerModelProof?.source);
+  addItem(details, "Resource plane", resourcePlane?.available === true ? "available" : resourcePlane?.available === false ? "unavailable" : undefined);
+  addItem(details, "Child identity", childIdentity?.displayName ?? childIdentity?.admittedAgentProfile ?? childIdentity?.requestedAgentProfile ?? childIdentity?.agentId);
 }
 
 function providerIdentity(payload: Record<string, unknown>): { provider: string | null; model: string | null } {
@@ -883,7 +906,7 @@ function toolStartedPresentation(payload: Record<string, unknown>): OperatorEven
   if (managedInvocation) {
     addManagedInvocationToolDetails(details, managedInvocation, { includeRuntimeEvidence: false });
   }
-  addPrimitiveItems(details, input, 10, ["toolName", "toolCallId", "input", "profile", "providerRoute", "routeId", "task", "summary", "resourceUris", "agentProfile", "skills", "contextMode", "context"]);
+  addPrimitiveItems(details, input, 10, ["toolName", "toolCallId", "input", "profile", "providerRoute", "routeId", "task", "summary", "resourceUris", "agentProfile", "skills", "contextMode", "context", "capabilitySnapshot"]);
   return {
     title: `Using ${toolName}`,
     summary: managedInvocationSummary ? `${managedInvocationSummary} · Execution in progress` : "Execution in progress",
@@ -911,7 +934,7 @@ function toolCompletedPresentation(payload: Record<string, unknown>): OperatorEv
   if (managedInvocation) {
     addManagedInvocationToolDetails(details, managedInvocation, { includeRuntimeEvidence: true });
   }
-  addPrimitiveItems(details, asRecord(payload.input), 16, ["toolName", "toolCallId", "input", "status", "result", "profile", "providerRoute", "routeId", "task", "summary", "resourceUris", "agentProfile", "skills", "contextMode", "context"]);
+  addPrimitiveItems(details, asRecord(payload.input), 16, ["toolName", "toolCallId", "input", "status", "result", "profile", "providerRoute", "routeId", "task", "summary", "resourceUris", "agentProfile", "skills", "contextMode", "context", "capabilitySnapshot"]);
   return {
     title: `Completed ${toolName}`,
     summary: summary ?? undefined,
@@ -1094,6 +1117,7 @@ function agentPresentation(kind: OperatorSessionEventKind, payload: Record<strin
   addItem(details, "Adapter", payload.adapterKind);
   addItem(details, "Execution", payload.executionMode);
   addItem(details, "Authority", payload.authorityProfileId);
+  addManagedCapabilitySnapshotDetails(details, payload);
   addItem(details, "Invocation ID", payload.invocationId);
   addItem(details, "Requested by", payload.requestedBy);
   addItem(details, "Source", payload.requestSource ?? payload.source);
@@ -1106,7 +1130,7 @@ function agentPresentation(kind: OperatorSessionEventKind, payload: Record<strin
     details,
     payload,
     8,
-    ["agentName", "agentType", "agentId", "profile", "providerRoute", "invocationContext", "adapterKind", "executionMode", "authorityProfileId", "invocationId", "requestedBy", "requestSource", "source", "attempt", "durationMs", "resultSummary", "result", "errorMessage", "errorCode", "reason", "cancelledBy"],
+    ["agentName", "agentType", "agentId", "profile", "providerRoute", "invocationContext", "adapterKind", "executionMode", "authorityProfileId", "capabilitySnapshot", "invocationId", "requestedBy", "requestSource", "source", "attempt", "durationMs", "resultSummary", "result", "errorMessage", "errorCode", "reason", "cancelledBy"],
   );
   return {
     title: titles[kind] ?? "Agent invocation",

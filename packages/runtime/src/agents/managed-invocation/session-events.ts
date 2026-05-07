@@ -6,6 +6,7 @@ import type {
   CanonicalAgentInvocationStartedEvent,
   CanonicalSessionEvent,
   ManagedAgentAdmissionDecision,
+  ManagedAgentCapabilitySnapshot,
   ManagedAgentInvocationRecord,
   ManagedAgentInvocationRequest,
   SessionAgentInvocationEvidence,
@@ -42,7 +43,7 @@ export function appendManagedInvocationSessionEvents(
     parentSessionId: input.request.parentSessionId,
     requestedBy: input.request.requestedBy,
     requestSource: input.request.requestSource,
-    ...managedInvocationIdentity(input.request),
+    ...managedInvocationIdentity(input.request, undefined, admittedCapabilitySnapshot(input.decision)),
     inputSummary: input.request.input.summary,
     source,
     timestamp,
@@ -208,18 +209,29 @@ function formatAdmissionDenied(decision: Extract<ManagedAgentAdmissionDecision, 
 function managedInvocationIdentity(
   source: ManagedAgentInvocationRequest | ManagedAgentInvocationRecord,
   request?: ManagedAgentInvocationRequest,
-): Pick<CanonicalAgentInvocationStartedEvent, "profile" | "providerRoute" | "adapterKind" | "executionMode" | "authorityProfileId" | "invocationContext"> {
+  capabilitySnapshot?: ManagedAgentCapabilitySnapshot,
+): Pick<CanonicalAgentInvocationStartedEvent, "profile" | "providerRoute" | "adapterKind" | "executionMode" | "authorityProfileId" | "capabilitySnapshot" | "invocationContext"> {
   const invocationContext = "input" in source
     ? source.input.context
     : request?.input.context;
+  const snapshot = "capabilitySnapshot" in source
+    ? source.capabilitySnapshot
+    : capabilitySnapshot;
   return {
     profile: source.profile,
     providerRoute: source.providerRoute,
     adapterKind: source.adapterKind,
     executionMode: source.executionMode,
     authorityProfileId: source.authority.authorityProfileId,
+    ...(snapshot ? { capabilitySnapshot: snapshot } : {}),
     ...(invocationContext ? { invocationContext } : {}),
   };
+}
+
+function admittedCapabilitySnapshot(
+  decision: ManagedAgentAdmissionDecision,
+): ManagedAgentCapabilitySnapshot | undefined {
+  return decision.status === "admitted" ? decision.capabilitySnapshot : undefined;
 }
 
 function collectEvidence(record: ManagedAgentInvocationRecord): SessionAgentInvocationEvidence | undefined {

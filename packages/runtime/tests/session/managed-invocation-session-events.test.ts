@@ -5,6 +5,8 @@ import type {
   ManagedAgentInvocationRequest,
 } from "@kilnai/core";
 import {
+  buildManagedAgentCapabilitySnapshot,
+  defineManagedAgentAdapterDescriptor,
   defineManagedAgentInvocationRecord,
   defineManagedAgentInvocationRequest,
   defineManagedAgentWriteAuthority,
@@ -94,6 +96,50 @@ function makeWriteScope() {
   });
 }
 
+function makeDescriptor() {
+  return defineManagedAgentAdapterDescriptor({
+    adapterDescriptorId: "adapter:opencode:harness",
+    providerId: "opencode",
+    adapterKind: "harness",
+    supportedProfiles: ["foundation-readonly-plan", "foundation-propose-writes"],
+    supportedExecutionModes: ["cli-harness"],
+    lifecycle: {
+      exposesStart: true,
+      exposesTerminal: true,
+      exposesCleanup: true,
+    },
+    cancellation: { supported: true },
+    timeout: { supported: true, diagnosticArtifactOnTimeout: true },
+    transcript: {
+      supported: true,
+      redactionKnown: true,
+      truncationKnown: true,
+      persistenceKnown: true,
+      retentionKnown: true,
+    },
+    usage: {
+      supported: true,
+      preservesProviderTokenClasses: true,
+      supportsExplicitUnknowns: true,
+    },
+    resultHandoff: {
+      boundedSummary: true,
+      resourcePointers: true,
+    },
+    credentialRoute: { supported: true },
+    memoryContext: { governedAdmission: true },
+    unsupportedFieldPolicy: "reject",
+    cleanup: { supported: true },
+  });
+}
+
+function makeCapabilitySnapshot(request: ManagedAgentInvocationRequest) {
+  return buildManagedAgentCapabilitySnapshot(request, makeDescriptor(), {
+    capturedAt: "2026-05-07T08:00:00.000Z",
+    routeId: `${request.providerRoute.providerId}-readonly`,
+  });
+}
+
 function makeWriteRequest(sessionId = "session-parent", turnId = `${sessionId}:turn:1`): ManagedAgentInvocationRequest {
   return defineManagedAgentInvocationRequest({
     invocationId: "invocation-write-1",
@@ -147,6 +193,7 @@ function makeWriteRequest(sessionId = "session-parent", turnId = `${sessionId}:t
 }
 
 function makeDecision(status: "admitted" | "denied"): ManagedAgentAdmissionDecision {
+  const request = makeRequest();
   if (status === "denied") {
     return {
       status: "denied",
@@ -163,7 +210,8 @@ function makeDecision(status: "admitted" | "denied"): ManagedAgentAdmissionDecis
     adapterDescriptorId: "adapter:opencode:harness",
     authorityProfileId: "foundation-readonly",
     credentialRouteId: "credential-route:opencode:primary",
-    memoryScope: { kind: "project", id: "kiln" },
+    memoryScope: request.authority.memoryScope.scope,
+    capabilitySnapshot: makeCapabilitySnapshot(request),
   };
 }
 
@@ -186,6 +234,7 @@ function makeWriteDecision(status: "admitted" | "denied", request = makeWriteReq
     credentialRouteId: "credential-route:opencode:primary",
     memoryScope: request.authority.memoryScope.scope,
     writeAuthority: request.authority.writeAuthority,
+    capabilitySnapshot: makeCapabilitySnapshot(request),
   };
 }
 
@@ -202,6 +251,7 @@ function makeRecord(lifecycleState: ManagedAgentInvocationRecord["lifecycleState
     adapterKind: request.adapterKind,
     executionMode: request.executionMode,
     authority: request.authority,
+    capabilitySnapshot: makeCapabilitySnapshot(request),
     childSessionId: "child-session-1",
     childTurnId: "child-session-1:turn:3",
     transcript: {
@@ -244,6 +294,7 @@ function makeWriteRecord(request = makeWriteRequest()): ManagedAgentInvocationRe
     adapterKind: request.adapterKind,
     executionMode: request.executionMode,
     authority: request.authority,
+    capabilitySnapshot: makeCapabilitySnapshot(request),
     childSessionId: "child-session-write-1",
     transcript: {
       uri: "kiln://artifacts/invocation-write-1/transcript",

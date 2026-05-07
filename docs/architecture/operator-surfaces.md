@@ -73,9 +73,16 @@ Required operator evidence includes:
 - errors, retries, fallbacks, and continuity decisions
 - session replay data with stable IDs
 - execution-mode transitions and planning submissions
+- managed child invocation capability snapshots: admitted route id and health,
+  provider/model proof, adapter/execution mode, authority profile,
+  resource-plane availability, and child identity
 
 Raw payloads are audit evidence. Normal operator surfaces must prefer shared
 presentation projections and reserve raw objects for inspector/debug views.
+For managed child invocations, normal surfaces render selected
+`ManagedAgentCapabilitySnapshot` fields as detail rows and keep the full
+snapshot for inspector/replay. They must not infer current provider health or
+model capability from live config when explaining a completed child run.
 
 Rich result display uses the shared presentation-intent contract. Agents and
 tools may propose a semantic intent such as a comparison table, risk matrix,

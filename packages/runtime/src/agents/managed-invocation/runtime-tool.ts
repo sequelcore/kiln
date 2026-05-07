@@ -435,7 +435,33 @@ async function executeManagedInvocationTool(
   });
 
   const startedAt = Date.now();
-  const invocationResult = await service.invoke(request, route.adapter);
+  const invocationResult = await service.invoke(request, route.adapter, {
+    routeId: route.routeId,
+    routeHealth: {
+      status: "healthy",
+      reason: "Configured managed invocation route selected by runtime tool.",
+    },
+    providerModelProof: {
+      status: "live-proven",
+      source: "managed-invocation-route-health",
+      requiresToolCalls: route.adapter.descriptor.adapterKind === "direct",
+    },
+    resourcePlane: {
+      available: true,
+      resourceUris: parsed.input.resourceUris ?? [],
+      reason: parsed.input.resourceUris && parsed.input.resourceUris.length > 0
+        ? "Governed resource URIs admitted by runtime context selection."
+        : "No governed resources requested.",
+    },
+    childIdentity: {
+      agentId: `${route.routeId}:${parsed.input.profile}`,
+      ...(parsed.input.agentProfile ? { requestedAgentProfile: parsed.input.agentProfile } : {}),
+      ...(contextResolution.resolution.admittedAgentProfile ? { admittedAgentProfile: contextResolution.resolution.admittedAgentProfile } : {}),
+      ...(managedAgentDisplayName(options, contextResolution.resolution.admittedAgentProfile ?? parsed.input.agentProfile)
+        ? { displayName: managedAgentDisplayName(options, contextResolution.resolution.admittedAgentProfile ?? parsed.input.agentProfile) }
+        : {}),
+    },
+  });
   const durationMs = Date.now() - startedAt;
   const result = invocationResult.status === "completed"
     ? {
@@ -499,6 +525,7 @@ async function executeManagedInvocationTool(
       adapterKind: result.record.adapterKind,
       executionMode: result.record.executionMode,
       authorityProfileId: result.record.authority.authorityProfileId,
+      capabilitySnapshot: result.record.capabilitySnapshot,
       context: request.input.context,
       childSessionId: result.record.childSessionId,
       childTurnId: result.record.childTurnId,
@@ -652,6 +679,21 @@ function managedInvocationAgentProfileNames(options: ManagedInvocationToolOption
 
 function managedInvocationSkillNames(options: ManagedInvocationToolOptions): readonly string[] {
   return unique((options.agentCatalog ?? []).flatMap((agent) => agent.skills ?? []));
+}
+
+function managedAgentDisplayName(
+  options: ManagedInvocationToolOptions,
+  profile: string | undefined,
+): string | undefined {
+  if (!profile) {
+    return undefined;
+  }
+  const entry = (options.agentCatalog ?? []).find((agent) =>
+    agent.name === profile
+    || agent.displayName === profile
+    || (agent.nicknameCandidates ?? []).includes(profile)
+  );
+  return entry?.displayName ?? entry?.name;
 }
 
 function unique(values: readonly string[]): string[] {

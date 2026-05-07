@@ -236,6 +236,7 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
       adapterKind: "harness",
       executionMode: "cli-harness",
       authority: request.authority,
+      capabilitySnapshot: input.admission.capabilitySnapshot,
       childSessionId,
     };
   }

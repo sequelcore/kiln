@@ -3,10 +3,12 @@ import {
   defineManagedAgentInvocationRequest,
   defineManagedAgentAdapterDescriptor,
   defineManagedAgentInvocationRecord,
+  buildManagedAgentCapabilitySnapshot,
 } from "../../src/agents/managed-invocation/index.js";
 import type {
   ManagedAgentInvocationRequest,
   ManagedAgentInvocationRecord,
+  ManagedAgentAdapterDescriptor,
   ManagedAgentUsageReport,
 } from "../../src/agents/managed-invocation/index.js";
 
@@ -55,6 +57,43 @@ function makeRequest(): ManagedAgentInvocationRequest {
   };
 }
 
+function makeDescriptor(): ManagedAgentAdapterDescriptor {
+  return defineManagedAgentAdapterDescriptor({
+    adapterDescriptorId: "adapter:codex-oauth:cli",
+    providerId: "codex-oauth",
+    adapterKind: "harness",
+    supportedProfiles: ["foundation-readonly-plan"],
+    supportedExecutionModes: ["cli-harness"],
+    lifecycle: {
+      exposesStart: true,
+      exposesTerminal: true,
+      exposesCleanup: true,
+    },
+    cancellation: { supported: true },
+    timeout: { supported: true, diagnosticArtifactOnTimeout: true },
+    transcript: {
+      supported: true,
+      redactionKnown: true,
+      truncationKnown: true,
+      persistenceKnown: true,
+      retentionKnown: true,
+    },
+    usage: {
+      supported: true,
+      preservesProviderTokenClasses: true,
+      supportsExplicitUnknowns: true,
+    },
+    resultHandoff: {
+      boundedSummary: true,
+      resourcePointers: true,
+    },
+    credentialRoute: { supported: true },
+    memoryContext: { governedAdmission: true },
+    unsupportedFieldPolicy: "reject",
+    cleanup: { supported: true },
+  });
+}
+
 describe("managed agent invocation contracts", () => {
   it("defines the foundation request with explicit route, authority, credential, memory, timeout, and lineage", () => {
     const request = defineManagedAgentInvocationRequest(makeRequest());
@@ -98,40 +137,7 @@ describe("managed agent invocation contracts", () => {
   });
 
   it("defines adapter descriptors without provider-native vocabulary leaking into the core contract", () => {
-    const descriptor = defineManagedAgentAdapterDescriptor({
-      adapterDescriptorId: "adapter:codex-oauth:cli",
-      providerId: "codex-oauth",
-      adapterKind: "harness",
-      supportedProfiles: ["foundation-readonly-plan"],
-      supportedExecutionModes: ["cli-harness"],
-      lifecycle: {
-        exposesStart: true,
-        exposesTerminal: true,
-        exposesCleanup: true,
-      },
-      cancellation: { supported: true },
-      timeout: { supported: true, diagnosticArtifactOnTimeout: true },
-      transcript: {
-        supported: true,
-        redactionKnown: true,
-        truncationKnown: true,
-        persistenceKnown: true,
-        retentionKnown: true,
-      },
-      usage: {
-        supported: true,
-        preservesProviderTokenClasses: true,
-        supportsExplicitUnknowns: true,
-      },
-      resultHandoff: {
-        boundedSummary: true,
-        resourcePointers: true,
-      },
-      credentialRoute: { supported: true },
-      memoryContext: { governedAdmission: true },
-      unsupportedFieldPolicy: "reject",
-      cleanup: { supported: true },
-    });
+    const descriptor = makeDescriptor();
 
     expect(descriptor.adapterKind).toBe("harness");
     expect(descriptor.supportedProfiles).toEqual(["foundation-readonly-plan"]);
@@ -160,6 +166,10 @@ describe("managed agent invocation contracts", () => {
       adapterKind: "harness",
       executionMode: "cli-harness",
       authority: makeRequest().authority,
+      capabilitySnapshot: buildManagedAgentCapabilitySnapshot(makeRequest(), makeDescriptor(), {
+        capturedAt: "2026-05-07T08:00:00.000Z",
+        routeId: "codex-oauth-readonly",
+      }),
       childSessionId: "child-session-1",
       transcript: {
         uri: "kiln://artifacts/invocation-1/transcript",
@@ -181,6 +191,7 @@ describe("managed agent invocation contracts", () => {
     });
 
     expect(record.lifecycleState).toBe("completed");
+    expect(record.capabilitySnapshot.routeId).toBe("codex-oauth-readonly");
     expect(record.transcript?.redacted).toBe(true);
     expect(record.usage?.tokenClasses[2]).toEqual({ name: "cached_tokens", value: "unknown" });
     expect(record.resultHandoff?.summary).toBe("No file writes were needed.");

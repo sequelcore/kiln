@@ -178,6 +178,59 @@ export interface ManagedAgentAdapterDescriptor {
   };
 }
 
+export type ManagedAgentRouteHealthStatus = "healthy";
+
+export interface ManagedAgentRouteHealthSnapshot {
+  readonly status: ManagedAgentRouteHealthStatus;
+  readonly reason: string;
+}
+
+export type ManagedAgentProviderModelProofStatus = "live-proven" | "configured" | "unproven";
+
+export interface ManagedAgentProviderModelProofSnapshot {
+  readonly status: ManagedAgentProviderModelProofStatus;
+  readonly source: string;
+  readonly requiresToolCalls?: boolean;
+}
+
+export interface ManagedAgentResourcePlaneSnapshot {
+  readonly available: boolean;
+  readonly resourceUris: readonly string[];
+  readonly reason?: string;
+}
+
+export interface ManagedAgentChildIdentitySnapshot {
+  readonly agentId: string;
+  readonly requestedAgentProfile?: string;
+  readonly admittedAgentProfile?: string;
+  readonly displayName?: string;
+}
+
+export interface ManagedAgentCapabilitySnapshot {
+  readonly snapshotId: string;
+  readonly capturedAt: string;
+  readonly routeId: string;
+  readonly routeHealth: ManagedAgentRouteHealthSnapshot;
+  readonly providerModelProof: ManagedAgentProviderModelProofSnapshot;
+  readonly providerRoute: ManagedAgentProviderRoute;
+  readonly adapterKind: ManagedAgentAdapterKind;
+  readonly executionMode: ManagedAgentExecutionMode;
+  readonly adapterDescriptor: ManagedAgentAdapterDescriptor;
+  readonly authorityProfile: ManagedAgentAuthorityProfile;
+  readonly contextMode: ManagedAgentInvocationContextMode;
+  readonly resourcePlane: ManagedAgentResourcePlaneSnapshot;
+  readonly childIdentity: ManagedAgentChildIdentitySnapshot;
+}
+
+export interface ManagedAgentCapabilitySnapshotInput {
+  readonly capturedAt?: string;
+  readonly routeId?: string;
+  readonly routeHealth?: ManagedAgentRouteHealthSnapshot;
+  readonly providerModelProof?: ManagedAgentProviderModelProofSnapshot;
+  readonly resourcePlane?: ManagedAgentResourcePlaneSnapshot;
+  readonly childIdentity?: ManagedAgentChildIdentitySnapshot;
+}
+
 export interface ManagedAgentTranscriptPointer {
   readonly uri: string;
   readonly redacted: boolean | "unknown";
@@ -222,6 +275,7 @@ export interface ManagedAgentInvocationRecord {
   readonly adapterKind: ManagedAgentAdapterKind;
   readonly executionMode: ManagedAgentExecutionMode;
   readonly authority: ManagedAgentAuthorityProfile;
+  readonly capabilitySnapshot: ManagedAgentCapabilitySnapshot;
   readonly childSessionId?: string;
   readonly childTurnId?: string;
   readonly transcript?: ManagedAgentTranscriptPointer;
@@ -241,6 +295,7 @@ export type ManagedAgentAdmissionDecision =
     readonly credentialRouteId?: string;
     readonly memoryScope: MemoryScope;
     readonly writeAuthority?: ManagedAgentWriteAuthority;
+    readonly capabilitySnapshot: ManagedAgentCapabilitySnapshot;
   }
   | {
     readonly status: "denied";
@@ -314,6 +369,50 @@ export function defineManagedAgentAdapterDescriptor(input: ManagedAgentAdapterDe
   };
 }
 
+export function defineManagedAgentCapabilitySnapshot(input: ManagedAgentCapabilitySnapshot): ManagedAgentCapabilitySnapshot {
+  return {
+    snapshotId: requireText(input.snapshotId, "Managed capability snapshot id is required"),
+    capturedAt: requireIsoTimestamp(input.capturedAt, "Managed capability snapshot timestamp is required"),
+    routeId: requireText(input.routeId, "Managed capability snapshot route id is required"),
+    routeHealth: {
+      status: requireRouteHealthStatus(input.routeHealth.status),
+      reason: requireText(input.routeHealth.reason, "Managed capability snapshot route health reason is required"),
+    },
+    providerModelProof: {
+      status: requireProviderModelProofStatus(input.providerModelProof.status),
+      source: requireText(input.providerModelProof.source, "Managed capability snapshot provider proof source is required"),
+      ...(input.providerModelProof.requiresToolCalls !== undefined
+        ? { requiresToolCalls: input.providerModelProof.requiresToolCalls === true }
+        : {}),
+    },
+    providerRoute: requireProviderRoute(input.providerRoute),
+    adapterKind: requireAdapterKind(input.adapterKind),
+    executionMode: requireExecutionMode(input.executionMode),
+    adapterDescriptor: defineManagedAgentAdapterDescriptor(input.adapterDescriptor),
+    authorityProfile: requireAuthority(input.authorityProfile),
+    contextMode: requireContextMode(input.contextMode),
+    resourcePlane: {
+      available: input.resourcePlane.available === true,
+      resourceUris: input.resourcePlane.resourceUris.map((uri) => requireText(uri, "Managed capability snapshot resource uri is required")),
+      ...(input.resourcePlane.reason !== undefined
+        ? { reason: requireText(input.resourcePlane.reason, "Managed capability snapshot resource reason is required") }
+        : {}),
+    },
+    childIdentity: {
+      agentId: requireText(input.childIdentity.agentId, "Managed capability snapshot child agent id is required"),
+      ...(input.childIdentity.requestedAgentProfile !== undefined
+        ? { requestedAgentProfile: requireText(input.childIdentity.requestedAgentProfile, "Managed capability snapshot requested agent profile is required") }
+        : {}),
+      ...(input.childIdentity.admittedAgentProfile !== undefined
+        ? { admittedAgentProfile: requireText(input.childIdentity.admittedAgentProfile, "Managed capability snapshot admitted agent profile is required") }
+        : {}),
+      ...(input.childIdentity.displayName !== undefined
+        ? { displayName: requireText(input.childIdentity.displayName, "Managed capability snapshot display name is required") }
+        : {}),
+    },
+  };
+}
+
 export function defineManagedAgentInvocationRecord(input: ManagedAgentInvocationRecord): ManagedAgentInvocationRecord {
   return {
     invocationId: requireText(input.invocationId, "Managed invocation record id is required"),
@@ -326,6 +425,7 @@ export function defineManagedAgentInvocationRecord(input: ManagedAgentInvocation
     adapterKind: requireAdapterKind(input.adapterKind),
     executionMode: requireExecutionMode(input.executionMode),
     authority: requireAuthority(input.authority),
+    capabilitySnapshot: defineManagedAgentCapabilitySnapshot(input.capabilitySnapshot),
     ...(input.childSessionId !== undefined ? { childSessionId: requireText(input.childSessionId, "Managed invocation child session id is required") } : {}),
     ...(input.childTurnId !== undefined ? { childTurnId: requireText(input.childTurnId, "Managed invocation child turn id is required") } : {}),
     ...(input.transcript !== undefined ? { transcript: requireTranscript(input.transcript) } : {}),
@@ -339,6 +439,7 @@ export function defineManagedAgentInvocationRecord(input: ManagedAgentInvocation
 export function evaluateManagedAgentAdmission(
   request: ManagedAgentInvocationRequest,
   descriptor: ManagedAgentAdapterDescriptor,
+  snapshotInput: ManagedAgentCapabilitySnapshotInput = {},
 ): ManagedAgentAdmissionDecision {
   const missingCapabilities: string[] = [];
   collectRequestGaps(request, missingCapabilities);
@@ -388,7 +489,43 @@ export function evaluateManagedAgentAdmission(
       : {}),
     memoryScope: request.authority.memoryScope.scope,
     ...(request.authority.writeAuthority !== undefined ? { writeAuthority: request.authority.writeAuthority } : {}),
+    capabilitySnapshot: buildManagedAgentCapabilitySnapshot(request, descriptor, snapshotInput),
   };
+}
+
+export function buildManagedAgentCapabilitySnapshot(
+  request: ManagedAgentInvocationRequest,
+  descriptor: ManagedAgentAdapterDescriptor,
+  input: ManagedAgentCapabilitySnapshotInput = {},
+): ManagedAgentCapabilitySnapshot {
+  return defineManagedAgentCapabilitySnapshot({
+    snapshotId: `${request.invocationId}:capability-snapshot`,
+    capturedAt: input.capturedAt ?? new Date().toISOString(),
+    routeId: input.routeId ?? `${request.providerRoute.providerId}:${request.profile}`,
+    routeHealth: input.routeHealth ?? {
+      status: "healthy",
+      reason: "Route descriptor admitted by managed invocation policy.",
+    },
+    providerModelProof: input.providerModelProof ?? {
+      status: "configured",
+      source: "managed-invocation-admission",
+    },
+    providerRoute: request.providerRoute,
+    adapterKind: request.adapterKind,
+    executionMode: request.executionMode,
+    adapterDescriptor: descriptor,
+    authorityProfile: request.authority,
+    contextMode: request.input.context?.mode ?? "isolated",
+    resourcePlane: input.resourcePlane ?? {
+      available: true,
+      resourceUris: request.input.resourceUris ?? [],
+    },
+    childIdentity: input.childIdentity ?? {
+      agentId: request.agentId,
+      ...(request.input.context?.agentProfile ? { requestedAgentProfile: request.input.context.agentProfile } : {}),
+      ...(request.input.context?.admittedAgentProfile ? { admittedAgentProfile: request.input.context.admittedAgentProfile } : {}),
+    },
+  });
 }
 
 function collectRequestGaps(request: ManagedAgentInvocationRequest, missingCapabilities: string[]): void {
@@ -656,6 +793,20 @@ function requireUnsupportedFieldPolicy(value: ManagedAgentUnsupportedFieldPolicy
   return value;
 }
 
+function requireRouteHealthStatus(value: ManagedAgentRouteHealthStatus): ManagedAgentRouteHealthStatus {
+  if (value !== "healthy") {
+    throw new Error(`Unsupported managed invocation route health status: ${value as string}`);
+  }
+  return value;
+}
+
+function requireProviderModelProofStatus(value: ManagedAgentProviderModelProofStatus): ManagedAgentProviderModelProofStatus {
+  if (value !== "live-proven" && value !== "configured" && value !== "unproven") {
+    throw new Error(`Unsupported managed invocation provider proof status: ${value as string}`);
+  }
+  return value;
+}
+
 function requireLifecycleState(value: ManagedAgentLifecycleState): ManagedAgentLifecycleState {
   const states: readonly ManagedAgentLifecycleState[] = [
     "requested",
@@ -672,6 +823,14 @@ function requireLifecycleState(value: ManagedAgentLifecycleState): ManagedAgentL
     throw new Error(`Unsupported managed invocation lifecycle state: ${value as string}`);
   }
   return value;
+}
+
+function requireIsoTimestamp(value: string | undefined, message: string): string {
+  const text = requireText(value, message);
+  if (Number.isNaN(Date.parse(text))) {
+    throw new Error(message);
+  }
+  return text;
 }
 
 function requirePositiveNumber(value: number, message: string): number {

@@ -61,11 +61,42 @@ The core contract is defined in `@kilnai/core`:
   Declares what an adapter can enforce: lifecycle, cancellation, timeout,
   transcript persistence, usage reporting, credential routing, memory context,
   cleanup, unsupported-field policy, and write authority.
+- `ManagedAgentCapabilitySnapshot`
+  Captures the immutable admission-time capability view: route id and health,
+  provider/model proof, effective provider route, adapter kind, execution mode,
+  adapter descriptor, authority profile, context mode, resource-plane
+  availability, and projected child identity.
 
 Runtime execution is owned by `RuntimeManagedAgentInvocationService`. Adapters
 must not be treated as authoritative when called outside the service. The service
-re-evaluates admission immediately before execution, checks the adapter
-descriptor, and validates the returned record against the admitted request.
+re-evaluates admission immediately before execution using the admitted
+capability snapshot, checks the adapter descriptor, and validates the returned
+record against the admitted request and snapshot.
+
+## Capability Snapshots
+
+Admission produces one immutable `ManagedAgentCapabilitySnapshot` for every
+admitted invocation. The snapshot is part of the admitted decision, terminal
+invocation record, canonical session events, and managed tool metadata. Later
+provider health checks, model catalog changes, projection changes, or route
+configuration edits must not rewrite what the invocation was admitted to use.
+
+The snapshot is intentionally normalized rather than provider-native. It records:
+
+- route id and admitted route-health reason
+- provider/model proof status and source
+- effective provider route, adapter kind, and execution mode
+- full adapter descriptor used for admission
+- authority profile and context mode
+- resource-plane availability and admitted resource URIs
+- projected child identity, including requested/admitted agent profile and
+  display name when available
+
+Adapters must return records with the exact snapshot admitted by the runtime.
+`RuntimeManagedAgentInvocationService` rejects terminal records that omit,
+broaden, or replace the snapshot. Operator surfaces render selected snapshot
+fields as human-readable details and keep the full object available for replay
+and audit.
 
 ## Authority Profiles
 

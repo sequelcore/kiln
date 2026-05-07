@@ -84,12 +84,15 @@ surface-specific behavior, or provider compatibility glue.
 
 ## First Implementation Slices
 
-1. Add immutable managed-invocation capability snapshots at admission time:
-   route health, provider/model proof, adapter descriptor, authority profile,
-   context mode, resource-plane availability, and projected child identity.
-2. Use those snapshots for invocation records, replay, resource reads, GUI
-   Activity, CLI/TUI output, and SDK/widget contracts instead of recomputing
-   live mutable capability state.
+1. Completed 2026-05-07: add immutable managed-invocation capability snapshots
+   at admission time. Snapshots capture route health, provider/model proof,
+   adapter descriptor, authority profile, context mode, resource-plane
+   availability, and projected child identity. Runtime records, session events,
+   managed tool metadata, and operator presentation details now carry the
+   admitted snapshot.
+2. Continue snapshot consumption for replay/resource-read flows and SDK/widget
+   contracts so every non-GUI consumer uses the admitted snapshot instead of
+   recomputing live mutable capability state.
 3. Add evaluated first-party defaults for agent/team selection after live
    harnesses compare configured agents against fixed rubrics for quality,
    evidence use, permission compliance, cost, duration, and actionable output.

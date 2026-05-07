@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UpgradeWebSocket } from "hono/ws";
 import { execSync } from "node:child_process";
 import {
+  buildManagedAgentCapabilitySnapshot,
   defineManagedAgentAdapterDescriptor,
   defineManagedAgentInvocationRecord,
   textParts,
@@ -141,7 +142,10 @@ function makeManagedInvocationOptions(): ManagedInvocationToolOptions {
       unsupportedFieldPolicy: "reject",
       cleanup: { supported: true },
     }),
-    invoke: vi.fn(async ({ request }: { readonly request: ManagedAgentInvocationRequest }) =>
+    invoke: vi.fn(async ({ request, admission }: {
+      readonly request: ManagedAgentInvocationRequest;
+      readonly admission: { readonly capabilitySnapshot: ReturnType<typeof buildManagedAgentCapabilitySnapshot> };
+    }) =>
       defineManagedAgentInvocationRecord({
         invocationId: request.invocationId,
         agentId: request.agentId,
@@ -153,6 +157,7 @@ function makeManagedInvocationOptions(): ManagedInvocationToolOptions {
         adapterKind: request.adapterKind,
         executionMode: request.executionMode,
         authority: request.authority,
+        capabilitySnapshot: admission.capabilitySnapshot,
         childSessionId: `${request.parentSessionId}:managed:${request.invocationId}`,
         childTurnId: `${request.parentSessionId}:managed:${request.invocationId}:turn:1`,
         transcript: {
